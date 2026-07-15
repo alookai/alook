@@ -54,11 +54,12 @@ describe("GET /api/community/search — server scope", () => {
       { params: {} } as any,
     )
     expect(res.status).toBe(200)
+    // Visibility no longer takes an isAdmin flag — admins get the same
+    // member-scoped visibility as everyone (no special private access).
     expect(mockListVisibleChannelIds).toHaveBeenCalledWith(
       expect.anything(),
       "s1",
       "u1",
-      { isAdmin: false },
     )
     expect(mockSearchMessagesInServer).toHaveBeenCalledWith(
       expect.anything(),
@@ -66,14 +67,14 @@ describe("GET /api/community/search — server scope", () => {
     )
   })
 
-  it("resolves isAdmin from the caller's role", async () => {
+  it("admin gets the same member-scoped visibility (no isAdmin flag)", async () => {
     mockGetMember.mockResolvedValue({ id: "m1", role: "owner" })
     await GET(
       new NextRequest("http://localhost/api/community/search?q=hello&serverId=s1"),
       { params: {} } as any,
     )
     expect(mockListVisibleChannelIds).toHaveBeenCalledWith(
-      expect.anything(), "s1", "u1", { isAdmin: true },
+      expect.anything(), "s1", "u1",
     )
   })
 })

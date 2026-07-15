@@ -17,9 +17,10 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
   if (!channelId) return writeError("missing channel id", 400)
 
   const db = getDb(ctx.env.DB)
+  // Any current member may add, so the add-picker is available to anyone who
+  // passes the access gate (creator or member; admins have no implicit access).
   const access = await requireChannelAccess(db, channelId, ctx.userId)
   if (!access.ok) return writeError(access.error, access.status)
-  if (!access.value.canManage) return writeError("forbidden", 403)
 
   const channel = access.value.channel
   const [members, channelMemberIds] = await Promise.all([

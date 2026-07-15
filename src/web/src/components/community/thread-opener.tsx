@@ -1,6 +1,6 @@
 "use client"
 
-import { MessagesSquare, FileText, Download } from "lucide-react"
+import { MessagesSquare, FileText, Download, ArrowUpRight } from "lucide-react"
 import { Avatar } from "./avatar"
 import { MessageBody } from "./message-body"
 import { attachmentAspectRatio } from "./message"
@@ -30,11 +30,15 @@ export function ThreadOpener({
   onOpenProfile,
   onPreviewImage,
   onDownloadFile,
+  onJump,
 }: {
   parentMessageId: string
   onOpenProfile?: OpenProfile
   onPreviewImage?: (url: string) => void
   onDownloadFile?: (url: string) => void
+  // Jump to the parent message in its channel. When provided, a hover-revealed
+  // "Jump" button appears in the opener's top-right.
+  onJump?: () => void
 }) {
   const { message: msg, isLoading, isError } = useMessage(parentMessageId)
 
@@ -58,11 +62,24 @@ export function ThreadOpener({
   const avatarLabel = msg.authorAvatar || avatarInitial(msg.authorName)
 
   return (
-    <div>
+    <div className="group relative">
       <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
         <MessagesSquare className="size-3.5" />
         <span>Thread started from</span>
       </div>
+
+      {onJump && (
+        <button
+          type="button"
+          onClick={onJump}
+          className="absolute right-0 top-0 flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none group-hover:opacity-100"
+          aria-label="Jump to message"
+          title="Jump to message"
+        >
+          <ArrowUpRight className="size-3.5" />
+          Jump
+        </button>
+      )}
 
       <div className="flex gap-3">
         <button

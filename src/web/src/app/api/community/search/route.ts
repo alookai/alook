@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, canManageServer, MIN_SEARCH_LENGTH, MAX_SEARCH_LENGTH } from "@alook/shared"
+import { queries, MIN_SEARCH_LENGTH, MAX_SEARCH_LENGTH } from "@alook/shared"
 import {
   requireServerMember,
   requireChannelMember,
@@ -38,7 +38,6 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       db,
       serverId,
       ctx.userId,
-      { isAdmin: canManageServer(auth.value!.role) },
     )
     const results = await queries.communitySearch.searchMessagesInServer(db, {
       query: q,

@@ -187,6 +187,27 @@ describe("GET /api/community/servers/[id]/members — cursor envelope", () => {
     expect(body.members[1]).toMatchObject({ statusEmoji: null, statusText: "" })
   })
 
+  it("owner-scoped isBot gating: own bot exposes isBot/ownerUserId; other bots pass as humans", async () => {
+    const rows = [
+      { ...buildRow(1), userId: "own_bot", userIsBot: true, userOwnerUserId: "u1" },
+      { ...buildRow(2), userId: "other_bot", userIsBot: true, userOwnerUserId: "someone_else" },
+      { ...buildRow(3), userId: "human", userIsBot: false, userOwnerUserId: null },
+    ]
+    mockListMembersPaginated.mockResolvedValue({ members: rows, hasMore: false, cursor: undefined })
+    mockCountMembers.mockResolvedValue(3)
+
+    const res = await GET(getReq(), ctx)
+    const body = await res.json() as { members: Array<{ userId: string; isBot?: boolean; ownerUserId?: string }> }
+    const own = body.members.find((m) => m.userId === "own_bot")!
+    expect(own.isBot).toBe(true)
+    expect(own.ownerUserId).toBe("u1")
+    const other = body.members.find((m) => m.userId === "other_bot")!
+    expect(other.isBot).toBeUndefined()
+    expect(other.ownerUserId).toBeUndefined()
+    const human = body.members.find((m) => m.userId === "human")!
+    expect(human.isBot).toBeUndefined()
+  })
+
   it("returns 403 for non-members (permission check ahead of the query)", async () => {
     mockGetMember.mockResolvedValue(null)
     const res = await GET(getReq(), ctx)

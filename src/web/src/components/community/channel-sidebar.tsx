@@ -16,7 +16,7 @@ import { CreateCategoryDialog } from "./create-category-dialog"
 import { CategorySettingsDialog } from "./category-settings-dialog"
 import { catId, catOf, isCat, type ChannelTree } from "./use-channel-tree"
 import { InviteDialog } from "./invite-dialog"
-import { ChannelMembersDialog } from "./channel-members-dialog"
+import { ChannelAddMembersDialog } from "./channel-add-members-dialog"
 import { ServerCrumb } from "./channel-header"
 import type { Channel, SettingsSection } from "./_types"
 import type { ChannelType } from "@alook/shared"
@@ -316,10 +316,9 @@ export const ChannelSidebar = memo(function ChannelSidebar({
         />
       )}
       {dialog?.kind === "manage-members" && serverId && (
-        <ChannelMembersDialog
+        <ChannelAddMembersDialog
           channelId={dialog.channelId}
           channelName={dialog.channelName}
-          serverId={serverId}
           onClose={() => setDialog(null)}
         />
       )}

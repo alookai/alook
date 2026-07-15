@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
 const mockGetChannelForMember = vi.fn()
+const mockResolveChannelAccessContext = vi.fn()
+const mockListChannelIdsWithMember = vi.fn(async () => [])
 const mockCreateChannel = vi.fn()
 const mockCreateMessage = vi.fn()
 const mockGetMessage = vi.fn()
@@ -25,6 +27,8 @@ vi.mock("@alook/shared", async () => {
     queries: {
       communityChannel: {
         getChannelForMember: (...a: unknown[]) => mockGetChannelForMember(...a),
+        resolveChannelAccessContext: (...a: unknown[]) => mockResolveChannelAccessContext(...a),
+        listChannelIdsWithMember: (...a: unknown[]) => mockListChannelIdsWithMember(...a),
         createChannel: (...a: unknown[]) => mockCreateChannel(...a),
         listChildChannels: (...a: unknown[]) => mockListChildChannels(...a),
         // createCommunityMessage's private-channel scoping guard is only hit
@@ -146,7 +150,13 @@ describe("POST /api/community/channels/[id]/posts — name normalization", () =>
 describe("GET /api/community/channels/[id]/posts — authorId", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockGetChannelForMember.mockResolvedValue({ id: "ch1", serverId: "s1", type: "forum", tags: [] })
+    // GET now uses requireChannelAccess. Public forum → isPrivate:false so the
+    // per-post visibility filter is skipped.
+    mockResolveChannelAccessContext.mockResolvedValue({
+      channel: { id: "ch1", serverId: "s1", type: "forum", parentChannelId: null, parentMessageId: null, creatorId: "u1", tags: [] },
+      anchor: { id: "ch1", serverId: "s1", parentChannelId: null, creatorId: "u1" },
+      role: "member", isPrivate: false, isChannelMember: false, isCreator: true,
+    })
     mockGetFirstMessageByChannelIds.mockResolvedValue([])
   })
 
@@ -177,5 +187,81 @@ describe("GET /api/community/channels/[id]/posts — authorId", () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.posts[0].authorId).toBe("")
+  })
+})
+
+describe("GET /api/community/channels/[id]/posts — private-forum post visibility", () => {
+  const posts = [
+    { id: "p_mine", name: "Mine", messageCount: 1, lastMessageAt: null, createdAt: "2026-07-01T00:00:00.000Z", creatorId: "u_other", tags: [] },
+    { id: "p_hidden", name: "Secret", messageCount: 1, lastMessageAt: null, createdAt: "2026-07-01T00:00:00.000Z", creatorId: "u_other", tags: [] },
+    { id: "p_created", name: "By me", messageCount: 1, lastMessageAt: null, createdAt: "2026-07-01T00:00:00.000Z", creatorId: "u1", tags: [] },
+  ]
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetFirstMessageByChannelIds.mockResolvedValue([])
+    mockGetUsersByIds.mockResolvedValue([])
+    mockListChildChannels.mockResolvedValue(posts)
+  })
+
+  function getReq() {
+    return new NextRequest("http://localhost/api/community/channels/ch1/posts")
+  }
+
+  it("non-manager member sees only posts they're in or created (no leak)", async () => {
+    // Forum access is derived: the viewer is a member of some post, so
+    // requireChannelAccess grants access (isChannelMember true via the
+    // post-union check inside resolveChannelAccessContext, mocked here).
+    mockResolveChannelAccessContext.mockResolvedValue({
+      channel: { id: "ch1", serverId: "s1", type: "forum", parentChannelId: null, parentMessageId: null, creatorId: "owner", tags: [] },
+      anchor: { id: "ch1", serverId: "s1", parentChannelId: null, creatorId: "owner" },
+      role: "member", isPrivate: true, isChannelMember: true, isCreator: false,
+    })
+    // viewer has a member row only on p_mine.
+    mockListChannelIdsWithMember.mockResolvedValue(["p_mine"])
+
+    const res = await GET(getReq(), ctx)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    const ids = body.posts.map((p: { id: string }) => p.id).sort()
+    expect(ids).toEqual(["p_created", "p_mine"]) // p_hidden filtered out
+  })
+
+  it("server admin WITH forum access sees every post (bypasses per-post filter)", async () => {
+    // Admin has content access (isChannelMember true, e.g. member of a post →
+    // derived forum access); the post-list filter is skipped for server admins.
+    mockResolveChannelAccessContext.mockResolvedValue({
+      channel: { id: "ch1", serverId: "s1", type: "forum", parentChannelId: null, parentMessageId: null, creatorId: "owner", tags: [] },
+      anchor: { id: "ch1", serverId: "s1", parentChannelId: null, creatorId: "owner" },
+      role: "admin", isPrivate: true, isChannelMember: true, isCreator: false,
+    })
+
+    const res = await GET(getReq(), ctx)
+    const body = await res.json()
+    expect(body.posts).toHaveLength(3)
+    expect(mockListChannelIdsWithMember).not.toHaveBeenCalled()
+  })
+
+  it("admin without forum access is forbidden (no content privilege)", async () => {
+    mockResolveChannelAccessContext.mockResolvedValue(null)
+    const res = await GET(getReq(), ctx)
+    expect(res.status).toBe(403)
+  })
+
+  it("forum creator (non-admin) is NOT special: sees only their own posts, empty if none", async () => {
+    // u1 created the forum but is a plain member; canManage may be true via
+    // being the forum creator, but the post filter keys off server-admin only.
+    mockResolveChannelAccessContext.mockResolvedValue({
+      channel: { id: "ch1", serverId: "s1", type: "forum", parentChannelId: null, parentMessageId: null, creatorId: "u1", tags: [] },
+      anchor: { id: "ch1", serverId: "s1", parentChannelId: null, creatorId: "u1" },
+      role: "member", isPrivate: true, isChannelMember: true, isCreator: true,
+    })
+    mockListChannelIdsWithMember.mockResolvedValue([]) // no post memberships
+    // none of the seeded posts were created by u1 except p_created.
+    const res = await GET(getReq(), ctx)
+    const body = await res.json()
+    const ids = body.posts.map((p: { id: string }) => p.id)
+    expect(ids).toEqual(["p_created"]) // only the post u1 created; forum-creator gets no blanket view
+    expect(mockListChannelIdsWithMember).toHaveBeenCalled()
   })
 })

@@ -217,6 +217,14 @@ export class AgentProcessManager {
   /** agentId → live runtime sessionId (learned from session_init), for resync. */
   private readonly liveSessions = new Map<string, string>();
   /**
+   * agentId → accumulated `thinking` text for the current reasoning block.
+   * Several drivers (codex, pi, copilot) stream thinking token-by-token; we
+   * buffer the deltas and flush ONE audit row at the next non-thinking event /
+   * turn boundary / exit, instead of a D1 insert+prune per token. Block-based
+   * drivers (claude, cursor) emit one full-text event → one row, unchanged.
+   */
+  private readonly thinkingBuffers = new Map<string, string>();
+  /**
    * agentId → the current spawn's per-session end-tracking flags, shared
    * between `doSpawn`'s closure (turn_end / exit) and `applyEffect` (stop /
    * terminate_stalled) — see `logSessionEnded`'s `suppressExitLog` handling.
@@ -563,6 +571,8 @@ export class AgentProcessManager {
       // termination wasn't already logged under a more specific reason (see
       // `suppressExitLog` above).
       if (state.hasEstablished && !state.suppressExitLog) this.logSessionEnded(agentId, "exit");
+      // Flush any reasoning block that never saw a following event before exit.
+      this.flushThinkingAudit(agentId);
       this.sessions.delete(agentId);
       this.liveSessions.delete(agentId);
       if (this.activeSpawnState.get(agentId) === state) this.activeSpawnState.delete(agentId);
@@ -594,6 +604,29 @@ export class AgentProcessManager {
       });
   }
 
+  /**
+   * Emit the buffered reasoning block as a single `thinking` audit row, then
+   * clear the buffer. No-op when nothing accumulated (empty deltas were never
+   * buffered). Called before any non-thinking event and on session exit so a
+   * block always flushes even if the turn ends without a following tool call.
+   */
+  private flushThinkingAudit(agentId: string): void {
+    const buffered = this.thinkingBuffers.get(agentId);
+    if (!buffered) return;
+    this.thinkingBuffers.delete(agentId);
+    if (!this.opts.onBotAuditEvent) return;
+    const { text, truncated, chars } = truncateThinking(buffered);
+    try {
+      this.opts.onBotAuditEvent(agentId, {
+        kind: "thinking",
+        payload: { text, truncated, chars },
+      }, {
+        sessionId: this.liveSessions.get(agentId) ?? null,
+        launchId: this.launchIds.get(agentId) ?? null,
+      });
+    } catch { /* observational */ }
+  }
+
   private onRuntimeEvent(agentId: string, e: unknown, runtimeId: string): void {
     const ev = e as { kind?: string; sessionId?: string; text?: string; name?: string };
     if (!ev?.kind) return;
@@ -604,29 +637,32 @@ export class AgentProcessManager {
     // event fires BEFORE the runtime has emitted its handshake, sessionId is
     // null and the row records the launch without a session id.
     if (this.opts.onBotAuditEvent) {
-      const context = {
-        sessionId: this.liveSessions.get(agentId) ?? null,
-        launchId: this.launchIds.get(agentId) ?? null,
-      };
       if (ev.kind === "thinking" && typeof ev.text === "string") {
-        const { text, truncated, chars } = truncateThinking(ev.text);
-        try {
-          this.opts.onBotAuditEvent(agentId, {
-            kind: "thinking",
-            payload: { text, truncated, chars },
-          }, context);
-        } catch { /* observational */ }
-      } else if (ev.kind === "tool_call" && typeof ev.name === "string") {
-        // Bash suppression — the credential proxy emits the authoritative
-        // `cli_invocation` when the agent invokes `alook` from a shell, and
-        // raw non-`alook` Bash isn't user-visible in the audit spec.
-        if (ev.name !== "Bash") {
-          try {
-            this.opts.onBotAuditEvent(agentId, {
-              kind: "tool_call",
-              payload: { name: ev.name },
-            }, context);
-          } catch { /* observational */ }
+        // Accumulate; a delta-streaming driver emits many of these per block.
+        // The flush happens at the next non-thinking event / turn / exit so one
+        // reasoning block becomes one audit row, not one row per token.
+        if (ev.text.length > 0) {
+          this.thinkingBuffers.set(agentId, (this.thinkingBuffers.get(agentId) ?? "") + ev.text);
+        }
+      } else {
+        // Any non-thinking event ends the current reasoning block — flush it
+        // first so the audit log preserves thinking→action ordering.
+        this.flushThinkingAudit(agentId);
+        if (ev.kind === "tool_call" && typeof ev.name === "string") {
+          // Bash suppression — the credential proxy emits the authoritative
+          // `cli_invocation` when the agent invokes `alook` from a shell, and
+          // raw non-`alook` Bash isn't user-visible in the audit spec.
+          if (ev.name !== "Bash") {
+            try {
+              this.opts.onBotAuditEvent(agentId, {
+                kind: "tool_call",
+                payload: { name: ev.name },
+              }, {
+                sessionId: this.liveSessions.get(agentId) ?? null,
+                launchId: this.launchIds.get(agentId) ?? null,
+              });
+            } catch { /* observational */ }
+          }
         }
       }
     }

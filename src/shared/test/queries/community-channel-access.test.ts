@@ -52,9 +52,13 @@ function makeSeqDb(queue: any[][]) {
 }
 
 describe("canSeePrivateChannel — shared rule", () => {
-  it("admin/owner sees it regardless of membership", () => {
-    expect(canSeePrivateChannel({ role: "admin", isCreator: false, isChannelMember: false })).toBe(true)
-    expect(canSeePrivateChannel({ role: "owner", isCreator: false, isChannelMember: false })).toBe(true)
+  it("admin/owner does NOT see it without membership (no content privilege)", () => {
+    expect(canSeePrivateChannel({ role: "admin", isCreator: false, isChannelMember: false })).toBe(false)
+    expect(canSeePrivateChannel({ role: "owner", isCreator: false, isChannelMember: false })).toBe(false)
+  })
+  it("admin who is also a member/creator sees it (via those, not role)", () => {
+    expect(canSeePrivateChannel({ role: "admin", isCreator: false, isChannelMember: true })).toBe(true)
+    expect(canSeePrivateChannel({ role: "admin", isCreator: true, isChannelMember: false })).toBe(true)
   })
   it("creator sees it", () => {
     expect(canSeePrivateChannel({ role: "member", isCreator: true, isChannelMember: false })).toBe(true)
@@ -91,10 +95,20 @@ describe("getChannelForMember — private visibility", () => {
     expect(await channelQueries.getChannelForMember(db, "c1", "u1")).toBeNull();
   });
 
-  it("private channel + admin → returns the channel without a member row", async () => {
+  it("private channel + admin, NOT a member/creator → null (no content privilege)", async () => {
     const db = makeSeqDb([
       [{ ...channelRow({ categoryId: "cat1" }), memberRole: "admin" }],
       [{ creatorId: "creator", categoryPrivate: 1 }],
+      [], // isChannelMember → no row; admin role no longer short-circuits
+    ]);
+    expect(await channelQueries.getChannelForMember(db, "c1", "u1")).toBeNull();
+  });
+
+  it("private channel + admin who IS an added member → returns the channel", async () => {
+    const db = makeSeqDb([
+      [{ ...channelRow({ categoryId: "cat1" }), memberRole: "admin" }],
+      [{ creatorId: "creator", categoryPrivate: 1 }],
+      [{ id: "cm1" }], // isChannelMember → row present
     ]);
     const res = await channelQueries.getChannelForMember(db, "c1", "u1");
     expect(res?.id).toBe("c1");

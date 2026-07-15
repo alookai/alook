@@ -65,6 +65,9 @@ vi.mock("@alook/shared", async () => {
       communityMention: {
         createMentions: (...a: unknown[]) => mockCreateMentions(...a),
       },
+      communityThread: {
+        addThreadParticipants: vi.fn(async () => undefined),
+      },
       communityAttachment: {
         createAttachment: (...a: unknown[]) => mockCreateAttachment(...a),
         listByMessageIds: (...a: unknown[]) => mockListByMessageIds(...a),

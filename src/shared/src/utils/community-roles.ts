@@ -24,16 +24,23 @@ export function isServerOwner(role?: string | null): boolean {
  * The single private-channel visibility rule, shared by both access predicates
  * (`getChannelForMember` — read/post path — and `requireChannelAccess` /
  * `resolveChannelAccessContext` — manage path) plus `canBotReadWakeScope`, so
- * the rule can never drift between them. A server admin/owner, the anchor's
- * creator, or an explicit channel member may see a private channel. Callers
- * only invoke this once they know the anchor is private. Pure.
+ * the rule can never drift between them. Only the unit's creator or an explicit
+ * member may see a private channel/post. Callers only invoke this once they
+ * know the anchor is private. Pure.
+ *
+ * NOTE: a server admin/owner has NO special CONTENT access to private units —
+ * they see/read/post a private channel only if they created it or were added,
+ * exactly like a normal member. Admins manage servers via admin-gated routes
+ * (and the future Browse Channels settings surface), not by implicitly seeing
+ * every private conversation. `role` is retained in the signature for callers
+ * that still pass it, but it no longer grants visibility.
  */
 export function canSeePrivateChannel(input: {
-  role: string | null | undefined
+  role?: string | null | undefined
   isCreator: boolean
   isChannelMember: boolean
 }): boolean {
-  return canManageServer(input.role) || input.isCreator || input.isChannelMember
+  return input.isCreator || input.isChannelMember
 }
 
 export function isAssignableRole(role: unknown): role is AssignableRole {

@@ -162,6 +162,14 @@ type MessagesOpts = {
    * newest-mode. A string = fetch `?anchor=<id>` on the first page.
    */
   lastReadMessageId?: string | null
+  /**
+   * Explicit jump target (e.g. a cross-channel "jump to message"). Takes
+   * precedence over `lastReadMessageId` so the channel opens centered on the
+   * requested message rather than the viewer's unread marker. When set, it
+   * also satisfies the enable-gate on its own — a jump firing before the
+   * read snapshot resolves must NOT leave the query disabled.
+   */
+  anchorMessageId?: string | null
 }
 
 // Shared pagination + reducer used by both channel and DM hooks. Kept inline
@@ -177,9 +185,13 @@ function useMessagesInner(
 
   // `undefined` = anchor snapshot is still resolving; gate the query on it
   // being a resolved value (string OR null). Owners without a snapshot
-  // (currently DM) pass `null` explicitly.
-  const anchorResolved = opts?.lastReadMessageId !== undefined
-  const anchorId = opts?.lastReadMessageId ?? null
+  // (currently DM) pass `null` explicitly. An explicit `anchorMessageId`
+  // (jump target) satisfies the gate on its own — a jump must not wait on the
+  // read snapshot.
+  const anchorResolved =
+    opts?.anchorMessageId != null || opts?.lastReadMessageId !== undefined
+  // Jump target wins over the read pointer for the initial anchor window.
+  const anchorId = opts?.anchorMessageId ?? opts?.lastReadMessageId ?? null
   const enabled = !!scopeId && anchorResolved
 
   // Force-newest override — flipped by `jumpToPresent`. Held in state so

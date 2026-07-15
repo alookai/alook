@@ -106,13 +106,15 @@ function accessCtx(over: Partial<{
     creatorId = "u1"
     ctxIsPrivate = true
   }
-  const channel = { id: "c1", serverId: "s1", parentChannelId: null, creatorId, categoryId: anchorCategoryId }
+  const channel = { id: "c1", serverId: "s1", type: "text", parentChannelId: null, parentMessageId: null, creatorId, categoryId: anchorCategoryId }
   return {
     channel,
     anchor: { ...channel },
     role,
     isPrivate: ctxIsPrivate,
     isChannelMember: !canManage, // member-only access for the non-manage case
+    // Roster-anchor creator gate; caller in these tests is always "u1".
+    isCreator: creatorId === "u1",
   }
 }
 

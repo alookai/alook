@@ -9,9 +9,10 @@ import {
   MESSAGE_PREVIEW_LENGTH,
   WS_EVENTS,
   slugify,
+  canManageServer,
 } from "@alook/shared"
 import { fanOutToChannel } from "@/lib/community/fanout"
-import { requireChannelMember } from "@/lib/community/permissions"
+import { requireChannelMember, requireChannelAccess } from "@/lib/community/permissions"
 import { avatarInitial } from "@/lib/community/avatar"
 import { createCommunityMessage } from "@/lib/community/message-handler"
 
@@ -21,9 +22,9 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
   const db = getDb(ctx.env.DB)
 
-  const auth = await requireChannelMember(db, channelId, ctx.userId)
+  const auth = await requireChannelAccess(db, channelId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
-  const channel = auth.value
+  const channel = auth.value.channel
 
   if (channel.type !== "forum") {
     return writeError("channel is not a forum", 400)
@@ -38,6 +39,25 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
   if (tag) {
     childChannels = childChannels.filter((ch) => ch.tags.includes(tag))
+  }
+
+  // Nested-membership model: a private forum's posts are each their own access
+  // unit. Only surface posts the viewer created or has a member row on. Only
+  // SERVER ADMINS/OWNER see all posts — the FORUM CREATOR is NOT special here
+  // (a forum creator with no posts of their own sees an empty list; they only
+  // get to OPEN the forum). Prevents leaking private post names + previews to a
+  // forum-visible non-member. Public forums are unchanged.
+  if (auth.value.isPrivate && !canManageServer(auth.value.member.role)) {
+    const memberIds = new Set(
+      await queries.communityChannel.listChannelIdsWithMember(
+        db,
+        childChannels.map((c) => c.id),
+        ctx.userId,
+      ),
+    )
+    childChannels = childChannels.filter(
+      (c) => c.creatorId === ctx.userId || memberIds.has(c.id),
+    )
   }
 
   // Batch-fetch all creators in one query

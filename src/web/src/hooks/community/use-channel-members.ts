@@ -3,13 +3,24 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
+import type { CommunityRole } from "@alook/shared"
 
+// Canonical member shape (superset of the pre-audience roster). `source` tags
+// why the user is in the channel: "explicit" (added member or creator),
+// "inherited" (public-channel server member), or "admin" (server admin/owner).
+// Only `source === "explicit" && !isCreator` rows are removable.
 export type ChannelMember = {
+  id: string
   userId: string
-  name: string | null
-  discriminator: string | null
+  name: string
+  discriminator: string | undefined
   avatar: string
-  addedAt: string
+  sub: string
+  role: CommunityRole
+  status: "online" | "offline"
+  statusEmoji: string | null
+  statusText: string
+  source: "explicit" | "inherited" | "admin"
   isCreator: boolean
 }
 
