@@ -44,12 +44,12 @@
     "pre-commit": "pnpm typecheck && pnpm lint && pnpm test && pnpm typegrep:ws"
   },
   "devDependencies": {
-    "@vitest/coverage-v8": "^4.1.9",
+    "@vitest/coverage-v8": "^4.1.10",
     "simple-git-hooks": "^2.13.1",
-    "turbo": "^2.10.3",
+    "turbo": "^2.10.5",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.9",
-    "wrangler": "^4.107.0"
+    "vitest": "^4.1.10",
+    "wrangler": "^4.111.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
