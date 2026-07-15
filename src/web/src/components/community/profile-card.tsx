@@ -9,6 +9,7 @@ import { StatusEditor, hasStatus } from "./status-editor"
 import type { Profile } from "./_types"
 import type { Breakpoint } from "@/hooks/use-mobile"
 import { useCommunityWsStore } from "@/stores/community/ws"
+import { gradientFromSeed } from "@/lib/community/gradient-from-seed"
 
 // Merge rule for the card's status pill: overlay wins over seed. The overlay
 // (`useCommunityWsStore.userStatuses`) is the same live source the member
@@ -26,26 +27,6 @@ export function resolveCardStatus(
 ): { emoji: string | null; text: string | null } {
   if (overlay) return { emoji: overlay.emoji, text: overlay.text }
   return { emoji: seedEmoji ?? null, text: seedText ?? null }
-}
-
-// Deterministic, on-brand banner gradient. The seed is the owner's stable
-// userId (falling back to name only when the id isn't yet resolved), so
-// renaming never shifts the banner colour. Both hues stay in the warm band
-// (60–80 per DESIGN.md) and chroma stays desaturated, so the perceptible axis
-// is lightness, not hue — the two stops carry a wide ΔL. `hash` and `hash2`
-// are two independent derivations (different shift multipliers) so hue2 spans
-// the full band per seed instead of collapsing to a handful of values.
-export function generateGradient(seed: string): string {
-  let hash = 0
-  let hash2 = 0
-  for (let i = 0; i < seed.length; i++) {
-    const c = seed.charCodeAt(i)
-    hash = c + ((hash << 5) - hash)
-    hash2 = c + ((hash2 << 6) - hash2) + (i + 1)
-  }
-  const hue1 = 60 + (Math.abs(hash) % 21)
-  const hue2 = 60 + (Math.abs(hash2) % 21)
-  return `linear-gradient(135deg, oklch(0.82 0.07 ${hue1}), oklch(0.60 0.05 ${hue2}))`
 }
 
 // Profile card — popover anchored at the click point on desktop, bottom sheet on mobile.
@@ -82,7 +63,7 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
     if (mobile) onClose()
     else close()
   }
-  const gradient = generateGradient(data.userId ?? data.name)
+  const gradient = gradientFromSeed(data.userId ?? data.name)
   const card = (
     <>
       {/* banner */}

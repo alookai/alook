@@ -14,7 +14,7 @@ import { SortableServer } from "./sortable-server"
 import { RailFolder } from "./rail-folder"
 import { CreateServerDialog } from "./create-server-dialog"
 import { useRailOrder, isFolderKey, extractFolderId } from "./use-rail-order"
-import { serverGradient } from "./server-gradient"
+import { gradientFromSeed } from "@/lib/community/gradient-from-seed"
 import type { Server, CommunityFolder, MobileZone, View } from "./_types"
 
 export const ServerRail = memo(function ServerRail({
@@ -220,7 +220,7 @@ export const ServerRail = memo(function ServerRail({
                     return s ? (
                       <span
                         key={s.id}
-                        style={s.icon ? undefined : { background: serverGradient(s.id) }}
+                        style={s.icon ? undefined : { background: gradientFromSeed(s.id) }}
                         className={[
                           "grid aspect-square place-items-center overflow-hidden rounded-sm text-[7px] font-semibold",
                           s.icon ? "bg-card text-muted-foreground" : "text-white [text-shadow:0_1px_1px_rgb(0_0_0/0.35)]",
@@ -240,7 +240,7 @@ export const ServerRail = memo(function ServerRail({
             const icon = s.icon
             return (
               <div
-                style={icon ? undefined : { background: serverGradient(s.id) }}
+                style={icon ? undefined : { background: gradientFromSeed(s.id) }}
                 className={[
                   "grid size-10 place-items-center overflow-hidden rounded-xl text-sm font-semibold shadow-(--e2)",
                   icon ? "bg-secondary text-foreground" : "text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.35)]",

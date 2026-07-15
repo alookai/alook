@@ -8,7 +8,7 @@ import { RailIndicator } from "./rail-indicator"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { NumberTicker } from "@/components/ui/number-ticker"
-import { serverGradient } from "./server-gradient"
+import { gradientFromSeed } from "@/lib/community/gradient-from-seed"
 import type { Server } from "./_types"
 
 export function SortableServer({ server, active, onClick, onLeave, onOpenSettings, onOpenInvitePopover, onCreateFolder, groupTarget, inFolder, dragging: isDragActive }: { server: Server; active?: boolean; onClick: () => void; onLeave?: () => void; onOpenSettings?: () => void; onOpenInvitePopover?: () => void; onCreateFolder?: () => void; groupTarget?: boolean; inFolder?: boolean; dragging?: boolean }) {
@@ -33,7 +33,7 @@ export function SortableServer({ server, active, onClick, onLeave, onOpenSetting
                   onClick={active ? undefined : onClick}
                   {...attributes}
                   {...listeners}
-                  style={server.icon ? undefined : { background: serverGradient(server.id) }}
+                  style={server.icon ? undefined : { background: gradientFromSeed(server.id) }}
                   className={[
                     "grid size-10 touch-none place-items-center overflow-hidden text-sm font-semibold transition-all duration-150 active:cursor-grabbing",
                     active ? "cursor-default rounded-xl" : "cursor-pointer rounded-[18px] hover:rounded-xl",

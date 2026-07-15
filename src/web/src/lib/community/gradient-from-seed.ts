@@ -1,11 +1,11 @@
 /**
- * Deterministic fallback background for servers without an uploaded icon.
+ * Deterministic fallback gradient, seeded by a stable id.
  *
  * Draws three distinct colors (and a gradient angle) from the same preset
- * palette used by the agent avatar generator (`BG_COLORS`) so server and
- * agent fallback visuals share one design language. Everything is seeded by
- * the server id, so it looks random across servers but never flickers
- * between renders/reloads.
+ * palette used by the agent avatar generator (`BG_COLORS`) so every fallback
+ * visual — server icons, the profile-card banner — shares one design
+ * language. Everything is seeded, so it looks random across ids but never
+ * flickers between renders/reloads.
  */
 import { BG_COLORS } from "@/components/avatar/avatar-parts"
 
@@ -28,7 +28,7 @@ function mulberry32(seed: number): () => number {
 }
 
 /** Three distinct preset colors from `BG_COLORS`, seeded by `seed`. */
-export function serverGradientColors(seed: string): [string, string, string] {
+export function gradientColorsFromSeed(seed: string): [string, string, string] {
   const rand = mulberry32(hashStr(seed))
   const pool = BG_COLORS.map((c) => c.value)
   const picked: string[] = []
@@ -40,15 +40,15 @@ export function serverGradientColors(seed: string): [string, string, string] {
 }
 
 // Salted separately from the color pick so the angle doesn't move in lockstep
-// with color choice (two servers with the same colors can still differ).
-export function serverGradientAngle(seed: string): number {
+// with color choice (two seeds with the same colors can still differ).
+export function gradientAngleFromSeed(seed: string): number {
   const rand = mulberry32(hashStr(`${seed}:angle`))
   return Math.floor(rand() * 360)
 }
 
-/** CSS `background` value for a server's fallback avatar. */
-export function serverGradient(seed: string): string {
-  const [c0, c1, c2] = serverGradientColors(seed)
-  const angle = serverGradientAngle(seed)
+/** CSS `background` value for a seeded fallback gradient. */
+export function gradientFromSeed(seed: string): string {
+  const [c0, c1, c2] = gradientColorsFromSeed(seed)
+  const angle = gradientAngleFromSeed(seed)
   return `linear-gradient(${angle}deg, ${c0}, ${c1}, ${c2})`
 }
