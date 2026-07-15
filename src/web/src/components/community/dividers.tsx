@@ -24,7 +24,10 @@ export function NewDivider({ dateLabel }: { dateLabel?: string }) {
     return (
       <div data-new-divider className="my-2 flex items-center gap-2">
         <Separator className="flex-1 bg-destructive/60" />
-        <span className="text-xs font-semibold text-destructive" suppressHydrationWarning>{dateLabel}</span>
+        <span className="flex items-center gap-1.5 text-xs font-semibold text-destructive" suppressHydrationWarning>
+          <span className="rounded-sm bg-destructive px-1.5 py-0.5 text-white" style={{ WebkitTextStroke: "0.4px currentColor" }}>New</span>
+          {dateLabel}
+        </span>
         <Separator className="flex-1 bg-destructive/60" />
       </div>
     )

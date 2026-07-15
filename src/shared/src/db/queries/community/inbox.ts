@@ -131,7 +131,7 @@ export async function listUnreadChannels(
       : new Set<string>();
 
   return unread
-    .filter((r) => r.type !== "thread" || participatingThreadIds.has(r.channelId))
+    .filter((r) => !isThread(r.type) || participatingThreadIds.has(r.channelId))
     .map((r) => ({
       channelId: r.channelId,
       channelName: r.channelName,
