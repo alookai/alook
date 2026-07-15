@@ -68,6 +68,12 @@ export const MAX_INVITE_MAX_USES = 1000
 export const MAX_INVITE_EXPIRY_DAYS = 30
 export const MAX_ACTIVE_INVITES_PER_SERVER = 50
 
+// Synthetic id for the uncategorized-channel bucket the server-detail response
+// projects channels with no category into. It is NOT a real category row —
+// clients must translate it back to `categoryId: null` before any create/move
+// API call, or the server 404s ("category not found").
+export const UNCATEGORIZED_CATEGORY_ID = "__uncategorized__"
+
 // Previews
 export const MESSAGE_PREVIEW_LENGTH = 120
 

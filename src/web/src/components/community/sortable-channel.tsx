@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { BellOff, Pencil, Trash2, Users } from "lucide-react"
+import { BellOff, Loader2, Pencil, Trash2, Users } from "lucide-react"
 import { EntityIcon } from "./entity-icon"
 import { useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
@@ -14,6 +14,23 @@ import type { Channel } from "./_types"
 // ContextMenu wrapper entirely so a non-manager doesn't get an empty popover strip.
 export function hasChannelMenu(h: { onEdit?: () => void; onManageMembers?: () => void; onDelete?: () => void }) {
   return !!(h.onEdit || h.onManageMembers || h.onDelete)
+}
+
+// Optimistic placeholder for a channel being created. Matches SortableChannel's
+// row geometry so the temp→real swap is a reveal, not a reflow. Non-interactive:
+// no drag, no click, no context menu — a spinner sits where the entity icon goes.
+export function PendingChannelRow({ ch }: { ch: Channel }) {
+  return (
+    <div
+      aria-disabled
+      className="group relative flex h-8 w-full cursor-default items-center gap-2 rounded-md px-2 text-sm text-muted-foreground opacity-60 select-none"
+    >
+      <span className="grid size-5 shrink-0 place-items-center opacity-70">
+        <Loader2 className="size-4 animate-spin" />
+      </span>
+      <span className="truncate font-semibold">{ch.name}</span>
+    </div>
+  )
 }
 
 // A single drag-sortable channel row. The whole row is the drag surface (no handle);

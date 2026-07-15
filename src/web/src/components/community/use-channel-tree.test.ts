@@ -118,4 +118,20 @@ describe("mergeChannelMetadata", () => {
     expect(result.changed).toBe(false)
     expect(result.next).toBe(order)
   })
+
+  // An optimistic pending row that survives an id-set-unchanged metadata merge
+  // (e.g. a sibling WS unread patch) must keep its `pending` flag — the merge
+  // spreads the existing row and only overwrites unread/name.
+  it("preserves the pending flag when only unread changes underneath it", () => {
+    const pendingOrder: ChannelOrder = {
+      cat_A: [{ ...ch("tmp_ch_x"), pending: true }],
+    }
+    const result = mergeChannelMetadata(pendingOrder, [
+      cat("cat_A", [{ ...ch("tmp_ch_x"), unread: true }]),
+    ])
+    expect(result.changed).toBe(true)
+    const row = result.next.cat_A.find((c) => c.id === "tmp_ch_x")
+    expect(row?.pending).toBe(true)
+    expect(row?.unread).toBe(true)
+  })
 })

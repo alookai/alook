@@ -62,6 +62,8 @@ export type Channel = {
   type?: ChannelType
   tags?: string[]
   creatorId?: string | null
+  // Optimistic placeholder row — non-interactive until the create resolves.
+  pending?: boolean
 }
 
 export type Category = {
@@ -70,6 +72,8 @@ export type Category = {
   channels: Channel[]
   private?: number | boolean
   creatorId?: string | null
+  // Optimistic placeholder category — reconciled when the create resolves.
+  pending?: boolean
 }
 
 // ── Messages ───────────────────────────────────────────────────────────────

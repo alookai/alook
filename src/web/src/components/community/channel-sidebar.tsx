@@ -10,7 +10,7 @@ import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } 
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { SortableCategory } from "./sortable-category"
-import { SortableChannel } from "./sortable-channel"
+import { SortableChannel, PendingChannelRow } from "./sortable-channel"
 import { CreateChannelDialog } from "./create-channel-dialog"
 import { CreateCategoryDialog } from "./create-category-dialog"
 import { CategorySettingsDialog } from "./category-settings-dialog"
@@ -19,7 +19,7 @@ import { InviteDialog } from "./invite-dialog"
 import { ChannelAddMembersDialog } from "./channel-add-members-dialog"
 import { ServerCrumb } from "./channel-header"
 import type { Channel, SettingsSection } from "./_types"
-import type { ChannelType } from "@alook/shared"
+import { UNCATEGORIZED_CATEGORY_ID, type ChannelType } from "@alook/shared"
 
 
 type Dialog =
@@ -68,7 +68,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
   invitePopoverOpen?: boolean
   onInvitePopoverOpenChange?: (open: boolean) => void
 }) {
-  const { collapsed, catOrder, order, catNames, catPrivate, toggleCat, removeChannel, renameChannel, removeCategory, renameCategory, onDragOver, onDragEnd: treeDragEnd } = tree
+  const { collapsed, catOrder, order, catNames, catPrivate, catPending, toggleCat, removeChannel, renameChannel, renameCategory, onDragOver, onDragEnd: treeDragEnd } = tree
   // Category the dragged channel started in — captured at drag start, because
   // `onDragOver` mutates `order` mid-drag so by drop time it already reflects
   // the destination.
@@ -95,7 +95,8 @@ export const ChannelSidebar = memo(function ChannelSidebar({
         next.splice(to, 0, item)
         return next
       })() : null
-      if (reordered) onReorderCategories?.(reordered)
+      // Never send an optimistic (pending) category id to the reorder endpoint.
+      if (reordered) onReorderCategories?.(reordered.filter((cid) => !catPending[cid]))
     } else if (!activeStr.startsWith("cat_")) {
       // The channel's category AFTER onDragOver settled the optimistic move.
       const destCat = catOf(activeStr, order)
@@ -113,11 +114,11 @@ export const ChannelSidebar = memo(function ChannelSidebar({
       }
       // Persist a same-privacy cross-category move: write the new categoryId
       // (translating the synthetic uncategorized bucket to null), then reorder.
-      const allChannelIds = catOrder.flatMap((cat) => (order[cat] ?? []).map((c) => c.id))
+      const allChannelIds = catOrder.flatMap((cat) => (order[cat] ?? []).filter((c) => !c.pending).map((c) => c.id))
       if (destCat && originCat && destCat !== originCat) {
         // The uncategorized bucket (empty name, synthetic id) maps back to a
         // real `categoryId: null` for the PATCH.
-        const isUncategorized = catNames[destCat] === "" || destCat === "__uncategorized__"
+        const isUncategorized = catNames[destCat] === "" || destCat === UNCATEGORIZED_CATEGORY_ID
         onMoveChannel?.(activeStr, isUncategorized ? null : destCat)
       }
       onReorderChannels?.(allChannelIds)
@@ -160,9 +161,11 @@ export const ChannelSidebar = memo(function ChannelSidebar({
     <DndContext id="d-channels" sensors={sensors} collisionDetection={closestCenter} onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd}>
       {/* uncategorized channels (empty-name category) render bare at the top — no header */}
       {noneCatId && order[noneCatId]?.length > 0 && (
-        <SortableContext items={order[noneCatId].map((c) => c.id)} strategy={verticalListSortingStrategy}>
+        <SortableContext items={order[noneCatId].filter((c) => !c.pending).map((c) => c.id)} strategy={verticalListSortingStrategy}>
           <div className="mb-4 space-y-1">
-            {order[noneCatId].map((ch) => (
+            {order[noneCatId].map((ch) => ch.pending ? (
+              <PendingChannelRow key={ch.id} ch={ch} />
+            ) : (
               <SortableChannel
                 key={ch.id}
                 ch={withMute(ch)}
@@ -176,7 +179,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
           </div>
         </SortableContext>
       )}
-      <SortableContext items={catOrder.filter((id) => catNames[id] !== "").map((id) => catId(id))} strategy={verticalListSortingStrategy}>
+      <SortableContext items={catOrder.filter((id) => catNames[id] !== "" && !catPending[id]).map((id) => catId(id))} strategy={verticalListSortingStrategy}>
         {catOrder.filter((id) => catNames[id] !== "").map((id) => (
           <SortableCategory
             key={id}
@@ -184,15 +187,17 @@ export const ChannelSidebar = memo(function ChannelSidebar({
             name={catNames[id] ?? id}
             open={!collapsed.has(id)}
             onToggle={() => toggleCat(id)}
-            onAddChannel={canCreateInCategory(id) ? () => requestCreateChannel(id) : undefined}
-            onSettings={isAdmin ? () => setDialog({ kind: "category-settings", categoryId: id }) : undefined}
-            onDelete={isAdmin ? () => { removeCategory(id); onDeleteCategory?.(id) } : undefined}
+            onAddChannel={!catPending[id] && canCreateInCategory(id) ? () => requestCreateChannel(id) : undefined}
+            onSettings={!catPending[id] && isAdmin ? () => setDialog({ kind: "category-settings", categoryId: id }) : undefined}
+            onDelete={!catPending[id] && isAdmin ? () => onDeleteCategory?.(id) : undefined}
             isPrivate={catPrivate[id]}
-            canReorder={isAdmin}
+            canReorder={isAdmin && !catPending[id]}
+            pending={catPending[id]}
           >
-            <SortableContext items={(order[id] ?? []).map((c) => c.id)} strategy={verticalListSortingStrategy}>
+            <SortableContext items={(order[id] ?? []).filter((c) => !c.pending).map((c) => c.id)} strategy={verticalListSortingStrategy}>
               <div className="mt-1 min-h-2 space-y-1">
                 {(order[id] ?? []).map((ch) => {
+                  if (ch.pending) return <PendingChannelRow key={ch.id} ch={ch} />
                   // Manage/edit rights:
                   //   - admins everywhere
                   //   - private category: the channel creator too

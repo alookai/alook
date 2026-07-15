@@ -283,11 +283,14 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     [channelNotif]
   )
 
-  const onCreateChannelInSidebar = useCallback((categoryId: string, name: string, type: ChannelType) => {
-    createChannelMut.mutate(
-      { serverId, categoryId, name, type },
-      { onError: (e) => toastApiError(e, "Failed to create channel") },
-    )
+  const onCreateChannelInSidebar = useCallback(async (categoryId: string, name: string, type: ChannelType) => {
+    try {
+      const res = await createChannelMut.mutateAsync({ serverId, categoryId, name, type })
+      return res.channel.id
+    } catch (e) {
+      toastApiError(e, "Failed to create channel")
+      return null
+    }
   }, [createChannelMut, serverId])
   const onCreateCategoryInSidebar = useCallback((name: string, opts?: { private?: boolean }) => {
     createCategoryMut.mutate(

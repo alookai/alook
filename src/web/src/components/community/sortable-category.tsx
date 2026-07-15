@@ -20,7 +20,7 @@ export function hasCategoryMenu(h: { onAddChannel?: () => void; onSettings?: () 
 // activation distance distinguishes a click (collapse) from a drag. It is also a drop
 // target so channels can be dropped onto it (including its empty space). Right-click
 // (or the gear) opens Settings; the "+" creates a channel; a lock shows when private.
-export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChannel, onSettings, onDelete, isPrivate, canReorder = true, children }: {
+export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChannel, onSettings, onDelete, isPrivate, canReorder = true, pending = false, children }: {
   id: string
   name: string
   open: boolean
@@ -30,6 +30,7 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
   onDelete?: () => void
   isPrivate?: boolean
   canReorder?: boolean
+  pending?: boolean
   children: React.ReactNode
 }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false)
@@ -74,7 +75,7 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
     </>
   )
   return (
-    <div ref={setNodeRef} style={style} className="relative mb-4">
+    <div ref={setNodeRef} style={style} className={`relative mb-4 ${pending ? "opacity-60" : ""}`}>
       {showLine && <DropLine side={lineSide} />}
       {hasCategoryMenu({ onAddChannel, onSettings, onDelete }) ? (
       <ContextMenu>

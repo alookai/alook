@@ -7,6 +7,7 @@ import {
   isServerOwner,
   MAX_SERVER_NAME_LENGTH,
   MAX_SERVER_DESCRIPTION_LENGTH,
+  UNCATEGORIZED_CATEGORY_ID,
   WS_EVENTS,
   slugify,
 } from "@alook/shared"
@@ -57,7 +58,7 @@ export const GET = withAuth(async (_req, ctx) => {
   const uncategorized = channels.filter((ch) => !ch.categoryId)
   if (uncategorized.length > 0) {
     categoriesWithChannels.push({
-      id: "__uncategorized__",
+      id: UNCATEGORIZED_CATEGORY_ID,
       serverId: server.id,
       // Empty name is load-bearing: the sidebar detects the uncategorized
       // bucket by `name === ""` (renders its channels as the bare top list, and

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { apiFetch, toastApiError } from "@/lib/api/client"
+import { ApiError } from "@/lib/errors"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { ChannelHeader, ChannelHeaderSkeleton, type ChannelNotifLevel } from "@/components/community/channel-header"
 import { MessageList } from "@/components/community/message-list"
@@ -433,6 +434,15 @@ function ChannelView() {
         )
         .catch((e) => {
           useCommunityStore.getState().setCurrentChannelMeta(null)
+          // A channel not in the server tree is either a real thread/forum-post
+          // (meta fetch succeeds above) or one that was just deleted out from
+          // under us (meta 404s here). On the delete case, don't strand the user
+          // on a dead URL with a misleading "thread" error — bounce to the server
+          // root, which forwards to the first remaining channel.
+          if (e instanceof ApiError && e.status === 404) {
+            router.replace(`/community/channels/${params.serverId}`)
+            return
+          }
           toastApiError(e, "Failed to load thread")
         })
     } else {
@@ -441,7 +451,7 @@ function ChannelView() {
     return () => {
       communityWsUnsubscribe()
     }
-  }, [channelId, isChildChannel])
+  }, [channelId, isChildChannel, params.serverId, router])
 
   // ── Local UI state ──────────────────────────────────────────────────────
   const [rightPanel, setRightPanel] = useState<RightPanel>(null)
@@ -667,10 +677,14 @@ function ChannelView() {
     communityWsSendTyping({ channelId })
   }
 
-  const createForumPost = (post: { name: string; content: string; tags: string[] }) => {
-    createForumPostMut.mutate({ channelId, ...post }, {
-      onError: (e) => toastApiError(e, "Failed to create post"),
-    })
+  const createForumPost = async (post: { name: string; content: string; tags: string[] }) => {
+    try {
+      const data = await createForumPostMut.mutateAsync({ channelId, ...post })
+      // A post is its own child channel — open it, same as clicking a post row.
+      enterThread(data.post.id)
+    } catch (e) {
+      toastApiError(e, "Failed to create post")
+    }
   }
 
   const myRole = members.find((m) => m.userId === currentUser.id)?.role

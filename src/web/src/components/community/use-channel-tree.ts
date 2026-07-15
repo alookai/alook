@@ -115,6 +115,11 @@ export function useChannelTree(categories: Category[]) {
   const [catPrivate, setCatPrivate] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(categories.map((c) => [c.id, !!c.private])),
   )
+  // per-category optimistic-pending flag — a category being created (temp id).
+  // Non-interactive until the create resolves.
+  const [catPending, setCatPending] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(categories.map((c) => [c.id, !!c.pending])),
+  )
   // per-category creator ID
   const [catCreators, setCatCreators] = useState<Record<string, string | null>>(() =>
     Object.fromEntries(categories.map((c) => [c.id, c.creatorId ?? null])),
@@ -134,6 +139,7 @@ export function useChannelTree(categories: Category[]) {
       setOrder({})
       setCatNames({})
       setCatPrivate({})
+      setCatPending({})
       setCatCreators({})
       return
     }
@@ -155,6 +161,7 @@ export function useChannelTree(categories: Category[]) {
     setOrder(Object.fromEntries(categories.map((c) => [c.id, c.channels])))
     setCatNames(Object.fromEntries(categories.map((c) => [c.id, c.name])))
     setCatPrivate(Object.fromEntries(categories.map((c) => [c.id, !!c.private])))
+    setCatPending(Object.fromEntries(categories.map((c) => [c.id, !!c.pending])))
     setCatCreators(Object.fromEntries(categories.map((c) => [c.id, c.creatorId ?? null])))
   }, [categories])
 
@@ -180,25 +187,9 @@ export function useChannelTree(categories: Category[]) {
       if (!cat) return prev
       return { ...prev, [cat]: prev[cat].map((c) => c.id === id ? { ...c, unread: false } : c) }
     }), [])
-  // Refs for removeCategory — depends on current catNames/catOrder but we don't want
-  // its identity to churn every time those change.
-  const catNamesRef = useRef(catNames)
-  catNamesRef.current = catNames
-  const catOrderRef = useRef(catOrder)
-  catOrderRef.current = catOrder
-  const removeCategory = useCallback((id: string) => {
-    const names = catNamesRef.current
-    const order = catOrderRef.current
-    const noneCatId = Object.keys(names).find((k) => names[k] === "") ?? order[0]
-    setCatOrder((prev) => prev.filter((cid) => cid !== id))
-    setOrder((prev) => {
-      const { [id]: channels, ...rest } = prev
-      if (channels?.length && noneCatId) rest[noneCatId] = [...(rest[noneCatId] ?? []), ...channels]
-      return rest
-    })
-    setCatNames((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => k !== id)))
-    setCatPrivate((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => k !== id)))
-  }, [])
+  // Category delete is driven by the query cache (useDeleteCategory's optimistic
+  // onMutate/onError), so the tree resettles from `categories` — no local
+  // removal helper (a local one had no rollback path; see the mutation hook).
   const renameCategory = useCallback((id: string, name: string) =>
     setCatNames((prev) => (prev[id] === name ? prev : { ...prev, [id]: name })), [])
 
@@ -234,12 +225,12 @@ export function useChannelTree(categories: Category[]) {
   }, [])
 
   return useMemo(() => ({
-    collapsed, catOrder, order, catNames, catPrivate, catCreators,
-    toggleCat, removeChannel, renameChannel, markRead, removeCategory,
+    collapsed, catOrder, order, catNames, catPrivate, catPending, catCreators,
+    toggleCat, removeChannel, renameChannel, markRead,
     renameCategory, onDragOver, onDragEnd,
   }), [
-    collapsed, catOrder, order, catNames, catPrivate, catCreators,
-    toggleCat, removeChannel, renameChannel, markRead, removeCategory,
+    collapsed, catOrder, order, catNames, catPrivate, catPending, catCreators,
+    toggleCat, removeChannel, renameChannel, markRead,
     renameCategory, onDragOver, onDragEnd,
   ])
 }
