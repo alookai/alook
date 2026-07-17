@@ -28,6 +28,7 @@
     "test:daemon": "pnpm --filter @alook/daemon test",
     "test:web": "pnpm --filter @alook/web test",
     "test:e2e": "pnpm --filter @alook/web test:e2e",
+    "test:e2e-ui": "pnpm --filter @alook/web test:e2e-ui",
     "db:migrate": "pnpm --filter @alook/web exec wrangler d1 migrations apply alook-app --local",
     "db:reset": "rm -rf src/web/.wrangler/state && pnpm run db:migrate",
     "test:all": "vitest run",
