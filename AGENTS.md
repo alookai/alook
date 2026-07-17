@@ -36,14 +36,16 @@ git push origin main
 
 This triggers:
 - **CI** — typecheck, lint, tests, coverage (uploaded to Codecov)
-- **E2E UI** — Playwright browser E2E runs on the `release: vX.Y.Z` commit (`e2e-ui.yml`). **This gates the release chain below**: Auto-Tag & Release and every `publish-*` workflow trigger on `on: workflow_run` completion of E2E UI and only run when its `conclusion == success`. If E2E fails or is skipped, nothing is tagged, released, or published.
-- **Auto-Tag & Release** — after E2E UI passes, creates the git tag + GitHub Release with generated changelog (`auto-tag-release.yml`). Reads `github.event.workflow_run.head_commit.message` and checks out `workflow_run.head_sha`.
-- **@alook/cli** → auto-published to npm via `publish-cli.yml` (self-gates on `src/cli/package.json` changing via `git diff`)
-- **@alook/app** → auto-published to npm via `publish-app.yml` (self-gates on `src/app/package.json`)
-- **@alook/daemon** → auto-published to npm via `publish-daemon.yml` (self-gates on `src/daemon/package.json`)
+- **Auto-Tag & Release** — CI detects the `release: vX.Y.Z` commit message, creates the git tag, and creates a GitHub Release with generated changelog (`auto-tag-release.yml`)
+- **@alook/cli** → auto-published to npm via `publish-cli.yml` (watches `src/cli/package.json`)
+- **@alook/app** → auto-published to npm via `publish-app.yml` (watches `src/app/package.json`)
+- **@alook/daemon** → auto-published to npm via `publish-daemon.yml` (watches `src/daemon/package.json`)
 - **CF Workers** → each module redeploys when its own `package.json` changes
 
-> **Bootstrap note:** the `workflow_run` gate only takes effect once `e2e-ui.yml` and the rewired downstream workflows exist on `main`. The first release after merging this change is the one that starts enforcing the gate.
+### E2E UI (browser tests)
+Playwright browser E2E for the web UI lives in `src/web/src/test/e2e-ui/` and runs via `e2e-ui.yml` **on PRs that touch `src/web`/`src/shared`/`src/ws-do`** — regressions are caught before merge, keeping main green. It is deliberately NOT tied to the release chain: a `release:` bump only changes version numbers, so gating there would test nothing, and the production web app deploys via Cloudflare's own Git integration (outside GitHub Actions) which a workflow gate can't block anyway. Run locally with `pnpm test:e2e-ui` (backs up and restores your local `.wrangler/state`).
+
+> **Don't mark "UI Playwright E2E" as a required status check** in branch protection as-is. Because it uses a `paths:` filter, a PR that doesn't touch those paths never starts the job, and a required check that never runs leaves the PR pending forever. Keep it advisory, or add an always-runs skip-job with the same check name first.
 
 ## Plan-driven Development
 - You must make a markdown plan at `plans/` before you implement any my request, otherwise I will reject your implementation.

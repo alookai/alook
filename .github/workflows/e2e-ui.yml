@@ -1,13 +1,18 @@
 name: E2E UI
 
 # Playwright browser E2E for the web UI (community today; extends to the full
-# UI over time). Runs ONLY on release commits (bump), and gates the release
-# chain: auto-tag-release and the publish-* workflows trigger on this
-# workflow's successful completion (see their `on: workflow_run`). If this
-# fails or is skipped, nothing ships.
+# UI over time). Runs on PRs that touch the web app, so UI regressions are
+# caught BEFORE merge — the right gate point (a `release:` bump only changes
+# version numbers, so gating there catches nothing). Keeps main green under a
+# PR-only workflow; releases inherit that green state.
 on:
-  push:
+  pull_request:
     branches: [main]
+    paths:
+      - "src/web/**"
+      - "src/shared/**"
+      - "src/ws-do/**"
+      - ".github/workflows/e2e-ui.yml"
 
 concurrency:
   group: e2e-ui-${{ github.ref }}
@@ -16,10 +21,6 @@ concurrency:
 jobs:
   e2e-ui:
     name: UI Playwright E2E
-    # Job-level gate: a non-release push skips this job, so the workflow run's
-    # conclusion is `skipped` (not `success`) and the downstream workflow_run
-    # guards won't fire.
-    if: "startsWith(github.event.head_commit.message, 'release: v')"
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
