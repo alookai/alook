@@ -27,6 +27,7 @@ coverage:
 
 ignore:
   - "src/web/src/components/home/**"
+  - "src/web/scripts/**"
 
 comment:
   layout: "reach,diff,flags,files"
