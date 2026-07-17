@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { join } from "path";
 import {
   collectBlogAssetErrors,
   findBlogImageErrors,
@@ -7,6 +8,11 @@ import {
   validateBlogAssets,
   type BlogAssetFs,
 } from "./validate-assets";
+
+/** Normalize path separators so mocks work on Windows and Unix. */
+function norm(p: string): string {
+  return p.replace(/\\/g, "/");
+}
 
 describe("findDuplicateMdxH1Errors", () => {
   it("flags markdown H1 lines with line numbers", () => {
@@ -65,9 +71,10 @@ describe("validateBlogAssets", () => {
   });
 
   it("returns ok for clean MDX posts", () => {
+    const heroPath = join("/public", "/blog/demo/hero.webp");
     const fs: BlogAssetFs = {
       existsSync: (path) =>
-        path === "/content" || path === "/public/blog/demo/hero.webp",
+        norm(path) === "/content" || norm(path) === norm(heroPath),
       readFileSync: () => "![alt](/blog/demo/hero.webp)\n\n## Section\n",
       readdirSync: () => ["demo.mdx", "readme.txt"],
     };
@@ -78,7 +85,7 @@ describe("validateBlogAssets", () => {
 
   it("returns failed with duplicate H1 errors", () => {
     const fs: BlogAssetFs = {
-      existsSync: (path) => path === "/content",
+      existsSync: (path) => norm(path) === "/content",
       readFileSync: () => "# Title\n\nBody\n",
       readdirSync: () => ["demo.mdx"],
     };
@@ -121,9 +128,10 @@ describe("runValidateBlogAssetsCli", () => {
 
   it("logs pass and exits 0 for clean posts", () => {
     const { io, logs, exits } = mockIo();
+    const heroPath = join("/public", "/blog/demo/hero.webp");
     const fs: BlogAssetFs = {
       existsSync: (path) =>
-        path === "/content" || path === "/public/blog/demo/hero.webp",
+        norm(path) === "/content" || norm(path) === norm(heroPath),
       readFileSync: () => "![alt](/blog/demo/hero.webp)\n",
       readdirSync: () => ["demo.mdx"],
     };
@@ -135,7 +143,7 @@ describe("runValidateBlogAssetsCli", () => {
   it("prints failures and exits 1 for duplicate H1", () => {
     const { io, errors, exits } = mockIo();
     const fs: BlogAssetFs = {
-      existsSync: (path) => path === "/content",
+      existsSync: (path) => norm(path) === "/content",
       readFileSync: () => "# Title\n",
       readdirSync: () => ["demo.mdx"],
     };
