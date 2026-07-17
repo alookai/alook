@@ -14,6 +14,9 @@
   "ignoreDependencies": [
     "@tailwindcss/node"
   ],
+  "ignoreBinaries": [
+    "lsof"
+  ],
   "ignore": [
     "src/components/ui/**"
   ],

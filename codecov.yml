@@ -28,6 +28,9 @@ coverage:
 ignore:
   - "src/web/src/components/home/**"
   - "src/web/scripts/**"
+  # Playwright browser E2E — driven by `playwright test`, not vitest, so these
+  # files never appear in coverage and shouldn't count against patch %.
+  - "src/web/src/test/e2e-ui/**"
 
 comment:
   layout: "reach,diff,flags,files"
