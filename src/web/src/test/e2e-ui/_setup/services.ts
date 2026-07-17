@@ -65,6 +65,34 @@ export function resetDb(): void {
   }
 }
 
+function portOf(url: string): number | null {
+  const p = Number(new URL(url).port)
+  return Number.isFinite(p) && p > 0 ? p : null
+}
+
+// Best-effort: kill whatever is listening on the given TCP ports. Clears
+// orphaned dev servers left by a prior run that crashed before teardown (e.g.
+// global-setup failing after startServices). No-op on Windows / if lsof is
+// absent. Only called when we're about to start fresh servers, never when
+// reusing a healthy one.
+function killPortOrphans(ports: number[]): void {
+  if (process.platform === "win32") return
+  for (const port of ports) {
+    const res = spawnSync("lsof", ["-ti", `tcp:${port}`], { encoding: "utf8" })
+    const pids = (res.stdout ?? "")
+      .split("\n")
+      .map((s) => Number(s.trim()))
+      .filter((n) => Number.isInteger(n) && n > 0)
+    for (const pid of pids) {
+      try {
+        process.kill(pid, "SIGTERM")
+      } catch {
+        // already gone
+      }
+    }
+  }
+}
+
 function startService(name: string, filter: string, healthUrl: string): ManagedService {
   const proc = spawn("pnpm", ["--filter", filter, "dev"], {
     cwd: REPO_ROOT,
@@ -84,6 +112,13 @@ export async function startServices(): Promise<ManagedService[]> {
   if (REUSE_EXISTING && (await isUp(webHealth)) && (await isUp(wsHealth))) {
     return []
   }
+
+  // Starting fresh — clear any orphaned dev servers on our ports first so a
+  // prior crashed run doesn't leave 3000/8789 occupied (or get reused).
+  const ports = [portOf(WEB_URL), portOf(WS_URL)].filter((p): p is number => p != null)
+  killPortOrphans(ports)
+  // Give the OS a moment to release the sockets before we bind them.
+  await new Promise((r) => setTimeout(r, 1000))
 
   const services = [
     startService("web", "@alook/web", webHealth),
