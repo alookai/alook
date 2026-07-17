@@ -18,6 +18,7 @@ import { catId, catOf, isCat, type ChannelTree } from "./use-channel-tree"
 import { InviteDialog } from "./invite-dialog"
 import { ChannelAddMembersDialog } from "./channel-add-members-dialog"
 import { ServerCrumb } from "./channel-header"
+import { useIsMobile } from "@/hooks/use-mobile"
 import type { Channel, SettingsSection } from "./_types"
 import { UNCATEGORIZED_CATEGORY_ID, type ChannelType } from "@alook/shared"
 
@@ -69,6 +70,10 @@ export const ChannelSidebar = memo(function ChannelSidebar({
   onInvitePopoverOpenChange?: (open: boolean) => void
 }) {
   const { collapsed, catOrder, order, catNames, catPrivate, catPending, toggleCat, removeChannel, renameChannel, renameCategory, onDragOver, onDragEnd: treeDragEnd } = tree
+  // The server rail (with its own icon) is only visible on desktop, so the
+  // header's ServerCrumb would double up there — show it only on mobile, where
+  // the rail is hidden and this is the sole server identity marker.
+  const isMobile = useIsMobile()
   // Category the dragged channel started in — captured at drag start, because
   // `onDragOver` mutates `order` mid-drag so by drop time it already reflects
   // the destination.
@@ -231,7 +236,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
           {serverName && onOpenSettings ? (
             <DropdownMenu>
               <DropdownMenuTrigger className="flex min-w-0 max-w-full items-center gap-2 rounded-md px-2 py-1 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
-                <ServerCrumb id={serverId ?? ""} name={serverName} icon={serverIcon ?? null} size={7} />
+                {isMobile && <ServerCrumb id={serverId ?? ""} name={serverName} icon={serverIcon ?? null} size={7} />}
                 <span className="min-w-0 truncate text-lg font-semibold">{serverName}</span>
                 <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
               </DropdownMenuTrigger>
@@ -245,7 +250,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
             </DropdownMenu>
           ) : (
             <span className="flex min-w-0 max-w-full items-center gap-2 px-2">
-              {serverName && <ServerCrumb id={serverId ?? ""} name={serverName} icon={serverIcon ?? null} size={7} />}
+              {isMobile && serverName && <ServerCrumb id={serverId ?? ""} name={serverName} icon={serverIcon ?? null} size={7} />}
               <span className="min-w-0 truncate text-lg font-semibold">{serverName || "\u00a0"}</span>
             </span>
           )}
