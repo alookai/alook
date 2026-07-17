@@ -39,13 +39,20 @@ export async function seedChannel(owner: UserKey, serverId: string, name: string
 // "Already a member" 400 is treated as success.
 export async function seedJoinServer(owner: UserKey, joiner: UserKey, serverId: string): Promise<void> {
   const token = await createInvite(owner, serverId)
-  const res = await fetch(`${WEB_URL}/api/community/invites/${token}/join`, {
-    method: "POST",
-    headers: { Cookie: sessionCookie(joiner), "Content-Type": "application/json", Origin: WEB_URL },
-  })
-  if (!res.ok && res.status !== 400) {
-    throw new Error(`seedJoinServer join failed (${res.status})`)
+  // Retry transient 5xx (local D1/WAL contention) a couple times; a 400 is
+  // "Already a member" and counts as success.
+  let lastStatus = 0
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const res = await fetch(`${WEB_URL}/api/community/invites/${token}/join`, {
+      method: "POST",
+      headers: { Cookie: sessionCookie(joiner), "Content-Type": "application/json", Origin: WEB_URL },
+    })
+    if (res.ok || res.status === 400) return
+    lastStatus = res.status
+    if (res.status < 500) break
+    await new Promise((r) => setTimeout(r, 500))
   }
+  throw new Error(`seedJoinServer join failed (${lastStatus})`)
 }
 
 // Add a server member to a PRIVATE-category channel's roster. Requires the
@@ -73,6 +80,15 @@ export async function seedFriendship(requester: UserKey, addressee: UserKey, tar
   if (!friendshipId) throw new Error("seedFriendship: no friendship id in response")
   await post(addressee, `/api/community/friends/${friendshipId}/accept`)
   return friendshipId
+}
+
+// Post a message into a channel via API (persisted with a real server id).
+// Use when a spec needs a pre-existing message as a precondition rather than
+// exercising the send UI itself. Returns the message id.
+export async function seedMessage(author: UserKey, channelId: string, content: string): Promise<string> {
+  const res = await post(author, `/api/community/channels/${channelId}/messages`, { content })
+  const data = (await res.json()) as { message: { id: string } }
+  return data.message.id
 }
 
 export async function createInvite(owner: UserKey, serverId: string): Promise<string> {

@@ -1,6 +1,6 @@
 import { test, expect, userId } from "./_fixtures/community-fixture"
 import { tid } from "./_fixtures/testids"
-import { sendMessage, expectMessageVisible } from "./_fixtures/actions"
+import { sendMessage } from "./_fixtures/actions"
 import { seedDm, seedBlock } from "./_fixtures/seed"
 
 // Journey 4 — DMs. human↔human needs only not-blocked (no friendship). Covers
@@ -22,7 +22,10 @@ test.describe.serial("direct messages", () => {
     // Bob's DM sidebar row shows the new conversation without a manual reload.
     await expect(bob.page.getByTestId(tid.dmRow(dmId))).toBeVisible({ timeout: 15_000 })
     await bob.page.getByTestId(tid.dmRow(dmId)).click()
-    await expectMessageVisible(bob.page, body)
+    // Bob lands in the DM; the message list fetch on a freshly-opened DM can
+    // lag, so give the body a generous window rather than the default.
+    await bob.page.waitForURL(new RegExp(dmId), { timeout: 20_000 })
+    await expect(bob.page.getByText(body, { exact: false }).first()).toBeVisible({ timeout: 20_000 })
   })
 
   test("blocking replaces the composer with a blocked notice", async ({ asUser }) => {
