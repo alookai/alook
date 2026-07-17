@@ -46,10 +46,10 @@ jobs:
 
       # global-setup runs db:reset, starts dev:web + dev:ws (fail-fast on ws
       # health), and logs in the test users — so this single step drives the
-      # whole suite.
+      # whole suite. Run from the repo root via the root alias (delegates to
+      # --filter @alook/web, which sets cwd so the Playwright config resolves).
       - name: Run UI E2E
-        working-directory: src/web
-        run: pnpm run test:e2e-ui
+        run: pnpm test:e2e-ui
 
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
