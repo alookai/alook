@@ -635,10 +635,12 @@ export async function findCredentialByHash(
       doName: communityMachineCredential.doName,
     })
     .from(communityMachineCredential)
+    .innerJoin(user, eq(user.id, communityMachineCredential.userId))
     .where(
       and(
         eq(communityMachineCredential.credentialHash, hash),
-        isNull(communityMachineCredential.revokedAt)
+        isNull(communityMachineCredential.revokedAt),
+        isNull(user.deletedAt)
       )
     )
     .limit(1);
@@ -873,10 +875,12 @@ export async function findActiveAgentRunnerKeyByBearer(
       doName: communityAgentRunnerKey.doName,
     })
     .from(communityAgentRunnerKey)
+    .innerJoin(user, eq(user.id, communityAgentRunnerKey.userId))
     .where(
       and(
         eq(communityAgentRunnerKey.runnerKeyHash, hash),
-        isNull(communityAgentRunnerKey.revokedAt)
+        isNull(communityAgentRunnerKey.revokedAt),
+        isNull(user.deletedAt)
       )
     )
     .limit(1);

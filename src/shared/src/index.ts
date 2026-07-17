@@ -104,6 +104,7 @@ export {
   COMMUNITY_BOT_IMAGE_URL_MAX,
   COMMUNITY_BOT_EMAIL_DOMAIN,
   COMMUNITY_BOT_EMAIL_PREFIX,
+  SENSITIVE_RECIPIENT_DOMAINS,
   communityBotSyntheticEmail,
   SELF_BOT_FRIENDSHIP_PREFIX,
   isSelfBotFriendship,
@@ -508,7 +509,7 @@ export {
 } from "./db/queries/calendar-event";
 
 // Utils
-export { parseEmailHandle, toAlookAddress, isValidHandle } from "./utils/email";
+export { parseEmailHandle, toAlookAddress, isValidHandle, extractDomain, isSensitiveRecipient } from "./utils/email";
 export { parsePromptMentions } from "./utils/prompt-parser";
 export type { PromptAgent, PromptMention, ParseResult } from "./utils/prompt-parser";
 export { MENTION_TOKEN_RE, stripMentionTokens } from "./utils/mention-token";

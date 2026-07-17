@@ -6,7 +6,7 @@ import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON, writeError } from "@/lib/middleware/helpers";
 import { emailToResponse } from "@/lib/api/responses";
 
-const VALID_STATUSES = ["unread", "read", "archived", "sent"];
+const VALID_STATUSES = ["unread", "read", "archived", "sent", "blocked"];
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);

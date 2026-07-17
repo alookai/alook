@@ -40,7 +40,7 @@ export async function getMachineTokenByToken(db: Database, token: string) {
     })
     .from(machineToken)
     .innerJoin(user, eq(user.id, machineToken.userId))
-    .where(eq(machineToken.token, token));
+    .where(and(eq(machineToken.token, token), isNull(user.deletedAt)));
   return rows[0] ?? null;
 }
 

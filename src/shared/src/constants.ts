@@ -135,6 +135,34 @@ export const COMMUNITY_BOT_IMAGE_URL_MAX = 2048;
 // non-routable local domain.
 export const COMMUNITY_BOT_EMAIL_DOMAIN = "bots.alook.local";
 export const COMMUNITY_BOT_EMAIL_PREFIX = "bot-";
+
+// Outbound recipient domains that agents must never email — government,
+// law-enforcement, and intelligence services. Matched by exact domain OR
+// suffix (so `.gov.br` catches `foo.gov.br`), case-insensitive. Adjusting the
+// list ships via code release. See `isSensitiveRecipient` in utils/email.
+export const SENSITIVE_RECIPIENT_DOMAINS: string[] = [
+  ".gov",
+  ".gov.br",
+  ".gov.uk",
+  ".gov.au",
+  ".gov.in",
+  ".gov.cn",
+  ".gouv.fr",
+  ".go.jp",
+  ".mp.br",
+  ".jus.br",
+  ".gob.es",
+  ".gob.mx",
+  ".gc.ca",
+  ".govt.nz",
+  "pj.pt",
+  "nca.gov.uk",
+  "fbi.gov",
+  "cia.gov",
+  "nsa.gov",
+  "interpol.int",
+  "europol.europa.eu",
+];
 /**
  * Single source of truth for constructing a bot's synthetic email.
  * Always lowercased before insert — Better-Auth lowercases inputs and the

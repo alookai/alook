@@ -40,6 +40,22 @@ describe("createMachineToken", () => {
   });
 });
 
+function referencesColumn(node: unknown, columnName: string, seen = new Set<unknown>()): boolean {
+  if (node === null || typeof node !== "object") return false;
+  if (seen.has(node)) return false;
+  seen.add(node);
+  if ((node as { name?: unknown }).name === columnName) return true;
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    if (key === "table") continue;
+    if (Array.isArray(value)) {
+      if (value.some((v) => referencesColumn(v, columnName, seen))) return true;
+    } else if (referencesColumn(value, columnName, seen)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 describe("getMachineTokenByToken", () => {
   it("returns null when not found", async () => { expect(await mt.getMachineTokenByToken(createSelectMock([]), "x")).toBeNull(); });
   it("returns token with join", async () => {
@@ -47,6 +63,11 @@ describe("getMachineTokenByToken", () => {
     const mockDb = createSelectMock([t]);
     expect(await mt.getMachineTokenByToken(mockDb, "tok")).toEqual(t);
     expect(mockDb.innerJoin).toHaveBeenCalled();
+  });
+  it("filters on `user.deletedAt` in the WHERE so a soft-deleted owner's token stops authenticating", async () => {
+    const mockDb = createSelectMock([{ id: "mt_1" }]);
+    await mt.getMachineTokenByToken(mockDb, "tok");
+    expect(referencesColumn(mockDb.where.mock.calls[0][0], "deletedAt")).toBe(true);
   });
 });
 

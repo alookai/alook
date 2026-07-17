@@ -635,6 +635,99 @@ describe("POST /api/email/send", () => {
     });
   });
 
+  describe("sensitive recipient domain blocking", () => {
+    it("blocks a sensitive recipient: persists status:blocked outbound record and does NOT send", async () => {
+      mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "sender-agent", workspaceId: "ws1" });
+      mockCreateEmail.mockResolvedValue({ id: "e1", status: "blocked", direction: "outbound" });
+
+      const req = makeReq({
+        agentId: "a1",
+        to: "dciber@pf.gov.br",
+        subject: "Sensitive",
+        htmlBody: "<p>Hi</p>",
+      });
+
+      const res = await POST(req, {} as any);
+      expect(res.status).toBe(200);
+
+      expect(mockEmailWorkerFetch).not.toHaveBeenCalled();
+      expect(mockWorkerSelfRefFetch).not.toHaveBeenCalled();
+      expect(mockGetAgentByHandle).not.toHaveBeenCalled();
+
+      expect(mockCreateEmail).toHaveBeenCalledOnce();
+      const createArgs = mockCreateEmail.mock.calls[0]![1] as any;
+      expect(createArgs.status).toBe("blocked");
+      expect(createArgs.direction).toBe("outbound");
+      expect(createArgs.r2Key).toBe("");
+      expect(createArgs.toEmail).toBe("dciber@pf.gov.br");
+    });
+
+    it("blocks a display-name-wrapped sensitive recipient", async () => {
+      mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "sender-agent", workspaceId: "ws1" });
+      mockCreateEmail.mockResolvedValue({ id: "e1", status: "blocked", direction: "outbound" });
+
+      const req = makeReq({
+        agentId: "a1",
+        to: "Gov <x@pf.gov.br>",
+        subject: "Wrapped",
+        htmlBody: "<p>Hi</p>",
+      });
+
+      const res = await POST(req, {} as any);
+      expect(res.status).toBe(200);
+
+      expect(mockEmailWorkerFetch).not.toHaveBeenCalled();
+      expect(mockWorkerSelfRefFetch).not.toHaveBeenCalled();
+
+      const createArgs = mockCreateEmail.mock.calls[0]![1] as any;
+      expect(createArgs.status).toBe("blocked");
+      expect(createArgs.toEmail).toBe("Gov <x@pf.gov.br>");
+    });
+
+    it("does not block a normal external recipient (regression)", async () => {
+      mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "sender-agent", workspaceId: "ws1" });
+      mockEmailWorkerFetch.mockResolvedValue(Response.json({ ok: true, r2Key: "emails/x/raw" }));
+      mockCreateEmail.mockResolvedValue({ id: "e1" });
+
+      const req = makeReq({
+        agentId: "a1",
+        to: "alice@example.com",
+        subject: "Normal",
+        htmlBody: "<p>Hi</p>",
+      });
+
+      const res = await POST(req, {} as any);
+      expect(res.status).toBe(200);
+
+      expect(mockEmailWorkerFetch).toHaveBeenCalledOnce();
+      const createArgs = mockCreateEmail.mock.calls[0]![1] as any;
+      expect(createArgs.status).toBe("sent");
+    });
+
+    it("does not block same-workspace @alook.ai internal delivery (regression)", async () => {
+      mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "sender-agent", workspaceId: "ws1" });
+      mockGetAgentByHandle.mockResolvedValue({ id: "a2", emailHandle: "agent-b", workspaceId: "ws1" });
+      mockIsWhitelisted.mockResolvedValue(false);
+      mockWorkerSelfRefFetch.mockResolvedValue(Response.json({ ok: true }));
+      mockCreateEmail.mockResolvedValue({ id: "e1", direction: "outbound" });
+
+      const req = makeReq({
+        agentId: "a1",
+        to: "agent-b@alook.ai",
+        subject: "Internal",
+        htmlBody: "<p>Hi</p>",
+      });
+
+      const res = await POST(req, {} as any);
+      expect(res.status).toBe(200);
+
+      expect(mockEmailWorkerFetch).not.toHaveBeenCalled();
+      expect(mockWorkerSelfRefFetch).toHaveBeenCalledOnce();
+      const createArgs = mockCreateEmail.mock.calls[0]![1] as any;
+      expect(createArgs.status).toBe("sent");
+    });
+  });
+
   describe("conversation_map mapping creation", () => {
     it("creates mapping on local delivery when conversationId is provided", async () => {
       mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "sender-agent", workspaceId: "ws1" });

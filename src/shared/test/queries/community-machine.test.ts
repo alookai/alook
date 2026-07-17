@@ -880,20 +880,50 @@ describe("activateMachineCredential — success paths", () => {
 // findCredentialByHash / findActiveCredentialByBearer
 // ---------------------------------------------------------------------------
 
+function whereRefsColumn(node: unknown, columnName: string, seen = new Set<unknown>()): boolean {
+  if (node === null || typeof node !== "object") return false;
+  if (seen.has(node)) return false;
+  seen.add(node);
+  if ((node as { name?: unknown }).name === columnName) return true;
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    if (key === "table") continue;
+    if (Array.isArray(value)) {
+      if (value.some((v) => whereRefsColumn(v, columnName, seen))) return true;
+    } else if (whereRefsColumn(value, columnName, seen)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 describe("findCredentialByHash", () => {
   it("returns null when no active row matches", async () => {
     const chain: any = {};
     chain.select = vi.fn(() => chain);
     chain.from = vi.fn(() => chain);
+    chain.innerJoin = vi.fn(() => chain);
     chain.where = vi.fn(() => chain);
     chain.limit = vi.fn(() => Promise.resolve([]));
     expect(await q.findCredentialByHash(chain, "deadbeef")).toBeNull();
+  });
+
+  it("joins `user` and filters `user.deletedAt` so a soft-deleted owner's daemon credential stops authenticating", async () => {
+    const chain: any = {};
+    chain.select = vi.fn(() => chain);
+    chain.from = vi.fn(() => chain);
+    chain.innerJoin = vi.fn(() => chain);
+    chain.where = vi.fn(() => chain);
+    chain.limit = vi.fn(() => Promise.resolve([]));
+    await q.findCredentialByHash(chain, "h");
+    expect(chain.innerJoin).toHaveBeenCalled();
+    expect(whereRefsColumn(chain.where.mock.calls[0][0], "deletedAt")).toBe(true);
   });
 
   it("returns the row on hit and bumps last_used_at", async () => {
     const chain: any = {};
     chain.select = vi.fn(() => chain);
     chain.from = vi.fn(() => chain);
+    chain.innerJoin = vi.fn(() => chain);
     chain.where = vi.fn(() => chain);
     chain.limit = vi.fn(() =>
       Promise.resolve([
@@ -942,6 +972,7 @@ describe("findActiveCredentialByBearer", () => {
     const chain: any = {};
     chain.select = vi.fn(() => chain);
     chain.from = vi.fn(() => chain);
+    chain.innerJoin = vi.fn(() => chain);
     chain.where = vi.fn(() => chain);
     // The .where call receives the drizzle condition; we can't easily peek at
     // the compiled value, so we just assert the limit returns a shaped row.
@@ -1027,6 +1058,18 @@ describe("findActiveAgentRunnerKeyByBearer", () => {
     };
     expect(await q.findActiveAgentRunnerKeyByBearer(chain, "cmk_wrong")).toBeNull();
     expect(chain.select).not.toHaveBeenCalled();
+  });
+
+  it("joins `user` and filters the owner's `user.deletedAt` so a banned owner's runner keys stop authenticating", async () => {
+    const chain: any = {};
+    chain.select = vi.fn(() => chain);
+    chain.from = vi.fn(() => chain);
+    chain.innerJoin = vi.fn(() => chain);
+    chain.where = vi.fn(() => chain);
+    chain.limit = vi.fn(() => Promise.resolve([]));
+    await q.findActiveAgentRunnerKeyByBearer(chain, "crk_x");
+    expect(chain.innerJoin).toHaveBeenCalled();
+    expect(whereRefsColumn(chain.where.mock.calls[0][0], "deletedAt")).toBe(true);
   });
 });
 

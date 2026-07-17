@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { queries, DEV_EMAIL_WORKER_URL, DEV_WEB_URL, SendEmailRequestSchema, parseEmailHandle, toAlookAddress, buildMimeMessage, extractThreadId, buildEmailMapKey } from "@alook/shared";
+import { queries, DEV_EMAIL_WORKER_URL, DEV_WEB_URL, SendEmailRequestSchema, parseEmailHandle, toAlookAddress, buildMimeMessage, extractThreadId, buildEmailMapKey, isSensitiveRecipient } from "@alook/shared";
 import { nanoid } from "nanoid";
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
@@ -99,6 +99,28 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   }
 
   const attachments = body.attachments ?? [];
+
+  if (isSensitiveRecipient(body.to)) {
+    const email = await queries.email.createEmail(db, {
+      agentId: body.agentId,
+      workspaceId: ws.workspaceId,
+      fromEmail: fromAddress,
+      toEmail: body.to,
+      subject: body.subject,
+      r2Key: "",
+      isWhitelisted: false,
+      forwarded: false,
+      messageId: "",
+      inReplyTo: body.inReplyTo ?? "",
+      references: body.references ?? "",
+      htmlBody: body.htmlBody || "",
+      attachments: JSON.stringify(attachments),
+      direction: "outbound",
+      status: "blocked",
+    });
+    invalidate(cacheKeys.overviewEmailStats(ws.workspaceId)).catch(() => {});
+    return writeJSON(emailToResponse(email));
+  }
 
   // Local delivery shortcut: same-workspace @alook.ai → @alook.ai
   const senderHandle = parseEmailHandle(fromAddress);

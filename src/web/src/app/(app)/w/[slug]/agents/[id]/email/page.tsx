@@ -461,6 +461,15 @@ export default function AgentEmailPage() {
                 {folder === "sent" ? email.to_email : email.from_email}
               </p>
               <div className="flex items-center gap-2 shrink-0">
+                {folder === "sent" && email.status === "blocked" && (
+                  <Tooltip>
+                    <TooltipTrigger render={<span className="inline-flex items-center gap-1 text-[10px] rounded-full px-2 py-1 leading-none font-medium bg-destructive/10 text-destructive" />}>
+                      <ShieldAlert className="size-3" />
+                      Blocked
+                    </TooltipTrigger>
+                    <TooltipContent>Blocked — not sent</TooltipContent>
+                  </Tooltip>
+                )}
                 {folder !== "sent" && (
                   <span className={cn(
                     "text-[10px] rounded-full px-2 py-1 leading-none font-medium",
