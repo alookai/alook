@@ -19,6 +19,17 @@ for (const file of mdxFiles) {
   const slug = file.replace(/\.mdx$/, "");
   const content = readFileSync(join(contentDir, file), "utf-8");
 
+  // Page shell already renders <h1> from metadata.title. MDX must not add another.
+  const h1Lines = content
+    .split("\n")
+    .map((line, index) => ({ line, index: index + 1 }))
+    .filter(({ line }) => /^# (?!#)/.test(line));
+  for (const { line, index } of h1Lines) {
+    errors.push(
+      `[post: ${slug}] Duplicate H1 at line ${index}: "${line}". Remove MDX "# Title" — the page template owns the single H1.`
+    );
+  }
+
   const imgRegex = /!\[[^\]]*\]\(([^)]*)\)|<img[^>]+src="([^"]*)"[^>]*>/g;
   let match: RegExpExecArray | null;
 
