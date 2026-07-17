@@ -4,6 +4,8 @@
 // Rendered as a floating pill (same visual family as `ScrollDownButton`) so
 // new activity doesn't shift the message list layout when someone starts
 // typing.
+import { tid } from "@/lib/community/testids"
+
 export function TypingIndicator({ names }: { names: string[] }) {
   const visible = names.length > 0
   const label = names.length === 0
@@ -15,6 +17,7 @@ export function TypingIndicator({ names }: { names: string[] }) {
         : <><span className="font-medium text-foreground">{names.length} people</span> are typing…</>
   return (
     <div
+      data-testid={visible ? tid.typingIndicator : undefined}
       className={`pointer-events-none absolute bottom-3 left-3 z-10 transition-all duration-200 ease-out ${
         visible ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
       }`}

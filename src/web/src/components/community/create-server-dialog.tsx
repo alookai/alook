@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import { Plus, ChevronRight, Link2 } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { tid } from "@/lib/community/testids"
 import { Input } from "@/components/ui/input"
 import { Field } from "./field"
 import { SlugHint } from "./slug-hint"
@@ -90,6 +91,7 @@ export function CreateServerDialog({ onClose, onCreateServer, onJoinServer }: {
               <Button variant="ghost" size="sm" onClick={() => setStep("choose")}>Back</Button>
               <Button
                 size="sm"
+                data-testid={tid.createServerSubmit}
                 disabled={step === "create" ? !namePreview.slug : !invite.trim()}
                 onClick={() => {
                   if (step === "create") onCreateServer?.(name.trim(), iconFile ?? undefined)

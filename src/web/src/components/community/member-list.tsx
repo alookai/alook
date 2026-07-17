@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input"
 import { Avatar } from "./avatar"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { hasStatus } from "./status-presets"
+import { tid } from "@/lib/community/testids"
 import type { Member, Role, OpenProfile, MemberManageContext } from "./_types"
 import { canManageServer, isServerOwner, ROLES, isPresenceOnline, isPresenceOffline } from "./_types"
 
@@ -281,6 +282,7 @@ function MemberRow({
 }) {
   const button = (
     <button
+      data-testid={tid.memberRow(mem.userId)}
       onClick={(e) => onOpenProfile?.(mem.name, e, undefined, mem.userId)}
       className="flex w-full items-center gap-3 rounded-md px-2 py-2 select-none hover:bg-accent"
     >

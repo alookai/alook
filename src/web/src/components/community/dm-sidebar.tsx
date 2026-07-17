@@ -4,6 +4,7 @@ import { memo } from "react"
 import { Users, Ban, Monitor, Bot } from "lucide-react"
 import { Avatar } from "./avatar"
 import { Skeleton } from "@/components/ui/skeleton"
+import { tid } from "@/lib/community/testids"
 import type { DM } from "./_types"
 
 export const DmSidebar = memo(function DmSidebar({
@@ -71,6 +72,7 @@ export const DmSidebar = memo(function DmSidebar({
           return (
             <button
               key={d.id}
+              data-testid={tid.dmRow(d.id)}
               onClick={() => onPickDm(d.id)}
               className={[
                 "flex w-full items-center gap-3 rounded-md px-2 py-2",

@@ -132,3 +132,103 @@ export function cleanupPairedMachine(machine: PairedMachine, ownerUserId: string
   sqlRun(`DELETE FROM community_machine_token WHERE user_id = ?`, ownerUserId)
   sqlRun(`DELETE FROM community_machine WHERE id = ?`, machine.machineId)
 }
+
+// ── API-driven community precondition seeding ───────────────────────────────
+// These drive the real HTTP routes (with a signed-in session cookie) so FK,
+// permissions, default channels, and slugification all match production. Use
+// them for journey *preconditions* — the operations themselves are exercised
+// through the UI in the Playwright specs.
+
+export interface SeededServer {
+  serverId: string
+}
+
+export async function seedServerViaApi(cookie: string, opts: { name: string }): Promise<SeededServer> {
+  const res = await sessionRequest("/api/community/servers", cookie, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: opts.name }),
+  })
+  if (!res.ok) throw new Error(`seedServerViaApi failed (${res.status})`)
+  const data = (await res.json()) as { server: { id: string } }
+  return { serverId: data.server.id }
+}
+
+export interface SeededChannel {
+  channelId: string
+}
+
+export async function seedChannelViaApi(
+  cookie: string,
+  opts: { serverId: string; name: string; type?: "text" | "forum"; categoryId?: string },
+): Promise<SeededChannel> {
+  const res = await sessionRequest(`/api/community/servers/${opts.serverId}/channels`, cookie, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: opts.name, type: opts.type, categoryId: opts.categoryId }),
+  })
+  if (!res.ok) throw new Error(`seedChannelViaApi failed (${res.status})`)
+  const data = (await res.json()) as { channel: { id: string } }
+  return { channelId: data.channel.id }
+}
+
+export interface SeededDm {
+  dmId: string
+}
+
+export async function seedDmViaApi(cookie: string, opts: { userId: string }): Promise<SeededDm> {
+  const res = await sessionRequest("/api/community/dm", cookie, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userId: opts.userId }),
+  })
+  if (!res.ok) throw new Error(`seedDmViaApi failed (${res.status})`)
+  const data = (await res.json()) as { conversation: { id: string } }
+  return { dmId: data.conversation.id }
+}
+
+/**
+ * Full friend handshake: requester sends, addressee accepts. `accept` is
+ * addressee-only (403 otherwise), so both cookies are required. Returns the
+ * friendship id.
+ */
+export async function seedFriendshipViaApi(
+  cookieRequester: string,
+  cookieAddressee: string,
+  opts: { targetUserId: string },
+): Promise<{ friendshipId: string }> {
+  const reqRes = await sessionRequest("/api/community/friends/request", cookieRequester, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userId: opts.targetUserId }),
+  })
+  if (!reqRes.ok) throw new Error(`seedFriendshipViaApi request failed (${reqRes.status})`)
+  const reqData = (await reqRes.json()) as { id?: string; friendship?: { id: string } | null }
+  const friendshipId = reqData.id ?? reqData.friendship?.id
+  if (!friendshipId) throw new Error("seedFriendshipViaApi: no friendship id in response")
+
+  const acceptRes = await sessionRequest(`/api/community/friends/${friendshipId}/accept`, cookieAddressee, {
+    method: "POST",
+  })
+  if (!acceptRes.ok) throw new Error(`seedFriendshipViaApi accept failed (${acceptRes.status})`)
+  return { friendshipId }
+}
+
+export async function seedBlockViaApi(cookie: string, opts: { userId: string }): Promise<void> {
+  const res = await sessionRequest(`/api/community/users/${opts.userId}/block`, cookie, {
+    method: "POST",
+  })
+  if (!res.ok) throw new Error(`seedBlockViaApi failed (${res.status})`)
+}
+
+export async function addChannelMemberViaApi(
+  cookie: string,
+  opts: { channelId: string; userId: string },
+): Promise<void> {
+  const res = await sessionRequest(`/api/community/channels/${opts.channelId}/members`, cookie, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userId: opts.userId }),
+  })
+  if (!res.ok) throw new Error(`addChannelMemberViaApi failed (${res.status})`)
+}

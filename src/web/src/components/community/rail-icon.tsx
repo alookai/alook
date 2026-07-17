@@ -1,13 +1,14 @@
 import type React from "react"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 
-export function RailIcon({ label, round, accent, active, onClick, tooltip }: {
+export function RailIcon({ label, round, accent, active, onClick, tooltip, testId }: {
   label: React.ReactNode
   round?: boolean
   accent?: boolean
   active?: boolean
   onClick?: () => void
   tooltip?: string
+  testId?: string
 }) {
   const btn = (
     <div className="group relative flex w-full justify-center">
@@ -16,6 +17,7 @@ export function RailIcon({ label, round, accent, active, onClick, tooltip }: {
         active ? "h-8" : "h-0 group-hover:h-5",
       ].join(" ")} />
       <button
+        data-testid={testId}
         onClick={onClick}
         className={[
           "grid size-10 shrink-0 place-items-center transition-all duration-150 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",

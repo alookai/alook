@@ -18,6 +18,7 @@ import { avatarInitial } from "@/lib/community/avatar"
 import { Field } from "./field"
 import { SlugHint } from "./slug-hint"
 import { previewSlug } from "@/lib/community/slug-preview"
+import { tid } from "@/lib/community/testids"
 import type { SettingsSection, Member, Role, InviteRow, AuditEntry, OpenProfile } from "./_types"
 import { isServerOwner } from "./_types"
 
@@ -337,10 +338,10 @@ function SettingsInvites({ invites, loading, onRevokeInvite, onCopyInvite }: {
         <div key={iv.code} className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
           <Link2 className="size-5 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1">
-            <div className="truncate font-mono text-sm">{iv.code}</div>
+            <div data-testid={tid.inviteToken} className="truncate font-mono text-sm">{iv.code}</div>
             <div className="text-xs text-muted-foreground" suppressHydrationWarning>by {iv.by} · {iv.uses}{iv.maxUses ? ` / ${iv.maxUses}` : ""} uses · {iv.expiresAt ? `expires ${formatRelativeTime(iv.expiresAt)}` : "never expires"}</div>
           </div>
-          <Button variant="secondary" size="sm" onClick={() => onCopyInvite?.(iv.code)}>Copy</Button>
+          <Button variant="secondary" size="sm" data-testid={tid.inviteCopy} onClick={() => onCopyInvite?.(iv.code)}>Copy</Button>
           <Button variant="ghost" size="icon-sm" className="text-muted-foreground hover:text-destructive" aria-label="Revoke invite" onClick={() => setRevokingCode(iv.code)}><X className="size-4" /></Button>
         </div>
       ))}

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ArrowDown } from "lucide-react"
+import { tid } from "@/lib/community/testids"
 import { DateDivider, NewDivider } from "./dividers"
 import { Message } from "./message"
 import { TypingIndicator } from "./typing-indicator"
@@ -367,7 +368,7 @@ export function MessageList({
                         // row is a candidate for the read pointer (the hook
                         // only ever observes rows that exist in the DOM,
                         // which virtualization doesn't change).
-                        <div data-msg-id={item.m.id}>
+                        <div data-msg-id={item.m.id} data-testid={tid.message(item.m.id)}>
                           <Message
                             m={item.m}
                             pinned={pinnedIds?.has(item.m.id)}

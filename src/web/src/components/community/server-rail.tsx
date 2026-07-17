@@ -8,6 +8,7 @@ import {
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable"
 import { restrictToVerticalAxis } from "@dnd-kit/modifiers"
 import { RailIcon } from "./rail-icon"
+import { tid } from "@/lib/community/testids"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { Skeleton } from "@/components/ui/skeleton"
 import { SortableServer } from "./sortable-server"
@@ -253,7 +254,7 @@ export const ServerRail = memo(function ServerRail({
         </DragOverlay>
       </DndContext>
       )}
-      <RailIcon label={<Plus className="size-6" />} round accent tooltip="Add a Server" onClick={() => setCreateOpen(true)} />
+      <RailIcon label={<Plus className="size-6" />} round accent tooltip="Add a Server" testId={tid.serverAdd} onClick={() => setCreateOpen(true)} />
 
       {createOpen && (
         <CreateServerDialog

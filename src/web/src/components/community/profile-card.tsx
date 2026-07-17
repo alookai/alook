@@ -10,6 +10,7 @@ import type { Profile } from "./_types"
 import type { Breakpoint } from "@/hooks/use-mobile"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { gradientFromSeed } from "@/lib/community/gradient-from-seed"
+import { tid } from "@/lib/community/testids"
 
 // Merge rule for the card's status pill: overlay wins over seed. The overlay
 // (`useCommunityWsStore.userStatuses`) is the same live source the member
@@ -137,7 +138,7 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
               </StatusEditor>
             ) : (
               hasStatus(statusEmoji, statusText) && (
-                <div title={statusText || undefined} className="absolute left-full top-[68.5px] ml-2 flex max-w-32 -translate-y-1/2 items-center gap-2 rounded-full border border-border bg-secondary px-2 py-0.5 text-[13px] whitespace-nowrap text-secondary-foreground shadow-(--e1)">
+                <div data-testid={tid.statusPill} title={statusText || undefined} className="absolute left-full top-[68.5px] ml-2 flex max-w-32 -translate-y-1/2 items-center gap-2 rounded-full border border-border bg-secondary px-2 py-0.5 text-[13px] whitespace-nowrap text-secondary-foreground shadow-(--e1)">
                   {statusEmoji && <span>{statusEmoji}</span>}
                   {statusText && <span className="min-w-0 truncate">{statusText}</span>}
                 </div>
@@ -198,7 +199,7 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
       <div className="fixed inset-0 z-30 flex flex-col justify-end" onClick={onClose}>
         <div className="absolute inset-0 bg-foreground/30" />
         <div className="relative p-3" onClick={(e) => e.stopPropagation()}>
-          <div className="overflow-hidden rounded-xl border border-border bg-popover p-2 shadow-(--e2)">{card}</div>
+          <div data-testid={tid.profileCard} className="overflow-hidden rounded-xl border border-border bg-popover p-2 shadow-(--e2)">{card}</div>
         </div>
       </div>
     )
@@ -212,7 +213,7 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
         className="pointer-events-none fixed size-0"
         style={{ left: x, top: y }}
       />
-      <PopoverContent side="right" align="start" sideOffset={8} className="w-75 overflow-hidden p-2">
+      <PopoverContent data-testid={tid.profileCard} side="right" align="start" sideOffset={8} className="w-75 overflow-hidden p-2">
         {card}
       </PopoverContent>
     </Popover>

@@ -1,0 +1,68 @@
+name: E2E UI
+
+# Playwright browser E2E for the web UI (community today; extends to the full
+# UI over time). Runs ONLY on release commits (bump), and gates the release
+# chain: auto-tag-release and the publish-* workflows trigger on this
+# workflow's successful completion (see their `on: workflow_run`). If this
+# fails or is skipped, nothing ships.
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: e2e-ui-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-ui:
+    name: UI Playwright E2E
+    # Job-level gate: a non-release push skips this job, so the workflow run's
+    # conclusion is `skipped` (not `success`) and the downstream workflow_run
+    # guards won't fire.
+    if: "startsWith(github.event.head_commit.message, 'release: v')"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # next dev (development) is required — the dev email+password sign-in
+      # form and better-auth emailAndPassword are only enabled when NOT prod.
+      BETTER_AUTH_SECRET: ci-e2e-ui-secret
+      BETTER_AUTH_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Create .dev.vars for local bindings
+        run: printf 'BETTER_AUTH_SECRET=ci-e2e-ui-secret\nBETTER_AUTH_URL=http://localhost:3000\nDEVICE_CLIENT_IDS=e2e-test-client\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\n' > src/web/.dev.vars
+
+      - name: Install Playwright Chromium
+        working-directory: src/web
+        run: pnpm exec playwright install --with-deps chromium
+
+      # global-setup runs db:reset, starts dev:web + dev:ws (fail-fast on ws
+      # health), and logs in the test users — so this single step drives the
+      # whole suite.
+      - name: Run UI E2E
+        working-directory: src/web
+        run: pnpm run test:e2e-ui
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: playwright-report
+          path: src/web/playwright-report/
+          retention-days: 30
+
+      - name: Upload traces & videos
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: playwright-artifacts
+          path: src/web/test-results/
+          retention-days: 30

@@ -1,4 +1,5 @@
 import { Separator } from "@/components/ui/separator"
+import { tid } from "@/lib/community/testids"
 
 export function DateDivider({ label }: { label: string }) {
   return (
@@ -21,7 +22,7 @@ export function NewDivider({ dateLabel }: { dateLabel?: string }) {
   // date label merges onto the same red line (centered) instead of rendering
   // a separate date-divider row above it.
   return (
-    <div data-new-divider className="relative my-1 flex items-center gap-2">
+    <div data-new-divider data-testid={tid.newDivider} className="relative my-1 flex items-center gap-2">
       <Separator className="flex-1 bg-destructive/60" />
       {dateLabel && (
         <>

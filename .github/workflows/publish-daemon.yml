@@ -1,9 +1,12 @@
 name: Publish Daemon
 
+# Gated on the E2E UI workflow (release chain). `workflow_run` doesn't
+# support `on.paths`, so the "did src/daemon/package.json change?" gate is done
+# in a job step via `git diff head_sha^ head_sha` (needs fetch-depth ≥ 2).
 on:
-  push:
-    branches: [main]
-    paths: [src/daemon/package.json]
+  workflow_run:
+    workflows: ["E2E UI"]
+    types: [completed]
 
 concurrency:
   group: publish-daemon
@@ -12,21 +15,37 @@ concurrency:
 jobs:
   publish:
     name: Publish @alook/daemon to npm
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       id-token: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Check if src/daemon/package.json changed in this commit
+        id: changed
+        run: |
+          if git diff --name-only "${{ github.event.workflow_run.head_sha }}^" "${{ github.event.workflow_run.head_sha }}" | grep -qx 'src/daemon/package.json'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::src/daemon/package.json unchanged — skipping"
+          fi
 
       - name: Detect version
         id: version
+        if: steps.changed.outputs.changed == 'true'
         run: |
           VERSION=$(node -p "require('./src/daemon/package.json').version")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Check if version already published
         id: check
+        if: steps.changed.outputs.changed == 'true'
         run: |
           if npm view "@alook/daemon@${{ steps.version.outputs.version }}" version >/dev/null 2>&1; then
             echo "skip=true" >> "$GITHUB_OUTPUT"

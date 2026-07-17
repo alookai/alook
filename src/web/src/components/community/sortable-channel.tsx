@@ -8,6 +8,7 @@ import { CSS } from "@dnd-kit/utilities"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { DropLine } from "./drop-line"
+import { tid } from "@/lib/community/testids"
 import type { Channel } from "./_types"
 
 // True when the row has at least one right-click action. With none, we skip the
@@ -55,6 +56,7 @@ export function SortableChannel({ ch, active, onClick, onEdit, onDelete, onManag
       ref={setNodeRef}
       style={style}
       onClick={onClick}
+      data-testid={tid.channelRow(ch.id)}
       {...attributes}
       {...listeners}
       className={[

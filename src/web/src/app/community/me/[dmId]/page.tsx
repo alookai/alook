@@ -16,6 +16,7 @@ import {
   useUiHandlers,
 } from "@/stores/community"
 import { useOnlineUserIds, useCommunityWsStore } from "@/stores/community/ws"
+import { tid } from "@/lib/community/testids"
 import { resolveRowPresence } from "@/lib/community/presence"
 import { makeUserNameResolver } from "@/lib/community/display-name"
 import { useDms } from "@/hooks/community/use-dms"
@@ -366,7 +367,7 @@ function DmView() {
           }
         />
         {dmBlocked ? (
-          <div className="flex h-14 shrink-0 items-center justify-center border-t border-border/40 px-4 text-sm text-muted-foreground">
+          <div data-testid={tid.dmBlockedNotice} className="flex h-14 shrink-0 items-center justify-center border-t border-border/40 px-4 text-sm text-muted-foreground">
             You have blocked this user. Unblock to send messages.
           </div>
         ) : (

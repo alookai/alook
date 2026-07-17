@@ -13,6 +13,15 @@
 # testing
 /coverage
 
+# playwright (E2E UI) artifacts + saved auth state
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+src/test/e2e-ui/.auth/
+# local-run D1/DO state backup taken by the E2E harness
+.wrangler/state.e2e-backup/
+
 # next.js
 /.next/
 /out/

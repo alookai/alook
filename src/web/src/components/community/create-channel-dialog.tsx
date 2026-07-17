@@ -4,6 +4,7 @@ import { useState } from "react"
 import { EntityIcon } from "./entity-icon"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { tid } from "@/lib/community/testids"
 import { Input } from "@/components/ui/input"
 import { onEnterSubmit } from "@/lib/ime"
 import { SlugHint } from "./slug-hint"
@@ -87,7 +88,7 @@ export function CreateChannelDialog({ category, initial, onClose, onCreate }: {
         </div>
         <DialogFooter className="mx-0 mb-0 flex-row items-center justify-end gap-2 rounded-b-xl border-t border-border bg-card px-4 py-3">
           <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" onClick={submit} disabled={!namePreview.slug}>{editing ? "Save" : "Create Channel"}</Button>
+          <Button size="sm" data-testid={tid.createChannelSubmit} onClick={submit} disabled={!namePreview.slug}>{editing ? "Save" : "Create Channel"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -10,6 +10,7 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { Skeleton } from "@/components/ui/skeleton"
 import { useFileAttachments, type PendingFile } from "@/hooks/use-file-attachments"
 import { ALLOWED_ATTACHMENT_MIME_PREFIXES, MAX_ATTACHMENT_SIZE_BYTES } from "@alook/shared"
+import { tid } from "@/lib/community/testids"
 import { Avatar } from "./avatar"
 import { ChannelIcon } from "./channel-icon"
 import { EmojiPickerPopover } from "./emoji-picker"
@@ -327,13 +328,13 @@ export function Composer({ channel, context, members, onSearchMembers, channelRe
           onChange={handleFileSelect}
           className="hidden"
         />
-        <div className="chat-composer relative px-12 py-3">
+        <div className="chat-composer relative px-12 py-3" data-testid={tid.composerInput}>
           <EditorContent editor={editor} className="max-h-40 overflow-y-auto thin-scrollbar text-base chat-input-line-height outline-none" />
         </div>
         {/* Attach button — fixed bottom-left */}
         <DropdownMenu onOpenChange={(open) => { if (!open) editor?.commands.focus() }}>
           <DropdownMenuTrigger
-            render={<button className="absolute left-2 bottom-2 grid size-8 place-items-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground" aria-label="Add" />}
+            render={<button data-testid={tid.composerAttach} className="absolute left-2 bottom-2 grid size-8 place-items-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground" aria-label="Add" />}
           >
             <PlusCircle className="size-5" />
           </DropdownMenuTrigger>
@@ -540,6 +541,7 @@ function MentionRow({ item, selected, showMembersHeader, onSelect }: {
       <button
         type="button"
         role="option"
+        data-testid={tid.mentionOption(item.id)}
         aria-selected={selected}
         className={[
           "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors",

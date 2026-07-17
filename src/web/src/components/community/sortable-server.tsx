@@ -9,6 +9,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { NumberTicker } from "@/components/ui/number-ticker"
 import { gradientFromSeed } from "@/lib/community/gradient-from-seed"
+import { tid } from "@/lib/community/testids"
 import type { Server } from "./_types"
 
 export function SortableServer({ server, active, onClick, onLeave, onOpenSettings, onOpenInvitePopover, onCreateFolder, groupTarget, inFolder, dragging: isDragActive }: { server: Server; active?: boolean; onClick: () => void; onLeave?: () => void; onOpenSettings?: () => void; onOpenInvitePopover?: () => void; onCreateFolder?: () => void; groupTarget?: boolean; inFolder?: boolean; dragging?: boolean }) {
@@ -30,6 +31,7 @@ export function SortableServer({ server, active, onClick, onLeave, onOpenSetting
               <RailIndicator active={active} />
               <div className={["relative size-10 transition-all duration-150", groupTarget ? "scale-110 rounded-xl ring-2 ring-primary" : "", isDragging ? "rounded-xl border-2 border-dashed border-muted-foreground/40" : ""].join(" ")}>
                 <button
+                  data-testid={tid.serverIcon(server.id)}
                   onClick={active ? undefined : onClick}
                   {...attributes}
                   {...listeners}
@@ -49,7 +51,7 @@ export function SortableServer({ server, active, onClick, onLeave, onOpenSetting
                   )}
                 </button>
                 {server.mentions > 0 && (
-                  <span className="pointer-events-none absolute -bottom-1 -right-1 grid h-5 min-w-5 place-items-center rounded-full bg-primary px-1 text-[11px] font-bold text-primary-foreground ring-2 ring-(--d-rail)">
+                  <span data-testid={tid.railUnreadBadge(server.id)} className="pointer-events-none absolute -bottom-1 -right-1 grid h-5 min-w-5 place-items-center rounded-full bg-primary px-1 text-[11px] font-bold text-primary-foreground ring-2 ring-(--d-rail)">
                     <NumberTicker value={server.mentions} />
                   </span>
                 )}
