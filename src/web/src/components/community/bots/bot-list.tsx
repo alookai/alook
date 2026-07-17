@@ -36,7 +36,7 @@ import { EditBotSheet } from "./edit-bot-sheet"
 import { BotActivityModal } from "./bot-activity-modal"
 
 /**
- * BotList — the /community/me/bots surface.
+ * BotList — the /c/me/bots surface.
  *
  * Visual language matches the sibling MachineList: a back-bar header, a
  * 6-unit-padded scroll region, header/CTA row, Card rows with a 40px avatar,
@@ -71,7 +71,7 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
   const chatWithBot = async (bot: BotSummary) => {
     try {
       const data = await createOrGetDm.mutateAsync({ userId: bot.id })
-      router.push(`/community/me/${data.conversation.id}`)
+      router.push(`/c/me/${data.conversation.id}`)
     } catch (e) {
       toastApiError(e, "Failed to open chat")
     }
@@ -255,7 +255,7 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                                     className="h-6 shrink-0 px-2 text-xs"
                                     onClick={(e) => {
                                       e.stopPropagation()
-                                      router.push(`/community/me/machines?reconnect=${machine.id}`)
+                                      router.push(`/c/me/machines?reconnect=${machine.id}`)
                                     }}
                                   >
                                     Bring online

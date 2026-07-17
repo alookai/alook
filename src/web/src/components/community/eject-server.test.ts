@@ -37,7 +37,7 @@ describe("pickPostEjectDestination", () => {
   it("returns the first other server when one remains", () => {
     const servers = [makeServer("srv_ejected"), makeServer("srv_next"), makeServer("srv_third")]
     expect(pickPostEjectDestination(servers, "srv_ejected")).toBe(
-      "/community/channels/srv_next",
+      "/c/channels/srv_next",
     )
   })
 
@@ -46,16 +46,16 @@ describe("pickPostEjectDestination", () => {
     // must still land on the first non-ejected id from left to right.
     const servers = [makeServer("srv_first"), makeServer("srv_ejected"), makeServer("srv_third")]
     expect(pickPostEjectDestination(servers, "srv_ejected")).toBe(
-      "/community/channels/srv_first",
+      "/c/channels/srv_first",
     )
   })
 
-  it("returns /community/me when the ejected server was the only one", () => {
+  it("returns /c/me when the ejected server was the only one", () => {
     const servers = [makeServer("srv_only")]
-    expect(pickPostEjectDestination(servers, "srv_only")).toBe("/community/me")
+    expect(pickPostEjectDestination(servers, "srv_only")).toBe("/c/me")
   })
 
-  it("returns /community/me when the list is empty", () => {
-    expect(pickPostEjectDestination([], "srv_anything")).toBe("/community/me")
+  it("returns /c/me when the list is empty", () => {
+    expect(pickPostEjectDestination([], "srv_anything")).toBe("/c/me")
   })
 })

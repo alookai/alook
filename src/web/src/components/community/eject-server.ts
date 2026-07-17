@@ -28,6 +28,6 @@ export function pickPostEjectDestination(
   ejectedServerId: string,
 ): string {
   const remaining = servers.filter((s) => s.id !== ejectedServerId)
-  if (remaining.length === 0) return "/community/me"
-  return `/community/channels/${remaining[0].id}`
+  if (remaining.length === 0) return "/c/me"
+  return `/c/channels/${remaining[0].id}`
 }

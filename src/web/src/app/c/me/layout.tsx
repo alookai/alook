@@ -55,8 +55,8 @@ export default function MeLayout({ children }: { children: ReactNode }) {
   }, [onlineFriendIds])
 
   const hasDm = !!params.dmId
-  const machinesActive = pathname === "/community/me/machines"
-  const botsActive = pathname === "/community/me/bots"
+  const machinesActive = pathname === "/c/me/machines"
+  const botsActive = pathname === "/c/me/bots"
   const friendsActive = !hasDm && !machinesActive && !botsActive
 
   const [mobileZone, setMobileZone] = useState<MobileZone>(() => (hasDm ? "messages" : "nav"))
@@ -82,31 +82,31 @@ export default function MeLayout({ children }: { children: ReactNode }) {
           ? { ...prev, conversations: prev.conversations.map((d) => (d.id === id ? { ...d, unread: false } : d)) }
           : prev,
     )
-    router.push(`/community/me/${id}`)
+    router.push(`/c/me/${id}`)
     if (bp === "mobile") setMobileZone("messages")
   }, [queryClient, router, bp])
 
   const onShowFriends = useCallback(() => {
     useCommunityStore.getState().setCurrentChannelId(null)
-    router.push("/community/me")
+    router.push("/c/me")
     if (bp === "mobile") setMobileZone("messages")
   }, [router, bp])
 
   const onShowMachines = useCallback(() => {
     useCommunityStore.getState().setCurrentChannelId(null)
-    router.push("/community/me/machines")
+    router.push("/c/me/machines")
     if (bp === "mobile") setMobileZone("messages")
   }, [router, bp])
 
   const onShowBots = useCallback(() => {
     useCommunityStore.getState().setCurrentChannelId(null)
-    router.push("/community/me/bots")
+    router.push("/c/me/bots")
     if (bp === "mobile") setMobileZone("messages")
   }, [router, bp])
 
   const goHome = useCallback(() => {
     setMobileZone("nav")
-    router.push("/community/me")
+    router.push("/c/me")
   }, [router])
   const goServer = useCallback(() => { setMobileZone("nav") }, [])
 

@@ -65,7 +65,7 @@ import {
 } from "@/hooks/community/use-community-ws"
 
 /**
- * /community/channels/:serverId/:channelId
+ * /c/channels/:serverId/:channelId
  *
  * - Forum channel: ForumView
  * - Text channel: MessageList + Composer + right panels
@@ -440,7 +440,7 @@ function ChannelView() {
           // on a dead URL with a misleading "thread" error — bounce to the server
           // root, which forwards to the first remaining channel.
           if (e instanceof ApiError && e.status === 404) {
-            router.replace(`/community/channels/${params.serverId}`)
+            router.replace(`/c/channels/${params.serverId}`)
             return
           }
           toastApiError(e, "Failed to load thread")
@@ -472,7 +472,7 @@ function ChannelView() {
   // still drive this mount's anchor and scroll; this only cleans the address.
   useEffect(() => {
     if (!jumpTargetId) return
-    router.replace(`/community/channels/${params.serverId}/${channelId}`, { scroll: false })
+    router.replace(`/c/channels/${params.serverId}/${channelId}`, { scroll: false })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once for this mount's jump
   }, [])
 
@@ -552,7 +552,7 @@ function ChannelView() {
     // No eager read PUT here — the thread page's `useEagerChannelRead` fires it
     // on mount AFTER its read-state snapshot latches, so the "New" divider
     // still anchors to the pre-open pointer. A PUT here would race the snapshot.
-    router.push(`/community/channels/${params.serverId}/${id}`)
+    router.push(`/c/channels/${params.serverId}/${id}`)
   }
 
   const openProfile: OpenProfile = (name, e, discriminator, userId) => {
@@ -619,7 +619,7 @@ function ChannelView() {
       const name = deriveThreadName(m?.content, channelName)
       try {
         const data = await createThreadMut.mutateAsync({ channelId, messageId: id, name })
-        router.push(`/community/channels/${params.serverId}/${data.id}`)
+        router.push(`/c/channels/${params.serverId}/${data.id}`)
       } catch (e) {
         toastApiError(e, "Failed to create thread")
       }
@@ -867,7 +867,7 @@ function ChannelView() {
           parentId
             ? () =>
                 router.push(
-                  `/community/channels/${params.serverId}/${parentId}?msg=${parentMessageId}`,
+                  `/c/channels/${params.serverId}/${parentId}?msg=${parentMessageId}`,
                 )
             : undefined
         }
@@ -885,7 +885,7 @@ function ChannelView() {
           tools={{ threads: false }}
           breadcrumb={{
             label: channelName,
-            onNavigateBack: () => { if (parentId) router.push(`/community/channels/${params.serverId}/${parentId}`); else router.back() },
+            onNavigateBack: () => { if (parentId) router.push(`/c/channels/${params.serverId}/${parentId}`); else router.back() },
             onRename: canManageServer(myRole) ? async (name) => {
               try {
                 await apiFetch(`/api/community/channels/${channelId}`, {

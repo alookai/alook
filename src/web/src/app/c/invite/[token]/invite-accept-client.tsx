@@ -53,7 +53,7 @@ export function InviteAcceptClient({ token }: { token: string }) {
       // Refresh the server list before navigating so the rail shows the newly
       // joined server on arrival instead of the user having to refresh.
       await queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
-      router.push(`/community/channels/${result.serverId}`)
+      router.push(`/c/channels/${result.serverId}`)
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Couldn't join the server — try the invite again"
       toast(message)
@@ -85,7 +85,7 @@ export function InviteAcceptClient({ token }: { token: string }) {
           <Button
             className="mt-6"
             variant="secondary"
-            onClick={() => router.push("/community/me")}
+            onClick={() => router.push("/c/me")}
           >
             Back to community
           </Button>

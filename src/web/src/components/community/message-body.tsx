@@ -78,7 +78,7 @@ const REHYPE_PLUGINS: PluggableList = [
 // parses directly into mdast nodes and maps to pill components — no custom
 // markdown parser, no HTML-string splicing.
 //
-// Community invite URLs (`/community/invite/<token>`) render inline: the
+// Community invite URLs (`/c/invite/<token>`) render inline: the
 // URL stays as a plain auto-linked <a> in the message body, and a rich join
 // card renders BELOW it. Both surfaces coexist so users can still copy/share
 // the raw link even when the card is present.

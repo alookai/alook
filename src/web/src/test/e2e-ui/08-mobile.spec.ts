@@ -18,7 +18,7 @@ test.describe.serial("mobile layout", () => {
 
   test("opening a channel shows the messages zone with a back button", async ({ asUser }) => {
     const { page } = await asUser("alice")
-    await page.goto(`/community/channels/${serverId}/${channelId}`)
+    await page.goto(`/c/channels/${serverId}/${channelId}`)
     await page.waitForURL(new RegExp(channelId), { timeout: 20_000 })
 
     // Composer (messages zone) is present.

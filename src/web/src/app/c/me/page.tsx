@@ -115,7 +115,7 @@ export default function MeFriendsPage() {
       onDm={async (userId) => {
         try {
           const data = await createOrGetDm.mutateAsync({ userId })
-          if (data.conversation.id) router.push(`/community/me/${data.conversation.id}`)
+          if (data.conversation.id) router.push(`/c/me/${data.conversation.id}`)
         } catch (e) {
           toastApiError(e, "Failed to open DM")
         }

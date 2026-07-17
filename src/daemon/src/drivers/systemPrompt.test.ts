@@ -96,9 +96,9 @@ describe("buildCliSystemPrompt", () => {
     expect(prompt).toContain("server join");
   });
 
-  it("instructs the agent to act on /community/invite/ links", () => {
+  it("instructs the agent to act on /c/invite/ links", () => {
     const prompt = buildCliSystemPrompt(baseConfig, { lifecycleKind: "persistent" });
-    expect(prompt).toContain("/community/invite/");
+    expect(prompt).toContain("/c/invite/");
   });
 
   it("tells the agent that refs also render as clickable links when written inline in message text", () => {

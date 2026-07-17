@@ -17,14 +17,14 @@ test.describe.serial("channel & member admin", () => {
   test("a non-member is ejected when hitting the server URL directly", async ({ asUser }) => {
     // Carol is not a member of Alice's server.
     const { page } = await asUser("carol")
-    await page.goto(`/community/channels/${serverId}/${channelId}`)
+    await page.goto(`/c/channels/${serverId}/${channelId}`)
     // She's redirected away from the server she can't access.
     await expect(page).not.toHaveURL(new RegExp(`/channels/${serverId}/${channelId}$`), { timeout: 20_000 })
   })
 
   test("the member list shows server members", async ({ asUser }) => {
     const { page } = await asUser("alice")
-    await page.goto(`/community/channels/${serverId}/${channelId}`)
+    await page.goto(`/c/channels/${serverId}/${channelId}`)
     await page.waitForURL(new RegExp(channelId), { timeout: 20_000 })
     // Open the members panel via the channel header.
     await page.getByRole("button", { name: /member/i }).first().click()

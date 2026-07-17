@@ -201,7 +201,7 @@ describe("server join", () => {
   it("extracts the token from a full URL and calls joinServer with the bare token only", async () => {
     const joinServerSpy = vi.fn(async () => ({ server: { id: "srv_1", name: "Design Studio" } }));
     setApiForTesting(stubApi({ joinServer: joinServerSpy }));
-    await main(["server", "join", "--invite", "https://alook.dev/community/invite/AbC123XyZ0"]);
+    await main(["server", "join", "--invite", "https://alook.dev/c/invite/AbC123XyZ0"]);
     expect(joinServerSpy).toHaveBeenCalledWith(expect.objectContaining({ invite: "AbC123XyZ0" }));
   });
 

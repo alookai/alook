@@ -18,8 +18,8 @@ export async function createServer(page: Page, name: string, opts?: { autoDialog
   await page.getByTestId(tid.createServerSubmit).click()
 
   // Land on the new server's default channel.
-  await page.waitForURL(/\/community\/channels\/[^/]+\/[^/]+/, { timeout: 20_000 })
-  const m = page.url().match(/\/community\/channels\/([^/]+)\//)
+  await page.waitForURL(/\/c\/channels\/[^/]+\/[^/]+/, { timeout: 20_000 })
+  const m = page.url().match(/\/c\/channels\/([^/]+)\//)
   if (!m) throw new Error(`createServer: no serverId in URL ${page.url()}`)
   return m[1]
 }
@@ -37,7 +37,7 @@ export async function createChannel(page: Page, categoryName: string, channelNam
 
 export async function openServer(page: Page, serverId: string): Promise<void> {
   await page.getByTestId(tid.serverIcon(serverId)).click()
-  await page.waitForURL(new RegExp(`/community/channels/${serverId}/`), { timeout: 20_000 })
+  await page.waitForURL(new RegExp(`/c/channels/${serverId}/`), { timeout: 20_000 })
 }
 
 export async function openChannel(page: Page, channelId: string): Promise<void> {

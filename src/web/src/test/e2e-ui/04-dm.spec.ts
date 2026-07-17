@@ -12,8 +12,8 @@ test.describe.serial("direct messages", () => {
 
     const alice = await asUser("alice")
     const bob = await asUser("bob")
-    await alice.page.goto(`/community/me/${dmId}`)
-    await bob.page.goto("/community/me")
+    await alice.page.goto(`/c/me/${dmId}`)
+    await bob.page.goto("/c/me")
     await alice.page.waitForURL(new RegExp(dmId), { timeout: 20_000 })
 
     const body = `dm hello ${Date.now()}`
@@ -34,7 +34,7 @@ test.describe.serial("direct messages", () => {
     await seedBlock("carol", userId("bob"))
 
     const carol = await asUser("carol")
-    await carol.page.goto(`/community/me/${dmId}`)
+    await carol.page.goto(`/c/me/${dmId}`)
     await carol.page.waitForURL(new RegExp(dmId), { timeout: 20_000 })
 
     await expect(carol.page.getByTestId(tid.dmBlockedNotice)).toBeVisible()

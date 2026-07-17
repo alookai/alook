@@ -18,7 +18,7 @@ import { BotActivityRow } from "./bot-activity-row"
 
 /**
  * Modal audit log for one bot. Owner-only surface (the API enforces 404 for
- * non-owners); opens over the current /community/me/bots view rather than
+ * non-owners); opens over the current /c/me/bots view rather than
  * pushing a route.
  *
  * Reads like a developer log tail:

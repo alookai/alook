@@ -159,7 +159,7 @@ export function ShellFrame({
   )
 
   const onRailServerNavigate = useCallback(
-    (id: string) => { router.push(`/community/channels/${id}`) },
+    (id: string) => { router.push(`/c/channels/${id}`) },
     [router],
   )
   const onRailCreateServer = useCallback(
@@ -174,7 +174,7 @@ export function ShellFrame({
             { onError: (e) => toastApiError(e, "Server created, but the icon failed to upload") },
           )
         }
-        router.push(`/community/channels/${newId}`)
+        router.push(`/c/channels/${newId}`)
       } catch (e) {
         toastApiError(e, "Failed to create server")
       }
@@ -186,7 +186,7 @@ export function ShellFrame({
       try {
         const data = await joinServer.mutateAsync({ inviteCode: invite })
         toast("Joined server")
-        router.push(`/community/channels/${data.serverId}`)
+        router.push(`/c/channels/${data.serverId}`)
       } catch (e) {
         toastApiError(e, "Failed to join server")
       }
@@ -217,13 +217,13 @@ export function ShellFrame({
   )
   const onRailOpenSettings = useCallback(
     (id?: string) => {
-      if (id) router.push(`/community/channels/${id}?settings=1`)
+      if (id) router.push(`/c/channels/${id}?settings=1`)
     },
     [router],
   )
   const onRailOpenInvitePopover = useCallback(
     (id?: string) => {
-      if (id) router.push(`/community/channels/${id}?invite=1`)
+      if (id) router.push(`/c/channels/${id}?invite=1`)
     },
     [router],
   )
@@ -461,7 +461,7 @@ export function ShellFrame({
         toastApiError(e, "Failed to send message")
       }
     }
-    router.push(`/community/me/${dmId}`)
+    router.push(`/c/me/${dmId}`)
   }
 
   const openServerChannel = useCallback(
@@ -469,7 +469,7 @@ export function ShellFrame({
       // No PUT here — the channel/thread page's `useEagerChannelRead` fires the
       // mark-read on mount, AFTER its read-state snapshot latches, so the NEW
       // divider still anchors to the pre-open pointer. Navigating is enough.
-      router.push(`/community/channels/${sid}/${cid}`)
+      router.push(`/c/channels/${sid}/${cid}`)
     },
     [router],
   )
@@ -488,7 +488,7 @@ export function ShellFrame({
             ? { ...prev, conversations: prev.conversations.map((d) => (d.id === dmId ? { ...d, unread: false } : d)) }
             : prev,
       )
-      router.push(`/community/me/${dmId}`)
+      router.push(`/c/me/${dmId}`)
     },
     [router, queryClient],
   )

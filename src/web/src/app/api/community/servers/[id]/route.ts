@@ -62,8 +62,7 @@ export const GET = withAuth(async (_req, ctx) => {
       serverId: server.id,
       // Empty name is load-bearing: the sidebar detects the uncategorized
       // bucket by `name === ""` (renders its channels as the bare top list, and
-      // maps a drag INTO it back to `categoryId: null`). Must match the mock in
-      // preview/_mock.ts.
+      // maps a drag INTO it back to `categoryId: null`).
       name: "",
       position: -1,
       private: 0,

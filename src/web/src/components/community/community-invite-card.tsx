@@ -44,7 +44,7 @@ export function CommunityInviteCard({ token }: { token: string }) {
     try {
       const result = await joinServer.mutateAsync({ inviteCode: token })
       toast("Joined server")
-      router.push(`/community/channels/${result.serverId}`)
+      router.push(`/c/channels/${result.serverId}`)
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : "Couldn't join the server — try again"
@@ -105,7 +105,7 @@ export function CommunityInviteCard({ token }: { token: string }) {
       {alreadyMemberServerId ? (
         <Button
           size="sm"
-          onClick={() => router.push(`/community/channels/${alreadyMemberServerId}`)}
+          onClick={() => router.push(`/c/channels/${alreadyMemberServerId}`)}
         >
           Go to Server
         </Button>

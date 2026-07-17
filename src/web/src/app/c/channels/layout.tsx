@@ -199,7 +199,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     const wantsInvite = searchParams.get("invite") === "1"
     if (!wantsSettings && !wantsInvite) return
 
-    // These flags land on the bare `/community/channels/:serverId` URL
+    // These flags land on the bare `/c/channels/:serverId` URL
     // (e.g. right-click a rail server → "Server settings"/"Invite to
     // Server"), which is also the URL the sibling default-channel page
     // redirects away from once it knows the server's first channel. When
@@ -216,7 +216,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     if (stillRedirecting) return
 
     router.replace(
-      hasChannel ? `/community/channels/${serverId}/${params.channelId}` : `/community/channels/${serverId}`,
+      hasChannel ? `/c/channels/${serverId}/${params.channelId}` : `/c/channels/${serverId}`,
     )
   }, [searchParams, serverId, router, hasChannel, currentServer, params.channelId])
 
@@ -225,7 +225,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
 
   const goHome = useCallback(() => {
     setMobileZone("nav")
-    router.push("/community/me")
+    router.push("/c/me")
   }, [router])
   const goServer = useCallback(() => { setMobileZone("nav") }, [])
 
@@ -258,7 +258,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     // unrelated sibling-channel WS patch would resurrect the just-cleared dot
     // before the user even navigates away — `useChannelTree`'s metadata merge
     // trusts the cache unconditionally, so both directions must write to it.
-    router.push(`/community/channels/${serverId}/${id}`)
+    router.push(`/c/channels/${serverId}/${id}`)
     channelTree.markRead(id)
     queryClient.setQueryData<ServerDetail | undefined>(
       communityKeys.server(serverId),
@@ -414,14 +414,14 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
             onSuccess: () => toast("Invite revoked"),
             onError: (e) => toastApiError(e, "Failed to revoke invite"),
           })}
-          onCopyInvite={(code) => { navigator.clipboard?.writeText(`${window.location.origin}/community/invite/${code}`); toast("Invite copied") }}
+          onCopyInvite={(code) => { navigator.clipboard?.writeText(`${window.location.origin}/c/invite/${code}`); toast("Invite copied") }}
           onDeleteServer={async () => {
             closeSettings()
             deleteServerMut.mutate({ serverId }, {
               onSuccess: () => {
                 toast("Server deleted")
                 useCommunityStore.getState().setCurrentServerId(null)
-                router.push("/community/me")
+                router.push("/c/me")
               },
               onError: (e) => toastApiError(e, "Failed to delete server"),
             })

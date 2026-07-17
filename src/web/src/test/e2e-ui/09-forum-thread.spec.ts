@@ -22,7 +22,7 @@ test.describe.serial("threads", () => {
 
   test("creating a thread from a message shows a thread indicator on the parent", async ({ asUser }) => {
     const { page } = await asUser("alice")
-    await page.goto(`/community/channels/${serverId}/${channelId}`)
+    await page.goto(`/c/channels/${serverId}/${channelId}`)
     await page.waitForURL(new RegExp(channelId), { timeout: 20_000 })
 
     // The seeded parent message renders (real id, not a racy optimistic row).
@@ -46,7 +46,7 @@ test.describe.serial("threads", () => {
     await expect(page.getByText(reply, { exact: false }).first()).toBeVisible({ timeout: 15_000 })
 
     // Back on the parent channel, the message now carries a thread indicator.
-    await page.goto(`/community/channels/${serverId}/${channelId}`)
+    await page.goto(`/c/channels/${serverId}/${channelId}`)
     await expect(row).toBeVisible({ timeout: 20_000 })
     await expect(page.locator(`[data-testid^="community-thread-indicator-"]`).first()).toBeVisible({ timeout: 15_000 })
   })

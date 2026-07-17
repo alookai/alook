@@ -15,10 +15,10 @@ test.describe.serial("invite accept", () => {
 
   test("Bob accepts the invite and lands in the server", async ({ asUser }) => {
     const { page } = await asUser("bob")
-    await page.goto(`/community/invite/${inviteToken}`)
+    await page.goto(`/c/invite/${inviteToken}`)
     // Accept via the join CTA.
     await page.getByRole("button", { name: /join server/i }).first().click()
-    await page.waitForURL(new RegExp(`/community/channels/${serverId}`), { timeout: 20_000 })
-    await expect(page).toHaveURL(new RegExp(`/community/channels/${serverId}`))
+    await page.waitForURL(new RegExp(`/c/channels/${serverId}`), { timeout: 20_000 })
+    await expect(page).toHaveURL(new RegExp(`/c/channels/${serverId}`))
   })
 })

@@ -9,7 +9,7 @@ function isSafeRedirect(path: string): boolean {
   return path.startsWith("/") && path[1] !== "/" && path[1] !== "\\"
 }
 
-const AUTH_REQUIRED_PREFIXES = ["/invite/", "/w/", "/workspaces", "/dashboard", "/community"]
+const AUTH_REQUIRED_PREFIXES = ["/invite/", "/w/", "/workspaces", "/dashboard", "/c/"]
 
 export async function middleware(request: NextRequest) {
   if (
@@ -23,7 +23,7 @@ export async function middleware(request: NextRequest) {
   }
 
   const { pathname } = request.nextUrl
-  const needsAuth = AUTH_REQUIRED_PREFIXES.some((p) => pathname.startsWith(p))
+  const needsAuth = pathname === "/c" || AUTH_REQUIRED_PREFIXES.some((p) => pathname.startsWith(p))
 
   if (needsAuth) {
     const { env } = await getCloudflareContext({ async: true })

@@ -61,7 +61,7 @@ export function useFriends(): UseQueryResult<FriendsResponse> & {
  * Friends can be online without ever sharing a server, so the co-member-
  * scoped WS presence snapshot alone never learns about them. This seeds
  * `useCommunityWsStore`'s `onlineUserIds` on mount (see
- * `app/community/me/layout.tsx`); WS `community:presence.update` events
+ * `app/c/me/layout.tsx`); WS `community:presence.update` events
  * keep it fresh afterward.
  */
 export type FriendsPresenceResponse = { online: string[] }

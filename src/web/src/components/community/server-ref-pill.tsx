@@ -45,7 +45,7 @@ export function ServerRefPill({ children }: { children?: React.ReactNode }) {
   if (view.kind === "plain") return <>{view.text}</>
 
   return (
-    <ServerPill onClick={() => router.push(`/community/channels/${view.serverId}`)}>
+    <ServerPill onClick={() => router.push(`/c/channels/${view.serverId}`)}>
       {view.label}
     </ServerPill>
   )

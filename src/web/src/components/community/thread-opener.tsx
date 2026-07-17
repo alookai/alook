@@ -14,7 +14,7 @@ import type { OpenProfile } from "./_types"
 // Thread opener — the parent message the thread was created from, pinned at
 // the top of the thread's message list. Deliberately styled like a REGULAR
 // message row (same 40px avatar, same name/timestamp/body scale as
-// `Message`) rather than a boxed-off card — `/community` never wraps
+// `Message`) rather than a boxed-off card — `/c` never wraps
 // messages in cards, so a tinted, bordered box here would read as a
 // foreign component instead of "the message this thread grew out of." A
 // plain caption above it is enough to mark it as context, not part of the

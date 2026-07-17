@@ -139,7 +139,7 @@ export function ChannelRefPill({ children }: { children?: React.ReactNode }) {
     <>
       <ChannelPill
         serverPrefix={view.serverPrefix}
-        onClick={() => router.push(`/community/channels/${view.href.serverId}/${view.href.channelId}`)}
+        onClick={() => router.push(`/c/channels/${view.href.serverId}/${view.href.channelId}`)}
       >
         {view.label}
       </ChannelPill>

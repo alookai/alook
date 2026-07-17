@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useServer } from "@/hooks/community/use-servers"
 
 /**
- * /community/channels/:serverId
+ * /c/channels/:serverId
  *
  * Redirects to the first channel by position. Shows a channel-shell skeleton
  * while waiting for the server detail so the transition feels like a reveal
@@ -24,7 +24,7 @@ export default function ServerDefaultPage() {
     const allChannels = currentServer.categories.flatMap((cat) => cat.channels)
     const first = allChannels[0]
     if (first) {
-      router.replace(`/community/channels/${serverId}/${first.id}`)
+      router.replace(`/c/channels/${serverId}/${first.id}`)
     }
   }, [currentServer, serverId, router])
 

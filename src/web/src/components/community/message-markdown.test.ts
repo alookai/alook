@@ -71,29 +71,29 @@ describe("buildMdComponents — mention pill onClick wiring", () => {
 
 describe("extractInviteTokens", () => {
   it("extracts a bare-path token", () => {
-    expect(extractInviteTokens("join /community/invite/abc123XYZ")).toEqual(["abc123XYZ"])
+    expect(extractInviteTokens("join /c/invite/abc123XYZ")).toEqual(["abc123XYZ"])
   })
 
   it("extracts a full-origin URL token", () => {
-    expect(extractInviteTokens("https://alook.ai/community/invite/xY9k2vW7aQ")).toEqual([
+    expect(extractInviteTokens("https://alook.ai/c/invite/xY9k2vW7aQ")).toEqual([
       "xY9k2vW7aQ",
     ])
   })
 
   it("extracts tokens with underscore/dash (nanoid alphabet)", () => {
-    expect(extractInviteTokens("/community/invite/ab_cd-EF12")).toEqual(["ab_cd-EF12"])
+    expect(extractInviteTokens("/c/invite/ab_cd-EF12")).toEqual(["ab_cd-EF12"])
   })
 
   it("dedupes repeated tokens in the same message", () => {
     expect(
       extractInviteTokens(
-        "/community/invite/abc123XYZ /community/invite/abc123XYZ /community/invite/other456",
+        "/c/invite/abc123XYZ /c/invite/abc123XYZ /c/invite/other456",
       ),
     ).toEqual(["abc123XYZ", "other456"])
   })
 
   it("ignores tokens below the 6-char floor", () => {
-    expect(extractInviteTokens("/community/invite/abc")).toEqual([])
+    expect(extractInviteTokens("/c/invite/abc")).toEqual([])
   })
 
   it("returns [] when the message has no invite URL", () => {

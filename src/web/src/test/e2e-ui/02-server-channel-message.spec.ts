@@ -10,16 +10,16 @@ test.describe.serial("server → channel → message", () => {
 
   test("create a server from the rail", async ({ asUser }) => {
     const { page } = await asUser("alice")
-    await page.goto("/community")
-    await page.waitForURL(/\/community/, { timeout: 20_000 })
+    await page.goto("/c")
+    await page.waitForURL(/\/c/, { timeout: 20_000 })
     serverId = await createServer(page, `E2E Server ${Date.now()}`)
     expect(serverId).toBeTruthy()
   })
 
   test("send a message; it appears and the composer clears", async ({ asUser }) => {
     const { page } = await asUser("alice")
-    await page.goto(`/community/channels/${serverId}`)
-    await page.waitForURL(/\/community\/channels\/[^/]+\/[^/]+/, { timeout: 20_000 })
+    await page.goto(`/c/channels/${serverId}`)
+    await page.waitForURL(/\/c\/channels\/[^/]+\/[^/]+/, { timeout: 20_000 })
 
     const body = `hello world ${Date.now()}`
     await sendMessage(page, body)
@@ -31,8 +31,8 @@ test.describe.serial("server → channel → message", () => {
 
   test("empty message does not send; Shift+Enter inserts a newline", async ({ asUser }) => {
     const { page } = await asUser("alice")
-    await page.goto(`/community/channels/${serverId}`)
-    await page.waitForURL(/\/community\/channels\/[^/]+\/[^/]+/, { timeout: 20_000 })
+    await page.goto(`/c/channels/${serverId}`)
+    await page.waitForURL(/\/c\/channels\/[^/]+\/[^/]+/, { timeout: 20_000 })
 
     const input = page.getByTestId(tid.composerInput)
     await input.click()

@@ -85,7 +85,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     handledReconnectRef.current = reconnectId
     const machine = machines.find((m) => m.id === reconnectId)
     if (machine) openReconnect(machine)
-    router.replace("/community/me/machines")
+    router.replace("/c/me/machines")
   }, [searchParams, machines, machinesLoading, openReconnect, router])
 
   const closePair = useCallback((open: boolean) => {
@@ -260,8 +260,8 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
                     setConfirmDelete(null)
                     router.push(
                       machineId
-                        ? `/community/me/bots?machineId=${machineId}`
-                        : "/community/me/bots"
+                        ? `/c/me/bots?machineId=${machineId}`
+                        : "/c/me/bots"
                     )
                   }}
                 >

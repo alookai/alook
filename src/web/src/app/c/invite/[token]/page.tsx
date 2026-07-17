@@ -2,7 +2,7 @@ import type { Metadata } from "next"
 import { InviteAcceptClient } from "./invite-accept-client"
 
 /**
- * /community/invite/:token
+ * /c/invite/:token
  *
  * Accept-invite page. Shows server name/icon and a "Join" button.
  * Sets Referrer-Policy: no-referrer to prevent token leakage.

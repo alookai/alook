@@ -22,7 +22,7 @@ const INVITE_ORIGIN =
   typeof window !== "undefined" ? window.location.origin : ""
 
 function inviteUrl(token: string) {
-  return `${INVITE_ORIGIN}/community/invite/${token}`
+  return `${INVITE_ORIGIN}/c/invite/${token}`
 }
 
 /**

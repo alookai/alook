@@ -21,8 +21,8 @@ test.describe.serial("multi-user realtime", () => {
   test("Alice's message reaches Bob live", async ({ asUser }) => {
     const alice = await asUser("alice")
     const bob = await asUser("bob")
-    await alice.page.goto(`/community/channels/${serverId}/${channelId}`)
-    await bob.page.goto(`/community/channels/${serverId}/${channelId}`)
+    await alice.page.goto(`/c/channels/${serverId}/${channelId}`)
+    await bob.page.goto(`/c/channels/${serverId}/${channelId}`)
     await alice.page.waitForURL(new RegExp(channelId), { timeout: 20_000 })
     await bob.page.waitForURL(new RegExp(channelId), { timeout: 20_000 })
 
@@ -35,8 +35,8 @@ test.describe.serial("multi-user realtime", () => {
   test("Bob sees Alice's typing indicator, which clears after her message", async ({ asUser }) => {
     const alice = await asUser("alice")
     const bob = await asUser("bob")
-    await alice.page.goto(`/community/channels/${serverId}/${channelId}`)
-    await bob.page.goto(`/community/channels/${serverId}/${channelId}`)
+    await alice.page.goto(`/c/channels/${serverId}/${channelId}`)
+    await bob.page.goto(`/c/channels/${serverId}/${channelId}`)
     await bob.page.waitForURL(new RegExp(channelId), { timeout: 20_000 })
 
     await alice.page.getByTestId(tid.composerInput).click()

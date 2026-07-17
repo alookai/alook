@@ -3,7 +3,7 @@ import { Spoiler, MentionPill } from "./inline-marks"
 import { ChannelRefPill } from "./channel-ref-pill"
 import { ServerRefPill } from "./server-ref-pill"
 
-// Match `/community/invite/<token>` — with or without an origin.
+// Match `/c/invite/<token>` — with or without an origin.
 // - token allows [A-Za-z0-9_-] (nanoid alphabet) and length 6..64 (short + old
 //   32-char tokens both fit)
 // - unrelated to chat-only syntax (mention/spoiler/channelRef, now parsed as
@@ -11,7 +11,7 @@ import { ServerRefPill } from "./server-ref-pill"
 //   this regex only extracts invite tokens for the join-card row rendered
 //   below the message body; the URL text itself stays untouched and is
 //   auto-linked by Streamdown/GFM.
-const INVITE_URL_RE = /(https?:\/\/[^\s/]+)?\/community\/invite\/([A-Za-z0-9_-]{6,64})/g
+const INVITE_URL_RE = /(https?:\/\/[^\s/]+)?\/c\/invite\/([A-Za-z0-9_-]{6,64})/g
 
 /**
  * Extract every invite token in a message body (URL text stays as-is, cards

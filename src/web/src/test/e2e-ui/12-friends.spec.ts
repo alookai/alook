@@ -11,8 +11,8 @@ test.describe.serial("friends", () => {
 
   test("a friend shows in the friends list and opens a DM", async ({ asUser }) => {
     const { page } = await asUser("alice")
-    await page.goto("/community/me")
-    await page.waitForURL(/\/community\/me/, { timeout: 20_000 })
+    await page.goto("/c/me")
+    await page.waitForURL(/\/c\/me/, { timeout: 20_000 })
 
     // Bob appears in the friends list (his dev display name = email local-part).
     const bobRow = page.getByText(userName("bob"), { exact: false }).first()
@@ -20,7 +20,7 @@ test.describe.serial("friends", () => {
 
     // Left-click opens the DM with Bob.
     await bobRow.click()
-    await page.waitForURL(/\/community\/me\/[^/]+/, { timeout: 20_000 })
-    expect(page.url()).toMatch(/\/community\/me\/[^/]+/)
+    await page.waitForURL(/\/c\/me\/[^/]+/, { timeout: 20_000 })
+    expect(page.url()).toMatch(/\/c\/me\/[^/]+/)
   })
 })

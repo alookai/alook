@@ -2,8 +2,8 @@ import { chromium } from "@playwright/test"
 import { WEB_URL } from "./paths"
 import { emailFor, type SeededUser, type UserKey } from "./users"
 
-// Drives the real dev sign-in UI: navigating to /community first makes
-// middleware redirect to /sign-in?redirect=/community, so post-login lands
+// Drives the real dev sign-in UI: navigating to /c first makes
+// middleware redirect to /sign-in?redirect=/c, so post-login lands
 // back in community (default is /workspaces?auto otherwise). In dev the form
 // is email-only — `handleDevSignIn` signs in with DEV_PASSWORD and
 // auto-registers on first use. Captures storageState + the seeded userId.
@@ -20,7 +20,7 @@ export async function loginAndSaveState(
   const context = await browser.newContext()
   const page = await context.newPage()
   try {
-    await page.goto(`${WEB_URL}/community`)
+    await page.goto(`${WEB_URL}/c`)
     await page.waitForURL(/\/sign-in/, { timeout: 30_000 })
 
     await page.getByRole("textbox", { name: "Email" }).fill(email)

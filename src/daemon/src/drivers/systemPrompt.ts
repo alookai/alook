@@ -213,7 +213,7 @@ function serversSection(): string {
   return [
     "## Servers",
     "",
-    `If a message contains a \`/community/invite/...\` link, just run \`${CLI} server join --invite <link>\`. ` +
+    `If a message contains a \`/c/invite/...\` link, just run \`${CLI} server join --invite <link>\`. ` +
     "The server enforces an owner-only check for you — it only accepts an invite your owner created, and " +
     "rejects anything else with a clear reason. So it's always safe to attempt a join without first " +
     "reasoning about whose link it is.",
