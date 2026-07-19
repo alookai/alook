@@ -23,7 +23,7 @@ import { ImageLightbox } from "./image-lightbox"
 import { ImageCropDialog } from "./image-crop-dialog"
 import { validateIconSourceFile } from "@/lib/community/image-crop"
 import type { MobileZone, Profile, View } from "./_types"
-import { resolveProfileTarget } from "./profile-lookup"
+import { resolveProfileTarget, buildSelfProfile } from "./profile-lookup"
 import { resolveProfilePresence } from "@/lib/community/presence"
 import { avatarInitial } from "@/lib/community/avatar"
 import { signOut } from "@/lib/auth-client"
@@ -310,18 +310,8 @@ export function ShellFrame({
     (name: string, e: React.MouseEvent, discriminator?: string, targetUserId?: string) => {
       const isSelf = !!targetUserId && targetUserId === currentUser.id
       if (isSelf) {
-        const data: Profile = {
-          name: currentUser.name,
-          userId: currentUser.id,
-          discriminator: currentUser.discriminator,
-          avatar: currentUser.avatar || avatarInitial(currentUser.name),
-          role: "You",
-          about: currentUser.aboutMe ?? "",
-          mutual: 0,
-          presence: resolveProfilePresence(true, undefined, onlineUserIds),
-        }
         setProfile({
-          data,
+          data: buildSelfProfile(currentUser, onlineUserIds),
           x: e.clientX,
           y: e.clientY,
           initialStatusEmoji: currentUser.statusEmoji ?? null,

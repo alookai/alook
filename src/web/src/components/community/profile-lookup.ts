@@ -1,4 +1,33 @@
-import type { Member, Friend } from "./_types"
+import type { Member, Friend, Profile } from "./_types"
+import type { CurrentUser } from "@/contexts/community/current-user"
+import { resolveProfilePresence } from "@/lib/community/presence"
+import { avatarInitial } from "@/lib/community/avatar"
+
+/**
+ * The signed-in viewer's own profile card, built straight from `currentUser`.
+ *
+ * A profile-card click that already knows it targets the viewer (UserBar, or
+ * any caller passing the viewer's own userId) resolves here instead of through
+ * `resolveProfileTarget`. Name-based resolution can't be trusted for self: the
+ * viewer's own member row only exists in `members` while a server is active, so
+ * on `/c/me` the name-only fallback would match a same-named friend (or miss
+ * entirely) and show the wrong person.
+ */
+export function buildSelfProfile(
+  currentUser: CurrentUser,
+  onlineUserIds: ReadonlySet<string>,
+): Profile {
+  return {
+    name: currentUser.name,
+    userId: currentUser.id,
+    discriminator: currentUser.discriminator,
+    avatar: currentUser.avatar || avatarInitial(currentUser.name),
+    role: "You",
+    about: currentUser.aboutMe ?? "",
+    mutual: 0,
+    presence: resolveProfilePresence(true, undefined, onlineUserIds),
+  }
+}
 
 /**
  * Resolves the exact member/friend a profile-card click refers to.

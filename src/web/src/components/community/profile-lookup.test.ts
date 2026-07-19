@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest"
-import { resolveProfileTarget } from "./profile-lookup"
+import { resolveProfileTarget, buildSelfProfile } from "./profile-lookup"
 import type { Member, Friend } from "./_types"
+import type { CurrentUser } from "@/contexts/community/current-user"
 
 function member(overrides: Partial<Member>): Member {
   return {
@@ -44,5 +45,41 @@ describe("resolveProfileTarget", () => {
   it("checks friends when userId doesn't match any member", () => {
     const friend: Friend = { id: "fr_a", userId: "user_c", name: "Ren", avatar: "R", status: "online", sub: "" }
     expect(resolveProfileTarget([], [friend], { name: "Ren", userId: "user_c" })).toBe(friend)
+  })
+})
+
+function currentUser(overrides: Partial<CurrentUser> = {}): CurrentUser {
+  return {
+    id: overrides.id ?? "user_self",
+    name: overrides.name ?? "Me",
+    email: overrides.email ?? "me@example.com",
+    avatar: overrides.avatar ?? "M",
+    aboutMe: overrides.aboutMe,
+    discriminator: overrides.discriminator,
+    statusEmoji: overrides.statusEmoji,
+    statusText: overrides.statusText,
+  }
+}
+
+describe("buildSelfProfile", () => {
+  it("builds the viewer's own card from currentUser, independent of any member/friend list — regression for the /c/me UserBar bug where a same-named friend was shown instead of the viewer", () => {
+    const me = currentUser({ id: "user_self", name: "Ren", discriminator: "0001", aboutMe: "hi" })
+    const profile = buildSelfProfile(me, new Set())
+
+    expect(profile.userId).toBe("user_self")
+    expect(profile.name).toBe("Ren")
+    expect(profile.discriminator).toBe("0001")
+    expect(profile.about).toBe("hi")
+    expect(profile.role).toBe("You")
+  })
+
+  it("always resolves self presence to online, even when the viewer's id is absent from the online set", () => {
+    const profile = buildSelfProfile(currentUser({ id: "user_self" }), new Set())
+    expect(profile.presence).toBe("online")
+  })
+
+  it("falls back to an avatar initial when the viewer has no avatar", () => {
+    const profile = buildSelfProfile(currentUser({ name: "alice", avatar: "" }), new Set())
+    expect(profile.avatar).toBe("A")
   })
 })

@@ -36,10 +36,10 @@ function Inner({ user, onOpenProfile, onEditProfile, inbox, hasUnread }: {
 }) {
   return (
     <div className="flex flex-1 items-center gap-2">
-      <button onClick={(e) => onOpenProfile?.(user.name, e)} className="shrink-0 rounded-full focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+      <button onClick={(e) => onOpenProfile?.(user.name, e, undefined, user.id)} className="shrink-0 rounded-full focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
         <Avatar label={user.avatar} seed={user.id} size={28} presence={resolveProfilePresence(true, user.id, EMPTY_ONLINE_SET)} ringColor="var(--muted)" />
       </button>
-      <button onClick={(e) => onOpenProfile?.(user.name, e)} className="min-w-0 flex-1 text-left rounded focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+      <button onClick={(e) => onOpenProfile?.(user.name, e, undefined, user.id)} className="min-w-0 flex-1 text-left rounded focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
         <div className="truncate text-sm font-medium leading-tight">{user.name}</div>
       </button>
       <div className="flex items-center gap-1">
