@@ -52,4 +52,27 @@ describe("isSensitiveRecipient", () => {
   it("does not let a display-name wrapper bypass the filter", () => {
     expect(isSensitiveRecipient("Government <x@pf.gov.br>")).toBe(true)
   })
+
+  it("catches national government variants via the label rule", () => {
+    expect(isSensitiveRecipient("x@libertad.gov.il")).toBe(true)
+    expect(isSensitiveRecipient("x@defence.gov.au")).toBe(true)
+    expect(isSensitiveRecipient("x@ministere.gouv.fr")).toBe(true)
+    expect(isSensitiveRecipient("x@dependencia.gob.mx")).toBe(true)
+    expect(isSensitiveRecipient("x@agency.govt.nz")).toBe(true)
+    expect(isSensitiveRecipient("x@foo.go.jp")).toBe(true)
+    expect(isSensitiveRecipient("x@dept.gc.ca")).toBe(true)
+    expect(isSensitiveRecipient("x@army.mil")).toBe(true)
+  })
+
+  it("matches on whole labels, not substrings", () => {
+    expect(isSensitiveRecipient("x@governance.com")).toBe(false)
+    expect(isSensitiveRecipient("x@cargo.io")).toBe(false)
+    expect(isSensitiveRecipient("x@mygov.example.com")).toBe(false)
+  })
+
+  it("still matches the non-label institution suffixes", () => {
+    expect(isSensitiveRecipient("x@ec3.europol.europa.eu")).toBe(true)
+    expect(isSensitiveRecipient("cybercrime@interpol.int")).toBe(true)
+    expect(isSensitiveRecipient("x@mppe.mp.br")).toBe(true)
+  })
 })

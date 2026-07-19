@@ -136,30 +136,30 @@ export const COMMUNITY_BOT_IMAGE_URL_MAX = 2048;
 export const COMMUNITY_BOT_EMAIL_DOMAIN = "bots.alook.local";
 export const COMMUNITY_BOT_EMAIL_PREFIX = "bot-";
 
-// Outbound recipient domains that agents must never email — government,
-// law-enforcement, and intelligence services. Matched by exact domain OR
-// suffix (so `.gov.br` catches `foo.gov.br`), case-insensitive. Adjusting the
-// list ships via code release. See `isSensitiveRecipient` in utils/email.
+// Government / law-enforcement / intelligence domain LABELS. A recipient
+// domain is sensitive when any dot-separated label equals one of these — this
+// catches every national variant (`gov.il`, `gov.br`, `gouv.fr`, `gob.mx`,
+// `govt.nz`, `go.jp`, `gc.ca`, …) without enumerating each country. Matched
+// case-insensitively per whole label, so `mycargo.com` (no label is `go`) is
+// not caught, but `go.com` is (accepted trade-off — agents have no business
+// emailing it). See `isSensitiveRecipient` in utils/email.
+export const SENSITIVE_DOMAIN_LABELS: string[] = [
+  "gov",
+  "gouv",
+  "gob",
+  "govt",
+  "mil",
+  "go",
+  "gc",
+];
+
+// Sensitive recipient domains that the label rule can't express — specific
+// institutions or org-domains with no government label. Matched by exact
+// domain OR suffix, case-insensitive.
 export const SENSITIVE_RECIPIENT_DOMAINS: string[] = [
-  ".gov",
-  ".gov.br",
-  ".gov.uk",
-  ".gov.au",
-  ".gov.in",
-  ".gov.cn",
-  ".gouv.fr",
-  ".go.jp",
   ".mp.br",
   ".jus.br",
-  ".gob.es",
-  ".gob.mx",
-  ".gc.ca",
-  ".govt.nz",
   "pj.pt",
-  "nca.gov.uk",
-  "fbi.gov",
-  "cia.gov",
-  "nsa.gov",
   "interpol.int",
   "europol.europa.eu",
 ];

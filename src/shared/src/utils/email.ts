@@ -1,4 +1,4 @@
-import { SENSITIVE_RECIPIENT_DOMAINS } from "../constants"
+import { SENSITIVE_RECIPIENT_DOMAINS, SENSITIVE_DOMAIN_LABELS } from "../constants"
 
 const DOMAIN = `@${process.env.ALOOK_DOMAIN || "alook.ai"}`
 const HANDLE_RE = /^[a-zA-Z0-9-]{3,}$/
@@ -38,6 +38,8 @@ export function extractDomain(email: string): string | null {
 export function isSensitiveRecipient(email: string): boolean {
   const domain = extractDomain(email)
   if (!domain) return false
+  const labels = domain.split(".")
+  if (labels.some((label) => SENSITIVE_DOMAIN_LABELS.includes(label))) return true
   return SENSITIVE_RECIPIENT_DOMAINS.some((entry) => {
     const target = entry.toLowerCase()
     return domain === target || domain.endsWith(target)
