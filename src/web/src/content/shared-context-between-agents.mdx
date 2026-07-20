@@ -1,0 +1,118 @@
+export const metadata = {
+  slug: "shared-context-between-agents",
+  title: "When AI Agents Don't Share Context or Memory",
+  date: "2026-07-20",
+  author: "Alook Team",
+  excerpt:
+    "Why AI agents drift across tasks, what context should pass in a handoff, and how shared memory stays useful without turning into noise.",
+  readingTime: "7 min read",
+  image: "/blog/shared-context-between-agents/hero.webp",
+};
+
+![Illustration of isolated AI agents moving toward a shared document and common source of truth](/blog/shared-context-between-agents/hero.webp)
+
+*The examples below are composite scenarios created for illustration. They are not customer case studies.*
+
+You ask one agent to compare payment providers, another to implement checkout, and a third to review risk. By Thursday, checkout still follows PayPal examples. The reviewer flags assumptions the planner already rejected. Nobody can tell which decision is current.
+
+Every agent completed its task. The work still drifted because the agents were working from different versions of the same project: different context, different memory, and no reliable source of current information.
+
+This article explains why that drift happens, what information should move between agents, and how much each role needs.
+
+## Why AI agents lose shared context between tasks
+
+The first agent works fine alone. So does the second. The problem surfaces when one agent's output becomes another agent's input, and the receiving agent does not know what the previous one already learned. Two agents are enough to expose the gap.
+
+In a single chat, the model can usually look back at earlier messages until the context window gets tight. Once work moves across agents, sessions, or tools, that continuity disappears unless the system carries the useful information forward.
+
+Different platforms describe this information as memory, state, history, or workspace data. The terminology matters less than the practical question:
+
+> Does the next agent know what is current, what has already been decided, and where the working material lives?
+
+If the answer is no, each handoff becomes a partial reset.
+
+## Shared context between agents: memory vs chat history
+
+Context, memory, and chat history overlap, but they serve different purposes.
+
+**Context** is the information selected for the current task. It may include the goal, relevant background, constraints, and links to source material. The useful context can change from one assignment to the next.
+
+**Memory** is information that remains available after the immediate task ends. It allows the same agent, or another agent, to build on earlier work. Useful memory preserves conclusions and important changes instead of treating every message as equally valuable.
+
+**Chat history** is the raw record of a conversation. It contains useful details alongside false starts, corrections, abandoned ideas, and outdated instructions.
+
+Passing a full chat history to the next agent is like handing a new employee six months of Slack logs and saying, "Figure it out."
+
+A transcript shows what was said. Good context shows what still matters.
+
+Anthropic's Applied AI team makes a related distinction in its September 2025 guide to [effective context engineering for AI agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents). Prithvi Rajasekaran, Ethan Dixon, Carly Ryan, and Jeremy Hadfield argue for selecting a compact set of high-signal information that improves the model's next action. A larger context window does not remove the need to decide what belongs inside it.
+
+Memory follows the same principle. Saving everything creates an archive. It does not guarantee continuity.
+
+![Diagram showing three layers: focused task context, persistent memory records, and a long chat history transcript](/blog/shared-context-between-agents/memory-layers.webp)
+
+## What breaks when AI agents do not share memory
+
+Several recognizable failure patterns appear when agents work from incomplete or outdated information.
+
+**The stale decision.** A planning agent compares three payment providers and selects Stripe. A coding agent starts implementation two tasks later, but receives the original research containing all three options. It follows PayPal because that option has the clearest example code. The decision existed. It never reached the next agent as the current choice.
+
+**The outdated reference.** A research agent collects competitor pricing on Monday. Before a writing agent begins on Wednesday, one competitor changes its plan and another is removed from scope. The draft still uses Monday's figures because the writer has no indication that the research changed. The writer has information, but it is no longer the right context.
+
+**The invisible rejection.** An architecture agent proposes a REST API design. The team rejects it and chooses GraphQL. A review agent later examines the implementation without seeing that choice, then flags GraphQL as an unexplained departure from the original plan. The discussion survives somewhere in the chat history. Its conclusion does not.
+
+**The unowned update.** Shared memory can also fail when nobody maintains it. Two agents see the same project note, but each assumes the other will update it. The note remains accessible and quietly becomes stale. This is an ownership gap. Information was shared once, but responsibility for keeping it current was never assigned.
+
+Each failure can look like an agent ignoring instructions. In reality, the agent may never have received the information needed to follow them. The handoff failed, not the reasoning.
+
+## What context should one agent pass to the next?
+
+A handoff does not need the entire project history. Four pieces of information cover the minimum in many workflows.
+
+**The task.** State what the next agent should accomplish now. "Review checkout" leaves room for interpretation. "Check the Stripe webhook handler for duplicate-event processing and workspace isolation" gives the reviewer a defined target.
+
+**The latest decision.** Record which option was selected and which alternatives were rejected. Include the reason when it affects later work. Without that update, each agent can reopen a question the team already settled.
+
+**The constraints.** Explain the boundaries: permissions, deadlines, scope exclusions, customer requirements, or actions that need human approval. Constraints prevent an agent from producing technically valid work that cannot be used.
+
+**Where to look.** Point to the current file, issue, thread, or research note. The next agent should not have to search an entire workspace to discover which artifact is authoritative.
+
+These four are the minimum. Add acceptance criteria, dependencies, unresolved questions, or an output format when the task genuinely depends on them.
+
+A July 2026 [Microsoft ISE account of context passing in an A2A system](https://devblogs.microsoft.com/ise/a2a-context-passing-multi-agent-systems/) shows one way to keep this information manageable. During a recent engagement, the coordinator summarized conversation history after every 10 turns before passing it to stateless domain agents. The receiving agent got enough background to act without inheriting an ever-growing transcript.
+
+The exact format will differ by workflow. The goal remains consistent: the next agent should know what to do, what has changed, which boundaries apply, and where the live work sits.
+
+![Illustration of the four minimum handoff elements: task, decision, constraints, and where to look](/blog/shared-context-between-agents/handoff-minimum.webp)
+
+## How much shared memory do AI agents need?
+
+Giving every agent access to everything sounds safe. It often creates another problem.
+
+Large context packages make prioritization harder. A brief but important constraint can disappear among long histories, old drafts, and tool output. Broad access may also expose information a role does not need, while multiple agents editing the same record can introduce conflicts.
+
+The right amount depends on the role.
+
+A coding agent may need the accepted architecture, current constraints, and relevant files. A content agent may need approved claims, current positioning, and the latest research. A support agent may need customer history and product status without seeing every internal draft.
+
+The agents do not need identical memories. They need the same factual foundation, filtered for the work each role performs.
+
+A useful shared layer usually contains the current goal, approved choices, constraints, source links, ownership, and an update timestamp.
+
+This is close to the curated-interface principle described in [How to Think AI's guide to shared state between agents](https://www.howtothink.ai/learn/shared-state-between-agents). The common layer should expose information required for coordination while specialized knowledge stays with the agents that use it.
+
+A simple test helps: could a competent person begin the task from the information provided without first asking which option was chosen, what changed, or where the current file lives?
+
+If not, something important is missing.
+
+## How shared context keeps AI agent teams aligned
+
+Communication alone does not keep an agent team aligned. Agents can exchange messages and still rely on stale assumptions, conflicting choices, or old artifacts.
+
+They need continuity: a way to recover the latest information, understand who owns the next step, and trace where a handoff lost something important.
+
+When agents work through role-based assignments, persistent records, and visible handoffs, the failures described above become easier to prevent and easier to trace. A planner's choice has somewhere to persist. A changed constraint can reach the writer before publication. A reviewer can see why an architecture choice was made.
+
+We built [Alook](https://alook.ai) to support that coordination for local AI agents. Roles establish ownership, while agent email threads and recorded task history give later work a place to recover decisions across sessions. For the broader setup, see [how to build an AI agent team](/blog/ai-agent-team), [how AI orchestration connects agent roles](/blog/ai-agent-orchestration), and [how to delegate tasks to AI agents](/blog/how-to-delegate-tasks-to-ai-agents).
+
+Multi-agent systems do not stay aligned simply because their agents can communicate. They stay aligned when each handoff carries the current choices, constraints, and source of truth forward.
