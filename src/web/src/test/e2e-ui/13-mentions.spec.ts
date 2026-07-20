@@ -42,7 +42,10 @@ test.describe.serial("mentions — mandatory discriminator", () => {
 
   // Types `@John`, waits for the popup, and picks the member whose row id is
   // `memberId` (the popup option testid keys off the row id — labels are
-  // identical for two "John Doe"s, so text can't disambiguate).
+  // identical for two "John Doe"s, so text can't disambiguate). Verifies the
+  // send actually landed (marker message visible) before returning, so a
+  // following call starts from a clean, settled composer — otherwise the second
+  // mention races the first send and only one pill renders.
   async function mentionAndSend(page: import("@playwright/test").Page, memberId: string, marker: string) {
     const editable = composerEditable(page)
     await editable.click()
@@ -50,8 +53,14 @@ test.describe.serial("mentions — mandatory discriminator", () => {
     const option = page.getByTestId(tid.mentionOption(memberId))
     await expect(option).toBeVisible({ timeout: 15_000 })
     await option.click()
+    // The picked mention becomes a pill node in the composer — wait for it
+    // before typing the trailing marker, so the text isn't swallowed by the
+    // still-open suggestion popup.
+    await expect(editable.locator("[data-type='mention'], .mention-highlight").first()).toBeVisible({ timeout: 10_000 })
     await editable.pressSequentially(` ${marker}`)
     await page.keyboard.press("Enter")
+    // Confirm the message posted (and the composer cleared) before returning.
+    await expect(page.getByText(marker, { exact: false }).first()).toBeVisible({ timeout: 15_000 })
   }
 
   test("same-name mentions each resolve to the exact user on pill click (spaced name, no leaked #dddd)", async ({ asUser }) => {
@@ -77,8 +86,11 @@ test.describe.serial("mentions — mandatory discriminator", () => {
     await expect(card).toBeVisible({ timeout: 15_000 })
     await expect(card).toContainText(`#${bob.discriminator}`)
     await expect(card).not.toContainText(`#${carol.discriminator}`)
-    // Dismiss and click Carol's pill → her discriminator, proving no first-match collapse.
+    // Dismiss and wait for the card (and its popover overlay) to fully detach
+    // before touching the second pill — clicking while the overlay animates out
+    // gets the click intercepted.
     await page.keyboard.press("Escape")
+    await expect(card).toBeHidden({ timeout: 15_000 })
     const carolPill = page.locator("button", { hasText: "@John Doe" }).nth(1)
     await carolPill.click()
     await expect(card).toBeVisible({ timeout: 15_000 })

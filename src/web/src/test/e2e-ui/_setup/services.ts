@@ -56,17 +56,22 @@ async function waitForHealth(url: string, name: string, timeoutMs = 90_000): Pro
 }
 
 export function resetDb(): void {
-  // Capture rather than inherit: `wrangler d1 migrations apply` prints the full
-  // migrations table (twice) on every run, which is noise in CI logs when it
-  // succeeds. Surface the output ONLY on failure, where it's actually useful.
+  // `wrangler d1 migrations apply` prints the full migrations table (twice) on
+  // every run — noise in CI when it succeeds. DROP stdout entirely (that table
+  // is the noise) and capture only stderr so a real failure is still legible.
+  //
+  // Do NOT capture stdout into a buffer: it's ~600KB and blows spawnSync's 1MB
+  // default `maxBuffer`, which kills the child (status=null) and made this whole
+  // step falsely "fail" — crashing global-setup so CI never migrated and every
+  // query 500'd. `stdio: ["ignore","ignore","pipe"]` can't overflow.
   const res = spawnSync("pnpm", ["run", "db:reset"], {
     cwd: REPO_ROOT,
     encoding: "utf8",
+    stdio: ["ignore", "ignore", "pipe"],
   })
   if (res.status !== 0) {
-    if (res.stdout) process.stdout.write(res.stdout)
     if (res.stderr) process.stderr.write(res.stderr)
-    throw new Error(`db:reset failed (exit ${res.status})`)
+    throw new Error(`db:reset failed (exit ${res.status}, signal ${res.signal})`)
   }
 }
 
