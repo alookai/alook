@@ -221,6 +221,19 @@ describe("createAuth session cookie cache", () => {
     const opts = (createAuth(makeEnv({ NODE_ENV: "development" }) as never) as { __options: AuthOptions }).__options
     expect(opts.session?.cookieCache?.enabled).toBe(true)
   })
+
+  // Prod caps the signed-cookie cache at 5min (a revoked session stops being
+  // honored within that window — a real security property). Dev/test uses a
+  // longer cache so the Playwright e2e-ui suite, which drives one session per
+  // user for the whole >5min run, doesn't fall through to a per-request D1
+  // findSession that flakes to 401 under late-run parallel load.
+  it("caps the prod cookie cache at 5min but widens it in dev", async () => {
+    const createAuth = await loadCreateAuth()
+    const prod = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as { __options: AuthOptions }).__options
+    const dev = (createAuth(makeEnv({ NODE_ENV: "development" }) as never) as { __options: AuthOptions }).__options
+    expect(prod.session?.cookieCache?.maxAge).toBe(5 * 60)
+    expect(dev.session?.cookieCache?.maxAge).toBeGreaterThan(5 * 60)
+  })
 })
 
 describe("createAuth user fields", () => {

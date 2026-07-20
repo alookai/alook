@@ -59,8 +59,14 @@ test.describe.serial("mentions — mandatory discriminator", () => {
     await expect(editable.locator("[data-type='mention'], .mention-highlight").first()).toBeVisible({ timeout: 10_000 })
     await editable.pressSequentially(` ${marker}`)
     await page.keyboard.press("Enter")
-    // Confirm the message posted (and the composer cleared) before returning.
+    // Confirm the message posted before returning.
     await expect(page.getByText(marker, { exact: false }).first()).toBeVisible({ timeout: 15_000 })
+    // AND that the composer fully cleared — otherwise the NEXT mentionAndSend
+    // types `@John` into a composer with residual state, the suggestion popup
+    // doesn't open, and no second pill renders (the `.nth(1)` wait then hangs to
+    // a 60s timeout). Asserting the empty composer here makes the second call
+    // start from a settled surface.
+    await expect(editable).toHaveText("", { timeout: 10_000 })
   }
 
   test("same-name mentions each resolve to the exact user on pill click (spaced name, no leaked #dddd)", async ({ asUser }) => {
@@ -76,24 +82,38 @@ test.describe.serial("mentions — mandatory discriminator", () => {
     const carolMsg = page.getByText("msgCarol", { exact: false }).first()
     await expect(bobMsg).toBeVisible({ timeout: 15_000 })
     await expect(carolMsg).toBeVisible({ timeout: 15_000 })
-    const bobPill = page.locator("button", { hasText: "@John Doe" }).first()
+    // Wait for BOTH pills to exist before touching either — a bare `.nth(1)`
+    // click would otherwise hang to the 60s test timeout if the second pill
+    // hasn't rendered yet (the observed flake).
+    const pills = page.locator("button", { hasText: "@John Doe" })
+    await expect(pills).toHaveCount(2, { timeout: 15_000 })
+    const bobPill = pills.first()
     await expect(bobPill).toBeVisible()
     await expect(bobPill).not.toContainText("#")
 
     // Click Bob's pill → the profile card shows Bob's discriminator, not Carol's.
-    await bobPill.click()
     const card = page.getByTestId(tid.profileCard)
-    await expect(card).toBeVisible({ timeout: 15_000 })
+    await expect(async () => {
+      await bobPill.click({ timeout: 5_000 })
+      await expect(card).toBeVisible({ timeout: 5_000 })
+    }).toPass({ timeout: 30_000 })
     await expect(card).toContainText(`#${bob.discriminator}`)
     await expect(card).not.toContainText(`#${carol.discriminator}`)
-    // Dismiss and wait for the card (and its popover overlay) to fully detach
-    // before touching the second pill — clicking while the overlay animates out
-    // gets the click intercepted.
-    await page.keyboard.press("Escape")
-    await expect(card).toBeHidden({ timeout: 15_000 })
-    const carolPill = page.locator("button", { hasText: "@John Doe" }).nth(1)
-    await carolPill.click()
-    await expect(card).toBeVisible({ timeout: 15_000 })
+    // Dismiss the first card, then open the second pill's. The popover renders
+    // a portalled overlay that lingers during its exit animation and intercepts
+    // pointer events; under full-run load `toBeHidden` on the card doesn't
+    // guarantee the overlay has detached. Retry the whole dismiss→click so a
+    // transient interception (or a stray still-open card) re-presses Escape and
+    // tries again, instead of hanging the bare click to the 60s test timeout.
+    const carolPill = pills.nth(1)
+    await expect(async () => {
+      if (await card.isVisible()) {
+        await page.keyboard.press("Escape")
+        await expect(card).toBeHidden({ timeout: 5_000 })
+      }
+      await carolPill.click({ timeout: 5_000 })
+      await expect(card).toBeVisible({ timeout: 5_000 })
+    }).toPass({ timeout: 30_000 })
     await expect(card).toContainText(`#${carol.discriminator}`)
   })
 
@@ -119,13 +139,18 @@ test.describe.serial("mentions — mandatory discriminator", () => {
 
   test("@everyone renders with the distinct primary styling (its flag survives sanitize)", async ({ asUser }) => {
     const { page } = await asUser("alice")
-    await page.goto(`/c/channels/${serverId}/${channelId}`)
-    await page.waitForURL(new RegExp(channelId), { timeout: 20_000 , waitUntil: "commit" })
 
     const marker = `everyoneMsg ${Date.now()}`
     // Seed via API (the composer's own @everyone popup path is covered by unit
     // tests) — this journey is specifically about how the sent pill renders.
+    // Seed BEFORE navigating so the message is in the channel's initial fetch:
+    // navigating first and relying on WS delivery races the page's channel
+    // subscription (if the seed lands in the gap before subscribe, the message
+    // never arrives without a reload — a real flake, not the pill logic).
     await seedMessage("alice", channelId, `@everyone ${marker}`)
+
+    await page.goto(`/c/channels/${serverId}/${channelId}`)
+    await page.waitForURL(new RegExp(channelId), { timeout: 20_000 , waitUntil: "commit" })
 
     await expect(page.getByText(marker, { exact: false }).first()).toBeVisible({ timeout: 15_000 })
     const everyonePill = page.locator("span", { hasText: "@everyone" }).first()

@@ -48,12 +48,21 @@ export function createAuth(env: Env) {
     // Fixes first-login 401 for newly-registered users: the just-written user row
     // may not yet be visible on a D1 read-replica, but the signed cookie carries
     // the session payload set by the sign-in handler itself.
+    //
+    // maxAge: in prod, 5min balances freshness (a revoked session stops being
+    // honored within 5min) against D1 load. In dev/test it's 1h: the Playwright
+    // e2e-ui suite mints one session per user at global-setup and drives it for
+    // the whole run (>5min). Once the 5min cache lapsed, every seed request fell
+    // through to a D1 `findSession`, which under the suite's late-run parallel
+    // load returned null intermittently → a 401 cascade that flaked specs. A
+    // longer dev cache keeps the signed-cookie fast path valid across the run.
+    // Never widened in prod (revocation latency is a real security property).
     session: {
       expiresIn: 30 * 24 * 60 * 60,
       updateAge: 24 * 60 * 60,
       cookieCache: {
         enabled: true,
-        maxAge: 5 * 60,
+        maxAge: isProd ? 5 * 60 : 60 * 60,
       },
     },
     emailAndPassword: {
