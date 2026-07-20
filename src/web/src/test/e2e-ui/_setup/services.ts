@@ -105,11 +105,27 @@ function startService(name: string, filter: string, healthUrl: string): ManagedS
 // Starts web (:3000) + ws-do (:8789). Realtime journeys REQUIRE ws-do, so a
 // missing ws health check is a hard failure (fail fast), never a silent
 // degrade. Returns started services (empty when reusing an existing server).
+// `next dev` compiles each route lazily on first request, so a health check
+// (which only proves the process is up) doesn't mean `/c/channels/...` is
+// compiled. The first spec to hit a route then eats multi-second cold-compile
+// time and its `waitForURL` can time out. Pre-hit the hot routes so they're
+// warm before any spec runs. Best-effort: any response (even a redirect to
+// /sign-in) has already triggered compilation, so status is ignored.
+async function warmUpRoutes(): Promise<void> {
+  const routes = ["/c", "/sign-in", "/c/me"]
+  await Promise.all(
+    routes.map((path) =>
+      fetch(`${WEB_URL}${path}`, { redirect: "manual" }).catch(() => {}),
+    ),
+  )
+}
+
 export async function startServices(): Promise<ManagedService[]> {
   const webHealth = `${WEB_URL}/api/health`
   const wsHealth = `${WS_URL}/health`
 
   if (REUSE_EXISTING && (await isUp(webHealth)) && (await isUp(wsHealth))) {
+    await warmUpRoutes()
     return []
   }
 
@@ -126,5 +142,6 @@ export async function startServices(): Promise<ManagedService[]> {
   ]
 
   await Promise.all(services.map((s) => waitForHealth(s.healthUrl, s.name)))
+  await warmUpRoutes()
   return services
 }

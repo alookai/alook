@@ -7,7 +7,7 @@ export default defineConfig({
   testMatch: "**/*.spec.ts",
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
+  retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
   reporter: process.env.CI ? [["html", { open: "never" }], ["list"]] : "list",
   globalSetup: "./src/test/e2e-ui/_setup/global-setup.ts",

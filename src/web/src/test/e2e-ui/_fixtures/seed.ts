@@ -7,8 +7,15 @@ import type { UserKey } from "../_setup/users"
 // import.meta, which Playwright's CJS test loader can't evaluate). These call
 // the same community routes over HTTP with a user's session cookie — the
 // operations under test are still exercised through the UI in the specs.
-async function post(key: UserKey, path: string, body?: unknown): Promise<Response> {
-  const res = await fetch(`${WEB_URL}${path}`, {
+// Statuses worth retrying: a transient auth race (401/403 before the session
+// cookie is fully established on a cold worker) and D1/WAL contention (5xx).
+// A 4xx that isn't auth is a real precondition failure — don't mask it.
+function isRetryableStatus(status: number): boolean {
+  return status === 401 || status === 403 || status >= 500
+}
+
+async function postRaw(key: UserKey, path: string, body?: unknown): Promise<Response> {
+  return fetch(`${WEB_URL}${path}`, {
     method: "POST",
     headers: {
       Cookie: sessionCookie(key),
@@ -17,8 +24,18 @@ async function post(key: UserKey, path: string, body?: unknown): Promise<Respons
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
-  if (!res.ok) throw new Error(`POST ${path} failed (${res.status})`)
-  return res
+}
+
+async function post(key: UserKey, path: string, body?: unknown): Promise<Response> {
+  let lastStatus = 0
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const res = await postRaw(key, path, body)
+    if (res.ok) return res
+    lastStatus = res.status
+    if (!isRetryableStatus(res.status)) break
+    await new Promise((r) => setTimeout(r, 400))
+  }
+  throw new Error(`POST ${path} failed (${lastStatus})`)
 }
 
 export async function seedServer(owner: UserKey, name: string): Promise<string> {
@@ -39,8 +56,8 @@ export async function seedChannel(owner: UserKey, serverId: string, name: string
 // "Already a member" 400 is treated as success.
 export async function seedJoinServer(owner: UserKey, joiner: UserKey, serverId: string): Promise<void> {
   const token = await createInvite(owner, serverId)
-  // Retry transient 5xx (local D1/WAL contention) a couple times; a 400 is
-  // "Already a member" and counts as success.
+  // Retry a transient auth race (401/403) and D1/WAL contention (5xx); a 400 is
+  // "Already a member" and counts as success (idempotent on a Playwright retry).
   let lastStatus = 0
   for (let attempt = 0; attempt < 3; attempt++) {
     const res = await fetch(`${WEB_URL}/api/community/invites/${token}/join`, {
@@ -49,7 +66,7 @@ export async function seedJoinServer(owner: UserKey, joiner: UserKey, serverId: 
     })
     if (res.ok || res.status === 400) return
     lastStatus = res.status
-    if (res.status < 500) break
+    if (!isRetryableStatus(res.status)) break
     await new Promise((r) => setTimeout(r, 500))
   }
   throw new Error(`seedJoinServer join failed (${lastStatus})`)
@@ -71,11 +88,37 @@ export async function seedBlock(blocker: UserKey, targetUserId: string): Promise
   await post(blocker, `/api/community/users/${targetUserId}/block`)
 }
 
+// Look up an existing accepted-friendship id between the requester and a target
+// user, from the requester's friends list. Used to recover idempotently when a
+// re-run (Playwright retry) finds the pair already friends.
+async function findFriendshipId(requester: UserKey, targetUserId: string): Promise<string | undefined> {
+  const res = await fetch(`${WEB_URL}/api/community/friends`, {
+    headers: { Cookie: sessionCookie(requester), Origin: WEB_URL },
+  })
+  if (!res.ok) return undefined
+  const data = (await res.json()) as { friends: Array<{ id: string; userId: string }> }
+  return data.friends.find((f) => f.userId === targetUserId)?.id
+}
+
 // Full friend handshake: requester sends, addressee accepts (accept is
-// addressee-only, hence two keys). Returns the friendship id.
+// addressee-only, hence two keys). Returns the friendship id. Idempotent on a
+// Playwright retry: if the pair is already friends the request 409s, so we
+// recover the existing friendship id and skip the accept.
 export async function seedFriendship(requester: UserKey, addressee: UserKey, targetUserId: string): Promise<string> {
-  const reqRes = await post(requester, "/api/community/friends/request", { userId: targetUserId })
-  const reqData = (await reqRes.json()) as { id?: string; friendship?: { id: string } | null }
+  let reqRes: Response | undefined
+  for (let attempt = 0; attempt < 3; attempt++) {
+    reqRes = await postRaw(requester, "/api/community/friends/request", { userId: targetUserId })
+    // 409 = already friends / request already sent — a valid idempotent state.
+    if (reqRes.ok || reqRes.status === 409 || !isRetryableStatus(reqRes.status)) break
+    await new Promise((r) => setTimeout(r, 400))
+  }
+  if (reqRes!.status === 409) {
+    const existing = await findFriendshipId(requester, targetUserId)
+    if (existing) return existing
+    throw new Error("seedFriendship: 409 but no existing friendship found")
+  }
+  if (!reqRes!.ok) throw new Error(`seedFriendship request failed (${reqRes!.status})`)
+  const reqData = (await reqRes!.json()) as { id?: string; friendship?: { id: string } | null }
   const friendshipId = reqData.id ?? reqData.friendship?.id
   if (!friendshipId) throw new Error("seedFriendship: no friendship id in response")
   await post(addressee, `/api/community/friends/${friendshipId}/accept`)
