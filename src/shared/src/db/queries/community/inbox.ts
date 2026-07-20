@@ -9,7 +9,7 @@ import {
 import { user } from "../../schema";
 import type { Database } from "../../index";
 import { listParticipatingThreadIds } from "./thread";
-import { isThread } from "../../../utils/community-roles";
+import { isThread, isForumPost } from "../../../utils/community-roles";
 
 export interface UnreadChannelRow {
   channelId: string;
@@ -120,18 +120,27 @@ export async function listUnreadChannels(
     })
   );
 
-  // Thread unreads are scoped to PARTICIPATION (notification dimension): a
-  // thread surfaces in the inbox only for its participants (muted=0), NOT for
-  // every parent-channel member who can merely read it. Posts and channels flow
-  // through the visibility path above unchanged. Only threads are re-filtered.
-  const threadIds = unread.filter((r) => isThread(r.type)).map((r) => r.channelId);
-  const participatingThreadIds =
-    threadIds.length > 0
-      ? new Set(await listParticipatingThreadIds(db, threadIds, userId))
+  // Thread AND forum-post unreads are scoped to PARTICIPATION (notification
+  // dimension): they surface in the inbox only for their participants, NOT for
+  // every member who can merely read them. A public post is visible to the
+  // whole server but only notifies its participants, so an un-joined post must
+  // not flag as unread. Both store their notify set in the same participant
+  // table (keyed by channel id), so one `listParticipatingThreadIds` covers
+  // both. Top-level channels flow through the visibility path above unchanged.
+  const notifyScopedIds = unread
+    .filter((r) => isThread(r.type) || isForumPost(r.type))
+    .map((r) => r.channelId);
+  const participatingIds =
+    notifyScopedIds.length > 0
+      ? new Set(await listParticipatingThreadIds(db, notifyScopedIds, userId))
       : new Set<string>();
 
   return unread
-    .filter((r) => !isThread(r.type) || participatingThreadIds.has(r.channelId))
+    .filter(
+      (r) =>
+        (!isThread(r.type) && !isForumPost(r.type)) ||
+        participatingIds.has(r.channelId),
+    )
     .map((r) => ({
       channelId: r.channelId,
       channelName: r.channelName,

@@ -1,116 +1,82 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { MessagesSquare, ListChevronsUpDown, Plus, Tags, X, Check } from "lucide-react"
+import { useState } from "react"
+import { MessagesSquare, ListChevronsUpDown, Plus, Tag } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { formatRelativeTime } from "./format-time"
 import { Badge } from "@/components/ui/badge"
-import { onEnterSubmit } from "@/lib/ime"
-import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "./avatar"
+import { AvatarGroup, AvatarGroupCount } from "@/components/ui/avatar"
 import { EmptyState } from "./empty-state"
 import { CreateForumPost, type NewForumPost } from "./create-forum-post"
+import { PostTagDialog } from "./post-tag-dialog"
+import { tid } from "@/lib/community/testids"
 import type { ForumPost } from "./_types"
 
+// Max member avatars shown in a post card's AvatarGroup before collapsing to a
+// "+N" bubble. Creator is always first.
+const MAX_AVATARS = 4
+
 // Forum channel body — rendered under the shared ChannelHeader. A feed of posts;
-// each post opens as a thread. The forum-specific actions (New post + Manage tags)
-// live here in the filter bar, keeping the header identical to other channels.
-// `tags` seeds the available tag chips ("All" + tag names); tags can be added/removed
-// in manage mode.
+// each post opens as a thread. The filter bar's tag chips are DERIVED from the
+// posts themselves (the deduped union of every post's tags) — there is no
+// forum-level tag vocabulary. Per-post tags are edited from a hover icon on each
+// card (creator + server managers), not a forum-wide manage mode.
 export function ForumView({
-  posts, tags, loading, onOpenPost, onCreatePost, onTagsChanged, canManageTags,
+  posts, loading, onOpenPost, onCreatePost, onEditPostTags, canEditPostTags, savingTagsFor,
 }: {
   posts: ForumPost[]
-  tags: string[]
   loading?: boolean
   onOpenPost: (id: string) => void
   onCreatePost?: (post: NewForumPost) => void
-  onTagsChanged?: (tags: string[]) => void
-  canManageTags?: boolean
+  // Save handler for a single post's tags. Absent → tag editing disabled.
+  onEditPostTags?: (postId: string, tags: string[]) => void
+  // Whether the current user may edit a given post's tags (creator or manager).
+  canEditPostTags?: (post: ForumPost) => boolean
+  // The post id whose tag save is in flight, if any.
+  savingTagsFor?: string | null
 }) {
   const [tag, setTag] = useState("All")
   const [composing, setComposing] = useState(false)
-  const [managing, setManaging] = useState(false)
-  const [tagList, setTagList] = useState<string[]>(() => tags.filter((t) => t !== "All"))
-  useEffect(() => { setTagList(tags.filter((t) => t !== "All")) }, [tags])
-  const [newTag, setNewTag] = useState("")
+  const [editingTagsFor, setEditingTagsFor] = useState<ForumPost | null>(null)
 
-  const addTag = () => {
-    const t = newTag.trim().toLowerCase()
-    if (!t || tagList.includes(t)) { setNewTag(""); return }
-    const next = [...tagList, t]
-    setTagList(next)
-    setNewTag("")
-    onTagsChanged?.(next)
-  }
-  const removeTag = (t: string) => {
-    const next = tagList.filter((x) => x !== t)
-    setTagList(next)
-    if (tag === t) setTag("All")
-    onTagsChanged?.(next)
-  }
+  // Deduped union of every post's tags — the forum's tag list is derived, not
+  // stored. Only rendered when non-empty.
+  const allTags = [...new Set(posts.flatMap((p) => p.tags))].sort()
 
   const filtered = tag === "All" ? posts : posts.filter((p) => p.tags.includes(tag))
   return (
     <>
       {composing && (
         <CreateForumPost
-          tags={tagList}
           onCancel={() => setComposing(false)}
           onPost={(post) => { onCreatePost?.(post); setComposing(false) }}
         />
       )}
 
-      {/* filter bar — tag chips on the left, forum actions on the right.
-          Manage mode swaps the chips for delete/add-tag controls. */}
+      {/* filter bar — derived tag chips on the left (hidden when there are no
+          tags anywhere), New Post on the right. */}
       <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-          {!managing && (
-            <Badge variant={tag === "All" ? "default" : "secondary"} className="shrink-0 cursor-pointer" render={<button onClick={() => setTag("All")} />}>All</Badge>
-          )}
-          {tagList.map((t) => (
-            managing ? (
-              <Badge key={t} variant="secondary" className="shrink-0 gap-1">
-                #{t}
-                <button onClick={() => removeTag(t)} className="grid size-3.5 place-items-center rounded-full hover:bg-foreground/10" aria-label={`Delete tag ${t}`}><X className="size-3" /></button>
-              </Badge>
-            ) : (
-              <Badge
-                key={t}
-                variant={tag === t ? "default" : "secondary"}
-                className="shrink-0 cursor-pointer"
-                render={<button onClick={() => setTag(t)} />}
-              >
-                {`#${t}`}
-              </Badge>
-            )
-          ))}
-          {managing && (
-            <div className="flex items-center gap-1">
-              <Input
-                value={newTag}
-                onChange={(e) => setNewTag(e.target.value)}
-                onKeyDown={onEnterSubmit(addTag)}
-                placeholder="new-tag"
-                className="h-6 w-28 px-2 text-xs"
-              />
-              <button onClick={addTag} disabled={!newTag.trim()} className="grid size-6 place-items-center rounded-md bg-secondary text-muted-foreground hover:text-foreground disabled:opacity-40" aria-label="Add tag"><Check className="size-3.5" /></button>
-            </div>
+          {allTags.length > 0 && (
+            <>
+              <Badge variant={tag === "All" ? "default" : "secondary"} className="shrink-0 cursor-pointer" render={<button onClick={() => setTag("All")} />}>All</Badge>
+              {allTags.map((t) => (
+                <Badge
+                  key={t}
+                  variant={tag === t ? "default" : "secondary"}
+                  className="shrink-0 cursor-pointer"
+                  data-testid={tid.forumTagChip(t)}
+                  render={<button onClick={() => setTag(t)} />}
+                >
+                  {`#${t}`}
+                </Badge>
+              ))}
+            </>
           )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {canManageTags && (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => setManaging((v) => !v)}
-              aria-label="Manage tags"
-              className={`text-muted-foreground hover:text-foreground ${managing ? "bg-accent text-foreground" : ""}`}
-            >
-              <Tags className="size-4" />
-            </Button>
-          )}
           <Button size="sm" onClick={() => setComposing(true)}><Plus className="size-4" /> New Post</Button>
         </div>
       </div>
@@ -122,33 +88,74 @@ export function ForumView({
           <EmptyState icon={ListChevronsUpDown} label="No posts with this tag yet. Start one with New Post." />
         ) : (
           <div className="flex flex-col gap-3">
-            {filtered.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => onOpenPost(p.id)}
-                className="flex flex-col gap-2 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:border-primary/40 hover:bg-accent/40"
-              >
-                <div className="flex items-center gap-2">
-                  <Avatar label={p.authorAvatar} seed={p.authorId} size={24} />
-                  <span className="text-xs text-muted-foreground" suppressHydrationWarning>
-                    <span className="font-medium text-foreground">{p.parent.authorName}</span> · {formatRelativeTime(p.lastMessageAt)}
-                  </span>
+            {filtered.map((p) => {
+              const canEdit = !!onEditPostTags && (canEditPostTags?.(p) ?? false)
+              const others = p.participants.filter((m) => m.id !== p.authorId)
+              const shown = others.slice(0, MAX_AVATARS)
+              const overflow = others.length - shown.length
+              return (
+                <div
+                  key={p.id}
+                  role="button"
+                  tabIndex={0}
+                  data-testid={tid.forumPostCard(p.id)}
+                  onClick={() => onOpenPost(p.id)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpenPost(p.id) } }}
+                  className="group/card flex cursor-pointer flex-col gap-2 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:border-primary/40 hover:bg-accent/40"
+                >
+                  <div className="flex items-center gap-2">
+                    <Avatar label={p.authorAvatar} seed={p.authorId} size={24} />
+                    {others.length > 0 && (
+                      <AvatarGroup data-testid={tid.forumPostAvatars(p.id)}>
+                        {shown.map((m) => (
+                          <Avatar key={m.id} label={m.avatar} seed={m.id} size={24} ringColor="var(--card)" />
+                        ))}
+                        {overflow > 0 && <AvatarGroupCount className="size-6 text-[11px]">+{overflow}</AvatarGroupCount>}
+                      </AvatarGroup>
+                    )}
+                    <span className="text-xs text-muted-foreground" suppressHydrationWarning>
+                      <span className="font-medium text-foreground">{p.parent.authorName}</span> · {formatRelativeTime(p.lastMessageAt)}
+                    </span>
+                    {canEdit && (
+                      <button
+                        type="button"
+                        data-testid={tid.forumPostTagBtn(p.id)}
+                        onClick={(e) => { e.stopPropagation(); setEditingTagsFor(p) }}
+                        className="ml-auto grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/card:opacity-100"
+                        aria-label="Edit tags"
+                      >
+                        <Tag className="size-4" />
+                      </button>
+                    )}
+                  </div>
+                  <h3 className="text-[15px] font-semibold leading-tight">{p.name}</h3>
+                  <p className="line-clamp-2 text-sm text-muted-foreground">{p.preview}</p>
+                  <div className="flex items-center gap-2">
+                    {p.tags.length > 0 && p.tags.map((t) => (
+                      <Badge key={t} variant="secondary">#{t}</Badge>
+                    ))}
+                    <span className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
+                      <MessagesSquare className="size-3.5" /> {p.messageCount}
+                    </span>
+                  </div>
                 </div>
-                <h3 className="text-[15px] font-semibold leading-tight">{p.name}</h3>
-                <p className="line-clamp-2 text-sm text-muted-foreground">{p.preview}</p>
-                <div className="flex items-center gap-2">
-                  {p.tags.map((t) => (
-                    <Badge key={t} variant="secondary">#{t}</Badge>
-                  ))}
-                  <span className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
-                    <MessagesSquare className="size-3.5" /> {p.messageCount}
-                  </span>
-                </div>
-              </button>
-            ))}
+              )
+            })}
           </div>
         )}
       </main>
+
+      {editingTagsFor && (
+        <PostTagDialog
+          open
+          onOpenChange={(v) => { if (!v) setEditingTagsFor(null) }}
+          postName={editingTagsFor.name}
+          current={editingTagsFor.tags}
+          allTags={allTags}
+          saving={savingTagsFor === editingTagsFor.id}
+          onSave={(tags) => { onEditPostTags?.(editingTagsFor.id, tags); setEditingTagsFor(null) }}
+        />
+      )}
     </>
   )
 }
@@ -196,7 +203,6 @@ export function ForumViewSkeleton() {
           <Skeleton className="h-5 w-20 rounded-full" />
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <Skeleton className="size-7 rounded-md" />
           <Skeleton className="h-8 w-25 rounded-md" />
         </div>
       </div>

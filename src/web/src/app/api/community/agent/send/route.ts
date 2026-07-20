@@ -77,7 +77,12 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
     if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status })
     const channel = gate.value
     target = channel.parentChannelId
-      ? { kind: "thread", channelId: channel.id, parentChannelId: channel.parentChannelId, serverId: channel.serverId }
+      ? {
+          kind: channel.type === "forum_post" ? "forum_post" : "thread",
+          channelId: channel.id,
+          parentChannelId: channel.parentChannelId,
+          serverId: channel.serverId,
+        }
       : { kind: "channel", channelId: channel.id, serverId: channel.serverId }
   }
 

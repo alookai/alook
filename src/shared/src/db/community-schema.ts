@@ -102,17 +102,23 @@ export const communityChannelMember = sqliteTable(
 );
 
 // 3c. community_thread_participant
-// The NOTIFICATION set for a thread (`community_channel` row of type "thread").
-// A thread is NOT an access unit — any member of its parent channel can READ
-// it. This table decides only WHO gets notified (mention pings + inbox unread)
-// for new thread activity. `source` records how the user joined:
-//   - "mention" — @-mentioned in the thread (a parent-channel member).
-//   - "spoke"   — posted a message in the thread.
-//   - "added"   — added by another participant via the participant picker.
-// Leaving a thread deletes the row (a later mention/speak re-adds). Admins are
-// NOT auto-added — a thread's notify set is exactly its rows. Muting a thread is
-// the OUTER channel-header notification level (per-layer, same control a channel
-// uses), NOT a column here — participation is add/leave only.
+// The NOTIFICATION set for a thread OR a forum_post (`community_channel` rows of
+// type "thread" or "forum_post"). Despite the table name, it serves both: both
+// are the notification dimension, so a message reaches only the unit's
+// participants — a thread never notifies its whole parent channel, and a forum
+// post (public or private) never notifies the whole server / whole roster, only
+// the people actually involved. The FK `threadChannelId` points at
+// `communityChannel.id`, which is why a forum_post id fits without a schema
+// change. `source` records how the user joined:
+//   - "mention" — @-mentioned in the thread/post (within the unit's audience).
+//   - "spoke"   — posted a message in the thread/post (a public post enrolls any
+//                 server member who proactively sends; a private post's roster
+//                 is added separately, see below).
+//   - "added"   — added by another participant (thread picker) or, for a private
+//                 forum_post, coupled from the access roster on member-add.
+// Leaving deletes the row (a later mention/speak re-adds). Admins are NOT
+// auto-added — the notify set is exactly its rows. Muting is the OUTER
+// channel-header notification level, NOT a column here — add/leave only.
 export const communityThreadParticipant = sqliteTable(
   "community_thread_participant",
   {

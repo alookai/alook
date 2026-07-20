@@ -42,16 +42,16 @@ export default function MeLayout({ children }: { children: ReactNode }) {
     useCommunityStore.getState().setCurrentServerId(null)
   }, [])
 
-  // Seed the presence set for the friends/DM subtree — mirrors
-  // `channels/layout.tsx`'s `usePresence(serverId)` → `hydratePresence(...)`
-  // seed for server members. Without this, a friend who shares no server
-  // with you never shows online until a live WS event happens to arrive
-  // while you're on this page. `hydratePresence` is a one-shot replacement
-  // that no-ops on an identical list, so a re-render with the same online
-  // set doesn't cause an extra store write.
+  // Seed the presence set for the friends/DM subtree. This fetch carries ONLY
+  // friends — a strict subset of the WS presence audience (co-members ∪
+  // friends). It must MERGE, not replace: a destructive `hydratePresence` here
+  // would evict a DM peer who is a co-member-but-not-friend that the WS snapshot
+  // had already marked online, flipping them online→offline ~1s after load (the
+  // DM presence flicker bug). `mergePresence` unions instead, so WS-delivered
+  // ids survive. It no-ops when every id is already present.
   const { online: onlineFriendIds } = useFriendsPresence()
   useEffect(() => {
-    useCommunityWsStore.getState().hydratePresence(onlineFriendIds)
+    useCommunityWsStore.getState().mergePresence(onlineFriendIds)
   }, [onlineFriendIds])
 
   const hasDm = !!params.dmId

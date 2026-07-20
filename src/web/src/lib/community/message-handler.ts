@@ -25,6 +25,12 @@ export type MessageTarget =
     parentChannelId: string
     serverId: string
   }
+  | {
+    kind: "forum_post"
+    channelId: string
+    parentChannelId: string
+    serverId: string
+  }
   | { kind: "dm"; dmId: string; otherUserId: string }
 
 export function isDmTarget<T extends { kind: string }>(target: T): target is Extract<T, { kind: "dm" }>
@@ -43,6 +49,21 @@ export function isChannelTarget<T extends { kind: string }>(target: T): target i
 export function isChannelTarget(kind: string): boolean
 export function isChannelTarget(target: { kind: string } | string): boolean {
   return (typeof target === "string" ? target : target.kind) === "channel"
+}
+
+export function isForumPostTarget<T extends { kind: string }>(target: T): target is Extract<T, { kind: "forum_post" }>
+export function isForumPostTarget(kind: string): boolean
+export function isForumPostTarget(target: { kind: string } | string): boolean {
+  return (typeof target === "string" ? target : target.kind) === "forum_post"
+}
+
+// A thread and a forum_post share the same notify + parent-tick behavior: both
+// enroll participants (spoke/mention) and both fire the parent CHILD_CHANNEL_UPDATE
+// via their `parentChannelId`. This narrows to the two variants that carry one.
+export function hasParentChannel(
+  target: MessageTarget,
+): target is Extract<MessageTarget, { kind: "thread" | "forum_post" }> {
+  return target.kind === "thread" || target.kind === "forum_post"
 }
 
 type IncomingAttachment = {
@@ -530,15 +551,16 @@ export async function createCommunityMessage(params: {
   // Mention beats reply — never double-count the same user.
   for (const id of mentionTargets) replyTargets.delete(id)
 
-  // Thread participation (notification dimension). A thread's NOTIFY set is its
-  // participant rows — join by:
+  // Thread / forum_post participation (notification dimension). Both units'
+  // NOTIFY set is their participant rows — join by:
   //   - speaking: the author becomes a participant (source "spoke").
-  //   - @mention: an explicitly mentioned/replied parent-channel member becomes
-  //     a participant (source "mention"). `mentionTargets`/`replyTargets` are
-  //     already scoped to the parent-channel audience by the block above.
+  //   - @mention: an explicitly mentioned/replied audience member becomes a
+  //     participant (source "mention"). `mentionTargets`/`replyTargets` are
+  //     already scoped to the unit's audience by the block above.
   // Admins are NOT auto-added — only real participation joins the set. System /
-  // card messages (`skipMentions`) don't add the author.
-  if (isThreadTarget(target) && !skipMentions) {
+  // card messages (`skipMentions`) don't add the author. A forum post is
+  // enrolled exactly like a thread so it notifies only its participants.
+  if (hasParentChannel(target) && !skipMentions) {
     const rows: { userId: string; source: "spoke" | "mention" }[] = [
       { userId: authorId, source: "spoke" },
     ]
@@ -654,7 +676,7 @@ export async function createCommunityMessage(params: {
         { excludeUserId: fanoutExclude, wakeMessageRow },
       ).catch(() => { })
 
-      if (isThreadTarget(target)) {
+      if (hasParentChannel(target)) {
         const updated = await queries.communityChannel.getChannel(
           db,
           target.channelId,

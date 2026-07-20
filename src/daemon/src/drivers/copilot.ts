@@ -31,6 +31,14 @@ export class CopilotDriver implements Driver {
   private sessionId: string | null = null;
 
   probe() {
+    // Detection is `copilot --version` via the shared probe. On a machine where
+    // the real Copilot CLI isn't installed, the `copilot` that resolves on PATH
+    // is often the VS Code extension shim (e.g.
+    // `~/Library/Application Support/Code/User/globalStorage/github.copilot-chat/copilotCli/copilot`),
+    // which exits 0 and prints `Install GitHub Copilot CLI? ['y/N']` instead of
+    // a version. `probeCommandVersion`'s version-shape validation rejects that
+    // output, so this reports `unhealthy` (not-installed) rather than surfacing
+    // the prompt text as a bogus version. Verified on macOS.
     return probeCliRuntime("copilot");
   }
 

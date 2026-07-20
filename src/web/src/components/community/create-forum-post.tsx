@@ -3,30 +3,26 @@
 import { useState } from "react"
 import { X, Smile } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { EmojiPickerPopover } from "./emoji-picker"
 import { SlugHint } from "./slug-hint"
 import { previewSlug } from "@/lib/community/slug-preview"
 
-export type NewForumPost = { name: string; content: string; tags: string[] }
+// Tags are added AFTER creation from the post card's tag dialog, not here — the
+// create form stays focused on title + body.
+export type NewForumPost = { name: string; content: string }
 
-export function CreateForumPost({ tags, onCancel, onPost }: {
-  tags: string[]
+export function CreateForumPost({ onCancel, onPost }: {
   onCancel: () => void
   onPost: (post: NewForumPost) => void
 }) {
   const [title, setTitle] = useState("")
   const [body, setBody] = useState("")
-  const [selected, setSelected] = useState<string[]>([])
-
-  const toggleTag = (t: string) =>
-    setSelected((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]))
 
   const titlePreview = previewSlug(title)
   const submit = () => {
     const name = title.trim()
     if (!titlePreview.slug) return
-    onPost({ name, content: body.trim(), tags: selected })
+    onPost({ name, content: body.trim() })
   }
 
   return (
@@ -52,22 +48,6 @@ export function CreateForumPost({ tags, onCancel, onPost }: {
           />
         </div>
       </div>
-
-      {/* tag chips */}
-      {tags.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 px-3 pb-2">
-          {tags.map((t) => (
-            <Badge
-              key={t}
-              variant={selected.includes(t) ? "default" : "secondary"}
-              className="cursor-pointer"
-              render={<button onClick={() => toggleTag(t)} />}
-            >
-              #{t}
-            </Badge>
-          ))}
-        </div>
-      )}
 
       <div className="flex items-center justify-between border-t border-border px-3 py-2">
         <EmojiPickerPopover side="top" align="start" onPick={(e) => setBody((b) => b + e)}>

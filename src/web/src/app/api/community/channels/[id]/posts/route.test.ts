@@ -48,6 +48,10 @@ vi.mock("@alook/shared", async () => {
       communityMention: {
         createMentions: vi.fn(async () => []),
       },
+      communityThread: {
+        addThreadParticipants: vi.fn(async () => {}),
+        listParticipantsForChannels: vi.fn(async () => []),
+      },
       user: {
         getUserSelf: (...a: unknown[]) => mockGetUserSelf(...a),
         getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a),

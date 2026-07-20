@@ -15,6 +15,7 @@ const mockResolveScopeMembers = vi.fn()
 const mockGetMembersByUserIds = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
 const mockLogAudit = vi.fn()
+const mockAddThreadParticipants = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
@@ -35,6 +36,9 @@ vi.mock("@alook/shared", async () => {
       },
       communityMembersResolver: {
         resolveScopeMembers: (...a: unknown[]) => mockResolveScopeMembers(...a),
+      },
+      communityThread: {
+        addThreadParticipants: (...a: unknown[]) => mockAddThreadParticipants(...a),
       },
       user: { getUsersByIds: (...a: unknown[]) => mockGetUsersByIds(...a) },
     },
@@ -251,5 +255,10 @@ describe("POST /channels/[id]/members", () => {
     expect(mockCreateChannelMember).toHaveBeenCalledWith(expect.anything(), {
       channelId: "p1", userId: "u2", addedBy: "u1",
     })
+    // Access → notify coupling: an added private-post member also joins the
+    // post's participant (notify) set so they receive fan-out.
+    expect(mockAddThreadParticipants).toHaveBeenCalledWith(expect.anything(), "p1", [
+      { userId: "u2", source: "added" },
+    ])
   })
 })

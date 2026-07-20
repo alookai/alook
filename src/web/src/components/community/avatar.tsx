@@ -80,6 +80,7 @@ export function Avatar({ label, seed, src, size = 40, dim = false, presence, rin
       )}
       {presence && (
         <AvatarBadge
+          data-presence={presence}
           style={{
             background: STATUS_COLOR[presence],
             // Scales with the avatar instead of a fixed 10px — on a small

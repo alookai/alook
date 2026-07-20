@@ -44,6 +44,21 @@ export type VersionProbeResult =
   | { ok: true; version: string }
   | { ok: false; error: string };
 
+/**
+ * A `--version` line must look like a version to be accepted: it has to contain
+ * a digit-dotted token (e.g. `1.2.3`, `v0.4`, `2024.1`). This is the
+ * load-bearing defense against a CLI whose `--version` doesn't print a version
+ * but instead an interactive prompt or error. Confirmed case: the VS Code
+ * GitHub Copilot shim resolves as `copilot` on PATH, exits 0, and prints
+ * `Install GitHub Copilot CLI? ['y/N']` to stdout — no version token, so it's
+ * rejected here rather than surfacing as a bogus "version" on the Runtimes
+ * page. The non-interactive spawn options below can't catch it (the shim exits
+ * 0 even with stdin closed), so this regex is what draws the line.
+ */
+function looksLikeVersion(line: string): boolean {
+  return /\d+\.\d+/.test(line);
+}
+
 /** True when `command` needs a shell to exec on this platform — Windows
  * can't run a `.cmd`/`.bat` shim (which is what most npm global installs
  * resolve to) directly via `CreateProcess`. Shared by `resolveSpawnSpec`
@@ -80,9 +95,23 @@ export function probeCommandVersion(
   void deps;
   try {
     const shell = needsWindowsShimShell(command, platform);
-    const out = execFileSync(command, [...args, "--version"], { encoding: "utf8", timeout: 5000, shell });
+    // Run non-interactively: feed empty stdin (`input: ""`) so a CLI that would
+    // otherwise block on a prompt can't hang, and set `CI` in the child env
+    // (options object only — never mutate `process.env`, per the statelessness
+    // rule) so version-aware CLIs skip interactive paths. stdout stays piped
+    // (execFileSync returns it) — that's what we parse. A misbehaving shim that
+    // ignores all of this and prints a prompt anyway is caught by the
+    // `looksLikeVersion` validation below.
+    const out = execFileSync(command, [...args, "--version"], {
+      encoding: "utf8",
+      timeout: 5000,
+      shell,
+      input: "",
+      env: { ...process.env, CI: "1" },
+    });
     const line = out.split("\n")[0]?.trim();
     if (!line) return { ok: false, error: "empty_version_output" };
+    if (!looksLikeVersion(line)) return { ok: false, error: "invalid_version_output" };
     return { ok: true, version: line };
   } catch (err) {
     const code =

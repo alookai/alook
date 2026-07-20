@@ -85,6 +85,29 @@ export async function listThreadParticipants(
     .where(eq(communityThreadParticipant.threadChannelId, threadChannelId));
 }
 
+// Batch participant hydration for many channels at once — the forum post list's
+// per-card AvatarGroup. One query for N post ids instead of N. Rows carry the
+// channel id so the caller can group them back per post; `addedAt` orders the
+// group (creator's "spoke" row is earliest, so they lead). Soft-deleted users
+// drop out via the inner join, matching how the members list hydrates.
+export async function listParticipantsForChannels(
+  db: Database,
+  channelIds: string[]
+) {
+  if (channelIds.length === 0) return [];
+  return db
+    .select({
+      channelId: communityThreadParticipant.threadChannelId,
+      userId: communityThreadParticipant.userId,
+      addedAt: communityThreadParticipant.addedAt,
+      userName: user.name,
+      userImage: user.image,
+    })
+    .from(communityThreadParticipant)
+    .innerJoin(user, eq(user.id, communityThreadParticipant.userId))
+    .where(inArray(communityThreadParticipant.threadChannelId, channelIds));
+}
+
 export async function isThreadParticipant(
   db: Database,
   threadChannelId: string,

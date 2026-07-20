@@ -72,6 +72,21 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     : []
   const previewMap = new Map(firstMessages.map((m) => [m.channelId, m.content]))
 
+  // Batch-fetch each post's participant (notify) set for the card AvatarGroup.
+  // A post's participants are the people actually involved (creator + whoever
+  // spoke / was mentioned / was added), the same set fan-out notifies. Grouped
+  // by channel id and ordered by `addedAt` so the creator (earliest "spoke"
+  // row) leads.
+  const participantRows = postChannelIds.length > 0
+    ? await queries.communityThread.listParticipantsForChannels(db, postChannelIds)
+    : []
+  const participantsByPost = new Map<string, { id: string; name: string; avatar: string }[]>()
+  for (const r of [...participantRows].sort((a, b) => a.addedAt.localeCompare(b.addedAt))) {
+    const list = participantsByPost.get(r.channelId) ?? []
+    list.push({ id: r.userId, name: r.userName ?? "", avatar: r.userImage ?? avatarInitial(r.userName ?? "") })
+    participantsByPost.set(r.channelId, list)
+  }
+
   const posts = childChannels.map((t) => {
     const creator = t.creatorId ? creatorMap.get(t.creatorId) : null
     // creator can be null if the user was deleted (channel.creatorId has ON DELETE SET NULL).
@@ -88,6 +103,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       authorAvatar,
       tags: t.tags ?? [],
       preview,
+      participants: participantsByPost.get(t.id) ?? [],
     }
   })
 
@@ -108,7 +124,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError("channel is not a forum", 400)
   }
 
-  let body: { name?: string; content?: string; tags?: string[] }
+  let body: { name?: string; content?: string }
   try {
     body = await req.json()
   } catch {
@@ -134,18 +150,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError(`content must be ≤ ${MAX_MESSAGE_CONTENT_LENGTH} characters`, 400)
   }
 
-  // Validate tags against channel's tags if present
-  if (body.tags && body.tags.length > 0) {
-    const allowedTags = channel.tags ?? []
-    if (allowedTags.length > 0) {
-      const invalid = body.tags.filter((t) => !allowedTags.includes(t))
-      if (invalid.length > 0) {
-        return writeError(`invalid tags: ${invalid.join(", ")}`, 400)
-      }
-    }
-  }
-
-  // Create child channel for the forum post
+  // Create child channel for the forum post. Tags are NOT set at creation —
+  // they're added afterward from the post card's tag dialog.
   const postChannel = await queries.communityChannel.createChannel(db, {
     serverId: channel.serverId,
     parentChannelId: channelId,
@@ -154,12 +160,14 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     creatorId: ctx.userId,
   })
 
-  // Set forumTags on the post channel to store selected tags
-  if (body.tags?.length) {
-    await queries.communityChannel.updateChannel(db, postChannel.id, {
-      forumTags: JSON.stringify(body.tags),
-    })
-  }
+  // Enroll the creator as a participant so the post's notify set (which fan-out
+  // now scopes to for a forum_post, exactly like a thread) starts with its
+  // author. Done via a direct addThreadParticipants call rather than by routing
+  // the first message as `kind:"forum_post"` — that would fire a
+  // CHILD_CHANNEL_UPDATE colliding with the CHILD_CHANNEL_CREATE emitted below.
+  await queries.communityThread.addThreadParticipants(db, postChannel.id, [
+    { userId: ctx.userId, source: "spoke" },
+  ])
 
   // Create the first message in the post through the unified pipeline so it
   // gets mention extraction + private-channel audience scoping (the forum's
@@ -202,9 +210,12 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       messageCount: 1,
       lastMessageAt: message.createdAt,
       parent: { authorName, text: body.content.slice(0, MESSAGE_PREVIEW_LENGTH) },
+      authorId: ctx.userId,
       authorAvatar,
-      tags: body.tags ?? [],
+      tags: [],
       preview: body.content.slice(0, MESSAGE_PREVIEW_LENGTH),
+      // A fresh post's only participant is its creator (just enrolled above).
+      participants: [{ id: ctx.userId, name: authorName, avatar: authorAvatar }],
     },
   }, 201)
 })

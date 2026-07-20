@@ -74,8 +74,25 @@ export type CommunityWsStoreState = {
   botAuditEvents: Map<string, BotAuditEventEntry[]>
 
   setPresence: (userId: string, online: boolean) => void
-  /** Atomic bulk seed — one notification for N users. Use on server switch. */
+  /**
+   * Atomic bulk REPLACE — one notification for N users. Use on server switch,
+   * where it must PRUNE: a peer who was online in the previous server but isn't
+   * in the new server's snapshot has to drop to offline. The WS presence
+   * snapshot only emits `online:true`, so this destructive replace is the only
+   * thing that clears a stale-online peer on a switch.
+   */
   hydratePresence: (userIds: readonly string[]) => void
+  /**
+   * Additive bulk MERGE — union `userIds` into the current set, one
+   * notification. Use for a re-seed that carries only a SUBSET of the audience
+   * (the friends-presence fetch), where a destructive replace would evict
+   * WS-delivered co-members the fetch never knew about (the DM online→offline
+   * flicker bug). Accepted trade-off: because it never prunes and the WS
+   * snapshot is `online:true`-only, a peer who went offline while we were
+   * disconnected stays "online" until the next live `online:false` delta — the
+   * far rarer, less-jarring inverse of the flicker it fixes.
+   */
+  mergePresence: (userIds: readonly string[]) => void
   resetPresence: () => void
   hasSeenMessage: (id: string) => boolean
   markSeenMessage: (id: string) => void
@@ -114,6 +131,15 @@ export const useCommunityWsStore = create<CommunityWsStoreState>((set, get) => (
       return
     }
     set({ onlineUserIds: new Set(userIds) })
+  },
+
+  mergePresence: (userIds) => {
+    const current = get().onlineUserIds
+    // Fast-path: every incoming id already present → no write, no notification.
+    if (userIds.every((id) => current.has(id))) return
+    const next = new Set(current)
+    for (const id of userIds) next.add(id)
+    set({ onlineUserIds: next })
   },
 
   resetPresence: () => {

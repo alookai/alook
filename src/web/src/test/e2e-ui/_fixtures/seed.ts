@@ -84,6 +84,14 @@ export async function seedDm(from: UserKey, targetUserId: string): Promise<strin
   return data.conversation.id
 }
 
+// Post a DM message via API so the conversation shows in both sidebars with a
+// preview. Returns the message id.
+export async function seedDmMessage(author: UserKey, dmId: string, content: string): Promise<string> {
+  const res = await post(author, `/api/community/dm/${dmId}/messages`, { content })
+  const data = (await res.json()) as { message: { id: string } }
+  return data.message.id
+}
+
 export async function seedBlock(blocker: UserKey, targetUserId: string): Promise<void> {
   await post(blocker, `/api/community/users/${targetUserId}/block`)
 }
@@ -132,6 +140,20 @@ export async function seedMessage(author: UserKey, channelId: string, content: s
   const res = await post(author, `/api/community/channels/${channelId}/messages`, { content })
   const data = (await res.json()) as { message: { id: string } }
   return data.message.id
+}
+
+// Create a forum post (a child channel of a `type:"forum"` channel) via API.
+// Returns the post's own channel id. The creator is enrolled as a participant
+// server-side. Use when a spec needs an existing post before driving the UI.
+export async function seedForumPost(
+  author: UserKey,
+  forumChannelId: string,
+  name: string,
+  content: string,
+): Promise<string> {
+  const res = await post(author, `/api/community/channels/${forumChannelId}/posts`, { name, content })
+  const data = (await res.json()) as { post: { id: string } }
+  return data.post.id
 }
 
 export async function createInvite(owner: UserKey, serverId: string): Promise<string> {

@@ -49,6 +49,7 @@ import {
   useUnpinMessage,
   useCreateThread,
   useCreateForumPost,
+  useUpdatePostTags,
   useSetMemberRole,
   useKickMember,
   useSetChannelNotif,
@@ -402,6 +403,7 @@ function ChannelView() {
   const unpinMessageMut = useUnpinMessage()
   const createThreadMut = useCreateThread()
   const createForumPostMut = useCreateForumPost()
+  const updatePostTagsMut = useUpdatePostTags()
   const setMemberRoleMut = useSetMemberRole()
   const kickMemberMut = useKickMember()
   const setChannelNotifMut = useSetChannelNotif()
@@ -677,7 +679,7 @@ function ChannelView() {
     communityWsSendTyping({ channelId })
   }
 
-  const createForumPost = async (post: { name: string; content: string; tags: string[] }) => {
+  const createForumPost = async (post: { name: string; content: string }) => {
     try {
       const data = await createForumPostMut.mutateAsync({ channelId, ...post })
       // A post is its own child channel — open it, same as clicking a post row.
@@ -951,9 +953,6 @@ function ChannelView() {
 
   // ── Forum view ──────────────────────────────────────────────────────────
   if (isForum) {
-    const allChannels = currentServer?.categories.flatMap((c) => c.channels) ?? []
-    const forumChannel = allChannels.find((ch) => ch.id === channelId)
-    const forumTags: string[] = forumChannel?.tags ?? []
     const canManage = canManageServer(myRole)
     return (
       <>
@@ -973,17 +972,17 @@ function ChannelView() {
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <ForumView
             posts={forumPosts}
-            tags={forumTags}
             loading={forumPostsLoading}
             onOpenPost={enterThread}
             onCreatePost={createForumPost}
-            canManageTags={canManage}
-            onTagsChanged={canManage ? (tags) => {
-              apiFetch(`/api/community/channels/${channelId}`, {
-                method: "PATCH",
-                body: JSON.stringify({ forumTags: JSON.stringify(tags) }),
-              }).catch((e) => toastApiError(e, "Failed to save tags"))
-            } : undefined}
+            canEditPostTags={(post) => canManage || post.authorId === currentUser.id}
+            savingTagsFor={updatePostTagsMut.isPending ? updatePostTagsMut.variables?.postId ?? null : null}
+            onEditPostTags={(postId, tags) => {
+              updatePostTagsMut.mutate(
+                { forumChannelId: channelId, postId, tags },
+                { onError: (e) => toastApiError(e, "Failed to save tags") },
+              )
+            }}
           />
         </main>
 

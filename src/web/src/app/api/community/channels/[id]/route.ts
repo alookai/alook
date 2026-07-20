@@ -22,15 +22,32 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
   const access = await requireChannelAccess(db, channelId, ctx.userId)
   if (!access.ok) return writeError(access.error, access.status)
-  if (!access.value.canManage) return writeError("forbidden", 403)
   const channel = access.value.channel
   const isAdmin = canManageServer(access.value.member.role)
+  // A forum post's creator may edit that post's tags even without full
+  // `canManage` (a PUBLIC post's creator has `canManage === false`; a private
+  // post's creator already passes it via `isPrivate && isCreator`). Scoped to
+  // the `forumTags` field only below — every other field still requires
+  // `canManage`. `access.value.isCreator` is the vetted post-own-creator flag
+  // (NOT the forum creator), so we don't re-derive it from `channel.creatorId`.
+  const canEditPostTags =
+    channel.type === "forum_post" && access.value.isCreator
+  if (!access.value.canManage && !canEditPostTags) return writeError("forbidden", 403)
 
   let body: { name?: string; topic?: string; categoryId?: string | null; forumTags?: string | null }
   try {
     body = await req.json()
   } catch {
     return writeError("invalid request body", 400)
+  }
+
+  // A creator-without-canManage reached here only for the tag carve-out — they
+  // may edit forumTags and nothing else. Reject any other field explicitly
+  // rather than silently ignoring it.
+  if (!access.value.canManage) {
+    const nonTagField =
+      body.name !== undefined || body.topic !== undefined || body.categoryId !== undefined
+    if (nonTagField) return writeError("forbidden", 403)
   }
 
   const changes: { name?: string; topic?: string; categoryId?: string | null; forumTags?: string | null } = {}
@@ -74,7 +91,31 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     }
     changes.categoryId = body.categoryId
   }
-  if (body.forumTags !== undefined) changes.forumTags = body.forumTags
+  if (body.forumTags !== undefined) {
+    // Tags are a per-post concept: only a forum_post carries a selected-tag
+    // list (a forum's tag vocabulary is now derived as the union of its posts).
+    if (channel.type !== "forum_post") {
+      return writeError("only forum posts can have tags", 400)
+    }
+    // Validate the shape the read side (`safeParseForumTags`) expects: a JSON
+    // array of strings, stored as its stringified form. Reject anything else so
+    // a malformed value can't poison the parse.
+    if (body.forumTags !== null) {
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(body.forumTags)
+      } catch {
+        return writeError("forumTags must be a JSON array of strings", 400)
+      }
+      if (!Array.isArray(parsed) || parsed.some((t) => typeof t !== "string")) {
+        return writeError("forumTags must be a JSON array of strings", 400)
+      }
+      const normalized = [...new Set(parsed.map((t) => t.trim().toLowerCase()).filter(Boolean))]
+      changes.forumTags = JSON.stringify(normalized)
+    } else {
+      changes.forumTags = null
+    }
+  }
 
   if (Object.keys(changes).length === 0) {
     return writeError("no changes provided", 400)

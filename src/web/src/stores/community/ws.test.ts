@@ -72,6 +72,25 @@ describe("useCommunityWsStore", () => {
     expect(useCommunityWsStore.getState().onlineUserIds).toBe(before)
   })
 
+  it("mergePresence unions instead of replacing — regression for the DM flicker", () => {
+    // A WS snapshot marked co-member A online; the friends-only re-seed carries
+    // only B. A destructive replace would evict A (the reported bug); merge must
+    // keep both.
+    useCommunityWsStore.getState().setPresence("A", true)
+    useCommunityWsStore.getState().mergePresence(["B"])
+    const online = useCommunityWsStore.getState().onlineUserIds
+    expect(online.has("A")).toBe(true)
+    expect(online.has("B")).toBe(true)
+    expect(online.size).toBe(2)
+  })
+
+  it("mergePresence bails when every incoming id is already present", () => {
+    useCommunityWsStore.getState().hydratePresence(["u1", "u2"])
+    const before = useCommunityWsStore.getState().onlineUserIds
+    useCommunityWsStore.getState().mergePresence(["u1"])
+    expect(useCommunityWsStore.getState().onlineUserIds).toBe(before)
+  })
+
   it("markSeenMessage deduplicates", () => {
     useCommunityWsStore.getState().markSeenMessage("m1")
     const first = useCommunityWsStore.getState().seenMessageIds

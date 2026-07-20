@@ -118,6 +118,17 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     addedBy: ctx.userId,
   })
 
+  // Couple access → notify for a private forum post: an added member also joins
+  // the post's participant (notify) set, so they receive fan-out. A post's
+  // participant set is thus always a subset of its access roster. Idempotent —
+  // if they already spoke/were mentioned, this is a no-op. (A top-level private
+  // channel notifies via its access audience, so it needs no participant row.)
+  if (isForumPost(channel.type)) {
+    await queries.communityThread.addThreadParticipants(db, channelId, [
+      { userId: targetUserId, source: "added" },
+    ])
+  }
+
   const event = {
     type: WS_EVENTS.CHANNEL_MEMBER_ADD,
     serverId: channel.serverId,

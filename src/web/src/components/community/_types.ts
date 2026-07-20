@@ -155,6 +155,11 @@ export type ForumPost = Thread & {
   authorAvatar: string
   tags: string[]
   preview: string
+  // The post's participant (notify) set — creator first, then whoever
+  // spoke/was mentioned/was added. Drives the card's AvatarGroup. Always
+  // present (empty for a post with no participant rows yet, e.g. one created
+  // before the notify-scope change shipped).
+  participants: { id: string; name: string; avatar: string }[]
 }
 
 // ── Members / friends / DMs ──────────────────────────────────────────────────
