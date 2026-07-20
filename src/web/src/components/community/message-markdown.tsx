@@ -33,9 +33,15 @@ export function extractInviteTokens(text: string): string[] {
   return out
 }
 
+// Attribute names MUST be the camelCase hast property keys
+// (`dataEveryone`/`dataTag`), matching what `chatSyntaxHandlers` emits in
+// chat-syntax-plugin.ts — `hast-util-sanitize` matches its allowlist against
+// the property key, and kebab-case (`data-tag`) silently drops both, so the
+// mention pill would lose its discriminator (same-name pills all resolve to
+// the first match) and @everyone/@here lose their styling flag.
 export const MD_ALLOWED_TAGS = {
   spoiler: [],
-  mention: ["data-everyone", "data-tag"],
+  mention: ["dataEveryone", "dataTag"],
   channelref: [],
   serverref: [],
 }
