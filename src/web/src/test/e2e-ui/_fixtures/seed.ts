@@ -139,3 +139,42 @@ export async function createInvite(owner: UserKey, serverId: string): Promise<st
   const data = (await res.json()) as { invite: { token: string } }
   return data.invite.token
 }
+
+// Rename a user's community display name. Used by the mention specs to force
+// two members to share a name (each keeps its own auto-assigned discriminator),
+// which is the whole point of the same-name-disambiguation journey.
+export async function renameUser(key: UserKey, name: string): Promise<void> {
+  let lastStatus = 0
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const res = await fetch(`${WEB_URL}/api/community/users/me/profile`, {
+      method: "PATCH",
+      headers: { Cookie: sessionCookie(key), "Content-Type": "application/json", Origin: WEB_URL },
+      body: JSON.stringify({ name }),
+    })
+    if (res.ok) return
+    lastStatus = res.status
+    if (!isRetryableStatus(res.status)) break
+    await new Promise((r) => setTimeout(r, 400))
+  }
+  throw new Error(`renameUser failed (${lastStatus})`)
+}
+
+// A member's row id + discriminator, read from a server's member list (the
+// same NOT NULL column the mention grammar depends on). The mention popup keys
+// its option testid off the row `id`, and the pill/profile card shows the
+// `discriminator`, so the mention specs need both. `viewer` must be a member of
+// `serverId`; `targetUserId` is the member being looked up.
+export async function memberInfo(
+  viewer: UserKey,
+  serverId: string,
+  targetUserId: string,
+): Promise<{ id: string; discriminator: string }> {
+  const res = await fetch(`${WEB_URL}/api/community/servers/${serverId}/members`, {
+    headers: { Cookie: sessionCookie(viewer), Origin: WEB_URL },
+  })
+  if (!res.ok) throw new Error(`memberInfo list failed (${res.status})`)
+  const data = (await res.json()) as { members: Array<{ id: string; userId: string; discriminator?: string }> }
+  const found = data.members.find((m) => m.userId === targetUserId)
+  if (!found?.discriminator) throw new Error(`memberInfo: no discriminator for ${targetUserId}`)
+  return { id: found.id, discriminator: found.discriminator }
+}
