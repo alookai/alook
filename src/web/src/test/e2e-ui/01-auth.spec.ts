@@ -8,7 +8,7 @@ test.describe.serial("auth & first screen", () => {
     const context = await browser.newContext() // no storageState — anonymous
     const page = await context.newPage()
     await page.goto("/c/channels/does-not-matter/whatever")
-    await page.waitForURL(/\/sign-in/, { timeout: 20_000 })
+    await page.waitForURL(/\/sign-in/, { timeout: 20_000 , waitUntil: "commit" })
     expect(page.url()).toContain("redirect=")
     await context.close()
   })
@@ -18,6 +18,6 @@ test.describe.serial("auth & first screen", () => {
     await page.goto("/c")
     // Not bounced to sign-in.
     await expect(page).not.toHaveURL(/\/sign-in/)
-    await page.waitForURL(/\/c/, { timeout: 20_000 })
+    await page.waitForURL(/\/c/, { timeout: 20_000 , waitUntil: "commit" })
   })
 })

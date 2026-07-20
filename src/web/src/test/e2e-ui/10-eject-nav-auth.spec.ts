@@ -23,23 +23,23 @@ test.describe.serial("eject, navigation & logout", () => {
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}`)
     // The bare-server route redirects to the first channel.
-    await page.waitForURL(/\/c\/channels\/[^/]+\/[^/]+/, { timeout: 20_000 })
+    await page.waitForURL(/\/c\/channels\/[^/]+\/[^/]+/, { timeout: 20_000 , waitUntil: "commit" })
     expect(page.url()).toMatch(new RegExp(`/channels/${serverId}/[^/]+`))
   })
 
   test("logout clears the session", async ({ asUser }) => {
     const { page } = await asUser("bob")
     await page.goto("/c")
-    await page.waitForURL(/\/c/, { timeout: 20_000 })
+    await page.waitForURL(/\/c/, { timeout: 20_000 , waitUntil: "commit" })
 
     // Drive the real logout: User settings → Log Out → redirect to sign-in.
     await page.getByRole("button", { name: "User settings" }).click()
     await page.getByRole("button", { name: "Log Out" }).click()
-    await page.waitForURL(/\/sign-in/, { timeout: 20_000 })
+    await page.waitForURL(/\/sign-in/, { timeout: 20_000 , waitUntil: "commit" })
 
     // Session is actually cleared: revisiting a protected route stays bounced.
     await page.goto("/c")
-    await page.waitForURL(/\/sign-in/, { timeout: 20_000 })
+    await page.waitForURL(/\/sign-in/, { timeout: 20_000 , waitUntil: "commit" })
     await expect(page).toHaveURL(/\/sign-in/)
   })
 })

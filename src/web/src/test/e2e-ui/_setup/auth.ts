@@ -21,7 +21,7 @@ export async function loginAndSaveState(
   const page = await context.newPage()
   try {
     await page.goto(`${WEB_URL}/c`)
-    await page.waitForURL(/\/sign-in/, { timeout: 30_000 })
+    await page.waitForURL(/\/sign-in/, { timeout: 30_000 , waitUntil: "commit" })
 
     await page.getByRole("textbox", { name: "Email" }).fill(email)
     await page.getByRole("button", { name: "Sign in", exact: true }).click()
@@ -29,6 +29,7 @@ export async function loginAndSaveState(
     // Land somewhere authenticated — community shell or the default workspace.
     await page.waitForURL((url) => !url.pathname.startsWith("/sign-in"), {
       timeout: 30_000,
+      waitUntil: "commit",
     })
 
     // Resolve the seeded userId via the authenticated community profile API,

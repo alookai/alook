@@ -18,7 +18,7 @@ test.describe.serial("invite accept", () => {
     await page.goto(`/c/invite/${inviteToken}`)
     // Accept via the join CTA.
     await page.getByRole("button", { name: /join server/i }).first().click()
-    await page.waitForURL(new RegExp(`/c/channels/${serverId}`), { timeout: 20_000 })
+    await page.waitForURL(new RegExp(`/c/channels/${serverId}`), { timeout: 20_000, waitUntil: "commit" })
     await expect(page).toHaveURL(new RegExp(`/c/channels/${serverId}`))
   })
 })

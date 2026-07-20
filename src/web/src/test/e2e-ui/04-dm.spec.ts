@@ -14,7 +14,7 @@ test.describe.serial("direct messages", () => {
     const bob = await asUser("bob")
     await alice.page.goto(`/c/me/${dmId}`)
     await bob.page.goto("/c/me")
-    await alice.page.waitForURL(new RegExp(dmId), { timeout: 20_000 })
+    await alice.page.waitForURL(new RegExp(dmId), { timeout: 20_000 , waitUntil: "commit" })
 
     const body = `dm hello ${Date.now()}`
     await sendMessage(alice.page, body)
@@ -24,7 +24,7 @@ test.describe.serial("direct messages", () => {
     await bob.page.getByTestId(tid.dmRow(dmId)).click()
     // Bob lands in the DM; the message list fetch on a freshly-opened DM can
     // lag, so give the body a generous window rather than the default.
-    await bob.page.waitForURL(new RegExp(dmId), { timeout: 20_000 })
+    await bob.page.waitForURL(new RegExp(dmId), { timeout: 20_000 , waitUntil: "commit" })
     await expect(bob.page.getByText(body, { exact: false }).first()).toBeVisible({ timeout: 20_000 })
   })
 
@@ -35,7 +35,7 @@ test.describe.serial("direct messages", () => {
 
     const carol = await asUser("carol")
     await carol.page.goto(`/c/me/${dmId}`)
-    await carol.page.waitForURL(new RegExp(dmId), { timeout: 20_000 })
+    await carol.page.waitForURL(new RegExp(dmId), { timeout: 20_000 , waitUntil: "commit" })
 
     await expect(carol.page.getByTestId(tid.dmBlockedNotice)).toBeVisible()
     await expect(carol.page.getByTestId(tid.composerInput)).toHaveCount(0)

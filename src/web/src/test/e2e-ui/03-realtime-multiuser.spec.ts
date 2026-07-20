@@ -23,8 +23,8 @@ test.describe.serial("multi-user realtime", () => {
     const bob = await asUser("bob")
     await alice.page.goto(`/c/channels/${serverId}/${channelId}`)
     await bob.page.goto(`/c/channels/${serverId}/${channelId}`)
-    await alice.page.waitForURL(new RegExp(channelId), { timeout: 20_000 })
-    await bob.page.waitForURL(new RegExp(channelId), { timeout: 20_000 })
+    await alice.page.waitForURL(new RegExp(channelId), { timeout: 20_000 , waitUntil: "commit" })
+    await bob.page.waitForURL(new RegExp(channelId), { timeout: 20_000 , waitUntil: "commit" })
 
     const body = `live from alice ${Date.now()}`
     await sendMessage(alice.page, body)
@@ -37,7 +37,7 @@ test.describe.serial("multi-user realtime", () => {
     const bob = await asUser("bob")
     await alice.page.goto(`/c/channels/${serverId}/${channelId}`)
     await bob.page.goto(`/c/channels/${serverId}/${channelId}`)
-    await bob.page.waitForURL(new RegExp(channelId), { timeout: 20_000 })
+    await bob.page.waitForURL(new RegExp(channelId), { timeout: 20_000 , waitUntil: "commit" })
 
     await alice.page.getByTestId(tid.composerInput).click()
     await alice.page.keyboard.type("typing…")

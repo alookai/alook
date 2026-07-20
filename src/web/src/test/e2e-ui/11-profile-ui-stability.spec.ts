@@ -18,7 +18,7 @@ test.describe.serial("profile card stability", () => {
   test("opening a member profile shows the card; closing detaches it", async ({ asUser }) => {
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${channelId}`)
-    await page.waitForURL(new RegExp(channelId), { timeout: 20_000 })
+    await page.waitForURL(new RegExp(channelId), { timeout: 20_000 , waitUntil: "commit" })
 
     // Open the members panel and click Bob's row → profile card.
     await page.getByRole("button", { name: /member/i }).first().click()

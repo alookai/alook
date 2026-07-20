@@ -20,7 +20,7 @@ test.describe.serial("mentions", () => {
   test("the @-mention popup lists server members", async ({ asUser }) => {
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${channelId}`)
-    await page.waitForURL(new RegExp(channelId), { timeout: 20_000 })
+    await page.waitForURL(new RegExp(channelId), { timeout: 20_000 , waitUntil: "commit" })
 
     const editable = composerEditable(page)
     await editable.click()
@@ -35,7 +35,7 @@ test.describe.serial("mentions", () => {
   test("@everyone is offered in a channel", async ({ asUser }) => {
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${channelId}`)
-    await page.waitForURL(new RegExp(channelId), { timeout: 20_000 })
+    await page.waitForURL(new RegExp(channelId), { timeout: 20_000 , waitUntil: "commit" })
 
     const editable = composerEditable(page)
     await editable.click()

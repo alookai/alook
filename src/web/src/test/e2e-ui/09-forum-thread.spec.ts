@@ -23,7 +23,7 @@ test.describe.serial("threads", () => {
   test("creating a thread from a message shows a thread indicator on the parent", async ({ asUser }) => {
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${channelId}`)
-    await page.waitForURL(new RegExp(channelId), { timeout: 20_000 })
+    await page.waitForURL(new RegExp(channelId), { timeout: 20_000 , waitUntil: "commit" })
 
     // The seeded parent message renders (real id, not a racy optimistic row).
     const row = page.getByText("thread parent", { exact: false }).first()
@@ -38,7 +38,7 @@ test.describe.serial("threads", () => {
     }).toPass({ timeout: 20_000 })
 
     // Thread creation navigates off the parent channel into the thread child.
-    await page.waitForURL((url) => !url.pathname.endsWith(`/${channelId}`), { timeout: 20_000 })
+    await page.waitForURL((url) => !url.pathname.endsWith(`/${channelId}`), { timeout: 20_000, waitUntil: "commit" })
 
     // The thread is usable: a reply posts and appears in the thread view.
     const reply = `first reply ${Date.now()}`

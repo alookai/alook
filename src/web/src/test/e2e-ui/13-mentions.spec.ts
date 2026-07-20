@@ -57,7 +57,7 @@ test.describe.serial("mentions — mandatory discriminator", () => {
   test("same-name mentions each resolve to the exact user on pill click (spaced name, no leaked #dddd)", async ({ asUser }) => {
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${channelId}`)
-    await page.waitForURL(new RegExp(channelId), { timeout: 20_000 })
+    await page.waitForURL(new RegExp(channelId), { timeout: 20_000 , waitUntil: "commit" })
 
     await mentionAndSend(page, bob.id, "msgBob")
     await mentionAndSend(page, carol.id, "msgCarol")
@@ -88,7 +88,7 @@ test.describe.serial("mentions — mandatory discriminator", () => {
   test("a hand-typed bare @name (not picked from the popup) is inert — plain text, no pill", async ({ asUser }) => {
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${channelId}`)
-    await page.waitForURL(new RegExp(channelId), { timeout: 20_000 })
+    await page.waitForURL(new RegExp(channelId), { timeout: 20_000 , waitUntil: "commit" })
 
     const marker = `bareMention ${Date.now()}`
     const editable = composerEditable(page)
@@ -108,7 +108,7 @@ test.describe.serial("mentions — mandatory discriminator", () => {
   test("@everyone renders with the distinct primary styling (its flag survives sanitize)", async ({ asUser }) => {
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${channelId}`)
-    await page.waitForURL(new RegExp(channelId), { timeout: 20_000 })
+    await page.waitForURL(new RegExp(channelId), { timeout: 20_000 , waitUntil: "commit" })
 
     const marker = `everyoneMsg ${Date.now()}`
     // Seed via API (the composer's own @everyone popup path is covered by unit

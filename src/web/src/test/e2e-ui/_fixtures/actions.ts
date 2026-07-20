@@ -4,6 +4,14 @@ import { tid } from "./testids"
 // Reusable UI action helpers built on the canonical testids. Journeys compose
 // these so the real user path (click → type → assert) stays readable and the
 // selectors live in one place.
+//
+// NOTE: every `page.waitForURL(...)` in this suite passes `waitUntil: "commit"`.
+// `next dev` compiles routes lazily on first hit, so the initial page's `load`
+// event can lag many seconds behind the URL change while a chunk compiles — the
+// default `waitUntil: "load"` then times out even though navigation already
+// happened (the CI symptom: "navigated to <correct url>" then a 20s timeout).
+// Specs assert on real DOM right after (which auto-waits), so `commit` is the
+// correct, non-flaky signal.
 
 // Create a server through the rail. `openViaAddButton` clicks the "+" (the
 // empty-list auto-dialog covers the first-server case separately). Waits for
@@ -18,7 +26,7 @@ export async function createServer(page: Page, name: string, opts?: { autoDialog
   await page.getByTestId(tid.createServerSubmit).click()
 
   // Land on the new server's default channel.
-  await page.waitForURL(/\/c\/channels\/[^/]+\/[^/]+/, { timeout: 20_000 })
+  await page.waitForURL(/\/c\/channels\/[^/]+\/[^/]+/, { timeout: 20_000, waitUntil: "commit" })
   const m = page.url().match(/\/c\/channels\/([^/]+)\//)
   if (!m) throw new Error(`createServer: no serverId in URL ${page.url()}`)
   return m[1]
@@ -37,12 +45,12 @@ export async function createChannel(page: Page, categoryName: string, channelNam
 
 export async function openServer(page: Page, serverId: string): Promise<void> {
   await page.getByTestId(tid.serverIcon(serverId)).click()
-  await page.waitForURL(new RegExp(`/c/channels/${serverId}/`), { timeout: 20_000 })
+  await page.waitForURL(new RegExp(`/c/channels/${serverId}/`), { timeout: 20_000, waitUntil: "commit" })
 }
 
 export async function openChannel(page: Page, channelId: string): Promise<void> {
   await page.getByTestId(tid.channelRow(channelId)).click()
-  await page.waitForURL(new RegExp(`/${channelId}(\\?|$)`), { timeout: 20_000 })
+  await page.waitForURL(new RegExp(`/${channelId}(\\?|$)`), { timeout: 20_000, waitUntil: "commit" })
 }
 
 // The ProseMirror contenteditable inside the composer wrapper. Clicking the

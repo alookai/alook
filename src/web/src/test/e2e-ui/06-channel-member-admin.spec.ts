@@ -25,7 +25,7 @@ test.describe.serial("channel & member admin", () => {
   test("the member list shows server members", async ({ asUser }) => {
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${channelId}`)
-    await page.waitForURL(new RegExp(channelId), { timeout: 20_000 })
+    await page.waitForURL(new RegExp(channelId), { timeout: 20_000 , waitUntil: "commit" })
     // Open the members panel via the channel header.
     await page.getByRole("button", { name: /member/i }).first().click()
     await expect(page.getByTestId(tid.memberRow(userId("bob")))).toBeVisible({ timeout: 15_000 })
