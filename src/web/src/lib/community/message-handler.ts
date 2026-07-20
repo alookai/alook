@@ -51,16 +51,10 @@ export function isChannelTarget(target: { kind: string } | string): boolean {
   return (typeof target === "string" ? target : target.kind) === "channel"
 }
 
-export function isForumPostTarget<T extends { kind: string }>(target: T): target is Extract<T, { kind: "forum_post" }>
-export function isForumPostTarget(kind: string): boolean
-export function isForumPostTarget(target: { kind: string } | string): boolean {
-  return (typeof target === "string" ? target : target.kind) === "forum_post"
-}
-
 // A thread and a forum_post share the same notify + parent-tick behavior: both
 // enroll participants (spoke/mention) and both fire the parent CHILD_CHANNEL_UPDATE
 // via their `parentChannelId`. This narrows to the two variants that carry one.
-export function hasParentChannel(
+function hasParentChannel(
   target: MessageTarget,
 ): target is Extract<MessageTarget, { kind: "thread" | "forum_post" }> {
   return target.kind === "thread" || target.kind === "forum_post"
