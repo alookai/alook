@@ -10,7 +10,7 @@ export const metadata = {
 
 Claude Code shipped dynamic workflows last week. Write JavaScript, run 100+ agents, keep working.
 
-Great if you never close your browser and work alone.
+Great if you stay in one Claude Code session and work alone.
 
 We built something different at Alook because we needed agents that remember things tomorrow and can hand off work to teammates. After testing both for a month, I can tell you exactly when each one breaks.
 
@@ -29,19 +29,19 @@ const report = await synthesizer.merge(results);
 
 Launch 50 to 500 agents at once. They all run in parallel while you keep working. When they're done, you get one merged report. For huge parallel tasks, nothing beats it.
 
-## Then You Close Your Browser
+## Then You End the Session
 
 I audited a codebase with dynamic workflows. Spent $47 in tokens, saved six hours of manual work. Great trade.
 
-Next day I wanted to run it again with a small change. Had to start from scratch because closing the browser destroyed everything. Tried to hand it to a colleague who handles our security reviews. Couldn't. The session was mine alone. Asked if agents could remember what they found last time. They can't.
+Next day I wanted to run it again with a small change. I had to start from scratch because exiting Claude Code ended the session. Resume works within the same session — completed agents return cached results when you pause and resume from `/workflows` — but a new session starts the workflow fresh. I tried to hand it to a colleague who handles our security reviews. Couldn't. The run was tied to my session.
 
-The whole thing runs on Anthropic's servers as a black box. You need Claude Pro minimum. $20/month just to start.
+Dynamic workflows run through Claude Code on Anthropic's infrastructure (or your API/Bedrock/Foundry setup). They require a paid Claude plan, API access, or an equivalent hosted integration — not a single $20 Pro tier alone.
 
 ## We Went with Email Instead
 
 Sounds primitive. Agents literally email each other. That's also why it works across sessions, across weeks, and across teammates.
 
-Alook does this. While dynamic workflows only work in Claude Code, Alook connects to Codex, OpenCode, and Claude Code today. OpenClaw and Hermes Agent coming Q3.
+Alook does this. While dynamic workflows only work in Claude Code, Alook connects to Codex, OpenCode, and Claude Code today. Cursor, Hermes, and OpenClaw are listed as coming soon.
 
 ### Agents Get Their Own Space
 
@@ -72,11 +72,11 @@ May numbers: 3 articles live, 173 impressions, 41 clicks, 23.70% CTR. Not massiv
 | **Sweet spot** | 500 files, right now | 3-month project |
 | **How long** | Hours in one session | Weeks to months |
 | **Who uses it** | You, alone | Team with handoffs |
-| **Memory** | Gone when done | Permanent timeline |
+| **Memory** | Cached within a session; fresh on new session | Permanent timeline |
 | **Agent communication** | JavaScript | Email |
-| **Can pause?** | No, runs to completion | Yes, async everything |
-| **Where it runs** | Anthropic only | Your servers |
-| **Frameworks** | Claude Code | Codex, OpenCode, Claude Code, more coming |
+| **Can pause?** | Yes, within the same session (`/workflows`) | Yes, async everything |
+| **Where it runs** | Claude Code on paid plans, API, Bedrock, Agent Platform, Foundry | Your servers |
+| **Frameworks** | Claude Code | Codex, OpenCode, Claude Code; Cursor, Hermes, OpenClaw coming soon |
 
 ## Audit 500 Files or Run a Program?
 
@@ -86,7 +86,7 @@ Building a content program? Email coordination. Research accumulates. Writing im
 
 ## Using Dynamic Workflows
 
-Claude Code v2.1.154 minimum. Pro subscription required.
+Claude Code v2.1.154 minimum. Available on all paid Claude plans, Anthropic API access, and hosted integrations (Bedrock, Google Cloud Agent Platform, Microsoft Foundry).
 
 Enable in settings, then:
 > Run a workflow to find all TypeScript files importing deprecated APIs

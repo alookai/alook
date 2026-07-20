@@ -21,7 +21,7 @@ I've been there. Actually, I was there last Tuesday. **You're not using AI tools
 
 ## The Hidden Cost of Context Switching
 
-[Microsoft did this study](https://www.microsoft.com/en-us/research/publication/task-interruption-resumption-lag/) that found it takes about 23 minutes to fully refocus after a context switch. Twenty-three minutes. Every single time.
+Research on interrupted knowledge work shows higher stress and faster but more fragmented work ([Mark et al., CHI 2008](https://ics.uci.edu/~gmark/chi08-mark.pdf)). A figure often quoted in productivity writing — about 23 minutes to return to interrupted work — comes from a [2006 Gallup interview with Gloria Mark](https://news.gallup.com/businessjournal/23146/Too-Many-Interruptions-Work.aspx). That number is widely repeated but does not appear in a peer-reviewed paper.
 
 Let me walk you through what my typical day used to look like:
 - Morning: Claude Code for new feature, then copy context
@@ -64,33 +64,19 @@ Everything shares context. Decisions are preserved. No copy-paste. No conflicts.
 
 Honestly, the first time I saw this work, I felt stupid for all the time I'd wasted before.
 
-## Real Stories from Real Developers
+## Patterns We've Heard from Developers
 
 For more insights on building effective AI systems, check out our guide on [AI agent orchestration patterns](/blog/ai-agent-orchestration) and learn [how to delegate tasks to AI agents](/blog/how-to-delegate-tasks-to-ai-agents) effectively.
 
-### Jake's Week (Senior Engineer, Fintech Startup)
+### A week juggling isolated tools (senior engineer, fintech)
 
-Jake tracked his tool usage for a week. I'm sharing his numbers because they're almost identical to what I was seeing:
+One developer we spoke to tracked a week of copy-paste between Claude Code, Cursor, and a third assistant. Building authentication alone meant dozens of context handoffs, hours re-explaining architecture, and two conflicting implementations to merge. The merged code felt stitched together because each tool had solved the problem in isolation.
 
-**Monday through Wednesday:** Building authentication system
-Forty-something copy-paste operations between tools. Three hours re-explaining context. Two conflicting implementations that he had to somehow merge. The final code looked like Frankenstein's monster.
+When they switched to coordinated agents sharing one context layer, copy-paste dropped to near zero. Security issues they'd missed while routing between tools showed up in review because the review agent could see the same decisions the architecture agent had made.
 
-**Thursday and Friday:** Tried the AI team approach
-Zero copy-paste operations. Zero context re-explanations. One consistent implementation. The agents caught three security issues Jake had missed while juggling tools.
+### A CTO at a twelve-person startup
 
-He saved 11 hours that week. Eleven hours.
-
-### Sarah's Transformation (CTO, 12-person startup)
-
-Sarah sent me this email that I'm just going to quote directly:
-
-"We were using Claude Code for architecture, Cursor for implementation, GitHub Copilot for completions, and Codeium for reviews. Four tools, zero communication between them.
-
-Every PR was chaos. Claude would suggest one pattern. Cursor would implement something different. Copilot would autocomplete in a third style. Then Codeium would flag everything.
-
-Now our Architecture Agent maintains all design decisions. Code Agent implements following those exact patterns. Review Agent knows the architecture context. Deploy Agent understands the full system.
-
-PRs that took 3 days now take 3 hours. I'm not exaggerating."
+Another team lead described the before-and-after this way: four coding assistants, zero shared memory, every PR a style fight. Architecture suggestions from one tool, implementation patterns from another, completions in a third voice, review flags in a fourth. After moving to role-based agents with shared context, PR churn dropped sharply because every agent referenced the same design record.
 
 ## What Tools Literally Cannot Provide
 
@@ -138,23 +124,23 @@ Here's what nobody tells you about agents sharing context.
 
 This is literally impossible with isolated tools. Claude Code can't tell Cursor about that performance issue. Cursor can't warn Windsurf about that deprecated pattern.
 
-## Numbers from Teams That Made the Switch
+## What Changes When Tools Share Context
 
-We tracked 31 development teams for about three months. [The methodology was similar to this developer productivity research](https://queue.acm.org/detail.cfm?id=3454124), if you want the details.
+[Studies of developer productivity](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/meyer-fse-2014.pdf) show that context switches between tasks are common and that switches requiring a change in thinking are especially costly. When multiple AI assistants do not share state, you pay that tax on every handoff between tools.
 
-**Before (Multiple Tools):**
-- Average context switches daily: somewhere around 30-35
-- Time lost to re-explanation: about 3 hours per day
-- Inconsistent implementations: roughly two-thirds of PRs
-- Bugs from tool miscommunication: maybe 20-25% of total bugs
+Teams that move from isolated assistants to a shared agent layer typically report:
 
-**After (AI Team):**
-- Context switches: basically zero (agents handle handoffs)
-- Time lost: zero (persistent shared context)
-- Inconsistent implementations: almost none
-- Bugs from miscommunication: nearly eliminated
+**Before (multiple tools):**
+- Frequent manual context re-explanation between sessions
+- Inconsistent patterns across files and PRs
+- You acting as middleware between tools that never talk
 
-Rough math? About 18 hours saved per developer per week. 
+**After (coordinated agents):**
+- Handoffs without copy-paste
+- One record of architecture and constraint decisions
+- Review and implementation referencing the same context
+
+The exact hours saved vary by team. The recurring theme is less time routing information and more time shipping.
 
 ## "But I Like My Current Tools"
 
@@ -192,8 +178,8 @@ These three eliminate most of the context-switching pain. Like 80% of it.
 
 By day 30, assuming you don't completely mess it up:
 - Your codebase will be more consistent
-- Bugs drop significantly (ours dropped about 40%)
-- Deployment frequency roughly doubles
+- Bugs tend to drop as review and implementation stay aligned
+- You ship more often because handoffs stop blocking you
 - You're actually coding instead of copy-pasting
 
 ## The Competitive Reality Nobody Wants to Discuss
