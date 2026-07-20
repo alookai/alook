@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "next dev",
     "build": "tsx scripts/validate-blog-assets.ts && next build",
-    "validate:blog": "tsx scripts/validate-blog-assets.ts",
+    "validate:blog": "tsx scripts/validate-blog-assets.ts && tsx scripts/check-blog-editorial.ts --report",
+    "validate:blog:editorial": "tsx scripts/check-blog-editorial.ts",
+    "validate:blog:editorial:strict": "tsx scripts/check-blog-editorial.ts --strict",
     "start": "next start",
     "lint": "eslint src/",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
