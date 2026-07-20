@@ -117,7 +117,13 @@ function startService(name: string, filter: string, healthUrl: string): ManagedS
 // warm before any spec runs. Best-effort: any response (even a redirect to
 // /sign-in) has already triggered compilation, so status is ignored.
 async function warmUpRoutes(): Promise<void> {
-  const routes = ["/c", "/sign-in", "/c/me"]
+  // Include the DYNAMIC route segments the first specs land on — `next dev`
+  // compiles per route *file*, not per id, so a placeholder id triggers the
+  // same compilation the real navigation needs. `/c/channels/x` (server root)
+  // and `/c/channels/x/y` (channel) are the ones create-server waits for; the
+  // server-root page also runs a data-gated redirect, so warming its chunk is
+  // what keeps that first `waitForURL` from eating cold-compile time.
+  const routes = ["/c", "/sign-in", "/c/me", "/c/channels/warmup", "/c/channels/warmup/warmup"]
   await Promise.all(
     routes.map((path) =>
       fetch(`${WEB_URL}${path}`, { redirect: "manual" }).catch(() => {}),
