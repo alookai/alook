@@ -1,4 +1,5 @@
 import { ChevronRight, Inbox, MoreHorizontal, Trash2 } from "lucide-react"
+import { stripInlineMarkup } from "@alook/shared"
 import { EntityIcon } from "./entity-icon"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
@@ -100,7 +101,7 @@ function MentionsTab({ mentions, loading, onOpenMention, onDeleteMention }: {
                   {mn.kind === "reply" ? "replied to you" : "mentioned you"} in {mn.server} · #{mn.channel}
                 </span>
               </div>
-              <div className="truncate text-sm text-muted-foreground">{mn.m.content}</div>
+              <div className="truncate text-sm text-muted-foreground">{stripInlineMarkup(mn.m.content ?? "")}</div>
             </div>
           </button>
           {onDeleteMention && (

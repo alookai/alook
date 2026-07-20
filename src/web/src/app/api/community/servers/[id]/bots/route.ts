@@ -70,6 +70,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
         id: added.id,
         userId: botId,
         name: bot?.name ?? "",
+        discriminator: bot?.discriminator ?? "0000",
         avatar: bot?.image ?? undefined,
         role: added.role ?? ROLES.MEMBER,
         joinedAt: added.joinedAt,

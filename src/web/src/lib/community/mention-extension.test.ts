@@ -9,7 +9,9 @@ import {
   type MentionPopupState,
 } from "./mention-extension"
 
-const member = (id: string, name: string, discriminator?: string): Member => ({
+// A member must carry a discriminator to appear in the popup (disc-less members
+// are filtered out), so the helper defaults one. Labels are always tagged now.
+const member = (id: string, name: string, discriminator = "0000"): Member => ({
   id,
   userId: id,
   name,
@@ -64,7 +66,8 @@ describe("rankMentionItems", () => {
     const items = rankMentionItems(roster, "channel", "al")
     const memberOrder = items.filter((i) => i.kind === "member").map((i) => i.label)
     // Alice and Albert start with "al"; no substring-only members in this set.
-    expect(memberOrder.slice(0, 2).sort()).toEqual(["Albert", "Alice"])
+    // Labels are always tagged with the member's discriminator now.
+    expect(memberOrder.slice(0, 2).sort()).toEqual(["Albert#0000", "Alice#0000"])
   })
 
   it("caps the list at 8 items", () => {
@@ -77,9 +80,9 @@ describe("rankMentionItems", () => {
     // roster with the additional Member fields (`userId`, `role`, `sub`) must
     // still rank virtual → prefix → substring.
     const memberRoster: Member[] = [
-      { id: "m_alice", userId: "u_alice", name: "Alice", avatar: "A", status: "online", sub: "eng", role: "admin" },
-      { id: "m_bob", userId: "u_bob", name: "Bob", avatar: "B", status: "offline", sub: "", role: "member" },
-      { id: "m_alba", userId: "u_alba", name: "Alba", avatar: "A", status: "online", sub: "", role: "owner" },
+      { id: "m_alice", userId: "u_alice", name: "Alice", discriminator: "0001", avatar: "A", status: "online", sub: "eng", role: "admin" },
+      { id: "m_bob", userId: "u_bob", name: "Bob", discriminator: "0002", avatar: "B", status: "offline", sub: "", role: "member" },
+      { id: "m_alba", userId: "u_alba", name: "Alba", discriminator: "0003", avatar: "A", status: "online", sub: "", role: "owner" },
     ]
     const items = rankMentionItems(memberRoster, "channel", "al")
     // Virtual items are gated by prefix on the query — "al" filters both out.
@@ -91,8 +94,8 @@ describe("rankMentionItems", () => {
 
   it("preserves virtual → prefix → substring order on a non-empty Member[]", () => {
     const memberRoster: Member[] = [
-      { id: "m_al", userId: "u_al", name: "Alberta", avatar: "A", status: "online", sub: "", role: "member" },
-      { id: "m_mal", userId: "u_mal", name: "Mallory", avatar: "M", status: "online", sub: "", role: "member" },
+      { id: "m_al", userId: "u_al", name: "Alberta", discriminator: "0001", avatar: "A", status: "online", sub: "", role: "member" },
+      { id: "m_mal", userId: "u_mal", name: "Mallory", discriminator: "0002", avatar: "M", status: "online", sub: "", role: "member" },
     ]
     const items = rankMentionItems(memberRoster, "channel", "")
     // Empty query — @everyone / @here lead, then all members (starts-with
@@ -111,7 +114,7 @@ describe("rankMentionItems", () => {
     // while `id` stays the membership row id (used for #0042 disambiguation and
     // mention serialization). Fixture deliberately keeps id !== userId.
     const memberRoster: Member[] = [
-      { id: "m_row", userId: "u_person", name: "Alice", avatar: "A", status: "online", sub: "", role: "member" },
+      { id: "m_row", userId: "u_person", name: "Alice", discriminator: "0001", avatar: "A", status: "online", sub: "", role: "member" },
     ]
     const item = rankMentionItems(memberRoster, "channel", "al").find((i) => i.kind === "member")!
     expect(item.id).toBe("m_row")
@@ -120,8 +123,8 @@ describe("rankMentionItems", () => {
 
   it("ranks substring members after prefix members", () => {
     const memberRoster: Member[] = [
-      { id: "m_al", userId: "u_al", name: "Alberta", avatar: "A", status: "online", sub: "", role: "member" },
-      { id: "m_mal", userId: "u_mal", name: "Mallory", avatar: "M", status: "online", sub: "", role: "member" },
+      { id: "m_al", userId: "u_al", name: "Alberta", discriminator: "0001", avatar: "A", status: "online", sub: "", role: "member" },
+      { id: "m_mal", userId: "u_mal", name: "Mallory", discriminator: "0002", avatar: "M", status: "online", sub: "", role: "member" },
     ]
     const items = rankMentionItems(memberRoster, "channel", "al")
     // "Alberta" prefix-matches "al"; "Mallory" substring-matches. Prefix wins.
@@ -129,7 +132,7 @@ describe("rankMentionItems", () => {
     expect(memberIds).toEqual(["m_al", "m_mal"])
   })
 
-  it("appends #0042 to the label when two ranked members share a name", () => {
+  it("always tags a member's label with its discriminator", () => {
     const dupes = [
       member("u1", "Alex", "0001"),
       member("u2", "Alex", "0002"),
@@ -140,7 +143,7 @@ describe("rankMentionItems", () => {
     expect(labels.sort()).toEqual(["Alex#0001", "Alex#0002"])
   })
 
-  it("leaves a unique name's label bare even when other names collide", () => {
+  it("tags even a unique name — the discriminator is always present", () => {
     const mixed = [
       member("u1", "Alex", "0001"),
       member("u2", "Alex", "0002"),
@@ -148,14 +151,20 @@ describe("rankMentionItems", () => {
     ]
     const items = rankMentionItems(mixed, "channel", "")
     const bob = items.find((i) => i.kind === "member" && i.id === "u3")
-    expect(bob?.label).toBe("Bob")
+    expect(bob?.label).toBe("Bob#0003")
   })
 
-  it("leaves the label bare when a colliding member has no discriminator", () => {
-    const noDisc = [member("u1", "Alex"), member("u2", "Alex", "0002")]
+  it("filters out a member with no discriminator — it can't produce a valid mention", () => {
+    // `Member.discriminator` is required at the type level, but the runtime
+    // filter is defense-in-depth against a malformed/legacy payload. The cast
+    // deliberately constructs a disc-less member to exercise that guard.
+    const noDisc: Member[] = [
+      { id: "u1", userId: "u1", name: "Alex", avatar: "A", status: "online", sub: "", role: "member" } as Member,
+      member("u2", "Alex", "0002"),
+    ]
     const items = rankMentionItems(noDisc, "channel", "")
     const labels = items.filter((i) => i.kind === "member").map((i) => i.label)
-    expect(labels.sort()).toEqual(["Alex", "Alex#0002"])
+    expect(labels).toEqual(["Alex#0002"])
   })
 })
 

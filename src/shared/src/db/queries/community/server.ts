@@ -21,6 +21,7 @@ export async function createServer(
     joinedAt: string;
     userName: string;
     userImage: string | null;
+    userDiscriminator: string;
   };
 }> {
   const [server] = await db
@@ -68,7 +69,7 @@ export async function createServer(
   // scoped select is honest about intent and avoids `.find` disambiguation
   // in the caller.
   const [userRow] = await db
-    .select({ name: user.name, image: user.image })
+    .select({ name: user.name, image: user.image, discriminator: user.discriminator })
     .from(user)
     .where(eq(user.id, data.ownerId));
 
@@ -82,6 +83,8 @@ export async function createServer(
       // and the createUser/updateUser guards — the `?? ""` is defensive.
       userName: userRow?.name ?? "",
       userImage: userRow?.image ?? null,
+      // NOT NULL column; `?? "0000"` mirrors the schema default defensively.
+      userDiscriminator: userRow?.discriminator ?? "0000",
     },
   };
 }

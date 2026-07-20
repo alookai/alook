@@ -1,12 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { extractMentionedUserIds } from "../../src/utils/community-mentions";
 
+// Every mention now resolves ONLY via a fully-tagged `@Name#dddd` handle — a
+// hand-typed bare `@Alice` is not a mention (see
+// plans/mandatory-mention-discriminator.md). Rosters carry a discriminator.
 const ROSTER = [
-  { userId: "u1", name: "Alice" },
-  { userId: "u2", name: "Bob" },
-  { userId: "u3", name: "John" },
-  { userId: "u4", name: "John Doe" },
-  { userId: "u5", name: "李雷" },
+  { userId: "u1", name: "Alice", discriminator: "0001" },
+  { userId: "u2", name: "Bob", discriminator: "0002" },
+  { userId: "u3", name: "John", discriminator: "0003" },
+  { userId: "u4", name: "John Doe", discriminator: "0004" },
+  { userId: "u5", name: "李雷", discriminator: "0005" },
 ];
 
 describe("extractMentionedUserIds", () => {
@@ -15,69 +18,64 @@ describe("extractMentionedUserIds", () => {
   });
 
   it("returns empty when no candidates", () => {
-    expect(extractMentionedUserIds("hi @Alice", [])).toEqual([]);
+    expect(extractMentionedUserIds("hi @Alice#0001", [])).toEqual([]);
   });
 
-  it("finds a single mention", () => {
-    expect(extractMentionedUserIds("hi @Alice", ROSTER)).toEqual(["u1"]);
+  it("finds a single tagged mention", () => {
+    expect(extractMentionedUserIds("hi @Alice#0001", ROSTER)).toEqual(["u1"]);
   });
 
-  it("is case-insensitive", () => {
-    expect(extractMentionedUserIds("hi @alice", ROSTER)).toEqual(["u1"]);
-    expect(extractMentionedUserIds("HI @ALICE", ROSTER)).toEqual(["u1"]);
+  it("is case-insensitive on the name part", () => {
+    expect(extractMentionedUserIds("hi @alice#0001", ROSTER)).toEqual(["u1"]);
+    expect(extractMentionedUserIds("HI @ALICE#0001", ROSTER)).toEqual(["u1"]);
   });
 
   it("matches multiple distinct mentions", () => {
-    const got = extractMentionedUserIds("@Alice @Bob hey", ROSTER);
+    const got = extractMentionedUserIds("@Alice#0001 @Bob#0002 hey", ROSTER);
     expect(got.sort()).toEqual(["u1", "u2"]);
   });
 
   it("dedupes repeated mentions of the same user", () => {
-    expect(extractMentionedUserIds("@Alice @Alice", ROSTER)).toEqual(["u1"]);
+    expect(extractMentionedUserIds("@Alice#0001 @Alice#0001", ROSTER)).toEqual(["u1"]);
   });
 
-  it("prefers longest match (John Doe over John)", () => {
-    expect(extractMentionedUserIds("hi @John Doe", ROSTER)).toEqual(["u4"]);
+  it("resolves a spaced name via its handle", () => {
+    expect(extractMentionedUserIds("hi @John Doe#0004", ROSTER)).toEqual(["u4"]);
   });
 
-  it("falls back to short name when long does not fit boundary", () => {
-    expect(extractMentionedUserIds("hi @John, hey", ROSTER)).toEqual(["u3"]);
+  it("respects right boundary — trailing punctuation after the handle is fine", () => {
+    expect(extractMentionedUserIds("hi @John#0003, hey", ROSTER)).toEqual(["u3"]);
   });
 
   it("respects left boundary — won't match in email", () => {
-    expect(extractMentionedUserIds("contact me@Alice.com", ROSTER)).toEqual([]);
+    expect(extractMentionedUserIds("contact me@Alice#0001.com", ROSTER)).toEqual([]);
   });
 
-  it("respects right boundary — won't match partial token", () => {
-    expect(extractMentionedUserIds("hi @AliceBob", ROSTER)).toEqual([]);
-  });
-
-  it("handles unicode names", () => {
-    expect(extractMentionedUserIds("早 @李雷 好", ROSTER)).toEqual(["u5"]);
+  it("handles unicode names via handle", () => {
+    expect(extractMentionedUserIds("早 @李雷#0005 好", ROSTER)).toEqual(["u5"]);
   });
 
   it("handles accented-Latin names — the #4 charset fix", () => {
-    const roster = [{ userId: "u_jose", name: "José" }, { userId: "u_unal", name: "Ünal" }];
-    expect(extractMentionedUserIds("hi @José", roster)).toEqual(["u_jose"]);
-    expect(extractMentionedUserIds("hi @Ünal", roster)).toEqual(["u_unal"]);
+    const roster = [
+      { userId: "u_jose", name: "José", discriminator: "0001" },
+      { userId: "u_unal", name: "Ünal", discriminator: "0002" },
+    ];
+    expect(extractMentionedUserIds("hi @José#0001", roster)).toEqual(["u_jose"]);
+    expect(extractMentionedUserIds("hi @Ünal#0002", roster)).toEqual(["u_unal"]);
   });
 
-  it("respects right boundary for accented-Latin names — a longer identifier run must not false-positive match a shorter name prefix", () => {
-    // Before the #4 fix, `ID_CHAR_RE` was ASCII-only (`[A-Za-z0-9_]`), which
-    // treated `é` as a non-identifier boundary character — so `@Josééx`
-    // incorrectly matched "José" as a complete token (the boundary check
-    // right after the match wrongly passed). Verified this reproduced
-    // against the pre-fix regex before writing this test.
-    const roster = [{ userId: "u_jose", name: "José" }];
-    expect(extractMentionedUserIds("hi @Josééx", roster)).toEqual([]);
+  it("a hand-typed bare @name (no discriminator) is NOT a mention", () => {
+    expect(extractMentionedUserIds("hi @Alice", ROSTER)).toEqual([]);
+    expect(extractMentionedUserIds("hi @John Doe", ROSTER)).toEqual([]);
+    expect(extractMentionedUserIds("早 @李雷 好", ROSTER)).toEqual([]);
   });
 
-  it("does not match @everyone / @here when not in roster", () => {
+  it("does not match @everyone / @here", () => {
     expect(extractMentionedUserIds("@everyone hi", ROSTER)).toEqual([]);
   });
 
   it("returns ids in encounter order", () => {
-    const got = extractMentionedUserIds("@Bob @Alice", ROSTER);
+    const got = extractMentionedUserIds("@Bob#0002 @Alice#0001", ROSTER);
     expect(got).toEqual(["u2", "u1"]);
   });
 });
@@ -103,19 +101,18 @@ describe("extractMentionedUserIds — @Name#0042 disambiguation", () => {
     expect(got).toEqual(["u_alex_1", "u_alex_2"]);
   });
 
-  it("falls back to bare-name (first occurrence) when no #0042 suffix is present", () => {
-    expect(extractMentionedUserIds("hey @Alex, you there?", DUP_ROSTER)).toEqual(["u_alex_1"]);
+  it("a bare @name with no matching handle resolves to nothing (no bare-name fallback)", () => {
+    expect(extractMentionedUserIds("hey @Alex, you there?", DUP_ROSTER)).toEqual([]);
   });
 
-  it("falls back to bare-name when the discriminator suffix doesn't match anyone", () => {
-    expect(extractMentionedUserIds("hey @Alex#9999", DUP_ROSTER)).toEqual(["u_alex_1"]);
+  it("a #dddd suffix that matches no one resolves to nothing", () => {
+    expect(extractMentionedUserIds("hey @Alex#9999", DUP_ROSTER)).toEqual([]);
   });
 
-  it("a longer digit run after # doesn't match the handle, falls back to bare-name", () => {
-    // "#00013" isn't the "#0001" handle (boundary char after would need to be
-    // non-identifier) — falls through to the bare "@Alex" bare-name match,
-    // since "#" itself is already a non-identifier boundary character.
-    expect(extractMentionedUserIds("hey @Alex#00013", DUP_ROSTER)).toEqual(["u_alex_1"]);
+  it("a longer digit run after # doesn't match the handle and resolves to nothing", () => {
+    // "#00013" isn't the "#0001" handle (the char after the 4-digit tag must be
+    // a boundary; "3" is an identifier char), and there is no bare-name fallback.
+    expect(extractMentionedUserIds("hey @Alex#00013", DUP_ROSTER)).toEqual([]);
   });
 
   it("handle match still respects word-boundary punctuation immediately after", () => {

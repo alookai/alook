@@ -16,7 +16,7 @@ describe("useFriends / friendsQueryFn", () => {
     apiFetchMock
       .mockImplementationOnce(async (url: string) => {
         expect(url).toBe("/api/community/friends")
-        return { friends: [{ id: "f_1", name: "n", avatar: "a", status: "offline", sub: "" }], blocked: [{ id: "b_1", name: "b", avatar: "a" }] }
+        return { friends: [{ id: "f_1", name: "n", discriminator: "0000", avatar: "a", status: "offline", sub: "" }], blocked: [{ id: "b_1", name: "b", avatar: "a" }] }
       })
       .mockImplementationOnce(async (url: string) => {
         expect(url).toBe("/api/community/friends/pending")

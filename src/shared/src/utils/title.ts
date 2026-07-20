@@ -46,8 +46,11 @@ export function stripInlineMarkup(raw: string): string {
     .replace(/`+([^`]*)`+/g, "$1")
     // Emphasis / strong / strike markers.
     .replace(/(\*\*|__|~~|\*|_)/g, "")
-    // `@name#0042` discriminator → `@name`.
-    .replace(/(@[\p{L}\p{N}_-]+)#\d{4}(?!\d)/gu, "$1")
+    // `@name#0042` discriminator → `@name`. Name-run allows spaces but must end
+    // in a non-whitespace char, matching the display grammar in
+    // `chat-syntax-plugin.ts` so a spaced-name mention (`@John Doe#0042`) strips
+    // correctly and ordinary prose (`issue #0042`) does not.
+    .replace(/(@[^@#\n\r]*[^@#\n\r\s])#\d{4}(?!\d)/gu, "$1")
     // Line-leading block markers: heading #, blockquote >, list bullets/numbers.
     .replace(/^\s{0,3}(?:#{1,6}\s+|>\s?|[-*+]\s+|\d+[.)]\s+)/gm, "");
 }

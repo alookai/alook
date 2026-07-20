@@ -1013,6 +1013,13 @@ import {
   COMMUNITY_BOT_DESCRIPTION_MAX,
   COMMUNITY_BOT_IMAGE_URL_MAX,
 } from "./constants";
+import { validateCommunityName } from "./lib/community-name";
+
+// A bot is a mentionable community member, so its name must satisfy the same
+// `@Name#dddd` mention-grammar rules as a human display name (no `#`/`@`/line
+// breaks). Reused as a `.refine` on both bot-name fields below.
+const isMentionSafeName = (name: string): boolean => validateCommunityName(name).ok;
+const MENTION_SAFE_NAME_MSG = "name cannot contain #, @, or line breaks";
 
 // Accepts an https URL, the exact bot-avatar route shape
 // (`/api/community/bots/{id}/avatar` — see plans/icon-range-selector.md), or
@@ -1040,7 +1047,8 @@ export const CommunityBotCreateRequestSchema = z.object({
     .string()
     .trim()
     .min(COMMUNITY_BOT_NAME_MIN)
-    .max(COMMUNITY_BOT_NAME_MAX),
+    .max(COMMUNITY_BOT_NAME_MAX)
+    .refine(isMentionSafeName, { message: MENTION_SAFE_NAME_MSG }),
   description: z.string().max(COMMUNITY_BOT_DESCRIPTION_MAX).optional(),
   machineId: z.string().min(1),
   runtime: z.string().min(1),
@@ -1055,6 +1063,7 @@ export const CommunityBotPatchRequestSchema = z
       .trim()
       .min(COMMUNITY_BOT_NAME_MIN)
       .max(COMMUNITY_BOT_NAME_MAX)
+      .refine(isMentionSafeName, { message: MENTION_SAFE_NAME_MSG })
       .optional(),
     description: z.string().max(COMMUNITY_BOT_DESCRIPTION_MAX).optional(),
     image: BotImageUrlSchema.nullable().optional(),

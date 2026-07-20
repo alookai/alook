@@ -504,6 +504,8 @@ export type { MeetingInfo } from "./lib/ics-parser";
 export { buildMimeMessage, extractAttachmentMeta, filterDownloadableAttachments } from "./lib/mime";
 export type { MimeAttachment, BuildMimeOptions, InboundAttachmentMeta } from "./lib/mime";
 export { computeDiscriminator, parseNameAndTag, formatHandle } from "./lib/discriminator";
+export { validateCommunityName, sanitizeCommunityName } from "./lib/community-name";
+export type { CommunityNameValidation } from "./lib/community-name";
 export { parseInviteToken } from "./lib/invite-link";
 export { slugify } from "./lib/slugify";
 export {

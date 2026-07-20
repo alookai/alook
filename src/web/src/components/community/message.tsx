@@ -18,6 +18,7 @@ import { formatMessageTime } from "./format-time"
 import { tid } from "@/lib/community/testids"
 import { avatarInitial } from "@/lib/community/avatar"
 import { displayName } from "@/lib/community/display-name"
+import { stripInlineMarkup } from "@alook/shared"
 import type { RenderMsg, OpenProfile } from "./_types"
 
 // Fallback ratio for an attachment image with no known dimensions
@@ -119,7 +120,7 @@ export function Message({
           ) : (
             <>
               <span className="font-medium text-foreground/80">@{m.replyTo.authorName}</span>
-              <span className="truncate">{m.replyTo.text}</span>
+              <span className="truncate">{stripInlineMarkup(m.replyTo.text)}</span>
             </>
           )}
         </button>

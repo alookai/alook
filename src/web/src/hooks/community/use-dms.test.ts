@@ -14,7 +14,7 @@ beforeEach(() => {
 describe("useDms / dmsQueryFn", () => {
   it("returns the DM conversations from GET /api/community/dm", async () => {
     const conversations = [
-      { id: "dm_1", userId: "u_1", name: "Alice", avatar: "A", status: "offline", preview: "" },
+      { id: "dm_1", userId: "u_1", name: "Alice", discriminator: "0000", avatar: "A", status: "offline", preview: "" },
     ]
     apiFetchMock.mockResolvedValueOnce({ conversations })
     const { dmsQueryFn } = await import("./use-dms")

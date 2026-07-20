@@ -102,7 +102,7 @@ describe("createServer", () => {
         [memberRow],   // insert communityServerMember w/ returning
       ],
       selectReturns: [
-        [{ name: "Alice", image: "https://avatars/alice.png" }], // select user
+        [{ name: "Alice", image: "https://avatars/alice.png", discriminator: "0042" }], // select user
       ],
     });
 
@@ -119,6 +119,7 @@ describe("createServer", () => {
       joinedAt: memberRow.joinedAt,
       userName: "Alice",
       userImage: "https://avatars/alice.png",
+      userDiscriminator: "0042",
     });
   });
 

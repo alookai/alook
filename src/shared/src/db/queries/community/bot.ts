@@ -43,6 +43,7 @@ import { nanoid } from "nanoid";
 export type BotRow = {
   id: string;
   name: string;
+  discriminator: string;
   image: string | null;
   ownerUserId: string;
   description: string;
@@ -78,6 +79,7 @@ export async function listBotsForOwner(
     .select({
       id: user.id,
       name: user.name,
+      discriminator: user.discriminator,
       image: user.image,
       ownerUserId: user.ownerUserId,
       createdAt: user.createdAt,
@@ -102,6 +104,7 @@ export async function listBotsForOwner(
   return rows.map((r) => ({
     id: r.id,
     name: r.name,
+    discriminator: r.discriminator,
     image: r.image,
     ownerUserId: r.ownerUserId!,
     description: r.description ?? "",
@@ -125,6 +128,7 @@ export async function getBotOwnedBy(
     .select({
       id: user.id,
       name: user.name,
+      discriminator: user.discriminator,
       image: user.image,
       ownerUserId: user.ownerUserId,
       createdAt: user.createdAt,
@@ -153,6 +157,7 @@ export async function getBotOwnedBy(
   return {
     id: r.id,
     name: r.name,
+    discriminator: r.discriminator,
     image: r.image,
     ownerUserId: r.ownerUserId!,
     description: r.description ?? "",

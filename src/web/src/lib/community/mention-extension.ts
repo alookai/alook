@@ -46,15 +46,30 @@ export function rankMentionItems(
   const q = query.toLowerCase()
   const virtual = VIRTUAL_ITEMS.filter((v) => !q || v.label.startsWith(q))
 
+  // Every member mention is serialized with its `#dddd` discriminator (via
+  // `renderText`), so each pill resolves to the EXACT user — no name-collision
+  // ambiguity, and the trailing tag lets the display parser accept spaced names
+  // (see plans/mandatory-mention-discriminator.md). A member with no
+  // discriminator can't produce a valid mention token, so it is filtered OUT of
+  // the popup entirely — the user physically can't pick an unmentionable member
+  // and get an inert, non-notifying dud. This is a should-never-happen guard
+  // (every member-list/search query selects `discriminator`, seeded at signup);
+  // do NOT recompute it client-side, since the stored value is salted-unique.
   const sw: MemberMentionItem[] = []
   const inc: MemberMentionItem[] = []
   for (const m of members) {
+    if (!m.discriminator) {
+      if (typeof console !== "undefined") {
+        console.warn(`rankMentionItems: skipping member ${m.id} with no discriminator`)
+      }
+      continue
+    }
     const name = m.name.toLowerCase()
     const item: MemberMentionItem = {
       kind: "member",
       id: m.id,
       userId: m.userId,
-      label: m.name,
+      label: `${m.name}#${m.discriminator}`,
       avatar: m.avatar,
       status: m.status,
     }
@@ -62,28 +77,7 @@ export function rankMentionItems(
     else if (name.includes(q)) inc.push(item)
   }
 
-  // Disambiguate same-name members within the ranked window: append the
-  // `#0042` discriminator to the label (which is also what gets inserted
-  // into the message, via `renderText`) so picking either one resolves to
-  // the exact user server-side instead of the backend's first-match
-  // fallback. Unique names stay plain — no visual noise for the common
-  // case.
-  const ranked = [...sw, ...inc]
-  const nameCounts = new Map<string, number>()
-  for (const item of ranked) {
-    const key = item.label.toLowerCase()
-    nameCounts.set(key, (nameCounts.get(key) ?? 0) + 1)
-  }
-  const membersByLabel = new Map(members.map((m) => [m.id, m]))
-  const disambiguated = ranked.map((item) => {
-    const key = item.label.toLowerCase()
-    if ((nameCounts.get(key) ?? 0) < 2) return item
-    const discriminator = membersByLabel.get(item.id)?.discriminator
-    if (!discriminator) return item
-    return { ...item, label: `${item.label}#${discriminator}` }
-  })
-
-  return [...virtual, ...disambiguated].slice(0, MENTION_LIMIT)
+  return [...virtual, ...sw, ...inc].slice(0, MENTION_LIMIT)
 }
 
 // Popup state. `rect` is `clientRect()` from @tiptap/suggestion — it's the

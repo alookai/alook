@@ -71,7 +71,7 @@ describe("useSetMemberRole — optimistic + rollback", () => {
       pages: [
         {
           members: [
-            { id: "mem_1", userId: "u_1", role: "member", name: "n", avatar: "N", status: "offline", sub: "" },
+            { id: "mem_1", userId: "u_1", role: "member", name: "n", discriminator: "0000", avatar: "N", status: "offline", sub: "" },
           ],
           hasMore: false,
           limit: 50,
@@ -108,7 +108,7 @@ describe("useKickMember — optimistic + rollback", () => {
       pages: [
         {
           members: [
-            { id: "mem_1", userId: "u_1", role: "member", name: "n", avatar: "N", status: "offline", sub: "" },
+            { id: "mem_1", userId: "u_1", role: "member", name: "n", discriminator: "0000", avatar: "N", status: "offline", sub: "" },
           ],
           hasMore: false,
           limit: 50,

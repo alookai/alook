@@ -8,7 +8,7 @@ function member(overrides: Partial<Member>): Member {
     id: overrides.id ?? "mem_default",
     userId: overrides.userId ?? "user_default",
     name: overrides.name ?? "Default",
-    discriminator: overrides.discriminator,
+    discriminator: overrides.discriminator ?? "0000",
     avatar: overrides.avatar ?? "D",
     status: overrides.status ?? "online",
     sub: overrides.sub ?? "",
@@ -43,7 +43,7 @@ describe("resolveProfileTarget", () => {
   })
 
   it("checks friends when userId doesn't match any member", () => {
-    const friend: Friend = { id: "fr_a", userId: "user_c", name: "Ren", avatar: "R", status: "online", sub: "" }
+    const friend: Friend = { id: "fr_a", userId: "user_c", name: "Ren", discriminator: "0000", avatar: "R", status: "online", sub: "" }
     expect(resolveProfileTarget([], [friend], { name: "Ren", userId: "user_c" })).toBe(friend)
   })
 })

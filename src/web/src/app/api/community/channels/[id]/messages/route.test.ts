@@ -219,9 +219,9 @@ describe("POST /api/community/channels/[id]/messages", () => {
     // userName), covering both broadcast + candidate branches. listMemberUserIds
     // must not fire so we don't double-query.
     mockListMembers.mockResolvedValue([
-      { userId: "u1", userName: "Alice" },
-      { userId: "u2", userName: "Bob" },
-      { userId: "u3", userName: "Carol" },
+      { userId: "u1", userName: "Alice", discriminator: "0001" },
+      { userId: "u2", userName: "Bob", discriminator: "0002" },
+      { userId: "u3", userName: "Carol", discriminator: "0003" },
     ])
     mockGetMessage.mockResolvedValue({
       id: "m1",
@@ -229,7 +229,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
       authorName: "Alice",
       authorImage: null,
       authorEmail: "u1@t.com",
-      content: "hi @Bob",
+      content: "hi @Bob#0002",
       type: "default",
       mentionType: null,
       replyToId: null,
@@ -237,7 +237,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
       createdAt: "2026-06-30T00:00:00.000Z",
     })
 
-    const res = await POST(postReq({ content: "hi @Bob" }), ctx)
+    const res = await POST(postReq({ content: "hi @Bob#0002" }), ctx)
 
     expect(res.status).toBe(201)
     expect(mockListMembers).toHaveBeenCalledTimes(1)

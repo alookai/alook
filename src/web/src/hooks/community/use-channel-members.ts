@@ -4,17 +4,18 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type { CommunityRole } from "@alook/shared"
+import type { CommunityUserCore } from "@/components/community/_types"
 
 // Canonical member shape (superset of the pre-audience roster). `source` tags
 // why the user is in the channel: "explicit" (added member or creator),
 // "inherited" (public-channel server member), or "admin" (server admin/owner).
-// Only `source === "explicit" && !isCreator` rows are removable.
-export type ChannelMember = {
+// Only `source === "explicit" && !isCreator` rows are removable. Shares the
+// identity core (name/discriminator/avatar) with Member/Friend/DM — feeds the
+// private-channel/thread mention popup, so the required `discriminator` keeps
+// the "mention target always has a tag" guarantee at compile time.
+export type ChannelMember = CommunityUserCore & {
   id: string
   userId: string
-  name: string
-  discriminator: string | undefined
-  avatar: string
   sub: string
   role: CommunityRole
   status: "online" | "offline"

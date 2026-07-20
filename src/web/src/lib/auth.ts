@@ -8,6 +8,7 @@ import {
   queries,
   COMMUNITY_BOT_EMAIL_DOMAIN,
   RATE_LIMITS,
+  sanitizeCommunityName,
 } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { checkRateLimit } from "@/lib/rate-limit"
@@ -107,7 +108,10 @@ export function createAuth(env: Env) {
             // otherwise sticks and a backfill has to catch it.
             const id = (user as { id?: string }).id ?? nanoid()
             const trimmed = (user.name ?? "").trim()
-            const name = trimmed || user.email?.split("@")[0]?.trim() || user.name
+            // The provider display name / email local-part can contain `#`/`@`,
+            // which would break `@Name#dddd` mention grammar. Sanitize (never
+            // reject — this is an auth callback) so the name is mention-safe.
+            const name = sanitizeCommunityName(trimmed || user.email?.split("@")[0]?.trim() || user.name || "")
             // Better Auth's adapter inserts AFTER this hook returns — there's no
             // insert call here to wrap in a catch/retry like `withUniqueDiscriminator`
             // does. `probeAvailableDiscriminator` is a best-effort SELECT pre-check
@@ -131,6 +135,19 @@ export function createAuth(env: Env) {
               secure: isProd,
               sameSite: "lax",
             })
+          },
+        },
+        update: {
+          // The built-in `/update-user` endpoint writes `user.name` directly,
+          // bypassing the profile route's validation. This hook is the actual
+          // backstop for the `@Name#dddd` mention invariant: sanitize any name
+          // being written so it can never contain `#`/`@`/line breaks. `update`
+          // receives only the CHANGED fields (a partial), so no-op unless a name
+          // is present.
+          before: async (data) => {
+            const partial = data as { name?: unknown }
+            if (typeof partial.name !== "string") return
+            return { data: { ...data, name: sanitizeCommunityName(partial.name) } }
           },
         },
       },

@@ -10,6 +10,7 @@ import { PanelShell } from "./panel-shell"
 import { MemberList } from "./member-list"
 import { Message } from "./message"
 import { formatRelativeTime } from "./format-time"
+import { stripInlineMarkup } from "@alook/shared"
 import type { RightPanel, Member, Role, Msg, RenderMsg, Thread, OpenProfile, MemberManageContext } from "./_types"
 
 // Right-panel content router — members / pinned / search / threads. Data via props.
@@ -87,7 +88,7 @@ export function RightPanelContent({
                   <span className="text-sm font-medium">{m.authorName}</span>
                   {m.createdAt && <span className="text-xs text-muted-foreground">{formatRelativeTime(m.createdAt)}</span>}
                 </div>
-                <div className="truncate text-sm text-muted-foreground">{m.content}</div>
+                <div className="truncate text-sm text-muted-foreground">{stripInlineMarkup(m.content ?? "")}</div>
               </div>
             </button>
           ))
@@ -114,7 +115,7 @@ export function RightPanelContent({
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-medium">{t.name}</div>
               <div className="truncate text-xs text-muted-foreground">
-                <span className="font-medium text-foreground/80">{t.parent.authorName}</span> {t.parent.text}
+                <span className="font-medium text-foreground/80">{t.parent.authorName}</span> {stripInlineMarkup(t.parent.text)}
               </div>
               <div className="mt-1 text-xs text-muted-foreground" suppressHydrationWarning>{t.messageCount} messages · {formatRelativeTime(t.lastMessageAt)}</div>
             </div>

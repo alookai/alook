@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 import {
   queries,
-  MAX_PROFILE_NAME_LENGTH,
   MAX_PROFILE_ABOUT_LENGTH,
   MAX_STATUS_TEXT_LENGTH,
   MAX_EMOJI_BYTES,
   BANNER_COLOR_REGEX,
   WS_EVENTS,
+  validateCommunityName,
 } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { createAuth } from "@/lib/auth"
@@ -63,10 +63,12 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   if (body.name !== undefined) {
     if (typeof body.name !== "string") return writeError("name must be a string", 400)
     const trimmed = body.name.trim()
-    if (!trimmed) return writeError("name cannot be empty", 400)
-    if (trimmed.length > MAX_PROFILE_NAME_LENGTH) {
-      return writeError(`name must be ≤ ${MAX_PROFILE_NAME_LENGTH} characters`, 400)
-    }
+    // Rejects empty, over-length, and names with `#`/`@`/line breaks — the last
+    // keeps `@Name#dddd` mention grammar unambiguous. The auth `update.before`
+    // hook sanitizes as a backstop for the raw `/update-user` path; this 400 is
+    // the clean-UX message for the in-app rename.
+    const nameCheck = validateCommunityName(trimmed)
+    if (!nameCheck.ok) return writeError(nameCheck.reason, 400)
     // Goes through Better-Auth's own `/update-user` rather than a raw
     // Drizzle write — it updates the DB row AND re-signs the
     // `session_token`/`session_data` cookies in the same call, so a

@@ -66,6 +66,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       id: ownerMember.id,
       userId: ctx.userId,
       name: ownerMember.userName,
+      discriminator: ownerMember.userDiscriminator,
       avatar: ownerMember.userImage ?? undefined,
       role: ROLES.OWNER,
       joinedAt: ownerMember.joinedAt,

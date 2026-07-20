@@ -249,9 +249,10 @@ export type CommunityMemberJoin = {
     id: string
     userId: string
     name: string
-    // 4-digit discriminator (`"0042"`) — optional so older/mock payloads
-    // that predate the column keep type-checking.
-    discriminator?: string
+    // 4-digit discriminator (`"0042"`) — required. NOT NULL column; the row
+    // becomes a roster `Member` via `applyJoinEvent`, which feeds the mention
+    // popup, so the tag must always be present.
+    discriminator: string
     avatar?: string
     role: string
     joinedAt: string

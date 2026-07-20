@@ -41,14 +41,14 @@ import type {
 // behaviour the plan calls for in one place.
 
 function m(id: string, userId = id, role: Member["role"] = "member"): Member {
-  return { id, userId, name: `n_${id}`, avatar: `A`, status: "offline", sub: "", role }
+  return { id, userId, name: `n_${id}`, discriminator: "0000", avatar: `A`, status: "offline", sub: "", role }
 }
 
 function joinEvent(userId: string, id = userId): CommunityMemberJoin {
   return {
     type: "community:member.join",
     serverId: "srv_1",
-    member: { id, userId, name: `n_${userId}`, role: "member", joinedAt: "2026-07-03T00:00:00.000Z" },
+    member: { id, userId, name: `n_${userId}`, discriminator: "0000", role: "member", joinedAt: "2026-07-03T00:00:00.000Z" },
   }
 }
 

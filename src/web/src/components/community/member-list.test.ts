@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 import { computeDuplicateNames, hasMemberMenu } from "./member-list"
 import type { Member } from "./_types"
 
-const member = (id: string, name: string, discriminator?: string): Member => ({
+const member = (id: string, name: string, discriminator = "0000"): Member => ({
   id,
   userId: id,
   name,

@@ -50,6 +50,7 @@ export const POST = withAuth(async (_req, ctx) => {
           id: added.id,
           userId: botId,
           name: bot.name,
+          discriminator: bot.discriminator,
           avatar: bot.image ?? undefined,
           role: added.role ?? ROLES.MEMBER,
           joinedAt: added.joinedAt,

@@ -428,13 +428,13 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
   })
 
   it("keeps an @mention of an existing channel member", async () => {
-    mockGetMessage.mockResolvedValue(messageRow({ content: "hey @Cara" }))
+    mockGetMessage.mockResolvedValue(messageRow({ content: "hey @Cara#0002" }))
 
     await createCommunityMessage({
       db: {} as never,
       authorId: "author_1",
       target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
-      body: { content: "hey @Cara" },
+      body: { content: "hey @Cara#0002" },
     })
 
     expect(mockCreateChannelMember).not.toHaveBeenCalled()
@@ -488,13 +488,13 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
   it("thread: an in-audience @mention joins as a participant + gets a mention row", async () => {
     // Cara is in the parent audience; add her to it.
     mockGetPrivateChannelAudienceUserIds.mockResolvedValue(["author_1", "cara_1"])
-    mockGetMessage.mockResolvedValue(messageRow({ content: "hey @Cara", channelId: "t1" }))
+    mockGetMessage.mockResolvedValue(messageRow({ content: "hey @Cara#0002", channelId: "t1" }))
 
     await createCommunityMessage({
       db: {} as never,
       authorId: "author_1",
       target: { kind: "thread", channelId: "t1", parentChannelId: "c1", serverId: "srv_1" },
-      body: { content: "hey @Cara" },
+      body: { content: "hey @Cara#0002" },
     })
 
     // Bulk insert: author (spoke) + Cara (mention).
@@ -565,13 +565,13 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
 
   it("public channel: mention of any server member is kept, no roster row", async () => {
     mockIsChannelPrivate.mockResolvedValue(false)
-    mockGetMessage.mockResolvedValue(messageRow({ content: "hey @Bob" }))
+    mockGetMessage.mockResolvedValue(messageRow({ content: "hey @Bob#0001" }))
 
     await createCommunityMessage({
       db: {} as never,
       authorId: "author_1",
       target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
-      body: { content: "hey @Bob" },
+      body: { content: "hey @Bob#0001" },
     })
 
     expect(mockCreateChannelMember).not.toHaveBeenCalled()

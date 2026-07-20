@@ -96,7 +96,7 @@ describe("useAcceptFriendRequest — rollback", () => {
 describe("useRemoveFriend — optimistic + rollback", () => {
   it("optimistically drops the friend and restores on failure", async () => {
     capturedQc.setQueryData(communityKeys.friends(), {
-      friends: [{ id: "f_1", name: "n", avatar: "N", status: "offline", sub: "" }],
+      friends: [{ id: "f_1", name: "n", discriminator: "0000", avatar: "N", status: "offline", sub: "" }],
       blocked: [],
       pending: [],
     })

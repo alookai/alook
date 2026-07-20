@@ -162,14 +162,24 @@ export type Role = CommunityRole
 
 export { canManageServer, isServerOwner, ROLES, isPresenceOnline, isPresenceOffline } from "@alook/shared"
 
-export type Member = {
+// Identity fields shared by every community user view-model (member / friend /
+// DM). All three are required `string`: `user.name`/`user.discriminator` are
+// NOT NULL columns always projected on live payloads. Requiring `discriminator`
+// here (in one place) moves the "a mention target always has a tag" guarantee
+// to compile time — see plans/mandatory-mention-discriminator.md. `userId` is
+// NOT part of the core: it's required on Member/DM but optional on Friend, so
+// each type declares it. Only types whose identity fields are identically
+// shaped extend this — AddableMember/ThreadParticipant (nullable projections),
+// Profile/UserProfile (renamed/merged shapes) intentionally stay standalone.
+export type CommunityUserCore = {
+  name: string
+  discriminator: string
+  avatar: string
+}
+
+export type Member = CommunityUserCore & {
   id: string
   userId: string
-  name: string
-  // 4-digit discriminator (`"0042"`). Optional so mock/older payloads that
-  // predate the column keep type-checking; live payloads always include it.
-  discriminator?: string
-  avatar: string
   status: Presence
   sub: string
   role: Role
@@ -186,14 +196,11 @@ export type Member = {
   source?: "explicit" | "inherited" | "admin"
 }
 
-export type Friend = {
+export type Friend = CommunityUserCore & {
   id: string
+  // Optional here (unlike Member/DM) — some friend rows predate a resolved
+  // userId; that's the one field that keeps Friend from a plain intersection.
   userId?: string
-  name: string
-  // 4-digit discriminator (`"0042"`). Optional so mock/older payloads that
-  // predate the column keep type-checking; live payloads always include it.
-  discriminator?: string
-  avatar: string
   status: Presence
   sub: string
   // Custom status (emoji + short term) — see `Profile.statusEmoji`/`statusText`.
@@ -214,13 +221,9 @@ export type BlockedUser = { id: string; userId?: string; name: string; avatar: s
 // DM summary shown in the DM sidebar. Actual conversation history is loaded
 // into `ctx.messages` once the user opens the DM — DM summaries don't carry
 // inline messages.
-export type DM = {
-  id: string // nanoid
+export type DM = CommunityUserCore & {
+  id: string // DM conversation nanoid — NOT the peer's user id (that's `userId`)
   userId: string
-  name: string
-  // 4-digit discriminator (`"0042"`). Optional for the same reason as Friend.
-  discriminator?: string
-  avatar: string
   status: Presence
   preview: string
   unread?: boolean

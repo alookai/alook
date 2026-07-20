@@ -8,14 +8,16 @@ import type { SpoilerNode } from "./spoiler-syntax"
 
 // Chat-only syntax (`||spoiler||`, `@mention`, `/server/channel` and bare
 // `/server` refs), parsed as real markdown AST nodes rather than
-// string-spliced HTML tags fed through `rehype-raw`. `mention`/`channelRef`/
-// `serverRef` content is always an identifier charset (`\p{L}\p{N}_-` for
-// names, `[A-Za-z0-9_-]` for nanoid-based refs) — `remark-parse` never splits
-// an identifier across sibling text nodes (no markdown metacharacters inside
-// one), so a `mdast-util-find-and-replace` pass is safe for these. `spoiler`
-// is handled separately by the micromark tokenizer extension in
-// `spoiler-syntax.ts` — see that file's comment for why find-and-replace
-// cannot handle spoilers containing nested formatting.
+// string-spliced HTML tags fed through `rehype-raw`. `channelRef`/`serverRef`
+// content is a nanoid charset (`[A-Za-z0-9_-]`); a member `mention` is
+// `@<name>#dddd` where the name may contain spaces but never a markdown
+// metacharacter (validateCommunityName forbids `#`/`@`/line breaks, and the
+// composer only ever inserts names picked from the roster), so a
+// `mdast-util-find-and-replace` pass stays safe — `remark-parse` won't split
+// these tokens across sibling text nodes. `spoiler` is handled separately by
+// the micromark tokenizer extension in `spoiler-syntax.ts` — see that file's
+// comment for why find-and-replace cannot handle spoilers containing nested
+// formatting.
 
 // Mirrors `CHANNEL_REF_REGEX`'s old doc comment: matches a `/server/channel`
 // or `/server/channel/#N` (thread) ref — the CLI's path grammar
@@ -47,15 +49,24 @@ const CHANNEL_REF_RE = /(?<=^|\s)\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+(?:\/#\d+)?(?=\
 // makes the ordering non-load-bearing for correctness.
 const SERVER_REF_RE = /(?<=^|\s)\/[A-Za-z0-9_-]+(?=\s|$|[.,;:!?)\]])/g
 
-// `@name`, `@name#0042` (disambiguating discriminator), or the literal
-// `@everyone`/`@here` tokens. `\p{L}\p{N}_-` (Unicode-aware, `u` flag) in
-// place of the old `\w` — `Member.name` is a free Unicode string (no
-// charset constraint), so an ASCII-only `\w` silently dropped mentions for
-// names like `李四`/`José`/`Ünal`. The `(?!\d)` lookahead after the
-// discriminator group stops a 5+-digit run from being truncated into a
-// false-positive handle (e.g. `@Gus#00423` must not become `@Gus` + a
-// dangling `#0042` handle).
-const MENTION_RE = /@[\p{L}\p{N}_-]+(?:#\d{4}(?!\d))?/gu
+// Two-branch mention grammar (see plans/mandatory-mention-discriminator.md):
+//
+//  1. The literal `@everyone`/`@here` tokens, with a trailing
+//     `(?![\p{L}\p{N}_-])` boundary guard so `@everyoneee` is NOT matched as
+//     `@everyone` — this MUST agree with `detectMentionType`'s boundary check
+//     (mention-extension.ts) and `community-mentions.ts`'s `ID_CHAR_RE`.
+//
+//  2. A member mention `@<name>#dddd` where the trailing `#dddd` is REQUIRED
+//     and acts as an unambiguous terminator. Because member names are validated
+//     to never contain `#`, `@`, or line breaks (validateCommunityName), the
+//     name-run may safely include spaces/unicode: `[^@#\n\r]*[^@#\n\r\s]`. The
+//     final class forces the name-run to END in a non-whitespace char, so
+//     ordinary prose like `@bob check issue #0042` is NOT swallowed into one
+//     pill (the only `#` there is space-preceded). `(?!\d)` after `#dddd` stops
+//     a 5+-digit run from matching a 4-digit tag (`@Gus#00423`). A hand-typed
+//     bare `@Alice` (no tag) is intentionally NOT a mention — it stays text.
+const MENTION_RE =
+  /@(?:everyone|here)(?![\p{L}\p{N}_-])|@[^@#\n\r]*[^@#\n\r\s]#\d{4}(?!\d)/gu
 
 /** mdast node produced by `@name`/`@name#0042`/`@everyone`/`@here`. */
 export interface MentionNode {

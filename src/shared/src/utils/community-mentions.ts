@@ -1,25 +1,19 @@
 /**
- * Resolves `@Name` tokens in a community message body to userIds, given a
- * roster of candidate members. Matching is case-insensitive, longest-match
- * first (so `@John Doe` wins over `@John` when both exist).
+ * Resolves `@Name#0042` mention handles in a community message body to userIds,
+ * given a roster of candidate members. Only fully-tagged handles resolve — a
+ * hand-typed bare `@Name` (no discriminator) is NOT a mention, matching the
+ * display parser in `chat-syntax-plugin.ts` so the pill and the notification
+ * fan-out never disagree (see plans/mandatory-mention-discriminator.md).
  *
- * A match must:
+ * A handle match must:
  *  - be preceded by start-of-string or a non-identifier character
  *  - be followed by end-of-string or a non-identifier character
  *
- * Identifier characters are `\p{L}\p{N}_-` (Unicode-aware — `Member.name`
- * is a free Unicode string, so an ASCII-only class would silently fail to
- * resolve/notify mentions of names like `李四`/`José`/`Ünal`; this must
- * agree with the display-side regex in `chat-syntax-plugin.ts` or the pill
- * and the notification fan-out would disagree on which text is a mention),
- * so a name ending or starting in those plus the next-char rule covers
- * normal punctuation, spaces, and newlines as boundaries. Names containing
- * whitespace are supported.
- *
- * When a candidate carries a `discriminator`, an exact `@Name#0042` match is
- * tried FIRST at each `@` site (so a channel with two "Alex"es can be
- * disambiguated), falling back to the existing longest-bare-name match when
- * no `#0042` suffix is present or it doesn't match anyone.
+ * Handles are tried longest-first at each `@` site (so a longer name wins).
+ * The handle string (`name#dddd`) is a raw substring compare, not a charset
+ * regex, so names containing spaces resolve correctly (`@John Doe#0042`).
+ * Identifier characters for the boundary check are `\p{L}\p{N}_-`
+ * (Unicode-aware — `Member.name` is a free Unicode string).
  */
 
 import { formatHandle } from "../lib/discriminator";
@@ -54,27 +48,20 @@ export function extractMentionedUserIds(
   candidates: MentionCandidate[]
 ): string[] {
   if (!content) return [];
-  // De-dupe by name, prefer the first occurrence. Then sort by length desc so
-  // we try the most specific name first at each `@` site.
-  const byName = new Map<string, MentionCandidate>();
-  for (const c of candidates) {
-    if (!c.name) continue;
-    const key = c.name.toLowerCase();
-    if (!byName.has(key)) byName.set(key, c);
-  }
-  const sorted = [...byName.values()].sort((a, b) => b.name.length - a.name.length);
 
-  // Exact `@Name#0042` handles, tried FIRST at each `@` site — longest-handle
-  // first (mirrors the bare-name ordering). Built from ALL candidates (not
-  // the de-duped-by-name map above) since a handle is already unambiguous
-  // per-candidate; de-duping by name would arbitrarily drop one of the two
-  // "Alex"es a handle exists specifically to disambiguate.
+  // Only exact `@Name#0042` handles resolve — the bare-name fallback was
+  // removed so the send side agrees with the display parser: a hand-typed bare
+  // `@Alice` is NOT a mention on either surface (see
+  // plans/mandatory-mention-discriminator.md). Handles are tried longest-first
+  // and built from ALL candidates (a handle is already unambiguous per user;
+  // two same-name "Alex"es both keep their distinct handle). A candidate with
+  // no discriminator can't be mentioned and is dropped here.
   const handled = candidates
     .filter((c): c is MentionCandidate & { discriminator: string } => !!c.name && !!c.discriminator)
     .map((c) => ({ candidate: c, handle: formatHandle(c.name, c.discriminator).toLowerCase() }))
     .sort((a, b) => b.handle.length - a.handle.length);
 
-  if (sorted.length === 0 && handled.length === 0) return [];
+  if (handled.length === 0) return [];
 
   const lower = content.toLowerCase();
   const found = new Set<string>();
@@ -98,18 +85,6 @@ export function extractMentionedUserIds(
       matched = candidate;
       matchedLen = handle.length;
       break;
-    }
-    if (!matched) {
-      for (const cand of sorted) {
-        const nameLen = cand.name.length;
-        const slice = lower.slice(at + 1, at + 1 + nameLen);
-        if (slice !== cand.name.toLowerCase()) continue;
-        const after = content[at + 1 + nameLen];
-        if (!isBoundaryChar(after)) continue;
-        matched = cand;
-        matchedLen = nameLen;
-        break;
-      }
     }
     if (matched) {
       found.add(matched.userId);

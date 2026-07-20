@@ -170,7 +170,7 @@ function ChannelView() {
   const panelMembers = useMemo(() => {
     const q = memberQuery.trim().toLowerCase()
     const withPresence = (m: {
-      userId: string; name: string; discriminator?: string; avatar: string
+      userId: string; name: string; discriminator: string; avatar: string
       statusEmoji?: string | null; statusText?: string | null
       isCreator?: boolean; source?: "explicit" | "inherited" | "admin"
     }) => {
@@ -200,7 +200,7 @@ function ChannelView() {
         .map((p) => withPresence({
           userId: p.userId,
           name: displayName(p),
-          discriminator: p.discriminator ?? undefined,
+          discriminator: p.discriminator ?? "0000",
           avatar: p.avatar,
           // Thread rows are all real participants (removable); the thread
           // creator's row is locked.

@@ -17,11 +17,10 @@ function paragraphChildren(tree: Root): PhrasingContent[] {
 }
 
 describe("chatSyntaxPlugin — mention", () => {
-  it("wraps a bare @name mention", () => {
+  it("a hand-typed bare @name (no #dddd) is NOT a mention — stays plain text", () => {
     const children = paragraphChildren(parse("hi @Lindsay"))
-    expect(children.map((c) => c.type)).toEqual(["text", "mention"])
-    expect(children[1]).toMatchObject({ value: "@Lindsay", everyone: false })
-    expect((children[1] as MentionNode).discriminator).toBeUndefined()
+    expect(children).toHaveLength(1)
+    expect(children[0]).toMatchObject({ type: "text", value: "hi @Lindsay" })
   })
 
   it("splits a @name#0042 handle into a bare mention + discriminator", () => {
@@ -29,11 +28,32 @@ describe("chatSyntaxPlugin — mention", () => {
     expect(children[1]).toMatchObject({ type: "mention", value: "@Gus", everyone: false, discriminator: "0042" })
   })
 
+  it("wraps a spaced-name handle as a single mention — the #dddd terminator makes this unambiguous", () => {
+    const children = paragraphChildren(parse("hey @John Doe#0042 there"))
+    const mention = children.find((c): c is MentionNode => c.type === "mention")
+    expect(mention).toMatchObject({ value: "@John Doe", everyone: false, discriminator: "0042" })
+  })
+
+  it("does not swallow ordinary prose ending in #dddd — the name-run must end in a non-space", () => {
+    // No earlier `#`, so a naive non-greedy run would span "bob check issue "
+    // and terminate at #0042. The non-space-before-# guard prevents this.
+    const children = paragraphChildren(parse("@bob check issue #0042"))
+    expect(children.some((c) => c.type === "mention")).toBe(false)
+    expect(children.map((c) => c.type)).toEqual(["text"])
+  })
+
+  it("keeps two adjacent handles as two distinct mentions", () => {
+    const children = paragraphChildren(parse("@Alice#0001 @Bob#0002"))
+    const mentions = children.filter((c): c is MentionNode => c.type === "mention")
+    expect(mentions.map((m) => `${m.value}#${m.discriminator}`)).toEqual(["@Alice#0001", "@Bob#0002"])
+  })
+
   it("does not truncate a 5+ digit run into a false-positive discriminator", () => {
+    // "#00423" is not a 4-digit tag, and a bare "@Gus" is no longer a mention,
+    // so the whole token stays plain text.
     const children = paragraphChildren(parse("hi @Gus#00423"))
-    expect(children.map((c) => c.type)).toEqual(["text", "mention", "text"])
-    expect(children[1]).toMatchObject({ value: "@Gus", everyone: false })
-    expect(children[2]).toMatchObject({ type: "text", value: "#00423" })
+    expect(children.some((c) => c.type === "mention")).toBe(false)
+    expect(children.map((c) => c.type)).toEqual(["text"])
   })
 
   it("flags @everyone", () => {
@@ -46,14 +66,23 @@ describe("chatSyntaxPlugin — mention", () => {
     expect(children[0]).toMatchObject({ type: "mention", value: "@here", everyone: true })
   })
 
-  it("supports Unicode names (李四, José, Ünal) — the #4 charset fix", () => {
-    expect(paragraphChildren(parse("hi @李四"))[1]).toMatchObject({ value: "@李四", everyone: false })
-    expect(paragraphChildren(parse("hi @José"))[1]).toMatchObject({ value: "@José", everyone: false })
-    expect(paragraphChildren(parse("hi @Ünal"))[1]).toMatchObject({ value: "@Ünal", everyone: false })
+  it("does NOT match @everyone inside a longer identifier (trailing boundary guard)", () => {
+    const children = paragraphChildren(parse("@everyoneee hey"))
+    expect(children.some((c) => c.type === "mention")).toBe(false)
   })
 
-  it("leaves an @mention inside inline code literal", () => {
-    const children = paragraphChildren(parse("use `@Lindsay` here"))
+  it("supports Unicode names in a handle (李四, José, Ünal) — the #4 charset fix", () => {
+    expect(paragraphChildren(parse("hi @李四#0001"))[1]).toMatchObject({ value: "@李四", discriminator: "0001" })
+    expect(paragraphChildren(parse("hi @José#0002"))[1]).toMatchObject({ value: "@José", discriminator: "0002" })
+    expect(paragraphChildren(parse("hi @Ünal#0003"))[1]).toMatchObject({ value: "@Ünal", discriminator: "0003" })
+  })
+
+  it("a bare unicode @name (no tag) is NOT a mention", () => {
+    expect(paragraphChildren(parse("hi @李四")).some((c) => c.type === "mention")).toBe(false)
+  })
+
+  it("leaves an @handle inside inline code literal", () => {
+    const children = paragraphChildren(parse("use `@Lindsay#0001` here"))
     expect(children.map((c) => c.type)).toEqual(["text", "inlineCode", "text"])
   })
 
@@ -145,20 +174,20 @@ describe("chatSyntaxPlugin — serverRef", () => {
 
 describe("chatSyntaxPlugin — mixed", () => {
   it("handles a mix of mention, channelRef, and unrelated formatting in one message", () => {
-    const children = paragraphChildren(parse("Here's the **setup**: `pnpm install` ping @Gus in /studio/dev"))
+    const children = paragraphChildren(parse("Here's the **setup**: `pnpm install` ping @Gus#0042 in /studio/dev"))
     const types = children.map((c) => c.type)
     expect(types).toContain("strong")
     expect(types).toContain("inlineCode")
     const mention = children.find((c): c is MentionNode => c.type === "mention")
-    expect(mention).toMatchObject({ value: "@Gus" })
+    expect(mention).toMatchObject({ value: "@Gus", discriminator: "0042" })
     const channelRef = children.find((c): c is ChannelRefNode => c.type === "channelRef")
     expect(channelRef).toMatchObject({ value: "/studio/dev" })
   })
 
   it("handles a mention and a bare serverRef together", () => {
-    const children = paragraphChildren(parse("ping @Gus, see /studio for context"))
+    const children = paragraphChildren(parse("ping @Gus#0042, see /studio for context"))
     const mention = children.find((c): c is MentionNode => c.type === "mention")
-    expect(mention).toMatchObject({ value: "@Gus" })
+    expect(mention).toMatchObject({ value: "@Gus", discriminator: "0042" })
     const serverRef = children.find((c): c is ServerRefNode => c.type === "serverRef")
     expect(serverRef).toMatchObject({ value: "/studio" })
   })
