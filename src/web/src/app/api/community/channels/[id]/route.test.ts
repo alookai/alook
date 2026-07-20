@@ -179,6 +179,73 @@ describe("PATCH /channels/[id] — permission gate", () => {
   })
 })
 
+// The forum-post tag carve-out: a PUBLIC forum post's creator has
+// canManage=false (canManage = isAdmin || (isPrivate && isCreator)), but may
+// still edit THAT post's `forumTags` — and nothing else.
+function forumPostCtx(over: { isCreator?: boolean; type?: string } = {}) {
+  const { isCreator = true, type = "forum_post" } = over
+  const channel = {
+    id: "c1", serverId: "s1", type, parentChannelId: "forum_1",
+    parentMessageId: null, creatorId: isCreator ? "u1" : "someone_else", categoryId: null,
+  }
+  return {
+    channel,
+    anchor: { ...channel, id: "forum_1", creatorId: "forum_owner" },
+    role: "member",
+    isPrivate: false, // public post → canManage resolves false even for the creator
+    isChannelMember: false,
+    isCreator,
+  }
+}
+
+describe("PATCH /channels/[id] — forum-post tag carve-out", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockIsChannelPrivate.mockResolvedValue(false)
+    mockUpdateChannel.mockResolvedValue({ id: "c1", tags: ["alpha"] })
+  })
+
+  it("a public post's creator (no canManage) can edit that post's tags", async () => {
+    mockResolveChannelAccessContext.mockResolvedValue(forumPostCtx({ isCreator: true }))
+    const res = await PATCH(patchReq({ forumTags: JSON.stringify(["Alpha", "alpha", " beta "]) }), ctx)
+    expect(res.status).toBe(200)
+    // Normalized: lowercased, trimmed, deduped.
+    expect(mockUpdateChannel).toHaveBeenCalledWith(expect.anything(), "c1", {
+      forumTags: JSON.stringify(["alpha", "beta"]),
+    })
+  })
+
+  it("a public post's creator cannot rename the post via the same route (403)", async () => {
+    mockResolveChannelAccessContext.mockResolvedValue(forumPostCtx({ isCreator: true }))
+    const res = await PATCH(patchReq({ name: "sneaky" }), ctx)
+    expect(res.status).toBe(403)
+    expect(mockUpdateChannel).not.toHaveBeenCalled()
+  })
+
+  it("a non-creator non-manager cannot edit the post's tags (403)", async () => {
+    mockResolveChannelAccessContext.mockResolvedValue(forumPostCtx({ isCreator: false }))
+    const res = await PATCH(patchReq({ forumTags: JSON.stringify(["x"]) }), ctx)
+    expect(res.status).toBe(403)
+    expect(mockUpdateChannel).not.toHaveBeenCalled()
+  })
+
+  it("rejects forumTags on a non-forum_post channel (400)", async () => {
+    // A manager editing a plain text channel: canManage true, but tags are a
+    // per-post concept only.
+    mockResolveChannelAccessContext.mockResolvedValue(accessCtx({ role: "admin", canManage: true }))
+    const res = await PATCH(patchReq({ forumTags: JSON.stringify(["x"]) }), ctx)
+    expect(res.status).toBe(400)
+    expect(mockUpdateChannel).not.toHaveBeenCalled()
+  })
+
+  it("rejects a malformed forumTags payload (not a JSON string array) with 400", async () => {
+    mockResolveChannelAccessContext.mockResolvedValue(forumPostCtx({ isCreator: true }))
+    const res = await PATCH(patchReq({ forumTags: JSON.stringify([1, 2]) }), ctx)
+    expect(res.status).toBe(400)
+    expect(mockUpdateChannel).not.toHaveBeenCalled()
+  })
+})
+
 describe("PATCH /channels/[id] — categoryId move", () => {
   beforeEach(() => {
     vi.clearAllMocks()

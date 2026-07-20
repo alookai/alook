@@ -13,6 +13,7 @@ const mockFanOutToChannel = vi.fn()
 const mockListChildChannels = vi.fn()
 const mockGetUsersByIds = vi.fn()
 const mockGetFirstMessageByChannelIds = vi.fn()
+const mockListParticipantsForChannels = vi.fn(async () => [] as unknown[])
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -50,7 +51,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityThread: {
         addThreadParticipants: vi.fn(async () => {}),
-        listParticipantsForChannels: vi.fn(async () => []),
+        listParticipantsForChannels: (...a: unknown[]) => mockListParticipantsForChannels(...a),
       },
       user: {
         getUserSelf: (...a: unknown[]) => mockGetUserSelf(...a),
@@ -191,6 +192,32 @@ describe("GET /api/community/channels/[id]/posts — authorId", () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.posts[0].authorId).toBe("")
+  })
+
+  it("groups each post's participants onto its card, ordered by addedAt (creator first)", async () => {
+    mockListChildChannels.mockResolvedValue([
+      { id: "post1", name: "Multi", messageCount: 3, lastMessageAt: "2026-07-02T00:00:00.000Z", createdAt: "2026-07-01T00:00:00.000Z", creatorId: "u_alice", tags: [] },
+      { id: "post2", name: "Solo", messageCount: 1, lastMessageAt: "2026-07-02T00:00:00.000Z", createdAt: "2026-07-01T00:00:00.000Z", creatorId: "u_bob", tags: [] },
+    ])
+    mockGetUsersByIds.mockResolvedValue([
+      { id: "u_alice", name: "Alice", image: null },
+      { id: "u_bob", name: "Bob", image: null },
+    ])
+    // Rows arrive unordered; the route sorts by addedAt so the creator (earliest
+    // "spoke") leads.
+    mockListParticipantsForChannels.mockResolvedValue([
+      { channelId: "post1", userId: "u_carol", addedAt: "2026-07-01T00:01:00.000Z", userName: "Carol", userImage: null },
+      { channelId: "post1", userId: "u_alice", addedAt: "2026-07-01T00:00:00.000Z", userName: "Alice", userImage: null },
+      { channelId: "post2", userId: "u_bob", addedAt: "2026-07-01T00:00:00.000Z", userName: "Bob", userImage: null },
+    ])
+
+    const res = await GET(getReq(), ctx)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    const multi = body.posts.find((p: { id: string }) => p.id === "post1")
+    const solo = body.posts.find((p: { id: string }) => p.id === "post2")
+    expect(multi.participants.map((m: { id: string }) => m.id)).toEqual(["u_alice", "u_carol"])
+    expect(solo.participants.map((m: { id: string }) => m.id)).toEqual(["u_bob"])
   })
 })
 
