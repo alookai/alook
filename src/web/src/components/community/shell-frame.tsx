@@ -36,6 +36,7 @@ import { useFolders } from "@/hooks/community/use-folders"
 import { useFriends } from "@/hooks/community/use-friends"
 import { useServerMembers } from "@/hooks/community/use-server-members"
 import { useInboxUnreads, useInboxMentions } from "@/hooks/community/use-inbox"
+import { useInboxAutoCollapse } from "@/hooks/community/use-inbox-auto-collapse"
 import {
   useCreateServer,
   useJoinServer,
@@ -111,6 +112,10 @@ export function ShellFrame({
   const unreadDms = inboxUnreads.dms
   const mentions = inboxMentions.mentions
   const inboxLoading = inboxUnreads.isLoading || inboxMentions.isLoading
+  // Popover open-state + auto-collapse: the inbox closes itself once the row
+  // the viewer clicked leaves the list. See use-inbox-auto-collapse.
+  const inbox = useInboxAutoCollapse({ unreads: unreadFeed, unreadDms, mentions })
+  const watchInboxItem = inbox.watchItem
 
   // Mutations wired through the shell.
   const createServer = useCreateServer()
@@ -455,13 +460,17 @@ export function ShellFrame({
   }
 
   const openServerChannel = useCallback(
-    (sid: string, cid: string) => {
+    (sid: string, cid: string, watchKey: string = `channel:${cid}`) => {
       // No PUT here — the channel/thread page's `useEagerChannelRead` fires the
       // mark-read on mount, AFTER its read-state snapshot latches, so the NEW
       // divider still anchors to the pre-open pointer. Navigating is enough.
+      // `watchKey` lets the caller own what row the inbox watches for removal —
+      // a mention click passes `mention:<id>` so the mention row (not the
+      // channel, which may persist to host unread children) drives the collapse.
+      watchInboxItem(watchKey)
       router.push(`/c/channels/${sid}/${cid}`)
     },
-    [router],
+    [router, watchInboxItem],
   )
 
   const openInboxDm = useCallback(
@@ -478,9 +487,10 @@ export function ShellFrame({
             ? { ...prev, conversations: prev.conversations.map((d) => (d.id === dmId ? { ...d, unread: false } : d)) }
             : prev,
       )
+      watchInboxItem(`dm:${dmId}`)
       router.push(`/c/me/${dmId}`)
     },
-    [router, queryClient],
+    [router, queryClient, watchInboxItem],
   )
 
   const inboxElement = (
@@ -492,7 +502,7 @@ export function ShellFrame({
       onOpenChannel={openServerChannel}
       onOpenDm={openInboxDm}
       onOpenMention={(mention) => {
-        if (mention.serverId && mention.channelId) openServerChannel(mention.serverId, mention.channelId)
+        if (mention.serverId && mention.channelId) openServerChannel(mention.serverId, mention.channelId, `mention:${mention.id}`)
       }}
       onMarkAllRead={() => { markAllInboxRead.mutate() }}
       onDeleteMention={(id) => deleteMention.mutate({ mentionId: id })}
@@ -634,7 +644,7 @@ export function ShellFrame({
             </ResizablePanelGroup>
           </AppSurface>
           <div className="absolute bottom-0 left-0 z-10" style={{ width: sidebarW + 56, marginLeft: -56 }}>
-            <UserBar user={{ id: currentUser.id, name: currentUser.name, avatar: currentUser.avatar }} onOpenProfile={openProfile} onEditProfile={() => setEditingProfile(true)} inbox={inboxElement} hasUnread={inboxHasUnread} />
+            <UserBar user={{ id: currentUser.id, name: currentUser.name, avatar: currentUser.avatar }} onOpenProfile={openProfile} onEditProfile={() => setEditingProfile(true)} inbox={inboxElement} hasUnread={inboxHasUnread} inboxOpen={inbox.open} onInboxOpenChange={inbox.onOpenChange} />
           </div>
         </div>
         {profile && <ProfileCard key={`${profile.data.userId ?? profile.data.name}:${profile.x}:${profile.y}`} data={profile.data} x={profile.x} y={profile.y} bp={bp} onClose={() => setProfile(null)} onMessage={profileMessage} isSelf={!!profile.data.userId && profile.data.userId === currentUser.id} onUpdateStatus={updateOwnStatus} initialStatusEmoji={profile.initialStatusEmoji} initialStatusText={profile.initialStatusText} />}
@@ -653,7 +663,7 @@ export function ShellFrame({
           <ServerRail {...railProps} bottomInset={60} />
           <div className="flex min-h-0 flex-1 flex-col bg-sidebar">
             <div className="flex min-h-0 flex-1">{sidebar({ noHeader: false })}</div>
-            <UserBar user={{ id: currentUser.id, name: currentUser.name, avatar: currentUser.avatar }} onOpenProfile={openProfile} onEditProfile={() => setEditingProfile(true)} inbox={inboxElement} hasUnread={inboxHasUnread} />
+            <UserBar user={{ id: currentUser.id, name: currentUser.name, avatar: currentUser.avatar }} onOpenProfile={openProfile} onEditProfile={() => setEditingProfile(true)} inbox={inboxElement} hasUnread={inboxHasUnread} inboxOpen={inbox.open} onInboxOpenChange={inbox.onOpenChange} />
           </div>
         </>
       )}
