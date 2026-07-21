@@ -17,6 +17,15 @@ const nextConfig: NextConfig = {
 		root: path.resolve(__dirname, "../.."),
 	},
 	pageExtensions: ["js", "jsx", "md", "mdx", "ts", "tsx"],
+	async redirects() {
+		return [
+			{
+				source: "/blog/building-your-first-agent-team",
+				destination: "/blog/ai-agent-team",
+				statusCode: 301,
+			},
+		];
+	},
 };
 
 const withMDX = createMDX({
