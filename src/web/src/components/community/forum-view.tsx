@@ -105,17 +105,19 @@ export function ForumView({
                 >
                   <div className="flex items-center gap-2">
                     <Avatar label={p.authorAvatar} seed={p.authorId} size={24} />
+                    <span className="text-xs font-medium text-foreground" suppressHydrationWarning>{p.parent.authorName || "Unknown"}</span>
+                    <span className="text-xs text-muted-foreground" suppressHydrationWarning>· {formatRelativeTime(p.lastMessageAt)}</span>
                     {others.length > 0 && (
-                      <AvatarGroup data-testid={tid.forumPostAvatars(p.id)}>
-                        {shown.map((m) => (
-                          <Avatar key={m.id} label={m.avatar} seed={m.id} size={24} ringColor="var(--card)" />
-                        ))}
-                        {overflow > 0 && <AvatarGroupCount className="size-6 text-[11px]">+{overflow}</AvatarGroupCount>}
-                      </AvatarGroup>
+                      <>
+                        <span className="h-4 w-px shrink-0 bg-border" aria-hidden />
+                        <AvatarGroup data-testid={tid.forumPostAvatars(p.id)}>
+                          {shown.map((m) => (
+                            <Avatar key={m.id} label={m.avatar} seed={m.id} size={24} ringColor="var(--card)" />
+                          ))}
+                          {overflow > 0 && <AvatarGroupCount className="size-6 text-[11px]">+{overflow}</AvatarGroupCount>}
+                        </AvatarGroup>
+                      </>
                     )}
-                    <span className="text-xs text-muted-foreground" suppressHydrationWarning>
-                      <span className="font-medium text-foreground">{p.parent.authorName}</span> · {formatRelativeTime(p.lastMessageAt)}
-                    </span>
                     {canEdit && (
                       <button
                         type="button"
