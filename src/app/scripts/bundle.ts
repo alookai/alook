@@ -58,6 +58,13 @@ export function getAllPosts(): BlogPost[] { return []; }
 export function getPostBySlug(slug: string): BlogPost | undefined { return undefined; }
 `;
 
+// scripts/validate-blog-assets.ts imports runValidateBlogAssetsCli from here.
+// Stripping the blog lib deletes the real module, so stub it — the app build
+// has no blog content to validate.
+const validateAssetsStub = `\
+export function runValidateBlogAssetsCli(..._args: unknown[]): void {}
+`;
+
 // Strip blog content before building the app package
 const blogAppDir = join(webSrc, "src", "app", "blog");
 const blogLibDir = join(webSrc, "src", "lib", "blog");
@@ -72,6 +79,7 @@ rmSync(blogPublicDir, { recursive: true, force: true });
 rmSync(blogContentDir, { recursive: true, force: true });
 mkdirSync(blogLibDir, { recursive: true });
 writeFileSync(join(blogLibDir, "posts.ts"), blogStub);
+writeFileSync(join(blogLibDir, "validate-assets.ts"), validateAssetsStub);
 
 try {
   run("npx opennextjs-cloudflare build", webSrc);
