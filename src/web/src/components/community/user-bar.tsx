@@ -11,28 +11,32 @@ import { resolveProfilePresence } from "@/lib/community/presence"
 // the self → online branch and never consults an online set.
 const EMPTY_ONLINE_SET: ReadonlySet<string> = new Set()
 
-export function UserBar({ user, onOpenProfile, onEditProfile, inbox, hasUnread }: {
+export function UserBar({ user, onOpenProfile, onEditProfile, inbox, hasUnread, inboxOpen, onInboxOpenChange }: {
   user: { id: string; name: string; avatar: string }
   onOpenProfile?: OpenProfile
   onEditProfile?: () => void
   inbox?: React.ReactNode
   hasUnread?: boolean
+  inboxOpen?: boolean
+  onInboxOpenChange?: (open: boolean) => void
 }) {
   return (
     <div className="shrink-0 px-3 pb-3 pt-0">
       <div className="flex h-12 items-center gap-3 rounded-xl bg-muted px-4 ring-1 ring-border/40">
-        <Inner user={user} onOpenProfile={onOpenProfile} onEditProfile={onEditProfile} inbox={inbox} hasUnread={hasUnread} />
+        <Inner user={user} onOpenProfile={onOpenProfile} onEditProfile={onEditProfile} inbox={inbox} hasUnread={hasUnread} inboxOpen={inboxOpen} onInboxOpenChange={onInboxOpenChange} />
       </div>
     </div>
   )
 }
 
-function Inner({ user, onOpenProfile, onEditProfile, inbox, hasUnread }: {
+function Inner({ user, onOpenProfile, onEditProfile, inbox, hasUnread, inboxOpen, onInboxOpenChange }: {
   user: { id: string; name: string; avatar: string }
   onOpenProfile?: OpenProfile
   onEditProfile?: () => void
   inbox?: React.ReactNode
   hasUnread?: boolean
+  inboxOpen?: boolean
+  onInboxOpenChange?: (open: boolean) => void
 }) {
   return (
     <div className="flex flex-1 items-center gap-2">
@@ -44,7 +48,7 @@ function Inner({ user, onOpenProfile, onEditProfile, inbox, hasUnread }: {
       </button>
       <div className="flex items-center gap-1">
         {inbox && (
-          <Popover>
+          <Popover open={inboxOpen} onOpenChange={onInboxOpenChange}>
             <PopoverTrigger
               render={
                 <button className="relative grid size-7 place-items-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-label="Inbox" />
