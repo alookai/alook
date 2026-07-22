@@ -582,7 +582,16 @@ function MentionRow({ item, selected, showMembersHeader, onSelect }: {
           </span>
         )}
         <span className="font-medium">
-          {item.kind === "member" ? item.label : `@${item.label}`}
+          {item.kind === "member" ? (
+            <>
+              {item.name}
+              <span className="ml-1 text-xs font-normal tracking-wide text-muted-foreground">
+                #{item.discriminator}
+              </span>
+            </>
+          ) : (
+            `@${item.label}`
+          )}
         </span>
         {item.kind !== "member" && (
           <span className="ml-auto text-xs text-muted-foreground">

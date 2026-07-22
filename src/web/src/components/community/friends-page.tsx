@@ -4,7 +4,6 @@ import { useState, useEffect, useMemo, useRef } from "react"
 import type React from "react"
 import { Users, MessagesSquare, ChevronLeft, Check, X, AtSign, UserMinus, Ban, UserPlus, Search } from "lucide-react"
 import { apiFetch, toastApiError } from "@/lib/api/client"
-import { isImeConfirming } from "@/lib/ime"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
@@ -15,7 +14,7 @@ import { avatarInitial } from "@/lib/community/avatar"
 import { EmptyState } from "./empty-state"
 import { hasStatus } from "./status-presets"
 import type { Friend, PendingRequest, BlockedUser, OpenProfile } from "./_types"
-import { isSelfBotFriendship, isPresenceOffline } from "@alook/shared"
+import { isSelfBotFriendship, isPresenceOffline, MIN_SEARCH_LENGTH } from "@alook/shared"
 
 function FriendSection({ title, count, emptyLabel, children }: {
   title: string
@@ -44,9 +43,9 @@ export function FriendsPage({
   onOpenProfile?: OpenProfile
   onAccept?: (id: string) => void
   onReject?: (id: string) => void
-  onCancelRequest?: (id: string) => void
+  onCancelRequest?: (req: { id: string; source?: "friend" | "bot" }) => void
   onUnblock?: (id: string) => void
-  onSendRequest?: (username: string) => void
+  onSendRequest?: (target: { userId: string; username: string }) => void
   onRemoveFriend?: (id: string) => void
   onBlock?: (id: string) => void
   onDm?: (userId: string) => void
@@ -66,10 +65,27 @@ export function FriendsPage({
   const [searchResults, setSearchResults] = useState<{ id: string; name: string; image: string | null; discriminator: string }[]>([])
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null)
 
+  // Relationship state by user id, so search results can show Friends/Pending/
+  // Blocked and disable the add action. `Friend`/`BlockedUser` userId is
+  // optional (the Map's string key type forces the skip). Set pending → friend
+  // → blocked so blocked overwrites and wins precedence.
+  const relById = useMemo(() => {
+    const m = new Map<string, "friend" | "pending" | "blocked">()
+    for (const p of pending) if (p.userId) m.set(p.userId, "pending")
+    for (const f of friends) if (f.userId) m.set(f.userId, "friend")
+    for (const b of blocked) if (b.userId) m.set(b.userId, "blocked")
+    return m
+  }, [friends, pending, blocked])
+
+  const incoming = useMemo(() => pending.filter((p) => p.kind === "incoming"), [pending])
+  const outgoing = useMemo(() => pending.filter((p) => p.kind === "outgoing"), [pending])
+
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
     const q = addValue.trim()
-    if (!q) { setSearchResults([]); return }
+    // Below the server minimum the API 400s ("query must be at least N
+    // characters"); don't fire — just clear results, no error toast.
+    if (q.length < MIN_SEARCH_LENGTH) { setSearchResults([]); return }
     debounceRef.current = setTimeout(async () => {
       try {
         const data = await apiFetch<{ users: { id: string; name: string; image: string | null; discriminator: string }[] }>(`/api/community/users/search?q=${encodeURIComponent(q)}`)
@@ -82,8 +98,8 @@ export function FriendsPage({
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
   }, [addValue])
 
-  const sendRequest = (name: string) => {
-    onSendRequest?.(name)
+  const sendRequest = (u: { id: string; name: string; discriminator: string }) => {
+    onSendRequest?.({ userId: u.id, username: `${u.name}#${u.discriminator}` })
     setAddValue("")
     setSearchResults([])
   }
@@ -196,45 +212,42 @@ export function FriendsPage({
           <div className="mb-4">
             <div className="text-xs font-semibold text-muted-foreground">Add a friend</div>
             <div className="relative mt-2">
-              <div className="relative flex items-center gap-2">
-                <div className="relative flex-1">
-                  <AtSign className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    className="h-11 pl-9"
-                    placeholder="Search by username"
-                    value={addValue}
-                    onChange={(e) => setAddValue(e.target.value)}
-                    onKeyDown={(e) => { if (isImeConfirming(e)) return; if (e.key === "Enter" && addValue.trim()) sendRequest(addValue.trim()) }}
-                  />
-                </div>
-                <Button
-                  size="sm"
-                  className="h-11 px-4"
-                  disabled={!addValue.trim()}
-                  onClick={() => { if (addValue.trim()) sendRequest(addValue.trim()) }}
-                >
-                  <UserPlus className="size-4" />
-                  Send request
-                </Button>
+              <div className="relative">
+                <AtSign className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  className="h-11 pl-9"
+                  placeholder="Search by username"
+                  value={addValue}
+                  onChange={(e) => setAddValue(e.target.value)}
+                />
               </div>
               {searchResults.length > 0 && (
                 <div className="mt-1 rounded-md border border-border bg-popover p-1 shadow-(--e2)">
-                  {searchResults.map((u) => (
-                    <button
-                      key={u.id}
-                      onClick={() => sendRequest(u.name)}
-                      className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left hover:bg-accent"
-                    >
-                      <Avatar label={u.image ?? avatarInitial(u.name)} seed={u.id} size={28} />
-                      <span className="flex-1 min-w-0 truncate text-sm font-medium">
-                        {u.name}
-                        <span className="ml-1 text-xs font-normal tracking-wide text-muted-foreground">
-                          #{u.discriminator}
+                  {searchResults.map((u) => {
+                    const rel = relById.get(u.id)
+                    const relLabel = rel === "friend" ? "Friends" : rel === "pending" ? "Pending" : rel === "blocked" ? "Blocked" : null
+                    return (
+                      <button
+                        key={u.id}
+                        onClick={() => { if (!rel) sendRequest(u) }}
+                        disabled={!!rel}
+                        className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left hover:bg-accent disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                      >
+                        <Avatar label={u.image ?? avatarInitial(u.name)} seed={u.id} size={28} />
+                        <span className={`flex-1 min-w-0 truncate text-sm font-medium ${rel ? "text-muted-foreground" : ""}`}>
+                          {u.name}
+                          <span className="ml-1 text-xs font-normal tracking-wide text-muted-foreground">
+                            #{u.discriminator}
+                          </span>
                         </span>
-                      </span>
-                      <UserPlus className="size-4 shrink-0 text-muted-foreground" />
-                    </button>
-                  ))}
+                        {relLabel ? (
+                          <span className="shrink-0 text-xs text-muted-foreground">{relLabel}</span>
+                        ) : (
+                          <UserPlus className="size-4 shrink-0 text-muted-foreground" />
+                        )}
+                      </button>
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -245,30 +258,42 @@ export function FriendsPage({
               <div className="mb-2 text-xs font-semibold text-muted-foreground">Pending — …</div>
               <FriendRowsSkeleton withActions />
             </div>
-          ) : pending.length > 0 ? (
-            <div>
-              <div className="mb-2 text-xs font-semibold text-muted-foreground">Pending — {pending.length}</div>
-              <div className="flex flex-col gap-1">
-                {pending.map((p) => (
-                  <div key={p.id} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent">
-                    <Avatar label={p.avatar} seed={p.userId} size={32} />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium">{p.name}</div>
-                      <div className="text-xs text-muted-foreground">{p.kind === "incoming" ? "Incoming request" : "Outgoing request"}</div>
-                    </div>
-                    {p.kind === "incoming" ? (
-                      <div className="flex gap-2">
-                        <Button variant="secondary" size="icon-sm" onClick={() => onAccept?.(p.id)} className="rounded-full text-status-online" aria-label="Accept"><Check className="size-4" /></Button>
-                        <Button variant="secondary" size="icon-sm" onClick={() => onReject?.(p.id)} className="rounded-full text-destructive" aria-label="Reject"><X className="size-4" /></Button>
+          ) : (
+            <>
+              {incoming.length > 0 && (
+                <div>
+                  <div className="mb-2 text-xs font-semibold text-muted-foreground">Incoming — {incoming.length}</div>
+                  <div className="flex flex-col gap-1">
+                    {incoming.map((p) => (
+                      <div key={p.id} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent">
+                        <Avatar label={p.avatar} seed={p.userId} size={32} />
+                        <div className="min-w-0 flex-1 truncate text-sm font-medium">{p.name}</div>
+                        <div className="flex gap-2">
+                          <Button variant="secondary" size="icon-sm" onClick={() => onAccept?.(p.id)} className="rounded-full text-status-online" aria-label="Accept"><Check className="size-4" /></Button>
+                          <Button variant="secondary" size="icon-sm" onClick={() => onReject?.(p.id)} className="rounded-full text-destructive" aria-label="Reject"><X className="size-4" /></Button>
+                        </div>
                       </div>
-                    ) : (
-                      <Button variant="secondary" size="icon-sm" onClick={() => onCancelRequest?.(p.id)} className="rounded-full" aria-label="Cancel"><X className="size-4" /></Button>
-                    )}
+                    ))}
                   </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
+                </div>
+              )}
+
+              {outgoing.length > 0 && (
+                <div className={incoming.length > 0 ? "mt-8" : ""}>
+                  <div className="mb-2 text-xs font-semibold text-muted-foreground">Outgoing — {outgoing.length}</div>
+                  <div className="flex flex-col gap-1">
+                    {outgoing.map((p) => (
+                      <div key={p.id} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent">
+                        <Avatar label={p.avatar} seed={p.userId} size={32} />
+                        <div className="min-w-0 flex-1 truncate text-sm font-medium">{p.name}</div>
+                        <Button variant="secondary" size="icon-sm" onClick={() => onCancelRequest?.({ id: p.id, source: p.source })} className="rounded-full" aria-label="Cancel"><X className="size-4" /></Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </TabsContent>
       </div>
     </Tabs>

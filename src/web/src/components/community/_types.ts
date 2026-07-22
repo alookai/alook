@@ -219,6 +219,10 @@ export type PendingRequest = {
   name: string
   avatar: string
   kind: "incoming" | "outgoing"
+  // "bot" outgoing rows are bot approval-requests (id = approval-request id),
+  // cancelled via the requester-side bot-cancel endpoint. Absent/"friend" =
+  // a real community_friendship row.
+  source?: "friend" | "bot"
 }
 
 export type BlockedUser = { id: string; userId?: string; name: string; avatar: string }

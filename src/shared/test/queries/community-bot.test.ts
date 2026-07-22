@@ -36,6 +36,7 @@ describe("community/bot exports", () => {
     expect(typeof q.listPendingApprovalsForBot).toBe("function")
     expect(typeof q.findPendingJoinRequest).toBe("function")
     expect(typeof q.findPendingFriendRequest).toBe("function")
+    expect(typeof q.listPendingFriendRequestsByRequester).toBe("function")
     expect(typeof q.createApprovalRequestStatement).toBe("function")
     expect(typeof q.resolveApprovalRequest).toBe("function")
     expect(typeof q.getApprovalRequestByDmMessageId).toBe("function")

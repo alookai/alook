@@ -121,6 +121,18 @@ describe("rankMentionItems", () => {
     expect((item as { userId: string }).userId).toBe("u_person")
   })
 
+  it("exposes name and discriminator separately so the popover can mute the tag", () => {
+    // The row displays `name` + a muted `#discriminator` span, but `label` must
+    // stay the concatenated `name#discriminator` token used for insertion.
+    const memberRoster: Member[] = [
+      { id: "m_row", userId: "u_person", name: "Alice", discriminator: "0042", avatar: "A", status: "online", sub: "", role: "member" },
+    ]
+    const item = rankMentionItems(memberRoster, "channel", "al").find((i) => i.kind === "member")! as { name: string; discriminator: string; label: string }
+    expect(item.name).toBe("Alice")
+    expect(item.discriminator).toBe("0042")
+    expect(item.label).toBe("Alice#0042")
+  })
+
   it("ranks substring members after prefix members", () => {
     const memberRoster: Member[] = [
       { id: "m_al", userId: "u_al", name: "Alberta", discriminator: "0001", avatar: "A", status: "online", sub: "", role: "member" },

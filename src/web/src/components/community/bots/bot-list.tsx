@@ -221,7 +221,7 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                       <Card key={bot.id} className="flex flex-col gap-3 p-4">
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex min-w-0 items-start gap-3">
-                            <AgentAvatar name={bot.name} avatarUrl={bot.image} size={40} />
+                            <AgentAvatar name={bot.name} avatarUrl={bot.image} seed={bot.id} size={40} />
                             <div className="flex min-w-0 flex-col gap-1">
                               <div className="flex items-center gap-2">
                                 <span className="truncate text-[15px] font-medium text-foreground">
