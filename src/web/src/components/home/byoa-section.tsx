@@ -20,7 +20,7 @@ const agents: Agent[] = [
   { name: "Codex", provider: "codex", detail: "OpenAI's coding agent" },
   { name: "OpenCode", provider: "opencode", detail: "Open-source coding agent" },
   { name: "Cursor", provider: "cursor", detail: "AI-powered code editor", comingSoon: true },
-  { name: "Hermes", provider: "hermes", detail: "Autonomous coding agent", comingSoon: true },
+  { name: "Hermes", provider: "hermes", detail: "Autonomous coding agent" },
   { name: "OpenClaw", provider: "openclaw", detail: "Open-source AI agent", comingSoon: true },
 ];
 
