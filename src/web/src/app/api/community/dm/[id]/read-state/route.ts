@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, withD1Retry } from "@alook/shared"
 import { requireDMParticipant } from "@/lib/community/permissions"
 
 /**
@@ -27,10 +27,14 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
   const auth = await requireDMParticipant(db, dmId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 
-  const row = await queries.communityReadState.getReadState(db, {
-    userId: ctx.userId,
-    dmConversationId: dmId,
-  })
+  // Server-side retry stack. See channel twin for the invariant.
+  const row = await withD1Retry(
+    () => queries.communityReadState.getReadState(db, {
+      userId: ctx.userId,
+      dmConversationId: dmId,
+    }),
+    { route: "community/dm/read-state" },
+  )
 
   return writeJSON({
     lastReadMessageId: row?.lastReadMessageId ?? null,

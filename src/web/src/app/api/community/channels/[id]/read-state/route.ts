@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, withD1Retry } from "@alook/shared"
 import { requireChannelMember } from "@/lib/community/permissions"
 
 /**
@@ -30,10 +30,17 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
   const auth = await requireChannelMember(db, channelId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 
-  const row = await queries.communityReadState.getReadState(db, {
-    userId: ctx.userId,
-    channelId,
-  })
+  // Wrap in `withD1Retry` on the server so the client can keep `retry: 1`
+  // (one retry stack, budget shared with the helper). On exhaust: rethrow —
+  // the client `useQuery` rejects, `snapshotRef` never latches a fabricated
+  // value, hook returns `{ snapshot: null, isFetching: false }`.
+  const row = await withD1Retry(
+    () => queries.communityReadState.getReadState(db, {
+      userId: ctx.userId,
+      channelId,
+    }),
+    { route: "community/channels/read-state" },
+  )
 
   return writeJSON({
     lastReadMessageId: row?.lastReadMessageId ?? null,

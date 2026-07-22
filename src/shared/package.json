@@ -10,7 +10,8 @@
     "./runtime-config": "./src/runtime-config.ts",
     "./utils/community-roles": "./src/utils/community-roles.ts",
     "./lib/discriminator": "./src/lib/discriminator.ts",
-    "./lib/invite-link": "./src/lib/invite-link.ts"
+    "./lib/invite-link": "./src/lib/invite-link.ts",
+    "./db/resilience-testing": "./src/db/resilience-testing.ts"
   },
   "scripts": {
     "knip": "knip",

@@ -232,6 +232,18 @@ vi.mock("@alook/shared", () => {
   return {
     createDb: (d1: unknown) => mockCreateDb(d1),
     createLogger: () => noopLogger,
+    // Minimal `readOrStale` shim — bypasses the classifier so tests can
+    // inject arbitrary Error shapes at the query-fn boundary and observe
+    // fail-closed semantics. Real production behavior (retry then fallback)
+    // is covered by the shared `resilience.test.ts` suite.
+    readOrStale: async <T>(
+      fn: () => Promise<T>,
+      fallback: T,
+      _opts?: unknown,
+    ): Promise<{ value: T; stale: boolean }> => {
+      try { return { value: await fn(), stale: false } }
+      catch { return { value: fallback, stale: true } }
+    },
     COMMUNITY_MACHINE_HEARTBEAT_MS: 60_000,
     COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS: 120_000,
     SessionErrorFrameSchema,
@@ -513,6 +525,18 @@ describe("WebSocketDurableObject", () => {
 
       expect(await res.json()).toEqual({ online: true })
       expect(mockGetUserInternal).not.toHaveBeenCalled()
+    })
+
+    it("degrades to { online: false, stale: true } when D1 throws on the bot-online lookup", async () => {
+      // Fail-closed via `readOrStale`: getUserInternal (or isBotOnline)
+      // throwing on retry-exhaust must NOT surface as a 500 — the caller
+      // reads `{ online: false, stale: true }` and moves on.
+      const { durable } = createDO()
+      mockGetUserInternal.mockRejectedValue(new Error("D1 down"))
+
+      const res = await durable.fetch(new Request("http://internal/check-user-online?userId=bot-1"))
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ online: false, stale: true })
     })
   })
 
@@ -1280,6 +1304,32 @@ describe("WebSocketDurableObject", () => {
       expect(mockUpdateProfile).not.toHaveBeenCalled()
       expect(mockStubFetch).not.toHaveBeenCalled()
     })
+
+    it("drops the frame with phase='binding_check' when getBotBinding throws — socket stays open, no write", async () => {
+      const { durable, store } = createDO()
+      store.set("community-machine-identity", {
+        userId: "u_1",
+        machineId: "cm_1",
+        credentialHash: "0".repeat(64),
+      })
+      mockGetBotBinding.mockRejectedValue(new Error("D1 down"))
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "community-machine",
+        machineId: "cm_1",
+        userId: "u_1",
+        authenticated: true,
+      })
+
+      const frame = JSON.stringify({ type: "agent_activity", agentId: "bot_1", state: "running" })
+      await durable.webSocketMessage(ws as any, frame)
+
+      expect(mockUpdateProfile).not.toHaveBeenCalled()
+      expect(mockStubFetch).not.toHaveBeenCalled()
+      // Socket didn't close — the DO doesn't touch ws.close() on any per-frame D1 error.
+      expect(ws.close as ReturnType<typeof vi.fn>).not.toHaveBeenCalled()
+    })
   })
 
   describe("community-machine — agent_typing / agent_typing_stop frames", () => {
@@ -1611,6 +1661,42 @@ describe("WebSocketDurableObject", () => {
       await durable.webSocketMessage(ws as any, frame)
 
       expect(mockStubFetch).not.toHaveBeenCalled()
+    })
+
+    it("drops the frame with phase='write' when the insert throws — socket stays open, no fan-out", async () => {
+      // This is the ws_frame_dropped_write category — the audit-loss SLO
+      // signal. The DO must NOT close the socket, and no owner fan-out
+      // should be emitted (the row was never persisted).
+      const { durable, store } = createDO()
+      store.set("community-machine-identity", {
+        userId: "u_1",
+        machineId: "cm_1",
+        credentialHash: "0".repeat(64),
+      })
+      mockGetBotBindingWithOwner.mockResolvedValue({
+        machineId: "cm_1",
+        runtime: "codex",
+        ownerUserId: "owner_1",
+      })
+      mockInsertBotActivityEventAndPrune.mockRejectedValue(new Error("D1 insert failed"))
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "community-machine",
+        machineId: "cm_1",
+        userId: "u_1",
+        authenticated: true,
+      })
+
+      const frame = JSON.stringify({
+        type: "bot_audit_event",
+        agentId: "bot_1",
+        event: { kind: "tool_call", payload: { name: "Read" } },
+      })
+      await durable.webSocketMessage(ws as any, frame)
+
+      expect(mockStubFetch).not.toHaveBeenCalled()
+      expect(ws.close as ReturnType<typeof vi.fn>).not.toHaveBeenCalled()
     })
   })
 

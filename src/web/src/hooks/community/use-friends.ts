@@ -1,9 +1,24 @@
 "use client"
 
-import { useQuery, type UseQueryResult } from "@tanstack/react-query"
+import { useQuery, keepPreviousData, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type { Friend, PendingRequest, BlockedUser } from "@/components/community/_types"
+
+/**
+ * The community read routes wrap their D1 hits in `readOrStale` (see
+ * `src/shared/src/db/resilience.ts`). On retry-exhaust they return
+ * `200 { …, stale: true }` with empty payloads. Treat that as a query
+ * error so `placeholderData: keepPreviousData` keeps the last-good data
+ * on screen instead of flipping the UI to a false-empty state.
+ */
+class StaleReadError extends Error {
+  constructor() { super("stale D1 read"); this.name = "StaleReadError" }
+}
+function throwIfStale<T extends { stale?: boolean }>(v: T): T {
+  if (v?.stale) throw new StaleReadError()
+  return v
+}
 
 /**
  * Fetches the friends / pending-requests / blocked triad in a single query.
@@ -27,8 +42,8 @@ const EMPTY_BLOCKED: readonly BlockedUser[] = Object.freeze([])
 
 export const friendsQueryFn = async (): Promise<FriendsResponse> => {
   const [friendsData, pendingData] = await Promise.all([
-    apiFetch<{ friends: Friend[]; blocked: BlockedUser[] }>("/api/community/friends"),
-    apiFetch<{ pending: PendingRequest[] }>("/api/community/friends/pending"),
+    apiFetch<{ friends: Friend[]; blocked: BlockedUser[]; stale?: boolean }>("/api/community/friends").then(throwIfStale),
+    apiFetch<{ pending: PendingRequest[]; stale?: boolean }>("/api/community/friends/pending").then(throwIfStale),
   ])
   return {
     friends: friendsData.friends,
@@ -45,6 +60,7 @@ export function useFriends(): UseQueryResult<FriendsResponse> & {
   const query = useQuery({
     queryKey: communityKeys.friends(),
     queryFn: friendsQueryFn,
+    placeholderData: keepPreviousData,
   })
   return {
     ...query,
@@ -67,7 +83,7 @@ export function useFriends(): UseQueryResult<FriendsResponse> & {
 export type FriendsPresenceResponse = { online: string[] }
 
 export const friendsPresenceQueryFn = () =>
-  apiFetch<FriendsPresenceResponse>("/api/community/friends/presence")
+  apiFetch<FriendsPresenceResponse & { stale?: boolean }>("/api/community/friends/presence").then(throwIfStale)
 
 const EMPTY_ONLINE: readonly string[] = Object.freeze([])
 
@@ -77,6 +93,7 @@ export function useFriendsPresence(): UseQueryResult<FriendsPresenceResponse> & 
   const query = useQuery({
     queryKey: communityKeys.friendsPresence(),
     queryFn: friendsPresenceQueryFn,
+    placeholderData: keepPreviousData,
   })
   return {
     ...query,

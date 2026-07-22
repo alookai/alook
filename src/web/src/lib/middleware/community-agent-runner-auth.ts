@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { queries } from "@alook/shared"
+import { queries, withD1Retry, createLogger } from "@alook/shared"
 import { getDb } from "@/lib/db"
+
+const log = createLogger({ service: "community-agent-runner-auth" })
 
 interface AgentRunnerAuthContext {
   env: Env
@@ -17,6 +19,15 @@ export type AgentRunnerAuthenticatedHandler = (
   ctx: AgentRunnerAuthContext & { params?: Record<string, string> }
 ) => Promise<NextResponse | Response>
 
+const RETRY_OPTS = { route: "community-agent-runner-auth" }
+
+function serviceUnavailable(): NextResponse {
+  return NextResponse.json(
+    { error: "database temporarily unavailable" },
+    { status: 503, headers: { "Retry-After": "1" } },
+  )
+}
+
 /**
  * Agent-runner auth middleware for the CLI bridge (`/api/community/agent/*`).
  * Requires `Authorization: Bearer crk_…`. Cloned from `withCommunityDaemonAuth`
@@ -27,15 +38,11 @@ export type AgentRunnerAuthenticatedHandler = (
  * `row.agentId` is the BOT's own user id. `row.doName` here is the runner
  * key's own DO-hash, unrelated to wake dispatch — never threaded through.
  *
- * Steps (plan §2):
- * 1. Extract `Bearer <token>`; reject non-`crk_` → 401.
- * 2. `findActiveAgentRunnerKeyByBearer` → 401 on null.
- * 3. `getUserInternal(row.agentId)` → 401 if null, `!isBot`, or soft-deleted.
- * 4. `getBotBinding(row.agentId)` → 401 if null or machine mismatch
- *    (belt-and-braces; `getBotBinding` returns no owner of its own).
- *
- * Handlers must NEVER read `X-Agent-Id` or a body `agentId` — identity is
- * always `ctx.botUserId` from this middleware.
+ * D1-transient failure semantics: each of the 3 D1 reads runs through
+ * `withD1Retry`; on retry-exhaust we return 503 + `Retry-After: 1` (RFC 9110
+ * §15.6.4) so CLI bridges treat it as retryable and do NOT rotate their
+ * runner key. 401 is reserved for real auth failures (bad token, revoked
+ * runner key, bot deleted, binding mismatch).
  */
 export function withAgentRunnerAuth(handler: AgentRunnerAuthenticatedHandler) {
   return async (
@@ -61,17 +68,44 @@ export function withAgentRunnerAuth(handler: AgentRunnerAuthenticatedHandler) {
     const cloudflareEnv = env as Env
     const db = getDb(cloudflareEnv.DB)
 
-    const row = await queries.communityMachine.findActiveAgentRunnerKeyByBearer(db, raw)
+    let row: Awaited<ReturnType<typeof queries.communityMachine.findActiveAgentRunnerKeyByBearer>>
+    try {
+      row = await withD1Retry(
+        () => queries.communityMachine.findActiveAgentRunnerKeyByBearer(db, raw),
+        RETRY_OPTS,
+      )
+    } catch (err) {
+      log.warn("d1_lookup_failed", { step: "findActiveAgentRunnerKeyByBearer", err: err instanceof Error ? err : new Error(String(err)) })
+      return serviceUnavailable()
+    }
     if (!row) {
       return NextResponse.json({ error: "runner key revoked or unknown" }, { status: 401 })
     }
 
-    const botUser = await queries.user.getUserInternal(db, row.agentId)
+    let botUser: Awaited<ReturnType<typeof queries.user.getUserInternal>>
+    try {
+      botUser = await withD1Retry(
+        () => queries.user.getUserInternal(db, row!.agentId),
+        RETRY_OPTS,
+      )
+    } catch (err) {
+      log.warn("d1_lookup_failed", { step: "getUserInternal", err: err instanceof Error ? err : new Error(String(err)) })
+      return serviceUnavailable()
+    }
     if (!botUser || !botUser.isBot || botUser.deletedAt !== null) {
       return NextResponse.json({ error: "bot not found or inactive" }, { status: 401 })
     }
 
-    const binding = await queries.communityBot.getBotBinding(db, row.agentId)
+    let binding: Awaited<ReturnType<typeof queries.communityBot.getBotBinding>>
+    try {
+      binding = await withD1Retry(
+        () => queries.communityBot.getBotBinding(db, row!.agentId),
+        RETRY_OPTS,
+      )
+    } catch (err) {
+      log.warn("d1_lookup_failed", { step: "getBotBinding", err: err instanceof Error ? err : new Error(String(err)) })
+      return serviceUnavailable()
+    }
     if (!binding || binding.machineId !== row.machineId) {
       return NextResponse.json({ error: "bot binding mismatch" }, { status: 401 })
     }

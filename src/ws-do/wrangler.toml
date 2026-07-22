@@ -8,9 +8,15 @@ workers_dev = false
 enabled = true
 head_sampling_rate = 0.1
 
+# Exempted from the default 0.1 sampling used by other workers: the
+# `ws_frame_dropped_write` audit-loss signal is a rare-write category, and
+# head-sampling is a request-level decision that can't be bypassed by log
+# level. Full-rate ingest is affordable here — ws-do's log volume is
+# dominated by daemon frames — and is the only reliable way to measure the
+# audit-loss SLO. See plans/d1-critical-path-resilience-v2.md §Observability.
 [observability.logs]
 invocation_logs = true
-head_sampling_rate = 0.1
+head_sampling_rate = 1.0
 destinations = ["grafana-logs"]
 
 [observability.traces]

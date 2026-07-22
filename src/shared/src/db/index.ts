@@ -10,3 +10,6 @@ export function createDb(d1: AnyD1Database) {
 }
 
 export type Database = ReturnType<typeof createDb>;
+
+export { withD1Retry, readOrStale, isRetryableD1Error } from "./resilience";
+export type { RetryOpts } from "./resilience";

@@ -3,6 +3,7 @@ import {
   createDb,
   queries,
   createLogger,
+  readOrStale,
   COMMUNITY_MACHINE_HEARTBEAT_MS,
   COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS,
   HostReadyMessageSchema,
@@ -106,22 +107,53 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       // the id explicitly instead. A bot has no WebSocket of its own; its
       // "online" is `isBotOnline` (bound machine's status), not a live-socket
       // check.
+      //
+      // Check the local WS attachments FIRST — that's D1-free, and a live
+      // authenticated user socket is authoritative "online" regardless of
+      // whether the target turns out to be a bot. Only when no live socket
+      // is attached do we consult D1 to see if this is a bot whose presence
+      // is derived from a bound machine's status.
+      //
+      // D1 reads fail-closed via `readOrStale`: a transient outage on the
+      // bot branch yields `{ online: false, stale: true }`. The live-WS
+      // early return is unaffected — a D1 blip must NOT flip a real,
+      // connected human user offline.
       const targetUserId = url.searchParams.get("userId")
-      if (targetUserId) {
-        const db = createDb(this.env.DB)
-        const target = await queries.user.getUserInternal(db, targetUserId)
-        if (target?.isBot) {
-          const online = await queries.communityMachine.isBotOnline(db, targetUserId)
-          return new Response(JSON.stringify({ online }), {
-            headers: { "Content-Type": "application/json" },
-          })
-        }
-      }
       const hasAuthUser = this.ctx.getWebSockets().some(ws => {
         const s = ws.deserializeAttachment() as ConnectionState
         return s?.type === "user" && s.authenticated
       })
-      return new Response(JSON.stringify({ online: hasAuthUser }), {
+      if (hasAuthUser) {
+        return new Response(JSON.stringify({ online: true }), {
+          headers: { "Content-Type": "application/json" },
+        })
+      }
+      if (targetUserId) {
+        const db = createDb(this.env.DB)
+        const { value, stale } = await readOrStale<{ isBotResolved: boolean; online: boolean }>(
+          async () => {
+            const target = await queries.user.getUserInternal(db, targetUserId)
+            if (target?.isBot) {
+              const online = await queries.communityMachine.isBotOnline(db, targetUserId)
+              return { isBotResolved: true, online }
+            }
+            return { isBotResolved: false, online: false }
+          },
+          { isBotResolved: false, online: false },
+          { route: "ws-do/check-user-online" },
+        )
+        if (stale) {
+          return new Response(JSON.stringify({ online: false, stale: true }), {
+            headers: { "Content-Type": "application/json" },
+          })
+        }
+        if (value.isBotResolved) {
+          return new Response(JSON.stringify({ online: value.online }), {
+            headers: { "Content-Type": "application/json" },
+          })
+        }
+      }
+      return new Response(JSON.stringify({ online: false }), {
         headers: { "Content-Type": "application/json" },
       })
     }
@@ -675,7 +707,20 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     if (activityParse.success) {
       const { agentId, state } = activityParse.data
       const db = createDb(this.env.DB)
-      const binding = await queries.communityBot.getBotBinding(db, agentId)
+      let binding: Awaited<ReturnType<typeof queries.communityBot.getBotBinding>>
+      try {
+        binding = await queries.communityBot.getBotBinding(db, agentId)
+      } catch (err) {
+        log.warn("ws_frame_dropped", {
+          category: "ws_frame_dropped",
+          frame_type: "agent_activity",
+          phase: "binding_check",
+          agentId,
+          machineId: identity.machineId,
+          err: err instanceof Error ? err : new Error(String(err)),
+        })
+        return
+      }
       if (!binding || binding.machineId !== identity.machineId) {
         log.warn("agent_activity frame for a bot not bound to this machine — dropped", {
           agentId,
@@ -683,31 +728,42 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         })
         return
       }
-      const prior = await queries.communityUserProfile.getProfile(db, agentId)
-      const priorEmoji = prior?.statusEmoji ?? null
-      const priorText = prior?.statusText ?? null
-      const priorIsRunning =
-        priorEmoji !== null &&
-        RUNNING_PRESETS.some((p) => p.emoji === priorEmoji && p.text === priorText)
-      // For `running`, reuse the currently-persisted preset if it's already
-      // one of the running variants — matches the "one phrase per episode"
-      // invariant instead of re-rolling on every derived running transition
-      // (turn_end → idle → wake → running fires this repeatedly).
-      const preset =
-        state === "running" && priorIsRunning
-          ? { emoji: priorEmoji as string, text: priorText as string }
-          : pickBotActivityPreset(state, Math.random())
-      if (preset.emoji === priorEmoji && preset.text === priorText) return
-      await queries.communityUserProfile.updateProfile(db, agentId, {
-        statusEmoji: preset.emoji,
-        statusText: preset.text,
-      })
-      await this.broadcastToAudience(agentId, {
-        type: "community:status.update",
-        userId: agentId,
-        statusEmoji: preset.emoji,
-        statusText: preset.text,
-      })
+      try {
+        const prior = await queries.communityUserProfile.getProfile(db, agentId)
+        const priorEmoji = prior?.statusEmoji ?? null
+        const priorText = prior?.statusText ?? null
+        const priorIsRunning =
+          priorEmoji !== null &&
+          RUNNING_PRESETS.some((p) => p.emoji === priorEmoji && p.text === priorText)
+        // For `running`, reuse the currently-persisted preset if it's already
+        // one of the running variants — matches the "one phrase per episode"
+        // invariant instead of re-rolling on every derived running transition
+        // (turn_end → idle → wake → running fires this repeatedly).
+        const preset =
+          state === "running" && priorIsRunning
+            ? { emoji: priorEmoji as string, text: priorText as string }
+            : pickBotActivityPreset(state, Math.random())
+        if (preset.emoji === priorEmoji && preset.text === priorText) return
+        await queries.communityUserProfile.updateProfile(db, agentId, {
+          statusEmoji: preset.emoji,
+          statusText: preset.text,
+        })
+        await this.broadcastToAudience(agentId, {
+          type: "community:status.update",
+          userId: agentId,
+          statusEmoji: preset.emoji,
+          statusText: preset.text,
+        })
+      } catch (err) {
+        log.warn("ws_frame_dropped", {
+          category: "ws_frame_dropped",
+          frame_type: "agent_activity",
+          phase: "write",
+          agentId,
+          machineId: identity.machineId,
+          err: err instanceof Error ? err : new Error(String(err)),
+        })
+      }
       return
     }
 
@@ -722,7 +778,20 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     if (typingParse.success) {
       const { agentId, dmConversationId } = typingParse.data
       const db = createDb(this.env.DB)
-      const binding = await queries.communityBot.getBotBindingWithOwner(db, agentId)
+      let binding: Awaited<ReturnType<typeof queries.communityBot.getBotBindingWithOwner>>
+      try {
+        binding = await queries.communityBot.getBotBindingWithOwner(db, agentId)
+      } catch (err) {
+        log.warn("ws_frame_dropped", {
+          category: "ws_frame_dropped",
+          frame_type: "agent_typing",
+          phase: "binding_check",
+          agentId,
+          machineId: identity.machineId,
+          err: err instanceof Error ? err : new Error(String(err)),
+        })
+        return
+      }
       if (!binding || binding.machineId !== identity.machineId) {
         log.warn("agent_typing frame for a bot not bound to this machine — dropped", {
           agentId,
@@ -730,21 +799,45 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         })
         return
       }
-      // DM participancy is enforced inside `fanOutTyping` — no need to
-      // pre-query `getDM` here at 5s cadence.
-      const event = JSON.stringify({
-        type: "community:typing.start",
-        dmConversationId,
-        userId: agentId,
-      })
-      await this.fanOutTyping(agentId, undefined, dmConversationId, undefined, event)
+      try {
+        // DM participancy is enforced inside `fanOutTyping` — no need to
+        // pre-query `getDM` here at 5s cadence.
+        const event = JSON.stringify({
+          type: "community:typing.start",
+          dmConversationId,
+          userId: agentId,
+        })
+        await this.fanOutTyping(agentId, undefined, dmConversationId, undefined, event)
+      } catch (err) {
+        log.warn("ws_frame_dropped", {
+          category: "ws_frame_dropped",
+          frame_type: "agent_typing",
+          phase: "write",
+          agentId,
+          machineId: identity.machineId,
+          err: err instanceof Error ? err : new Error(String(err)),
+        })
+      }
       return
     }
     const typingStopParse = AgentTypingStopMessageSchema.safeParse(parsed)
     if (typingStopParse.success) {
       const { agentId, dmConversationId } = typingStopParse.data
       const db = createDb(this.env.DB)
-      const binding = await queries.communityBot.getBotBindingWithOwner(db, agentId)
+      let binding: Awaited<ReturnType<typeof queries.communityBot.getBotBindingWithOwner>>
+      try {
+        binding = await queries.communityBot.getBotBindingWithOwner(db, agentId)
+      } catch (err) {
+        log.warn("ws_frame_dropped", {
+          category: "ws_frame_dropped",
+          frame_type: "agent_typing_stop",
+          phase: "binding_check",
+          agentId,
+          machineId: identity.machineId,
+          err: err instanceof Error ? err : new Error(String(err)),
+        })
+        return
+      }
       if (!binding || binding.machineId !== identity.machineId) {
         log.warn("agent_typing_stop frame for a bot not bound to this machine — dropped", {
           agentId,
@@ -752,8 +845,19 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         })
         return
       }
-      // DM participancy enforced inside `fanOutTypingStop`.
-      await this.fanOutTypingStop(agentId, dmConversationId)
+      try {
+        // DM participancy enforced inside `fanOutTypingStop`.
+        await this.fanOutTypingStop(agentId, dmConversationId)
+      } catch (err) {
+        log.warn("ws_frame_dropped", {
+          category: "ws_frame_dropped",
+          frame_type: "agent_typing_stop",
+          phase: "write",
+          agentId,
+          machineId: identity.machineId,
+          err: err instanceof Error ? err : new Error(String(err)),
+        })
+      }
       return
     }
 
@@ -766,7 +870,24 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     if (auditParse.success) {
       const frame = auditParse.data
       const db = createDb(this.env.DB)
-      const binding = await queries.communityBot.getBotBindingWithOwner(db, frame.agentId)
+      let binding: Awaited<ReturnType<typeof queries.communityBot.getBotBindingWithOwner>>
+      try {
+        binding = await queries.communityBot.getBotBindingWithOwner(db, frame.agentId)
+      } catch (err) {
+        // Binding check treated as `ws_frame_dropped` (security-adjacent
+        // lookup failure — a daemon reporting on a bot it may not own).
+        // NOT `ws_frame_dropped_write` — that category is reserved for the
+        // insert-side failure that feeds the audit-loss SLO.
+        log.warn("ws_frame_dropped", {
+          category: "ws_frame_dropped",
+          frame_type: "bot_audit_event",
+          phase: "binding_check",
+          agentId: frame.agentId,
+          machineId: identity.machineId,
+          err: err instanceof Error ? err : new Error(String(err)),
+        })
+        return
+      }
       if (!binding || binding.machineId !== identity.machineId) {
         log.warn("bot_audit_event frame for a bot not bound to this machine — dropped", {
           agentId: frame.agentId,
@@ -774,25 +895,55 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         })
         return
       }
-      const payload = JSON.stringify(frame.event.payload)
-      const inserted = await queries.communityBotAuditLog.insertBotActivityEventAndPrune(db, {
-        botId: frame.agentId,
-        sessionId: frame.sessionId ?? null,
-        launchId: frame.launchId ?? null,
-        kind: frame.event.kind,
-        payload,
-      })
-      if (!inserted) return
-      await this.notifyUserDO(binding.ownerUserId, {
-        type: "community:bot.audit_event",
-        botId: frame.agentId,
-        id: inserted.id,
-        kind: frame.event.kind,
-        payload: frame.event.payload,
-        sessionId: frame.sessionId ?? null,
-        launchId: frame.launchId ?? null,
-        createdAt: inserted.createdAt,
-      }).catch(() => { })
+      // Serialize BEFORE the write try — a non-serializable payload (BigInt,
+      // circular ref, function) throwing here has nothing to do with the
+      // audit-loss SLO and must not be logged under `ws_frame_dropped_write`.
+      let payload: string
+      try {
+        payload = JSON.stringify(frame.event.payload)
+      } catch (err) {
+        log.warn("ws_frame_dropped", {
+          category: "ws_frame_dropped",
+          frame_type: "bot_audit_event",
+          phase: "serialize",
+          agentId: frame.agentId,
+          machineId: identity.machineId,
+          err: err instanceof Error ? err : new Error(String(err)),
+        })
+        return
+      }
+      try {
+        const inserted = await queries.communityBotAuditLog.insertBotActivityEventAndPrune(db, {
+          botId: frame.agentId,
+          sessionId: frame.sessionId ?? null,
+          launchId: frame.launchId ?? null,
+          kind: frame.event.kind,
+          payload,
+        })
+        if (!inserted) return
+        await this.notifyUserDO(binding.ownerUserId, {
+          type: "community:bot.audit_event",
+          botId: frame.agentId,
+          id: inserted.id,
+          kind: frame.event.kind,
+          payload: frame.event.payload,
+          sessionId: frame.sessionId ?? null,
+          launchId: frame.launchId ?? null,
+          createdAt: inserted.createdAt,
+        }).catch(() => { })
+      } catch (err) {
+        // `ws_frame_dropped_write` — the audit-loss SLO category. Emitted at
+        // full-rate ingest via ws-do's `head_sampling_rate = 1.0` so a
+        // low-rate drift doesn't hide behind 10% sampling.
+        log.warn("ws_frame_dropped", {
+          category: "ws_frame_dropped_write",
+          frame_type: "bot_audit_event",
+          phase: "write",
+          agentId: frame.agentId,
+          machineId: identity.machineId,
+          err: err instanceof Error ? err : new Error(String(err)),
+        })
+      }
       return
     }
 
@@ -803,91 +954,101 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     const readyParse = HostReadyMessageSchema.safeParse(parsed)
     if (!readyParse.success) return
     const ready = readyParse.data
-    const hostname = ready.hostname ?? ""
-    const platform = ready.platform ?? ""
-    const arch = ready.arch ?? ""
-    const daemonVersion = ready.daemonVersion ?? ""
-    const osRelease = ready.osRelease ?? ""
-    const availableRuntimes: CommunityMachineRuntime[] = ready.runtimeReport
+    try {
+      const hostname = ready.hostname ?? ""
+      const platform = ready.platform ?? ""
+      const arch = ready.arch ?? ""
+      const daemonVersion = ready.daemonVersion ?? ""
+      const osRelease = ready.osRelease ?? ""
+      const availableRuntimes: CommunityMachineRuntime[] = ready.runtimeReport
 
-    const db = createDb(this.env.DB)
-    const result = await queries.communityMachine.upsertMachineByMachineId(
-      db,
-      identity.userId,
-      identity.machineId,
-      { hostname, platform, arch, daemonVersion, osRelease, availableRuntimes }
-    )
-    if (!result) {
-      // The machine row was deleted (or race) between credential validation
-      // and this update — bail. The row will not be re-created here; the
-      // daemon will be evicted on the next credential lookup via cascade.
-      log.warn("community machine row missing on ready", { machineId: identity.machineId })
-      return
-    }
-    const { machine, priorAvailableRuntimes, priorStatus } = result
-
-    // Coarse safety net for an `agent_activity` frame dropped mid-disconnect —
-    // clear any bot on this machine whose current status pill looks like a
-    // stale system-written activity pill AND who the daemon reports is NOT
-    // running now. Live `agent_activity` pushes handle every non-`idle`
-    // transition; the reconciler only ever writes `Idle`. Owner-set custom
-    // statuses (identified by not matching the known bot presets) are left
-    // alone. See plans/community-bot-status-telemetry.md.
-    const activityChanges = await queries.communityMachine.reconcileBotActivityFromRunningAgents(
-      db,
-      machine.id,
-      ready.runningAgents
-    )
-    await Promise.allSettled(
-      activityChanges.map(({ botUserId, statusEmoji, statusText }) =>
-        this.broadcastToAudience(botUserId, {
-          type: "community:status.update",
-          userId: botUserId,
-          statusEmoji,
-          statusText,
-        })
+      const db = createDb(this.env.DB)
+      const result = await queries.communityMachine.upsertMachineByMachineId(
+        db,
+        identity.userId,
+        identity.machineId,
+        { hostname, platform, arch, daemonVersion, osRelease, availableRuntimes }
       )
-    )
+      if (!result) {
+        // The machine row was deleted (or race) between credential validation
+        // and this update — bail. The row will not be re-created here; the
+        // daemon will be evicted on the next credential lookup via cascade.
+        log.warn("community machine row missing on ready", { machineId: identity.machineId })
+        return
+      }
+      const { machine, priorAvailableRuntimes, priorStatus } = result
 
-    const summary = await this.summaryWithOverlay(machine)
-    // Refresh the offline-detection handle in case metadata changed. Handle
-    // was written at accept; this is idempotent.
-    await this.ctx.storage.put<CommunityMachineHandle>(HANDLE_KEY, {
-      userId: identity.userId,
-      machineId: machine.id,
-    })
+      // Coarse safety net for an `agent_activity` frame dropped mid-disconnect —
+      // clear any bot on this machine whose current status pill looks like a
+      // stale system-written activity pill AND who the daemon reports is NOT
+      // running now. Live `agent_activity` pushes handle every non-`idle`
+      // transition; the reconciler only ever writes `Idle`. Owner-set custom
+      // statuses (identified by not matching the known bot presets) are left
+      // alone. See plans/community-bot-status-telemetry.md.
+      const activityChanges = await queries.communityMachine.reconcileBotActivityFromRunningAgents(
+        db,
+        machine.id,
+        ready.runningAgents
+      )
+      await Promise.allSettled(
+        activityChanges.map(({ botUserId, statusEmoji, statusText }) =>
+          this.broadcastToAudience(botUserId, {
+            type: "community:status.update",
+            userId: botUserId,
+            statusEmoji,
+            statusText,
+          })
+        )
+      )
 
-    // NOTE: `community:machine.created` is emitted by the /activate route,
-    // not here — activation is the single source of the create event and
-    // carries the pairing token the client needs to reconcile its pending
-    // state. Here we only handle status transitions and runtime drift.
-    //
-    // Broadcast the online transition ONLY when the row actually flipped
-    // offline → online. `priorStatus` is the pre-upsert column value returned
-    // by upsertMachineByMachineId; the upsert unconditionally sets
-    // status='online', so `priorStatus !== 'online'` is the exact transition.
-    if (priorStatus !== "online") {
-      await this.notifyUserDO(identity.userId, {
-        type: "community:machine.status",
+      const summary = await this.summaryWithOverlay(machine)
+      // Refresh the offline-detection handle in case metadata changed. Handle
+      // was written at accept; this is idempotent.
+      await this.ctx.storage.put<CommunityMachineHandle>(HANDLE_KEY, {
+        userId: identity.userId,
         machineId: machine.id,
-        status: "online",
-        lastSeenAt: machine.lastSeenAt ?? new Date().toISOString(),
-      }).catch(() => { })
-    }
+      })
 
-    // Runtime-drift diff. Canonicalized form now includes status/lastError
-    // so a runtime flipping healthy → unhealthy on subsequent ready frames
-    // (e.g. ENOENT hit at spawn time) fans out `community:machine.updated`.
-    const priorCanonical = canonicalRuntimes(priorAvailableRuntimes ?? [])
-    const nextCanonical = canonicalRuntimes(availableRuntimes)
-    if (priorCanonical !== nextCanonical) {
-      await this.notifyUserDO(identity.userId, {
-        type: "community:machine.updated",
-        machine: summary,
-      }).catch(() => { })
-    }
+      // NOTE: `community:machine.created` is emitted by the /activate route,
+      // not here — activation is the single source of the create event and
+      // carries the pairing token the client needs to reconcile its pending
+      // state. Here we only handle status transitions and runtime drift.
+      //
+      // Broadcast the online transition ONLY when the row actually flipped
+      // offline → online. `priorStatus` is the pre-upsert column value returned
+      // by upsertMachineByMachineId; the upsert unconditionally sets
+      // status='online', so `priorStatus !== 'online'` is the exact transition.
+      if (priorStatus !== "online") {
+        await this.notifyUserDO(identity.userId, {
+          type: "community:machine.status",
+          machineId: machine.id,
+          status: "online",
+          lastSeenAt: machine.lastSeenAt ?? new Date().toISOString(),
+        }).catch(() => { })
+      }
 
-    await this.scheduleHeartbeatAlarm()
+      // Runtime-drift diff. Canonicalized form now includes status/lastError
+      // so a runtime flipping healthy → unhealthy on subsequent ready frames
+      // (e.g. ENOENT hit at spawn time) fans out `community:machine.updated`.
+      const priorCanonical = canonicalRuntimes(priorAvailableRuntimes ?? [])
+      const nextCanonical = canonicalRuntimes(availableRuntimes)
+      if (priorCanonical !== nextCanonical) {
+        await this.notifyUserDO(identity.userId, {
+          type: "community:machine.updated",
+          machine: summary,
+        }).catch(() => { })
+      }
+
+      await this.scheduleHeartbeatAlarm()
+    } catch (err) {
+      log.warn("ws_frame_dropped", {
+        category: "ws_frame_dropped",
+        frame_type: "ready",
+        phase: "write",
+        machineId: identity.machineId,
+        err: err instanceof Error ? err : new Error(String(err)),
+      })
+    }
   }
 
   /**
@@ -1255,8 +1416,13 @@ export class WebSocketDurableObject extends DurableObject<Env> {
           const resp = await stub.fetch(
             new Request(`http://internal/check-user-online?userId=${encodeURIComponent(memberId)}`)
           )
-          const { online } = await resp.json() as { online: boolean }
-          return online ? memberId : null
+          // On a stale response the callee could not resolve the target's
+          // presence — skip rather than treating `online: false` as truth
+          // (that would flip real-online contacts to offline on every
+          // D1 blip during snapshot).
+          const data = await resp.json() as { online: boolean; stale?: boolean }
+          if (data.stale) return null
+          return data.online ? memberId : null
         })
       )
       for (const r of checks) {

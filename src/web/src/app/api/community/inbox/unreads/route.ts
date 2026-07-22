@@ -2,6 +2,7 @@ import {
   queries,
   DEFAULT_INBOX_PAGE_SIZE,
   MAX_INBOX_PAGE_SIZE,
+  readOrStale,
 } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
@@ -21,13 +22,33 @@ export const GET = withAuth(async (req, ctx) => {
   // Resolve the viewer's visible channels once (top-level + threads/forum-posts,
   // parent-climbed) and thread the id set into BOTH consumers so neither
   // recomputes it. Private threads under an invisible parent are excluded.
-  const visibleChannelIds = await queries.communityChannel.listVisibleChannelIdsForUser(db, ctx.userId)
-  const [unread, settings, mentions, unreadDms] = await Promise.all([
-    queries.communityInbox.listUnreadChannels(db, ctx.userId, visibleChannelIds),
-    queries.communityNotificationSetting.getSettings(db, ctx.userId),
-    queries.communityMention.listUnreadMentions(db, ctx.userId, { visibleChannelIds }),
-    queries.communityInbox.listUnreadDms(db, ctx.userId),
-  ])
+  type UnreadRow = Awaited<ReturnType<typeof queries.communityInbox.listUnreadChannels>>[number]
+  type SettingRow = Awaited<ReturnType<typeof queries.communityNotificationSetting.getSettings>>[number]
+  type MentionRow = Awaited<ReturnType<typeof queries.communityMention.listUnreadMentions>>[number]
+  type UnreadDmRow = Awaited<ReturnType<typeof queries.communityInbox.listUnreadDms>>[number]
+  const { value: fetched, stale } = await readOrStale<{
+    unread: UnreadRow[]
+    settings: SettingRow[]
+    mentions: MentionRow[]
+    unreadDms: UnreadDmRow[]
+  }>(
+    async () => {
+      const visibleChannelIds = await queries.communityChannel.listVisibleChannelIdsForUser(db, ctx.userId)
+      const [unread, settings, mentions, unreadDms] = await Promise.all([
+        queries.communityInbox.listUnreadChannels(db, ctx.userId, visibleChannelIds),
+        queries.communityNotificationSetting.getSettings(db, ctx.userId),
+        queries.communityMention.listUnreadMentions(db, ctx.userId, { visibleChannelIds }),
+        queries.communityInbox.listUnreadDms(db, ctx.userId),
+      ])
+      return { unread, settings, mentions, unreadDms }
+    },
+    { unread: [], settings: [], mentions: [], unreadDms: [] },
+    { route: "community/inbox/unreads" },
+  )
+  if (stale) {
+    return writeJSON({ servers: [], dms: [], limit, truncated: false, stale: true })
+  }
+  const { unread, settings, mentions, unreadDms } = fetched
 
   const mutedServers = new Set<string>()
   const mutedChannels = new Set<string>()

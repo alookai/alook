@@ -1,9 +1,17 @@
 "use client"
 
-import { useQuery, type UseQueryResult } from "@tanstack/react-query"
+import { useQuery, keepPreviousData, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type { InviteRow, AuditEntry } from "@/components/community/_types"
+
+class StaleReadError extends Error {
+  constructor() { super("stale D1 read"); this.name = "StaleReadError" }
+}
+function throwIfStale<T extends { stale?: boolean }>(v: T): T {
+  if (v?.stale) throw new StaleReadError()
+  return v
+}
 
 /**
  * Fetches the invite list surfaced in the settings tab. The API returns raw
@@ -124,7 +132,7 @@ export function useAuditLog(
 export type PresenceResponse = { online: string[]; truncated?: boolean; limit?: number }
 
 export const presenceQueryFn = (serverId: string) => () =>
-  apiFetch<PresenceResponse>(`/api/community/servers/${serverId}/presence`)
+  apiFetch<PresenceResponse & { stale?: boolean }>(`/api/community/servers/${serverId}/presence`).then(throwIfStale)
 
 const EMPTY_ONLINE: readonly string[] = Object.freeze([])
 export function usePresence(
@@ -137,6 +145,7 @@ export function usePresence(
       ? presenceQueryFn(serverId!)
       : (() => Promise.reject(new Error("disabled"))),
     enabled,
+    placeholderData: keepPreviousData,
   })
   return {
     ...query,

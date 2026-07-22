@@ -1,4 +1,4 @@
-import { queries, PRESENCE_MEMBER_CAP } from "@alook/shared"
+import { queries, PRESENCE_MEMBER_CAP, readOrStale } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON } from "@/lib/middleware/helpers"
@@ -16,19 +16,27 @@ import { wsDoFetch } from "@/lib/broadcast"
  */
 export const GET = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
-  const allFriendIds = await queries.communityFriendship.getFriendUserIds(db, ctx.userId)
-  // There's no enforced cap on friend count today — reuse the server
-  // presence cap defensively so a pathological friend list can't blow past
-  // `/presence/users`'s own 1000-id limit and fail the whole check.
-  const friendIds = allFriendIds.slice(0, PRESENCE_MEMBER_CAP)
+  // D1 read is fail-closed via `readOrStale`; a transient outage yields
+  // `{ online: [] }` with `stale: true` rather than a 500.
+  const { value, stale } = await readOrStale<{ friendIds: string[] }>(
+    async () => {
+      const allFriendIds = await queries.communityFriendship.getFriendUserIds(db, ctx.userId)
+      // There's no enforced cap on friend count today — reuse the server
+      // presence cap defensively so a pathological friend list can't blow past
+      // `/presence/users`'s own 1000-id limit and fail the whole check.
+      return { friendIds: allFriendIds.slice(0, PRESENCE_MEMBER_CAP) }
+    },
+    { friendIds: [] },
+    { route: "community/friends/presence" },
+  )
 
   let online: string[] = []
-  if (friendIds.length > 0) {
+  if (!stale && value.friendIds.length > 0) {
     try {
       const resp = await wsDoFetch(ctx.env, "/presence/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: friendIds }),
+        body: JSON.stringify({ ids: value.friendIds }),
       }, { label: ctx.userId })
       if (resp.ok) {
         const data = await resp.json() as { online: string[] }
@@ -37,5 +45,5 @@ export const GET = withAuth(async (_req, ctx) => {
     } catch { /* skip */ }
   }
 
-  return writeJSON({ online })
+  return writeJSON(stale ? { online, stale: true } : { online })
 })

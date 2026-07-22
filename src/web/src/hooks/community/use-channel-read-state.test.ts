@@ -35,8 +35,12 @@ let queryReturn: { data: unknown; isFetching: boolean } = {
   data: undefined,
   isFetching: false,
 }
+let lastUseQueryConfig: { retry?: number; staleTime?: number; gcTime?: number } = {}
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: (_config: unknown) => queryReturn,
+  useQuery: (config: { retry?: number; staleTime?: number; gcTime?: number }) => {
+    lastUseQueryConfig = config ?? {}
+    return queryReturn
+  },
 }))
 
 // apiFetch is unused directly (the queryFn is stubbed by the useQuery mock)
@@ -150,6 +154,45 @@ describe("useChannelReadStateSnapshot — freeze invariant", () => {
     expect(r.snapshot).toEqual({
       lastReadMessageId: "m_b",
       lastReadAt: "2026-07-02T00:00:00.000Z",
+    })
+  })
+
+  it("uses retry: 1 — single retry stack lives on the server, not the client", async () => {
+    // Regression guard for v2's "one retry stack" invariant. Server wraps
+    // the D1 read in `withD1Retry`; client keeps `retry: 1` (revert of v1's
+    // 1→2 bump). Bumping this back to 2 would cascade retry budgets.
+    const useHook = await loadHook()
+    useHook("ch_1")
+    expect(lastUseQueryConfig.retry).toBe(1)
+  })
+
+  it("returns null when the query errors — snapshotRef never latches a fabricated value", async () => {
+    // Anti-latching invariant: on server D1 exhaustion, the handler throws,
+    // the query rejects, `query.data` stays undefined, and the hook
+    // returns `{ snapshot: null }`. The divider must not anchor to a
+    // fabricated `{ lastReadMessageId: null, lastReadSeq: 0 }` sentinel —
+    // that's the LEGITIMATE never-visited shape and would be indistinguishable
+    // from the error case if we latched it.
+    const useHook = await loadHook()
+    queryReturn = { data: undefined, isFetching: false }
+    const r = useHook("ch_1")
+    flushEffects()
+    expect(r.snapshot).toBeNull()
+    expect(r.isFetching).toBe(false)
+  })
+
+  it("legitimate never-visited response (lastReadSeq: 0) DOES latch and returns the sentinel — distinguishes valid-empty from error", async () => {
+    const useHook = await loadHook()
+    queryReturn = {
+      data: { lastReadMessageId: null, lastReadAt: null, lastReadSeq: 0 },
+      isFetching: false,
+    }
+    const r = useHook("ch_1")
+    flushEffects()
+    expect(r.snapshot).toEqual({
+      lastReadMessageId: null,
+      lastReadAt: null,
+      lastReadSeq: 0,
     })
   })
 

@@ -111,7 +111,10 @@ export default {
         const r = results[i]
         if (r.status !== "fulfilled" || !r.value.ok) continue
         try {
-          const data = await r.value.json() as { online?: boolean }
+          const data = await r.value.json() as { online?: boolean; stale?: boolean }
+          // Skip stale responses — a fail-closed `online:false` from D1 must
+          // not be surfaced as authoritative offline to fan-out callers.
+          if (data.stale) continue
           if (data.online) online.push(ids[i])
         } catch { /* skip */ }
       }

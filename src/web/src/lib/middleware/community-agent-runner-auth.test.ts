@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest, NextResponse } from "next/server"
+import { makeD1Error } from "@alook/shared/db/resilience-testing"
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(async () => ({ env: { DB: {} } })),
@@ -10,19 +11,23 @@ vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 const mockFindActiveAgentRunnerKeyByBearer = vi.fn()
 const mockGetUserInternal = vi.fn()
 const mockGetBotBinding = vi.fn()
-vi.mock("@alook/shared", () => ({
-  queries: {
-    communityMachine: {
-      findActiveAgentRunnerKeyByBearer: (...a: unknown[]) => mockFindActiveAgentRunnerKeyByBearer(...a),
+vi.mock("@alook/shared", async () => {
+  const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
+  return {
+    ...actual,
+    queries: {
+      communityMachine: {
+        findActiveAgentRunnerKeyByBearer: (...a: unknown[]) => mockFindActiveAgentRunnerKeyByBearer(...a),
+      },
+      user: {
+        getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a),
+      },
+      communityBot: {
+        getBotBinding: (...a: unknown[]) => mockGetBotBinding(...a),
+      },
     },
-    user: {
-      getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a),
-    },
-    communityBot: {
-      getBotBinding: (...a: unknown[]) => mockGetBotBinding(...a),
-    },
-  },
-}))
+  }
+})
 
 import { withAgentRunnerAuth } from "./community-agent-runner-auth"
 
@@ -118,5 +123,55 @@ describe("withAgentRunnerAuth", () => {
       ownerUserId: "owner_1",
       machineId: "m_1",
     })
+  })
+
+  it("returns 503 + Retry-After when D1 exhausts retries on the runner-key lookup", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {})
+    mockFindActiveAgentRunnerKeyByBearer.mockRejectedValue(makeD1Error("internal_error"))
+    const req = new NextRequest("http://localhost/x", { headers: { Authorization: "Bearer crk_abc" } })
+    const res = await wrapped(req)
+    expect(res.status).toBe(503)
+    expect(res.headers.get("Retry-After")).toBe("1")
+    expect(await res.json()).toEqual({ error: "database temporarily unavailable" })
+  }, 10_000)
+
+  it("returns 503 when D1 exhausts on the getUserInternal step", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {})
+    mockFindActiveAgentRunnerKeyByBearer.mockResolvedValue({
+      userId: "owner_1",
+      machineId: "m_1",
+      agentId: "bot_1",
+    })
+    mockGetUserInternal.mockRejectedValue(makeD1Error("sqlite_busy"))
+    const req = new NextRequest("http://localhost/x", { headers: { Authorization: "Bearer crk_abc" } })
+    const res = await wrapped(req)
+    expect(res.status).toBe(503)
+  }, 10_000)
+
+  it("preserves 401 for non-D1 failures — bot deleted, no retry", async () => {
+    mockFindActiveAgentRunnerKeyByBearer.mockResolvedValue({
+      userId: "owner_1",
+      machineId: "m_1",
+      agentId: "bot_1",
+    })
+    mockGetUserInternal.mockResolvedValue({ isBot: true, deletedAt: "2026-01-01" })
+    const req = new NextRequest("http://localhost/x", { headers: { Authorization: "Bearer crk_abc" } })
+    const res = await wrapped(req)
+    expect(res.status).toBe(401)
+    expect(mockGetUserInternal).toHaveBeenCalledTimes(1)
+  })
+
+  it("preserves 401 for binding mismatch — no retry", async () => {
+    mockFindActiveAgentRunnerKeyByBearer.mockResolvedValue({
+      userId: "owner_1",
+      machineId: "m_1",
+      agentId: "bot_1",
+    })
+    mockGetUserInternal.mockResolvedValue({ isBot: true, deletedAt: null })
+    mockGetBotBinding.mockResolvedValue({ machineId: "m_OTHER" })
+    const req = new NextRequest("http://localhost/x", { headers: { Authorization: "Bearer crk_abc" } })
+    const res = await wrapped(req)
+    expect(res.status).toBe(401)
+    expect(mockGetBotBinding).toHaveBeenCalledTimes(1)
   })
 })

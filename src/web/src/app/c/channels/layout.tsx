@@ -95,7 +95,8 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   // genuinely useful to them as well.
   const { invites, isLoading: invitesLoading } = useInvites(serverId, true)
   const { entries: auditLog, isLoading: auditLogLoading } = useAuditLog(serverId, isAdmin)
-  const { online: initialOnline } = usePresence(serverId)
+  const presence = usePresence(serverId)
+  const { online: initialOnline } = presence
   const notifs = useNotificationSettings()
   const notifLevel = notifs.server[serverId] ?? "Only @mentions"
   const channelNotif = notifs.channel
@@ -164,9 +165,17 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   // one-shot replacement AND no-ops when the incoming list matches current
   // state — critical to avoid a render loop when `initialOnline`'s reference
   // shifts on re-render (loading state, cache tick) without semantic change.
+  //
+  // Guard against seeding from a non-authoritative snapshot: while the query
+  // is still fetching, or when the presence route degraded to `stale: true`
+  // (retry-exhaust on D1 → `keepPreviousData` bubbles a StaleReadError, so
+  // `presence.data` is `undefined` on first-load-during-outage), we must NOT
+  // atomically wipe the WS-populated set to an empty list.
   useEffect(() => {
+    if (presence.isFetching) return
+    if (presence.data === undefined) return
     useCommunityWsStore.getState().hydratePresence(initialOnline)
-  }, [initialOnline])
+  }, [presence.isFetching, presence.data, initialOnline])
 
   const [mobileZone, setMobileZone] = useState<MobileZone>(() => hasChannel ? "messages" : "nav")
   const [serverSettingsOpen, setServerSettingsOpen] = useState(false)

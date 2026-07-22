@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from "vitest"
 import { NextRequest } from "next/server"
+import { makeD1Error } from "@alook/shared/db/resilience-testing"
 
 const mockWsDoWorkerFetch = vi.fn<(...args: unknown[]) => Promise<Response>>()
 const mockGetFriendUserIds = vi.fn()
@@ -117,6 +118,17 @@ describe("GET /api/community/friends/presence", () => {
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ online: [] })
   })
+
+  it("degrades to { online: [], stale: true } (200) when D1 exhausts retries", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {})
+    mockGetFriendUserIds.mockRejectedValue(makeD1Error("internal_error"))
+
+    const res = await GET(getReq())
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ online: [], stale: true })
+    expect(mockWsDoWorkerFetch).not.toHaveBeenCalled()
+  }, 10_000)
 })
 
 afterAll(() => {

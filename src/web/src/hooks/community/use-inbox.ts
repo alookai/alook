@@ -1,9 +1,17 @@
 "use client"
 
-import { useQuery, type UseQueryResult } from "@tanstack/react-query"
+import { useQuery, keepPreviousData, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type { UnreadServer, UnreadDm, Mention } from "@/components/community/_types"
+
+class StaleReadError extends Error {
+  constructor() { super("stale D1 read"); this.name = "StaleReadError" }
+}
+function throwIfStale<T extends { stale?: boolean }>(v: T): T {
+  if (v?.stale) throw new StaleReadError()
+  return v
+}
 
 // Frozen empty fallbacks — see `use-servers.ts` for the rationale.
 const EMPTY_UNREADS: readonly UnreadServer[] = Object.freeze([])
@@ -26,7 +34,7 @@ const EMPTY_MENTIONS: readonly Mention[] = Object.freeze([])
 export type UnreadsResponse = { servers: UnreadServer[]; dms: UnreadDm[] }
 
 export const inboxUnreadsQueryFn = () =>
-  apiFetch<UnreadsResponse>("/api/community/inbox/unreads")
+  apiFetch<UnreadsResponse & { stale?: boolean }>("/api/community/inbox/unreads").then(throwIfStale)
 
 export function useInboxUnreads(): UseQueryResult<UnreadsResponse> & {
   servers: UnreadServer[]
@@ -35,6 +43,7 @@ export function useInboxUnreads(): UseQueryResult<UnreadsResponse> & {
   const query = useQuery({
     queryKey: communityKeys.inboxUnreads(),
     queryFn: inboxUnreadsQueryFn,
+    placeholderData: keepPreviousData,
   })
   return {
     ...query,
@@ -46,7 +55,7 @@ export function useInboxUnreads(): UseQueryResult<UnreadsResponse> & {
 export type MentionsResponse = { mentions: Mention[] }
 
 export const inboxMentionsQueryFn = () =>
-  apiFetch<MentionsResponse>("/api/community/inbox/mentions")
+  apiFetch<MentionsResponse & { stale?: boolean }>("/api/community/inbox/mentions").then(throwIfStale)
 
 export function useInboxMentions(): UseQueryResult<MentionsResponse> & {
   mentions: Mention[]
@@ -54,6 +63,7 @@ export function useInboxMentions(): UseQueryResult<MentionsResponse> & {
   const query = useQuery({
     queryKey: communityKeys.inboxMentions(),
     queryFn: inboxMentionsQueryFn,
+    placeholderData: keepPreviousData,
   })
   return {
     ...query,

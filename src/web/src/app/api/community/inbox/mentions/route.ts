@@ -5,6 +5,7 @@ import {
   queries,
   DEFAULT_INBOX_PAGE_SIZE,
   MAX_INBOX_PAGE_SIZE,
+  readOrStale,
 } from "@alook/shared"
 import { parseBoundedInt } from "@/lib/community/messages"
 import { avatarInitial } from "@/lib/community/avatar"
@@ -23,18 +24,34 @@ export const GET = withAuth(async (req, ctx) => {
   // removed-from-private-channel user no longer sees leftover mentions; the
   // `inArray(channelId, visibleIds)` also naturally excludes DM reply rows
   // (channelId = NULL), which stay out of the Mentions tab by design.
-  const visibleChannelIds = await queries.communityChannel.listVisibleChannelIdsForUser(db, ctx.userId)
-  const rows = await queries.communityMention.listUnreadMentions(db, ctx.userId, {
-    limit,
-    visibleChannelIds,
-  })
-
-  const channelIds = [...new Set(rows.filter((r) => r.message.channelId).map((r) => r.message.channelId!))]
-  const channels = channelIds.length > 0 ? await queries.communityChannel.getChannelsByIds(db, channelIds) : []
+  type MentionRow = Awaited<ReturnType<typeof queries.communityMention.listUnreadMentions>>[number]
+  type ChannelRow = Awaited<ReturnType<typeof queries.communityChannel.getChannelsByIds>>[number]
+  type ServerRow = Awaited<ReturnType<typeof queries.communityServer.getServersByIds>>[number]
+  const { value: fetched, stale } = await readOrStale<{
+    rows: MentionRow[]
+    channels: ChannelRow[]
+    servers: ServerRow[]
+  }>(
+    async () => {
+      const visibleChannelIds = await queries.communityChannel.listVisibleChannelIdsForUser(db, ctx.userId)
+      const rows = await queries.communityMention.listUnreadMentions(db, ctx.userId, {
+        limit,
+        visibleChannelIds,
+      })
+      const channelIds = [...new Set(rows.filter((r) => r.message.channelId).map((r) => r.message.channelId!))]
+      const channels = channelIds.length > 0 ? await queries.communityChannel.getChannelsByIds(db, channelIds) : []
+      const serverIds = [...new Set(channels.map((ch) => ch.serverId))]
+      const servers = serverIds.length > 0 ? await queries.communityServer.getServersByIds(db, serverIds) : []
+      return { rows, channels, servers }
+    },
+    { rows: [], channels: [], servers: [] },
+    { route: "community/inbox/mentions" },
+  )
+  if (stale) {
+    return writeJSON({ mentions: [], limit, stale: true })
+  }
+  const { rows, channels, servers } = fetched
   const channelMap = new Map(channels.map((ch) => [ch.id, ch]))
-
-  const serverIds = [...new Set(channels.map((ch) => ch.serverId))]
-  const servers = serverIds.length > 0 ? await queries.communityServer.getServersByIds(db, serverIds) : []
   const serverMap = new Map(servers.map((s) => [s.id, s]))
 
   const mentions = rows.map((row) => {
