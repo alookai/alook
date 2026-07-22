@@ -6,6 +6,8 @@ import { AtSign, FileIcon, ImageIcon, PlusCircle, Smile, Upload, Users, X } from
 import { useEditor, EditorContent } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 import Placeholder from "@tiptap/extension-placeholder"
+import { DOMParser as PMDOMParser } from "@tiptap/pm/model"
+import { buildPasteDom } from "@/lib/community/paste-plain-text"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useFileAttachments, type PendingFile } from "@/hooks/use-file-attachments"
@@ -230,6 +232,19 @@ export function Composer({ channel, context, members, onSearchMembers, channelRe
         }
         return false
       },
+      // Preserve BOTH newline levels on paste: a blank line (`\n\n`) becomes a
+      // paragraph break, a single `\n` becomes a hard line break — instead of
+      // ProseMirror's default, which collapses any run of newlines to one
+      // paragraph boundary (flattening a pasted multi-paragraph message). The
+      // built DOM is handed to ProseMirror's own `DOMParser.parseSlice` so
+      // slice open depths are computed by the library, not by hand.
+      clipboardTextParser: (text, $context) => {
+        const dom = buildPasteDom(text, document)
+        return PMDOMParser.fromSchema($context.doc.type.schema).parseSlice(dom, {
+          preserveWhitespace: true,
+          context: $context,
+        })
+      },
     },
     onUpdate: () => {
       fireTyping()
@@ -238,7 +253,12 @@ export function Composer({ channel, context, members, onSearchMembers, channelRe
 
   const send = () => {
     if (!editor || (editor.isEmpty && pendingFiles.length === 0)) return
-    const markdown = editor.isEmpty ? "" : editor.getText({ blockSeparator: "\n" }).trim()
+    // Block separator `\n\n` — paragraph breaks serialize as a markdown blank
+    // line (a real paragraph), while in-paragraph hard breaks serialize as a
+    // single `\n` (HardBreak's `renderText`). `remark-breaks` on render turns
+    // the single `\n` into `<br>` and the blank line into a new paragraph, so
+    // the compose → send → render round-trip preserves both newline levels.
+    const markdown = editor.isEmpty ? "" : editor.getText({ blockSeparator: "\n\n" }).trim()
     const mentionType = detectMentionType(markdown)
     onSend?.(markdown, pendingFilesToSendAttachments(pendingFiles), mentionType)
     editor.commands.clearContent()
@@ -277,8 +297,8 @@ export function Composer({ channel, context, members, onSearchMembers, channelRe
       {/* reply context bar — attached above the input */}
       {replyingTo && (
         <div className="flex items-center gap-2 rounded-t-xl border border-b-0 border-border/40 bg-muted/60 px-4 py-2 text-xs text-muted-foreground">
-          <span>Replying to <span className="font-medium text-foreground">{replyingTo}</span></span>
-          <button onClick={onCancelReply} className="ml-auto grid size-4 place-items-center rounded-full hover:bg-foreground/10 hover:text-foreground" aria-label="Cancel reply">
+          <span className="min-w-0 truncate">Replying to <span className="font-medium text-foreground">{replyingTo}</span></span>
+          <button onClick={onCancelReply} className="ml-auto grid size-4 shrink-0 place-items-center rounded-full hover:bg-foreground/10 hover:text-foreground" aria-label="Cancel reply">
             <X className="size-3.5" />
           </button>
         </div>

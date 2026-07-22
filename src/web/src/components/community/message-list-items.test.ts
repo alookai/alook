@@ -266,19 +266,45 @@ describe("estimateRowHeight", () => {
 })
 
 describe("computeBelowCount", () => {
-  it("returns 0 when the last visible index is the last item (itemCount - 1)", () => {
-    expect(computeBelowCount(10, 9)).toBe(0)
+  // Three messages on the same day → [date-divider, message, message, message]
+  const items = flattenMessageItems(
+    [
+      msg({ id: "m1", createdAt: "2026-01-01T10:00:00.000Z" }),
+      msg({ id: "m2", createdAt: "2026-01-01T10:01:00.000Z" }),
+      msg({ id: "m3", createdAt: "2026-01-01T10:02:00.000Z" }),
+    ],
+    undefined,
+  )
+
+  it("returns 0 when the last visible index is the last item", () => {
+    expect(computeBelowCount(items, items.length - 1)).toBe(0)
   })
 
-  it("returns the count of items strictly after the last visible index", () => {
-    expect(computeBelowCount(10, 6)).toBe(3)
+  it("counts only message rows strictly after the last visible index", () => {
+    // lastVisibleIndex 1 (first message) → m2, m3 remain below = 2
+    expect(computeBelowCount(items, 1)).toBe(2)
   })
 
-  it("returns 0 for an empty list (itemCount 0, no items to be 'below')", () => {
-    expect(computeBelowCount(0, -1)).toBe(0)
+  it("excludes divider rows below the fold from the count", () => {
+    // Two days → [date-divider, m1, date-divider, m2]. With only the first
+    // message visible (index 1), a naive itemCount-based count would report 2
+    // (the trailing divider + m2); the message-only count is 1.
+    const twoDay = flattenMessageItems(
+      [
+        msg({ id: "m1", createdAt: "2026-01-01T10:00:00.000Z" }),
+        msg({ id: "m2", createdAt: "2026-01-02T10:00:00.000Z" }),
+      ],
+      undefined,
+    )
+    expect(twoDay.map((i) => i.kind)).toEqual(["date-divider", "message", "date-divider", "message"])
+    expect(computeBelowCount(twoDay, 1)).toBe(1)
   })
 
-  it("clamps to 0 rather than going negative if lastVisibleIndex somehow exceeds the last index", () => {
-    expect(computeBelowCount(5, 10)).toBe(0)
+  it("returns 0 for an empty list", () => {
+    expect(computeBelowCount([], -1)).toBe(0)
+  })
+
+  it("returns 0 when lastVisibleIndex is at or beyond the last index", () => {
+    expect(computeBelowCount(items, 99)).toBe(0)
   })
 })

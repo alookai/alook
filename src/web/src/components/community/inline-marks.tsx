@@ -29,24 +29,29 @@ export function MentionPill({
   children,
   everyone,
   onClick,
+  label,
 }: {
   children?: React.ReactNode
   everyone?: boolean
   onClick?: (e: React.MouseEvent) => void
+  // Plain-text label for the native `title` tooltip so a long, truncated
+  // mention stays fully readable on hover. Falls back to the string children.
+  label?: string
 }) {
+  const title = label ?? (typeof children === "string" ? children : undefined)
   const className = [
-    "rounded-[4px] px-1 font-medium",
+    "inline-block max-w-[12rem] truncate align-bottom rounded-[4px] px-1 font-medium",
     everyone ? "bg-primary/15 text-primary" : "bg-accent text-foreground",
     onClick ? "cursor-pointer transition-colors hover:bg-primary/15 hover:text-primary" : "",
   ].join(" ")
   if (onClick) {
     return (
-      <button type="button" onClick={onClick} className={className}>
+      <button type="button" onClick={onClick} title={title} className={className}>
         {children}
       </button>
     )
   }
-  return <span className={className}>{children}</span>
+  return <span title={title} className={className}>{children}</span>
 }
 
 // Channel-ref pill — leading channel icon + name. `onClick` navigates
@@ -65,28 +70,29 @@ export function ChannelPill({
   serverPrefix?: string
   muted?: boolean
 }) {
+  const title = typeof children === "string" ? children : undefined
   const className = [
-    "inline-flex items-center gap-1 rounded-lg bg-accent px-1 font-medium text-foreground",
+    "inline-flex max-w-[16rem] items-center gap-1 rounded-lg bg-accent px-1 align-bottom font-medium text-foreground",
     muted ? "opacity-60" : "",
     onClick ? "group/pill cursor-pointer transition-colors hover:bg-primary/15 hover:text-primary" : "",
   ].join(" ")
   const content = (
     <>
-      <ChannelIcon className="text-xs" />
+      <ChannelIcon className="shrink-0 text-xs" />
       {serverPrefix && (
-        <span className="text-muted-foreground transition-colors group-hover/pill:text-primary">{serverPrefix} /</span>
+        <span className="shrink-0 text-muted-foreground transition-colors group-hover/pill:text-primary">{serverPrefix} /</span>
       )}
-      {children}
+      <span className="min-w-0 truncate">{children}</span>
     </>
   )
   if (onClick) {
     return (
-      <button type="button" onClick={onClick} className={className}>
+      <button type="button" onClick={onClick} title={title} className={className}>
         {content}
       </button>
     )
   }
-  return <span className={className}>{content}</span>
+  return <span title={title} className={className}>{content}</span>
 }
 
 // Server-ref pill — same icon/shape/on-off pattern as `ChannelPill` (reuses
@@ -102,23 +108,24 @@ export function ServerPill({
   onClick?: (e: React.MouseEvent) => void
   muted?: boolean
 }) {
+  const title = typeof children === "string" ? children : undefined
   const className = [
-    "inline-flex items-center gap-1 rounded-lg bg-accent px-1 font-medium text-foreground",
+    "inline-flex max-w-[16rem] items-center gap-1 rounded-lg bg-accent px-1 align-bottom font-medium text-foreground",
     muted ? "opacity-60" : "",
     onClick ? "group/pill cursor-pointer transition-colors hover:bg-primary/15 hover:text-primary" : "",
   ].join(" ")
   const content = (
     <>
-      <ChannelIcon className="text-xs" />
-      {children}
+      <ChannelIcon className="shrink-0 text-xs" />
+      <span className="min-w-0 truncate">{children}</span>
     </>
   )
   if (onClick) {
     return (
-      <button type="button" onClick={onClick} className={className}>
+      <button type="button" onClick={onClick} title={title} className={className}>
         {content}
       </button>
     )
   }
-  return <span className={className}>{content}</span>
+  return <span title={title} className={className}>{content}</span>
 }

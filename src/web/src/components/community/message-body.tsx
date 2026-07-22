@@ -2,6 +2,7 @@ import { useMemo } from "react"
 import { Streamdown } from "streamdown"
 import rehypeSanitize, { defaultSchema, type Options as SanitizeSchema } from "rehype-sanitize"
 import { harden } from "rehype-harden"
+import remarkBreaks from "remark-breaks"
 import type { PluggableList } from "unified"
 import { mermaid, cjk, math } from "@/lib/streamdown-plugins"
 import { chatSyntaxPlugin, chatSyntaxHandlers } from "@/lib/community/chat-syntax-plugin"
@@ -86,11 +87,11 @@ export function MessageBody({ text, onOpenProfile }: { text: string; onOpenProfi
   const inviteTokens = useMemo(() => extractInviteTokens(text), [text])
   const components = useMemo(() => buildMdComponents(onOpenProfile), [onOpenProfile])
   return (
-    <div className="markdown text-[15px] leading-snug">
+    <div className="markdown wrap-anywhere text-[15px] leading-snug">
       <Streamdown
         parseIncompleteMarkdown={false}
         plugins={{ mermaid, cjk, math }}
-        remarkPlugins={[chatSyntaxPlugin]}
+        remarkPlugins={[chatSyntaxPlugin, remarkBreaks]}
         remarkRehypeOptions={{ handlers: chatSyntaxHandlers }}
         rehypePlugins={REHYPE_PLUGINS}
         // Deliberately skips the AI-content confirm-before-navigating modal

@@ -158,7 +158,7 @@ export function MessageList({
   // `use-scroll-anchor.ts`. Older-message prepend compensation is NOT
   // decided here — it's delegated to the virtualizer's own `anchorTo: "end"`
   // config.
-  const { scrollRef, virtualizer, belowCount, scrollToBottom, jumpTo: jumpToIndex } = useScrollAnchor({
+  const { scrollRef, virtualizer, belowCount, scrollToBottom, jumpTo: jumpToIndex, onImageLoad } = useScrollAnchor({
     items,
     newDividerBefore,
     initialScrollReady,
@@ -307,7 +307,7 @@ export function MessageList({
         onClick={pillOnClick}
       />
       <TypingIndicator names={isLoading ? [] : typingUsers ?? []} />
-      <div ref={scrollRef} className="flex-1 overflow-y-auto thin-scrollbar">
+      <div ref={scrollRef} className="flex-1 overflow-x-clip overflow-y-auto thin-scrollbar">
         <div className="flex min-h-full flex-col justify-end px-4 py-8">
           {isLoading ? (
             <MessageListSkeletonContent variant={variant} />
@@ -386,6 +386,7 @@ export function MessageList({
                             onDownloadFile={onDownloadFile}
                             highlighted={jumped === item.m.id}
                             resolveUserName={resolveUserName}
+                            onImageLoad={onImageLoad}
                           />
                         </div>
                       )}

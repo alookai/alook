@@ -34,7 +34,7 @@ export function attachmentAspectRatio(width: number | undefined, height: number 
 export function Message({
   m, compact, pinned, onOpenThread, onOpenProfile, onJumpReply,
   onToggleReaction, onReact, onReply, onPin, onCreateThread, onCopy, onRetry,
-  onPreviewImage, onDownloadFile, highlighted, resolveUserName,
+  onPreviewImage, onDownloadFile, highlighted, resolveUserName, onImageLoad,
 }: {
   m: RenderMsg
   compact?: boolean
@@ -53,6 +53,11 @@ export function Message({
   onDownloadFile?: (name: string) => void
   highlighted?: boolean
   resolveUserName?: (userId: string) => string
+  // Fired when an attachment/embed image finishes loading — the scroll
+  // anchor re-pins to the bottom if the viewer is still there, so a tall
+  // image that grows after the initial auto-scroll doesn't leave the
+  // message's bottom cut off.
+  onImageLoad?: () => void
 }) {
   // keep the hover toolbar pinned open while its ⋯ dropdown is open
   const [toolbarOpen, setToolbarOpen] = useState(false)
@@ -62,8 +67,8 @@ export function Message({
     return (
       <div className="flex items-center gap-2 px-2 py-1 text-sm text-muted-foreground">
         <Icon className="size-4 shrink-0" />
-        <span>{m.content}</span>
-        <span className="text-xs" suppressHydrationWarning>{formatMessageTime(m.createdAt)}</span>
+        <span className="min-w-0 wrap-break-word">{m.content}</span>
+        <span className="shrink-0 text-xs" suppressHydrationWarning>{formatMessageTime(m.createdAt)}</span>
       </div>
     )
   }
@@ -113,14 +118,14 @@ export function Message({
       )}
 
       {m.replyTo && (
-        <button onClick={onJumpReply} className="mb-1 ml-13 flex items-center gap-2 text-[13px] text-muted-foreground hover:text-foreground">
-          <div className="h-2 w-4 rounded-tl-md border-l-2 border-t-2 border-border" />
+        <button onClick={onJumpReply} className="mb-1 ml-13 flex min-w-0 max-w-[calc(100%-3.25rem)] items-center gap-2 text-[13px] text-muted-foreground hover:text-foreground">
+          <div className="h-2 w-4 shrink-0 rounded-tl-md border-l-2 border-t-2 border-border" />
           {m.replyTo.deleted ? (
             <span className="italic text-muted-foreground">Original message was deleted</span>
           ) : (
             <>
-              <span className="font-medium text-foreground/80">@{m.replyTo.authorName}</span>
-              <span className="truncate">{stripInlineMarkup(m.replyTo.text)}</span>
+              <span className="shrink-0 font-medium text-foreground/80">@{m.replyTo.authorName}</span>
+              <span className="min-w-0 truncate">{stripInlineMarkup(m.replyTo.text)}</span>
             </>
           )}
         </button>
@@ -139,12 +144,12 @@ export function Message({
             <div className="flex items-baseline gap-2">
               <button
                 onClick={(e) => onOpenProfile?.(m.authorName ?? "", e, undefined, m.authorId)}
-                className="text-[15px] font-semibold hover:underline"
+                className="min-w-0 max-w-full truncate text-[15px] font-semibold hover:underline"
                 style={{ color: m.color ?? "var(--foreground)" }}
               >
                 {m.authorName}
               </button>
-              <span className="text-xs text-muted-foreground" suppressHydrationWarning>{formatMessageTime(m.createdAt)}</span>
+              <span className="shrink-0 text-xs text-muted-foreground" suppressHydrationWarning>{formatMessageTime(m.createdAt)}</span>
             </div>
           )}
           {m.content && (
@@ -160,7 +165,7 @@ export function Message({
                     onClick={() => onPreviewImage?.(a.url)}
                     className="block w-fit max-w-[320px] overflow-hidden rounded-lg border border-border transition-colors hover:border-primary/40"
                   >
-                    <img src={a.url} alt={a.name} className="max-h-50 max-w-[320px] rounded-lg object-contain" style={{ aspectRatio: attachmentAspectRatio(a.width, a.height) }} />
+                    <img src={a.url} alt={a.name} width={a.width} height={a.height} className="max-h-50 max-w-[320px] rounded-lg object-contain" style={{ aspectRatio: attachmentAspectRatio(a.width, a.height) }} onLoad={onImageLoad} />
                   </button>
                 ) : (
                   <button
@@ -228,7 +233,7 @@ export function Message({
                     )}
 
                     {embed.image && (
-                      <img src={embed.image.url} alt="" className="mt-2 w-full max-w-100 rounded-sm object-cover" style={{ aspectRatio: embed.image.width && embed.image.height ? `${embed.image.width}/${embed.image.height}` : "40/21" }} />
+                      <img src={embed.image.url} alt="" width={embed.image.width} height={embed.image.height} className="mt-2 w-full max-w-100 rounded-sm object-cover" style={{ aspectRatio: embed.image.width && embed.image.height ? `${embed.image.width}/${embed.image.height}` : "40/21" }} onLoad={onImageLoad} />
                     )}
 
                     {embed.footer && (

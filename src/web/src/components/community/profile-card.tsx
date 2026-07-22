@@ -149,10 +149,10 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
           </div>
         </div>
         <div className="rounded-lg bg-card p-4">
-          <div className="text-xl font-semibold leading-tight tracking-[-0.015em]">
-            {data.name}
+          <div className="flex min-w-0 items-baseline text-xl font-semibold leading-tight tracking-[-0.015em]">
+            <span className="min-w-0 truncate">{data.name}</span>
             {data.discriminator && (
-              <span className="ml-1.5 text-sm font-normal tracking-wide text-muted-foreground">
+              <span className="ml-1.5 shrink-0 text-sm font-normal tracking-wide text-muted-foreground">
                 #{data.discriminator}
               </span>
             )}

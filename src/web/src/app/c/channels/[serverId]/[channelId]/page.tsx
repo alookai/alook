@@ -912,6 +912,7 @@ function ChannelView() {
             resolveUserName={resolveUserName}
             scrollToMessageId={scrollToMessageId}
             hero={opener}
+            onScrollRoot={setScrollRootEl}
             viewerUserId={currentUser.id}
             hasMore={hasMoreMessages}
             isFetchingOlder={isFetchingOlderMessages}
