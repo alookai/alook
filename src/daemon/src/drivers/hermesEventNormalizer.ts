@@ -2,23 +2,21 @@
  * HermesEventNormalizer — maps Hermes Agent's quiet-mode (`-Q`) stdout into
  * `ParsedEvent`s.
  *
- * Hermes is NOT a streamed-JSON protocol like Codex/Claude. In `-Q` mode it
- * prints, to stdout:
- *   1. the final assistant response (possibly multi-line plain text), then
- *   2. a footer line carrying the session id, e.g.
- *        `session_id: <id>`   (also accepts `Session: <id>` / `Session ID: <id>`)
+ * VERIFIED AGAINST THE REAL BINARY (this host): `hermes chat -q "<p>" -Q
+ * --pass-session-id --model nous` prints exactly the final assistant response
+ * (CRLF-terminated, no trailing banner) and then the process exits. It does
+ * NOT emit a `session_id:` footer — so unlike Codex/Claude, there is no
+ * in-band turn-end marker.
  *
- * So per stdout *line* we cannot know when the response ends until we see the
- * footer. Strategy: emit a `text` event for every non-footer, non-empty line,
- * and when the footer is seen, emit `session_init` (if it's the first time we
- * learn the id) followed by `turn_end`. This is the same "collapse the whole
- * transcript into a finished turn" model OpenCode uses for per_turn runs.
+ * Because the daemon only ends a turn on a `turn_end` runtime_event (see
+ * managerRuntime.ts — process `exit` alone does not), this normalizer emits
+ * `turn_end` itself. To stay correct for multi-line answers, it:
+ *   - emits `text` for every non-empty response line (text keeps streaming to
+ *     the timeline even after the turn is marked ended), and
+ *   - emits `turn_end` exactly once, after the first text line.
  *
- * Line types handled:
- *  - `session_id:` / `session:` footer  -> learn session id
- *  - `error:` / `Error:` / lines starting with `hermes:` and containing "error"
- *    -> error event (best-effort)
- *  - everything else (non-empty)        -> text event
+ * A `session_id:` / `Session ID:` / `session:` footer (future Hermes builds,
+ * or a wrapper) is still honored: it emits `session_init` + `turn_end`.
  */
 import type { ParsedEvent } from "../types.js";
 
@@ -27,6 +25,7 @@ const ERROR_PREFIX_RE = /^(?:error|hermes:?\s*error)\s*[:]\s*(.*)$/i;
 
 export class HermesEventNormalizer {
   private threadId: string | null = null;
+  private turnEnded = false;
 
   get currentSessionId(): string | null {
     return this.threadId;
@@ -34,13 +33,14 @@ export class HermesEventNormalizer {
 
   adoptSessionId(sessionId: string | null): void {
     this.threadId = sessionId;
+    if (sessionId) this.turnEnded = false;
   }
 
   normalizeLine(line: string, fallbackSessionId?: string | null): ParsedEvent[] {
     const trimmed = line.trim();
     if (!trimmed) return [];
 
-    // Session-id footer.
+    // Footer (if present): learn session id, then end the turn.
     const sidMatch = SESSION_ID_RE.exec(trimmed);
     if (sidMatch) {
       const id = sidMatch[1];
@@ -49,20 +49,31 @@ export class HermesEventNormalizer {
         this.threadId = id;
         events.push({ kind: "session_init", sessionId: id });
       }
-      events.push({ kind: "turn_end", sessionId: this.threadId ?? fallbackSessionId ?? undefined });
+      if (!this.turnEnded) {
+        this.turnEnded = true;
+        events.push({ kind: "turn_end", sessionId: this.threadId ?? fallbackSessionId ?? undefined });
+      }
       return events;
     }
 
     // Error line.
     const errMatch = ERROR_PREFIX_RE.exec(trimmed);
     if (errMatch) {
-      return [
-        { kind: "error", message: errMatch[1].trim() || trimmed },
-        { kind: "turn_end", sessionId: this.threadId ?? fallbackSessionId ?? undefined },
-      ];
+      const out: ParsedEvent[] = [{ kind: "error", message: errMatch[1].trim() || trimmed }];
+      if (!this.turnEnded) {
+        this.turnEnded = true;
+        out.push({ kind: "turn_end", sessionId: this.threadId ?? fallbackSessionId ?? undefined });
+      }
+      return out;
     }
 
-    // Plain response text.
-    return [{ kind: "text", text: trimmed }];
+    // Plain response text. Emit it, and close the turn once (after the first
+    // line) since the real Hermes -Q output carries no in-band end marker.
+    const out: ParsedEvent[] = [{ kind: "text", text: trimmed }];
+    if (!this.turnEnded) {
+      this.turnEnded = true;
+      out.push({ kind: "turn_end", sessionId: this.threadId ?? fallbackSessionId ?? undefined });
+    }
+    return out;
   }
 }

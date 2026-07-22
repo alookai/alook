@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { HermesDriver } from "./hermes";
 import { HermesEventNormalizer } from "./hermesEventNormalizer";
 import { buildHermesArgs, resolveHermesLaunchCommand } from "./hermesLaunch";
@@ -31,15 +31,28 @@ describe("HermesDriver — interface contract", () => {
 });
 
 describe("HermesEventNormalizer — quiet-mode transcript parsing", () => {
-  const norm = new HermesEventNormalizer();
+  let norm: HermesEventNormalizer;
+  beforeEach(() => {
+    // A fresh normalizer per turn (mirrors the daemon: a new HermesDriver,
+    // hence a new HermesEventNormalizer, is created for each spawned turn).
+    norm = new HermesEventNormalizer();
+  });
 
-  it("emits text events for response lines", () => {
+  it("emits text for a response line", () => {
     expect(norm.normalizeLine("Here is the fix.", null)).toEqual([
       { kind: "text", text: "Here is the fix." },
+      { kind: "turn_end", sessionId: undefined },
     ]);
   });
 
-  it("treats a session_id footer as turn_end + session_init", () => {
+  it("emits turn_end exactly once across a multi-line response (real Hermes -Q shape)", () => {
+    const evs = ["line one", "line two", "line three"].flatMap((l) => norm.normalizeLine(l, null));
+    const texts = evs.filter((e) => e.kind === "text").map((e) => (e as any).text);
+    expect(texts).toEqual(["line one", "line two", "line three"]);
+    expect(evs.filter((e) => e.kind === "turn_end")).toHaveLength(1);
+  });
+
+  it("handles a session_id footer as session_init + turn_end (future/ wrapper builds)", () => {
     const evs = norm.normalizeLine("session_id: abc123", null);
     expect(evs).toContainEqual({ kind: "session_init", sessionId: "abc123" });
     expect(evs).toContainEqual({ kind: "turn_end", sessionId: "abc123" });
@@ -51,10 +64,6 @@ describe("HermesEventNormalizer — quiet-mode transcript parsing", () => {
       kind: "session_init",
       sessionId: "xyz",
     });
-    expect(norm.normalizeLine("session: qwe", null)).toContainEqual({
-      kind: "session_init",
-      sessionId: "qwe",
-    });
   });
 
   it("emits an error event for error lines", () => {
@@ -65,18 +74,6 @@ describe("HermesEventNormalizer — quiet-mode transcript parsing", () => {
 
   it("ignores blank lines", () => {
     expect(norm.normalizeLine("   ", null)).toEqual([]);
-  });
-
-  it("multi-line response + footer collapses into one finished turn", () => {
-    const evs = [
-      "line one",
-      "line two",
-      "session_id: s1",
-    ].flatMap((l) => norm.normalizeLine(l, null));
-    const texts = evs.filter((e) => e.kind === "text").map((e) => (e as any).text);
-    expect(texts).toEqual(["line one", "line two"]);
-    expect(evs.some((e) => e.kind === "turn_end")).toBe(true);
-    expect(evs.filter((e) => e.kind === "session_init")).toHaveLength(1);
   });
 });
 

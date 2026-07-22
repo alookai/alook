@@ -45,13 +45,12 @@ function makeFakeHermes(): string {
   const js = [
     "const fs = require('fs');",
     "const path = require('path');",
-    // prepareCliTransport builds a deliberate env (no arbitrary passthrough), so
-    // we can't rely on an env var reaching us. Write the record next to this
-    // script, which the test can locate via the dir it created.
+    // Simulate the REAL Hermes -Q output on this host: it prints exactly the
+    // final response (CRLF-terminated) and exits — NO session_id footer. The
+    // normalizer must therefore emit turn_end itself.
     "const rec = path.join(path.dirname(process.argv[1]), 'record.json');",
     "fs.writeFileSync(rec, JSON.stringify({ argv: process.argv.slice(1), env: { HERMES_QUIET: process.env.HERMES_QUIET, HERMES_INTERACTIVE: process.env.HERMES_INTERACTIVE, ALOOK_HERMES_PROVIDER: process.env.ALOOK_HERMES_PROVIDER } }));",
     "process.stdout.write('Here is the patch.\\n');",
-    "process.stdout.write('session_id: ' + (process.env.HERMES_TEST_SESSION || 'ses_fake_001') + '\\n');",
     "process.exit(0);",
   ].join("\n");
   fs.writeFileSync(jsPath, js);
@@ -122,12 +121,13 @@ describe("HermesDriver.spawn — fake backend integration", () => {
     expect(recorded.env.HERMES_QUIET).toBe("1");
     expect(recorded.env.HERMES_INTERACTIVE).toBe("0");
 
-    const transcript = ["Here is the patch.", "session_id: ses_fake_001"];
+    const transcript = ["Here is the patch."];
     const events = transcript.flatMap((l) => driver.parseLine(l));
     const texts = events.filter((e) => e.kind === "text").map((e) => (e as any).text);
     expect(texts).toEqual(["Here is the patch."]);
     expect(events.some((e) => e.kind === "turn_end")).toBe(true);
-    expect(events.some((e) => e.kind === "session_init")).toBe(true);
-    expect(driver.currentSessionId).toBe("ses_fake_001");
+    // Real Hermes -Q has no session_id footer, so no session_init is emitted
+    // from stdout — turn_end still fires (this is the critical real-world fix).
+    expect(events.some((e) => e.kind === "session_init")).toBe(false);
   });
 });
