@@ -10,8 +10,8 @@ import { PrivateCategoryRow } from "./private-category-row"
 
 // Create Category dialog — name + private toggle (defaults to public). In a
 // private category any member can create a channel, but each channel is visible
-// only to its creator + invited members (and admins). A public category's
-// channels are admin-managed and visible to everyone.
+// only to its creator + invited members — admins get no visibility bypass. A
+// public category's channels are visible to everyone.
 export function CreateCategoryDialog({ onClose, onCreate, canTogglePrivate = true }: {
   onClose: () => void
   onCreate: (name: string, opts: { private: boolean }) => void
