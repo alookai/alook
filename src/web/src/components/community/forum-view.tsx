@@ -152,7 +152,7 @@ export function ForumView({
                       </button>
                     )}
                   </div>
-                  <h3 className="text-[15px] font-semibold leading-tight">{p.name}</h3>
+                  <h3 className="line-clamp-1 text-[15px] font-semibold leading-tight">{p.name}</h3>
                   <p className="line-clamp-2 text-sm text-muted-foreground">{p.preview}</p>
                   <div className="flex items-center gap-2">
                     {p.tags.length > 0 && p.tags.map((t) => (

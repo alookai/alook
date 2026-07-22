@@ -94,3 +94,31 @@ describe("MessageBody — mention pill survives sanitize (full pipeline)", () =>
     expect(pill.props.onClick).toBeUndefined()
   })
 })
+
+// The composer serializes multi-line content with single `\n` separators
+// (getText's blockSeparator). Standard markdown collapses a single `\n` to a
+// space; `remark-breaks` (added to the remark pipeline) turns it into a hard
+// line break so typed/pasted newlines survive. These drive the full pipeline.
+describe("MessageBody — single newlines render as hard breaks (remark-breaks)", () => {
+  it("renders a <br> for a single \\n between two lines", () => {
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(MessageBody, { text: "line one\nline two" }),
+      )
+    })
+    const brs = renderer!.root.findAllByType("br")
+    expect(brs.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it("still renders a blank line (\\n\\n) as separate paragraphs", () => {
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(MessageBody, { text: "para one\n\npara two" }),
+      )
+    })
+    const paras = renderer!.root.findAllByType("p")
+    expect(paras.length).toBe(2)
+  })
+})

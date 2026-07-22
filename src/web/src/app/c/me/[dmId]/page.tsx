@@ -208,7 +208,22 @@ function DmView() {
     uiHandlers.openProfile?.(name, e, discriminator, userId)
   }
 
-  const resolveUserName = useMemo(() => makeUserNameResolver(friends), [friends])
+  // A DM contains only two participants, and the friends-based resolver
+  // covers neither reliably: the viewer is never in their own friends list,
+  // and the counterpart is only there if they're actually a friend. Resolve
+  // those two ids explicitly (self → current user, counterpart → the DM's
+  // display name) before delegating to friends, so reactions (whose reactor
+  // is most often the viewer) never fall through to "Unknown member". Shared
+  // by both `typingUsers` and the `resolveUserName` prop so the two paths
+  // can't drift.
+  const resolveUserName = useMemo(() => {
+    const fromFriends = makeUserNameResolver(friends)
+    return (userId: string) => {
+      if (userId === currentUser.id) return currentUser.name
+      if (dm && userId === dm.userId) return dm.name
+      return fromFriends(userId)
+    }
+  }, [friends, currentUser.id, currentUser.name, dm])
 
   const messageActions = useMemo(() => ({
     onToggleReaction: (id: string, emoji: string) =>
@@ -327,14 +342,7 @@ function DmView() {
           messages={messages}
           loading={messagesLoading}
           newDividerBefore={newDividerBefore}
-          typingUsers={typingUsers.map((id) => {
-            // In a DM there are only two participants — if the typing id
-            // matches the DM's counterpart, use their DM display name.
-            // Fall back to friends list (adds names for friend-typers in
-            // group DMs when we add them) and finally to "Unknown member".
-            if (dm && id === dm.userId) return dm.name
-            return resolveUserName(id)
-          })}
+          typingUsers={typingUsers.map((id) => resolveUserName(id))}
           onOpenThread={() => { }}
           onToggleReaction={dmBlocked ? undefined : messageActions.onToggleReaction}
           onReact={dmBlocked ? undefined : messageActions.onReact}

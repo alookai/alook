@@ -286,6 +286,7 @@ export function useScrollAnchor({
   belowCount: number
   scrollToBottom: () => void
   jumpTo: (messageId: string) => void
+  onImageLoad: () => void
 } {
   const scrollRef = useRef<HTMLDivElement>(null)
   const stateRef = useRef<ScrollAnchorState>(createScrollAnchorState())
@@ -364,16 +365,69 @@ export function useScrollAnchor({
     if (delta !== 0) el.scrollTop += delta
   }, [heroHeight])
 
+  // Composer/viewport resize compensation — the composer is a flex sibling
+  // of this scroll viewport with no `shrink-0`, so when it grows/shrinks
+  // (auto-grow while typing, clearing on send, opening/closing the reply
+  // banner, adding/removing attachment chips) the viewport's `clientHeight`
+  // changes and the bottom-pinned content (`min-h-full … justify-end`) would
+  // otherwise appear to jump. A `ResizeObserver` on the viewport itself
+  // catches every such resize regardless of cause without coupling to the
+  // composer component: if the list was at the bottom, re-pin instantly (NOT
+  // the smooth `scrollToBottom` — a smooth animation firing on every
+  // keystroke resize is janky and fights rapid successive resizes); otherwise
+  // compensate `scrollTop` by the height delta so the visible top-of-content
+  // stays put. Keyed on `clientHeight`, orthogonal to the hero compensation
+  // below (keyed on `heroHeight`) — separate effects, no double-apply.
+  const prevClientHeightRef = useRef(0)
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    // First-fire guard: ResizeObserver fires immediately on observe() with
+    // the current size. Seed the previous height first so that initial
+    // callback computes a zero delta instead of a spurious jump at mount.
+    prevClientHeightRef.current = el.clientHeight
+    const ro = new ResizeObserver(() => {
+      const prev = prevClientHeightRef.current
+      const next = el.clientHeight
+      if (next === prev) return
+      const wasAtEnd = virtualizer.isAtEnd(NEAR_BOTTOM_PX)
+      prevClientHeightRef.current = next
+      if (wasAtEnd) {
+        virtualizer.scrollToEnd()
+      } else {
+        el.scrollTop += prev - next
+      }
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [virtualizer])
+
   // "↓ N below" pill count — a plain arithmetic derivation from data
   // `getVirtualItems()` already exposes on every render, replacing the
   // pre-virtualization `recomputeBelow`'s DOM-row-walk
   // (`querySelectorAll("[data-msg-id]")` + `offsetTop` comparison).
-  const virtualItems = virtualizer.getVirtualItems()
-  const lastVisibleIndex = virtualItems.length > 0 ? virtualItems[virtualItems.length - 1].index : -1
-  const belowCount = virtualizer.isAtEnd(NEAR_BOTTOM_PX) ? 0 : computeBelowCount(items.length, lastVisibleIndex)
+  // `virtualizer.range?.endIndex` is the last VISIBLE index BEFORE overscan
+  // is applied (overscan is added only in `defaultRangeExtractor`, not in
+  // `range`), so counting below it doesn't treat the 8 overscanned off-screen
+  // rows as visible and deflate the badge. `null` before the first
+  // measurement → `-1` → `computeBelowCount` returns 0 (nothing measured
+  // yet), which is correct.
+  const lastVisibleIndex = virtualizer.range?.endIndex ?? -1
+  const belowCount = virtualizer.isAtEnd(NEAR_BOTTOM_PX) ? 0 : computeBelowCount(items, lastVisibleIndex)
 
   const scrollToBottom = useCallback(() => {
     virtualizer.scrollToEnd({ behavior: "smooth" })
+  }, [virtualizer])
+
+  // Re-pin after an attachment image finishes loading, but only if the
+  // viewer is still at/near the bottom — restores the deleted
+  // `watchAsyncGrowth` image-decode re-scroll narrowly, per-image and gated,
+  // so a dimensionless image that grows after `scrollToEnd` already fired
+  // still lands the message's bottom at the viewport bottom, while never
+  // yanking a reader who has scrolled away. Instant (no smooth) so it doesn't
+  // animate on every image load.
+  const onImageLoad = useCallback(() => {
+    if (virtualizer.isAtEnd(NEAR_BOTTOM_PX)) virtualizer.scrollToEnd()
   }, [virtualizer])
 
   const jumpTo = useCallback((messageId: string) => {
@@ -385,5 +439,5 @@ export function useScrollAnchor({
     virtualizer.scrollToIndex(idx, { align: "center", behavior: "smooth" })
   }, [items, virtualizer])
 
-  return { scrollRef, virtualizer, belowCount, scrollToBottom, jumpTo }
+  return { scrollRef, virtualizer, belowCount, scrollToBottom, jumpTo, onImageLoad }
 }

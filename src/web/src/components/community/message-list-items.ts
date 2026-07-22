@@ -108,7 +108,14 @@ export function estimateRowHeight(item: FlatItem): number {
 // Replaces the pre-virtualization `recomputeBelow`'s DOM-row-walk
 // (`querySelectorAll("[data-msg-id]")` + `offsetTop` comparison) with a
 // plain arithmetic derivation from data `getVirtualItems()` already
-// exposes on every render. Exported for direct unit testing.
-export function computeBelowCount(itemCount: number, lastVisibleIndex: number): number {
-  return Math.max(0, itemCount - 1 - lastVisibleIndex)
+// exposes on every render. Counts only MESSAGE rows below the last visible
+// index — date/NEW dividers are structural, not messages, so a bare
+// `itemCount - 1 - lastVisibleIndex` would inflate the badge by one per
+// divider below the fold. Exported for direct unit testing.
+export function computeBelowCount(items: FlatItem[], lastVisibleIndex: number): number {
+  let count = 0
+  for (let i = lastVisibleIndex + 1; i < items.length; i++) {
+    if (items[i].kind === "message") count++
+  }
+  return count
 }
