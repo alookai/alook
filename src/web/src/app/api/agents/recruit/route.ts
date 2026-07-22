@@ -9,7 +9,7 @@ import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
 import { agentToResponse, agentLinkToResponse } from "@/lib/api/responses";
 import { invalidate, cached, cacheKeys } from "@/lib/cache";
 import { broadcastToUser } from "@/lib/broadcast";
-import { randomConfig, serializeAvatarConfig } from "@/components/avatar";
+import { randomBeamAvatar } from "@/lib/avatar/seed-url";
 
 function generateUniqueHandleFromSet(
   handleSet: Set<string>,
@@ -82,7 +82,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     maxConcurrentTasks: 6,
     ownerId: ctx.userId,
     emailHandle: handle,
-    avatarUrl: serializeAvatarConfig(randomConfig()),
+    avatarUrl: randomBeamAvatar(),
   });
 
   const link = await queries.agentLink.create(db, {

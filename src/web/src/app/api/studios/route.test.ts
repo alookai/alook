@@ -4,9 +4,8 @@ vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
 }));
 
-vi.mock("@/components/avatar", () => ({
-  randomConfig: vi.fn(() => ({ shape: "circle", color: "#ff0000" })),
-  serializeAvatarConfig: vi.fn(() => "generated-avatar-config"),
+vi.mock("@/lib/avatar/seed-url", () => ({
+  randomBeamAvatar: vi.fn(() => "generated-avatar-config"),
 }));
 
 const mockCreateAgent = vi.fn();

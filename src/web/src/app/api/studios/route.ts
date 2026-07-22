@@ -7,7 +7,7 @@ import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
 import { agentToResponse, workspaceToResponse, agentLinkToResponse } from "@/lib/api/responses";
-import { randomConfig, serializeAvatarConfig } from "@/components/avatar";
+import { randomBeamAvatar } from "@/lib/avatar/seed-url";
 import { TaskService } from "@/lib/services/task";
 import { invalidate, cached, cacheKeys } from "@/lib/cache";
 
@@ -139,7 +139,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       maxConcurrentTasks: 6,
       ownerId: ctx.userId,
       emailHandle: handle,
-      avatarUrl: member.avatar_url || serializeAvatarConfig(randomConfig()),
+      avatarUrl: member.avatar_url || randomBeamAvatar(),
     });
 
     if (ctx.email) {

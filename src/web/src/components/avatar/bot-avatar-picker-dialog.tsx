@@ -14,7 +14,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ImageCropDialog } from "@/components/community/image-crop-dialog";
 import { validateIconSourceFile } from "@/lib/community/image-crop";
 import { toast } from "sonner";
-import { type AvatarDraft, isPhotoAvatarUrl } from "./avatar-parts";
+import { type AvatarDraft, isPhotoAvatarUrl } from "./photo";
 import { BoringAvatar } from "./boring-avatar";
 import { serializeBeamSeed, parseBeamSeed } from "@/lib/avatar/seed-url";
 import { useIsMobile } from "@/hooks/use-mobile";

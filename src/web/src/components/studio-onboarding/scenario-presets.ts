@@ -205,7 +205,7 @@ export const SCENARIO_PRESETS: ScenarioPreset[] = [
 
 import { uniqueNamesGenerator, names } from "unique-names-generator";
 import { nanoid } from "nanoid";
-import { randomConfig, serializeAvatarConfig } from "@/components/avatar";
+import { randomBeamAvatar } from "@/lib/avatar/seed-url";
 
 export function shuffleMembers(count: number): { uid: string; name: string; avatarUrl: string }[] {
   const used = new Set<string>();
@@ -221,7 +221,7 @@ export function shuffleMembers(count: number): { uid: string; name: string; avat
     result.push({
       uid: nanoid(),
       name,
-      avatarUrl: serializeAvatarConfig(randomConfig()),
+      avatarUrl: randomBeamAvatar(),
     });
   }
   return result;

@@ -10,9 +10,8 @@ vi.mock("unique-names-generator", () => ({
   uniqueNamesGenerator: vi.fn(() => "Robin"),
   names: [],
 }));
-vi.mock("@/components/avatar", () => ({
-  randomConfig: vi.fn(() => ({})),
-  serializeAvatarConfig: vi.fn(() => "avatar-url"),
+vi.mock("@/lib/avatar/seed-url", () => ({
+  randomBeamAvatar: vi.fn(() => "avatar-url"),
 }));
 
 const mockGetAgent = vi.fn();

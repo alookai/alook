@@ -6,7 +6,7 @@
  * `avatar:{shape…}` config that we deliberately no longer honor — falls back
  * to an id-seeded beam.
  */
-import { isPhotoAvatarUrl } from "@/components/avatar/avatar-parts"
+import { isPhotoAvatarUrl } from "@/components/avatar/photo"
 import { parseBeamSeed } from "./seed-url"
 
 export type ResolvedAvatar =

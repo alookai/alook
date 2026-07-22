@@ -18,3 +18,8 @@ export function parseBeamSeed(url: string | null | undefined): string | null {
   const seed = url.slice(BEAM_PREFIX.length)
   return seed.length > 0 ? seed : null
 }
+
+/** A stored beam value with a fresh random seed — for newly-created entities. */
+export function randomBeamAvatar(): string {
+  return serializeBeamSeed(crypto.randomUUID())
+}
