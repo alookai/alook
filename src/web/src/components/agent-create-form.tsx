@@ -14,12 +14,8 @@ import {
   type CustomEmailData,
 } from "@/components/custom-email-form";
 import { useWorkspace } from "@/contexts/workspace-context";
-import {
-  type AvatarConfig,
-  AvatarPickerDialog,
-  randomConfig,
-  serializeAvatarConfig,
-} from "@/components/avatar";
+import { AvatarPickerDialog } from "@/components/avatar";
+import { serializeBeamSeed } from "@/lib/avatar/seed-url";
 import { uniqueNamesGenerator, names } from "unique-names-generator";
 import {
   type AgentCreateFieldErrors,
@@ -47,8 +43,8 @@ interface AgentCreateFormProps {
   saving: boolean;
 }
 
-// Stable initial config to avoid hydration mismatch (randomConfig uses Math.random)
-const INITIAL_AVATAR: AvatarConfig = { shape: "circle", eye: "dots", nose: "dot", bg: 0 };
+// Stable initial seed to avoid hydration mismatch (real seed is rerolled on mount)
+const INITIAL_AVATAR = serializeBeamSeed("initial");
 
 async function runTour() {
   const waitForElement = (selector: string, timeout = 3000) =>
@@ -133,14 +129,14 @@ export function AgentCreateForm({
     null
   );
   const [model, setModel] = useState("");
-  const [avatarConfig, setAvatarConfig] = useState<AvatarConfig>(INITIAL_AVATAR);
+  const [avatarUrl, setAvatarUrl] = useState<string>(INITIAL_AVATAR);
 
   // Randomize avatar and name on client mount to avoid hydration mismatch
   const avatarInitialized = useRef(false);
   useEffect(() => {
     if (!avatarInitialized.current) {
       avatarInitialized.current = true;
-      setAvatarConfig(randomConfig());
+      setAvatarUrl(serializeBeamSeed(crypto.randomUUID()));
       setName(uniqueNamesGenerator({ dictionaries: [names], length: 1, style: "capital" }));
     }
   }, []);
@@ -208,7 +204,7 @@ export function AgentCreateForm({
       runtime_config: model ? { model } : {},
       custom_email:
         customEmailGetDataRef.current?.() ?? customEmailData ?? undefined,
-      avatar_url: serializeAvatarConfig(avatarConfig),
+      avatar_url: avatarUrl,
     });
   };
 
@@ -216,8 +212,8 @@ export function AgentCreateForm({
     <div className="flex-1 min-h-0 overflow-y-auto thin-scrollbar">
       <form onSubmit={handleSubmit} noValidate className="mx-auto max-w-md flex flex-col gap-4 px-8 pt-8 pb-6">
         <AvatarPickerDialog
-          config={avatarConfig}
-          onChange={setAvatarConfig}
+          value={avatarUrl}
+          onChange={setAvatarUrl}
         />
         <GeneralFields
           name={name}

@@ -3,7 +3,7 @@
 import { ArrowUp, Home, CalendarDays, CircleDot } from "lucide-react";
 import { MessageBubble } from "@/components/chat-primitives/message-bubble";
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
-import { AvatarRenderer } from "@/components/avatar/avatar-parts";
+import { BoringAvatar } from "@/components/avatar/boring-avatar";
 import { Logo } from "@/components/logo";
 import { cn } from "@/lib/utils";
 import type { DashboardState, DashboardConfig } from "./demo-dashboard";
@@ -35,7 +35,7 @@ export function DemoMobile({ state, config, className }: { state: DashboardState
                   isActive && "shadow-[inset_0_0_0_1.5px_hsl(var(--primary))]",
                 )}
               >
-                <AvatarRenderer config={a.config} size={16} />
+                <BoringAvatar seed={a.seed} size={16} />
               </div>
             );
           })}
@@ -96,7 +96,7 @@ export function DemoMobile({ state, config, className }: { state: DashboardState
                     <div className="flex items-start gap-1">
                       {(groupPosition === "solo" || groupPosition === "first") ? (
                         <div className="size-4 rounded overflow-hidden shrink-0 mt-1">
-                          <AnimatedAvatar config={agent.config} size={16} isHovered={false} isWorking={state.isWorking} />
+                          <AnimatedAvatar seed={agent.seed} size={16} isHovered={false} isWorking={state.isWorking} />
                         </div>
                       ) : (
                         <div className="w-4 shrink-0" />

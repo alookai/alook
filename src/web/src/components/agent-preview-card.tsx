@@ -5,7 +5,7 @@ import { toAlookAddress } from "@alook/shared";
 import type { Agent } from "@alook/shared";
 import { Check, Copy } from "lucide-react";
 import { toast } from "sonner";
-import { AnimatedAvatar, parseAvatarUrl } from "@/components/avatar";
+import { AnimatedAvatar } from "@/components/avatar";
 import { AgentStatusBadge } from "@/components/agent-status-badge";
 import { cn } from "@/lib/utils";
 
@@ -44,15 +44,7 @@ export function AgentPreviewCard({
     return (
       <div className="flex items-center gap-2 p-0">
         {(() => {
-          const avatarConfig = parseAvatarUrl(agent.avatar_url);
-          if (avatarConfig) {
-            return <AnimatedAvatar config={avatarConfig} size={32} className="shrink-0 rounded-xl" isHovered={isHovered ?? false} isWorking={!!isOnline && (activeTaskCount ?? 0) > 0} />;
-          }
-          return (
-            <div className="flex items-center justify-center size-8 rounded-xl bg-secondary text-secondary-foreground text-xs font-medium shrink-0">
-              {agent.name.charAt(0).toUpperCase()}
-            </div>
-          );
+          return <AnimatedAvatar seed={agent.id} avatarUrl={agent.avatar_url} size={32} className="shrink-0 rounded-xl" isHovered={isHovered ?? false} isWorking={!!isOnline && (activeTaskCount ?? 0) > 0} />;
         })()}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">

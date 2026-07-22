@@ -12,7 +12,8 @@ import { Button } from "@/components/ui/button";
 import { MarkdownEditor } from "@/components/ui/markdown-editor";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Trash2 } from "lucide-react";
-import { AvatarRenderer, parseAvatarUrl } from "@/components/avatar";
+import { BoringAvatar } from "@/components/avatar";
+import { resolveAvatar } from "@/lib/avatar/resolve";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 const DEBOUNCE_MS = 500;
@@ -105,15 +106,11 @@ export function LinkSidecar({
 
   const renderAvatar = (agent: Agent | undefined) => {
     if (!agent) return null;
-    const avatarConfig = parseAvatarUrl(agent.avatar_url);
-    if (avatarConfig) {
-      return <AvatarRenderer config={avatarConfig} size={32} className="shrink-0 rounded-xl" />;
+    const resolved = resolveAvatar(agent.avatar_url, agent.id || agent.name || "?");
+    if (resolved.kind === "photo") {
+      return <img src={resolved.url} alt={agent.name} className="shrink-0 rounded-xl object-cover" style={{ width: 32, height: 32 }} />;
     }
-    return (
-      <div className="flex items-center justify-center size-8 rounded-xl bg-secondary text-secondary-foreground text-xs font-medium shrink-0">
-        {agent.name.charAt(0).toUpperCase()}
-      </div>
-    );
+    return <BoringAvatar seed={resolved.seed} size={32} className="shrink-0 rounded-xl" />;
   };
 
   return (

@@ -5,11 +5,11 @@ import { MessagesSquare, Shield } from "lucide-react"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Badge } from "@/components/ui/badge"
 import { Avatar } from "./avatar"
+import { MarbleBackground } from "@/components/avatar"
 import { StatusEditor, hasStatus } from "./status-editor"
 import type { Profile } from "./_types"
 import type { Breakpoint } from "@/hooks/use-mobile"
 import { useCommunityWsStore } from "@/stores/community/ws"
-import { gradientFromSeed } from "@/lib/community/gradient-from-seed"
 import { tid } from "@/lib/community/testids"
 
 // Merge rule for the card's status pill: overlay wins over seed. The overlay
@@ -64,11 +64,13 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
     if (mobile) onClose()
     else close()
   }
-  const gradient = gradientFromSeed(data.userId ?? data.name)
   const card = (
     <>
-      {/* banner */}
-      <div className="-m-2 mb-0 h-16 rounded-t-lg" style={{ background: gradient }} />
+      {/* banner — seeded marble fill, clipped by the wide-bar container
+          (object-fit doesn't apply to an inline <svg>, so the SVG fills 100%). */}
+      <div className="relative -m-2 mb-0 h-16 overflow-hidden rounded-t-lg">
+        <MarbleBackground seed={data.userId ?? data.name} />
+      </div>
       <div className="px-2 pb-2">
         {/* `pl-4` — the card body below has its own `p-4`, so its text sits
             16px in from this row's container; without matching padding here

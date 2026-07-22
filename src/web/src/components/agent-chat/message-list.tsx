@@ -10,7 +10,7 @@ import { mermaid, cjk, math } from "@/lib/streamdown-plugins";
 import { highlightMentions } from "@/lib/highlight-mentions";
 import { TaskStream } from "@/components/task-stream";
 import { RuntimeErrorBlock } from "@/components/agent-chat/runtime-error-block";
-import { AnimatedAvatar, type AvatarConfig } from "@/components/avatar";
+import { AnimatedAvatar } from "@/components/avatar";
 import { FileText, Flag, Copy, Check, MessageSquareQuote, MessageSquare, Image as ImageIcon } from "lucide-react";
 import { getArtifactThumbnailUrl } from "@/components/artifact-content-renderer";
 import type { PendingFile } from "@/hooks/use-file-attachments";
@@ -81,7 +81,8 @@ export interface MessageItemProps {
   provider?: string | null;
   /** Agent display name + avatar, for the agent-side IM bubbles and system cards. */
   agentName: string;
-  agentAvatarConfig: AvatarConfig | null;
+  agentAvatarSeed: string;
+  agentAvatarUrl?: string | null;
   /** This optimistic user message failed to send — show the inline retry affordance. */
   isSendFailed?: boolean;
   onRetrySend?: (messageId: string) => void;
@@ -263,13 +264,15 @@ function ImageAttachmentCards({
 export function AgentRow({
   groupPosition,
   agentName,
-  config,
+  seed,
+  avatarUrl,
   forceSpacer = false,
   children,
 }: {
   groupPosition: GroupPosition;
   agentName: string;
-  config: AvatarConfig | null;
+  seed: string;
+  avatarUrl?: string | null;
   forceSpacer?: boolean;
   children: React.ReactNode;
 }) {
@@ -277,14 +280,13 @@ export function AgentRow({
   return (
     <MessageCluster
       avatar={
-        config ? (
-          <AnimatedAvatar
-            config={config}
-            size={AVATAR_SIZE}
-            className="rounded-md"
-            isHovered={false}
-          />
-        ) : null
+        <AnimatedAvatar
+          seed={seed}
+          avatarUrl={avatarUrl}
+          size={AVATAR_SIZE}
+          className="rounded-md"
+          isHovered={false}
+        />
       }
       name={agentName}
       position={effectivePosition}
@@ -437,7 +439,8 @@ export const MessageItem = memo(function MessageItem({
   groupPosition = "solo",
   provider,
   agentName,
-  agentAvatarConfig,
+  agentAvatarSeed,
+  agentAvatarUrl,
   isSendFailed,
   onPendingImageClick,
   onRetrySend,
@@ -566,7 +569,7 @@ export const MessageItem = memo(function MessageItem({
           className={cn("group/msg", isFlagged && "bg-muted/30 rounded-lg px-2 -mx-2")}
           {...(isTaskDone ? { "data-quote-source": true } : {})}
         >
-          <AgentRow groupPosition={groupPosition} agentName={agentName} config={agentAvatarConfig}>
+          <AgentRow groupPosition={groupPosition} agentName={agentName} seed={agentAvatarSeed} avatarUrl={agentAvatarUrl}>
             <div
               className="relative min-w-0 w-fit max-w-full"
               {...(isTaskDone ? bubblePressHandlers : {})}
@@ -765,7 +768,7 @@ export const MessageItem = memo(function MessageItem({
         }
         return (
           <div data-message-id={msg.id} {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
-            <AgentRow groupPosition={groupPosition} agentName={agentName} config={agentAvatarConfig}>
+            <AgentRow groupPosition={groupPosition} agentName={agentName} seed={agentAvatarSeed} avatarUrl={agentAvatarUrl}>
               {card}
             </AgentRow>
           </div>
@@ -800,7 +803,7 @@ export const MessageItem = memo(function MessageItem({
           data-quote-source
           {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}
         >
-          <AgentRow groupPosition={groupPosition} agentName={agentName} config={agentAvatarConfig}>
+          <AgentRow groupPosition={groupPosition} agentName={agentName} seed={agentAvatarSeed} avatarUrl={agentAvatarUrl}>
             {msg.metadata?.error_source === "runtime" ? (
               // A failure is a real message, not a bubble — surface it plainly
               // with Retry. The action toolbar pins to the OPEN-side (left) top

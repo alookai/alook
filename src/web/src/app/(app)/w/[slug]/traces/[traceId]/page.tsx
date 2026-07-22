@@ -9,7 +9,8 @@ import { getTrace, type TraceTask } from "@/lib/api";
 import { trackThreadViewed } from "@/lib/analytics";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft } from "lucide-react";
-import { AvatarRenderer, parseAvatarUrl } from "@/components/avatar";
+import { BoringAvatar } from "@/components/avatar";
+import { resolveAvatar } from "@/lib/avatar/resolve";
 
 function relativeTime(dateStr: string): string {
   const date = new Date(dateStr);
@@ -64,17 +65,12 @@ const STATUS_LABELS: Record<string, string> = {
   superseded: "Cancelled",
 };
 
-function AgentAvatar({ name, avatarUrl, size = 14 }: { name?: string; avatarUrl?: string | null; size?: number }) {
-  const config = parseAvatarUrl(avatarUrl);
-  if (config) return <AvatarRenderer config={config} size={size} className="rounded-full shrink-0" />;
-  return (
-    <span
-      className="flex items-center justify-center rounded-full bg-secondary text-[8px] font-medium shrink-0"
-      style={{ width: size, height: size }}
-    >
-      {(name ?? "?").charAt(0).toUpperCase()}
-    </span>
-  );
+function AgentAvatar({ name, avatarUrl, seed, size = 14 }: { name?: string; avatarUrl?: string | null; seed?: string; size?: number }) {
+  const resolved = resolveAvatar(avatarUrl, seed || name || "?");
+  if (resolved.kind === "photo") {
+    return <img src={resolved.url} alt={name ?? ""} className="rounded-full shrink-0 object-cover" style={{ width: size, height: size }} />;
+  }
+  return <BoringAvatar seed={resolved.seed} size={size} className="rounded-full shrink-0" />;
 }
 
 interface TreeNode extends TraceTask {
@@ -129,7 +125,7 @@ function TaskNode({ node, slug }: { node: TreeNode; slug: string }) {
       style={{ paddingLeft: `${1 + node.depth * 1.5}rem` }}
     >
       <div className="flex items-center gap-2">
-        <AgentAvatar name={node.agent?.name} avatarUrl={node.agent?.avatarUrl} size={32} />
+        <AgentAvatar name={node.agent?.name} avatarUrl={node.agent?.avatarUrl} seed={node.agent_id} size={32} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-sm text-foreground truncate flex-1 min-w-0">

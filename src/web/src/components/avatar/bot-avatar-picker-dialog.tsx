@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Camera } from "lucide-react";
+import { Camera, Shuffle } from "lucide-react";
 import {
   Dialog,
   DialogTrigger,
@@ -14,15 +14,9 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ImageCropDialog } from "@/components/community/image-crop-dialog";
 import { validateIconSourceFile } from "@/lib/community/image-crop";
 import { toast } from "sonner";
-import {
-  type AvatarConfig,
-  type AvatarDraft,
-  AvatarRenderer,
-  DEFAULT_CONFIG,
-  parseAvatarUrl,
-  serializeAvatarConfig,
-} from "./avatar-parts";
-import { AvatarGenerator } from "./avatar-generator";
+import { type AvatarDraft, isPhotoAvatarUrl } from "./avatar-parts";
+import { BoringAvatar } from "./boring-avatar";
+import { serializeBeamSeed, parseBeamSeed } from "@/lib/avatar/seed-url";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 interface BotAvatarPickerDialogProps {
@@ -32,11 +26,15 @@ interface BotAvatarPickerDialogProps {
 
 type PhotoDraft = { file: File | null; previewUrl: string };
 
+function randomSeed(): string {
+  return crypto.randomUUID();
+}
+
 /**
- * Dual-mode ("Generate" | "Photo") bot avatar picker. A NEW component —
- * `AvatarPickerDialog` itself is untouched; it's also used by the unrelated
- * workspace-agent feature (`agent-create-form.tsx` / `agent-edit-form.tsx`)
- * on the procedural-only `{ config, onChange }` contract.
+ * Dual-mode ("Generate" | "Photo") bot avatar picker. "Generate" is a beam
+ * avatar with a shuffle button (boring-avatars has no editable model); the
+ * chosen seed persists as `avatar:beam:{seed}`. `AvatarPickerDialog` (the
+ * workspace-agent picker) is the single-mode variant.
  */
 export function BotAvatarPickerDialog({ image, onChange }: BotAvatarPickerDialogProps) {
   const [open, setOpen] = useState(false);
@@ -44,37 +42,25 @@ export function BotAvatarPickerDialog({ image, onChange }: BotAvatarPickerDialog
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingCropSrc, setPendingCropSrc] = useState<{ src: string; fileName: string } | null>(null);
 
-  // `image` can be a persisted URL (http/https/leading-`/`), or — echoed back
-  // from this session's own `onChange({ kind: "photo", previewUrl })` — a
-  // `blob:` object URL, which `isPhotoAvatarUrl` deliberately doesn't
-  // recognize (it's not a value the DB ever stores). Anything that isn't the
-  // `avatar:` procedural prefix is a photo here, blob URL included.
-  const isPhoto = (url: string | null) => !!url && parseAvatarUrl(url) === null;
+  // A photo is anything that's a real URL (http/https/leading-`/`) or a
+  // session-local `blob:` preview — NOT a `avatar:beam:{seed}` value, which is
+  // the procedural (generated) case.
+  const isPhoto = (url: string | null) => !!url && !parseBeamSeed(url) && (isPhotoAvatarUrl(url) || url.startsWith("blob:"));
 
   const [tab, setTab] = useState<"generate" | "photo">(isPhoto(image) ? "photo" : "generate");
-  const [draftConfig, setDraftConfig] = useState<AvatarConfig>(
-    () => parseAvatarUrl(image) ?? DEFAULT_CONFIG,
-  );
+  const [seed, setSeed] = useState<string>(() => parseBeamSeed(image) ?? randomSeed());
   const [photoDraft, setPhotoDraft] = useState<PhotoDraft | null>(
     () => (isPhoto(image) ? { file: null, previewUrl: image! } : null),
   );
-  // Tracks which draft last won — the active tab decides which one wins on
-  // Save, not which one was most recently edited (plan: "whichever tab
-  // you're on when you hit Create/Save wins").
   const [activeKind, setActiveKind] = useState<"procedural" | "photo">(
     isPhoto(image) ? "photo" : "procedural",
   );
 
-  // Keeps the trigger-button preview (the "identity anchor") honest when
-  // `image` changes from *outside* this component — e.g. the parent
-  // randomizing the draft on dialog mount — without waiting for the user to
-  // open the inner popup first (that resync only happened in `onOpenChange`
-  // below). Idempotent against this component's own `onChange` echoes: the
-  // parent hands back exactly the string this component just emitted, so
-  // re-parsing it here reproduces the same state.
+  // Keep the trigger preview honest when `image` changes from outside this
+  // component. Idempotent against this component's own `onChange` echoes.
   useEffect(() => {
     const nowPhoto = isPhoto(image);
-    setDraftConfig(parseAvatarUrl(image) ?? DEFAULT_CONFIG);
+    setSeed(parseBeamSeed(image) ?? randomSeed());
     setPhotoDraft((prev) =>
       nowPhoto
         ? prev && prev.previewUrl === image
@@ -85,13 +71,20 @@ export function BotAvatarPickerDialog({ image, onChange }: BotAvatarPickerDialog
     setActiveKind(nowPhoto ? "photo" : "procedural");
   }, [image]);
 
-  const emitForTab = (nextTab: "generate" | "photo", config: AvatarConfig, photo: PhotoDraft | null) => {
+  const shuffle = () => {
+    const next = randomSeed();
+    setSeed(next);
+    setActiveKind("procedural");
+    onChange({ kind: "procedural", image: serializeBeamSeed(next) });
+  };
+
+  const emitForTab = (nextTab: "generate" | "photo", currentSeed: string, photo: PhotoDraft | null) => {
     if (nextTab === "photo" && photo) {
       setActiveKind("photo");
       onChange({ kind: "photo", file: photo.file, previewUrl: photo.previewUrl });
     } else {
       setActiveKind("procedural");
-      onChange({ kind: "procedural", image: serializeAvatarConfig(config) });
+      onChange({ kind: "procedural", image: serializeBeamSeed(currentSeed) });
     }
   };
 
@@ -117,14 +110,8 @@ export function BotAvatarPickerDialog({ image, onChange }: BotAvatarPickerDialog
         onOpenChange={(nextOpen) => {
           if (nextOpen) {
             const nowPhoto = isPhoto(image);
-            const config = parseAvatarUrl(image) ?? DEFAULT_CONFIG;
-            setDraftConfig(config);
+            setSeed(parseBeamSeed(image) ?? randomSeed());
             if (nowPhoto) {
-              // Reopening with the *same* previewUrl this instance already
-              // holds (the round-trip through the parent's `avatarDraft`)
-              // must not clobber a real `File` back to `null` — only reset
-              // when `image` genuinely changed (e.g. first open on an
-              // existing persisted photo, or a different URL entirely).
               setPhotoDraft((prev) =>
                 prev && prev.previewUrl === image ? prev : { file: null, previewUrl: image! },
               );
@@ -149,7 +136,9 @@ export function BotAvatarPickerDialog({ image, onChange }: BotAvatarPickerDialog
             {triggerPreview ? (
               <img src={triggerPreview} alt="" className="size-20 rounded-2xl object-cover" />
             ) : (
-              <AvatarRenderer config={draftConfig} size={80} />
+              <span className="block size-20 overflow-hidden rounded-2xl">
+                <BoringAvatar seed={seed} size={80} className="size-full" />
+              </span>
             )}
           </DialogTrigger>
         </div>
@@ -157,7 +146,7 @@ export function BotAvatarPickerDialog({ image, onChange }: BotAvatarPickerDialog
         <DialogContent className={
           isMobile
             ? "top-auto left-0 translate-x-0 translate-y-0 bottom-0 max-w-full sm:max-w-full w-full rounded-b-none rounded-t-xl max-h-[85dvh] overflow-y-auto thin-scrollbar pb-[env(safe-area-inset-bottom)]"
-            : "sm:max-w-180"
+            : "sm:max-w-120"
         }>
           <DialogHeader>
             <DialogTitle>Choose Avatar</DialogTitle>
@@ -167,7 +156,7 @@ export function BotAvatarPickerDialog({ image, onChange }: BotAvatarPickerDialog
             onValueChange={(v) => {
               const nextTab = v as "generate" | "photo";
               setTab(nextTab);
-              emitForTab(nextTab, draftConfig, photoDraft);
+              emitForTab(nextTab, seed, photoDraft);
             }}
           >
             <TabsList className="mx-auto">
@@ -175,16 +164,15 @@ export function BotAvatarPickerDialog({ image, onChange }: BotAvatarPickerDialog
               <TabsTrigger value="photo">Photo</TabsTrigger>
             </TabsList>
             <TabsContent value="generate">
-              <AvatarGenerator
-                config={draftConfig}
-                layout={isMobile ? "vertical" : "horizontal"}
-                onChange={(next) => {
-                  setDraftConfig(next);
-                  setActiveKind("procedural");
-                  onChange({ kind: "procedural", image: serializeAvatarConfig(next) });
-                }}
-                mobile={isMobile}
-              />
+              <div className="flex flex-col items-center gap-3 py-6">
+                <span className="block size-32 overflow-hidden rounded-full">
+                  <BoringAvatar seed={seed} size={128} className="size-full" />
+                </span>
+                <Button type="button" variant="secondary" size="sm" onClick={shuffle}>
+                  <Shuffle className="size-3.5" />
+                  Shuffle
+                </Button>
+              </div>
             </TabsContent>
             <TabsContent value="photo">
               <div className="flex flex-col items-center gap-3 py-6">

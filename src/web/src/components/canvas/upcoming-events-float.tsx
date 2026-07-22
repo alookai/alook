@@ -6,21 +6,17 @@ import { CalendarDays, X } from "lucide-react";
 import { useAgentContext } from "@/contexts/agent-context";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { AvatarRenderer, parseAvatarUrl } from "@/components/avatar";
+import { BoringAvatar } from "@/components/avatar";
+import { resolveAvatar } from "@/lib/avatar/resolve";
 import { listCalendarEvents } from "@/lib/api";
 import type { CalendarEvent } from "@alook/shared";
 
-function AgentAvatar({ name, avatarUrl, size = 20 }: { name?: string; avatarUrl?: string | null; size?: number }) {
-  const config = parseAvatarUrl(avatarUrl);
-  if (config) return <AvatarRenderer config={config} size={size} className="rounded-full shrink-0" />;
-  return (
-    <span
-      className="flex items-center justify-center rounded-full bg-secondary text-[7px] font-medium shrink-0"
-      style={{ width: size, height: size }}
-    >
-      {(name ?? "?").charAt(0).toUpperCase()}
-    </span>
-  );
+function AgentAvatar({ name, avatarUrl, seed, size = 20 }: { name?: string; avatarUrl?: string | null; seed?: string; size?: number }) {
+  const resolved = resolveAvatar(avatarUrl, seed || name || "?");
+  if (resolved.kind === "photo") {
+    return <img src={resolved.url} alt={name ?? ""} className="rounded-full shrink-0 object-cover" style={{ width: size, height: size }} />;
+  }
+  return <BoringAvatar seed={resolved.seed} size={size} className="rounded-full shrink-0" />;
 }
 
 interface AgentEventSummary {
@@ -124,7 +120,7 @@ export function UpcomingEventsFloat() {
             href={`/w/${slug}/calendar`}
             className="flex items-center gap-2 px-3 py-2 hover:bg-accent/50 transition-colors cursor-pointer rounded-md"
           >
-            <AgentAvatar name={summary.agentName} avatarUrl={summary.avatarUrl} size={22} />
+            <AgentAvatar name={summary.agentName} avatarUrl={summary.avatarUrl} seed={summary.agentId} size={22} />
             <span className="flex-1 text-sm truncate">{summary.agentName}</span>
             <span className="text-xs text-muted-foreground shrink-0">
               {summary.count} event{summary.count !== 1 ? "s" : ""}

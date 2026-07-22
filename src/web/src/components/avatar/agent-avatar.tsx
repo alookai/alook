@@ -1,26 +1,21 @@
 "use client";
 
-import { AvatarRenderer, parseAvatarUrl, isPhotoAvatarUrl } from "./avatar-parts";
+import { BoringAvatar } from "./boring-avatar";
+import { resolveAvatar } from "@/lib/avatar/resolve";
 
-export function AgentAvatar({ name, avatarUrl, size = 32 }: { name?: string | null; avatarUrl?: string | null; size?: number }) {
-  if (isPhotoAvatarUrl(avatarUrl)) {
+export function AgentAvatar({ name, avatarUrl, seed, size = 32 }: { name?: string | null; avatarUrl?: string | null; seed?: string | null; size?: number }) {
+  // Prefer a stable id as the beam seed; fall back to the name when no id is
+  // available (rename would then shift the face — a known tradeoff).
+  const resolved = resolveAvatar(avatarUrl, seed || name || "?");
+  if (resolved.kind === "photo") {
     return (
       <img
-        src={avatarUrl!}
+        src={resolved.url}
         alt={name ?? ""}
         className="rounded-full shrink-0 object-cover"
         style={{ width: size, height: size }}
       />
     );
   }
-  const config = parseAvatarUrl(avatarUrl);
-  if (config) return <AvatarRenderer config={config} size={size} className="rounded-full shrink-0" />;
-  return (
-    <span
-      className="flex items-center justify-center rounded-full bg-secondary text-xs font-medium shrink-0"
-      style={{ width: size, height: size }}
-    >
-      {(name ?? "?").charAt(0).toUpperCase()}
-    </span>
-  );
+  return <BoringAvatar seed={resolved.seed} size={size} className="rounded-full shrink-0" />;
 }

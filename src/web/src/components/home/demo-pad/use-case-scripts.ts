@@ -2,13 +2,13 @@ import type { DashboardStep, AgentInfo } from "./demo-dashboard";
 import type { UseCaseScript } from "./use-case-demo";
 
 /* ─── Agent Configs ─── */
-const SALES: AgentInfo = { name: "Sales", email: "sales@alook.ai", config: { shape: "hexagon", eye: "dots", nose: "dash", bg: 5 } };
-const PLANNER: AgentInfo = { name: "Planner", email: "planner@alook.ai", config: { shape: "hexagon", eye: "dots", nose: "dash", bg: 5 } };
-const CODER: AgentInfo = { name: "Coder", email: "coder@alook.ai", config: { shape: "task", eye: "happy", nose: "dot", bg: 0 } };
-const REVIEWER: AgentInfo = { name: "Reviewer", email: "reviewer@alook.ai", config: { shape: "circle", eye: "arches", nose: "smile", bg: 8 } };
-const MARKETER: AgentInfo = { name: "Marketer", email: "marketer@alook.ai", config: { shape: "mail", eye: "dots", nose: "smile", bg: 3 } };
-const OPS: AgentInfo = { name: "Ops", email: "ops@alook.ai", config: { shape: "folder", eye: "lines", nose: "dash", bg: 7 } };
-const ASSISTANT: AgentInfo = { name: "Assistant", email: "assistant@alook.ai", config: { shape: "bulb", eye: "rings", nose: "oh", bg: 11 } };
+const SALES: AgentInfo = { name: "Sales", email: "sales@alook.ai", seed: "demo-sales" };
+const PLANNER: AgentInfo = { name: "Planner", email: "planner@alook.ai", seed: "demo-planner" };
+const CODER: AgentInfo = { name: "Coder", email: "coder@alook.ai", seed: "demo-coder" };
+const REVIEWER: AgentInfo = { name: "Reviewer", email: "reviewer@alook.ai", seed: "demo-reviewer" };
+const MARKETER: AgentInfo = { name: "Marketer", email: "marketer@alook.ai", seed: "demo-marketer" };
+const OPS: AgentInfo = { name: "Ops", email: "ops@alook.ai", seed: "demo-ops" };
+const ASSISTANT: AgentInfo = { name: "Assistant", email: "assistant@alook.ai", seed: "demo-assistant" };
 
 /* ═══════════════════════════════════════════
    1. Lead Auto Follow-up

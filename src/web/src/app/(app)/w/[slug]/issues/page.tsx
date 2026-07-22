@@ -12,7 +12,8 @@ import type { TaskApi } from "@alook/shared";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AvatarRenderer, parseAvatarUrl } from "@/components/avatar";
+import { BoringAvatar } from "@/components/avatar";
+import { resolveAvatar } from "@/lib/avatar/resolve";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -37,18 +38,11 @@ function formatDate(value: string | null) {
 }
 
 function AgentAvatar({ agent, size = 24 }: { agent?: Agent | null; size?: number }) {
-  const avatarConfig = parseAvatarUrl(agent?.avatar_url);
-  if (avatarConfig) {
-    return <AvatarRenderer config={avatarConfig} size={size} className="shrink-0 rounded-full" />;
+  const resolved = resolveAvatar(agent?.avatar_url, agent?.id || agent?.name || "?");
+  if (resolved.kind === "photo") {
+    return <img src={resolved.url} alt={agent?.name ?? ""} className="shrink-0 rounded-full object-cover" style={{ width: size, height: size }} />;
   }
-  return (
-    <span
-      className="flex shrink-0 items-center justify-center rounded-full border border-border bg-muted text-[11px] font-medium text-muted-foreground"
-      style={{ width: size, height: size }}
-    >
-      {(agent?.name ?? "?").slice(0, 1).toUpperCase()}
-    </span>
-  );
+  return <BoringAvatar seed={resolved.seed} size={size} className="shrink-0 rounded-full" />;
 }
 
 function IssueCard({

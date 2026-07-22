@@ -1,6 +1,7 @@
 import type React from "react"
 import { Avatar as UiAvatar, AvatarImage, AvatarFallback, AvatarBadge } from "@/components/ui/avatar"
-import { AvatarRenderer, parseAvatarUrl, configFromName } from "@/components/avatar"
+import { BoringAvatar } from "@/components/avatar"
+import { parseBeamSeed } from "@/lib/avatar/seed-url"
 import { avatarInitial } from "@/lib/community/avatar"
 import type { Presence } from "./_types"
 
@@ -38,19 +39,21 @@ export function Avatar({ label, seed, src, size = 40, dim = false, presence, rin
   ringColor?: string
 }) {
   const safeLabel = label || "?"
-  const avatarConfig = parseAvatarUrl(safeLabel)
   const imageUrl = src || (isUrl(safeLabel) ? safeLabel : undefined)
-  const fallbackConfig = !imageUrl && !avatarConfig && seed ? configFromName(seed) : null
-  const hasGenerated = !!avatarConfig || !!fallbackConfig
+  // Beam seed: an explicit `avatar:beam:{seed}` stored in `label` wins;
+  // otherwise the stable `seed` id. Legacy `avatar:{shape…}` configs are not
+  // honored — they resolve to null here and fall through to the id seed. When
+  // there's neither, we drop to a plain letter (a beam is never derived from a
+  // display name).
+  const beamSeed = !imageUrl ? (parseBeamSeed(safeLabel) ?? seed) : undefined
 
-  // Priority: image URL > explicit avatar-config (avatar:{...}) > name-derived
-  // fallback config > single letter. Radix `AvatarFallback` renders whenever
-  // no `AvatarImage` is present, so we must NOT emit it when we've already
-  // drawn a shape avatar via `<span><AvatarRenderer/></span>` — otherwise both
-  // stack on top of each other (see the "two-avatar-in-one-place" bug).
+  // Priority: image URL > beam (from stored seed or id) > single letter. Radix
+  // `AvatarFallback` renders whenever no `AvatarImage` is present, so we must
+  // NOT emit it when we've already drawn a beam via `<span><BoringAvatar/></span>`
+  // — otherwise both stack on top of each other (the "two-avatar-in-one-place" bug).
   return (
     <UiAvatar
-      className={hasGenerated && !imageUrl ? "after:hidden" : "bg-muted"}
+      className={beamSeed ? "after:hidden" : "bg-muted"}
       style={{ width: size, height: size, opacity: dim ? 0.4 : 1 }}
     >
       {imageUrl ? (
@@ -60,18 +63,9 @@ export function Avatar({ label, seed, src, size = 40, dim = false, presence, rin
             {avatarInitial(safeLabel)}
           </AvatarFallback>
         </>
-      ) : avatarConfig ? (
-        // Shape avatar from the picker's serialized `avatar:{...}` config.
+      ) : beamSeed ? (
         <span className="size-full rounded-full overflow-hidden">
-          <AvatarRenderer config={avatarConfig} size={size} className="size-full" />
-        </span>
-      ) : fallbackConfig ? (
-        // No image, no picker config — synthesize a shape avatar from the
-        // stable `seed` id (matches the design system's shape-avatar
-        // aesthetic). Without a seed we skip this and render the plain letter
-        // below, so a shape avatar is never derived from a display name.
-        <span className="size-full rounded-full overflow-hidden">
-          <AvatarRenderer config={fallbackConfig} size={size} className="size-full" />
+          <BoringAvatar seed={beamSeed} size={size} className="size-full" />
         </span>
       ) : (
         <AvatarFallback className="font-medium" style={{ fontSize: size * 0.4 }}>

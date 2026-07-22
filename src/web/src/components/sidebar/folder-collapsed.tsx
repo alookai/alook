@@ -2,7 +2,6 @@
 
 import type { Agent } from "@alook/shared";
 import type { AgentFolder } from "@/hooks/use-agent-folders";
-import { parseAvatarUrl } from "@/components/avatar";
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 import { cn } from "@/lib/utils";
 
@@ -40,7 +39,6 @@ export function FolderCollapsed({
     >
       <div className="relative flex items-center justify-center" style={{ width: 30, height: 20 }}>
         {displayed.map((agent, i) => {
-          const avatarConfig = parseAvatarUrl(agent.avatar_url);
           const offset = i * 6;
           return (
             <div
@@ -53,13 +51,7 @@ export function FolderCollapsed({
                 zIndex: i + 1,
               }}
             >
-              {avatarConfig ? (
-                <AnimatedAvatar config={avatarConfig} size={20} className="rounded-full" isHovered={false} />
-              ) : (
-                <div className="flex items-center justify-center size-full bg-muted text-[8px] font-medium">
-                  {agent.name.charAt(0).toUpperCase()}
-                </div>
-              )}
+              <AnimatedAvatar seed={agent.id} avatarUrl={agent.avatar_url} size={20} className="rounded-full" isHovered={false} />
             </div>
           );
         })}

@@ -22,13 +22,8 @@ import {
   AllowedSendersTab,
   AgentAccessTab,
 } from "@/components/agent-form-fields";
-import {
-  type AvatarConfig,
-  AvatarPickerDialog,
-  DEFAULT_CONFIG,
-  parseAvatarUrl,
-  serializeAvatarConfig,
-} from "@/components/avatar";
+import { AvatarPickerDialog } from "@/components/avatar";
+import { serializeBeamSeed, parseBeamSeed } from "@/lib/avatar/seed-url";
 
 const MAX_INSTRUCTION_LENGTH = 50_000;
 const DEBOUNCE_MS = 500;
@@ -146,8 +141,8 @@ export function AgentEditForm({
   const [name, setName] = useState(agent.name ?? "");
   const [description, setDescription] = useState(agent.description ?? "");
   const [runtimeId, setRuntimeId] = useState(agent.runtime_id ?? "");
-  const [avatarConfig, setAvatarConfig] = useState<AvatarConfig>(
-    () => parseAvatarUrl(agent.avatar_url) ?? DEFAULT_CONFIG
+  const [avatarUrl, setAvatarUrl] = useState<string>(
+    () => parseBeamSeed(agent.avatar_url) ? agent.avatar_url! : serializeBeamSeed(agent.id),
   );
   const [model, setModel] = useState(() => {
     const rc = agent.runtime_config;
@@ -263,7 +258,7 @@ export function AgentEditForm({
       description,
       runtime_id: runtimeId,
       runtime_config: model ? { model } : {},
-      avatar_url: serializeAvatarConfig(avatarConfig),
+      avatar_url: avatarUrl,
     });
   };
 
@@ -344,8 +339,8 @@ export function AgentEditForm({
                 {activeTab === "general" && (
                   <>
                     <AvatarPickerDialog
-                      config={avatarConfig}
-                      onChange={setAvatarConfig}
+                      value={avatarUrl}
+                      onChange={setAvatarUrl}
                     />
                     <GeneralFields
                       name={name}

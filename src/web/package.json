@@ -59,6 +59,7 @@
     "@types/mdx": "^2.0.14",
     "@xyflow/react": "^12.11.1",
     "better-auth": "^1.6.23",
+    "boring-avatars": "^2.0.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "driver.js": "^1.7.0",

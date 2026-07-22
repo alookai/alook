@@ -1,75 +1,50 @@
 "use client";
 
 import { useState } from "react";
-import {
-  Dialog,
-  DialogTrigger,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { type AvatarConfig, AvatarRenderer } from "./avatar-parts";
-import { AvatarGenerator } from "./avatar-generator";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { Shuffle } from "lucide-react";
+import { BoringAvatar } from "./boring-avatar";
+import { serializeBeamSeed, parseBeamSeed } from "@/lib/avatar/seed-url";
 
 interface AvatarPickerDialogProps {
-  config: AvatarConfig;
-  onChange: (config: AvatarConfig) => void;
+  /** Stored avatar value (`avatar:beam:{seed}` or a photo URL). */
+  value: string | null;
+  /** Emits the new stored value (`avatar:beam:{seed}`). */
+  onChange: (value: string) => void;
 }
 
-export function AvatarPickerDialog({ config, onChange }: AvatarPickerDialogProps) {
-  const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState<AvatarConfig>(config);
-  const isMobile = useIsMobile();
+function randomSeed(): string {
+  return crypto.randomUUID();
+}
+
+/**
+ * Beam avatar picker: a preview + a "shuffle" button that rerolls the seed.
+ * boring-avatars has no editable model (shape/eye/nose), so "generate" is just
+ * a fresh random seed; the chosen seed persists as `avatar:beam:{seed}`.
+ */
+export function AvatarPickerDialog({ value, onChange }: AvatarPickerDialogProps) {
+  const [seed, setSeed] = useState<string>(() => parseBeamSeed(value) ?? randomSeed());
+
+  const shuffle = () => {
+    const next = randomSeed();
+    setSeed(next);
+    onChange(serializeBeamSeed(next));
+  };
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(nextOpen) => {
-        if (nextOpen) setDraft(config);
-        setOpen(nextOpen);
-      }}
-    >
-      <div className="flex justify-center">
-        <DialogTrigger
-          render={
-            <button
-              type="button"
-              className="rounded-2xl bg-background p-2 shadow-sm border border-border hover:border-primary/40 transition-colors cursor-pointer"
-            />
-          }
-        >
-          <AvatarRenderer config={config} size={80} />
-        </DialogTrigger>
+    <div className="flex flex-col items-center gap-3">
+      <div className="rounded-2xl bg-background p-2 shadow-sm border border-border">
+        <span className="block size-20 overflow-hidden rounded-2xl">
+          <BoringAvatar seed={seed} size={80} className="size-full" />
+        </span>
       </div>
-
-      <DialogContent className={
-        isMobile
-          ? "top-auto left-0 translate-x-0 translate-y-0 bottom-0 max-w-full sm:max-w-full w-full rounded-b-none rounded-t-xl max-h-[85dvh] overflow-y-auto pb-[env(safe-area-inset-bottom)]"
-          : "sm:max-w-180"
-      }>
-        <DialogHeader>
-          <DialogTitle>Choose Avatar</DialogTitle>
-        </DialogHeader>
-        <AvatarGenerator
-          config={draft}
-          layout={isMobile ? "vertical" : "horizontal"}
-          onChange={(next) => {
-            setDraft(next);
-            onChange(next);
-          }}
-          mobile={isMobile}
-        />
-        {isMobile && (
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            className="w-full rounded-xl bg-primary py-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
-          >
-            Done
-          </button>
-        )}
-      </DialogContent>
-    </Dialog>
+      <button
+        type="button"
+        onClick={shuffle}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-sm font-medium hover:bg-accent transition-colors cursor-pointer"
+      >
+        <Shuffle className="size-3.5" />
+        Shuffle
+      </button>
+    </div>
   );
 }

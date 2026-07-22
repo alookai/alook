@@ -14,26 +14,19 @@ import {
 } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
 import {
-  type AvatarConfig,
   type AvatarDraft,
   isPhotoAvatarUrl,
-  serializeAvatarConfig,
 } from "@/components/avatar"
+import { serializeBeamSeed, parseBeamSeed } from "@/lib/avatar/seed-url"
 import { useUpdateBot, useUploadBotAvatar, type BotSummary } from "@/hooks/community/use-bots"
 import { BotFormFields } from "./bot-form-fields"
 import { uniqueNamesGenerator, names } from "unique-names-generator"
 
-const DEFAULT_AVATAR: AvatarConfig = {
-  shape: "circle",
-  eye: "dots",
-  nose: "dot",
-  bg: 0,
-}
-
 function draftFromBot(bot: BotSummary): AvatarDraft {
-  return isPhotoAvatarUrl(bot.image)
-    ? { kind: "photo", file: null, previewUrl: bot.image! }
-    : { kind: "procedural", image: bot.image ?? serializeAvatarConfig(DEFAULT_AVATAR) }
+  if (isPhotoAvatarUrl(bot.image)) return { kind: "photo", file: null, previewUrl: bot.image! }
+  // A stored beam seed persists; a legacy `avatar:{shape…}` config or null
+  // falls back to a beam seeded by the bot id.
+  return { kind: "procedural", image: parseBeamSeed(bot.image) ? bot.image! : serializeBeamSeed(bot.id) }
 }
 
 export function EditBotSheet({
@@ -54,7 +47,7 @@ export function EditBotSheet({
   const [description, setDescription] = useState(bot?.description ?? "")
   const [nameError, setNameError] = useState<string | undefined>(undefined)
   const [avatarDraft, setAvatarDraft] = useState<AvatarDraft>(() =>
-    bot ? draftFromBot(bot) : { kind: "procedural", image: serializeAvatarConfig(DEFAULT_AVATAR) },
+    bot ? draftFromBot(bot) : { kind: "procedural", image: serializeBeamSeed("initial") },
   )
   const update = useUpdateBot()
   const uploadBotAvatar = useUploadBotAvatar()

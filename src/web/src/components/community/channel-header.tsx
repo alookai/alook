@@ -14,7 +14,7 @@ import { ChannelIcon } from "./channel-icon"
 import { EntityIcon } from "./entity-icon"
 import { SlugHint } from "./slug-hint"
 import { previewSlug } from "@/lib/community/slug-preview"
-import { gradientFromSeed } from "@/lib/community/gradient-from-seed"
+import { MarbleBackground } from "@/components/avatar"
 import type { RightPanel } from "./_types"
 
 // Skeleton header for the loading frame between route change and channel
@@ -166,15 +166,14 @@ function ChannelOverflowMenu({
 export function ServerCrumb({ id, name, icon, size = 5, className = "" }: { id: string; name: string; icon: string | null; size?: 5 | 7; className?: string }) {
   return (
     <span
-      // No icon → the same deterministic gradient fallback used by the rail
+      // No icon → the same deterministic marble fallback used by the rail
       // (`sortable-server.tsx`) and folder rows, so a server reads as "the
       // same server" everywhere it shows up, not a flat generic tile here.
-      style={icon ? undefined : { background: gradientFromSeed(id) }}
-      className={`grid shrink-0 place-items-center overflow-hidden rounded-md font-semibold ${icon ? "bg-secondary text-foreground" : "text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.35)]"} ${size === 7 ? "size-7 text-xs" : "size-5 text-[0.625rem]"} ${className}`}
+      className={`relative grid shrink-0 place-items-center overflow-hidden rounded-md font-semibold ${icon ? "bg-secondary text-foreground" : "text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.35)]"} ${size === 7 ? "size-7 text-xs" : "size-5 text-[0.625rem]"} ${className}`}
       aria-label={name}
       title={name}
     >
-      {icon ? <img src={icon} alt="" className="size-full object-cover" /> : avatarInitial(name)}
+      {icon ? <img src={icon} alt="" className="size-full object-cover" /> : <><MarbleBackground seed={id} /><span className="relative">{avatarInitial(name)}</span></>}
     </span>
   )
 }

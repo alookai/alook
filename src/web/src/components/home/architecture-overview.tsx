@@ -13,8 +13,8 @@ import { useScriptedTimeline, type TimelineStep } from "./demo-pad/use-scripted-
 gsap.registerPlugin(ScrollTrigger);
 
 const ARCH_AGENTS: AgentInfo[] = [
-  { name: "Planner", email: "planner@alook.ai", config: { shape: "hexagon", eye: "dots", nose: "dash", bg: 5 } },
-  { name: "Coder", email: "coder@alook.ai", config: { shape: "task", eye: "happy", nose: "dot", bg: 0 } },
+  { name: "Planner", email: "planner@alook.ai", seed: "demo-planner" },
+  { name: "Coder", email: "coder@alook.ai", seed: "demo-coder" },
 ];
 const ARCH_CONFIG: DashboardConfig = { agents: ARCH_AGENTS };
 

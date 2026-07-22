@@ -12,7 +12,6 @@ import {
 } from "@/components/ui/context-menu";
 import { AgentPreviewCard } from "@/components/agent-preview-card";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
-import { parseAvatarUrl } from "@/components/avatar";
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 
 export function AgentSidebarButton({
@@ -70,13 +69,7 @@ export function AgentSidebarButton({
             />
           }
         >
-          {(() => {
-            const avatarConfig = parseAvatarUrl(agent.avatar_url);
-            if (avatarConfig) {
-              return <AnimatedAvatar config={avatarConfig} size={40} className="rounded-xl" isHovered={false} />;
-            }
-            return agent.name.charAt(0).toUpperCase();
-          })()}
+          <AnimatedAvatar seed={agent.id} avatarUrl={agent.avatar_url} size={40} className="rounded-xl" isHovered={false} />
           <span className={cn(
             "absolute bottom-0 right-0 size-2 rounded-full ring-2 ring-background",
             isOnline ? "bg-status-online" : "bg-status-offline"

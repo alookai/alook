@@ -44,7 +44,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { AgentPreviewCard } from "@/components/agent-preview-card";
-import { AnimatedAvatar, parseAvatarUrl } from "@/components/avatar";
+import { AnimatedAvatar } from "@/components/avatar";
 import {
   createAgentLink,
   updateAgentLink,
@@ -602,17 +602,7 @@ function MobileAgentList({ onAgentClick }: { onAgentClick?: (agent: Agent) => vo
                 }
               }}
             >
-              {(() => {
-                const avatarConfig = parseAvatarUrl(agent.avatar_url);
-                if (avatarConfig) {
-                  return <AnimatedAvatar config={avatarConfig} size={36} className="shrink-0 rounded-xl" isHovered={false} isWorking={isOnline && (activeTaskCounts[agent.id] ?? 0) > 0} />;
-                }
-                return (
-                  <div className="flex items-center justify-center size-9 rounded-xl bg-secondary text-secondary-foreground text-sm font-medium shrink-0">
-                    {agent.name.charAt(0).toUpperCase()}
-                  </div>
-                );
-              })()}
+              <AnimatedAvatar seed={agent.id} avatarUrl={agent.avatar_url} size={36} className="shrink-0 rounded-xl" isHovered={false} isWorking={isOnline && (activeTaskCounts[agent.id] ?? 0) > 0} />
               <div className="min-w-0 flex-1">
                 <AgentPreviewCard
                   agent={agent}

@@ -8,7 +8,7 @@ import { RailIndicator } from "./rail-indicator"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { NumberTicker } from "@/components/ui/number-ticker"
-import { gradientFromSeed } from "@/lib/community/gradient-from-seed"
+import { MarbleBackground } from "@/components/avatar"
 import { tid } from "@/lib/community/testids"
 import type { Server } from "./_types"
 
@@ -35,9 +35,8 @@ export function SortableServer({ server, active, onClick, onLeave, onOpenSetting
                   onClick={active ? undefined : onClick}
                   {...attributes}
                   {...listeners}
-                  style={server.icon ? undefined : { background: gradientFromSeed(server.id) }}
                   className={[
-                    "grid size-10 touch-none place-items-center overflow-hidden text-sm font-semibold transition-all duration-150 active:cursor-grabbing",
+                    "relative grid size-10 touch-none place-items-center overflow-hidden text-sm font-semibold transition-all duration-150 active:cursor-grabbing",
                     active ? "cursor-default rounded-xl" : "cursor-pointer rounded-[18px] hover:rounded-xl",
                     server.icon
                       ? active ? "bg-primary text-primary-foreground" : "bg-card hover:bg-primary hover:text-primary-foreground"
@@ -47,7 +46,7 @@ export function SortableServer({ server, active, onClick, onLeave, onOpenSetting
                   {server.icon ? (
                     <img src={server.icon} alt={server.name} className="size-full object-cover" />
                   ) : (
-                    server.initial
+                    <><MarbleBackground seed={server.id} /><span className="relative">{server.initial}</span></>
                   )}
                 </button>
                 {server.mentions > 0 && (

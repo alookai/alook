@@ -147,6 +147,10 @@ describe("isPhotoAvatarUrl", () => {
     expect(isPhotoAvatarUrl("")).toBe(false)
     expect(isPhotoAvatarUrl("avatar:shape=star")).toBe(false)
   })
+
+  it("rejects a avatar:beam seed (procedural, not a photo — bot-picker regression)", () => {
+    expect(isPhotoAvatarUrl("avatar:beam:some-seed")).toBe(false)
+  })
 })
 
 describe("star shape", () => {

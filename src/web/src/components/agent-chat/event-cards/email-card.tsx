@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from "react";
 import { relativeTime } from "@/lib/time";
-import { AnimatedAvatar, parseAvatarUrl, type AvatarConfig } from "@/components/avatar";
+import { AnimatedAvatar } from "@/components/avatar";
 import { ChevronRight, MessageSquare } from "lucide-react";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useLongPress } from "@/hooks/use-long-press";
@@ -33,7 +33,7 @@ export function EmailCard({
   onAgentChatOpen?: (agentId: string, targetConvId: string) => void;
   touchAction?: { label: string; onClick: () => void } | null;
 }) {
-  const [resolvedAgent, setResolvedAgent] = useState<{ name: string; avatarConfig: AvatarConfig | null } | null>(null);
+  const [resolvedAgent, setResolvedAgent] = useState<{ id: string; name: string; avatarUrl: string | null } | null>(null);
   const [hoverResolved, setHoverResolved] = useState(false);
   const [touchSheetOpen, setTouchSheetOpen] = useState(false);
 
@@ -46,7 +46,7 @@ export function EmailCard({
     setHoverResolved(true);
     const agent = agents?.find((a: Agent) => a.email_handle === internalHandle);
     if (agent) {
-      setResolvedAgent({ name: agent.name, avatarConfig: parseAvatarUrl(agent.avatar_url) });
+      setResolvedAgent({ id: agent.id, name: agent.name, avatarUrl: agent.avatar_url });
     }
   }, [isInternal, hoverResolved, agents, internalHandle]);
   return (
@@ -122,9 +122,7 @@ export function EmailCard({
             }}
             className="flex items-center gap-2 py-1 pl-0.5 pr-2 bg-(--paper) border border-(--border) rounded-full shadow-md hover:bg-(--secondary) cursor-pointer whitespace-nowrap"
           >
-            {resolvedAgent.avatarConfig && (
-              <AnimatedAvatar config={resolvedAgent.avatarConfig} size={20} isHovered={false} className="rounded-full" />
-            )}
+            <AnimatedAvatar seed={resolvedAgent.id} avatarUrl={resolvedAgent.avatarUrl} size={20} isHovered={false} className="rounded-full" />
             <span className="text-[0.62rem] font-semibold opacity-80">{resolvedAgent.name}</span>
             <ChevronRight className="w-2.5 h-2.5 text-muted-foreground/45 -ml-1" />
           </span>

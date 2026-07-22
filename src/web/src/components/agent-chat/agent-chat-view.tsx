@@ -81,7 +81,6 @@ import { MessageItem, AgentRow } from "@/components/agent-chat/message-list";
 import { useAgentChatSheet } from "@/contexts/agent-chat-sheet-context";
 import { PresenceLine } from "@/components/agent-chat/presence-line";
 import { MenuToggleIcon } from "@/components/agent-chat/menu-toggle-icon";
-import { parseAvatarUrl } from "@/components/avatar";
 import {
   MENTION_COMPONENTS,
   NapSeparator,
@@ -351,8 +350,8 @@ export function AgentChatView({
     });
   }, [subscribeWs, fetchThreadSummaries]);
 
-  const agentAvatarConfig = useMemo(
-    () => parseAvatarUrl(agents.find((a) => a.id === agentId)?.avatar_url ?? null),
+  const agentAvatarUrl = useMemo(
+    () => agents.find((a) => a.id === agentId)?.avatar_url ?? null,
     [agents, agentId],
   );
   // First name only — presence copy reads socially ("Maya is typing…").
@@ -772,7 +771,7 @@ export function AgentChatView({
                   mentionComponents={MENTION_COMPONENTS}
                   groupPosition="solo"
                   agentName={agentName}
-                  agentAvatarConfig={agentAvatarConfig}
+                  agentAvatarSeed={agentId} agentAvatarUrl={agentAvatarUrl}
                   isThreadRoot
                 />
               </div>
@@ -860,7 +859,7 @@ export function AgentChatView({
                     <AgentRow
                       groupPosition={artifactPos}
                       agentName={agentName}
-                      config={agentAvatarConfig}
+                      seed={agentId} avatarUrl={agentAvatarUrl}
                       forceSpacer={!isHead}
                     >
                       <ArtifactCard
@@ -909,7 +908,7 @@ export function AgentChatView({
                     groupPosition={pos ?? "solo"}
                     provider={runtimeProvider}
                     agentName={agentName}
-                    agentAvatarConfig={agentAvatarConfig}
+                    agentAvatarSeed={agentId} agentAvatarUrl={agentAvatarUrl}
                     isSendFailed={failedSends.has(msg.id)}
                     onRetrySend={handleRetrySend}
                     onQuote={handleQuoteMessage}

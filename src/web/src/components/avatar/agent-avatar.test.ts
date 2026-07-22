@@ -1,10 +1,11 @@
 import { describe, it, expect } from "vitest"
 import { AgentAvatar } from "./agent-avatar"
-import { AvatarRenderer, serializeAvatarConfig, DEFAULT_CONFIG } from "./avatar-parts"
+import { BoringAvatar } from "./boring-avatar"
+import { serializeAvatarConfig, DEFAULT_CONFIG } from "./avatar-parts"
+import { serializeBeamSeed } from "@/lib/avatar/seed-url"
 
 type ImgEl = { type: "img"; props: { src: string; alt: string; style: { width: number; height: number } } }
-type SpanEl = { type: "span"; props: { children: string; style: { width: number; height: number } } }
-type RendererEl = { type: typeof AvatarRenderer; props: { size: number } }
+type BeamEl = { type: typeof BoringAvatar; props: { seed: string; size: number } }
 
 describe("AgentAvatar", () => {
   it("renders an <img> for a photo URL (https)", () => {
@@ -24,22 +25,30 @@ describe("AgentAvatar", () => {
     expect(el.props.src).toBe("/api/community/bots/b1/avatar")
   })
 
-  it("renders AvatarRenderer for a procedural avatar: config", () => {
-    const url = serializeAvatarConfig(DEFAULT_CONFIG)
-    const el = AgentAvatar({ name: "Bot", avatarUrl: url, size: 32 }) as unknown as RendererEl
-    expect(el.type).toBe(AvatarRenderer)
+  it("renders beam with the stored seed for a avatar:beam value", () => {
+    const el = AgentAvatar({ name: "Bot", avatarUrl: serializeBeamSeed("seed-123"), seed: "agent-1", size: 32 }) as unknown as BeamEl
+    expect(el.type).toBe(BoringAvatar)
+    expect(el.props.seed).toBe("seed-123")
     expect(el.props.size).toBe(32)
   })
 
-  it("falls back to the initial-letter span when avatarUrl is null/undefined", () => {
-    const el = AgentAvatar({ name: "Zara", avatarUrl: null, size: 32 }) as unknown as SpanEl
-    expect(el.type).toBe("span")
-    expect(el.props.children).toBe("Z")
+  it("ignores a legacy avatar:{shape…} config and beams by the fallback seed", () => {
+    const url = serializeAvatarConfig(DEFAULT_CONFIG)
+    const el = AgentAvatar({ name: "Bot", avatarUrl: url, seed: "agent-1", size: 32 }) as unknown as BeamEl
+    expect(el.type).toBe(BoringAvatar)
+    expect(el.props.seed).toBe("agent-1")
   })
 
-  it("falls back to '?' when both name and avatarUrl are missing", () => {
-    const el = AgentAvatar({}) as unknown as SpanEl
-    expect(el.type).toBe("span")
-    expect(el.props.children).toBe("?")
+  it("beams by the id seed when avatarUrl is null", () => {
+    const el = AgentAvatar({ name: "Zara", avatarUrl: null, seed: "agent-9", size: 32 }) as unknown as BeamEl
+    expect(el.type).toBe(BoringAvatar)
+    expect(el.props.seed).toBe("agent-9")
+  })
+
+  it("falls back to name as seed when no id, and '?' when nothing", () => {
+    const byName = AgentAvatar({ name: "Zara", avatarUrl: null }) as unknown as BeamEl
+    expect(byName.props.seed).toBe("Zara")
+    const empty = AgentAvatar({}) as unknown as BeamEl
+    expect(empty.props.seed).toBe("?")
   })
 })

@@ -21,7 +21,6 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
 } from "@/components/ui/context-menu";
-import { parseAvatarUrl } from "@/components/avatar";
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 import { DndContext, closestCenter, MouseSensor, TouchSensor, useSensor, useSensors, DragOverlay, type DragEndEvent, type DragStartEvent, type DragOverEvent } from "@dnd-kit/core";
 import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
@@ -565,15 +564,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
                 {dragActiveAgent ? (
                   <div className="opacity-80">
                     {(() => {
-                      const avatarConfig = parseAvatarUrl(dragActiveAgent.avatar_url);
-                      if (avatarConfig) {
-                        return <AnimatedAvatar config={avatarConfig} size={40} className="rounded-xl" isHovered={false} />;
-                      }
-                      return (
-                        <div className="flex items-center justify-center size-10 rounded-xl bg-secondary text-sm font-medium">
-                          {dragActiveAgent.name.charAt(0).toUpperCase()}
-                        </div>
-                      );
+                      return <AnimatedAvatar seed={dragActiveAgent.id} avatarUrl={dragActiveAgent.avatar_url} size={40} className="rounded-xl" isHovered={false} />;
                     })()}
                   </div>
                 ) : dragActiveFolder ? (

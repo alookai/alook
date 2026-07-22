@@ -5,7 +5,7 @@ import { CalendarDays, CircleDot, Home } from "lucide-react";
 import { useSidebarTrigger } from "@/components/workspace-shell";
 import { useAgentContext } from "@/contexts/agent-context";
 import { useWorkspace } from "@/contexts/workspace-context";
-import { AnimatedAvatar, parseAvatarUrl } from "@/components/avatar";
+import { AnimatedAvatar } from "@/components/avatar";
 import { Logo } from "@/components/logo";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -107,7 +107,6 @@ export function MobileTopBar() {
             const runtime = runtimes.find((r) => r.id === agent.runtime_id);
             const isOnline = runtime?.status === "online";
             const isActive = activeAgentId === agent.id;
-            const avatarConfig = parseAvatarUrl(agent.avatar_url);
 
             return (
               <button
@@ -120,13 +119,7 @@ export function MobileTopBar() {
                 )}
               >
                 <div className="size-7">
-                  {avatarConfig ? (
-                    <AnimatedAvatar config={avatarConfig} size={28} className="rounded-full" isHovered={false} />
-                  ) : (
-                    <div className="size-7 rounded-full bg-muted flex items-center justify-center text-[10px] font-medium">
-                      {agent.name.charAt(0).toUpperCase()}
-                    </div>
-                  )}
+                  <AnimatedAvatar seed={agent.id} avatarUrl={agent.avatar_url} size={28} className="rounded-full" isHovered={false} />
                 </div>
                 <span
                   className={cn(

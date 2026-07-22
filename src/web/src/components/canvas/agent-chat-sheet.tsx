@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/sheet";
 import { toAlookAddress } from "@alook/shared";
 import type { Agent } from "@alook/shared";
-import { AnimatedAvatar, parseAvatarUrl } from "@/components/avatar";
+import { AnimatedAvatar } from "@/components/avatar";
 import { useAgentContext } from "@/contexts/agent-context";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { ChannelBar } from "@/components/channel-bar";
@@ -102,13 +102,10 @@ export function AgentChatSheet({ open, onOpenChange, agentId, agent, targetConvI
         <SheetHeader>
           <div className="flex items-center gap-3 pr-16">
             {agent && (() => {
-              const avatarConfig = parseAvatarUrl(agent.avatar_url);
               const rt = runtimes.find((r) => r.id === agent.runtime_id);
               const isOnline = rt?.status === "online";
               const isWorking = !!isOnline && (activeTaskCounts[agent.id] ?? 0) > 0;
-              return avatarConfig ? (
-                <AnimatedAvatar config={avatarConfig} size={28} className="shrink-0 rounded-lg" isHovered={false} isWorking={isWorking} />
-              ) : null;
+              return <AnimatedAvatar seed={agent.id} avatarUrl={agent.avatar_url} size={28} className="shrink-0 rounded-lg" isHovered={false} isWorking={isWorking} />;
             })()}
             <div className="flex items-baseline gap-2 min-w-0">
               <SheetTitle className="truncate shrink-0">

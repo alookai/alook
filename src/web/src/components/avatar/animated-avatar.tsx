@@ -1,30 +1,24 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AvatarRenderer } from "./avatar-parts";
-import type { AvatarConfig } from "./avatar-parts";
+import { BoringAvatar } from "./boring-avatar";
+import { resolveAvatar } from "@/lib/avatar/resolve";
 
-const ANIMATIONS = [
-  "avatar-anim-shape-bounce",
-  "avatar-anim-head-tilt",
-  "avatar-anim-shake",
-  "avatar-anim-wobble",
-  "avatar-anim-pulse",
-  "avatar-anim-spin",
-  "avatar-anim-jelly",
-  "avatar-anim-float",
-  "avatar-anim-nod",
-] as const;
+// beam is a static SVG with no animatable internal parts, so only the
+// container-level animations survive the migration off the procedural
+// renderer (shape/eye/nose-targeted anims are dropped — see plan tradeoff).
+const ANIMATIONS = ["avatar-anim-pulse", "avatar-anim-float"] as const;
 
 interface AnimatedAvatarProps {
-  config: AvatarConfig;
+  seed: string;
+  avatarUrl?: string | null;
   size?: number;
   className?: string;
   isHovered: boolean;
   isWorking?: boolean;
 }
 
-export function AnimatedAvatar({ config, size, className, isHovered, isWorking }: AnimatedAvatarProps) {
+export function AnimatedAvatar({ seed, avatarUrl, size, className, isHovered, isWorking }: AnimatedAvatarProps) {
   const [animClass, setAnimClass] = useState<string | null>(null);
   const lastPickRef = useRef(-1);
 
@@ -55,9 +49,14 @@ export function AnimatedAvatar({ config, size, className, isHovered, isWorking }
     return () => clearInterval(interval);
   }, [isHovered, isWorking]);
 
+  const resolved = resolveAvatar(avatarUrl, seed);
   return (
     <div className={animClass ?? undefined}>
-      <AvatarRenderer config={config} size={size} className={className} />
+      {resolved.kind === "photo" ? (
+        <img src={resolved.url} alt="" className={`object-cover ${className ?? ""}`} style={{ width: size, height: size }} />
+      ) : (
+        <BoringAvatar seed={resolved.seed} size={size} className={className} />
+      )}
     </div>
   );
 }

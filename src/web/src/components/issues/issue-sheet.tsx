@@ -43,7 +43,8 @@ import { formatSize } from "@/components/agent-chat/artifact-sheet";
 import { isTerminalIssueStatus, toAlookAddress } from "@alook/shared";
 import type { TraceTask } from "@/lib/api";
 import { updateIssue } from "@/lib/api";
-import { AvatarRenderer, parseAvatarUrl } from "@/components/avatar";
+import { BoringAvatar } from "@/components/avatar";
+import { resolveAvatar } from "@/lib/avatar/resolve";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Kbd } from "@/components/ui/kbd";
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea";
@@ -67,18 +68,11 @@ function statusLabel(status: string) {
 // --- Sub-components ---
 
 function AgentAvatar({ agent, size = 24 }: { agent?: Agent | null; size?: number }) {
-  const avatarConfig = parseAvatarUrl(agent?.avatar_url);
-  if (avatarConfig) {
-    return <AvatarRenderer config={avatarConfig} size={size} className="shrink-0 rounded-full" />;
+  const resolved = resolveAvatar(agent?.avatar_url, agent?.id || agent?.name || "?");
+  if (resolved.kind === "photo") {
+    return <img src={resolved.url} alt={agent?.name ?? ""} className="shrink-0 rounded-full object-cover" style={{ width: size, height: size }} />;
   }
-  return (
-    <span
-      className="flex shrink-0 items-center justify-center rounded-full border border-border bg-muted text-[11px] font-medium text-muted-foreground"
-      style={{ width: size, height: size }}
-    >
-      {(agent?.name ?? "?").slice(0, 1).toUpperCase()}
-    </span>
-  );
+  return <BoringAvatar seed={resolved.seed} size={size} className="shrink-0 rounded-full" />;
 }
 
 function AgentIdentity({ agent, size = 24 }: { agent: Agent; size?: number }) {

@@ -15,12 +15,8 @@ import {
 } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
-import {
-  type AvatarConfig,
-  type AvatarDraft,
-  randomConfig,
-  serializeAvatarConfig,
-} from "@/components/avatar"
+import { type AvatarDraft } from "@/components/avatar"
+import { serializeBeamSeed } from "@/lib/avatar/seed-url"
 import { ProviderLogo } from "@/components/provider-logo"
 import { useMachines } from "@/hooks/community/use-machines"
 import { useCreateBot, useUploadBotAvatar } from "@/hooks/community/use-bots"
@@ -33,13 +29,8 @@ import {
 import { uniqueNamesGenerator, names } from "unique-names-generator"
 import { cn } from "@/lib/utils"
 
-// Stable initial config avoids hydration mismatch (randomConfig uses Math.random).
-const INITIAL_AVATAR: AvatarConfig = {
-  shape: "circle",
-  eye: "dots",
-  nose: "dot",
-  bg: 0,
-}
+// Stable initial seed avoids hydration mismatch (real seed is rerolled on mount).
+const INITIAL_AVATAR = serializeBeamSeed("initial")
 
 function randomBotName(): string {
   return uniqueNamesGenerator({ dictionaries: [names], length: 1, style: "capital" })
@@ -62,7 +53,7 @@ export function CreateBotSheet({
   const [fieldErrors, setFieldErrors] = useState<BotCreateFieldErrors>({})
   const [avatarDraft, setAvatarDraft] = useState<AvatarDraft>({
     kind: "procedural",
-    image: serializeAvatarConfig(INITIAL_AVATAR),
+    image: INITIAL_AVATAR,
   })
 
   const selectedMachine = machines.find((m) => m.id === machineId)
@@ -94,7 +85,7 @@ export function CreateBotSheet({
     if (initializedFor.current) return
     initializedFor.current = true
     setName(randomBotName())
-    setAvatarDraft({ kind: "procedural", image: serializeAvatarConfig(randomConfig()) })
+    setAvatarDraft({ kind: "procedural", image: serializeBeamSeed(crypto.randomUUID()) })
     setDescription("")
     setMachineId("")
     setRuntime("")

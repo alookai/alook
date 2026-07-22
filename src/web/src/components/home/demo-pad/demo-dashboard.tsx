@@ -6,14 +6,14 @@ import { MessageCluster } from "@/components/chat-primitives/message-cluster";
 import { PresenceLine } from "@/components/agent-chat/presence-line";
 import { EmailCard } from "@/components/agent-chat/event-cards/email-card";
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
-import { AvatarRenderer, type AvatarConfig } from "@/components/avatar/avatar-parts";
+import { BoringAvatar } from "@/components/avatar/boring-avatar";
 import { Logo } from "@/components/logo";
 import { cn } from "@/lib/utils";
 
 export interface AgentInfo {
   name: string;
   email: string;
-  config: AvatarConfig;
+  seed: string;
 }
 
 export interface DashboardStep {
@@ -69,7 +69,7 @@ export function DemoDashboard({ state, config, className }: { state: DashboardSt
                     : "ring-transparent hover:ring-border/60",
                 )}
               >
-                <AvatarRenderer config={a.config} size={32} />
+                <BoringAvatar seed={a.seed} size={32} />
               </div>
             );
           })}
@@ -121,7 +121,7 @@ export function DemoDashboard({ state, config, className }: { state: DashboardSt
                     <MessageCluster
                       avatar={
                         <div className="size-6.5 rounded-lg overflow-hidden">
-                          <AnimatedAvatar config={agent.config} size={26} isHovered={false} isWorking={state.isWorking} />
+                          <AnimatedAvatar seed={agent.seed} size={26} isHovered={false} isWorking={state.isWorking} />
                         </div>
                       }
                       name={agent.name}
@@ -136,7 +136,7 @@ export function DemoDashboard({ state, config, className }: { state: DashboardSt
                     <MessageCluster
                       avatar={
                         <div className="size-6.5 rounded-lg overflow-hidden">
-                          <AnimatedAvatar config={agent.config} size={26} isHovered={false} isWorking={false} />
+                          <AnimatedAvatar seed={agent.seed} size={26} isHovered={false} isWorking={false} />
                         </div>
                       }
                       name={agent.name}
@@ -164,7 +164,7 @@ export function DemoDashboard({ state, config, className }: { state: DashboardSt
                     <MessageCluster
                       avatar={
                         <div className="size-6.5 rounded-lg overflow-hidden">
-                          <AnimatedAvatar config={agent.config} size={26} isHovered={false} isWorking={state.isWorking} />
+                          <AnimatedAvatar seed={agent.seed} size={26} isHovered={false} isWorking={state.isWorking} />
                         </div>
                       }
                       name={agent.name}

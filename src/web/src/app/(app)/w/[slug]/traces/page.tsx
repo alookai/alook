@@ -16,7 +16,8 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { GitBranch, RefreshCw } from "lucide-react";
-import { AvatarRenderer, parseAvatarUrl } from "@/components/avatar";
+import { BoringAvatar } from "@/components/avatar";
+import { resolveAvatar } from "@/lib/avatar/resolve";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
@@ -72,17 +73,12 @@ function StatusDot({ status }: { status: string }) {
   return <span className={`size-1.5 rounded-full shrink-0 ${colorClass}`} />;
 }
 
-function AgentAvatar({ name, avatarUrl, size = 14 }: { name?: string; avatarUrl?: string | null; size?: number }) {
-  const config = parseAvatarUrl(avatarUrl);
-  if (config) return <AvatarRenderer config={config} size={size} className="rounded-full shrink-0" />;
-  return (
-    <span
-      className="flex items-center justify-center rounded-full bg-secondary text-[8px] font-medium shrink-0"
-      style={{ width: size, height: size }}
-    >
-      {(name ?? "?").charAt(0).toUpperCase()}
-    </span>
-  );
+function AgentAvatar({ name, avatarUrl, seed, size = 14 }: { name?: string; avatarUrl?: string | null; seed?: string; size?: number }) {
+  const resolved = resolveAvatar(avatarUrl, seed || name || "?");
+  if (resolved.kind === "photo") {
+    return <img src={resolved.url} alt={name ?? ""} className="rounded-full shrink-0 object-cover" style={{ width: size, height: size }} />;
+  }
+  return <BoringAvatar seed={resolved.seed} size={size} className="rounded-full shrink-0" />;
 }
 
 function TraceRow({ trace, slug }: { trace: TraceListItem; slug: string }) {
@@ -131,7 +127,7 @@ function TraceRow({ trace, slug }: { trace: TraceListItem; slug: string }) {
                 <span className="flex items-center">
                   {trace.helper_agents.map((h, i) => (
                     <span key={h.id} className={i > 0 ? "-ml-1" : ""}>
-                      <AgentAvatar name={h.name} avatarUrl={h.avatarUrl} />
+                      <AgentAvatar name={h.name} avatarUrl={h.avatarUrl} seed={h.id} />
                     </span>
                   ))}
                 </span>
@@ -321,7 +317,7 @@ export default function TracesPage() {
             {agents.map((a) => (
               <SelectItem key={a.id} value={a.id}>
                 <span className="flex items-center gap-2">
-                  <AgentAvatar name={a.name} avatarUrl={a.avatar_url} />
+                  <AgentAvatar name={a.name} avatarUrl={a.avatar_url} seed={a.id} />
                   {a.name}
                 </span>
               </SelectItem>
