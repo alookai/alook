@@ -44,10 +44,33 @@ export async function seedServer(owner: UserKey, name: string): Promise<string> 
   return data.server.id
 }
 
-export async function seedChannel(owner: UserKey, serverId: string, name: string, type?: "text" | "forum"): Promise<string> {
-  const res = await post(owner, `/api/community/servers/${serverId}/channels`, { name, type })
+export async function seedChannel(
+  owner: UserKey,
+  serverId: string,
+  name: string,
+  type?: "text" | "forum",
+  categoryId?: string,
+): Promise<string> {
+  const res = await post(owner, `/api/community/servers/${serverId}/channels`, { name, type, categoryId })
   const data = (await res.json()) as { channel: { id: string } }
   return data.channel.id
+}
+
+// Create a category (optionally private) and return its id. A private category
+// is what turns its channels' @-mention scope from server-wide to the channel
+// audience — the whole point of the scope spec.
+export async function seedCategory(
+  owner: UserKey,
+  serverId: string,
+  name: string,
+  opts?: { private?: boolean },
+): Promise<string> {
+  const res = await post(owner, `/api/community/servers/${serverId}/categories`, {
+    name,
+    private: opts?.private,
+  })
+  const data = (await res.json()) as { category: { id: string } }
+  return data.category.id
 }
 
 // Server membership comes from joining via invite (channels/[id]/members is
@@ -154,6 +177,15 @@ export async function seedForumPost(
   const res = await post(author, `/api/community/channels/${forumChannelId}/posts`, { name, content })
   const data = (await res.json()) as { post: { id: string } }
   return data.post.id
+}
+
+// Create a thread rooted on an existing message. Returns the thread's own
+// child-channel id. A thread has NO roster of its own — its @-mention scope is
+// the PARENT channel's audience — which is exactly what the scope spec probes.
+export async function seedThread(author: UserKey, messageId: string, name: string): Promise<string> {
+  const res = await post(author, `/api/community/messages/${messageId}/threads`, { name })
+  const data = (await res.json()) as { id: string }
+  return data.id
 }
 
 export async function createInvite(owner: UserKey, serverId: string): Promise<string> {
