@@ -8,7 +8,12 @@ type MemberMentionItem = {
   kind: "member"
   id: string
   userId: string
+  // `label` stays name#discriminator — it's the mention token serialized into
+  // the message and used for insertion. `name`/`discriminator` are split out
+  // so the popover row can render the tag with the muted canonical styling.
   label: string
+  name: string
+  discriminator: string
   avatar: string
   status: "online" | "offline"
 }
@@ -70,6 +75,8 @@ export function rankMentionItems(
       id: m.id,
       userId: m.userId,
       label: `${m.name}#${m.discriminator}`,
+      name: m.name,
+      discriminator: m.discriminator,
       avatar: m.avatar,
       status: m.status,
     }

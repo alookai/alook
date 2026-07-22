@@ -19,15 +19,15 @@ import type { FriendsResponse } from "@/hooks/community/use-friends"
 
 // ── Send friend request ────────────────────────────────────────────────────
 
-export type SendFriendRequestArgs = { username: string }
+export type SendFriendRequestArgs = { username?: string; userId?: string }
 
 export function useSendFriendRequest() {
   const queryClient = useQueryClient()
   return useMutation<void, Error, SendFriendRequestArgs>({
-    mutationFn: async ({ username }) => {
+    mutationFn: async ({ username, userId }) => {
       await apiFetch("/api/community/friends/request", {
         method: "POST",
-        body: JSON.stringify({ username }),
+        body: JSON.stringify({ userId, username }),
       })
     },
     onSuccess: () => {
@@ -93,6 +93,37 @@ export function useRemoveFriend() {
     (prev, id) =>
       prev ? { ...prev, friends: prev.friends.filter((f) => f.id !== id) } : prev,
   )
+}
+
+// ── Cancel outgoing bot friend-request ─────────────────────────────────────
+//
+// Bot requests live in community_bot_approval_request, not community_friendship,
+// so cancel hits a dedicated requester-side endpoint keyed by the approval id.
+
+export type CancelBotFriendRequestArgs = { requestId: string }
+
+export function useCancelBotFriendRequest() {
+  const queryClient = useQueryClient()
+  return useMutation<void, Error, CancelBotFriendRequestArgs, { snapshot: FriendsResponse | undefined }>({
+    mutationFn: async ({ requestId }) => {
+      await apiFetch(`/api/community/friends/bot-request/${requestId}/cancel`, { method: "POST" })
+    },
+    onMutate: async ({ requestId }) => {
+      const key = communityKeys.friends()
+      await queryClient.cancelQueries({ queryKey: key })
+      const snapshot = queryClient.getQueryData<FriendsResponse>(key)
+      queryClient.setQueryData<FriendsResponse | undefined>(key, (prev) =>
+        prev ? { ...prev, pending: prev.pending.filter((p) => p.id !== requestId) } : prev,
+      )
+      return { snapshot }
+    },
+    onError: (_err, _args, ctx) => {
+      if (ctx?.snapshot) queryClient.setQueryData(communityKeys.friends(), ctx.snapshot)
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: communityKeys.friends() })
+    },
+  })
 }
 
 // ── Block / unblock ────────────────────────────────────────────────────────

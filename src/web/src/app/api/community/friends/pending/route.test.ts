@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
 const listPending = vi.fn()
+const listPendingBotRequests = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
@@ -12,6 +13,9 @@ vi.mock("@alook/shared", async () => {
     queries: {
       communityFriendship: {
         listPending: (...a: unknown[]) => listPending(...a),
+      },
+      communityBot: {
+        listPendingFriendRequestsByRequester: (...a: unknown[]) => listPendingBotRequests(...a),
       },
     },
   }
@@ -46,10 +50,27 @@ describe("GET /api/community/friends/pending", () => {
     listPending.mockResolvedValue([
       { id: "fr_1", userId: "u_person", name: "Ada", image: null, kind: "incoming" },
     ])
+    listPendingBotRequests.mockResolvedValue([])
     const res = await GET(req, {} as never)
     expect(res.status).toBe(200)
     const body = await res.json() as { pending: Array<{ id: string; userId: string }> }
     expect(body.pending[0].id).toBe("fr_1")
     expect(body.pending[0].userId).toBe("u_person")
+  })
+
+  it("merges outgoing bot friend-requests tagged source:'bot' with the approval-request id", async () => {
+    listPending.mockResolvedValue([
+      { id: "fr_1", userId: "u_person", name: "Ada", image: null, kind: "outgoing" },
+    ])
+    listPendingBotRequests.mockResolvedValue([
+      { id: "bar_1", botUserId: "u_bot", name: "HelperBot", image: null, createdAt: "2026-01-01T00:00:00Z" },
+    ])
+    const res = await GET(req, {} as never)
+    expect(res.status).toBe(200)
+    const body = await res.json() as { pending: Array<{ id: string; userId: string; kind: string; source: string }> }
+    const human = body.pending.find((p) => p.id === "fr_1")!
+    const bot = body.pending.find((p) => p.id === "bar_1")!
+    expect(human.source).toBe("friend")
+    expect(bot).toMatchObject({ userId: "u_bot", kind: "outgoing", source: "bot" })
   })
 })

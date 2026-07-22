@@ -164,7 +164,7 @@ export function BotActivityModal({
         className="flex h-[72vh] max-h-170 w-full max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl"
       >
         <header className="flex shrink-0 items-center gap-3 border-b border-border/40 px-4 py-3">
-          <AgentAvatar name={bot?.name ?? ""} avatarUrl={bot?.image ?? null} size={32} />
+          <AgentAvatar name={bot?.name ?? ""} avatarUrl={bot?.image ?? null} seed={bot?.id} size={32} />
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
             <DialogTitle className="truncate text-sm font-medium">
               {bot?.name ?? "Bot"}

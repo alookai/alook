@@ -354,7 +354,7 @@ function MemberRow({
         <div className={`truncate text-sm leading-tight ${isPresenceOffline(mem.status) ? "text-muted-foreground" : ""}`}>
           {mem.name}
           {showDiscriminator && mem.discriminator && (
-            <span className="text-muted-foreground">#{mem.discriminator}</span>
+            <span className="ml-1 text-xs font-normal tracking-wide text-muted-foreground">#{mem.discriminator}</span>
           )}
         </div>
         {hasStatus(mem.statusEmoji, mem.statusText) && (

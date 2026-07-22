@@ -750,6 +750,44 @@ export async function findPendingFriendRequest(
   return (rows[0] as ApprovalRequestRow | undefined) ?? null;
 }
 
+export type OutgoingBotFriendRequest = {
+  id: string;
+  botUserId: string;
+  name: string;
+  image: string | null;
+  createdAt: string;
+};
+
+/**
+ * A requester's outgoing pending bot friend-requests, joined to the bot's
+ * public identity. Backs the friends "Outgoing" list so a sent bot request is
+ * visible (and cancellable) instead of silently living only as an owner-side
+ * DM approval card. Covered by the partial unique index
+ * `uq_community_bot_approval_pending_friend`.
+ */
+export async function listPendingFriendRequestsByRequester(
+  db: Database,
+  requesterUserId: string
+): Promise<OutgoingBotFriendRequest[]> {
+  return (await db
+    .select({
+      id: communityBotApprovalRequest.id,
+      botUserId: user.id,
+      name: user.name,
+      image: user.image,
+      createdAt: communityBotApprovalRequest.createdAt,
+    })
+    .from(communityBotApprovalRequest)
+    .innerJoin(user, eq(user.id, communityBotApprovalRequest.botId))
+    .where(
+      and(
+        eq(communityBotApprovalRequest.requestedByUserId, requesterUserId),
+        eq(communityBotApprovalRequest.kind, "friend"),
+        eq(communityBotApprovalRequest.status, "pending")
+      )
+    )) as OutgoingBotFriendRequest[];
+}
+
 /**
  * Statement-returning insert. Application layer enforces the
  * `kind = "join_server" ⇔ serverId != null` invariant (SQLite CHECK can't

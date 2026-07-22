@@ -75,6 +75,15 @@ describe("useSendFriendRequest — invalidates friends on success", () => {
       }),
     ).toBe(true)
   })
+
+  it("posts both userId and the name#discriminator handle when given both", async () => {
+    apiFetchMock.mockResolvedValueOnce(undefined)
+    const mod = await load()
+    mod.useSendFriendRequest()
+    await runMutation({ userId: "u_1", username: "alice#0042" })
+    const body = JSON.parse((apiFetchMock.mock.calls[0][1] as { body: string }).body)
+    expect(body).toEqual({ userId: "u_1", username: "alice#0042" })
+  })
 })
 
 describe("useAcceptFriendRequest — rollback", () => {
@@ -88,6 +97,40 @@ describe("useAcceptFriendRequest — rollback", () => {
     const mod = await load()
     mod.useAcceptFriendRequest()
     await runMutation({ friendshipId: "f_1" }).catch(() => {})
+    const cache = capturedQc.getQueryData<{ pending: { id: string }[] }>(communityKeys.friends())
+    expect(cache?.pending).toHaveLength(1)
+  })
+})
+
+describe("useCancelBotFriendRequest — optimistic + rollback", () => {
+  it("posts to the bot-cancel route and optimistically drops the outgoing bot row", async () => {
+    capturedQc.setQueryData(communityKeys.friends(), {
+      friends: [],
+      blocked: [],
+      pending: [{ id: "bar_1", userId: "u_bot", name: "Bot", avatar: "B", kind: "outgoing", source: "bot" }],
+    })
+    apiFetchMock.mockResolvedValueOnce(undefined)
+    const mod = await load()
+    mod.useCancelBotFriendRequest()
+    await runMutation({ requestId: "bar_1" })
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/community/friends/bot-request/bar_1/cancel",
+      { method: "POST" },
+    )
+    const cache = capturedQc.getQueryData<{ pending: { id: string }[] }>(communityKeys.friends())
+    expect(cache?.pending).toHaveLength(0)
+  })
+
+  it("restores the outgoing row when the server rejects", async () => {
+    capturedQc.setQueryData(communityKeys.friends(), {
+      friends: [],
+      blocked: [],
+      pending: [{ id: "bar_1", userId: "u_bot", name: "Bot", avatar: "B", kind: "outgoing", source: "bot" }],
+    })
+    apiFetchMock.mockRejectedValueOnce(new Error("boom"))
+    const mod = await load()
+    mod.useCancelBotFriendRequest()
+    await runMutation({ requestId: "bar_1" }).catch(() => {})
     const cache = capturedQc.getQueryData<{ pending: { id: string }[] }>(communityKeys.friends())
     expect(cache?.pending).toHaveLength(1)
   })

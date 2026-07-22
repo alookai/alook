@@ -12,6 +12,7 @@ import {
   useSendFriendRequest,
   useAcceptFriendRequest,
   useRejectFriendRequest,
+  useCancelBotFriendRequest,
   useRemoveFriend,
   useBlockUser,
   useUnblockUser,
@@ -44,6 +45,7 @@ export default function MeFriendsPage() {
   const sendFriendRequest = useSendFriendRequest()
   const acceptFriendRequest = useAcceptFriendRequest()
   const rejectFriendRequest = useRejectFriendRequest()
+  const cancelBotFriendRequest = useCancelBotFriendRequest()
   const removeFriend = useRemoveFriend()
   const blockUser = useBlockUser()
   const unblockUser = useUnblockUser()
@@ -71,11 +73,16 @@ export default function MeFriendsPage() {
           { onError: (e) => toastApiError(e, "Failed to reject request") },
         )
       }
-      onCancelRequest={(id) =>
-        rejectFriendRequest.mutate(
-          { friendshipId: id },
-          { onError: (e) => toastApiError(e, "Failed to cancel request") },
-        )
+      onCancelRequest={({ id, source }) =>
+        source === "bot"
+          ? cancelBotFriendRequest.mutate(
+              { requestId: id },
+              { onError: (e) => toastApiError(e, "Failed to cancel request") },
+            )
+          : rejectFriendRequest.mutate(
+              { friendshipId: id },
+              { onError: (e) => toastApiError(e, "Failed to cancel request") },
+            )
       }
       onUnblock={(id) =>
         unblockUser.mutate(
@@ -86,9 +93,9 @@ export default function MeFriendsPage() {
           },
         )
       }
-      onSendRequest={async (username) => {
+      onSendRequest={async ({ userId, username }) => {
         try {
-          await sendFriendRequest.mutateAsync({ username })
+          await sendFriendRequest.mutateAsync({ userId, username })
           toast("Friend request sent")
         } catch (e) {
           toastApiError(e, "Failed to send friend request")

@@ -25,6 +25,8 @@ export const COMMUNITY_AUDIT_ACTIONS = {
   BOT_FRIEND_REQUESTED: "community.bot.friend_requested",
   BOT_FRIEND_APPROVED: "community.bot.friend_approved",
   BOT_FRIEND_DENIED: "community.bot.friend_denied",
+  /** Requester withdrew their own pending bot friend-request. */
+  BOT_FRIEND_CANCELLED: "community.bot.friend_cancelled",
   MESSAGE_AUTHORED_AS_BOT: "community.message.authored_as_bot",
 } as const
 
