@@ -85,8 +85,8 @@ Alook is the orchestration layer. Pick the agents you trust — we give them rol
 | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | Available |
 | [Codex](https://openai.com/index/introducing-codex/) | Available |
 | [OpenCode](https://github.com/opencode-ai/opencode) | Available |
+| [Hermes](https://github.com/NousResearch/Hermes-Agent) | Available |
 | Cursor | Coming Soon |
-| Hermes | Coming Soon |
 | OpenClaw | Coming Soon |
 
 

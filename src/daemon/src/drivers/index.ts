@@ -15,6 +15,7 @@ import { OpenCodeDriver } from "./opencode.js";
 import { AntigravityDriver } from "./antigravity.js";
 import { KimiDriver } from "./kimi.js";
 import { PiDriver } from "./pi.js";
+import { HermesDriver } from "./hermes.js";
 
 export type RuntimeId =
   | "claude"
@@ -25,7 +26,8 @@ export type RuntimeId =
   | "gemini"
   | "kimi"
   | "opencode"
-  | "pi";
+  | "pi"
+  | "hermes";
 
 const driverFactories: Record<RuntimeId, () => Driver> = {
   claude: () => new ClaudeDriver(),
@@ -37,6 +39,7 @@ const driverFactories: Record<RuntimeId, () => Driver> = {
   kimi: () => new KimiDriver(),
   opencode: () => new OpenCodeDriver(),
   pi: () => new PiDriver(),
+  hermes: () => new HermesDriver(),
 };
 
 export function getDriver(runtimeId: string): Driver {
@@ -62,4 +65,5 @@ export {
   AntigravityDriver,
   KimiDriver,
   PiDriver,
+  HermesDriver,
 };
