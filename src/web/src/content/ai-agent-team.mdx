@@ -2,9 +2,10 @@ export const metadata = {
   slug: "ai-agent-team",
   title: "How to Build an AI Agent Team: Roles, Handoffs, and Oversight",
   date: "2026-06-08",
+  dateModified: "2026-07-23",
   author: "Alook Team",
   excerpt:
-    "Build an AI agent team around one reliable workflow with defined roles, structured handoffs, shared context, failure paths, and human approval.",
+    "Build an AI agent team around one reliable workflow with defined roles, structured handoffs, recorded decisions, failure paths, and human approval.",
   readingTime: "7 min read",
   image: "/blog/ai-agent-team/hero.webp",
 };
@@ -58,79 +59,77 @@ export const jsonLd = [
   },
 ];
 
-![Conceptual AI agent team workflow with coordination, analysis, execution, and a completed output](/blog/ai-agent-team/hero.webp)
+![AI agent team workflow: Owner, Orchestrator, Specialists, handoff artifact, Reviewer, and human approval](/blog/ai-agent-team/hero.webp)
 
-*A conceptual workflow showing defined roles and handoffs, not a product screenshot.*
+*Clear roles, structured handoffs, and human oversight — a conceptual workflow, not a product screenshot.*
 
-An AI agent team is a group of agents with defined roles working on one shared workflow. One agent might investigate an issue, another might implement a change, and a review step checks the result before it moves forward. The value comes from clear ownership and reliable handoffs, not from adding as many agents as possible.
+An AI agent team is a group of agents with defined roles working on one shared workflow. One agent might investigate an issue. Another prepares a change. A review step checks the result before anything moves forward.
 
-You still set the goal, control access, and approve important decisions. The agents handle scoped work inside those boundaries.
+Clear ownership and reliable handoffs matter more than stacking agents.
+
+You still set the goal, control access, and approve the decisions that can hurt customers or production. The agents handle scoped work inside those boundaries. If those boundaries stay fuzzy, more agents only multiply the mess.
 
 ## What is an AI agent team?
 
-A single AI agent receives instructions and produces a result. An AI agent team divides a larger workflow into stages, then assigns each stage to a role with the right tools and context.
+A single AI agent receives instructions and produces a result. An AI agent team divides a larger workflow into stages, then assigns each stage to a role with the right tools and context. The difference shows up when one stage needs a permission another stage should never hold.
 
-For example, a software workflow might include:
+Take a bug that needs a draft pull request. One useful shape looks like this:
 
-- An investigator that reproduces a bug and identifies likely causes
+- An investigator that reproduces the bug and names likely causes
 - A developer that prepares a code change
 - A reviewer that checks the diff, tests, and acceptance criteria
 - A human who decides whether the change is ready to merge
 
-These are workflow roles, not job titles. The same agent can own more than one role when the work is simple. Separate agents become useful when stages need different permissions, instructions, or review standards.
+These are workflow roles, not job titles. The same agent can own more than one role when the work is simple. Separate agents help when stages need different permissions, instructions, or review standards.
+
+Want a harder test? Ask whether two stages would still make sense if each one used a different tool set.
 
 ## AI agent team vs single agent
 
 Multiple agents introduce coordination overhead. Use a team only when that overhead solves a real problem.
 
-A single agent is usually enough when:
+A single agent is usually enough when the task has one clear output, the same context and tools apply from start to finish, a failure does not need a separate recovery path, and one review point at the end is enough.
 
-- The task has one clear output.
-- The same context and tools apply from start to finish.
-- A failure does not require a separate recovery path.
-- One review point at the end is sufficient.
+When does a team earn the extra coordination cost? When stages have different responsibilities. When one stage should not hold another stage's tools. When a specialist needs to challenge another agent's output, work must continue through repeatable handoffs, or you need to trace which role made each decision.
 
-An AI agent team becomes useful when:
+Vendor docs draw a related line inside one product. Anthropic's [Claude Code agent teams](https://code.claude.com/docs/en/agent-teams) treat teammates as coordinated sessions with a shared task list and messaging, and they warn that the mode is experimental and token-heavy. That is still one runtime coordinating peers. The design questions in this guide sit one layer up: who owns each stage, what artifact moves between stages, and where a person must approve. If your problem is really "two Claude sessions need a mailbox," start with that product doc. If your problem is "two different coding agents need a durable handoff across tools," keep reading.
 
-- The workflow has distinct stages with different responsibilities.
-- One stage should not have access to another stage's tools.
-- A specialist needs to review or challenge another agent's output.
-- Work must continue through repeatable handoffs.
-- You need to trace which role made each decision.
+Start with one agent. Split the workflow only after you can name the handoff the next agent will own.
 
-Start with one agent. Split the workflow only after you can name the handoff that the next agent will own.
+![When to use a single agent versus an AI agent team](/blog/ai-agent-team/team-vs-single.webp)
+
+*Start with one agent. Move to a team only when stages, permissions, or review need a real handoff.*
 
 ## The roles inside an AI agent team
 
-There is no fixed list of agents that every team needs. A useful team is designed around a workflow, but most setups contain some version of these responsibilities.
+There is no fixed roster every team must hire. Design around a workflow, then map responsibilities.
 
-**The owner sets the outcome.** This is usually a person. The owner defines success, grants access, and decides which actions require approval.
+The **owner** is usually a person who defines success, grants access, and decides which actions need approval. The **orchestrator** assigns a stage, records status, passes outputs onward, and surfaces failures so the coordination layer never hides what happened. **Specialists** do scoped work such as research, code changes, and analysis, with instructions and permissions matched to the task they own.
 
-**The orchestrator keeps work moving.** It assigns a stage, records status, passes outputs to the next role, and makes failures visible. The orchestration layer should not hide what happened.
+A **reviewer** can be another agent for routine checks. High-impact decisions still belong to a person.
 
-**Specialists perform scoped work.** A researcher gathers evidence. A developer changes code. An analyst evaluates data. Their instructions and permissions should match the task they own.
+One agent may cover several of those jobs at first. Split them when different tools, context, or approval rules make separation safer or easier to evaluate. If you cannot say which role owns a failure, the roster is still too vague.
 
-**A reviewer checks the result.** Review can be handled by another agent for routine checks, but high-impact decisions still belong to a person.
+![Roles inside an AI agent team: Owner, Orchestrator, Specialists, and Reviewer](/blog/ai-agent-team/roles-structure.webp)
 
-One agent may cover several responsibilities at first. Split them when different tools, context, or approval rules make separation safer or easier to evaluate.
+*Owner sets the outcome. Orchestrator keeps work moving. Specialists do scoped work. Reviewer checks the result.*
 
 ## How AI agents coordinate and hand off work
 
-A handoff needs more than a message saying “continue.” The next agent needs a clear contract.
+A handoff needs more than a message that says “continue.” The next agent needs a contract.
 
-**Scope.** State what the current agent owns and what it must leave untouched.
+- **Scope** — what the current agent owns, and what it must leave alone
+- **Input** — source material, earlier decisions, and constraints the agent should use
+- **Output** — the artifact the next step expects: research brief, issue analysis, patch, test report, or approval request
+- **Completion criteria** — how the team knows the stage is finished; if a check can be written down, write it down
+- **Failure path** — what happens when information is missing, a tool fails, or review rejects the result (silent retries are not always right)
+- **Approval boundary** — which actions may proceed automatically, and which must wait for a person
 
-**Input.** Identify the source material, previous decisions, and constraints that the agent should use.
+Recorded decisions help the next role, but only when that role knows how to apply them. Contracts still come first.
 
-**Output.** Define the artifact the next step expects, such as a research brief, issue analysis, patch, test report, or approval request.
+![Handoff contract: Scope, Input, Output, Completion criteria, Failure path, Approval boundary](/blog/ai-agent-team/handoff-contract.webp)
 
-**Completion criteria.** Explain how the team knows the stage is finished. If a check can be made explicit, write it down.
-
-**Failure path.** Decide what happens when information is missing, a tool fails, or the result does not pass review. Retrying silently is not always the right response.
-
-**Approval boundary.** Specify which actions can proceed automatically and which must wait for a person.
-
-Shared context helps agents understand earlier decisions, but it does not replace these contracts. A recorded decision is useful only when the next role knows how to apply it.
+*A handoff needs a contract — not a message that only says “continue.”*
 
 For a deeper explanation of this coordination layer, read the guide to [AI orchestration](/blog/ai-agent-orchestration).
 
@@ -138,48 +137,37 @@ For a deeper explanation of this coordination layer, read the guide to [AI orche
 
 ### 1. Choose one repeatable workflow
 
-Pick work with a visible trigger, a defined output, and a result you can inspect. A bug report moving toward a draft pull request is easier to evaluate than a broad instruction such as “improve the product.”
+Pick work with a visible trigger, a defined output, and a result you can inspect. A bug report moving toward a draft pull request is easier to evaluate than “improve the product.”
 
 ### 2. Map the stages before choosing agents
 
-Write the workflow as a sequence. For a bug:
-
-1. Reproduce the problem.
-2. Identify the likely cause.
-3. Prepare a change.
-4. Run the required checks.
-5. Review the diff and evidence.
-6. Ask a person to approve the next action.
-
-The stages reveal which roles you need. They also show where a handoff may fail.
+Write the workflow as a sequence. For a bug: reproduce the problem, identify the likely cause, prepare a change, run the required checks, review the diff and evidence, then ask a person to approve the next action. Those stages reveal which roles you need and where a handoff may fail.
 
 ### 3. Give each role limited access
 
-An investigator may only need the repository, issue details, and logs. A developer may need permission to edit a branch and run tests. Neither role needs permission to merge into production.
-
-Limit access by default. Expand it only when a tested workflow requires more.
+An investigator may only need the repository, issue details, and logs. A developer may need permission to edit a branch and run tests. Neither role needs permission to merge into production. Limit access by default; expand it only when a tested workflow requires more.
 
 ### 4. Define handoff artifacts
 
-Do not rely on a long chat transcript as the only record. Ask each role to leave a structured result: findings, changed files, test output, unresolved questions, and the recommended next step.
-
-This gives the next agent a stable starting point and makes human review faster.
+Do not rely on a long chat transcript as the only record. Ask each role to leave a structured result: findings, changed files, test output, unresolved questions, and the recommended next step. That gives the next agent a stable starting point and makes human review faster.
 
 ### 5. Test normal cases and failures
 
-Run the workflow with representative inputs. Then test missing information, conflicting instructions, tool errors, failed checks, and outputs that should be rejected.
-
-A successful run tells you the path can work. A failed run shows whether the team can stop safely and explain what happened.
+Run the workflow with representative inputs first. Then break it on purpose: missing information, conflicting instructions, tool errors, failed checks, and outputs that should be rejected. A successful run only shows the path can work; a failed run shows whether the team can stop safely and explain what happened.
 
 ### 6. Add scheduling after the workflow is reliable
 
-Recurring work should be scheduled only after the unscheduled version produces useful, reviewable results. Keep a history of instructions, decisions, and outputs so you can investigate changes in behavior.
+Recurring work belongs on a calendar only after the unscheduled version produces useful, reviewable results. Keep a history of instructions, decisions, and outputs so you can investigate changes in behavior when the Tuesday run looks nothing like Monday's.
 
 You can find additional structures in the guide to [multi-agent workflow patterns](/blog/multi-agent-workflow-patterns).
 
 ## Building an AI agent team with Alook
 
-[Alook](https://alook.ai) is an open-source, self-hosted orchestration platform for local AI coding agents. It currently supports Claude Code, Codex, and OpenCode.
+[Alook](https://alook.ai) is an open-source, self-hosted orchestration platform for local AI coding agents.
+
+### Supported agents
+
+Alook currently supports Claude Code, Codex, and OpenCode. Cursor, Hermes, and OpenClaw are listed as coming soon.
 
 Alook gives agents an operating structure:
 
@@ -191,48 +179,67 @@ Alook gives agents an operating structure:
 - **Traceability** records instructions, decisions, and replies.
 - **Local execution** keeps your agents and their tool access on your machine.
 
+### An example walkthrough: four roles, one brief
+
+The structure above becomes clearer with a concrete team. On July 3, 2026, [Akshay Pachaar published a public walkthrough](https://x.com/akshay_pachaar/status/2073050056299835736) that sets up a four-agent org chart for one competitive-intelligence job: track a pricing page, schedule the check, and notify a person when something changes.
+
+The roles in that walkthrough:
+
+- **Atlas (CEO)** is the human’s single point of contact. It receives the brief and delegates.
+- **Mara (PM)** turns the brief into a spec and routes work. Specialists talk to Mara, not to each other or to Atlas directly.
+- **Theo (engineer)** builds and maintains the tracker for the watched page.
+- **Ren (ops)** watches the output and emails the human when a tracked change appears.
+
+![Four-agent org chart: Atlas (CEO), Mara (PM), Theo (Engineer), Ren (Ops)](/blog/ai-agent-team/walkthrough-org-chart.webp)
+
+*Org chart from the walkthrough: reporting lines Atlas → Mara → Theo and Ren. Source: [Akshay Pachaar on X](https://x.com/akshay_pachaar/status/2073050056299835736).*
+
+Setup starts with `npx @alook/app onboard`, which connects a local daemon and opens a dashboard. From there you create each agent, claim its `@alook.ai` inbox, and wire the reporting lines: Atlas → Mara → Theo and Ren.
+
+Once the chart is live, the human talks to Atlas with one scoped brief. Atlas emails Mara. Mara sends Theo a structured spec covering what to build, what to snapshot, how often to run, and what a readable report looks like. Theo acknowledges over email, implements the tracker with the tools available on the machine, and reports back. That chain is the handoff contract in practice: brief → spec → implementation note, each owned by a different role.
+
+![Chat with Atlas showing a brief emailed to Mara and a structured plan handed to Theo](/blog/ai-agent-team/walkthrough-brief-handoff.webp)
+
+*One brief to Atlas becomes an email handoff to Mara, then a scoped plan for Theo. Source: [Akshay Pachaar on X](https://x.com/akshay_pachaar/status/2073050056299835736).*
+
+After the unattended path looks reliable, the recurring check lands on the calendar. Ren owns the alert when the watched value actually moves.
+
+![Calendar with a daily recurring price-tracker task for the agent team](/blog/ai-agent-team/walkthrough-calendar.webp)
+
+*Scheduling comes after the workflow works once: a daily run to catch the next change. Source: [Akshay Pachaar on X](https://x.com/akshay_pachaar/status/2073050056299835736).*
+
+That loop matches the earlier design rules: limited access by role, email threads as handoff artifacts, scheduling after the workflow works once, and a person still sitting at the approval boundary for anything that should not fire silently.
+
 Alook provides the coordination layer. The underlying agent still needs appropriate instructions, tools, and model access. Human approval remains part of any workflow where the outcome can affect customers, money, legal obligations, or production systems.
 
 If you are deciding whether a task needs an agent at all, start with the explanation of an [AI agent vs chatbot](/blog/ai-agent-vs-chatbot).
 
 ## Common AI agent team failure modes
 
-**Roles are too broad.** “Own engineering” gives an agent no useful boundary. “Investigate this issue and return reproduction steps plus likely files” can be evaluated.
+**Roles are too broad** when the brief sounds like “own engineering.” A request such as “investigate this issue and return reproduction steps plus likely files” can actually be evaluated. **Teams also start too large** when every new agent adds another handoff, permission boundary, and failure point before a tested need exists.
 
-**The team starts too large.** Every additional agent adds another handoff, permission boundary, and failure point. Add roles in response to a tested need.
+**Unstructured outputs** force the next step to infer what happened from a long transcript, and the handoff gets fragile. **Over-broad permissions** turn a small mistake into a larger incident, so separate preparation from approval for high-impact actions.
 
-**Outputs are not structured.** If the next step has to infer what happened from a long transcript, the handoff is fragile.
+**Hidden failures** are easy to miss when a retry loop pretends to be recovery. The workflow should record the error, preserve completed work, and escalate when it cannot continue safely. **Late human review** is the other trap: approval points belong in the design, not as an afterthought once agents are already acting.
 
-**Agents can act beyond their role.** Broad permissions turn a small mistake into a larger incident. Separate preparation from approval for high-impact actions.
-
-**Failures are hidden.** A retry loop is not a recovery strategy. The workflow should record the error, preserve completed work, and escalate when it cannot continue safely.
-
-**Human review is added too late.** Approval points should be designed with the workflow, not attached after the agents are already acting.
+That list is incomplete on purpose.
 
 ## AI agent team FAQ
 
-**What is an AI agent team?**
+**What is an AI agent team?** It is a group of agents with defined roles that work on one shared workflow. Each role owns a stage and passes a structured result to the next step.
 
-It is a group of agents with defined roles that work on one shared workflow. Each role owns a stage and passes a structured result to the next step.
+**When should you use multiple AI agents instead of one?** Use multiple agents when stages need different instructions, tools, permissions, context, or review. Keep one agent when the task is short and self-contained — especially when a handoff would only add delay.
 
-**When should you use multiple AI agents instead of one?**
+**How many agents should a team have?** Start with the fewest roles needed for one reliable workflow, then add an agent only when a real handoff requires it.
 
-Use multiple agents when stages need different instructions, tools, permissions, context, or review. Keep one agent when the task is short and self-contained.
+**Which AI agents does Alook support?** Claude Code, Codex, and OpenCode are available today. Cursor, Hermes, and OpenClaw are listed as coming soon.
 
-**How many agents should a team have?**
-
-There is no universal number. Start with the fewest roles needed for one reliable workflow, then add an agent only when a real handoff requires it.
-
-**Which AI agents does Alook support?**
-
-Alook currently supports Claude Code, Codex, and OpenCode. Cursor, Hermes, and OpenClaw are listed as coming soon.
-
-**Does an AI agent team need human oversight?**
-
-Yes. People should approve customer commitments, financial actions, legal decisions, pricing changes, and high-risk production work.
+**Does an AI agent team need human oversight?** Yes. People should approve customer commitments, financial actions, legal decisions, pricing changes, and high-risk production work. Design those gates before the agents start acting.
 
 ## Start with one handoff
 
-Choose a workflow you already understand. Define two stages, write down the artifact that moves between them, and decide where a person must approve the result.
+Name the artifact first.
+
+Choose a workflow you already understand. Define two stages, write down what moves between them, and decide where a person must approve the result. If you cannot name that artifact yet, stay on a single agent.
 
 To set up Alook for your local coding agents, run `npx @alook/app onboard`. You can also review the project on [GitHub](https://github.com/alookai/alook) or browse the current [Alook templates](https://alook.ai/templates).

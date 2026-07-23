@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { getAllPosts, getPostBySlug } from "@/lib/blog/posts";
+import { buildBlogPostingJsonLd } from "@/lib/blog/json-ld";
 
 export const dynamicParams = false;
 
@@ -32,6 +33,7 @@ export async function generateMetadata({
       url: `https://alook.ai/blog/${post.slug}`,
       type: "article",
       publishedTime: post.date,
+      ...(post.dateModified ? { modifiedTime: post.dateModified } : {}),
       authors: [post.author],
       images: [
         {
@@ -68,24 +70,7 @@ export default async function BlogPostPage({
     `@/content/${slug}.mdx`
   );
 
-  const blogPostingJsonLd = {
-    "@context": "https://schema.org",
-    "@type": "BlogPosting",
-    headline: post.title,
-    description: post.excerpt,
-    datePublished: post.date,
-    author: {
-      "@type": "Person",
-      name: post.author,
-    },
-    publisher: {
-      "@type": "Organization",
-      name: "Alook AI",
-      url: "https://alook.ai",
-    },
-    url: `https://alook.ai/blog/${post.slug}`,
-    ...(post.image && { image: `https://alook.ai${post.image}` }),
-  };
+  const blogPostingJsonLd = buildBlogPostingJsonLd(post);
 
   return (
     <>
@@ -114,7 +99,7 @@ export default async function BlogPostPage({
           <h1 className="font-news text-4xl sm:text-5xl font-semibold tracking-tight leading-[1.12]">
             {post.title}
           </h1>
-          <div className="mt-6 flex items-center gap-3 text-sm text-muted-foreground">
+          <div className="mt-6 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
             <span className="font-medium text-foreground/70">{post.author}</span>
             <span className="text-muted-foreground/40">/</span>
             <span>
@@ -124,6 +109,19 @@ export default async function BlogPostPage({
                 day: "numeric",
               })}
             </span>
+            {post.dateModified && post.dateModified !== post.date ? (
+              <>
+                <span className="text-muted-foreground/40">/</span>
+                <span>
+                  Updated{" "}
+                  {new Date(post.dateModified).toLocaleDateString("en-US", {
+                    year: "numeric",
+                    month: "long",
+                    day: "numeric",
+                  })}
+                </span>
+              </>
+            ) : null}
             <span className="text-muted-foreground/40">/</span>
             <span>{post.readingTime}</span>
           </div>
