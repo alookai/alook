@@ -43,7 +43,7 @@
     "prepare": "simple-git-hooks"
   },
   "simple-git-hooks": {
-    "pre-commit": "pnpm typecheck && pnpm lint && pnpm test && pnpm typegrep:ws && pnpm --filter \"./src/app\" run knip && pnpm --filter \"./src/cli\" run knip && pnpm --filter \"./src/email-worker\" run knip && pnpm --filter \"./src/shared\" run knip && pnpm --filter \"./src/wake-worker\" run knip && pnpm --filter \"./src/web\" run knip && pnpm --filter \"./src/ws-do\" run knip"
+    "pre-commit": "pnpm typecheck && pnpm lint && pnpm test && pnpm typegrep:ws && pnpm knip"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^4.1.10",
