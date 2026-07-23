@@ -229,6 +229,20 @@ describe("PATCH /channels/[id] — forum-post tag carve-out", () => {
     expect(mockUpdateChannel).not.toHaveBeenCalled()
   })
 
+  it("the FORUM creator cannot edit a post they didn't author (isCreator is access-only)", async () => {
+    // Unified model: access `isCreator` collapses to the forum (anchor) creator.
+    // The post-tag carve-out must key off the POST's own creator, so a forum
+    // creator who isn't the post author is NOT granted edit (would be a
+    // regression if it keyed off `access.value.isCreator`).
+    mockResolveChannelAccessContext.mockResolvedValue({
+      ...forumPostCtx({ isCreator: false }), // post authored by "someone_else"
+      isCreator: true, // but caller u1 IS the forum/anchor creator (access flag)
+    })
+    const res = await PATCH(patchReq({ forumTags: JSON.stringify(["x"]) }), ctx)
+    expect(res.status).toBe(403)
+    expect(mockUpdateChannel).not.toHaveBeenCalled()
+  })
+
   it("rejects forumTags on a non-forum_post channel (400)", async () => {
     // A manager editing a plain text channel: canManage true, but tags are a
     // per-post concept only.
@@ -373,6 +387,18 @@ describe("DELETE /channels/[id]", () => {
 
   it("a non-creator non-admin cannot delete a forum_post → 403", async () => {
     mockResolveChannelAccessContext.mockResolvedValue(forumPostCtx({ isCreator: false }))
+    const res = await DELETE(delReq(), ctx)
+    expect(res.status).toBe(403)
+    expect(mockDeleteChannel).not.toHaveBeenCalled()
+  })
+
+  it("the FORUM creator cannot delete a post they didn't author (isCreator is access-only)", async () => {
+    // Regression guard: the delete carve-out keys off the POST's own creator
+    // (`channel.creatorId`), not the collapsed access `isCreator` (= forum creator).
+    mockResolveChannelAccessContext.mockResolvedValue({
+      ...forumPostCtx({ isCreator: false }), // post authored by "someone_else"
+      isCreator: true, // caller u1 is the forum/anchor creator (access flag)
+    })
     const res = await DELETE(delReq(), ctx)
     expect(res.status).toBe(403)
     expect(mockDeleteChannel).not.toHaveBeenCalled()

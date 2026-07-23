@@ -87,12 +87,12 @@ describe("resolveScopeMemberUserIds", () => {
     expect(mockGetPrivateChannelAudienceUserIds).not.toHaveBeenCalled();
   });
 
-  it("thread / post resolve identically to channel (delegates to the same primitives)", async () => {
+  it("forum resolves identically to channel (delegates to the same primitives)", async () => {
     mockIsChannelPrivate.mockResolvedValue(true);
     mockGetPrivateChannelAudienceUserIds.mockResolvedValue(["u1"]);
     const db = makeDb({ select: [[{ serverId: "srv-1" }]] });
 
-    const ids = await resolveScopeMemberUserIds(db, { scope: "thread", scopeId: CHANNEL });
+    const ids = await resolveScopeMemberUserIds(db, { scope: "forum", scopeId: CHANNEL });
     expect(ids).toEqual(["u1"]);
   });
 
@@ -136,13 +136,14 @@ describe("resolveScopeMembers — source tagging", () => {
     const db = makeDb({
       select: [
         [{ serverId: "srv-1" }], // resolveScopeMemberUserIds channel lookup
-        [{ serverId: "srv-1", parentChannelId: null }], // resolveScopeMembers target lookup
+        // resolveScopeMembers target lookup — top-level channel is its own
+        // anchor, so its creatorId is read directly (no separate anchor query).
+        [{ id: CHANNEL, serverId: "srv-1", parentChannelId: null, creatorId: "creator1" }],
         [ // role rows
           { userId: "member1", role: "member" },
           { userId: "creator1", role: "member" },
           { userId: "admin1", role: "admin" },
         ],
-        [{ creatorId: "creator1" }], // anchor creator lookup
       ],
     });
 

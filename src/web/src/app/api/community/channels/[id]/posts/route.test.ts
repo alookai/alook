@@ -3,7 +3,6 @@ import { NextRequest } from "next/server"
 
 const mockGetChannelForMember = vi.fn()
 const mockResolveChannelAccessContext = vi.fn()
-const mockListChannelIdsWithMember = vi.fn(async () => [])
 const mockCreateChannel = vi.fn()
 const mockCreateMessage = vi.fn()
 const mockGetMessage = vi.fn()
@@ -29,7 +28,6 @@ vi.mock("@alook/shared", async () => {
       communityChannel: {
         getChannelForMember: (...a: unknown[]) => mockGetChannelForMember(...a),
         resolveChannelAccessContext: (...a: unknown[]) => mockResolveChannelAccessContext(...a),
-        listChannelIdsWithMember: (...a: unknown[]) => mockListChannelIdsWithMember(...a),
         createChannel: (...a: unknown[]) => mockCreateChannel(...a),
         listChildChannels: (...a: unknown[]) => mockListChildChannels(...a),
         // createCommunityMessage's private-channel scoping guard is only hit
@@ -325,28 +323,24 @@ describe("GET /api/community/channels/[id]/posts — private-forum post visibili
     return new NextRequest("http://localhost/api/community/channels/ch1/posts")
   }
 
-  it("non-manager member sees only posts they're in or created (no leak)", async () => {
-    // Forum access is derived: the viewer is a member of some post, so
-    // requireChannelAccess grants access (isChannelMember true via the
-    // post-union check inside resolveChannelAccessContext, mocked here).
+  it("a forum member sees ALL posts (unified model: posts inherit forum access)", async () => {
+    // Reaching here means requireChannelAccess already granted forum access; a
+    // forum member sees every post under it (no per-post filter). A non-member
+    // 403s up front (next test).
     mockResolveChannelAccessContext.mockResolvedValue({
       channel: { id: "ch1", serverId: "s1", type: "forum", parentChannelId: null, parentMessageId: null, creatorId: "owner", tags: [] },
       anchor: { id: "ch1", serverId: "s1", parentChannelId: null, creatorId: "owner" },
       role: "member", isPrivate: true, isChannelMember: true, isCreator: false,
     })
-    // viewer has a member row only on p_mine.
-    mockListChannelIdsWithMember.mockResolvedValue(["p_mine"])
 
     const res = await GET(getReq(), ctx)
     expect(res.status).toBe(200)
     const body = await res.json()
     const ids = body.posts.map((p: { id: string }) => p.id).sort()
-    expect(ids).toEqual(["p_created", "p_mine"]) // p_hidden filtered out
+    expect(ids).toEqual(["p_created", "p_hidden", "p_mine"]) // all posts visible
   })
 
-  it("server admin WITH forum access sees every post (bypasses per-post filter)", async () => {
-    // Admin has content access (isChannelMember true, e.g. member of a post →
-    // derived forum access); the post-list filter is skipped for server admins.
+  it("server admin WITH forum access sees every post", async () => {
     mockResolveChannelAccessContext.mockResolvedValue({
       channel: { id: "ch1", serverId: "s1", type: "forum", parentChannelId: null, parentMessageId: null, creatorId: "owner", tags: [] },
       anchor: { id: "ch1", serverId: "s1", parentChannelId: null, creatorId: "owner" },
@@ -356,29 +350,23 @@ describe("GET /api/community/channels/[id]/posts — private-forum post visibili
     const res = await GET(getReq(), ctx)
     const body = await res.json()
     expect(body.posts).toHaveLength(3)
-    expect(mockListChannelIdsWithMember).not.toHaveBeenCalled()
   })
 
-  it("admin without forum access is forbidden (no content privilege)", async () => {
+  it("non-member is forbidden up front (no post leak)", async () => {
     mockResolveChannelAccessContext.mockResolvedValue(null)
     const res = await GET(getReq(), ctx)
     expect(res.status).toBe(403)
   })
 
-  it("forum creator (non-admin) is NOT special: sees only their own posts, empty if none", async () => {
-    // u1 created the forum but is a plain member; canManage may be true via
-    // being the forum creator, but the post filter keys off server-admin only.
+  it("forum creator sees every post (like any forum member)", async () => {
     mockResolveChannelAccessContext.mockResolvedValue({
       channel: { id: "ch1", serverId: "s1", type: "forum", parentChannelId: null, parentMessageId: null, creatorId: "u1", tags: [] },
       anchor: { id: "ch1", serverId: "s1", parentChannelId: null, creatorId: "u1" },
       role: "member", isPrivate: true, isChannelMember: true, isCreator: true,
     })
-    mockListChannelIdsWithMember.mockResolvedValue([]) // no post memberships
-    // none of the seeded posts were created by u1 except p_created.
     const res = await GET(getReq(), ctx)
     const body = await res.json()
-    const ids = body.posts.map((p: { id: string }) => p.id)
-    expect(ids).toEqual(["p_created"]) // only the post u1 created; forum-creator gets no blanket view
-    expect(mockListChannelIdsWithMember).toHaveBeenCalled()
+    const ids = body.posts.map((p: { id: string }) => p.id).sort()
+    expect(ids).toEqual(["p_created", "p_hidden", "p_mine"]) // all posts, not just their own
   })
 })

@@ -127,10 +127,15 @@ function ChannelView() {
   }, [currentServer, channelId])
   const isForum = isForumType(channelInServer?.type)
   const isChildChannel = !channelInServer && !!currentServer?.categories
-  // A thread is a child channel rooted on a message (`parentMessageId`). Forum
-  // posts are child channels too but have no `parentMessageId`. Threads are the
-  // notification dimension — their drawer shows PARTICIPANTS, not an audience.
-  const isThread = isChildChannel && !!currentChannelMeta?.parentMessageId
+  // A thread (child channel rooted on a `parentMessageId`) and a forum post
+  // (child channel with no `parentMessageId`) are both the NOTIFICATION
+  // dimension: their drawer shows PARTICIPANTS (not an access audience), their
+  // add button adds a PARTICIPANT, and their @-mention pool is the parent
+  // channel/forum's members. Since every child channel is one or the other,
+  // `isNotifyUnit === isChildChannel` — a load-stable value that doesn't flip
+  // while `currentChannelMeta` hydrates. The thread/post distinction affects
+  // only labels, handled inline, so a single flag drives all behavior here.
+  const isNotifyUnit = isChildChannel
 
   // Local filter for the private-channel Members drawer (the channel audience is
   // small, so search is client-side — no scoped search endpoint).
@@ -152,18 +157,21 @@ function ChannelView() {
     const cat = cats.find((c) => c.channels.some((ch) => ch.id === anchorId))
     return !!cat?.private
   }, [currentServer, isChildChannel, currentChannelMeta, channelId])
-  const channelMembersHook = useChannelMembers(channelId, currentChannelPrivate && !isThread)
-  // Thread drawer shows the notify PARTICIPANT set, not the channel audience.
-  const threadParticipantsHook = useThreadParticipants(channelId, isThread)
+  // A notify unit (thread/post) has no roster of its own — its own
+  // `useChannelMembers` stays disabled; its panel is the participant set.
+  const channelMembersHook = useChannelMembers(channelId, currentChannelPrivate && !isNotifyUnit)
+  // Thread/post drawer shows the notify PARTICIPANT set, not the channel audience.
+  const threadParticipantsHook = useThreadParticipants(channelId, isNotifyUnit)
   const removeThreadParticipantMut = useRemoveThreadParticipant(channelId)
   const addThreadParticipantMut = useAddThreadParticipant(channelId)
-  // Channel/post add-picker source + mutations (add: any member; remove/leave).
-  const addableChannelMembers = useAddableMembers(channelId, currentChannelPrivate && !isThread)
+  // Top-level channel/forum add-picker source + mutations (add: any member).
+  const addableChannelMembers = useAddableMembers(channelId, currentChannelPrivate && !isNotifyUnit)
   const addChannelMemberMut = useAddChannelMember(channelId)
   const removeChannelMemberMut = useRemoveChannelMember(channelId)
-  // Thread add-picker source = the parent channel's roster (minus current
-  // participants + self, computed at dialog build). Enabled only for threads.
-  const threadParentId = isThread ? (currentChannelMeta?.parentChannelId ?? null) : null
+  // Notify-unit add-picker source = the parent channel/forum's roster (minus
+  // current participants + self, computed at dialog build). A thread's parent is
+  // its channel; a post's parent is its forum. Enabled for both.
+  const threadParentId = isNotifyUnit ? (currentChannelMeta?.parentChannelId ?? null) : null
   const parentChannelMembersHook = useChannelMembers(threadParentId ?? "", !!threadParentId)
 
   // Members shown in the right-panel Members drawer:
@@ -197,8 +205,8 @@ function ChannelView() {
     const matches = (name: string, disc?: string | null) =>
       !q || name.toLowerCase().includes(q) || (disc ?? "").toLowerCase().includes(q)
 
-    if (isThread) {
-      const threadCreatorId = currentChannelMeta?.creatorId
+    if (isNotifyUnit) {
+      const unitCreatorId = currentChannelMeta?.creatorId
       return threadParticipantsHook.participants
         .filter((p) => matches(p.name ?? "", p.discriminator))
         .map((p) => withPresence({
@@ -206,9 +214,9 @@ function ChannelView() {
           name: displayName(p),
           discriminator: p.discriminator ?? "0000",
           avatar: p.avatar,
-          // Thread rows are all real participants (removable); the thread
-          // creator's row is locked.
-          isCreator: p.userId === threadCreatorId,
+          // Rows are all real participants (removable); the unit creator's
+          // (thread starter / post author) row is locked.
+          isCreator: p.userId === unitCreatorId,
         }))
     }
     if (!currentChannelPrivate) return members
@@ -216,7 +224,7 @@ function ChannelView() {
       .filter((m) => matches(m.name, m.discriminator))
       .map((m) => withPresence(m))
   }, [
-    isThread,
+    isNotifyUnit,
     threadParticipantsHook.participants,
     currentChannelMeta,
     currentChannelPrivate,
@@ -242,11 +250,11 @@ function ChannelView() {
     if (!currentChannelPrivate) {
       return members.filter((m) => m.userId !== currentUser.id)
     }
-    // Private unit: scope to the unit's roster. A thread has NO roster of its
-    // own — its `channelMembersHook` is disabled — so its mention candidates are
-    // the parent channel's members (the same source the add-participants dialog
-    // uses). A private channel/post uses its own roster.
-    const scopedRoster = isThread ? parentChannelMembersHook.members : channelMembersHook.members
+    // Private unit: scope to the unit's roster. A thread/post has NO roster of
+    // its own — its `channelMembersHook` is disabled — so its mention candidates
+    // are the parent channel/forum's members (the same source the add-participant
+    // dialog uses). A private top-level channel/forum uses its own roster.
+    const scopedRoster = isNotifyUnit ? parentChannelMembersHook.members : channelMembersHook.members
     return scopedRoster
       .filter((m) => m.userId !== currentUser.id)
       .map((m) => {
@@ -260,7 +268,7 @@ function ChannelView() {
       })
   }, [
     currentChannelPrivate,
-    isThread,
+    isNotifyUnit,
     members,
     channelMembersHook.members,
     parentChannelMembersHook.members,
@@ -704,20 +712,18 @@ function ChannelView() {
     : channelInServer?.creatorId
   const viewerIsUnitCreator = !!unitCreatorId && unitCreatorId === currentUser.id
   // The drawer's manage affordance:
-  //   - thread → add participants (any participant); rows right-click to
-  //     leave/remove.
-  //   - private channel/post → add members (any member); rows right-click to
-  //     leave (self) / remove (creator).
-  //   - FORUM → NO manage button: its membership is the DERIVED union of its
-  //     posts (read-only). Add people to individual posts, not the forum.
-  // Public channels: no manage button.
-  const showManageButton = isThread || (currentChannelPrivate && !isForum)
+  //   - thread/post (notify unit) → add PARTICIPANTS (any participant); rows
+  //     right-click to leave/remove.
+  //   - private top-level channel/forum → add MEMBERS (any member); rows
+  //     right-click to leave (self) / remove (creator).
+  // Public top-level channels/forums: no manage button (everyone can access).
+  const showManageButton = isNotifyUnit || currentChannelPrivate
   // Whether the drawer is on a scoped (participant/audience) source vs the
   // paginated server roster.
-  const scopedDrawer = isThread || currentChannelPrivate
-  // Row right-click Leave/Remove context — private channel/post + thread only.
-  // Remove is creator-only on every unit; the wired mutation differs by unit.
-  const manageContext = scopedDrawer && !isForum
+  const scopedDrawer = isNotifyUnit || currentChannelPrivate
+  // Row right-click Leave/Remove context. Remove is creator-only on every unit;
+  // the wired mutation differs by unit (participant vs channel-member).
+  const manageContext = scopedDrawer
     ? {
         viewerUserId: currentUser.id,
         viewerIsCreator: viewerIsUnitCreator,
@@ -725,15 +731,15 @@ function ChannelView() {
         // Return the promise so the confirm dialog can show a loading state and
         // surface errors from ONE place (MemberList's confirm catch).
         onLeave: (userId: string) =>
-          (isThread ? removeThreadParticipantMut : removeChannelMemberMut).mutateAsync(userId),
+          (isNotifyUnit ? removeThreadParticipantMut : removeChannelMemberMut).mutateAsync(userId),
         onRemove: (userId: string) =>
-          (isThread ? removeThreadParticipantMut : removeChannelMemberMut).mutateAsync(userId),
+          (isNotifyUnit ? removeThreadParticipantMut : removeChannelMemberMut).mutateAsync(userId),
       }
     : undefined
   const panelProps = {
     onOpenThread: enterThread,
     members: panelMembers,
-    membersLoading: isThread
+    membersLoading: isNotifyUnit
       ? threadParticipantsHook.isLoading
       : currentChannelPrivate ? channelMembersHook.isLoading : membersHook.loading,
     membersLoadingMore: scopedDrawer ? false : membersHook.loadingMore,
@@ -769,16 +775,15 @@ function ChannelView() {
   }
 
   // Add-members dialog (shared), mounted when the drawer's Add button fires.
-  //   - thread → candidates = parent-channel members not yet participating;
-  //     onAdd = add thread participant.
-  //   - private channel/post → candidates = server members not in the unit;
-  //     onAdd = add channel member (targets `channelId` directly — a forum post
-  //     is its own access unit).
+  //   - thread/post (notify unit) → candidates = parent channel/forum members
+  //     not yet participating; onAdd = add participant.
+  //   - private top-level channel/forum → candidates = server members not in the
+  //     unit; onAdd = add channel member (targets `channelId` directly).
   // The current-member list + leave/remove live in the drawer row right-click
   // menu (`manageContext`), not here.
   const manageMembersDialog = (() => {
     if (!manageMembersOpen) return null
-    if (isThread) {
+    if (isNotifyUnit) {
       const participantIds = new Set(threadParticipantsHook.participants.map((p) => p.userId))
       const candidates = parentChannelMembersHook.members
         .filter((m) => !participantIds.has(m.userId) && m.userId !== currentUser.id)
@@ -786,7 +791,7 @@ function ChannelView() {
       return (
         <AddMembersDialog
           title={`Add participants to /${currentChannelMeta?.name ?? channelName}`}
-          subtitle="Added people are notified of new replies. Anyone with access can already read the thread."
+          subtitle="Added people are notified of new replies. Anyone with access can already read it."
           candidates={candidates}
           onAdd={(userId) => addThreadParticipantMut.mutateAsync(userId)}
           onClose={() => setManageMembersOpen(false)}
@@ -801,7 +806,7 @@ function ChannelView() {
     return (
       <AddMembersDialog
         title={`Add members to /${channelName}`}
-        subtitle="Added members can see and post in this channel."
+        subtitle="Added members can see and post here."
         candidates={candidates}
         onAdd={(userId) => addChannelMemberMut.mutateAsync(userId)}
         onClose={() => setManageMembersOpen(false)}
@@ -884,6 +889,10 @@ function ChannelView() {
           forum={isForumType(parentChannel?.type)}
           rightPanel={rightPanel}
           onToggle={togglePanel}
+          notifLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? "Use Server Default"}
+          onSetNotifLevel={(l) => setChannelNotifMut.mutate({ channelId, level: l }, {
+            onError: (e) => toastApiError(e, "Failed to update notification level"),
+          })}
           onBack={bp === "mobile" ? () => router.back() : undefined}
           server={bp === "mobile" && currentServer ? { id: currentServer.id, name: currentServer.name, icon: currentServer.icon } : undefined}
           tools={{ threads: false }}
@@ -908,6 +917,7 @@ function ChannelView() {
             messages={messages}
             loading={messagesLoading}
             pinnedIds={pinnedIds}
+            newDividerBefore={newDividerBefore}
             typingUsers={typingUsers.map((id) => resolveUserName(id))}
             onOpenThread={() => { }}
             {...threadActions}
@@ -917,6 +927,10 @@ function ChannelView() {
             hero={opener}
             onScrollRoot={setScrollRootEl}
             viewerUserId={currentUser.id}
+            // Same gate as the top-level channel view: hold the mount-time
+            // scroll until the read snapshot resolves and its anchor is loaded,
+            // so a thread/forum-post opens on the "New" divider too.
+            initialScrollReady={!readSnapshotFetching && anchorInCache}
             hasMore={hasMoreMessages}
             isFetchingOlder={isFetchingOlderMessages}
             onLoadOlder={fetchOlderMessages}

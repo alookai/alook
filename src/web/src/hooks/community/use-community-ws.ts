@@ -428,6 +428,14 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
               communityKeys.channelMessages(event.channelId),
               (c) => insertMessageIntoCache(c, event.message),
             )
+            // A thread/forum_post enrolls its sender + mentioned users as
+            // participants server-side on send. That set IS its Members panel,
+            // so refetch it live — otherwise a new speaker/mention only appears
+            // after a manual refresh. No-op for a plain channel (whose panel is
+            // the access roster, not participants); the query is disabled there.
+            void queryClient.invalidateQueries({
+              queryKey: communityKeys.threadParticipants(event.channelId),
+            })
           } else if (event.dmConversationId && event.dmConversationId === sub.dmConversationId) {
             queryClient.setQueryData<PageCache>(
               communityKeys.dmMessages(event.dmConversationId),
@@ -751,6 +759,10 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           // a peer's add/remove changes it too, so an open add dialog doesn't
           // offer a just-added member (whose Add would 400) or hide a removed one.
           void queryClient.invalidateQueries({ queryKey: communityKeys.channelAddableMembers(event.channelId) })
+          // A forum_post's "Add participant" emits this same MEMBER_ADD event —
+          // its Members panel is the participant set, so refetch it too. No-op
+          // for a plain channel (participants query disabled there).
+          void queryClient.invalidateQueries({ queryKey: communityKeys.threadParticipants(event.channelId) })
           return
         }
 

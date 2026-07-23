@@ -5,7 +5,7 @@ import {
 } from "../../community-schema";
 import type { Database } from "../../index";
 import type { CommunityRole } from "../../../utils/community-roles";
-import { canManageServer, isForum, isForumPost } from "../../../utils/community-roles";
+import { canManageServer } from "../../../utils/community-roles";
 import {
   getPrivateChannelAudienceUserIds,
   isChannelPrivate,
@@ -13,9 +13,12 @@ import {
 } from "./channel";
 import { listMemberUserIds } from "./member";
 
-// Scopes whose member set is derived, not stored. A thread / forum_post has no
-// roster of its own — it inherits the audience of its anchor channel.
-export type ScopeKind = "channel" | "thread" | "post";
+// The ACCESS scopes — units that own (or inherit) a stored/derived access
+// roster. `forum` resolves like a top-level text channel (its own roster);
+// `channel` is a top-level text channel. Thread / forum_post are NOT here: they
+// are the NOTIFICATION dimension (participant set), resolved at the call site
+// via `listThreadParticipantUserIds` — never through this resolver.
+export type ScopeKind = "channel" | "forum";
 
 // Why a user is in the resolved set. Lets callers distinguish an explicitly
 // added private-channel member from an inherited public-channel member or a
@@ -29,20 +32,19 @@ export type ScopeMember = {
 };
 
 /**
- * The single source of truth for "who is in this scope." Consolidates the
- * public/private split that fan-out and the WS DO used to hand-roll:
+ * The single source of truth for "who can access this scope." Consolidates the
+ * public/private split for the ACCESS dimension:
  *
- *   - public / uncategorized channel (or a thread/post anchored to one) →
- *     every server member (unfiltered — matches `listMemberUserIds`, so a
- *     soft-deleted user is still in the set; a dead user simply has no live
- *     socket to receive a broadcast).
- *   - private-category channel (or a thread/post anchored to one) → the
- *     channel audience: explicit members ∪ anchor creator ∪ server
- *     admins/owner (delegates to `getPrivateChannelAudienceUserIds`, which
- *     already climbs `parentChannelId`).
+ *   - public / uncategorized channel/forum → every server member (unfiltered —
+ *     matches `listMemberUserIds`, so a soft-deleted user is still in the set; a
+ *     dead user simply has no live socket to receive a broadcast).
+ *   - private-category channel/forum → the channel audience: explicit members ∪
+ *     creator (delegates to `getPrivateChannelAudienceUserIds`, which climbs
+ *     `parentChannelId` so a forum resolves its own roster like a text channel).
  *
- * `thread` / `post` resolve identically to `channel` — every reader climbs to
- * the anchor — so the scope tag is documentation, not branching.
+ * Only ACCESS units (`channel`/`forum`) reach here. Notify units (thread /
+ * forum_post) resolve their recipient set from the participant table at the
+ * call site.
  */
 export async function resolveScopeMemberUserIds(
   db: Database,
@@ -80,7 +82,6 @@ export async function resolveScopeMembers(
     .select({
       id: communityChannel.id,
       serverId: communityChannel.serverId,
-      type: communityChannel.type,
       creatorId: communityChannel.creatorId,
       parentChannelId: communityChannel.parentChannelId,
     })
@@ -89,7 +90,6 @@ export async function resolveScopeMembers(
     .limit(1);
   if (target.length === 0) return [];
   const serverId = target[0]!.serverId;
-  const type = target[0]!.type;
 
   // Server roles for every resolved user — scoped to this server up front.
   const roleRows = await db
@@ -101,41 +101,24 @@ export async function resolveScopeMembers(
 
   const isPrivate = await isChannelPrivate(db, scopeId);
 
-  // "explicit" = the added members ∪ the unit's own creator, per the
-  // nested-membership roster rules:
-  //   - forum_post → the post's OWN members ∪ post creator (no forum climb).
-  //   - forum      → the union of its posts' explicit members ∪ post creators ∪
-  //                  forum creator (derived).
-  //   - thread/channel → the (climbed) anchor's members ∪ anchor creator.
-  // For a PRIVATE unit every resolved user is now `explicit` (admins are no
-  // longer auto-included — the audience is exactly members ∪ creator). For a
-  // PUBLIC unit the audience is all server members, tagged admin/inherited.
+  // "explicit" = the anchor's added members ∪ the anchor's own creator. The
+  // anchor is `parentChannelId ?? id`, so a forum/channel uses its own roster.
+  // For a PRIVATE unit every resolved user is `explicit` (admins are no longer
+  // auto-included — the audience is exactly members ∪ creator). For a PUBLIC
+  // unit the audience is all server members, tagged admin/inherited.
   const explicit = new Set<string>();
   if (isPrivate) {
-    if (isForum(type)) {
-      if (target[0]!.creatorId) explicit.add(target[0]!.creatorId);
-      const posts = await db
-        .select({ id: communityChannel.id, creatorId: communityChannel.creatorId })
-        .from(communityChannel)
-        .where(eq(communityChannel.parentChannelId, scopeId));
-      for (const p of posts) {
-        for (const id of await listChannelMemberUserIds(db, p.id)) explicit.add(id);
-        if (p.creatorId) explicit.add(p.creatorId);
-      }
-    } else {
-      const rosterAnchorId =
-        isForumPost(type) ? target[0]!.id : (target[0]!.parentChannelId ?? target[0]!.id);
-      for (const id of await listChannelMemberUserIds(db, rosterAnchorId)) explicit.add(id);
-      const rosterCreatorId =
-        isForumPost(type)
-          ? target[0]!.creatorId
-          : (await db
-              .select({ creatorId: communityChannel.creatorId })
-              .from(communityChannel)
-              .where(eq(communityChannel.id, rosterAnchorId))
-              .limit(1))[0]?.creatorId;
-      if (rosterCreatorId) explicit.add(rosterCreatorId);
-    }
+    const anchorId = target[0]!.parentChannelId ?? target[0]!.id;
+    for (const id of await listChannelMemberUserIds(db, anchorId)) explicit.add(id);
+    const anchorCreatorId =
+      anchorId === target[0]!.id
+        ? target[0]!.creatorId
+        : (await db
+            .select({ creatorId: communityChannel.creatorId })
+            .from(communityChannel)
+            .where(eq(communityChannel.id, anchorId))
+            .limit(1))[0]?.creatorId;
+    if (anchorCreatorId) explicit.add(anchorCreatorId);
   }
 
   return userIds.map((userId) => {

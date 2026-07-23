@@ -213,12 +213,13 @@ describe("POST /api/community/agent/channelMember", () => {
     expect(mockListThreadParticipantUserIds).toHaveBeenCalledWith(expect.anything(), "th_1")
   })
 
-  it("forum post inside a PUBLIC forum → still private on the wire; roster is post-scoped, not the whole server", async () => {
+  it("forum post inside a PUBLIC forum → still private on the wire; roster is the PARTICIPANT set, not the whole server", async () => {
     mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1", name: "demo" }])
     mockResolveChannelByNameForMember.mockResolvedValue([{ id: "post_1", name: "bug-42", type: "forum_post", parentChannelId: "forum_1" }])
-    // Access context: public forum (isPrivate=false, categoryId=null) but the
-    // channel itself is a `forum_post` — the route must NOT fall into the
-    // public/hint branch, since a post is its own access unit.
+    // Access context: public forum (isPrivate=false) but the channel itself is a
+    // `forum_post` — the route must NOT fall into the public/hint branch. A post
+    // is the NOTIFY dimension: its roster is the participant set (like a thread),
+    // never the whole server.
     mockResolveChannelAccessContext.mockResolvedValue({
       channel: { id: "post_1", serverId: "srv_1", type: "forum_post", parentChannelId: "forum_1", creatorId: "bot_1", categoryId: null },
       anchor: { id: "forum_1", type: "forum", creatorId: "owner_1", categoryId: null },
@@ -227,10 +228,7 @@ describe("POST /api/community/agent/channelMember", () => {
       isCreator: true,
       isPrivate: false,
     })
-    mockResolveScopeMembers.mockResolvedValue([
-      { userId: "u_bot", role: "member", source: "explicit" },
-      { userId: "u_alice", role: "member", source: "explicit" },
-    ])
+    mockListThreadParticipantUserIds.mockResolvedValue(["u_bot", "u_alice"])
     mockGetMembersByUserIds.mockResolvedValue([
       { userName: "gus", discriminator: "4821", role: "member", nickname: null },
       { userName: "alice", discriminator: "0193", role: "member", nickname: null },
@@ -241,6 +239,7 @@ describe("POST /api/community/agent/channelMember", () => {
     const body = await res.json()
     expect(body.visibility).toBe("private")
     expect(body.members).toHaveLength(2)
-    expect(mockResolveScopeMembers).toHaveBeenCalledWith(expect.anything(), { scope: "post", scopeId: "post_1" })
+    expect(mockListThreadParticipantUserIds).toHaveBeenCalledWith(expect.anything(), "post_1")
+    expect(mockResolveScopeMembers).not.toHaveBeenCalledWith(expect.anything(), { scope: "post", scopeId: "post_1" })
   })
 })

@@ -102,3 +102,36 @@ describe("listParticipatingThreadIds", () => {
     expect(res).toEqual(["t1", "t3"]);
   });
 });
+
+describe("removeParticipantFromForumPosts — forum-remove notify cascade", () => {
+  function makeDb(postRows: any[], deletedRows: any[]) {
+    const selectChain: any = {};
+    selectChain.select = vi.fn(() => selectChain);
+    selectChain.from = vi.fn(() => selectChain);
+    selectChain.where = vi.fn(() => Promise.resolve(postRows));
+    const deleteChain: any = {};
+    deleteChain.delete = vi.fn(() => deleteChain);
+    deleteChain.where = vi.fn(() => deleteChain);
+    deleteChain.returning = vi.fn(() => Promise.resolve(deletedRows));
+    return {
+      select: selectChain.select,
+      from: selectChain.from,
+      where: selectChain.where,
+      delete: deleteChain.delete,
+    } as any;
+  }
+
+  it("skips the delete when the forum has no posts", async () => {
+    const db = makeDb([], []);
+    const n = await threadQueries.removeParticipantFromForumPosts(db, "forum_1", "u_removed");
+    expect(n).toBe(0);
+    expect(db.delete).not.toHaveBeenCalled();
+  });
+
+  it("deletes the user's participant rows across the forum's posts", async () => {
+    const db = makeDb([{ id: "p1" }, { id: "p2" }], [{ id: "tp1" }, { id: "tp2" }]);
+    const n = await threadQueries.removeParticipantFromForumPosts(db, "forum_1", "u_removed");
+    expect(n).toBe(2);
+    expect(db.delete).toHaveBeenCalled();
+  });
+});

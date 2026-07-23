@@ -1,5 +1,5 @@
 import { and, eq, inArray } from "drizzle-orm";
-import { communityThreadParticipant } from "../../community-schema";
+import { communityChannel, communityThreadParticipant } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
 
@@ -143,6 +143,35 @@ export async function removeThreadParticipant(
     )
     .returning();
   return rows[0] ?? null;
+}
+
+// Drop a user's participant rows from EVERY forum_post under a forum. Called
+// when a member is removed from a forum's access roster: their access is gone,
+// so their leftover notify rows on the forum's posts must go too — else fan-out
+// keeps live-pushing new-post messages to someone who can no longer open them.
+// A later mention/speak (which requires access) re-adds them. Returns the count
+// of removed rows.
+export async function removeParticipantFromForumPosts(
+  db: Database,
+  forumId: string,
+  userId: string
+): Promise<number> {
+  const posts = await db
+    .select({ id: communityChannel.id })
+    .from(communityChannel)
+    .where(eq(communityChannel.parentChannelId, forumId));
+  const postIds = posts.map((p) => p.id);
+  if (postIds.length === 0) return 0;
+  const removed = await db
+    .delete(communityThreadParticipant)
+    .where(
+      and(
+        inArray(communityThreadParticipant.threadChannelId, postIds),
+        eq(communityThreadParticipant.userId, userId)
+      )
+    )
+    .returning();
+  return removed.length;
 }
 
 // Of the given thread ids, which the user participates in. Batch form for the

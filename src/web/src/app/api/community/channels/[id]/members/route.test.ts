@@ -16,6 +16,7 @@ const mockGetMembersByUserIds = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
 const mockLogAudit = vi.fn()
 const mockAddThreadParticipants = vi.fn()
+const mockListThreadParticipants = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
@@ -39,6 +40,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityThread: {
         addThreadParticipants: (...a: unknown[]) => mockAddThreadParticipants(...a),
+        listThreadParticipants: (...a: unknown[]) => mockListThreadParticipants(...a),
       },
       user: { getUsersByIds: (...a: unknown[]) => mockGetUsersByIds(...a) },
     },
@@ -133,35 +135,40 @@ describe("GET /channels/[id]/members", () => {
     expect(body.members[0].userId).toBe("u1")
   })
 
-  it("resolves a thread to its anchor channel's audience", async () => {
+  it("resolves a thread to its PARTICIPANT set (notify dimension)", async () => {
     mockResolveChannelAccessContext.mockResolvedValue({
-      channel: { id: "t1", serverId: "s1", parentChannelId: "c1", creatorId: "u1" },
+      channel: { id: "t1", serverId: "s1", type: "thread", parentChannelId: "c1", parentMessageId: "m1", creatorId: "u1" },
       anchor: { id: "c1", serverId: "s1", parentChannelId: null, creatorId: "u1" },
-      role: "admin", isPrivate: true, isChannelMember: true,
+      role: "admin", isPrivate: true, isChannelMember: true, isCreator: true,
     })
+    mockListThreadParticipants.mockResolvedValue([
+      { userId: "u1", source: "spoke", userName: "Ann", userImage: null, discriminator: "0001", addedAt: "" },
+    ])
     const res = await GET(new NextRequest("http://localhost/api/community/channels/t1/members"), { params: { id: "t1" } } as any)
     expect(res.status).toBe(200)
-    // scope resolves against the requested channel id (climbs internally).
-    expect(mockResolveScopeMembers).toHaveBeenCalledWith(expect.anything(), { scope: "channel", scopeId: "t1" })
-    // hydration is scoped to the anchor's server.
-    expect(mockGetMembersByUserIds).toHaveBeenCalledWith(expect.anything(), "s1", expect.any(Array))
+    // A thread reads participants, NOT the access audience.
+    expect(mockListThreadParticipants).toHaveBeenCalledWith(expect.anything(), "t1")
+    expect(mockResolveScopeMembers).not.toHaveBeenCalled()
+    expect(mockGetMembersByUserIds).toHaveBeenCalledWith(expect.anything(), "s1", ["u1"])
   })
 
-  it("badges a forum post's OWN creator, not the forum owner", async () => {
-    // Post p1 owned by u2; the forum (anchor) is owned by u1. The post roster
-    // is u1 (forum owner, added as a member) + u2 (post creator).
+  it("forum post reads PARTICIPANTS and badges the post's OWN creator", async () => {
+    // Post p1 authored by u2; the forum (anchor) is owned by u1. A public post's
+    // panel is its participant set — NOT the whole server / access audience.
     mockResolveChannelAccessContext.mockResolvedValue({
       channel: { id: "p1", serverId: "s1", type: "forum_post", parentChannelId: "f1", parentMessageId: null, creatorId: "u2" },
       anchor: { id: "f1", serverId: "s1", parentChannelId: null, creatorId: "u1" },
-      role: "member", isPrivate: true, isChannelMember: true, isCreator: false,
+      role: "member", isPrivate: false, isChannelMember: false, isCreator: false,
     })
-    mockResolveScopeMembers.mockResolvedValue([
-      { userId: "u1", role: "member", source: "explicit" },
-      { userId: "u2", role: "member", source: "explicit" },
+    mockListThreadParticipants.mockResolvedValue([
+      { userId: "u2", source: "spoke", userName: "Bob", userImage: null, discriminator: "0002", addedAt: "" },
+      { userId: "u1", source: "added", userName: "Ann", userImage: null, discriminator: "0001", addedAt: "" },
     ])
     const res = await GET(new NextRequest("http://localhost/api/community/channels/p1/members"), { params: { id: "p1" } } as any)
     const body = await res.json()
-    // The post creator (u2) is the roster creator — NOT the forum owner (u1).
+    expect(mockListThreadParticipants).toHaveBeenCalledWith(expect.anything(), "p1")
+    expect(mockResolveScopeMembers).not.toHaveBeenCalled()
+    // The post creator (u2) is badged — NOT the forum owner (u1).
     expect(body.members.find((m: any) => m.userId === "u2").isCreator).toBe(true)
     expect(body.members.find((m: any) => m.userId === "u1").isCreator).toBe(false)
   })
@@ -231,34 +238,29 @@ describe("POST /channels/[id]/members", () => {
     expect(res.status).toBe(400)
   })
 
-  it("rejects adding to a FORUM (400): forum membership is derived from its posts", async () => {
+  it("ALLOWS adding to a private FORUM (it owns its roster like a channel)", async () => {
     mockResolveChannelAccessContext.mockResolvedValue({
       channel: { id: "f1", serverId: "s1", type: "forum", parentChannelId: null, parentMessageId: null, creatorId: "u1" },
       anchor: { id: "f1", serverId: "s1", parentChannelId: null, creatorId: "u1" },
       role: "member", isPrivate: true, isChannelMember: true, isCreator: true,
     })
     const res = await POST(postReq({ userId: "u2" }), { params: { id: "f1" } } as any)
-    expect(res.status).toBe(400)
-    // A forum member row would never be read (access is the union of posts) —
-    // the write must be rejected, not silently no-op.
-    expect(mockCreateChannelMember).not.toHaveBeenCalled()
+    expect(res.status).toBe(201)
+    expect(mockCreateChannelMember).toHaveBeenCalledWith(expect.anything(), {
+      channelId: "f1", userId: "u2", addedBy: "u1",
+    })
   })
 
-  it("allows adding to a private forum post (own access unit)", async () => {
+  it("rejects adding to a forum POST (400): posts take participants, not members", async () => {
     mockResolveChannelAccessContext.mockResolvedValue({
       channel: { id: "p1", serverId: "s1", type: "forum_post", parentChannelId: "f1", parentMessageId: null, creatorId: "u1" },
       anchor: { id: "f1", serverId: "s1", parentChannelId: null, creatorId: "u1" },
       role: "member", isPrivate: true, isChannelMember: true, isCreator: true,
     })
     const res = await POST(postReq({ userId: "u2" }), { params: { id: "p1" } } as any)
-    expect(res.status).toBe(201)
-    expect(mockCreateChannelMember).toHaveBeenCalledWith(expect.anything(), {
-      channelId: "p1", userId: "u2", addedBy: "u1",
-    })
-    // Access → notify coupling: an added private-post member also joins the
-    // post's participant (notify) set so they receive fan-out.
-    expect(mockAddThreadParticipants).toHaveBeenCalledWith(expect.anything(), "p1", [
-      { userId: "u2", source: "added" },
-    ])
+    expect(res.status).toBe(400)
+    // A post inherits its forum's access — no access rows. Add participants via
+    // the participants route instead.
+    expect(mockCreateChannelMember).not.toHaveBeenCalled()
   })
 })

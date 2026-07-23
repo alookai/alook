@@ -2,15 +2,16 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, WS_EVENTS } from "@alook/shared"
+import { queries, WS_EVENTS, isThread, isForumPost } from "@alook/shared"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
 import { requireChannelAccess } from "@/lib/community/permissions"
 import { avatarInitial } from "@/lib/community/avatar"
 
 /**
- * List a thread's participants — the NOTIFY set (incl. muted rows, so the
- * viewer's own muted state shows). Thread-only. Any member of the parent
- * channel (who therefore passes the thread access gate) may read the list.
+ * List a thread/forum-post's participants — the NOTIFY set. Both thread and
+ * forum_post are the notification dimension (their panel == their notify set),
+ * so both use this endpoint. Any member with access (who therefore passes the
+ * access gate) may read the list.
  */
 export const GET = withAuth(async (_req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
@@ -19,8 +20,9 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
   const access = await requireChannelAccess(db, channelId, ctx.userId)
   if (!access.ok) return writeError(access.error, access.status)
-  if (access.value.channel.type !== "thread") {
-    return writeError("not a thread", 400)
+  const type = access.value.channel.type
+  if (!isThread(type) && !isForumPost(type)) {
+    return writeError("not a thread or forum post", 400)
   }
 
   const rows = await queries.communityThread.listThreadParticipants(db, channelId)
@@ -35,13 +37,12 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
 })
 
 /**
- * Add a participant to a thread — the "add from channel" flow. ANY current
- * viewer with access to the thread may add (passing `requireChannelAccess`
- * means the caller can see the thread — i.e. is a member of the parent channel;
- * mirrors the channel/post "any member can add" rule). Other joins happen
- * automatically via mention/speak. The target must be a member of the thread's
- * PARENT CHANNEL audience (a thread can only pull in people who can already see
- * the channel it lives in).
+ * Add a participant to a thread/forum-post — the "add from channel" flow. ANY
+ * current viewer with access may add (passing `requireChannelAccess` means the
+ * caller can see the unit — i.e. is a member of the parent channel/forum).
+ * Other joins happen automatically via mention/speak. The target must be a
+ * member of the PARENT's access audience (you can only pull in people who can
+ * already see the channel/forum the unit lives in).
  */
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
@@ -51,7 +52,9 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const access = await requireChannelAccess(db, channelId, ctx.userId)
   if (!access.ok) return writeError(access.error, access.status)
   const channel = access.value.channel
-  if (channel.type !== "thread") return writeError("not a thread", 400)
+  if (!isThread(channel.type) && !isForumPost(channel.type)) {
+    return writeError("not a thread or forum post", 400)
+  }
 
   let body: { userId?: string }
   try {
