@@ -121,6 +121,19 @@ describe("chatSyntaxPlugin — channelRef", () => {
     expect(children[1]).toMatchObject({ type: "channelRef", value: "/studio/general/#42" })
   })
 
+  it("wraps the thread-reply form /studio/general/#5#42 as a single channelRef node", () => {
+    const children = paragraphChildren(parse("see /studio/general/#5#42 done"))
+    const refs = children.filter((c): c is ChannelRefNode => c.type === "channelRef")
+    expect(refs).toHaveLength(1)
+    expect(refs[0]).toMatchObject({ type: "channelRef", value: "/studio/general/#5#42" })
+  })
+
+  it("does not match a thread-reply form mid-string (leading-space boundary still applies)", () => {
+    const children = paragraphChildren(parse("text/studio/general/#5#42"))
+    expect(children).toHaveLength(1)
+    expect(children[0]).toMatchObject({ type: "text" })
+  })
+
   it("leaves a channel-ref-shaped path inside inline code literal", () => {
     const children = paragraphChildren(parse("`/studio/general`"))
     expect(children.map((c) => c.type)).toEqual(["inlineCode"])

@@ -172,14 +172,10 @@ async function cmdMessageEmoji(opts: Record<string, unknown>): Promise<unknown> 
     throw new CliError(`message emoji: ${(err as Error).message}`);
   }
 
-  if (parsed.threadRootSeq !== undefined && parsed.seq === undefined) {
-    const err = new CliError("reacting to messages inside a thread is not supported yet");
-    (err as { hint?: string }).hint = "react to a top-level channel or DM message instead";
-    throw err;
-  }
   if (parsed.seq === undefined) {
     const err = new CliError(`message emoji needs a ref with a seq (e.g. ${target}#42)`);
-    (err as { hint?: string }).hint = "pass --target /<server>/<channel>#N or /.dm/<peer>#N";
+    (err as { hint?: string }).hint =
+      "pass --target /<server>/<channel>#N, /<server>/<channel>/#N#M for thread reply, or /.dm/<peer>#N";
     throw err;
   }
   if (Buffer.byteLength(emoji, "utf8") > MAX_EMOJI_BYTES) {
@@ -188,7 +184,10 @@ async function cmdMessageEmoji(opts: Record<string, unknown>): Promise<unknown> 
     throw err;
   }
 
-  const channel = `/${parsed.server}/${parsed.channel}`;
+  const channel =
+    parsed.threadRootSeq !== undefined
+      ? `/${parsed.server}/${parsed.channel}/#${parsed.threadRootSeq}`
+      : `/${parsed.server}/${parsed.channel}`;
   const res = await api.reactAdd({ channel, seq: parsed.seq, emoji });
   return { target, emoji, duplicate: res.duplicate === true };
 }

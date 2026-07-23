@@ -80,6 +80,13 @@ describe("resolveChannelRefBase", () => {
     expect(resolved?.threadRootSeq).toBe(42)
   })
 
+  it("resolves the thread-reply form /server/channel/#5#42 and surfaces both threadRootSeq and seq", () => {
+    const resolved = resolveChannelRefBase(directory, "/studio/general/#5#42")
+    expect(resolved?.channel.id).toBe("chn_general")
+    expect(resolved?.threadRootSeq).toBe(5)
+    expect(resolved?.seq).toBe(42)
+  })
+
   it("returns null instead of throwing on malformed input (fails parseRef)", () => {
     expect(resolveChannelRefBase(directory, "not-a-ref")).toBeNull()
     expect(resolveChannelRefBase(directory, "/onlyserver")).toBeNull()

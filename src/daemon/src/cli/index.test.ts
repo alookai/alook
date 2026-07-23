@@ -597,13 +597,13 @@ describe("message emoji", () => {
     expect(env).toEqual({ error: "not a member of #general", hint: "join the channel first" });
   });
 
-  it("thread ref (no message seq) → error envelope, reactAdd never called", async () => {
+  it("thread scope ref without message seq → error, reactAdd never called", async () => {
     const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
     setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
     await main(["message", "emoji", "--target", "/demo/general/#5", "--emoji", "👍"]);
     const env = parseEnvelope(cap.lines());
-    expect(env.error).toMatch(/thread/);
-    expect(env.hint).toMatch(/top-level channel or DM/);
+    expect(env.error).toMatch(/needs a ref with a seq/);
+    expect(env.hint).toMatch(/#N#M/);
     expect(reactAddSpy).not.toHaveBeenCalled();
   });
 
@@ -650,6 +650,39 @@ describe("message emoji", () => {
     setApiForTesting(stubApi({ reactAdd: async () => ({ ok: true as const, duplicate: true }) }));
     const code = await main(["message", "emoji", "--target", "/demo/general#42", "--emoji", "👍"]);
     expect(code).toBe(0);
+    const env = parseEnvelope(cap.lines()) as { success: { duplicate: boolean } };
+    expect(env.success.duplicate).toBe(true);
+  });
+
+  it("thread-reply ref — calls reactAdd with thread-scope channel + seq split out", async () => {
+    const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
+    setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
+    await main(["message", "emoji", "--target", "/demo/general/#5#42", "--emoji", "👍"]);
+    expect(reactAddSpy).toHaveBeenCalledWith({ channel: "/demo/general/#5", seq: 42, emoji: "👍" });
+    const env = parseEnvelope(cap.lines());
+    expect(env).toEqual({ success: { target: "/demo/general/#5#42", emoji: "👍", duplicate: false } });
+  });
+
+  it("thread ROOT via parent channel ref (regression) unchanged", async () => {
+    const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
+    setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
+    await main(["message", "emoji", "--target", "/demo/general#5", "--emoji", "👀"]);
+    expect(reactAddSpy).toHaveBeenCalledWith({ channel: "/demo/general", seq: 5, emoji: "👀" });
+  });
+
+  it("thread-reply oversize emoji still hits the local check before the wire", async () => {
+    const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
+    setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
+    const big = "🎉".repeat(20);
+    await main(["message", "emoji", "--target", "/demo/general/#5#42", "--emoji", big]);
+    const env = parseEnvelope(cap.lines());
+    expect(env.error).toMatch(/too long/);
+    expect(reactAddSpy).not.toHaveBeenCalled();
+  });
+
+  it("thread-reply duplicate — envelope surfaces duplicate:true", async () => {
+    setApiForTesting(stubApi({ reactAdd: async () => ({ ok: true as const, duplicate: true }) }));
+    await main(["message", "emoji", "--target", "/demo/general/#5#42", "--emoji", "👍"]);
     const env = parseEnvelope(cap.lines()) as { success: { duplicate: boolean } };
     expect(env.success.duplicate).toBe(true);
   });

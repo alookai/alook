@@ -19,8 +19,9 @@ import type { SpoilerNode } from "./spoiler-syntax"
 // comment for why find-and-replace cannot handle spoilers containing nested
 // formatting.
 
-// Mirrors `CHANNEL_REF_REGEX`'s old doc comment: matches a `/server/channel`
-// or `/server/channel/#N` (thread) ref — the CLI's path grammar
+// Mirrors `CHANNEL_REF_REGEX`'s old doc comment: matches a `/server/channel`,
+// `/server/channel/#N` (thread), or `/server/channel/#N#M` (thread reply,
+// see plans/agent-thread-emoji-react.md) ref — the CLI's path grammar
 // (`parseRef`/`formatRef` in `community-cli-contract.ts`). Segment charset
 // `[A-Za-z0-9_-]+` is the nanoid alphabet every `communityServer.id`/
 // `communityChannel.id` is generated with. Trailing
@@ -35,7 +36,7 @@ import type { SpoilerNode } from "./spoiler-syntax"
 // `findAndReplace` doesn't need to redistribute a leading/trailing text
 // node around the match the way the old string-splice regex's `(^|\s)`
 // capture group did.
-const CHANNEL_REF_RE = /(?<=^|\s)\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+(?:\/#\d+)?(?=\s|$|[.,;:!?)\]])/g
+const CHANNEL_REF_RE = /(?<=^|\s)\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+(?:\/#\d+(?:#\d+)?)?(?=\s|$|[.,;:!?)\]])/g
 
 // A bare `/server` ref — one segment, no channel. Same boundary lookaround as
 // `CHANNEL_REF_RE` (leading `(?<=^|\s)`, trailing `(?=\s|$|[.,;:!?)\]])`), which

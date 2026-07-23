@@ -863,6 +863,7 @@ export interface ParsedRef {
  *   /<server>/<channel>          → { server, channel }
  *   /<server>/<channel>#N        → { server, channel, seq:N }
  *   /<server>/<channel>/#N       → { server, channel, threadRootSeq:N }
+ *   /<server>/<channel>/#N#M     → { server, channel, threadRootSeq:N, seq:M }
  *   /.dm/<peer>[...]             → DM (server = ".dm", channel = peer, a
  *                                  `name#0042` handle) — see the `.dm`-specific
  *                                  branch below, which differs from the
@@ -878,12 +879,13 @@ export function parseRef(ref: ChannelRef): ParsedRef {
   const server = parts[0];
   // Trailing "#N" on the last segment pins a message seq.
   let seq: Seq | undefined;
-  let threadRootSeq: Seq | undefined;
 
-  // Thread form: /server/channel/#N  → last part is "#N".
+  // Thread form: /server/channel/#N or /server/channel/#N#M  → last part
+  // starts with "#". `#M` (when present) is the message seq WITHIN the
+  // thread channel's own seq space.
   if (parts.length >= 3 && parts[parts.length - 1].startsWith("#")) {
-    threadRootSeq = parseSeq(parts[parts.length - 1]);
-    return { server, channel: parts[1], threadRootSeq };
+    const tail = parseThreadTail(parts[parts.length - 1]);
+    return { server, channel: parts[1], ...tail };
   }
   const chSeg = parts[1];
 
@@ -923,10 +925,53 @@ export function parseRef(ref: ChannelRef): ParsedRef {
   return { server, channel: chSeg };
 }
 
-/** Format the channel portion of a ParsedRef back to a path ref (no #seq). */
-export function formatRef(p: { server: string; channel: string; threadRootSeq?: Seq }): ChannelRef {
+/**
+ * Split the trailing thread segment (`#N` or `#N#M`) of a thread-form ref
+ * into a `{ threadRootSeq, seq? }` pair. Called with the raw last segment
+ * (leading `#` present).
+ *
+ * Every token that reaches `parseSeq` here must first be checked for empty:
+ * a naive `Number("") === 0` would otherwise silently accept `##5` as
+ * `{ threadRootSeq:0, seq:5 }` or `#5#` as `{ threadRootSeq:5, seq:0 }` and
+ * hand a bogus seq to the wire. Explicit `#0#5` / `#5#0` remain permissive
+ * — the server rejects seq/root 0 at `resolve-ref.ts`.
+ */
+function parseThreadTail(segment: string): { threadRootSeq: Seq; seq?: Seq } {
+  const stripped = segment.startsWith("#") ? segment.slice(1) : segment;
+  const tokens = stripped.split("#");
+  if (tokens.length < 1 || tokens.length > 2) {
+    throw new Error(`bad thread ref tail: #${stripped}`);
+  }
+  for (const t of tokens) {
+    if (!t) throw new Error(`bad thread ref tail: #${stripped} (empty seq)`);
+  }
+  const threadRootSeq = parseSeq(tokens[0]);
+  if (tokens.length === 1) return { threadRootSeq };
+  return { threadRootSeq, seq: parseSeq(tokens[1]) };
+}
+
+/**
+ * Format a ParsedRef back to a path ref. Valid combinations:
+ *   {}                             → /server/channel
+ *   { threadRootSeq }              → /server/channel/#N
+ *   { threadRootSeq, seq }         → /server/channel/#N#M
+ * A bare `seq` (no `threadRootSeq`) is NOT supported — the message form
+ * `/server/channel#N` puts `#N` on the channel segment, not on a trailing
+ * path segment, and no caller needs to emit that shape via formatRef today.
+ */
+export function formatRef(p: {
+  server: string;
+  channel: string;
+  threadRootSeq?: Seq;
+  seq?: Seq;
+}): ChannelRef {
+  if (p.seq !== undefined && p.threadRootSeq === undefined) {
+    throw new Error("formatRef: seq without threadRootSeq is not supported");
+  }
   const base = `/${p.server}/${p.channel}`;
-  return p.threadRootSeq !== undefined ? `${base}/#${p.threadRootSeq}` : base;
+  if (p.threadRootSeq === undefined) return base;
+  if (p.seq === undefined) return `${base}/#${p.threadRootSeq}`;
+  return `${base}/#${p.threadRootSeq}#${p.seq}`;
 }
 
 /** "#12" → 12 ; "12" → 12. */

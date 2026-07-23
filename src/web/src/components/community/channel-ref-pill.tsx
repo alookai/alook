@@ -22,6 +22,12 @@ export type ChannelRefPillView =
     // after the pill, since a `/#N` suffix is never part of the clickable
     // target (see decision table below).
     threadSuffix?: number
+    // Set when the ref pins a specific message inside a thread
+    // (`/s/c/#N#M`, see plans/agent-thread-emoji-react.md). Rendered as
+    // plain trailing text (`#M`, no leading slash) — the clickable target
+    // is still the thread channel; `#M` is a visible cursor, not a deep
+    // link anchor.
+    messageSuffix?: number
   }
 
 /**
@@ -83,6 +89,7 @@ export function describeChannelRefPillView(args: {
       serverPrefix,
       href: { serverId: resolved.server.id, channelId: resolved.channel.id },
       threadSuffix: resolved.threadRootSeq,
+      ...(resolved.seq !== undefined ? { messageSuffix: resolved.seq } : {}),
     }
   }
 
@@ -91,6 +98,7 @@ export function describeChannelRefPillView(args: {
     label: thread.name,
     serverPrefix,
     href: { serverId: resolved.server.id, channelId: thread.id },
+    ...(resolved.seq !== undefined ? { messageSuffix: resolved.seq } : {}),
   }
 }
 
@@ -144,6 +152,7 @@ export function ChannelRefPill({ children }: { children?: React.ReactNode }) {
         {view.label}
       </ChannelPill>
       {view.threadSuffix !== undefined && <span className="text-muted-foreground">/#{view.threadSuffix}</span>}
+      {view.messageSuffix !== undefined && <span className="text-muted-foreground">#{view.messageSuffix}</span>}
     </>
   )
 }

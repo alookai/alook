@@ -131,4 +131,39 @@ describe("describeChannelRefPillView", () => {
     })
     expect((view as { threadSuffix?: number }).threadSuffix).toBeUndefined()
   })
+
+  it("thread-reply form (threadRootSeq + seq), thread resolved → pill targets thread id, carries messageSuffix but no threadSuffix", () => {
+    const view = describeChannelRefPillView({
+      ref: "/srv_1/chn_1/#5#42",
+      resolved: resolved({ threadRootSeq: 5, seq: 42 }),
+      directoryLoading: false,
+      thread: { id: "thr_1", name: "Thread about X", parentSeq: 5 },
+      currentServerId: "srv_1",
+    })
+    expect(view).toEqual({
+      kind: "pill",
+      label: "Thread about X",
+      serverPrefix: undefined,
+      href: { serverId: "srv_1", channelId: "thr_1" },
+      messageSuffix: 42,
+    })
+  })
+
+  it("thread-reply form, thread-not-found degrade → pill targets base channel, carries BOTH threadSuffix and messageSuffix", () => {
+    const view = describeChannelRefPillView({
+      ref: "/srv_1/chn_1/#5#42",
+      resolved: resolved({ threadRootSeq: 5, seq: 42 }),
+      directoryLoading: false,
+      thread: null,
+      currentServerId: "srv_1",
+    })
+    expect(view).toEqual({
+      kind: "pill",
+      label: "general",
+      serverPrefix: undefined,
+      href: { serverId: "srv_1", channelId: "chn_1" },
+      threadSuffix: 5,
+      messageSuffix: 42,
+    })
+  })
 })

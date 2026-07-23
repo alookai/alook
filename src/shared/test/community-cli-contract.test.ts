@@ -68,6 +68,75 @@ describe("parseRef", () => {
     expect(() => parseRef("/.dm/foo#bar")).not.toThrow();
     expect(parseRef("/.dm/foo#bar")).toEqual({ server: DM_SERVER, channel: "foo#bar" });
   });
+
+  it('parses "/demo/general/#5#42" as a thread-reply message ref', () => {
+    expect(parseRef("/demo/general/#5#42")).toEqual({
+      server: "demo",
+      channel: "general",
+      threadRootSeq: 5,
+      seq: 42,
+    });
+  });
+
+  it('parses "/demo/general/#5" unchanged (regression)', () => {
+    expect(parseRef("/demo/general/#5")).toEqual({
+      server: "demo",
+      channel: "general",
+      threadRootSeq: 5,
+    });
+  });
+
+  it('throws on "/demo/general/#5#" — empty seq tail (Number("") === 0 trap)', () => {
+    expect(() => parseRef("/demo/general/#5#")).toThrow();
+  });
+
+  it('throws on "/demo/general/##5" — empty root', () => {
+    expect(() => parseRef("/demo/general/##5")).toThrow();
+  });
+
+  it('throws on "/demo/general/#5#abc" — non-numeric seq', () => {
+    expect(() => parseRef("/demo/general/#5#abc")).toThrow();
+  });
+
+  it('throws on "/demo/general/#5#42#7" — three tails, not two', () => {
+    expect(() => parseRef("/demo/general/#5#42#7")).toThrow();
+  });
+
+  it('parses "/demo/general/#0#5" — parser stays permissive (server rejects root 0)', () => {
+    expect(parseRef("/demo/general/#0#5")).toEqual({
+      server: "demo",
+      channel: "general",
+      threadRootSeq: 0,
+      seq: 5,
+    });
+  });
+
+  it('parses "/demo/general/#5#0" — parser stays permissive (server rejects seq 0)', () => {
+    expect(parseRef("/demo/general/#5#0")).toEqual({
+      server: "demo",
+      channel: "general",
+      threadRootSeq: 5,
+      seq: 0,
+    });
+  });
+
+  it('throws on "/demo/general#5#42" — slashless form must NOT accept a trailing #M', () => {
+    // The thread form requires the explicit `/#` separator. This shape is
+    // ambiguous with the message form `/server/channel#N` and must be
+    // rejected so callers can't sneak past the grammar.
+    expect(() => parseRef("/demo/general#5#42")).toThrow();
+  });
+
+  it('parses "/.dm/gusye#1231/#5#42" — parser is DM-agnostic on thread form', () => {
+    // Server rejects DM threads at resolve-ref.ts; the parser itself does
+    // not know DM rules.
+    expect(parseRef("/.dm/gusye#1231/#5#42")).toEqual({
+      server: DM_SERVER,
+      channel: "gusye#1231",
+      threadRootSeq: 5,
+      seq: 42,
+    });
+  });
 });
 
 describe("formatRef", () => {
@@ -84,6 +153,33 @@ describe("formatRef", () => {
   it("round-trips through parseRef for the thread form", () => {
     const ref = formatRef({ server: "studio", channel: "general", threadRootSeq: 7 });
     expect(parseRef(ref)).toEqual({ server: "studio", channel: "general", threadRootSeq: 7 });
+  });
+
+  it("formats a thread-reply message ref (threadRootSeq + seq)", () => {
+    expect(
+      formatRef({ server: "studio", channel: "general", threadRootSeq: 5, seq: 42 }),
+    ).toBe("/studio/general/#5#42");
+  });
+
+  it("round-trips through parseRef for the thread-reply form", () => {
+    const input = { server: "studio", channel: "general", threadRootSeq: 5, seq: 42 };
+    expect(parseRef(formatRef(input))).toEqual(input);
+  });
+
+  it("throws when seq is provided without threadRootSeq", () => {
+    expect(() =>
+      formatRef({ server: "studio", channel: "general", seq: 42 }),
+    ).toThrow();
+  });
+
+  it("formats a plain channel ref unchanged (regression)", () => {
+    expect(formatRef({ server: "studio", channel: "general" })).toBe("/studio/general");
+  });
+
+  it("formats a plain thread ref unchanged (regression)", () => {
+    expect(formatRef({ server: "studio", channel: "general", threadRootSeq: 5 })).toBe(
+      "/studio/general/#5",
+    );
   });
 });
 
