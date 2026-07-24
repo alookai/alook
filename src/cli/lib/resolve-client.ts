@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { loadCLIConfigForProfile } from "./config.js";
+import { loadCLIConfigForProfile, activeWorkspaces } from "./config.js";
 import { cmdPrefix } from "./env.js";
 import { getRootOpts } from "./command-utils.js";
 
@@ -43,7 +43,7 @@ export function resolveClientOptsPartial(command: Command, opts: ResolveClientOp
     process.exit(1);
   }
 
-  const workspaces = cfg.watched_workspaces || [];
+  const workspaces = activeWorkspaces(cfg.watched_workspaces);
 
   // Workspace resolution: flag > env > config lookup by agent_id > single workspace fallback
   let ws;

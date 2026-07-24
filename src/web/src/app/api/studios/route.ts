@@ -184,7 +184,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     invalidate(cacheKeys.allAgentAccess(ws.workspaceId)),
     invalidate(cacheKeys.allMembers(ws.workspaceId)),
     invalidate(cacheKeys.overviewTaskStats(ws.workspaceId, dateStr)),
-    invalidate(cacheKeys.agentLinks(ws.workspaceId)),
   ]);
 
   // Pin leader agent by default

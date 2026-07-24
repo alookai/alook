@@ -5,7 +5,7 @@ import { detectVersion, createBackend } from "./agent/index.js";
 import { type Task, type Attachment, type SessionRunnerInput, fromApiTask } from "./types.js";
 import { type MarkerData, writeMarkerFile, downloadAttachments } from "./session-runner.js";
 import { buildPrompt, buildMergedPrompt } from "./prompt.js";
-import { loadCLIConfigForProfile, saveCLIConfigForProfile } from "../lib/config.js";
+import { loadCLIConfigForProfile, saveCLIConfigForProfile, activeWorkspaces, markWorkspaceDeletedInList } from "../lib/config.js";
 import { createLogger } from "../lib/logger.js";
 import { DaemonWsClient } from "./ws-client.js";
 import type { DaemonPushMessage } from "@alook/shared";
@@ -137,6 +137,10 @@ function isValidMarker(data: unknown): data is MarkerData {
 
 const MARKER_STALE_MS = 24 * 60 * 60 * 1000;
 const TMP_STALE_MS = 60 * 60 * 1000;
+// Consecutive poll-401s before a workspace is marked auth-failed. The server
+// only returns 401 for a definitely-invalid token (transient DB failure → 503),
+// so this is a belt-and-braces guard against any residual transient 401.
+const WS_AUTH_401_THRESHOLD = 5;
 
 export async function reconcilePendingCompletions(workspacesRoot: string): Promise<void> {
   const dir = join(workspacesRoot, ".pending_completions");
@@ -257,8 +261,7 @@ export async function startDaemon(
 
   const cliConfig = loadCLIConfigForProfile(profile);
 
-  const allEntries = cliConfig.watched_workspaces || [];
-  const workspaces = allEntries.filter((ws): ws is typeof ws & { id: string; name: string } => ws.status !== "deleted" && !!ws.id);
+  const workspaces = activeWorkspaces(cliConfig.watched_workspaces);
 
   if (workspaces.length === 0) {
     log.info("No workspaces configured — daemon starting in standby mode. Register a workspace to begin.");
@@ -307,6 +310,10 @@ export async function startDaemon(
   const workspaceStates: WorkspaceState[] = [];
   const runtimeIndex = new Map<string, RuntimeData>();
   let hadWorkspaces = workspaces.length > 0;
+  // Per-workspace consecutive poll-401 count. A workspace is marked deleted
+  // only after WS_AUTH_401_THRESHOLD consecutive 401s (reset on any success),
+  // so a transient 503/blip can't wrongly drop a healthy workspace.
+  const consecutive401 = new Map<string, number>();
 
   for (const ws of workspaces) {
     const runtimes = providers.map((p) => ({
@@ -384,15 +391,29 @@ export async function startDaemon(
     }
   }
 
-  function evictWorkspace(workspaceId: string): void {
+  /**
+   * Single owner for taking a workspace out of the active poll set. Used by
+   * every "this workspace is no longer usable" path: server evict, WS
+   * AUTH_REJECTED, and repeated poll-401. It does the full in-memory cleanup
+   * (workspaceStates + runtimeIndex + health count + 401 counter) AND persists
+   * `status="deleted"` so a restart doesn't re-poll it (every reader goes
+   * through `activeWorkspaces()`, which keeps only `status === "active"`).
+   *
+   * Soft-delete (mark), not physical removal: the config entry lingers so the
+   * cause is inspectable and re-pairing (`activate.ts` sets status back to
+   * "active" with a fresh token) recovers it. `reason` is logged, not stored
+   * — status stays a 2-value field.
+   */
+  function markWorkspaceDeleted(workspaceId: string, reason: string): void {
     const idx = workspaceStates.findIndex((ws) => ws.workspaceId === workspaceId);
-    if (idx === -1) return;
+    if (idx === -1) return; // idempotent — already gone
 
     const ws = workspaceStates[idx];
     for (const rid of ws.runtimeIds) {
       runtimeIndex.delete(rid);
     }
     workspaceStates.splice(idx, 1);
+    consecutive401.delete(workspaceId);
 
     health.setRuntimeCount(
       workspaceStates.reduce((sum, w) => sum + w.runtimeIds.length, 0),
@@ -400,15 +421,14 @@ export async function startDaemon(
 
     try {
       const cfg = loadCLIConfigForProfile(profile);
-      cfg.watched_workspaces = (cfg.watched_workspaces || []).filter(
-        (w) => w.id !== workspaceId,
-      );
-      saveCLIConfigForProfile(profile, cfg);
+      if (markWorkspaceDeletedInList(cfg.watched_workspaces || [], workspaceId)) {
+        saveCLIConfigForProfile(profile, cfg);
+      }
     } catch {
-      // Best-effort — config write failure must not block eviction
+      // Best-effort — config write failure must not block in-memory removal
     }
 
-    log.info(`Workspace ${workspaceId} deleted server-side — removed from config`);
+    log.info(`Workspace ${workspaceId} removed from polling — ${reason}`);
   }
 
   // Staggered per-workspace polling
@@ -418,7 +438,9 @@ export async function startDaemon(
 
     const N = workspaceStates.length;
     const staggerMs = N > 1 ? Math.floor(config.pollInterval / N) : 0;
-    const evictedIds: string[] = [];
+    // Deferred removal — collected during the loop and applied AFTER it, because
+    // markWorkspaceDeleted splices workspaceStates while we index by [i].
+    const toRemove = new Map<string, string>(); // workspaceId -> reason
 
     for (let i = 0; i < N; i++) {
       if (remaining <= 0) break;
@@ -436,8 +458,11 @@ export async function startDaemon(
           config.cliVersion,
         );
 
+        // Any successful poll clears the workspace's 401 streak.
+        consecutive401.delete(ws.workspaceId);
+
         if (evicted) {
-          evictedIds.push(ws.workspaceId);
+          toRemove.set(ws.workspaceId, "server evicted");
           continue;
         }
 
@@ -447,8 +472,8 @@ export async function startDaemon(
 
         if (pending_rescan) {
           log.info("Rescan requested — restarting daemon to re-detect runtimes");
-          for (const id of evictedIds) {
-            evictWorkspace(id);
+          for (const [id, reason] of toRemove) {
+            markWorkspaceDeleted(id, reason);
           }
           requestRestart();
           return;
@@ -496,15 +521,35 @@ export async function startDaemon(
         }
       } catch (e) {
         if (e instanceof Error && e.message.startsWith("HTTP 401")) {
-          log.warn(`Workspace ${ws.workspaceId} poll returned 401 — will retry next cycle`);
+          // 401 = definitely-invalid token (transient infra → 503, which lands
+          // in the else branch). Count consecutive 401s; only mark deleted at
+          // the threshold, as a guard against any residual transient 401.
+          const n = (consecutive401.get(ws.workspaceId) ?? 0) + 1;
+          consecutive401.set(ws.workspaceId, n);
+          if (n >= WS_AUTH_401_THRESHOLD) {
+            toRemove.set(ws.workspaceId, `poll 401 x${n}`);
+          } else {
+            log.warn(`Workspace ${ws.workspaceId} poll 401 (${n}/${WS_AUTH_401_THRESHOLD}) — will retry`);
+          }
         } else {
+          // Any non-401 outcome (503, network blip) breaks the 401 streak —
+          // "consecutive" means back-to-back 401s, not 401s scattered across a
+          // flaky window. Without this a 401/blip/401/blip… pattern would creep
+          // to the threshold and wrongly delete a live workspace.
+          consecutive401.delete(ws.workspaceId);
           log.debug("Poll error", e);
         }
       }
     }
 
-    for (const id of evictedIds) {
-      evictWorkspace(id);
+    // Deferred removal (see toRemove comment). If we drop the workspace whose
+    // token the WS client is using, rebuild the WS with a surviving token.
+    if (toRemove.size > 0) {
+      const wsTokenWorkspaceDropped = wsWorkspaceId != null && toRemove.has(wsWorkspaceId);
+      for (const [id, reason] of toRemove) {
+        markWorkspaceDeleted(id, reason);
+      }
+      if (wsTokenWorkspaceDropped) rebuildWsClient();
     }
 
     if (workspaceStates.length === 0 && hadWorkspaces) {
@@ -513,6 +558,11 @@ export async function startDaemon(
     }
   };
 
+  // Start at high-frequency poll; drop to low-frequency once WS auths
+  // (onConnected). A dead machine token no longer pins the daemon here — T6's
+  // AUTH_REJECTED handling removes the bad workspace and rotates the WS token
+  // — so a transient WS outage polling at 3s is self-limiting (recovers on the
+  // next auth.ok) and doesn't warrant a separate mid-frequency tier.
   let pollTimer = setInterval(pollCycle, config.pollInterval);
 
   // --- Heartbeat timer (independent of poll and WS state) ---
@@ -526,10 +576,6 @@ export async function startDaemon(
   const heartbeatTimer = setInterval(heartbeatPing, config.heartbeatInterval);
 
   // --- WS Push Channel (primary) + Poll fallback ---
-  // Any active machine token suffices — WS auth validates daemon-level access,
-  // not per-workspace. Tasks are routed by workspaceId within handleWsPush.
-  const firstToken = workspaceStates[0]?.token;
-
   function updatePollInterval(newInterval: number) {
     clearInterval(pollTimer);
     pollTimer = setInterval(pollCycle, newInterval);
@@ -586,9 +632,16 @@ export async function startDaemon(
         }
         break;
 
-      case "daemon.evict":
-        evictWorkspace(msg.workspaceId);
+      case "daemon.evict": {
+        const wasWsToken = wsWorkspaceId === msg.workspaceId;
+        markWorkspaceDeleted(msg.workspaceId, "server evicted");
+        if (wasWsToken) rebuildWsClient();
+        if (workspaceStates.length === 0 && hadWorkspaces) {
+          log.info("All workspaces removed — shutting down");
+          shutdown();
+        }
         break;
+      }
 
       case "daemon.update":
         if (!isUpdating() && msg.version !== config.cliVersion) {
@@ -634,26 +687,110 @@ export async function startDaemon(
     }
   }
 
-  const wsToken = firstToken;
+  let wsClient: DaemonWsClient | null = null;
+  // Which workspace's token the current wsClient authenticates with. Needed so
+  // that when that workspace is marked deleted (dead token) we know to rebuild
+  // the WS with a surviving token. Set ONLY in rebuildWsClient — the single
+  // construction path — so it can never drift out of sync with wsClient.
+  let wsWorkspaceId: string | undefined;
 
-  let wsClient = wsToken
-    ? new DaemonWsClient({
-        serverURL: config.serverURL,
-        daemonId: config.daemonId,
-        machineToken: wsToken,
-        onMessage: handleWsPush,
-        onConnected: () => {
-          log.info("WS connected — switching to low-frequency poll");
-          updatePollInterval(config.wsPollInterval);
-        },
-        onDisconnected: () => {
-          log.info("WS disconnected — reverting to high-frequency poll");
-          updatePollInterval(config.pollInterval);
-        },
-      })
-    : null;
+  // Shared callbacks — stable across every (re)build so poll-frequency policy
+  // and auth handling can't drift between construction sites.
+  const wsCallbacks = {
+    onMessage: handleWsPush,
+    onConnected: () => {
+      log.info("WS connected — switching to low-frequency poll");
+      updatePollInterval(config.wsPollInterval);
+    },
+    onDisconnected: () => {
+      log.info("WS disconnected — reverting to high-frequency poll");
+      updatePollInterval(config.pollInterval);
+    },
+    onAuthRejected: (reason?: string) => {
+      // A WS AUTH_REJECTED can be a false-invalid: the WS-DO may read a
+      // replica-lagged (not-yet-propagated) token row right after activation
+      // and reject a token that is actually valid. Rather than delete on this
+      // one signal (the poll path already tolerates 4 transient 401s), confirm
+      // with one authoritative HTTP poll before deleting.
+      const rejectedWorkspaceId = wsWorkspaceId;
+      const rejectedToken = workspaceStates.find(
+        (ws) => ws.workspaceId === rejectedWorkspaceId,
+      )?.token;
 
-  wsClient?.connect();
+      // Tear down the rejected socket up front so its auto-reconnect can't
+      // respin the same token during the confirm window. Don't rebuild yet:
+      // rebuilding now would repick the still-present rejected workspace
+      // (workspaceStates[0]) and reconnect the same token — the confirm decides
+      // whether it stays, and every exit path below rebuilds afterwards.
+      wsClient?.close();
+      wsClient = null;
+      wsWorkspaceId = undefined;
+
+      if (rejectedWorkspaceId != null && rejectedToken) {
+        void confirmAuthRejection(rejectedWorkspaceId, rejectedToken, reason);
+      } else {
+        rebuildWsClient();
+      }
+    },
+  };
+
+  /**
+   * Confirm a WS AUTH_REJECTED with one authoritative poll before deleting the
+   * workspace. `maxTasks: 0` makes the probe side-effect-free — it exercises the
+   * same auth middleware as a normal poll but claims no tasks. Delete only on a
+   * confirmed `HTTP 401`; a success or any non-401 error is treated as a
+   * transient false-invalid and the workspace survives. Every path rebuilds the
+   * WS (torn down by the caller) so the daemon never lingers without a socket.
+   */
+  async function confirmAuthRejection(
+    workspaceId: string,
+    token: string,
+    reason?: string,
+  ): Promise<void> {
+    let confirmedDead = false;
+    try {
+      await client.poll(token, config.daemonId, 0, config.cliVersion);
+      // Poll succeeded — the token is live; the WS rejection was a false-invalid
+      // (likely replica lag). Keep the workspace; the rebuilt WS reconnects it.
+      log.info(`Workspace ${workspaceId} WS auth rejection not confirmed by poll — keeping (likely transient)`);
+    } catch (e) {
+      if (e instanceof Error && e.message.startsWith("HTTP 401")) {
+        confirmedDead = true;
+        markWorkspaceDeleted(workspaceId, `WS auth rejected${reason ? ` (${reason})` : ""} — confirmed by poll 401`);
+      } else {
+        // Non-401 (503, network) — transient, not a token problem. Keep it.
+        log.debug("Confirm-poll error (transient) — keeping workspace", e);
+      }
+    }
+
+    rebuildWsClient();
+    if (confirmedDead && workspaceStates.length === 0 && hadWorkspaces) {
+      log.info("All workspaces removed — shutting down");
+      shutdown();
+    }
+  }
+
+  // The single WS (re)construction path. Any active machine token suffices —
+  // WS auth is daemon-level; tasks route by workspaceId in handleWsPush.
+  function rebuildWsClient(): void {
+    wsClient?.close();
+    const first = workspaceStates[0];
+    if (!first) {
+      wsClient = null;
+      wsWorkspaceId = undefined;
+      return;
+    }
+    wsWorkspaceId = first.workspaceId;
+    wsClient = new DaemonWsClient({
+      serverURL: config.serverURL,
+      daemonId: config.daemonId,
+      machineToken: first.token,
+      ...wsCallbacks,
+    });
+    wsClient.connect();
+  }
+
+  rebuildWsClient();
 
   // --- Sweep timer: triggers server-side sweep + local reconciliation ---
   const sweepTick = async () => {
@@ -748,8 +885,7 @@ export async function startDaemon(
     log.info("SIGHUP received — reloading config...");
     try {
       const freshConfig = loadCLIConfigForProfile(profile);
-      const freshWorkspaces = (freshConfig.watched_workspaces || [])
-        .filter((ws): ws is typeof ws & { id: string } => ws.status !== "deleted" && !!ws.id);
+      const freshWorkspaces = activeWorkspaces(freshConfig.watched_workspaces);
       const existingIds = new Set(workspaceStates.map((ws) => ws.workspaceId));
 
       const newWorkspaces = freshWorkspaces.filter(
@@ -788,23 +924,10 @@ export async function startDaemon(
         health.setRuntimeCount(
           workspaceStates.reduce((sum, w) => sum + w.runtimeIds.length, 0),
         );
+        // Only (re)build if we don't already have a live WS — never tear down a
+        // healthy connection on reload. rebuildWsClient sets wsWorkspaceId.
         if (!wsClient && workspaceStates.length > 0) {
-          const token = workspaceStates[0].token;
-          wsClient = new DaemonWsClient({
-            serverURL: config.serverURL,
-            daemonId: config.daemonId,
-            machineToken: token,
-            onMessage: handleWsPush,
-            onConnected: () => {
-              log.info("WS connected — switching to low-frequency poll");
-              updatePollInterval(config.wsPollInterval);
-            },
-            onDisconnected: () => {
-              log.info("WS disconnected — reverting to high-frequency poll");
-              updatePollInterval(config.pollInterval);
-            },
-          });
-          wsClient.connect();
+          rebuildWsClient();
           log.info("WS push client initialized after SIGHUP reload");
         }
         log.info(`Reload complete — now polling ${workspaceStates.length} workspace(s)`);

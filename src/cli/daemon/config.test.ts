@@ -35,6 +35,7 @@ describe("loadDaemonConfig defaults", () => {
 
     expect(cfg.serverURL).toBe("https://alook.ai");
     expect(cfg.pollInterval).toBe(3000);
+    expect(cfg.wsPollInterval).toBe(60000);
     expect(cfg.agentTimeout).toBe(43200000);
     expect(cfg.maxConcurrentTasks).toBe(20);
     expect(cfg.claudePath).toBe("claude");
@@ -52,6 +53,7 @@ describe("loadDaemonConfig env overrides", () => {
     process.env.ALOOK_DAEMON_POLL_INTERVAL = "5s";
     expect(loadDaemonConfig().pollInterval).toBe(5000);
   });
+
 
   it("ALOOK_DAEMON_MAX_CONCURRENT_TASKS='10' → 10", () => {
     process.env.ALOOK_DAEMON_MAX_CONCURRENT_TASKS = "10";

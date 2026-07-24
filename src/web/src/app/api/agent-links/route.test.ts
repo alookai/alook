@@ -221,7 +221,7 @@ describe("PUT /api/agent-links (upsert)", () => {
   });
 
   // TC8
-  it("creates a new pair -> 201, created:true, invalidates caches", async () => {
+  it("creates a new pair -> 201, created:true", async () => {
     mockGetAgent.mockResolvedValue({ id: "ag_x" });
     mockUpsertByPair.mockResolvedValue({
       row: {
@@ -240,7 +240,6 @@ describe("PUT /api/agent-links (upsert)", () => {
     const body = await res.json();
     expect(body.created).toBe(true);
     expect(body.instruction).toBe("delegate");
-    expect(mockInvalidate).toHaveBeenCalledWith("agentLinks:ws1");
   });
 
   // TC9

@@ -3,7 +3,7 @@ import { fork, spawn } from "child_process";
 import { fileURLToPath } from "url";
 import { APIClient } from "../lib/client.js";
 import { activateAndSave } from "../lib/activate.js";
-import { loadCLIConfigForProfile, saveCLIConfigForProfile } from "../lib/config.js";
+import { loadCLIConfigForProfile, saveCLIConfigForProfile, activeWorkspaces, markWorkspaceActive, markWorkspaceDeletedInList } from "../lib/config.js";
 import { cmdPrefix, getServerUrl } from "../lib/env.js";
 
 const DEVICE_CLIENT_ID = process.env.ALOOK_DEVICE_CLIENT_ID || "alook-cli";
@@ -64,18 +64,12 @@ function syncWorkspacesToConfig(
   const serverIds = new Set(serverWorkspaces.map((w) => w.id));
 
   for (const sw of serverWorkspaces) {
-    const existing = watched.find((w) => w.id === sw.id);
-    if (existing) {
-      existing.status = "active";
-      existing.name = sw.name;
-    } else {
-      watched.push({ id: sw.id, name: sw.name, token: "", status: "active", agent_ids: [] });
-    }
+    markWorkspaceActive(watched, { id: sw.id, name: sw.name });
   }
 
   for (const w of watched) {
     if (w.id && !serverIds.has(w.id)) {
-      w.status = "deleted";
+      markWorkspaceDeletedInList(watched, w.id);
     }
   }
 
@@ -213,7 +207,7 @@ async function checkExistingAuth(serverUrl: string, profile?: string): Promise<{
 
   // Try session token first, then machine token from workspaces
   const sessionToken = config.session_token;
-  const workspaces = config.watched_workspaces || [];
+  const workspaces = activeWorkspaces(config.watched_workspaces);
   const ws = workspaces[0];
   const authToken = sessionToken || ws?.token;
 
@@ -232,7 +226,7 @@ async function checkExistingAuth(serverUrl: string, profile?: string): Promise<{
     const serverWorkspaces = await res.json() as WorkspaceResponse[];
 
     // Sync workspaces when config has no workspace with a valid id
-    const hasValidWorkspace = workspaces.some((w) => w.id && w.status !== "deleted");
+    const hasValidWorkspace = workspaces.length > 0;
     if (!hasValidWorkspace && serverWorkspaces.length > 0) {
       syncWorkspacesToConfig(serverWorkspaces, profile);
     }

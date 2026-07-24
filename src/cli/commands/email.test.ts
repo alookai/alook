@@ -32,7 +32,8 @@ vi.mock("../lib/client.js", () => ({
   },
 }));
 
-vi.mock("../lib/config.js", () => ({
+vi.mock("../lib/config.js", async (importActual) => ({
+  ...(await importActual<typeof import("../lib/config.js")>()),
   loadCLIConfigForProfile: vi.fn(() => ({
     server_url: "http://localhost:3000",
     watched_workspaces: [

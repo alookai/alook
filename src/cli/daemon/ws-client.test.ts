@@ -115,6 +115,23 @@ describe("DaemonWsClient", () => {
     expect(onMessage).toHaveBeenCalledWith({ type: "daemon.rescan" });
   });
 
+  it("AUTH_REJECTED frame triggers onAuthRejected (before schema parse) and not onMessage", () => {
+    const onAuthRejected = vi.fn();
+    const onMessage = vi.fn();
+    const client = makeClient({ onAuthRejected, onMessage });
+    client.connect();
+
+    const ws = (client as any).ws as MockWebSocket;
+    ws.simulateOpen();
+    // The error frame is NOT in DaemonPushMessageSchema — it must be handled
+    // before safeParse or it'd be dropped as "invalid push message".
+    ws.simulateMessage(JSON.stringify({ type: "error", code: "AUTH_REJECTED", reason: "revoked" }));
+
+    expect(onAuthRejected).toHaveBeenCalledTimes(1);
+    expect(onAuthRejected).toHaveBeenCalledWith("revoked");
+    expect(onMessage).not.toHaveBeenCalled();
+  });
+
   it("invalid message (bad schema) does not call onMessage", () => {
     const onMessage = vi.fn();
     const client = makeClient({ onMessage });

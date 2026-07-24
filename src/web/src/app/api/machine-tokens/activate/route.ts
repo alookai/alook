@@ -6,6 +6,7 @@ import { writeJSON } from "@/lib/middleware/helpers";
 import { runtimeToResponse } from "@/lib/api/responses";
 import { broadcastToUser } from "@/lib/broadcast";
 import { invalidate, cacheKeys } from "@/lib/cache";
+import { warmMachineTokenCache } from "@/lib/middleware/auth";
 
 const log = createLogger({ service: "machine-tokens/activate" });
 
@@ -63,10 +64,14 @@ export const POST = withEnv(async (req: NextRequest, ctx) => {
 
   await queries.machineToken.activateMachineToken(db, mt.id, hostname);
 
+  // Warm the positive token cache with the just-activated row (the route
+  // already holds it, incl. the userEmail join auth needs — activate only
+  // flips status). This closes the false-401 window where the daemon's first
+  // poll reads a lagged replica and negative-caches a 401. withEnv doesn't
+  // bind cache KV, so pass the namespace explicitly.
   await Promise.all([
-    invalidate(cacheKeys.machineToken(token)),
+    warmMachineTokenCache(ctx.env.CACHE_KV ?? null, token, { ...mt, status: "active" }),
     invalidate(cacheKeys.runtimeIds(workspaceId, daemonId)),
-    invalidate(cacheKeys.allRuntimes(workspaceId)),
   ]);
 
   broadcastToUser(mt.userId, {

@@ -5,7 +5,7 @@ import { APIClient } from "../lib/client.js";
 import { cmdPrefix } from "../lib/env.js";
 import { printJSON } from "../lib/output.js";
 import { resolveClientOptsPartial } from "../lib/resolve-client.js";
-import { loadCLIConfigForProfile, saveCLIConfigForProfile } from "../lib/config.js";
+import { loadCLIConfigForProfile, saveCLIConfigForProfile, markWorkspaceActive } from "../lib/config.js";
 import { getRootOpts } from "../lib/command-utils.js";
 
 interface RuntimeResponse {
@@ -156,15 +156,11 @@ export function workspaceCommand(): Command {
           // Update local config with the resolved workspace
           try {
             const freshCfg = loadCLIConfigForProfile(parentOpts.profile);
-            const watched = freshCfg.watched_workspaces || [];
-            const existing = watched.find((w) => w.id === targetWorkspaceId);
-            if (existing) {
-              existing.status = "active";
-              existing.name = res.workspace.name;
-            } else {
-              watched.push({ id: targetWorkspaceId, name: res.workspace.name, token: token, status: "active", agent_ids: [] });
-            }
-            freshCfg.watched_workspaces = watched;
+            freshCfg.watched_workspaces = markWorkspaceActive(freshCfg.watched_workspaces || [], {
+              id: targetWorkspaceId,
+              name: res.workspace.name,
+              token,
+            });
             saveCLIConfigForProfile(parentOpts.profile, freshCfg);
           } catch {
             // Best-effort config update

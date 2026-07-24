@@ -6,11 +6,13 @@ const mockActivateMachineToken = vi.fn();
 const mockUpsertMachine = vi.fn();
 const mockBatchUpsertAgentRuntimes = vi.fn();
 const mockBroadcastToUser = vi.fn();
+const mockWarmMachineTokenCache = vi.fn();
+const mockKv = { put: vi.fn(), get: vi.fn(), delete: vi.fn() };
 
 function sharedMocks() {
   return {
     "@opennextjs/cloudflare": {
-      getCloudflareContext: vi.fn(() => Promise.resolve({ env: { DB: {} } })),
+      getCloudflareContext: vi.fn(() => Promise.resolve({ env: { DB: {}, CACHE_KV: mockKv } })),
     },
     "@alook/shared": async () => ({
       createDb: vi.fn(() => ({})),
@@ -63,6 +65,9 @@ describe("POST /api/machine-tokens/activate", () => {
         runtimeIds: () => "ri:",
         allRuntimes: () => "ar:",
       },
+    }));
+    vi.doMock("@/lib/middleware/auth", () => ({
+      warmMachineTokenCache: (...a: any[]) => mockWarmMachineTokenCache(...a),
     }));
     vi.doMock("@/lib/middleware/helpers", async () => {
       return await vi.importActual<typeof import("@/lib/middleware/helpers")>(
@@ -131,6 +136,58 @@ describe("POST /api/machine-tokens/activate", () => {
       "mt_1",
       "TestMachine.local",
     );
+  });
+
+  it("warms the token cache with the activated row (not a delete)", async () => {
+    const POST = await loadRoute();
+
+    mockGetMachineTokenByToken.mockResolvedValue(pendingToken);
+    mockUpsertMachine.mockResolvedValue(undefined);
+    mockBatchUpsertAgentRuntimes.mockResolvedValue([{ id: "rt_1", provider: "claude" }]);
+    mockActivateMachineToken.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+
+    await POST(makeReq(validBody));
+
+    // Warmed with the just-activated row (status flipped to active), through
+    // the explicit CACHE_KV binding — closes the daemon's first-poll false-401.
+    expect(mockWarmMachineTokenCache).toHaveBeenCalledWith(
+      mockKv,
+      "al_test123",
+      expect.objectContaining({ id: "mt_1", status: "active" }),
+    );
+  });
+
+  it("succeeds when CACHE_KV is absent (warm is a no-op, no throw)", async () => {
+    vi.resetModules();
+    const mocks = sharedMocks();
+    (mocks["@opennextjs/cloudflare"].getCloudflareContext as any) = vi.fn(() =>
+      Promise.resolve({ env: { DB: {} } }),
+    );
+    vi.doMock("@opennextjs/cloudflare", () => mocks["@opennextjs/cloudflare"]);
+    vi.doMock("@alook/shared", mocks["@alook/shared"]);
+    vi.doMock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
+    vi.doMock("@/lib/broadcast", () => mocks["@/lib/broadcast"]);
+    vi.doMock("@/lib/cache", () => ({
+      invalidate: vi.fn(() => Promise.resolve()),
+      cacheKeys: { machineToken: (t: string) => `mt:${t}`, runtimeIds: () => "ri:", allRuntimes: () => "ar:" },
+    }));
+    vi.doMock("@/lib/middleware/auth", () => ({
+      warmMachineTokenCache: (...a: any[]) => mockWarmMachineTokenCache(...a),
+    }));
+    vi.doMock("@/lib/api/responses", () => ({ runtimeToResponse: (r: any) => ({ id: r.id, provider: r.provider }) }));
+    const { POST } = await import("./route");
+
+    mockGetMachineTokenByToken.mockResolvedValue(pendingToken);
+    mockUpsertMachine.mockResolvedValue(undefined);
+    mockBatchUpsertAgentRuntimes.mockResolvedValue([{ id: "rt_1", provider: "claude" }]);
+    mockActivateMachineToken.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+
+    const res = await POST(makeReq(validBody));
+    expect(res.status).toBe(200);
+    // Called with null KV — the helper itself no-ops; here we just assert wiring.
+    expect(mockWarmMachineTokenCache).toHaveBeenCalledWith(null, "al_test123", expect.anything());
   });
 
   it("broadcasts runtime.registered event", async () => {

@@ -95,7 +95,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   await Promise.all([
     invalidate(cacheKeys.runtimeIds(workspaceId, daemonId)),
-    invalidate(cacheKeys.allRuntimes(workspaceId)),
   ]);
 
   broadcastToUser(ctx.userId, {

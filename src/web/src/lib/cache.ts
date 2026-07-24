@@ -218,22 +218,16 @@ export function invalidateInboxCounts(userId: string, workspaceId: string): Prom
 
 export const cacheKeys = {
   machineToken: (token: string) => `mt:${token.slice(0, 20)}`,
-  machineTokenLastUsed: (token: string) => `mt_lu:${token.slice(0, 20)}`,
   member: (workspaceId: string, userId: string) => `mem:${workspaceId}:${userId}`,
   runtimeIds: (workspaceId: string, daemonId: string) => `rt:${workspaceId}:${daemonId}`,
-  agent: (workspaceId: string, agentId: string) => `ag:${workspaceId}:${agentId}`,
-  heartbeat: (workspaceId: string, daemonId: string) => `hb:${workspaceId}:${daemonId}`,
   user: (userId: string) => `usr:${userId}`,
   allEmailAccounts: (workspaceId: string) => `ea:${workspaceId}`,
-  agentLinks: (workspaceId: string) => `al:${workspaceId}`,
   allHandles: (workspaceId: string) => `handles:${workspaceId}`,
   overviewEmailAccounts: (workspaceId: string) => `ov_ea:${workspaceId}`,
   overviewEmailStats: (workspaceId: string) => `ov_email:${workspaceId}`,
   overviewTaskStats: (workspaceId: string, dateStr: string) => `ov_task:${workspaceId}:${dateStr}`,
   allAgentAccess: (workspaceId: string) => `aa:${workspaceId}`,
-  allRuntimes: (workspaceId: string) => `runtimes:${workspaceId}`,
   allMembers: (workspaceId: string) => `members:${workspaceId}`,
-  activeTaskCounts: (workspaceId: string) => `atc:${workspaceId}`,
   inboxCount: (userId: string, workspaceId: string, types?: string[]) =>
     `inbox:${userId}:${workspaceId}:${types ? [...types].sort().join(",") : "*"}`,
   hasPendingFileRequest: (workspaceId: string) => `fr_p:${workspaceId}`,

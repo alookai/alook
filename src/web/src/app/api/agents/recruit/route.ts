@@ -103,7 +103,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   await Promise.all([
     invalidate(cacheKeys.allHandles(ws.workspaceId)),
     invalidate(cacheKeys.allAgentAccess(ws.workspaceId)),
-    invalidate(cacheKeys.agentLinks(ws.workspaceId)),
   ]);
 
   broadcastToUser(ctx.userId, {
