@@ -34,10 +34,10 @@ describe("buildCliSystemPrompt", () => {
     expect(buildCliSystemPrompt(baseConfig, { lifecycleKind: "per_turn" }).length).toBeGreaterThan(0);
   });
 
-  it("produces different content for persistent vs per_turn lifecycles", () => {
+  it("produces the same content for persistent vs per_turn lifecycles (messageNotificationSection removed)", () => {
     const persistent = buildCliSystemPrompt(baseConfig, { lifecycleKind: "persistent" });
     const perTurn = buildCliSystemPrompt(baseConfig, { lifecycleKind: "per_turn" });
-    expect(persistent).not.toBe(perTurn);
+    expect(persistent).toBe(perTurn);
   });
 
   it("round-trips agentName and agentHandle verbatim, and omits them when absent", () => {

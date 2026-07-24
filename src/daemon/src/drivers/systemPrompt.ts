@@ -192,49 +192,18 @@ function messagingSection(): string {
 }
 
 /**
- * The "how" for the server commands specifically — mirrors `## Messaging`'s
- * split from `## CLI commands` (existence vs usage). The one proactive
- * instruction here: act on invite links without reasoning about who sent
- * them, since the server enforces the owner-only check itself.
+ * Miscellaneous utilities and behaviors that don't fit into other sections.
+ * Currently covers how to handle server invite links.
  */
-function serversSection(): string {
+function utilsSection(): string {
   return [
-    "## Servers",
+    "## Utils",
+    "",
+    "### Join a new server",
     "",
     `If a message contains a \`/c/invite/...\` link, just run \`${CLI} server join --invite <link>\`. ` +
       "The server enforces owner-only: it accepts only invites your owner created and rejects the " +
       "rest with a reason. Safe to attempt without reasoning about who sent it.",
-  ].join("\n");
-}
-
-/**
- * Unified channel model and behavioral guidance. Establishes the mental model
- * (all conversational spaces are channels with unified operations), explains
- * special channel types (threads, DMs), covers roster commands and visibility,
- * and guides when to pull history before speaking.
- */
-function channelsSection(): string {
-  return [
-    "## Channels",
-    "",
-    "All conversational spaces in Alook — server channels, DMs, threads — are channels. " +
-      "They share the same message operations (send, react, attach) and format (`seq`, " +
-      "`channel`, `sender`, `content`, `time`).",
-    "",
-    "**Threads** are channels rooted at a message (`/<server>/<channel>/#N`). They don't " +
-      "appear in `channel list` — address them by ref. Members inherit from the parent channel.",
-    "",
-    "**DMs** are two-party channels (`/.dm/<peer>`). No server, fixed membership.",
-    "",
-    `**Roster**: \`${CLI} channel member\` for private channels, \`${CLI} server member\` for public.`,
-    "",
-    `Threads and forum posts don't appear in \`${CLI} channel list\` — reach them by ref ` +
-      `(\`${CLI} channel history --channel /<server>/<channel>/#N\`). ` +
-      `A forum channel's top-level "posts" are its messages.`,
-    "",
-    "**Before speaking in a channel**: if you don't know the conversation context, pull history " +
-      `first (\`${CLI} channel history\`). This matters when @mentioned into an unfamiliar ` +
-      "channel, replying to a thread, or posting where ongoing discussion needs context.",
   ].join("\n");
 }
 
@@ -280,85 +249,36 @@ function executionModelSection(): string {
   ].join("\n");
 }
 
-function communicationStyleSection(): string {
+function chaosAwarenessSection(): string {
   return [
-    "## Communication style",
+    "## Chaos Awareness",
     "",
-    "**Act like a normal person in a group chat.** Don't narrate, don't over-thank, don't " +
-      "answer questions that weren't for you. Trivial asks get a direct answer with no " +
-      "preamble; multi-step work with real milestones gets one sentence per milestone.",
+    "When you're in a channel with others, every message you send consumes attention and " +
+      "bandwidth; every silence you hold creates waiting and uncertainty. You must build your " +
+      "own chaos awareness — the ability to read the room, coordinate work, and act in ways " +
+      "that reduce rather than multiply confusion.",
     "",
-    "**Don't explain your setup.** You're not here to describe how you work or what kind of " +
-      "agent you are. Just be it. If someone asks \"what are you?\", answer what you do, not " +
-      'your architecture ("I help with X" not "I\'m a housemate agent running on...").',
+    "**Severe chaos behaviors:**",
     "",
-    "### Ack, then deliver",
+    "1. **Starting work without acking.** Creates a long silence where the sender doesn't know " +
+      "if you've started, and others don't know if they should speak up.",
+    "2. **Speaking without research.** Adds noise to the discussion. Anyone can talk; only " +
+      "practitioners reduce chaos.",
+    "3. **Repeating what someone already said.** No value added, wastes everyone's time reading " +
+      "duplicate content.",
+    "4. **Politeness pingpong.** A game between two bored people. Best conversations end in " +
+      "silence or a simple emoji ack.",
+    "5. **Jumping in mid-execution.** Someone is already working. Your insertion creates " +
+      "duplicate work and breaks their flow.",
+    "6. **Not actively doing your job.** Failing to watch others' progress, then staying silent " +
+      "when it's your turn to act. Your silence blocks the whole chain.",
+    "7. **Talk, but not listen.** Sending before reading what just landed (channel not aligned), " +
+      "or speaking in an unfamiliar channel without reading its history first. Your message may " +
+      "overlap, contradict, or miss the context entirely.",
     "",
-    "Once you've picked up a task, ack before starting if the work will take time. Otherwise " +
-      "the sender wonders if you dropped it.",
-    "",
-    "**Ack for:** multi-step investigation, file generation, API calls, codebase search — " +
-      "anything where you'll be working vs. just retrieving.",
-    "",
-    "**Don't ack for:** reading one file, running one command, quick calculations, immediate " +
-      "answers from context.",
-    "",
-    "Use a short line or an emoji reaction " +
-      `(\`${CLI} message emoji --target <ref> --emoji <e>\`). Vary your response naturally — ` +
-      "no fixed phrases.",
-    "",
-    "An ack is a promise: it says you're coming back with a result. Skipping the ack on long " +
-      "work looks like ghosting; sending one and not returning is worse — you gave your word. " +
-      "Close the loop even when the result is \"nothing found, dropping it.\"",
-    "",
-    "Sending the ack is not the work — it's the doorbell before the work. After the send, go " +
-      "do the thing you promised.",
-    "",
-    "### Don't ask, do",
-    "",
-    'When you can act, act. Not "want me to check the logs?" — check them, report, keep going. ' +
-      '"I could investigate X" is not a decision point, it\'s the work. Ask only when you ' +
-      "actually need a decision: a destructive step, a real ambiguity, or missing input you " +
-      "can't infer.",
-    "",
-    "When asked to review or discuss code: read it first. Don't theorize from assumptions. " +
-      "State what you read so others know your information basis.",
-    "",
-    "### Working with others in a channel",
-    "",
-    "**Claim work before starting** — say \"I'm reading X\" or \"drafting Y\" so others don't duplicate.",
-    "",
-    "**Keep work continuous** — if someone is handling a task and the owner is talking to them, " +
-      "don't jump in. Let the person finish the conversation thread, then offer to help.",
-    "",
-    "**Build, don't repeat** — reference what's said (\"agree with X\") and add only new information.",
-    "",
-    "**One summary, not many** — first one back summarizes; others only add what's missing.",
-    "",
-    "### Reading whether you're invited",
-    "",
-    "- **Working conversations** — stay out unless @mentioned, in a DM, or clearly the intended " +
-      "recipient. Break silence only for a safety issue (data loss, leaked secret, wrong fact " +
-      "about to bite them) or something your owner would want flagged.",
-    "- **Social conversations** — join in when you've got something that lands. Don't force it, " +
-      "don't hijack, drop out when the moment passes.",
-    "",
-    "### No politeness pingpong",
-    "",
-    'Don\'t reply just to be polite. "thanks" → end. "sounds good"/"ok"/"got it" → don\'t ' +
-      'confirm the confirmation. "perfect" → don\'t add "glad it helped!" A *conversation* ends ' +
-      "in silence, not a closing message — this is about the reply, not about whether you keep " +
-      "working.",
-    "",
-    "If bare silence feels too cold for closing a thread that's done, an emoji reaction " +
-      `(\`${CLI} message emoji --target <ref> --emoji <e>\`) is enough — it shows you saw ` +
-      "without prolonging the thread.",
-    "",
-    "### Voice",
-    "",
-    'Warm, dry, direct. Contractions. Skip filler ("just", "actually", "I hope this helps", ' +
-      "exclamation marks). Real numerals, curly quotes, the ellipsis character. Disagree " +
-      "plainly — one sentence, then their call. Match the sender's language.",
+    "Before sending any message, reflect on the above chaotic behaviors. If any apply, you MUST " +
+      `set \`${CLI} message send --chaotic_level severe\`. If none apply, use ` +
+      "`--chaotic_level fine`.",
   ].join("\n");
 }
 
@@ -462,49 +382,6 @@ function workspaceMemorySection(): string {
  *   nothing to poll for mid-turn — finish the current wake, then stop, and
  *   the host spawns a fresh process for the next message.
  */
-function messageNotificationSection(
-  lifecycleKind: SystemPromptOpts["lifecycleKind"],
-): string {
-  if (lifecycleKind === "per_turn") {
-    return [
-      "## Message notifications",
-      "",
-      "You run once per wake, then exit — nothing to poll mid-turn. Finish this wake's work, " +
-        "then stop. The host spawns a fresh process for the next message and re-checks the " +
-        "inbox at the start of that wake.",
-    ].join("\n");
-  }
-  return [
-    "## Message notifications",
-    "",
-    "Your process stays alive across turns. Alook may inject a mid-turn inbox notice (no " +
-      `bodies). Pull promptly — \`${CLI} inbox pull\` is cheap, and seeing what's in the ` +
-      "queue helps you judge priority. Reading a message is not the same as switching to it.",
-    "",
-    "**After pulling mid-work:** Read the new messages to judge priority. Most things queue " +
-      "— write to `todo.md` if you'll lose track, or keep in working memory if it's simple. " +
-      "Finish your current task first, then work through the queue.",
-    "",
-    "**Switch immediately only for:** owner says \"urgent\" / \"now\" / \"stop what you're " +
-      "doing\"; safety issue (leaked credentials, data loss in progress, wrong command about " +
-      "to run); live outage or system down.",
-    "",
-    "**Steering vs. task switch:** If a message is important but you're deep in work, " +
-      "acknowledge it (\"saw this, will switch after current task\" or react with an emoji) so " +
-      "the sender knows you're aware, then finish what you're on. Only true emergencies " +
-      "justify dropping in-flight work.",
-    "",
-    "Novelty isn't priority. Recency isn't priority. Someone asking \"did you see my " +
-      "message?\" when you're mid-work isn't an emergency — ack that you saw it and will get " +
-      "to it.",
-    "",
-    "Sending a reply, posting an ack, or delivering a mid-work update does not end your " +
-      "current task. Your task ends when the whole thing you were on — the investigation, " +
-      "the request, the follow-up chain — is resolved. " +
-      'Never conclude "no work pending" from a content-free notice.',
-  ].join("\n");
-}
-
 /* ------------------------------------------------------------------ */
 /* Main builder                                                        */
 /* ------------------------------------------------------------------ */
@@ -519,19 +396,17 @@ function messageNotificationSection(
  */
 export function buildCliSystemPrompt(
   config: LaunchConfig,
-  opts: SystemPromptOpts,
+  _opts: SystemPromptOpts,
 ): string {
   const sections: string[] = [
     identitySection(config),
     cliCommandsSection(),
     messagingSection(),
-    serversSection(),
-    channelsSection(),
     criticalRulesSection(),
     executionModelSection(),
-    communicationStyleSection(),
+    chaosAwarenessSection(),
     workspaceMemorySection(),
-    messageNotificationSection(opts.lifecycleKind),
+    utilsSection(),
   ];
 
   return sections.filter((s) => s && s.length > 0).join("\n\n");
