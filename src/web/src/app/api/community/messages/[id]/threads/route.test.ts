@@ -11,6 +11,7 @@ const mockListChildChannels = vi.fn()
 const mockCreateChannel = vi.fn()
 const mockCreateMessage = vi.fn()
 const mockListMessages = vi.fn()
+const mockAddThreadParticipants = vi.fn()
 
 const mockFanOutToChannel = vi.fn()
 
@@ -30,6 +31,9 @@ vi.mock("@alook/shared", async () => {
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
         createMessage: (...a: unknown[]) => mockCreateMessage(...a),
         listMessages: (...a: unknown[]) => mockListMessages(...a),
+      },
+      communityThread: {
+        addThreadParticipants: (...a: unknown[]) => mockAddThreadParticipants(...a),
       },
     },
   }
@@ -72,6 +76,9 @@ describe("POST /api/community/messages/[id]/threads", () => {
     // The unified pipeline fires `fanOutToChannel(...).catch(...)` — the mock
     // must return a promise so the `.catch` chain resolves.
     mockFanOutToChannel.mockResolvedValue(undefined)
+    mockAddThreadParticipants.mockResolvedValue(undefined)
+    // Both the caller (u1) and the parent-message author (u-author) resolve as
+    // members by default — the seeding path checks membership per userId.
     mockGetChannelForMember.mockResolvedValue({
       id: "c-parent",
       serverId: "s1",
@@ -190,5 +197,58 @@ describe("POST /api/community/messages/[id]/threads", () => {
     const res = await POST(req({ name: "x" }), ctx)
     expect(res.status).toBe(403)
     expect(mockCreateChannel).not.toHaveBeenCalled()
+  })
+
+  it("seeds the creator (spoke) AND the parent-message author (added) as default participants", async () => {
+    const res = await POST(req({ name: "my thread" }), ctx)
+    expect(res.status).toBe(201)
+    expect(mockAddThreadParticipants).toHaveBeenCalledTimes(1)
+    const [, threadId, rows] = mockAddThreadParticipants.mock.calls[0] as [
+      unknown,
+      string,
+      { userId: string; source: string }[],
+    ]
+    expect(threadId).toBe("t-new")
+    // Creator uses "spoke" (matches the forum-post creation flow); the author
+    // was pulled in by someone else, so "added".
+    expect(rows).toEqual([
+      { userId: "u1", source: "spoke" },
+      { userId: "u-author", source: "added" },
+    ])
+  })
+
+  it("de-dupes when the creator threads their own message (one 'spoke' row, no duplicate)", async () => {
+    mockGetMessage.mockResolvedValue({
+      id: "msg-p",
+      authorId: "u1",
+      content: "my own message",
+      channelId: "c-parent",
+    })
+    const res = await POST(req({ name: "my thread" }), ctx)
+    expect(res.status).toBe(201)
+    const [, , rows] = mockAddThreadParticipants.mock.calls[0] as [
+      unknown,
+      string,
+      { userId: string; source: string }[],
+    ]
+    expect(rows).toEqual([{ userId: "u1", source: "spoke" }])
+  })
+
+  it("does NOT seed the author when they've lost access to the parent channel", async () => {
+    // Caller (u1) resolves as a member; the author (u-author) does not — the
+    // per-userId getChannelForMember returns null for them, so seeding skips
+    // the author to avoid pushing a private thread to a non-member.
+    mockGetChannelForMember.mockImplementation(async (_db: unknown, _channelId: string, userId: string) => {
+      if (userId === "u1") return { id: "c-parent", serverId: "s1" }
+      return null
+    })
+    const res = await POST(req({ name: "my thread" }), ctx)
+    expect(res.status).toBe(201)
+    const [, , rows] = mockAddThreadParticipants.mock.calls[0] as [
+      unknown,
+      string,
+      { userId: string; source: string }[],
+    ]
+    expect(rows).toEqual([{ userId: "u1", source: "spoke" }])
   })
 })

@@ -59,6 +59,25 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     creatorId: ctx.userId,
   })
 
+  // Seed the default NOTIFY set: the thread creator (source "spoke", matching
+  // the forum-post creation flow and what the message-handler would write once
+  // they post), plus the original message's author (source "added" — they were
+  // pulled in by someone else, like the manual add-participant flow). The
+  // author is only enrolled if they are STILL a member of the parent channel —
+  // `requireChannelMember` above only gated the creator, so seeding the author
+  // unconditionally could push a private channel's thread to someone who lost
+  // access (the leak `removeParticipantFromChildChannels` exists to prevent).
+  const seedRows: { userId: string; source: "spoke" | "added" }[] = [
+    { userId: ctx.userId, source: "spoke" },
+  ]
+  // De-dupe: when the creator threads their own message the author is the same
+  // user, and the creator's "spoke" row already covers them.
+  if (message.authorId !== ctx.userId) {
+    const authorStillMember = await requireChannelMember(db, message.channelId, message.authorId)
+    if (authorStillMember.ok) seedRows.push({ userId: message.authorId, source: "added" })
+  }
+  await queries.communityThread.addThreadParticipants(db, childChannel.id, seedRows)
+
   // Note: we intentionally do NOT clone the parent message into the new thread
   // channel. The `parentMessageId` pointer above is the single source of truth
   // for the opener — the thread page fetches the parent live via

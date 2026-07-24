@@ -53,7 +53,7 @@ export function AnimatedAvatar({ seed, avatarUrl, size, className, isHovered, is
   return (
     <div className={animClass ?? undefined}>
       {resolved.kind === "photo" ? (
-        <img src={resolved.url} alt="" className={`object-cover ${className ?? ""}`} style={{ width: size, height: size }} />
+        <img src={resolved.url} alt="" className={`object-cover align-middle ${className ?? ""}`} style={{ width: size, height: size }} />
       ) : (
         <BoringAvatar seed={resolved.seed} size={size} className={className} />
       )}

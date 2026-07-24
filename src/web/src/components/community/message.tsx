@@ -322,7 +322,7 @@ export function Message({
   if (!interactive) return row
   return (
     <ContextMenu>
-      <ContextMenuTrigger render={row} />
+      <ContextMenuTrigger className="select-text" render={row} />
       <ContextMenuContent className="w-48">
         <MessageContextItems {...menuHandlers} />
       </ContextMenuContent>
