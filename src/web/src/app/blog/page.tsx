@@ -2,34 +2,42 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { getAllPosts } from "@/lib/blog/posts";
 
+const pageTitle = "Multi-Agent Collaboration & AI Team";
+
 const description =
   "Thoughts on building AI companies, agent collaboration, and the future of personal software.";
 
 export const metadata: Metadata = {
-  title: "Blog",
+  title: pageTitle,
   description,
   alternates: {
     canonical: "https://alook.ai/blog",
     types: { "application/rss+xml": "/blog/feed.xml" },
   },
   openGraph: {
-    title: "Blog",
+    title: pageTitle,
     description,
     url: "https://alook.ai/blog",
-    images: [{ url: "/og?title=Blog", width: 1200, height: 630 }],
+    images: [
+      {
+        url: `/og?title=${encodeURIComponent(pageTitle)}`,
+        width: 1200,
+        height: 630,
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Blog",
+    title: pageTitle,
     description,
-    images: ["/og?title=Blog"],
+    images: [`/og?title=${encodeURIComponent(pageTitle)}`],
   },
 };
 
 const collectionJsonLd = {
   "@context": "https://schema.org",
   "@type": "CollectionPage",
-  name: "Alook Blog",
+  name: pageTitle,
   description,
   url: "https://alook.ai/blog",
 };
@@ -47,7 +55,7 @@ export default async function BlogPage() {
       <div className="mx-auto max-w-3xl px-6 pt-10 sm:pt-20 pb-24">
         <header className="mb-16">
           <h1 className="font-news text-5xl sm:text-6xl font-semibold tracking-tight leading-none">
-            Blog
+            {pageTitle}
           </h1>
           <p className="mt-4 text-[1.0625rem] text-muted-foreground font-sans leading-relaxed max-w-xl">
             {description}

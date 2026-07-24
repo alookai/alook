@@ -24,7 +24,7 @@ export async function generateMetadata({
   const ogImage = post.image ?? `/og?title=${encodeURIComponent(post.title)}`;
 
   return {
-    title: `${post.title} — Alook Blog`,
+    title: post.title,
     description: post.excerpt,
     alternates: { canonical: `https://alook.ai/blog/${post.slug}` },
     openGraph: {
