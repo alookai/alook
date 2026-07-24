@@ -52,41 +52,25 @@ if (existsSync(bundledDir)) rmSync(bundledDir, { recursive: true });
 console.log("\n=== Building Web (opennextjs-cloudflare) ===\n");
 const webSrc = join(monoRoot, "src", "web");
 
-const blogStub = `\
-export interface BlogPost { slug: string; title: string; date: string; author: string; excerpt: string; readingTime: string; content: string; }
-export function getAllPosts(): BlogPost[] { return []; }
-export function getPostBySlug(slug: string): BlogPost | undefined { return undefined; }
-`;
-
-// scripts/validate-blog-assets.ts imports runValidateBlogAssetsCli from here.
-// Stripping the blog lib deletes the real module, so stub it — the app build
-// has no blog content to validate.
-const validateAssetsStub = `\
-export function runValidateBlogAssetsCli(..._args: unknown[]): void {}
-`;
-
-// Strip blog content before building the app package
-const blogAppDir = join(webSrc, "src", "app", "blog");
-const blogLibDir = join(webSrc, "src", "lib", "blog");
-
-const blogPublicDir = join(webSrc, "public", "blog");
+// Strip blog *content* (heavy .mdx posts + images) before building the app
+// package — the blog lib code stays intact so next.config.ts, sitemap, feed,
+// llms.txt, and redirects all still resolve. getAllPosts() reads the content
+// dir at runtime, so an empty dir simply yields an empty blog. Leaving the lib
+// in place avoids the brittle stub-per-new-file dance (see git history).
 const blogContentDir = join(webSrc, "src", "content");
+const blogPublicDir = join(webSrc, "public", "blog");
 
 console.log("[bundle] Stripping blog content for app-only build...");
-rmSync(blogAppDir, { recursive: true });
-rmSync(blogLibDir, { recursive: true });
-rmSync(blogPublicDir, { recursive: true, force: true });
 rmSync(blogContentDir, { recursive: true, force: true });
-mkdirSync(blogLibDir, { recursive: true });
-writeFileSync(join(blogLibDir, "posts.ts"), blogStub);
-writeFileSync(join(blogLibDir, "validate-assets.ts"), validateAssetsStub);
+rmSync(blogPublicDir, { recursive: true, force: true });
+mkdirSync(blogContentDir, { recursive: true });
 
 try {
   run("npx opennextjs-cloudflare build", webSrc);
 } finally {
   console.log("[bundle] Restoring blog source files...");
   try {
-    execSync("git checkout -- src/web/src/app/blog/ src/web/src/lib/blog/ src/web/public/blog/ src/web/src/content/", {
+    execSync("git checkout -- src/web/public/blog/ src/web/src/content/", {
       cwd: monoRoot,
       stdio: "inherit",
     });
