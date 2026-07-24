@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 import path from "node:path";
 import { readFileSync } from "node:fs";
 import createMDX from "@next/mdx";
+import { blogRedirects } from "./src/lib/blog/redirects";
 
 const pkg = JSON.parse(readFileSync(path.resolve(__dirname, "package.json"), "utf-8"));
 
@@ -18,13 +19,7 @@ const nextConfig: NextConfig = {
 	},
 	pageExtensions: ["js", "jsx", "md", "mdx", "ts", "tsx"],
 	async redirects() {
-		return [
-			{
-				source: "/blog/building-your-first-agent-team",
-				destination: "/blog/ai-agent-team",
-				statusCode: 301,
-			},
-		];
+		return blogRedirects();
 	},
 };
 
