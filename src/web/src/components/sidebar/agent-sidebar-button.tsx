@@ -59,7 +59,12 @@ export function AgentSidebarButton({
                   type="button"
                   onClick={() => { setPreviewOpen(false); onClick(); }}
                   className={cn(
-                    "relative flex shrink-0 items-center justify-center size-10 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer",
+                    "relative flex shrink-0 items-center justify-center size-10 text-sm font-medium transition-all duration-200 cursor-pointer",
+                    // Corner radius morphs WITH the avatar (both round↔rounded-xl)
+                    // so the ring — which hugs the button's corners — reshapes in
+                    // lockstep with the avatar instead of staying a fixed square
+                    // outline while the avatar rounds.
+                    isActive ? "rounded-xl" : "rounded-[20px]",
                     isActive
                       ? "ring-2 ring-primary/50 shadow-sm"
                       : "ring-0 bg-secondary text-secondary-foreground hover:bg-accent"
@@ -69,7 +74,13 @@ export function AgentSidebarButton({
             />
           }
         >
-          <AnimatedAvatar seed={agent.id} avatarUrl={agent.avatar_url} size={40} className="rounded-xl" isHovered={false} />
+          <AnimatedAvatar
+            seed={agent.id}
+            avatarUrl={agent.avatar_url}
+            size={40}
+            className={cn("transition-all duration-200", isActive ? "rounded-xl" : "rounded-[20px]")}
+            isHovered={false}
+          />
           <span className={cn(
             "absolute bottom-0 right-0 size-2 rounded-full ring-2 ring-background",
             isOnline ? "bg-status-online" : "bg-status-offline"
