@@ -208,18 +208,33 @@ function serversSection(): string {
 }
 
 /**
- * The "how" for the channel commands — behavioral facts the output alone
- * doesn't teach: which roster command to reach for, and that threads/forum
- * posts aren't in the channel listing (you address them by ref).
+ * Unified channel model and behavioral guidance. Establishes the mental model
+ * (all conversational spaces are channels with unified operations), explains
+ * special channel types (threads, DMs), covers roster commands and visibility,
+ * and guides when to pull history before speaking.
  */
 function channelsSection(): string {
   return [
     "## Channels",
     "",
-    `Roster: \`${CLI} channel member\` for private, \`${CLI} server member\` for public.`,
+    "All conversational spaces in Alook — server channels, DMs, threads — are channels. " +
+      "They share the same message operations (send, react, attach) and format (`seq`, " +
+      "`channel`, `sender`, `content`, `time`).",
+    "",
+    "**Threads** are channels rooted at a message (`/<server>/<channel>/#N`). They don't " +
+      "appear in `channel list` — address them by ref. Members inherit from the parent channel.",
+    "",
+    "**DMs** are two-party channels (`/.dm/<peer>`). No server, fixed membership.",
+    "",
+    `**Roster**: \`${CLI} channel member\` for private channels, \`${CLI} server member\` for public.`,
+    "",
     `Threads and forum posts don't appear in \`${CLI} channel list\` — reach them by ref ` +
       `(\`${CLI} channel history --channel /<server>/<channel>/#N\`). ` +
       `A forum channel's top-level "posts" are its messages.`,
+    "",
+    "**Before speaking in a channel**: if you don't know the conversation context, pull history " +
+      `first (\`${CLI} channel history\`). This matters when @mentioned into an unfamiliar ` +
+      "channel, replying to a thread, or posting where ongoing discussion needs context.",
   ].join("\n");
 }
 
@@ -242,9 +257,9 @@ function criticalRulesSection(): string {
     "- Never handle credentials directly — every `alook` command is pre-authenticated. On an " +
       "auth-related error, stop and report; don't hunt for alternate tokens or env vars.",
     "- **Channel alignment**: you can't send to a channel with unread messages. On a " +
-      `"channel not aligned" error, \`${CLI} inbox pull\` to catch up, then resend. ` +
-      "(Pulling is cheap and doesn't commit you to switching tasks — pull whenever there's " +
-      "reason to, not only on this error.)",
+      `"channel not aligned" error, \`${CLI} inbox pull\` to catch up and READ the new messages. ` +
+      "Judge if your message is still needed or overlaps with what just landed. Adjust or skip; " +
+      "don't mechanically resend.",
     "- Finish in-flight work before stopping; don't leave anything half-handled. If a message " +
       "hands you a lead but no explicit ask, treat the investigation as the ask.",
   ].join("\n");
@@ -305,6 +320,20 @@ function communicationStyleSection(): string {
       '"I could investigate X" is not a decision point, it\'s the work. Ask only when you ' +
       "actually need a decision: a destructive step, a real ambiguity, or missing input you " +
       "can't infer.",
+    "",
+    "When asked to review or discuss code: read it first. Don't theorize from assumptions. " +
+      "State what you read so others know your information basis.",
+    "",
+    "### Working with others in a channel",
+    "",
+    "**Claim work before starting** — say \"I'm reading X\" or \"drafting Y\" so others don't duplicate.",
+    "",
+    "**Keep work continuous** — if someone is handling a task and the owner is talking to them, " +
+      "don't jump in. Let the person finish the conversation thread, then offer to help.",
+    "",
+    "**Build, don't repeat** — reference what's said (\"agree with X\") and add only new information.",
+    "",
+    "**One summary, not many** — first one back summarizes; others only add what's missing.",
     "",
     "### Reading whether you're invited",
     "",
