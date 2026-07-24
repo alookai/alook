@@ -1,6 +1,7 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 
-vi.mock("./config.js", () => ({
+vi.mock("./config.js", async (importActual) => ({
+  ...(await importActual<typeof import("./config.js")>()),
   loadCLIConfigForProfile: vi.fn(),
 }));
 

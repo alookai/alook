@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { loadCLIConfigForProfile } from "../lib/config.js";
+import { loadCLIConfigForProfile, activeWorkspaces } from "../lib/config.js";
 import { cmdPrefix } from "../lib/env.js";
 
 export function statusCommand(): Command {
@@ -9,7 +9,7 @@ export function statusCommand(): Command {
       const profile: string | undefined = command.parent?.opts().profile;
       const cfg = loadCLIConfigForProfile(profile);
 
-      const ws = cfg.watched_workspaces?.[0];
+      const ws = activeWorkspaces(cfg.watched_workspaces)[0];
       if (!ws?.token) {
         console.log("Not registered");
         console.log(

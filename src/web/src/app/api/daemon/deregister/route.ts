@@ -31,7 +31,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   await Promise.all([
     invalidate(cacheKeys.runtimeIds(ctx.workspaceId, body.daemon_id)),
-    invalidate(cacheKeys.allRuntimes(ctx.workspaceId)),
   ]);
 
   // Single broadcast at daemon level

@@ -71,7 +71,6 @@ export const PATCH = withAuth(async (req, ctx) => {
   }
 
   await Promise.all([
-    invalidate(cacheKeys.agent(ws.workspaceId, id)),
     invalidate(cacheKeys.allHandles(ws.workspaceId)),
     invalidate(cacheKeys.allAgentAccess(ws.workspaceId)),
   ]);
@@ -100,7 +99,6 @@ export const DELETE = withAuth(async (req, ctx) => {
   }
 
   await Promise.all([
-    invalidate(cacheKeys.agent(ws.workspaceId, id)),
     invalidate(cacheKeys.allHandles(ws.workspaceId)),
     invalidate(cacheKeys.allAgentAccess(ws.workspaceId)),
   ]);

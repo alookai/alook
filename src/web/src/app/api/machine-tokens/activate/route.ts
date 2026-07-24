@@ -66,7 +66,6 @@ export const POST = withEnv(async (req: NextRequest, ctx) => {
   await Promise.all([
     invalidate(cacheKeys.machineToken(token)),
     invalidate(cacheKeys.runtimeIds(workspaceId, daemonId)),
-    invalidate(cacheKeys.allRuntimes(workspaceId)),
   ]);
 
   broadcastToUser(mt.userId, {

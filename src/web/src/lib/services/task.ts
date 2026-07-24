@@ -3,7 +3,6 @@ import { queries, TASK_TYPES, MAX_TASKS_PER_TRACE } from "@alook/shared";
 import { log } from "@/lib/logger";
 import { broadcastToUser, broadcastToDaemon } from "@/lib/broadcast";
 import { messageToResponse } from "@/lib/api/responses";
-import { invalidate, cacheKeys } from "@/lib/cache";
 import { TaskPayloadBuilder } from "@/lib/services/task-payload-builder";
 
 const taskQueries = queries.task;
@@ -52,7 +51,6 @@ export class TaskService {
       traceId: opts?.traceId ?? null,
       parentTaskId: opts?.parentTaskId ?? null,
     });
-    invalidate(cacheKeys.activeTaskCounts(workspaceId)).catch(() => {});
     // Push task to daemon via WS (best-effort). Awaited to ensure task state
     // settles (dispatched on success, reverted to queued on failure) before
     // the HTTP response returns, preventing races with subsequent poll calls.
@@ -382,7 +380,6 @@ export class TaskService {
     const running = await taskQueries.countRunningTasks(this.db, agentId, workspaceId);
     const status = running > 0 ? "working" : "idle";
     await agentQueries.updateAgentStatus(this.db, agentId, workspaceId, status);
-    invalidate(cacheKeys.activeTaskCounts(workspaceId)).catch(() => {});
   }
 
   async cancelTrace(traceId: string, workspaceId: string, opts?: { reason?: string }) {

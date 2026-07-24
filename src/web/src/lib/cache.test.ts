@@ -220,14 +220,11 @@ describe("cache", () => {
 
   describe("cacheKeys", () => {
     it("generates correct key formats", () => {
-      expect(cacheKeys.agent("ws1", "ag1")).toBe("ag:ws1:ag1");
       expect(cacheKeys.member("ws1", "usr1")).toBe("mem:ws1:usr1");
       expect(cacheKeys.user("usr1")).toBe("usr:usr1");
       expect(cacheKeys.allEmailAccounts("ws1")).toBe("ea:ws1");
       expect(cacheKeys.allHandles("ws1")).toBe("handles:ws1");
-      expect(cacheKeys.heartbeat("ws1", "d1")).toBe("hb:ws1:d1");
       expect(cacheKeys.machineToken("al_1234567890abcdefghij_rest")).toBe("mt:al_1234567890abcdefg");
-      expect(cacheKeys.machineTokenLastUsed("al_1234567890abcdefghij_rest")).toBe("mt_lu:al_1234567890abcdefg");
       expect(cacheKeys.runtimeIds("ws1", "d1")).toBe("rt:ws1:d1");
     });
 
@@ -235,13 +232,11 @@ describe("cache", () => {
       expect(cacheKeys.overviewEmailStats("ws1")).toBe("ov_email:ws1");
       expect(cacheKeys.overviewTaskStats("ws1", "2026-05-18")).toBe("ov_task:ws1:2026-05-18");
       expect(cacheKeys.allAgentAccess("ws1")).toBe("aa:ws1");
-      expect(cacheKeys.allRuntimes("ws1")).toBe("runtimes:ws1");
       expect(cacheKeys.allMembers("ws1")).toBe("members:ws1");
     });
 
     it("workspace-scoped keys differ by workspace", () => {
       expect(cacheKeys.overviewEmailStats("ws1")).not.toBe(cacheKeys.overviewEmailStats("ws2"));
-      expect(cacheKeys.allRuntimes("ws1")).not.toBe(cacheKeys.allRuntimes("ws2"));
       expect(cacheKeys.allMembers("ws1")).not.toBe(cacheKeys.allMembers("ws2"));
       expect(cacheKeys.allAgentAccess("ws1")).not.toBe(cacheKeys.allAgentAccess("ws2"));
     });
@@ -252,12 +247,11 @@ describe("cache", () => {
         cacheKeys.overviewEmailStats(ws),
         cacheKeys.overviewTaskStats(ws, "2026-01-01"),
         cacheKeys.allAgentAccess(ws),
-        cacheKeys.allRuntimes(ws),
         cacheKeys.allMembers(ws),
         cacheKeys.allEmailAccounts(ws),
         cacheKeys.allHandles(ws),
       ]);
-      expect(keys.size).toBe(7);
+      expect(keys.size).toBe(6);
     });
 
     it("overviewTaskStats includes date for cross-midnight isolation", () => {

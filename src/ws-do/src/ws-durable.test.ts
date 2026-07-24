@@ -66,6 +66,7 @@ const mockGetValidSession = vi.fn<(db: unknown, token: string) => Promise<string
 const mockGetMachineTokenByToken = vi.fn()
 const mockGetLatestTokenForUser = vi.fn()
 const mockGetRuntimeIdsByDaemon = vi.fn()
+const mockGetMachineByDaemon = vi.fn().mockResolvedValue({ daemonId: "my-daemon", workspaceId: "sp_ws1" })
 const mockCreateDb = vi.fn().mockReturnValue({})
 const mockHashCredential = vi.fn(async (bearer: string) => `hash:${bearer}`)
 const mockFindCredentialByHash = vi.fn()
@@ -279,6 +280,7 @@ vi.mock("@alook/shared", () => {
         getLatestTokenForUser: (...a: any[]) => mockGetLatestTokenForUser(...a),
       },
       runtime: { getRuntimeIdsByDaemon: (...a: any[]) => mockGetRuntimeIdsByDaemon(...a) },
+      machine: { getMachineByDaemon: (...a: any[]) => mockGetMachineByDaemon(...a) },
       communityMachine: {
         hashCredential: (bearer: string) => mockHashCredential(bearer),
         findCredentialByHash: (...a: any[]) => mockFindCredentialByHash(...a),
@@ -376,6 +378,10 @@ describe("WebSocketDurableObject", () => {
     mockUpdateProfile.mockResolvedValue({})
     mockGetProfile.mockResolvedValue(null)
     mockReconcileBotActivityFromRunningAgents.mockResolvedValue([])
+    // Daemon-auth binds the token to a machine row for daemonId+workspace;
+    // default to a present row so auth-flow success tests pass. Tests that
+    // exercise a missing machine override this.
+    mockGetMachineByDaemon.mockResolvedValue({ daemonId: "my-daemon", workspaceId: "sp_ws1" })
   })
 
   describe("fetch — WebSocket upgrade", () => {
@@ -884,12 +890,11 @@ describe("WebSocketDurableObject", () => {
       expect(mockGetRuntimeIdsByDaemon).not.toHaveBeenCalled()
     })
 
-    it("authenticates daemon with active token and runtimes", async () => {
+    it("authenticates daemon with active token (no runtime check in auth)", async () => {
       const { durable } = createDO()
       mockGetMachineTokenByToken.mockResolvedValue({
         id: "mt_1", userId: "u1", status: "active", workspaceId: "sp_ws1",
       })
-      mockGetRuntimeIdsByDaemon.mockResolvedValue(["rt_1"])
 
       const ws = createMockWebSocket()
       ws.serializeAttachment({ type: "daemon", daemonId: "", authenticated: false })
@@ -900,15 +905,16 @@ describe("WebSocketDurableObject", () => {
       )
 
       expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "auth.ok" }))
-      expect(mockGetRuntimeIdsByDaemon).toHaveBeenCalledWith({}, "my-daemon", "sp_ws1")
+      // Runtime presence is no longer part of auth — it must not gate the WS
+      // connection (tasks route by workspaceId; runtimes may be mid-register).
+      expect(mockGetRuntimeIdsByDaemon).not.toHaveBeenCalled()
     })
 
-    it("rejects daemon with active token but no runtimes", async () => {
+    it("authenticates daemon with active token even when it has no runtimes yet", async () => {
       const { durable } = createDO()
       mockGetMachineTokenByToken.mockResolvedValue({
         id: "mt_1", userId: "u1", status: "active", workspaceId: "sp_ws1",
       })
-      mockGetRuntimeIdsByDaemon.mockResolvedValue([])
 
       const ws = createMockWebSocket()
       ws.serializeAttachment({ type: "daemon", daemonId: "", authenticated: false })
@@ -918,8 +924,41 @@ describe("WebSocketDurableObject", () => {
         JSON.stringify({ type: "auth", machineToken: "al_noruntimes", daemonId: "my-daemon" }),
       )
 
+      // No-runtime is a valid state (not an auth failure) — auth.ok, no reject.
+      expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "auth.ok" }))
+      expect(ws.send).not.toHaveBeenCalledWith(JSON.stringify({ type: "error", code: "AUTH_REJECTED" }))
+    })
+
+    it("sends AUTH_REJECTED then closes on definitely-invalid token", async () => {
+      const { durable } = createDO()
+      mockGetMachineTokenByToken.mockResolvedValue(null)
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "daemon", daemonId: "", authenticated: false })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "auth", machineToken: "al_dead", daemonId: "my-daemon" }),
+      )
+
+      expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "error", code: "AUTH_REJECTED" }))
       expect(ws.close).toHaveBeenCalledWith(1008, "Unauthorized")
-      expect(ws.send).not.toHaveBeenCalled()
+    })
+
+    it("closes WITHOUT AUTH_REJECTED on transient D1 failure (daemon must retry)", async () => {
+      const { durable } = createDO()
+      mockGetMachineTokenByToken.mockRejectedValue(new Error("D1 unavailable"))
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "daemon", daemonId: "", authenticated: false })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "auth", machineToken: "al_blip", daemonId: "my-daemon" }),
+      )
+
+      expect(ws.send).not.toHaveBeenCalledWith(JSON.stringify({ type: "error", code: "AUTH_REJECTED" }))
+      expect(ws.close).toHaveBeenCalledWith(1011, "Auth temporarily unavailable")
     })
 
     it("rejects daemon with unknown token", async () => {

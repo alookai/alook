@@ -10,7 +10,7 @@ import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
 import { agentLinkToResponse } from "@/lib/api/responses";
-import { cached, invalidate, cacheKeys } from "@/lib/cache";
+import { cached, cacheKeys } from "@/lib/cache";
 import { filterVisibleAgents } from "@/lib/agent-visibility";
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
@@ -64,7 +64,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       targetAgentId: body.target_agent_id,
       instruction: body.instruction,
     });
-    await invalidate(cacheKeys.agentLinks(ws.workspaceId));
     return writeJSON(agentLinkToResponse(created), 201);
   } catch (e) {
     if (isUniqueConstraintError(e)) {
@@ -125,8 +124,6 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     });
     created = false;
   }
-
-  await invalidate(cacheKeys.agentLinks(ws.workspaceId));
 
   return writeJSON({ ...agentLinkToResponse(row), created }, created ? 201 : 200);
 });

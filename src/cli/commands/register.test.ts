@@ -5,7 +5,8 @@ const mockSaveCLIConfigForProfile = vi.fn();
 const mockReadDaemonPid = vi.fn();
 const mockIsProcessAlive = vi.fn();
 
-vi.mock("../lib/config.js", () => ({
+vi.mock("../lib/config.js", async (importActual) => ({
+  ...(await importActual<typeof import("../lib/config.js")>()),
   loadCLIConfigForProfile: (...args: any[]) => mockLoadCLIConfigForProfile(...args),
   saveCLIConfigForProfile: (...args: any[]) => mockSaveCLIConfigForProfile(...args),
 }));

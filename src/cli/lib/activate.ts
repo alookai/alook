@@ -3,7 +3,7 @@ import { spawn } from "child_process";
 import { openSync, closeSync, mkdirSync } from "fs";
 import { dirname } from "path";
 import { APIClient } from "./client.js";
-import { loadCLIConfigForProfile, saveCLIConfigForProfile } from "./config.js";
+import { loadCLIConfigForProfile, saveCLIConfigForProfile, markWorkspaceActive } from "./config.js";
 import { cmdPrefix, isDev } from "./env.js";
 import { readDaemonPid, isProcessAlive } from "../daemon/pidfile.js";
 import { daemonLogFilePath } from "../daemon/config.js";
@@ -100,13 +100,12 @@ export async function activateAndSave(opts: {
   }
 
   const existing = loadCLIConfigForProfile(profile);
-  const watched = existing.watched_workspaces || [];
-  const idx = watched.findIndex((w) => w.id === ws.id);
-  if (idx >= 0) {
-    watched[idx] = { id: ws.id, name: ws.name, token, status: "active", agent_ids: agentIds };
-  } else {
-    watched.push({ id: ws.id, name: ws.name, token, status: "active", agent_ids: agentIds });
-  }
+  const watched = markWorkspaceActive(existing.watched_workspaces || [], {
+    id: ws.id,
+    name: ws.name,
+    token,
+    agent_ids: agentIds,
+  });
 
   saveCLIConfigForProfile(profile, {
     server_url: serverUrl,

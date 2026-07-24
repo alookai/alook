@@ -66,7 +66,6 @@ export const POST = withAuth(async (req, ctx) => {
       );
       const dateStr = new Date().toISOString().slice(0, 10);
       invalidate(cacheKeys.overviewTaskStats(ws.workspaceId, dateStr)).catch(() => {});
-      invalidate(cacheKeys.activeTaskCounts(ws.workspaceId)).catch(() => {});
     } catch {
       // Best-effort — don't fail the whitelist operation
     }

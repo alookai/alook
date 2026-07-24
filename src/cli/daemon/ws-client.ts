@@ -17,6 +17,13 @@ export interface DaemonWsClientOptions {
   onMessage: (msg: DaemonPushMessage) => void;
   onConnected: () => void;
   onDisconnected: () => void;
+  /**
+   * Fired when the server sends an `AUTH_REJECTED` frame — the definitive
+   * "this machine token is dead" signal. The daemon marks the workspace
+   * auth-failed and rebuilds the WS with a different token. `reason` is
+   * whatever the server attached (may be undefined).
+   */
+  onAuthRejected?: (reason?: string) => void;
 }
 
 export class DaemonWsClient {
@@ -84,6 +91,14 @@ export class DaemonWsClient {
           this.opts.onConnected();
           return;
         }
+        // Must be checked BEFORE DaemonPushMessageSchema.safeParse —
+        // the schema is a discriminatedUnion with no "error" member, so an
+        // AUTH_REJECTED frame would otherwise be dropped as "invalid push".
+        if (msg.type === "error" && msg.code === "AUTH_REJECTED") {
+          log.warn("machine token rejected by server (AUTH_REJECTED)", { reason: msg.reason });
+          this.opts.onAuthRejected?.(msg.reason);
+          return;
+        }
         const parsed = DaemonPushMessageSchema.safeParse(msg);
         if (!parsed.success) {
           log.warn("invalid push message", { err: parsed.error.message });
@@ -95,14 +110,19 @@ export class DaemonWsClient {
       }
     });
 
-    this.ws.addEventListener("error", () => {
-      log.debug("ws error");
+    this.ws.addEventListener("error", (event) => {
+      const err = (event as unknown as { message?: string; error?: unknown });
+      log.warn("ws error", { err: String(err?.message ?? err?.error ?? "unknown") });
     });
 
-    this.ws.addEventListener("close", () => {
+    this.ws.addEventListener("close", (event) => {
+      const { code, reason } = event as unknown as { code?: number; reason?: string };
       const wasConnected = this.connected;
       this.connected = false;
       this.stopHeartbeat();
+      // Surface close code/reason so a daemon stuck reconnecting is
+      // diagnosable (auth-close 1008 vs transient 1011 vs network).
+      log.info("ws closed", { code, reason, wasConnected });
       if (wasConnected) {
         this.opts.onDisconnected();
       }
@@ -135,7 +155,7 @@ export class DaemonWsClient {
     const delay = Math.min(this.reconnectDelay, WS_RECONNECT_MAX);
     this.reconnectDelay = Math.min(delay * 2, WS_RECONNECT_MAX);
     const jitter = Math.random() * 500;
-    log.debug("reconnecting", { delayMs: Math.round(delay + jitter) });
+    log.info("reconnecting", { delayMs: Math.round(delay + jitter) });
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();

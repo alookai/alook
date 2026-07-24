@@ -56,12 +56,14 @@ vi.mock("./health.js", () => ({
 }));
 
 let capturedWsOnMessage: ((msg: any) => void) | null = null;
+let capturedWsOpts: any = null;
 vi.mock("./ws-client.js", () => {
   class MockDaemonWsClient {
     connect = vi.fn();
     close = vi.fn();
     isConnected = vi.fn(() => false);
     constructor(opts: any) {
+      capturedWsOpts = opts;
       if (opts?.onMessage) capturedWsOnMessage = opts.onMessage;
     }
   }
@@ -73,7 +75,8 @@ vi.mock("./agent/index.js", () => ({
   createBackend: vi.fn(() => ({ lifecycle: { kind: "per_turn" }, busyDeliveryMode: "none", supportsStdinNotification: false })),
 }));
 
-vi.mock("../lib/config.js", () => ({
+vi.mock("../lib/config.js", async (importActual) => ({
+  ...(await importActual<typeof import("../lib/config.js")>()),
   loadCLIConfigForProfile: vi.fn(() => ({
     server_url: null,
     watched_workspaces: [{ id: "ws1", name: "Test WS", token: "al_test_token" }],
@@ -242,10 +245,14 @@ vi.spyOn(process, "once").mockImplementation(((event: string, handler: any) => {
 const realSetInterval = globalThis.setInterval;
 const realClearInterval = globalThis.clearInterval;
 const intervalTimers: NodeJS.Timeout[] = [];
+const intervalMsArgs: number[] = [];
+const intervalFns: Array<() => void> = [];
 
 vi.spyOn(globalThis, "setInterval").mockImplementation(((fn: any, ms: any) => {
   const timer = realSetInterval(() => {}, 999999) as NodeJS.Timeout;
   intervalTimers.push(timer);
+  intervalMsArgs.push(ms);
+  intervalFns.push(fn);
   return timer;
 }) as any);
 
@@ -1387,16 +1394,17 @@ describe("daemon workspace eviction", () => {
     await startDaemon();
     await new Promise((r) => setTimeout(r, 50));
 
-    // ws2 was evicted — only ws1 should remain
-    // Verify config was saved to remove ws2
+    // ws2 was evicted — soft-marked status="deleted" (not physically removed),
+    // so a restart's status!=="deleted" filter skips it while ws1 stays active.
     expect(saveCLIConfigForProfile).toHaveBeenCalled();
     const savedConfig = vi.mocked(saveCLIConfigForProfile).mock.calls[0][1];
-    const wsIds = savedConfig.watched_workspaces!.map((w: any) => w.id);
-    expect(wsIds).toContain("ws1");
-    expect(wsIds).not.toContain("ws2");
+    const ws1 = savedConfig.watched_workspaces!.find((w: any) => w.id === "ws1");
+    const ws2 = savedConfig.watched_workspaces!.find((w: any) => w.id === "ws2");
+    expect(ws1?.status).not.toBe("deleted");
+    expect(ws2?.status).toBe("deleted");
   });
 
-  it("removes evicted workspace from local config file", async () => {
+  it("soft-marks evicted workspace status=deleted in local config file", async () => {
     vi.mocked(loadCLIConfigForProfile).mockReturnValue({
       server_url: "",
       watched_workspaces: [{ id: "ws1", name: "Test WS", token: "al_test_token" }],
@@ -1409,7 +1417,9 @@ describe("daemon workspace eviction", () => {
 
     expect(saveCLIConfigForProfile).toHaveBeenCalled();
     const savedConfig = vi.mocked(saveCLIConfigForProfile).mock.calls[0][1];
-    expect(savedConfig.watched_workspaces).toEqual([]);
+    // Entry lingers (recoverable by re-pair) but is marked deleted.
+    expect(savedConfig.watched_workspaces).toHaveLength(1);
+    expect(savedConfig.watched_workspaces![0].status).toBe("deleted");
   });
 
   it("shuts down gracefully when all workspaces are evicted", async () => {
@@ -1459,11 +1469,13 @@ describe("daemon workspace eviction", () => {
     expect(pollTokens).toContain("al_tok_ws2");
     expect(pollTokens).toContain("al_tok_ws3");
 
-    // Verify config saved without ws2
+    // Verify config saved with ws2 soft-marked deleted, ws1/ws3 still active
     expect(saveCLIConfigForProfile).toHaveBeenCalled();
     const savedConfig = vi.mocked(saveCLIConfigForProfile).mock.calls[0][1];
-    const wsIds = savedConfig.watched_workspaces!.map((w: any) => w.id);
-    expect(wsIds).toEqual(["ws1", "ws3"]);
+    const byId = (id: string) => savedConfig.watched_workspaces!.find((w: any) => w.id === id);
+    expect(byId("ws1")?.status).not.toBe("deleted");
+    expect(byId("ws2")?.status).toBe("deleted");
+    expect(byId("ws3")?.status).not.toBe("deleted");
 
     // Daemon should NOT have shut down (still has ws1 and ws3)
     expect(mockProcessExit).not.toHaveBeenCalled();
@@ -2551,5 +2563,220 @@ describe("daemon SIGHUP reload", () => {
       "al_tok2",
       expect.objectContaining({ workspace_id: "ws2" }),
     );
+  });
+});
+
+describe("WS poll-frequency fallback", () => {
+  beforeEach(() => {
+    signalHandlers.clear();
+    intervalTimers.length = 0;
+    intervalMsArgs.length = 0;
+    clearedTimers.length = 0;
+    spawnedChildren.length = 0;
+    nextPid = 50000;
+    capturedWsOnMessage = null;
+    capturedWsOpts = null;
+    vi.clearAllMocks();
+    mockProcessExit.mockImplementation((() => {}) as any);
+    mockOpenSync.mockReturnValue(42);
+  });
+
+  afterEach(() => {
+    for (const t of intervalTimers) realClearInterval(t);
+  });
+
+  async function boot() {
+    vi.mocked(loadCLIConfigForProfile).mockReturnValue({
+      server_url: "",
+      watched_workspaces: [{ id: "ws1", name: "Test WS", token: "al_test_token" }],
+    });
+    mockClientInstance.register.mockResolvedValue({ runtimes: [{ id: "rt1" }] });
+    mockClientInstance.poll.mockResolvedValue({ tasks: [], evicted: false });
+    await startDaemon();
+    await new Promise((r) => setTimeout(r, 50));
+  }
+
+  it("starts poll at high-frequency (pollInterval)", async () => {
+    await boot();
+    // The very first setInterval is the poll timer.
+    expect(intervalMsArgs[0]).toBe(3000);
+  });
+
+  it("onConnected switches poll to low-frequency (wsPollInterval)", async () => {
+    await boot();
+    intervalMsArgs.length = 0;
+    capturedWsOpts.onConnected();
+    expect(intervalMsArgs).toContain(30000);
+  });
+
+  it("onDisconnected reverts to high-frequency (pollInterval)", async () => {
+    await boot();
+    intervalMsArgs.length = 0;
+    capturedWsOpts.onDisconnected();
+    expect(intervalMsArgs).toContain(3000);
+  });
+});
+
+describe("WS token invalidation + rotation (T6b)", () => {
+  beforeEach(() => {
+    signalHandlers.clear();
+    intervalTimers.length = 0;
+    intervalMsArgs.length = 0;
+    clearedTimers.length = 0;
+    spawnedChildren.length = 0;
+    nextPid = 50000;
+    capturedWsOnMessage = null;
+    capturedWsOpts = null;
+    vi.clearAllMocks();
+    mockProcessExit.mockImplementation((() => {}) as any);
+    mockOpenSync.mockReturnValue(42);
+  });
+
+  afterEach(() => {
+    for (const t of intervalTimers) realClearInterval(t);
+  });
+
+  async function bootMulti(workspaces: { id: string; name: string; token: string }[]) {
+    vi.mocked(loadCLIConfigForProfile).mockReturnValue({ server_url: "", watched_workspaces: workspaces });
+    let n = 0;
+    mockClientInstance.register.mockImplementation(async () => ({ runtimes: [{ id: `rt${++n}` }] }));
+    mockClientInstance.poll.mockResolvedValue({ tasks: [], evicted: false });
+    await startDaemon();
+    await new Promise((r) => setTimeout(r, 50));
+  }
+
+  it("AUTH_REJECTED confirmed by poll 401 marks the correct workspace, not undefined — no hot loop", async () => {
+    // MEDIUM-1 regression guard: wsWorkspaceId must be set at the startup
+    // construction, so onAuthRejected confirms ws1 (the WS token's workspace),
+    // removes it, and rebuilds with ws2's token instead of spinning.
+    await bootMulti([
+      { id: "ws1", name: "A", token: "al_dead" },
+      { id: "ws2", name: "B", token: "al_good" },
+    ]);
+    const tokenBefore = capturedWsOpts.machineToken;
+    expect(tokenBefore).toBe("al_dead");
+
+    // Confirm poll 401s → token confirmed dead.
+    mockClientInstance.poll.mockRejectedValue(new Error("HTTP 401 Unauthorized"));
+    capturedWsOpts.onAuthRejected("revoked");
+    await new Promise((r) => setTimeout(r, 10));
+
+    // ws1 soft-marked deleted in config
+    const savedConfig = vi.mocked(saveCLIConfigForProfile).mock.calls.at(-1)![1];
+    expect(savedConfig.watched_workspaces!.find((w: any) => w.id === "ws1")?.status).toBe("deleted");
+    // WS rebuilt with a DIFFERENT (surviving) token — no same-token respin
+    expect(capturedWsOpts.machineToken).toBe("al_good");
+    expect(mockProcessExit).not.toHaveBeenCalled();
+  });
+
+  it("AUTH_REJECTED confirmed by poll 401 with a single workspace rebuilds to no client and shuts down", async () => {
+    await bootMulti([{ id: "ws1", name: "Only", token: "al_dead" }]);
+    mockClientInstance.poll.mockRejectedValue(new Error("HTTP 401 Unauthorized"));
+    capturedWsOpts.onAuthRejected();
+    await new Promise((r) => setTimeout(r, 10));
+
+    const savedConfig = vi.mocked(saveCLIConfigForProfile).mock.calls.at(-1)![1];
+    expect(savedConfig.watched_workspaces!.find((w: any) => w.id === "ws1")?.status).toBe("deleted");
+    expect(mockProcessExit).toHaveBeenCalledWith(0);
+  });
+
+  it("AUTH_REJECTED NOT confirmed (confirm poll succeeds) keeps the workspace — false-invalid guard", async () => {
+    // Replica lag right after activation: the WS-DO rejects a token that is
+    // actually valid. The confirm poll succeeds, so the workspace must survive.
+    await bootMulti([{ id: "ws1", name: "Only", token: "al_lagged" }]);
+    // poll still resolves (bootMulti default) → rejection not confirmed.
+    capturedWsOpts.onAuthRejected("replica-lag");
+    await new Promise((r) => setTimeout(r, 10));
+
+    const deletedWrites = vi.mocked(saveCLIConfigForProfile).mock.calls.filter(
+      (c) => c[1].watched_workspaces?.some((w: any) => w.id === "ws1" && w.status === "deleted"),
+    );
+    expect(deletedWrites).toHaveLength(0);
+    // WS rebuilt with the same still-valid token, daemon stays up.
+    expect(capturedWsOpts.machineToken).toBe("al_lagged");
+    expect(mockProcessExit).not.toHaveBeenCalled();
+  });
+
+  it("AUTH_REJECTED with a non-401 confirm error keeps the workspace — treated transient", async () => {
+    await bootMulti([{ id: "ws1", name: "Only", token: "al_x" }]);
+    mockClientInstance.poll.mockRejectedValue(new Error("HTTP 503 Service Unavailable"));
+    capturedWsOpts.onAuthRejected();
+    await new Promise((r) => setTimeout(r, 10));
+
+    const deletedWrites = vi.mocked(saveCLIConfigForProfile).mock.calls.filter(
+      (c) => c[1].watched_workspaces?.some((w: any) => w.id === "ws1" && w.status === "deleted"),
+    );
+    expect(deletedWrites).toHaveLength(0);
+    expect(mockProcessExit).not.toHaveBeenCalled();
+  });
+
+  it("single poll 401 does NOT mark the workspace deleted (below threshold)", async () => {
+    vi.mocked(loadCLIConfigForProfile).mockReturnValue({
+      server_url: "",
+      watched_workspaces: [{ id: "ws1", name: "A", token: "al_x" }],
+    });
+    mockClientInstance.register.mockResolvedValue({ runtimes: [{ id: "rt1" }] });
+    mockClientInstance.poll.mockRejectedValue(new Error("HTTP 401 Unauthorized"));
+    await startDaemon();
+    await new Promise((r) => setTimeout(r, 50));
+
+    // One cycle → one 401 → below WS_AUTH_401_THRESHOLD (5) → no status write to deleted
+    const deletedWrites = vi.mocked(saveCLIConfigForProfile).mock.calls.filter(
+      (c) => c[1].watched_workspaces?.some((w: any) => w.id === "ws1" && w.status === "deleted"),
+    );
+    expect(deletedWrites).toHaveLength(0);
+    expect(mockProcessExit).not.toHaveBeenCalled();
+  });
+
+  it("5 consecutive poll 401s mark the workspace deleted (threshold reached)", async () => {
+    vi.mocked(loadCLIConfigForProfile).mockReturnValue({
+      server_url: "",
+      watched_workspaces: [{ id: "ws1", name: "A", token: "al_x" }],
+    });
+    mockClientInstance.register.mockResolvedValue({ runtimes: [{ id: "rt1" }] });
+    intervalFns.length = 0;
+    mockClientInstance.poll.mockRejectedValue(new Error("HTTP 401 Unauthorized"));
+    await startDaemon();
+    await new Promise((r) => setTimeout(r, 50));
+
+    // startDaemon ran one immediate poll (401 #1). Drive 4 more back-to-back
+    // 401s via the captured poll cycle to reach WS_AUTH_401_THRESHOLD (5).
+    const pollCycle = intervalFns[0];
+    for (let i = 0; i < 4; i++) await pollCycle();
+
+    const deletedWrites = vi.mocked(saveCLIConfigForProfile).mock.calls.filter(
+      (c) => c[1].watched_workspaces?.some((w: any) => w.id === "ws1" && w.status === "deleted"),
+    );
+    expect(deletedWrites.length).toBeGreaterThan(0);
+  });
+
+  it("401s interleaved with transient errors do NOT reach the threshold (streak resets)", async () => {
+    vi.mocked(loadCLIConfigForProfile).mockReturnValue({
+      server_url: "",
+      watched_workspaces: [{ id: "ws1", name: "A", token: "al_x" }],
+    });
+    mockClientInstance.register.mockResolvedValue({ runtimes: [{ id: "rt1" }] });
+    intervalFns.length = 0;
+    // Alternate 401 / non-401 across cycles. The non-401 (503) must reset the
+    // streak so scattered 401s never accumulate to the threshold.
+    let call = 0;
+    mockClientInstance.poll.mockImplementation(async () => {
+      call++;
+      if (call % 2 === 1) throw new Error("HTTP 401 Unauthorized");
+      throw new Error("HTTP 503 Service Unavailable");
+    });
+    await startDaemon();
+    await new Promise((r) => setTimeout(r, 50));
+
+    // startDaemon ran poll #1 (401). Drive 8 more: 503,401,503,401,503,401,503,401.
+    // That's 5 total 401s but never 2 in a row → below threshold.
+    const pollCycle = intervalFns[0];
+    for (let i = 0; i < 8; i++) await pollCycle();
+
+    const deletedWrites = vi.mocked(saveCLIConfigForProfile).mock.calls.filter(
+      (c) => c[1].watched_workspaces?.some((w: any) => w.id === "ws1" && w.status === "deleted"),
+    );
+    expect(deletedWrites).toHaveLength(0);
+    expect(mockProcessExit).not.toHaveBeenCalled();
   });
 });

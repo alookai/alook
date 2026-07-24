@@ -341,9 +341,21 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     if (msg.type === "auth") {
       if (msg.machineToken && msg.daemonId) {
         const authResult = await this.validateMachineToken(msg.machineToken, msg.daemonId)
-        if (!authResult) {
-          log.warn("daemon websocket auth failed", { daemonId: msg.daemonId })
+        if (authResult.kind === "invalid") {
+          // Definitely-dead token — tell the daemon so it stops using it
+          // (AUTH_REJECTED is its trigger to mark the workspace auth-failed),
+          // then close.
+          log.warn("daemon websocket auth rejected", { daemonId: msg.daemonId })
+          try { ws.send(JSON.stringify({ type: "error", code: "AUTH_REJECTED" })) } catch { /* ok */ }
           ws.close(1008, "Unauthorized")
+          return
+        }
+        if (authResult.kind === "transient") {
+          // Infra blip, not a token problem. Plain close (NO AUTH_REJECTED)
+          // so the daemon reconnects with backoff and does not drop the
+          // workspace.
+          log.warn("daemon websocket auth transient failure", { daemonId: msg.daemonId })
+          ws.close(1011, "Auth temporarily unavailable")
           return
         }
         ws.serializeAttachment({ type: "daemon", daemonId: msg.daemonId, userId: authResult.userId, authenticated: true } as ConnectionState)
@@ -1175,14 +1187,45 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     return queries.session.getValidSession(db, token)
   }
 
-  private async validateMachineToken(token: string, daemonId: string): Promise<{ userId: string } | null> {
-    if (!token.startsWith("al_")) return null
-    const db = createDb(this.env.DB)
-    const mt = await queries.machineToken.getMachineTokenByToken(db, token)
-    if (!mt) return null
-    if (mt.status !== "active" || !mt.workspaceId) return null
-    const runtimes = await queries.runtime.getRuntimeIdsByDaemon(db, daemonId, mt.workspaceId)
-    return runtimes.length > 0 ? { userId: mt.userId } : null
+  /**
+   * Three-state machine-token validation. The daemon marks a workspace
+   * auth-failed only on `invalid`, so a transient D1 failure must NEVER be
+   * reported as `invalid` — it maps to `transient` (plain close, no
+   * AUTH_REJECTED) so the daemon retries instead of dropping the workspace.
+   *
+   * - `valid`     — token exists, active, has a workspace, AND owns the
+   *                 daemon it is connecting as (a machine row for
+   *                 daemonId+workspace exists). The daemonId is an
+   *                 unauthenticated URL param that selects the DO instance,
+   *                 so without this bind ANY valid token could authenticate
+   *                 as ANOTHER tenant's daemon socket and receive that
+   *                 daemon's task/file broadcasts. Machine-level (not runtime-
+   *                 level) so a workspace mid-registration with 0 runtimes is
+   *                 still valid — the machine row is written at register time.
+   * - `invalid`   — token doesn't exist, isn't active, or doesn't own this
+   *                 daemon. Definitely dead / not authorized.
+   * - `transient` — D1 threw. Infra blip, not a token problem.
+   */
+  private async validateMachineToken(
+    token: string,
+    daemonId: string,
+  ): Promise<
+    | { kind: "valid"; userId: string }
+    | { kind: "invalid" }
+    | { kind: "transient" }
+  > {
+    if (!token.startsWith("al_")) return { kind: "invalid" }
+    try {
+      const db = createDb(this.env.DB)
+      const mt = await queries.machineToken.getMachineTokenByToken(db, token)
+      if (!mt || mt.status !== "active" || !mt.workspaceId) return { kind: "invalid" }
+      const machine = await queries.machine.getMachineByDaemon(db, daemonId, mt.workspaceId)
+      if (!machine) return { kind: "invalid" }
+      return { kind: "valid", userId: mt.userId }
+    } catch (err) {
+      log.warn("daemon websocket auth lookup threw", { err: String(err) })
+      return { kind: "transient" }
+    }
   }
 
   /**
