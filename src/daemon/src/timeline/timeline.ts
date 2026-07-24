@@ -14,7 +14,7 @@
 import { appendFileSync, readFileSync, writeFileSync, renameSync, existsSync } from "fs";
 import { join } from "path";
 import { acquireLock, releaseLock, lockPathFor } from "./filelock.js";
-import type { ContextTimelineEntry } from "./types.js";
+import type { ContextTimelineEntry, SystemEntryType } from "./types.js";
 import type { Message } from "../server/contract.js";
 import { localISOString } from "../util/localTime.js";
 
@@ -136,6 +136,8 @@ export function appendOrMergeEntry(timelineDir: string, entry: ContextTimelineEn
     if (lines.length > 0) {
       const latest = JSON.parse(lines[lines.length - 1]) as ContextTimelineEntry;
       const mergeable =
+        !latest.system &&
+        !entry.system &&
         latest.session_id === entry.session_id &&
         latest.provider === entry.provider &&
         latest.agent_responses.length === 0;
@@ -158,12 +160,22 @@ export function appendOrMergeEntry(timelineDir: string, entry: ContextTimelineEn
 }
 
 /**
- * Mutate the MOST-RECENT entry (the last appended row in the newest day file)
- * via `updater`, rewriting that file atomically under lock. This is how the
- * control plane (manager) targets "the agent's current turn" without threading a
- * task id across layers — the data plane appended that row on the inbox pull that
- * opened the turn, so it is the latest when responses/end arrive. Returns true if
- * a row was updated. Searches the newest day file with any rows first.
+ * Mutate the MOST-RECENT TURN entry via `updater`, rewriting that file
+ * atomically under lock. This is how the control plane (manager) targets
+ * "the agent's current turn" without threading a task id across layers —
+ * the data plane appended that row on the inbox pull that opened the turn,
+ * so it is the latest turn row when responses/end arrive.
+ *
+ * A system row (e.g. `reset_session` barrier) STOPS the walk and this
+ * function returns false. Rationale: the barrier's semantics are
+ * "everything before me belongs to a dead session"; a response landing
+ * AFTER the barrier belongs to the NEW session and must NOT attach to a
+ * pre-barrier turn row. When a barrier is the newest row (or a barrier
+ * sits above every candidate turn row), returning false lets the caller
+ * open a fresh turn row post-barrier instead.
+ *
+ * Returns false when the newest day file's newest non-empty row is a
+ * system row, or there is no row at all.
  */
 export function updateLatestEntry(
   timelineDir: string,
@@ -191,7 +203,12 @@ export function updateLatestEntry(
       const lines = content.trimEnd().split("\n").filter(Boolean);
       if (lines.length === 0) continue;
       const entries = lines.map((l) => JSON.parse(l) as ContextTimelineEntry);
-      updater(entries[entries.length - 1]); // last appended = most recent
+      // The newest row of the newest day file is authoritative: if it's a
+      // system barrier, we must NOT walk past it into a pre-barrier turn.
+      // Return false and let the caller open a fresh post-barrier turn row.
+      const latest = entries[entries.length - 1];
+      if (latest.system) return false;
+      updater(latest);
       const tmpPath = join(timelineDir, `.${filename}.tmp`);
       writeFileSync(tmpPath, entries.map((e) => JSON.stringify(e)).join("\n") + "\n");
       renameSync(tmpPath, filePath);
@@ -226,21 +243,48 @@ export function createTimelineEntry(fields: NewEntryFields): ContextTimelineEntr
   };
 }
 
+/**
+ * Build a system entry. System rows are inlined in the JSONL alongside turns
+ * so the resume walker and any agent-facing reader see them in place. The
+ * first (and only) type today is `reset_session`.
+ */
+export function createSystemEntry(
+  type: SystemEntryType,
+  time: string,
+): ContextTimelineEntry {
+  return {
+    session_id: null,
+    messages: [],
+    agent_responses: [],
+    provider: null,
+    system: { type, time },
+  };
+}
+
 /* ------------------------------------------------------------------ */
 /* Queries (pure over already-read rows)                               */
 /* ------------------------------------------------------------------ */
 
 /**
  * The agent's most recent session id — the resume target so its next launch
- * continues the prior runtime session. `rows` are in time order (readRecentEntries
- * preserves day-file order = append order = time order), so the resume target is
- * simply the LAST row carrying a session_id, optionally constrained to a provider
- * (don't resume a claude session into a codex launch). One session per agent and
- * each timeline lives in that agent's own workdir, so there's no thread keying.
+ * continues the prior runtime session. `rows` are in time order
+ * (`readRecentEntries` preserves day-file order = append order = time order),
+ * so the resume target is simply the LAST row carrying a session_id,
+ * optionally constrained to a provider (don't resume a claude session into
+ * a codex launch). One session per agent and each timeline lives in that
+ * agent's own workdir, so there's no thread keying.
+ *
+ * A `system: { type: "reset_session" }` row is a barrier: the walker returns
+ * null the moment it hits one going newest→oldest. Every turn at or before
+ * the reset becomes invisible to resume without editing those rows. Since
+ * kill happens BEFORE the barrier is written (see
+ * `AgentProcessManager.resetSession`), no `forgot_session_id` fallback is
+ * needed — no turn row can land after the barrier from the old session.
  */
 export function findResumableSession(rows: ContextTimelineEntry[], provider?: string): string | null {
   for (let i = rows.length - 1; i >= 0; i--) {
     const e = rows[i];
+    if (e.system?.type === "reset_session") return null;
     if (!e.session_id) continue;
     if (provider && e.provider !== provider) continue;
     return e.session_id;

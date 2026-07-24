@@ -517,6 +517,71 @@ describe("ws-do router", () => {
     })
   })
 
+  describe("POST /community-machine/by-id/:machineId/forward-agent-reset", () => {
+    const validBody = {
+      agentId: "bot-1",
+      config: { version: 1, runtime: "claude", model: { kind: "default" }, mode: { kind: "default" } },
+      launchId: "l-1",
+    }
+
+    beforeEach(() => {
+      mockGetActiveDoNamesForMachine.mockReset()
+      mockGetActiveDoNamesForMachine.mockResolvedValue([])
+    })
+
+    it("rejects missing agentId with 400 without touching D1 or the DOs", async () => {
+      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-reset", {
+        method: "POST",
+        body: JSON.stringify({ config: validBody.config, launchId: "l-1" }),
+      })
+      const res = await handler.fetch(req, env as any)
+      expect(res.status).toBe(400)
+      expect(mockGetActiveDoNamesForMachine).not.toHaveBeenCalled()
+      expect(doMock.stubFetch).not.toHaveBeenCalled()
+    })
+
+    it("rejects extra unexpected fields with 400", async () => {
+      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-reset", {
+        method: "POST",
+        body: JSON.stringify({ ...validBody, sneaky: "value" }),
+      })
+      const res = await handler.fetch(req, env as any)
+      expect(res.status).toBe(400)
+      expect(doMock.stubFetch).not.toHaveBeenCalled()
+    })
+
+    it("zero active doNames → { sent: 0 } without touching any DO", async () => {
+      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-reset", {
+        method: "POST",
+        body: JSON.stringify(validBody),
+      })
+      const res = await handler.fetch(req, env as any)
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ sent: 0 })
+      expect(doMock.stubFetch).not.toHaveBeenCalled()
+    })
+
+    it("well-formed body → forwards a { type:'agent:reset', ... } frame to each DO's /push and aggregates sent", async () => {
+      mockGetActiveDoNamesForMachine.mockResolvedValue(["do-abc"])
+      doMock.stubFetch.mockResolvedValue(new Response(JSON.stringify({ sent: 1 }), { status: 200 }))
+
+      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-reset", {
+        method: "POST",
+        body: JSON.stringify(validBody),
+      })
+      const res = await handler.fetch(req, env as any)
+
+      expect(doMock.idFromName).toHaveBeenCalledWith("community-machine:do-abc")
+      const stubReq = doMock.stubFetch.mock.calls[0][0] as Request
+      expect(stubReq.url).toBe("http://internal/push")
+      const forwardedBody = await stubReq.text()
+      const parsed = JSON.parse(forwardedBody)
+      expect(parsed).toEqual({ type: "agent:reset", agentId: "bot-1", config: validBody.config, launchId: "l-1" })
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ sent: 1 })
+    })
+  })
+
   describe("force-close routing", () => {
     it("keys the DO by the do_name suffix", async () => {
       doMock.stubFetch.mockResolvedValue(new Response(JSON.stringify({ closed: 1 })))

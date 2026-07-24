@@ -341,3 +341,155 @@ describe("reduceManager — tick: stall + idle hibernation", () => {
     expect(reduceManager(s, { type: "tick", nowMs: 10_000 }).effects).toEqual([]);
   });
 });
+
+describe("reduceManager — reset_session", () => {
+  it("nulls sessionId on a known agent without changing status/turnActive", () => {
+    let s = createInitialManagerState();
+    s = register(s, "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
+    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 0 }).state;
+    s = reduceManager(s, { type: "session", agentId: "a", sessionId: "sess-1" }).state;
+    expect(s.agents.a.sessionId).toBe("sess-1");
+    const prevStatus = s.agents.a.status;
+    const prevTurnActive = s.agents.a.turnActive;
+
+    const r = reduceManager(s, { type: "reset_session", agentId: "a" });
+    expect(r.effects).toEqual([]);
+    expect(r.state.agents.a.sessionId).toBeNull();
+    expect(r.state.agents.a.status).toBe(prevStatus);
+    expect(r.state.agents.a.turnActive).toBe(prevTurnActive);
+  });
+
+  it("no-op on an unknown agentId", () => {
+    const s = createInitialManagerState();
+    const r = reduceManager(s, { type: "reset_session", agentId: "ghost" });
+    expect(r.effects).toEqual([]);
+    expect(r.state.agents.ghost).toBeUndefined();
+  });
+});
+
+describe("reduceManager — begin_reset / rewake_after_reset", () => {
+  it("begin_reset sets resetting=true and emits no effects", () => {
+    let s = createInitialManagerState();
+    s = register(s, "a", PERSISTENT_GATED);
+    const r = reduceManager(s, { type: "begin_reset", agentId: "a" });
+    expect(r.effects).toEqual([]);
+    expect(r.state.agents.a.resetting).toBe(true);
+  });
+
+  it("rewake_after_reset appends to inbox and emits no effects", () => {
+    let s = createInitialManagerState();
+    s = register(s, "a", PERSISTENT_GATED);
+    const r = reduceManager(s, { type: "rewake_after_reset", agentId: "a", message: { text: "rewake" } });
+    expect(r.effects).toEqual([]);
+    expect(r.state.agents.a.inbox.map((m) => m.text)).toEqual(["rewake"]);
+  });
+
+  it("both events are no-ops on an unknown agent", () => {
+    const s = createInitialManagerState();
+    expect(reduceManager(s, { type: "begin_reset", agentId: "ghost" }).state.agents.ghost).toBeUndefined();
+    expect(
+      reduceManager(s, { type: "rewake_after_reset", agentId: "ghost", message: { text: "x" } }).state.agents.ghost,
+    ).toBeUndefined();
+  });
+});
+
+describe("reduceManager — onWake `resetting` gate", () => {
+  it("persistent+direct + running + resetting=true: wake queues to inbox only, NO send/gated_hold effect", () => {
+    let s = createInitialManagerState();
+    s = register(s, "a", PERSISTENT_DIRECT);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 1 }).state;
+    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 2 }).state;
+    // Set resetting via the FSM event (bypassing onSpawned's auto-clear
+    // which fires before this event).
+    s = reduceManager(s, { type: "begin_reset", agentId: "a" }).state;
+    expect(s.agents.a.resetting).toBe(true);
+    expect(s.agents.a.status).toBe("running");
+
+    const r = reduceManager(s, { type: "wake", agentId: "a", message: { text: "unread" }, nowMs: 3 });
+    expect(r.effects).toEqual([]);
+    expect(r.state.agents.a.inbox.map((m) => m.text)).toEqual(["unread"]);
+  });
+
+  it("gated + running + turnActive + resetting=true: wake queues only, NO gated_hold effect", () => {
+    let s = createInitialManagerState();
+    s = register(s, "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 1 }).state;
+    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 2 }).state;
+    s = reduceManager(s, { type: "begin_reset", agentId: "a" }).state;
+
+    const r = reduceManager(s, { type: "wake", agentId: "a", message: { text: "unread" }, nowMs: 3 });
+    expect(r.effects).toEqual([]);
+    expect(r.state.agents.a.inbox.map((m) => m.text)).toEqual(["unread"]);
+  });
+
+  it("starting + resetting=true: wake queues (does NOT spawn a second process)", () => {
+    let s = createInitialManagerState();
+    s = register(s, "a", PERSISTENT_DIRECT);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 1 }).state;
+    // status=starting now
+    s = reduceManager(s, { type: "begin_reset", agentId: "a" }).state;
+
+    const r = reduceManager(s, { type: "wake", agentId: "a", message: { text: "unread" }, nowMs: 2 });
+    expect(r.effects).toEqual([]);
+    expect(r.state.agents.a.inbox.map((m) => m.text)).toEqual(["unread"]);
+  });
+
+  it("idle + resetting=true: wake IS EXEMPTED — still spawns (idle branch of reset orchestrator relies on this)", () => {
+    let s = createInitialManagerState();
+    s = register(s, "a", PERSISTENT_DIRECT);
+    s = reduceManager(s, { type: "begin_reset", agentId: "a" }).state;
+    expect(s.agents.a.resetting).toBe(true);
+    expect(s.agents.a.status).toBe("idle");
+
+    const r = reduceManager(s, { type: "wake", agentId: "a", message: { text: "rewake" }, nowMs: 1 });
+    expect(r.effects).toEqual([{ type: "spawn", agentId: "a", prompt: "rewake", resumeSessionId: null }]);
+    expect(r.state.agents.a.status).toBe("starting");
+  });
+});
+
+describe("reduceManager — onExit / onSpawned clear resetting", () => {
+  it("onExit clears resetting and drains inbox (rewake + queued unread) into ONE spawn", () => {
+    let s = createInitialManagerState();
+    s = register(s, "a", PERSISTENT_DIRECT);
+    // Simulate live agent
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 1 }).state;
+    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 2 }).state;
+    // Begin reset: mark + enqueue rewake
+    s = reduceManager(s, { type: "begin_reset", agentId: "a" }).state;
+    s = reduceManager(s, { type: "rewake_after_reset", agentId: "a", message: { text: "REWAKE" } }).state;
+    // Real unread arrives during reset window — gate queues to inbox.
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "unread" }, nowMs: 3 }).state;
+    expect(s.agents.a.inbox.map((m) => m.text)).toEqual(["REWAKE", "unread"]);
+
+    // Kill lands → exit
+    const r = reduceManager(s, { type: "exit", agentId: "a" });
+    expect(r.effects).toEqual([{ type: "spawn", agentId: "a", prompt: "REWAKE\nunread", resumeSessionId: null }]);
+    expect(r.state.agents.a.resetting).toBe(false);
+  });
+
+  it("onSpawned clears resetting (idle-branch reset spawn)", () => {
+    let s = createInitialManagerState();
+    s = register(s, "a", PERSISTENT_DIRECT);
+    s = reduceManager(s, { type: "begin_reset", agentId: "a" }).state;
+    // Idle-branch deliver emits spawn (idle exempt).
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "REWAKE" }, nowMs: 1 }).state;
+    expect(s.agents.a.resetting).toBe(true);
+    const r = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 2 });
+    expect(r.state.agents.a.resetting).toBe(false);
+  });
+
+  it("spawn-failure path (exit fires with empty inbox) still clears resetting → no permanent reset-lock", () => {
+    let s = createInitialManagerState();
+    s = register(s, "a", PERSISTENT_DIRECT);
+    s = reduceManager(s, { type: "begin_reset", agentId: "a" }).state;
+    // Simulate driver.start() rejecting: `doSpawn` dispatches an immediate
+    // exit; by then drainInboxToPrompt already emptied the inbox into the
+    // (failed) spawn's prompt.
+    s = { ...s, agents: { ...s.agents, a: { ...s.agents.a, status: "starting", inbox: [] } } };
+    const r = reduceManager(s, { type: "exit", agentId: "a" });
+    expect(r.effects).toEqual([]);
+    expect(r.state.agents.a.status).toBe("idle");
+    expect(r.state.agents.a.resetting).toBe(false);
+  });
+});

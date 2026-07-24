@@ -39,7 +39,7 @@ export const BOT_AUDIT_RING_MAX = 200
 export type BotAuditEventEntry = {
   id: string
   botId: string
-  kind: "cli_invocation" | "tool_call" | "thinking"
+  kind: "cli_invocation" | "tool_call" | "thinking" | "wake_trigger" | "session_reset"
   payload: unknown
   sessionId?: string | null
   launchId?: string | null

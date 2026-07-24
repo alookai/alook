@@ -8,6 +8,7 @@ import {
   updateLatestEntry,
   readRecentEntries,
   createTimelineEntry,
+  createSystemEntry,
   findResumableSession,
   filenameForDate,
   localISOString,
@@ -98,6 +99,27 @@ describe("updateLatestEntry", () => {
     const dir = mkDir();
     expect(updateLatestEntry(dir, () => {}, { now: NOW })).toBe(false);
   });
+
+  it("returns false when the newest row is a system barrier (does NOT walk past it into a pre-barrier turn)", () => {
+    const dir = mkDir();
+    appendEntry(dir, createTimelineEntry({ messages: [msg("a")], sessionId: "s1", provider: "claude" }), NOW);
+    appendEntry(dir, createSystemEntry("reset_session", "2026-06-25T12:00:00Z"), NOW);
+    let mutated = false;
+    const ok = updateLatestEntry(dir, () => { mutated = true; }, { now: NOW });
+    expect(ok).toBe(false);
+    expect(mutated).toBe(false);
+    const rows = readRecentEntries(dir, { now: NOW });
+    // Neither row was touched — barrier stays clean, pre-barrier turn stays clean.
+    expect(rows[0].agent_responses).toEqual([]);
+    expect(rows[1].system?.type).toBe("reset_session");
+    expect(rows[1].agent_responses).toEqual([]);
+  });
+
+  it("returns false when the file has only system rows (no turn row to update)", () => {
+    const dir = mkDir();
+    appendEntry(dir, createSystemEntry("reset_session", "2026-06-25T12:00:00Z"), NOW);
+    expect(updateLatestEntry(dir, () => {}, { now: NOW })).toBe(false);
+  });
 });
 
 describe("findResumableSession", () => {
@@ -120,6 +142,42 @@ describe("findResumableSession", () => {
   it("returns null when no row carries a session id", () => {
     const rows = [{ ...createTimelineEntry({ messages: [], provider: "claude" }) }];
     expect(findResumableSession(rows)).toBeNull();
+  });
+
+  it("stops on a reset_session barrier row and returns null", () => {
+    const rows = [
+      { ...createTimelineEntry({ messages: [], provider: "claude", sessionId: "s-old" }) },
+      { ...createTimelineEntry({ messages: [], provider: "claude", sessionId: "s-old" }) },
+      createSystemEntry("reset_session", "2026-06-25T12:00:00Z"),
+    ];
+    expect(findResumableSession(rows)).toBeNull();
+  });
+
+  it("returns a session id from a row appended AFTER the barrier", () => {
+    const rows = [
+      { ...createTimelineEntry({ messages: [], provider: "claude", sessionId: "s-old" }) },
+      createSystemEntry("reset_session", "2026-06-25T12:00:00Z"),
+      { ...createTimelineEntry({ messages: [], provider: "claude", sessionId: "s-new" }) },
+    ];
+    expect(findResumableSession(rows)).toBe("s-new");
+  });
+
+  it("multiple resets: newest barrier stops the walk", () => {
+    const rows = [
+      { ...createTimelineEntry({ messages: [], provider: "claude", sessionId: "s-1" }) },
+      createSystemEntry("reset_session", "2026-06-25T12:00:00Z"),
+      { ...createTimelineEntry({ messages: [], provider: "claude", sessionId: "s-2" }) },
+      createSystemEntry("reset_session", "2026-06-25T12:01:00Z"),
+    ];
+    expect(findResumableSession(rows)).toBeNull();
+  });
+
+  it("provider constraint respected across a barrier", () => {
+    const rows = [
+      { ...createTimelineEntry({ messages: [], provider: "claude", sessionId: "s-claude" }) },
+      createSystemEntry("reset_session", "2026-06-25T12:00:00Z"),
+    ];
+    expect(findResumableSession(rows, "claude")).toBeNull();
   });
 });
 

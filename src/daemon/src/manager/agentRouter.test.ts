@@ -27,13 +27,26 @@ function stubLogger(): Logger & { calls: Record<"debug" | "info" | "warn" | "err
 function fakeManager(initialStatuses: Record<string, "idle" | "starting" | "running" | "stopping"> = {}) {
   const delivers: Array<{ agentId: string; text: string; seq?: number }> = [];
   const registers: Array<{ agentId: string; sessionId?: string; launchId?: string }> = [];
+  const forgets: string[] = [];
+  const resets: Array<{ agentId: string; rewakePrompt: string; launchId: string }> = [];
+  const order: string[] = [];
   const statuses: Record<string, "idle" | "starting" | "running" | "stopping"> = { ...initialStatuses };
   const mgr = {
     register(agentId: string, launch?: { sessionId?: string; launchId?: string }) {
       registers.push({ agentId, sessionId: launch?.sessionId, launchId: launch?.launchId });
+      order.push(`register:${agentId}`);
     },
     deliver(agentId: string, m: { seq?: number; text: string }) {
       delivers.push({ agentId, text: m.text, seq: m.seq });
+      order.push(`deliver:${agentId}`);
+    },
+    forgetSession(agentId: string) {
+      forgets.push(agentId);
+      order.push(`forget:${agentId}`);
+    },
+    async resetSession(agentId: string, opts: { launchId: string; rewakePrompt: string }) {
+      resets.push({ agentId, rewakePrompt: opts.rewakePrompt, launchId: opts.launchId });
+      order.push(`reset:${agentId}`);
     },
     stop() {},
     liveSessionReports: () => [],
@@ -43,7 +56,7 @@ function fakeManager(initialStatuses: Record<string, "idle" | "starting" | "runn
       return { agents };
     },
   } as unknown as AgentProcessManager;
-  return { mgr, delivers, registers, statuses };
+  return { mgr, delivers, registers, statuses, forgets, resets, order };
 }
 
 /** Fake channel capturing acks + the command handler the router registers. */
@@ -135,6 +148,75 @@ describe("AgentRouter — agent:wake", () => {
 
     expect(delivers.length).toBe(2);
     expect(wakeAcks.length).toBe(2);
+  });
+});
+
+describe("AgentRouter — agent:reset", () => {
+  const CFG = { version: 1 as const, runtime: "mock", model: { kind: "default" as const }, mode: { kind: "default" as const } };
+
+  it("calls onBeforeAgent then manager.resetSession exactly once with a rewake prompt, adds to running set", async () => {
+    const { mgr, resets, order } = fakeManager();
+    const { ch, fire } = fakeChannel();
+    const beforeCalls: string[] = [];
+    const router = new AgentRouter({
+      manager: mgr,
+      channel: ch,
+      runtimeReport: [{ id: "mock" }],
+      onBeforeAgent: async (id) => { beforeCalls.push(id); order.push(`before:${id}`); },
+    });
+    await router.start();
+
+    await fire({ type: "agent:reset", agentId: "a1", config: CFG, launchId: "l1" });
+
+    expect(beforeCalls).toEqual(["a1"]);
+    expect(resets).toHaveLength(1);
+    expect(resets[0]).toMatchObject({ agentId: "a1", launchId: "l1" });
+    expect(resets[0].rewakePrompt.length).toBeGreaterThan(0);
+    // Ordering: onBeforeAgent completes before resetSession fires.
+    expect(order[0]).toBe("before:a1");
+    expect(order[1]).toBe("reset:a1");
+    expect(router.buildReady().runningAgents).toContain("a1");
+  });
+
+  it("a generic thrown error from resetSession is logged, doesn't crash, and does NOT add to running set", async () => {
+    const mgr = {
+      resetSession: async () => { throw new Error("boom"); },
+      liveSessionReports: () => [],
+    } as unknown as AgentProcessManager;
+    const { ch, fire } = fakeChannel();
+    const logger = stubLogger();
+    const router = new AgentRouter({ manager: mgr, channel: ch, runtimeReport: [{ id: "mock" }], logger });
+    await router.start();
+
+    await fire({ type: "agent:reset", agentId: "a1", config: CFG, launchId: "l1" });
+    expect(router.buildReady().runningAgents).not.toContain("a1");
+    expect(logger.calls.warn.some(([m]) => m === "agent:reset failed")).toBe(true);
+  });
+
+  it("UnknownRuntimeError from resetSession → forwards session.error{runtime_not_available}, running set untouched", async () => {
+    const throwing = new UnknownRuntimeError("gemini", ["claude", "codex"]);
+    const mgr = {
+      resetSession: async () => { throw throwing; },
+      liveSessionReports: () => [],
+    } as unknown as AgentProcessManager;
+    const { ch, sessionErrors, fire } = fakeChannel();
+    const router = new AgentRouter({ manager: mgr, channel: ch, runtimeReport: [{ id: "claude" }, { id: "codex" }] });
+    await router.start();
+
+    await fire({
+      type: "agent:reset",
+      agentId: "a1",
+      config: { ...CFG, runtime: "gemini" },
+      launchId: "l1",
+    });
+    expect(sessionErrors).toHaveLength(1);
+    expect(sessionErrors[0]).toMatchObject({
+      type: "session.error",
+      code: "runtime_not_available",
+      agentId: "a1",
+      payload: { requested: "gemini", available: ["claude", "codex"] },
+    });
+    expect(router.buildReady().runningAgents).not.toContain("a1");
   });
 });
 

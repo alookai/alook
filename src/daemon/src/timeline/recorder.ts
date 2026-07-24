@@ -21,8 +21,17 @@
  * agent_responses, provider}` — no task id / datetime / status / pid.
  */
 import { mkdirSync } from "fs";
-import { appendOrMergeEntry, updateLatestEntry, readRecentEntries, createTimelineEntry, findResumableSession } from "./timeline.js";
+import {
+  appendOrMergeEntry,
+  updateLatestEntry,
+  readRecentEntries,
+  createTimelineEntry,
+  createSystemEntry,
+  findResumableSession,
+  appendEntry,
+} from "./timeline.js";
 import type { Message } from "../server/contract.js";
+
 
 /** Manager/daemon-facing recorder interface (structural, avoids a cyclic import). */
 export interface TimelineRecorderLike {
@@ -34,6 +43,15 @@ export interface TimelineRecorderLike {
   appendResponseToLatest(agentId: string, text: string): void;
   /** Latest session id recorded for this agent (resume target), or null. */
   resumeSessionId(agentId: string, provider: string | null): string | null;
+  /**
+   * Owner-triggered reset: append a `system: { type: "reset_session" }` row
+   * to the timeline. The resume walker treats that row as a barrier — every
+   * turn at or before it becomes invisible to `resumeSessionId` — and the
+   * agent's own history read (for recall) sees the reset in-line with turns.
+   * Also clears the in-memory session cache so a racing `appendEntryForAgent`
+   * can't bake the stale id into a fresh row.
+   */
+  forgetSession(agentId: string): void;
 }
 
 export interface TimelineRecorderOptions {
@@ -74,11 +92,49 @@ export function createTimelineRecorder(opts: TimelineRecorderOptions): TimelineR
       );
     },
     appendResponseToLatest(agentId, text) {
-      updateLatestEntry(dirFor(agentId), (e) => e.agent_responses.push(text), { now: now() });
+      const dir = dirFor(agentId);
+      const updated = updateLatestEntry(dir, (e) => e.agent_responses.push(text), { now: now() });
+      if (updated) return;
+      // No turn row exists yet (or the newest row is a system barrier) — open
+      // a fresh, empty-messages turn row carrying the current session/provider
+      // and stamp this response onto it. Happens whenever a `text` event
+      // arrives before the fresh spawn's first inbox pull opened a row, e.g.
+      // right after `reset_session` where the barrier is the file's latest
+      // line and the rewake prompt makes the agent talk before pulling. A
+      // later inbox pull with real messages appends its own row (since this
+      // one already has a response, `appendOrMergeEntry` won't merge into it).
+      try {
+        mkdirSync(dir, { recursive: true });
+      } catch {
+        /* best-effort */
+      }
+      const entry = createTimelineEntry({
+        messages: [],
+        sessionId: sessionByAgent.get(agentId) ?? null,
+        provider: opts.providerFor?.(agentId) ?? null,
+      });
+      entry.agent_responses.push(text);
+      appendEntry(dir, entry, now());
     },
     resumeSessionId(agentId, provider) {
       const rows = readRecentEntries(dirFor(agentId), { now: now() });
       return findResumableSession(rows, provider ?? undefined);
+    },
+    forgetSession(agentId) {
+      const dir = dirFor(agentId);
+      try {
+        mkdirSync(dir, { recursive: true });
+      } catch {
+        /* best-effort — appendEntry handles a missing dir by returning false */
+      }
+      // Kill happens BEFORE this call (see `AgentProcessManager.resetSession`),
+      // so no race — clear the in-memory session map and append the barrier.
+      // One `now()` sample so the system-row `time` and the day-file the row
+      // is written into can't disagree on the boundary between two consecutive
+      // clock reads.
+      sessionByAgent.delete(agentId);
+      const stamp = now();
+      appendEntry(dir, createSystemEntry("reset_session", stamp.toISOString()), stamp);
     },
   };
 }

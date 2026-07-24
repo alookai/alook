@@ -3,6 +3,7 @@ import type {
   BotAddedFrame,
   BotUpdatedFrame,
   BotRemovedFrame,
+  RuntimeConfig,
 } from "@alook/shared"
 import { wsDoFetch } from "@/lib/broadcast"
 
@@ -52,5 +53,53 @@ export async function pushBotEventToMachine(
       type: event.type,
       err: String(err),
     })
+  }
+}
+
+/**
+ * Push an owner-triggered `agent:reset` to the machine's daemon over WS.
+ *
+ * Narrowly typed (only reset fields, no arbitrary HostCommand) so no caller
+ * can smuggle a different command shape onto the wire. Returns the ws-do
+ * response's `{ sent }` count — `sent === 0` means the daemon is not
+ * currently connected; the caller is expected to translate that into a 409.
+ */
+export async function pushAgentResetToMachine(
+  env: Env,
+  machineId: string,
+  args: { agentId: string; config: RuntimeConfig; launchId: string },
+): Promise<{ sent: number }> {
+  const path = `/community-machine/by-id/${encodeURIComponent(machineId)}/forward-agent-reset`
+  const body = JSON.stringify({
+    agentId: args.agentId,
+    config: args.config,
+    launchId: args.launchId,
+  })
+  try {
+    const res = await wsDoFetch(
+      env,
+      path,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      },
+      { label: machineId, type: "agent:reset" },
+    )
+    if (!res.ok) {
+      log.warn("agent:reset push non-ok", {
+        machineId,
+        status: res.status,
+      })
+      return { sent: 0 }
+    }
+    const data = (await res.json()) as { sent?: number }
+    return { sent: data.sent ?? 0 }
+  } catch (err) {
+    log.warn("agent:reset push threw", {
+      machineId,
+      err: String(err),
+    })
+    return { sent: 0 }
   }
 }

@@ -30,7 +30,7 @@ export type BotActivityEventInput = {
   botId: string;
   sessionId?: string | null;
   launchId?: string | null;
-  kind: "cli_invocation" | "tool_call" | "thinking" | "wake_trigger";
+  kind: "cli_invocation" | "tool_call" | "thinking" | "wake_trigger" | "session_reset";
   payload: string;
 };
 
@@ -196,5 +196,26 @@ export async function insertBotAuditWakeTrigger(
     launchId: data.launchId ?? null,
     kind: "wake_trigger",
     payload: JSON.stringify(data.payload),
+  });
+}
+
+/**
+ * Session-reset audit write — the owner clicked "Reset session" on a bot in
+ * `/c/me/bots`. Actor is the owner (own by construction on the API route).
+ * Payload is intentionally empty — the fact of the reset is the audit signal;
+ * timestamp lives on the envelope. Gated on the "was the row newly-pending?"
+ * transition at the API route, so a repeat-click while a reset is already
+ * pending never lands a second row.
+ */
+export async function insertBotAuditSessionReset(
+  db: Database,
+  data: { botId: string; actorId: string }
+): Promise<{ id: string; createdAt: string } | null> {
+  return insertBotActivityEventAndPrune(db, {
+    botId: data.botId,
+    sessionId: null,
+    launchId: null,
+    kind: "session_reset",
+    payload: JSON.stringify({}),
   });
 }

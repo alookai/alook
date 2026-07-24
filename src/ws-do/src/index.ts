@@ -119,7 +119,7 @@ export default {
       // browser understands are broadcastable. An unknown `kind` reaches the
       // owner UI as an untyped row (bot-activity-row.tsx renders it verbatim),
       // so reject at the boundary instead.
-      const AUDIT_KINDS = new Set(["cli_invocation", "tool_call", "thinking", "wake_trigger"])
+      const AUDIT_KINDS = new Set(["cli_invocation", "tool_call", "thinking", "wake_trigger", "session_reset"])
       if (!AUDIT_KINDS.has(b.kind)) {
         return new Response("invalid kind", { status: 400 })
       }
@@ -315,6 +315,91 @@ export default {
       }
       if (delivered === 0 && transientFailure) {
         return Response.json({ error: "failed to forward agent wake" }, { status: 503 })
+      }
+      return Response.json({ sent: delivered })
+    }
+
+    // POST /community-machine/by-id/<machineId>/forward-agent-reset — owner-
+    // triggered `agent:reset` push. Same shape as `/forward-agent-wake`: build
+    // the HostCommand from a narrow payload (`{ agentId, config, launchId }`),
+    // resolve the machine's active `do_names`, forward the frame to each DO's
+    // `/push` route, and aggregate `{ sent }`. Rejects any extra field —
+    // callers must use `pushAgentResetToMachine`.
+    const forwardAgentReset = url.pathname.match(/^\/community-machine\/by-id\/([^/]+)\/forward-agent-reset$/)
+    if (forwardAgentReset && request.method === "POST") {
+      const machineId = decodeURIComponent(forwardAgentReset[1])
+      const reqLog = log.child({ traceId, machineId })
+      reqLog.debug("forwarding agent:reset to machine")
+
+      let payload: unknown
+      try {
+        payload = await request.json()
+      } catch {
+        return Response.json({ error: "invalid payload" }, { status: 400 })
+      }
+      if (!payload || typeof payload !== "object") {
+        return Response.json({ error: "invalid payload" }, { status: 400 })
+      }
+      const raw = payload as Record<string, unknown>
+      const allowedKeys = new Set(["agentId", "config", "launchId"])
+      for (const key of Object.keys(raw)) {
+        if (!allowedKeys.has(key)) {
+          return Response.json({ error: "invalid payload" }, { status: 400 })
+        }
+      }
+      const { agentId, config, launchId } = raw
+      if (typeof agentId !== "string" || agentId.length === 0) {
+        return Response.json({ error: "invalid payload" }, { status: 400 })
+      }
+      if (typeof launchId !== "string" || launchId.length === 0) {
+        return Response.json({ error: "invalid payload" }, { status: 400 })
+      }
+      if (!config || typeof config !== "object") {
+        return Response.json({ error: "invalid payload" }, { status: 400 })
+      }
+
+      let doNames: string[] = []
+      try {
+        const shared = await import("@alook/shared")
+        const db = shared.createDb((env as unknown as { DB: D1Database }).DB)
+        doNames = await queries.communityMachine.getActiveDoNamesForMachine(db, machineId)
+      } catch (err) {
+        reqLog.error("failed to resolve machine doNames for agent reset", { err })
+        return Response.json({ error: "failed to resolve machine" }, { status: 503 })
+      }
+      if (doNames.length === 0) {
+        return Response.json({ sent: 0 })
+      }
+      const frame = JSON.stringify({ type: "agent:reset", agentId, config, launchId })
+      let delivered = 0
+      let transientFailure = false
+      for (const dn of doNames) {
+        const doId = env.WS_DO.idFromName("community-machine:" + dn)
+        const stub = env.WS_DO.get(doId)
+        try {
+          const res = await stub.fetch(
+            new Request("http://internal/push", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: frame,
+            }),
+          )
+          if (!res.ok) {
+            transientFailure = true
+            continue
+          }
+          const data = (await res.json()) as { sent?: unknown }
+          if (typeof data.sent !== "number" || !Number.isFinite(data.sent) || data.sent < 0) {
+            transientFailure = true
+            continue
+          }
+          delivered += data.sent
+        } catch {
+          transientFailure = true
+        }
+      }
+      if (delivered === 0 && transientFailure) {
+        return Response.json({ error: "failed to forward agent reset" }, { status: 503 })
       }
       return Response.json({ sent: delivered })
     }

@@ -103,7 +103,11 @@ export type SkipReason =
   | "already_read";
 
 export type BuildUnreadWakeResult =
-  | { state: "ready"; machineId: string; command: HostCommand }
+  | {
+      state: "ready";
+      machineId: string;
+      command: HostCommand;
+    }
   | { state: "skip"; reason: SkipReason };
 
 /**
@@ -167,6 +171,7 @@ export async function buildUnreadWakeCommand(
     agentName: botCtx.name,
     agentHandle: `@${formatHandle(botCtx.name, botCtx.discriminator)}`,
   });
+
   const command: HostCommand = {
     type: "agent:wake",
     agentId: botCtx.botUserId,

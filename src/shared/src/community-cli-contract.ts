@@ -529,6 +529,14 @@ export type HostCommand =
     unreadNotice: UnreadNotice;
   }
   | { type: "agent:stop"; agentId: AgentId }
+  /**
+   * Owner-triggered reset. Carries `config` because the daemon may not have
+   * this agent registered yet (fresh daemon, bot never woken since last
+   * restart). Daemon MUST `register` the agent, write a `reset_session`
+   * system row to the timeline, kill any running process, and deliver a
+   * synthetic rewake — see `AgentProcessManager.resetSession`.
+   */
+  | { type: "agent:reset"; agentId: AgentId; config: RuntimeConfig; launchId: string }
   // ─── Bot lifecycle events (server → daemon) ────────────────────────────
   // Colon-namespaced to match the agent:* naming convention. Delivered to
   // the specific machine's daemon connection via the WS DO. On the daemon,

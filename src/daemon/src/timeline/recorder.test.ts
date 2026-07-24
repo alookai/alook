@@ -111,3 +111,143 @@ describe("createTimelineRecorder (append-only, 4-field schema)", () => {
     expect(rec.resumeSessionId("a", "claude")).toBe("sess-claude");
   });
 });
+
+describe("forgetSession — inline system row", () => {
+  it("appends a bare reset_session system row (no forgot_session_id) and clears the map", () => {
+    const dir = mkDir();
+    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
+    rec.setSession("agent_1", "sess-1");
+
+    rec.forgetSession("agent_1");
+    const rows = readRecentEntries(dir, { now: NOW() });
+    const last = rows[rows.length - 1];
+    expect(last.system?.type).toBe("reset_session");
+    expect((last.system as unknown as { forgot_session_id?: unknown }).forgot_session_id).toBeUndefined();
+    expect(last.session_id).toBeNull();
+    expect(last.messages).toEqual([]);
+    expect(last.agent_responses).toEqual([]);
+
+    // A subsequent append proves the in-memory session id was cleared —
+    // the new turn row carries null for session_id.
+    rec.appendEntryForAgent("agent_1", [msg("#1", "post-reset")]);
+    const afterRows = readRecentEntries(dir, { now: NOW() });
+    expect(afterRows[afterRows.length - 1].session_id).toBeNull();
+  });
+
+  it("writes a valid reset_session row on a fresh workdir with no in-memory session and no prior rows", () => {
+    const dir = mkDir();
+    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
+
+    rec.forgetSession("agent_1");
+    const rows = readRecentEntries(dir, { now: NOW() });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].system?.type).toBe("reset_session");
+  });
+});
+
+describe("appendResponseToLatest — text-before-first-pull fallback", () => {
+  it("after a reset barrier, a text event before the first inbox pull opens a fresh turn row (does NOT clobber the barrier)", () => {
+    const dir = mkDir();
+    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
+
+    rec.setSession("a", "sess-1");
+    rec.appendEntryForAgent("a", [msg("#1", "hi")]);
+    rec.appendResponseToLatest("a", "old reply");
+
+    // Owner-triggered reset — barrier is the newest line now.
+    rec.forgetSession("a");
+
+    // Fresh spawn: session_init lands, then a text event BEFORE the agent
+    // pulls its inbox.
+    rec.setSession("a", "sess-2");
+    rec.appendResponseToLatest("a", "I'll check for unfinished work.");
+
+    const rows = readRecentEntries(dir, { now: NOW() });
+    // Row 0: original turn — untouched.
+    expect(rows[0].messages.map((m) => m.content.text)).toEqual(["hi"]);
+    expect(rows[0].agent_responses).toEqual(["old reply"]);
+    // Row 1: the barrier — MUST NOT carry the response.
+    expect(rows[1].system?.type).toBe("reset_session");
+    expect(rows[1].agent_responses).toEqual([]);
+    // Row 2: the fallback turn row, opened by appendResponseToLatest.
+    expect(rows[2].system).toBeUndefined();
+    expect(rows[2].session_id).toBe("sess-2");
+    expect(rows[2].provider).toBe("claude");
+    expect(rows[2].messages).toEqual([]);
+    expect(rows[2].agent_responses).toEqual(["I'll check for unfinished work."]);
+  });
+
+  it("subsequent inbox pull appends its OWN turn row (fallback row has a response, so appendOrMergeEntry won't merge)", () => {
+    const dir = mkDir();
+    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
+
+    rec.forgetSession("a"); // barrier
+    rec.setSession("a", "sess-2");
+    rec.appendResponseToLatest("a", "pre-pull chatter");
+    // Now the fresh spawn actually pulls inbox.
+    rec.appendEntryForAgent("a", [msg("#1", "unread")]);
+    rec.appendResponseToLatest("a", "post-pull reply");
+
+    const rows = readRecentEntries(dir, { now: NOW() });
+    // [barrier, fallback, pull]
+    expect(rows).toHaveLength(3);
+    expect(rows[0].system?.type).toBe("reset_session");
+    expect(rows[1].agent_responses).toEqual(["pre-pull chatter"]);
+    expect(rows[1].messages).toEqual([]);
+    expect(rows[2].messages.map((m) => m.content.text)).toEqual(["unread"]);
+    expect(rows[2].agent_responses).toEqual(["post-pull reply"]);
+  });
+
+  it("first-ever text event with no prior rows opens a fallback turn row", () => {
+    const dir = mkDir();
+    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
+
+    rec.setSession("a", "sess-1");
+    rec.appendResponseToLatest("a", "hello");
+
+    const rows = readRecentEntries(dir, { now: NOW() });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].session_id).toBe("sess-1");
+    expect(rows[0].agent_responses).toEqual(["hello"]);
+    expect(rows[0].messages).toEqual([]);
+  });
+});
+
+describe("resumeSessionId honors the reset_session barrier", () => {
+  it("multi-turn survival: three rows all carrying sess-1 then reset → null", () => {
+    const dir = mkDir();
+    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
+    rec.setSession("a", "sess-1");
+    rec.appendEntryForAgent("a", [msg("#1", "t1")]);
+    rec.appendResponseToLatest("a", "r1");
+    rec.appendEntryForAgent("a", [msg("#2", "t2")]);
+    rec.appendResponseToLatest("a", "r2");
+    rec.appendEntryForAgent("a", [msg("#3", "t3")]);
+    rec.appendResponseToLatest("a", "r3");
+    rec.forgetSession("a");
+
+    expect(rec.resumeSessionId("a", "claude")).toBeNull();
+  });
+
+  it("future sessions unaffected: reset + newer row carrying sess-2 → returns sess-2", () => {
+    const dir = mkDir();
+    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
+    rec.setSession("a", "sess-1");
+    rec.appendEntryForAgent("a", [msg("#1", "old")]);
+    rec.appendResponseToLatest("a", "reply1");
+    rec.forgetSession("a");
+    rec.setSession("a", "sess-2");
+    rec.appendEntryForAgent("a", [msg("#2", "fresh")]);
+
+    expect(rec.resumeSessionId("a", "claude")).toBe("sess-2");
+  });
+
+  it("no reset → unchanged behavior (returns newest non-null session_id)", () => {
+    const dir = mkDir();
+    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
+    rec.setSession("a", "sess-only");
+    rec.appendEntryForAgent("a", [msg("#1", "x")]);
+
+    expect(rec.resumeSessionId("a", "claude")).toBe("sess-only");
+  });
+});

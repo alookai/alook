@@ -16,23 +16,49 @@
 import type { Message } from "../server/contract.js";
 
 /**
- * A timeline row — exactly four fields (gustavo's final schema). Per-turn
- * history: what the agent SAW (`messages`, with their own timestamps) and what it
- * SAID (`agent_responses`), the runtime `session_id` (resume target), and the
- * `provider` that ran it. No task_id / datetime / status / pid / errmsg — the
- * log is append-only and time is carried by the messages themselves.
+ * A timeline row. Two shapes share the file, discriminated by `system`:
+ *
+ *   - **Turn** (`system` absent): per-turn history — what the agent SAW
+ *     (`messages`, with their own timestamps) and what it SAID
+ *     (`agent_responses`), the runtime `session_id` (resume target), and the
+ *     `provider` that ran it. The append-only log is time-ordered; each
+ *     message carries its own `time`.
+ *   - **System** (`system` set): an out-of-band event the daemon needs to
+ *     record in-line with turns so both the resume walker AND the agent's
+ *     own history read see it. First (and only) type today is
+ *     `reset_session`: the owner asked to forget prior conversation. On
+ *     resume, `findResumableSession` walks newest→oldest and STOPS if it
+ *     hits a `reset_session` row before finding a session id — so every
+ *     row at or before the reset is invisible for resume without touching
+ *     the rows themselves.
+ *
+ * On a system row, `session_id`/`provider` are null and `messages`/
+ * `agent_responses` are empty. The system row is not mergeable with a
+ * following turn (see `appendOrMergeEntry`).
  */
+export type SystemEntryType = "reset_session";
+
+export interface SystemEntry {
+  /** Event kind. Extend by adding to `SystemEntryType`. */
+  type: SystemEntryType;
+  /** ISO timestamp when the event landed — the row is otherwise untimed. */
+  time: string;
+}
+
 export interface ContextTimelineEntry {
-  /** Agent runtime session id (null until the runtime reports session_init). */
+  /** Agent runtime session id (null until the runtime reports session_init; always null on system rows). */
   session_id: string | null;
   /**
    * The messages the agent actually saw this turn — the verbatim payload of the
    * `inbox pull` that opened this entry ("what I saw"), read against
    * `agent_responses` ("what I said"). Carries each message's own `time`.
+   * Empty on system rows.
    */
   messages: Message[];
-  /** The agent's text outputs this turn ("what I said"). */
+  /** The agent's text outputs this turn ("what I said"). Empty on system rows. */
   agent_responses: string[];
-  /** Runtime id this turn ran under (resume can be constrained to a provider). */
+  /** Runtime id this turn ran under (resume can be constrained to a provider). Null on system rows. */
   provider: string | null;
+  /** Present iff this row is a system event, not a turn. */
+  system?: SystemEntry;
 }

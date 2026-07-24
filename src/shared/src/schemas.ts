@@ -1281,11 +1281,15 @@ export const AuditLogWakeTriggerPayloadSchema = z.object({
 });
 export type AuditLogWakeTriggerPayload = z.infer<typeof AuditLogWakeTriggerPayloadSchema>;
 
+export const AuditLogSessionResetPayloadSchema = z.object({});
+export type AuditLogSessionResetPayload = z.infer<typeof AuditLogSessionResetPayloadSchema>;
+
 export const BotAuditEventSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("cli_invocation"), payload: AuditLogCliInvocationPayloadSchema }),
   z.object({ kind: z.literal("tool_call"), payload: AuditLogToolCallPayloadSchema }),
   z.object({ kind: z.literal("thinking"), payload: AuditLogThinkingPayloadSchema }),
   z.object({ kind: z.literal("wake_trigger"), payload: AuditLogWakeTriggerPayloadSchema }),
+  z.object({ kind: z.literal("session_reset"), payload: AuditLogSessionResetPayloadSchema }),
 ]);
 export type BotAuditEvent = z.infer<typeof BotAuditEventSchema>;
 
@@ -1294,6 +1298,7 @@ export const BotAuditEventKindSchema = z.enum([
   "tool_call",
   "thinking",
   "wake_trigger",
+  "session_reset",
 ]);
 export type BotAuditEventKind = z.infer<typeof BotAuditEventKindSchema>;
 

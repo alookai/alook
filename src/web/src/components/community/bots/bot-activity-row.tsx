@@ -56,6 +56,7 @@ function kindMeta(kind: AuditKind): { label: string; tone: string } {
   if (kind === "cli_invocation") return { label: "daemon", tone: "text-foreground/70" }
   if (kind === "tool_call") return { label: "tool", tone: "text-muted-foreground" }
   if (kind === "wake_trigger") return { label: "wake", tone: "text-foreground/70" }
+  if (kind === "session_reset") return { label: "reset", tone: "text-foreground/70" }
   return { label: "think", tone: "text-muted-foreground/70" }
 }
 
@@ -95,6 +96,19 @@ function RowBody({
       )
     }
     return <span className="font-mono text-[13px] text-foreground">{name}</span>
+  }
+  if (event.kind === "session_reset") {
+    return (
+      <div
+        data-testid="bot-activity-event-session_reset"
+        className="truncate font-mono text-[13px] text-foreground"
+      >
+        <span>Session reset requested</span>{" "}
+        <span className="text-muted-foreground">
+          — the bot will start a fresh session on its next message.
+        </span>
+      </div>
+    )
   }
   if (event.kind === "wake_trigger") {
     const p = event.payload as {

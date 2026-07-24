@@ -191,6 +191,18 @@ export interface TimelineRecorder {
   appendResponseToLatest(agentId: string, text: string): void;
   /** Latest session id for this agent (resume target), or null. */
   resumeSessionId(agentId: string, provider: string | null): string | null;
+  /**
+   * Owner-triggered reset: the caller asked the daemon to forget this
+   * agent's prior session so the next spawn starts fresh. Recorder appends
+   * a `system: { type: "reset_session" }` row to the timeline — visible to
+   * both the resume walker (returns null on the barrier — every turn at or
+   * before it becomes invisible to `resumeSessionId`) and the agent's own
+   * history read (so the agent sees the reset in-line with turns). Kill
+   * happens BEFORE the barrier is written (see
+   * `AgentProcessManager.resetSession`), so no race — no `forgot_session_id`
+   * needed. Safe to call on an unknown agentId.
+   */
+  forgetSession(agentId: string): void;
 }
 
 /** Max UTF-8 byte budget for `thinking` text in the audit log. */
@@ -541,6 +553,108 @@ export class AgentProcessManager {
   /** Inbound message for an agent → drives spawn/steer/queue per policy. */
   deliver(agentId: string, message: AgentMsg): void {
     this.dispatch({ type: "wake", agentId, message, nowMs: this.now() });
+  }
+
+  /**
+   * Clear every cached source that could seed the next spawn's
+   * `resumeSessionId`, append the timeline barrier, and null the FSM
+   * sessionId. Does NOT touch the running process (existing contract) and
+   * does NOT block subsequent wakes — see `resetSession` for the full
+   * orchestration. Caller: `resetSession` (below), after `register` and
+   * before `markResetting`.
+   */
+  forgetSession(agentId: string): void {
+    this.resumeSessions.delete(agentId);
+    this.liveSessions.delete(agentId);
+    this.dispatch({ type: "reset_session", agentId });
+    this.opts.timeline?.forgetSession(agentId);
+  }
+
+  /**
+   * Append a synthetic rewake message to the agent's FSM inbox WITHOUT
+   * emitting any effect. Called by `resetSession`'s live-branch: `stop()` is
+   * about to kill the ManagedSession, so a `send` toward it (via `deliver`
+   * → `onWake` → `send` effect on a persistent+direct agent) would be
+   * silently dropped. The queued message rides the `onExit` drain-then-
+   * spawn path instead.
+   */
+  enqueueRewake(agentId: string, message: AgentMsg): void {
+    this.dispatch({ type: "rewake_after_reset", agentId, message });
+  }
+
+  /**
+   * Mark the agent as being in a reset window (`resetting = true`). Every
+   * subsequent non-idle wake queues to inbox instead of steering the dying
+   * session or spawning a duplicate — see `onWake` in managerPolicy. The
+   * flag clears automatically on `onExit` (kill-and-respawn path) and on
+   * `onSpawned` (idle-branch spawn path); the runtime does not dispatch an
+   * explicit "end reset" event.
+   */
+  markResetting(agentId: string): void {
+    this.dispatch({ type: "begin_reset", agentId });
+  }
+
+  /**
+   * Owner-triggered synchronous reset. Orchestrates the "kill and rewake"
+   * flow atomically:
+   *   1. `register` — idempotent; ensures the FSM knows the agent and its
+   *      runtime caps (fresh daemon after restart, bot never woken since).
+   *   2. `forgetSession` — clears resume caches + writes the timeline
+   *      barrier; nulls `AgentState.sessionId` via the reset_session event.
+   *   3. `markResetting` — flips `agent.resetting = true` so any wake that
+   *      lands between here and the reset spawn just enqueues to inbox
+   *      (no steer against the dying session, no duplicate spawn).
+   *   4. If idle: `deliver` — emits `spawn` for a fresh session with the
+   *      rewake as the prompt. `resetting` is cleared by `onSpawned`.
+   *   5. If live/starting/stopping: `enqueueRewake` (no effect) then
+   *      `stop`. The `exit` event fires later; `onExit` drains the inbox
+   *      (rewake + any queued unreads) into a single fresh spawn and clears
+   *      `resetting`.
+   *
+   * Steps 1–3 (and 4/5's initial dispatch) are all synchronous reducer
+   * dispatches inside a single Node tick — no incoming wake can interleave
+   * before `resetting = true` is set. Only `await stop()` yields the event
+   * loop; by then the gate is up.
+   */
+  async resetSession(
+    agentId: string,
+    opts: { runtimeConfig: RuntimeConfig; launchId: string; rewakePrompt: string },
+  ): Promise<void> {
+    this.register(agentId, { runtimeConfig: opts.runtimeConfig, launchId: opts.launchId });
+    this.forgetSession(agentId);
+    this.markResetting(agentId);
+    const status = this.state.agents[agentId]?.status;
+    if (status === "idle") {
+      // Idle branch: `deliver` emits a spawn directly via `onWake`. The
+      // resetting gate exempts idle so this fires; any real unread that
+      // races in during the same tick sees status=`starting` (post-spawn
+      // effect) and hits the gate, queueing to inbox for the same drain.
+      //
+      // `doSpawn` can throw synchronously (missing credentialProxy /
+      // sdkDriverDepsFor, or the driver's constructor throwing). Without a
+      // recovery step, the FSM would be stuck at `starting` with
+      // `resetting=true` forever — every subsequent wake would hit the
+      // non-idle gate and queue to inbox instead of respawning. Dispatch an
+      // `exit` so `onExit` clears `resetting` and returns the agent to `idle`,
+      // ready for the next wake.
+      try {
+        this.deliver(agentId, { text: opts.rewakePrompt });
+      } catch (err) {
+        this.log.error("agent reset idle-branch spawn threw synchronously", {
+          agentId,
+          err: err instanceof Error ? err.message : String(err),
+        });
+        this.dispatch({ type: "exit", agentId });
+        throw err;
+      }
+      return;
+    }
+    // Live / starting / stopping: enqueue the rewake so `onExit`'s drain
+    // picks it up. `stop()` yields the event loop; any inbound wake in the
+    // interim hits the gate and queues to inbox — landing in the SAME
+    // drain-and-spawn as the rewake.
+    this.enqueueRewake(agentId, { text: opts.rewakePrompt });
+    await this.stop(agentId);
   }
 
   start(): void {

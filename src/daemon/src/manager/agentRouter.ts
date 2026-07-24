@@ -115,6 +115,24 @@ function defaultFormatUnreadNoticeText(notice: UnreadNotice): string {
   return `You have unread messages in channel ${notice.channel}.`;
 }
 
+/**
+ * Fixed prompt handed to the agent as the initial input of a reset-driven
+ * spawn. Wording rationale:
+ *   - "reset by your owner" tells the agent this is an intentional external
+ *     action, not a crash — avoids self-questioning.
+ *   - `@todo.md` / `@memory.md` are the standing-prompt-established
+ *     persistent notes.
+ *   - `.context_timeline` is the daemon-written per-agent JSONL under the
+ *     workdir; the walker's `reset_session` barrier only blocks resume, not
+ *     the on-disk history — the agent CAN read pre-reset turn contents.
+ *   - "pull your inbox" makes it explicit that any real unread messages
+ *     queued during the reset window need to be processed.
+ */
+const REWAKE_PROMPT =
+  "Your session was reset by your owner. Prior conversation context is gone. " +
+  "Read @todo.md, @memory.md, and your .context_timeline for anything unfinished, " +
+  "then pull your inbox to catch up on unread messages before doing anything else.";
+
 export class AgentRouter {
   private readonly running = new Set<string>();
   /**
@@ -367,6 +385,42 @@ export class AgentRouter {
             this.log.info("agent:wake ack", { agentId: cmd.agentId, status: "error", "error.code": code });
           }
           return;
+        }
+        break;
+      case "agent:reset":
+        this.log.info("agent:reset received", { agentId: cmd.agentId, launchId: cmd.launchId });
+        try {
+          await this.opts.onBeforeAgent?.(cmd.agentId);
+          await this.opts.manager.resetSession(cmd.agentId, {
+            runtimeConfig: cmd.config,
+            launchId: cmd.launchId,
+            rewakePrompt: REWAKE_PROMPT,
+          });
+          this.running.add(cmd.agentId);
+          this.scheduleReadyFrameResend();
+          this.log.info("agent:reset ok", { agentId: cmd.agentId });
+        } catch (err) {
+          if (err instanceof UnknownRuntimeError) {
+            const frame: SessionErrorFrame = {
+              type: "session.error",
+              code: "runtime_not_available",
+              agentId: cmd.agentId,
+              payload: {
+                requested: err.requested ?? null,
+                available: err.available,
+              },
+            };
+            await this.opts.channel.reportSessionError?.(frame);
+            this.log.info("agent:reset error", {
+              agentId: cmd.agentId,
+              "error.code": "runtime_not_available",
+            });
+            return;
+          }
+          this.log.warn("agent:reset failed", {
+            agentId: cmd.agentId,
+            err: err instanceof Error ? err.message : String(err),
+          });
         }
         break;
       case "agent:stop":

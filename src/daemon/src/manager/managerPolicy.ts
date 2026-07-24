@@ -63,6 +63,16 @@ export interface AgentState {
   /** ms timestamp since which the agent has been idle (running, no turn, empty inbox); null if not idle. */
   idleSince: number | null;
   /**
+   * True during an owner-triggered reset window. Gates every inbound wake to
+   * inbox-only (no `spawn`, no `send`, no `gated_hold`) EXCEPT when the
+   * agent is currently `idle` — the orchestrator's idle branch relies on
+   * `deliver` still emitting a spawn to kick a fresh session; if the gate
+   * blocked idle too, the reset would silently reset-lock the agent. Cleared
+   * by `onExit` (kill-and-respawn path) and `onSpawned` (idle-branch spawn
+   * path). See plans/bot-reset-session-v2.md.
+   */
+  resetting: boolean;
+  /**
    * Coarse gated-steering phase (tool/compaction/review boundaries). Only
    * meaningfully consulted when `caps.busyDeliveryMode === "gated"`; kept on
    * every agent (harmless/unused otherwise) so the reducer set never needs a
@@ -96,6 +106,26 @@ export type ManagerEvent =
   | { type: "turn_end"; agentId: string; nowMs: number }
   | { type: "exit"; agentId: string }
   | { type: "tick"; nowMs: number }
+  /**
+   * Owner-triggered "reset session". Nulls `AgentState.sessionId` so the next
+   * `doSpawn`'s resume chain resolves to null. Does NOT change `phase` — a
+   * live process keeps running; the reset only affects the NEXT spawn.
+   */
+  | { type: "reset_session"; agentId: string }
+  /**
+   * Owner-triggered reset window began. Sets `agent.resetting = true`. No
+   * effects — the orchestrator dispatches `deliver` (idle branch) or
+   * `enqueueRewake` immediately after, and `stop()` follows on live branch.
+   */
+  | { type: "begin_reset"; agentId: string }
+  /**
+   * Enqueue a synthetic rewake message into the agent's inbox WITHOUT
+   * emitting any effect. Used by the reset orchestrator's live/starting/
+   * stopping branch — a `send` toward the ManagedSession that `stop()` is
+   * about to delete would be silently dropped; the queued message rides the
+   * `onExit` drain-then-spawn path instead.
+   */
+  | { type: "rewake_after_reset"; agentId: string; message: AgentMsg }
   /**
    * Generic passthrough of a `ParsedEvent`'s `kind` string, forwarded for
    * EVERY runtime event (not just the ones the reducer acts on) so the
@@ -150,11 +180,38 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
         a.turnActive = true;
         a.lastProgressAt = event.nowMs;
         a.idleSince = null;
+        // Belt for the idle-branch reset path where `deliver` triggered a
+        // spawn directly (no `exit` fires there). The kill-and-respawn path
+        // clears `resetting` in `onExit`; here we cover the parallel path.
+        if (a.resetting) a.resetting = false;
       });
 
     case "session":
       return mutate(state, event.agentId, (a) => {
         a.sessionId = event.sessionId;
+      });
+
+    case "reset_session":
+      // No-op on an unknown agent — matches AgentProcessManager.forgetSession's
+      // "safe on unknown id" contract. On a known agent, just null the
+      // sessionId; phase/status/turnActive are unchanged so a live process
+      // keeps running through its current turn.
+      if (!state.agents[event.agentId]) return { state, effects: [] };
+      return mutate(state, event.agentId, (a) => {
+        a.sessionId = null;
+      });
+
+    case "begin_reset":
+      if (!state.agents[event.agentId]) return { state, effects: [] };
+      return mutate(state, event.agentId, (a) => {
+        a.resetting = true;
+      });
+
+    case "rewake_after_reset":
+      if (!state.agents[event.agentId]) return { state, effects: [] };
+      return mutate(state, event.agentId, (a) => {
+        a.inbox = [...a.inbox, event.message];
+        a.idleSince = null;
       });
 
     case "progress":
@@ -186,6 +243,19 @@ function onWake(state: ManagerState, agentId: string, message: AgentMsg): Reduce
   if (!agent) {
     // Unknown agent — must be registered first. Drop with no effect.
     return { state, effects: [] };
+  }
+
+  // Reset window: gate every non-idle wake to inbox-only. Idle is exempted
+  // deliberately — the orchestrator's idle branch calls `deliver` right
+  // after `markResetting`, and if the gate blocked idle too the spawn would
+  // never fire, so `resetting` would stay stuck forever. Idle safety is
+  // fine: no live session to steer against, and the moment `deliver`'s
+  // spawn effect flips status to `starting`, subsequent wakes hit the
+  // regular gate branch. See plans/bot-reset-session-v2.md.
+  if (agent.resetting && agent.status !== "idle") {
+    agent.inbox = [...agent.inbox, message];
+    agent.idleSince = null;
+    return commit(state, agent, []);
   }
 
   // Always enqueue the message first; any wake clears the idle timer.
@@ -283,8 +353,16 @@ function onRuntimeSignal(state: ManagerState, agentId: string, kind: string): Re
   if (!existing) return { state, effects: [] };
   const agent = clone(existing);
 
+  // Reset window: never emit a `send` toward the dying session, even for gated
+  // drivers whose boundary flush would otherwise fire on a mid-shutdown
+  // tool_output. Doing so would drain REWAKE from the inbox into a doomed
+  // session and lose it before `onExit`'s drain-and-spawn runs. Still update
+  // the diagnostics ring buffer so recentEvents reflects the reset window.
   const isGatedActive =
-    agent.status === "running" && agent.turnActive && agent.caps.busyDeliveryMode === "gated";
+    !agent.resetting &&
+    agent.status === "running" &&
+    agent.turnActive &&
+    agent.caps.busyDeliveryMode === "gated";
   if (!isGatedActive) {
     // Still record the event for diagnostics — cheap and harmless even when
     // not gated (the ring buffer is unused unless busyDeliveryMode is gated).
@@ -356,6 +434,13 @@ function onExit(state: ManagerState, agentId: string): ReduceResult {
   if (!existing) return { state, effects: [] };
   const agent = clone(existing);
   agent.turnActive = false;
+  // Clear `resetting` unconditionally at the top — covers both the normal
+  // path (kill → exit → drain → spawn, resetting cleared before the spawn)
+  // AND the spawn-failure path (`doSpawn` dispatches an immediate `exit`
+  // with `inbox.length === 0`, taking the idle branch below). Without the
+  // top-level clear, the failure path would leave `resetting: true` and
+  // silently reset-lock the agent for every subsequent wake.
+  if (agent.resetting) agent.resetting = false;
 
   // Per-turn: if more messages queued, immediately respawn for the next batch.
   if (agent.inbox.length > 0) {
@@ -421,6 +506,7 @@ function freshAgent(agentId: string, caps: AgentRuntimeCaps): AgentState {
     turnActive: false,
     lastProgressAt: 0,
     idleSince: null,
+    resetting: false,
     apm: createInitialApmGatedSteeringState(),
   };
 }

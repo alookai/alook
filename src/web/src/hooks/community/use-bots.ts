@@ -89,6 +89,22 @@ export function useDeleteBot() {
   })
 }
 
+export type ResetBotSessionResult = { ok: true }
+
+export function useResetBotSession() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<ResetBotSessionResult>(
+        `/api/community/bots/${id}/reset-session`,
+        { method: "POST" },
+      ),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: communityKeys.botAuditLog(id) })
+    },
+  })
+}
+
 export type UploadBotAvatarArgs = { botId: string; file: File }
 export type UploadBotAvatarResult = { url: string }
 

@@ -109,6 +109,7 @@ describe("buildUnreadWakeCommand", () => {
       agentId: "bot_1",
       unreadNotice: { kind: "unread_notice", channel: "/srv_1/general", latestSeq: 7 },
     });
+    if (result.command.type !== "agent:wake") throw new Error("expected agent:wake");
     expect(typeof result.command.launchId).toBe("string");
     expect(result.command.launchId.length).toBeGreaterThan(0);
     expect(result.command).toMatchObject({ config: { runtime: "claude", agentHandle: "@zoe#0042" } });
@@ -122,10 +123,6 @@ describe("buildUnreadWakeCommand", () => {
   });
 
   it("ready: resolves a DM scope when the message has no channelId", async () => {
-    // "/.dm/@gustavo" was never actually valid production output — prod never
-    // puts "@" in a ref segment. `resolveUnreadNoticeChannel` now produces a
-    // bare `name#0042` handle segment (mocked here, but shaped like the real
-    // thing) since DM refs address peers by handle, not raw user id.
     seedHappyPath({
       message: { channelId: null, dmConversationId: "dm_1" },
       channel: "/.dm/gustavo#0042",
@@ -135,6 +132,7 @@ describe("buildUnreadWakeCommand", () => {
 
     expect(result.state).toBe("ready");
     if (result.state !== "ready") throw new Error("expected ready");
+    if (result.command.type !== "agent:wake") throw new Error("expected agent:wake");
     expect(result.command.unreadNotice).toEqual({
       kind: "unread_notice",
       channel: "/.dm/gustavo#0042",
@@ -152,9 +150,8 @@ describe("buildUnreadWakeCommand", () => {
 
     expect(result.state).toBe("ready");
     if (result.state !== "ready") throw new Error("expected ready");
+    if (result.command.type !== "agent:wake") throw new Error("expected agent:wake");
     expect(result.command.unreadNotice.channel).toBe("/srv_1/general/#3");
-    // Channel/thread wakes never carry dmConversationId — DM-only invariant
-    // for the bot-typing indicator pipeline.
     expect(result.command.unreadNotice.dmConversationId).toBeUndefined();
   });
 

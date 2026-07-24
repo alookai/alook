@@ -28,7 +28,7 @@ import {
 import { AgentAvatar } from "@/components/avatar"
 import { ProviderLogo } from "@/components/provider-logo"
 import { useMachines } from "@/hooks/community/use-machines"
-import { useBots, useDeleteBot, type BotSummary } from "@/hooks/community/use-bots"
+import { useBots, useDeleteBot, useResetBotSession, type BotSummary } from "@/hooks/community/use-bots"
 import { useCreateOrGetDm } from "@/hooks/community/mutations"
 import { useOnlineUserIds } from "@/stores/community/ws"
 import { CreateBotSheet } from "./create-bot-sheet"
@@ -65,7 +65,9 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
   const [activityBot, setActivityBot] = useState<BotSummary | null>(null)
   const [activityOpen, setActivityOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<BotSummary | null>(null)
+  const [confirmReset, setConfirmReset] = useState<BotSummary | null>(null)
   const del = useDeleteBot()
+  const resetSession = useResetBotSession()
   const createOrGetDm = useCreateOrGetDm()
 
   const chatWithBot = async (bot: BotSummary) => {
@@ -300,6 +302,12 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                                 Edit
                               </DropdownMenuItem>
                               <DropdownMenuItem
+                                data-testid={`bot-reset-session-item`}
+                                onClick={() => setConfirmReset(bot)}
+                              >
+                                Reset
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
                                 variant="destructive"
                                 onClick={() => setConfirmDelete(bot)}
                               >
@@ -356,6 +364,45 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
+        open={!!confirmReset}
+        onOpenChange={(open) => !open && setConfirmReset(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reset this bot&apos;s session?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Its running process will stop and it&apos;ll start a fresh session
+              that picks up unfinished work from its notes.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="bot-reset-confirm"
+              onClick={async () => {
+                if (!confirmReset) return
+                try {
+                  await resetSession.mutateAsync(confirmReset.id)
+                  toast.success("Session reset.")
+                } catch (e) {
+                  const status = (e as { status?: number } | undefined)?.status
+                  const message = (e as { message?: string } | undefined)?.message ?? ""
+                  if (status === 409 && message.toLowerCase().includes("offline")) {
+                    toast.error("Bot is offline — bring it online before resetting.")
+                  } else {
+                    toastApiError(e, "Couldn't reset the bot's session")
+                  }
+                } finally {
+                  setConfirmReset(null)
+                }
+              }}
+            >
+              Reset
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
