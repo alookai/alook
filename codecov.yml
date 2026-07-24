@@ -28,6 +28,9 @@ coverage:
 ignore:
   - "src/web/src/components/home/**"
   - "src/web/scripts/**"
+  # Next config is loaded by the Next runtime, not vitest — redirects live in
+  # `src/web/src/lib/blog/redirects.ts` (unit-tested) and are wired here only.
+  - "src/web/next.config.ts"
   # Playwright browser E2E — driven by `playwright test`, not vitest, so these
   # files never appear in coverage and shouldn't count against patch %.
   - "src/web/src/test/e2e-ui/**"
