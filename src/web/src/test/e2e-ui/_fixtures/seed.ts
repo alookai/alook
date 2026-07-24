@@ -213,22 +213,24 @@ export async function renameUser(key: UserKey, name: string): Promise<void> {
   throw new Error(`renameUser failed (${lastStatus})`)
 }
 
-// A member's row id + discriminator, read from a server's member list (the
-// same NOT NULL column the mention grammar depends on). The mention popup keys
-// its option testid off the row `id`, and the pill/profile card shows the
-// `discriminator`, so the mention specs need both. `viewer` must be a member of
-// `serverId`; `targetUserId` is the member being looked up.
+// A member's row id + display name + discriminator, read from a server's member
+// list (the same NOT NULL column the mention grammar depends on). The mention
+// popup keys its option testid off the row `id`, filters candidates by `name`
+// prefix, and the pill/profile card shows the `discriminator` — so the mention
+// specs need all three (a hardcoded query like "@bob" breaks once an earlier
+// serial spec renames the account). `viewer` must be a member of `serverId`;
+// `targetUserId` is the member being looked up.
 export async function memberInfo(
   viewer: UserKey,
   serverId: string,
   targetUserId: string,
-): Promise<{ id: string; discriminator: string }> {
+): Promise<{ id: string; name: string; discriminator: string }> {
   const res = await fetch(`${WEB_URL}/api/community/servers/${serverId}/members`, {
     headers: { Cookie: sessionCookie(viewer), Origin: WEB_URL },
   })
   if (!res.ok) throw new Error(`memberInfo list failed (${res.status})`)
-  const data = (await res.json()) as { members: Array<{ id: string; userId: string; discriminator?: string }> }
+  const data = (await res.json()) as { members: Array<{ id: string; userId: string; name: string; discriminator?: string }> }
   const found = data.members.find((m) => m.userId === targetUserId)
   if (!found?.discriminator) throw new Error(`memberInfo: no discriminator for ${targetUserId}`)
-  return { id: found.id, discriminator: found.discriminator }
+  return { id: found.id, name: found.name, discriminator: found.discriminator }
 }

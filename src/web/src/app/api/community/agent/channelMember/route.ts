@@ -5,6 +5,7 @@ import {
   DM_SERVER,
   formatHandle,
   isForumPost,
+  isThread,
   parseRef,
 } from "@alook/shared"
 import type {
@@ -24,13 +25,11 @@ import { requireChannelAccess } from "@/lib/community/permissions"
  *   - DM ref → 400 (channel-scoped). Rejected UP FRONT (before
  *     `resolveTargetForMember`) so an un-opened DM surfaces the correct
  *     channel-scoped 400 instead of a misleading 404 "dm not found".
- *   - thread (`type = "thread"`) → always private on the wire; returns the
- *     thread-participant roster (`community_thread_participant`). The
- *     parent-channel visibility does not leak here; a thread carries its own
- *     notify set irrespective of its parent's public/private state.
- *   - forum post (`type = "forum_post"`) → always private on the wire — a
- *     post is its own access unit even inside a PUBLIC forum, and the roster
- *     is the post-scoped member set, not the whole server.
+ *   - thread / forum post (`type = "thread" | "forum_post"`) → always private on
+ *     the wire; returns the participant roster (`community_thread_participant`).
+ *     Both are the NOTIFY dimension: a thread/post carries its own notify set
+ *     irrespective of its parent channel/forum's public/private state, so a
+ *     public post lists only its participants, never the whole server.
  *   - public top-level channel/forum → `{ visibility: "public", hint }` (no
  *     roster enumeration — every server member can see it, so the agent should
  *     use `alook server member --server <name>` instead).
@@ -86,20 +85,12 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
 
   const { channel, isPrivate } = access.value
 
-  // Thread branch: always private on the wire; roster is the thread's
-  // participant set (`community_thread_participant`), regardless of parent
-  // channel visibility.
-  if (channel.type === "thread") {
+  // Thread / forum-post branch: both are the NOTIFY dimension — the roster is
+  // the participant set (`community_thread_participant`), always private on the
+  // wire, regardless of the parent channel/forum's public/private state. A
+  // public forum post therefore lists only its participants, not the server.
+  if (isThread(channel.type) || isForumPost(channel.type)) {
     const userIds = await queries.communityThread.listThreadParticipantUserIds(db, channelId)
-    const members = await hydrateMembers(db, channel.serverId, userIds)
-    return NextResponse.json<ChannelMemberResult>({ visibility: "private", members })
-  }
-
-  // Forum post branch: even inside a PUBLIC forum, a post is its own access
-  // unit — return its post-scoped roster rather than the public/hint fallback.
-  if (isForumPost(channel.type)) {
-    const scoped = await queries.communityMembersResolver.resolveScopeMembers(db, { scope: "post", scopeId: channelId })
-    const userIds = scoped.map((s) => s.userId)
     const members = await hydrateMembers(db, channel.serverId, userIds)
     return NextResponse.json<ChannelMemberResult>({ visibility: "private", members })
   }

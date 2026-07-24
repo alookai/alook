@@ -37,9 +37,9 @@ test.describe.serial("mentions — candidate scope", () => {
   let privateForumId: string
   let privatePostId: string
   let threadId: string
-  let alice: { id: string; discriminator: string }
-  let bob: { id: string; discriminator: string }
-  let carol: { id: string; discriminator: string }
+  let alice: { id: string; name: string; discriminator: string }
+  let bob: { id: string; name: string; discriminator: string }
+  let carol: { id: string; name: string; discriminator: string }
 
   test.beforeAll(async () => {
     serverId = await seedServer("alice", `Scope ${Date.now()}`)
@@ -60,8 +60,11 @@ test.describe.serial("mentions — candidate scope", () => {
     await seedChannelMember("alice", privateChannelId, userId("bob"))
 
     privateForumId = await seedChannel("alice", serverId, "private-forum", "forum", privateCatId)
+    // A forum owns its roster; a post inherits it (the notify dimension). Add bob
+    // to the FORUM, not the post — posts reject access-member adds and derive
+    // their mention pool from the parent forum's audience.
+    await seedChannelMember("alice", privateForumId, userId("bob"))
     privatePostId = await seedForumPost("alice", privateForumId, `Post ${Date.now()}`, "post body")
-    await seedChannelMember("alice", privatePostId, userId("bob"))
 
     // A thread rooted on a message in the private channel — its scope is the
     // PARENT channel's audience (alice+bob), NOT its own participant set.
@@ -177,9 +180,11 @@ test.describe.serial("mentions — candidate scope", () => {
     const body = composerEditable(page)
     await expect(body).toBeVisible({ timeout: 10_000 })
 
-    // Typing @ opens the same mention popup the chat composer uses.
+    // Typing @<name-prefix> opens the same mention popup the chat composer uses.
+    // Query by bob's ACTUAL display name — an earlier serial spec may have
+    // renamed the shared account, so a hardcoded "@bob" would match nothing.
     await body.click()
-    await body.pressSequentially("@bob")
+    await body.pressSequentially(`@${bob.name.slice(0, 3)}`)
     await expect(page.getByTestId(tid.mentionOption(bob.id))).toBeVisible({ timeout: 15_000 })
   })
 

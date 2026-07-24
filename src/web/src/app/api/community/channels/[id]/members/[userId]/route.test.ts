@@ -10,6 +10,7 @@ const mockDeleteChannelMember = vi.fn()
 const mockGetPrivateChannelAudienceUserIds = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
 const mockLogAudit = vi.fn()
+const mockRemoveParticipantFromChildChannels = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
@@ -22,6 +23,9 @@ vi.mock("@alook/shared", async () => {
         resolveChannelAccessContext: (...a: unknown[]) => mockResolveChannelAccessContext(...a),
         deleteChannelMember: (...a: unknown[]) => mockDeleteChannelMember(...a),
         getPrivateChannelAudienceUserIds: (...a: unknown[]) => mockGetPrivateChannelAudienceUserIds(...a),
+      },
+      communityThread: {
+        removeParticipantFromChildChannels: (...a: unknown[]) => mockRemoveParticipantFromChildChannels(...a),
       },
     },
   }
@@ -82,6 +86,25 @@ describe("DELETE /channels/[id]/members/[userId]", () => {
     expect(res.status).toBe(204)
     expect(mockDeleteChannelMember).toHaveBeenCalledWith(expect.anything(), "c1", "u2")
     expect(mockBroadcastToUserSafe).toHaveBeenCalled()
+    // A removed channel member also loses their child-thread notify rows.
+    expect(mockRemoveParticipantFromChildChannels).toHaveBeenCalledWith(expect.anything(), "c1", "u2")
+  })
+
+  it("removing a FORUM member cascades: drops their participant rows across posts", async () => {
+    mockResolveChannelAccessContext.mockResolvedValue({
+      channel: { id: "f1", serverId: "s1", type: "forum", parentChannelId: null, parentMessageId: null, creatorId: "u1" },
+      anchor: { id: "f1", serverId: "s1", parentChannelId: null, creatorId: "u1" },
+      role: "member", isPrivate: true, isChannelMember: true, isCreator: true,
+    })
+    const res = await DELETE(
+      new NextRequest("http://localhost/api/community/channels/f1/members/u2", { method: "DELETE" }),
+      { params: { id: "f1", userId: "u2" } } as any,
+    )
+    expect(res.status).toBe(204)
+    expect(mockDeleteChannelMember).toHaveBeenCalledWith(expect.anything(), "f1", "u2")
+    // The ex-member's leftover notify rows on the forum's posts are cleaned so
+    // fan-out stops pushing new-post messages they can no longer read.
+    expect(mockRemoveParticipantFromChildChannels).toHaveBeenCalledWith(expect.anything(), "f1", "u2")
   })
 
   it("cannot remove the creator (400)", async () => {

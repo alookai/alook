@@ -9,7 +9,6 @@ import {
   MESSAGE_PREVIEW_LENGTH,
   WS_EVENTS,
   slugify,
-  canManageServer,
 } from "@alook/shared"
 import { fanOutToChannel } from "@/lib/community/fanout"
 import { requireChannelMember, requireChannelAccess } from "@/lib/community/permissions"
@@ -41,24 +40,11 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     childChannels = childChannels.filter((ch) => ch.tags.includes(tag))
   }
 
-  // Nested-membership model: a private forum's posts are each their own access
-  // unit. Only surface posts the viewer created or has a member row on. Only
-  // SERVER ADMINS/OWNER see all posts — the FORUM CREATOR is NOT special here
-  // (a forum creator with no posts of their own sees an empty list; they only
-  // get to OPEN the forum). Prevents leaking private post names + previews to a
-  // forum-visible non-member. Public forums are unchanged.
-  if (auth.value.isPrivate && !canManageServer(auth.value.member.role)) {
-    const memberIds = new Set(
-      await queries.communityChannel.listChannelIdsWithMember(
-        db,
-        childChannels.map((c) => c.id),
-        ctx.userId,
-      ),
-    )
-    childChannels = childChannels.filter(
-      (c) => c.creatorId === ctx.userId || memberIds.has(c.id),
-    )
-  }
+  // Unified model: a forum's posts INHERIT the forum's access (a post is not its
+  // own access unit — like a thread inherits its channel). Reaching here means
+  // `requireChannelAccess` already granted the viewer access to the forum (a
+  // private forum 403s a non-member up front), so they see ALL of its posts. No
+  // per-post membership filter.
 
   // Batch-fetch all creators in one query
   const creatorIds = [...new Set(childChannels.map((t) => t.creatorId).filter(Boolean) as string[])]

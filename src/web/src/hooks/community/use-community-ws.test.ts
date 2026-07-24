@@ -193,6 +193,34 @@ describe("useCommunityWs — message.create", () => {
     expect(cache?.pages[0].messages).toEqual([])
   })
 
+  it("invalidates threadParticipants for the focused channel (live panel growth)", async () => {
+    // A thread/forum_post enrolls the sender + mentioned users as participants
+    // server-side; the panel must refetch so a new speaker appears without a
+    // manual refresh.
+    await mountHook()
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "ch_1" })
+    refCounter = 0
+    stateCounter = 0
+    callbackCounter = 0
+    await mountHook()
+
+    const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+    capturedOnMessage!(messageCreate("ch_1"))
+
+    expect(spy).toHaveBeenCalledWith({ queryKey: communityKeys.threadParticipants("ch_1") })
+  })
+
+  it("does NOT invalidate threadParticipants for an unfocused channel", async () => {
+    await mountHook()
+    const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+    capturedOnMessage!(messageCreate("ch_other"))
+    const calls = spy.mock.calls.filter(
+      (c) => JSON.stringify(c[0]?.queryKey) === JSON.stringify(communityKeys.threadParticipants("ch_other")),
+    )
+    expect(calls).toHaveLength(0)
+  })
+
   it("dedupes by messageId — a repeat event is a no-op", async () => {
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")
@@ -680,6 +708,39 @@ describe("useCommunityWs — member events", () => {
     expect(cache?.pages[0].messages).toEqual([
       { id: "m_1", authorId: "u_1", authorName: "Name", content: "hi" },
     ])
+  })
+})
+
+describe("useCommunityWs — channel.member_add/remove → invalidate rosters", () => {
+  it("member_add invalidates channelMembers AND threadParticipants (forum_post add-participant path)", async () => {
+    await mountHook()
+    const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+    capturedOnMessage!({
+      type: "community:channel.member_add",
+      serverId: "srv_1",
+      channelId: "ch_1",
+      userId: "u_new",
+    })
+    const invalidated = (key: unknown) =>
+      spy.mock.calls.some((c) => JSON.stringify(c[0]?.queryKey) === JSON.stringify(key))
+    expect(invalidated(communityKeys.channelMembers("ch_1"))).toBe(true)
+    expect(invalidated(communityKeys.threadParticipants("ch_1"))).toBe(true)
+  })
+
+  it("member_remove invalidates threadParticipants too", async () => {
+    await mountHook()
+    const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+    capturedOnMessage!({
+      type: "community:channel.member_remove",
+      serverId: "srv_1",
+      channelId: "ch_1",
+      userId: "u_gone",
+    })
+    expect(
+      spy.mock.calls.some(
+        (c) => JSON.stringify(c[0]?.queryKey) === JSON.stringify(communityKeys.threadParticipants("ch_1")),
+      ),
+    ).toBe(true)
   })
 })
 

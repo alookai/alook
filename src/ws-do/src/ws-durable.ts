@@ -14,6 +14,8 @@ import {
   HostBotAuditEventFrameSchema,
   pickBotActivityPreset,
   RUNNING_PRESETS,
+  isThread,
+  isForumPost,
 } from "@alook/shared"
 import type { CommunityMachineRuntime, CommunityMachineSummary } from "@alook/shared"
 
@@ -1226,16 +1228,16 @@ export class WebSocketDurableObject extends DurableObject<Env> {
           log.warn("fanOutTyping: sender not a channel member", { senderUserId, channelId: targetId })
           return
         }
-        // Recipient set (nested-membership model):
-        //   - THREAD → the thread's participant NOTIFY set (muted=0). Typing in
-        //     a thread reaches only its participants, not the whole parent
-        //     channel (decision 6). Admins are never auto-participants.
-        //   - channel / post / forum → the access audience (public/private split
-        //     + post-own / forum-union) via the shared resolver. Never leaks
-        //     "X is typing" to non-members.
+        // Recipient set — same split as the message fan-out (fanout.ts):
+        //   - THREAD / FORUM_POST → the participant NOTIFY set. Typing reaches
+        //     only its participants, not the whole parent channel/server. A
+        //     public forum post therefore never leaks "X is typing" to the
+        //     server. Admins are never auto-participants.
+        //   - channel / forum → the access audience (public/private split) via
+        //     the shared resolver. Never leaks to non-members.
         const channelType = await queries.communityChannel.getChannelType(db, targetId)
         recipientUserIds =
-          channelType === "thread"
+          isThread(channelType) || isForumPost(channelType)
             ? await queries.communityThread.listThreadParticipantUserIds(db, targetId)
             : await queries.communityMembersResolver.resolveScopeMemberUserIds(db, {
                 scope: "channel",

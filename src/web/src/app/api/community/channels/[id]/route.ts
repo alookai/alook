@@ -24,14 +24,14 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   if (!access.ok) return writeError(access.error, access.status)
   const channel = access.value.channel
   const isAdmin = canManageServer(access.value.member.role)
-  // A forum post's creator may edit that post's tags even without full
-  // `canManage` (a PUBLIC post's creator has `canManage === false`; a private
-  // post's creator already passes it via `isPrivate && isCreator`). Scoped to
-  // the `forumTags` field only below — every other field still requires
-  // `canManage`. `access.value.isCreator` is the vetted post-own-creator flag
-  // (NOT the forum creator), so we don't re-derive it from `channel.creatorId`.
+  // A forum post's OWN creator may edit that post's tags even without full
+  // `canManage`. `access.value.isCreator` is the ACCESS creator (the forum
+  // creator for a post), so we derive the post-own-creator directly from
+  // `channel.creatorId` — the same pattern the participants route uses for the
+  // unit-creator lock. Scoped to the `forumTags` field only below; every other
+  // field still requires `canManage`.
   const canEditPostTags =
-    channel.type === "forum_post" && access.value.isCreator
+    channel.type === "forum_post" && channel.creatorId === ctx.userId
   if (!access.value.canManage && !canEditPostTags) return writeError("forbidden", 403)
 
   let body: { name?: string; topic?: string; categoryId?: string | null; forumTags?: string | null }
@@ -169,14 +169,13 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   const access = await requireChannelAccess(db, channelId, ctx.userId)
   if (!access.ok) return writeError(access.error, access.status)
   const channel = access.value.channel
-  // A forum post's creator may delete their own post even without full
-  // `canManage` (a PUBLIC post's creator has `canManage === false`; a private
-  // post's creator already passes it via `isPrivate && isCreator`). Mirrors the
-  // PATCH tag carve-out. `access.value.isCreator` is the vetted post-own-creator
-  // flag (NOT the forum creator). Scoped to `forum_post` so normal-channel and
-  // thread creators are not granted delete.
+  // A forum post's OWN creator may delete their own post even without full
+  // `canManage`. Mirrors the PATCH tag carve-out. `access.value.isCreator` is the
+  // ACCESS creator (the forum creator for a post), so derive the post-own-creator
+  // directly from `channel.creatorId`. Scoped to `forum_post` so normal-channel
+  // and thread creators are not granted delete.
   const canDeletePost =
-    channel.type === "forum_post" && access.value.isCreator
+    channel.type === "forum_post" && channel.creatorId === ctx.userId
   if (!access.value.canManage && !canDeletePost) return writeError("forbidden", 403)
 
   // Resolve the private-channel audience BEFORE deleting (the member rows

@@ -232,6 +232,10 @@ vi.mock("@alook/shared", () => {
   return {
     createDb: (d1: unknown) => mockCreateDb(d1),
     createLogger: () => noopLogger,
+    // Real type-guard impls — fanOutTyping branches on these to route a
+    // thread/forum_post to the participant set vs the access audience.
+    isThread: (t: unknown) => t === "thread",
+    isForumPost: (t: unknown) => t === "forum_post",
     // Minimal `readOrStale` shim — bypasses the classifier so tests can
     // inject arbitrary Error shapes at the query-fn boundary and observe
     // fail-closed semantics. Real production behavior (retry then fallback)
@@ -2172,6 +2176,30 @@ describe("WebSocketDurableObject", () => {
 
       expect(mockListThreadParticipantUserIds).toHaveBeenCalledWith(expect.anything(), "t-1")
       // Thread typing must NOT fall back to the channel-audience resolver.
+      expect(mockResolveScopeMemberUserIds).not.toHaveBeenCalled()
+      expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:part-1")
+      expect((env.WS_DO as any).idFromName).not.toHaveBeenCalledWith("user:sender-1")
+      expect(mockStubFetch).toHaveBeenCalledTimes(1)
+    })
+
+    it("forum_post: typing fans out to PARTICIPANTS, not the whole server", async () => {
+      const { durable, env } = createDO()
+      mockGetChannelForMember.mockResolvedValueOnce({ id: "post-1", serverId: "server-1" })
+      mockGetChannelType.mockResolvedValueOnce("forum_post")
+      mockListThreadParticipantUserIds.mockResolvedValueOnce(["sender-1", "part-1"])
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "community:typing.start", channelId: "post-1" }),
+      )
+      await flush()
+
+      // A public forum post reaches only its participants — same path as a
+      // message fan-out — never the access-audience resolver (the whole server).
+      expect(mockListThreadParticipantUserIds).toHaveBeenCalledWith(expect.anything(), "post-1")
       expect(mockResolveScopeMemberUserIds).not.toHaveBeenCalled()
       expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:part-1")
       expect((env.WS_DO as any).idFromName).not.toHaveBeenCalledWith("user:sender-1")

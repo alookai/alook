@@ -24,9 +24,37 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
   const access = await requireChannelAccess(db, channelId, ctx.userId)
   if (!access.ok) return writeError(access.error, access.status)
 
-  const { anchor } = access.value
+  const { anchor, channel } = access.value
+
+  // Thread / forum-post: the NOTIFY dimension. The panel == the participant set
+  // (not the access audience), so a public forum post lists only its
+  // participants, never the whole server. The row's `isCreator` locks the
+  // UNIT's own author (`channel.creatorId`), NOT the access anchor. NOTE: the
+  // live /c UI reads `/participants` for these units; this branch is API/agent
+  // parity so a direct GET of a post's `/members` agrees.
+  if (isThread(channel.type) || isForumPost(channel.type)) {
+    const participants = await queries.communityThread.listThreadParticipants(db, channelId)
+    const userIds = participants.map((p) => p.userId)
+    const rows = await queries.communityMember.getMembersByUserIds(db, channel.serverId, userIds)
+    const rowByUser = new Map(rows.map((r) => [r.userId, r]))
+    const members = participants
+      .map((p) => {
+        const row = rowByUser.get(p.userId)
+        if (!row) return null
+        return mapMemberForApi(row, ctx.userId, {
+          isCreator: p.userId === channel.creatorId,
+          source: p.source,
+        })
+      })
+      .filter((m): m is NonNullable<typeof m> => m !== null)
+    return writeJSON({ members })
+  }
+
+  // Channel / forum: the ACCESS dimension. Resolve the audience (public → all
+  // server members; private → own roster ∪ creator). The anchor IS the roster
+  // for these top-level units, so the roster creator is `anchor.creatorId`.
   const scopeMembers = await queries.communityMembersResolver.resolveScopeMembers(db, {
-    scope: "channel",
+    scope: isForum(channel.type) ? "forum" : "channel",
     scopeId: channelId,
   })
   const rows = await queries.communityMember.getMembersByUserIds(
@@ -36,16 +64,6 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
   )
   const rowByUser = new Map(rows.map((r) => [r.userId, r]))
 
-  // The roster creator is the UNIT's own creator: a forum post owns its roster,
-  // so its creator is the post's `channel.creatorId` — NOT `anchor.creatorId`,
-  // which for a post is the forum owner. For a thread/channel the anchor IS the
-  // roster, so both agree. Mirrors the `rosterCreatorId` split in
-  // `resolveChannelAccessContext`.
-  const rosterCreatorId =
-    isForumPost(access.value.channel.type)
-      ? access.value.channel.creatorId
-      : anchor.creatorId
-
   // `resolveScopeMembers` order is the source of truth for membership; hydrate
   // display via the server-member rows (soft-deleted users drop out — expected).
   const members = scopeMembers
@@ -53,7 +71,7 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
       const row = rowByUser.get(sm.userId)
       if (!row) return null
       return mapMemberForApi(row, ctx.userId, {
-        isCreator: sm.userId === rosterCreatorId,
+        isCreator: sm.userId === anchor.creatorId,
         source: sm.source,
       })
     })
@@ -63,13 +81,13 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
 })
 
 /**
- * Add a member to a private access unit — a top-level channel OR a forum post
- * (both own their roster in the nested-membership model). ANY current member
- * (or the creator) may add — passing `requireChannelAccess` for a private unit
- * already means the caller is the creator or an added member (admins have no
- * implicit access). The target must be an existing server member. Threads are
- * rejected — they're the notification dimension and inherit the parent
- * channel's roster (participants join via mention/speak/owner-add, not here).
+ * Add a member to a private ACCESS unit — a top-level text channel OR a forum
+ * (both own their roster; a forum resolves access like a channel). ANY current
+ * member (or the creator) may add — passing `requireChannelAccess` for a private
+ * unit already means the caller is the creator or an added member (admins have
+ * no implicit access). The target must be an existing server member. Threads AND
+ * forum posts are rejected — they're the NOTIFY dimension, inherit the parent's
+ * roster, and take PARTICIPANTS (via the participants route), not access members.
  */
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
@@ -80,20 +98,16 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (!access.ok) return writeError(access.error, access.status)
 
   const channel = access.value.channel
-  // Threads are notify-only (roster lives on the participant table); a thread
-  // has a `parentMessageId`. A forum post also has a `parentChannelId` but NO
-  // `parentMessageId` and IS its own access unit, so it's allowed.
-  if (isThread(channel.type) || channel.parentMessageId) {
-    return writeError("threads inherit their parent channel's members", 400)
+  // Threads AND forum posts are the NOTIFY dimension — they inherit their parent
+  // channel/forum's access roster and store their own set in the participant
+  // table. You add PARTICIPANTS to them (via the participants route), not access
+  // members. A thread has a `parentMessageId`; a forum post has a
+  // `parentChannelId` but no `parentMessageId`.
+  if (isThread(channel.type) || isForumPost(channel.type) || channel.parentMessageId) {
+    return writeError("threads and forum posts inherit their parent's members — add participants instead", 400)
   }
-  // A FORUM's membership is DERIVED from its posts (the union) — it has no roster
-  // of its own, so a member row on the forum would never be read. Reject: add
-  // people to individual posts, not the forum.
-  if (isForum(channel.type)) {
-    return writeError("forum membership is derived from its posts — add members to a post", 400)
-  }
-  // `isPrivate` from requireChannelAccess reflects the (climbed) category — for
-  // a post that's the forum's category. Public units have no explicit roster.
+  // `isPrivate` from requireChannelAccess reflects the category. A public
+  // channel/forum has no explicit roster (everyone can access it).
   if (!access.value.isPrivate) {
     return writeError("channel is not in a private category", 400)
   }
@@ -117,17 +131,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     userId: targetUserId,
     addedBy: ctx.userId,
   })
-
-  // Couple access → notify for a private forum post: an added member also joins
-  // the post's participant (notify) set, so they receive fan-out. A post's
-  // participant set is thus always a subset of its access roster. Idempotent —
-  // if they already spoke/were mentioned, this is a no-op. (A top-level private
-  // channel notifies via its access audience, so it needs no participant row.)
-  if (isForumPost(channel.type)) {
-    await queries.communityThread.addThreadParticipants(db, channelId, [
-      { userId: targetUserId, source: "added" },
-    ])
-  }
 
   const event = {
     type: WS_EVENTS.CHANNEL_MEMBER_ADD,
