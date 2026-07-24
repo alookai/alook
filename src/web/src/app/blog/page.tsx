@@ -12,7 +12,10 @@ export const metadata: Metadata = {
   description,
   alternates: {
     canonical: "https://alook.ai/blog",
-    types: { "application/rss+xml": "/blog/feed.xml" },
+    types: {
+      "application/rss+xml": "/blog/feed.xml",
+      "text/markdown": "/llms.txt",
+    },
   },
   openGraph: {
     title: pageTitle,
@@ -59,6 +62,18 @@ export default async function BlogPage() {
           </h1>
           <p className="mt-4 text-[1.0625rem] text-muted-foreground font-sans leading-relaxed max-w-xl">
             {description}
+          </p>
+          <p className="mt-4 text-xs font-mono uppercase tracking-[0.15em] text-muted-foreground/60">
+            <a
+              href="/blog/feed.xml"
+              className="transition-opacity hover:opacity-70"
+            >
+              RSS
+            </a>
+            <span className="mx-2 opacity-40">·</span>
+            <a href="/llms.txt" className="transition-opacity hover:opacity-70">
+              llms.txt
+            </a>
           </p>
         </header>
 

@@ -9,4 +9,5 @@ export type BlogPost = {
   readingTime: string;
   image?: string;
   draft?: boolean;
+  agentSummary?: string;
 };
