@@ -1,6 +1,6 @@
 {
   "name": "@alook/wake-worker",
-  "version": "0.0.158",
+  "version": "0.0.159",
   "private": true,
   "scripts": {
     "dev": "wrangler dev --persist-to ../web/.wrangler/state",
