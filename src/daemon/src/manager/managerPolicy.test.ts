@@ -332,6 +332,36 @@ describe("reduceManager — tick: stall + idle hibernation", () => {
     expect(r.state.agents.a.sessionId).toBe("sess-1"); // preserved for resume
   });
 
+  it("terminates a stalled gated agent when inbox has queued work", () => {
+    let s = createInitialManagerState(100);
+    s = register(s, "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
+    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 0 }).state;
+    s = reduceManager(s, { type: "session", agentId: "a", sessionId: "sess-1" }).state;
+    // A second wake mid-turn is held (gated) and lands in the inbox.
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m2" }, nowMs: 10 }).state;
+    expect(s.agents.a.inbox.length).toBe(1);
+    expect(s.agents.a.turnActive).toBe(true);
+
+    const r = reduceManager(s, { type: "tick", nowMs: 200 });
+    expect(r.effects).toEqual([{ type: "terminate_stalled", agentId: "a" }]);
+    expect(r.state.agents.a.status).toBe("stopping");
+  });
+
+  it("does NOT terminate a stalled gated agent whose inbox is empty", () => {
+    let s = createInitialManagerState(100);
+    s = register(s, "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
+    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 0 }).state;
+    // Inbox drained on spawn; no queued work.
+    expect(s.agents.a.inbox.length).toBe(0);
+    expect(s.agents.a.turnActive).toBe(true);
+
+    const r = reduceManager(s, { type: "tick", nowMs: 200 });
+    expect(r.effects).toEqual([]);
+    expect(r.state.agents.a.status).toBe("running");
+  });
+
   it("idle timeout of 0 disables hibernation", () => {
     let s = createInitialManagerState(100_000, 0);
     s = register(s, "a", PERSISTENT_GATED);

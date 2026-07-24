@@ -461,13 +461,20 @@ function onTick(state: ManagerState, nowMs: number): ReduceResult {
     const a = agents[id];
 
     // Stalled recovery: running, turn in flight, no progress past threshold.
+    // Gated runtimes are normally excluded from restart (their tool-batch/
+    // compaction/review boundaries do the flushing), BUT a silent gated turn
+    // with queued inbox has no other exit — every wake hits `gated_hold` and
+    // nothing frees it. Include gated when work is backing up so `onExit`'s
+    // drain-and-respawn can rescue it.
     const stalled =
       a.status === "running" &&
       a.turnActive &&
       nowMs - a.lastProgressAt >= state.staleThresholdMs &&
-      // Only restartable runtimes (persistent+direct, or per-turn) — mirror daemon policy.
       (a.caps.lifecycleKind === "per_turn" ||
-        (a.caps.supportsStdinNotification && a.caps.busyDeliveryMode === "direct"));
+        (a.caps.supportsStdinNotification && a.caps.busyDeliveryMode === "direct") ||
+        (a.caps.supportsStdinNotification &&
+          a.caps.busyDeliveryMode === "gated" &&
+          a.inbox.length > 0));
     if (stalled) {
       agents[id] = { ...a, status: "stopping", idleSince: null };
       effects.push({ type: "terminate_stalled", agentId: id });

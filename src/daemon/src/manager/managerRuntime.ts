@@ -923,6 +923,19 @@ export class AgentProcessManager {
       }
       this.onRuntimeEvent(agentId, e, driver.id);
     });
+    // Only ChildProcessRuntimeSession emits `stderr`; SdkManagedSession
+    // doesn't, so this is harmless when the session is an SDK adapter.
+    // Runtime CLIs (Claude Code, Codex, etc.) write auth prompts, rate-limit
+    // errors, panics, and network hangs here — everything the daemon's
+    // stream-json parser will NEVER see. Without this line, a gated agent
+    // that goes silent is a black hole; with it, the underlying error lands
+    // in the main daemon log next to the `gated busy message held` line and
+    // the next incident is diagnosable.
+    session.on("stderr", (...args: unknown[]) => {
+      const raw = typeof args[0] === "string" ? args[0] : String(args[0] ?? "");
+      const text = raw.length > 2000 ? raw.slice(0, 2000) + "…" : raw;
+      this.log.warn("runtime stderr", { agentId, runtime: driver.id, text });
+    });
     // Child-process `error` (ENOENT etc.) — Node EE emits this before or in
     // parallel with `exit`. Without this subscriber the raw `error` would
     // become an unhandled EE emit.
