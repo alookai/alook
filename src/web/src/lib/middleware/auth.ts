@@ -39,6 +39,28 @@ const MT_TTL_S = 900
 const MT_NEG_TTL_S = 60
 const MT_BUMP_INTERVAL_MS = 900_000
 
+/**
+ * Warm the positive machine-token cache entry with a known-good row. Called at
+ * activation time so the daemon's first poll — a separate Worker invocation
+ * that may read a lagged replica (D1 uses `first-unconstrained` sessions) —
+ * hits a positive KV entry instead of reading `null` and negative-caching a
+ * 401 for `MT_NEG_TTL_S`. Best-effort (a KV blip just means the next poll does
+ * a cold read); no-op without KV. This is the ONLY other writer of the `mt:`
+ * entry, so it lives beside the reader to keep the `{ row, luAt }` shape and
+ * `MT_TTL_S` in one place.
+ */
+export async function warmMachineTokenCache(
+  kv: KVNamespace | null,
+  token: string,
+  row: NonNullable<MachineTokenRow>,
+): Promise<void> {
+  if (!kv) return
+  const entry: MachineTokenEntry = { row, luAt: Date.now() }
+  await kv
+    .put(cacheKeys.machineToken(token), JSON.stringify(entry), { expirationTtl: MT_TTL_S })
+    .catch(() => {})
+}
+
 export type AuthenticatedHandler = (
   req: NextRequest,
   ctx: AuthContext & { params?: Record<string, string> }

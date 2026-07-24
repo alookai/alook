@@ -25,7 +25,7 @@ vi.mock("@/lib/auth", () => ({
   })),
 }));
 
-import { withAuth } from "./auth";
+import { withAuth, warmMachineTokenCache } from "./auth";
 import { queries } from "@alook/shared";
 
 const mockGetMachineTokenByHash = queries.machineToken
@@ -300,5 +300,49 @@ describe("withAuth middleware", () => {
 
     expect(res.status).toBe(200);
     expect(body.ctx.params).toEqual({ id: "x" });
+  });
+});
+
+describe("warmMachineTokenCache", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const row = {
+    id: "mt-warm",
+    userId: "user-warm",
+    userEmail: "warm@example.com",
+    workspaceId: "ws-w",
+    status: "active",
+  } as any;
+
+  it("writes a positive { row, luAt } entry at the 15-min TTL", async () => {
+    const kv = { get: vi.fn(), put: vi.fn().mockResolvedValue(undefined), delete: vi.fn() };
+    await warmMachineTokenCache(kv as any, "al_warm_token", row);
+
+    expect(kv.put).toHaveBeenCalledOnce();
+    const [key, value, opts] = kv.put.mock.calls[0];
+    expect(key).toBe(`mt:${"al_warm_token".slice(0, 20)}`);
+    const parsed = JSON.parse(value);
+    expect(parsed.row).toEqual(row);
+    expect(typeof parsed.luAt).toBe("number");
+    expect(opts.expirationTtl).toBe(900);
+  });
+
+  it("a subsequent withAuth read hits the warmed entry without touching D1", async () => {
+    const entry = { row, luAt: Date.now() };
+    bindMockKV({ get: vi.fn().mockResolvedValue(JSON.stringify(entry)) });
+    const wrapped = withAuth(testHandler);
+
+    const req = new NextRequest("http://localhost/api/test", {
+      headers: { Authorization: "Bearer al_warm_token" },
+    });
+    const res = await wrapped(req);
+
+    expect(res.status).toBe(200);
+    // Warm hit — no cold D1 read.
+    expect(mockGetMachineTokenByHash).not.toHaveBeenCalled();
+  });
+
+  it("is a no-op when KV is null (no throw)", async () => {
+    await expect(warmMachineTokenCache(null, "al_x", row)).resolves.toBeUndefined();
   });
 });
