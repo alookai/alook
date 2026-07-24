@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 import path from "node:path";
 import { readFileSync } from "node:fs";
 import createMDX from "@next/mdx";
+import { blogRedirects } from "./src/lib/blog/redirects";
 
 const pkg = JSON.parse(readFileSync(path.resolve(__dirname, "package.json"), "utf-8"));
 
@@ -17,6 +18,9 @@ const nextConfig: NextConfig = {
 		root: path.resolve(__dirname, "../.."),
 	},
 	pageExtensions: ["js", "jsx", "md", "mdx", "ts", "tsx"],
+	async redirects() {
+		return blogRedirects();
+	},
 };
 
 const withMDX = createMDX({
