@@ -37,9 +37,9 @@ test.describe.serial("mentions — candidate scope", () => {
   let privateForumId: string
   let privatePostId: string
   let threadId: string
-  let alice: { id: string; discriminator: string }
-  let bob: { id: string; discriminator: string }
-  let carol: { id: string; discriminator: string }
+  let alice: { id: string; name: string; discriminator: string }
+  let bob: { id: string; name: string; discriminator: string }
+  let carol: { id: string; name: string; discriminator: string }
 
   test.beforeAll(async () => {
     serverId = await seedServer("alice", `Scope ${Date.now()}`)
@@ -180,9 +180,11 @@ test.describe.serial("mentions — candidate scope", () => {
     const body = composerEditable(page)
     await expect(body).toBeVisible({ timeout: 10_000 })
 
-    // Typing @ opens the same mention popup the chat composer uses.
+    // Typing @<name-prefix> opens the same mention popup the chat composer uses.
+    // Query by bob's ACTUAL display name — an earlier serial spec may have
+    // renamed the shared account, so a hardcoded "@bob" would match nothing.
     await body.click()
-    await body.pressSequentially("@bob")
+    await body.pressSequentially(`@${bob.name.slice(0, 3)}`)
     await expect(page.getByTestId(tid.mentionOption(bob.id))).toBeVisible({ timeout: 15_000 })
   })
 
