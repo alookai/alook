@@ -51,7 +51,7 @@ async function getServerMemberUserIds(db: Database, serverId: string): Promise<s
  *   post no longer pings every roster member on every message — only the people
  *   actually involved. Nested-membership model.
  * - channel / forum → the access audience via the shared resolver
- *   (public/private split + forum-union).
+ *   (public/private split; a forum owns its roster like a text channel).
  *
  * The split lives here so fan-out and bot-wake use the same recipient set.
  */

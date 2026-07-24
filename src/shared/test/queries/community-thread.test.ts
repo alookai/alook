@@ -103,7 +103,7 @@ describe("listParticipatingThreadIds", () => {
   });
 });
 
-describe("removeParticipantFromForumPosts — forum-remove notify cascade", () => {
+describe("removeParticipantFromChildChannels — member-remove notify cascade", () => {
   function makeDb(postRows: any[], deletedRows: any[]) {
     const selectChain: any = {};
     selectChain.select = vi.fn(() => selectChain);
@@ -121,16 +121,16 @@ describe("removeParticipantFromForumPosts — forum-remove notify cascade", () =
     } as any;
   }
 
-  it("skips the delete when the forum has no posts", async () => {
+  it("skips the delete when the parent has no children", async () => {
     const db = makeDb([], []);
-    const n = await threadQueries.removeParticipantFromForumPosts(db, "forum_1", "u_removed");
+    const n = await threadQueries.removeParticipantFromChildChannels(db, "forum_1", "u_removed");
     expect(n).toBe(0);
     expect(db.delete).not.toHaveBeenCalled();
   });
 
-  it("deletes the user's participant rows across the forum's posts", async () => {
+  it("deletes the user's participant rows across the parent's children", async () => {
     const db = makeDb([{ id: "p1" }, { id: "p2" }], [{ id: "tp1" }, { id: "tp2" }]);
-    const n = await threadQueries.removeParticipantFromForumPosts(db, "forum_1", "u_removed");
+    const n = await threadQueries.removeParticipantFromChildChannels(db, "forum_1", "u_removed");
     expect(n).toBe(2);
     expect(db.delete).toHaveBeenCalled();
   });

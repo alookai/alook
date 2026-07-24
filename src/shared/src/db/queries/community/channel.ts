@@ -1,4 +1,4 @@
-import { eq, and, asc, desc, isNull, isNotNull, max, inArray, count } from "drizzle-orm";
+import { eq, and, asc, desc, isNull, max, inArray, count } from "drizzle-orm";
 import {
   communityChannel,
   communityCategory,
@@ -139,16 +139,11 @@ export async function getChannelForMember(db: Database, channelId: string, userI
   if (!row) return null;
   const { memberRole, ...channelRow } = row;
 
-  // Privacy anchor vs roster anchor (nested-membership model):
-  //   - thread (`parentMessageId` set) → BOTH climb to the parent channel; a
-  //     thread never narrows access below its channel.
-  //   - forum post (`type="forum_post"`) → privacy climbs to the forum (for the
-  //     category flag), but the ROSTER is the post's OWN id + own `creatorId`.
-  //   - top-level channel → self for both.
-  // The single anchor query below reads the PRIVACY anchor (self for a
-  // post/channel, parent for a thread) and its creator. For a post the roster
-  // creator is the post's own (already in `channelRow`, no extra query); the
-  // roster member-row lookup targets `rosterAnchorId`.
+  // Unified model — the anchor (`parentChannelId ?? id`) is both the privacy and
+  // roster anchor. A forum_post/thread climbs to its parent forum/channel for
+  // BOTH the category-privacy flag and the roster (member rows + creator); a
+  // top-level channel/forum is its own anchor. The single query below reads that
+  // anchor and its creator.
   const anchorId = channelRow.parentChannelId ?? channelRow.id;
 
   const anchor = await db
@@ -579,11 +574,11 @@ export async function countChannelsInCategory(
 
 /**
  * The full recipient audience for a PRIVATE channel: explicit members ∪ the
- * unit's creator. Type-aware (nested-membership model). Resolves the anchor for
- * a thread (`parentChannelId` set inherits its parent's audience). Only
- * meaningful for a private anchor; callers guard on `isChannelPrivate` first
- * (fan-out short-circuits public channels to `listMemberUserIds` and never
- * calls this).
+ * unit's creator. Unified model — a unit's roster is always its anchor's
+ * (`parentChannelId ?? id`), so a forum_post/thread inherits its parent
+ * forum/channel's roster. Only meaningful for a private anchor; callers guard on
+ * `isChannelPrivate` first (fan-out short-circuits public channels to
+ * `listMemberUserIds` and never calls this).
  *
  * NOTE: server admins/owner are NOT auto-included — an admin is in a private
  * audience only if they created it or were explicitly added, exactly like a
@@ -597,7 +592,6 @@ export async function getPrivateChannelAudienceUserIds(
     .select({
       id: communityChannel.id,
       serverId: communityChannel.serverId,
-      type: communityChannel.type,
       creatorId: communityChannel.creatorId,
       parentChannelId: communityChannel.parentChannelId,
     })
@@ -631,15 +625,15 @@ export async function getPrivateChannelAudienceUserIds(
 
 /**
  * Top-level channels a viewer may SEE in a server (backs the server-detail
- * tree). Nested-membership model:
- *   - admin/owner → every top-level channel.
- *   - otherwise → all public/uncategorized channels, PLUS private-category text
- *     channels where the viewer is the creator OR has a member row, PLUS private
- *     FORUMS the viewer can see via membership in any of their posts (derived).
+ * tree). Unified model:
+ *   - all public/uncategorized channels/forums, PLUS
+ *   - private-category channels/forums where the viewer is the creator OR has a
+ *     member row (a forum owns its roster like a text channel; admins get NO
+ *     implicit access).
  * `parentChannelId IS NULL` (threads/posts excluded, mirroring
  * `listServerChannels`). The private-visibility set is computed by the shared
- * `resolveVisibleChannelIdSet` (which knows the forum-derived rule), then the
- * top-level rows are filtered by it in id space.
+ * `resolveVisibleChannelIdSet`, then the top-level rows are filtered by it in id
+ * space.
  */
 export async function listServerChannelsForViewer(
   db: Database,
@@ -754,10 +748,9 @@ async function resolveVisibleChannelIdSet(
 /**
  * The set of channel ids (top-level AND child/thread/forum-post channels) a
  * viewer may see — backs read-path scoping for search / inbox / mark-all-read /
- * mentions. Type-aware per the nested-membership model (see
- * `resolveVisibleChannelIdSet`): threads inherit their parent's visibility;
- * private forum posts are their own access unit; a private forum is visible via
- * membership in any of its posts.
+ * mentions. Unified model (see `resolveVisibleChannelIdSet`): forum posts AND
+ * threads inherit their parent's visibility; a private forum/channel is visible
+ * via the viewer's own member row (or creator).
  */
 export async function listVisibleChannelIds(
   db: Database,
@@ -776,8 +769,9 @@ export async function listVisibleChannelIds(
  * belongs to.
  *
  * A viewer sees public/uncategorized channels plus private units they created
- * or belong to (forum visibility derived from post membership). Admins get NO
- * special visibility — same rule as everyone.
+ * or belong to (a forum's visibility comes from its own member row, like a text
+ * channel; posts/threads inherit their parent). Admins get NO special
+ * visibility — same rule as everyone.
  *
  * Bound-parameter ceiling (accepted risk): a viewer across many large servers
  * can produce a big id set; feeding it whole into a downstream `inArray`

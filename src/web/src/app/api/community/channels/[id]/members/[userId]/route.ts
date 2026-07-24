@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, WS_EVENTS, isForum } from "@alook/shared"
+import { queries, WS_EVENTS } from "@alook/shared"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
 import { logAudit } from "@/lib/community/audit"
 import { requireChannelAccess } from "@/lib/community/permissions"
@@ -37,13 +37,11 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   const removed = await queries.communityChannel.deleteChannelMember(db, channelId, targetUserId)
   if (!removed) return writeError("member not found", 404)
 
-  // A removed FORUM member loses access to every post; drop their leftover
-  // participant (notify) rows across the forum's posts so fan-out stops pushing
-  // new-post messages they can no longer read. (A text channel notifies via its
-  // access audience — no per-post participant rows to clean.)
-  if (isForum(channel.type)) {
-    await queries.communityThread.removeParticipantFromForumPosts(db, channelId, targetUserId)
-  }
+  // A removed member loses access to every child unit (a forum's posts, a
+  // channel's threads); drop their leftover participant (notify) rows across
+  // those children so fan-out stops pushing new post/thread messages they can no
+  // longer read. A later mention/speak (which requires access) re-adds them.
+  await queries.communityThread.removeParticipantFromChildChannels(db, channelId, targetUserId)
 
   const event = {
     type: WS_EVENTS.CHANNEL_MEMBER_REMOVE,

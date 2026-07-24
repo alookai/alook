@@ -145,28 +145,29 @@ export async function removeThreadParticipant(
   return rows[0] ?? null;
 }
 
-// Drop a user's participant rows from EVERY forum_post under a forum. Called
-// when a member is removed from a forum's access roster: their access is gone,
-// so their leftover notify rows on the forum's posts must go too — else fan-out
-// keeps live-pushing new-post messages to someone who can no longer open them.
-// A later mention/speak (which requires access) re-adds them. Returns the count
-// of removed rows.
-export async function removeParticipantFromForumPosts(
+// Drop a user's participant rows from EVERY child channel (forum_post OR thread)
+// under a top-level unit. Called when a member is removed from a forum/channel's
+// access roster: their access is gone, so their leftover notify rows on the
+// unit's posts/threads must go too — else fan-out keeps live-pushing new
+// post/thread messages to someone who can no longer open them. A later
+// mention/speak (which requires access) re-adds them. Returns the count of
+// removed rows.
+export async function removeParticipantFromChildChannels(
   db: Database,
-  forumId: string,
+  parentChannelId: string,
   userId: string
 ): Promise<number> {
-  const posts = await db
+  const children = await db
     .select({ id: communityChannel.id })
     .from(communityChannel)
-    .where(eq(communityChannel.parentChannelId, forumId));
-  const postIds = posts.map((p) => p.id);
-  if (postIds.length === 0) return 0;
+    .where(eq(communityChannel.parentChannelId, parentChannelId));
+  const childIds = children.map((c) => c.id);
+  if (childIds.length === 0) return 0;
   const removed = await db
     .delete(communityThreadParticipant)
     .where(
       and(
-        inArray(communityThreadParticipant.threadChannelId, postIds),
+        inArray(communityThreadParticipant.threadChannelId, childIds),
         eq(communityThreadParticipant.userId, userId)
       )
     )

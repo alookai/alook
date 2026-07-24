@@ -75,8 +75,8 @@ export type ChannelAccess = {
  *   - public/uncategorized → access; canManage only for admins
  *   - private → access iff creator or added member (admins have NO implicit
  *     content access); canManage iff admin (who can see it) or the unit creator
- * Threads inherit their parent anchor's audience (the context query climbs
- * `parentChannelId`); a forum post is its own access unit (roster on the post).
+ * Threads AND forum posts inherit their parent anchor's audience (the context
+ * query climbs `parentChannelId`); a forum/top-level channel owns its roster.
  *
  * Because access now requires membership/creator even for admins, an admin who
  * isn't in a private channel gets a 403 here — so `canManage` for an admin is
@@ -92,9 +92,9 @@ export async function requireChannelAccess(
   if (!ctx) return err(403, "forbidden")
 
   const isAdmin = canManageServer(ctx.role)
-  // `ctx.isCreator` is the roster-anchor creator (a post's OWN creator, else the
-  // channel/thread anchor's) — NOT `ctx.anchor.creatorId`, which for a post is
-  // the forum's creator.
+  // `ctx.isCreator` is the ACCESS creator (the anchor's creator — for a
+  // post/thread that's the forum/parent-channel creator). Post-manage rights
+  // (edit tags / delete) are derived at the route from `channel.creatorId`.
   const isCreator = ctx.isCreator
 
   // Visibility: public → any server member; private → creator or added member
