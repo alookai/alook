@@ -200,9 +200,9 @@ export function AgentProvider({
         setRuntimes(r);
       } while (runtimesDirtyRef.current && ++passes < 3);
     } catch {
-      // Fetch failed; a pending request would otherwise be dropped until the
+      // Fetch failed; the triggering event would otherwise be dropped until the
       // 30s poll. Schedule a short retry so the event isn't lost.
-      if (runtimesDirtyRef.current && !runtimesRetryTimerRef.current) {
+      if (!runtimesRetryTimerRef.current) {
         runtimesRetryTimerRef.current = setTimeout(() => {
           runtimesRetryTimerRef.current = null;
           reloadRuntimesRef.current();
