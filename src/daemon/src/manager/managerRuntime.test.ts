@@ -435,6 +435,46 @@ describe("AgentProcessManager — session race conditions", () => {
     }
   });
 
+  it("internal_progress heartbeats do NOT refresh the stall watchdog — a compacting agent that only emits stream_event pings still gets terminated at the threshold", async () => {
+    vi.useFakeTimers();
+    try {
+      let currentTime = 0;
+      const logger = stubLogger();
+      const { mgr, session } = makeManager({ logger, now: () => currentTime, tickIntervalMs: 5, staleThresholdMs: 100 });
+      mgr.start();
+      mgr.deliver("a1", { seq: 1, text: "hello" });
+      session.startResolver?.();
+      await Promise.resolve();
+      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+
+      // Simulate Claude going into compaction and emitting only heartbeats.
+      // Without the fix these keep bumping lastProgressAt and the stall never
+      // fires; with the fix they're ignored for stall purposes.
+      currentTime = 50;
+      session.fire("runtime_event", { kind: "compaction_started" });
+      currentTime = 80;
+      session.fire("runtime_event", { kind: "internal_progress", source: "claude_system", itemType: "stream_event" });
+      currentTime = 150;
+      session.fire("runtime_event", { kind: "internal_progress", source: "claude_system", itemType: "stream_event" });
+
+      // 200ms since spawn (t=0), 120ms since compaction_started's real
+      // progress event. Threshold is 100ms → watchdog must fire.
+      currentTime = 200;
+      await vi.advanceTimersByTimeAsync(10);
+
+      expect(
+        logger.calls.info.some(
+          ([m, d]) =>
+            m === "agent session ended" &&
+            (d[0] as any).reason === "terminate_stalled" &&
+            (d[0] as any).sessionId === "s1",
+        ),
+      ).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("logs info on session ended with reason=stopped from the idle-hibernation tick", async () => {
     vi.useFakeTimers();
     try {

@@ -441,6 +441,10 @@ function onExit(state: ManagerState, agentId: string): ReduceResult {
   // top-level clear, the failure path would leave `resetting: true` and
   // silently reset-lock the agent for every subsequent wake.
   if (agent.resetting) agent.resetting = false;
+  // Fresh process ⇒ fresh gated-steering horizon. Symmetric with `onTurnEnd`;
+  // prevents a dead process's `compacting` / outstanding-tool-use flags from
+  // silently carrying into the next spawn and re-blocking `onWake`.
+  agent.apm = createInitialApmGatedSteeringState();
 
   // Per-turn: if more messages queued, immediately respawn for the next batch.
   if (agent.inbox.length > 0) {

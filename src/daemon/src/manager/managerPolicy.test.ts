@@ -522,4 +522,24 @@ describe("reduceManager — onExit / onSpawned clear resetting", () => {
     expect(r.state.agents.a.status).toBe("idle");
     expect(r.state.agents.a.resetting).toBe(false);
   });
+
+  it("onExit resets apm — a dead process's `compacting` flag doesn't leak into the respawn", () => {
+    let s = createInitialManagerState();
+    s = register(s, "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 1 }).state;
+    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 2 }).state;
+    // Enter compaction, then queue mid-turn work.
+    s = reduceManager(s, { type: "runtime_signal", agentId: "a", kind: "compaction_started", nowMs: 3 }).state;
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m2" }, nowMs: 4 }).state;
+    expect(s.agents.a.apm.compacting).toBe(true);
+    expect(s.agents.a.apm.phase).toBe("compacting");
+    expect(s.agents.a.inbox.length).toBe(1);
+
+    // Stall-recovery kill → exit. Respawn should start with a fresh apm.
+    const r = reduceManager(s, { type: "exit", agentId: "a" });
+    expect(r.effects[0]).toMatchObject({ type: "spawn", agentId: "a" });
+    expect(r.state.agents.a.apm.compacting).toBe(false);
+    expect(r.state.agents.a.apm.phase).toBe("idle");
+    expect(r.state.agents.a.apm.outstandingToolUses).toBe(0);
+  });
 });

@@ -1075,8 +1075,13 @@ export class AgentProcessManager {
     if (ev.kind === "text" && typeof ev.text === "string" && ev.text.length > 0) {
       this.opts.timeline?.appendResponseToLatest(agentId, ev.text);
     }
-    // Any event is progress for stall detection.
-    this.dispatch({ type: "progress", agentId, nowMs: this.now() });
+    // Progress for stall detection — but content-free heartbeats
+    // (Claude `stream_event` / `status`, Codex raw response items) don't
+    // count. They keep firing during a wedged compaction and would mask
+    // a real stall from `onTick`'s watchdog.
+    if (ev.kind !== "internal_progress") {
+      this.dispatch({ type: "progress", agentId, nowMs: this.now() });
+    }
     // Forward every parsed event's kind for gated-steering phase tracking
     // (tool/compaction/review boundaries). No-ops in the reducer for kinds
     // it doesn't care about, aside from the diagnostics ring buffer.

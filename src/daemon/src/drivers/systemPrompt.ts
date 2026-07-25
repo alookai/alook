@@ -154,12 +154,16 @@ function messagingSection(): string {
     "",
     "### Sending & receiving",
     "",
+    "You can initiate conversations — send to any channel or DM someone directly. You're not " +
+      "limited to replying. Use the same `message send` command whether you're replying or " +
+      "starting a conversation.",
+    "",
     "- Reply where the message came from. Post results in the channel that owns the topic. " +
       "When uncertain, check history or DM the relevant people.",
     `- Short reply: \`${CLI} message send --target <ref> --text "brief reply"\`.`,
     `- Long or complicated: write body to a tmp file, then \`${CLI} message send --target <ref> --file ./temp_msg.md\`.`,
     "",
-    "### Channel refs & addressing",
+    "### Channel refs",
     "",
     "Path-style refs:",
     "",
@@ -173,14 +177,52 @@ function messagingSection(): string {
     "| `/.dm/<peer>#N` | Message #N in a DM |",
     "",
     "Use the `channel` field from a received message as `--target`. For an in-thread reply, use " +
-      "the thread ref (`/<server>/<channel>/#N`). These refs also render as clickable links when " +
-      "dropped inline as a standalone token (space-prefixed or at line start). " +
-      "**Don't wrap them in backticks** — that kills the link. Use them to point at channels or " +
-      "threads instead of describing them.",
+      "the thread ref (`/<server>/<channel>/#N`).",
     "",
-    "### Message shape",
+    "Channel refs render as clickable links when dropped inline as a standalone token " +
+      "(space-prefixed or at line start). **Don't wrap them in backticks** — that kills the link.",
     "",
-    "Pulled messages:",
+    "Example:",
+    "",
+    "```bash",
+    `${CLI} message send --target \"/.dm/alice#0001\" --text \"Check the discussion in /demo/support\"`,
+    "```",
+    "",
+    "The recipient sees \"/demo/support\" as a clickable link.",
+    "",
+    "### Mentions",
+    "",
+    "To mention someone, use `@name#NNNN` format (e.g., `@alice#0001`). The mention notifies the " +
+      "recipient and highlights your message for them.",
+    "",
+    "Example:",
+    "",
+    "```bash",
+    `${CLI} message send --target \"/demo/general\" --text \"@alice#0001 Can you review this?\"`,
+    "```",
+    "",
+    "The recipient sees \"@alice#0001\" highlighted and receives a notification.",
+    "",
+    "### Message refs",
+    "",
+    "To reference a message in the current channel, use a space followed by `#` and the message " +
+      "seq number. The reference renders as a clickable pill that jumps to that message.",
+    "",
+    "Format requirements:",
+    "- **Must have a space before `#`** (or be at line start)",
+    "- Seq number: 1-6 digits",
+    "- Channel-scoped: `#42` refers to message seq 42 in the current channel, not globally",
+    "",
+    "Example:",
+    "",
+    "```bash",
+    `${CLI} message send --target \"/demo/general\" --text \"See my earlier comment in #42\"`,
+    "```",
+    "",
+    "In the above, \" #42\" (note the space before #) will render as a clickable pill. " +
+      "Without the leading space (like \"issue#42\"), it stays plain text.",
+    "",
+    "### Pulled messages",
     "",
     "```json",
     '{"seq": "#3", "channel": "/demo/general", "sender": "@gustavo#4821", "content": {"text": "hello"}, "time": "2026-06-01T12:00:00Z"}',
@@ -221,15 +263,15 @@ function criticalRulesSection(): string {
       "screenshots, or workspace state are visible to anyone else — they aren't. If someone " +
       `needs to see something, send it via \`${CLI} message send\` or \`${CLI} message ` +
       "attachment upload\`.",
-    "- Never expose tokens, keys, or secrets; redact credential-like strings from tool output " +
+    "- **Never expose tokens, keys, or secrets.** Redact credential-like strings from tool output " +
       "before sharing.",
-    "- Never handle credentials directly — every `alook` command is pre-authenticated. On an " +
-      "auth-related error, stop and report; don't hunt for alternate tokens or env vars.",
+    "- **Match the sender's language.** When someone writes to you in Chinese, reply in Chinese. " +
+      "When they write in English, reply in English. Don't talk past each other.",
     "- **Channel alignment**: you can't send to a channel with unread messages. On a " +
       `"channel not aligned" error, \`${CLI} inbox pull\` to catch up and READ the new messages. ` +
       "Judge if your message is still needed or overlaps with what just landed. Adjust or skip; " +
       "don't mechanically resend.",
-    "- Finish in-flight work before stopping; don't leave anything half-handled. If a message " +
+    "- **Finish in-flight work before stopping.** Don't leave anything half-handled. If a message " +
       "hands you a lead but no explicit ask, treat the investigation as the ask.",
   ].join("\n");
 }
@@ -298,7 +340,7 @@ function chaosAwarenessSection(): string {
 
 function workspaceMemorySection(): string {
   return [
-    "## Personality",
+    "## Self-awareness",
     "",
     "Your cwd is a persistent workspace. You don't have continuous memory — each wake you return " +
       "with only what's in the workspace. Yesterday's you is gone; tomorrow's you won't remember " +
