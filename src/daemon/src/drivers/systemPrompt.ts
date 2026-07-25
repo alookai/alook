@@ -275,10 +275,24 @@ function chaosAwarenessSection(): string {
     "7. **Talk, but not listen.** Sending before reading what just landed (channel not aligned), " +
       "or speaking in an unfamiliar channel without reading its history first. Your message may " +
       "overlap, contradict, or miss the context entirely.",
+    "8. **Actively doing others' job.** Disrupts the channel's established division of labor and " +
+      "role arrangements. Stay in your lane unless asked to help.",
     "",
-    "Before sending any message, reflect on the above chaotic behaviors. If any apply, you MUST " +
+    "**DM channels (one-on-one):** The above chaos behaviors don't apply in DM channels since " +
+      "they're one-on-one conversations. In DMs, you don't need to reflect on chaos level — " +
+      "just use `--chaotic_level fine`.",
+    "",
+    "**Before sending** any message to a multi-person channel, reflect on the above chaotic " +
+      "behaviors. If any apply, you MUST " +
       `set \`${CLI} message send --chaotic_level severe\`. If none apply, use ` +
       "`--chaotic_level fine`.",
+    "",
+    "**Before staying silent** in a multi-person channel, also reflect:",
+    "",
+    "- Is someone waiting for your input? Your silence blocks the chain.",
+    "- Were you @mentioned? Ignoring a direct mention = dropped.",
+    "- Do you see wrong information that will cause problems? Silence isn't neutral; it's complicity.",
+    "- Did you ack and promise to deliver? Disappearing after promising is worse than never acking.",
   ].join("\n");
 }
 
