@@ -215,19 +215,29 @@ export async function listServerChannels(db: Database, serverId: string) {
 }
 
 /**
- * `resolveTargetForMember`'s channel-name resolver: matches by ID or NAME
- * within one server, visibility-scoped to `userId`'s membership in that
- * server (same gate as `getChannelForMember`). Returns an ARRAY — like
- * `resolveServerByNameForMember`, ambiguity (2+ name matches) is not an
- * error; the caller returns a hint list (debt #5).
+ * `resolveTargetForMember`'s channel-name resolver: matches by NAME only,
+ * scoped to top-level channels (`parentChannelId IS NULL`) — mirrors the
+ * DB partial-unique index `idx_channel_server_name` from migration 0057.
+ *
+ * Ids are NOT accepted from agent surfaces. Agents address channels via
+ * the canonical ref grammar (`/server/channel`, `/server/channel/#seq`);
+ * ids are a `/c` UI internal. Threads and forum posts must be reached
+ * through their parent + `#seq`, never by direct name or id here.
+ *
+ * The returned array is length 0 or 1: the WHERE clause narrows to a single
+ * `(serverId, name)` slot within the top-level partition, and the partial
+ * unique index `idx_channel_server_name` (migration 0057) guarantees that
+ * slot holds at most one row. The caller returns `channel not found` on
+ * empty and passes the single row through otherwise. Visibility-scoped to
+ * `userId`'s server membership.
  */
 export async function resolveChannelByNameForMember(
   db: Database,
   serverId: string,
   userId: string,
-  nameOrId: string
+  name: string
 ) {
-  const byId = await db
+  const rows = await db
     .select(CHANNEL_COLUMNS)
     .from(communityChannel)
     .innerJoin(
@@ -237,21 +247,14 @@ export async function resolveChannelByNameForMember(
         eq(communityServerMember.userId, userId)
       )
     )
-    .where(and(eq(communityChannel.serverId, serverId), eq(communityChannel.id, nameOrId)));
-  if (byId.length > 0) return byId.map(mapChannelRow);
-
-  const byName = await db
-    .select(CHANNEL_COLUMNS)
-    .from(communityChannel)
-    .innerJoin(
-      communityServerMember,
+    .where(
       and(
-        eq(communityServerMember.serverId, communityChannel.serverId),
-        eq(communityServerMember.userId, userId)
+        eq(communityChannel.serverId, serverId),
+        eq(communityChannel.name, name),
+        isNull(communityChannel.parentChannelId)
       )
-    )
-    .where(and(eq(communityChannel.serverId, serverId), eq(communityChannel.name, nameOrId)));
-  return byName.map(mapChannelRow);
+    );
+  return rows.map(mapChannelRow);
 }
 
 /**

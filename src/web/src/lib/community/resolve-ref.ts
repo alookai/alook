@@ -28,11 +28,16 @@ export interface ResolveTargetOpts {
  * `createCommunityMessage` — see plan §5's "MessageTarget reconstruction"
  * note, this function intentionally does NOT do that itself.
  *
- * Ambiguity (debt #5) is not a hard error: if a server/channel NAME matches
- * more than one candidate, this returns `{ error: 400, hint: [...] }` so the
- * agent can pick. `createDmIfMissing`/`createThreadIfMissing` are both
- * `true` for `send` only — every other route passes `false` so a stale ref
- * never materializes a DM/thread row as a side effect of a read.
+ * Channel names are unique per server for top-level channels (migration
+ * 0057's partial-unique index `idx_channel_server_name`) — the resolver
+ * enforces the same invariant by matching only where `parentChannelId IS
+ * NULL`. Threads and forum posts are unreachable from this helper by name
+ * or id; use the canonical `#seq` grammar to descend into a thread. Server
+ * NAME ambiguity is still possible (server names are non-unique) and still
+ * returns `{ error: 400, hint: [...] }` so the agent can pick.
+ * `createDmIfMissing`/`createThreadIfMissing` are both `true` for `send`
+ * only — every other route passes `false` so a stale ref never materializes
+ * a DM/thread row as a side effect of a read.
  */
 export async function resolveTargetForMember(
   db: Database,
@@ -96,25 +101,22 @@ export async function resolveTargetForMember(
   }
   const serverId = servers[0]!.id
 
-  const channels = await queries.communityChannel.resolveChannelByNameForMember(db, serverId, userId, parsed.channel)
-  if (channels.length === 0) return { error: 404, message: `channel not found: ${parsed.channel}` }
-  if (channels.length > 1) {
-    return {
-      error: 400,
-      message: "ambiguous channel name",
-      hint: channels.map((c) => ({ id: c.id, path: `/${serverId}/${c.id}` })),
-    }
-  }
-  const channel = channels[0]!
+  const matches = await queries.communityChannel.resolveChannelByNameForMember(db, serverId, userId, parsed.channel)
+  if (matches.length === 0) return { error: 404, message: `channel not found: ${parsed.channel}` }
+  const channel = matches[0]!
 
   if (parsed.threadRootSeq === undefined) {
     return { kind: "channel", channelId: channel.id }
   }
 
-  // A thread may only root on a TOP-LEVEL channel — never on a forum post or
-  // another thread (that grandchild would defeat the single-level privacy
-  // anchor climb and leak a private forum's thread server-wide). Reject with a
-  // clean 400 here; `createThreadChannel` also enforces this as a last resort.
+  // Defense in depth: a thread may only root on a TOP-LEVEL channel — never
+  // on a forum post or another thread (that grandchild would defeat the
+  // single-level privacy anchor climb and leak a private forum's thread
+  // server-wide). This branch is provably unreachable via the current name
+  // resolver (`resolveChannelByNameForMember` filters `parent_channel_id IS
+  // NULL`, so `channel.parentChannelId` is always null here); it stays as a
+  // guard against future changes that widen that resolver, and mirrors what
+  // `createThreadChannel` enforces at the DB layer as a last resort.
   if (channel.parentChannelId) {
     return { error: 400, message: "can't start a thread inside a thread or forum post" }
   }

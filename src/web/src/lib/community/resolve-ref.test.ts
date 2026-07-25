@@ -148,25 +148,38 @@ describe("resolveTargetForMember", () => {
       expect(res).toEqual({ error: 404, message: "channel not found: general" })
     })
 
-    it("400 ambiguous channel name returns hint list", async () => {
-      mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1" }])
-      mockResolveChannelByNameForMember.mockResolvedValue([{ id: "ch_1" }, { id: "ch_2" }])
-      const res = await resolveTargetForMember(db, "u_1", "/studio/general")
-      expect(res).toEqual({
-        error: 400,
-        message: "ambiguous channel name",
-        hint: [
-          { id: "ch_1", path: "/srv_1/ch_1" },
-          { id: "ch_2", path: "/srv_1/ch_2" },
-        ],
-      })
-    })
-
     it("resolves a plain channel ref to { kind: channel, channelId }", async () => {
       mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1" }])
       mockResolveChannelByNameForMember.mockResolvedValue([{ id: "ch_1" }])
       const res = await resolveTargetForMember(db, "u_1", "/studio/general")
       expect(res).toEqual({ kind: "channel", channelId: "ch_1" })
+    })
+
+    it("resolves to the top-level channel when a thread under it shares the same name", async () => {
+      // DB partial-unique guarantees the resolver returns at most one row for
+      // a name lookup — the top-level channel. Same-named thread stays
+      // unreachable via the name path.
+      mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1" }])
+      mockResolveChannelByNameForMember.mockResolvedValue([{ id: "ch_top" }])
+      const res = await resolveTargetForMember(db, "u_1", "/studio/general")
+      expect(res).toEqual({ kind: "channel", channelId: "ch_top" })
+      expect(mockResolveChannelByNameForMember).toHaveBeenCalledWith(db, "srv_1", "u_1", "general")
+    })
+
+    it("404 channel not found when caller passes a raw top-level channel id (id refs rejected)", async () => {
+      mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1" }])
+      // Name-only resolver returns [] when the segment is an id — the DB
+      // lookup misses because the row's `name` column doesn't match the id.
+      mockResolveChannelByNameForMember.mockResolvedValue([])
+      const res = await resolveTargetForMember(db, "u_1", "/studio/mFUplbfFL7PIzeiaP3Ysg")
+      expect(res).toEqual({ error: 404, message: "channel not found: mFUplbfFL7PIzeiaP3Ysg" })
+    })
+
+    it("404 channel not found when caller passes a raw thread id (id refs rejected)", async () => {
+      mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1" }])
+      mockResolveChannelByNameForMember.mockResolvedValue([])
+      const res = await resolveTargetForMember(db, "u_1", "/studio/WyHlYFioUV_V9oRZXlSir")
+      expect(res).toEqual({ error: 404, message: "channel not found: WyHlYFioUV_V9oRZXlSir" })
     })
   })
 

@@ -117,6 +117,13 @@ export const DM_SERVER = ".dm";
  * `<server>`/`<channel>` are server/channel display *names*, guaranteed free
  * of whitespace, `/`, and `#` (normalized via `slugify()` at creation/rename
  * time), so each segment is always a single, unambiguous token.
+ *
+ * On agent surfaces, segments are NAMES (or `#seq`) — raw ids are rejected.
+ * The `/c` UI's `resolveChannelRefBase` still accepts ids for pill
+ * navigation, since the wire type is a single string shared by both
+ * surfaces; the split is enforced by the resolver, not the type. To descend
+ * into a thread or forum post, use the canonical `<server>/<channel>/#N`
+ * grammar; the underlying row's id is never a valid ref for agents.
  */
 export type ChannelRef = string;
 

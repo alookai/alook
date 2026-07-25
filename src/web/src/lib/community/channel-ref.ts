@@ -3,9 +3,13 @@ import { parseRef } from "@alook/shared"
 /**
  * Client-side "directory" of every channel-ref-resolvable server + channel —
  * built from already-fetched data (see `use-channel-ref-directory.ts`), not
- * a fresh fetch per ref. Mirrors the shape the backend resolves against
- * (`resolveServerByNameForMember`/`resolveChannelByNameForMember`), scoped to
- * whatever servers/channels the client already has loaded.
+ * a fresh fetch per ref. Scoped to whatever servers/channels the client
+ * already has loaded.
+ *
+ * This file is used by `/c` UI only and MAY accept raw ids (message-ref
+ * pill rendering, in-window navigation both round-trip channel ids). The
+ * agent-facing resolver (`resolveChannelByNameForMember`) does NOT accept
+ * ids — do not use this helper on agent code paths.
  */
 type ChannelRefDirectoryChannel = { id: string; name: string }
 export type ChannelRefDirectoryServer = {
@@ -24,10 +28,11 @@ export type ResolvedChannelRef = {
 
 /**
  * Resolve a raw `/server/channel` (or `/server/channel/#N`) ref string
- * against an already-fetched client-side directory. Mirrors
- * `resolveServerByNameForMember`/`resolveChannelByNameForMember`'s
- * id-then-exact-name lookup precedence, but purely in-memory — no network
- * call, and no ambiguity error.
+ * against an already-fetched client-side directory. UI-only: tries id
+ * first, then exact name — the id fallback exists here because pill links
+ * and in-window navigation store raw channel ids. Purely in-memory (no
+ * network call) and no ambiguity error. The agent-facing resolver is
+ * strictly name-only; this helper must not be used on agent code paths.
  *
  * Ambiguity tie-break (deliberately simpler than the backend): server/channel
  * names aren't unique in the schema, and the backend surfaces 2+ name matches
@@ -74,9 +79,9 @@ export function resolveChannelRefBase(
 /**
  * Resolve a bare `/server` ref (one segment, no channel — `parseRef` throws
  * on this shape since it requires `/<server>/<channel>`) against the
- * already-fetched directory. Id-then-exact-name lookup, same precedence and
- * duplicate-name simplification as `resolveChannelRefBase` — see that
- * function's doc comment.
+ * already-fetched directory. UI-only: id-then-exact-name lookup with the
+ * same duplicate-name simplification as `resolveChannelRefBase` — see that
+ * function's doc comment. Not for agent code paths.
  */
 export function resolveServerRefBase(
   directory: ChannelRefDirectory,
