@@ -17,6 +17,7 @@ docs/
 .alook/
 .dev.vars
 plans/
+perf-artifacts/
 .agents/
 .context_timeline/
 .claude/

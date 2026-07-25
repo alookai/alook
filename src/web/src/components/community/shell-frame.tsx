@@ -6,6 +6,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
+import { markSwitch } from "@/lib/perf/switch-mark"
 import { userProfileQueryFn, PROFILE_STALE_TIME_MS } from "@/hooks/community/use-user-profile"
 import { useDefaultLayout } from "react-resizable-panels"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
@@ -164,7 +165,7 @@ export function ShellFrame({
   )
 
   const onRailServerNavigate = useCallback(
-    (id: string) => { router.push(`/c/channels/${id}`) },
+    (id: string) => { markSwitch("server", id); router.push(`/c/channels/${id}`) },
     [router],
   )
   const onRailCreateServer = useCallback(

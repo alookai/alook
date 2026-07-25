@@ -11,6 +11,7 @@ import {
 } from "@/contexts/community/current-user"
 import { useCommunityWs } from "@/hooks/community/use-community-ws"
 import { useCommunityWsStore } from "@/stores/community/ws"
+import { PerfTraceBootstrap } from "@/components/perf/perf-trace-bootstrap"
 
 /**
  * Client wrapper that provides the QueryClient, CurrentUser, and the
@@ -83,5 +84,10 @@ function CommunityBootstrap({ children }: { children: ReactNode }) {
       .catch(() => { })
   }, [setCurrentUser, currentUserId])
 
-  return <>{children}</>
+  return (
+    <>
+      <PerfTraceBootstrap />
+      {children}
+    </>
+  )
 }

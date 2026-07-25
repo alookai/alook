@@ -18,6 +18,8 @@
     "test:e2e-ui": "playwright test",
     "test:e2e-ui:headed": "playwright test --headed",
     "knip": "knip",
+    "seed:stress": "tsx scripts/seed-stress.ts",
+    "perf:switch": "playwright test --config playwright.perf.config.ts; tsx scripts/perf-report.ts",
     "typecheck": "tsc --noEmit",
     "seo:check": "lhci autorun --config=lighthouserc.json && node scripts/print-lighthouse-scores.mjs"
   },
@@ -120,6 +122,7 @@
     "eslint-plugin-tailwind-canonical-classes": "^1.4.1",
     "fake-indexeddb": "^6.2.5",
     "knip": "^6.29.0",
+    "react-scan": "0.5.7",
     "react-test-renderer": "19.2.8",
     "remark-parse": "^11.0.0",
     "tailwindcss": "^4",

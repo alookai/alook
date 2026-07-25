@@ -6,6 +6,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { apiFetch, toastApiError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
+import { markSwitch } from "@/lib/perf/switch-mark"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { useChannelTree } from "@/components/community/use-channel-tree"
@@ -267,6 +268,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     // unrelated sibling-channel WS patch would resurrect the just-cleared dot
     // before the user even navigates away — `useChannelTree`'s metadata merge
     // trusts the cache unconditionally, so both directions must write to it.
+    markSwitch("channel", id)
     router.push(`/c/channels/${serverId}/${id}`)
     channelTree.markRead(id)
     queryClient.setQueryData<ServerDetail | undefined>(
