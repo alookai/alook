@@ -10,13 +10,11 @@ import {
   buildPaginatedResponse,
   buildAnchorResponse,
   buildSinceResponse,
-  groupAttachments,
-  groupReactions,
 } from "@/lib/community/messages"
+import { enrichMessages } from "@/lib/community/enrich-messages"
 import { requireDMParticipant } from "@/lib/community/permissions"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { createCommunityMessage } from "@/lib/community/message-handler"
-import { mapMessageForApi } from "@/lib/community/message-payload"
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const dmId = ctx.params?.id
@@ -48,7 +46,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       { hasMoreOlder: around.hasMoreOlder, hasMoreNewer: around.hasMoreNewer },
     )
 
-    const { messages, latestSeq } = await enrichAndFinalize(db, ctx.userId, dmId, items)
+    const { messages, latestSeq } = await enrichMessages(db, ctx.userId, { dmConversationId: dmId }, items)
     return writeJSON({ messages, hasMoreOlder, hasMoreNewer, olderCursor, newerCursor, latestSeq })
   }
 
@@ -59,7 +57,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       limit: pageSize,
     })
     const { items, hasMoreNewer, newerCursor } = buildSinceResponse(rows, pageSize)
-    const { messages, latestSeq } = await enrichAndFinalize(db, ctx.userId, dmId, items)
+    const { messages, latestSeq } = await enrichMessages(db, ctx.userId, { dmConversationId: dmId }, items)
     return writeJSON({ messages, hasMoreNewer, newerCursor, latestSeq })
   }
 
@@ -70,44 +68,9 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   })
 
   const { items, hasMore, cursor: nextCursor } = buildPaginatedResponse(rows, pageSize)
-  const { messages, latestSeq } = await enrichAndFinalize(db, ctx.userId, dmId, items.slice().reverse())
+  const { messages, latestSeq } = await enrichMessages(db, ctx.userId, { dmConversationId: dmId }, items.slice().reverse())
   return writeJSON({ messages, hasMore, cursor: nextCursor, latestSeq })
 })
-
-// DM sibling of the channel route's helper — no thread-indicator enrichment
-// (DMs can't parent threads), everything else is symmetric.
-async function enrichAndFinalize(
-  db: ReturnType<typeof getDb>,
-  userId: string,
-  dmId: string,
-  items: Array<{ id: string; replyToId: string | null } & Record<string, unknown>>,
-): Promise<{ messages: unknown[]; latestSeq: number }> {
-  const messageIds = items.map((m) => m.id)
-  const replyToIds = items.map((r) => r.replyToId).filter(Boolean) as string[]
-
-  const [allAttachments, allReactions, replyMessages, latestSeq] = await Promise.all([
-    messageIds.length > 0
-      ? queries.communityAttachment.listByMessageIds(db, messageIds)
-      : Promise.resolve([]),
-    messageIds.length > 0
-      ? queries.communityReaction.listReactionsByMessageIds(db, messageIds, userId)
-      : Promise.resolve([]),
-    replyToIds.length > 0
-      ? queries.communityMessage.getMessagesByIdsInScope(db, replyToIds, { dmConversationId: dmId })
-      : Promise.resolve([]),
-    queries.communityMessage.getLatestMessageSeq(db, { dmConversationId: dmId }),
-  ])
-
-  const attachmentsByMessage = groupAttachments(allAttachments)
-  const reactionsByMessage = groupReactions(allReactions, userId)
-
-  const replyMap = new Map(replyMessages.map((m) => [m.id, m]))
-
-  const messages = items.map((r) =>
-    mapMessageForApi(r as never, { replyMap, attachmentsByMessage, reactionsByMessage }),
-  )
-  return { messages, latestSeq }
-}
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const dmId = ctx.params?.id

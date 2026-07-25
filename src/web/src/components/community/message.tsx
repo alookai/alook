@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { memo, useState } from "react"
 import type React from "react"
 import {
   MessagesSquare, UserPlus, SmilePlus, Reply,
@@ -31,7 +31,7 @@ export function attachmentAspectRatio(width: number | undefined, height: number 
   return width && height ? `${width}/${height}` : ATTACHMENT_FALLBACK_ASPECT_RATIO
 }
 
-export function Message({
+function MessageImpl({
   m, compact, pinned, onOpenThread, onOpenProfile, onJumpReply,
   onToggleReaction, onReact, onReply, onPin, onCreateThread, onCopy, onRetry,
   onPreviewImage, onDownloadFile, highlighted, resolveUserName, onImageLoad,
@@ -61,6 +61,13 @@ export function Message({
 }) {
   // keep the hover toolbar pinned open while its ⋯ dropdown is open
   const [toolbarOpen, setToolbarOpen] = useState(false)
+  // Lazy-mount the row's Base UI overlay roots (ContextMenu / DropdownMenu /
+  // EmojiPicker Popover / reaction Tooltips). Eagerly mounting them per visible
+  // row was the bulk of the switch re-render storm (FloatingTree/MenuRoot ×1000s
+  // — see plans/community-switch-perf-optimization.md). Activate on the first
+  // hover OR focus OR keydown/contextmenu — focus/keydown are required for a11y
+  // (keyboard context menu / Tab-to-row have no pointerenter).
+  const [activated, setActivated] = useState(false)
 
   if (m.type === "system") {
     const Icon = m.systemKind === "thread" ? MessagesSquare : UserPlus
@@ -81,6 +88,7 @@ export function Message({
   }
   const showMenu = hasMessageMenu(menuHandlers)
   const interactive = !compact && showMenu
+  const activate = interactive && !activated ? () => setActivated(true) : undefined
   const row = (
     <div
       className={[
@@ -88,9 +96,12 @@ export function Message({
         m.grouped ? "py-0" : "mt-3 pt-1.5 pb-0",
         highlighted ? "bg-primary/10" : "hover:bg-accent/40",
       ].join(" ")}
+      onPointerEnter={activate}
+      onFocusCapture={activate}
+      onKeyDownCapture={activate}
     >
       <div className="min-w-0 flex-1">
-      {interactive && (
+      {interactive && activated && (
         <div className={`absolute right-2 z-20 flex items-center gap-1 rounded-lg border border-border/60 bg-card px-2 py-1 shadow-(--e1) transition-opacity duration-150 ${m.grouped ? "-top-2" : "-top-3"} ${toolbarOpen ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"}`}>
           {onReact && (
             <EmojiPickerPopover side="bottom" align="end" onPick={(e) => onReact(e)} onOpenChange={setToolbarOpen}>
@@ -270,7 +281,10 @@ export function Message({
                     <NumberTicker value={r.count} className="text-xs text-muted-foreground" />
                   </button>
                 )
-                if (!names) return <div key={i}>{chip}</div>
+                // Until the row is activated, render the bare chip (still fully
+                // clickable) without its Base UI Tooltip root — the name tooltip
+                // only matters on hover, and hover activates the row.
+                if (!names || !activated) return <div key={i}>{chip}</div>
                 return (
                   <Tooltip key={i}>
                     <TooltipTrigger render={chip} />
@@ -278,14 +292,20 @@ export function Message({
                   </Tooltip>
                 )
               })}
-              <Tooltip>
-                <EmojiPickerPopover side="top" align="start" onPick={(e) => onReact?.(e)}>
-                  <TooltipTrigger render={<button className="grid h-6 w-7 place-items-center rounded-md bg-secondary text-muted-foreground hover:text-foreground" aria-label="Add reaction" />}>
-                    <SmilePlus className="size-4" />
-                  </TooltipTrigger>
-                </EmojiPickerPopover>
-                <TooltipContent>Add reaction</TooltipContent>
-              </Tooltip>
+              {activated ? (
+                <Tooltip>
+                  <EmojiPickerPopover side="top" align="start" onPick={(e) => onReact?.(e)}>
+                    <TooltipTrigger render={<button className="grid h-6 w-7 place-items-center rounded-md bg-secondary text-muted-foreground hover:text-foreground" aria-label="Add reaction" />}>
+                      <SmilePlus className="size-4" />
+                    </TooltipTrigger>
+                  </EmojiPickerPopover>
+                  <TooltipContent>Add reaction</TooltipContent>
+                </Tooltip>
+              ) : (
+                <button className="grid h-6 w-7 place-items-center rounded-md bg-secondary text-muted-foreground hover:text-foreground" aria-label="Add reaction">
+                  <SmilePlus className="size-4" />
+                </button>
+              )}
             </div>
           )}
 
@@ -319,7 +339,12 @@ export function Message({
     </div>
   )
 
-  if (!interactive) return row
+  // Not interactive, or not yet activated → render the bare row (which carries
+  // the pointerenter/focus/keydown activation handlers). The row's Base UI
+  // ContextMenu root is only mounted once hover/focus has activated it — and a
+  // right-click is always preceded by a pointerenter (mouse arriving on the
+  // row), and Shift+F10 by focus, so the menu is mounted before it's invoked.
+  if (!interactive || !activated) return row
   return (
     <ContextMenu>
       <ContextMenuTrigger className="select-text" render={row} />
@@ -329,3 +354,59 @@ export function Message({
     </ContextMenu>
   )
 }
+
+type MessageProps = Parameters<typeof MessageImpl>[0]
+
+// Custom comparator — REQUIRED, not optional. `flattenMessageItems`
+// (message-list-items.ts) spreads a fresh `{ ...m, grouped }` object for every
+// message on every render, so a default shallow memo would compare `m` by
+// reference, always see "new", and never bail out (a no-op). We instead compare
+// the fields that legitimately change and REQUIRE the callbacks + resolveUserName
+// to be reference-stable (see message-list callback stabilization). An id-only
+// comparator would silently drop edits / reaction / thread-count updates — so
+// every user-visible field is enumerated here.
+function messagePropsEqual(prev: MessageProps, next: MessageProps): boolean {
+  if (prev.m !== next.m) {
+    const a = prev.m
+    const b = next.m
+    if (
+      a.id !== b.id ||
+      a.type !== b.type ||
+      a.content !== b.content ||
+      a.grouped !== b.grouped ||
+      a.failed !== b.failed ||
+      a.authorName !== b.authorName ||
+      a.authorAvatar !== b.authorAvatar ||
+      a.color !== b.color ||
+      a.createdAt !== b.createdAt ||
+      a.reactions !== b.reactions ||
+      a.attachments !== b.attachments ||
+      a.embeds !== b.embeds ||
+      a.replyTo !== b.replyTo ||
+      a.thread !== b.thread
+    ) {
+      return false
+    }
+  }
+  return (
+    prev.compact === next.compact &&
+    prev.pinned === next.pinned &&
+    prev.highlighted === next.highlighted &&
+    prev.onOpenThread === next.onOpenThread &&
+    prev.onOpenProfile === next.onOpenProfile &&
+    prev.onJumpReply === next.onJumpReply &&
+    prev.onToggleReaction === next.onToggleReaction &&
+    prev.onReact === next.onReact &&
+    prev.onReply === next.onReply &&
+    prev.onPin === next.onPin &&
+    prev.onCreateThread === next.onCreateThread &&
+    prev.onCopy === next.onCopy &&
+    prev.onRetry === next.onRetry &&
+    prev.onPreviewImage === next.onPreviewImage &&
+    prev.onDownloadFile === next.onDownloadFile &&
+    prev.resolveUserName === next.resolveUserName &&
+    prev.onImageLoad === next.onImageLoad
+  )
+}
+
+export const Message = memo(MessageImpl, messagePropsEqual)

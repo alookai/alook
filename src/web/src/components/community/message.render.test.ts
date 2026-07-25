@@ -1,0 +1,138 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import React from "react"
+import TestRenderer, { act } from "react-test-renderer"
+import { Message } from "./message"
+import type { RenderMsg } from "./_types"
+
+// WS3 render-behavior tests (see plans/community-switch-perf-optimization.md):
+// - the custom memo comparator bails out despite the per-render `m` clone,
+// - but does NOT drop legit content/reaction/thread updates,
+// - and overlay roots are lazily mounted (bare row until activated).
+//
+// Uses react-test-renderer under the repo's node env (no jsdom / @testing-
+// library), matching message-list.mount-identity.test.ts.
+
+function baseMsg(over: Partial<RenderMsg> = {}): RenderMsg {
+  return {
+    id: "m1",
+    type: "chat",
+    authorId: "u1",
+    authorName: "Alice",
+    content: "hello",
+    createdAt: new Date(0).toISOString(),
+    grouped: false,
+    ...over,
+  }
+}
+
+const genericMock = {
+  willUpdate: () => {}, didUpdate: () => {},
+  addEventListener: () => {}, removeEventListener: () => {},
+  getBoundingClientRect: () => ({ top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 }),
+}
+
+let renderCount = 0
+// A probe that counts how many times the body content actually renders by
+// wrapping the memoized Message; we detect bail-out by rendering Message with a
+// spy callback that increments on each real render via a child sentinel.
+function makeTree(props: Parameters<typeof Message>[0]) {
+  return React.createElement(Message, props)
+}
+
+beforeEach(() => {
+  renderCount = 0
+  const g = globalThis as unknown as { ResizeObserver: unknown; IntersectionObserver: unknown }
+  g.ResizeObserver = class { observe() {} disconnect() {} unobserve() {} }
+  g.IntersectionObserver = class { observe() {} disconnect() {} unobserve() {} }
+})
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
+describe("Message memo comparator", () => {
+  it("bails out when compared fields are unchanged despite a fresh `m` clone", () => {
+    const onOpenThread = vi.fn()
+    const stableProps = { onOpenThread }
+    // Spy on the resolver: it's called during render, so call count tracks renders.
+    const resolveUserName = vi.fn((id: string) => id)
+
+    let renderer: TestRenderer.ReactTestRenderer
+    const m1 = baseMsg({ reactions: [{ emoji: "👍", count: 1, me: false, userIds: ["u2"] }] })
+    act(() => {
+      renderer = TestRenderer.create(
+        makeTree({ m: m1, resolveUserName, ...stableProps }),
+        { createNodeMock: () => genericMock },
+      )
+    })
+    const callsAfterFirst = resolveUserName.mock.calls.length
+
+    // Re-render with a NEW clone that is field-equal (the message-list-items
+    // clone pattern: { ...m }). Comparator must bail → resolver not called again.
+    act(() => {
+      renderer!.update(makeTree({ m: { ...m1 }, resolveUserName, ...stableProps }))
+    })
+    expect(resolveUserName.mock.calls.length).toBe(callsAfterFirst)
+  })
+
+  it("re-renders when content changes (edit)", () => {
+    const onOpenThread = vi.fn()
+    const resolveUserName = vi.fn((id: string) => id)
+    let renderer: TestRenderer.ReactTestRenderer
+    const m1 = baseMsg({ reactions: [{ emoji: "👍", count: 1, me: false, userIds: ["u2"] }] })
+    act(() => {
+      renderer = TestRenderer.create(
+        makeTree({ m: m1, resolveUserName, onOpenThread }),
+        { createNodeMock: () => genericMock },
+      )
+    })
+    const before = resolveUserName.mock.calls.length
+    act(() => {
+      renderer!.update(makeTree({ m: { ...m1, content: "edited" }, resolveUserName, onOpenThread }))
+    })
+    expect(resolveUserName.mock.calls.length).toBeGreaterThan(before)
+  })
+
+  it("re-renders when reactions change", () => {
+    const onOpenThread = vi.fn()
+    const resolveUserName = vi.fn((id: string) => id)
+    let renderer: TestRenderer.ReactTestRenderer
+    const m1 = baseMsg({ reactions: [{ emoji: "👍", count: 1, me: false, userIds: ["u2"] }] })
+    act(() => {
+      renderer = TestRenderer.create(
+        makeTree({ m: m1, resolveUserName, onOpenThread }),
+        { createNodeMock: () => genericMock },
+      )
+    })
+    const before = resolveUserName.mock.calls.length
+    act(() => {
+      renderer!.update(makeTree({
+        m: { ...m1, reactions: [{ emoji: "👍", count: 2, me: true, userIds: ["u2", "u3"] }] },
+        resolveUserName, onOpenThread,
+      }))
+    })
+    expect(resolveUserName.mock.calls.length).toBeGreaterThan(before)
+  })
+})
+
+describe("Message lazy overlays", () => {
+  it("does not mount the ContextMenu root until the row is activated", () => {
+    const onOpenThread = vi.fn()
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        // interactive requires a menu handler present + not compact
+        makeTree({ m: baseMsg(), onOpenThread, onReply: () => {}, onReact: () => {} }),
+        { createNodeMock: () => genericMock },
+      )
+    })
+    // Before activation: the row renders but the ContextMenu content
+    // (MessageContextItems) is not in the tree. We assert no element carries the
+    // context-menu content marker by checking the rendered JSON has no
+    // "ContextMenu"-typed node. A cheap structural proxy: the "Add reaction"
+    // toolbar (only mounted when activated) is absent.
+    const json = renderer!.toJSON()
+    const tree = JSON.stringify(json)
+    // The reaction-add testid only renders inside the activated toolbar.
+    expect(tree).not.toContain("reaction-add")
+  })
+})
