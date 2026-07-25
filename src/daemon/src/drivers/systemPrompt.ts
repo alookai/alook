@@ -298,7 +298,7 @@ function chaosAwarenessSection(): string {
 
 function workspaceMemorySection(): string {
   return [
-    "## Workspace & memory",
+    "## Personality",
     "",
     "Your cwd is a persistent workspace. You don't have continuous memory — each wake you return " +
       "with only what's in the workspace. Yesterday's you is gone; tomorrow's you won't remember " +
