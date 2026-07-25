@@ -203,6 +203,28 @@ export async function deleteRuntimesByDaemonId(
     );
 }
 
+export async function updateRuntimeCliVersionByDaemon(
+  db: Database,
+  daemonId: string,
+  workspaceId: string,
+  cliVersion: string
+) {
+  if (!cliVersion) return;
+  const metaJson = JSON.stringify({ cli_version: cliVersion });
+  await db
+    .update(agentRuntime)
+    .set({
+      metadata: sql`json_patch(coalesce(${agentRuntime.metadata}, '{}'), ${metaJson})`,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(
+      and(
+        eq(agentRuntime.daemonId, daemonId),
+        eq(agentRuntime.workspaceId, workspaceId)
+      )
+    );
+}
+
 export async function getRuntimeIdsByDaemon(
   db: Database,
   daemonId: string,

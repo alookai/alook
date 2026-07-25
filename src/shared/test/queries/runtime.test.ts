@@ -32,6 +32,37 @@ describe("runtime query module exports", () => {
   });
 });
 
+describe("updateRuntimeCliVersionByDaemon", () => {
+  function createUpdateMockDb() {
+    const chain: any = {};
+    chain.update = vi.fn(() => chain);
+    chain.set = vi.fn(() => chain);
+    chain.where = vi.fn(() => Promise.resolve(undefined));
+    return chain;
+  }
+
+  it("exports updateRuntimeCliVersionByDaemon", () => {
+    expect(typeof runtimeQueries.updateRuntimeCliVersionByDaemon).toBe("function");
+  });
+
+  it("no-ops without touching DB when cliVersion is empty", async () => {
+    const mockDb = createUpdateMockDb();
+    await runtimeQueries.updateRuntimeCliVersionByDaemon(mockDb, "d1", "ws1", "");
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("issues a scoped update patching cli_version into metadata", async () => {
+    const mockDb = createUpdateMockDb();
+    await runtimeQueries.updateRuntimeCliVersionByDaemon(mockDb, "d1", "ws1", "1.2.3");
+    expect(mockDb.update).toHaveBeenCalledOnce();
+    expect(mockDb.set).toHaveBeenCalledOnce();
+    expect(mockDb.where).toHaveBeenCalledOnce();
+    const setArg = mockDb.set.mock.calls[0][0];
+    expect(setArg).toHaveProperty("metadata");
+    expect(setArg).toHaveProperty("updatedAt");
+  });
+});
+
 describe("getAgentRuntimesForWorkspace", () => {
   it("returns empty array for empty ids without querying DB", async () => {
     const result = await runtimeQueries.getAgentRuntimesForWorkspace(null as any, [], "ws1");

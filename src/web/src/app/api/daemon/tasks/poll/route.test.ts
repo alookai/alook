@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
 const mockGetRuntimeIdsByDaemon = vi.fn();
+const mockUpdateRuntimeCliVersionByDaemon = vi.fn();
 const mockUpsertMachine = vi.fn();
 const mockGetMachineByDaemon = vi.fn();
 const mockClearPendingUpdateVersion = vi.fn();
@@ -42,6 +43,7 @@ vi.mock("@alook/shared", async () => {
     queries: {
       runtime: {
         getRuntimeIdsByDaemon: (...args: unknown[]) => mockGetRuntimeIdsByDaemon(...args),
+        updateRuntimeCliVersionByDaemon: (...args: unknown[]) => mockUpdateRuntimeCliVersionByDaemon(...args),
       },
       machine: {
         upsertMachine: (...args: unknown[]) => mockUpsertMachine(...args),
@@ -319,6 +321,7 @@ describe("POST /api/daemon/tasks/poll", () => {
     mockClaimTasksForRuntimes.mockResolvedValue([]);
     mockGetMachineByDaemon.mockResolvedValue({ pendingUpdateVersion: "1.0.0" });
     mockClearPendingUpdateVersion.mockResolvedValue(undefined);
+    mockUpdateRuntimeCliVersionByDaemon.mockResolvedValue(undefined);
 
     const res = await POST(postReq({ daemon_id: "d1", cli_version: "1.0.0" }));
     const body = await res.json();
@@ -326,6 +329,7 @@ describe("POST /api/daemon/tasks/poll", () => {
     expect(res.status).toBe(200);
     expect(body.pending_update).toBeUndefined();
     expect(mockClearPendingUpdateVersion).toHaveBeenCalledWith({}, "d1", "w1");
+    expect(mockUpdateRuntimeCliVersionByDaemon).toHaveBeenCalledWith({}, "d1", "w1", "1.0.0");
     expect(mockBroadcastToUser).toHaveBeenCalledWith("u1", {
       type: "runtime.status",
       daemonId: "d1",

@@ -69,6 +69,14 @@ describe("CLI auto-update e2e", () => {
     expect(res.status).toBe(200);
     const data = (await res.json()) as { tasks: unknown[]; pending_update?: { version: string } };
     expect(data.pending_update).toEqual({ version: "1.0.0" });
+
+    // Version not satisfied → metadata cli_version must NOT be bumped
+    const metaRows = sqlQuery<{ cli_version: string | null }>(
+      `SELECT json_extract(metadata, '$.cli_version') AS cli_version FROM agent_runtime WHERE daemon_id = ? AND workspace_id = ?`, daemonId, seed.workspaceId
+    );
+    for (const r of metaRows) {
+      expect(r.cli_version).toBe("0.0.1");
+    }
   });
 
   it("poll auto-clears pendingUpdateVersion when cli_version matches", async () => {
@@ -93,6 +101,15 @@ describe("CLI auto-update e2e", () => {
       `SELECT pending_update_version FROM machine WHERE daemon_id = ? AND workspace_id = ?`, daemonId2, seed.workspaceId
     );
     expect(rows[0]?.pending_update_version).toBeNull();
+
+    // Runtime metadata cli_version is written back so the version gate clears
+    const metaRows = sqlQuery<{ cli_version: string | null }>(
+      `SELECT json_extract(metadata, '$.cli_version') AS cli_version FROM agent_runtime WHERE daemon_id = ? AND workspace_id = ?`, daemonId2, seed.workspaceId
+    );
+    expect(metaRows.length).toBeGreaterThan(0);
+    for (const r of metaRows) {
+      expect(r.cli_version).toBe("1.0.0");
+    }
   });
 
   afterAll(() => {
