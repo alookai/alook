@@ -1,4 +1,4 @@
-import { useMemo } from "react"
+import { memo, useMemo } from "react"
 import { Streamdown } from "streamdown"
 import rehypeSanitize, { defaultSchema, type Options as SanitizeSchema } from "rehype-sanitize"
 import { harden } from "rehype-harden"
@@ -83,7 +83,7 @@ const REHYPE_PLUGINS: PluggableList = [
 // URL stays as a plain auto-linked <a> in the message body, and a rich join
 // card renders BELOW it. Both surfaces coexist so users can still copy/share
 // the raw link even when the card is present.
-export function MessageBody({ text, onOpenProfile }: { text: string; onOpenProfile?: OpenProfile }) {
+function MessageBodyImpl({ text, onOpenProfile }: { text: string; onOpenProfile?: OpenProfile }) {
   const inviteTokens = useMemo(() => extractInviteTokens(text), [text])
   const components = useMemo(() => buildMdComponents(onOpenProfile), [onOpenProfile])
   return (
@@ -125,3 +125,10 @@ export function MessageBody({ text, onOpenProfile }: { text: string; onOpenProfi
     </div>
   )
 }
+
+// Memoized: the message body is pure in (text, onOpenProfile). Once the row's
+// `onOpenProfile` is reference-stable (see message-list callback stabilization),
+// re-rendering the parent Message no longer re-runs Streamdown's markdown parse
+// + its per-Block subtree — the largest single cost in the switch re-render
+// storm (Streamdown/Block were top react-scan offenders).
+export const MessageBody = memo(MessageBodyImpl)

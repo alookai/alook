@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { apiFetch, toastApiError } from "@/lib/api/client"
@@ -35,6 +35,7 @@ import { useChannelMembers, useAddableMembers, useAddChannelMember, useRemoveCha
 import { useThreadParticipants, useAddThreadParticipant, useRemoveThreadParticipant } from "@/hooks/community/use-thread-participants"
 import { useMessages } from "@/hooks/community/use-messages"
 import { useChannelReadStateSnapshot } from "@/hooks/community/use-channel-read-state"
+import { useChannelBootstrap } from "@/hooks/community/use-channel-bootstrap"
 import { useChannelWatermark } from "@/hooks/community/use-channel-watermark"
 import { useEagerChannelRead } from "@/hooks/community/use-eager-channel-read"
 import {
@@ -289,22 +290,33 @@ function ChannelView() {
       serverName: currentServer?.name ?? "",
     }))
   }, [currentServer, serverId])
+  // A jump-open (?msg=) must anchor on the jump target, not the read pointer,
+  // so it keeps the legacy read-state → ?anchor=jump path. Otherwise use the
+  // combined bootstrap: ONE request resolves the read pointer AND seeds the
+  // initial message window, collapsing the old serial read-state → messages
+  // chain (see plans/community-switch-perf-optimization.md WS2).
+  const useBootstrap = !jumpTargetId
+  const bootstrap = useChannelBootstrap(channelId, { enabled: useBootstrap })
+  const legacySnapshot = useChannelReadStateSnapshot(useBootstrap ? null : channelId)
+
   // Frozen-once snapshot of the viewer's read pointer for this channel — the
   // anchor for the "New" divider AND the mount-time initial scroll target.
   // The value NEVER changes during the mount even as the watermark advances.
-  const { snapshot: readSnapshot, isFetching: readSnapshotFetching } =
-    useChannelReadStateSnapshot(channelId)
+  const readSnapshot = useBootstrap ? bootstrap.readState : legacySnapshot.snapshot
+  const readSnapshotFetching = useBootstrap ? bootstrap.isFetching : legacySnapshot.isFetching
 
   // Anchor the initial page on the read pointer so an unread-heavy channel
   // opens with a centered window instead of the newest 50. Pass `undefined`
-  // while the snapshot is still resolving — the hook stays disabled until
+  // while the pointer is still resolving — the hook stays disabled until
   // the value settles (a bare `null` would fall back to newest-mode too
-  // early).
+  // early). On the bootstrap path the initial page is pre-seeded, so trust it
+  // and don't refetch page 0 on mount.
   const messagesQuery = useMessages(channelId, {
     lastReadMessageId: readSnapshotFetching
       ? undefined
       : (readSnapshot?.lastReadMessageId ?? null),
     anchorMessageId: jumpTargetId,
+    trustSeededInitialPage: useBootstrap && bootstrap.isReady,
   })
   const {
     messages,
@@ -562,16 +574,18 @@ function ChannelView() {
   const togglePanel = (k: Exclude<RightPanel, null>) =>
     setRightPanel((p) => (p === k ? null : k))
 
-  const enterThread = (id: string) => {
+  const enterThread = useCallback((id: string) => {
     // No eager read PUT here — the thread page's `useEagerChannelRead` fires it
     // on mount AFTER its read-state snapshot latches, so the "New" divider
     // still anchors to the pre-open pointer. A PUT here would race the snapshot.
     router.push(`/c/channels/${params.serverId}/${id}`)
-  }
+  }, [router, params.serverId])
 
-  const openProfile: OpenProfile = (name, e, discriminator, userId) => {
-    uiHandlers.openProfile?.(name, e, discriminator, userId)
-  }
+  // Stable so it doesn't bust the memoized message rows; reads uiHandlers
+  // lazily through the actions ref (assigned just below).
+  const openProfile = useCallback<OpenProfile>((name, e, discriminator, userId) => {
+    actionsCtxRef.current.uiHandlers.openProfile?.(name, e, discriminator, userId)
+  }, [])
 
   // ── Message actions ─────────────────────────────────────────────────────
   //
@@ -604,17 +618,34 @@ function ChannelView() {
     [sendMessageMut, channelId, currentUser.id, currentUser.name, currentUser.avatar],
   )
 
-  const messageActions = {
+  // Latest-ref for the values the message actions read at call time. Keeping
+  // these off the callback deps lets `messageActions` stay reference-STABLE
+  // across renders (a new `messages` array on every WS tick would otherwise
+  // rebuild every handler and defeat the memoized message rows). The handlers
+  // only ever read these lazily on click, so a ref is exactly right.
+  const actionsCtxRef = useRef<{
+    messages: Msg[]
+    pinnedIds: Set<string>
+    channelName: string
+    uiHandlers: typeof uiHandlers
+  }>({ messages, pinnedIds, channelName, uiHandlers })
+  // Latest-ref write during render is intentional here: the ref only feeds
+  // click-time reads inside the stable `messageActions` callbacks, never
+  // render output, so it can't cause a missed update.
+  /* eslint-disable-next-line react-hooks/immutability -- latest-ref for lazy click reads */
+  actionsCtxRef.current = { messages, pinnedIds, channelName, uiHandlers }
+
+  const messageActions = useMemo(() => ({
     onToggleReaction: (id: string, emoji: string) =>
       toggleReactionApi({ channelId, messageId: id, emoji, userId: currentUser.id }),
     onReact: (id: string, emoji: string) =>
       toggleReactionApi({ channelId, messageId: id, emoji, userId: currentUser.id }),
     onReply: (id: string) => {
-      const m = messages.find((x) => x.id === id)
+      const m = actionsCtxRef.current.messages.find((x) => x.id === id)
       if (m) setReplyTo({ id: m.id, authorName: m.authorName ?? "", text: m.content ?? "" })
     },
     onPin: (id: string) => {
-      const isPinned = pinnedIds.has(id)
+      const isPinned = actionsCtxRef.current.pinnedIds.has(id)
       if (isPinned) {
         unpinMessageMut.mutate({ channelId, messageId: id }, {
           onSuccess: () => toast("Message unpinned"),
@@ -629,8 +660,8 @@ function ChannelView() {
       }
     },
     onCreateThread: async (id: string) => {
-      const m = messages.find((x) => x.id === id)
-      const name = deriveThreadName(m?.content, channelName)
+      const m = actionsCtxRef.current.messages.find((x) => x.id === id)
+      const name = deriveThreadName(m?.content, actionsCtxRef.current.channelName)
       try {
         const data = await createThreadMut.mutateAsync({ channelId, messageId: id, name })
         router.push(`/c/channels/${params.serverId}/${data.id}`)
@@ -639,15 +670,15 @@ function ChannelView() {
       }
     },
     onCopy: (id: string) => {
-      const m = messages.find((x) => x.id === id)
+      const m = actionsCtxRef.current.messages.find((x) => x.id === id)
       if (m?.content) { navigator.clipboard?.writeText(m.content); toast("Copied to clipboard") }
     },
     onRetry: (id: string) => {
-      const m = messages.find((x) => x.id === id)
+      const m = actionsCtxRef.current.messages.find((x) => x.id === id)
       if (m?.content) void doSend(m.content)
     },
     onPreviewImage: (url: string) => {
-      uiHandlers.previewImage?.(url)
+      actionsCtxRef.current.uiHandlers.previewImage?.(url)
     },
     onDownloadFile: (url: string) => {
       const a = document.createElement("a")
@@ -655,10 +686,24 @@ function ChannelView() {
       a.download = url.split("/").pop() ?? "file"
       a.click()
     },
-  }
+    // Deps are all reference-stable: channelId, the mutation objects (TanStack
+    // returns stable refs), doSend (useCallback), router/params. Volatile reads
+    // go through actionsCtxRef.
+  }), [channelId, currentUser.id, toggleReactionApi, unpinMessageMut, pinMessageMut, createThreadMut, doSend, router, params.serverId])
 
-  const threadActions = { ...messageActions, onCreateThread: undefined }
+  const threadActions = useMemo(
+    () => ({ ...messageActions, onCreateThread: undefined }),
+    [messageActions],
+  )
 
+  // Reference-stable across renders (members churns on every presence/roster
+  // tick). A new identity here would bust every memoized message row on a
+  // switch — the exact re-render storm we're killing. Read `members` lazily
+  // through a ref and rebuild the resolver per call; the resolver is cheap.
+  // Memoized on `members`: identity changes only when the roster changes (not
+  // on every render), so it doesn't needlessly bust the memoized message rows,
+  // while still refreshing names when membership genuinely updates. Called
+  // during render (typing names), so a ref-during-render approach is out.
   const resolveUserName = useMemo(() => makeUserNameResolver(members), [members])
 
   // ── Send messages ───────────────────────────────────────────────────────

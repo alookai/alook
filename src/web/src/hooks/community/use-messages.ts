@@ -170,6 +170,14 @@ type MessagesOpts = {
    * read snapshot resolves must NOT leave the query disabled.
    */
   anchorMessageId?: string | null
+  /**
+   * When true, the initial page is trusted from a pre-seeded cache (the channel
+   * bootstrap wrote `channelMessages(id)` before this hook mounted), so the
+   * hook must NOT refetch page 0 on mount — otherwise the de-serialization win
+   * is lost (bootstrap + a redundant messages fetch). Pagination (older/newer)
+   * still refetches normally. Only affects the initial window.
+   */
+  trustSeededInitialPage?: boolean
 }
 
 // Shared pagination + reducer used by both channel and DM hooks. Kept inline
@@ -237,6 +245,15 @@ function useMessagesInner(
       return { mode: "newer", cursor }
     },
     enabled,
+    // Trust a bootstrap-seeded initial window: treat it as fresh so the hook
+    // doesn't refetch page 0 on mount (otherwise the de-serialization win is
+    // lost — bootstrap + a redundant messages fetch). Pagination still fetches
+    // older/newer via getNext/PreviousPageParam. Without a seed these fall to
+    // the library defaults (staleTime 0, refetchOnMount true), so the
+    // non-bootstrap paths (DM, jump, forum) are unchanged.
+    ...(opts?.trustSeededInitialPage
+      ? { staleTime: Infinity, refetchOnMount: false as const }
+      : {}),
   })
 
   // Flush any pending mark-read on scope switch / unmount so the 500ms

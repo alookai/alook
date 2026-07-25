@@ -224,6 +224,8 @@ export const communityServerMember = sqliteTable(
     unique("uq_server_member_server_user").on(t.serverId, t.userId),
     index("idx_server_member_user").on(t.userId),
     index("idx_server_member_user_rail_order").on(t.userId, t.railOrder),
+    // Serves listMembersPaginated's WHERE server_id ORDER BY (joined_at, id).
+    index("idx_server_member_server_joined").on(t.serverId, t.joinedAt),
   ]
 );
 
@@ -260,21 +262,26 @@ export const communityServerFolderItem = sqliteTable(
 );
 
 // 10. community_server_invite
-export const communityServerInvite = sqliteTable("community_server_invite", {
-  id: text("id").primaryKey().$defaultFn(() => nanoid()),
-  serverId: text("server_id")
-    .notNull()
-    .references(() => communityServer.id, { onDelete: "cascade" }),
-  createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
-  token: text("token")
-    .unique()
-    .notNull()
-    .$defaultFn(() => nanoid(10)),
-  maxUses: integer("max_uses"),
-  uses: integer("uses").default(0),
-  expiresAt: text("expires_at"),
-  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
-});
+export const communityServerInvite = sqliteTable(
+  "community_server_invite",
+  {
+    id: text("id").primaryKey().$defaultFn(() => nanoid()),
+    serverId: text("server_id")
+      .notNull()
+      .references(() => communityServer.id, { onDelete: "cascade" }),
+    createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
+    token: text("token")
+      .unique()
+      .notNull()
+      .$defaultFn(() => nanoid(10)),
+    maxUses: integer("max_uses"),
+    uses: integer("uses").default(0),
+    expiresAt: text("expires_at"),
+    createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  },
+  // listServerInvites filters WHERE server_id — without this it full-scans.
+  (t) => [index("idx_server_invite_server").on(t.serverId)]
+);
 
 // 11. community_friendship
 export const communityFriendship = sqliteTable(

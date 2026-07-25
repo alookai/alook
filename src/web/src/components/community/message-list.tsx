@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ArrowDown } from "lucide-react"
 import { tid } from "@/lib/community/testids"
 import { DateDivider, NewDivider } from "./dividers"
-import { Message } from "./message"
+import { MessageRow } from "./message-row"
 import { TypingIndicator } from "./typing-indicator"
 import { ChannelIcon } from "./channel-icon"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -369,22 +369,22 @@ export function MessageList({
                         // only ever observes rows that exist in the DOM,
                         // which virtualization doesn't change).
                         <div data-msg-id={item.m.id} data-testid={tid.message(item.m.id)}>
-                          <Message
+                          <MessageRow
                             m={item.m}
                             pinned={pinnedIds?.has(item.m.id)}
+                            highlighted={jumped === item.m.id}
                             onOpenThread={onOpenThread}
                             onOpenProfile={onOpenProfile}
-                            onJumpReply={() => item.m.replyTo && jumpTo(item.m.replyTo.id)}
-                            onToggleReaction={onToggleReaction ? (emoji) => onToggleReaction(item.m.id, emoji) : undefined}
-                            onReact={onReact ? (emoji) => onReact(item.m.id, emoji) : undefined}
-                            onReply={onReply ? () => onReply(item.m.id) : undefined}
-                            onPin={onPin ? () => onPin(item.m.id) : undefined}
-                            onCreateThread={onCreateThread ? () => onCreateThread(item.m.id) : undefined}
-                            onCopy={onCopy ? () => onCopy(item.m.id) : undefined}
-                            onRetry={onRetry ? () => onRetry(item.m.id) : undefined}
+                            onToggleReactionId={onToggleReaction}
+                            onReactId={onReact}
+                            onReplyId={onReply}
+                            onPinId={onPin}
+                            onCreateThreadId={onCreateThread}
+                            onCopyId={onCopy}
+                            onRetryId={onRetry}
+                            onJumpToId={jumpTo}
                             onPreviewImage={onPreviewImage}
                             onDownloadFile={onDownloadFile}
-                            highlighted={jumped === item.m.id}
                             resolveUserName={resolveUserName}
                             onImageLoad={onImageLoad}
                           />
