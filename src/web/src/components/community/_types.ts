@@ -94,7 +94,7 @@ type Embed = {
   author?: { name: string; url?: string; iconUrl?: string }
 }
 
-type Reaction = { emoji: string; count: number; me: boolean; userIds: string[] }
+export type Reaction = { emoji: string; count: number; me: boolean; userIds: string[] }
 
 export type Msg = {
   id: string // nanoid
@@ -116,6 +116,7 @@ export type Msg = {
   authorId?: string
   authorName?: string
   color?: string
+  seq?: number // Per-scope (channel/DM) monotonic sequence number
   createdAt?: string // ISO 8601 timestamp — the UI formats for display
   authorAvatar?: string
   failed?: boolean

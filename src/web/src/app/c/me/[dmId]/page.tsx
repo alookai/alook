@@ -8,6 +8,7 @@ import { useBreakpoint } from "@/hooks/use-mobile"
 import { DmHeader, DmHeaderSkeleton } from "@/components/community/dm-header"
 import { Avatar } from "@/components/community/avatar"
 import { MessageList } from "@/components/community/message-list"
+import { MessageContextSheet } from "@/components/community/message-context-sheet"
 import { Composer, ComposerSkeleton, type SendAttachment } from "@/components/community/composer"
 import type { OpenProfile } from "@/components/community/_types"
 import {
@@ -102,6 +103,8 @@ function DmView() {
       ? undefined
       : (readSnapshot?.lastReadMessageId ?? null),
   })
+
+  const [contextSheetSeq, setContextSheetSeq] = useState<number | null>(null)
   // DM composer has no "current server" — flatten every member server's
   // channels into one cross-server candidate list so a `/`-ref can be
   // dropped into a DM (see plan community-channel-ref.md §6).
@@ -367,6 +370,7 @@ function DmView() {
           onLoadNewer={fetchNewerMessages}
           onJumpToPresent={jumpToPresent}
           unreadCount={unreadCount}
+          onOpenContextSheet={setContextSheetSeq}
           hero={
             <>
               <div className="relative mb-3 w-fit"><Avatar label={dm.avatar} seed={dm.userId} size={64} /></div>
@@ -396,6 +400,20 @@ function DmView() {
           />
         )}
       </main>
+      <MessageContextSheet
+        open={contextSheetSeq !== null}
+        onOpenChange={(v) => { if (!v) setContextSheetSeq(null) }}
+        channelId={dmId}
+        targetSeq={contextSheetSeq}
+        onOpenContextSheet={setContextSheetSeq}
+        type="dm"
+        onOpenProfile={openProfile}
+        resolveUserName={resolveUserName}
+        onReply={dmBlocked ? undefined : (target) => {
+          setReplyTo(target)
+          setContextSheetSeq(null)
+        }}
+      />
     </>
   )
 }

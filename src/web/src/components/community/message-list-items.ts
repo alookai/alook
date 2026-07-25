@@ -39,7 +39,18 @@ export function flattenMessageItems(messages: Msg[], newDividerBefore: string | 
       items.push({ kind: "new-divider", key: "new-divider", dateLabel: formatDateLabel(m.createdAt!) })
     } else {
       if (showDateDivider) {
-        items.push({ kind: "date-divider", label: formatDateLabel(m.createdAt!), key: `date:${m.id}` })
+        // Keyed by the DATE (not the first-of-day message id) so an older-page
+        // prepend that pushes new same-day messages in front of the current
+        // first-of-day row keeps the divider's key stable. Without this,
+        // `@tanstack/react-virtual`'s anchor path (see use-scroll-anchor.ts) —
+        // which captures the anchor row's key before prepend and finds it in
+        // the new items after — falls off when the anchor sits on `items[0]`
+        // (the top-of-window divider), the divider gets re-emitted with a
+        // different `date:${id}` key, and `anchorTo: "end"` silently no-ops.
+        // Symptom: viewport jumps to the top of the loaded window on every
+        // top-sentinel load. `curDate` is `YYYY-MM-DD`, one row per day, so
+        // it's a stable identity.
+        items.push({ kind: "date-divider", label: formatDateLabel(m.createdAt!), key: `date:${curDate}` })
       }
       if (isNewDivider) {
         items.push({ kind: "new-divider", key: "new-divider" })

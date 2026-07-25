@@ -2,6 +2,7 @@ import type React from "react"
 import { Spoiler, MentionPill } from "./inline-marks"
 import { ChannelRefPill } from "./channel-ref-pill"
 import { ServerRefPill } from "./server-ref-pill"
+import { MessageRefPill } from "./message-ref-pill"
 
 // Match `/c/invite/<token>` — with or without an origin.
 // - token allows [A-Za-z0-9_-] (nanoid alphabet) and length 6..64 (short + old
@@ -44,13 +45,14 @@ export const MD_ALLOWED_TAGS = {
   mention: ["dataEveryone", "dataTag"],
   channelref: [],
   serverref: [],
+  messageref: [],
 }
-// `spoiler` is deliberately excluded — unlike `mention`/`channelref`/`serverref`
+// `spoiler` is deliberately excluded — unlike `mention`/`channelref`/`serverref`/`messageref`
 // (leaf nodes whose content is always plain tag text), a spoiler must keep its
 // nested markdown children (e.g. `||**bold**||`). Handing it to Streamdown's
 // `literalTagContent` flattens all descendants into one text node, stripping
 // the nested `<strong>`/`<em>` — see message-body.test.tsx's regression case.
-export const MD_LITERAL_TAGS = ["mention", "channelref", "serverref"]
+export const MD_LITERAL_TAGS = ["mention", "channelref", "serverref", "messageref"]
 
 // A mention pill's rendered text is always `@name` (produced by
 // `chat-syntax-plugin.ts`'s `mentionReplacer`, which already drops the
@@ -67,20 +69,24 @@ export const MD_COMPONENTS = {
   mention: ({ children, ...rest }: Record<string, unknown> & { children?: React.ReactNode }) => (
     <MentionPill everyone={rest["data-everyone"] === "1"}>{children}</MentionPill>
   ),
-  // `channelref`/`serverref` are fully self-sufficient via hooks (resolve via
-  // `useChannelRefDirectory`, navigate via `useRouter`) — unlike `mention`,
-  // they need no closure injected by `buildMdComponents`, so the same static
-  // entries are reused there too (see the spread below).
+  // `channelref`/`serverref`/`messageref` are fully self-sufficient via hooks
+  // (resolve via `useChannelRefDirectory`/`useMessages`, navigate via
+  // `useRouter`) — unlike `mention`, they need no closure injected by
+  // `buildMdComponents`, so the same static entries are reused there too (see
+  // the spread below).
   channelref: ChannelRefPill,
   serverref: ServerRefPill,
+  messageref: MessageRefPill,
 } as Record<string, React.ComponentType<Record<string, unknown> & { children?: React.ReactNode }>>
 
 // Same as `MD_COMPONENTS`, but the `mention` pill opens the profile card on
-// click (skipped for @everyone/@here — there's no user behind those). Built
-// per-render (memoized by the caller) rather than statically, since it
-// closes over `onOpenProfile`.
+// click (skipped for @everyone/@here — there's no user behind those), and
+// `messageref` receives `onJumpToSeq` for click-time navigation. Built
+// per-render (memoized by the caller) rather than statically, since it closes
+// over callbacks.
 export function buildMdComponents(
   onOpenProfile?: (name: string, e: React.MouseEvent, discriminator?: string) => void,
+  messageRefContext?: { onJumpToSeq?: (seq: number) => void },
 ): Record<string, React.ComponentType<Record<string, unknown> & { children?: React.ReactNode }>> {
   return {
     ...MD_COMPONENTS,
@@ -98,5 +104,10 @@ export function buildMdComponents(
         </MentionPill>
       )
     },
+    messageref: ({ children }: { children?: React.ReactNode }) => (
+      <MessageRefPill onJumpToSeq={messageRefContext?.onJumpToSeq}>
+        {children}
+      </MessageRefPill>
+    ),
   }
 }

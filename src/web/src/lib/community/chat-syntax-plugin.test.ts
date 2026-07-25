@@ -3,7 +3,7 @@ import { unified } from "unified"
 import remarkParse from "remark-parse"
 import type { Root, PhrasingContent } from "mdast"
 import { chatSyntaxPlugin } from "./chat-syntax-plugin"
-import type { MentionNode, ChannelRefNode, ServerRefNode } from "./chat-syntax-plugin"
+import type { MentionNode, ChannelRefNode, ServerRefNode, MessageRefNode } from "./chat-syntax-plugin"
 
 function parse(md: string): Root {
   const processor = unified().use(remarkParse).use(chatSyntaxPlugin)
@@ -37,9 +37,11 @@ describe("chatSyntaxPlugin — mention", () => {
   it("does not swallow ordinary prose ending in #dddd — the name-run must end in a non-space", () => {
     // No earlier `#`, so a naive non-greedy run would span "bob check issue "
     // and terminate at #0042. The non-space-before-# guard prevents this.
+    // With message ref support, `#0042` is now parsed as a message ref (which
+    // will render as a muted pill when the seq doesn't exist in the channel).
     const children = paragraphChildren(parse("@bob check issue #0042"))
     expect(children.some((c) => c.type === "mention")).toBe(false)
-    expect(children.map((c) => c.type)).toEqual(["text"])
+    expect(children.map((c) => c.type)).toEqual(["text", "messageRef"])
   })
 
   it("keeps two adjacent handles as two distinct mentions", () => {
@@ -185,6 +187,48 @@ describe("chatSyntaxPlugin — serverRef", () => {
   })
 })
 
+describe("chatSyntaxPlugin — message ref", () => {
+  it("parses space + #NUMBER as messageRef", () => {
+    const children = paragraphChildren(parse("see #123"))
+    const messageRef = children.find((c): c is MessageRefNode => c.type === "messageRef")
+    expect(messageRef).toMatchObject({ type: "messageRef", value: "#123" })
+  })
+
+  it("parses #NUMBER at line start as messageRef", () => {
+    const children = paragraphChildren(parse("#42 was fixed"))
+    const messageRef = children.find((c): c is MessageRefNode => c.type === "messageRef")
+    expect(messageRef).toMatchObject({ type: "messageRef", value: "#42" })
+  })
+
+  it("does NOT parse text#NUMBER (no leading space) as messageRef", () => {
+    const children = paragraphChildren(parse("issue#42 in GitHub"))
+    expect(children.some((c) => c.type === "messageRef")).toBe(false)
+    expect(children.map((c) => c.type)).toEqual(["text"])
+  })
+
+  it("parses multiple message refs in one message", () => {
+    const children = paragraphChildren(parse("See #10 and #20"))
+    const messageRefs = children.filter((c): c is MessageRefNode => c.type === "messageRef")
+    expect(messageRefs.map((m) => m.value)).toEqual(["#10", "#20"])
+  })
+
+  it("does NOT parse inside code blocks", () => {
+    const children = paragraphChildren(parse("`#42`"))
+    expect(children.some((c) => c.type === "messageRef")).toBe(false)
+  })
+
+  it("parses #NUMBER with trailing punctuation", () => {
+    const children = paragraphChildren(parse("Fixed in #123."))
+    const messageRef = children.find((c): c is MessageRefNode => c.type === "messageRef")
+    expect(messageRef).toMatchObject({ value: "#123" })
+  })
+
+  it("does NOT parse 7+ digit numbers", () => {
+    const children = paragraphChildren(parse("ref #9999999"))
+    expect(children.some((c) => c.type === "messageRef")).toBe(false)
+  })
+})
+
 describe("chatSyntaxPlugin — mixed", () => {
   it("handles a mix of mention, channelRef, and unrelated formatting in one message", () => {
     const children = paragraphChildren(parse("Here's the **setup**: `pnpm install` ping @Gus#0042 in /studio/dev"))
@@ -203,5 +247,15 @@ describe("chatSyntaxPlugin — mixed", () => {
     expect(mention).toMatchObject({ value: "@Gus", discriminator: "0042" })
     const serverRef = children.find((c): c is ServerRefNode => c.type === "serverRef")
     expect(serverRef).toMatchObject({ value: "/studio" })
+  })
+
+  it("handles mention, message ref, and channel ref together", () => {
+    const children = paragraphChildren(parse("@Alice#0001 check #42 in /studio/general"))
+    const mention = children.find((c): c is MentionNode => c.type === "mention")
+    expect(mention).toMatchObject({ value: "@Alice", discriminator: "0001" })
+    const messageRef = children.find((c): c is MessageRefNode => c.type === "messageRef")
+    expect(messageRef).toMatchObject({ value: "#42" })
+    const channelRef = children.find((c): c is ChannelRefNode => c.type === "channelRef")
+    expect(channelRef).toMatchObject({ value: "/studio/general" })
   })
 })

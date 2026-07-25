@@ -83,9 +83,20 @@ const REHYPE_PLUGINS: PluggableList = [
 // URL stays as a plain auto-linked <a> in the message body, and a rich join
 // card renders BELOW it. Both surfaces coexist so users can still copy/share
 // the raw link even when the card is present.
-function MessageBodyImpl({ text, onOpenProfile }: { text: string; onOpenProfile?: OpenProfile }) {
+function MessageBodyImpl({
+  text,
+  onOpenProfile,
+  messageRefContext,
+}: {
+  text: string
+  onOpenProfile?: OpenProfile
+  messageRefContext?: { onJumpToSeq?: (seq: number) => void }
+}) {
   const inviteTokens = useMemo(() => extractInviteTokens(text), [text])
-  const components = useMemo(() => buildMdComponents(onOpenProfile), [onOpenProfile])
+  const components = useMemo(
+    () => buildMdComponents(onOpenProfile, messageRefContext),
+    [onOpenProfile, messageRefContext],
+  )
   return (
     <div className="markdown wrap-anywhere text-[15px] leading-snug">
       <Streamdown

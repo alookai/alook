@@ -33,6 +33,7 @@ export interface MessageRowProps {
   onDownloadFile?: (name: string) => void
   resolveUserName?: (userId: string) => string
   onImageLoad?: () => void
+  messageRefContext?: { onJumpToSeq?: (seq: number) => void }
 }
 
 function MessageRowImpl(props: MessageRowProps) {
@@ -40,7 +41,7 @@ function MessageRowImpl(props: MessageRowProps) {
     m, pinned, highlighted, onOpenThread, onOpenProfile,
     onToggleReactionId, onReactId, onReplyId, onPinId, onCreateThreadId,
     onCopyId, onRetryId, onJumpToId, onPreviewImage, onDownloadFile,
-    resolveUserName, onImageLoad,
+    resolveUserName, onImageLoad, messageRefContext,
   } = props
   const id = m.id
   const replyToId = m.replyTo?.id
@@ -84,6 +85,7 @@ function MessageRowImpl(props: MessageRowProps) {
       onDownloadFile={onDownloadFile}
       resolveUserName={resolveUserName}
       onImageLoad={onImageLoad}
+      messageRefContext={messageRefContext}
     />
   )
 }

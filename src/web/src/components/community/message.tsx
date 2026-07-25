@@ -34,7 +34,7 @@ export function attachmentAspectRatio(width: number | undefined, height: number 
 function MessageImpl({
   m, compact, pinned, onOpenThread, onOpenProfile, onJumpReply,
   onToggleReaction, onReact, onReply, onPin, onCreateThread, onCopy, onRetry,
-  onPreviewImage, onDownloadFile, highlighted, resolveUserName, onImageLoad,
+  onPreviewImage, onDownloadFile, highlighted, resolveUserName, onImageLoad, messageRefContext,
 }: {
   m: RenderMsg
   compact?: boolean
@@ -53,11 +53,8 @@ function MessageImpl({
   onDownloadFile?: (name: string) => void
   highlighted?: boolean
   resolveUserName?: (userId: string) => string
-  // Fired when an attachment/embed image finishes loading — the scroll
-  // anchor re-pins to the bottom if the viewer is still there, so a tall
-  // image that grows after the initial auto-scroll doesn't leave the
-  // message's bottom cut off.
   onImageLoad?: () => void
+  messageRefContext?: { onJumpToSeq?: (seq: number) => void }
 }) {
   // keep the hover toolbar pinned open while its ⋯ dropdown is open
   const [toolbarOpen, setToolbarOpen] = useState(false)
@@ -103,6 +100,11 @@ function MessageImpl({
       <div className="min-w-0 flex-1">
       {interactive && activated && (
         <div className={`absolute right-2 z-20 flex items-center gap-1 rounded-lg border border-border/60 bg-card px-2 py-1 shadow-(--e1) transition-opacity duration-150 ${m.grouped ? "-top-2" : "-top-3"} ${toolbarOpen ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"}`}>
+          {m.seq != null && m.seq > 0 && (
+            <span className="mr-0.5 select-none font-mono text-xs text-muted-foreground" aria-label={`Message ${m.seq}`}>
+              <span className="opacity-60">#</span>{m.seq}
+            </span>
+          )}
           {onReact && (
             <EmojiPickerPopover side="bottom" align="end" onPick={(e) => onReact(e)} onOpenChange={setToolbarOpen}>
               <button data-testid={tid.reactionAdd(m.id)} className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none aria-expanded:text-foreground" aria-label="Add reaction">
@@ -164,7 +166,7 @@ function MessageImpl({
             </div>
           )}
           {m.content && (
-            <MessageBody text={m.content} onOpenProfile={onOpenProfile} />
+            <MessageBody text={m.content} onOpenProfile={onOpenProfile} messageRefContext={messageRefContext} />
           )}
 
           {m.attachments && (
@@ -383,7 +385,8 @@ function messagePropsEqual(prev: MessageProps, next: MessageProps): boolean {
       a.attachments !== b.attachments ||
       a.embeds !== b.embeds ||
       a.replyTo !== b.replyTo ||
-      a.thread !== b.thread
+      a.thread !== b.thread ||
+      a.seq !== b.seq
     ) {
       return false
     }
@@ -405,7 +408,8 @@ function messagePropsEqual(prev: MessageProps, next: MessageProps): boolean {
     prev.onPreviewImage === next.onPreviewImage &&
     prev.onDownloadFile === next.onDownloadFile &&
     prev.resolveUserName === next.resolveUserName &&
-    prev.onImageLoad === next.onImageLoad
+    prev.onImageLoad === next.onImageLoad &&
+    prev.messageRefContext === next.messageRefContext
   )
 }
 

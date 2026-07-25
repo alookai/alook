@@ -375,6 +375,7 @@ const listedMessageProjection = {
   replyToId: communityMessage.replyToId,
   embeds: communityMessage.embeds,
   flags: communityMessage.flags,
+  seq: communityMessage.seq,
   createdAt: communityMessage.createdAt,
   channelId: communityMessage.channelId,
   dmConversationId: communityMessage.dmConversationId,
@@ -392,6 +393,7 @@ export type ListedMessageRow = {
   replyToId: string | null;
   embeds: unknown | undefined;
   flags: number | null;
+  seq: number;
   createdAt: string;
   channelId: string | null;
   dmConversationId: string | null;

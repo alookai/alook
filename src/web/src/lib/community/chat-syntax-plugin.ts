@@ -50,6 +50,16 @@ const CHANNEL_REF_RE = /(?<=^|\s)\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+(?:\/#\d+(?:#\d
 // makes the ordering non-load-bearing for correctness.
 const SERVER_REF_RE = /(?<=^|\s)\/[A-Za-z0-9_-]+(?=\s|$|[.,;:!?)\]])/g
 
+// Message ref: `#NUMBER` where NUMBER is 1-6 digits (seq range 1-999999).
+// Same boundary pattern as channel/server refs: leading `(?<=^|\s)` so
+// `text#123` doesn't match (avoids GitHub issue refs, URL fragments),
+// trailing `(?=\s|$|[.,;:!?)\]])` so it works inline and at EOL.
+// Channel-scoped: `#123` refers to message seq 123 in the current channel,
+// not a global identifier. Registered AFTER mention regex so `@Alice#0042`
+// is parsed as mention first (4-digit discriminator), not broken into text
+// `@Alice` + message ref `#0042`.
+const MESSAGE_REF_RE = /(?<=^|\s)#\d{1,6}(?=\s|$|[.,;:!?)\]])/g
+
 // Two-branch mention grammar (see plans/mandatory-mention-discriminator.md):
 //
 //  1. The literal `@everyone`/`@here` tokens, with a trailing
@@ -91,16 +101,25 @@ export interface ServerRefNode {
   value: string
 }
 
+/** mdast node produced by `#NUMBER` (message seq ref in current channel). */
+export interface MessageRefNode {
+  type: "messageRef"
+  /** The full matched string including `#` (e.g., `"#123"`). */
+  value: string
+}
+
 declare module "mdast" {
   interface RootContentMap {
     mention: MentionNode
     channelRef: ChannelRefNode
     serverRef: ServerRefNode
+    messageRef: MessageRefNode
   }
   interface PhrasingContentMap {
     mention: MentionNode
     channelRef: ChannelRefNode
     serverRef: ServerRefNode
+    messageRef: MessageRefNode
   }
 }
 
@@ -128,9 +147,13 @@ function serverRefReplacer(value: string): ServerRefNode {
   return { type: "serverRef", value }
 }
 
+function messageRefReplacer(value: string): MessageRefNode {
+  return { type: "messageRef", value }
+}
+
 /**
  * remark plugin: combines the spoiler micromark extension (`spoiler-syntax.ts`)
- * with a `mdast-util-find-and-replace` pass for `mention`/`channelRef`.
+ * with a `mdast-util-find-and-replace` pass for `mention`/`channelRef`/`messageRef`.
  * Registers `spoilerSyntax`'s micromark/from-markdown extensions on the
  * processor (the `remark-gfm`-style `this.data(...)` convention) and returns
  * a tree transform running the find-and-replace pass after parsing.
@@ -148,6 +171,7 @@ export const chatSyntaxPlugin: Plugin<[], Root> = function chatSyntaxPlugin(this
       tree,
       [
         [MENTION_RE, mentionReplacer as unknown as (value: string, ...rest: unknown[]) => PhrasingContent | string | false],
+        [MESSAGE_REF_RE, messageRefReplacer as unknown as (value: string) => PhrasingContent],
         [CHANNEL_REF_RE, channelRefReplacer as unknown as (value: string) => PhrasingContent],
         // Runs as its own pass AFTER the channelRef pass above — by then every
         // `/server/channel` span is already a `channelRef` element (no longer
@@ -190,6 +214,12 @@ export const chatSyntaxHandlers: Handlers = {
   serverRef: ((_state, node: ServerRefNode): Element => ({
     type: "element",
     tagName: "serverref",
+    properties: {},
+    children: [{ type: "text", value: node.value }],
+  })) as Handler,
+  messageRef: ((_state, node: MessageRefNode): Element => ({
+    type: "element",
+    tagName: "messageref",
     properties: {},
     children: [{ type: "text", value: node.value }],
   })) as Handler,

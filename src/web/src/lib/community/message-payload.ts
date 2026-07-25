@@ -34,6 +34,7 @@ export type MessageRow = {
   mentionType: string | null
   replyToId: string | null
   embeds: unknown
+  seq: number
   createdAt: string
 }
 
@@ -61,6 +62,7 @@ function coreFields(row: MessageRow) {
     // The `type` column can hold "default" / "system" / "thread_created".
     // GET hides "default" (undefined = default), WS returns it explicitly —
     // both are correct; we keep the difference at the variant boundary below.
+    seq: row.seq,
     createdAt: row.createdAt,
     mentionType: (row.mentionType ?? null) as MentionType | null,
   }

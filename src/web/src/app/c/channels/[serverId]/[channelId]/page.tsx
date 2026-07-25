@@ -12,6 +12,7 @@ import { Composer, ComposerSkeleton, type SendAttachment } from "@/components/co
 import { ForumView, ForumViewSkeleton } from "@/components/community/forum-view"
 import type { NewForumPost } from "@/components/community/create-forum-post"
 import { CommunityPanelSheet } from "@/components/community/community-panel-sheet"
+import { MessageContextSheet } from "@/components/community/message-context-sheet"
 import { ThreadOpener } from "@/components/community/thread-opener"
 import { AddMembersDialog } from "@/components/community/add-members-dialog"
 import type { RightPanel, Msg, OpenProfile, Role } from "@/components/community/_types"
@@ -581,6 +582,9 @@ function ChannelView() {
     router.push(`/c/channels/${params.serverId}/${id}`)
   }, [router, params.serverId])
 
+  // Message context sheet for unloaded message refs
+  const [contextSheetSeq, setContextSheetSeq] = useState<number | null>(null)
+
   // Stable so it doesn't bust the memoized message rows; reads uiHandlers
   // lazily through the actions ref (assigned just below).
   const openProfile = useCallback<OpenProfile>((name, e, discriminator, userId) => {
@@ -984,6 +988,7 @@ function ChannelView() {
             onLoadNewer={fetchNewerMessages}
             onJumpToPresent={jumpToPresent}
             unreadCount={unreadCount}
+            onOpenContextSheet={setContextSheetSeq}
           />
           <Composer
             channel={channelName}
@@ -1009,6 +1014,20 @@ function ChannelView() {
           />
         )}
         {manageMembersDialog}
+        <MessageContextSheet
+          open={contextSheetSeq !== null}
+          onOpenChange={(v) => { if (!v) setContextSheetSeq(null) }}
+          channelId={channelId}
+          targetSeq={contextSheetSeq}
+          pinnedIds={pinnedIds}
+          onOpenContextSheet={setContextSheetSeq}
+          onOpenProfile={openProfile}
+          resolveUserName={resolveUserName}
+          onReply={(target) => {
+            setReplyTo(target)
+            setContextSheetSeq(null)
+          }}
+        />
       </>
     )
   }
@@ -1118,6 +1137,7 @@ function ChannelView() {
           onLoadNewer={fetchNewerMessages}
           onJumpToPresent={jumpToPresent}
           unreadCount={unreadCount}
+          onOpenContextSheet={setContextSheetSeq}
         />
         <Composer
           channel={channelName}
@@ -1143,6 +1163,20 @@ function ChannelView() {
         />
       )}
       {manageMembersDialog}
+      <MessageContextSheet
+        open={contextSheetSeq !== null}
+        onOpenChange={(v) => { if (!v) setContextSheetSeq(null) }}
+        channelId={channelId}
+        targetSeq={contextSheetSeq}
+        pinnedIds={pinnedIds}
+        onOpenContextSheet={setContextSheetSeq}
+        onOpenProfile={openProfile}
+        resolveUserName={resolveUserName}
+        onReply={(target) => {
+          setReplyTo(target)
+          setContextSheetSeq(null)
+        }}
+      />
     </>
   )
 }

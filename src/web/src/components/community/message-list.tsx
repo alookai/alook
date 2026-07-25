@@ -21,7 +21,7 @@ export function MessageList({
   onReply, onPin, onCreateThread, onCopy, onRetry, onPreviewImage, onDownloadFile,
   resolveUserName, scrollToMessageId, hero, variant = "channel", onScrollRoot, viewerUserId, initialScrollReady = true,
   hasMore, isFetchingOlder, onLoadOlder,
-  hasMoreNewer, isFetchingNewer, onLoadNewer, onJumpToPresent, unreadCount,
+  hasMoreNewer, isFetchingNewer, onLoadNewer, onJumpToPresent, unreadCount, onOpenContextSheet,
 }: {
   channel: string
   messages: Msg[]
@@ -90,6 +90,10 @@ export function MessageList({
   // the `↓ N` badge when `hasMoreNewer` is true — DOM math can't see rows
   // that haven't been fetched yet.
   unreadCount?: number
+  // Fired when a message ref pill (`#NUMBER`) is clicked and the target
+  // isn't in the currently loaded window — the owner opens the context
+  // sheet (see `MessageContextSheet`). If omitted, the click is a no-op.
+  onOpenContextSheet?: (seq: number) => void
 }) {
   const [jumped, setJumped] = useState<string | null>(null)
 
@@ -280,6 +284,31 @@ export function MessageList({
     window.setTimeout(() => setJumped((v) => (v === id ? null : v)), 1600)
   }, [jumpToIndex])
 
+  // Message-ref jump handler + the context object handed to each message row.
+  //
+  // Both MUST stay reference-stable across renders — otherwise `MessageRow`'s
+  // memo tears down every row on every WS tick, which is exactly the storm
+  // 3fc84fa2 ("perf(web): kill community switch re-render storm") set out to
+  // fix. We reach the target by:
+  //   - reading `messages` / `jumpTo` / `onOpenContextSheet` lazily through a
+  //     ref that's written on each commit (latest-ref pattern, same as
+  //     `page.tsx`'s `messageActions`);
+  //   - `useCallback([])` on the handler and `useMemo([onJumpToSeq])` on the
+  //     context — both are stable for the mount's lifetime.
+  const jumpCtxRef = useRef({ messages, jumpTo, onOpenContextSheet })
+  /* eslint-disable-next-line react-hooks/immutability -- latest-ref for lazy click reads */
+  jumpCtxRef.current = { messages, jumpTo, onOpenContextSheet }
+  const onJumpToSeq = useCallback((seq: number) => {
+    const { messages, jumpTo, onOpenContextSheet } = jumpCtxRef.current
+    const msg = messages.find((m) => m.seq === seq)
+    if (msg) {
+      jumpTo(msg.id)
+    } else if (onOpenContextSheet) {
+      onOpenContextSheet(seq)
+    }
+  }, [])
+  const messageRefContext = useMemo(() => ({ onJumpToSeq }), [onJumpToSeq])
+
   useEffect(() => {
     if (scrollToMessageId) jumpTo(scrollToMessageId)
   }, [scrollToMessageId, jumpTo])
@@ -387,6 +416,7 @@ export function MessageList({
                             onDownloadFile={onDownloadFile}
                             resolveUserName={resolveUserName}
                             onImageLoad={onImageLoad}
+                            messageRefContext={messageRefContext}
                           />
                         </div>
                       )}
