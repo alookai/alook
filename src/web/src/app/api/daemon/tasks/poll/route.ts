@@ -71,8 +71,10 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       try {
         if (machineRow?.pendingUpdateVersion && body.cli_version) {
           if (semverGte(body.cli_version, machineRow.pendingUpdateVersion)) {
-            await queries.machine.clearPendingUpdateVersion(db, body.daemon_id, ctx.workspaceId);
-            await queries.runtime.updateRuntimeCliVersionByDaemon(db, body.daemon_id, ctx.workspaceId, body.cli_version);
+            await Promise.all([
+              queries.machine.clearPendingUpdateVersion(db, body.daemon_id, ctx.workspaceId),
+              queries.runtime.updateRuntimeCliVersionByDaemon(db, body.daemon_id, ctx.workspaceId, body.cli_version),
+            ]);
             broadcastToUser(ctx.userId, {
               type: "runtime.status",
               daemonId: body.daemon_id,

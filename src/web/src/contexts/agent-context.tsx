@@ -105,6 +105,7 @@ export function AgentProvider({
   const taskCountsMountedRef = useRef(true);
   const isReloadingRuntimesRef = useRef(false);
   const runtimesDirtyRef = useRef(false);
+  const runtimesRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const subscribeWs = useCallback((fn: WsSubscriber) => {
     subscribersRef.current.add(fn);
@@ -190,17 +191,33 @@ export function AgentProvider({
     }
     isReloadingRuntimesRef.current = true;
     try {
+      // Coalesce concurrent requests, but cap the passes so a storm of
+      // runtime.status frames can't hold the lock and re-fetch indefinitely.
+      let passes = 0;
       do {
         runtimesDirtyRef.current = false;
         const r = await listRuntimes(workspaceId);
         setRuntimes(r);
-      } while (runtimesDirtyRef.current);
+      } while (runtimesDirtyRef.current && ++passes < 3);
     } catch {
-      // ignore — next tick will retry
+      // Fetch failed; a pending request would otherwise be dropped until the
+      // 30s poll. Schedule a short retry so the event isn't lost.
+      if (runtimesDirtyRef.current && !runtimesRetryTimerRef.current) {
+        runtimesRetryTimerRef.current = setTimeout(() => {
+          runtimesRetryTimerRef.current = null;
+          reloadRuntimesRef.current();
+        }, 2000);
+      }
     } finally {
       isReloadingRuntimesRef.current = false;
     }
   }, [workspaceId]);
+
+  const reloadRuntimesRef = useRef(reloadRuntimes);
+  useEffect(() => {
+    /* eslint-disable-next-line react-hooks/immutability -- latest-ref for the retry timer */
+    reloadRuntimesRef.current = reloadRuntimes;
+  }, [reloadRuntimes]);
 
   useEffect(() => {
     reload();
@@ -227,6 +244,7 @@ export function AgentProvider({
     return () => {
       clearInterval(intervalId);
       if (jitterTimer) clearTimeout(jitterTimer);
+      if (runtimesRetryTimerRef.current) clearTimeout(runtimesRetryTimerRef.current);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [reloadRuntimes]);
