@@ -104,6 +104,7 @@ export function AgentProvider({
   const reconnectSubscribersRef = useRef(new Set<() => void>());
   const taskCountsMountedRef = useRef(true);
   const isReloadingRuntimesRef = useRef(false);
+  const runtimesDirtyRef = useRef(false);
 
   const subscribeWs = useCallback((fn: WsSubscriber) => {
     subscribersRef.current.add(fn);
@@ -183,11 +184,17 @@ export function AgentProvider({
   }, [workspaceId]);
 
   const reloadRuntimes = useCallback(async () => {
-    if (isReloadingRuntimesRef.current) return;
+    if (isReloadingRuntimesRef.current) {
+      runtimesDirtyRef.current = true;
+      return;
+    }
     isReloadingRuntimesRef.current = true;
     try {
-      const r = await listRuntimes(workspaceId);
-      setRuntimes(r);
+      do {
+        runtimesDirtyRef.current = false;
+        const r = await listRuntimes(workspaceId);
+        setRuntimes(r);
+      } while (runtimesDirtyRef.current);
     } catch {
       // ignore — next tick will retry
     } finally {
@@ -241,7 +248,7 @@ export function AgentProvider({
           reload();
           break;
         case "runtime.status":
-          if (msg.workspaceId !== workspaceId) break;
+          if (msg.workspaceId && msg.workspaceId !== workspaceId) break;
           reloadRuntimes();
           break;
         case "agent.created":
