@@ -1,7 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { getTableColumns } from "drizzle-orm";
 import * as channelQueries from "../../src/db/queries/community/channel";
-import { communityChannel } from "../../src/db/community-schema";
 
 // Captures the SQL expression handed to `.where()` so we can prove the
 // resolver's invariants without a live D1 instance. The Drizzle query
@@ -17,38 +15,50 @@ function createSelectChain(rows: unknown[]) {
   return chain as unknown as { where: ReturnType<typeof vi.fn> };
 }
 
-// Flatten a Drizzle `SQL` chunk tree into the leaf tokens/columns we care
-// about — enough to assert "this predicate references column X and uses IS
-// NULL semantics" without duplicating the compiler.
-function collectChunks(expr: unknown, out: unknown[] = []): unknown[] {
+// Render a single Drizzle chunk to a stable token we can pattern-match.
+// Column instances → `col:<name>`; StringChunk-like (`.value: string[]`) →
+// their inline SQL fragment(s); bind Param instances (`.encoder` present)
+// → `?`; anything else → `?` too. Bare-string `.value` chunks fall through
+// to their raw value — used by StringChunk in some drizzle versions.
+function renderChunk(c: unknown): string {
+  if (typeof c === "string") return c;
+  if (c && typeof c === "object") {
+    const rec = c as Record<string, unknown>;
+    if (rec.name && typeof rec.name === "string" && "table" in rec) return `col:${rec.name}`;
+    if ("encoder" in rec) return "?";
+    if (Array.isArray(rec.value)) {
+      return rec.value.filter((v) => typeof v === "string").map((v) => (v as string).trim()).join(" ").trim();
+    }
+    if (typeof rec.value === "string") return (rec.value as string).trim();
+  }
+  return "?";
+}
+
+// Flatten a Drizzle `SQL(...)` node into an ordered list of rendered tokens.
+// Each leaf keeps its position, so downstream assertions can match a
+// contiguous phrase like `[col:X, "is null"]` rather than checking two
+// unrelated substrings in one big string.
+function flattenTokens(expr: unknown, out: string[] = []): string[] {
   if (expr == null || typeof expr !== "object") return out;
   const e = expr as Record<string, unknown>;
   if (Array.isArray(e.queryChunks)) {
-    for (const chunk of e.queryChunks) collectChunks(chunk, out);
-  } else if (Array.isArray(e.chunks)) {
-    for (const chunk of e.chunks) collectChunks(chunk, out);
-  } else {
-    out.push(expr);
+    for (const chunk of e.queryChunks) flattenTokens(chunk, out);
+    return out;
   }
+  out.push(renderChunk(expr));
   return out;
 }
 
-function chunksToString(chunks: unknown[]): string {
-  return chunks
-    .map((c) => {
-      if (typeof c === "string") return c;
-      if (c && typeof c === "object") {
-        const rec = c as Record<string, unknown>;
-        // Column reference (Drizzle Column instance).
-        if (rec.name && typeof rec.name === "string" && "table" in rec) return `col:${rec.name}`;
-        // Raw string chunk (StringChunk-like — `.value` is the SQL fragment).
-        if (Array.isArray(rec.value)) return rec.value.filter((v) => typeof v === "string").join(" ");
-        if (typeof rec.value === "string") return rec.value;
-      }
-      return "?";
-    })
-    .join(" ")
-    .toLowerCase();
+// True iff the ordered token list contains a contiguous `[col:X, tail]`
+// phrase — i.e. `is null` is applied to X specifically, not to some other
+// column that happens to sit elsewhere in the predicate.
+function tokensContainPhrase(tokens: string[], colName: string, tail: string): boolean {
+  const wantCol = `col:${colName}`;
+  const wantTail = tail.toLowerCase();
+  for (let i = 0; i < tokens.length - 1; i++) {
+    if (tokens[i] === wantCol && tokens[i + 1]!.toLowerCase().startsWith(wantTail)) return true;
+  }
+  return false;
 }
 
 describe("resolveChannelByNameForMember — SQL invariants", () => {
@@ -58,17 +68,17 @@ describe("resolveChannelByNameForMember — SQL invariants", () => {
 
     expect(db.where).toHaveBeenCalledOnce();
     const [whereExpr] = db.where.mock.calls[0]!;
-    const chunkStr = chunksToString(collectChunks(whereExpr));
+    const tokens = flattenTokens(whereExpr);
 
     // The name predicate compares against the name column, not the id column.
-    expect(chunkStr).toContain("col:name");
-    expect(chunkStr).not.toMatch(/col:id\b/);
+    expect(tokens).toContain("col:name");
+    expect(tokens).not.toContain("col:id");
 
-    // The parent_channel_id IS NULL predicate must be present — this is the
-    // whole invariant of the fix. Without it, threads/forum_posts would leak
-    // into name lookups and reintroduce the ambiguous-channel bug.
-    expect(chunkStr).toContain("col:parent_channel_id");
-    expect(chunkStr).toContain("is null");
+    // `IS NULL` must be applied to `parent_channel_id` specifically — a
+    // future refactor that swapped in `isNull(categoryId)` while still
+    // referencing `parentChannelId` elsewhere in the predicate would not
+    // reproduce the invariant. This is the whole point of the fix.
+    expect(tokensContainPhrase(tokens, "parent_channel_id", "is null")).toBe(true);
   });
 
   it("does NOT fall back to matching by id (agent surfaces reject raw ids)", async () => {
@@ -85,12 +95,10 @@ describe("resolveChannelByNameForMember — SQL invariants", () => {
     expect(db.where).toHaveBeenCalledOnce();
 
     const [whereExpr] = db.where.mock.calls[0]!;
-    const chunkStr = chunksToString(collectChunks(whereExpr));
+    const tokens = flattenTokens(whereExpr);
     // The id column of communityChannel must NOT be part of the predicate —
     // that's the "no id back-door" guarantee the plan locks in.
-    const idCol = getTableColumns(communityChannel).id;
-    expect(idCol.name).toBe("id");
-    expect(chunkStr).not.toContain("col:id");
+    expect(tokens).not.toContain("col:id");
   });
 
   it("scopes lookup to server AND caller's membership (no cross-server leak)", async () => {
@@ -103,8 +111,8 @@ describe("resolveChannelByNameForMember — SQL invariants", () => {
     expect(chain.innerJoin).toHaveBeenCalledOnce();
 
     const [whereExpr] = db.where.mock.calls[0]!;
-    const chunkStr = chunksToString(collectChunks(whereExpr));
-    expect(chunkStr).toContain("col:server_id");
+    const tokens = flattenTokens(whereExpr);
+    expect(tokens).toContain("col:server_id");
   });
 
   it("returns [] when no top-level row matches — the DB partial-unique guarantees ≤1", async () => {

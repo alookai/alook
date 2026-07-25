@@ -4,7 +4,6 @@ import {
   CommunityAgentChannelMemberRequestSchema,
   DM_SERVER,
   formatHandle,
-  isForumPost,
   isThread,
   parseRef,
 } from "@alook/shared"
@@ -25,11 +24,12 @@ import { requireChannelAccess } from "@/lib/community/permissions"
  *   - DM ref → 400 (channel-scoped). Rejected UP FRONT (before
  *     `resolveTargetForMember`) so an un-opened DM surfaces the correct
  *     channel-scoped 400 instead of a misleading 404 "dm not found".
- *   - thread / forum post (`type = "thread" | "forum_post"`) → always private on
- *     the wire; returns the participant roster (`community_thread_participant`).
- *     Both are the NOTIFY dimension: a thread/post carries its own notify set
- *     irrespective of its parent channel/forum's public/private state, so a
- *     public post lists only its participants, never the whole server.
+ *   - thread (`type = "thread"`) → always private on the wire; returns the
+ *     participant roster (`community_thread_participant`). Threads are the
+ *     NOTIFY dimension: they carry their own notify set irrespective of the
+ *     parent channel's public/private state. Forum posts share this shape but
+ *     are not agent-addressable via any current ref grammar, so this branch
+ *     only fires for threads reached via `<server>/<channel>/#N`.
  *   - public top-level channel/forum → `{ visibility: "public", hint }` (no
  *     roster enumeration — every server member can see it, so the agent should
  *     use `alook server member --server <name>` instead).
@@ -85,11 +85,11 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
 
   const { channel, isPrivate } = access.value
 
-  // Thread / forum-post branch: both are the NOTIFY dimension — the roster is
-  // the participant set (`community_thread_participant`), always private on the
-  // wire, regardless of the parent channel/forum's public/private state. A
-  // public forum post therefore lists only its participants, not the server.
-  if (isThread(channel.type) || isForumPost(channel.type)) {
+  // Thread branch: the NOTIFY dimension — the roster is the participant set
+  // (`community_thread_participant`), always private on the wire regardless of
+  // the parent's public/private state. Forum posts are not agent-addressable,
+  // so this handler only sees `thread` or top-level channel rows here.
+  if (isThread(channel.type)) {
     const userIds = await queries.communityThread.listThreadParticipantUserIds(db, channelId)
     const members = await hydrateMembers(db, channel.serverId, userIds)
     return NextResponse.json<ChannelMemberResult>({ visibility: "private", members })

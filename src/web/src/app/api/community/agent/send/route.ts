@@ -76,9 +76,14 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
     const gate = await requireChannelMember(db, resolved.channelId, ctx.botUserId)
     if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status })
     const channel = gate.value
+    // Only threads have a non-null parentChannelId in this path — the ref
+    // resolver filters name lookups to top-level (parent_channel_id IS NULL)
+    // and thread refs (`#N`) create/reuse rows with type="thread". Forum
+    // posts are not addressable by any agent ref today, so no `forum_post`
+    // arm is needed here.
     target = channel.parentChannelId
       ? {
-          kind: channel.type === "forum_post" ? "forum_post" : "thread",
+          kind: "thread",
           channelId: channel.id,
           parentChannelId: channel.parentChannelId,
           serverId: channel.serverId,
