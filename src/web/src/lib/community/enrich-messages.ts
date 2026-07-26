@@ -30,7 +30,7 @@ export async function enrichMessages(
   const messageIds = items.map((m) => m.id)
   const replyToIds = items.map((r) => r.replyToId).filter(Boolean) as string[]
 
-  const [allAttachments, allReactions, replyMessages, childChannels, latestSeq] = await Promise.all([
+  const [allAttachments, allReactions, replyMessages, childChannels, latestSeq, approvalByMessageId] = await Promise.all([
     messageIds.length > 0
       ? queries.communityAttachment.listByMessageIds(db, messageIds)
       : Promise.resolve([]),
@@ -45,6 +45,11 @@ export async function enrichMessages(
       ? queries.communityChannel.listChildChannels(db, scope.channelId)
       : Promise.resolve([]),
     queries.communityMessage.getLatestMessageSeq(db, scopeSeqTarget(scope)),
+    // Friend-approval cards only ever live in DMs — skip the hydration query
+    // for channel scope entirely.
+    !isChannel && messageIds.length > 0
+      ? queries.communityFriendship.hydrateApprovalsForDmMessages(db, messageIds, userId)
+      : Promise.resolve(new Map()),
   ])
 
   const attachmentsByMessage = groupAttachments(allAttachments)
@@ -58,7 +63,13 @@ export async function enrichMessages(
   )
 
   const messages = items.map((r) =>
-    mapMessageForApi(r as never, { replyMap, attachmentsByMessage, reactionsByMessage, threadByMessageId }),
+    mapMessageForApi(r as never, {
+      replyMap,
+      attachmentsByMessage,
+      reactionsByMessage,
+      threadByMessageId,
+      approvalByMessageId: approvalByMessageId as Map<string, import("@alook/shared").FriendApprovalPayload>,
+    }),
   )
   return { messages, latestSeq }
 }

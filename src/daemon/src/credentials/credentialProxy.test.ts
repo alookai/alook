@@ -51,6 +51,13 @@ describe("DEFAULT_CAPABILITY_RESOLVER", () => {
     expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/reactAdd")).toBe("send");
     expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/agent/reactAdd")).toBe("send");
   });
+
+  it("maps friendRequest / listFriends to the `friend` capability, both pre- and post-rewrite", () => {
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/friendRequest")).toBe("friend");
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/listFriends")).toBe("friend");
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/agent/friendRequest")).toBe("friend");
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/agent/listFriends")).toBe("friend");
+  });
 });
 
 describe("CredentialBroker", () => {

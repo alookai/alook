@@ -73,16 +73,13 @@ export default function MeFriendsPage() {
           { onError: (e) => toastApiError(e, "Failed to reject request") },
         )
       }
-      onCancelRequest={({ id, source }) =>
-        source === "bot"
-          ? cancelBotFriendRequest.mutate(
-              { requestId: id },
-              { onError: (e) => toastApiError(e, "Failed to cancel request") },
-            )
-          : rejectFriendRequest.mutate(
-              { friendshipId: id },
-              { onError: (e) => toastApiError(e, "Failed to cancel request") },
-            )
+      onCancelRequest={({ id }) =>
+        // Unified after migration 0065 — outgoing pendings (own or the owner's
+        // bots') are real community_friendship rows cancelled via DELETE.
+        cancelBotFriendRequest.mutate(
+          { requestId: id },
+          { onError: (e) => toastApiError(e, "Failed to cancel request") },
+        )
       }
       onUnblock={(id) =>
         unblockUser.mutate(

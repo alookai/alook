@@ -18,7 +18,7 @@ import { createLogger } from "../logger.js";
 import { UnknownRuntimeError } from "../manager/agentRouter.js";
 import { readDaemonVersion } from "../version.js";
 
-const CAPABILITIES = ["send", "read", "mentions", "tasks", "reactions", "server", "channels", "knowledge", "attach"];
+const CAPABILITIES = ["send", "read", "mentions", "tasks", "reactions", "server", "channels", "knowledge", "attach", "friend"];
 
 /**
  * Grace window for a daemon to exit on SIGTERM before we escalate to SIGKILL.

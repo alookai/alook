@@ -164,12 +164,14 @@ export function insertMessageIntoCache(
   const authorAvatar = "authorAvatar" in msg ? msg.authorAvatar : undefined
   const authorId = "authorId" in msg ? msg.authorId : undefined
   const replyTo = "replyTo" in msg ? (msg.replyTo as Msg["replyTo"]) : undefined
+  const approval = "approval" in msg ? (msg.approval as Msg["approval"]) : undefined
   const rendered: Msg = {
     id: msg.id,
     authorName,
     authorAvatar: authorAvatar || avatarInitial(authorName ?? ""),
     content: msg.content,
     createdAt: msg.createdAt,
+    ...(approval ? { approval } : {}),
     // Non-system branch is explicit ("chat", not omitted) — `Msg.type` is a
     // required, exhaustive discriminator (#12); a DM message (the other
     // union member here) never carries `type` at all, and also renders as
@@ -231,6 +233,30 @@ function patchAuthorNameInCache(cache: PageCache | undefined, userId: string, ne
     return {
       ...p,
       messages: p.messages.map((m) => (m.authorId === userId ? { ...m, authorName: newName } : m)),
+    }
+  })
+  if (!touched) return cache
+  return { ...cache, pages }
+}
+
+/**
+ * Patch the `approval` payload of a single cached message — the client-side
+ * effect of a `DM_MESSAGE_UPDATED` event. The card re-renders in its new
+ * state (approved/denied/superseded/waiting) without a refetch.
+ */
+function patchApprovalInCache(
+  cache: PageCache | undefined,
+  messageId: string,
+  approval: Msg["approval"],
+): PageCache | undefined {
+  if (!cache) return cache
+  let touched = false
+  const pages = cache.pages.map((p) => {
+    if (!p.messages.some((m) => m.id === messageId)) return p
+    touched = true
+    return {
+      ...p,
+      messages: p.messages.map((m) => (m.id === messageId ? { ...m, approval } : m)),
     }
   })
   if (!touched) return cache
@@ -856,6 +882,26 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           void queryClient.invalidateQueries({ queryKey: communityKeys.dms() })
           scheduleInboxInvalidate()
           cbs.onDm?.(event)
+          return
+        }
+
+        // ── DM message updated (friend-approval card state change) ───────
+        case "community:dm.message_updated": {
+          // Patch the card's approval payload in the focused DM cache so it
+          // re-renders in its new state without a refetch.
+          if (event.dmConversationId === sub.dmConversationId) {
+            queryClient.setQueryData<PageCache>(
+              communityKeys.dmMessages(event.dmConversationId),
+              (c) => patchApprovalInCache(c, event.messageId, event.approval),
+            )
+          }
+          // When a card resolves (accepted/denied/superseded), the friend graph
+          // changed — invalidate friends + pending so the owner's lists reflect
+          // it. This is the owner's only signal in the J2 tail (Alice's accept
+          // dead-letters FRIEND_ACCEPT to the bot).
+          if (event.approval.status !== "pending" || event.approval.waitingOn !== "you") {
+            void queryClient.invalidateQueries({ queryKey: communityKeys.friends() })
+          }
           return
         }
 

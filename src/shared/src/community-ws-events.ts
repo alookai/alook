@@ -319,6 +319,41 @@ export type CommunityFriendBlock = {
   userId: string
 }
 
+// ── Friend-approval card payload ───────────────────────────────────────────────
+//
+// Projected per-viewer for a friend-approval DM card (see
+// plans/agent-friendship-approval-gate.md §DM card payload). Presence of this
+// object on a DM message is the client-side discriminator for rendering the
+// card — the message `type` stays "default". No `isBot` on any profile: the
+// projections go through `getUserPublic`, and `botProfile` is the reader's own
+// bot. No `kind` discriminator — `join_server` cards are a follow-up.
+
+export type FriendApprovalProfile = {
+  id: string
+  name: string
+  discriminator: string
+  image: string | null
+}
+
+export type FriendApprovalPayload = {
+  friendshipId: string
+  // 'cancelled' — the requester withdrew a still-pending request (distinct from
+  // 'superseded', which is a newer request replacing this one).
+  status: "pending" | "approved" | "denied" | "superseded" | "cancelled"
+  // Per-viewer projection. 'you' while this viewer's owner-approval is pending;
+  // 'other-owner' after this viewer approved but a downstream owner is next
+  // (J3); 'addressee' after this viewer approved and the human addressee must
+  // still accept (J2); null for terminal states.
+  waitingOn: "you" | "other-owner" | "addressee" | null
+  // The other party — never the DM owner's own bot.
+  otherProfile: FriendApprovalProfile
+  // The DM owner's bot (also the DM peer). Leak-safe (reader's own bot).
+  botProfile: FriendApprovalProfile
+  // The person the card is currently waiting on, when waitingOn is
+  // 'other-owner' or 'addressee'; null for 'you' and terminal states.
+  waitingOnProfile?: FriendApprovalProfile | null
+}
+
 // ── DM events ─────────────────────────────────────────────────────────────────
 
 export type CommunityDmNewMessage = {
@@ -341,7 +376,23 @@ export type CommunityDmNewMessage = {
       height?: number | null
     }[]
     createdAt: string
+    /** Present only on a friend-approval card. Client renders the card when set. */
+    approval?: FriendApprovalPayload
   }
+}
+
+/**
+ * A DM message's friend-approval card changed state (approve / deny / supersede
+ * / accept). Fanned to every DM peer whose DM contains a message with the
+ * friendship's id so first-hop and second-hop cards (J3), and a superseded card
+ * and its replacement, rehydrate without a refetch. `approval` is the fresh
+ * per-recipient projection.
+ */
+export type CommunityDmMessageUpdated = {
+  type: "community:dm.message_updated"
+  dmConversationId: string
+  messageId: string
+  approval: FriendApprovalPayload
 }
 
 export type CommunityDmTyping = {
@@ -538,6 +589,7 @@ export type CommunityWsEvent =
   | CommunityFriendRemove
   | CommunityFriendBlock
   | CommunityDmNewMessage
+  | CommunityDmMessageUpdated
   | CommunityDmTyping
   | CommunityPresenceUpdate
   | CommunityStatusUpdate
@@ -585,6 +637,7 @@ export const WS_EVENTS = {
   FRIEND_REMOVE: "community:friend.remove",
   FRIEND_BLOCK: "community:friend.block",
   DM_NEW_MESSAGE: "community:dm.new_message",
+  DM_MESSAGE_UPDATED: "community:dm.message_updated",
   DM_TYPING: "community:dm.typing",
   INVITE_CREATE: "community:invite.create",
   MENTION_CREATE: "community:mention.create",

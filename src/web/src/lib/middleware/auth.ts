@@ -10,6 +10,14 @@ export interface AuthContext {
   userId: string
   email: string
   workspaceId?: string
+  /**
+   * The authenticated user's internal flags. Populated from the request-time
+   * session guard. `isBot` is always false in production (a bot session is
+   * rejected at 401 before the handler runs), but friend-graph routes assert
+   * `ctx.user?.isBot` locally as belt-and-suspenders — see
+   * plans/agent-friendship-approval-gate.md §Hardening.
+   */
+  user?: { isBot: boolean }
 }
 
 /**
@@ -195,12 +203,14 @@ export function withAuth(handler: AuthenticatedHandler) {
     //   - deletedAt != null → session invalid
     //   - isBot === true    → session invalid (bots must never sign in)
     // Belt-and-braces with the databaseHooks.session.create.before hook.
+    let sessionUserIsBot = false
     try {
       const db = getDb(cloudflareEnv.DB)
       const internal = await queries.user.getUserInternal(
         db,
         sessionResult.response.user.id,
       )
+      sessionUserIsBot = internal?.isBot === true
       if (!internal || internal.deletedAt !== null || internal.isBot === true) {
         // Best-effort server-side invalidation. Cookie clear happens via the
         // 401 response below; Better-Auth will see the missing session next
@@ -228,6 +238,7 @@ export function withAuth(handler: AuthenticatedHandler) {
       env: cloudflareEnv,
       userId: sessionResult.response.user.id,
       email: sessionResult.response.user.email,
+      user: { isBot: sessionUserIsBot },
     }
     const res = await handler(req, { ...authCtx, params: resolvedParams })
 

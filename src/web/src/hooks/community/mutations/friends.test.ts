@@ -103,19 +103,19 @@ describe("useAcceptFriendRequest — rollback", () => {
 })
 
 describe("useCancelBotFriendRequest — optimistic + rollback", () => {
-  it("posts to the bot-cancel route and optimistically drops the outgoing bot row", async () => {
+  it("DELETEs the friendship row and optimistically drops the outgoing row", async () => {
     capturedQc.setQueryData(communityKeys.friends(), {
       friends: [],
       blocked: [],
-      pending: [{ id: "bar_1", userId: "u_bot", name: "Bot", avatar: "B", kind: "outgoing", source: "bot" }],
+      pending: [{ id: "fr_1", userId: "u_bot", name: "Bot", avatar: "B", kind: "outgoing" }],
     })
     apiFetchMock.mockResolvedValueOnce(undefined)
     const mod = await load()
     mod.useCancelBotFriendRequest()
-    await runMutation({ requestId: "bar_1" })
+    await runMutation({ requestId: "fr_1" })
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/community/friends/bot-request/bar_1/cancel",
-      { method: "POST" },
+      "/api/community/friends/fr_1",
+      { method: "DELETE" },
     )
     const cache = capturedQc.getQueryData<{ pending: { id: string }[] }>(communityKeys.friends())
     expect(cache?.pending).toHaveLength(0)
@@ -125,12 +125,12 @@ describe("useCancelBotFriendRequest — optimistic + rollback", () => {
     capturedQc.setQueryData(communityKeys.friends(), {
       friends: [],
       blocked: [],
-      pending: [{ id: "bar_1", userId: "u_bot", name: "Bot", avatar: "B", kind: "outgoing", source: "bot" }],
+      pending: [{ id: "fr_1", userId: "u_bot", name: "Bot", avatar: "B", kind: "outgoing" }],
     })
     apiFetchMock.mockRejectedValueOnce(new Error("boom"))
     const mod = await load()
     mod.useCancelBotFriendRequest()
-    await runMutation({ requestId: "bar_1" }).catch(() => {})
+    await runMutation({ requestId: "fr_1" }).catch(() => {})
     const cache = capturedQc.getQueryData<{ pending: { id: string }[] }>(communityKeys.friends())
     expect(cache?.pending).toHaveLength(1)
   })

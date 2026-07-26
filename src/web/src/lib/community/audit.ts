@@ -23,10 +23,16 @@ export const COMMUNITY_AUDIT_ACTIONS = {
   /** A bot joined a server via `alook server join --invite <link>` (owner-initiated CLI join). */
   BOT_JOINED_VIA_INVITE: "community.bot.joined_via_invite",
   BOT_FRIEND_REQUESTED: "community.bot.friend_requested",
-  BOT_FRIEND_APPROVED: "community.bot.friend_approved",
-  BOT_FRIEND_DENIED: "community.bot.friend_denied",
   /** Requester withdrew their own pending bot friend-request. */
   BOT_FRIEND_CANCELLED: "community.bot.friend_cancelled",
+  /** A pending friend row was superseded by a fresh request between the pair. */
+  BOT_FRIEND_REQUEST_SUPERSEDED: "community.bot.friend_request_superseded",
+  /** A gated friend row was approved by the requester's/target's owner. */
+  BOT_FRIEND_APPROVED_BY_OWNER: "community.bot.friend_approved_by_owner",
+  /** A gated friend row was denied by the deciding owner. */
+  BOT_FRIEND_DENIED_BY_OWNER: "community.bot.friend_denied_by_owner",
+  /** A sibling-bot friendship backfill (createBot fanout) failed for one sibling. */
+  BOT_SIBLING_FRIENDSHIP_BACKFILL_FAILED: "community.bot.sibling_friendship_backfill_failed",
   MESSAGE_AUTHORED_AS_BOT: "community.message.authored_as_bot",
 } as const
 

@@ -44,6 +44,8 @@ import type {
   Seq,
   Server,
   AgentId,
+  FriendRequestResult,
+  FriendCard,
 } from "../server/contract.js";
 
 export interface ProxyServerApiConfig {
@@ -200,5 +202,12 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     attachmentDownload: callDownload,
     reactAdd: (r: { channel: ChannelRef; seq: Seq; emoji: string }) =>
       call<CommunityAgentReactAddResponse>("reactAdd", r),
+    friendRequest: (r: { agentId: AgentId; username: string }) =>
+      call<FriendRequestResult>("friendRequest", r),
+    listFriends: (r: { agentId: AgentId }) =>
+      call<{ accepted: FriendCard[]; pendingOutgoing: FriendCard[]; pendingIncoming: FriendCard[] }>(
+        "listFriends",
+        r,
+      ),
   };
 }

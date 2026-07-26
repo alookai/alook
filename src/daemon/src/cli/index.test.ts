@@ -32,6 +32,8 @@ function stubApi(over: Partial<ServerApi> = {}): ServerApi {
     listMembers: async () => ({ members: [] }),
     joinServer: async () => ({ server: { id: "s", name: "s" } }),
     reactAdd: async () => ({ ok: true, duplicate: false }),
+    friendRequest: async () => ({ friendshipId: "fr_1", status: "pending", hint: "Your owner needs to approve this request in DM." }),
+    listFriends: async () => ({ accepted: [], pendingOutgoing: [], pendingIncoming: [] }),
     ...over,
   } as ServerApi;
 }
@@ -709,5 +711,109 @@ describe("import side effects", () => {
     } finally {
       parseSpy.mockRestore();
     }
+  });
+});
+
+describe("friend request", () => {
+  it("prints the pending variant of the discriminated union verbatim", async () => {
+    const friendRequestSpy = vi.fn(async () => ({
+      friendshipId: "fr_1",
+      status: "pending" as const,
+      hint: "Your owner Bob needs to approve this request in DM.",
+    }));
+    setApiForTesting(stubApi({ friendRequest: friendRequestSpy }));
+    await main(["friend", "request", "--username", "Alice#0042"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env).toEqual({
+      success: {
+        friendshipId: "fr_1",
+        status: "pending",
+        hint: "Your owner Bob needs to approve this request in DM.",
+      },
+    });
+    expect(friendRequestSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ username: "Alice#0042" }),
+    );
+  });
+
+  it("passes the sibling-accept variant through untouched (hint: null not collapsed)", async () => {
+    setApiForTesting(
+      stubApi({
+        friendRequest: async () => ({ friendshipId: "fr_2", status: "accepted" as const, hint: null }),
+      }),
+    );
+    await main(["friend", "request", "--username", "Yara#0042"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env).toEqual({ success: { friendshipId: "fr_2", status: "accepted", hint: null } });
+  });
+
+  it("missing --username → error envelope, friendRequest never called", async () => {
+    const friendRequestSpy = vi.fn(async () => ({ friendshipId: "x", status: "pending" as const, hint: "h" }));
+    setApiForTesting(stubApi({ friendRequest: friendRequestSpy }));
+    await main(["friend", "request"]);
+    const env = parseEnvelope(cap.lines());
+    expect(typeof env.error).toBe("string");
+    expect(env.error).toContain("--username");
+    expect(friendRequestSpy).not.toHaveBeenCalled();
+  });
+
+  it("surfaces code on an already_friends rejection, still one JSON line", async () => {
+    const err = new Error("already friends") as Error & { code?: string };
+    err.code = "already_friends";
+    setApiForTesting(stubApi({ friendRequest: async () => { throw err; } }));
+    await main(["friend", "request", "--username", "Bob#0042"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env.error).toBeDefined();
+    expect(env.code).toBe("already_friends");
+    expect("success" in env).toBe(false);
+  });
+
+  it("surfaces code on a blocked rejection, still one JSON line", async () => {
+    const err = new Error("blocked") as Error & { code?: string };
+    err.code = "blocked";
+    setApiForTesting(stubApi({ friendRequest: async () => { throw err; } }));
+    await main(["friend", "request", "--username", "Yara#0042"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env.error).toBeDefined();
+    expect(env.code).toBe("blocked");
+  });
+});
+
+describe("friend list", () => {
+  it("prints the three buckets from a stubbed listFriends", async () => {
+    const listFriendsSpy = vi.fn(async () => ({
+      accepted: [
+        {
+          userId: "u_alice",
+          handle: "Alice#0042",
+          name: "Alice",
+          bio: null,
+          statusText: null,
+          statusEmoji: null,
+          presence: "online" as const,
+        },
+      ],
+      pendingOutgoing: [],
+      pendingIncoming: [],
+    }));
+    setApiForTesting(stubApi({ listFriends: listFriendsSpy }));
+    await main(["friend", "list"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env.success).toMatchObject({
+      accepted: [expect.objectContaining({ handle: "Alice#0042", presence: "online" })],
+      pendingOutgoing: [],
+      pendingIncoming: [],
+    });
+  });
+
+  it("prints empty buckets as [] (not null) so the parser sees a stable shape", async () => {
+    setApiForTesting(
+      stubApi({
+        listFriends: async () => ({ accepted: [], pendingOutgoing: [], pendingIncoming: [] }),
+      }),
+    );
+    await main(["friend", "list"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env).toEqual({ success: { accepted: [], pendingOutgoing: [], pendingIncoming: [] } });
   });
 });

@@ -13,7 +13,11 @@
  *      (Bearer `cmk_`) → per-agent runner key (`crk_`).
  *   3. credential proxy (http): validates agent vouchers, swaps in runner
  *      keys, stamps X-Agent-Id, and forwards to the server's data plane.
- *      All agent traffic flows through here.
+ *      All agent traffic flows through here. The agent-facing catalog is
+ *      `/api/{inboxPull,ack,send,read,resolve,listServers,listChannels,
+ *      listMembers,channelMember,joinServer,reactAdd,attachmentUpload,
+ *      attachmentDownload,friendRequest,listFriends}` (rewritten to
+ *      `/api/community/agent/*` — see `rewriteAgentPath` in credentialProxy.ts).
  *
  * It is agnostic on both axes:
  *   - whether the server is a real Alook server or a local `wrangler dev`

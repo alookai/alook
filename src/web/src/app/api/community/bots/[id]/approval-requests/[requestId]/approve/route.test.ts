@@ -33,7 +33,6 @@ vi.mock("@/lib/community/audit", () => ({
   COMMUNITY_AUDIT_ACTIONS: {
     BOT_JOIN_APPROVED: "bot_join_approved",
     BOT_ADDED_TO_SERVER: "bot_added_to_server",
-    BOT_FRIEND_APPROVED: "bot_friend_approved",
   },
 }))
 

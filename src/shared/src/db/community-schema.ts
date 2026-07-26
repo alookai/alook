@@ -192,6 +192,15 @@ export const communityMessage = sqliteTable(
     // seq. Uniqueness enforced by partial indexes in migration 0052 (excluded
     // here since Drizzle doesn't support partial indexes in the schema DSL).
     seq: integer("seq").notNull().default(0),
+    // Back-reference to the friendship an approval card renders (migration
+    // 0065). Populated on approval-card DM messages only; null everywhere else.
+    // ON DELETE SET NULL — unfriending nulls the card back-ref; the message
+    // falls back to its stored text. The partial index
+    // idx_message_friendship (friendship_id IS NOT NULL) lives in the migration.
+    friendshipId: text("friendship_id").references(
+      (): any => communityFriendship.id,
+      { onDelete: "set null" }
+    ),
   },
   (t) => [
     index("idx_message_channel_created").on(t.channelId, t.createdAt),
@@ -292,6 +301,13 @@ export const communityServerInvite = sqliteTable(
 );
 
 // 11. community_friendship
+//
+// schema-drift: `uq_friendship_active` is a partial unique index over the
+// UNORDERED pair — MIN(requester_id, addressee_id), MAX(...) WHERE status IN
+// ('pending','accepted') — which Drizzle's index DSL can't express (no
+// function-expression column support). It is enforced only in migration
+// 0065_unified_friendship_approval.sql; D1 enforces it at runtime. Keep the two
+// in sync manually. Drizzle's role for that index here is documentation.
 export const communityFriendship = sqliteTable(
   "community_friendship",
   {
@@ -302,13 +318,19 @@ export const communityFriendship = sqliteTable(
     addresseeId: text("addressee_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    // 'pending' | 'accepted' | 'blocked' | 'denied' | 'superseded' | 'cancelled'.
+    // 'denied' / 'superseded' / 'cancelled' are terminal (set `resolvedAt`).
     status: text("status").notNull().default("pending"),
+    // Whose owner-approval this row is currently waiting on. Null for
+    // human↔human (no gate). In J3 it walks requester-owner → addressee-owner.
+    needsOwnerApproval: text("needs_owner_approval").references(() => user.id),
     blockerId: text("blocker_id"),
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
     updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+    // Terminal timestamp for accepted/denied/superseded rows.
+    resolvedAt: text("resolved_at"),
   },
   (t) => [
-    unique("uq_friendship_requester_addressee").on(t.requesterId, t.addresseeId),
     index("idx_friendship_addressee_status").on(t.addresseeId, t.status),
     index("idx_friendship_requester_status").on(t.requesterId, t.status),
   ]
@@ -530,10 +552,12 @@ export const communityAuditLog = sqliteTable(
 
 // 20. community_bot_approval_request
 // Represents pending/resolved approval workflows a bot owner sees in the
-// owner↔bot DM. `kind` distinguishes the two flows:
+// owner↔bot DM. After migration 0065 the ONLY live `kind` is:
 //   - "join_server": another user asked to add the bot to a server they're in
-//   - "friend": another user sent a friend request to the bot
-// `serverId` is non-null iff `kind = "join_server"` (application-enforced).
+// The former "friend" kind was folded into `community_friendship`
+// (needsOwnerApproval column) and its rows deleted by the migration. The table
+// name and shape stay; only the Drizzle `kind` union narrows (see `ApprovalKind`
+// in queries/community/bot.ts). `serverId` is non-null iff kind="join_server".
 export const communityBotApprovalRequest = sqliteTable(
   "community_bot_approval_request",
   {

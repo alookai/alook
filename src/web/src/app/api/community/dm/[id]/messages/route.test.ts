@@ -42,6 +42,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityFriendship: {
         isBlocked: (...a: unknown[]) => mockIsBlocked(...a),
+        hydrateApprovalsForDmMessages: vi.fn(async () => new Map()),
       },
       communityMessage: {
         createMessage: (...a: unknown[]) => mockCreateMessage(...a),

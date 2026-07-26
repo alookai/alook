@@ -53,6 +53,8 @@ export type {
   ChannelMemberResult,
   ServerMember,
   ServerApi,
+  FriendRequestResult,
+  FriendCard,
   UnreadNotice,
   HostCommand,
   HostReadyRuntime,

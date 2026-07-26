@@ -21,7 +21,6 @@ vi.mock("@/lib/community/audit", () => ({
   logAudit: (...a: unknown[]) => mockLogAudit(...a),
   COMMUNITY_AUDIT_ACTIONS: {
     BOT_JOIN_DENIED: "bot_join_denied",
-    BOT_FRIEND_DENIED: "bot_friend_denied",
   },
 }))
 
@@ -53,8 +52,8 @@ describe("POST /api/community/bots/[id]/approval-requests/[requestId]/deny", () 
       id: "req_1",
       botId: "bot_1",
       status: "pending",
-      kind: "friend",
-      serverId: null,
+      kind: "join_server",
+      serverId: "srv_1",
       requestedByUserId: "u_friend",
     })
     mockResolveApprovalRequest.mockResolvedValue(undefined)
@@ -70,7 +69,7 @@ describe("POST /api/community/bots/[id]/approval-requests/[requestId]/deny", () 
     const res = await POST({} as any, ctx)
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body).toEqual({ status: "denied", kind: "friend" })
+    expect(body).toEqual({ status: "denied", kind: "join_server" })
     expect(mockResolveApprovalRequest).toHaveBeenCalledWith(
       expect.anything(),
       "req_1",

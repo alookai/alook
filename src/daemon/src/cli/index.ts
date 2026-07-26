@@ -39,6 +39,9 @@ interface Envelope {
   success?: unknown;
   error?: string;
   hint?: string;
+  /** Stable machine code carried up from an upstream error body (e.g.
+   *  `already_friends`, `blocked`). Present only on the error envelope. */
+  code?: string;
 }
 
 /** A command failure with a human-readable message destined for `error`. */
@@ -54,6 +57,7 @@ function printEnvelope(env: Envelope): void {
   const out: Record<string, unknown> = {};
   if (env.success !== undefined && env.success !== null) out.success = env.success;
   if (env.error !== undefined && env.error !== null) out.error = env.error;
+  if (env.code !== undefined && env.code !== null) out.code = env.code;
   if (env.hint !== undefined && env.hint !== null) out.hint = env.hint;
   process.stdout.write(JSON.stringify(out) + "\n");
 }
@@ -383,6 +387,23 @@ async function cmdChannelHistory(opts: Record<string, unknown>): Promise<unknown
   return { items: messagesInLocalTime(items), hasMore, ...(latestSeq !== undefined ? { latestSeq } : {}) };
 }
 
+async function cmdFriendRequest(opts: Record<string, unknown>): Promise<unknown> {
+  const api = getApi();
+  const agent = agentId(opts);
+  const username = opts.username as string;
+  if (!username) throw new CliError("friend request: --username <name#0042> is required");
+  // Pass the envelope through verbatim — the discriminated union
+  // (`{ status: 'pending', hint }` | `{ status: 'accepted', hint: null }`) is
+  // the agent-facing contract; do not collapse `hint: null`.
+  return await api.friendRequest({ agentId: agent, username });
+}
+
+async function cmdFriendList(opts: Record<string, unknown>): Promise<unknown> {
+  const api = getApi();
+  const agent = agentId(opts);
+  return await api.listFriends({ agentId: agent });
+}
+
 /* ------------------------------------------------------------------ */
 /* Program definition                                                  */
 /* ------------------------------------------------------------------ */
@@ -571,6 +592,34 @@ function buildProgram(): Command {
       printEnvelope({ success: result });
     });
 
+  const friend = program.command("friend").description("friend operations").exitOverride();
+  friend.configureOutput({ writeOut: () => {}, writeErr: () => {} });
+
+  friend
+    .command("request")
+    .description("send a friend request to a user by handle (owner-approval required)")
+    .option("--username <name#0042>", "the target's global handle, e.g. Alice#0042")
+    .exitOverride()
+    .configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      const localOpts = this.opts();
+      const globalOpts = program.opts();
+      const result = await cmdFriendRequest({ ...globalOpts, ...localOpts });
+      printEnvelope({ success: result });
+    });
+
+  friend
+    .command("list")
+    .description("list your friends and pending requests (accepted, pendingOutgoing, pendingIncoming)")
+    .exitOverride()
+    .configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      const localOpts = this.opts();
+      const globalOpts = program.opts();
+      const result = await cmdFriendList({ ...globalOpts, ...localOpts });
+      printEnvelope({ success: result });
+    });
+
   const daemon = program.command("daemon").description("daemon operations").exitOverride();
   daemon.configureOutput({ writeOut: () => {}, writeErr: () => {} });
 
@@ -645,7 +694,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     } else if (err instanceof CliError) {
       printEnvelope({ error: err.message, hint: (err as { hint?: string }).hint });
     } else {
-      printEnvelope({ error: (err as Error).message, hint: (err as { hint?: string }).hint });
+      // Upstream API errors (thrown by proxyServerApi) may carry a stable
+      // `.code` and `.hint` — surface both so agent prompts can discriminate.
+      printEnvelope({
+        error: (err as Error).message,
+        code: (err as { code?: string }).code,
+        hint: (err as { hint?: string }).hint,
+      });
     }
   }
   return 0;

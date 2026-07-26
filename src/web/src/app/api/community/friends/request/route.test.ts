@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
-const getUser = vi.fn()
 const getUserInternal = vi.fn()
 const getUserByNameAndDiscriminator = vi.fn()
 const getUserByNameCaseInsensitive = vi.fn()
@@ -17,7 +16,6 @@ vi.mock("@alook/shared", async () => {
     ...actual,
     queries: {
       user: {
-        getUser: (...a: unknown[]) => getUser(...a),
         getUserInternal: (...a: unknown[]) => getUserInternal(...a),
         getUserByNameAndDiscriminator: (...a: unknown[]) => getUserByNameAndDiscriminator(...a),
         getUserByNameCaseInsensitive: (...a: unknown[]) => getUserByNameCaseInsensitive(...a),
@@ -26,16 +24,6 @@ vi.mock("@alook/shared", async () => {
         sendRequest: (...a: unknown[]) => sendRequest(...a),
         isBlocked: (...a: unknown[]) => isBlocked(...a),
       },
-      communityBot: {
-        findPendingFriendRequest: vi.fn().mockResolvedValue(null),
-        createApprovalRequestStatement: vi.fn(),
-      },
-      communityDm: {
-        createOrGetDM: vi.fn(),
-      },
-      communityMessage: {
-        createMessage: vi.fn(),
-      },
     },
   }
 })
@@ -43,7 +31,7 @@ vi.mock("@alook/shared", async () => {
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
     const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: {}, userId: "u1", email: "u@t.com", params })
+    return handler(req, { env: {}, userId: "u1", email: "u@t.com", user: { isBot: false }, params })
   }),
 }))
 
@@ -72,7 +60,6 @@ function postReq(body: unknown) {
 describe("POST /api/community/friends/request", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    getUser.mockResolvedValue({ id: "u2" })
     getUserInternal.mockResolvedValue({
       id: "u2",
       isBot: false,
@@ -83,10 +70,20 @@ describe("POST /api/community/friends/request", () => {
     broadcastToUser.mockResolvedValue(undefined)
   })
 
-  it("creates a pending friendship and broadcasts friend.request (201)", async () => {
+  it("creates a pending friendship and relays the query's broadcasts (201)", async () => {
     sendRequest.mockResolvedValue({
       kind: "created",
       friendship: { id: "f1", requesterId: "u1", addresseeId: "u2", status: "pending" },
+      supersededIds: [],
+      broadcasts: [
+        {
+          userId: "u2",
+          event: {
+            type: "community:friend.request",
+            friendship: { id: "f1", requesterId: "u1", addresseeId: "u2", status: "pending", createdAt: "t" },
+          },
+        },
+      ],
     })
     const res = await POST(postReq({ userId: "u2" }), {} as never)
     expect(res.status).toBe(201)
@@ -98,42 +95,12 @@ describe("POST /api/community/friends/request", () => {
     )
   })
 
-  it("friend.request payload is the projected shape (no blockerId / updatedAt)", async () => {
-    // Simulate the full DB row, including columns the client should not see.
-    sendRequest.mockResolvedValue({
-      kind: "created",
-      friendship: {
-        id: "f1",
-        requesterId: "u1",
-        addresseeId: "u2",
-        status: "pending",
-        createdAt: "2026-07-02T00:00:00.000Z",
-        blockerId: null,
-        updatedAt: "2026-07-02T00:00:00.000Z",
-      },
-    })
-    await POST(postReq({ userId: "u2" }), {} as never)
-    const call = broadcastToUser.mock.calls.find(
-      (c) => (c[1] as { type: string }).type === "community:friend.request",
-    )
-    expect(call).toBeDefined()
-    const payload = call![1] as { friendship: Record<string, unknown> }
-    expect(payload.friendship).toEqual({
-      id: "f1",
-      requesterId: "u1",
-      addresseeId: "u2",
-      status: "pending",
-      createdAt: "2026-07-02T00:00:00.000Z",
-    })
-    expect(payload.friendship).not.toHaveProperty("blockerId")
-    expect(payload.friendship).not.toHaveProperty("updatedAt")
-  })
-
   it("auto-accepts when the reverse-direction request already exists (200 + friend.accept)", async () => {
-    // The query layer reports it promoted an existing reverse pending row.
     sendRequest.mockResolvedValue({
       kind: "auto_accepted",
       friendship: { id: "f1", requesterId: "u2", addresseeId: "u1", status: "accepted" },
+      supersededIds: [],
+      broadcasts: [{ userId: "u2", event: { type: "community:friend.accept", friendshipId: "f1" } }],
     })
     const res = await POST(postReq({ userId: "u2" }), {} as never)
     expect(res.status).toBe(200)
@@ -155,32 +122,8 @@ describe("POST /api/community/friends/request", () => {
     expect(res.status).toBe(409)
   })
 
-  it("returns 409 when the UNIQUE constraint already covers this direction", async () => {
-    sendRequest.mockRejectedValue(new Error("UNIQUE constraint failed: community_friendship..."))
-    const res = await POST(postReq({ userId: "u2" }), {} as never)
-    expect(res.status).toBe(409)
-  })
-
-  it("returns 409 when the UNIQUE error is wrapped as .cause (DrizzleQueryError shape)", async () => {
-    // The real driver error hides behind DrizzleQueryError.cause on 0.44+.
-    // isUniqueConstraintError walks the cause chain; the previous substring
-    // hack manually concatenated `err.cause.message` — this test guards that
-    // the helper preserves that behaviour.
-    const wrapped = new Error("failed query: insert into community_friendship")
-      ; (wrapped as { cause?: unknown }).cause = new Error(
-        "UNIQUE constraint failed: community_friendship.requester_id",
-      )
-    sendRequest.mockRejectedValue(wrapped)
-    const res = await POST(postReq({ userId: "u2" }), {} as never)
-    expect(res.status).toBe(409)
-  })
-
-  it("returns 409 when the driver reports SQLITE_CONSTRAINT_UNIQUE via .code", async () => {
-    // Only reachable through the helper — the old substring hack would have
-    // rethrown this because "UNIQUE" is not in the message.
-    const codeErr = new Error("constraint violation")
-      ; (codeErr as { code?: string }).code = "SQLITE_CONSTRAINT_UNIQUE"
-    sendRequest.mockRejectedValue(codeErr)
+  it("returns 409 when the query reports a friend request already sent", async () => {
+    sendRequest.mockRejectedValue(new Error("friend request already sent"))
     const res = await POST(postReq({ userId: "u2" }), {} as never)
     expect(res.status).toBe(409)
   })
@@ -192,7 +135,6 @@ describe("POST /api/community/friends/request", () => {
   })
 
   it("returns 404 when the target user doesn't exist", async () => {
-    getUser.mockResolvedValue(null)
     getUserInternal.mockResolvedValue(null)
     const res = await POST(postReq({ userId: "u2" }), {} as never)
     expect(res.status).toBe(404)
@@ -206,12 +148,21 @@ describe("POST /api/community/friends/request", () => {
     expect(sendRequest).not.toHaveBeenCalled()
   })
 
+  it("returns 409 when adding your own bot (synthetic friendship)", async () => {
+    getUserInternal.mockResolvedValue({ id: "u2", isBot: true, ownerUserId: "u1", deletedAt: null })
+    const res = await POST(postReq({ userId: "u2" }), {} as never)
+    expect(res.status).toBe(409)
+    expect(sendRequest).not.toHaveBeenCalled()
+  })
+
   describe("username resolution (name#0042 exact match, else case-insensitive bare-name fallback)", () => {
     it("resolves a name#0042 handle via getUserByNameAndDiscriminator, skipping the bare-name fallback", async () => {
       getUserByNameAndDiscriminator.mockResolvedValue({ id: "u2" })
       sendRequest.mockResolvedValue({
         kind: "created",
         friendship: { id: "f1", requesterId: "u1", addresseeId: "u2", status: "pending" },
+      supersededIds: [],
+        broadcasts: [],
       })
 
       const res = await POST(postReq({ username: "Alex#0002" }), {} as never)
@@ -237,6 +188,8 @@ describe("POST /api/community/friends/request", () => {
       sendRequest.mockResolvedValue({
         kind: "created",
         friendship: { id: "f1", requesterId: "u1", addresseeId: "u2", status: "pending" },
+      supersededIds: [],
+        broadcasts: [],
       })
 
       const res = await POST(postReq({ username: "alex" }), {} as never)

@@ -22,20 +22,20 @@ export const POST = withAuth(async (_req, ctx) => {
   if (!request || request.botId !== botId) {
     return writeError("approval request not found", 404)
   }
+  // Only join_server rows survive migration 0065; anything else 404s defensively.
+  if (request.kind !== "join_server") {
+    return writeError("approval request not found", 404)
+  }
   if (request.status !== "pending") {
     return writeError("request already resolved", 400)
   }
 
   await queries.communityBot.resolveApprovalRequest(db, requestId, "denied")
 
-  const action =
-    request.kind === "join_server"
-      ? COMMUNITY_AUDIT_ACTIONS.BOT_JOIN_DENIED
-      : COMMUNITY_AUDIT_ACTIONS.BOT_FRIEND_DENIED
   logAudit(db, {
     serverId: request.serverId ?? null,
     actorId: ctx.userId,
-    action,
+    action: COMMUNITY_AUDIT_ACTIONS.BOT_JOIN_DENIED,
     targetType: "user",
     targetId: botId,
     changes: JSON.stringify({

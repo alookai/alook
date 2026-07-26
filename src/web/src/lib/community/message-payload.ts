@@ -15,6 +15,7 @@
  * field on the wire is one edit, not four.
  */
 import { MESSAGE_PREVIEW_LENGTH, type MentionType } from "@alook/shared"
+import type { FriendApprovalPayload } from "@alook/shared"
 import { avatarInitial } from "@/lib/community/avatar"
 
 // The subset of fields on rows returned by
@@ -36,6 +37,8 @@ export type MessageRow = {
   embeds: unknown
   seq: number
   createdAt: string
+  /** Friend-approval card back-ref — set only on approval card messages. */
+  friendshipId?: string | null
 }
 
 type ReplyTargetRow = { id: string; authorName: string; content: string | null }
@@ -91,6 +94,8 @@ export type ApiMessageContext = {
   reactionsByMessage: Record<string, UiReaction[] | undefined>
   /** Optional: only channel GET surfaces a thread child; DM/thread don't. */
   threadByMessageId?: Map<string, ThreadPreview>
+  /** Optional: only the DM messages route hydrates friend-approval cards. */
+  approvalByMessageId?: Map<string, FriendApprovalPayload>
 }
 
 // Splits the DB's `type` column value into the wire's `{ type, systemKind }`
@@ -113,6 +118,7 @@ function splitType(type: string | null): { type: "chat" | "system"; systemKind?:
 export function mapMessageForApi(row: MessageRow, ctx: ApiMessageContext) {
   const core = coreFields(row)
   const thread = ctx.threadByMessageId?.get(row.id)
+  const approval = ctx.approvalByMessageId?.get(row.id)
   return {
     ...core,
     ...splitType(row.type),
@@ -121,6 +127,7 @@ export function mapMessageForApi(row: MessageRow, ctx: ApiMessageContext) {
     attachments: ctx.attachmentsByMessage[row.id]?.length ? ctx.attachmentsByMessage[row.id] : undefined,
     reactions: ctx.reactionsByMessage[row.id]?.length ? ctx.reactionsByMessage[row.id] : undefined,
     thread: thread ? { id: thread.id, name: thread.name, messageCount: thread.messageCount } : undefined,
+    approval,
   }
 }
 

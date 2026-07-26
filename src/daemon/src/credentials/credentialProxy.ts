@@ -238,6 +238,7 @@ export const DEFAULT_CAPABILITY_RESOLVER: CapabilityResolver = (_method, pathnam
   // endpoints share the `"attach"` capability so a voucher can be scoped to
   // attach-only without granting `send`/`read`.
   if (pathname.includes("/attachment")) return "attach";
+  if (pathname.includes("/friendRequest") || pathname.includes("/listFriends")) return "friend";
   if (pathname.includes("/send") || pathname.includes("/reactAdd")) return "send";
   if (pathname.includes("/history") || pathname.includes("/search") || pathname.includes("/inbox"))
     return "read";

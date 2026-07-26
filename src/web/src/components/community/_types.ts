@@ -126,6 +126,9 @@ export type Msg = {
   reactions?: Reaction[]
   replyTo?: { id: string; authorName: string; text: string; deleted?: boolean }
   thread?: { id: string; name: string; messageCount: number; lastReplyAt?: string }
+  // Present only on a friend-approval DM card. Its presence (not the message
+  // `type`) is the discriminator for rendering <BotApprovalCard>.
+  approval?: import("@alook/shared").FriendApprovalPayload
 }
 
 // `grouped` is a RENDER-TIME decision (computed by `message-list.tsx`'s
@@ -220,10 +223,9 @@ export type PendingRequest = {
   name: string
   avatar: string
   kind: "incoming" | "outgoing"
-  // "bot" outgoing rows are bot approval-requests (id = approval-request id),
-  // cancelled via the requester-side bot-cancel endpoint. Absent/"friend" =
-  // a real community_friendship row.
-  source?: "friend" | "bot"
+  // The gating owner id while a bot-touched row is pending; null once
+  // unlocked. Drives whether Approve/Reject buttons render.
+  needsOwnerApproval?: string | null
 }
 
 export type BlockedUser = { id: string; userId?: string; name: string; avatar: string }

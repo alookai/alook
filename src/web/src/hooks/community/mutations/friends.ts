@@ -95,10 +95,11 @@ export function useRemoveFriend() {
   )
 }
 
-// ── Cancel outgoing bot friend-request ─────────────────────────────────────
+// ── Cancel outgoing pending (unified) ──────────────────────────────────────
 //
-// Bot requests live in community_bot_approval_request, not community_friendship,
-// so cancel hits a dedicated requester-side endpoint keyed by the approval id.
+// After the friendship-unification migration (0065) bot friend-requests are
+// real community_friendship rows, so cancelling one is the same DELETE the
+// requester (or the bot's owner) uses for any pending outgoing row.
 
 export type CancelBotFriendRequestArgs = { requestId: string }
 
@@ -106,7 +107,7 @@ export function useCancelBotFriendRequest() {
   const queryClient = useQueryClient()
   return useMutation<void, Error, CancelBotFriendRequestArgs, { snapshot: FriendsResponse | undefined }>({
     mutationFn: async ({ requestId }) => {
-      await apiFetch(`/api/community/friends/bot-request/${requestId}/cancel`, { method: "POST" })
+      await apiFetch(`/api/community/friends/${requestId}`, { method: "DELETE" })
     },
     onMutate: async ({ requestId }) => {
       const key = communityKeys.friends()
@@ -119,6 +120,25 @@ export function useCancelBotFriendRequest() {
     },
     onError: (_err, _args, ctx) => {
       if (ctx?.snapshot) queryClient.setQueryData(communityKeys.friends(), ctx.snapshot)
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: communityKeys.friends() })
+    },
+  })
+}
+
+// ── Owner decision (approve / deny a gated friend row from a DM card) ────────
+
+export type OwnerDecisionArgs = { friendshipId: string; decision: "approve" | "deny" }
+
+export function useOwnerDecision() {
+  const queryClient = useQueryClient()
+  return useMutation<void, Error, OwnerDecisionArgs>({
+    mutationFn: async ({ friendshipId, decision }) => {
+      await apiFetch(`/api/community/friends/${friendshipId}/owner-decision`, {
+        method: "POST",
+        body: JSON.stringify({ decision }),
+      })
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: communityKeys.friends() })

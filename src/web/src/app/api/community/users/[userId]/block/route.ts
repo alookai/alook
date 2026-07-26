@@ -8,6 +8,9 @@ export const POST = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
   const targetId = ctx.params?.userId as string
 
+  // Hardening — see plans/agent-friendship-approval-gate.md §Hardening.
+  if (ctx.user?.isBot) return writeError("forbidden", 403)
+
   if (!targetId) return writeError("userId is required", 400)
   if (targetId === ctx.userId) return writeError("cannot block yourself", 400)
 

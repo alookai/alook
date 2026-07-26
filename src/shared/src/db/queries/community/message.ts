@@ -1,4 +1,4 @@
-import { eq, and, asc, desc, gt, lt, or, sql, inArray } from "drizzle-orm";
+import { eq, and, asc, desc, gt, lt, or, sql, inArray, isNotNull } from "drizzle-orm";
 import {
   communityMessage,
   communityChannel,
@@ -102,6 +102,8 @@ export type CreateMessageData = {
   mentionType?: string;
   replyToId?: string;
   embeds?: string;
+  /** Back-reference stamped on friend-approval DM card messages only. */
+  friendshipId?: string;
 };
 
 /**
@@ -179,6 +181,7 @@ async function insertMessageRow(db: Database, data: CreateMessageData, seq: numb
       mentionType: data.mentionType ?? null,
       replyToId: data.replyToId ?? null,
       embeds: data.embeds ?? null,
+      friendshipId: data.friendshipId ?? null,
       createdAt: now,
       seq,
     })
@@ -379,6 +382,7 @@ const listedMessageProjection = {
   createdAt: communityMessage.createdAt,
   channelId: communityMessage.channelId,
   dmConversationId: communityMessage.dmConversationId,
+  friendshipId: communityMessage.friendshipId,
   authorName: user.name,
   authorEmail: user.email,
   authorImage: user.image,
@@ -397,6 +401,7 @@ export type ListedMessageRow = {
   createdAt: string;
   channelId: string | null;
   dmConversationId: string | null;
+  friendshipId: string | null;
   authorName: string;
   authorEmail: string;
   authorImage: string | null;
@@ -907,6 +912,43 @@ export async function getMessagesByIds(db: Database, ids: string[]) {
     .innerJoin(user, eq(communityMessage.authorId, user.id))
     .where(inArray(communityMessage.id, ids));
   return rows.map((r) => ({ ...r, embeds: safeParseEmbeds(r.embeds, r.id) }));
+}
+
+/**
+ * Every DM message stamped with `friendshipId`, with its DM conversation's two
+ * peer user ids. Backs the `DM_MESSAGE_UPDATED` fanout on approve/deny/
+ * supersede/accept — the caller emits one event per referencing message to
+ * each DM peer so both first-hop and second-hop cards (J3) rehydrate without a
+ * refetch. Small result set (≤2 in practice). Only DM-scoped card messages are
+ * ever stamped, so a channel row can't leak in here.
+ */
+export async function listMessagesReferencingFriendship(
+  db: Database,
+  friendshipId: string
+): Promise<Array<{ messageId: string; dmConversationId: string; peerUserIds: string[] }>> {
+  const rows = await db
+    .select({
+      messageId: communityMessage.id,
+      dmConversationId: communityMessage.dmConversationId,
+      user1Id: communityDmConversation.user1Id,
+      user2Id: communityDmConversation.user2Id,
+    })
+    .from(communityMessage)
+    .innerJoin(
+      communityDmConversation,
+      eq(communityDmConversation.id, communityMessage.dmConversationId)
+    )
+    .where(
+      and(
+        eq(communityMessage.friendshipId, friendshipId),
+        isNotNull(communityMessage.dmConversationId)
+      )
+    );
+  return rows.map((r) => ({
+    messageId: r.messageId,
+    dmConversationId: r.dmConversationId!,
+    peerUserIds: [r.user1Id, r.user2Id].filter((id): id is string => !!id),
+  }));
 }
 
 /** Scope a single-id/batched-id lookup to a channel or DM. */

@@ -725,7 +725,9 @@ export async function assertNoLiveBots(
 
 // ─── Approval requests ──────────────────────────────────────────────────────
 
-export type ApprovalKind = "join_server" | "friend";
+// After migration 0065 the friend kind is gone (folded into
+// community_friendship). Only join_server approval workflows remain.
+export type ApprovalKind = "join_server";
 export type ApprovalStatus = "pending" | "approved" | "denied";
 
 export type ApprovalRequestRow = {
@@ -791,68 +793,12 @@ export async function findPendingJoinRequest(
   return (rows[0] as ApprovalRequestRow | undefined) ?? null;
 }
 
-export async function findPendingFriendRequest(
-  db: Database,
-  botId: string,
-  requestedByUserId: string
-): Promise<ApprovalRequestRow | null> {
-  const rows = await db
-    .select()
-    .from(communityBotApprovalRequest)
-    .where(
-      and(
-        eq(communityBotApprovalRequest.botId, botId),
-        eq(communityBotApprovalRequest.requestedByUserId, requestedByUserId),
-        eq(communityBotApprovalRequest.kind, "friend"),
-        eq(communityBotApprovalRequest.status, "pending")
-      )
-    )
-    .limit(1);
-  return (rows[0] as ApprovalRequestRow | undefined) ?? null;
-}
-
-export type OutgoingBotFriendRequest = {
-  id: string;
-  botUserId: string;
-  name: string;
-  image: string | null;
-  createdAt: string;
-};
-
-/**
- * A requester's outgoing pending bot friend-requests, joined to the bot's
- * public identity. Backs the friends "Outgoing" list so a sent bot request is
- * visible (and cancellable) instead of silently living only as an owner-side
- * DM approval card. Covered by the partial unique index
- * `uq_community_bot_approval_pending_friend`.
- */
-export async function listPendingFriendRequestsByRequester(
-  db: Database,
-  requesterUserId: string
-): Promise<OutgoingBotFriendRequest[]> {
-  return (await db
-    .select({
-      id: communityBotApprovalRequest.id,
-      botUserId: user.id,
-      name: user.name,
-      image: user.image,
-      createdAt: communityBotApprovalRequest.createdAt,
-    })
-    .from(communityBotApprovalRequest)
-    .innerJoin(user, eq(user.id, communityBotApprovalRequest.botId))
-    .where(
-      and(
-        eq(communityBotApprovalRequest.requestedByUserId, requesterUserId),
-        eq(communityBotApprovalRequest.kind, "friend"),
-        eq(communityBotApprovalRequest.status, "pending")
-      )
-    )) as OutgoingBotFriendRequest[];
-}
-
 /**
  * Statement-returning insert. Application layer enforces the
  * `kind = "join_server" ⇔ serverId != null` invariant (SQLite CHECK can't
- * cross-reference other tables cleanly).
+ * cross-reference other tables cleanly). After migration 0065 only
+ * `kind='join_server'` is supported — the friend flow lives in
+ * `community_friendship`.
  */
 export function createApprovalRequestStatement(
   db: Database,
@@ -866,9 +812,6 @@ export function createApprovalRequestStatement(
 ) {
   if (data.kind === "join_server" && !data.serverId) {
     throw new Error("createApprovalRequest: join_server requires serverId");
-  }
-  if (data.kind === "friend" && data.serverId !== null) {
-    throw new Error("createApprovalRequest: friend request must have serverId=null");
   }
   return db.insert(communityBotApprovalRequest).values({
     botId: data.botId,

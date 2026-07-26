@@ -43,7 +43,7 @@ export function FriendsPage({
   onOpenProfile?: OpenProfile
   onAccept?: (id: string) => void
   onReject?: (id: string) => void
-  onCancelRequest?: (req: { id: string; source?: "friend" | "bot" }) => void
+  onCancelRequest?: (req: { id: string }) => void
   onUnblock?: (id: string) => void
   onSendRequest?: (target: { userId: string; username: string }) => void
   onRemoveFriend?: (id: string) => void
@@ -286,7 +286,10 @@ export function FriendsPage({
                       <div key={p.id} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent">
                         <Avatar label={p.avatar} seed={p.userId} size={32} />
                         <div className="min-w-0 flex-1 truncate text-sm font-medium">{p.name}</div>
-                        <Button variant="secondary" size="icon-sm" onClick={() => onCancelRequest?.({ id: p.id, source: p.source })} className="rounded-full" aria-label="Cancel"><X className="size-4" /></Button>
+                        {p.needsOwnerApproval ? (
+                          <span className="shrink-0 text-xs text-muted-foreground">Waiting on owner approval</span>
+                        ) : null}
+                        <Button variant="secondary" size="icon-sm" onClick={() => onCancelRequest?.({ id: p.id })} className="rounded-full" aria-label="Cancel"><X className="size-4" /></Button>
                       </div>
                     ))}
                   </div>

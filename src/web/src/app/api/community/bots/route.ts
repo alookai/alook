@@ -82,6 +82,57 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const owner = await queries.user.getUserPublic(db, ctx.userId)
   if (!owner) return writeError("owner not resolvable — retry after re-authenticating", 500)
 
+  // Same-owner sibling auto-friendship fanout. After createBot commits, insert a
+  // real accepted community_friendship row for every existing live sibling.
+  // Idempotent (ON CONFLICT DO NOTHING) so a concurrent createBot race is
+  // absorbed. A per-sibling failure is logged but never fails createBot — the
+  // bot exists and is usable; siblings can reconcile via the CLI later. See
+  // plans/agent-friendship-approval-gate.md §Bot creation.
+  try {
+    const siblings = await queries.communityBot.listBotsForOwner(db, ctx.userId)
+    for (const sibling of siblings) {
+      if (sibling.id === created.botId) continue
+      try {
+        const res = await queries.communityFriendship.ensureSiblingBotFriendship(db, {
+          botA: created.botId,
+          botB: sibling.id,
+        })
+        if (res.blocked) {
+          logAudit(db, {
+            serverId: null,
+            actorId: ctx.userId,
+            action: COMMUNITY_AUDIT_ACTIONS.BOT_SIBLING_FRIENDSHIP_BACKFILL_FAILED,
+            targetType: "user",
+            targetId: created.botId,
+            changes: JSON.stringify({
+              newBotId: created.botId,
+              ownerId: ctx.userId,
+              siblingId: sibling.id,
+              reason: "blocked",
+            }),
+          })
+        }
+      } catch (err) {
+        logAudit(db, {
+          serverId: null,
+          actorId: ctx.userId,
+          action: COMMUNITY_AUDIT_ACTIONS.BOT_SIBLING_FRIENDSHIP_BACKFILL_FAILED,
+          targetType: "user",
+          targetId: created.botId,
+          changes: JSON.stringify({
+            newBotId: created.botId,
+            ownerId: ctx.userId,
+            siblingId: sibling.id,
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        })
+      }
+    }
+  } catch {
+    // listBotsForOwner failed — the bot is still usable; siblings reconcile
+    // via the CLI. Nothing user-visible to fail here.
+  }
+
   // Audit — no serverId context (bot is created out-of-server). Queryable
   // via idx_audit_log_actor_created.
   logAudit(db, {

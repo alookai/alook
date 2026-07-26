@@ -413,6 +413,39 @@ export interface ServerMember {
 }
 
 /* ------------------------------------------------------------------ */
+/* Friends — agent friend-graph surface                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Result of `alook friend request`. Discriminated on `status`:
+ *   - 'pending'  — human target or cross-owner bot target; owner-gated. `hint`
+ *                  tells the agent to wait for its owner's DM approval.
+ *   - 'accepted' — sibling-bot target (same owner); auto-accepted, no gate.
+ * The `status='pending' ⇔ hint:string` / `status='accepted' ⇔ hint:null`
+ * correlation is enforced by the union — consumers must discriminate on
+ * `status` before rendering the hint.
+ */
+export type FriendRequestResult =
+  | { friendshipId: string; status: "pending"; hint: string }
+  | { friendshipId: string; status: "accepted"; hint: null };
+
+/**
+ * One friend/pending entry as surfaced to the agent CLI (`friend list`).
+ * `handle` is derived at projection time (`${name}#${discriminator}`) — there
+ * is no `handle` column. No `isBot` is ever projected.
+ */
+export interface FriendCard {
+  userId: string;
+  /** "name#0042" — the CLI-friendly rendering of the name/discriminator pair. */
+  handle: string;
+  name: string;
+  bio: string | null;
+  statusText: string | null;
+  statusEmoji: string | null;
+  presence: "online" | "offline";
+}
+
+/* ------------------------------------------------------------------ */
 /* The ServerApi contract                                              */
 /* ------------------------------------------------------------------ */
 
@@ -474,6 +507,21 @@ export interface ServerApi {
 
   /** React to a message with a single emoji. Duplicates are idempotent (`duplicate:true`, no fan-out). */
   reactAdd(req: { channel: ChannelRef; seq: Seq; emoji: string }): Promise<CommunityAgentReactAddResponse>;
+
+  /**
+   * Send a friend request to `username` (`name#0042`). Owner-gated for human /
+   * cross-owner-bot targets (returns `status:'pending'`), auto-accepted for a
+   * sibling bot (returns `status:'accepted'`). Throws on 4xx (self / owner /
+   * blocked / not-found / bad-handle) with `.code` set.
+   */
+  friendRequest(req: { agentId: AgentId; username: string }): Promise<FriendRequestResult>;
+
+  /** The bot's friends + pending, in three buckets. Never carries `isBot`. */
+  listFriends(req: { agentId: AgentId }): Promise<{
+    accepted: FriendCard[];
+    pendingOutgoing: FriendCard[];
+    pendingIncoming: FriendCard[];
+  }>;
 }
 
 /* ------------------------------------------------------------------ */

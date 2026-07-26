@@ -177,3 +177,65 @@ describe("createProxyServerApi — callDownload", () => {
     expect(fs.readFileSync(dest)).toEqual(Buffer.from(bytes));
   });
 });
+
+describe("createProxyServerApi — friendRequest / listFriends", () => {
+  it("friendRequest POSTs to /api/friendRequest, strips agentId, decodes the envelope", async () => {
+    const seen: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
+      seen.push({ url, init });
+      return jsonBody(
+        JSON.stringify({ friendshipId: "fr_1", status: "pending", hint: "ask your owner" }),
+        { status: 200 },
+      );
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const res = await api.friendRequest({ agentId: "a1" as never, username: "Alice#0042" });
+    expect(res).toEqual({ friendshipId: "fr_1", status: "pending", hint: "ask your owner" });
+    expect(seen[0].url).toBe("http://proxy.test/api/friendRequest");
+    expect(seen[0].init?.method).toBe("POST");
+    const body = JSON.parse(String(seen[0].init?.body ?? "{}"));
+    expect(body).toEqual({ username: "Alice#0042" });
+    expect(body.agentId).toBeUndefined();
+  });
+
+  it("friendRequest surfaces .code and .hint from a 409 error body", async () => {
+    const fetchImpl: FetchLike = vi.fn(async () =>
+      jsonBody(JSON.stringify({ error: "already friends", code: "already_friends", hint: "already" }), { status: 409 }),
+    );
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    try {
+      await api.friendRequest({ agentId: "a1" as never, username: "Bob#0042" });
+      throw new Error("should have thrown");
+    } catch (err) {
+      expect((err as Error).message).toBe("already friends");
+      expect((err as { code?: string }).code).toBe("already_friends");
+      expect((err as { hint?: string }).hint).toBe("already");
+    }
+  });
+
+  it("listFriends POSTs to /api/listFriends and decodes the three buckets verbatim", async () => {
+    const seen: Array<{ url: string }> = [];
+    const fetchImpl: FetchLike = vi.fn(async (url: string) => {
+      seen.push({ url });
+      return jsonBody(
+        JSON.stringify({ accepted: [{ userId: "u1", handle: "A#1" }], pendingOutgoing: [], pendingIncoming: [] }),
+        { status: 200 },
+      );
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const res = await api.listFriends({ agentId: "a1" as never });
+    expect(res).toEqual({ accepted: [{ userId: "u1", handle: "A#1" }], pendingOutgoing: [], pendingIncoming: [] });
+    expect(seen[0].url).toBe("http://proxy.test/api/listFriends");
+  });
+
+  it("both throw the 'non-JSON body' pattern on an empty 500", async () => {
+    const fetchImpl: FetchLike = vi.fn(async () => jsonBody("", { status: 500 }));
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    await expect(api.friendRequest({ agentId: "a1" as never, username: "A#0001" })).rejects.toThrow(
+      /upstream returned 500 with non-JSON body from \/api\/friendRequest/,
+    );
+    await expect(api.listFriends({ agentId: "a1" as never })).rejects.toThrow(
+      /upstream returned 500 with non-JSON body from \/api\/listFriends/,
+    );
+  });
+});

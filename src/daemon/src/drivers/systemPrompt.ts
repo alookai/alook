@@ -121,6 +121,14 @@ function cliCommandsSection(): string {
     `2. \`${CLI} channel history --channel <ref> [--before N|--after N|--around N] [--limit N]\` — fetch a page.`,
     `3. \`${CLI} channel member --channel <ref>\` — private roster of a channel or thread.`,
     "",
+    "### Friends",
+    "",
+    `1. \`${CLI} friend request --username "<name#0042>"\` — ask to friend a user by handle. ` +
+      `Your owner must approve it in DM before it goes through, so expect a \`pending\` ` +
+      `result with a hint (a same-owner sibling bot auto-accepts instead).`,
+    `2. \`${CLI} friend list\` — list your friends and pending requests ` +
+      `(\`accepted\`, \`pendingOutgoing\`, \`pendingIncoming\`).`,
+    "",
     "### Output format",
     "",
     `Every \`${CLI}\` command outputs one JSON line:`,

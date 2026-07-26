@@ -236,3 +236,117 @@ describe("listFriends", () => {
     ]);
   });
 });
+
+/**
+ * `ensureSiblingBotFriendship` precondition guard — the only branch reachable
+ * without a full db.batch harness. It loads both users' flags then throws if
+ * they aren't sibling bots. Route each `.from(user)` select to canned rows.
+ */
+function createFlagsDb(rows: Array<{ id: string; isBot: boolean; ownerUserId: string | null; name: string }>) {
+  const db: any = {
+    select: vi.fn(() => {
+      const chain: any = {}
+      chain.from = vi.fn(() => chain)
+      chain.where = vi.fn(() => Promise.resolve(rows))
+      return chain
+    }),
+  }
+  return db
+}
+
+describe("ensureSiblingBotFriendship precondition guard", () => {
+  it("throws when one party is a human", async () => {
+    const db = createFlagsDb([
+      { id: "a", isBot: false, ownerUserId: null, name: "Human" },
+      { id: "b", isBot: true, ownerUserId: "owner", name: "Bot" },
+    ])
+    await expect(q.ensureSiblingBotFriendship(db, { botA: "a", botB: "b" })).rejects.toThrow(
+      /parties must be sibling bots/,
+    )
+  })
+
+  it("throws when both are bots but owned by different owners", async () => {
+    const db = createFlagsDb([
+      { id: "a", isBot: true, ownerUserId: "owner1", name: "BotA" },
+      { id: "b", isBot: true, ownerUserId: "owner2", name: "BotB" },
+    ])
+    await expect(q.ensureSiblingBotFriendship(db, { botA: "a", botB: "b" })).rejects.toThrow(
+      /parties must be sibling bots/,
+    )
+  })
+})
+
+/**
+ * `cancelPendingRequest` — soft-cancels a pending row and returns the
+ * DM_MESSAGE_UPDATED fanout for cards referencing it. `updateReturns` is what
+ * the `UPDATE ... RETURNING` resolves to; `refMessages` is what
+ * `listMessagesReferencingFriendship` (a `.select().from().innerJoin().where()`
+ * chain) resolves to.
+ */
+function createCancelDb(updateReturns: any[], refMessages: any[] = []) {
+  const db: any = {
+    update: vi.fn(() => {
+      const chain: any = {}
+      chain.set = vi.fn(() => chain)
+      chain.where = vi.fn(() => chain)
+      chain.returning = vi.fn(() => Promise.resolve(updateReturns))
+      return chain
+    }),
+    // Only reached when a row came back — buildCardUpdateBroadcasts →
+    // listMessagesReferencingFriendship.
+    select: vi.fn(() => {
+      const chain: any = {}
+      chain.from = vi.fn(() => chain)
+      chain.innerJoin = vi.fn(() => chain)
+      chain.where = vi.fn(() => Promise.resolve(refMessages))
+      return chain
+    }),
+  }
+  return db
+}
+
+describe("cancelPendingRequest", () => {
+  it("no-ops when the row is missing or already non-pending (empty RETURNING)", async () => {
+    const db = createCancelDb([])
+    const res = await q.cancelPendingRequest(db, "fr_missing")
+    expect(res.row).toBeNull()
+    expect(res.broadcasts).toEqual([])
+    // Must NOT walk the card-broadcast path when nothing was cancelled.
+    expect(db.select).not.toHaveBeenCalled()
+  })
+
+  it("cancels a pending row and returns it; no cards referencing it → no broadcasts", async () => {
+    const row = {
+      id: "fr_1", requesterId: "u_alice", addresseeId: "bot_yara",
+      status: "cancelled", needsOwnerApproval: "owner_carol",
+    }
+    const db = createCancelDb([row], [])
+    const res = await q.cancelPendingRequest(db, "fr_1")
+    expect(res.row).toMatchObject({ id: "fr_1", status: "cancelled" })
+    expect(res.broadcasts).toEqual([])
+    // It did look for referencing cards.
+    expect(db.select).toHaveBeenCalled()
+  })
+})
+
+describe("rejectRequest", () => {
+  it("no-ops when the row is missing or already non-pending (empty RETURNING)", async () => {
+    const db = createCancelDb([])
+    const res = await q.rejectRequest(db, "fr_missing")
+    expect(res.row).toBeNull()
+    expect(res.broadcasts).toEqual([])
+    expect(db.select).not.toHaveBeenCalled()
+  })
+
+  it("denies a pending row and returns the card-rehydration broadcasts", async () => {
+    const row = {
+      id: "fr_1", requesterId: "bot_bob", addresseeId: "u_alice",
+      status: "denied", needsOwnerApproval: null,
+    }
+    const db = createCancelDb([row], [])
+    const res = await q.rejectRequest(db, "fr_1")
+    expect(res.row).toMatchObject({ id: "fr_1", status: "denied" })
+    expect(res.broadcasts).toEqual([])
+    expect(db.select).toHaveBeenCalled()
+  })
+})

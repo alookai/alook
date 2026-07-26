@@ -10,6 +10,7 @@ import { ContextMenu, ContextMenuTrigger, ContextMenuContent } from "@/component
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from "@/components/ui/dropdown-menu"
 import { Avatar } from "./avatar"
 import { MessageBody } from "./message-body"
+import { BotApprovalCard } from "./bot-approval-card"
 import { EmojiPickerPopover } from "./emoji-picker"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { NumberTicker } from "@/components/ui/number-ticker"
@@ -165,8 +166,12 @@ function MessageImpl({
               <span className="shrink-0 text-xs text-muted-foreground" suppressHydrationWarning>{formatMessageTime(m.createdAt)}</span>
             </div>
           )}
-          {m.content && (
-            <MessageBody text={m.content} onOpenProfile={onOpenProfile} messageRefContext={messageRefContext} />
+          {m.approval ? (
+            <BotApprovalCard approval={m.approval} />
+          ) : (
+            m.content && (
+              <MessageBody text={m.content} onOpenProfile={onOpenProfile} messageRefContext={messageRefContext} />
+            )
           )}
 
           {m.attachments && (
