@@ -102,17 +102,16 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError("invalid request body", 400)
   }
 
-  // Child channels (those with a parentChannelId — threads AND forum posts)
-  // fire CHILD_CHANNEL_UPDATE on the parent so its indicator ticks, and both
-  // scope their notify set to participants. They're distinguished by
-  // `channel.type`: a forum_post uses the `forum_post` target kind so it can't
-  // silently ride the thread branch. Detected server-side from the channel row
-  // — clients always POST here, never to a separate endpoint, which avoided a
-  // UI race where a fast user could type before a client-side meta fetch
-  // resolved.
+  // Child channels (those with a parentChannelId — threads AND posts) fire
+  // CHILD_CHANNEL_UPDATE on the parent so its indicator ticks, and both scope
+  // their notify set to participants. They're distinguished by `channel.type`:
+  // a post uses the `post` target kind so it can't silently ride the thread
+  // branch. Detected server-side from the channel row — clients always POST
+  // here, never to a separate endpoint, which avoided a UI race where a fast
+  // user could type before a client-side meta fetch resolved.
   const target = channel.parentChannelId
     ? {
-        kind: channel.type === "forum_post" ? ("forum_post" as const) : ("thread" as const),
+        kind: channel.type === "post" ? ("post" as const) : ("thread" as const),
         channelId,
         parentChannelId: channel.parentChannelId,
         serverId: channel.serverId,

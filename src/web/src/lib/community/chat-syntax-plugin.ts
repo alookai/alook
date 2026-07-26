@@ -22,7 +22,7 @@ import type { SpoilerNode } from "./spoiler-syntax"
 // Mirrors `CHANNEL_REF_REGEX`'s old doc comment: matches a `/server/channel`,
 // `/server/channel/#N` (thread), or `/server/channel/#N#M` (thread reply,
 // see plans/agent-thread-emoji-react.md) ref — the CLI's path grammar
-// (`parseRef`/`formatRef` in `community-cli-contract.ts`). Segment charset
+// (`parseRef`/`formatRef` in `community-contract.ts`). Segment charset
 // `[A-Za-z0-9_-]+` is the nanoid alphabet every `communityServer.id`/
 // `communityChannel.id` is generated with. Trailing
 // `(?=\s|$|[.,;:!?)\]])` boundary lookahead: a 2-segment path followed by

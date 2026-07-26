@@ -22,7 +22,7 @@ export type ChannelRefDirectory = ChannelRefDirectoryServer[]
 export type ResolvedChannelRef = {
   server: ChannelRefDirectoryServer
   channel: ChannelRefDirectoryChannel
-  threadRootSeq?: number
+  rootSeq?: number
   seq?: number
 }
 
@@ -71,7 +71,7 @@ export function resolveChannelRefBase(
   return {
     server,
     channel,
-    ...(parsed.threadRootSeq !== undefined ? { threadRootSeq: parsed.threadRootSeq } : {}),
+    ...(parsed.rootSeq !== undefined ? { rootSeq: parsed.rootSeq } : {}),
     ...(parsed.seq !== undefined ? { seq: parsed.seq } : {}),
   }
 }

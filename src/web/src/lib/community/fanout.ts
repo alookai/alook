@@ -13,7 +13,7 @@
  */
 
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { queries, createLogger, WS_EVENTS, isThread, isForumPost } from "@alook/shared"
+import { queries, createLogger, WS_EVENTS } from "@alook/shared"
 import type { CommunityWsEvent, Database } from "@alook/shared"
 import { getDb } from "../db"
 import { broadcastToUser } from "../broadcast"
@@ -41,29 +41,13 @@ async function getServerMemberUserIds(db: Database, serverId: string): Promise<s
 }
 
 /**
- * Resolves the recipient set for a channel event.
- *
- * - THREAD (`type="thread"`) or FORUM_POST (`type="forum_post"`) → the unit's
- *   NOTIFY set (its participant rows). Both are the notification dimension:
- *   message events reach only participants (join by spoke/mention/added), NOT
- *   the whole parent channel or server, and NOT admins (never auto-participants).
- *   A public post therefore no longer blasts the whole server, and a private
- *   post no longer pings every roster member on every message — only the people
- *   actually involved. Nested-membership model.
- * - channel / forum → the access audience via the shared resolver
- *   (public/private split; a forum owns its roster like a text channel).
- *
- * The split lives here so fan-out and bot-wake use the same recipient set.
+ * Resolves the recipient set for a channel event. Delegates to the shared
+ * `resolveChannelRecipientUserIds` (also used by ws-do's typing fan-out) so the
+ * type→recipient rule (thread/post → participant set; channel/forum → access
+ * audience) lives in one place and can never drift across workers.
  */
 async function getChannelRecipientUserIds(db: Database, channelId: string): Promise<string[]> {
-  const rows = await queries.communityChannel.getChannelType(db, channelId)
-  if (isThread(rows) || isForumPost(rows)) {
-    return queries.communityThread.listThreadParticipantUserIds(db, channelId)
-  }
-  return queries.communityMembersResolver.resolveScopeMemberUserIds(db, {
-    scope: "channel",
-    scopeId: channelId,
-  })
+  return queries.communityMembersResolver.resolveChannelRecipientUserIds(db, channelId)
 }
 
 /**

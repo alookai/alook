@@ -26,7 +26,7 @@ export type MessageTarget =
     serverId: string
   }
   | {
-    kind: "forum_post"
+    kind: "post"
     channelId: string
     parentChannelId: string
     serverId: string
@@ -51,13 +51,13 @@ export function isChannelTarget(target: { kind: string } | string): boolean {
   return (typeof target === "string" ? target : target.kind) === "channel"
 }
 
-// A thread and a forum_post share the same notify + parent-tick behavior: both
+// A thread and a post share the same notify + parent-tick behavior: both
 // enroll participants (spoke/mention) and both fire the parent CHILD_CHANNEL_UPDATE
 // via their `parentChannelId`. This narrows to the two variants that carry one.
 function hasParentChannel(
   target: MessageTarget,
-): target is Extract<MessageTarget, { kind: "thread" | "forum_post" }> {
-  return target.kind === "thread" || target.kind === "forum_post"
+): target is Extract<MessageTarget, { kind: "thread" | "post" }> {
+  return target.kind === "thread" || target.kind === "post"
 }
 
 type IncomingAttachment = {
@@ -545,7 +545,7 @@ export async function createCommunityMessage(params: {
   // Mention beats reply — never double-count the same user.
   for (const id of mentionTargets) replyTargets.delete(id)
 
-  // Thread / forum_post participation (notification dimension). Both units'
+  // Thread / post participation (notification dimension). Both units'
   // NOTIFY set is their participant rows — join by:
   //   - speaking: the author becomes a participant (source "spoke").
   //   - @mention: an explicitly mentioned/replied audience member becomes a

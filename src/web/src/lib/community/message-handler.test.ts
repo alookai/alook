@@ -570,15 +570,15 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     ])
   })
 
-  it("forum_post: author joins as 'spoke' just like a thread (notify-scoped)", async () => {
-    // A forum_post enrolls participants identically to a thread — a message in
+  it("post: author joins as 'spoke' just like a thread (notify-scoped)", async () => {
+    // A post enrolls participants identically to a thread — a message in
     // a post notifies only its participants, not the whole server/roster.
     mockGetMessage.mockResolvedValue(messageRow({ content: "first reply", channelId: "p1" }))
 
     await createCommunityMessage({
       db: {} as never,
       authorId: "author_1",
-      target: { kind: "forum_post", channelId: "p1", parentChannelId: "forum_1", serverId: "srv_1" },
+      target: { kind: "post", channelId: "p1", parentChannelId: "forum_1", serverId: "srv_1" },
       body: { content: "first reply" },
     })
 
@@ -588,14 +588,14 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     expect(mockCreateChannelMember).not.toHaveBeenCalled()
   })
 
-  it("forum_post: an in-audience @mention enrolls as a participant", async () => {
+  it("post: an in-audience @mention enrolls as a participant", async () => {
     mockGetPrivateChannelAudienceUserIds.mockResolvedValue(["author_1", "cara_1"])
     mockGetMessage.mockResolvedValue(messageRow({ content: "hey @Cara#0002", channelId: "p1" }))
 
     await createCommunityMessage({
       db: {} as never,
       authorId: "author_1",
-      target: { kind: "forum_post", channelId: "p1", parentChannelId: "forum_1", serverId: "srv_1" },
+      target: { kind: "post", channelId: "p1", parentChannelId: "forum_1", serverId: "srv_1" },
       body: { content: "hey @Cara#0002" },
     })
 

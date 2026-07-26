@@ -299,7 +299,7 @@ describe("GET /api/community/inbox/unreads", () => {
     expect(byId).toEqual({ c1: "text", c2: "forum" })
   })
 
-  it("surfaces child `type` (thread / forum_post) on nested rows", async () => {
+  it("surfaces child `type` (thread / post) on nested rows", async () => {
     mockListUnreadChannels.mockResolvedValue([
       row({ channelId: "c1", channelName: "general", type: "text" }),
       row({ channelId: "t1", channelName: "budget", type: "thread", parentChannelId: "c1", lastMessageAt: "2026-06-25T11:00:00Z" }),
