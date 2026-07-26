@@ -276,8 +276,8 @@ describe("useCreateChannel — optimistic pending row", () => {
     mod.useCreateChannel()
     await runMutation({ serverId: "s1", categoryId: "cat_1", name: "hi", type: "text" })
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/community/servers/s1/channels",
-      { method: "POST", body: JSON.stringify({ categoryId: "cat_1", name: "hi", type: "text" }) },
+      "/api/community/channels",
+      { method: "POST", body: JSON.stringify({ type: "text", serverId: "s1", categoryId: "cat_1", name: "hi" }) },
     )
   })
 
@@ -295,8 +295,8 @@ describe("useCreateChannel — optimistic pending row", () => {
 
     await capturedConfig!.mutationFn!({ serverId: "s1", categoryId: "", name: "top", type: "text" })
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/community/servers/s1/channels",
-      { method: "POST", body: JSON.stringify({ categoryId: null, name: "top", type: "text" }) },
+      "/api/community/channels",
+      { method: "POST", body: JSON.stringify({ type: "text", serverId: "s1", categoryId: null, name: "top" }) },
     )
   })
 
@@ -325,8 +325,8 @@ describe("useCreateChannel — optimistic pending row", () => {
     await capturedConfig!.mutationFn!({ serverId: "s1", categoryId: UNCATEGORIZED_CATEGORY_ID, name: "top", type: "text" })
     // But the wire request sends categoryId: null — never the synthetic id.
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/community/servers/s1/channels",
-      { method: "POST", body: JSON.stringify({ categoryId: null, name: "top", type: "text" }) },
+      "/api/community/channels",
+      { method: "POST", body: JSON.stringify({ type: "text", serverId: "s1", categoryId: null, name: "top" }) },
     )
   })
 })

@@ -295,7 +295,7 @@ export type Mention = {
 type UnreadChild = {
   channelId: string
   channelName: string
-  // Raw stored channel type — drives the inbox entity icon (thread/forum_post
+  // Raw stored channel type — drives the inbox entity icon (thread/post
   // → MessagesSquare). Optional for backward-compat with cached responses.
   type?: EntityKind
   lastMessageAt: string

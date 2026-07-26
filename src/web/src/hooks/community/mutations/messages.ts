@@ -595,15 +595,15 @@ export type CreateThreadArgs = {
   name: string
 }
 
-export type CreateThreadResult = { id: string }
+export type CreateThreadResult = { channel: { id: string } }
 
 export function useCreateThread() {
   const queryClient = useQueryClient()
   return useMutation<CreateThreadResult, Error, CreateThreadArgs>({
     mutationFn: async ({ messageId, name }) => {
       return apiFetch<CreateThreadResult>(
-        `/api/community/messages/${messageId}/threads`,
-        { method: "POST", body: JSON.stringify({ name }) },
+        `/api/community/channels`,
+        { method: "POST", body: JSON.stringify({ type: "thread", parentMessageId: messageId, name }) },
       )
     },
     onSuccess: (data, args) => {
@@ -621,7 +621,7 @@ export function useCreateThread() {
               ...p,
               messages: p.messages.map((m) =>
                 m.id === args.messageId
-                  ? { ...m, thread: { id: data.id, name: args.name, messageCount: 0 } }
+                  ? { ...m, thread: { id: data.channel.id, name: args.name, messageCount: 0 } }
                   : m,
               ),
             }

@@ -20,17 +20,17 @@ export type CreateForumPostArgs = {
   // fires end-to-end.
   mentionType?: MentionType
 }
-export type CreateForumPostResult = { post: ForumPost }
+export type CreateForumPostResult = { channel: ForumPost }
 
 export function useCreateForumPost() {
   const queryClient = useQueryClient()
   return useMutation<CreateForumPostResult, Error, CreateForumPostArgs>({
     mutationFn: async ({ channelId, name, content, attachments, mentionType }) => {
       return apiFetch<CreateForumPostResult>(
-        `/api/community/channels/${channelId}/posts`,
+        `/api/community/channels`,
         {
           method: "POST",
-          body: JSON.stringify({ name, content, attachments, mentionType }),
+          body: JSON.stringify({ type: "post", parentChannelId: channelId, name, content, attachments, mentionType }),
         },
       )
     },
@@ -41,8 +41,8 @@ export function useCreateForumPost() {
         communityKeys.forumPosts(args.channelId),
         (prev) =>
           prev
-            ? { ...prev, posts: [data.post, ...prev.posts] }
-            : { posts: [data.post] },
+            ? { ...prev, children: [data.channel, ...prev.children] }
+            : { children: [data.channel] },
       )
     },
   })
@@ -79,7 +79,7 @@ export function useUpdatePostTags() {
           prev
             ? {
                 ...prev,
-                posts: prev.posts.map((p) =>
+                children: prev.children.map((p) =>
                   p.id === args.postId ? { ...p, tags: data.tags } : p,
                 ),
               }
@@ -97,9 +97,9 @@ export type DeleteForumPostArgs = {
 }
 
 /**
- * Delete a single forum post. A post IS a `forum_post` child channel, so this
+ * Delete a single forum post. A post IS a `post` child channel, so this
  * DELETEs the channel (creator or manager gated server-side — see the DELETE
- * route's forum_post carve-out). On success (204) the post is filtered out of
+ * route's post carve-out). On success (204) the post is filtered out of
  * the forum's cached list so the card disappears without a refetch; the
  * server-side WS `channel.delete` also invalidates for other clients.
  */
@@ -114,7 +114,7 @@ export function useDeleteForumPost() {
         communityKeys.forumPosts(args.forumChannelId),
         (prev) =>
           prev
-            ? { ...prev, posts: prev.posts.filter((p) => p.id !== args.postId) }
+            ? { ...prev, children: prev.children.filter((p) => p.id !== args.postId) }
             : prev,
       )
     },

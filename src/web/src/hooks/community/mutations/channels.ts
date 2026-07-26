@@ -5,7 +5,7 @@ import { nanoid } from "nanoid"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type { ServerDetail } from "@/hooks/community/use-servers"
-import { UNCATEGORIZED_CATEGORY_ID, type ChannelType } from "@alook/shared"
+import { UNCATEGORIZED_CATEGORY_ID, type TopLevelChannelType } from "@alook/shared"
 
 // Prefix marks an optimistic row so every consumer can tell it from a real
 // `ch_…` id without a separate flag, and guarantees it never collides with one.
@@ -31,7 +31,7 @@ export type CreateChannelArgs = {
   serverId: string
   categoryId: string | null
   name: string
-  type: ChannelType
+  type: TopLevelChannelType
 }
 export type CreateChannelResult = { channel: { id: string } }
 
@@ -56,8 +56,8 @@ export function useCreateChannel() {
       // uses the bucket to place the optimistic row in the cache.
       const apiCategoryId = isUncategorizedTarget(categoryId) ? null : categoryId
       return apiFetch<CreateChannelResult>(
-        `/api/community/servers/${serverId}/channels`,
-        { method: "POST", body: JSON.stringify({ categoryId: apiCategoryId, name, type }) },
+        `/api/community/channels`,
+        { method: "POST", body: JSON.stringify({ type, serverId, categoryId: apiCategoryId, name }) },
       )
     },
     onMutate: async (args) => {

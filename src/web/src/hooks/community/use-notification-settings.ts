@@ -29,7 +29,7 @@ const EMPTY_NOTIF_SERVER: Readonly<Record<string, string>> = Object.freeze({})
 const EMPTY_NOTIF_CHANNEL: Readonly<Record<string, string>> = Object.freeze({})
 
 // API-level ("all"|"mentions"|"nothing") → display strings.
-function displayNotifLevel(level: string): string {
+export function displayNotifLevel(level: string): string {
   if (level === "all") return "All Messages"
   if (level === "mentions") return "Only @mentions"
   if (level === "nothing") return "Nothing"
