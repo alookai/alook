@@ -25,6 +25,9 @@ vi.mock("@alook/shared", async () => {
       },
       communityNotificationSetting: {
         getSettings: (...args: unknown[]) => mockGetSettings(...args),
+        // Use the real climbing resolver — M5 relies on it for the effective
+        // level (sub-channel → parent → server → global "all").
+        computeEffectiveLevel: actual.queries.communityNotificationSetting.computeEffectiveLevel,
       },
       communityMention: {
         listUnreadMentions: (...args: unknown[]) => mockListUnreadMentions(...args),
@@ -319,5 +322,85 @@ describe("GET /api/community/inbox/unreads", () => {
     const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
     const body = await res.json()
     expect(body.servers[0].channels[0].type).toBe("forum")
+  })
+
+  // ── Effective-level suppression (M5) ───────────────────────────────────────
+
+  it("`nothing` on a channel suppresses its unread badge", async () => {
+    mockListUnreadChannels.mockResolvedValue([
+      row({ serverId: "s1", channelId: "c1" }),
+      row({ serverId: "s1", channelId: "c2", channelName: "spam" }),
+    ])
+    mockGetSettings.mockResolvedValue([{ serverId: null, channelId: "c2", level: "nothing" }])
+    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const body = await res.json()
+    expect(body.servers[0].channels.map((c: { channelId: string }) => c.channelId)).toEqual(["c1"])
+  })
+
+  it("`mentions` on a channel suppresses the non-@ badge", async () => {
+    mockListUnreadChannels.mockResolvedValue([row({ serverId: "s1", channelId: "c1" })])
+    mockGetSettings.mockResolvedValue([{ serverId: null, channelId: "c1", level: "mentions" }])
+    // No unread mention rows for c1 → badge suppressed.
+    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const body = await res.json()
+    expect(body.servers).toHaveLength(0)
+  })
+
+  it("`mentions` on a channel still badges when the unread carries an @-mention", async () => {
+    mockListUnreadChannels.mockResolvedValue([row({ serverId: "s1", channelId: "c1" })])
+    mockGetSettings.mockResolvedValue([{ serverId: null, channelId: "c1", level: "mentions" }])
+    mockListUnreadMentions.mockResolvedValue([{ message: { channelId: "c1" } }])
+    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const body = await res.json()
+    expect(body.servers[0].channels[0].channelId).toBe("c1")
+    expect(body.servers[0].channels[0].mentionCount).toBe(1)
+  })
+
+  it("a parent forum set to `nothing` cascades default-silence to its posts", async () => {
+    // Post p1 under forum c1; the forum is muted and the post has no override,
+    // so the post's effective level climbs to `nothing` and is suppressed.
+    mockListUnreadChannels.mockResolvedValue([
+      row({ channelId: "p1", channelName: "post", type: "post", parentChannelId: "c1" }),
+    ])
+    mockGetChannelsByIds.mockResolvedValue([{ id: "c1", name: "help-forum", serverId: "s1", type: "forum" }])
+    mockGetSettings.mockResolvedValue([{ serverId: null, channelId: "c1", level: "nothing" }])
+    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const body = await res.json()
+    expect(body.servers).toHaveLength(0)
+  })
+
+  it("a post's own `all` override beats a muted parent forum", async () => {
+    // Forum c1 = nothing, but post p1 = all → the post survives the cascade and
+    // still surfaces under its (structurally resolved) parent.
+    mockListUnreadChannels.mockResolvedValue([
+      row({ channelId: "p1", channelName: "post", type: "post", parentChannelId: "c1" }),
+    ])
+    mockGetChannelsByIds.mockResolvedValue([{ id: "c1", name: "help-forum", serverId: "s1", type: "forum" }])
+    mockGetSettings.mockResolvedValue([
+      { serverId: null, channelId: "c1", level: "nothing" },
+      { serverId: null, channelId: "p1", level: "all" },
+    ])
+    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const body = await res.json()
+    expect(body.servers).toHaveLength(1)
+    const parent = body.servers[0].channels[0]
+    expect(parent.channelId).toBe("c1")
+    expect(parent.children.map((c: { channelId: string }) => c.channelId)).toEqual(["p1"])
+  })
+
+  it("still attaches sub-channels under their parent when nothing is muted (structural loop preserved)", async () => {
+    // No settings → every level resolves to `all`; the parent-child attach loop
+    // must still nest the child under its parent (the loop was rewired, not
+    // deleted — deleting it would drop the whole subtree).
+    mockListUnreadChannels.mockResolvedValue([
+      row({ channelId: "t1", channelName: "budget-2026", parentChannelId: "c1", lastMessageAt: "2026-06-25T10:00:00Z" }),
+    ])
+    mockGetChannelsByIds.mockResolvedValue([{ id: "c1", name: "general", serverId: "s1" }])
+    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const body = await res.json()
+    expect(body.servers).toHaveLength(1)
+    const parent = body.servers[0].channels[0]
+    expect(parent.channelId).toBe("c1")
+    expect(parent.children.map((c: { channelId: string }) => c.channelId)).toEqual(["t1"])
   })
 })

@@ -10,6 +10,16 @@ import { writeJSON } from "@/lib/middleware/helpers"
 import { parseBoundedInt } from "@/lib/community/messages"
 import { avatarInitial } from "@/lib/community/avatar"
 
+// Whether a channel's unread badge survives the viewer's effective notification
+// level. `all` always badges; `nothing` never does; `mentions` badges only when
+// the unread includes an @-mention (the non-@ badge is suppressed while the
+// mention row still surfaces in the mention inbox).
+function shouldBadge(level: string, hasMention: boolean): boolean {
+  if (level === "nothing") return false
+  if (level === "mentions") return hasMention
+  return true
+}
+
 export const GET = withAuth(async (req, ctx) => {
   const db = getDb(ctx.env.DB)
   const url = new URL(req.url)
@@ -50,19 +60,26 @@ export const GET = withAuth(async (req, ctx) => {
   }
   const { unread, settings, mentions, unreadDms } = fetched
 
-  const mutedServers = new Set<string>()
-  const mutedChannels = new Set<string>()
-  for (const s of settings) {
-    if (s.level !== "nothing") continue
-    if (s.channelId) mutedChannels.add(s.channelId)
-    else if (s.serverId) mutedServers.add(s.serverId)
-  }
-
   const mentionCountByChannel = new Map<string, number>()
   for (const m of mentions) {
     const cid = m.message.channelId
     if (!cid) continue
     mentionCountByChannel.set(cid, (mentionCountByChannel.get(cid) ?? 0) + 1)
+  }
+
+  // A channel's unread badge survives only if the viewer's EFFECTIVE level
+  // (sub-channel override → parent channel → server → global "all") allows it.
+  // This climbs in memory off the single `getSettings` fetch — no per-channel
+  // query — so a child under a muted parent (or muted server) is suppressed by
+  // the climb, and a `mentions`-level channel badges only when the unread
+  // carries an @-mention.
+  const badgeAllowed = (channel: {
+    id: string
+    serverId: string
+    parentChannelId: string | null
+  }) => {
+    const level = queries.communityNotificationSetting.computeEffectiveLevel(settings, channel)
+    return shouldBadge(level, (mentionCountByChannel.get(channel.id) ?? 0) > 0)
   }
 
   // Split unread rows into top-level channels and child threads/forum-posts.
@@ -86,13 +103,12 @@ export const GET = withAuth(async (req, ctx) => {
 
   for (const row of unread) {
     if (!row.serverId || !row.channelId || !row.serverName || !row.channelName) continue
-    if (mutedServers.has(row.serverId)) continue
     if (row.parentChannelId) {
-      // Child (thread / forum-post). Skip if the child itself is muted; the
-      // parent-mute cascade is applied later (once we know which parents are
-      // muted) so a child under a muted parent is dropped even if it isn't
-      // individually muted.
-      if (mutedChannels.has(row.channelId)) continue
+      // Child (thread / forum-post). Its effective level climbs
+      // child → parent channel → server → global "all", so a child under a
+      // muted parent (or muted server) is suppressed here, while a child with
+      // its own `all` override survives even under a muted parent.
+      if (!badgeAllowed({ id: row.channelId, serverId: row.serverId, parentChannelId: row.parentChannelId })) continue
       const list = childrenByParent.get(row.parentChannelId) ?? []
       list.push({
         channelId: row.channelId,
@@ -103,7 +119,7 @@ export const GET = withAuth(async (req, ctx) => {
       })
       childrenByParent.set(row.parentChannelId, list)
     } else {
-      if (mutedChannels.has(row.channelId)) continue
+      if (!badgeAllowed({ id: row.channelId, serverId: row.serverId, parentChannelId: null })) continue
       parents.set(row.channelId, {
         channelId: row.channelId,
         channelName: row.channelName,
@@ -123,14 +139,18 @@ export const GET = withAuth(async (req, ctx) => {
   // no visibility filter, but that's fine: the child already passed visibility,
   // which implies the parent is visible. serverId/serverName come from the
   // child rows (they joined `communityServer`).
-  const missingParentIds = [...childrenByParent.keys()].filter((pid) => !parents.has(pid) && !mutedChannels.has(pid))
+  // Structural resolution only: any parent with a surviving child needs a node
+  // to hold it. The child already cleared its own effective-level climb (which
+  // accounts for the parent and server), so a surviving child under a muted
+  // parent (its own `all` override beating the parent) must still surface — no
+  // parent-level mute filter here.
+  const missingParentIds = [...childrenByParent.keys()].filter((pid) => !parents.has(pid))
   if (missingParentIds.length > 0) {
     const resolved = await queries.communityChannel.getChannelsByIds(db, missingParentIds)
     const resolvedById = new Map(resolved.map((c) => [c.id, c]))
     for (const pid of missingParentIds) {
       const ch = resolvedById.get(pid)
       if (!ch) continue
-      if (mutedServers.has(ch.serverId)) continue
       parents.set(pid, {
         channelId: pid,
         channelName: ch.name,
@@ -147,11 +167,14 @@ export const GET = withAuth(async (req, ctx) => {
     }
   }
 
-  // Attach children to their parents (dropping children whose parent is muted
-  // — the mute cascade — or whose parent couldn't be resolved).
+  // Attach children to their parents. Structural: a parent node exists for
+  // every surviving child (direct-unread parents from the loop above,
+  // child-only parents backfilled just above), so this only drops a subtree
+  // when the parent couldn't be resolved. The mute cascade already happened in
+  // each child's effective-level climb, not here.
   for (const [pid, kids] of childrenByParent) {
     const parent = parents.get(pid)
-    if (!parent) continue // parent muted or unresolved → drop the subtree
+    if (!parent) continue // parent unresolved → drop the subtree
     parent.children.push(...kids)
   }
 

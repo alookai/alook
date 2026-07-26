@@ -25,7 +25,7 @@ export const GET = withAuth(async (_req, ctx) => {
   if (!auth.ok) return writeError(auth.error, auth.status)
 
   const visibleChannelIds = await queries.communityChannel.listVisibleChannelIdsForUser(db, ctx.userId)
-  const [server, rawChannels, categories, unreadRows] = await Promise.all([
+  const [server, rawChannels, categories, unreadRows, notifSettings] = await Promise.all([
     queries.communityServer.getServer(db, serverId),
     // Viewer-scoped: private-category channels are only returned if the viewer
     // is the channel creator or an added member (admins get NO special
@@ -37,6 +37,7 @@ export const GET = withAuth(async (_req, ctx) => {
       orderBy: (t, { asc }) => [asc(t.position)],
     }),
     queries.communityInbox.listUnreadChannels(db, ctx.userId, visibleChannelIds),
+    queries.communityNotificationSetting.getSettings(db, ctx.userId),
   ])
 
   if (!server) return writeError("server not found", 404)
@@ -46,8 +47,25 @@ export const GET = withAuth(async (_req, ctx) => {
   // branches inherit `unread` from the same source instead of two separate
   // maps. `listUnreadChannels` scans all of the viewer's servers; scope it
   // down to this one via the Set.
+  //
+  // Cold-start mute suppression (R20): the WS hot path filters badges by
+  // effective level, but this refresh path is level-blind on its own — without
+  // this filter a page reload would bring the red dot back on muted channels.
+  // Reuse M2's in-memory `computeEffectiveLevel` off the single `getSettings`
+  // fetch (no per-channel query); a channel muted at `nothing` — by its own
+  // override or an inherited server/parent one — never counts as unread.
   const unreadIds = new Set(
-    unreadRows.filter((r) => r.serverId === serverId).map((r) => r.channelId),
+    unreadRows
+      .filter(
+        (r) =>
+          r.serverId === serverId &&
+          queries.communityNotificationSetting.computeEffectiveLevel(notifSettings, {
+            id: r.channelId,
+            serverId: r.serverId,
+            parentChannelId: r.parentChannelId ?? null,
+          }) !== "nothing",
+      )
+      .map((r) => r.channelId),
   )
   const channels = rawChannels.map((ch) => ({ ...ch, unread: unreadIds.has(ch.id) }))
 

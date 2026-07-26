@@ -10,6 +10,7 @@ const mockListServerChannels = vi.fn()
 const mockListUnreadChannels = vi.fn()
 const mockListVisibleChannelIds = vi.fn()
 const mockFindManyCategories = vi.fn()
+const mockGetSettings = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -37,6 +38,11 @@ vi.mock("@alook/shared", async () => {
       },
       communityInbox: {
         listUnreadChannels: (...a: unknown[]) => mockListUnreadChannels(...a),
+      },
+      communityNotificationSetting: {
+        getSettings: (...a: unknown[]) => mockGetSettings(...a),
+        // Real climbing resolver — M5b filters cold-start unread by it.
+        computeEffectiveLevel: actual.queries.communityNotificationSetting.computeEffectiveLevel,
       },
       communityAuditLog: {
         logAction: (...a: unknown[]) => mockLogAction(...a),
@@ -115,6 +121,7 @@ describe("GET /api/community/servers/[id]", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockListVisibleChannelIds.mockResolvedValue([])
+    mockGetSettings.mockResolvedValue([])
     mockGetMember.mockResolvedValue({ id: "mem_1", userId: "u1", role: "member" })
     mockGetServer.mockResolvedValue({
       id: "s1",
@@ -218,5 +225,19 @@ describe("GET /api/community/servers/[id]", () => {
     const res = await GET(getReq(), ctx)
     expect(res.status).toBe(403)
     expect(mockGetServer).not.toHaveBeenCalled()
+  })
+
+  it("a muted channel (level=nothing) projects unread: false even when listUnreadChannels returns it (M5b cold-start)", async () => {
+    mockListServerChannels.mockResolvedValue([
+      { id: "ch_1", serverId: "s1", categoryId: "cat_A", name: "general", tags: [] },
+    ])
+    mockListUnreadChannels.mockResolvedValue([
+      { channelId: "ch_1", channelName: "general", serverId: "s1", serverName: "Server", parentChannelId: null, lastMessageAt: "t2", lastReadAt: null },
+    ])
+    mockGetSettings.mockResolvedValue([{ serverId: null, channelId: "ch_1", level: "nothing" }])
+
+    const res = await GET(getReq(), ctx)
+    const body = await res.json()
+    expect(body.categories[0].channels[0]).toMatchObject({ id: "ch_1", unread: false })
   })
 })
