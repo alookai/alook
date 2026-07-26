@@ -357,12 +357,14 @@ function SettingsInvites({ invites, loading, onRevokeInvite, onCopyInvite }: {
   )
 }
 
-function SettingsNotifications({ level, onSetLevel }: { level: string; onSetLevel?: (l: string) => void }) {
-  const levels: { value: string; label: string; hint: string }[] = [
-    { value: "All messages", label: "Every message", hint: "Notify for every new message on this server" },
-    { value: "Only @mentions", label: "Mentions only", hint: "Notify when someone @s you" },
-    { value: "Nothing", label: "Muted", hint: "No notifications, no badges" },
-  ]
+export const SERVER_NOTIF_LEVELS: { value: string; label: string; hint: string }[] = [
+  { value: "All Messages", label: "Every message", hint: "Notify for every new message on this server" },
+  { value: "Only @mentions", label: "Mentions only", hint: "Notify when someone @s you" },
+  { value: "Nothing", label: "Muted", hint: "No notifications, no badges" },
+]
+
+export function SettingsNotifications({ level, onSetLevel }: { level: string; onSetLevel?: (l: string) => void }) {
+  const levels = SERVER_NOTIF_LEVELS
   return (
     <div className="mx-auto max-w-md space-y-2">
       <div className="mb-3 text-sm text-muted-foreground">Default notifications for this server</div>
