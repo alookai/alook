@@ -49,7 +49,7 @@
   "dependencies": {
     "citty": "^0.2.2",
     "commander": "^14.0.3",
-    "playwright-core": "^1.61.1",
+    "playwright-core": "^1.62.0",
     "postal-mime": "^2.7.5",
     "sharp": "^0.35.3"
   },
