@@ -11,7 +11,7 @@
  */
 
 import type React from "react"
-import type { ChannelType, CommunityRole } from "@alook/shared"
+import type { ChannelType, CommunityRole, MentionKind } from "@alook/shared"
 import type { EntityKind } from "./entity-icon"
 
 // ── Presence / enums ───────────────────────────────────────────────────────
@@ -285,7 +285,7 @@ export type Mention = {
   // "mention" (@-mention) vs "reply" (reply to your message). Drives the row
   // label ("mentioned you" vs "replied to you"). Optional for back-compat with
   // any cached payload written before the field existed.
-  kind?: "mention" | "reply"
+  kind?: MentionKind
   server: string
   serverId?: string
   channel: string

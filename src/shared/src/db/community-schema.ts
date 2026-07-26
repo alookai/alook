@@ -137,6 +137,8 @@ export const communityThreadParticipant = sqliteTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    // Default mirrors PARTICIPANT_SOURCE.MENTION (constants/community.ts). Kept
+    // as a literal because Drizzle's column builder needs a compile-time value.
     source: text("source").notNull().default("mention"),
     addedAt: text("added_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
@@ -481,6 +483,8 @@ export const communityMention = sqliteTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    // Default mirrors MENTION_KIND.MENTION (constants/community.ts). Kept as a
+    // literal because Drizzle's column builder needs a compile-time value.
     kind: text("kind").notNull().default("mention"),
     read: integer("read").default(0),
   },
@@ -520,6 +524,9 @@ export const communityNotificationSetting = sqliteTable(
     channelId: text("channel_id").references(() => communityChannel.id, {
       onDelete: "cascade",
     }),
+    // Anchored to NOTIFICATION_LEVEL_VALUES ("all"|"mentions"|"nothing") in
+    // src/shared/src/constants/community.ts — the single source for both the
+    // stored value and its UI label. Default "all".
     level: text("level").notNull().default("all"),
   },
   (t) => [index("idx_notification_setting_user").on(t.userId)]

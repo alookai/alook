@@ -9,8 +9,10 @@ import {
   MAX_CHANNEL_NAME_LENGTH,
   MAX_CHANNEL_TOPIC_LENGTH,
   WS_EVENTS,
+  PARTICIPANT_SOURCE,
   type ChannelType,
   type MentionType,
+  type ParticipantSource,
   type Database,
 } from "@alook/shared"
 import { fanOutToChannel, fanOutToServerMembers, broadcastToUserSafe } from "./fanout"
@@ -279,7 +281,7 @@ async function createPostChannel(
   // kind:"post") so the CHILD_CHANNEL_UPDATE that would fire doesn't collide
   // with the CHILD_CHANNEL_CREATE emitted below.
   await queries.communityThread.addThreadParticipants(db, postChannel.id, [
-    { userId: actor.userId, source: "spoke" },
+    { userId: actor.userId, source: PARTICIPANT_SOURCE.SPOKE },
   ])
 
   // Route the opener through the unified pipeline as kind:"channel" with the
@@ -406,14 +408,14 @@ async function createThreadChannelUnified(
   }
 
   if (seedCreator || seedRootAuthor) {
-    const seedRows: { userId: string; source: "spoke" | "added" }[] = []
-    if (seedCreator) seedRows.push({ userId: actor.userId, source: "spoke" })
+    const seedRows: { userId: string; source: ParticipantSource }[] = []
+    if (seedCreator) seedRows.push({ userId: actor.userId, source: PARTICIPANT_SOURCE.SPOKE })
     // The root author is only enrolled if they are STILL a member of the
     // parent channel — seeding them unconditionally could push a private
     // thread to someone who lost access.
     if (seedRootAuthor && message.authorId && message.authorId !== actor.userId) {
       const authorStillMember = await requireChannelMember(db, parentChannelId, message.authorId)
-      if (authorStillMember.ok) seedRows.push({ userId: message.authorId, source: "added" })
+      if (authorStillMember.ok) seedRows.push({ userId: message.authorId, source: PARTICIPANT_SOURCE.ADDED })
     }
     if (seedRows.length > 0) {
       await queries.communityThread.addThreadParticipants(db, childChannel.id, seedRows)

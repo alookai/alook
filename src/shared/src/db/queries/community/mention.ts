@@ -2,14 +2,15 @@ import { eq, and, inArray, desc } from "drizzle-orm";
 import { communityMention, communityMessage } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
+import { MENTION_KIND, type MentionKind } from "../../../constants/community";
 
 export async function createMentions(
   db: Database,
-  data: { messageId: string; userIds: string[]; kind?: "mention" | "reply" }
+  data: { messageId: string; userIds: string[]; kind?: MentionKind }
 ) {
   if (data.userIds.length === 0) return [];
 
-  const kind = data.kind ?? "mention";
+  const kind = data.kind ?? MENTION_KIND.MENTION;
   const rows = await db
     .insert(communityMention)
     .values(
@@ -27,7 +28,7 @@ export async function listUnreadMentions(
   db: Database,
   userId: string,
   opts: {
-    kind?: "mention" | "reply";
+    kind?: MentionKind;
     limit?: number;
     /**
      * Scope mentions to channels the viewer may see (scope-first, in-query —
@@ -160,7 +161,7 @@ export async function hasMentionForMessage(
       and(
         eq(communityMention.messageId, messageId),
         eq(communityMention.userId, userId),
-        eq(communityMention.kind, "mention")
+        eq(communityMention.kind, MENTION_KIND.MENTION)
       )
     )
     .limit(1);

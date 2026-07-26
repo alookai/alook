@@ -5,9 +5,11 @@ import {
   MAX_MESSAGE_CONTENT_LENGTH,
   MAX_ATTACHMENTS_PER_MESSAGE,
   WS_EVENTS,
+  PARTICIPANT_SOURCE,
+  MENTION_KIND,
   createLogger,
 } from "@alook/shared"
-import type { MentionType } from "@alook/shared"
+import type { MentionType, ParticipantSource } from "@alook/shared"
 import type { Database } from "@alook/shared"
 import { fanOutToChannel, fanOutToDM } from "./fanout"
 import { broadcastToUser } from "../broadcast"
@@ -555,8 +557,8 @@ export async function createCommunityMessage(params: {
   // card messages (`skipMentions`) don't add the author. A forum post is
   // enrolled exactly like a thread so it notifies only its participants.
   if (hasParentChannel(target) && !skipMentions) {
-    const rows: { userId: string; source: "spoke" | "mention" }[] = [
-      { userId: authorId, source: "spoke" },
+    const rows: { userId: string; source: ParticipantSource }[] = [
+      { userId: authorId, source: PARTICIPANT_SOURCE.SPOKE },
     ]
     // Only EXPLICIT `@user` mentions + reply targets enroll as participants. A
     // mass `@everyone`/`@here` is in `mentionTargets` (so everyone is notified
@@ -564,7 +566,7 @@ export async function createCommunityMessage(params: {
     // subscribe the whole channel/server to the thread. `replyParticipants` is
     // the pre-dedup snapshot so a reply still enrolls even under `@everyone`.
     for (const id of new Set([...explicitMentionTargets, ...replyParticipants])) {
-      if (id !== authorId) rows.push({ userId: id, source: "mention" })
+      if (id !== authorId) rows.push({ userId: id, source: PARTICIPANT_SOURCE.MENTION })
     }
     // One bulk insert (author + mentioned) instead of N+1 sequential inserts.
     await queries.communityThread.addThreadParticipants(db, target.channelId, rows)
@@ -579,14 +581,14 @@ export async function createCommunityMessage(params: {
     await queries.communityMention.createMentions(db, {
       messageId: row.id,
       userIds: liveMentions,
-      kind: "mention",
+      kind: MENTION_KIND.MENTION,
     })
   }
   if (liveReplies.length > 0) {
     await queries.communityMention.createMentions(db, {
       messageId: row.id,
       userIds: liveReplies,
-      kind: "reply",
+      kind: MENTION_KIND.REPLY,
     })
   }
 

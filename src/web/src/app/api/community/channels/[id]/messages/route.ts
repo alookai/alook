@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, isPost } from "@alook/shared"
 import {
   parseCursor,
   parseAnchor,
@@ -111,7 +111,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   // user could type before a client-side meta fetch resolved.
   const target = channel.parentChannelId
     ? {
-        kind: channel.type === "post" ? ("post" as const) : ("thread" as const),
+        kind: isPost(channel.type) ? ("post" as const) : ("thread" as const),
         channelId,
         parentChannelId: channel.parentChannelId,
         serverId: channel.serverId,

@@ -1,6 +1,7 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query"
+import type { ParticipantSource } from "@alook/shared"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 
@@ -9,7 +10,7 @@ export type ThreadParticipant = {
   name: string | null
   discriminator: string | null
   avatar: string
-  source: "mention" | "spoke" | "added"
+  source: ParticipantSource
 }
 
 const EMPTY: readonly ThreadParticipant[] = Object.freeze([])

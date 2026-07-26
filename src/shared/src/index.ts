@@ -157,6 +157,8 @@ export {
   PRESENCE_MEMBER_CAP,
   BANNER_COLOR_REGEX,
   NOTIFICATION_LEVEL_VALUES,
+  PARTICIPANT_SOURCE,
+  MENTION_KIND,
   TYPING_INDICATOR_TIMEOUT_MS,
   TYPING_INDICATOR_THROTTLE_MS,
   MESSAGE_DEDUP_CACHE_MAX,
@@ -166,7 +168,7 @@ export {
   CACHE_SHORT,
   CACHE_REVALIDATE,
 } from "./constants/community";
-export type { NotifLevel, NotificationLevelValue } from "./constants/community";
+export type { NotifLevel, NotificationLevelValue, ParticipantSource, MentionKind } from "./constants/community";
 
 export type {
   AgentStatusType,
