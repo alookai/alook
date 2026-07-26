@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server"
 import { queries, parseRef, DM_SERVER, parseNameAndTag } from "@alook/shared"
 import type { Database } from "@alook/shared"
-import { isUniqueConstraintError } from "@alook/shared"
 import { guardDmOpen } from "./dm-guard"
+import { createChannelUnified } from "./channel-service"
 
 export type TargetResolution =
   | { kind: "channel"; channelId: string }
@@ -60,7 +60,7 @@ export async function resolveTargetForMember(
   }
 
   if (parsed.server === DM_SERVER) {
-    if (parsed.threadRootSeq !== undefined) {
+    if (parsed.rootSeq !== undefined) {
       // DM messages have no channelId, so they can't be a thread's
       // parentChannelId (community_channel.parentChannelId always
       // references another community_channel) — not modeled today.
@@ -105,7 +105,7 @@ export async function resolveTargetForMember(
   if (matches.length === 0) return { error: 404, message: `channel not found: ${parsed.channel}` }
   const channel = matches[0]!
 
-  if (parsed.threadRootSeq === undefined) {
+  if (parsed.rootSeq === undefined) {
     return { kind: "channel", channelId: channel.id }
   }
 
@@ -126,10 +126,10 @@ export async function resolveTargetForMember(
   const rootMessage = await queries.communityMessage.getMessageByChannelAndSeq(
     db,
     { channelId: channel.id },
-    parsed.threadRootSeq
+    parsed.rootSeq
   )
-  if (!rootMessage || parsed.threadRootSeq === 0) {
-    return { error: 404, message: `no message with seq #${parsed.threadRootSeq} in this channel` }
+  if (!rootMessage || parsed.rootSeq === 0) {
+    return { error: 404, message: `no message with seq #${parsed.rootSeq} in this channel` }
   }
 
   const existingThread = await queries.communityChannel.getThreadChannelByParentMessage(
@@ -143,17 +143,21 @@ export async function resolveTargetForMember(
     return { error: 404, message: "thread not found" }
   }
 
-  try {
-    const created = await queries.communityChannel.createThreadChannel(db, channel.id, rootMessage.id, userId)
-    return { kind: "channel", channelId: created.id }
-  } catch (err) {
-    if (isUniqueConstraintError(err)) {
-      // Lost the race to a concurrent thread-create — re-select the winner.
-      const winner = await queries.communityChannel.getThreadChannelByParentMessage(db, channel.id, rootMessage.id)
-      if (winner) return { kind: "channel", channelId: winner.id }
-    }
-    throw err
+  // Auto-create via the unified service — the agent path seeds no participants
+  // (seedCreator/seedRootAuthor false), fires no CHILD_CHANNEL_CREATE, derives
+  // the name from the root message, and re-selects the winner on a concurrent
+  // unique-constraint conflict (returning `created:false` instead of throwing).
+  const created = await createChannelUnified(
+    db,
+    { userId },
+    { type: "thread", parentMessageId: rootMessage.id },
+    { seedCreator: false, seedRootAuthor: false },
+  )
+  if (!created.ok) {
+    const status = created.status === 409 ? 400 : (created.status as 400 | 403 | 404)
+    return { error: status, message: created.error }
   }
+  return { kind: "channel", channelId: created.channel.id }
 }
 
 /**

@@ -213,9 +213,9 @@ describe("POST /api/community/agent/channelMember", () => {
     expect(mockListThreadParticipantUserIds).toHaveBeenCalledWith(expect.anything(), "th_1")
   })
 
-  // Forum posts are not agent-addressable via any current ref grammar
+  // Posts are not agent-addressable via any current ref grammar
   // (`resolveChannelByNameForMember` filters `parent_channel_id IS NULL`
   // and `#N` refs materialize as `type: "thread"`), so there is no code
-  // path that reaches this handler with a `forum_post` row. If forum-post
+  // path that reaches this handler with a `post` row. If post
   // refs are ever reintroduced, add a test back here.
 })

@@ -2,14 +2,14 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, WS_EVENTS, isThread, isForumPost } from "@alook/shared"
+import { queries, WS_EVENTS, isThread, isPost } from "@alook/shared"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
 import { requireChannelAccess } from "@/lib/community/permissions"
 import { avatarInitial } from "@/lib/community/avatar"
 
 /**
  * List a thread/forum-post's participants — the NOTIFY set. Both thread and
- * forum_post are the notification dimension (their panel == their notify set),
+ * posts are the notification dimension (their panel == their notify set),
  * so both use this endpoint. Any member with access (who therefore passes the
  * access gate) may read the list.
  */
@@ -21,7 +21,7 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
   const access = await requireChannelAccess(db, channelId, ctx.userId)
   if (!access.ok) return writeError(access.error, access.status)
   const type = access.value.channel.type
-  if (!isThread(type) && !isForumPost(type)) {
+  if (!isThread(type) && !isPost(type)) {
     return writeError("not a thread or forum post", 400)
   }
 
@@ -52,7 +52,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const access = await requireChannelAccess(db, channelId, ctx.userId)
   if (!access.ok) return writeError(access.error, access.status)
   const channel = access.value.channel
-  if (!isThread(channel.type) && !isForumPost(channel.type)) {
+  if (!isThread(channel.type) && !isPost(channel.type)) {
     return writeError("not a thread or forum post", 400)
   }
 

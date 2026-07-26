@@ -22,7 +22,7 @@ describe("resolveChannelRefBase", () => {
     const resolved = resolveChannelRefBase(directory, "/srv_studio/chn_general")
     expect(resolved?.server.id).toBe("srv_studio")
     expect(resolved?.channel.id).toBe("chn_general")
-    expect(resolved?.threadRootSeq).toBeUndefined()
+    expect(resolved?.rootSeq).toBeUndefined()
   })
 
   it("resolves by exact display name for both segments", () => {
@@ -74,16 +74,16 @@ describe("resolveChannelRefBase", () => {
     expect(resolveChannelRefBase(directory, "/studio/nope")).toBeNull()
   })
 
-  it("resolves the thread form /server/channel/#42 and surfaces threadRootSeq: 42", () => {
+  it("resolves the thread form /server/channel/#42 and surfaces rootSeq: 42", () => {
     const resolved = resolveChannelRefBase(directory, "/studio/general/#42")
     expect(resolved?.channel.id).toBe("chn_general")
-    expect(resolved?.threadRootSeq).toBe(42)
+    expect(resolved?.rootSeq).toBe(42)
   })
 
-  it("resolves the thread-reply form /server/channel/#5#42 and surfaces both threadRootSeq and seq", () => {
+  it("resolves the thread-reply form /server/channel/#5#42 and surfaces both rootSeq and seq", () => {
     const resolved = resolveChannelRefBase(directory, "/studio/general/#5#42")
     expect(resolved?.channel.id).toBe("chn_general")
-    expect(resolved?.threadRootSeq).toBe(5)
+    expect(resolved?.rootSeq).toBe(5)
     expect(resolved?.seq).toBe(42)
   })
 

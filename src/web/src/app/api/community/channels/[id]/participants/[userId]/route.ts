@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, isThread, isForumPost } from "@alook/shared"
+import { queries, isThread, isPost } from "@alook/shared"
 import { requireChannelAccess } from "@/lib/community/permissions"
 
 /**
@@ -22,7 +22,7 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   const access = await requireChannelAccess(db, channelId, ctx.userId)
   if (!access.ok) return writeError(access.error, access.status)
   const type = access.value.channel.type
-  if (!isThread(type) && !isForumPost(type)) {
+  if (!isThread(type) && !isPost(type)) {
     return writeError("not a thread or forum post", 400)
   }
 
