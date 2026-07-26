@@ -477,27 +477,15 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             scheduleInboxInvalidate()
           }
 
-          // 3) Live channel-sidebar unread dot: if this message landed in a
-          //    channel that belongs to the currently-open server's cached
-          //    `ServerDetail`, flip that channel's `unread` to `true` —
-          //    no network round-trip. Skip for the viewer's own sends (never
-          //    unread to themselves) and for the currently-**subscribed**
-          //    channel (the dot is already suppressed there via `!active` in
-          //    `sortable-channel.tsx`, but skipping the cache patch too
-          //    avoids a stale `unread: true` lingering for when the user
-          //    later navigates away without the watermark path re-clearing
-          //    it). No-op automatically (via the helper's own "no matching
-          //    channel" branch) if that server's detail isn't cached or
-          //    doesn't contain this channel.
-          if (event.channelId && event.channelId !== sub.channelId && event.message.authorId !== viewerId) {
-            const currentServerId = useCommunityStore.getState().currentServerId
-            if (currentServerId) {
-              queryClient.setQueryData<ServerDetail | undefined>(
-                communityKeys.server(currentServerId),
-                (cache) => patchChannelUnread(cache, event.channelId!, true),
-              )
-            }
-          }
+          // 3) Badge/unread is NOT patched here (batch 3, R1/R23). This branch
+          //    only appends content (`insertMessageIntoCache` above) — the
+          //    sidebar unread dot is now driven by the PER-USER
+          //    `community:unread.bump` signal, which the server emits only to
+          //    recipients whose effective notification level allows badging
+          //    (`dispatchMessageNotify`). A single shared `MESSAGE_CREATE`
+          //    payload can't carry a per-user badge decision (user A muted,
+          //    user B not), so the badge moved to its own per-user event. See
+          //    the UNREAD_BUMP handler below.
 
           // Note: no auto-mark-read here. See #3 — the
           // IntersectionObserver in `useChannelWatermark` advances the
@@ -953,6 +941,27 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           // and the servers list is small.
           void queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
           cbs.onMention?.(event)
+          return
+        }
+
+        // ── Per-user unread bump (batch 3, R23) ──────────────────────────
+        // The level-filtered badge signal. The server emits this ONLY to
+        // recipients whose effective notification level allows badging, so the
+        // client can patch the sidebar unread dot unconditionally on receipt —
+        // the mute decision already happened server-side, per-user (unlike the
+        // shared MESSAGE_CREATE payload, which is now content-only). Skip the
+        // currently-subscribed channel (its dot is suppressed via `!active` in
+        // `sortable-channel.tsx`; skipping the patch avoids a stale
+        // `unread: true` lingering until the watermark path clears it).
+        case WS_EVENTS.UNREAD_BUMP: {
+          if (event.channelId === sub.channelId) return
+          const currentServerId = useCommunityStore.getState().currentServerId
+          if (currentServerId) {
+            queryClient.setQueryData<ServerDetail | undefined>(
+              communityKeys.server(currentServerId),
+              (cache) => patchChannelUnread(cache, event.channelId, true),
+            )
+          }
           return
         }
 

@@ -426,6 +426,21 @@ export type CommunityMentionCreate = {
   authorName: string
 }
 
+// ── Unread / badge signal (per-user) ─────────────────────────────────────────
+//
+// A PER-USER unread bump, emitted only to the recipients whose effective
+// notification level allows badging (M4/M4b). Unlike `MESSAGE_CREATE` — a
+// single shared event object fanned to the whole channel (R23) — this is
+// dispatched inside `dispatchMessageNotify`'s per-recipient loop, so each
+// recipient's own level decides whether they receive it. The client patches
+// the channel's sidebar unread dot on receipt; the `MESSAGE_CREATE` handler no
+// longer patches the badge itself (it only appends content — R1).
+export type CommunityUnreadBump = {
+  type: "community:unread.bump"
+  userId: string
+  channelId: string
+}
+
 // ── Presence events ───────────────────────────────────────────────────────────
 
 export type CommunityPresenceUpdate = {
@@ -594,6 +609,7 @@ export type CommunityWsEvent =
   | CommunityPresenceUpdate
   | CommunityStatusUpdate
   | CommunityMentionCreate
+  | CommunityUnreadBump
   | CommunityMachineCreated
   | CommunityMachineStatus
   | CommunityMachineUpdated
@@ -641,6 +657,7 @@ export const WS_EVENTS = {
   DM_TYPING: "community:dm.typing",
   INVITE_CREATE: "community:invite.create",
   MENTION_CREATE: "community:mention.create",
+  UNREAD_BUMP: "community:unread.bump",
   PRESENCE_UPDATE: "community:presence.update",
   STATUS_UPDATE: "community:status.update",
   MACHINE_CREATED: "community:machine.created",

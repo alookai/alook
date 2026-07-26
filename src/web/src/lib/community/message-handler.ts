@@ -11,7 +11,8 @@ import {
 } from "@alook/shared"
 import type { MentionType, ParticipantSource } from "@alook/shared"
 import type { Database } from "@alook/shared"
-import { fanOutToChannel, fanOutToDM } from "./fanout"
+import { fanOutToChannel, fanOutToDM, resolveChannelRecipients } from "./fanout"
+import { dispatchMessageNotify } from "./notify"
 import { broadcastToUser } from "../broadcast"
 import { mapMessageForWs } from "./message-payload"
 import { mediaUrlFromKey } from "./storage"
@@ -575,6 +576,13 @@ export async function createCommunityMessage(params: {
   // Mention/reply ROW writes are persistence, not broadcast — they run inline
   // even under `deferBroadcast` (only the WS emissions defer). When
   // `skipMentions` both sets are empty, so these are no-ops.
+  //
+  // ⚠ LOCKED (batch 3, plan §13/M4): mention ROWS are ALWAYS written and are
+  // NEVER gated by the recipient's notification level. A `nothing`-level user
+  // who is @-mentioned still gets a persisted mention row (their inbox mention
+  // list can surface it) — only the LIVE `MENTION_CREATE` push + badge + wake
+  // are level-filtered, and that filtering lives in `dispatchMessageNotify`,
+  // not here. Do not add a level check around these writes.
   const liveMentions = [...mentionTargets]
   const liveReplies = [...replyTargets]
   if (liveMentions.length > 0) {
@@ -630,22 +638,24 @@ export async function createCommunityMessage(params: {
   // All WS side effects live here so `deferBroadcast` can hand them back as a
   // thunk instead of firing them inline.
   const doBroadcast = async (): Promise<void> => {
-    if (liveMentions.length > 0 || liveReplies.length > 0) {
-      const authorName = row.authorName
-      const channelIdForBroadcast =
-        isDmTarget(target) ? undefined : target.channelId
-      for (const userId of [...liveMentions, ...liveReplies]) {
-        broadcastToUser(userId, {
-          type: WS_EVENTS.MENTION_CREATE,
-          userId,
-          messageId: row.id,
-          ...(channelIdForBroadcast ? { channelId: channelIdForBroadcast } : {}),
-          authorName,
-        }).catch(() => { })
-      }
-    }
-
     if (isDmTarget(target)) {
+      // DM MENTION_CREATE (reply targets) — DMs have no @-mention roster, so
+      // `liveMentions` is empty here; only reply targets appear. DM is NOT in
+      // mute scope (O4), so these always deliver (no level filter).
+      if (liveMentions.length > 0 || liveReplies.length > 0) {
+        const authorName = row.authorName
+        for (const userId of [...liveMentions, ...liveReplies]) {
+          broadcastToUser(userId, {
+            type: WS_EVENTS.MENTION_CREATE,
+            userId,
+            messageId: row.id,
+            authorName,
+          }).catch(() => { })
+        }
+      }
+
+      // MESSAGE_CREATE + direct DM bot-wake (R15 — never routed through the
+      // level-filtered pipeline).
       fanOutToDM(
         target.dmId,
         {
@@ -662,6 +672,13 @@ export async function createCommunityMessage(params: {
         message: messagePayload,
       }).catch(() => { })
     } else {
+      // Resolve the recipient set ONCE and share it between the unfiltered
+      // MESSAGE_CREATE fan-out (R1) and the level-filtered notify pipeline — no
+      // second membership query.
+      const recipients = await resolveChannelRecipients(target.channelId)
+
+      // ⚠ R1 — MESSAGE_CREATE broadcast is unconditional (the ONLY content-sync
+      // path for an open channel); it is NEVER level-filtered.
       fanOutToChannel(
         target.channelId,
         {
@@ -669,7 +686,26 @@ export async function createCommunityMessage(params: {
           channelId: target.channelId,
           message: messagePayload,
         },
-        { excludeUserId: fanoutExclude, wakeMessageRow },
+        { excludeUserId: fanoutExclude, recipients },
+      ).catch(() => { })
+
+      // Level-filtered notify: per-recipient MENTION_CREATE live push + per-user
+      // UNREAD_BUMP badge signal + bot wake. The author is always excluded from
+      // badge/wake (never notifies themselves); mention sets are already
+      // author-excluded upstream. `nothing`-level recipients are dropped from
+      // all three legs — but their mention ROWS were already written above (M4).
+      dispatchMessageNotify(
+        db,
+        { authorName: row.authorName, wakeMessageRow },
+        {
+          id: row.id,
+          seq: row.seq,
+          authorId: row.authorId,
+          channelId: row.channelId,
+          dmConversationId: row.dmConversationId,
+        },
+        recipients.filter((id) => id !== authorId),
+        { mentionedUserIds: [...liveMentions, ...liveReplies] },
       ).catch(() => { })
 
       if (hasParentChannel(target)) {

@@ -27,6 +27,9 @@ const mockListReactionsByMessageIds = vi.fn()
 const mockGetUserInternal = vi.fn()
 
 const mockFanOutToChannel = vi.fn()
+const mockFanOutToDM = vi.fn()
+const mockResolveChannelRecipients = vi.fn(async () => [] as string[])
+const mockDispatchMessageNotify = vi.fn(async () => {})
 const mockBroadcastToUser = vi.fn()
 const mockCheckMessageRateLimit = vi.fn()
 
@@ -84,6 +87,12 @@ vi.mock("@alook/shared", async () => {
 
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToChannel: (...a: unknown[]) => mockFanOutToChannel(...a),
+  fanOutToDM: (...a: unknown[]) => mockFanOutToDM(...a),
+  resolveChannelRecipients: (...a: unknown[]) => mockResolveChannelRecipients(...a),
+}))
+
+vi.mock("@/lib/community/notify", () => ({
+  dispatchMessageNotify: (...a: unknown[]) => mockDispatchMessageNotify(...a),
 }))
 
 vi.mock("@/lib/broadcast", () => ({
@@ -153,6 +162,9 @@ describe("POST /api/community/channels/[id]/messages", () => {
       ...input,
     }))
     mockFanOutToChannel.mockResolvedValue(undefined)
+    mockFanOutToDM.mockResolvedValue(undefined)
+    mockResolveChannelRecipients.mockResolvedValue([])
+    mockDispatchMessageNotify.mockResolvedValue(undefined)
     mockBroadcastToUser.mockResolvedValue(undefined)
     mockCheckMessageRateLimit.mockResolvedValue({ allowed: true })
   })
@@ -210,8 +222,12 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(payload.kind).toBe("mention")
     expect(payload.userIds.sort()).toEqual(["u2", "u3"])
 
-    const broadcastTargets = mockBroadcastToUser.mock.calls.map((c) => c[0]).sort()
-    expect(broadcastTargets).toEqual(["u2", "u3"])
+    // The per-recipient MENTION_CREATE live push moved into the level-filtered
+    // notify pipeline (batch 3) — @everyone still reaches every non-author
+    // member, now via the mention set handed to `dispatchMessageNotify`.
+    expect(mockDispatchMessageNotify).toHaveBeenCalledTimes(1)
+    const [, , , , notifyOpts] = mockDispatchMessageNotify.mock.calls[0]
+    expect([...notifyOpts.mentionedUserIds].sort()).toEqual(["u2", "u3"])
   })
 
   it("resolves @Bob candidate via listMembers (name-projected) when content includes '@'", async () => {
@@ -246,6 +262,12 @@ describe("POST /api/community/channels/[id]/messages", () => {
     const [, payload] = mockCreateMentions.mock.calls[0]
     expect(payload.kind).toBe("mention")
     expect(payload.userIds).toEqual(["u2"])
+
+    // @Bob still resolves via listMembers; the resolved mention set flows into
+    // the level-filtered notify pipeline for the live-push decision.
+    expect(mockDispatchMessageNotify).toHaveBeenCalledTimes(1)
+    const [, , , , notifyOpts] = mockDispatchMessageNotify.mock.calls[0]
+    expect(notifyOpts.mentionedUserIds).toEqual(["u2"])
   })
 
   it("does not query members for a plain channel post with no '@' and no everyone/here", async () => {

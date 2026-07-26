@@ -221,21 +221,19 @@ describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for ME
     mockEnqueueBotWakes.mockResolvedValue(undefined)
   })
 
-  it("fanOutToChannel enqueues wakes using the same recipient list, minus excludeUserId", async () => {
+  it("fanOutToChannel NEVER enqueues wakes — channel wake moved to the level-filtered notify pipeline (batch 3, R15)", async () => {
     mockResolveChannelRecipientUserIds.mockResolvedValue(["u1", "u2", "u3"])
 
     await fanOutToChannel(
       "c1",
       { type: WS_EVENTS.MESSAGE_CREATE, channelId: "c1", message: {} as never } as never,
-      { excludeUserId: "u1", wakeMessageRow },
+      { excludeUserId: "u1" },
     )
 
-    expect(mockEnqueueBotWakes).toHaveBeenCalledTimes(1)
-    expect(mockEnqueueBotWakes).toHaveBeenCalledWith({
-      recipients: ["u2", "u3"],
-      channelId: "c1",
-      messageRow: wakeMessageRow,
-    })
+    // Channel bot-wake now follows the recipient's effective notification level
+    // via `dispatchMessageNotify` (notify.ts), NOT this fan-out. `fanOutToChannel`
+    // no longer accepts a `wakeMessageRow` and never enqueues.
+    expect(mockEnqueueBotWakes).not.toHaveBeenCalled()
   })
 
   it("fanOutToDM enqueues wakes with dmConversationId scope", async () => {
@@ -255,23 +253,11 @@ describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for ME
     })
   })
 
-  it("does not enqueue wakes when wakeMessageRow is omitted", async () => {
-    mockResolveChannelRecipientUserIds.mockResolvedValue(["u1", "u2"])
+  it("fanOutToDM does not enqueue wakes for non-MESSAGE_CREATE events even with a wakeMessageRow", async () => {
+    mockGetDM.mockResolvedValue({ id: "dm1", user1Id: "u1", user2Id: "u2" })
 
-    await fanOutToChannel("c1", {
-      type: WS_EVENTS.MESSAGE_CREATE,
-      channelId: "c1",
-      message: {} as never,
-    } as never)
-
-    expect(mockEnqueueBotWakes).not.toHaveBeenCalled()
-  })
-
-  it("does not enqueue wakes for non-MESSAGE_CREATE events even with a wakeMessageRow", async () => {
-    mockResolveChannelRecipientUserIds.mockResolvedValue(["u1", "u2"])
-
-    await fanOutToChannel(
-      "c1",
+    await fanOutToDM(
+      "dm1",
       {
         type: WS_EVENTS.CHILD_CHANNEL_UPDATE,
         parentChannelId: "parent1",
@@ -284,15 +270,15 @@ describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for ME
     expect(mockEnqueueBotWakes).not.toHaveBeenCalled()
   })
 
-  it("a failing enqueueBotWakes does not reject fanOutToChannel", async () => {
-    mockResolveChannelRecipientUserIds.mockResolvedValue(["u1"])
+  it("a failing enqueueBotWakes does not reject fanOutToDM", async () => {
+    mockGetDM.mockResolvedValue({ id: "dm1", user1Id: "u1", user2Id: "u2" })
     mockEnqueueBotWakes.mockRejectedValue(new Error("queue down"))
 
     await expect(
-      fanOutToChannel(
-        "c1",
-        { type: WS_EVENTS.MESSAGE_CREATE, channelId: "c1", message: {} as never } as never,
-        { wakeMessageRow },
+      fanOutToDM(
+        "dm1",
+        { type: WS_EVENTS.MESSAGE_CREATE, dmConversationId: "dm1", message: {} as never } as never,
+        { wakeMessageRow: { ...wakeMessageRow, channelId: null, dmConversationId: "dm1" } },
       ),
     ).resolves.toBeUndefined()
   })

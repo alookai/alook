@@ -68,10 +68,17 @@ vi.mock("@alook/shared", async () => {
 const mockFanOutToChannel = vi.fn()
 const mockFanOutToDM = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
+const mockResolveChannelRecipients = vi.fn(async () => [] as string[])
 vi.mock("./fanout", () => ({
   fanOutToChannel: (...a: unknown[]) => mockFanOutToChannel(...a),
   fanOutToDM: (...a: unknown[]) => mockFanOutToDM(...a),
   broadcastToUserSafe: (...a: unknown[]) => mockBroadcastToUserSafe(...a),
+  resolveChannelRecipients: (...a: unknown[]) => mockResolveChannelRecipients(...a),
+}))
+
+const mockDispatchMessageNotify = vi.fn(async () => {})
+vi.mock("./notify", () => ({
+  dispatchMessageNotify: (...a: unknown[]) => mockDispatchMessageNotify(...a),
 }))
 
 const mockBroadcastToUser = vi.fn()
@@ -301,6 +308,92 @@ describe("createCommunityMessage — CAS race (plans/fix-agent-send-race-conditi
 
     const callArgs = mockCreateMessage.mock.calls[0]![1]
     expect("expectedSeq" in callArgs).toBe(false)
+  })
+})
+
+describe("createCommunityMessage — notify pipeline wiring (batch 3, R1)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetUserInternal.mockResolvedValue({ id: "author_1", isBot: false, deletedAt: null })
+    mockCreateMessage.mockResolvedValue({ id: "msg_1" })
+    mockGetMessage.mockResolvedValue(messageRow())
+    mockFanOutToChannel.mockResolvedValue(undefined)
+    mockFanOutToDM.mockResolvedValue(undefined)
+    mockBroadcastToUser.mockResolvedValue(undefined)
+    mockResolveChannelRecipients.mockResolvedValue(["author_1", "u2", "u3"])
+  })
+
+  it("channel send: emits MESSAGE_CREATE unconditionally (R1) AND hands the shared recipient set (author-excluded) to dispatchMessageNotify", async () => {
+    await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+      body: { content: "hello" },
+    })
+
+    // R1 — MESSAGE_CREATE broadcast fired via fanOutToChannel, never through
+    // the notify pipeline, never level-filtered. Recipients are reused (passed
+    // in) so no second membership query happens inside fan-out.
+    expect(mockResolveChannelRecipients).toHaveBeenCalledWith("c1")
+    const [, event, opts] = mockFanOutToChannel.mock.calls.find(
+      (c) => (c[1] as { type: string }).type === "community:message.create",
+    )!
+    expect((event as { type: string }).type).toBe("community:message.create")
+    expect(opts).toMatchObject({ excludeUserId: "author_1", recipients: ["author_1", "u2", "u3"] })
+
+    // Notify pipeline gets the SAME recipient set, author-excluded.
+    expect(mockDispatchMessageNotify).toHaveBeenCalledTimes(1)
+    const [, ctx, msg, recipients, notifyOpts] = mockDispatchMessageNotify.mock.calls[0]!
+    expect(ctx).toMatchObject({ authorName: "Author" })
+    expect(msg).toMatchObject({ id: "msg_1", channelId: "c1" })
+    expect(recipients).toEqual(["u2", "u3"])
+    expect(notifyOpts).toEqual({ mentionedUserIds: [] })
+  })
+
+  it("channel send: mentioned users flow into dispatchMessageNotify's mentionedUserIds (mention ROWS still written regardless of level)", async () => {
+    // Public channel; the body @-mentions Bob (disambiguated handle).
+    mockIsChannelPrivate.mockResolvedValue(false)
+    mockGetMessage.mockResolvedValue(messageRow({ content: "@Bob#0001 hi" }))
+    mockListMembers.mockResolvedValue([
+      { userId: "author_1", userName: "Author", discriminator: "1111" },
+      { userId: "u2", userName: "Bob", discriminator: "0001" },
+    ])
+
+    await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+      body: { content: "@Bob#0001 hi" },
+    })
+
+    // Mention ROW written inline, NOT gated by level (locked comment in handler).
+    expect(mockCreateMentions).toHaveBeenCalledWith(
+      {} as never,
+      expect.objectContaining({ userIds: ["u2"], kind: "mention" }),
+    )
+    // The mentioned user is handed to the level-filtered pipeline for the live
+    // push decision.
+    const [, , , , notifyOpts] = mockDispatchMessageNotify.mock.calls[0]!
+    expect(notifyOpts.mentionedUserIds).toEqual(["u2"])
+  })
+
+  it("DM send: does NOT call dispatchMessageNotify (DM keeps its direct fanOutToDM wake, R15)", async () => {
+    mockGetMessage.mockResolvedValue(messageRow({ channelId: null, dmConversationId: "dm1" }))
+
+    await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "dm", dmId: "dm1", otherUserId: "u2" },
+      body: { content: "hi" },
+    })
+
+    expect(mockDispatchMessageNotify).not.toHaveBeenCalled()
+    expect(mockResolveChannelRecipients).not.toHaveBeenCalled()
+    // DM wake rides fanOutToDM with the wakeMessageRow (R15 — never swallowed).
+    const dmCall = mockFanOutToDM.mock.calls.find(
+      (c) => (c[1] as { type: string }).type === "community:message.create",
+    )!
+    expect(dmCall[2]).toMatchObject({ wakeMessageRow: expect.objectContaining({ id: "msg_1" }) })
   })
 })
 

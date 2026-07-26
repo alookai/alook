@@ -25,11 +25,19 @@ type BroadcastableEvent = CommunityWsEvent & { type: string }
 
 /**
  * Passed by `message-handler.ts` alongside a `MESSAGE_CREATE` event so
- * `fanOutToChannel`/`fanOutToDM` can trigger the push-wake pipeline (plan
- * §8) using the SAME recipient list already resolved for the human-WS
- * broadcast, instead of re-querying membership a second time. Omitted (or
- * event.type !== MESSAGE_CREATE) → no wake dispatch, e.g.
- * `CHILD_CHANNEL_UPDATE` never wakes anyone.
+ * `fanOutToDM` can trigger the push-wake pipeline using the SAME recipient
+ * list already resolved for the human-WS broadcast, instead of re-querying
+ * membership a second time. Omitted (or event.type !== MESSAGE_CREATE) → no
+ * wake dispatch.
+ *
+ * ⚠ DM-ONLY now (batch 3, R15). The CHANNEL wake folded into
+ * `dispatchMessageNotify`'s level-filtered pipeline (`notify.ts`) — a channel
+ * bot follows its own effective notification level. A DM has no `channelId`,
+ * so no notification setting can key on it (mute is not in DM scope, O4);
+ * DM wake therefore stays a direct `maybeEnqueueWakes` here, NOT routed
+ * through the level filter (which would find no setting and be a no-op anyway,
+ * but keeping it direct makes the "DM wake is never swallowed" invariant
+ * explicit and testable).
  */
 type WakeOpts = { wakeMessageRow?: WakeMessageRow }
 
@@ -51,25 +59,54 @@ async function getChannelRecipientUserIds(db: Database, channelId: string): Prom
 }
 
 /**
- * Fan out an event to all members of the server that owns a channel.
+ * Fan out an event to all recipients of a channel.
+ *
+ * `opts.recipients`, when supplied, is used AS-IS and no membership query runs
+ * — this lets `message-handler.ts` resolve the recipient set ONCE and share it
+ * between the `MESSAGE_CREATE` broadcast here and the level-filtered notify
+ * pipeline (`dispatchMessageNotify`), without a second query or blocking the
+ * send response on broadcast completion. Every other caller omits it and gets
+ * the internal resolution.
+ *
+ * ⚠ R1 — `MESSAGE_CREATE` broadcast stays HERE and is NEVER level-filtered.
+ * ⚠ Channel bot-wake moved OUT of here into `dispatchMessageNotify` (batch 3):
+ * a channel bot follows its own effective notification level. This function no
+ * longer enqueues wakes; only `fanOutToDM` still does (DM isn't in mute scope).
  */
 export async function fanOutToChannel(
   channelId: string,
   event: BroadcastableEvent,
-  opts?: { excludeUserId?: string } & WakeOpts
+  opts?: { excludeUserId?: string; recipients?: string[] }
 ): Promise<void> {
   try {
     const { env } = getCloudflareContext()
     const db = getDb((env as Env).DB)
-    const userIds = await getChannelRecipientUserIds(db, channelId)
+    const userIds = opts?.recipients ?? (await getChannelRecipientUserIds(db, channelId))
     await broadcastToRecipients(userIds, event, opts?.excludeUserId)
-    maybeEnqueueWakes(event, userIds, { channelId }, opts)
   } catch (err) {
     log.warn("fanout_to_channel_failed", {
       eventType: event.type,
       targetId: channelId,
       err: String(err),
     })
+  }
+}
+
+/**
+ * Resolve the recipient user ids for a channel event without broadcasting —
+ * the shared type→recipient rule (thread/post → participants; channel/forum →
+ * access audience). `message-handler.ts` calls this once per send so the same
+ * set feeds both the `MESSAGE_CREATE` fan-out and the notify pipeline. Absorbs
+ * failures (returns []) like the other helpers here.
+ */
+export async function resolveChannelRecipients(channelId: string): Promise<string[]> {
+  try {
+    const { env } = getCloudflareContext()
+    const db = getDb((env as Env).DB)
+    return await getChannelRecipientUserIds(db, channelId)
+  } catch (err) {
+    log.warn("resolve_channel_recipients_failed", { targetId: channelId, err: String(err) })
+    return []
   }
 }
 
@@ -102,16 +139,23 @@ export async function fanOutToDM(
 }
 
 /**
- * Wake dispatch only fires for real new-message events (plan §8) — reactions,
- * edits, pins, `CHILD_CHANNEL_UPDATE`, etc. never wake anyone. The sender is
- * excluded via the SAME `excludeUserId` the human-WS broadcast already used
- * (a bot never wakes itself off its own send). Never throws — `enqueueBotWakes`
- * owns its own error handling via `ctx.waitUntil`; this is best-effort on top.
+ * DM wake dispatch (R15) — only fires for real new-message events; reactions,
+ * edits, etc. never wake anyone. The sender is excluded via the SAME
+ * `excludeUserId` the human-WS broadcast already used (a bot never wakes itself
+ * off its own send). Never throws — `enqueueBotWakes` owns its own error
+ * handling via `ctx.waitUntil`; this is best-effort on top.
+ *
+ * ⚠ DM-ONLY. The channel wake path folded into `dispatchMessageNotify`'s
+ * level-filtered pipeline (batch 3). DM keeps a direct enqueue because a DM has
+ * no `channelId` for a notification setting to key on — mute is not in DM scope
+ * (O4), so routing DM wake through the level filter would be a no-op at best
+ * and a swallowed wake at worst. Keeping it here makes "DM bot wake is never
+ * swallowed by the mute pipeline" an explicit, testable invariant.
  */
 function maybeEnqueueWakes(
   event: BroadcastableEvent,
   recipients: string[],
-  scope: { channelId: string } | { dmConversationId: string },
+  scope: { dmConversationId: string },
   opts?: { excludeUserId?: string } & WakeOpts
 ): void {
   if (event.type !== WS_EVENTS.MESSAGE_CREATE || !opts?.wakeMessageRow) return
