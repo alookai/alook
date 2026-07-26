@@ -65,11 +65,31 @@ rmSync(blogContentDir, { recursive: true, force: true });
 rmSync(blogPublicDir, { recursive: true, force: true });
 mkdirSync(blogContentDir, { recursive: true });
 
+// Next 16's Turbopack resolves the blog's dynamic `import(`@/content/${slug}.mdx`)`
+// into a context module by globbing src/content/*.mdx at build time. An EMPTY
+// dir yields zero matches, which Turbopack treats as a hard "Module not found"
+// error (webpack only warned). Drop one draft placeholder so the glob resolves.
+// It never surfaces: getAllPosts() skips `draft: true`, and no route links it.
+writeFileSync(
+  join(blogContentDir, "_placeholder.mdx"),
+  `export const metadata = {\n` +
+    `  slug: "_placeholder",\n` +
+    `  title: "Placeholder",\n` +
+    `  date: "2020-01-01",\n` +
+    `  author: "Alook",\n` +
+    `  excerpt: "Build-time placeholder; never listed.",\n` +
+    `  readingTime: "1 min",\n` +
+    `  draft: true,\n` +
+    `};\n\nPlaceholder.\n`,
+);
+
 try {
   run("npx opennextjs-cloudflare build", webSrc);
 } finally {
   console.log("[bundle] Restoring blog source files...");
   try {
+    // Drop the untracked placeholder, then restore the tracked content/images.
+    rmSync(join(blogContentDir, "_placeholder.mdx"), { force: true });
     execSync("git checkout -- src/web/public/blog/ src/web/src/content/", {
       cwd: monoRoot,
       stdio: "inherit",
