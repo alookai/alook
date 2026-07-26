@@ -24,12 +24,12 @@ export interface PiSdkModule {
     continueRecent(cwd: string, sessionDir?: string): unknown;
   };
   /**
-   * The SDK's own path-substitution rule for `<sessionDir>` — mirrors
-   * `--${cwd.replace(/^[/\\]/,"").replace(/[/\\:]/g,"-")}--` in
-   * `session-manager.js`. Preferred when present, but NOT part of the vendor
-   * package's top-level exports (it lives in `core/session-manager.js`, which
-   * the barrel re-exports only `SessionManager` from) — hence optional, with
-   * `resolvePiSessionDir` falling back to `getAgentDir` + the same rule.
+   * The SDK's own `<sessionDir>` resolver. Declared in
+   * `core/session-manager.d.ts` and defined in the matching `.js`, but NOT
+   * re-exported by the package barrel (which lists its exports by name and
+   * omits this one) — so it is absent on a plain top-level import. Optional
+   * for that reason. `withSessionDirHelper` grafts it on from the deep module
+   * when it can; `resolvePiSessionDir` reproduces the rule when it can't.
    */
   getDefaultSessionDir?(cwd: string, agentDir?: string): string;
   /** Root of the SDK's own config dir (`~/.pi/agent`) — this one IS exported. */
@@ -70,7 +70,44 @@ async function importPiSdkFromGlobalInstall(): Promise<PiSdkModule> {
   };
   const entry = pkg.exports?.["."]?.import ?? pkg.main ?? "./dist/index.js";
   const entryPath = path.join(dir, entry);
-  return import(pathToFileURL(entryPath).href) as Promise<PiSdkModule>;
+  const barrel = (await import(pathToFileURL(entryPath).href)) as PiSdkModule;
+  return withSessionDirHelper(barrel, entryPath);
+}
+
+/**
+ * Graft the vendor's own `getDefaultSessionDir` onto the barrel module.
+ *
+ * The function is declared in `core/session-manager.d.ts` and defined in the
+ * matching `.js`, but the package's top-level barrel enumerates its re-exports
+ * by name and omits it — so `sdk.getDefaultSessionDir` is undefined on the
+ * module we load. Its body encodes a path-substitution rule (see
+ * `resolvePiSessionDir`) that we'd rather call than reimplement: a duplicated
+ * copy rots silently into a wrong-but-plausible directory, turning a resume
+ * into a fresh session with no error.
+ *
+ * The package's `exports` map only exposes `.` and `./rpc-entry`, so a bare
+ * deep specifier is blocked — but we already load by file URL (global installs
+ * aren't resolvable by name from the daemon), and a file URL bypasses the map.
+ *
+ * Best-effort by design: on any failure (vendor relayout, the file genuinely
+ * moving) we return the barrel untouched and `resolvePiSessionDir` falls back
+ * to reproducing the rule. Never throws — a missing helper must not be the
+ * reason a Pi launch fails.
+ */
+async function withSessionDirHelper(barrel: PiSdkModule, entryPath: string): Promise<PiSdkModule> {
+  if (typeof barrel.getDefaultSessionDir === "function") return barrel;
+  try {
+    const deepPath = path.join(path.dirname(entryPath), "core", "session-manager.js");
+    const deep = (await import(pathToFileURL(deepPath).href)) as {
+      getDefaultSessionDir?: (cwd: string, agentDir?: string) => string;
+    };
+    if (typeof deep.getDefaultSessionDir !== "function") return barrel;
+    // The barrel is a live module namespace object (frozen, read-only) — copy
+    // onto a fresh object rather than mutating it.
+    return { ...barrel, getDefaultSessionDir: deep.getDefaultSessionDir };
+  } catch {
+    return barrel;
+  }
 }
 
 /**

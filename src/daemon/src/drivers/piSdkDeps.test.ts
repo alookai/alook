@@ -315,3 +315,76 @@ describe("loadPiSdkModule — global-install fallback", () => {
     vi.resetModules();
   });
 });
+
+describe("loadPiSdkModule — grafting the vendor's getDefaultSessionDir", () => {
+  /**
+   * Build a package whose barrel mirrors the real vendor shape: it re-exports
+   * `SessionManager` from `core/session-manager.js` but NOT the sibling
+   * `getDefaultSessionDir` in that same file. This is the layout that made
+   * every Pi resume throw `sdk.getDefaultSessionDir is not a function`.
+   */
+  function writeVendorLikePackage(opts: { withDeepHelper: boolean }): string {
+    const pkgDir = path.join(mkTmp(), "lib", "node_modules", "@earendil-works", "pi-coding-agent");
+    fs.mkdirSync(path.join(pkgDir, "dist", "core"), { recursive: true });
+    fs.writeFileSync(
+      path.join(pkgDir, "package.json"),
+      JSON.stringify({ name: "@earendil-works/pi-coding-agent", main: "./dist/index.js" }),
+    );
+    fs.writeFileSync(
+      path.join(pkgDir, "dist", "core", "session-manager.js"),
+      [
+        "export const SessionManager = { create: () => 'sm' };",
+        ...(opts.withDeepHelper
+          ? ["export function getDefaultSessionDir(cwd) { return '/vendor-resolved/' + cwd; }"]
+          : []),
+      ].join("\n") + "\n",
+    );
+    // The barrel names its re-exports explicitly and omits the helper.
+    fs.writeFileSync(
+      path.join(pkgDir, "dist", "index.js"),
+      "export { SessionManager } from './core/session-manager.js';\n",
+    );
+    return pkgDir;
+  }
+
+  async function loadFrom(pkgDir: string) {
+    vi.resetModules();
+    vi.doMock("./pi.js", () => ({ resolvePiSdkPackageDir: () => pkgDir }));
+    const fresh = await import("./piSdkDeps.js");
+    const sdk = await fresh.loadPiSdkModule();
+    vi.doUnmock("./pi.js");
+    vi.resetModules();
+    return sdk;
+  }
+
+  it("grafts getDefaultSessionDir from the deep module when the barrel omits it", async () => {
+    const sdk = await loadFrom(writeVendorLikePackage({ withDeepHelper: true }));
+
+    expect(typeof sdk.getDefaultSessionDir).toBe("function");
+    // Came from the vendor's own function, not a reimplementation.
+    expect(sdk.getDefaultSessionDir!("/work/repo")).toBe("/vendor-resolved//work/repo");
+  });
+
+  it("loads without throwing when the deep module has no helper either (leaves the fallback to resolvePiSessionDir)", async () => {
+    const sdk = await loadFrom(writeVendorLikePackage({ withDeepHelper: false }));
+
+    expect(sdk.getDefaultSessionDir).toBeUndefined();
+    // Still a usable SDK — a missing helper must never fail the load.
+    expect(sdk.SessionManager).toBeDefined();
+  });
+
+  it("loads without throwing when core/session-manager.js doesn't exist at all", async () => {
+    const pkgDir = path.join(mkTmp(), "lib", "node_modules", "@earendil-works", "pi-coding-agent");
+    fs.mkdirSync(path.join(pkgDir, "dist"), { recursive: true });
+    fs.writeFileSync(
+      path.join(pkgDir, "package.json"),
+      JSON.stringify({ name: "@earendil-works/pi-coding-agent", main: "./dist/index.js" }),
+    );
+    fs.writeFileSync(path.join(pkgDir, "dist", "index.js"), "export const SessionManager = { create: () => 'sm' };\n");
+
+    const sdk = await loadFrom(pkgDir);
+
+    expect(sdk.getDefaultSessionDir).toBeUndefined();
+    expect(sdk.SessionManager).toBeDefined();
+  });
+});

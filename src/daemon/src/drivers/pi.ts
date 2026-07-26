@@ -136,14 +136,24 @@ export function findPiSessionFile(sessionDir: string, sessionId: string): string
 /**
  * Resolve the Pi SDK's session directory for `cwd`.
  *
- * Prefers the SDK's own `getDefaultSessionDir` when the loaded module actually
- * exposes it. It is NOT part of the vendor package's top-level exports (the
- * barrel re-exports only `SessionManager` from `core/session-manager.js`), so
+ * Prefers the SDK's own `getDefaultSessionDir`. That function is NOT on the
+ * vendor barrel (it enumerates re-exports by name and omits this one), so
  * calling it unconditionally throws `sdk.getDefaultSessionDir is not a
- * function` and takes down every Pi resume. When it's absent we reproduce the
- * SDK's own rule (`core/session-manager.js`): `<agentDir>/sessions/--<cwd with
- * the leading separator stripped and remaining separators/colons turned into
- * dashes>--`, rooted at the exported `getAgentDir()` (or `~/.pi/agent`).
+ * function` and takes down every Pi resume — `withSessionDirHelper` in
+ * `piSdkDeps.ts` grafts it on from the deep `core/session-manager.js` module,
+ * which is why it's usually present here despite the barrel gap.
+ *
+ * The fallback reproduces the SDK's rule (`core/session-manager.js`):
+ * `<agentDir>/sessions/--<cwd with the leading separator stripped and
+ * remaining separators/colons turned into dashes>--`, rooted at the exported
+ * `getAgentDir()` (or `~/.pi/agent`). `getAgentDir` is the very function
+ * `session-manager.js` itself imports as `getDefaultAgentDir`, so the two
+ * paths agree today. This copy is the layer that can rot if the vendor
+ * changes its encoding — see the drift note in the plan.
+ *
+ * Unlike the SDK helper this does not create the directory. That's fine:
+ * `SessionManager` mkdirs on its first write, and `findPiSessionFile` treats
+ * a missing dir as "no match" rather than an error.
  */
 export function resolvePiSessionDir(
   sdk: { getDefaultSessionDir?: (cwd: string) => string; getAgentDir?: () => string },
