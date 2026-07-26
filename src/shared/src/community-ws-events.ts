@@ -106,7 +106,7 @@ export type CommunityChildChannelCreate = {
   channel: {
     id: string
     name: string
-    type: "thread" | "forum_post"
+    type: "thread" | "post"
     creatorId?: string
     createdAt: string
   }
@@ -177,7 +177,7 @@ export type CommunityChannelDelete = {
   serverId: string
   channelId: string
   // The parent forum/thread channel, when the deleted channel is a child
-  // (forum_post / thread). Lets clients invalidate the parent's post/thread
+  // (post / thread). Lets clients invalidate the parent's post/thread
   // list so the deleted card disappears from the feed. Optional and additive —
   // older events without it still work (the handler simply skips the parent
   // invalidate).

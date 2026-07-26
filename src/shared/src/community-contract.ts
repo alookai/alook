@@ -23,7 +23,7 @@
  */
 
 import type { RuntimeConfig } from "./runtime-config";
-import type { ChannelType } from "./utils/community-roles";
+import type { TopLevelChannelType } from "./utils/community-roles";
 
 /* ------------------------------------------------------------------ */
 /* Identifiers                                                         */
@@ -122,7 +122,7 @@ export const DM_SERVER = ".dm";
  * The `/c` UI's `resolveChannelRefBase` still accepts ids for pill
  * navigation, since the wire type is a single string shared by both
  * surfaces; the split is enforced by the resolver, not the type. To descend
- * into a thread or forum post, use the canonical `<server>/<channel>/#N`
+ * into a subchannel (thread or post), use the canonical `<server>/<channel>/#N`
  * grammar; the underlying row's id is never a valid ref for agents.
  */
 export type ChannelRef = string;
@@ -392,7 +392,7 @@ export interface ListChannelsRequest {
 export interface ChannelListItem {
   ref: ChannelRef;
   name: string;
-  type: ChannelType;
+  type: TopLevelChannelType;
   visibility: "public" | "private";
 }
 
@@ -419,7 +419,7 @@ export interface ChannelGroup {
 /**
  * `alook channel member` result — a public channel/forum returns a hint
  * pointing at `alook server member` (no roster enumeration); everything else
- * (private channel, private forum, forum post, thread) returns the concrete
+ * (private channel, private forum, post, thread) returns the concrete
  * roster.
  */
 export type ChannelMemberResult =
@@ -493,7 +493,7 @@ export interface ServerApi {
   /**
    * Members visible to the agent for a channel/thread ref. Public top-level
    * channels/forums return a hint pointing at `alook server member`; private
-   * channels, private forums, forum posts, and threads (regardless of parent
+   * channels, private forums, posts, and threads (regardless of parent
    * visibility) return the concrete roster.
    */
   channelMember(req: { agentId?: AgentId; channel: ChannelRef }): Promise<ChannelMemberResult>;
@@ -959,7 +959,7 @@ export interface ParsedRef {
   /** Channel name (or DM peer when `server === DM_SERVER`). */
   channel: string;
   /** Thread root seq when the ref points into a thread (`/server/channel/#N`). */
-  threadRootSeq?: Seq;
+  rootSeq?: Seq;
   /** Message seq when the ref pins a specific message (`/server/channel#N`). */
   seq?: Seq;
 }
@@ -968,8 +968,8 @@ export interface ParsedRef {
  * Parse a path ref into its parts. Grammar:
  *   /<server>/<channel>          → { server, channel }
  *   /<server>/<channel>#N        → { server, channel, seq:N }
- *   /<server>/<channel>/#N       → { server, channel, threadRootSeq:N }
- *   /<server>/<channel>/#N#M     → { server, channel, threadRootSeq:N, seq:M }
+ *   /<server>/<channel>/#N       → { server, channel, rootSeq:N }
+ *   /<server>/<channel>/#N#M     → { server, channel, rootSeq:N, seq:M }
  *   /.dm/<peer>[...]             → DM (server = ".dm", channel = peer, a
  *                                  `name#0042` handle) — see the `.dm`-specific
  *                                  branch below, which differs from the
@@ -1033,16 +1033,16 @@ export function parseRef(ref: ChannelRef): ParsedRef {
 
 /**
  * Split the trailing thread segment (`#N` or `#N#M`) of a thread-form ref
- * into a `{ threadRootSeq, seq? }` pair. Called with the raw last segment
+ * into a `{ rootSeq, seq? }` pair. Called with the raw last segment
  * (leading `#` present).
  *
  * Every token that reaches `parseSeq` here must first be checked for empty:
  * a naive `Number("") === 0` would otherwise silently accept `##5` as
- * `{ threadRootSeq:0, seq:5 }` or `#5#` as `{ threadRootSeq:5, seq:0 }` and
+ * `{ rootSeq:0, seq:5 }` or `#5#` as `{ rootSeq:5, seq:0 }` and
  * hand a bogus seq to the wire. Explicit `#0#5` / `#5#0` remain permissive
  * — the server rejects seq/root 0 at `resolve-ref.ts`.
  */
-function parseThreadTail(segment: string): { threadRootSeq: Seq; seq?: Seq } {
+function parseThreadTail(segment: string): { rootSeq: Seq; seq?: Seq } {
   const stripped = segment.startsWith("#") ? segment.slice(1) : segment;
   const tokens = stripped.split("#");
   if (tokens.length < 1 || tokens.length > 2) {
@@ -1051,33 +1051,33 @@ function parseThreadTail(segment: string): { threadRootSeq: Seq; seq?: Seq } {
   for (const t of tokens) {
     if (!t) throw new Error(`bad thread ref tail: #${stripped} (empty seq)`);
   }
-  const threadRootSeq = parseSeq(tokens[0]);
-  if (tokens.length === 1) return { threadRootSeq };
-  return { threadRootSeq, seq: parseSeq(tokens[1]) };
+  const rootSeq = parseSeq(tokens[0]);
+  if (tokens.length === 1) return { rootSeq };
+  return { rootSeq, seq: parseSeq(tokens[1]) };
 }
 
 /**
  * Format a ParsedRef back to a path ref. Valid combinations:
  *   {}                             → /server/channel
- *   { threadRootSeq }              → /server/channel/#N
- *   { threadRootSeq, seq }         → /server/channel/#N#M
- * A bare `seq` (no `threadRootSeq`) is NOT supported — the message form
+ *   { rootSeq }              → /server/channel/#N
+ *   { rootSeq, seq }         → /server/channel/#N#M
+ * A bare `seq` (no `rootSeq`) is NOT supported — the message form
  * `/server/channel#N` puts `#N` on the channel segment, not on a trailing
  * path segment, and no caller needs to emit that shape via formatRef today.
  */
 export function formatRef(p: {
   server: string;
   channel: string;
-  threadRootSeq?: Seq;
+  rootSeq?: Seq;
   seq?: Seq;
 }): ChannelRef {
-  if (p.seq !== undefined && p.threadRootSeq === undefined) {
-    throw new Error("formatRef: seq without threadRootSeq is not supported");
+  if (p.seq !== undefined && p.rootSeq === undefined) {
+    throw new Error("formatRef: seq without rootSeq is not supported");
   }
   const base = `/${p.server}/${p.channel}`;
-  if (p.threadRootSeq === undefined) return base;
-  if (p.seq === undefined) return `${base}/#${p.threadRootSeq}`;
-  return `${base}/#${p.threadRootSeq}#${p.seq}`;
+  if (p.rootSeq === undefined) return base;
+  if (p.seq === undefined) return `${base}/#${p.rootSeq}`;
+  return `${base}/#${p.rootSeq}#${p.seq}`;
 }
 
 /** "#12" → 12 ; "12" → 12. */

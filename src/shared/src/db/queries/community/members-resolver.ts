@@ -7,17 +7,22 @@ import type { Database } from "../../index";
 import type { CommunityRole } from "../../../utils/community-roles";
 import { canManageServer } from "../../../utils/community-roles";
 import {
+  getChannelType,
   getPrivateChannelAudienceUserIds,
   isChannelPrivate,
   listChannelMemberUserIds,
 } from "./channel";
 import { listMemberUserIds } from "./member";
+import { listThreadParticipantUserIds } from "./thread";
+import { isPost, isThread } from "../../../utils/community-roles";
 
 // The ACCESS scopes — units that own (or inherit) a stored/derived access
 // roster. `forum` resolves like a top-level text channel (its own roster);
-// `channel` is a top-level text channel. Thread / forum_post are NOT here: they
-// are the NOTIFICATION dimension (participant set), resolved at the call site
-// via `listThreadParticipantUserIds` — never through this resolver.
+// `channel` is a top-level text channel. Thread / post are the NOTIFICATION
+// dimension (participant set): `resolveScopeMemberUserIds` still handles only
+// the ACCESS scopes, but `resolveChannelRecipientUserIds` (below) now routes
+// thread/post to the participant set in the same module, so the whole
+// type→recipient rule lives in one place shared across workers.
 export type ScopeKind = "channel" | "forum";
 
 // Why a user is in the resolved set. Lets callers distinguish an explicitly
@@ -43,8 +48,8 @@ export type ScopeMember = {
  *     `parentChannelId` so a forum resolves its own roster like a text channel).
  *
  * Only ACCESS units (`channel`/`forum`) reach here. Notify units (thread /
- * forum_post) resolve their recipient set from the participant table at the
- * call site.
+ * post) resolve their recipient set from the participant table — see
+ * `resolveChannelRecipientUserIds` for the type-dispatching entry point.
  */
 export async function resolveScopeMemberUserIds(
   db: Database,
@@ -133,4 +138,30 @@ export async function resolveScopeMembers(
     }
     return { userId, role, source };
   });
+}
+
+/**
+ * The single type→recipient rule for a channel's message fan-out, shared by
+ * the web fanout path and ws-do's typing fan-out (both used to inline it, and
+ * they must never drift). Resolves the channel's own type first (no
+ * channelType is passed in — the two call sites don't have it), then:
+ *   - thread / post → the NOTIFICATION set (`community_thread_participant`),
+ *     because a subchannel notifies only its participants, never its whole
+ *     parent channel / server.
+ *   - text / forum (or unknown) → the ACCESS audience
+ *     (`resolveScopeMemberUserIds`): every server member for a public unit,
+ *     the explicit roster ∪ creator for a private one.
+ *
+ * Callers keep their own authz gate + id normalization + DM handling; this
+ * function only owns the type→recipient core.
+ */
+export async function resolveChannelRecipientUserIds(
+  db: Database,
+  channelId: string
+): Promise<string[]> {
+  const type = await getChannelType(db, channelId);
+  if (isThread(type) || isPost(type)) {
+    return listThreadParticipantUserIds(db, channelId);
+  }
+  return resolveScopeMemberUserIds(db, { scope: "channel", scopeId: channelId });
 }

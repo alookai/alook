@@ -9,14 +9,14 @@ import {
 import { user } from "../../schema";
 import type { Database } from "../../index";
 import { listParticipatingThreadIds } from "./thread";
-import { isThread, isForumPost } from "../../../utils/community-roles";
+import { isThread, isPost } from "../../../utils/community-roles";
 
 export interface UnreadChannelRow {
   channelId: string;
   channelName: string;
   serverId: string;
   serverName: string;
-  // Raw stored channel type (text | forum | thread | forum_post). Threaded
+  // Raw stored channel type (text | forum | thread | post). Threaded
   // through to the inbox so it can render the same entity icon as the sidebar.
   type: string | null;
   lastMessageAt: string;
@@ -128,7 +128,7 @@ export async function listUnreadChannels(
   // table (keyed by channel id), so one `listParticipatingThreadIds` covers
   // both. Top-level channels flow through the visibility path above unchanged.
   const notifyScopedIds = unread
-    .filter((r) => isThread(r.type) || isForumPost(r.type))
+    .filter((r) => isThread(r.type) || isPost(r.type))
     .map((r) => r.channelId);
   const participatingIds =
     notifyScopedIds.length > 0
@@ -138,7 +138,7 @@ export async function listUnreadChannels(
   return unread
     .filter(
       (r) =>
-        (!isThread(r.type) && !isForumPost(r.type)) ||
+        (!isThread(r.type) && !isPost(r.type)) ||
         participatingIds.has(r.channelId),
     )
     .map((r) => ({

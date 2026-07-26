@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
-import { isForum, isForumPost, isThread, canManageServer } from "../../src/utils/community-roles"
+import { isForum, isPost, isThread, canManageServer } from "../../src/utils/community-roles"
+import type { TopLevelChannelType, ChannelType } from "../../src/utils/community-roles"
 import { isPresenceOnline, isPresenceOffline } from "../../src/utils/status"
 import { isAccepted, isPending, isBlocked } from "../../src/utils/friendship"
 import { isPublic, isPrivate } from "../../src/utils/visibility"
@@ -7,20 +8,39 @@ import { isPublic, isPrivate } from "../../src/utils/visibility"
 describe("channel-type predicates", () => {
   it("isForum", () => {
     expect(isForum("forum")).toBe(true)
-    expect(isForum("forum_post")).toBe(false)
+    expect(isForum("post")).toBe(false)
     expect(isForum("text")).toBe(false)
     expect(isForum(null)).toBe(false)
     expect(isForum(undefined)).toBe(false)
   })
-  it("isForumPost", () => {
-    expect(isForumPost("forum_post")).toBe(true)
-    expect(isForumPost("forum")).toBe(false)
-    expect(isForumPost(null)).toBe(false)
+  it("isPost", () => {
+    expect(isPost("post")).toBe(true)
+    expect(isPost("forum_post")).toBe(false)
+    expect(isPost("forum")).toBe(false)
+    expect(isPost(null)).toBe(false)
   })
   it("isThread", () => {
     expect(isThread("thread")).toBe(true)
     expect(isThread("text")).toBe(false)
     expect(isThread(undefined)).toBe(false)
+  })
+})
+
+describe("channel-type narrowing (TopLevelChannelType)", () => {
+  it("ChannelType admits all four values", () => {
+    const values: ChannelType[] = ["text", "forum", "post", "thread"]
+    expect(values).toHaveLength(4)
+  })
+  it("TopLevelChannelType admits only text/forum", () => {
+    const text: TopLevelChannelType = "text"
+    const forum: TopLevelChannelType = "forum"
+    expect([text, forum]).toEqual(["text", "forum"])
+    // @ts-expect-error post is not a top-level channel type
+    const post: TopLevelChannelType = "post"
+    // @ts-expect-error thread is not a top-level channel type
+    const thread: TopLevelChannelType = "thread"
+    void post
+    void thread
   })
 })
 

@@ -104,7 +104,7 @@ export const MESSAGE_DEDUP_CACHE_TRIM = 400
 
 // Notification levels
 export const NOTIF_LEVELS = {
-  ALL: "All messages",
+  ALL: "All Messages",
   MENTIONS: "Only @mentions",
   NONE: "Nothing",
 } as const

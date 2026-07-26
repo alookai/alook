@@ -145,7 +145,7 @@ export async function removeThreadParticipant(
   return rows[0] ?? null;
 }
 
-// Drop a user's participant rows from EVERY child channel (forum_post OR thread)
+// Drop a user's participant rows from EVERY child channel (post OR thread)
 // under a top-level unit. Called when a member is removed from a forum/channel's
 // access roster: their access is gone, so their leftover notify rows on the
 // unit's posts/threads must go too — else fan-out keeps live-pushing new
