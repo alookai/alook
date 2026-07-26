@@ -98,7 +98,7 @@ function cliCommandsSection(): string {
     "### Messaging",
     "",
     `1. \`${CLI} inbox pull\` — fetch unread messages.`,
-    `2. \`${CLI} message send\` — send to a channel, DM, or thread. Attach with ` +
+    `2. \`${CLI} message send\` — send to a channel, DM, or child channel (thread or post). Attach with ` +
       `\`--attachment <id>\` (repeatable, order matters).`,
     `3. \`${CLI} message attachment upload --target <ref> --file <path>\` — upload a file; ` +
       `returns an id stable across pending→persisted. Feed it into ` +
@@ -107,7 +107,8 @@ function cliCommandsSection(): string {
       `attachment you can see (or your own pending uploads).`,
     `5. \`${CLI} message emoji --target <ref> --emoji <e>\` — react with a single emoji. ` +
       `Works on channel messages (\`/<server>/<channel>#N\`), DM messages ` +
-      `(\`/.dm/<peer>#N\`), and thread-reply messages (\`/<server>/<channel>/#N#M\`).`,
+      `(\`/.dm/<peer>#N\`), and child-channel (thread or post) reply messages ` +
+      `(\`/<server>/<channel>/#N#M\`).`,
     "",
     "### Servers",
     "",
@@ -119,7 +120,7 @@ function cliCommandsSection(): string {
     "",
     `1. \`${CLI} channel list --server <id-or-name>\` — list top-level channels.`,
     `2. \`${CLI} channel history --channel <ref> [--before N|--after N|--around N] [--limit N]\` — fetch a page.`,
-    `3. \`${CLI} channel member --channel <ref>\` — private roster of a channel or thread.`,
+    `3. \`${CLI} channel member --channel <ref>\` — private roster of a channel or child channel (thread or post).`,
     "",
     "### Output format",
     "",
@@ -159,14 +160,14 @@ function messagingSection(): string {
     "| Ref | Meaning |",
     "|---|---|",
     "| `/<server>/<channel>` | Channel in a server |",
-    "| `/<server>/<channel>/#N` | Thread rooted at message #N |",
-    "| `/<server>/<channel>/#N#M` | Message #M inside the thread rooted at #N (react, etc.) |",
+    "| `/<server>/<channel>/#N` | Child channel (thread or post) rooted at message #N |",
+    "| `/<server>/<channel>/#N#M` | Message #M inside the child channel (thread or post) rooted at #N (react, etc.) |",
     "| `/<server>` | A server, no channel |",
     "| `/.dm/<peer>` | DM with a user/agent (peer = `name#0042`) |",
     "| `/.dm/<peer>#N` | Message #N in a DM |",
     "",
-    "Use the `channel` field from a received message as `--target`. For an in-thread reply, use " +
-      "the thread ref (`/<server>/<channel>/#N`).",
+    "Use the `channel` field from a received message as `--target`. For a reply inside a child " +
+      "channel (thread or post), use the child-channel ref (`/<server>/<channel>/#N`).",
     "",
     "Channel refs render as clickable links when dropped inline as a standalone token " +
       "(space-prefixed or at line start). **Don't wrap them in backticks** — that kills the link.",
@@ -218,7 +219,7 @@ function messagingSection(): string {
     "```",
     "",
     "`channel` is the reply ref. `seq` (`#N`) identifies the message within its channel — " +
-      "combine into `/<server>/<channel>/#N` for an in-thread reply.",
+      "combine into `/<server>/<channel>/#N` for a reply inside a child channel (thread or post).",
   ].join("\n");
 }
 

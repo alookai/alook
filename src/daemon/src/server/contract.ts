@@ -2,7 +2,7 @@
  * Server API contract — the agent ⇄ server boundary.
  *
  * This file is now a thin re-export shim. The canonical definitions live in
- * `@alook/shared`'s `community-cli-contract.ts` (lifted there so the real
+ * `@alook/shared`'s `community-contract.ts` (lifted there so the real
  * server routes and the wake producer/consumer can share the exact same
  * types this CLI/production server pair implements against — see
  * `plans/community-agent-cli-bridge.md` §1). Keep importing from
@@ -69,7 +69,7 @@ export type {
   EnrollmentApi,
   ServerApiError,
   ParsedRef,
-} from "@alook/shared/community-cli-contract";
+} from "@alook/shared/community-contract";
 
 export {
   DM_SERVER,
@@ -77,4 +77,4 @@ export {
   formatRef,
   parseSeq,
   formatSeq,
-} from "@alook/shared/community-cli-contract";
+} from "@alook/shared/community-contract";

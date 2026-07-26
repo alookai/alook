@@ -209,8 +209,8 @@ async function cmdMessageEmoji(opts: Record<string, unknown>): Promise<unknown> 
   }
 
   const channel =
-    parsed.threadRootSeq !== undefined
-      ? `/${parsed.server}/${parsed.channel}/#${parsed.threadRootSeq}`
+    parsed.rootSeq !== undefined
+      ? `/${parsed.server}/${parsed.channel}/#${parsed.rootSeq}`
       : `/${parsed.server}/${parsed.channel}`;
   const res = await api.reactAdd({ channel, seq: parsed.seq, emoji });
   return { target, emoji, duplicate: res.duplicate === true };

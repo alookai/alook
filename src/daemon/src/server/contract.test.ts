@@ -30,7 +30,7 @@ describe("parseRef", () => {
     expect(parseRef("/demo/general#12")).toEqual({ server: "demo", channel: "general", seq: 12 });
   });
   it("parses a thread ref (/server/channel/#N)", () => {
-    expect(parseRef("/demo/general/#5")).toEqual({ server: "demo", channel: "general", threadRootSeq: 5 });
+    expect(parseRef("/demo/general/#5")).toEqual({ server: "demo", channel: "general", rootSeq: 5 });
   });
   it("parses a DM ref", () => {
     // No "#" in the segment — legacy/no-discriminator id form, round-trips
@@ -48,7 +48,7 @@ describe("parseRef", () => {
     expect(parseRef("/.dm/gusye#1231/#42")).toEqual({
       server: DM_SERVER,
       channel: "gusye#1231",
-      threadRootSeq: 42,
+      rootSeq: 42,
     });
   });
   it("rejects refs not starting with '/'", () => {
@@ -61,7 +61,7 @@ describe("parseRef", () => {
     expect(parseRef("/demo/general/#5#42")).toEqual({
       server: "demo",
       channel: "general",
-      threadRootSeq: 5,
+      rootSeq: 5,
       seq: 42,
     });
   });
@@ -81,7 +81,7 @@ describe("parseRef", () => {
     expect(parseRef("/demo/general/#0#5")).toEqual({
       server: "demo",
       channel: "general",
-      threadRootSeq: 0,
+      rootSeq: 0,
       seq: 5,
     });
   });
@@ -89,7 +89,7 @@ describe("parseRef", () => {
     expect(parseRef("/demo/general/#5#0")).toEqual({
       server: "demo",
       channel: "general",
-      threadRootSeq: 5,
+      rootSeq: 5,
       seq: 0,
     });
   });
@@ -100,7 +100,7 @@ describe("parseRef", () => {
     expect(parseRef("/.dm/gusye#1231/#5#42")).toEqual({
       server: DM_SERVER,
       channel: "gusye#1231",
-      threadRootSeq: 5,
+      rootSeq: 5,
       seq: 42,
     });
   });
@@ -111,7 +111,7 @@ describe("formatRef", () => {
     expect(formatRef({ server: "demo", channel: "general" })).toBe("/demo/general");
   });
   it("formats a thread ref", () => {
-    expect(formatRef({ server: "demo", channel: "general", threadRootSeq: 5 })).toBe("/demo/general/#5");
+    expect(formatRef({ server: "demo", channel: "general", rootSeq: 5 })).toBe("/demo/general/#5");
   });
   it("round-trips channel refs through parse→format", () => {
     const ref = "/demo/general";
@@ -119,15 +119,15 @@ describe("formatRef", () => {
     expect(formatRef(p)).toBe(ref);
   });
   it("formats a thread-reply message ref", () => {
-    expect(formatRef({ server: "demo", channel: "general", threadRootSeq: 5, seq: 42 })).toBe(
+    expect(formatRef({ server: "demo", channel: "general", rootSeq: 5, seq: 42 })).toBe(
       "/demo/general/#5#42",
     );
   });
   it("round-trips a thread-reply message ref", () => {
-    const input = { server: "demo", channel: "general", threadRootSeq: 5, seq: 42 };
+    const input = { server: "demo", channel: "general", rootSeq: 5, seq: 42 };
     expect(parseRef(formatRef(input))).toEqual(input);
   });
-  it("throws when seq is provided without threadRootSeq", () => {
+  it("throws when seq is provided without rootSeq", () => {
     expect(() => formatRef({ server: "demo", channel: "general", seq: 42 })).toThrow();
   });
 });
