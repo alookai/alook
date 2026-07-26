@@ -283,6 +283,9 @@ export {
   AuditLogToolCallPayloadSchema,
   AuditLogThinkingPayloadSchema,
   AuditLogWakeTriggerPayloadSchema,
+  AuditLogModelChangedPayloadSchema,
+  AuditLogSessionResetPayloadSchema,
+  AuditLogErrorPayloadSchema,
   HostBotAuditEventFrameSchema,
 } from "./schemas";
 
@@ -430,6 +433,22 @@ export type {
   RuntimeConfig,
 } from "./runtime-config";
 export { RUNTIME_CONFIG_VERSION, makeRuntimeConfig } from "./runtime-config";
+
+export type { RuntimeModelCatalogEntry } from "./constants/runtime-models";
+export {
+  RUNTIME_MODEL_CATALOG,
+  getRuntimeModelCatalog,
+  runtimeSupportsModel,
+} from "./constants/runtime-models";
+
+export {
+  MODEL_SELECT_DEFAULT,
+  MODEL_SELECT_CUSTOM,
+  resolveModelConfig,
+  formatModelLabel,
+  modelSelectState,
+  modelNameFromSelect,
+} from "./community/bot-model";
 
 export { sendWakeToMachine, buildUnreadWakeCommand, dispatchOneUnreadWake } from "./community/wake-dispatch";
 export type { DispatchOneWakeResult } from "./community/wake-dispatch";

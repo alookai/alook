@@ -3,6 +3,9 @@ import {
   AuditLogToolCallPayloadSchema,
   AuditLogThinkingPayloadSchema,
   AuditLogWakeTriggerPayloadSchema,
+  AuditLogModelChangedPayloadSchema,
+  AuditLogSessionResetPayloadSchema,
+  AuditLogErrorPayloadSchema,
 } from "@alook/shared"
 
 /**
@@ -36,6 +39,18 @@ export function parseAuditLogPayload(
     }
     case "wake_trigger": {
       const r = AuditLogWakeTriggerPayloadSchema.safeParse(json)
+      return r.success ? r.data : null
+    }
+    case "model_changed": {
+      const r = AuditLogModelChangedPayloadSchema.safeParse(json)
+      return r.success ? r.data : null
+    }
+    case "session_reset": {
+      const r = AuditLogSessionResetPayloadSchema.safeParse(json)
+      return r.success ? r.data : null
+    }
+    case "error": {
+      const r = AuditLogErrorPayloadSchema.safeParse(json)
       return r.success ? r.data : null
     }
     default:

@@ -11,6 +11,7 @@ export type BotSummary = {
   image: string | null
   machineId: string
   runtime: string
+  modelName: string | null
 }
 export type BotsResponse = { bots: BotSummary[] }
 
@@ -30,6 +31,7 @@ export type CreateBotInput = {
   machineId: string
   runtime: string
   image?: string
+  model?: string | null
 }
 
 // Bot identity (name, image) is projected into friends() (self-bot rows) and
@@ -63,17 +65,34 @@ export function useCreateBot() {
   })
 }
 
+export type UpdateBotInput = {
+  id: string
+  name?: string
+  description?: string
+  image?: string | null
+  // Explicit `null` clears a set model; `undefined` leaves it untouched.
+  model?: string | null
+}
+export type UpdateBotResponse = {
+  bot: BotSummary
+  applied?: boolean
+  deliveryError?: boolean
+}
+
 export function useUpdateBot() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: { id: string; name?: string; description?: string; image?: string | null }) =>
-      apiFetch<{ bot: BotSummary }>(`/api/community/bots/${input.id}`, {
+    mutationFn: (input: UpdateBotInput) =>
+      apiFetch<UpdateBotResponse>(`/api/community/bots/${input.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: input.name,
           description: input.description,
           image: input.image,
+          // Omit `model` entirely when undefined so the PATCH doesn't send an
+          // explicit key the server would read as "clear to default".
+          ...("model" in input ? { model: input.model } : {}),
         }),
       }),
     onSuccess: (data) => invalidateBotSurfaces(qc, data.bot.id),

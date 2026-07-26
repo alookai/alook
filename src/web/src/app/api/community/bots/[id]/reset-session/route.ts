@@ -1,5 +1,5 @@
 import { nanoid } from "nanoid"
-import { queries, makeRuntimeConfig, formatHandle, WS_EVENTS } from "@alook/shared"
+import { queries, makeRuntimeConfig, resolveModelConfig, formatHandle, WS_EVENTS } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
@@ -29,6 +29,7 @@ export const POST = withAuth(async (_req, ctx) => {
 
   const config = makeRuntimeConfig({
     runtime: wakeCtx.runtime,
+    model: resolveModelConfig(wakeCtx.runtime, wakeCtx.modelName),
     agentName: wakeCtx.name,
     agentHandle: `@${formatHandle(wakeCtx.name, wakeCtx.discriminator)}`,
   })

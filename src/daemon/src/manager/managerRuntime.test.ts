@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   AgentProcessManager,
   truncateThinking,
@@ -82,7 +82,7 @@ function fakeSession(): FakeSession {
   return s;
 }
 
-function makeManager(opts: { logger?: Logger; tickIntervalMs?: number; idleTimeoutMs?: number; staleThresholdMs?: number; now?: () => number; onBotAuditEvent?: (agentId: string, event: unknown, context: { sessionId: string | null; launchId: string | null }) => void } = {}) {
+function makeManager(opts: { logger?: Logger; tickIntervalMs?: number; idleTimeoutMs?: number; staleThresholdMs?: number; handshakeTimeoutMs?: number; now?: () => number; onBotAuditEvent?: (agentId: string, event: unknown, context: { sessionId: string | null; launchId: string | null }) => void } = {}) {
   const session = fakeSession();
   const factory: SessionFactory = () => session;
   const onRuntimeSpawnFailed = vi.fn();
@@ -1025,6 +1025,146 @@ describe("AgentProcessManager — bot audit event emission", () => {
       const keys = Object.keys(p);
       for (const k of keys) expect(["name", "target"]).toContain(k);
     }
+  });
+});
+
+describe("AgentProcessManager — error audit emission", () => {
+  it("emits an `error` row on a pre-handshake exit (spawn scope)", () => {
+    const onBotAuditEvent = vi.fn();
+    const { mgr, session } = makeManager({ onBotAuditEvent });
+    mgr.deliver("a1", { seq: 1, text: "hello" });
+
+    session.fire("exit");
+
+    const errCalls = onBotAuditEvent.mock.calls.filter(
+      ([, ev]) => (ev as { kind?: string })?.kind === "error",
+    );
+    expect(errCalls).toHaveLength(1);
+    expect((errCalls[0]![1] as { payload: { scope: string; code: string } }).payload).toEqual(
+      expect.objectContaining({ scope: "spawn", code: "pre_handshake_exit" }),
+    );
+  });
+
+  it("emits an `error` row for a runtime `{kind:'error'}` event (runtime scope) and does NOT count it as progress", () => {
+    const onBotAuditEvent = vi.fn();
+    const { mgr, session } = makeManager({ onBotAuditEvent });
+    mgr.deliver("a1", { seq: 1, text: "hello" });
+
+    // Establish first so the error is session-level (runtime), not spawn.
+    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    session.fire("runtime_event", { kind: "error", message: "rate limited: 429 Too Many Requests" });
+
+    const errCalls = onBotAuditEvent.mock.calls.filter(
+      ([, ev]) => (ev as { kind?: string })?.kind === "error",
+    );
+    expect(errCalls).toHaveLength(1);
+    const payload = (errCalls[0]![1] as { payload: { scope: string; code: string; message: string } }).payload;
+    expect(payload.scope).toBe("runtime");
+    expect(payload.code).toBe("runtime_error");
+    expect(payload.message).toContain("429");
+  });
+
+  it("scrubs secrets out of an error message before it becomes an audit row", () => {
+    const onBotAuditEvent = vi.fn();
+    const { mgr, session } = makeManager({ onBotAuditEvent });
+    mgr.deliver("a1", { seq: 1, text: "hello" });
+
+    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    session.fire("runtime_event", { kind: "error", message: "auth failed with sk-ant-abc123DEF456 token" });
+
+    const errCall = onBotAuditEvent.mock.calls.find(
+      ([, ev]) => (ev as { kind?: string })?.kind === "error",
+    );
+    const message = (errCall![1] as { payload: { message: string } }).payload.message;
+    expect(message).not.toContain("sk-ant-abc123DEF456");
+    expect(message).toContain("[redacted-token]");
+  });
+});
+
+describe("AgentProcessManager — handshake watchdog", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("terminates a session that never handshakes, emits an `error` row, and returns the FSM to idle", async () => {
+    const onBotAuditEvent = vi.fn();
+    const stopSpy = vi.fn();
+    const session = fakeSession();
+    session.stop = stopSpy as never;
+    const onRuntimeSpawnFailed = vi.fn();
+    const mgr = new AgentProcessManager({
+      driverFor: () => fakeDriver("codex"),
+      baseContextFor: () => ({
+        workingDirectory: "/tmp",
+        agentId: "a1",
+        standingPrompt: "",
+        config: {} as LaunchContext["config"],
+        credentialProxy: {} as LaunchContext["credentialProxy"],
+      }),
+      sessionFactory: () => session,
+      onRuntimeSpawnFailed,
+      onBotAuditEvent: onBotAuditEvent as never,
+      handshakeTimeoutMs: 1000,
+    });
+    mgr.register("a1");
+    mgr.deliver("a1", { seq: 1, text: "hello" });
+
+    // start() resolves → `spawned` dispatched → watchdog armed. Drain microtasks.
+    session.startResolver?.();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(mgr.snapshot().agents["a1"]?.status).toBe("running");
+
+    // No handshake ever arrives; the deadline elapses.
+    vi.advanceTimersByTime(1000);
+
+    expect(onRuntimeSpawnFailed).toHaveBeenCalledWith("codex", "handshake_timeout");
+    expect(stopSpy).toHaveBeenCalledTimes(1);
+    const errCalls = onBotAuditEvent.mock.calls.filter(
+      ([, ev]) => (ev as { kind?: string })?.kind === "error",
+    );
+    expect(errCalls).toHaveLength(1);
+    expect((errCalls[0]![1] as { payload: { scope: string } }).payload.scope).toBe("handshake_timeout");
+    // FSM returned to idle so a subsequent wake can retry.
+    expect(mgr.snapshot().agents["a1"]?.status).toBe("idle");
+  });
+
+  it("does NOT fire when the handshake arrives before the deadline", async () => {
+    const onBotAuditEvent = vi.fn();
+    const stopSpy = vi.fn();
+    const session = fakeSession();
+    session.stop = stopSpy as never;
+    const onRuntimeSpawnFailed = vi.fn();
+    const mgr = new AgentProcessManager({
+      driverFor: () => fakeDriver("codex"),
+      baseContextFor: () => ({
+        workingDirectory: "/tmp",
+        agentId: "a1",
+        standingPrompt: "",
+        config: {} as LaunchContext["config"],
+        credentialProxy: {} as LaunchContext["credentialProxy"],
+      }),
+      sessionFactory: () => session,
+      onRuntimeSpawnFailed,
+      onBotAuditEvent: onBotAuditEvent as never,
+      handshakeTimeoutMs: 1000,
+    });
+    mgr.register("a1");
+    mgr.deliver("a1", { seq: 1, text: "hello" });
+    session.startResolver?.();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Handshake lands well within the window.
+    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    vi.advanceTimersByTime(1000);
+
+    expect(onRuntimeSpawnFailed).not.toHaveBeenCalled();
+    expect(stopSpy).not.toHaveBeenCalled();
+    const errCalls = onBotAuditEvent.mock.calls.filter(
+      ([, ev]) => (ev as { kind?: string })?.kind === "error",
+    );
+    expect(errCalls).toHaveLength(0);
   });
 });
 

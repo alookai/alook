@@ -1,11 +1,21 @@
 import { NextRequest } from "next/server"
 import { NextResponse } from "next/server"
-import { queries, CommunityBotPatchRequestSchema, WS_EVENTS } from "@alook/shared"
+import { nanoid } from "nanoid"
+import {
+  queries,
+  CommunityBotPatchRequestSchema,
+  WS_EVENTS,
+  makeRuntimeConfig,
+  resolveModelConfig,
+  runtimeSupportsModel,
+  formatHandle,
+} from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers"
 import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "@/lib/community/audit"
-import { pushBotEventToMachine } from "@/lib/community/bot-push"
+import { pushBotEventToMachine, pushAgentModelSwitchToMachine } from "@/lib/community/bot-push"
+import { broadcastToUser } from "@/lib/broadcast"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 
 export const GET = withAuth(async (_req, ctx) => {
@@ -28,6 +38,17 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   const nameChanged = body.name !== undefined && body.name !== before.name
   const descriptionChanged =
     body.description !== undefined && body.description !== before.description
+  // `model` alone is a valid patch. Storage/wire/UI all speak `string | null`,
+  // so "did it change?" is a plain string comparison — no ModelConfig here.
+  const nextModel = body.model === undefined ? undefined : (body.model ?? null)
+  const modelChanged = nextModel !== undefined && nextModel !== (before.modelName ?? null)
+
+  // antigravity ignores the model at launch; reject a non-null model on it (and
+  // on any runtime that doesn't support one). `before.runtime === null`
+  // (unknown runtime) is allowed — only antigravity is excluded.
+  if (nextModel !== null && nextModel !== undefined && !runtimeSupportsModel(before.runtime)) {
+    return writeError(`runtime ${before.runtime} does not support a model selection`, 400)
+  }
   // Will we push bot:updated to the daemon? (Iff name/description changed —
   // image-only is display-only and doesn't affect the system prompt.) If so,
   // resolve the owner handle BEFORE mutating the row: the frame shape must stay
@@ -60,10 +81,71 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     })
   }
 
+  // Model switch. D1 is authoritative — write the column regardless of daemon
+  // reachability, then EXPEDITE via a push. NEVER 409: name/description writes
+  // (and this one) must land even when the bot is offline. The audit row is
+  // written only on confirmed delivery (`sent > 0`), so an offline/undelivered
+  // switch persists silently and the next wake applies it.
+  let applied = false
+  let deliveryError = false
+  if (modelChanged) {
+    // A bot with no binding row (unbound / never paired) passes the
+    // `getBotOwnedBy` 404 check above but has nothing to write the model onto.
+    // Reject rather than echo a model the response would claim was saved while
+    // a later GET reads the old value (UI/D1 divergence).
+    const wrote = await queries.communityBot.updateBotModel(db, id, ctx.userId, nextModel!)
+    if (!wrote) {
+      return writeError("bot has no runtime binding — pair it to a machine before setting a model", 409)
+    }
+
+    const wakeCtx = await queries.communityBot.getBotWakeContext(db, id)
+    if (wakeCtx.state === "ready") {
+      const config = makeRuntimeConfig({
+        runtime: wakeCtx.runtime,
+        model: resolveModelConfig(wakeCtx.runtime, nextModel!),
+        agentName: wakeCtx.name,
+        agentHandle: `@${formatHandle(wakeCtx.name, wakeCtx.discriminator)}`,
+      })
+      const result = await pushAgentModelSwitchToMachine(ctx.env, wakeCtx.machineId, {
+        agentId: id,
+        config,
+        launchId: nanoid(),
+      })
+      deliveryError = result.deliveryError
+      applied = result.sent > 0
+
+      if (applied) {
+        const inserted = await queries.communityBotAuditLog.insertBotAuditModelChanged(db, {
+          botId: id,
+          actorId: ctx.userId,
+          from: before.modelName ?? null,
+          to: nextModel!,
+        })
+        if (inserted) {
+          try {
+            await broadcastToUser(ctx.userId, {
+              type: WS_EVENTS.BOT_AUDIT_EVENT,
+              botId: id,
+              id: inserted.id,
+              kind: "model_changed",
+              payload: { from: before.modelName ?? null, to: nextModel! },
+              sessionId: null,
+              launchId: null,
+              createdAt: inserted.createdAt,
+            })
+          } catch {
+            // Best-effort — D1 row is authoritative.
+          }
+        }
+      }
+    }
+  }
+
   const changedFields: string[] = []
   if (body.name !== undefined) changedFields.push("name")
   if (body.description !== undefined) changedFields.push("description")
   if (body.image !== undefined) changedFields.push("image")
+  if (modelChanged) changedFields.push("model")
   logAudit(db, {
     serverId: null,
     actorId: ctx.userId,
@@ -79,7 +161,10 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
       name: updated.name,
       description: updated.description,
       image: updated.image,
+      modelName: nextModel !== undefined ? nextModel : (before.modelName ?? null),
     },
+    applied,
+    deliveryError,
   })
 })
 

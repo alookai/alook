@@ -57,6 +57,8 @@ function kindMeta(kind: AuditKind): { label: string; tone: string } {
   if (kind === "tool_call") return { label: "tool", tone: "text-muted-foreground" }
   if (kind === "wake_trigger") return { label: "wake", tone: "text-foreground/70" }
   if (kind === "session_reset") return { label: "reset", tone: "text-foreground/70" }
+  if (kind === "model_changed") return { label: "model", tone: "text-foreground/70" }
+  if (kind === "error") return { label: "err", tone: "text-destructive" }
   return { label: "think", tone: "text-muted-foreground/70" }
 }
 
@@ -107,6 +109,42 @@ function RowBody({
         <span className="text-muted-foreground">
           — the bot will start a fresh session on its next message.
         </span>
+      </div>
+    )
+  }
+  if (event.kind === "model_changed") {
+    const p = event.payload as { from?: string | null; to?: string | null } | null
+    // Developer-facing audit surface — print the RAW stored ids (no card-style
+    // shortening), with the literal `default` standing in for `null`.
+    const from = p?.from ?? "default"
+    const to = p?.to ?? "default"
+    return (
+      <div
+        data-testid="bot-activity-event-model_changed"
+        className="truncate font-mono text-[13px] text-foreground"
+      >
+        {from} <span className="text-muted-foreground/60">→</span> {to}
+      </div>
+    )
+  }
+  if (event.kind === "error") {
+    const p = event.payload as {
+      scope?: string
+      code?: string
+      message?: string
+      model?: string | null
+    } | null
+    const message = p?.message || "Something went wrong"
+    // The code/scope is the machine detail; the model names the common
+    // bad-model culprit inline. Both muted so the message reads first.
+    const detail = p?.model ? `${p?.code ?? "error"} · ${p.model}` : p?.code ?? p?.scope ?? "error"
+    return (
+      <div
+        data-testid="bot-activity-event-error"
+        className="flex min-w-0 flex-col gap-0.5"
+      >
+        <span className="wrap-break-word font-mono text-[13px] text-destructive">{message}</span>
+        <span className="truncate font-mono text-[11px] text-muted-foreground/70">{detail}</span>
       </div>
     )
   }

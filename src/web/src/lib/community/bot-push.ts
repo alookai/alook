@@ -103,3 +103,55 @@ export async function pushAgentResetToMachine(
     return { sent: 0 }
   }
 }
+
+/**
+ * Push an owner-triggered `agent:model_switch` to the machine's daemon over WS.
+ *
+ * Narrowly typed (only switch fields, no arbitrary HostCommand) so no caller
+ * can smuggle a different command shape onto the wire. Unlike
+ * `pushAgentResetToMachine`, this DISTINGUISHES a transport failure from "no
+ * daemon connected": a non-ok response or a thrown fetch returns
+ * `deliveryError: true`, while a 200 with `sent: 0` (daemon just offline)
+ * returns `deliveryError: false`. The caller needs the difference to choose the
+ * right toast copy — and to write no audit row in either case, since the audit
+ * contract is confirmed-application (`sent > 0`).
+ */
+export async function pushAgentModelSwitchToMachine(
+  env: Env,
+  machineId: string,
+  args: { agentId: string; config: RuntimeConfig; launchId: string },
+): Promise<{ sent: number; deliveryError: boolean }> {
+  const path = `/community-machine/by-id/${encodeURIComponent(machineId)}/forward-agent-model-switch`
+  const body = JSON.stringify({
+    agentId: args.agentId,
+    config: args.config,
+    launchId: args.launchId,
+  })
+  try {
+    const res = await wsDoFetch(
+      env,
+      path,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      },
+      { label: machineId, type: "agent:model_switch" },
+    )
+    if (!res.ok) {
+      log.warn("agent:model_switch push non-ok", {
+        machineId,
+        status: res.status,
+      })
+      return { sent: 0, deliveryError: true }
+    }
+    const data = (await res.json()) as { sent?: number }
+    return { sent: data.sent ?? 0, deliveryError: false }
+  } catch (err) {
+    log.warn("agent:model_switch push threw", {
+      machineId,
+      err: String(err),
+    })
+    return { sent: 0, deliveryError: true }
+  }
+}

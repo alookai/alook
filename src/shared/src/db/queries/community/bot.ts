@@ -55,6 +55,7 @@ export type BotBinding = {
   userId: string;
   machineId: string;
   runtime: string;
+  modelName: string | null;
   createdAt: string;
 };
 
@@ -74,7 +75,7 @@ export class OwnerHasBotsError extends Error {
 export async function listBotsForOwner(
   db: Database,
   ownerId: string
-): Promise<Array<BotRow & { machineId: string; runtime: string }>> {
+): Promise<Array<BotRow & { machineId: string; runtime: string; modelName: string | null }>> {
   const rows = await db
     .select({
       id: user.id,
@@ -87,6 +88,7 @@ export async function listBotsForOwner(
       description: communityUserProfile.aboutMe,
       machineId: communityBotBinding.machineId,
       runtime: communityBotBinding.runtime,
+      modelName: communityBotBinding.modelName,
     })
     .from(user)
     .innerJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
@@ -112,6 +114,7 @@ export async function listBotsForOwner(
     updatedAt: r.updatedAt,
     machineId: r.machineId,
     runtime: r.runtime,
+    modelName: r.modelName ?? null,
   }));
 }
 
@@ -123,7 +126,7 @@ export async function getBotOwnedBy(
   db: Database,
   botId: string,
   ownerId: string
-): Promise<(BotRow & { machineId: string | null; runtime: string | null }) | null> {
+): Promise<(BotRow & { machineId: string | null; runtime: string | null; modelName: string | null }) | null> {
   const rows = await db
     .select({
       id: user.id,
@@ -136,6 +139,7 @@ export async function getBotOwnedBy(
       description: communityUserProfile.aboutMe,
       machineId: communityBotBinding.machineId,
       runtime: communityBotBinding.runtime,
+      modelName: communityBotBinding.modelName,
     })
     .from(user)
     .leftJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
@@ -165,6 +169,7 @@ export async function getBotOwnedBy(
     updatedAt: r.updatedAt,
     machineId: r.machineId ?? null,
     runtime: r.runtime ?? null,
+    modelName: r.modelName ?? null,
   };
 }
 
@@ -190,16 +195,19 @@ export async function countLiveBotsForOwner(
 export async function getBotBinding(
   db: Database,
   botId: string
-): Promise<{ machineId: string; runtime: string } | null> {
+): Promise<{ machineId: string; runtime: string; modelName: string | null } | null> {
   const rows = await db
     .select({
       machineId: communityBotBinding.machineId,
       runtime: communityBotBinding.runtime,
+      modelName: communityBotBinding.modelName,
     })
     .from(communityBotBinding)
     .where(eq(communityBotBinding.userId, botId))
     .limit(1);
-  return rows[0] ?? null;
+  const r = rows[0];
+  if (!r) return null;
+  return { machineId: r.machineId, runtime: r.runtime, modelName: r.modelName ?? null };
 }
 
 /**
@@ -299,6 +307,7 @@ export type BotWakeContext =
       discriminator: string;
       machineId: string;
       runtime: string;
+      modelName: string | null;
       ownerUserId: string | null;
     };
 
@@ -313,6 +322,7 @@ export async function getBotWakeContext(db: Database, botUserId: string): Promis
       ownerUserId: user.ownerUserId,
       machineId: communityBotBinding.machineId,
       runtime: communityBotBinding.runtime,
+      modelName: communityBotBinding.modelName,
     })
     .from(user)
     .leftJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
@@ -329,6 +339,7 @@ export async function getBotWakeContext(db: Database, botUserId: string): Promis
     discriminator: r.discriminator,
     machineId: r.machineId,
     runtime: r.runtime,
+    modelName: r.modelName ?? null,
     ownerUserId: r.ownerUserId,
   };
 }
@@ -436,6 +447,7 @@ export type CreateBotInput = {
   machineId: string;
   runtime: string;
   image?: string | null;
+  modelName?: string | null;
 };
 
 /**
@@ -479,6 +491,7 @@ export async function createBot(
         userId: botId,
         machineId: data.machineId,
         runtime: data.runtime,
+        modelName: data.modelName ?? null,
         createdAt: nowIso,
       });
       // Match updateBot's upsert semantics — reincarnation paths (nanoid collision
@@ -583,6 +596,44 @@ export async function updateBot(
     description,
     image: rows[0]!.image,
   };
+}
+
+/**
+ * Update a bot's stored model name. Owner-scoped in the WHERE clause via the
+ * sanctioned `ownerScopedIds` subquery (see §Ownership scoping invariant) — a
+ * cross-owner `botId` is a no-op, not a leak.
+ *
+ * Returns whether a binding row was actually written. `getBotOwnedBy` 404s a
+ * missing/cross-owner bot before this runs, but a bot with NO binding row
+ * (unbound / never paired) still passes that check while this UPDATE matches
+ * zero rows — the caller must NOT report a model as saved in that case (it
+ * wasn't). Detection uses `RETURNING` (reliable in D1, as `softDeleteBot`
+ * relies on) rather than the driver-specific `meta.changes` that "can flip a
+ * real success into a 404".
+ */
+export async function updateBotModel(
+  db: Database,
+  botId: string,
+  ownerId: string,
+  modelName: string | null
+): Promise<boolean> {
+  const ownerScopedIds = db
+    .select({ id: user.id })
+    .from(user)
+    .where(
+      and(
+        eq(user.id, botId),
+        eq(user.ownerUserId, ownerId),
+        eq(user.isBot, true),
+        isNull(user.deletedAt)
+      )
+    );
+  const rows = await db
+    .update(communityBotBinding)
+    .set({ modelName })
+    .where(inArray(communityBotBinding.userId, ownerScopedIds))
+    .returning({ userId: communityBotBinding.userId });
+  return rows.length > 0;
 }
 
 /**

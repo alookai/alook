@@ -14,6 +14,7 @@ describe("community/bot-audit-log exports", () => {
     expect(typeof q.pruneBotActivityEventsStatement).toBe("function")
     expect(typeof q.insertBotActivityEventAndPrune).toBe("function")
     expect(typeof q.insertBotAuditWakeTrigger).toBe("function")
+    expect(typeof q.insertBotAuditError).toBe("function")
   })
 
   it("exposes a reader", () => {
@@ -102,6 +103,20 @@ describe("BotAuditEventSchema — payload discriminated union", () => {
         senderHandle: "@gustavo#0042",
         reason: "shouted",
       },
+    })
+    expect(r.success).toBe(false)
+  })
+  it("accepts an error payload with scope/code/message/model", () => {
+    const r = BotAuditEventSchema.safeParse({
+      kind: "error",
+      payload: { scope: "handshake_timeout", code: "handshake_timeout", message: "no response after 60s", model: "claude-bogus" },
+    })
+    expect(r.success).toBe(true)
+  })
+  it("rejects an error payload with a bad scope", () => {
+    const r = BotAuditEventSchema.safeParse({
+      kind: "error",
+      payload: { scope: "meltdown", code: "x", message: "m", model: null },
     })
     expect(r.success).toBe(false)
   })

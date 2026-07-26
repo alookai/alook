@@ -21,6 +21,7 @@ import { ProviderLogo } from "@/components/provider-logo"
 import { useMachines } from "@/hooks/community/use-machines"
 import { useCreateBot, useUploadBotAvatar } from "@/hooks/community/use-bots"
 import { BotFormFields } from "./bot-form-fields"
+import { ModelField } from "./model-field"
 import {
   type BotCreateFieldErrors,
   hasBotCreateFieldErrors,
@@ -82,6 +83,7 @@ export function CreateBotSheet({
   const [description, setDescription] = useState("")
   const [machineId, setMachineId] = useState<string>("")
   const [runtime, setRuntime] = useState<string>("")
+  const [model, setModel] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<BotCreateFieldErrors>({})
   const [avatarDraft, setAvatarDraft] = useState<AvatarDraft>({
     kind: "procedural",
@@ -106,6 +108,7 @@ export function CreateBotSheet({
     setDescription("")
     setMachineId("")
     setRuntime("")
+    setModel(null)
     setFieldErrors({})
   }, [open])
 
@@ -142,11 +145,17 @@ export function CreateBotSheet({
     setMachineId(id)
     const nextMachine = machines.find((m) => m.id === id)
     setRuntime(firstHealthyRuntimeId(normalizeRuntimes(nextMachine)))
+    // A model id is runtime-specific; a machine switch can change the runtime,
+    // so drop any selected model back to Default.
+    setModel(null)
     setFieldErrors((prev) => ({ ...prev, machineId: undefined }))
   }
 
   function selectRuntime(id: string) {
     setRuntime(id)
+    // Reset the model to Default — carrying (e.g.) gpt-5.4 across to claude
+    // would be nonsense.
+    setModel(null)
     setFieldErrors((prev) => ({ ...prev, runtime: undefined }))
   }
 
@@ -162,6 +171,7 @@ export function CreateBotSheet({
         machineId,
         runtime,
         image: avatarDraft.kind === "procedural" ? avatarDraft.image : undefined,
+        model,
       })
       // Bots don't have an id until creation resolves — the photo upload is
       // deferred until now so a cropped-then-cancelled dialog never uploads
@@ -301,6 +311,9 @@ export function CreateBotSheet({
               )}
               {fieldErrors.runtime && (
                 <p className="text-xs text-destructive">{fieldErrors.runtime}</p>
+              )}
+              {runtime && (
+                <ModelField runtime={runtime} value={model} onChange={setModel} />
               )}
             </div>
           )}

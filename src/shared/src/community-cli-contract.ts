@@ -544,6 +544,17 @@ export type HostCommand =
    * synthetic rewake — see `AgentProcessManager.resetSession`.
    */
   | { type: "agent:reset"; agentId: AgentId; config: RuntimeConfig; launchId: string }
+  /**
+   * Owner-triggered model switch. The twin of `agent:reset` — same
+   * stop-and-immediate-rewake orchestration and boundary conditions — but it
+   * PRESERVES the session (no `reset_session` row, no timeline barrier), so the
+   * agent picks up whatever it was doing on the new model. `config` already
+   * carries the new model (see `RuntimeConfig.model`). This is an EXPEDITE, not
+   * the record: D1 remains authoritative and every subsequent `agent:wake`
+   * reads the model fresh, so a lost frame merely means the bot is late to the
+   * new model, never wrong about it. See `AgentProcessManager.switchModel`.
+   */
+  | { type: "agent:model_switch"; agentId: AgentId; config: RuntimeConfig; launchId: string }
   // ─── Bot lifecycle events (server → daemon) ────────────────────────────
   // Colon-namespaced to match the agent:* naming convention. Delivered to
   // the specific machine's daemon connection via the WS DO. On the daemon,
@@ -636,6 +647,15 @@ export type BotAuditEventPayload =
         senderId: string;
         senderHandle: string;
         reason: "unread" | "mention";
+      };
+    }
+  | {
+      kind: "error";
+      payload: {
+        scope: "spawn" | "runtime" | "exit" | "handshake_timeout" | "model_switch" | "reset";
+        code: string;
+        message: string;
+        model: string | null;
       };
     };
 

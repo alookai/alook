@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { ChevronLeft, Bot as BotIcon, Monitor, MoreVertical, Plus } from "lucide-react"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
-import { isPresenceOnline } from "@alook/shared"
+import { isPresenceOnline, formatModelLabel } from "@alook/shared"
 import { machineName as resolveMachineName } from "@/lib/community/machine-name"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -267,6 +267,20 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                               <span className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
                                 <ProviderLogo provider={bot.runtime} className="size-3.5 shrink-0" />
                                 <span className="truncate">{bot.runtime}</span>
+                                <span aria-hidden className="shrink-0">·</span>
+                                {formatModelLabel(bot.runtime, bot.modelName) ? (
+                                  <span data-testid="bot-card-model" className="truncate font-mono">
+                                    {formatModelLabel(bot.runtime, bot.modelName)}
+                                  </span>
+                                ) : (
+                                  <span
+                                    data-testid="bot-card-model"
+                                    className="truncate font-mono text-muted-foreground/70"
+                                    title="No model set — uses the machine's local default"
+                                  >
+                                    local default
+                                  </span>
+                                )}
                               </span>
                             </div>
                           </div>

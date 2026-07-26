@@ -153,6 +153,27 @@ describe("ws-do router", () => {
       const res = await handler.fetch(req, env as any)
       expect(res.status).toBe(503)
     })
+
+    it("accepts kind: 'model_changed' (guards the AUDIT_KINDS allowlist)", async () => {
+      doMock.stubFetch.mockResolvedValue(new Response("ok"))
+      const req = new Request("http://localhost/internal/broadcast-bot-audit-event", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          botId: "bot_1",
+          ownerUserId: "owner_1",
+          id: "evt_m",
+          kind: "model_changed",
+          payload: { from: "claude-opus-4-6", to: "claude-sonnet-4-6" },
+          createdAt: "2026-07-26T00:00:00.000Z",
+        }),
+      })
+      const res = await handler.fetch(req, env as any)
+      expect(res.status).toBe(204)
+      const body = JSON.parse(await (doMock.stubFetch.mock.calls[0][0] as Request).text()) as Record<string, unknown>
+      expect(body.kind).toBe("model_changed")
+      expect(body.payload).toEqual({ from: "claude-opus-4-6", to: "claude-sonnet-4-6" })
+    })
   })
 
   describe("POST /presence/users", () => {
@@ -579,6 +600,70 @@ describe("ws-do router", () => {
       expect(parsed).toEqual({ type: "agent:reset", agentId: "bot-1", config: validBody.config, launchId: "l-1" })
       expect(res.status).toBe(200)
       expect(await res.json()).toEqual({ sent: 1 })
+    })
+  })
+
+  describe("POST /community-machine/by-id/:machineId/forward-agent-model-switch", () => {
+    const validBody = {
+      agentId: "bot-1",
+      config: { version: 1, runtime: "claude", model: { kind: "named", name: "claude-sonnet-4-6" }, mode: { kind: "default" } },
+      launchId: "l-1",
+    }
+
+    beforeEach(() => {
+      mockGetActiveDoNamesForMachine.mockReset()
+      mockGetActiveDoNamesForMachine.mockResolvedValue([])
+    })
+
+    it("forwards a { type:'agent:model_switch', ... } frame to each DO's /push and aggregates sent", async () => {
+      mockGetActiveDoNamesForMachine.mockResolvedValue(["do-abc"])
+      doMock.stubFetch.mockResolvedValue(new Response(JSON.stringify({ sent: 1 }), { status: 200 }))
+      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-model-switch", {
+        method: "POST",
+        body: JSON.stringify(validBody),
+      })
+      const res = await handler.fetch(req, env as any)
+      expect(doMock.idFromName).toHaveBeenCalledWith("community-machine:do-abc")
+      const stubReq = doMock.stubFetch.mock.calls[0][0] as Request
+      expect(stubReq.url).toBe("http://internal/push")
+      const parsed = JSON.parse(await stubReq.text())
+      expect(parsed).toEqual({ type: "agent:model_switch", agentId: "bot-1", config: validBody.config, launchId: "l-1" })
+      // config.model passes through byte-identical (no inspection).
+      expect(parsed.config.model).toEqual({ kind: "named", name: "claude-sonnet-4-6" })
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ sent: 1 })
+    })
+
+    it("rejects an extra top-level key with 400 (allowlist parity with reset)", async () => {
+      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-model-switch", {
+        method: "POST",
+        body: JSON.stringify({ ...validBody, sneaky: "x" }),
+      })
+      const res = await handler.fetch(req, env as any)
+      expect(res.status).toBe(400)
+      expect(doMock.stubFetch).not.toHaveBeenCalled()
+    })
+
+    it("rejects a missing/non-object config with 400", async () => {
+      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-model-switch", {
+        method: "POST",
+        body: JSON.stringify({ agentId: "bot-1", config: "nope", launchId: "l-1" }),
+      })
+      const res = await handler.fetch(req, env as any)
+      expect(res.status).toBe(400)
+      expect(mockGetActiveDoNamesForMachine).not.toHaveBeenCalled()
+      expect(doMock.stubFetch).not.toHaveBeenCalled()
+    })
+
+    it("zero active doNames → { sent: 0 } without erroring", async () => {
+      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-model-switch", {
+        method: "POST",
+        body: JSON.stringify(validBody),
+      })
+      const res = await handler.fetch(req, env as any)
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ sent: 0 })
+      expect(doMock.stubFetch).not.toHaveBeenCalled()
     })
   })
 
