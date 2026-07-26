@@ -42,16 +42,16 @@ export type ChannelRefPillView =
  * - `resolved === null` (still loading OR genuinely unresolved) →
  *   `directoryLoading ? "muted" : "plain"` (plain text = `ref`, untouched
  *   fallback — never a broken-looking pill).
- * - `resolved` present, no `threadRootSeq` → `"pill"`, label =
+ * - `resolved` present, no `rootSeq` → `"pill"`, label =
  *   `resolved.channel.name`, `serverPrefix` set only when the ref points at
  *   a different server than the one currently open.
- * - `resolved` present, `threadRootSeq` set:
+ * - `resolved` present, `rootSeq` set:
  *   - `thread === undefined` (still loading) → `"muted"` (base channel label).
  *   - `thread` found (`parentSeq` match) → `"pill"` targeting the thread id,
  *     label = thread name.
  *   - `thread === null` (loaded, no match) → `"pill"` targeting the base
  *     channel — graceful degrade. The caller is responsible for appending
- *     the literal `/#{threadRootSeq}` as separate plain trailing text next
+ *     the literal `/#{rootSeq}` as separate plain trailing text next
  *     to the pill, since that suffix is never part of the clickable target.
  */
 export function describeChannelRefPillView(args: {
@@ -69,7 +69,7 @@ export function describeChannelRefPillView(args: {
 
   const serverPrefix = resolved.server.id !== currentServerId ? resolved.server.name : undefined
 
-  if (resolved.threadRootSeq === undefined) {
+  if (resolved.rootSeq === undefined) {
     return {
       kind: "pill",
       label: resolved.channel.name,
@@ -88,7 +88,7 @@ export function describeChannelRefPillView(args: {
       label: resolved.channel.name,
       serverPrefix,
       href: { serverId: resolved.server.id, channelId: resolved.channel.id },
-      threadSuffix: resolved.threadRootSeq,
+      threadSuffix: resolved.rootSeq,
       ...(resolved.seq !== undefined ? { messageSuffix: resolved.seq } : {}),
     }
   }
@@ -124,13 +124,13 @@ export function ChannelRefPill({ children }: { children?: React.ReactNode }) {
   // was this directory scan running unmemoized on every render.
   const resolved = useMemo(() => resolveChannelRefBase(directory, ref), [directory, ref])
 
-  const threadChannelId = resolved?.threadRootSeq !== undefined ? resolved.channel.id : null
+  const threadChannelId = resolved?.rootSeq !== undefined ? resolved.channel.id : null
   const { threads, isLoading: threadsLoading } = useThreads(threadChannelId)
   const thread = !threadChannelId
     ? null
     : threadsLoading
       ? undefined
-      : threads.find((t) => t.parentSeq === resolved?.threadRootSeq) ?? null
+      : threads.find((t) => t.parentSeq === resolved?.rootSeq) ?? null
 
   const view = describeChannelRefPillView({
     ref,

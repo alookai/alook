@@ -281,7 +281,7 @@ export function MessageContextSheet({
           ...c,
           messages: c.messages.map((msg) =>
             msg.id === id
-              ? { ...msg, thread: { id: data.id, name, messageCount: 0 } }
+              ? { ...msg, thread: { id: data.channel.id, name, messageCount: 0 } }
               : msg,
           ),
         }

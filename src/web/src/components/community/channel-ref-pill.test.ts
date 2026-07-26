@@ -32,7 +32,7 @@ describe("describeChannelRefPillView", () => {
     expect(view).toEqual({ kind: "plain", text: "/usr/bin/ls" })
   })
 
-  it("resolved present, no threadRootSeq → pill, no serverPrefix when resolved.server.id === currentServerId", () => {
+  it("resolved present, no rootSeq → pill, no serverPrefix when resolved.server.id === currentServerId", () => {
     const view = describeChannelRefPillView({
       ref: "/srv_1/chn_1",
       resolved: resolved(),
@@ -64,10 +64,10 @@ describe("describeChannelRefPillView", () => {
     })
   })
 
-  it("threadRootSeq set, thread: undefined (loading) → muted", () => {
+  it("rootSeq set, thread: undefined (loading) → muted", () => {
     const view = describeChannelRefPillView({
       ref: "/srv_1/chn_1/#42",
-      resolved: resolved({ threadRootSeq: 42 }),
+      resolved: resolved({ rootSeq: 42 }),
       directoryLoading: false,
       thread: undefined,
       currentServerId: "srv_1",
@@ -75,10 +75,10 @@ describe("describeChannelRefPillView", () => {
     expect(view).toEqual({ kind: "muted", label: "general" })
   })
 
-  it("threadRootSeq set, thread found → pill targeting the thread id, label = thread name", () => {
+  it("rootSeq set, thread found → pill targeting the thread id, label = thread name", () => {
     const view = describeChannelRefPillView({
       ref: "/srv_1/chn_1/#42",
-      resolved: resolved({ threadRootSeq: 42 }),
+      resolved: resolved({ rootSeq: 42 }),
       directoryLoading: false,
       thread: { id: "thr_1", name: "Thread about X", parentSeq: 42 },
       currentServerId: "srv_1",
@@ -91,10 +91,10 @@ describe("describeChannelRefPillView", () => {
     })
   })
 
-  it("threadRootSeq set, thread: null (loaded, no match) → pill targeting the base channel — no invented thread link, but carries threadSuffix for the caller to render as trailing plain text", () => {
+  it("rootSeq set, thread: null (loaded, no match) → pill targeting the base channel — no invented thread link, but carries threadSuffix for the caller to render as trailing plain text", () => {
     const view = describeChannelRefPillView({
       ref: "/srv_1/chn_1/#42",
-      resolved: resolved({ threadRootSeq: 42 }),
+      resolved: resolved({ rootSeq: 42 }),
       directoryLoading: false,
       thread: null,
       currentServerId: "srv_1",
@@ -111,7 +111,7 @@ describe("describeChannelRefPillView", () => {
   it("cross-server thread-degrade case still sets serverPrefix and threadSuffix", () => {
     const view = describeChannelRefPillView({
       ref: "/srv_1/chn_1/#42",
-      resolved: resolved({ threadRootSeq: 42 }),
+      resolved: resolved({ rootSeq: 42 }),
       directoryLoading: false,
       thread: null,
       currentServerId: "srv_other",
@@ -124,7 +124,7 @@ describe("describeChannelRefPillView", () => {
   it("resolved thread found → pill does NOT carry threadSuffix (suffix is only for the degrade case)", () => {
     const view = describeChannelRefPillView({
       ref: "/srv_1/chn_1/#42",
-      resolved: resolved({ threadRootSeq: 42 }),
+      resolved: resolved({ rootSeq: 42 }),
       directoryLoading: false,
       thread: { id: "thr_1", name: "Thread about X", parentSeq: 42 },
       currentServerId: "srv_1",
@@ -132,10 +132,10 @@ describe("describeChannelRefPillView", () => {
     expect((view as { threadSuffix?: number }).threadSuffix).toBeUndefined()
   })
 
-  it("thread-reply form (threadRootSeq + seq), thread resolved → pill targets thread id, carries messageSuffix but no threadSuffix", () => {
+  it("thread-reply form (rootSeq + seq), thread resolved → pill targets thread id, carries messageSuffix but no threadSuffix", () => {
     const view = describeChannelRefPillView({
       ref: "/srv_1/chn_1/#5#42",
-      resolved: resolved({ threadRootSeq: 5, seq: 42 }),
+      resolved: resolved({ rootSeq: 5, seq: 42 }),
       directoryLoading: false,
       thread: { id: "thr_1", name: "Thread about X", parentSeq: 5 },
       currentServerId: "srv_1",
@@ -152,7 +152,7 @@ describe("describeChannelRefPillView", () => {
   it("thread-reply form, thread-not-found degrade → pill targets base channel, carries BOTH threadSuffix and messageSuffix", () => {
     const view = describeChannelRefPillView({
       ref: "/srv_1/chn_1/#5#42",
-      resolved: resolved({ threadRootSeq: 5, seq: 42 }),
+      resolved: resolved({ rootSeq: 5, seq: 42 }),
       directoryLoading: false,
       thread: null,
       currentServerId: "srv_1",

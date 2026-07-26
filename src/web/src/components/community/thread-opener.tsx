@@ -1,12 +1,12 @@
 "use client"
 
-import { MessagesSquare, FileText, Download, ArrowUpRight } from "lucide-react"
+import { MessagesSquare, ArrowUpRight } from "lucide-react"
 import { Avatar } from "./avatar"
 import { MessageBody } from "./message-body"
-import { attachmentAspectRatio } from "./message"
+import { ReactionChips } from "./reaction-chips"
+import { MessageAttachments } from "./message-attachments"
 import { formatMessageTime } from "./format-time"
 import { Skeleton } from "@/components/ui/skeleton"
-import { NumberTicker } from "@/components/ui/number-ticker"
 import { avatarInitial } from "@/lib/community/avatar"
 import { useMessage } from "@/hooks/community/use-message"
 import type { OpenProfile } from "./_types"
@@ -104,51 +104,15 @@ export function ThreadOpener({
           {msg.content && <MessageBody text={msg.content} onOpenProfile={onOpenProfile} />}
 
           {msg.attachments && msg.attachments.length > 0 && (
-            <div className="mt-2 flex flex-col gap-2 pb-2">
-              {msg.attachments.map((a, i) =>
-                a.kind === "image" ? (
-                  <button
-                    key={i}
-                    onClick={() => onPreviewImage?.(a.url)}
-                    className="block w-fit max-w-[320px] overflow-hidden rounded-lg border border-border transition-colors hover:border-primary/40"
-                  >
-                    <img src={a.url} alt={a.name} className="max-h-50 max-w-[320px] rounded-lg object-contain" style={{ aspectRatio: attachmentAspectRatio(a.width, a.height) }} />
-                  </button>
-                ) : (
-                  <button
-                    key={i}
-                    onClick={() => onDownloadFile?.(a.url)}
-                    className="flex w-full max-w-[320px] items-center gap-3 rounded-lg border border-border bg-card p-2 text-left transition-colors hover:bg-accent"
-                  >
-                    <FileText className="size-7 shrink-0 text-muted-foreground" />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium text-primary">{a.name}</div>
-                      {"size" in a && a.size && (
-                        <div className="text-xs text-muted-foreground">{a.size}</div>
-                      )}
-                    </div>
-                    <Download className="size-4 shrink-0 text-muted-foreground" />
-                  </button>
-                ),
-              )}
-            </div>
+            <MessageAttachments
+              attachments={msg.attachments}
+              onPreviewImage={onPreviewImage}
+              onDownloadFile={onDownloadFile}
+            />
           )}
 
           {msg.reactions && msg.reactions.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1">
-              {msg.reactions.map((r, i) => (
-                <span
-                  key={i}
-                  className={[
-                    "flex h-6 items-center gap-1 rounded-full px-2 text-sm",
-                    r.me ? "border border-primary/50 bg-accent" : "bg-secondary",
-                  ].join(" ")}
-                >
-                  <span>{r.emoji}</span>
-                  <NumberTicker value={r.count} className="text-xs text-muted-foreground" />
-                </span>
-              ))}
-            </div>
+            <ReactionChips reactions={msg.reactions} interactive={false} radius="full" />
           )}
         </div>
       </div>
