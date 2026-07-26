@@ -51,7 +51,12 @@ export async function seedChannel(
   type?: "text" | "forum",
   categoryId?: string,
 ): Promise<string> {
-  const res = await post(owner, `/api/community/servers/${serverId}/channels`, { name, type, categoryId })
+  const res = await post(owner, `/api/community/channels`, {
+    type: type ?? "text",
+    serverId,
+    name,
+    categoryId,
+  })
   const data = (await res.json()) as { channel: { id: string } }
   return data.channel.id
 }
@@ -174,18 +179,27 @@ export async function seedForumPost(
   name: string,
   content: string,
 ): Promise<string> {
-  const res = await post(author, `/api/community/channels/${forumChannelId}/posts`, { name, content })
-  const data = (await res.json()) as { post: { id: string } }
-  return data.post.id
+  const res = await post(author, `/api/community/channels`, {
+    type: "post",
+    parentChannelId: forumChannelId,
+    name,
+    content,
+  })
+  const data = (await res.json()) as { channel: { id: string } }
+  return data.channel.id
 }
 
 // Create a thread rooted on an existing message. Returns the thread's own
 // child-channel id. A thread has NO roster of its own — its @-mention scope is
 // the PARENT channel's audience — which is exactly what the scope spec probes.
 export async function seedThread(author: UserKey, messageId: string, name: string): Promise<string> {
-  const res = await post(author, `/api/community/messages/${messageId}/threads`, { name })
-  const data = (await res.json()) as { id: string }
-  return data.id
+  const res = await post(author, `/api/community/channels`, {
+    type: "thread",
+    parentMessageId: messageId,
+    name,
+  })
+  const data = (await res.json()) as { channel: { id: string } }
+  return data.channel.id
 }
 
 export async function createInvite(owner: UserKey, serverId: string): Promise<string> {
