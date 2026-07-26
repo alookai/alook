@@ -20,6 +20,8 @@ import { probeCliRuntime, resolveSpawnSpec } from "./probe.js";
 import { resolveCodexHomeRootFromEnv } from "./codexHome.js";
 import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
 import { spawnAgentProcess } from "../runtime/killTree.js";
+import { jsonRpcRequest } from "./utils.js";
+import { getDaemonClientInfo } from "../version.js";
 
 /** True if a resume error means the prior thread rollout is gone. */
 export function isCodexMissingRolloutError(message: string): boolean {
@@ -57,6 +59,14 @@ export class CodexDriver implements Driver {
   readonly busyDeliveryMode = "gated" as const;
   readonly supportsNativeStandingPrompt = true;
 
+  readonly capabilities = {
+    reasoningEffort: true,
+    fastMode: true,
+    disallowedTools: false,
+    command: true,
+    sessionResumeMode: "by-id",
+  } as const;
+
   private readonly eventNormalizer = new CodexEventNormalizer();
   private requestId = 0;
   /** Resolved Codex home root (CODEX_HOME or ~/.codex); set on spawn. */
@@ -79,12 +89,13 @@ export class CodexDriver implements Driver {
   }
 
   async spawn(ctx: LaunchContext): Promise<SpawnResult> {
-    const { spawnEnv } = await prepareCliTransport(ctx, { NO_COLOR: "1" });
+    const { spawnEnv } = await prepareCliTransport(ctx);
     // Resolve the Codex home so resume can find its session rollout (and so a
     // host could surface "missing rollout" recovery — see classifyCodexResumeError).
     this.codexHomeRoot = resolveCodexHomeRootFromEnv(spawnEnv, { cwd: ctx.workingDirectory });
     // Cross-platform spawn: on Windows the codex entry is often a `.cmd` shim.
-    const spec = resolveSpawnSpec("codex", ["app-server", "--listen", "stdio://"]);
+    const override = resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig).command;
+    const spec = resolveSpawnSpec("codex", ["app-server", "--listen", "stdio://"], override);
     const proc = spawnAgentProcess(spec.command, spec.args, {
       cwd: ctx.workingDirectory,
       env: spawnEnv,
@@ -94,15 +105,11 @@ export class CodexDriver implements Driver {
     // Async handshake: initialize, then thread/start|resume with the prompt.
     queueMicrotask(() => {
       proc.stdin?.write(
-        JSON.stringify({
-          jsonrpc: "2.0",
-          id: this.nextRequestId(),
-          method: "initialize",
-          params: {
-            clientInfo: { name: "agent-backend", version: "1.0.0" },
-            capabilities: { experimentalApi: true },
-          },
-        }) + "\n",
+        jsonRpcRequest(
+          "initialize",
+          { clientInfo: getDaemonClientInfo(), capabilities: { experimentalApi: true } },
+          this.nextRequestId(),
+        ) + "\n",
       );
 
       const f = resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig);
@@ -123,12 +130,7 @@ export class CodexDriver implements Driver {
       if (f.fastMode) params.serviceTier = "fast";
 
       proc.stdin?.write(
-        JSON.stringify({
-          jsonrpc: "2.0",
-          id: this.nextRequestId(),
-          method: resuming ? "thread/resume" : "thread/start",
-          params,
-        }) + "\n",
+        jsonRpcRequest(resuming ? "thread/resume" : "thread/start", params, this.nextRequestId()) + "\n",
       );
     });
 
@@ -148,23 +150,11 @@ export class CodexDriver implements Driver {
     const threadId = sessionId ?? this.eventNormalizer.currentSessionId;
     if (!threadId) return null;
     const input = [{ type: "text", text }];
-    if (opts?.mode === "idle") {
-      return JSON.stringify({
-        jsonrpc: "2.0",
-        id: this.nextRequestId(),
-        method: "turn/start",
-        params: { threadId, input },
-      });
-    }
-    return JSON.stringify({
-      jsonrpc: "2.0",
-      id: this.nextRequestId(),
-      method: "turn/steer",
-      params: { threadId, input },
-    });
+    const method = opts?.mode === "idle" ? "turn/start" : "turn/steer";
+    return jsonRpcRequest(method, { threadId, input }, this.nextRequestId());
   }
 
   buildSystemPrompt(config: LaunchConfig): string {
-    return buildCliTransportSystemPrompt(config, { lifecycleKind: this.lifecycle.kind });
+    return buildCliTransportSystemPrompt(config);
   }
 }

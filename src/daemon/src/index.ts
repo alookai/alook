@@ -1,5 +1,5 @@
 /**
- * Public entry point for the agent-backend layer.
+ * Public entry point for the daemon's driver layer.
  *
  * Typical use:
  *   import { getDriver, createChildProcessRuntimeSession } from "@alook/daemon";

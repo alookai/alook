@@ -15,6 +15,7 @@ describe("resolveSpawnSpec", () => {
     const spec = resolveSpawnSpec(
       "cursor-agent",
       ["--print"],
+      undefined,
       { which: () => "C:\\Users\\me\\AppData\\Roaming\\npm\\cursor-agent.cmd" },
       "win32",
     );
@@ -26,23 +27,44 @@ describe("resolveSpawnSpec", () => {
   });
 
   it("sets shell: true on win32 when the resolved binary is a .bat shim", () => {
-    const spec = resolveSpawnSpec("kimi", [], { which: () => "C:\\tools\\kimi.bat" }, "win32");
+    const spec = resolveSpawnSpec("kimi", [], undefined, { which: () => "C:\\tools\\kimi.bat" }, "win32");
     expect(spec.shell).toBe(true);
   });
 
   it("does not set shell when the resolved binary is a native .exe on win32", () => {
-    const spec = resolveSpawnSpec("copilot", [], { which: () => "C:\\tools\\copilot.exe" }, "win32");
+    const spec = resolveSpawnSpec("copilot", [], undefined, { which: () => "C:\\tools\\copilot.exe" }, "win32");
     expect(spec.shell).toBe(false);
   });
 
   it("never sets shell on POSIX, even for a path that looks like a shim", () => {
-    const spec = resolveSpawnSpec("agy", [], { which: () => "/usr/local/bin/agy.cmd" }, "darwin");
+    const spec = resolveSpawnSpec("agy", [], undefined, { which: () => "/usr/local/bin/agy.cmd" }, "darwin");
     expect(spec.shell).toBe(false);
   });
 
   it("falls back to the bare command name when PATH resolution fails, without a shell on POSIX", () => {
-    const spec = resolveSpawnSpec("opencode", ["run"], { which: () => null }, "linux");
+    const spec = resolveSpawnSpec("opencode", ["run"], undefined, { which: () => null }, "linux");
     expect(spec).toEqual({ command: "opencode", args: ["run"], shell: false });
+  });
+
+  it("honors an absolute-path override without re-resolving via PATH", () => {
+    const which = vi.fn(() => "/should/not/be/called");
+    const spec = resolveSpawnSpec("codex", ["run"], "/custom/bin/codex", { which }, "linux");
+    expect(spec.command).toBe("/custom/bin/codex");
+    expect(which).not.toHaveBeenCalled();
+  });
+
+  it("resolves a bare-name override via PATH (so a user can point at a differently-named binary)", () => {
+    const which = vi.fn(() => "/opt/kimi-custom/bin/kimi-alt");
+    const spec = resolveSpawnSpec("kimi", [], "kimi-alt", { which }, "linux");
+    expect(spec.command).toBe("/opt/kimi-custom/bin/kimi-alt");
+    expect(which).toHaveBeenCalledWith("kimi-alt");
+  });
+
+  it("treats empty or whitespace-only override as absent (falls back to command)", () => {
+    const which = vi.fn(() => "/usr/local/bin/codex");
+    const spec = resolveSpawnSpec("codex", [], "   ", { which }, "linux");
+    expect(spec.command).toBe("/usr/local/bin/codex");
+    expect(which).toHaveBeenCalledWith("codex");
   });
 });
 

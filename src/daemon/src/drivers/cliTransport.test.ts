@@ -131,6 +131,12 @@ describe("prepareCliTransport — layered spawn env", () => {
     expect(spawnEnv.NO_COLOR).toBe("1");
   });
 
+  it("sets NO_COLOR=1 and FORCE_COLOR=0 by default, even without a driver setting them", async () => {
+    const { spawnEnv } = await prepareCliTransport(baseCtx(mkTmp()), {}, undefined, "linux");
+    expect(spawnEnv.NO_COLOR).toBe("1");
+    expect(spawnEnv.FORCE_COLOR).toBe("0");
+  });
+
   it("sets NO_PROXY for loopback", async () => {
     const { spawnEnv } = await prepareCliTransport(baseCtx(mkTmp()), {}, undefined, "linux");
     expect(spawnEnv.NO_PROXY).toContain("127.0.0.1");

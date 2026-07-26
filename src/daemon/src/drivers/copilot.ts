@@ -10,6 +10,7 @@ import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTranspo
 import { probeCliRuntime, resolveSpawnSpec } from "./probe.js";
 import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
 import { spawnAgentProcess } from "../runtime/killTree.js";
+import { tryParseJsonLine } from "./utils.js";
 
 export class CopilotDriver implements Driver {
   readonly id = "copilot";
@@ -28,6 +29,14 @@ export class CopilotDriver implements Driver {
   readonly supportsStdinNotification = false;
   readonly busyDeliveryMode = "none" as const;
 
+  readonly capabilities = {
+    reasoningEffort: true,
+    fastMode: false,
+    disallowedTools: false,
+    command: true,
+    sessionResumeMode: "by-id",
+  } as const;
+
   private sessionId: string | null = null;
 
   probe() {
@@ -44,7 +53,7 @@ export class CopilotDriver implements Driver {
 
   async spawn(ctx: LaunchContext): Promise<SpawnResult> {
     this.sessionId = ctx.config.sessionId ?? null;
-    const { spawnEnv } = await prepareCliTransport(ctx, { NO_COLOR: "1" });
+    const { spawnEnv } = await prepareCliTransport(ctx);
     const f = resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig);
     const args = ["--output-format", "json", "--allow-all-tools", "--allow-all-paths", "-p", ctx.prompt];
     if (f.model) args.push("--model", f.model);
@@ -53,7 +62,7 @@ export class CopilotDriver implements Driver {
 
     // Cross-platform spawn: on Windows the copilot entry is often a `.cmd`
     // shim, which `child_process.spawn` can't exec without a shell.
-    const spec = resolveSpawnSpec("copilot", args);
+    const spec = resolveSpawnSpec("copilot", args, f.command);
     const proc = spawnAgentProcess(spec.command, spec.args, {
       cwd: ctx.workingDirectory,
       env: spawnEnv,
@@ -63,12 +72,8 @@ export class CopilotDriver implements Driver {
   }
 
   parseLine(line: string): ParsedEvent[] {
-    let event: any;
-    try {
-      event = JSON.parse(line);
-    } catch {
-      return [];
-    }
+    const event = tryParseJsonLine(line) as any;
+    if (!event) return [];
     switch (event?.type) {
       case "assistant.turn_start":
         if (event.sessionId) this.sessionId = event.sessionId;
@@ -106,6 +111,6 @@ export class CopilotDriver implements Driver {
   }
 
   buildSystemPrompt(config: LaunchConfig): string {
-    return buildCliTransportSystemPrompt(config, { lifecycleKind: this.lifecycle.kind });
+    return buildCliTransportSystemPrompt(config);
   }
 }

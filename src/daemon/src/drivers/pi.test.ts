@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { PiDriver, resolvePiSdkVersionFromPath, resolvePiSdkPackageDir } from "./pi";
-import { CANONICAL_FILE, SYMLINK_ALIASES } from "./agentFile";
+import { PiDriver, resolvePiSdkVersionFromPath, resolvePiSdkPackageDir, findPiSessionFile } from "./pi";
+import { CANONICAL_FILE } from "./agentFile";
 import type { LaunchContext } from "../types";
 
 let tmpDir: string;
@@ -42,43 +42,18 @@ function fakeDeps() {
 }
 
 describe("PiDriver.createSession — AGENTS.md packing", () => {
-  it("writes AGENTS.md into the workdir instead of passing standingPrompt to the SDK", async () => {
+  it("does not write AGENTS.md itself — prepareCliTransport (inside piSdkDeps.buildSpawnEnv) is the single packing point", async () => {
     const driver = new PiDriver();
     const deps = fakeDeps();
 
     await driver.createSession(baseCtx(), deps);
 
-    expect(fs.readFileSync(path.join(tmpDir, CANONICAL_FILE), "utf-8")).toBe("You are Pi.");
-    expect(fs.lstatSync(path.join(tmpDir, SYMLINK_ALIASES[0])).isSymbolicLink()).toBe(true);
+    // The driver no longer writes AGENTS.md — buildSpawnEnv already did, and
+    // duplicating the write here would risk hash-dedup drift.
+    expect(fs.existsSync(path.join(tmpDir, CANONICAL_FILE))).toBe(false);
 
     const sessionOpts = deps.createAgentSession.mock.calls[0][0];
     expect(sessionOpts).not.toHaveProperty("standingPrompt");
-  });
-
-  it("does not rewrite AGENTS.md when the standing prompt is unchanged (hash dedup)", async () => {
-    const driver = new PiDriver();
-    await driver.createSession(baseCtx(), fakeDeps());
-    const firstMtime = fs.statSync(path.join(tmpDir, CANONICAL_FILE)).mtimeMs;
-
-    // Second session, identical standingPrompt — file content must be untouched.
-    await new Promise((r) => setTimeout(r, 5));
-    await driver.createSession(baseCtx(), fakeDeps());
-    const secondMtime = fs.statSync(path.join(tmpDir, CANONICAL_FILE)).mtimeMs;
-
-    expect(secondMtime).toBe(firstMtime);
-  });
-
-  it("skips the write when standingPrompt is empty", async () => {
-    const driver = new PiDriver();
-    await driver.createSession(baseCtx({ standingPrompt: "" }), fakeDeps());
-    expect(fs.existsSync(path.join(tmpDir, CANONICAL_FILE))).toBe(false);
-  });
-
-  it("creates the workdir first when it doesn't exist yet (unlike prepareCliTransport's stateDir mkdir, nothing else guarantees this for Pi)", async () => {
-    const driver = new PiDriver();
-    const notYetCreated = path.join(tmpDir, "not-yet-created", "agent_1");
-    await driver.createSession(baseCtx({ workingDirectory: notYetCreated }), fakeDeps());
-    expect(fs.readFileSync(path.join(notYetCreated, CANONICAL_FILE), "utf-8")).toBe("You are Pi.");
   });
 });
 
@@ -110,6 +85,31 @@ describe("PiDriver.createSession — does not fire the initial prompt itself", (
       { kind: "session_init", sessionId: "sess_1" },
       { kind: "text", text: "hi" },
     ]);
+  });
+});
+
+describe("findPiSessionFile", () => {
+  it("matches an entry ending in `_${sessionId}.jsonl`", () => {
+    const sessionDir = path.join(tmpDir, "sessions");
+    fs.mkdirSync(sessionDir, { recursive: true });
+    fs.writeFileSync(path.join(sessionDir, "2026-01-01_someone-else.jsonl"), "");
+    fs.writeFileSync(path.join(sessionDir, "2026-05-01_target-id.jsonl"), "");
+
+    expect(findPiSessionFile(sessionDir, "target-id")).toBe(
+      path.join(sessionDir, "2026-05-01_target-id.jsonl"),
+    );
+  });
+
+  it("returns null when no entry matches the id", () => {
+    const sessionDir = path.join(tmpDir, "sessions");
+    fs.mkdirSync(sessionDir, { recursive: true });
+    fs.writeFileSync(path.join(sessionDir, "2026-01-01_someone-else.jsonl"), "");
+
+    expect(findPiSessionFile(sessionDir, "target-id")).toBeNull();
+  });
+
+  it("returns null when the session directory is unreadable / missing", () => {
+    expect(findPiSessionFile(path.join(tmpDir, "does-not-exist"), "target-id")).toBeNull();
   });
 });
 

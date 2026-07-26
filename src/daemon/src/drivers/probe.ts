@@ -7,6 +7,14 @@ import * as fs from "fs";
 import * as path from "path";
 import type { ProbeResult } from "../types.js";
 
+/**
+ * Wall-clock cap for every `--version`/`where`/`which` probe. Kept short: a
+ * healthy CLI answers in tens of milliseconds, and each unresponsive driver
+ * blocks daemon startup this long — with ~9 runtimes probed sequentially,
+ * every second here is a second of user-visible wait.
+ */
+const PROBE_TIMEOUT_MS = 5000;
+
 export interface ProbeDeps {
   homeDir?: string;
   which?: (cmd: string) => string | null;
@@ -22,11 +30,11 @@ export function resolveCommandOnPath(command: string, deps: ProbeDeps = {}): str
       // `powershell -Command` here instead cost 1-3s of interpreter cold-start
       // PER call — with ~9 runtimes probed sequentially at daemon startup /
       // in `detectRuntimes()` tests, that added up to 30s+ wall time.
-      const out = execFileSync("where", [command], { encoding: "utf8", timeout: 5000 });
+      const out = execFileSync("where", [command], { encoding: "utf8", timeout: PROBE_TIMEOUT_MS });
       const first = out.split(/\r?\n/).find((line) => line.trim().length > 0);
       return first?.trim() || null;
     }
-    const out = execFileSync("which", [command], { encoding: "utf8", timeout: 5000 });
+    const out = execFileSync("which", [command], { encoding: "utf8", timeout: PROBE_TIMEOUT_MS });
     return out.trim() || null;
   } catch {
     return null;
@@ -104,7 +112,7 @@ export function probeCommandVersion(
     // `looksLikeVersion` validation below.
     const out = execFileSync(command, [...args, "--version"], {
       encoding: "utf8",
-      timeout: 5000,
+      timeout: PROBE_TIMEOUT_MS,
       shell,
       input: "",
       env: { ...process.env, CI: "1" },
@@ -120,17 +128,6 @@ export function probeCommandVersion(
       "version_probe_failed";
     return { ok: false, error: String(code) };
   }
-}
-
-/**
- * @deprecated Use `probeCommandVersion` instead — it returns explicit
- * success/failure so callers can distinguish "binary not runnable" from
- * "binary runs but has no version output" and report `status: "unhealthy"`.
- * Retained as a thin shim for a couple of legacy call sites during rollout.
- */
-export function readCommandVersion(command: string, args: string[] = [], deps: ProbeDeps = {}): string | null {
-  const r = probeCommandVersion(command, args, deps);
-  return r.ok ? r.version : null;
 }
 
 export function resolveHomePath(relativePath: string, deps: ProbeDeps = {}): string {
@@ -151,14 +148,25 @@ export interface SpawnSpec {
  * spawn through a shell; we resolve the real path (PowerShell `Get-Command`,
  * which returns the `.cmd`) and set `shell: true` when it looks like a shim.
  * On POSIX, we resolve via `which` and never need a shell.
+ *
+ * When `override` is a non-empty string, it takes precedence over the default
+ * `command` — that's how `runtimeConfig.command` is honoured uniformly across
+ * every driver. If the override looks like an absolute path (or contains a
+ * separator) we don't re-resolve via PATH — the caller pointed us at a
+ * specific binary and we respect that; otherwise it's still a bare name that
+ * needs PATH resolution.
  */
 export function resolveSpawnSpec(
   command: string,
   args: string[],
+  override?: string,
   deps: ProbeDeps = {},
   platform: NodeJS.Platform = process.platform,
 ): SpawnSpec {
-  const resolved = resolveCommandOnPath(command, deps) ?? command;
+  const trimmed = override?.trim();
+  const target = trimmed && trimmed.length > 0 ? trimmed : command;
+  const looksLikePath = trimmed !== undefined && trimmed.length > 0 && /[\\/]/.test(trimmed);
+  const resolved = looksLikePath ? target : (resolveCommandOnPath(target, deps) ?? target);
   return { command: resolved, args, shell: needsWindowsShimShell(resolved, platform) };
 }
 

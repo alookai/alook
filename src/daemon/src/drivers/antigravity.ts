@@ -10,15 +10,27 @@ import { randomUUID } from "crypto";
 import type { Driver, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
 import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTransport.js";
 import { probeCliRuntime, resolveSpawnSpec } from "./probe.js";
+import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
 import { spawnAgentProcess } from "../runtime/killTree.js";
+import { writeToStdinAndDetach } from "./utils.js";
 
 const ERROR_LINE_PATTERNS: RegExp[] = [/^error[:\s]/i, /\bfatal\b/i, /\bpanic\b/i, /unable to/i];
 
-/** Wall-clock cap for a single Antigravity print run. */
+/**
+ * Wall-clock cap for a single Antigravity print run — chosen high because the
+ * `agy` binary uses per-turn spawn and its own long-form reasoning routinely
+ * runs many minutes on heavy inputs; 30m is the ceiling we're comfortable
+ * letting a single turn hold before we assume it's wedged.
+ */
 const ANTIGRAVITY_PRINT_TIMEOUT = "30m";
 
 export function buildAntigravityArgs(ctx: LaunchContext): string[] {
   const args = ["--print", "--print-timeout", ANTIGRAVITY_PRINT_TIMEOUT, "--dangerously-skip-permissions"];
+  // `agy` has no by-id resume — the only resume flag is `--continue`, which
+  // follows the most recent session in cwd. We compensate by stashing
+  // `ctx.config.sessionId` in `this.sessionId` so the daemon still records the
+  // logical id, but the CLI itself will re-attach to whatever ran last.
+  // Reflected in `capabilities.sessionResumeMode = "most-recent"`.
   if (ctx.config.sessionId) args.push("--continue");
   return args;
 }
@@ -40,6 +52,14 @@ export class AntigravityDriver implements Driver {
   readonly supportsStdinNotification = false;
   readonly busyDeliveryMode = "none" as const;
 
+  readonly capabilities = {
+    reasoningEffort: false,
+    fastMode: false,
+    disallowedTools: false,
+    command: true,
+    sessionResumeMode: "most-recent",
+  } as const;
+
   private sessionId: string | null = null;
   private sentInit = false;
 
@@ -51,7 +71,6 @@ export class AntigravityDriver implements Driver {
     this.sessionId = ctx.config.sessionId ?? randomUUID();
     this.sentInit = false;
     const { spawnEnv } = await prepareCliTransport(ctx, {
-      NO_COLOR: "1",
       // Antigravity is sensitive to inherited SSH context — clear it.
       SSH_CLIENT: "",
       SSH_CONNECTION: "",
@@ -59,13 +78,14 @@ export class AntigravityDriver implements Driver {
     });
     // Cross-platform spawn: on Windows the agy entry is often a `.cmd`
     // shim, which `child_process.spawn` can't exec without a shell.
-    const spec = resolveSpawnSpec("agy", buildAntigravityArgs(ctx));
+    const override = resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig).command;
+    const spec = resolveSpawnSpec("agy", buildAntigravityArgs(ctx), override);
     const proc = spawnAgentProcess(spec.command, spec.args, {
       cwd: ctx.workingDirectory,
       env: spawnEnv,
       shell: spec.shell,
     });
-    proc.stdin?.end(ctx.prompt);
+    writeToStdinAndDetach(proc, ctx.prompt);
     return { process: proc };
   }
 
@@ -91,6 +111,6 @@ export class AntigravityDriver implements Driver {
   }
 
   buildSystemPrompt(config: LaunchConfig): string {
-    return buildCliTransportSystemPrompt(config, { lifecycleKind: this.lifecycle.kind });
+    return buildCliTransportSystemPrompt(config);
   }
 }

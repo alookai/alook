@@ -12,7 +12,7 @@
 import { EventEmitter } from "events";
 import type { ChildProcess } from "child_process";
 import type { Driver, LaunchContext, StdinMode } from "../types.js";
-import { killProcessTree } from "./killTree.js";
+import { killProcessTree, SESSION_STOP_GRACE_MS } from "./killTree.js";
 
 /**
  * A flattened, daemon-facing description of how a runtime behaves, derived
@@ -136,7 +136,7 @@ export class ChildProcessRuntimeSession {
     this.requestedStopReason = opts?.reason;
     const pid = proc.pid;
     if (pid) {
-      await killProcessTree(pid, { graceMs: opts?.forceAfterMs ?? 2000 });
+      await killProcessTree(pid, { graceMs: opts?.forceAfterMs ?? SESSION_STOP_GRACE_MS });
     } else {
       proc.kill(opts?.signal ?? "SIGTERM");
     }

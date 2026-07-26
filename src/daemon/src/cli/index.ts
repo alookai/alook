@@ -600,9 +600,9 @@ function buildProgram(): Command {
     .option("--base-dir <path>", "data directory (or ALOOK_DATA_DIR env)")
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })
-    .action(function (this: Command) {
+    .action(async function (this: Command) {
       const localOpts = this.opts();
-      daemonStop({
+      await daemonStop({
         machineKey: localOpts.machineKey as string,
         baseDir: localOpts.baseDir as string | undefined,
       });

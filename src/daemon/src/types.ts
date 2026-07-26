@@ -1,5 +1,5 @@
 /**
- * Core types for the agent-backend ("driver") layer.
+ * Core types for the daemon's driver layer.
  *
  * A *driver* adapts one AI coding runtime (Claude Code, Codex, Gemini, Kimi,
  * Pi, …) to a single uniform interface the daemon drives. The daemon never
@@ -85,6 +85,30 @@ export interface DriverModel {
  * - `none`: not supported (per-turn runtimes); the agent polls instead.
  */
 export type BusyDeliveryMode = "direct" | "gated" | "none";
+
+/**
+ * Declarative description of which `RuntimeConfig` fields a driver actually
+ * consumes at launch. Enables the platform to render accurate per-driver
+ * config surfaces and (in a follow-up) warn on ignored fields.
+ *
+ * `sessionResumeMode`:
+ *   - `by-id`: resume the specific `sessionId` the caller asked for.
+ *   - `most-recent`: driver has no by-id resume — falls back to the CLI's
+ *     "continue most recent" (see AntigravityDriver).
+ *   - `none`: no resume support at all.
+ *
+ * `model` is intentionally omitted here because every driver either uses the
+ * model field or explicitly suppresses it; the flag would be trivially true
+ * for all drivers except antigravity — a special case documented in comments
+ * on that driver's `capabilities` const.
+ */
+export interface DriverCapabilities {
+  readonly reasoningEffort: boolean;
+  readonly fastMode: boolean;
+  readonly disallowedTools: boolean;
+  readonly command: boolean;
+  readonly sessionResumeMode: "by-id" | "most-recent" | "none";
+}
 
 /* ------------------------------------------------------------------ */
 /* Normalized runtime events                                           */
@@ -266,6 +290,9 @@ export interface Driver {
   readonly busyDeliveryMode: BusyDeliveryMode;
   /** True if the runtime takes the standing prompt natively (vs. inline). */
   readonly supportsNativeStandingPrompt?: boolean;
+
+  /** Which `RuntimeConfig` fields this driver actually consumes at launch. */
+  readonly capabilities: DriverCapabilities;
 
   /** Per-turn runtimes only: terminate the process when the turn ends. */
   readonly terminateProcessOnTurnEnd?: boolean;

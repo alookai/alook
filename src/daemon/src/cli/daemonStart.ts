@@ -11,24 +11,28 @@ import * as crypto from "crypto";
 import * as os from "os";
 import { homedir } from "os";
 import { WebSocket } from "ws";
-import { createRequire } from "module";
 import { createDaemon } from "../daemon/createDaemon.js";
 import { getDriver } from "../drivers/index.js";
 import { resolveAlookCliPathWithFallback, detectRuntimes, type RuntimeInfo } from "../discovery.js";
 import { createLogger } from "../logger.js";
 import { UnknownRuntimeError } from "../manager/agentRouter.js";
-
-const requireFromHere = createRequire(import.meta.url);
-function readDaemonVersion(): string {
-  try {
-    const pkg = requireFromHere("../../package.json") as { version?: string };
-    return pkg.version ?? "";
-  } catch {
-    return "";
-  }
-}
+import { readDaemonVersion } from "../version.js";
 
 const CAPABILITIES = ["send", "read", "mentions", "tasks", "reactions", "server", "channels", "knowledge", "attach"];
+
+/**
+ * Grace window for a daemon to exit on SIGTERM before we escalate to SIGKILL.
+ * Must stay strictly above `SESSION_STOP_GRACE_MS` — the daemon's own SIGTERM
+ * handler awaits every agent session's kill (each with its own grace), so this
+ * window has to contain those.
+ */
+const STOP_GRACE_MS = 5000;
+/** How often `daemonStop` polls `isProcessAlive` while waiting on SIGTERM. */
+const POLL_MS = 100;
+/** How many hex chars of the machine-key SHA-256 make up the pidfile name. */
+const MACHINE_KEY_HASH_PREFIX_LEN = 12;
+/** How many chars of the pasted machine key `daemonList` shows as the "keyPrefix". */
+const MACHINE_KEY_DISPLAY_PREFIX_LEN = 20;
 
 function resolveDefaultBaseDir(): string {
   const root = process.env.ALOOK_PROJECT_ROOT || path.join(homedir(), ".alook");
@@ -44,7 +48,7 @@ const log = createLogger({ header: "@alook/daemon" });
 /* ------------------------------------------------------------------ */
 
 function keyHash(machineKey: string): string {
-  return crypto.createHash("sha256").update(machineKey).digest("hex").slice(0, 12);
+  return crypto.createHash("sha256").update(machineKey).digest("hex").slice(0, MACHINE_KEY_HASH_PREFIX_LEN);
 }
 
 function daemonsDir(baseDir: string): string {
@@ -132,7 +136,7 @@ export function daemonList(opts: DaemonListOpts): DaemonInfo[] {
     }
     results.push({
       keyHash: file.replace(".pid", ""),
-      keyPrefix: data.key.slice(0, 20) + "…",
+      keyPrefix: data.key.slice(0, MACHINE_KEY_DISPLAY_PREFIX_LEN) + "…",
       pid: data.pid,
       alive,
     });
@@ -150,7 +154,7 @@ export interface DaemonStopOpts {
   baseDir?: string;
 }
 
-export function daemonStop(opts: DaemonStopOpts): void {
+export async function daemonStop(opts: DaemonStopOpts): Promise<void> {
   const baseDir = opts.baseDir || process.env.ALOOK_DATA_DIR || DEFAULT_BASE_DIR;
   const pf = pidfilePath(baseDir, opts.machineKey);
   const data = readPidFile(pf);
@@ -168,14 +172,13 @@ export function daemonStop(opts: DaemonStopOpts): void {
   log.info(`sending SIGTERM to daemon (pid ${data.pid})…`);
   process.kill(data.pid, "SIGTERM");
 
-  const deadline = Date.now() + 5000;
+  const deadline = Date.now() + STOP_GRACE_MS;
   while (Date.now() < deadline && isProcessAlive(data.pid)) {
-    const start = Date.now();
-    while (Date.now() - start < 100) { /* spin */ }
+    await new Promise((r) => setTimeout(r, POLL_MS));
   }
 
   if (isProcessAlive(data.pid)) {
-    log.error(`daemon (pid ${data.pid}) did not exit in 5s — sending SIGKILL`);
+    log.error(`daemon (pid ${data.pid}) did not exit in ${STOP_GRACE_MS / 1000}s — sending SIGKILL`);
     process.kill(data.pid, "SIGKILL");
   } else {
     log.info("daemon stopped");
@@ -202,11 +205,6 @@ export interface DaemonStartOpts {
  */
 export function credentialFilePathByMachineId(baseDir: string, machineId: string): string {
   return path.join(daemonsDir(baseDir), `${machineId}.credential.json`);
-}
-
-/** Legacy accessor kept for the boot-time index scan; not used to write. */
-function credentialFilesDir(baseDir: string): string {
-  return daemonsDir(baseDir);
 }
 
 function readCredentialFile(filePath: string): { credential: string; machineId: string } | null {
@@ -238,7 +236,7 @@ function findExistingCredentialForBearer(
   baseDir: string,
   bearer: string
 ): { credential: string; machineId: string } | null {
-  const dir = credentialFilesDir(baseDir);
+  const dir = daemonsDir(baseDir);
   if (!fs.existsSync(dir)) return null;
   for (const file of fs.readdirSync(dir)) {
     if (!file.endsWith(".credential.json")) continue;
@@ -426,17 +424,13 @@ export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
 
   log.info(`daemon up — proxy at ${daemon.proxyUrl}, dialing ${wsUrl}`);
 
-  const readyTimer = setInterval(() => {
-    if (daemon.isOpen()) {
-      clearInterval(readyTimer);
-      log.info("control plane OPEN");
-    }
-  }, 200);
-  readyTimer.unref?.();
+  // Event-driven "control plane OPEN" — was previously a 200ms setInterval
+  // polling `daemon.isOpen()`. `onOpen` fires on every (re)connect including
+  // the first one, so we log on subsequent reconnects too.
+  daemon.onOpen(() => log.info("control plane OPEN"));
 
   const shutdown = async () => {
     log.info("shutting down…");
-    clearInterval(readyTimer);
     releaseLock(pf);
     await daemon.stop();
     process.exit(0);

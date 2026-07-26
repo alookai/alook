@@ -9,7 +9,7 @@ import { readFileSync } from "fs";
 import * as path from "path";
 import { pathToFileURL } from "url";
 import type { LaunchContext, SdkDriverDeps } from "../types.js";
-import { resolvePiSdkPackageDir } from "./pi.js";
+import { findPiSessionFile, resolvePiSdkPackageDir, resolvePiSessionDir } from "./pi.js";
 import { prepareCliTransport, DEFAULT_CLI_CONFIG } from "./cliTransport.js";
 
 const PI_SDK_PACKAGE_NAME = "@earendil-works/pi-coding-agent";
@@ -19,9 +19,21 @@ export interface PiSdkModule {
   AuthStorage: { create(authPath?: string): PiAuthStorage };
   ModelRegistry: { create(authStorage: PiAuthStorage, modelsPath?: string): PiModelRegistry };
   SessionManager: {
-    create(cwd: string): unknown;
-    continueRecent(cwd: string): unknown;
+    create(cwd: string, sessionDir?: string, options?: { id?: string }): unknown;
+    open(path: string, sessionDir?: string, cwdOverride?: string): unknown;
+    continueRecent(cwd: string, sessionDir?: string): unknown;
   };
+  /**
+   * The SDK's own path-substitution rule for `<sessionDir>` — mirrors
+   * `--${cwd.replace(/^[/\\]/,"").replace(/[/\\:]/g,"-")}--` in
+   * `session-manager.js`. Preferred when present, but NOT part of the vendor
+   * package's top-level exports (it lives in `core/session-manager.js`, which
+   * the barrel re-exports only `SessionManager` from) — hence optional, with
+   * `resolvePiSessionDir` falling back to `getAgentDir` + the same rule.
+   */
+  getDefaultSessionDir?(cwd: string, agentDir?: string): string;
+  /** Root of the SDK's own config dir (`~/.pi/agent`) — this one IS exported. */
+  getAgentDir?(): string;
   createBashToolDefinition(cwd: string, options?: PiBashToolOptions): unknown;
   createAgentSession(options: Record<string, unknown>): Promise<{ session: unknown; sessionId?: string }>;
 }
@@ -131,7 +143,25 @@ export function createPiSdkDriverDeps(ctx: LaunchContext, loadSdk: PiSdkLoader =
       const model = parsed ? modelRegistry.find(parsed.provider, parsed.id) : undefined;
 
       const cwd = opts.cwd as string;
-      const sessionManager = opts.sessionId ? sdk.SessionManager.continueRecent(cwd) : sdk.SessionManager.create(cwd);
+      // Three-branch session acquisition — see the plan's Designs section:
+      //   (i)  sessionId + matching rollout file → SessionManager.open(...)
+      //   (ii) sessionId + no matching file       → create(cwd, sessionDir, { id })
+      //   (iii) no sessionId                      → create(cwd) (fresh)
+      // We intentionally do NOT call continueRecent() for the no-id path —
+      // that would silently inherit whichever session ran last in this cwd,
+      // producing a real regression (wrong session on any workdir that has
+      // hosted more than one session).
+      const requestedSessionId = opts.sessionId as string | undefined;
+      let sessionManager: unknown;
+      if (requestedSessionId) {
+        const sessionDir = resolvePiSessionDir(sdk, cwd);
+        const existingFile = findPiSessionFile(sessionDir, requestedSessionId);
+        sessionManager = existingFile
+          ? sdk.SessionManager.open(existingFile, sessionDir, cwd)
+          : sdk.SessionManager.create(cwd, sessionDir, { id: requestedSessionId });
+      } else {
+        sessionManager = sdk.SessionManager.create(cwd);
+      }
 
       const spawnEnv = opts.spawnEnv as NodeJS.ProcessEnv;
       const bashTool = sdk.createBashToolDefinition(cwd, {

@@ -36,26 +36,48 @@ function baseCtx(overrides: Partial<LaunchContext> = {}): LaunchContext {
 }
 
 /** A fake SDK module — never touches the real @earendil-works/pi-coding-agent. */
-function fakeSdk(): {
+function fakeSdk(opts: {
+  sessionDir?: string;
+  sessionDirEntries?: string[];
+  /** Simulate the real vendor barrel, which does NOT export getDefaultSessionDir. */
+  omitGetDefaultSessionDir?: boolean;
+  agentDir?: string;
+} = {}): {
   loader: PiSdkLoader;
   setRuntimeApiKey: ReturnType<typeof vi.fn>;
   findModel: ReturnType<typeof vi.fn>;
   sessionManagerCreate: ReturnType<typeof vi.fn>;
+  sessionManagerOpen: ReturnType<typeof vi.fn>;
   sessionManagerContinueRecent: ReturnType<typeof vi.fn>;
+  getDefaultSessionDir: ReturnType<typeof vi.fn>;
   createBashToolDefinition: ReturnType<typeof vi.fn>;
   createAgentSession: ReturnType<typeof vi.fn>;
 } {
   const setRuntimeApiKey = vi.fn();
   const findModel = vi.fn().mockReturnValue({ provider: "google", id: "gemini-2.5-pro" });
   const sessionManagerCreate = vi.fn().mockReturnValue({ tag: "fresh" });
+  const sessionManagerOpen = vi.fn().mockReturnValue({ tag: "opened" });
   const sessionManagerContinueRecent = vi.fn().mockReturnValue({ tag: "continued" });
+  const sessionDir = opts.sessionDir ?? mkTmp();
+  if (opts.sessionDirEntries) {
+    for (const entry of opts.sessionDirEntries) {
+      fs.writeFileSync(path.join(sessionDir, entry), "");
+    }
+  }
+  const getDefaultSessionDir = vi.fn().mockReturnValue(sessionDir);
   const createBashToolDefinition = vi.fn().mockReturnValue({ name: "bash" });
   const createAgentSession = vi.fn().mockResolvedValue({ session: { sessionId: "sess-from-sdk" } });
 
   const sdk: PiSdkModule = {
     AuthStorage: { create: () => ({ setRuntimeApiKey }) },
     ModelRegistry: { create: () => ({ find: findModel }) },
-    SessionManager: { create: sessionManagerCreate, continueRecent: sessionManagerContinueRecent },
+    SessionManager: {
+      create: sessionManagerCreate,
+      open: sessionManagerOpen,
+      continueRecent: sessionManagerContinueRecent,
+    },
+    ...(opts.omitGetDefaultSessionDir ? {} : { getDefaultSessionDir }),
+    ...(opts.agentDir ? { getAgentDir: () => opts.agentDir! } : {}),
     createBashToolDefinition,
     createAgentSession,
   };
@@ -64,7 +86,9 @@ function fakeSdk(): {
     setRuntimeApiKey,
     findModel,
     sessionManagerCreate,
+    sessionManagerOpen,
     sessionManagerContinueRecent,
+    getDefaultSessionDir,
     createBashToolDefinition,
     createAgentSession,
   };
@@ -130,18 +154,59 @@ describe("createPiSdkDriverDeps — createAgentSession", () => {
     expect(fake.createAgentSession).toHaveBeenCalledWith(expect.objectContaining({ model: undefined }));
   });
 
-  it("uses SessionManager.continueRecent when a sessionId is provided", async () => {
-    const fake = fakeSdk();
+  it("resumes by id: sessionId + matching rollout file → SessionManager.open(file, sessionDir, cwd)", async () => {
+    const sessionDir = mkTmp();
+    const fake = fakeSdk({
+      sessionDir,
+      sessionDirEntries: ["2026-05-01_resume-me.jsonl", "2026-01-01_someone-else.jsonl"],
+    });
     const ctx = baseCtx();
     const deps = createPiSdkDriverDeps(ctx, fake.loader);
 
     await deps.createAgentSession({ cwd: ctx.workingDirectory, sessionId: "resume-me", spawnEnv: {} });
 
-    expect(fake.sessionManagerContinueRecent).toHaveBeenCalledWith(ctx.workingDirectory);
+    expect(fake.getDefaultSessionDir).toHaveBeenCalledWith(ctx.workingDirectory);
+    expect(fake.sessionManagerOpen).toHaveBeenCalledWith(
+      path.join(sessionDir, "2026-05-01_resume-me.jsonl"),
+      sessionDir,
+      ctx.workingDirectory,
+    );
     expect(fake.sessionManagerCreate).not.toHaveBeenCalled();
+    expect(fake.sessionManagerContinueRecent).not.toHaveBeenCalled();
   });
 
-  it("uses SessionManager.create for a fresh session when no sessionId is provided", async () => {
+  it("no matching file: sessionId + empty session dir → create(cwd, sessionDir, { id })", async () => {
+    const sessionDir = mkTmp();
+    const fake = fakeSdk({ sessionDir });
+    const ctx = baseCtx();
+    const deps = createPiSdkDriverDeps(ctx, fake.loader);
+
+    await deps.createAgentSession({ cwd: ctx.workingDirectory, sessionId: "brand-new-id", spawnEnv: {} });
+
+    expect(fake.sessionManagerCreate).toHaveBeenCalledWith(ctx.workingDirectory, sessionDir, { id: "brand-new-id" });
+    expect(fake.sessionManagerOpen).not.toHaveBeenCalled();
+    expect(fake.sessionManagerContinueRecent).not.toHaveBeenCalled();
+  });
+
+  it("resumes without throwing when the SDK barrel omits getDefaultSessionDir (the real vendor shape)", async () => {
+    // The vendor package's top-level entry re-exports only `SessionManager`
+    // from core/session-manager.js — `getDefaultSessionDir` is NOT exported.
+    // Calling it unconditionally threw "is not a function" and broke every
+    // Pi resume, so the deps must fall back to deriving the dir themselves.
+    const agentDir = mkTmp();
+    const fake = fakeSdk({ omitGetDefaultSessionDir: true, agentDir });
+    const ctx = baseCtx();
+    const deps = createPiSdkDriverDeps(ctx, fake.loader);
+
+    await deps.createAgentSession({ cwd: ctx.workingDirectory, sessionId: "resume-me", spawnEnv: {} });
+
+    const encoded = `--${path.resolve(ctx.workingDirectory).replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
+    const expectedDir = path.join(agentDir, "sessions", encoded);
+    // No rollout file exists there, so it pins the id on a fresh session.
+    expect(fake.sessionManagerCreate).toHaveBeenCalledWith(ctx.workingDirectory, expectedDir, { id: "resume-me" });
+  });
+
+  it("no sessionId: uses SessionManager.create(cwd) — a fresh session, unchanged from prior behavior", async () => {
     const fake = fakeSdk();
     const ctx = baseCtx();
     const deps = createPiSdkDriverDeps(ctx, fake.loader);
@@ -149,6 +214,7 @@ describe("createPiSdkDriverDeps — createAgentSession", () => {
     await deps.createAgentSession({ cwd: ctx.workingDirectory, spawnEnv: {} });
 
     expect(fake.sessionManagerCreate).toHaveBeenCalledWith(ctx.workingDirectory);
+    expect(fake.sessionManagerOpen).not.toHaveBeenCalled();
     expect(fake.sessionManagerContinueRecent).not.toHaveBeenCalled();
   });
 

@@ -6,17 +6,6 @@ import type { LaunchConfig } from "../types.js";
 
 const CLI = "alook";
 
-export interface SystemPromptOpts {
-  /**
-   * Drives the auto-generated `## Message notifications` section: whether
-   * this runtime's process stays alive across turns (`"persistent"`) or
-   * handles exactly one turn and exits (`"per_turn"`). Pass
-   * `driver.lifecycle.kind` directly — do not hand-write reminder text per
-   * driver.
-   */
-  lifecycleKind: "persistent" | "per_turn";
-}
-
 /* ------------------------------------------------------------------ */
 /* Section builders                                                     */
 /* ------------------------------------------------------------------ */
@@ -401,17 +390,6 @@ function workspaceMemorySection(): string {
   ].join("\n");
 }
 
-/**
- * The ONE place that decides what an agent needs to know about message
- * delivery, derived entirely from `lifecycleKind` — no driver hand-types this.
- *
- * - `persistent`: the process stays alive across turns, so busy-time inbox
- *   notices can arrive mid-turn; the agent pulls bodies at a natural
- *   breakpoint instead of blocking.
- * - `per_turn`: the process handles exactly one turn and exits; there is
- *   nothing to poll for mid-turn — finish the current wake, then stop, and
- *   the host spawns a fresh process for the next message.
- */
 /* ------------------------------------------------------------------ */
 /* Main builder                                                        */
 /* ------------------------------------------------------------------ */
@@ -422,12 +400,11 @@ function workspaceMemorySection(): string {
  * Asserts what's universally true for any Alook agent workspace — identity,
  * CLI command reference, messaging mechanics, critical rules, startup
  * sequence, communication style, channel awareness, workspace/memory model,
- * and notification handling. The only per-driver input is `lifecycleKind`.
+ * and utilities. Uniform across drivers — the returned string does not
+ * depend on which runtime is about to be spawned (see
+ * `systemPrompt.test.ts`).
  */
-export function buildCliSystemPrompt(
-  config: LaunchConfig,
-  _opts: SystemPromptOpts,
-): string {
+export function buildCliSystemPrompt(config: LaunchConfig): string {
   const sections: string[] = [
     identitySection(config),
     cliCommandsSection(),

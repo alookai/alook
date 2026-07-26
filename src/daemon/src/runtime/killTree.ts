@@ -18,7 +18,22 @@
 import { spawn, type ChildProcess } from "child_process";
 
 const POLL_MS = 100;
-const DEFAULT_GRACE_MS = 2000;
+/**
+ * Standard grace before SIGKILL when the manager stops a running session.
+ * Every session-level stop path (`ManagedSession.stop`, `SdkManagedSession.stop`,
+ * `ChildProcessRuntimeSession.stop`'s fallback) shares this so the "how long
+ * before we kill it hard" answer is one number, not three drifting ones.
+ *
+ * MUST stay strictly below `daemonStart.ts`'s `STOP_GRACE_MS` (the window
+ * `alook daemon stop` gives the DAEMON before SIGKILLing it). The daemon's
+ * SIGTERM handler awaits `manager.stopAll()`, which awaits these per-session
+ * kills — so if the two windows were equal, an agent CLI that ignores SIGTERM
+ * would still be inside its own grace when the outer SIGKILL lands, killing
+ * the daemon before it ever escalates to SIGKILL on the child. The child is
+ * detached (its own process group), so it would survive as an orphan.
+ */
+export const SESSION_STOP_GRACE_MS = 2000;
+const DEFAULT_GRACE_MS = SESSION_STOP_GRACE_MS;
 const isPosix = process.platform !== "win32";
 
 export interface AgentSpawnOptions {

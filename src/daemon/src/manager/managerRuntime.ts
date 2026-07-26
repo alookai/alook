@@ -23,7 +23,9 @@ import {
 import type { Driver, LaunchContext, SdkDriverDeps } from "../types.js";
 import type { RuntimeConfig } from "../runtimeConfig.js";
 import { createChildProcessRuntimeSession, type ChildProcessRuntimeSession } from "../runtime/runtimeSession.js";
+import { SESSION_STOP_GRACE_MS } from "../runtime/killTree.js";
 import { SdkManagedSession } from "../runtime/sdkManagedSession.js";
+import { DEFAULT_CLI_CONFIG } from "../drivers/cliTransport.js";
 import { createLogger, type Logger } from "../logger.js";
 import { nowLocalISO } from "../util/localTime.js";
 
@@ -208,6 +210,9 @@ export interface TimelineRecorder {
 /** Max UTF-8 byte budget for `thinking` text in the audit log. */
 const THINKING_MAX_BYTES = 4096;
 
+/** Max length of a runtime-stderr line the daemon logs verbatim (with an ellipsis when cut). */
+const STDERR_LOG_MAX_LEN = 2000;
+
 /**
  * Max UTF-16 code units for a tool_call's `target` field. The wire schema
  * caps `target` at 240 (see `AuditLogToolCallPayloadSchema`) and Zod's
@@ -370,9 +375,11 @@ function pickFallthroughTarget(input: unknown): string | undefined {
  * echo, `bash -lc "alook …"` — the outer shell is real work) is user
  * intent and must surface.
  */
+const ALOOK_SHELL_INVOCATION_RE = new RegExp(`^${DEFAULT_CLI_CONFIG.cliName}(\\s|$)`);
+
 export function isAlookShellInvocation(command: string | undefined): boolean {
   if (!command) return false;
-  return /^alook(\s|$)/.test(command.trimStart());
+  return ALOOK_SHELL_INVOCATION_RE.test(command.trimStart());
 }
 
 /**
@@ -667,7 +674,7 @@ export class AgentProcessManager {
   async stop(agentId: string): Promise<void> {
     const session = this.sessions.get(agentId);
     if (!session) return;
-    await Promise.resolve(session.stop({ reason: "requested", forceAfterMs: 5_000 }));
+    await Promise.resolve(session.stop({ reason: "requested", forceAfterMs: SESSION_STOP_GRACE_MS }));
     this.sessions.delete(agentId);
   }
 
@@ -676,7 +683,11 @@ export class AgentProcessManager {
       clearInterval(this.tickTimer);
       this.tickTimer = null;
     }
-    await Promise.all([...this.sessions.values()].map((s) => Promise.resolve(s.stop({ reason: "shutdown" }))));
+    await Promise.all(
+      [...this.sessions.values()].map((s) =>
+        Promise.resolve(s.stop({ reason: "shutdown", forceAfterMs: SESSION_STOP_GRACE_MS })),
+      ),
+    );
     this.sessions.clear();
   }
 
@@ -788,7 +799,7 @@ export class AgentProcessManager {
       case "stop":
       case "terminate_stalled": {
         const session = this.sessions.get(effect.agentId);
-        void Promise.resolve(session?.stop({ reason: effect.type, forceAfterMs: 5_000 }));
+        void Promise.resolve(session?.stop({ reason: effect.type, forceAfterMs: SESSION_STOP_GRACE_MS }));
         // The stop we just issued will make the underlying process emit its
         // own `exit` shortly after — suppress that follow-up log so a single
         // termination doesn't produce two contradictory "session ended" lines.
@@ -933,7 +944,7 @@ export class AgentProcessManager {
     // the next incident is diagnosable.
     session.on("stderr", (...args: unknown[]) => {
       const raw = typeof args[0] === "string" ? args[0] : String(args[0] ?? "");
-      const text = raw.length > 2000 ? raw.slice(0, 2000) + "…" : raw;
+      const text = raw.length > STDERR_LOG_MAX_LEN ? raw.slice(0, STDERR_LOG_MAX_LEN) + "…" : raw;
       this.log.warn("runtime stderr", { agentId, runtime: driver.id, text });
     });
     // Child-process `error` (ENOENT etc.) — Node EE emits this before or in
@@ -1016,7 +1027,11 @@ export class AgentProcessManager {
         sessionId: this.liveSessions.get(agentId) ?? null,
         launchId: this.launchIds.get(agentId) ?? null,
       });
-    } catch { /* observational */ }
+    } catch (err) {
+      // Observational path (audit emit) — never re-throw, but leave a trail so
+      // a silent failure isn't invisible if the emitter starts throwing.
+      this.log.debug("audit emit failed (thinking)", { agentId, err: String(err) });
+    }
   }
 
   private onRuntimeEvent(agentId: string, e: unknown, runtimeId: string): void {
@@ -1054,7 +1069,9 @@ export class AgentProcessManager {
                 sessionId: this.liveSessions.get(agentId) ?? null,
                 launchId: this.launchIds.get(agentId) ?? null,
               });
-            } catch { /* observational */ }
+            } catch (err) {
+              this.log.debug("audit emit failed (tool_call)", { agentId, err: String(err) });
+            }
           }
         }
       }

@@ -11,6 +11,27 @@
  */
 import { createHash } from "crypto";
 
+/** Excerpt cap for the runtime-error diagnostic envelope's `runtime_error_message_excerpt`. */
+const ERROR_EXCERPT_MAX_BYTES = 4000;
+/** How many hex chars of the scrubbed-message SHA-256 form the `runtime_error_fingerprint`. */
+const ERROR_FINGERPRINT_LEN = 16;
+
+/**
+ * Buckets for the `runtime_error_message_length_bucket` telemetry dimension.
+ * Label and threshold live in the SAME entry on purpose: they must never drift
+ * apart (a bucket whose label says "1k-4k" while its boundary moved to 8k
+ * silently corrupts every dashboard built on this dimension). Deliberately
+ * NOT derived from `ERROR_EXCERPT_MAX_BYTES` — the excerpt cap is a payload
+ * budget and these are analytics boundaries; coupling them means tuning one
+ * silently relabels the other.
+ */
+const ERROR_LEN_BUCKETS: readonly { readonly under: number; readonly label: string }[] = [
+  { under: 1000, label: "<1k" },
+  { under: 4000, label: "1k-4k" },
+  { under: 16000, label: "4k-16k" },
+];
+const ERROR_LEN_OVERFLOW_LABEL = "16k+";
+
 export type RuntimeErrorClass =
   | "RateLimitError"
   | "AuthError"
@@ -123,10 +144,10 @@ export function scrubRuntimeErrorDiagnosticText(value: string): string {
 
 function messageLengthBucket(len: number): string {
   if (len === 0) return "0";
-  if (len < 1000) return "<1k";
-  if (len < 4000) return "1k-4k";
-  if (len < 16000) return "4k-16k";
-  return "16k+";
+  for (const bucket of ERROR_LEN_BUCKETS) {
+    if (len < bucket.under) return bucket.label;
+  }
+  return ERROR_LEN_OVERFLOW_LABEL;
 }
 
 export interface RuntimeErrorDiagnosticEnvelope {
@@ -139,7 +160,7 @@ export function buildRuntimeErrorDiagnosticEnvelope(message: string): RuntimeErr
   const runtimeErrorClass = classifyRuntimeError(message, httpStatus);
   const runtimeErrorAction = classifyRuntimeErrorAction(message, runtimeErrorClass);
   const scrubbed = scrubRuntimeErrorDiagnosticText(message);
-  const fingerprint = createHash("sha256").update(scrubbed).digest("hex").slice(0, 16);
+  const fingerprint = createHash("sha256").update(scrubbed).digest("hex").slice(0, ERROR_FINGERPRINT_LEN);
 
   const spanAttrs: Record<string, unknown> = {
     turn_outcome: "failed",
@@ -151,12 +172,12 @@ export function buildRuntimeErrorDiagnosticEnvelope(message: string): RuntimeErr
     runtime_error_fingerprint: fingerprint,
     runtime_error_message_present: message.length > 0,
     runtime_error_message_length_bucket: messageLengthBucket(message.length),
-    runtime_error_message_truncated: scrubbed.length > 4000,
+    runtime_error_message_truncated: scrubbed.length > ERROR_EXCERPT_MAX_BYTES,
   };
   if (httpStatus !== null) spanAttrs.runtime_error_http_status = httpStatus;
 
   return {
     spanAttrs,
-    eventAttrs: { ...spanAttrs, runtime_error_message_excerpt: scrubbed.slice(0, 4000) },
+    eventAttrs: { ...spanAttrs, runtime_error_message_excerpt: scrubbed.slice(0, ERROR_EXCERPT_MAX_BYTES) },
   };
 }

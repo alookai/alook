@@ -7,10 +7,11 @@
  * JSONL; a custom bash tool is injected so shell calls inherit the CLI-transport
  * env. Steering is `direct` (guarded by `session.isStreaming`).
  *
- * The standing prompt is delivered via `AGENTS.md` written directly into the
- * workdir (Pi never calls `prepareCliTransport`, so it can't get the file for
- * free the way child-process drivers do — it writes it itself, same file,
- * same convention).
+ * The standing prompt is delivered via `AGENTS.md` written into the workdir
+ * by `prepareCliTransport` inside `piSdkDeps.buildSpawnEnv` — Pi is unusual in
+ * that it has no child process of its own, but its bash tool still goes
+ * through the same transport, so the AGENTS.md packing happens exactly once
+ * (in `buildSpawnEnv`) and this file doesn't need to re-write it.
  *
  * `createSession` only builds and wires the session — it does not send the
  * first turn. `SdkManagedSession` (the `ManagedSession` adapter that drives
@@ -19,11 +20,11 @@
  * fires into an unlistened `EventEmitter` and gets dropped.
  */
 import { createRequire } from "module";
-import { mkdirSync, existsSync, readFileSync, realpathSync } from "fs";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "fs";
+import { homedir } from "os";
 import * as path from "path";
 import type { Driver, LaunchConfig, LaunchContext, ParsedEvent, SdkDriverDeps, SpawnResult } from "../types.js";
 import { buildCliTransportSystemPrompt } from "./cliTransport.js";
-import { writeAgentFile } from "./agentFile.js";
 import { SdkRuntimeSession, type SdkSessionHandle } from "../runtime/sdkRuntimeSession.js";
 import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
 import { resolveCommandOnPath, type ProbeDeps } from "./probe.js";
@@ -86,6 +87,11 @@ export function resolvePiSdkPackageDir(deps: ProbeDeps = {}): string | undefined
 
   try {
     let dir = path.dirname(realpathSync(binPath));
+    // 8 levels is enough to cover every layout we've seen: npm/pnpm globals
+    // resolve within 2-4 hops, nvm adds ~1, Homebrew Cellar adds ~2, and
+    // Windows `.cmd` shims sit alongside a sibling `node_modules` at the same
+    // root (0 hops upward, checked as the second shape below). Higher would
+    // wander into unrelated ancestor trees; lower would miss nvm-under-brew.
     const MAX_DEPTH = 8;
     for (let i = 0; i < MAX_DEPTH; i++) {
       if (isPiSdkPackageJson(path.join(dir, "package.json"))) return dir;
@@ -101,6 +107,54 @@ export function resolvePiSdkPackageDir(deps: ProbeDeps = {}): string | undefined
     // Broken symlink, permission error, etc. — treat as not found.
   }
   return undefined;
+}
+
+/**
+ * Locate the Pi SDK session-rollout file for `sessionId` in `sessionDir`.
+ *
+ * Pi persists each session as `<isoDate>_<sessionId>.jsonl` inside its session
+ * directory (`--<encoded-cwd>--`). To resume a specific session we need the
+ * actual file path — not just the id — because `SessionManager.open` takes a
+ * path. Returns null if the directory is unreadable or no matching file exists
+ * (the caller falls back to `create` in that case).
+ *
+ * Pure enough to unit-test without touching the SDK: read a directory, filter
+ * by suffix, return the first match.
+ */
+export function findPiSessionFile(sessionDir: string, sessionId: string): string | null {
+  let entries: string[];
+  try {
+    entries = readdirSync(sessionDir);
+  } catch {
+    return null;
+  }
+  const suffix = `_${sessionId}.jsonl`;
+  const match = entries.find((entry) => entry.endsWith(suffix));
+  return match ? path.join(sessionDir, match) : null;
+}
+
+/**
+ * Resolve the Pi SDK's session directory for `cwd`.
+ *
+ * Prefers the SDK's own `getDefaultSessionDir` when the loaded module actually
+ * exposes it. It is NOT part of the vendor package's top-level exports (the
+ * barrel re-exports only `SessionManager` from `core/session-manager.js`), so
+ * calling it unconditionally throws `sdk.getDefaultSessionDir is not a
+ * function` and takes down every Pi resume. When it's absent we reproduce the
+ * SDK's own rule (`core/session-manager.js`): `<agentDir>/sessions/--<cwd with
+ * the leading separator stripped and remaining separators/colons turned into
+ * dashes>--`, rooted at the exported `getAgentDir()` (or `~/.pi/agent`).
+ */
+export function resolvePiSessionDir(
+  sdk: { getDefaultSessionDir?: (cwd: string) => string; getAgentDir?: () => string },
+  cwd: string,
+): string {
+  if (typeof sdk.getDefaultSessionDir === "function") return sdk.getDefaultSessionDir(cwd);
+  const agentDir = typeof sdk.getAgentDir === "function"
+    ? sdk.getAgentDir()
+    : path.join(homedir(), ".pi", "agent");
+  const encoded = `--${path.resolve(cwd).replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
+  return path.join(agentDir, "sessions", encoded);
 }
 
 /** Read just the version out of the package.json `resolvePiSdkPackageDir` finds. */
@@ -190,6 +244,14 @@ export class PiDriver implements Driver {
   readonly busyDeliveryMode = "direct" as const;
   readonly supportsNativeStandingPrompt = true;
 
+  readonly capabilities = {
+    reasoningEffort: true,
+    fastMode: false,
+    disallowedTools: false,
+    command: true,
+    sessionResumeMode: "by-id",
+  } as const;
+
   private sessionId: string | null = null;
 
   probe() {
@@ -221,15 +283,6 @@ export class PiDriver implements Driver {
    */
   async createSession(ctx: LaunchContext, deps: SdkDriverDeps): Promise<SdkRuntimeSession> {
     const spawnEnv = await deps.buildSpawnEnv();
-    // Pi has no child process, so it never goes through prepareCliTransport —
-    // write AGENTS.md here directly (same unified packing every other driver
-    // gets); Pi's SDK auto-reads it from cwd, same as the CLI drivers. Unlike
-    // prepareCliTransport (which creates the workdir via its stateDir mkdir),
-    // nothing guarantees ctx.workingDirectory exists yet, so create it first.
-    if (ctx.standingPrompt) {
-      mkdirSync(ctx.workingDirectory, { recursive: true });
-      writeAgentFile(ctx.workingDirectory, ctx.standingPrompt);
-    }
     const f = resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig);
     const { session, sessionId } = (await deps.createAgentSession({
       cwd: ctx.workingDirectory,
@@ -276,6 +329,6 @@ export class PiDriver implements Driver {
   }
 
   buildSystemPrompt(config: LaunchConfig): string {
-    return buildCliTransportSystemPrompt(config, { lifecycleKind: this.lifecycle.kind });
+    return buildCliTransportSystemPrompt(config);
   }
 }

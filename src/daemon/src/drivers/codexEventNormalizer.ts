@@ -13,6 +13,7 @@
  */
 import type { ParsedEvent } from "../types.js";
 import { mapCodexTelemetry } from "./codexTelemetrySidecar.js";
+import { tryParseJsonLine } from "./utils.js";
 
 export class CodexEventNormalizer {
   private threadId: string | null = null;
@@ -26,12 +27,8 @@ export class CodexEventNormalizer {
   }
 
   normalizeLine(line: string): ParsedEvent[] {
-    let msg: any;
-    try {
-      msg = JSON.parse(line);
-    } catch {
-      return [];
-    }
+    const msg = tryParseJsonLine(line) as any;
+    if (!msg) return [];
 
     // JSON-RPC error response.
     if (msg?.error && msg.id !== undefined) {

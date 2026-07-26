@@ -19,9 +19,7 @@ const mockConfig: LaunchConfig = {
 const outDir = join(tmpdir(), "alook-sysprompt");
 mkdirSync(outDir, { recursive: true });
 
-for (const lifecycleKind of ["persistent", "per_turn"] as const) {
-  const prompt = buildCliSystemPrompt(mockConfig, { lifecycleKind });
-  const file = join(outDir, `system-prompt.${lifecycleKind}.md`);
-  writeFileSync(file, prompt, "utf8");
-  console.log(`${lifecycleKind.padEnd(10)} → ${file}`);
-}
+const prompt = buildCliSystemPrompt(mockConfig);
+const file = join(outDir, "system-prompt.md");
+writeFileSync(file, prompt, "utf8");
+console.log(`system-prompt → ${file}`);

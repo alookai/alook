@@ -13,6 +13,11 @@ import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTranspo
 import { probeCliRuntime, resolveSpawnSpec } from "./probe.js";
 import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
 import { spawnAgentProcess } from "../runtime/killTree.js";
+import { jsonRpcRequest, tryParseJsonLine } from "./utils.js";
+import { getDaemonClientInfo } from "../version.js";
+
+/** Kimi `--wire` handshake protocol version. Bump when the vendor CLI does. */
+export const KIMI_WIRE_PROTOCOL_VERSION = "1.3";
 
 function parseToolArguments(args: unknown): unknown {
   if (typeof args !== "string") return args ?? {};
@@ -35,6 +40,17 @@ export class KimiDriver implements Driver {
   readonly supportsStdinNotification = true;
   readonly busyDeliveryMode = "direct" as const;
 
+  readonly capabilities = {
+    reasoningEffort: false,
+    fastMode: false,
+    disallowedTools: false,
+    command: true,
+    sessionResumeMode: "by-id",
+  } as const;
+
+  // Kimi's `--wire` handshake requires the client to supply the session id up
+  // front (there's no "server picks the id" path). We accept the caller's id
+  // when resuming and mint a fresh UUID otherwise; the id is the resume key.
   private sessionId = "";
   private sentInit = false;
   private promptRequestId = randomUUID();
@@ -49,7 +65,7 @@ export class KimiDriver implements Driver {
     // The standing prompt reaches Kimi via the AGENTS.md that prepareCliTransport
     // writes into the workdir (unified packing — see cliTransport.ts) — Kimi
     // auto-reads it from cwd, no --agent-file flag needed.
-    const { spawnEnv } = await prepareCliTransport(ctx, { NO_COLOR: "1" });
+    const { spawnEnv } = await prepareCliTransport(ctx);
 
     const f = resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig);
     const args = ["--wire", "--yolo", "--session", this.sessionId];
@@ -57,7 +73,7 @@ export class KimiDriver implements Driver {
 
     // Cross-platform spawn: on Windows the kimi entry is often a `.cmd`
     // shim, which `child_process.spawn` can't exec without a shell.
-    const spec = resolveSpawnSpec("kimi", args);
+    const spec = resolveSpawnSpec("kimi", args, f.command);
     const proc = spawnAgentProcess(spec.command, spec.args, {
       cwd: ctx.workingDirectory,
       env: spawnEnv,
@@ -65,40 +81,30 @@ export class KimiDriver implements Driver {
     });
 
     proc.stdin?.write(
-      JSON.stringify({
-        jsonrpc: "2.0",
-        id: randomUUID(),
-        method: "initialize",
-        params: {
-          protocol_version: "1.3",
-          client: { name: "agent-backend", version: "1.0.0" },
-          capabilities: { supports_question: false, supports_plan_mode: false },
-        },
+      jsonRpcRequest("initialize", {
+        protocol_version: KIMI_WIRE_PROTOCOL_VERSION,
+        client: getDaemonClientInfo(),
+        capabilities: { supports_question: false, supports_plan_mode: false },
       }) + "\n",
     );
     proc.stdin?.write(
-      JSON.stringify({
-        jsonrpc: "2.0",
-        id: this.promptRequestId,
-        method: "prompt",
-        params: {
+      jsonRpcRequest(
+        "prompt",
+        {
           user_input: isResume
             ? ctx.prompt
             : "Your system prompt contains your standing instructions. Follow it now and begin listening for messages.",
         },
-      }) + "\n",
+        this.promptRequestId,
+      ) + "\n",
     );
 
     return { process: proc };
   }
 
   parseLine(line: string): ParsedEvent[] {
-    let msg: any;
-    try {
-      msg = JSON.parse(line);
-    } catch {
-      return [];
-    }
+    const msg = tryParseJsonLine(line) as any;
+    if (!msg) return [];
     const out: ParsedEvent[] = [];
     if (!this.sentInit) {
       this.sentInit = true;
@@ -152,10 +158,10 @@ export class KimiDriver implements Driver {
   /** idle → `prompt`; busy → `steer`. */
   encodeStdinMessage(text: string, _sessionId: string | null, opts?: EncodeOpts): string | null {
     const method = opts?.mode === "idle" ? "prompt" : "steer";
-    return JSON.stringify({ jsonrpc: "2.0", id: randomUUID(), method, params: { user_input: text } });
+    return jsonRpcRequest(method, { user_input: text });
   }
 
   buildSystemPrompt(config: LaunchConfig): string {
-    return buildCliTransportSystemPrompt(config, { lifecycleKind: this.lifecycle.kind });
+    return buildCliTransportSystemPrompt(config);
   }
 }

@@ -13,6 +13,7 @@ import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTranspo
 import { probeCliRuntime, resolveSpawnSpec } from "./probe.js";
 import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
 import { spawnAgentProcess } from "../runtime/killTree.js";
+import { tryParseJsonLine } from "./utils.js";
 
 export class OpenCodeDriver implements Driver {
   readonly id = "opencode";
@@ -33,6 +34,14 @@ export class OpenCodeDriver implements Driver {
   readonly terminateProcessOnTurnEnd = true;
   readonly deferSpawnUntilMessage = true;
 
+  readonly capabilities = {
+    reasoningEffort: false,
+    fastMode: false,
+    disallowedTools: false,
+    command: true,
+    sessionResumeMode: "by-id",
+  } as const;
+
   private sessionId: string | null = null;
 
   /** System task wakes (first-message bookkeeping) should not spawn a process. */
@@ -49,7 +58,7 @@ export class OpenCodeDriver implements Driver {
     const f = resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig);
     // prepareCliTransport writes AGENTS.md into the workdir (unified packing) —
     // OpenCode auto-reads it from cwd, no custom `host` agent config needed.
-    const { spawnEnv } = await prepareCliTransport(ctx, { NO_COLOR: "1" });
+    const { spawnEnv } = await prepareCliTransport(ctx);
 
     const args = ["run", "--format", "json", "--dangerously-skip-permissions", "--pure", "--dir", ctx.workingDirectory];
     if (f.model) args.push("--model", f.model);
@@ -59,7 +68,7 @@ export class OpenCodeDriver implements Driver {
 
     // Cross-platform spawn: on Windows the opencode entry is often a `.cmd`
     // shim, which `child_process.spawn` can't exec without a shell.
-    const spec = resolveSpawnSpec("opencode", args);
+    const spec = resolveSpawnSpec("opencode", args, f.command);
     const proc = spawnAgentProcess(spec.command, spec.args, {
       cwd: ctx.workingDirectory,
       env: spawnEnv,
@@ -70,12 +79,8 @@ export class OpenCodeDriver implements Driver {
   }
 
   parseLine(line: string): ParsedEvent[] {
-    let event: any;
-    try {
-      event = JSON.parse(line);
-    } catch {
-      return [];
-    }
+    const event = tryParseJsonLine(line) as any;
+    if (!event) return [];
     const out: ParsedEvent[] = [];
     if (event?.sessionID && this.sessionId !== event.sessionID) {
       this.sessionId = event.sessionID;
@@ -119,6 +124,6 @@ export class OpenCodeDriver implements Driver {
   }
 
   buildSystemPrompt(config: LaunchConfig): string {
-    return buildCliTransportSystemPrompt(config, { lifecycleKind: this.lifecycle.kind });
+    return buildCliTransportSystemPrompt(config);
   }
 }

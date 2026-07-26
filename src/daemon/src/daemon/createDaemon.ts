@@ -148,6 +148,18 @@ export interface CreateDaemonOptions {
 export interface RunningDaemon {
   /** True once the control plane is open (machine key accepted). */
   isOpen(): boolean;
+  /**
+   * Register a hook fired after every (re)connect once the resync completes —
+   * including the first open. Delegates to `channel.onOpen` (see
+   * `WsControlChannel.onOpen`). Lets callers switch off event-driven signals
+   * instead of polling `isOpen()`.
+   *
+   * The channel is already connecting by the time a caller can reach this, so
+   * if the socket is ALREADY open at registration time the hook also fires
+   * once immediately — otherwise a hook registered a tick too late would never
+   * run for the connection it was meant to observe.
+   */
+  onOpen(hook: () => void): void;
   proxyUrl: string;
   stop(): Promise<void>;
 }
@@ -614,6 +626,15 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
 
   return {
     isOpen: () => channel.status === "open",
+    // `channel.connect()` already ran above, so a caller registering here is
+    // racing the first open: if the socket won that race the hook would never
+    // fire at all. Fire it once immediately in that case (on a microtask, so
+    // registration itself stays side-effect-free for the caller) and still
+    // register it for every subsequent reconnect.
+    onOpen: (hook: () => void) => {
+      channel.onOpen(hook);
+      if (channel.status === "open") queueMicrotask(hook);
+    },
     proxyUrl: proxy.url,
     stop: async () => {
       // Clear all bot-typing heartbeat intervals and emit final stops for

@@ -40,6 +40,15 @@ export type { WebSocketLike, WebSocketFactory } from "./contract.js";
 
 export type ControlChannelStatus = "idle" | "connecting" | "open" | "reconnecting" | "closed";
 
+/** Heartbeat: how often we ping the server WebSocket. */
+const DEFAULT_PING_INTERVAL_MS = 15_000;
+/** Heartbeat: how long we wait for a pong before declaring the socket dead. */
+const DEFAULT_PONG_TIMEOUT_MS = 30_000;
+/** Reconnect: initial backoff after a drop, doubling each attempt up to the max. */
+const DEFAULT_RECONNECT_BASE_MS = 500;
+/** Reconnect: ceiling on the exponential backoff. */
+const DEFAULT_RECONNECT_MAX_MS = 30_000;
+
 export interface WsControlChannelOpts {
   url: string;
   /** Auth headers (e.g. Authorization, X-Agent-Id) — host-supplied. */
@@ -325,7 +334,7 @@ export class WsControlChannel implements HostControlChannel {
     ws.on("message", (data: unknown) => this.onMessage(data));
     ws.on("pong", () => {
       this.attempt = 0;
-      this.pongDeadline = this.now() + (this.opts.heartbeat?.pongTimeoutMs ?? 30_000);
+      this.pongDeadline = this.now() + (this.opts.heartbeat?.pongTimeoutMs ?? DEFAULT_PONG_TIMEOUT_MS);
       this.log.debug("heartbeat pong");
     });
     ws.on("close", (code?: number, reason?: unknown) => this.onSocketClosed(code, reason));
@@ -385,8 +394,8 @@ export class WsControlChannel implements HostControlChannel {
   }
 
   private scheduleReconnect(): void {
-    const base = this.opts.reconnect?.baseMs ?? 500;
-    const max = this.opts.reconnect?.maxMs ?? 30_000;
+    const base = this.opts.reconnect?.baseMs ?? DEFAULT_RECONNECT_BASE_MS;
+    const max = this.opts.reconnect?.maxMs ?? DEFAULT_RECONNECT_MAX_MS;
     const maxAttempts = this.opts.reconnect?.maxAttempts ?? Infinity;
     if (this.attempt >= maxAttempts) {
       this.statusValue = "closed";
@@ -404,8 +413,8 @@ export class WsControlChannel implements HostControlChannel {
   }
 
   private startHeartbeat(): void {
-    const interval = this.opts.heartbeat?.pingIntervalMs ?? 15_000;
-    const timeout = this.opts.heartbeat?.pongTimeoutMs ?? 30_000;
+    const interval = this.opts.heartbeat?.pingIntervalMs ?? DEFAULT_PING_INTERVAL_MS;
+    const timeout = this.opts.heartbeat?.pongTimeoutMs ?? DEFAULT_PONG_TIMEOUT_MS;
     this.pongDeadline = this.now() + timeout;
     this.pingTimer = setInterval(() => {
       if (this.now() > this.pongDeadline) {

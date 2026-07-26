@@ -44,7 +44,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import type { LaunchContext, LaunchConfig } from "../types.js";
-import { buildCliSystemPrompt, type SystemPromptOpts } from "./systemPrompt.js";
+import { buildCliSystemPrompt } from "./systemPrompt.js";
 import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
 import { writeCliLink } from "./cliLink.js";
 import { mergeEnvLayers, platformEnv, runtimeContextEnv, type EnvLayer } from "./spawnEnv.js";
@@ -213,7 +213,19 @@ export async function prepareCliTransport(
           launchId: ctx.launchId,
           traceDir: ctx.cliTransportTraceDir,
         }),
+        // Baseline color-off for every runtime CLI: ANSI escapes have no
+        // meaning to the stream-json / JSON-RPC parsers on the other side and
+        // routinely corrupt event boundaries. Every driver used to hand-set
+        // NO_COLOR here — now it's a default all runtimes (including Claude)
+        // inherit.
+        //
+        // A driver CANNOT opt out via its own `extraEnv`: that layer sits at
+        // precedence 30, below this one (40), so a driver-supplied value is
+        // overwritten here. If some future CLI genuinely misreads NO_COLOR,
+        // opt it out by making these two keys conditional on a driver flag —
+        // not by setting them in `extraEnv`, which silently does nothing.
         FORCE_COLOR: "0",
+        NO_COLOR: "1",
       },
     },
     { name: "runtimeContext", precedence: 50, vars: runtimeContextEnv(E, ctx.config.runtimeContext) },
@@ -240,6 +252,6 @@ export async function prepareCliTransport(
 }
 
 /** Shared system-prompt entry point for CLI drivers. */
-export function buildCliTransportSystemPrompt(config: LaunchConfig, opts: SystemPromptOpts): string {
-  return buildCliSystemPrompt(config, opts);
+export function buildCliTransportSystemPrompt(config: LaunchConfig): string {
+  return buildCliSystemPrompt(config);
 }

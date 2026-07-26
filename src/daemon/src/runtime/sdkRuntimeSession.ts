@@ -32,7 +32,16 @@ export interface SdkSessionHandle {
 }
 
 /** How long, and how often, to poll `isStreaming` before giving up and
- * steering instead of prompting a still-busy session. */
+ * steering instead of prompting a still-busy session.
+ *
+ * `IDLE_PROMPT_RETRY_MS = 25` is short enough that a session which finishes
+ * within one turn boundary (~100-300ms) is caught on the first or second
+ * poll, and small enough that the busy-wait cost is negligible.
+ * `IDLE_PROMPT_MAX_WAIT_MS = 1000` is the ceiling before we accept the
+ * session is "genuinely still working" and fall through to `steer` — anything
+ * higher measurably delays first-token latency without changing outcomes in
+ * the traces we've captured.
+ */
 const IDLE_PROMPT_RETRY_MS = 25;
 const IDLE_PROMPT_MAX_WAIT_MS = 1000;
 

@@ -11,13 +11,10 @@
 import type { Driver, EncodeOpts, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
 import { prepareCliTransport, buildCliTransportSystemPrompt, DEFAULT_CLI_CONFIG } from "./cliTransport.js";
 import { buildClaudeProviderIsolationEnv } from "./claudeProviderIsolation.js";
-import {
-  buildClaudeArgs,
-  resolveClaudeLaunchCommand,
-  buildClaudeSpawnSpec,
-} from "./claudeLaunch.js";
+import { buildClaudeArgs } from "./claudeLaunch.js";
 import { ClaudeEventNormalizer } from "./claudeEventNormalizer.js";
-import { probeClaude } from "./probe.js";
+import { probeClaude, resolveSpawnSpec, resolveClaudeCommand } from "./probe.js";
+import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
 import { spawnAgentProcess } from "../runtime/killTree.js";
 
 export class ClaudeDriver implements Driver {
@@ -32,6 +29,14 @@ export class ClaudeDriver implements Driver {
   readonly supportsStdinNotification = true;
   readonly busyDeliveryMode = "gated" as const;
   readonly supportsNativeStandingPrompt = true;
+
+  readonly capabilities = {
+    reasoningEffort: true,
+    fastMode: true,
+    disallowedTools: true,
+    command: true,
+    sessionResumeMode: "by-id",
+  } as const;
 
   private readonly eventNormalizer = new ClaudeEventNormalizer();
 
@@ -52,12 +57,26 @@ export class ClaudeDriver implements Driver {
     // Let Claude detect it is NOT nested in another Claude Code session.
     delete spawnEnv.CLAUDECODE;
 
-    const claudeCommand = resolveClaudeLaunchCommand(ctx.config);
-    const spawnSpec = buildClaudeSpawnSpec(claudeCommand);
-    const proc = spawnAgentProcess(spawnSpec.command, args, {
+    // Claude has an extra bespoke discovery step (macOS `.app` bundle
+    // fallback via `resolveClaudeCommand`) that no other driver needs, but
+    // the spawn spec itself is the same as everyone else's. `runtimeConfig.command`
+    // wins over the discovered path when set (uniform across drivers).
+    //
+    // The discovery probe stays lazy: `resolveClaudeCommand` shells out to
+    // `which`/`where` (up to PROBE_TIMEOUT_MS), so when the user pinned an
+    // explicit `command` we must not pay for — or block on — a lookup whose
+    // result `resolveSpawnSpec` would immediately discard.
+    //
+    // Both branches feed the chosen path through `resolveSpawnSpec`'s override
+    // slot, whose "already looks like a path → don't re-resolve" rule keeps us
+    // from PATH-probing a path `resolveClaudeCommand` just resolved.
+    const override = resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig).command?.trim();
+    const claudeCommand = override || resolveClaudeCommand() || "claude";
+    const spec = resolveSpawnSpec("claude", args, claudeCommand);
+    const proc = spawnAgentProcess(spec.command, spec.args, {
       cwd: ctx.workingDirectory,
       env: spawnEnv,
-      shell: spawnSpec.shell,
+      shell: spec.shell,
     });
 
     // Deliver the initial prompt as the first stream-json line.
@@ -89,6 +108,6 @@ export class ClaudeDriver implements Driver {
   }
 
   buildSystemPrompt(config: LaunchConfig): string {
-    return buildCliTransportSystemPrompt(config, { lifecycleKind: this.lifecycle.kind });
+    return buildCliTransportSystemPrompt(config);
   }
 }

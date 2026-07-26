@@ -10,7 +10,7 @@
  * buckets sorted by most-recent activity. The summary is metadata only — it
  * never carries message bodies; the agent pulls those with `alook inbox pull`.
  *
- * Generic agent-backend abstraction (host-neutral).
+ * Generic daemon-side abstraction (host-neutral).
  */
 
 export interface InboxMessage {
@@ -119,8 +119,11 @@ function messageSeq(message: InboxMessage | undefined): number | undefined {
   return Math.floor(message.seq);
 }
 
+/** How many chars of a message id form the inbox's compact `messageId#…` display. */
+const MESSAGE_ID_SHORT_LEN = 8;
+
 function shortMessageId(value: string): string {
-  return value.slice(0, 8);
+  return value.slice(0, MESSAGE_ID_SHORT_LEN);
 }
 
 function normalizeSenderType(value: string | undefined): "human" | "agent" | "system" | undefined {
