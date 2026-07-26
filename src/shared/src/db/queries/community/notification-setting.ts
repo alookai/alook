@@ -1,15 +1,65 @@
-import { eq, and, or, isNotNull, inArray } from "drizzle-orm";
-import { communityNotificationSetting } from "../../community-schema";
+import { eq, and, or, isNull, isNotNull, inArray } from "drizzle-orm";
+import { communityNotificationSetting, communityChannel } from "../../community-schema";
 import type { Database } from "../../index";
+import type { NotificationLevelValue } from "../../../constants/community";
 
-export async function getMutedUserIds(
+type EffectiveLevelChannel = {
+  id: string;
+  serverId: string;
+  parentChannelId: string | null;
+};
+
+type EffectiveLevelSetting = {
+  channelId: string | null;
+  serverId: string | null;
+  level: string;
+};
+
+export function computeEffectiveLevel(
+  settings: EffectiveLevelSetting[],
+  channel: EffectiveLevelChannel
+): NotificationLevelValue {
+  const own = settings.find((s) => s.channelId === channel.id);
+  if (own) return own.level as NotificationLevelValue;
+
+  if (channel.parentChannelId) {
+    const parent = settings.find((s) => s.channelId === channel.parentChannelId);
+    if (parent) return parent.level as NotificationLevelValue;
+  }
+
+  const server = settings.find(
+    (s) => s.channelId == null && s.serverId === channel.serverId
+  );
+  if (server) return server.level as NotificationLevelValue;
+
+  return "all";
+}
+
+async function loadChannel(
+  db: Database,
+  channelId: string
+): Promise<EffectiveLevelChannel | null> {
+  const rows = await db
+    .select({
+      id: communityChannel.id,
+      serverId: communityChannel.serverId,
+      parentChannelId: communityChannel.parentChannelId,
+    })
+    .from(communityChannel)
+    .where(eq(communityChannel.id, channelId));
+  return rows[0] ?? null;
+}
+
+async function loadScopedSettings(
   db: Database,
   userIds: string[],
-  opts: { channelId?: string; serverId?: string }
-): Promise<Set<string>> {
-  if (userIds.length === 0) return new Set()
+  channel: EffectiveLevelChannel
+): Promise<(EffectiveLevelSetting & { userId: string })[]> {
+  const channelIds = channel.parentChannelId
+    ? [channel.id, channel.parentChannelId]
+    : [channel.id];
 
-  const rows = await db
+  return db
     .select({
       userId: communityNotificationSetting.userId,
       channelId: communityNotificationSetting.channelId,
@@ -17,23 +67,51 @@ export async function getMutedUserIds(
       level: communityNotificationSetting.level,
     })
     .from(communityNotificationSetting)
-    .where(and(
-      inArray(communityNotificationSetting.userId, userIds),
-      or(
-        opts.channelId ? eq(communityNotificationSetting.channelId, opts.channelId) : undefined,
-        opts.serverId ? and(eq(communityNotificationSetting.serverId, opts.serverId), isNotNull(communityNotificationSetting.serverId)) : undefined,
-      ),
-    ))
+    .where(
+      and(
+        inArray(communityNotificationSetting.userId, userIds),
+        or(
+          inArray(communityNotificationSetting.channelId, channelIds),
+          and(
+            eq(communityNotificationSetting.serverId, channel.serverId),
+            isNull(communityNotificationSetting.channelId)
+          )
+        )
+      )
+    );
+}
 
-  const muted = new Set<string>()
-  for (const uid of userIds) {
-    const userRows = rows.filter((r) => r.userId === uid)
-    const channelSetting = userRows.find((r) => r.channelId != null)
-    const serverSetting = userRows.find((r) => r.serverId != null)
-    const effective = channelSetting ?? serverSetting
-    if (effective?.level === "nothing") muted.add(uid)
+export async function resolveEffectiveLevel(
+  db: Database,
+  userId: string,
+  channelId: string
+): Promise<NotificationLevelValue> {
+  const channel = await loadChannel(db, channelId);
+  if (!channel) return "all";
+  const settings = await loadScopedSettings(db, [userId], channel);
+  return computeEffectiveLevel(settings, channel);
+}
+
+export async function resolveEffectiveLevelForUsers(
+  db: Database,
+  userIds: string[],
+  channelId: string
+): Promise<Map<string, NotificationLevelValue>> {
+  const result = new Map<string, NotificationLevelValue>();
+  if (userIds.length === 0) return result;
+
+  const channel = await loadChannel(db, channelId);
+  if (!channel) {
+    for (const uid of userIds) result.set(uid, "all");
+    return result;
   }
-  return muted
+
+  const rows = await loadScopedSettings(db, userIds, channel);
+  for (const uid of userIds) {
+    const userSettings = rows.filter((r) => r.userId === uid);
+    result.set(uid, computeEffectiveLevel(userSettings, channel));
+  }
+  return result;
 }
 
 export async function getSettings(db: Database, userId: string) {
