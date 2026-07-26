@@ -194,7 +194,7 @@ describe("useCommunityWs — message.create", () => {
   })
 
   it("invalidates threadParticipants for the focused channel (live panel growth)", async () => {
-    // A thread/forum_post enrolls the sender + mentioned users as participants
+    // A thread/post enrolls the sender + mentioned users as participants
     // server-side; the panel must refetch so a new speaker appears without a
     // manual refresh.
     await mountHook()
@@ -712,7 +712,7 @@ describe("useCommunityWs — member events", () => {
 })
 
 describe("useCommunityWs — channel.member_add/remove → invalidate rosters", () => {
-  it("member_add invalidates channelMembers AND threadParticipants (forum_post add-participant path)", async () => {
+  it("member_add invalidates channelMembers AND threadParticipants (post add-participant path)", async () => {
     await mountHook()
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     capturedOnMessage!({

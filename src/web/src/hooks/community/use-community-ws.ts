@@ -454,7 +454,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
               communityKeys.channelMessages(event.channelId),
               (c) => insertMessageIntoCache(c, event.message),
             )
-            // A thread/forum_post enrolls its sender + mentioned users as
+            // A thread/post enrolls its sender + mentioned users as
             // participants server-side on send. That set IS its Members panel,
             // so refetch it live — otherwise a new speaker/mention only appears
             // after a manual refresh. No-op for a plain channel (whose panel is
@@ -738,7 +738,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             queryClient.removeQueries({
               queryKey: communityKeys.forumPosts(event.channelId),
             })
-            // When a child (forum_post / thread) is deleted, refresh the
+            // When a child (post / thread) is deleted, refresh the
             // PARENT's list so the deleted card disappears from the feed on
             // every client. Absent on older events / top-level channels.
             if (event.parentChannelId) {
@@ -785,7 +785,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           // a peer's add/remove changes it too, so an open add dialog doesn't
           // offer a just-added member (whose Add would 400) or hide a removed one.
           void queryClient.invalidateQueries({ queryKey: communityKeys.channelAddableMembers(event.channelId) })
-          // A forum_post's "Add participant" emits this same MEMBER_ADD event —
+          // A post's "Add participant" emits this same MEMBER_ADD event —
           // its Members panel is the participant set, so refetch it too. No-op
           // for a plain channel (participants query disabled there).
           void queryClient.invalidateQueries({ queryKey: communityKeys.threadParticipants(event.channelId) })

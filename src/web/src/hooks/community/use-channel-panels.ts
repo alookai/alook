@@ -19,10 +19,10 @@ const EMPTY_PINS: readonly Msg[] = Object.freeze([])
  * WS (`community:channel.child_create`) can invalidate the thread list only
  * — without touching messages.
  */
-export type ThreadsResponse = { threads: Thread[] }
+export type ThreadsResponse = { children: Thread[] }
 
 export const threadsQueryFn = (channelId: string) => () =>
-  apiFetch<ThreadsResponse>(`/api/community/channels/${channelId}/threads`)
+  apiFetch<ThreadsResponse>(`/api/community/channels/${channelId}/children?type=thread`)
 
 export function useThreads(channelId: string | null): UseQueryResult<ThreadsResponse> & {
   threads: Thread[]
@@ -35,7 +35,7 @@ export function useThreads(channelId: string | null): UseQueryResult<ThreadsResp
   })
   return {
     ...query,
-    threads: query.data?.threads ?? (EMPTY_THREADS as Thread[]),
+    threads: query.data?.children ?? (EMPTY_THREADS as Thread[]),
   }
 }
 
@@ -43,10 +43,10 @@ export function useThreads(channelId: string | null): UseQueryResult<ThreadsResp
  * Fetches the forum-post listing for a `type='forum'` channel. Server-side
  * resolves creator + first-message + counts; the payload is display-ready.
  */
-export type ForumPostsResponse = { posts: ForumPost[] }
+export type ForumPostsResponse = { children: ForumPost[] }
 
 export const forumPostsQueryFn = (channelId: string) => () =>
-  apiFetch<ForumPostsResponse>(`/api/community/channels/${channelId}/posts`)
+  apiFetch<ForumPostsResponse>(`/api/community/channels/${channelId}/children?type=post`)
 
 /**
  * Fetches forum posts. Only enabled when the channel is a `forum` — otherwise
@@ -68,7 +68,7 @@ export function useForumPosts(
   })
   return {
     ...query,
-    posts: query.data?.posts ?? (EMPTY_FORUM_POSTS as ForumPost[]),
+    posts: query.data?.children ?? (EMPTY_FORUM_POSTS as ForumPost[]),
   }
 }
 

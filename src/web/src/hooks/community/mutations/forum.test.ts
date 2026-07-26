@@ -90,15 +90,17 @@ describe("useCreateForumPost", () => {
     const { useCreateForumPost } = await load()
     useCreateForumPost()
     const created = makePost("p_new")
-    apiFetchMock.mockResolvedValueOnce({ post: created })
+    apiFetchMock.mockResolvedValueOnce({ channel: created })
 
     await runMutation({ channelId: "forum_1", name: "hi", content: "body" })
 
     expect(apiFetchMock).toHaveBeenCalledTimes(1)
     const [path, init] = apiFetchMock.mock.calls[0]
-    expect(path).toBe("/api/community/channels/forum_1/posts")
+    expect(path).toBe("/api/community/channels")
     expect((init as { method?: string }).method).toBe("POST")
     const body = JSON.parse((init as { body: string }).body)
+    expect(body.type).toBe("post")
+    expect(body.parentChannelId).toBe("forum_1")
     expect(body.name).toBe("hi")
     expect(body.content).toBe("body")
     // Non-present fields serialize as `undefined` → dropped by JSON.stringify.
@@ -109,7 +111,7 @@ describe("useCreateForumPost", () => {
   it("threads attachments + mentionType through to the request body", async () => {
     const { useCreateForumPost } = await load()
     useCreateForumPost()
-    apiFetchMock.mockResolvedValueOnce({ post: makePost("p_new") })
+    apiFetchMock.mockResolvedValueOnce({ channel: makePost("p_new") })
 
     const attachments = [{
       url: "/api/community/media/abc.png",
@@ -137,15 +139,15 @@ describe("useCreateForumPost", () => {
     const { useCreateForumPost } = await load()
     useCreateForumPost()
     capturedQc.setQueryData<ForumPostsResponse>(communityKeys.forumPosts("forum_1"), {
-      posts: [makePost("p_old")],
+      children: [makePost("p_old")],
     })
     const fresh = makePost("p_new")
-    apiFetchMock.mockResolvedValueOnce({ post: fresh })
+    apiFetchMock.mockResolvedValueOnce({ channel: fresh })
 
     await runMutation({ channelId: "forum_1", name: "n", content: "c" })
 
     const cache = capturedQc.getQueryData<ForumPostsResponse>(communityKeys.forumPosts("forum_1"))
-    expect(cache?.posts.map((p) => p.id)).toEqual(["p_new", "p_old"])
+    expect(cache?.children.map((p) => p.id)).toEqual(["p_new", "p_old"])
   })
 })
 
@@ -155,7 +157,7 @@ describe("useDeleteForumPost", () => {
     useDeleteForumPost()
 
     capturedQc.setQueryData<ForumPostsResponse>(communityKeys.forumPosts("forum_1"), {
-      posts: [makePost("p1"), makePost("p2"), makePost("p3")],
+      children: [makePost("p1"), makePost("p2"), makePost("p3")],
     })
     apiFetchMock.mockResolvedValueOnce(undefined)
 
@@ -163,7 +165,7 @@ describe("useDeleteForumPost", () => {
 
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/p2", { method: "DELETE" })
     const cache = capturedQc.getQueryData<ForumPostsResponse>(communityKeys.forumPosts("forum_1"))
-    expect(cache?.posts.map((p) => p.id)).toEqual(["p1", "p3"])
+    expect(cache?.children.map((p) => p.id)).toEqual(["p1", "p3"])
   })
 
   it("leaves the cache untouched when the DELETE fails", async () => {
@@ -171,13 +173,13 @@ describe("useDeleteForumPost", () => {
     useDeleteForumPost()
 
     capturedQc.setQueryData<ForumPostsResponse>(communityKeys.forumPosts("forum_1"), {
-      posts: [makePost("p1"), makePost("p2")],
+      children: [makePost("p1"), makePost("p2")],
     })
     apiFetchMock.mockRejectedValueOnce(new Error("500"))
 
     await runMutationExpectError({ forumChannelId: "forum_1", postId: "p2" })
 
     const cache = capturedQc.getQueryData<ForumPostsResponse>(communityKeys.forumPosts("forum_1"))
-    expect(cache?.posts.map((p) => p.id)).toEqual(["p1", "p2"])
+    expect(cache?.children.map((p) => p.id)).toEqual(["p1", "p2"])
   })
 })

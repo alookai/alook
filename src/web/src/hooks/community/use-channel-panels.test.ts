@@ -12,40 +12,40 @@ beforeEach(() => {
 })
 
 describe("useThreads / threadsQueryFn", () => {
-  it("fetches from /channels/:id/threads and returns { threads }", async () => {
-    apiFetchMock.mockResolvedValueOnce({ threads: [{ id: "t_1" }] })
+  it("fetches from /channels/:id/children?type=thread and returns { children }", async () => {
+    apiFetchMock.mockResolvedValueOnce({ children: [{ id: "t_1" }] })
     const { threadsQueryFn } = await import("./use-channel-panels")
     const data = await threadsQueryFn("ch_1")()
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/ch_1/threads")
-    expect(data.threads).toHaveLength(1)
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/ch_1/children?type=thread")
+    expect(data.children).toHaveLength(1)
   })
 
   it("populates queryClient at communityKeys.threads(channelId)", async () => {
-    apiFetchMock.mockResolvedValueOnce({ threads: [] })
+    apiFetchMock.mockResolvedValueOnce({ children: [] })
     const { threadsQueryFn } = await import("./use-channel-panels")
     const qc = new QueryClient()
     const key = communityKeys.threads("ch_1")
     await qc.fetchQuery({ queryKey: key, queryFn: threadsQueryFn("ch_1") })
-    expect(qc.getQueryData(key)).toEqual({ threads: [] })
+    expect(qc.getQueryData(key)).toEqual({ children: [] })
   })
 })
 
 describe("useForumPosts / forumPostsQueryFn", () => {
-  it("fetches from /channels/:id/posts and returns { posts }", async () => {
-    apiFetchMock.mockResolvedValueOnce({ posts: [{ id: "p_1" }] })
+  it("fetches from /channels/:id/children?type=post and returns { children }", async () => {
+    apiFetchMock.mockResolvedValueOnce({ children: [{ id: "p_1" }] })
     const { forumPostsQueryFn } = await import("./use-channel-panels")
     const data = await forumPostsQueryFn("ch_1")()
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/ch_1/posts")
-    expect(data.posts).toHaveLength(1)
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/ch_1/children?type=post")
+    expect(data.children).toHaveLength(1)
   })
 
   it("populates queryClient at communityKeys.forumPosts(channelId)", async () => {
-    apiFetchMock.mockResolvedValueOnce({ posts: [] })
+    apiFetchMock.mockResolvedValueOnce({ children: [] })
     const { forumPostsQueryFn } = await import("./use-channel-panels")
     const qc = new QueryClient()
     const key = communityKeys.forumPosts("ch_1")
     await qc.fetchQuery({ queryKey: key, queryFn: forumPostsQueryFn("ch_1") })
-    expect(qc.getQueryData(key)).toEqual({ posts: [] })
+    expect(qc.getQueryData(key)).toEqual({ children: [] })
   })
 })
 
