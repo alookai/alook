@@ -14,8 +14,6 @@ import {
   HostBotAuditEventFrameSchema,
   pickBotActivityPreset,
   RUNNING_PRESETS,
-  isThread,
-  isForumPost,
 } from "@alook/shared"
 import type { CommunityMachineRuntime, CommunityMachineSummary } from "@alook/shared"
 
@@ -1271,21 +1269,19 @@ export class WebSocketDurableObject extends DurableObject<Env> {
           log.warn("fanOutTyping: sender not a channel member", { senderUserId, channelId: targetId })
           return
         }
-        // Recipient set — same split as the message fan-out (fanout.ts):
-        //   - THREAD / FORUM_POST → the participant NOTIFY set. Typing reaches
-        //     only its participants, not the whole parent channel/server. A
-        //     public forum post therefore never leaks "X is typing" to the
-        //     server. Admins are never auto-participants.
-        //   - channel / forum → the access audience (public/private split) via
-        //     the shared resolver. Never leaks to non-members.
-        const channelType = await queries.communityChannel.getChannelType(db, targetId)
-        recipientUserIds =
-          isThread(channelType) || isForumPost(channelType)
-            ? await queries.communityThread.listThreadParticipantUserIds(db, targetId)
-            : await queries.communityMembersResolver.resolveScopeMemberUserIds(db, {
-                scope: "channel",
-                scopeId: targetId,
-              })
+        // Recipient set — same split as the message fan-out (fanout.ts),
+        // routed through the shared type→recipient resolver so the two paths
+        // never drift:
+        //   - thread / post → the participant NOTIFY set. Typing reaches only
+        //     its participants, not the whole parent channel/server. A public
+        //     post therefore never leaks "X is typing" to the server. Admins
+        //     are never auto-participants.
+        //   - text / forum → the access audience (public/private split). Never
+        //     leaks to non-members.
+        recipientUserIds = await queries.communityMembersResolver.resolveChannelRecipientUserIds(
+          db,
+          targetId
+        )
       }
     }
 
