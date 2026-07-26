@@ -60,6 +60,7 @@ const BOT_READY: {
   discriminator: string;
   machineId: string;
   runtime: string;
+  modelName: string | null;
   ownerUserId: string | null;
 } = {
   state: "ready",
@@ -68,6 +69,7 @@ const BOT_READY: {
   discriminator: "0042",
   machineId: "machine_1",
   runtime: "claude",
+  modelName: null,
   ownerUserId: "owner_1",
 };
 
@@ -153,6 +155,26 @@ describe("buildUnreadWakeCommand", () => {
     if (result.command.type !== "agent:wake") throw new Error("expected agent:wake");
     expect(result.command.unreadNotice.channel).toBe("/srv_1/general/#3");
     expect(result.command.unreadNotice.dmConversationId).toBeUndefined();
+  });
+
+  it("ready: config.model reflects the binding's model_name (named / custom / default)", async () => {
+    // Catalog id ⇒ named.
+    seedHappyPath({ bot: { modelName: "claude-opus-4-6" } });
+    let result = await buildUnreadWakeCommand(fakeDb, { messageId: "msg_1", botUserId: "bot_1" });
+    if (result.state !== "ready" || result.command.type !== "agent:wake") throw new Error("expected ready wake");
+    expect(result.command.config.model).toEqual({ kind: "named", name: "claude-opus-4-6" });
+
+    // Non-catalog id ⇒ custom.
+    seedHappyPath({ bot: { modelName: "my-ft-model" } });
+    result = await buildUnreadWakeCommand(fakeDb, { messageId: "msg_1", botUserId: "bot_1" });
+    if (result.state !== "ready" || result.command.type !== "agent:wake") throw new Error("expected ready wake");
+    expect(result.command.config.model).toEqual({ kind: "custom", name: "my-ft-model" });
+
+    // NULL ⇒ default.
+    seedHappyPath({ bot: { modelName: null } });
+    result = await buildUnreadWakeCommand(fakeDb, { messageId: "msg_1", botUserId: "bot_1" });
+    if (result.state !== "ready" || result.command.type !== "agent:wake") throw new Error("expected ready wake");
+    expect(result.command.config.model).toEqual({ kind: "default" });
   });
 
   it("skip: message_missing when the message no longer exists", async () => {

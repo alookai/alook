@@ -6,6 +6,8 @@ import {
   AgentTypingStopMessageSchema,
   CreateWorkspaceRequestSchema,
   UpdateWorkspaceRequestSchema,
+  BotAuditEventSchema,
+  BotAuditEventKindSchema,
 } from "./schemas"
 
 function validCreatePayload(image?: string) {
@@ -189,5 +191,85 @@ describe("UpdateWorkspaceRequestSchema slug sanitization", () => {
   it("accepts and truncates a very long messy slug (no max rejection)", () => {
     const res = UpdateWorkspaceRequestSchema.parse({ slug: "A very long name ".repeat(20) })
     expect(res.slug!.length).toBeLessThanOrEqual(60)
+  })
+})
+
+describe("CommunityBotCreateRequestSchema — model", () => {
+  it("accepts a model string, accepts null, rejects empty and >100 chars", () => {
+    expect(CommunityBotCreateRequestSchema.safeParse({ ...validCreatePayload(), model: "claude-opus-4-6" }).success).toBe(true)
+    expect(CommunityBotCreateRequestSchema.safeParse({ ...validCreatePayload(), model: null }).success).toBe(true)
+    // omitted is fine (untouched)
+    expect(CommunityBotCreateRequestSchema.safeParse(validCreatePayload()).success).toBe(true)
+    expect(CommunityBotCreateRequestSchema.safeParse({ ...validCreatePayload(), model: "" }).success).toBe(false)
+    expect(CommunityBotCreateRequestSchema.safeParse({ ...validCreatePayload(), model: "x".repeat(101) }).success).toBe(false)
+  })
+})
+
+describe("CommunityBotPatchRequestSchema — model", () => {
+  it("accepts {model: 'x'} and {model: null} as the sole field", () => {
+    expect(CommunityBotPatchRequestSchema.safeParse({ model: "claude-opus-4-6" }).success).toBe(true)
+    // explicit null must count as present for the at-least-one refine
+    expect(CommunityBotPatchRequestSchema.safeParse({ model: null }).success).toBe(true)
+  })
+  it("rejects an empty object (no fields)", () => {
+    expect(CommunityBotPatchRequestSchema.safeParse({}).success).toBe(false)
+  })
+})
+
+describe("BotAuditEventSchema — model_changed", () => {
+  it("parses a model_changed event with null-able from/to", () => {
+    expect(
+      BotAuditEventSchema.safeParse({ kind: "model_changed", payload: { from: "a", to: "b" } }).success,
+    ).toBe(true)
+    expect(
+      BotAuditEventSchema.safeParse({ kind: "model_changed", payload: { from: null, to: "b" } }).success,
+    ).toBe(true)
+    expect(
+      BotAuditEventSchema.safeParse({ kind: "model_changed", payload: { from: "a", to: null } }).success,
+    ).toBe(true)
+  })
+  it("rejects a payload missing `to`", () => {
+    expect(
+      BotAuditEventSchema.safeParse({ kind: "model_changed", payload: { from: "a" } }).success,
+    ).toBe(false)
+  })
+  it("BotAuditEventKindSchema includes model_changed", () => {
+    expect(BotAuditEventKindSchema.safeParse("model_changed").success).toBe(true)
+  })
+})
+
+describe("BotAuditEventSchema — error", () => {
+  it("parses an error event across all scopes with a null-able model", () => {
+    for (const scope of ["spawn", "runtime", "exit", "handshake_timeout", "model_switch", "reset"]) {
+      expect(
+        BotAuditEventSchema.safeParse({
+          kind: "error",
+          payload: { scope, code: "handshake_timeout", message: "no response", model: "claude-bogus" },
+        }).success,
+      ).toBe(true)
+    }
+    expect(
+      BotAuditEventSchema.safeParse({
+        kind: "error",
+        payload: { scope: "spawn", code: "ENOENT", message: "not found", model: null },
+      }).success,
+    ).toBe(true)
+  })
+  it("rejects an unknown scope and an empty code", () => {
+    expect(
+      BotAuditEventSchema.safeParse({
+        kind: "error",
+        payload: { scope: "nope", code: "x", message: "m", model: null },
+      }).success,
+    ).toBe(false)
+    expect(
+      BotAuditEventSchema.safeParse({
+        kind: "error",
+        payload: { scope: "spawn", code: "", message: "m", model: null },
+      }).success,
+    ).toBe(false)
+  })
+  it("BotAuditEventKindSchema includes error", () => {
+    expect(BotAuditEventKindSchema.safeParse("error").success).toBe(true)
   })
 })

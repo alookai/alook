@@ -134,6 +134,16 @@ vi.mock("./bot-form-fields", () => ({
   BotFormFields: () => React.createElement("div", { "data-mock": "form-fields" }),
 }))
 
+// Capture ModelField's incoming `value` so we can assert the create sheet
+// resets the model to null (Default) on a runtime change.
+const modelFieldRenders: Array<{ runtime: string | null; value: string | null }> = []
+vi.mock("./model-field", () => ({
+  ModelField: ({ runtime, value }: { runtime: string | null; value: string | null }) => {
+    modelFieldRenders.push({ runtime, value })
+    return React.createElement("div", { "data-mock": "model-field", "data-value": value ?? "" })
+  },
+}))
+
 vi.mock("@/components/provider-logo", () => ({
   ProviderLogo: () => React.createElement("span", { "data-mock": "provider-logo" }),
 }))
@@ -253,6 +263,40 @@ describe("CreateBotSheet — auto-select defaults", () => {
     const renderer = render()
     expect(checkedValue(renderer, "bot-machine")).toBe("mac")
     expect(checkedValue(renderer, "bot-runtime")).toBe(null)
+  })
+
+  it("resets the model to Default (null) when the user switches machine/runtime", () => {
+    useMachinesMock.mockReturnValue({
+      machines: [
+        machine({
+          id: "mac",
+          status: "online",
+          availableRuntimes: [
+            { id: "claude", status: "healthy" },
+          ] as unknown as CommunityMachineSummary["availableRuntimes"],
+        }),
+        machine({
+          id: "server",
+          status: "online",
+          availableRuntimes: [
+            { id: "codex", status: "healthy" },
+          ] as unknown as CommunityMachineSummary["availableRuntimes"],
+        }),
+      ],
+    })
+    modelFieldRenders.length = 0
+    const renderer = render()
+    // Switching machine (which re-defaults the runtime) hands ModelField a
+    // fresh runtime with value null.
+    const serverRadio = renderer.root.findAll(
+      (n) => n.type === "input" && n.props.name === "bot-machine" && n.props.value === "server",
+    )[0]
+    act(() => {
+      serverRadio.props.onChange()
+    })
+    const last = modelFieldRenders.at(-1)!
+    expect(last.runtime).toBe("codex")
+    expect(last.value).toBeNull()
   })
 
   it("re-defaults the runtime when the user switches to another machine", () => {

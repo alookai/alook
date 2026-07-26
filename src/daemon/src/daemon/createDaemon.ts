@@ -194,7 +194,16 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     event:
       | { kind: "cli_invocation"; payload: { subcommand: string } }
       | { kind: "tool_call"; payload: { name: string; target?: string } }
-      | { kind: "thinking"; payload: { text: string; truncated: boolean; chars: number } },
+      | { kind: "thinking"; payload: { text: string; truncated: boolean; chars: number } }
+      | {
+          kind: "error";
+          payload: {
+            scope: "spawn" | "runtime" | "exit" | "handshake_timeout" | "model_switch" | "reset";
+            code: string;
+            message: string;
+            model: string | null;
+          };
+        },
     context?: { sessionId?: string | null; launchId?: string | null }
   ) => {
     void channelRef?.reportBotAuditEvent?.({

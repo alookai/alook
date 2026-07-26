@@ -1054,6 +1054,9 @@ export const CommunityBotCreateRequestSchema = z.object({
   machineId: z.string().min(1),
   runtime: z.string().min(1),
   image: BotImageUrlSchema.optional(),
+  // Full launchable model id, or null for the runtime's default. `undefined`
+  // ⇒ untouched (default), explicit `null` ⇒ default.
+  model: z.string().trim().min(1).max(100).nullable().optional(),
 });
 export type CommunityBotCreateRequest = z.infer<typeof CommunityBotCreateRequestSchema>;
 
@@ -1068,10 +1071,22 @@ export const CommunityBotPatchRequestSchema = z
       .optional(),
     description: z.string().max(COMMUNITY_BOT_DESCRIPTION_MAX).optional(),
     image: BotImageUrlSchema.nullable().optional(),
+    // Full launchable model id, or null for the runtime's default. Explicit
+    // `null` clears a set model; `undefined` leaves it untouched.
+    model: z.string().trim().min(1).max(100).nullable().optional(),
   })
-  .refine((v) => v.name !== undefined || v.description !== undefined || v.image !== undefined, {
-    message: "at least one field must be provided",
-  });
+  .refine(
+    (v) =>
+      v.name !== undefined ||
+      v.description !== undefined ||
+      v.image !== undefined ||
+      // `model` alone is a valid patch. An explicit `null` must count as
+      // present — hence the `in` form, not a truthiness check.
+      "model" in v,
+    {
+      message: "at least one field must be provided",
+    }
+  );
 export type CommunityBotPatchRequest = z.infer<typeof CommunityBotPatchRequestSchema>;
 
 export const CommunityBotAddToServerRequestSchema = z.object({
@@ -1285,12 +1300,46 @@ export type AuditLogWakeTriggerPayload = z.infer<typeof AuditLogWakeTriggerPaylo
 export const AuditLogSessionResetPayloadSchema = z.object({});
 export type AuditLogSessionResetPayload = z.infer<typeof AuditLogSessionResetPayloadSchema>;
 
+/**
+ * `model_changed` payload — the owner switched a bot's LLM model. `from`/`to`
+ * are the full stored ids; `null` means the runtime's default. Written only
+ * after the daemon confirmed delivery (see plan decision #7).
+ */
+export const AuditLogModelChangedPayloadSchema = z.object({
+  from: z.string().nullable(),
+  to: z.string().nullable(),
+});
+export type AuditLogModelChangedPayload = z.infer<typeof AuditLogModelChangedPayloadSchema>;
+
+/**
+ * `error` payload — a launch/runtime failure the owner should see. Emitted by
+ * the daemon (never written server-side, unlike `model_changed`), so a bot
+ * that goes silent has a visible reason instead of a black hole.
+ *
+ * - `scope`  — which stage failed. `handshake_timeout` is the bad-model case:
+ *   the process spawned but never emitted its handshake within the deadline.
+ * - `code`   — machine reason (`pre_handshake_exit`, `handshake_timeout`,
+ *   `runtime_error`, `ENOENT`, `spawn_threw`, …). Stable enough to group on.
+ * - `message`— human one-liner, already scrubbed of secrets by the daemon.
+ * - `model`  — the model in effect at failure (`null` = runtime default), so
+ *   the common "switched to a bad model" case names the culprit inline.
+ */
+export const AuditLogErrorPayloadSchema = z.object({
+  scope: z.enum(["spawn", "runtime", "exit", "handshake_timeout", "model_switch", "reset"]),
+  code: z.string().min(1).max(120),
+  message: z.string().max(2048),
+  model: z.string().nullable(),
+});
+export type AuditLogErrorPayload = z.infer<typeof AuditLogErrorPayloadSchema>;
+
 export const BotAuditEventSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("cli_invocation"), payload: AuditLogCliInvocationPayloadSchema }),
   z.object({ kind: z.literal("tool_call"), payload: AuditLogToolCallPayloadSchema }),
   z.object({ kind: z.literal("thinking"), payload: AuditLogThinkingPayloadSchema }),
   z.object({ kind: z.literal("wake_trigger"), payload: AuditLogWakeTriggerPayloadSchema }),
   z.object({ kind: z.literal("session_reset"), payload: AuditLogSessionResetPayloadSchema }),
+  z.object({ kind: z.literal("model_changed"), payload: AuditLogModelChangedPayloadSchema }),
+  z.object({ kind: z.literal("error"), payload: AuditLogErrorPayloadSchema }),
 ]);
 export type BotAuditEvent = z.infer<typeof BotAuditEventSchema>;
 
@@ -1300,6 +1349,8 @@ export const BotAuditEventKindSchema = z.enum([
   "thinking",
   "wake_trigger",
   "session_reset",
+  "model_changed",
+  "error",
 ]);
 export type BotAuditEventKind = z.infer<typeof BotAuditEventKindSchema>;
 

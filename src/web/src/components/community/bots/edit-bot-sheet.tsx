@@ -20,6 +20,8 @@ import {
 import { serializeBeamSeed, parseBeamSeed } from "@/lib/avatar/seed-url"
 import { useUpdateBot, useUploadBotAvatar, type BotSummary } from "@/hooks/community/use-bots"
 import { BotFormFields } from "./bot-form-fields"
+import { ModelField } from "./model-field"
+import { validateBotModel } from "./bot-form-validation"
 import { uniqueNamesGenerator, names } from "unique-names-generator"
 
 function draftFromBot(bot: BotSummary): AvatarDraft {
@@ -45,6 +47,7 @@ export function EditBotSheet({
 }) {
   const [name, setName] = useState(bot?.name ?? "")
   const [description, setDescription] = useState(bot?.description ?? "")
+  const [model, setModel] = useState<string | null>(bot?.modelName ?? null)
   const [nameError, setNameError] = useState<string | undefined>(undefined)
   const [avatarDraft, setAvatarDraft] = useState<AvatarDraft>(() =>
     bot ? draftFromBot(bot) : { kind: "procedural", image: serializeBeamSeed("initial") },
@@ -63,6 +66,7 @@ export function EditBotSheet({
     syncedForRef.current = bot.id
     setName(bot.name)
     setDescription(bot.description ?? "")
+    setModel(bot.modelName ?? null)
     setAvatarDraft(draftFromBot(bot))
     setNameError(undefined)
   }, [open, bot])
@@ -83,15 +87,24 @@ export function EditBotSheet({
       setNameError("Name is required")
       return
     }
+    const modelError = validateBotModel(model)
+    if (modelError) {
+      toast.error(modelError)
+      return
+    }
+    const modelChanged = model !== (bot.modelName ?? null)
     try {
       // Sequence matters — only attempt the avatar upload AFTER the
       // name/description update resolves, inside the same try block, so a
       // failed field update never triggers an upload.
-      await update.mutateAsync({
+      const res = await update.mutateAsync({
         id: bot.id,
         name: name.trim(),
         description: description.trim() || undefined,
         image: avatarDraft.kind === "procedural" ? avatarDraft.image : undefined,
+        // Only send `model` when it actually changed, so an unrelated edit
+        // never triggers a stop-and-rewake.
+        ...(modelChanged ? { model } : {}),
       })
       let avatarFailed = false
       if (avatarDraft.kind === "photo" && avatarDraft.file) {
@@ -102,7 +115,20 @@ export function EditBotSheet({
           toastApiError(e, "Bot updated, but the avatar photo failed to upload")
         }
       }
-      if (!avatarFailed) toast.success("Bot updated")
+      if (!avatarFailed) {
+        if (modelChanged) {
+          const label = model ?? "the runtime default"
+          if (res.applied) {
+            toast.success(`Model switched to ${label}`)
+          } else if (res.deliveryError) {
+            toast.success("Model saved — couldn't reach the bot just now; it'll apply on the next wake")
+          } else {
+            toast.success("Model saved — applies when the bot comes online")
+          }
+        } else {
+          toast.success("Bot updated")
+        }
+      }
       onOpenChange(false)
     } catch (e) {
       toastApiError(e, "Update failed")
@@ -119,11 +145,11 @@ export function EditBotSheet({
         <SheetHeader>
           <SheetTitle>Edit {bot?.name ?? "bot"}</SheetTitle>
           <SheetDescription>
-            Name and description edits take effect on the bot&apos;s next wake trigger.
+            Name and description edits take effect on the bot&apos;s next wake trigger. A model change applies right away if the bot is online.
           </SheetDescription>
         </SheetHeader>
 
-        <SheetBody>
+        <SheetBody className="flex flex-col gap-6">
           <BotFormFields
             avatarDraft={avatarDraft}
             onAvatarChange={setAvatarDraft}
@@ -134,6 +160,9 @@ export function EditBotSheet({
             setDescription={setDescription}
             nameError={nameError}
           />
+          {bot && (
+            <ModelField runtime={bot.runtime} value={model} onChange={setModel} />
+          )}
         </SheetBody>
 
         <SheetFooter>

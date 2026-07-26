@@ -123,6 +123,11 @@ export const communityBotBinding = sqliteTable(
       .notNull()
       .references(() => communityMachine.id, { onDelete: "restrict" }),
     runtime: text("runtime").notNull(),
+    // Full launchable model id (e.g. "claude-opus-4-6"), or NULL for the
+    // runtime's default. Kind is derived from the catalog at read time, never
+    // stored. Hand-maintained in lockstep with migration 0063 (no drizzle-kit
+    // generate in this repo).
+    modelName: text("model_name"),
     createdAt: text("created_at")
       .notNull()
       .$defaultFn(() => new Date().toISOString()),

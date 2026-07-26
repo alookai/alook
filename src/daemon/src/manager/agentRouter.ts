@@ -133,6 +133,14 @@ const REWAKE_PROMPT =
   "Read @todo.md, @memory.md, and your .context_timeline for anything unfinished, " +
   "then pull your inbox to catch up on unread messages before doing anything else.";
 
+/**
+ * Rewake prompt for `agent:model_switch`. Unlike `REWAKE_PROMPT`, the session
+ * is PRESERVED — prior context survives — so this only tells the agent it was
+ * relaunched on a different model and to continue whatever it was doing.
+ */
+const MODEL_SWITCH_REWAKE_PROMPT =
+  "You were just switched to a different model. Continue any unfinished work.";
+
 export class AgentRouter {
   private readonly running = new Set<string>();
   /**
@@ -417,8 +425,72 @@ export class AgentRouter {
             });
             return;
           }
+          // Non-runtime throw (enroll failure, spawn threw, …). Mirror the
+          // wake arm: send an error ack so the web isn't left with only a
+          // daemon log line and no negative signal.
+          const code = classifyErrorCode(err);
+          await this.opts.channel.reportWakeAck?.({
+            agentId: cmd.agentId,
+            launchId: cmd.launchId,
+            status: "error",
+            error: { code, message: err instanceof Error ? err.message : String(err) },
+          });
           this.log.warn("agent:reset failed", {
             agentId: cmd.agentId,
+            "error.code": code,
+            err: err instanceof Error ? err.message : String(err),
+          });
+        }
+        break;
+      case "agent:model_switch":
+        this.log.info("agent:model_switch received", { agentId: cmd.agentId, launchId: cmd.launchId });
+        try {
+          // `onBeforeAgent` is the ENROLL step, not error handling — it is the
+          // only writer of `enrolledKeys`. Without it, `doSpawn` →
+          // `baseContextFor` throws `agent <id> not enrolled yet` for any bot
+          // that hasn't woken since the daemon started, and the audit row +
+          // "switched" toast would lie while the daemon never respawns. Must
+          // run BEFORE switchModel, exactly as the agent:reset arm does.
+          await this.opts.onBeforeAgent?.(cmd.agentId);
+          await this.opts.manager.switchModel(cmd.agentId, {
+            runtimeConfig: cmd.config,
+            launchId: cmd.launchId,
+            rewakePrompt: MODEL_SWITCH_REWAKE_PROMPT,
+          });
+          this.running.add(cmd.agentId);
+          this.scheduleReadyFrameResend();
+          this.log.info("agent:model_switch ok", { agentId: cmd.agentId });
+        } catch (err) {
+          if (err instanceof UnknownRuntimeError) {
+            const frame: SessionErrorFrame = {
+              type: "session.error",
+              code: "runtime_not_available",
+              agentId: cmd.agentId,
+              payload: {
+                requested: err.requested ?? null,
+                available: err.available,
+              },
+            };
+            await this.opts.channel.reportSessionError?.(frame);
+            this.log.info("agent:model_switch error", {
+              agentId: cmd.agentId,
+              "error.code": "runtime_not_available",
+            });
+            return;
+          }
+          // Non-runtime throw (enroll failure, spawn threw, …). Mirror the
+          // wake arm: send an error ack so the web isn't left with only a
+          // daemon log line and no negative signal.
+          const code = classifyErrorCode(err);
+          await this.opts.channel.reportWakeAck?.({
+            agentId: cmd.agentId,
+            launchId: cmd.launchId,
+            status: "error",
+            error: { code, message: err instanceof Error ? err.message : String(err) },
+          });
+          this.log.warn("agent:model_switch failed", {
+            agentId: cmd.agentId,
+            "error.code": code,
             err: err instanceof Error ? err.message : String(err),
           });
         }

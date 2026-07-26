@@ -71,6 +71,7 @@ const READY_CTX = {
   discriminator: "0042",
   machineId: "mac_1",
   runtime: "claude",
+  modelName: "claude-opus-4-6",
   ownerUserId: "owner_1",
 }
 
@@ -160,5 +161,17 @@ describe("POST /api/community/bots/[id]/reset-session", () => {
         botId: "b1",
       }),
     )
+  })
+
+  it("regression: reset sends the bot's configured model in config.model (not default)", async () => {
+    seedOwnedAndBound()
+    mockPushAgentResetToMachine.mockResolvedValue({ sent: 1 })
+    mockInsertBotAuditSessionReset.mockResolvedValue({ id: "evt_1", createdAt: "2026-07-26T00:00:00.000Z" })
+    mockBroadcastToUser.mockResolvedValue(undefined)
+
+    const res = await POST(req(), ctx)
+    expect(res.status).toBe(200)
+    const [, , args] = mockPushAgentResetToMachine.mock.calls[0]!
+    expect(args.config.model).toEqual({ kind: "named", name: "claude-opus-4-6" })
   })
 })

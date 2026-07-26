@@ -166,10 +166,16 @@ describe("getBotBinding", () => {
     return chain
   }
 
-  it("returns { machineId, runtime } when the binding exists", async () => {
-    const chain = makeSelectChain([{ machineId: "machine_1", runtime: "codex" }])
+  it("returns { machineId, runtime, modelName } when the binding exists (modelName defaults to null)", async () => {
+    const chain = makeSelectChain([{ machineId: "machine_1", runtime: "codex", modelName: null }])
     const result = await q.getBotBinding(chain, "bot_1")
-    expect(result).toEqual({ machineId: "machine_1", runtime: "codex" })
+    expect(result).toEqual({ machineId: "machine_1", runtime: "codex", modelName: null })
+  })
+
+  it("surfaces a stored modelName", async () => {
+    const chain = makeSelectChain([{ machineId: "machine_1", runtime: "claude", modelName: "claude-opus-4-6" }])
+    const result = await q.getBotBinding(chain, "bot_1")
+    expect(result).toEqual({ machineId: "machine_1", runtime: "claude", modelName: "claude-opus-4-6" })
   })
 
   it("returns null when no binding row matches", async () => {

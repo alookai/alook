@@ -1,6 +1,7 @@
 import { nanoid } from "nanoid";
 import type { HostCommand, UnreadNotice } from "../community-cli-contract";
 import { makeRuntimeConfig } from "../runtime-config";
+import { resolveModelConfig } from "./bot-model";
 import { formatHandle } from "../lib/discriminator";
 import * as message from "../db/queries/community/message";
 import * as bot from "../db/queries/community/bot";
@@ -168,6 +169,7 @@ export async function buildUnreadWakeCommand(
   };
   const config = makeRuntimeConfig({
     runtime: botCtx.runtime,
+    model: resolveModelConfig(botCtx.runtime, botCtx.modelName),
     agentName: botCtx.name,
     agentHandle: `@${formatHandle(botCtx.name, botCtx.discriminator)}`,
   });

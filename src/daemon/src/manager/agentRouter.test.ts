@@ -29,6 +29,7 @@ function fakeManager(initialStatuses: Record<string, "idle" | "starting" | "runn
   const registers: Array<{ agentId: string; sessionId?: string; launchId?: string }> = [];
   const forgets: string[] = [];
   const resets: Array<{ agentId: string; rewakePrompt: string; launchId: string }> = [];
+  const switches: Array<{ agentId: string; rewakePrompt: string; launchId: string }> = [];
   const order: string[] = [];
   const statuses: Record<string, "idle" | "starting" | "running" | "stopping"> = { ...initialStatuses };
   const mgr = {
@@ -48,6 +49,10 @@ function fakeManager(initialStatuses: Record<string, "idle" | "starting" | "runn
       resets.push({ agentId, rewakePrompt: opts.rewakePrompt, launchId: opts.launchId });
       order.push(`reset:${agentId}`);
     },
+    async switchModel(agentId: string, opts: { launchId: string; rewakePrompt: string }) {
+      switches.push({ agentId, rewakePrompt: opts.rewakePrompt, launchId: opts.launchId });
+      order.push(`switch:${agentId}`);
+    },
     stop() {},
     liveSessionReports: () => [],
     snapshot() {
@@ -56,7 +61,7 @@ function fakeManager(initialStatuses: Record<string, "idle" | "starting" | "runn
       return { agents };
     },
   } as unknown as AgentProcessManager;
-  return { mgr, delivers, registers, statuses, forgets, resets, order };
+  return { mgr, delivers, registers, statuses, forgets, resets, switches, order };
 }
 
 /** Fake channel capturing acks + the command handler the router registers. */
@@ -178,12 +183,12 @@ describe("AgentRouter — agent:reset", () => {
     expect(router.buildReady().runningAgents).toContain("a1");
   });
 
-  it("a generic thrown error from resetSession is logged, doesn't crash, and does NOT add to running set", async () => {
+  it("a generic thrown error from resetSession is logged, sends an error ack, doesn't crash, and does NOT add to running set", async () => {
     const mgr = {
       resetSession: async () => { throw new Error("boom"); },
       liveSessionReports: () => [],
     } as unknown as AgentProcessManager;
-    const { ch, fire } = fakeChannel();
+    const { ch, wakeAcks, fire } = fakeChannel();
     const logger = stubLogger();
     const router = new AgentRouter({ manager: mgr, channel: ch, runtimeReport: [{ id: "mock" }], logger });
     await router.start();
@@ -191,6 +196,8 @@ describe("AgentRouter — agent:reset", () => {
     await fire({ type: "agent:reset", agentId: "a1", config: CFG, launchId: "l1" });
     expect(router.buildReady().runningAgents).not.toContain("a1");
     expect(logger.calls.warn.some(([m]) => m === "agent:reset failed")).toBe(true);
+    // The web gets a negative signal, not just a daemon log line.
+    expect(wakeAcks).toContainEqual({ agentId: "a1", launchId: "l1", status: "error" });
   });
 
   it("UnknownRuntimeError from resetSession → forwards session.error{runtime_not_available}, running set untouched", async () => {
@@ -217,6 +224,68 @@ describe("AgentRouter — agent:reset", () => {
       payload: { requested: "gemini", available: ["claude", "codex"] },
     });
     expect(router.buildReady().runningAgents).not.toContain("a1");
+  });
+});
+
+describe("AgentRouter — agent:model_switch", () => {
+  const CFG = {
+    version: 1 as const,
+    runtime: "mock",
+    model: { kind: "named" as const, name: "opus" },
+    mode: { kind: "default" as const },
+  };
+
+  it("calls onBeforeAgent BEFORE switchModel, with the pushed config, launchId, and the model-switch rewake prompt", async () => {
+    const { mgr, switches, order } = fakeManager();
+    const { ch, fire } = fakeChannel();
+    const beforeCalls: string[] = [];
+    const router = new AgentRouter({
+      manager: mgr,
+      channel: ch,
+      runtimeReport: [{ id: "mock" }],
+      onBeforeAgent: async (id) => { beforeCalls.push(id); order.push(`before:${id}`); },
+    });
+    await router.start();
+
+    await fire({ type: "agent:model_switch", agentId: "a1", config: CFG, launchId: "l1" });
+
+    expect(beforeCalls).toEqual(["a1"]);
+    expect(switches).toHaveLength(1);
+    expect(switches[0]).toMatchObject({ agentId: "a1", launchId: "l1" });
+    expect(switches[0].rewakePrompt).toBe("You were just switched to a different model. Continue any unfinished work.");
+    // Enroll gate: onBeforeAgent completes before switchModel fires.
+    expect(order[0]).toBe("before:a1");
+    expect(order[1]).toBe("switch:a1");
+    expect(router.buildReady().runningAgents).toContain("a1");
+  });
+
+  it("UnknownRuntimeError → session.error{runtime_not_available}; generic error → warn, running set untouched", async () => {
+    const throwing = new UnknownRuntimeError("gemini", ["claude", "codex"]);
+    const mgrUnknown = {
+      switchModel: async () => { throw throwing; },
+      liveSessionReports: () => [],
+    } as unknown as AgentProcessManager;
+    const { ch, sessionErrors, fire } = fakeChannel();
+    const router = new AgentRouter({ manager: mgrUnknown, channel: ch, runtimeReport: [{ id: "claude" }, { id: "codex" }] });
+    await router.start();
+    await fire({ type: "agent:model_switch", agentId: "a1", config: { ...CFG, runtime: "gemini" }, launchId: "l1" });
+    expect(sessionErrors).toHaveLength(1);
+    expect(sessionErrors[0]).toMatchObject({ type: "session.error", code: "runtime_not_available", agentId: "a1" });
+    expect(router.buildReady().runningAgents).not.toContain("a1");
+
+    const mgrGeneric = {
+      switchModel: async () => { throw new Error("boom"); },
+      liveSessionReports: () => [],
+    } as unknown as AgentProcessManager;
+    const { ch: ch2, wakeAcks: wakeAcks2, fire: fire2 } = fakeChannel();
+    const logger = stubLogger();
+    const router2 = new AgentRouter({ manager: mgrGeneric, channel: ch2, runtimeReport: [{ id: "mock" }], logger });
+    await router2.start();
+    await fire2({ type: "agent:model_switch", agentId: "a2", config: CFG, launchId: "l1" });
+    expect(logger.calls.warn.some(([m]) => m === "agent:model_switch failed")).toBe(true);
+    expect(router2.buildReady().runningAgents).not.toContain("a2");
+    // The web gets a negative signal, not just a daemon log line.
+    expect(wakeAcks2).toContainEqual({ agentId: "a2", launchId: "l1", status: "error" });
   });
 });
 

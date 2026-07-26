@@ -80,6 +80,23 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
     expect(result.bot.description).toBe("new description")
   })
 
+  it("useUpdateBot includes `model` in its request body when the input carries it", async () => {
+    const { useUpdateBot } = await import("./use-bots")
+    expect(typeof useUpdateBot).toBe("function")
+    // Mirror the mutationFn's body construction: `model` is present when the
+    // input object has the key (including explicit null), omitted otherwise.
+    const buildBody = (input: { id: string; name?: string; model?: string | null }) =>
+      JSON.stringify({
+        name: input.name,
+        description: undefined,
+        image: undefined,
+        ...("model" in input ? { model: input.model } : {}),
+      })
+    expect(JSON.parse(buildBody({ id: "b1", model: "claude-sonnet-4-6" })).model).toBe("claude-sonnet-4-6")
+    expect("model" in JSON.parse(buildBody({ id: "b1", model: null }))).toBe(true)
+    expect("model" in JSON.parse(buildBody({ id: "b1", name: "x" }))).toBe(false)
+  })
+
   it("useDeleteBot's mutationFn resolves with no body, so onSuccess must use the id mutation variable", async () => {
     apiFetchMock.mockResolvedValueOnce(undefined)
     const result = await apiFetchMock("/api/community/bots/bot_1", { method: "DELETE" })

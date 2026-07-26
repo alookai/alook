@@ -171,6 +171,26 @@ describe("GET /api/community/bots/[id]/audit-log", () => {
     )
   })
 
+  it("returns a parsed {from,to} payload for a model_changed row (guards parseAuditLogPayload's default)", async () => {
+    mockGetBotOwnedBy.mockResolvedValue({ id: "b1" })
+    mockListBotActivityEvents.mockResolvedValue([
+      {
+        id: "bae_m",
+        botId: "b1",
+        sessionId: null,
+        launchId: null,
+        kind: "model_changed",
+        payload: JSON.stringify({ from: "claude-opus-4-6", to: "claude-sonnet-4-6" }),
+        createdAt: "2026-07-26T00:00:00.000Z",
+      },
+    ])
+    const res = await GET(req(), ctx("b1"))
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { events: Array<{ kind: string; payload: unknown }> }
+    expect(body.events[0]!.kind).toBe("model_changed")
+    expect(body.events[0]!.payload).toEqual({ from: "claude-opus-4-6", to: "claude-sonnet-4-6" })
+  })
+
   it("caps limit at 100 and floors it at 1 (defends against unbounded page requests)", async () => {
     mockGetBotOwnedBy.mockResolvedValue({ id: "b1" })
     mockListBotActivityEvents.mockResolvedValue([])
