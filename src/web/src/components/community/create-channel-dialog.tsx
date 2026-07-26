@@ -9,22 +9,22 @@ import { Input } from "@/components/ui/input"
 import { onEnterSubmit } from "@/lib/ime"
 import { SlugHint } from "./slug-hint"
 import { previewSlug } from "@/lib/community/slug-preview"
-import type { ChannelType } from "@alook/shared"
+import type { TopLevelChannelType } from "@alook/shared"
 
 // Create / edit Channel dialog. v0.1 supports Text + Forum only. No private toggle.
 // Submits { name, type }.
 // Pass `initial` to edit an existing channel (prefills + relabels to "Edit Channel").
 export function CreateChannelDialog({ category, initial, onClose, onCreate }: {
   category: string
-  initial?: { name: string; type: ChannelType }
+  initial?: { name: string; type: TopLevelChannelType }
   onClose: () => void
-  onCreate: (channel: { name: string; type: ChannelType }) => void
+  onCreate: (channel: { name: string; type: TopLevelChannelType }) => void
 }) {
   const editing = !!initial
-  const [type, setType] = useState<ChannelType>(initial?.type ?? "text")
+  const [type, setType] = useState<TopLevelChannelType>(initial?.type ?? "text")
   const [name, setName] = useState(initial?.name ?? "")
 
-  const options: { value: ChannelType; label: string; desc: string }[] = [
+  const options: { value: TopLevelChannelType; label: string; desc: string }[] = [
     { value: "text", label: "Text", desc: "Send messages, images, emoji, and opinions" },
     { value: "forum", label: "Forum", desc: "Create a space for organized discussions" },
   ]

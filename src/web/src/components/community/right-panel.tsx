@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { PanelShell } from "./panel-shell"
 import { MemberList } from "./member-list"
 import { Message } from "./message"
+import { EntitySummaryCard } from "./entity-summary-card"
 import { formatRelativeTime } from "./format-time"
 import { stripInlineMarkup } from "@alook/shared"
 import type { RightPanel, Member, Role, Msg, RenderMsg, Thread, OpenProfile, MemberManageContext } from "./_types"
@@ -80,16 +81,20 @@ export function RightPanelContent({
               onClick={() => onJumpToMessage?.(m.id)}
               className="flex w-full gap-2 rounded-md px-2 py-2 text-left hover:bg-accent"
             >
-              <div className="size-6 shrink-0 rounded-full bg-muted grid place-items-center text-xs font-medium">
-                {m.authorAvatar ?? avatarInitial(m.authorName ?? "")}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-sm font-medium">{m.authorName}</span>
-                  {m.createdAt && <span className="text-xs text-muted-foreground">{formatRelativeTime(m.createdAt)}</span>}
-                </div>
-                <div className="truncate text-sm text-muted-foreground">{stripInlineMarkup(m.content ?? "")}</div>
-              </div>
+              <EntitySummaryCard
+                leading={
+                  <div className="size-6 shrink-0 rounded-full bg-muted grid place-items-center text-xs font-medium">
+                    {m.authorAvatar ?? avatarInitial(m.authorName ?? "")}
+                  </div>
+                }
+                title={
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-sm font-medium">{m.authorName}</span>
+                    {m.createdAt && <span className="text-xs text-muted-foreground">{formatRelativeTime(m.createdAt)}</span>}
+                  </div>
+                }
+                meta={<div className="truncate text-sm text-muted-foreground">{stripInlineMarkup(m.content ?? "")}</div>}
+              />
             </button>
           ))
         )}
@@ -111,14 +116,18 @@ export function RightPanelContent({
             onClick={() => onOpenThread(t.id)}
             className="flex w-full items-start gap-3 rounded-md border border-border bg-card p-3 text-left hover:bg-accent"
           >
-            <MessagesSquare className="mt-1 size-4 shrink-0 text-muted-foreground" />
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-medium">{t.name}</div>
-              <div className="truncate text-xs text-muted-foreground">
-                <span className="font-medium text-foreground/80">{t.parent.authorName}</span> {stripInlineMarkup(t.parent.text)}
-              </div>
-              <div className="mt-1 text-xs text-muted-foreground" suppressHydrationWarning>{t.messageCount} messages · {formatRelativeTime(t.lastMessageAt)}</div>
-            </div>
+            <EntitySummaryCard
+              leading={<MessagesSquare className="mt-1 size-4 shrink-0 text-muted-foreground" />}
+              title={<div className="truncate text-sm font-medium">{t.name}</div>}
+              meta={
+                <>
+                  <div className="truncate text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground/80">{t.parent.authorName}</span> {stripInlineMarkup(t.parent.text)}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground" suppressHydrationWarning>{t.messageCount} messages · {formatRelativeTime(t.lastMessageAt)}</div>
+                </>
+              }
+            />
           </button>
         ))}
       </div>

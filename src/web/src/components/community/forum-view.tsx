@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "./avatar"
 import { AvatarGroup, AvatarGroupCount } from "@/components/ui/avatar"
+import { EntitySummaryCard } from "./entity-summary-card"
 import { EmptyState } from "./empty-state"
 import { CreateForumPost, type NewForumPost } from "./create-forum-post"
 import { PostTagDialog } from "./post-tag-dialog"
@@ -140,43 +141,53 @@ export function ForumView({
                   className="group/card flex cursor-pointer flex-col gap-2 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:border-primary/40 hover:bg-accent/40"
                 >
                   <div className="flex items-center gap-2">
-                    <Avatar label={p.authorAvatar} seed={p.authorId} size={24} />
-                    <span className="text-xs font-medium text-foreground" suppressHydrationWarning>{p.parent.authorName || "Unknown"}</span>
-                    <span className="text-xs text-muted-foreground" suppressHydrationWarning>· {formatRelativeTime(p.lastMessageAt)}</span>
-                    {others.length > 0 && (
-                      <>
-                        <span className="h-4 w-px shrink-0 bg-border" aria-hidden />
-                        <AvatarGroup data-testid={tid.forumPostAvatars(p.id)}>
-                          {shown.map((m) => (
-                            <Avatar key={m.id} label={m.avatar} seed={m.id} size={24} ringColor="var(--card)" />
-                          ))}
-                          {overflow > 0 && <AvatarGroupCount className="size-6 text-[11px]">+{overflow}</AvatarGroupCount>}
-                        </AvatarGroup>
-                      </>
-                    )}
-                    {canEdit && (
-                      <button
-                        type="button"
-                        data-testid={tid.forumPostTagBtn(p.id)}
-                        onClick={(e) => { e.stopPropagation(); setEditingTagsFor(p) }}
-                        className="ml-auto grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/card:opacity-100"
-                        aria-label="Edit tags"
-                      >
-                        <Tag className="size-4" />
-                      </button>
-                    )}
-                    {canDelete && (
-                      <button
-                        type="button"
-                        data-testid={tid.forumPostDeleteBtn(p.id)}
-                        disabled={deletingPost === p.id}
-                        onClick={(e) => { e.stopPropagation(); setDeletingFor(p) }}
-                        className={`${canEdit ? "" : "ml-auto "}grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-destructive focus-visible:opacity-100 group-hover/card:opacity-100 disabled:cursor-not-allowed disabled:opacity-50`}
-                        aria-label="Delete post"
-                      >
-                        <Trash2 className="size-4" />
-                      </button>
-                    )}
+                    <EntitySummaryCard
+                      leading={<Avatar label={p.authorAvatar} seed={p.authorId} size={24} />}
+                      title={
+                        <>
+                          <span className="text-xs font-medium text-foreground" suppressHydrationWarning>{p.parent.authorName || "Unknown"}</span>
+                          <span className="text-xs text-muted-foreground" suppressHydrationWarning>· {formatRelativeTime(p.lastMessageAt)}</span>
+                        </>
+                      }
+                      trailing={
+                        <>
+                          {others.length > 0 && (
+                            <>
+                              <span className="h-4 w-px shrink-0 bg-border" aria-hidden />
+                              <AvatarGroup data-testid={tid.forumPostAvatars(p.id)}>
+                                {shown.map((m) => (
+                                  <Avatar key={m.id} label={m.avatar} seed={m.id} size={24} ringColor="var(--card)" />
+                                ))}
+                                {overflow > 0 && <AvatarGroupCount className="size-6 text-[11px]">+{overflow}</AvatarGroupCount>}
+                              </AvatarGroup>
+                            </>
+                          )}
+                          {canEdit && (
+                            <button
+                              type="button"
+                              data-testid={tid.forumPostTagBtn(p.id)}
+                              onClick={(e) => { e.stopPropagation(); setEditingTagsFor(p) }}
+                              className="ml-auto grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/card:opacity-100"
+                              aria-label="Edit tags"
+                            >
+                              <Tag className="size-4" />
+                            </button>
+                          )}
+                          {canDelete && (
+                            <button
+                              type="button"
+                              data-testid={tid.forumPostDeleteBtn(p.id)}
+                              disabled={deletingPost === p.id}
+                              onClick={(e) => { e.stopPropagation(); setDeletingFor(p) }}
+                              className={`${canEdit ? "" : "ml-auto "}grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-destructive focus-visible:opacity-100 group-hover/card:opacity-100 disabled:cursor-not-allowed disabled:opacity-50`}
+                              aria-label="Delete post"
+                            >
+                              <Trash2 className="size-4" />
+                            </button>
+                          )}
+                        </>
+                      }
+                    />
                   </div>
                   <h3 className="line-clamp-1 text-[15px] font-semibold leading-tight">{p.name}</h3>
                   <p className="line-clamp-2 text-sm text-muted-foreground">{p.preview}</p>

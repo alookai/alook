@@ -668,7 +668,7 @@ function ChannelView() {
       const name = deriveThreadName(m?.content, actionsCtxRef.current.channelName)
       try {
         const data = await createThreadMut.mutateAsync({ channelId, messageId: id, name })
-        router.push(`/c/channels/${params.serverId}/${data.id}`)
+        router.push(`/c/channels/${params.serverId}/${data.channel.id}`)
       } catch (e) {
         toastApiError(e, "Failed to create thread")
       }
@@ -749,7 +749,7 @@ function ChannelView() {
       mentionType: post.mentionType,
     })
     // A post is its own child channel — open it, same as clicking a post row.
-    enterThread(data.post.id)
+    enterThread(data.channel.id)
   }, [channelId, createForumPostMut, enterThread])
 
   const myRole = members.find((m) => m.userId === currentUser.id)?.role
@@ -903,254 +903,183 @@ function ChannelView() {
     )
   }
 
-  // ── Child channel view (forum post / thread opened via URL) ─────────────
-  if (isChildChannel) {
-    const parentId = currentChannelMeta?.parentChannelId
-    const parentMessageId = currentChannelMeta?.parentMessageId ?? null
-    const allChannels = currentServer?.categories?.flatMap((c) => c.channels) ?? []
-    const parentChannel = parentId ? allChannels.find((ch) => ch.id === parentId) : null
-    const parentName = parentChannel?.name ?? "channel"
-    const opener = parentMessageId ? (
-      <ThreadOpener
-        parentMessageId={parentMessageId}
+  // ── Hydrated view — one shell, body switches by type ─────────────────────
+  // The header, right-panel sheet, manage-members dialog, and message-context
+  // sheet scaffolding are declared ONCE below; only `header` and `body` branch
+  // by channel type (forum vs standard/child). Child channels (thread /
+  // forum-post opened via URL) additionally get a breadcrumb + opener hero.
+  const childParentId = isChildChannel ? currentChannelMeta?.parentChannelId : undefined
+  const childParentMessageId = isChildChannel ? (currentChannelMeta?.parentMessageId ?? null) : null
+  const childAllChannels = currentServer?.categories?.flatMap((c) => c.channels) ?? []
+  const childParentChannel = childParentId ? childAllChannels.find((ch) => ch.id === childParentId) : null
+  const childParentName = childParentChannel?.name ?? "channel"
+  const childOpener = isChildChannel && childParentMessageId ? (
+    <ThreadOpener
+      parentMessageId={childParentMessageId}
+      onOpenProfile={openProfile}
+      onPreviewImage={(url) => uiHandlers.previewImage?.(url)}
+      onDownloadFile={(url) => {
+        const a = document.createElement("a")
+        a.href = url
+        a.download = url.split("/").pop() ?? "file"
+        a.click()
+      }}
+      onJump={
+        childParentId
+          ? () =>
+              router.push(
+                `/c/channels/${params.serverId}/${childParentId}?msg=${childParentMessageId}`,
+              )
+          : undefined
+      }
+    />
+  ) : undefined
+
+  const notifLevelValue = (channelNotif[channelId] as ChannelNotifLevel) ?? "Use Server Default"
+  const onSetNotifLevel = (l: ChannelNotifLevel) => setChannelNotifMut.mutate({ channelId, level: l }, {
+    onError: (e) => toastApiError(e, "Failed to update notification level"),
+  })
+  const mobileServer = bp === "mobile" && currentServer ? { id: currentServer.id, name: currentServer.name, icon: currentServer.icon } : undefined
+
+  // Header — child (breadcrumb on the parent) / forum / standard. `notifLevel` +
+  // `onSetNotifLevel` are passed in every branch, so post/thread views keep the
+  // mute control they had before the merge.
+  const header = isChildChannel ? (
+    <ChannelHeader
+      channel={childParentName}
+      forum={isForumType(childParentChannel?.type)}
+      rightPanel={rightPanel}
+      onToggle={togglePanel}
+      notifLevel={notifLevelValue}
+      onSetNotifLevel={onSetNotifLevel}
+      onBack={bp === "mobile" ? () => router.back() : undefined}
+      server={mobileServer}
+      tools={{ threads: false }}
+      breadcrumb={{
+        label: channelName,
+        onNavigateBack: () => { if (childParentId) router.push(`/c/channels/${params.serverId}/${childParentId}`); else router.back() },
+        onRename: canManageServer(myRole) ? async (name) => {
+          try {
+            await apiFetch(`/api/community/channels/${channelId}`, {
+              method: "PATCH",
+              body: JSON.stringify({ name }),
+            })
+            setLocalName(name)
+          } catch (e) { toastApiError(e, "Failed to rename") }
+        } : undefined,
+      }}
+    />
+  ) : isForum ? (
+    <ChannelHeader
+      channel={channelName}
+      forum
+      rightPanel={rightPanel}
+      onToggle={togglePanel}
+      notifLevel={notifLevelValue}
+      onSetNotifLevel={onSetNotifLevel}
+      onBack={bp === "mobile" ? goBack : undefined}
+      server={mobileServer}
+      tools={{ threads: false, pinned: false }}
+    />
+  ) : (
+    <ChannelHeader
+      channel={channelName}
+      rightPanel={rightPanel}
+      onToggle={togglePanel}
+      notifLevel={notifLevelValue}
+      onSetNotifLevel={onSetNotifLevel}
+      onBack={bp === "mobile" ? goBack : undefined}
+      server={mobileServer}
+    />
+  )
+
+  // Body — forum feed vs the message list + composer shared by standard and
+  // child channels (child differs only by opener hero, thread-scoped actions,
+  // and the composer context label).
+  const canManage = canManageServer(myRole)
+  const body = isForum ? (
+    <ForumView
+      forumChannelId={channelId}
+      members={composerMembers}
+      onSearchMembers={membersHook.searchMembers}
+      posts={forumPosts}
+      loading={forumPostsLoading}
+      onOpenPost={enterThread}
+      onCreatePost={createForumPost}
+      canEditPostTags={(post) => canManage || post.authorId === currentUser.id}
+      savingTagsFor={updatePostTagsMut.isPending ? updatePostTagsMut.variables?.postId ?? null : null}
+      onEditPostTags={(postId, tags) => {
+        updatePostTagsMut.mutate(
+          { forumChannelId: channelId, postId, tags },
+          { onError: (e) => toastApiError(e, "Failed to save tags") },
+        )
+      }}
+      canDeletePost={(post) => canManage || post.authorId === currentUser.id}
+      deletingPost={deleteForumPostMut.isPending ? deleteForumPostMut.variables?.postId ?? null : null}
+      onDeletePost={(post) => {
+        deleteForumPostMut.mutate(
+          { forumChannelId: channelId, postId: post.id },
+          { onError: (e) => toastApiError(e, "Failed to delete post") },
+        )
+      }}
+    />
+  ) : (
+    <>
+      <MessageList
+        // Remount per channel so mount-time initial-scroll fires afresh
+        // and internal refs (didInitialScrollRef, lastTailIdRef) reset.
+        key={channelId}
+        channel={channelName}
+        messages={messages}
+        loading={messagesLoading}
+        pinnedIds={pinnedIds}
+        newDividerBefore={newDividerBefore}
+        typingUsers={typingUsers.map((id) => resolveUserName(id))}
+        // A thread/post can't spawn nested threads, so its rows disable the
+        // create-thread action (threadActions) and the indicator is inert.
+        onOpenThread={isChildChannel ? () => { } : enterThread}
+        {...(isChildChannel ? threadActions : messageActions)}
         onOpenProfile={openProfile}
-        onPreviewImage={(url) => uiHandlers.previewImage?.(url)}
-        onDownloadFile={(url) => {
-          const a = document.createElement("a")
-          a.href = url
-          a.download = url.split("/").pop() ?? "file"
-          a.click()
-        }}
-        onJump={
-          parentId
-            ? () =>
-                router.push(
-                  `/c/channels/${params.serverId}/${parentId}?msg=${parentMessageId}`,
-                )
-            : undefined
-        }
+        resolveUserName={resolveUserName}
+        scrollToMessageId={scrollToMessageId}
+        hero={childOpener}
+        onScrollRoot={setScrollRootEl}
+        viewerUserId={currentUser.id}
+        // Delay initial scroll until the read-state snapshot resolves AND
+        // the anchor it names is actually present in `messages` — see
+        // `anchorInCache`'s doc comment above for the mount-vs-Fix-3 race
+        // this closes. A thread/forum-post opens on the "New" divider too.
+        initialScrollReady={!readSnapshotFetching && anchorInCache}
+        hasMore={hasMoreMessages}
+        isFetchingOlder={isFetchingOlderMessages}
+        onLoadOlder={fetchOlderMessages}
+        hasMoreNewer={hasMoreNewerMessages}
+        isFetchingNewer={isFetchingNewerMessages}
+        onLoadNewer={fetchNewerMessages}
+        onJumpToPresent={jumpToPresent}
+        unreadCount={unreadCount}
+        onOpenContextSheet={setContextSheetSeq}
       />
-    ) : undefined
-    return (
-      <>
-        <ChannelHeader
-          channel={parentName}
-          forum={isForumType(parentChannel?.type)}
-          rightPanel={rightPanel}
-          onToggle={togglePanel}
-          notifLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? "Use Server Default"}
-          onSetNotifLevel={(l) => setChannelNotifMut.mutate({ channelId, level: l }, {
-            onError: (e) => toastApiError(e, "Failed to update notification level"),
-          })}
-          onBack={bp === "mobile" ? () => router.back() : undefined}
-          server={bp === "mobile" && currentServer ? { id: currentServer.id, name: currentServer.name, icon: currentServer.icon } : undefined}
-          tools={{ threads: false }}
-          breadcrumb={{
-            label: channelName,
-            onNavigateBack: () => { if (parentId) router.push(`/c/channels/${params.serverId}/${parentId}`); else router.back() },
-            onRename: canManageServer(myRole) ? async (name) => {
-              try {
-                await apiFetch(`/api/community/channels/${channelId}`, {
-                  method: "PATCH",
-                  body: JSON.stringify({ name }),
-                })
-                setLocalName(name)
-              } catch (e) { toastApiError(e, "Failed to rename") }
-            } : undefined,
-          }}
-        />
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <MessageList
-            key={channelId}
-            channel={channelName}
-            messages={messages}
-            loading={messagesLoading}
-            pinnedIds={pinnedIds}
-            newDividerBefore={newDividerBefore}
-            typingUsers={typingUsers.map((id) => resolveUserName(id))}
-            onOpenThread={() => { }}
-            {...threadActions}
-            onOpenProfile={openProfile}
-            resolveUserName={resolveUserName}
-            scrollToMessageId={scrollToMessageId}
-            hero={opener}
-            onScrollRoot={setScrollRootEl}
-            viewerUserId={currentUser.id}
-            // Same gate as the top-level channel view: hold the mount-time
-            // scroll until the read snapshot resolves and its anchor is loaded,
-            // so a thread/forum-post opens on the "New" divider too.
-            initialScrollReady={!readSnapshotFetching && anchorInCache}
-            hasMore={hasMoreMessages}
-            isFetchingOlder={isFetchingOlderMessages}
-            onLoadOlder={fetchOlderMessages}
-            hasMoreNewer={hasMoreNewerMessages}
-            isFetchingNewer={isFetchingNewerMessages}
-            onLoadNewer={fetchNewerMessages}
-            onJumpToPresent={jumpToPresent}
-            unreadCount={unreadCount}
-            onOpenContextSheet={setContextSheetSeq}
-          />
-          <Composer
-            channel={channelName}
-            context="thread"
-            members={composerMembers}
-            onSearchMembers={membersHook.searchMembers}
-            channelRefCandidates={channelRefCandidates}
-            onSend={sendMessage}
-            onTyping={handleTyping}
-            replyingTo={replyTo?.authorName}
-            onCancelReply={() => setReplyTo(null)}
-            autoFocus={bp !== "mobile"}
-          />
-        </main>
+      <Composer
+        channel={channelName}
+        context={isChildChannel ? "thread" : "channel"}
+        members={composerMembers}
+        onSearchMembers={membersHook.searchMembers}
+        channelRefCandidates={channelRefCandidates}
+        onSend={sendMessage}
+        onTyping={handleTyping}
+        replyingTo={replyTo?.authorName}
+        onCancelReply={() => setReplyTo(null)}
+        autoFocus={bp !== "mobile"}
+      />
+    </>
+  )
 
-        {rightPanel && (
-          <CommunityPanelSheet
-            open
-            onOpenChange={(v) => { if (!v) setRightPanel(null) }}
-            kind={rightPanel}
-            {...panelProps}
-            onOpenProfile={openProfile}
-          />
-        )}
-        {manageMembersDialog}
-        <MessageContextSheet
-          open={contextSheetSeq !== null}
-          onOpenChange={(v) => { if (!v) setContextSheetSeq(null) }}
-          channelId={channelId}
-          targetSeq={contextSheetSeq}
-          pinnedIds={pinnedIds}
-          onOpenContextSheet={setContextSheetSeq}
-          onOpenProfile={openProfile}
-          resolveUserName={resolveUserName}
-          onReply={(target) => {
-            setReplyTo(target)
-            setContextSheetSeq(null)
-          }}
-        />
-      </>
-    )
-  }
-
-  // ── Forum view ──────────────────────────────────────────────────────────
-  if (isForum) {
-    const canManage = canManageServer(myRole)
-    return (
-      <>
-        <ChannelHeader
-          channel={channelName}
-          forum
-          rightPanel={rightPanel}
-          onToggle={togglePanel}
-          notifLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? "Use Server Default"}
-          onSetNotifLevel={(l) => setChannelNotifMut.mutate({ channelId, level: l }, {
-            onError: (e) => toastApiError(e, "Failed to update notification level"),
-          })}
-          onBack={bp === "mobile" ? goBack : undefined}
-          server={bp === "mobile" && currentServer ? { id: currentServer.id, name: currentServer.name, icon: currentServer.icon } : undefined}
-          tools={{ threads: false, pinned: false }}
-        />
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <ForumView
-            forumChannelId={channelId}
-            members={composerMembers}
-            onSearchMembers={membersHook.searchMembers}
-            posts={forumPosts}
-            loading={forumPostsLoading}
-            onOpenPost={enterThread}
-            onCreatePost={createForumPost}
-            canEditPostTags={(post) => canManage || post.authorId === currentUser.id}
-            savingTagsFor={updatePostTagsMut.isPending ? updatePostTagsMut.variables?.postId ?? null : null}
-            onEditPostTags={(postId, tags) => {
-              updatePostTagsMut.mutate(
-                { forumChannelId: channelId, postId, tags },
-                { onError: (e) => toastApiError(e, "Failed to save tags") },
-              )
-            }}
-            canDeletePost={(post) => canManage || post.authorId === currentUser.id}
-            deletingPost={deleteForumPostMut.isPending ? deleteForumPostMut.variables?.postId ?? null : null}
-            onDeletePost={(post) => {
-              deleteForumPostMut.mutate(
-                { forumChannelId: channelId, postId: post.id },
-                { onError: (e) => toastApiError(e, "Failed to delete post") },
-              )
-            }}
-          />
-        </main>
-
-        {rightPanel && (
-          <CommunityPanelSheet
-            open
-            onOpenChange={(v) => { if (!v) setRightPanel(null) }}
-            kind={rightPanel}
-            {...panelProps}
-            onOpenProfile={openProfile}
-          />
-        )}
-        {manageMembersDialog}
-      </>
-    )
-  }
-
-  // ── Standard channel view ───────────────────────────────────────────────
   return (
     <>
-      <ChannelHeader
-        channel={channelName}
-        rightPanel={rightPanel}
-        onToggle={togglePanel}
-        notifLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? "Use Server Default"}
-        onSetNotifLevel={(l) => setChannelNotifMut.mutate({ channelId, level: l }, {
-          onError: (e) => toastApiError(e, "Failed to update notification level"),
-        })}
-        onBack={bp === "mobile" ? goBack : undefined}
-        server={bp === "mobile" && currentServer ? { id: currentServer.id, name: currentServer.name, icon: currentServer.icon } : undefined}
-      />
+      {header}
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <MessageList
-          // Remount per channel so mount-time initial-scroll fires afresh
-          // and internal refs (didInitialScrollRef, lastTailIdRef) reset.
-          key={channelId}
-          channel={channelName}
-          messages={messages}
-          loading={messagesLoading}
-          pinnedIds={pinnedIds}
-          newDividerBefore={newDividerBefore}
-          typingUsers={typingUsers.map((id) => resolveUserName(id))}
-          onOpenThread={enterThread}
-          {...messageActions}
-          onOpenProfile={openProfile}
-          resolveUserName={resolveUserName}
-          scrollToMessageId={scrollToMessageId}
-          onScrollRoot={setScrollRootEl}
-          viewerUserId={currentUser.id}
-          // Delay initial scroll until the read-state snapshot resolves AND
-          // the anchor it names is actually present in `messages` — see
-          // `anchorInCache`'s doc comment above for the mount-vs-Fix-3 race
-          // this closes.
-          initialScrollReady={!readSnapshotFetching && anchorInCache}
-          hasMore={hasMoreMessages}
-          isFetchingOlder={isFetchingOlderMessages}
-          onLoadOlder={fetchOlderMessages}
-          hasMoreNewer={hasMoreNewerMessages}
-          isFetchingNewer={isFetchingNewerMessages}
-          onLoadNewer={fetchNewerMessages}
-          onJumpToPresent={jumpToPresent}
-          unreadCount={unreadCount}
-          onOpenContextSheet={setContextSheetSeq}
-        />
-        <Composer
-          channel={channelName}
-          context="channel"
-          members={composerMembers}
-          onSearchMembers={membersHook.searchMembers}
-          channelRefCandidates={channelRefCandidates}
-          onSend={sendMessage}
-          onTyping={handleTyping}
-          replyingTo={replyTo?.authorName}
-          onCancelReply={() => setReplyTo(null)}
-          autoFocus={bp !== "mobile"}
-        />
+        {body}
       </main>
 
       {rightPanel && (
@@ -1163,6 +1092,9 @@ function ChannelView() {
         />
       )}
       {manageMembersDialog}
+      {/* The forum feed never opens the context sheet (contextSheetSeq stays
+          null there), so mounting it unconditionally is a no-op for forums and
+          keeps the scaffolding declared once. */}
       <MessageContextSheet
         open={contextSheetSeq !== null}
         onOpenChange={(v) => { if (!v) setContextSheetSeq(null) }}

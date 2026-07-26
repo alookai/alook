@@ -18,7 +18,7 @@ import { ServerSettings } from "@/components/community/server-settings"
 import { ImageCropDialog } from "@/components/community/image-crop-dialog"
 import { validateIconSourceFile } from "@/lib/community/image-crop"
 import type { MobileZone, SettingsSection } from "@/components/community/_types"
-import { canManageServer, type ChannelType } from "@alook/shared"
+import { canManageServer, type TopLevelChannelType } from "@alook/shared"
 import { resolveRowPresence } from "@/lib/community/presence"
 import {
   useCommunityStore,
@@ -294,7 +294,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     [channelNotif]
   )
 
-  const onCreateChannelInSidebar = useCallback(async (categoryId: string, name: string, type: ChannelType) => {
+  const onCreateChannelInSidebar = useCallback(async (categoryId: string, name: string, type: TopLevelChannelType) => {
     try {
       const res = await createChannelMut.mutateAsync({ serverId, categoryId, name, type })
       return res.channel.id
