@@ -113,10 +113,10 @@ export function ServerSettings({
             <TabsContent value="overview"><SettingsOverview serverName={serverName} serverDescription={serverDescription} serverIcon={serverIcon} onUploadIcon={onUploadIcon} onUpdateServer={onUpdateServer} onRequestDelete={() => setConfirmDelete(true)} /></TabsContent>
             <TabsContent value="members"><SettingsMembers members={members} loading={membersLoading} loadingMore={membersLoadingMore} hasMore={membersHasMore} total={membersTotal} onLoadMore={onLoadMoreMembers} onSearch={onSearchMembers} onOpenProfile={onOpenProfile} onKickMember={onKickMember} onSetRole={onSetRole} /></TabsContent>
             <TabsContent value="invites"><SettingsInvites invites={invites} loading={invitesLoading} onRevokeInvite={onRevokeInvite} onCopyInvite={onCopyInvite} /></TabsContent>
-            {/* R19: fallback VALUE stays "mentions" for now — value-correctness
-                (all vs mentions) is M6's job in batch 3. Here we only route the
-                spelling through the shared single source. */}
-            <TabsContent value="notifications"><SettingsNotifications level={notifLevel ?? notifLevelDisplay("mentions")} onSetLevel={onSetNotifLevel} /></TabsContent>
+            {/* R19: a server with no setting row is delivered at the climb
+                terminus `all` server-side, so the fallback here must be the
+                `all` display value to keep the selected radio in sync. */}
+            <TabsContent value="notifications"><SettingsNotifications level={notifLevel ?? notifLevelDisplay("all")} onSetLevel={onSetNotifLevel} /></TabsContent>
             <TabsContent value="audit"><SettingsAudit auditLog={auditLog} loading={auditLogLoading} /></TabsContent>
           </div>
         </div>

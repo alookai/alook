@@ -26,9 +26,9 @@ export function useSetServerNotifLevel() {
     { snapshot: NotificationSettings | undefined }
   >({
     mutationFn: async ({ serverId, level }) => {
-      await apiFetch(`/api/community/users/me/notifications/server/${serverId}`, {
+      await apiFetch(`/api/community/notifications`, {
         method: "PUT",
-        body: JSON.stringify({ level: normalizeNotifLevel(level) }),
+        body: JSON.stringify({ scope: "server", id: serverId, level: normalizeNotifLevel(level) }),
       })
     },
     onMutate: async (args) => {
@@ -60,14 +60,15 @@ export function useSetChannelNotif() {
   >({
     mutationFn: async ({ channelId, level }) => {
       if (level === USE_SERVER_DEFAULT) {
-        await apiFetch(`/api/community/users/me/notifications/channel/${channelId}`, {
+        await apiFetch(`/api/community/notifications`, {
           method: "DELETE",
+          body: JSON.stringify({ scope: "channel", id: channelId }),
         })
         return
       }
-      await apiFetch(`/api/community/users/me/notifications/channel/${channelId}`, {
+      await apiFetch(`/api/community/notifications`, {
         method: "PUT",
-        body: JSON.stringify({ level: normalizeNotifLevel(level) }),
+        body: JSON.stringify({ scope: "channel", id: channelId, level: normalizeNotifLevel(level) }),
       })
     },
     onMutate: async (args) => {

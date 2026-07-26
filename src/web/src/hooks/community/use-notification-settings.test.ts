@@ -20,7 +20,7 @@ describe("useNotificationSettings / notificationSettingsQueryFn", () => {
     ])
     const { notificationSettingsQueryFn } = await import("./use-notification-settings")
     const data = await notificationSettingsQueryFn()
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/users/me/notifications")
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/notifications")
     expect(data.server).toEqual({ srv_1: "All Messages" })
     expect(data.channel).toEqual({ ch_1: "Only @mentions", ch_2: "Nothing" })
     expect(data.raw).toHaveLength(3)

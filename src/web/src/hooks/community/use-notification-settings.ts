@@ -36,7 +36,7 @@ export const displayNotifLevel = notifLevelDisplay
 
 export const notificationSettingsQueryFn = async (): Promise<NotificationSettings> => {
   const rows = await apiFetch<NotificationSettingRow[]>(
-    "/api/community/users/me/notifications",
+    "/api/community/notifications",
   )
   const server: Record<string, string> = {}
   const channel: Record<string, string> = {}

@@ -62,8 +62,10 @@ describe("server notification level — mis-store bug (A8)", () => {
     // Emulate the SettingsNotifications button → onSetNotifLevel → mutate path.
     await capturedConfig!.mutationFn!({ serverId: "srv_1", level: everyMessage.value })
     expect(apiFetchMock).toHaveBeenCalledTimes(1)
-    const [, init] = apiFetchMock.mock.calls[0] as [string, { body: string }]
-    expect(JSON.parse(init.body)).toEqual({ level: "all" })
+    const [url, init] = apiFetchMock.mock.calls[0] as [string, { body: string }]
+    expect(url).toBe("/api/community/notifications")
+    // Unified endpoint (M6) body shape; the A8 invariant is level:"all" (not "mentions").
+    expect(JSON.parse(init.body)).toEqual({ scope: "server", id: "srv_1", level: "all" })
   })
 
   it("the stored 'all' level highlights the Every message option (bug 2 / R16)", () => {

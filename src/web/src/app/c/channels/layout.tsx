@@ -100,9 +100,11 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const presence = usePresence(serverId)
   const { online: initialOnline } = presence
   const notifs = useNotificationSettings()
-  // R19: fallback VALUE stays "mentions" here (value-correctness is M6's job in
-  // batch 3); H3 only routes the spelling through the shared single source.
-  const notifLevel = notifs.server[serverId] ?? notifLevelDisplay("mentions")
+  // R19: a server with no setting row is delivered at the climb terminus `all`
+  // server-side, so the UI fallback must be the `all` display value to match —
+  // otherwise the dropdown shows "Mentions only" for a server that's actually
+  // on "Every message".
+  const notifLevel = notifs.server[serverId] ?? notifLevelDisplay("all")
   const channelNotif = notifs.channel
   const currentChannelId = useCurrentChannelId()
   const currentChannelMeta = useCurrentChannelMeta()
