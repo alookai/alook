@@ -39,6 +39,7 @@ import {
 } from "@/hooks/community/use-server-panels"
 import { useCommunityWsStore, useOnlineUserIds } from "@/stores/community/ws"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
+import { notifLevelDisplay } from "@alook/shared/constants/community"
 import {
   useCreateChannel,
   useDeleteChannel,
@@ -99,7 +100,9 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const presence = usePresence(serverId)
   const { online: initialOnline } = presence
   const notifs = useNotificationSettings()
-  const notifLevel = notifs.server[serverId] ?? "Only @mentions"
+  // R19: fallback VALUE stays "mentions" here (value-correctness is M6's job in
+  // batch 3); H3 only routes the spelling through the shared single source.
+  const notifLevel = notifs.server[serverId] ?? notifLevelDisplay("mentions")
   const channelNotif = notifs.channel
   const currentChannelId = useCurrentChannelId()
   const currentChannelMeta = useCurrentChannelMeta()

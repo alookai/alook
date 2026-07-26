@@ -1,6 +1,7 @@
 "use client"
 
 import { useQuery, type UseQueryResult } from "@tanstack/react-query"
+import { notifLevelDisplay } from "@alook/shared/constants/community"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 
@@ -28,13 +29,10 @@ export type NotificationSettings = {
 const EMPTY_NOTIF_SERVER: Readonly<Record<string, string>> = Object.freeze({})
 const EMPTY_NOTIF_CHANNEL: Readonly<Record<string, string>> = Object.freeze({})
 
-// API-level ("all"|"mentions"|"nothing") → display strings.
-export function displayNotifLevel(level: string): string {
-  if (level === "all") return "All Messages"
-  if (level === "mentions") return "Only @mentions"
-  if (level === "nothing") return "Nothing"
-  return level
-}
+// API-level ("all"|"mentions"|"nothing") → display strings. Thin re-export of
+// the shared single-source mapper so this hook and the mutation normaliser can
+// never drift apart.
+export const displayNotifLevel = notifLevelDisplay
 
 export const notificationSettingsQueryFn = async (): Promise<NotificationSettings> => {
   const rows = await apiFetch<NotificationSettingRow[]>(

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import type { LucideIcon } from "lucide-react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { Settings, Users, Link2, Bell, ScrollText, Trash2, X, Shield, Search } from "lucide-react"
+import { NOTIF_LEVELS, notifLevelDisplay } from "@alook/shared/constants/community"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Button } from "@/components/ui/button"
 import { formatMessageTime, formatRelativeTime } from "./format-time"
@@ -112,7 +113,10 @@ export function ServerSettings({
             <TabsContent value="overview"><SettingsOverview serverName={serverName} serverDescription={serverDescription} serverIcon={serverIcon} onUploadIcon={onUploadIcon} onUpdateServer={onUpdateServer} onRequestDelete={() => setConfirmDelete(true)} /></TabsContent>
             <TabsContent value="members"><SettingsMembers members={members} loading={membersLoading} loadingMore={membersLoadingMore} hasMore={membersHasMore} total={membersTotal} onLoadMore={onLoadMoreMembers} onSearch={onSearchMembers} onOpenProfile={onOpenProfile} onKickMember={onKickMember} onSetRole={onSetRole} /></TabsContent>
             <TabsContent value="invites"><SettingsInvites invites={invites} loading={invitesLoading} onRevokeInvite={onRevokeInvite} onCopyInvite={onCopyInvite} /></TabsContent>
-            <TabsContent value="notifications"><SettingsNotifications level={notifLevel ?? "Only @mentions"} onSetLevel={onSetNotifLevel} /></TabsContent>
+            {/* R19: fallback VALUE stays "mentions" for now — value-correctness
+                (all vs mentions) is M6's job in batch 3. Here we only route the
+                spelling through the shared single source. */}
+            <TabsContent value="notifications"><SettingsNotifications level={notifLevel ?? notifLevelDisplay("mentions")} onSetLevel={onSetNotifLevel} /></TabsContent>
             <TabsContent value="audit"><SettingsAudit auditLog={auditLog} loading={auditLogLoading} /></TabsContent>
           </div>
         </div>
@@ -357,11 +361,15 @@ function SettingsInvites({ invites, loading, onRevokeInvite, onCopyInvite }: {
   )
 }
 
-export const SERVER_NOTIF_LEVELS: { value: string; label: string; hint: string }[] = [
-  { value: "All Messages", label: "Every message", hint: "Notify for every new message on this server" },
-  { value: "Only @mentions", label: "Mentions only", hint: "Notify when someone @s you" },
-  { value: "Nothing", label: "Muted", hint: "No notifications, no badges" },
-]
+// Server-scope notification options — the three real levels from the shared
+// single source (no channel "use server default" sentinel here). `value` is
+// the identity display string the settings UI compares against; the server
+// hint is slightly more specific than the channel one, so override it.
+export const SERVER_NOTIF_LEVELS: { value: string; label: string; hint: string }[] = NOTIF_LEVELS.map((l) => ({
+  value: l.display,
+  label: l.label,
+  hint: l.value === "all" ? "Notify for every new message on this server" : l.hint,
+}))
 
 export function SettingsNotifications({ level, onSetLevel }: { level: string; onSetLevel?: (l: string) => void }) {
   const levels = SERVER_NOTIF_LEVELS

@@ -1,6 +1,7 @@
 "use client"
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { normalizeNotifLevel, USE_SERVER_DEFAULT } from "@alook/shared/constants/community"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type { NotificationSettings } from "@/hooks/community/use-notification-settings"
@@ -8,17 +9,9 @@ import type { NotificationSettings } from "@/hooks/community/use-notification-se
 /**
  * Notification-level mutations. UI presents display strings ("All Messages",
  * "Only @mentions", "Nothing", "Use Server Default"). The API only accepts
- * lowercase — normalise inside the mutation. "Use Server Default" for a
- * channel means "delete the override row".
+ * lowercase — `normalizeNotifLevel` (shared single-source) maps display→value.
+ * `USE_SERVER_DEFAULT` for a channel means "delete the override row".
  */
-
-function normalizeNotifLevel(level: string): "all" | "mentions" | "nothing" {
-  if (level === "All Messages") return "all"
-  if (level === "Only @mentions") return "mentions"
-  if (level === "Nothing") return "nothing"
-  if (level === "all" || level === "mentions" || level === "nothing") return level
-  return "mentions"
-}
 
 // ── Set server notification level ─────────────────────────────────────────
 
@@ -66,7 +59,7 @@ export function useSetChannelNotif() {
     { snapshot: NotificationSettings | undefined }
   >({
     mutationFn: async ({ channelId, level }) => {
-      if (level === "Use Server Default") {
+      if (level === USE_SERVER_DEFAULT) {
         await apiFetch(`/api/community/users/me/notifications/channel/${channelId}`, {
           method: "DELETE",
         })
@@ -84,7 +77,7 @@ export function useSetChannelNotif() {
       queryClient.setQueryData<NotificationSettings | undefined>(key, (prev) => {
         if (!prev) return prev
         const nextChannel = { ...prev.channel }
-        if (args.level === "Use Server Default") {
+        if (args.level === USE_SERVER_DEFAULT) {
           delete nextChannel[args.channelId]
         } else {
           nextChannel[args.channelId] = args.level
