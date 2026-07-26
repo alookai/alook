@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server";
-import { queries, isUniqueConstraintError, generateWorkspaceSlug, CreateWorkspaceRequestSchema } from "@alook/shared"
+import { queries, isUniqueConstraintError, generateWorkspaceSlug, slugSuffix, CreateWorkspaceRequestSchema } from "@alook/shared"
 import { getDb } from "@/lib/db"
-import { nanoid } from "nanoid"
 import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
 import { workspaceToResponse } from "@/lib/api/responses";
@@ -20,7 +19,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (valErr) return valErr;
 
   const name = body.name.trim();
-  const slug = body.slug?.trim() ? body.slug.toLowerCase().trim() : generateWorkspaceSlug();
+  const slug = body.slug || generateWorkspaceSlug();
 
   const suffixLengths = [4, 4, 4, 8, 8, 8, 16, 16, 16];
   let candidateSlug = slug;
@@ -39,7 +38,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       if (attempt >= suffixLengths.length) {
         return writeError("workspace slug already exists", 409);
       }
-      candidateSlug = `${slug}-${nanoid(suffixLengths[attempt])}`;
+      candidateSlug = `${slug}-${slugSuffix(suffixLengths[attempt])}`;
     }
   }
 });

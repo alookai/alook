@@ -29,6 +29,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   const [body, err] = await parseBody(req, UpdateWorkspaceRequestSchema);
   if (err) return err;
 
+  if (body.slug !== undefined && body.slug === "") return writeError("slug is required", 400);
   if (!body.name && !body.slug) return writeError("at least one of name or slug is required", 400);
 
   const db = getDb(ctx.env.DB);

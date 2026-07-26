@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { queries, CreateStudioRequestSchema, isValidHandle, isOnline, TASK_TYPES, toAlookAddress } from "@alook/shared";
+import { queries, CreateStudioRequestSchema, isValidHandle, isOnline, TASK_TYPES, toAlookAddress, sanitizeSlug, slugSuffix } from "@alook/shared";
 import { nanoid } from "nanoid";
 import { uniqueNamesGenerator, names } from "unique-names-generator";
 import { getDb } from "@/lib/db";
@@ -10,14 +10,6 @@ import { agentToResponse, workspaceToResponse, agentLinkToResponse } from "@/lib
 import { randomBeamAvatar } from "@/lib/avatar/seed-url";
 import { TaskService } from "@/lib/services/task";
 import { invalidate, cached, cacheKeys } from "@/lib/cache";
-
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 60);
-}
 
 function generateUniqueHandleFromSet(
   handleSet: Set<string>,
@@ -69,7 +61,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   if (body.name && ws.memberRole === "owner") {
     const existingAgents = await queries.agent.listAgents(db, ws.workspaceId);
-    const newSlug = slugify(body.name);
+    const newSlug = sanitizeSlug(body.name);
     if (existingAgents.length === 0 && newSlug) {
       let finalSlug = newSlug;
       const conflicting = await queries.workspace.getWorkspaceBySlug(db, newSlug);
@@ -85,7 +77,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
             break;
           }
         }
-        if (!found) finalSlug = `${newSlug}-${nanoid(6)}`;
+        if (!found) finalSlug = `${newSlug}-${slugSuffix(6)}`;
       }
       const updated = await queries.workspace.updateWorkspace(db, ws.workspaceId, {
         name: body.name.trim(),

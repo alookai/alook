@@ -536,7 +536,7 @@ export { isValidToken, isValidEmail } from "./utils/validation";
 export { escapeLikePattern } from "./utils/sql-like";
 export { isOnline, formatStatus, isPresenceOnline, isPresenceOffline } from "./utils/status";
 export { isUniqueConstraintError } from "./utils/db-errors";
-export { generateWorkspaceSlug } from "./utils/slug";
+export { generateWorkspaceSlug, sanitizeSlug, slugSuffix } from "./utils/slug";
 export { truncateTitle, stripInlineMarkup, deriveThreadName } from "./utils/title";
 export {
   canManageServer,

@@ -1,4 +1,5 @@
 import type { LoginResponse, Workspace } from "@alook/shared";
+import { sanitizeSlug } from "@alook/shared";
 import { apiFetch, wsQuery } from "./client";
 
 export const listWorkspaces = () => apiFetch<Workspace[]>("/api/workspaces");
@@ -6,7 +7,7 @@ export const listWorkspaces = () => apiFetch<Workspace[]>("/api/workspaces");
 export const createWorkspace = (name: string, slug?: string) =>
   apiFetch<Workspace>("/api/workspaces", {
     method: "POST",
-    body: JSON.stringify({ name, slug: slug || name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "workspace" }),
+    body: JSON.stringify({ name, slug: sanitizeSlug(slug || name) || "workspace" }),
   });
 
 export const updateWorkspace = (workspaceId: string, data: { name?: string; slug?: string }) =>

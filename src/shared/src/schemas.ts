@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { IssueStatus, TASK_TYPES } from "./constants";
+import { sanitizeSlug } from "./utils/slug";
 import { MAX_ATTACHMENTS_PER_MESSAGE, MAX_MESSAGE_CONTENT_LENGTH } from "./constants/community";
 
 // ---------------------------------------------------------------------------
@@ -685,7 +686,7 @@ export type UpdateMemberRequest = z.infer<typeof UpdateMemberRequestSchema>;
 
 export const CreateWorkspaceRequestSchema = z.object({
   name: z.string().min(1, "name is required"),
-  slug: z.string().optional().default(""),
+  slug: z.string().optional().default("").transform(sanitizeSlug),
 });
 export type CreateWorkspaceRequest = z.infer<
   typeof CreateWorkspaceRequestSchema
@@ -693,7 +694,7 @@ export type CreateWorkspaceRequest = z.infer<
 
 export const UpdateWorkspaceRequestSchema = z.object({
   name: z.string().min(1, "name is required").max(100).trim().optional(),
-  slug: z.string().min(1, "slug is required").max(100).trim().toLowerCase().optional(),
+  slug: z.string().min(1, "slug is required").trim().toLowerCase().transform(sanitizeSlug).optional(),
 });
 export type UpdateWorkspaceRequest = z.infer<typeof UpdateWorkspaceRequestSchema>;
 

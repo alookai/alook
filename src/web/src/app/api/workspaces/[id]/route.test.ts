@@ -160,6 +160,39 @@ describe("PATCH /api/workspaces/[id]", () => {
     expect(res.status).toBe(400);
   });
 
+  it("sanitizes a dirty slug before updating", async () => {
+    mockUpdateWorkspace.mockResolvedValue({
+      id: "w1",
+      name: "Acme",
+      slug: "new-name",
+      createdAt: "2024-01-01T00:00:00Z",
+      updatedAt: "2024-01-02T00:00:00Z",
+    });
+
+    const req = new NextRequest("http://localhost/api/workspaces/w1", {
+      method: "PATCH",
+      body: JSON.stringify({ slug: "New Name" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const res = await PATCH(req, { params: Promise.resolve({ id: "w1" }) } as any);
+
+    expect(res.status).toBe(200);
+    expect(mockUpdateWorkspace).toHaveBeenCalledWith({}, "w1", { slug: "new-name" });
+  });
+
+  it("rejects a slug that sanitizes to empty with 400 slug is required", async () => {
+    const req = new NextRequest("http://localhost/api/workspaces/w1", {
+      method: "PATCH",
+      body: JSON.stringify({ slug: "🎉" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const res = await PATCH(req, { params: Promise.resolve({ id: "w1" }) } as any);
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "slug is required" });
+    expect(mockUpdateWorkspace).not.toHaveBeenCalled();
+  });
+
   it("returns 409 when slug is already in use", async () => {
     const uniqueErr = Object.assign(new Error("UNIQUE constraint failed"), {});
     mockUpdateWorkspace.mockRejectedValue(uniqueErr);

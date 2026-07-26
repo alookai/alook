@@ -5,7 +5,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {}, EMAIL_BUCKET: { put: vi.fn() }, WORKER_SELF_REFERENCE: { fetch: vi.fn() } } })),
 }));
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
-vi.mock("nanoid", () => ({ nanoid: vi.fn(() => "id123") }));
+vi.mock("nanoid", () => ({ nanoid: vi.fn(() => "id123"), customAlphabet: () => () => "id123" }));
 vi.mock("unique-names-generator", () => ({
   uniqueNamesGenerator: vi.fn(() => "Robin"),
   names: [],

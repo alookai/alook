@@ -4,6 +4,8 @@ import {
   CommunityBotPatchRequestSchema,
   AgentTypingMessageSchema,
   AgentTypingStopMessageSchema,
+  CreateWorkspaceRequestSchema,
+  UpdateWorkspaceRequestSchema,
 } from "./schemas"
 
 function validCreatePayload(image?: string) {
@@ -147,5 +149,45 @@ describe("AgentTypingStopMessageSchema", () => {
       dmConversationId: "dm_1",
     })
     expect(res.success).toBe(false)
+  })
+})
+
+describe("CreateWorkspaceRequestSchema slug sanitization", () => {
+  it("sanitizes a dirty slug to ASCII kebab-case", () => {
+    const res = CreateWorkspaceRequestSchema.parse({ name: "Acme", slug: "My Company" })
+    expect(res.slug).toBe("my-company")
+  })
+
+  it("defaults an omitted slug to empty (route generates)", () => {
+    const res = CreateWorkspaceRequestSchema.parse({ name: "Acme" })
+    expect(res.slug).toBe("")
+  })
+
+  it("yields empty for an unsanitizable slug (route falls back)", () => {
+    const res = CreateWorkspaceRequestSchema.parse({ name: "Acme", slug: "🎉" })
+    expect(res.slug).toBe("")
+  })
+})
+
+describe("UpdateWorkspaceRequestSchema slug sanitization", () => {
+  it("sanitizes a provided slug", () => {
+    const res = UpdateWorkspaceRequestSchema.parse({ slug: "New Slug" })
+    expect(res.slug).toBe("new-slug")
+  })
+
+  it("transforms an unsanitizable slug to empty (route rejects)", () => {
+    const res = UpdateWorkspaceRequestSchema.parse({ slug: "🎉" })
+    expect(res.slug).toBe("")
+  })
+
+  it("leaves slug undefined and does not throw when omitted", () => {
+    const res = UpdateWorkspaceRequestSchema.parse({ name: "x" })
+    expect(res.slug).toBeUndefined()
+    expect(res.name).toBe("x")
+  })
+
+  it("accepts and truncates a very long messy slug (no max rejection)", () => {
+    const res = UpdateWorkspaceRequestSchema.parse({ slug: "A very long name ".repeat(20) })
+    expect(res.slug!.length).toBeLessThanOrEqual(60)
   })
 })

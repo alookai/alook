@@ -6,7 +6,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {}, EMAIL_BUCKET: { put: mockPut } } })),
 }));
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
-vi.mock("nanoid", () => ({ nanoid: vi.fn(() => "xyz") }));
+vi.mock("nanoid", () => ({ nanoid: vi.fn(() => "xyz"), customAlphabet: () => () => "xyz" }));
 
 const mockGetConversation = vi.fn();
 const mockCreateArtifact = vi.fn();

@@ -29,6 +29,7 @@ vi.mock("@alook/shared/crypto", () => ({
 let nanoidCounter = 0
 vi.mock("nanoid", () => ({
   nanoid: () => `mock-id-${++nanoidCounter}`,
+  customAlphabet: () => () => `mock-id-${++nanoidCounter}`,
 }))
 
 // Mock cloudflare:email — capture the raw MIME passed to the CF SEND_EMAIL binding.

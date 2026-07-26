@@ -54,7 +54,7 @@ vi.mock("@/lib/logger", () => ({
   log: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-vi.mock("nanoid", () => ({ nanoid: () => "test-nanoid-123" }));
+vi.mock("nanoid", () => ({ nanoid: () => "test-nanoid-123", customAlphabet: () => () => "test-nanoid-123" }));
 
 import { POST } from "./route";
 

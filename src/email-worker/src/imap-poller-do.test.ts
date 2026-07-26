@@ -48,6 +48,7 @@ vi.mock("postal-mime", () => ({
 let nanoidCounter = 0
 vi.mock("nanoid", () => ({
   nanoid: (len?: number) => `mock-${++nanoidCounter}`,
+  customAlphabet: () => () => `mock-${++nanoidCounter}`,
 }))
 
 vi.mock("@alook/shared/crypto", () => ({

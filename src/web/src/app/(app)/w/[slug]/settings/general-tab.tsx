@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
+import { sanitizeSlug } from "@alook/shared";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { useSession } from "@/lib/auth-client";
 import {
@@ -76,9 +77,12 @@ export function GeneralTab() {
     workspaceName !== savedWorkspaceName || workspaceSlug !== savedWorkspaceSlug;
 
   const handleSaveWorkspace = async () => {
+    const cleanSlug = sanitizeSlug(workspaceSlug);
+    setWorkspaceSlug(cleanSlug);
+
     const nextErrors = validateWorkspaceForm({
       name: workspaceName,
-      slug: workspaceSlug,
+      slug: cleanSlug,
     });
     setWorkspaceErrors(nextErrors);
     if (hasWorkspaceFormErrors(nextErrors)) return;
@@ -87,7 +91,7 @@ export function GeneralTab() {
     try {
       const updated = await updateWorkspace(workspaceId, {
         name: workspaceName.trim(),
-        slug: workspaceSlug.trim(),
+        slug: cleanSlug,
       });
       trackSettingsUpdated({ setting_tab: "general" });
       setSavedWorkspaceName(updated.name);
@@ -168,12 +172,13 @@ export function GeneralTab() {
               id="workspace-slug"
               value={workspaceSlug}
               onChange={(e) => {
-                const nextSlug = e.target.value;
+                const nextSlug = e.target.value.toLowerCase().replace(/[^a-z0-9-]+/g, "-");
                 setWorkspaceSlug(nextSlug);
                 if (workspaceErrors.slug && nextSlug.trim()) {
                   setWorkspaceErrors((prev) => ({ ...prev, slug: undefined }));
                 }
               }}
+              onBlur={() => setWorkspaceSlug((s) => sanitizeSlug(s))}
               placeholder="workspace-slug"
               aria-invalid={Boolean(workspaceErrors.slug)}
               aria-describedby={workspaceErrors.slug ? "workspace-slug-error" : undefined}

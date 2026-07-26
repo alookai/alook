@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { readFileSync } from "fs";
-import { toAlookAddress } from "@alook/shared";
+import { toAlookAddress, sanitizeSlug } from "@alook/shared";
 import { APIClient } from "../lib/client.js";
 import { cmdPrefix } from "../lib/env.js";
 import { printJSON } from "../lib/output.js";
@@ -16,14 +16,6 @@ interface RuntimeResponse {
 interface WorkspaceResponse {
   id: string;
   name: string;
-}
-
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 60);
 }
 
 interface StudioResponse {
@@ -60,7 +52,7 @@ async function resolveWorkspaceId(client: APIClient, configName?: string): Promi
   // No empty workspace — create one
   const wsName = configName || "Personal";
   try {
-    const newWs = await client.postJSON<{ id: string; name: string }>("/api/workspaces", { name: wsName, slug: slugify(wsName) });
+    const newWs = await client.postJSON<{ id: string; name: string }>("/api/workspaces", { name: wsName, slug: sanitizeSlug(wsName) });
     console.log(`Created workspace: ${newWs.name} (${newWs.id})`);
     return { workspaceId: newWs.id, created: true };
   } catch (err) {
@@ -215,7 +207,7 @@ export function workspaceCommand(): Command {
         if (agents.length > 0) {
           console.log("Current workspace has existing agents. Creating a new workspace...");
           const wsName = opts.name || config.name || "New Workspace";
-          const newWs = await targetClient.postJSON<{ id: string; name: string }>("/api/workspaces", { name: wsName, slug: slugify(wsName) });
+          const newWs = await targetClient.postJSON<{ id: string; name: string }>("/api/workspaces", { name: wsName, slug: sanitizeSlug(wsName) });
           targetWorkspaceId = newWs.id;
           targetClient = new APIClient(serverUrl, token, targetWorkspaceId);
           console.log(`Created workspace: ${newWs.name} (${newWs.id})`);

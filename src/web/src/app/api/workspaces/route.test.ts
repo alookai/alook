@@ -96,6 +96,36 @@ describe("POST /api/workspaces", () => {
     });
   });
 
+  it("sanitizes a dirty slug before creating", async () => {
+    mockCreateWorkspace.mockResolvedValue({ id: "w-clean", name: "My Company", slug: "my-company" });
+    mockCreateMember.mockResolvedValue({});
+
+    const req = new NextRequest("http://localhost/api/workspaces", {
+      method: "POST",
+      body: JSON.stringify({ name: "My Company", slug: "My Company" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const res = await POST(req, {} as any);
+
+    expect(res.status).toBe(201);
+    expect(mockCreateWorkspace.mock.calls[0][1].slug).toBe("my-company");
+  });
+
+  it("falls back to a generated slug when the slug sanitizes to empty", async () => {
+    mockCreateWorkspace.mockResolvedValue({ id: "w-gen", name: "Party", slug: "company-abcd1234" });
+    mockCreateMember.mockResolvedValue({});
+
+    const req = new NextRequest("http://localhost/api/workspaces", {
+      method: "POST",
+      body: JSON.stringify({ name: "Party", slug: "🎉" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const res = await POST(req, {} as any);
+
+    expect(res.status).toBe(201);
+    expect(mockCreateWorkspace.mock.calls[0][1].slug).toMatch(/^company-[a-z0-9]{8}$/);
+  });
+
   it("returns 400 for missing name", async () => {
     const req = new NextRequest("http://localhost/api/workspaces", {
       method: "POST",
@@ -142,8 +172,8 @@ describe("POST /api/workspaces", () => {
     expect(mockCreateWorkspace).toHaveBeenCalledTimes(2);
     // First call uses original slug
     expect(mockCreateWorkspace.mock.calls[0][1].slug).toBe("dup");
-    // Second call uses a suffixed slug
-    expect(mockCreateWorkspace.mock.calls[1][1].slug).toMatch(/^dup-.+/);
+    // Second call uses a lowercase-alnum suffixed slug
+    expect(mockCreateWorkspace.mock.calls[1][1].slug).toMatch(/^dup-[a-z0-9]+$/);
   });
 
   it("returns 409 after all slug retries exhausted", async () => {
