@@ -14,6 +14,7 @@ import {
   HostBotAuditEventFrameSchema,
   pickBotActivityPreset,
   RUNNING_PRESETS,
+  WS_EVENTS,
 } from "@alook/shared"
 import type { CommunityMachineRuntime, CommunityMachineSummary } from "@alook/shared"
 
@@ -410,7 +411,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     }
 
     // ── Community: typing.start — dedup and fan-out ─────────────────────────
-    if (msg.type === "community:typing.start" && state.type === "user") {
+    if (msg.type === WS_EVENTS.TYPING_START && state.type === "user") {
       const typingMsg = parsed as {
         type: string
         channelId?: string
@@ -451,7 +452,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       // Actual fan-out is performed by the web API layer that calls fanOutToChannel/DM.
       // However, for typing events sent directly over WS (not via REST), we fan out here.
       const event = JSON.stringify({
-        type: "community:typing.start",
+        type: WS_EVENTS.TYPING_START,
         channelId: typingMsg.channelId || undefined,
         dmConversationId: typingMsg.dmConversationId || undefined,
         threadId: typingMsg.threadId || undefined,
@@ -505,7 +506,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         if (flipped) {
           // Real transition — broadcast + clean up storage. Alarm no longer needed.
           await this.notifyUserDO(identity.userId, {
-            type: "community:machine.status",
+            type: WS_EVENTS.MACHINE_STATUS,
             machineId: identity.machineId,
             status: "offline",
             lastSeenAt: flipped.lastSeenAt ?? new Date().toISOString(),
@@ -557,7 +558,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
             })
             if (backfilled) {
               await this.notifyUserDO(identity.userId, {
-                type: "community:machine.status",
+                type: WS_EVENTS.MACHINE_STATUS,
                 machineId: identity.machineId,
                 status: "online",
                 lastSeenAt: backfilled.lastSeenAt ?? new Date().toISOString(),
@@ -605,7 +606,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
           })
           if (flipped) {
             await this.notifyUserDO(stored.userId, {
-              type: "community:machine.status",
+              type: WS_EVENTS.MACHINE_STATUS,
               machineId: stored.machineId,
               status: "offline",
               lastSeenAt: flipped.lastSeenAt ?? new Date().toISOString(),
@@ -621,7 +622,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         // otherwise the machine chip stays green until reload. Broadcast
         // using the row's own lastSeenAt.
         await this.notifyUserDO(stored.userId, {
-          type: "community:machine.status",
+          type: WS_EVENTS.MACHINE_STATUS,
           machineId: stored.machineId,
           status: "offline",
           lastSeenAt: machine.lastSeenAt ?? new Date().toISOString(),
@@ -811,7 +812,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
             statusText: preset.text,
           })
           await this.broadcastToAudience(agentId, {
-            type: "community:status.update",
+            type: WS_EVENTS.STATUS_UPDATE,
             userId: agentId,
             statusEmoji: preset.emoji,
             statusText: preset.text,
@@ -842,7 +843,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
           // DM participancy is enforced inside `fanOutTyping` — no need to
           // pre-query `getDM` here at 5s cadence.
           const event = JSON.stringify({
-            type: "community:typing.start",
+            type: WS_EVENTS.TYPING_START,
             dmConversationId,
             userId: agentId,
           })
@@ -916,7 +917,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
           })
           if (!inserted) return
           await this.notifyUserDO(binding.ownerUserId, {
-            type: "community:bot.audit_event",
+            type: WS_EVENTS.BOT_AUDIT_EVENT,
             botId: frame.agentId,
             id: inserted.id,
             kind: frame.event.kind,
@@ -976,7 +977,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       await Promise.allSettled(
         activityChanges.map(({ botUserId, statusEmoji, statusText }) =>
           this.broadcastToAudience(botUserId, {
-            type: "community:status.update",
+            type: WS_EVENTS.STATUS_UPDATE,
             userId: botUserId,
             statusEmoji,
             statusText,
@@ -1003,7 +1004,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       // status='online', so `priorStatus !== 'online'` is the exact transition.
       if (priorStatus !== "online") {
         await this.notifyUserDO(identity.userId, {
-          type: "community:machine.status",
+          type: WS_EVENTS.MACHINE_STATUS,
           machineId: machine.id,
           status: "online",
           lastSeenAt: machine.lastSeenAt ?? new Date().toISOString(),
@@ -1017,7 +1018,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       const nextCanonical = canonicalRuntimes(availableRuntimes)
       if (priorCanonical !== nextCanonical) {
         await this.notifyUserDO(identity.userId, {
-          type: "community:machine.updated",
+          type: WS_EVENTS.MACHINE_UPDATED,
           machine: summary,
         }).catch(() => { })
       }
@@ -1092,7 +1093,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     if (!row) return
     const summary = await this.summaryWithOverlay(row)
     await this.notifyUserDO(userId, {
-      type: "community:machine.updated",
+      type: WS_EVENTS.MACHINE_UPDATED,
       machine: summary,
     })
   }
@@ -1168,7 +1169,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
   private machineStatusPayload(payload: unknown): { machineId: string; online: boolean } | null {
     if (typeof payload !== "object" || payload === null) return null
     const p = payload as { type?: unknown; machineId?: unknown; status?: unknown }
-    if (p.type !== "community:machine.status") return null
+    if (p.type !== WS_EVENTS.MACHINE_STATUS) return null
     if (typeof p.machineId !== "string") return null
     if (p.status !== "online" && p.status !== "offline") return null
     return { machineId: p.machineId, online: p.status === "online" }
@@ -1325,7 +1326,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       .filter((id): id is string => typeof id === "string" && id !== senderUserId)
     if (recipientUserIds.length === 0) return
     const body = JSON.stringify({
-      type: "community:typing.stop",
+      type: WS_EVENTS.TYPING_STOP,
       dmConversationId,
       userId: senderUserId,
     })
@@ -1358,7 +1359,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
   private static readonly SUBREQUEST_BATCH_SIZE = 40
 
   private async broadcastPresence(userId: string, online: boolean): Promise<void> {
-    await this.broadcastToAudience(userId, { type: "community:presence.update", userId, online })
+    await this.broadcastToAudience(userId, { type: WS_EVENTS.PRESENCE_UPDATE, userId, online })
   }
 
   /**
@@ -1442,7 +1443,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       }
     }
     for (const id of onlineIds) {
-      ws.send(JSON.stringify({ type: "community:presence.update", userId: id, online: true }))
+      ws.send(JSON.stringify({ type: WS_EVENTS.PRESENCE_UPDATE, userId: id, online: true }))
     }
   }
 }

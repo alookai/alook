@@ -237,6 +237,17 @@ vi.mock("@alook/shared", () => {
     // to route a thread/post to the participant set vs the access audience.
     isThread: (t: unknown) => t === "thread",
     isPost: (t: unknown) => t === "post",
+    // The DO reads WS event type strings through this canonical map (H5).
+    // Mirror only the members the file references at send/compare sites.
+    WS_EVENTS: {
+      TYPING_START: "community:typing.start",
+      TYPING_STOP: "community:typing.stop",
+      STATUS_UPDATE: "community:status.update",
+      BOT_AUDIT_EVENT: "community:bot.audit_event",
+      PRESENCE_UPDATE: "community:presence.update",
+      MACHINE_STATUS: "community:machine.status",
+      MACHINE_UPDATED: "community:machine.updated",
+    },
     // Minimal `readOrStale` shim — bypasses the classifier so tests can
     // inject arbitrary Error shapes at the query-fn boundary and observe
     // fail-closed semantics. Real production behavior (retry then fallback)

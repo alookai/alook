@@ -51,7 +51,7 @@ import type {
   CommunityMachineUpdated,
   CommunityMachineRemoved,
 } from "@alook/shared"
-import { isCommunityEvent, TYPING_INDICATOR_TIMEOUT_MS, TYPING_INDICATOR_THROTTLE_MS } from "@alook/shared"
+import { isCommunityEvent, WS_EVENTS, TYPING_INDICATOR_TIMEOUT_MS, TYPING_INDICATOR_THROTTLE_MS } from "@alook/shared"
 import type { Msg, Attachment } from "@/components/community/_types"
 import { avatarInitial } from "@/lib/community/avatar"
 import type { MachinesResponse } from "@/hooks/community/use-machines"
@@ -278,7 +278,7 @@ function applyReactionToCache(
       messages: p.messages.map((m) => {
         if (m.id !== event.messageId) return m
         const reactions = (m.reactions ?? []).map((r) => ({ ...r, userIds: [...(r.userIds ?? [])] }))
-        if (event.type === "community:reaction.add") {
+        if (event.type === WS_EVENTS.REACTION_ADD) {
           const existing = reactions.find((r) => r.emoji === event.emoji)
           if (existing) {
             if (!existing.userIds.includes(event.userId)) {
@@ -370,7 +370,7 @@ export function communityWsSendTyping(target: {
   if (now - lastSent < TYPING_INDICATOR_THROTTLE_MS) return
 
   map.set(key, now)
-  send({ type: "community:typing.start", ...target })
+  send({ type: WS_EVENTS.TYPING_START, ...target })
 }
 
 /**
@@ -433,7 +433,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
 
       switch (event.type) {
         // ── Message create ──────────────────────────────────────────────
-        case "community:message.create": {
+        case WS_EVENTS.MESSAGE_CREATE: {
           if (wsStore.hasSeenMessage(event.message.id)) return
           wsStore.markSeenMessage(event.message.id)
           // Sending a message is an implicit typing.stop for its author —
@@ -513,8 +513,8 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
         }
 
         // ── Reactions ───────────────────────────────────────────────────
-        case "community:reaction.add":
-        case "community:reaction.remove": {
+        case WS_EVENTS.REACTION_ADD:
+        case WS_EVENTS.REACTION_REMOVE: {
           const viewerId = viewerUserIdRef.current
           if (event.channelId) {
             queryClient.setQueryData<PageCache>(
@@ -533,15 +533,15 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
         }
 
         // ── Pins ────────────────────────────────────────────────────────
-        case "community:pin.add":
-        case "community:pin.remove": {
+        case WS_EVENTS.PIN_ADD:
+        case WS_EVENTS.PIN_REMOVE: {
           void queryClient.invalidateQueries({ queryKey: communityKeys.pins(event.channelId) })
           if (matchesFocus(event)) cbs.onPin?.(event)
           return
         }
 
         // ── Typing (channel/thread) ─────────────────────────────────────
-        case "community:typing.start": {
+        case WS_EVENTS.TYPING_START: {
           const userId = event.userId
           const viewerId = viewerUserIdRef.current
           if (viewerId && userId === viewerId) return
@@ -557,7 +557,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
         // ── Typing stop — explicit clear (bot turn-end path) ────────────
         // Symmetric with typing.start: only clear when focused on the same
         // target so a stop for a different DM doesn't wipe the local pill.
-        case "community:typing.stop": {
+        case WS_EVENTS.TYPING_STOP: {
           const userId = event.userId
           const viewerId = viewerUserIdRef.current
           if (viewerId && userId === viewerId) return
@@ -567,8 +567,8 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
         }
 
         // ── Child channels (threads + forum posts) ──────────────────────
-        case "community:channel.child_create":
-        case "community:channel.child_update": {
+        case WS_EVENTS.CHILD_CHANNEL_CREATE:
+        case WS_EVENTS.CHILD_CHANNEL_UPDATE: {
           // Cheap invalidate for the thread + forum-post lists. The parent
           // messages list also needs an update because the parent message's
           // thread indicator (`msg.thread`) changes — do a targeted
@@ -579,7 +579,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           void queryClient.invalidateQueries({
             queryKey: communityKeys.forumPosts(event.parentChannelId),
           })
-          if (event.type === "community:channel.child_create") {
+          if (event.type === WS_EVENTS.CHILD_CHANNEL_CREATE) {
             if (event.parentMessageId) {
               queryClient.setQueryData<PageCache>(
                 communityKeys.channelMessages(event.parentChannelId),
@@ -656,9 +656,9 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
         }
 
         // ── Server ──────────────────────────────────────────────────────
-        case "community:server.update":
-        case "community:server.delete": {
-          if (event.type === "community:server.update") {
+        case WS_EVENTS.SERVER_UPDATE:
+        case WS_EVENTS.SERVER_DELETE: {
+          if (event.type === WS_EVENTS.SERVER_UPDATE) {
             queryClient.setQueryData<ServerDetail | undefined>(
               communityKeys.server(event.serverId),
               (prev) =>
@@ -712,20 +712,20 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
         }
 
         // ── Channels / categories → refetch the server detail ───────────
-        case "community:channel.create":
-        case "community:channel.update":
-        case "community:channel.delete":
-        case "community:channel.reorder":
-        case "community:category.create":
-        case "community:category.update":
-        case "community:category.delete":
-        case "community:category.reorder": {
+        case WS_EVENTS.CHANNEL_CREATE:
+        case WS_EVENTS.CHANNEL_UPDATE:
+        case WS_EVENTS.CHANNEL_DELETE:
+        case WS_EVENTS.CHANNEL_REORDER:
+        case WS_EVENTS.CATEGORY_CREATE:
+        case WS_EVENTS.CATEGORY_UPDATE:
+        case WS_EVENTS.CATEGORY_DELETE:
+        case WS_EVENTS.CATEGORY_REORDER: {
           // #3: on channel.delete, evict every channel-scoped cache before
           // invalidating the server. Without this the messages/pins/threads/
           // forum-posts caches for the dead channel linger forever — a
           // subsequent same-id revive (rare, but the server can reuse ids)
           // would surface stale rows.
-          if (event.type === "community:channel.delete") {
+          if (event.type === WS_EVENTS.CHANNEL_DELETE) {
             queryClient.removeQueries({
               queryKey: communityKeys.channelMessages(event.channelId),
             })
@@ -766,10 +766,10 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
         // private channel. On REMOVE for the viewer, evict that channel's
         // scoped caches so no private content lingers locally (mirrors the
         // channel.delete eviction above).
-        case "community:channel.member_add":
-        case "community:channel.member_remove": {
+        case WS_EVENTS.CHANNEL_MEMBER_ADD:
+        case WS_EVENTS.CHANNEL_MEMBER_REMOVE: {
           if (
-            event.type === "community:channel.member_remove" &&
+            event.type === WS_EVENTS.CHANNEL_MEMBER_REMOVE &&
             event.userId === viewerUserIdRef.current
           ) {
             queryClient.removeQueries({ queryKey: communityKeys.channelMessages(event.channelId) })
@@ -793,16 +793,16 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
         }
 
         // ── Members ─────────────────────────────────────────────────────
-        case "community:member.join":
-        case "community:member.leave":
-        case "community:member.update": {
+        case WS_EVENTS.MEMBER_JOIN:
+        case WS_EVENTS.MEMBER_LEAVE:
+        case WS_EVENTS.MEMBER_UPDATE: {
           const key = communityKeys.members(event.serverId)
-          if (event.type === "community:member.join") {
+          if (event.type === WS_EVENTS.MEMBER_JOIN) {
             queryClient.setQueryData<InfiniteData<MembersEnvelope> | undefined>(
               key,
               (cache) => patchCacheJoin(cache, event),
             )
-          } else if (event.type === "community:member.leave") {
+          } else if (event.type === WS_EVENTS.MEMBER_LEAVE) {
             queryClient.setQueryData<InfiniteData<MembersEnvelope> | undefined>(
               key,
               (cache) => patchCacheLeave(cache, event),
@@ -842,7 +842,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           // Membership just changed → the invite dialog's "friends who aren't
           // in this server" list is stale. Cheap invalidation because the
           // query is disabled unless the dialog is actually open.
-          if (event.type !== "community:member.update") {
+          if (event.type !== WS_EVENTS.MEMBER_UPDATE) {
             void queryClient.invalidateQueries({
               queryKey: communityKeys.invitableFriends(event.serverId),
             })
@@ -852,18 +852,18 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
         }
 
         // ── Friends ─────────────────────────────────────────────────────
-        case "community:friend.request":
-        case "community:friend.accept":
-        case "community:friend.reject":
-        case "community:friend.remove":
-        case "community:friend.block": {
+        case WS_EVENTS.FRIEND_REQUEST:
+        case WS_EVENTS.FRIEND_ACCEPT:
+        case WS_EVENTS.FRIEND_REJECT:
+        case WS_EVENTS.FRIEND_REMOVE:
+        case WS_EVENTS.FRIEND_BLOCK: {
           void queryClient.invalidateQueries({ queryKey: communityKeys.friends() })
           cbs.onFriend?.(event)
           return
         }
 
         // ── DM new message ──────────────────────────────────────────────
-        case "community:dm.new_message": {
+        case WS_EVENTS.DM_NEW_MESSAGE: {
           if (wsStore.hasSeenMessage(event.message.id)) return
           wsStore.markSeenMessage(event.message.id)
           // Same rationale as `community:message.create` above — either the
@@ -906,7 +906,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
         }
 
         // ── DM typing ───────────────────────────────────────────────────
-        case "community:dm.typing": {
+        case WS_EVENTS.DM_TYPING: {
           const viewerId = viewerUserIdRef.current
           if (viewerId && event.userId === viewerId) return
           if (event.dmConversationId !== sub.dmConversationId) return
@@ -917,7 +917,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
         }
 
         // ── Presence — no cache; write to WS store ──────────────────────
-        case "community:presence.update": {
+        case WS_EVENTS.PRESENCE_UPDATE: {
           useCommunityWsStore.getState().setPresence(event.userId, event.online)
           cbs.onPresence?.(event)
           return
@@ -925,14 +925,14 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
 
         // ── Status — no cache; write to WS store (same overlay pattern as
         // presence above, see plans/profile-card.md) ────────────────────
-        case "community:status.update": {
+        case WS_EVENTS.STATUS_UPDATE: {
           useCommunityWsStore.getState().setUserStatus(event.userId, event.statusEmoji, event.statusText)
           return
         }
 
         // ── Bot audit event — push into the bounded ring; the audit-log
         // hook filters + prepends into its React Query cache. ────────────
-        case "community:bot.audit_event": {
+        case WS_EVENTS.BOT_AUDIT_EVENT: {
           useCommunityWsStore.getState().pushBotAuditEvent({
             id: event.id,
             botId: event.botId,
@@ -946,7 +946,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
         }
 
         // ── Mentions ────────────────────────────────────────────────────
-        case "community:mention.create": {
+        case WS_EVENTS.MENTION_CREATE: {
           void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
           // The server rail badge counts unread mentions per server; refresh
           // it on every new mention. No debounce — mention.create is rare
@@ -957,7 +957,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
         }
 
         // ── Machines ────────────────────────────────────────────────────
-        case "community:machine.created": {
+        case WS_EVENTS.MACHINE_CREATED: {
           queryClient.setQueryData<MachinesResponse | undefined>(
             communityKeys.machines(),
             (prev) => {
@@ -973,7 +973,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           cbs.onMachine?.(event)
           return
         }
-        case "community:machine.status": {
+        case WS_EVENTS.MACHINE_STATUS: {
           queryClient.setQueryData<MachinesResponse | undefined>(
             communityKeys.machines(),
             (prev) =>
@@ -991,7 +991,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           cbs.onMachine?.(event)
           return
         }
-        case "community:machine.updated": {
+        case WS_EVENTS.MACHINE_UPDATED: {
           queryClient.setQueryData<MachinesResponse | undefined>(
             communityKeys.machines(),
             (prev) => {
@@ -1006,7 +1006,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           cbs.onMachine?.(event)
           return
         }
-        case "community:machine.removed": {
+        case WS_EVENTS.MACHINE_REMOVED: {
           queryClient.setQueryData<MachinesResponse | undefined>(
             communityKeys.machines(),
             (prev) =>
@@ -1137,7 +1137,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
       // subscribes to it). Keeping it in the store keeps the lifetime tied
       // to `reset()` on sign-out.
       map.set(key, now)
-      send({ type: "community:typing.start", ...target })
+      send({ type: WS_EVENTS.TYPING_START, ...target })
     },
     [send],
   )
