@@ -1,5 +1,5 @@
 import { nanoid } from "nanoid";
-import type { HostCommand, UnreadNotice } from "../community-cli-contract";
+import type { HostCommand, UnreadNotice } from "../community-contract";
 import { makeRuntimeConfig } from "../runtime-config";
 import { formatHandle } from "../lib/discriminator";
 import * as message from "../db/queries/community/message";

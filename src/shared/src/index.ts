@@ -243,6 +243,8 @@ export {
   CreateStudioRequestSchema,
   RecruitAgentRequestSchema,
   CreateThreadRequestSchema,
+  CreateChannelRequestSchema,
+  UpdateChannelRequestSchema,
   DaemonPushMessageSchema,
   CommunityMachineRuntimeSchema,
   CommunityMachineRuntimeListSchema,
@@ -334,6 +336,8 @@ export type {
   CreateStudioRequest,
   RecruitAgentRequest,
   CreateThreadRequest,
+  CreateChannelRequest,
+  UpdateChannelRequest,
   DaemonPushMessageType,
   CommunityDaemonReady,
   CommunityPairTokenResponse,
@@ -419,8 +423,8 @@ export type {
   AgentActivityState,
   HostBotAuditEventFrame,
   BotAuditEventPayload,
-} from "./community-cli-contract";
-export { DM_SERVER, parseRef, formatRef, parseSeq, formatSeq } from "./community-cli-contract";
+} from "./community-contract";
+export { DM_SERVER, parseRef, formatRef, parseSeq, formatSeq } from "./community-contract";
 
 export type {
   ReasoningEffort,
@@ -543,15 +547,13 @@ export {
   isServerOwner,
   canSeePrivateChannel,
   isAssignableRole,
-  isChannelType,
   isForum,
-  isForumPost,
+  isPost,
   isThread,
   ROLES,
   ASSIGNABLE_ROLES,
-  CHANNEL_TYPES,
 } from "./utils/community-roles";
-export type { CommunityRole, ChannelType, StoredChannelType, AssignableRole } from "./utils/community-roles";
+export type { CommunityRole, ChannelType, TopLevelChannelType, ChildChannelType, AssignableRole } from "./utils/community-roles";
 export {
   isAccepted,
   isPending,

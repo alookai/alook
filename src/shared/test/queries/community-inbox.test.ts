@@ -293,7 +293,7 @@ describe("listUnreadChannels — author read-watermark behaviour", () => {
     channelName: "a post",
     serverId: "srv_1",
     serverName: "server 1",
-    type: "forum_post",
+    type: "post",
     parentChannelId: "forum_1",
     lastMessageAt: "2026-07-06T00:00:05.000Z",
     lastReadAt: "2026-07-06T00:00:00.000Z",

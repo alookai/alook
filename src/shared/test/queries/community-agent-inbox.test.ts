@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import * as agentInbox from "../../src/db/queries/community/agent-inbox";
-import { formatRef, formatSeq, DM_SERVER } from "../../src/community-cli-contract";
+import { formatRef, formatSeq, DM_SERVER } from "../../src/community-contract";
 
 /**
  * Generic chainable + thenable mock. Every builder method (`select`, `from`,
@@ -102,7 +102,7 @@ describe("toAgentMessages", () => {
       [rawMsg({ channelId: "thread_1" })],
       "viewer_1"
     );
-    expect(msg!.channel).toBe(formatRef({ server: "studio", channel: "general", threadRootSeq: 7 }));
+    expect(msg!.channel).toBe(formatRef({ server: "studio", channel: "general", rootSeq: 7 }));
   });
 
   it("hydrates a DM message, addressing the OTHER party (as a name#0042 handle) relative to viewerId", async () => {
@@ -214,7 +214,7 @@ describe("listUnreadMessagesForAgent", () => {
     );
   });
 
-  it("excludes thread/forum_post channels the bot isn't a participant of from the allowed set", async () => {
+  it("excludes thread/post channels the bot isn't a participant of from the allowed set", async () => {
     // ch_a is a plain text channel (always allowed); ch_b_thread is a thread
     // the bot doesn't participate in. `listAgentAllowedChannelIds` drops
     // ch_b_thread BEFORE the messages SQL runs, so the WHERE never lets a
@@ -239,7 +239,7 @@ describe("listUnreadMessagesForAgent", () => {
     expect(result.map((r) => r.id)).toEqual(["m_a"]);
   });
 
-  it("keeps thread/forum_post channels when the bot IS a participant", async () => {
+  it("keeps thread/post channels when the bot IS a participant", async () => {
     const db = createSequentialDb([
       [{ serverId: "srv_1" }],
       [
@@ -459,7 +459,7 @@ describe("getInboxSnapshotForAgent", () => {
     ]);
   });
 
-  it("excludes thread/forum_post channels the bot isn't a participant of from the allowed set", async () => {
+  it("excludes thread/post channels the bot isn't a participant of from the allowed set", async () => {
     // ch_thread is filtered out of `allowedChannelIds` up front, so the
     // aggregation SQL's WHERE ... inArray(channelId, allowed) never surfaces
     // it. No post-filter needed → no risk of an aggregation row silently
@@ -548,7 +548,7 @@ describe("toInboxRows", () => {
       flags: ["dm", "mention"],
     });
     expect(result[1]).toMatchObject({
-      channel: formatRef({ server: "studio", channel: "general", threadRootSeq: 3 }),
+      channel: formatRef({ server: "studio", channel: "general", rootSeq: 3 }),
       flags: ["thread"],
     });
   });

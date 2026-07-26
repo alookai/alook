@@ -85,7 +85,7 @@ export const communityChannel: SQLiteTableWithColumns<any> = sqliteTable(
 
 // 3b. community_channel_member
 // Explicit per-channel ACCESS membership. Rows exist ONLY for private access
-// units — a top-level channel in a PRIVATE category, or a forum_post under a
+// units — a top-level channel in a PRIVATE category, or a post under a
 // private forum (creator + directly-added members). Public/uncategorized
 // channels imply access via server membership and store nothing here. Threads
 // are the NOTIFICATION dimension, not access — they never get access rows here;
@@ -110,20 +110,20 @@ export const communityChannelMember = sqliteTable(
 );
 
 // 3c. community_thread_participant
-// The NOTIFICATION set for a thread OR a forum_post (`community_channel` rows of
-// type "thread" or "forum_post"). Despite the table name, it serves both: both
+// The NOTIFICATION set for a thread OR a post (`community_channel` rows of
+// type "thread" or "post"). Despite the table name, it serves both: both
 // are the notification dimension, so a message reaches only the unit's
 // participants — a thread never notifies its whole parent channel, and a forum
 // post (public or private) never notifies the whole server / whole roster, only
 // the people actually involved. The FK `threadChannelId` points at
-// `communityChannel.id`, which is why a forum_post id fits without a schema
+// `communityChannel.id`, which is why a post id fits without a schema
 // change. `source` records how the user joined:
 //   - "mention" — @-mentioned in the thread/post (within the unit's audience).
 //   - "spoke"   — posted a message in the thread/post (a public post enrolls any
 //                 server member who proactively sends; a private post's roster
 //                 is added separately, see below).
 //   - "added"   — added by another participant (thread picker) or, for a private
-//                 forum_post, coupled from the access roster on member-add.
+//                 post, coupled from the access roster on member-add.
 // Leaving deletes the row (a later mention/speak re-adds). Admins are NOT
 // auto-added — the notify set is exactly its rows. Muting is the OUTER
 // channel-header notification level, NOT a column here — add/leave only.

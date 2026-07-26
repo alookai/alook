@@ -6,8 +6,11 @@ const mockIsChannelPrivate = vi.fn<() => Promise<boolean>>();
 const mockGetPrivateChannelAudienceUserIds = vi.fn<() => Promise<string[]>>();
 const mockListChannelMemberUserIds = vi.fn<() => Promise<string[]>>();
 const mockListMemberUserIds = vi.fn<() => Promise<string[]>>();
+const mockGetChannelType = vi.fn<() => Promise<string | null>>();
+const mockListThreadParticipantUserIds = vi.fn<() => Promise<string[]>>();
 
 vi.mock("../../src/db/queries/community/channel", () => ({
+  getChannelType: (...a: unknown[]) => mockGetChannelType(...(a as [])),
   isChannelPrivate: (...a: unknown[]) => mockIsChannelPrivate(...(a as [])),
   getPrivateChannelAudienceUserIds: (...a: unknown[]) =>
     mockGetPrivateChannelAudienceUserIds(...(a as [])),
@@ -18,9 +21,15 @@ vi.mock("../../src/db/queries/community/member", () => ({
   listMemberUserIds: (...a: unknown[]) => mockListMemberUserIds(...(a as [])),
 }));
 
+vi.mock("../../src/db/queries/community/thread", () => ({
+  listThreadParticipantUserIds: (...a: unknown[]) =>
+    mockListThreadParticipantUserIds(...(a as [])),
+}));
+
 import {
   resolveScopeMemberUserIds,
   resolveScopeMembers,
+  resolveChannelRecipientUserIds,
 } from "../../src/db/queries/community/members-resolver";
 import type { Database } from "../../src/index";
 
@@ -154,5 +163,55 @@ describe("resolveScopeMembers — source tagging", () => {
       { userId: "creator1", role: "member", source: "explicit" },
       { userId: "admin1", role: "admin", source: "admin" },
     ]);
+  });
+});
+
+describe("resolveChannelRecipientUserIds — type→recipient dispatch", () => {
+  it("thread → participant set (never the access audience)", async () => {
+    mockGetChannelType.mockResolvedValue("thread");
+    mockListThreadParticipantUserIds.mockResolvedValue(["p1", "p2"]);
+    const db = makeDb({});
+
+    const ids = await resolveChannelRecipientUserIds(db, CHANNEL);
+
+    expect(ids).toEqual(["p1", "p2"]);
+    expect(mockListThreadParticipantUserIds).toHaveBeenCalledTimes(1);
+    expect(mockListMemberUserIds).not.toHaveBeenCalled();
+    expect(mockGetPrivateChannelAudienceUserIds).not.toHaveBeenCalled();
+  });
+
+  it("post → participant set (never the access audience)", async () => {
+    mockGetChannelType.mockResolvedValue("post");
+    mockListThreadParticipantUserIds.mockResolvedValue(["p1"]);
+    const db = makeDb({});
+
+    const ids = await resolveChannelRecipientUserIds(db, CHANNEL);
+
+    expect(ids).toEqual(["p1"]);
+    expect(mockListThreadParticipantUserIds).toHaveBeenCalledTimes(1);
+  });
+
+  it("text channel → access audience (public → all server members)", async () => {
+    mockGetChannelType.mockResolvedValue("text");
+    mockIsChannelPrivate.mockResolvedValue(false);
+    mockListMemberUserIds.mockResolvedValue(["u1", "u2", "u3"]);
+    const db = makeDb({ select: [[{ serverId: "srv-1" }]] });
+
+    const ids = await resolveChannelRecipientUserIds(db, CHANNEL);
+
+    expect(ids).toEqual(["u1", "u2", "u3"]);
+    expect(mockListThreadParticipantUserIds).not.toHaveBeenCalled();
+  });
+
+  it("forum channel → access audience (private → the private audience)", async () => {
+    mockGetChannelType.mockResolvedValue("forum");
+    mockIsChannelPrivate.mockResolvedValue(true);
+    mockGetPrivateChannelAudienceUserIds.mockResolvedValue(["u1", "creator1"]);
+    const db = makeDb({ select: [[{ serverId: "srv-1" }]] });
+
+    const ids = await resolveChannelRecipientUserIds(db, CHANNEL);
+
+    expect(ids).toEqual(["u1", "creator1"]);
+    expect(mockListThreadParticipantUserIds).not.toHaveBeenCalled();
   });
 });

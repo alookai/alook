@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseRef, formatRef, formatSeq, parseSeq, DM_SERVER } from "../src/community-cli-contract";
+import { parseRef, formatRef, formatSeq, parseSeq, DM_SERVER } from "../src/community-contract";
 
 describe("parseRef", () => {
   it('parses "/studio/general" as a plain channel ref', () => {
@@ -10,11 +10,11 @@ describe("parseRef", () => {
     expect(parseRef("/studio/general#42")).toEqual({ server: "studio", channel: "general", seq: 42 });
   });
 
-  it('parses "/studio/general/#42" as a thread ref (threadRootSeq)', () => {
+  it('parses "/studio/general/#42" as a thread ref (rootSeq)', () => {
     expect(parseRef("/studio/general/#42")).toEqual({
       server: "studio",
       channel: "general",
-      threadRootSeq: 42,
+      rootSeq: 42,
     });
   });
 
@@ -40,7 +40,7 @@ describe("parseRef", () => {
     expect(parseRef("/.dm/gusye#1231/#42")).toEqual({
       server: DM_SERVER,
       channel: "gusye#1231",
-      threadRootSeq: 42,
+      rootSeq: 42,
     });
   });
 
@@ -73,7 +73,7 @@ describe("parseRef", () => {
     expect(parseRef("/demo/general/#5#42")).toEqual({
       server: "demo",
       channel: "general",
-      threadRootSeq: 5,
+      rootSeq: 5,
       seq: 42,
     });
   });
@@ -82,7 +82,7 @@ describe("parseRef", () => {
     expect(parseRef("/demo/general/#5")).toEqual({
       server: "demo",
       channel: "general",
-      threadRootSeq: 5,
+      rootSeq: 5,
     });
   });
 
@@ -106,7 +106,7 @@ describe("parseRef", () => {
     expect(parseRef("/demo/general/#0#5")).toEqual({
       server: "demo",
       channel: "general",
-      threadRootSeq: 0,
+      rootSeq: 0,
       seq: 5,
     });
   });
@@ -115,7 +115,7 @@ describe("parseRef", () => {
     expect(parseRef("/demo/general/#5#0")).toEqual({
       server: "demo",
       channel: "general",
-      threadRootSeq: 5,
+      rootSeq: 5,
       seq: 0,
     });
   });
@@ -133,7 +133,7 @@ describe("parseRef", () => {
     expect(parseRef("/.dm/gusye#1231/#5#42")).toEqual({
       server: DM_SERVER,
       channel: "gusye#1231",
-      threadRootSeq: 5,
+      rootSeq: 5,
       seq: 42,
     });
   });
@@ -144,29 +144,29 @@ describe("formatRef", () => {
     expect(formatRef({ server: "studio", channel: "general" })).toBe("/studio/general");
   });
 
-  it("formats a thread ref with threadRootSeq", () => {
-    expect(formatRef({ server: "studio", channel: "general", threadRootSeq: 42 })).toBe(
+  it("formats a thread ref with rootSeq", () => {
+    expect(formatRef({ server: "studio", channel: "general", rootSeq: 42 })).toBe(
       "/studio/general/#42"
     );
   });
 
   it("round-trips through parseRef for the thread form", () => {
-    const ref = formatRef({ server: "studio", channel: "general", threadRootSeq: 7 });
-    expect(parseRef(ref)).toEqual({ server: "studio", channel: "general", threadRootSeq: 7 });
+    const ref = formatRef({ server: "studio", channel: "general", rootSeq: 7 });
+    expect(parseRef(ref)).toEqual({ server: "studio", channel: "general", rootSeq: 7 });
   });
 
-  it("formats a thread-reply message ref (threadRootSeq + seq)", () => {
+  it("formats a thread-reply message ref (rootSeq + seq)", () => {
     expect(
-      formatRef({ server: "studio", channel: "general", threadRootSeq: 5, seq: 42 }),
+      formatRef({ server: "studio", channel: "general", rootSeq: 5, seq: 42 }),
     ).toBe("/studio/general/#5#42");
   });
 
   it("round-trips through parseRef for the thread-reply form", () => {
-    const input = { server: "studio", channel: "general", threadRootSeq: 5, seq: 42 };
+    const input = { server: "studio", channel: "general", rootSeq: 5, seq: 42 };
     expect(parseRef(formatRef(input))).toEqual(input);
   });
 
-  it("throws when seq is provided without threadRootSeq", () => {
+  it("throws when seq is provided without rootSeq", () => {
     expect(() =>
       formatRef({ server: "studio", channel: "general", seq: 42 }),
     ).toThrow();
@@ -177,7 +177,7 @@ describe("formatRef", () => {
   });
 
   it("formats a plain thread ref unchanged (regression)", () => {
-    expect(formatRef({ server: "studio", channel: "general", threadRootSeq: 5 })).toBe(
+    expect(formatRef({ server: "studio", channel: "general", rootSeq: 5 })).toBe(
       "/studio/general/#5",
     );
   });
@@ -198,5 +198,27 @@ describe("formatSeq / parseSeq", () => {
 
   it("parseSeq throws on a non-numeric value", () => {
     expect(() => parseSeq("#abc")).toThrow();
+  });
+});
+
+describe("ref field rename (rootSeq) + round-trip", () => {
+  it('parseRef("/s/c/#3#5") → { server, channel, rootSeq:3, seq:5 }', () => {
+    expect(parseRef("/s/c/#3#5")).toEqual({
+      server: "s",
+      channel: "c",
+      rootSeq: 3,
+      seq: 5,
+    });
+  });
+
+  it("formatRef ∘ parseRef is identity for a thread-reply ref (grammar unchanged)", () => {
+    const ref = "/s/c/#3#5";
+    expect(formatRef(parseRef(ref) as Parameters<typeof formatRef>[0])).toBe(ref);
+  });
+
+  it("exposes rootSeq (not the old threadRootSeq) on the parsed shape", () => {
+    const parsed = parseRef("/s/c/#7");
+    expect(parsed.rootSeq).toBe(7);
+    expect((parsed as Record<string, unknown>).threadRootSeq).toBeUndefined();
   });
 });

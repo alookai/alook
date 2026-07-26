@@ -1,6 +1,12 @@
 import { z } from "zod";
 import { IssueStatus, TASK_TYPES } from "./constants";
-import { MAX_ATTACHMENTS_PER_MESSAGE, MAX_MESSAGE_CONTENT_LENGTH } from "./constants/community";
+import {
+  MAX_ATTACHMENTS_PER_MESSAGE,
+  MAX_MESSAGE_CONTENT_LENGTH,
+  MAX_CHANNEL_NAME_LENGTH,
+  MAX_CHANNEL_TOPIC_LENGTH,
+} from "./constants/community";
+import { MENTION_TYPES } from "./utils/community-mentions";
 
 // ---------------------------------------------------------------------------
 // Task status
@@ -809,6 +815,82 @@ export const CreateThreadRequestSchema = z.object({
 export type CreateThreadRequest = z.infer<typeof CreateThreadRequestSchema>;
 
 // ---------------------------------------------------------------------------
+// Community channel create / update
+// ---------------------------------------------------------------------------
+
+// One end-to-end validator for creating any of the four channel kinds, keyed on
+// `type`. Top-level (text/forum) take a server; post/thread are subchannels.
+//   - post: content optional (a pure-attachment post is valid), but at least one
+//     of content / attachments must be non-empty. Field name is `attachments`
+//     (the human-composer contract), NOT `attachmentIds` (the agent pre-mint
+//     path). `mentionType` carries @everyone/@here so the opener body can
+//     roster-broadcast. Tags are NOT set at creation.
+//   - thread: `name` required (the human route enforces this); no first message.
+const channelName = z.string().trim().min(1).max(MAX_CHANNEL_NAME_LENGTH);
+const channelTopic = z.string().max(MAX_CHANNEL_TOPIC_LENGTH).optional();
+const channelMentionType = z.enum(MENTION_TYPES).optional();
+
+// The human composer sends attachments as objects (the upload response shape),
+// NOT id strings — that string form is the agent pre-mint path (`attachmentIds`).
+// Mirrors `IncomingAttachment` in message-handler.ts; the `url` is the routable
+// `/api/community/media/<key>` URL the handler strips back to an r2 key.
+const ComposerAttachmentSchema = z.object({
+  url: z.string().min(1),
+  filename: z.string().min(1),
+  contentType: z.string().min(1),
+  size: z.number().int().nonnegative(),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+});
+
+export const CreateChannelRequestSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("text"),
+    serverId: z.string().min(1),
+    name: channelName,
+    categoryId: z.string().optional(),
+    topic: channelTopic,
+  }),
+  z.object({
+    type: z.literal("forum"),
+    serverId: z.string().min(1),
+    name: channelName,
+    categoryId: z.string().optional(),
+    topic: channelTopic,
+  }),
+  z
+    .object({
+      type: z.literal("post"),
+      parentChannelId: z.string().min(1),
+      name: channelName,
+      content: z.string().max(MAX_MESSAGE_CONTENT_LENGTH).optional().default(""),
+      attachments: z.array(ComposerAttachmentSchema).max(MAX_ATTACHMENTS_PER_MESSAGE).optional(),
+      mentionType: channelMentionType,
+    })
+    .refine(
+      (v) => v.content.trim().length > 0 || (v.attachments?.length ?? 0) > 0,
+      { message: "post is empty" }
+    ),
+  z.object({
+    type: z.literal("thread"),
+    parentMessageId: z.string().min(1),
+    name: channelName,
+  }),
+]);
+export type CreateChannelRequest = z.infer<typeof CreateChannelRequestSchema>;
+
+// Channel edit — name / topic / category / forumTags. `forumTags` is only valid
+// on a `post` channel (a forum's tag vocabulary is derived from its posts, so a
+// forum itself stores none); the route enforces the type gate.
+export const UpdateChannelRequestSchema = z.object({
+  name: channelName.optional(),
+  topic: channelTopic,
+  categoryId: z.string().nullable().optional(),
+  forumTags: z.array(z.string()).nullable().optional(),
+});
+export type UpdateChannelRequest = z.infer<typeof UpdateChannelRequestSchema>;
+
+// ---------------------------------------------------------------------------
 // Community machines
 // ---------------------------------------------------------------------------
 
@@ -1082,8 +1164,8 @@ export type CommunityBotAddToServerRequest = z.infer<
 
 // ---------------------------------------------------------------------------
 // Community agent CLI bridge — `withAgentRunnerAuth`-mounted `/api/community/agent/*`
-// request/response validators. Mirror the lifted `@alook/shared/community-cli-contract`
-// wire types verbatim (see `community-cli-contract.ts`). `agentId` is deliberately
+// request/response validators. Mirror the lifted `@alook/shared/community-contract`
+// wire types verbatim (see `community-contract.ts`). `agentId` is deliberately
 // OMITTED from every request schema below — identity comes from the `crk_` bearer
 // via `withAgentRunnerAuth`, never a client-supplied field (see plan §2/§7).
 // ---------------------------------------------------------------------------

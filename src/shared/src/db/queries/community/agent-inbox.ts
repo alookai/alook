@@ -28,11 +28,11 @@ import {
   type Message,
   type Seq,
   type ChannelRef,
-} from "../../../community-cli-contract";
+} from "../../../community-contract";
 import { formatHandle } from "../../../lib/discriminator";
 import { listVisibleChannelIdsForUser } from "./channel";
 import { listParticipatingThreadIds } from "./thread";
-import { isThread, isForumPost } from "../../../utils/community-roles";
+import { isThread, isPost } from "../../../utils/community-roles";
 
 type RawAgentMessage = {
   id: string;
@@ -150,7 +150,7 @@ async function resolveScopeRefs(
       const rootSeq = parentSeqById.get(ch.parentMessageId);
       if (parent && rootSeq !== undefined) {
         out.set(ch.id, {
-          ref: formatRef({ server: serverName, channel: parent.name, threadRootSeq: rootSeq }),
+          ref: formatRef({ server: serverName, channel: parent.name, rootSeq: rootSeq }),
           isThread: true,
         });
         continue;
@@ -177,7 +177,7 @@ function scopeRefKey(scope: { channelId: string | null; dmConversationId: string
  * party relative to whichever bot identity is being served (every route
  * that returns messages serves exactly one bot identity per call, so this
  * is unambiguous). No `id` field is ever included on the wire — messages
- * are addressed by channel + seq only (contract doc, `community-cli-contract.ts`).
+ * are addressed by channel + seq only (contract doc, `community-contract.ts`).
  */
 export async function toAgentMessages(
   db: Database,
@@ -262,7 +262,7 @@ export async function resolveUnreadNoticeChannel(
       if (!parent || !root) return null;
       const serverName = await getServerName(db, parent.serverId);
       if (!serverName) return null;
-      return formatRef({ server: serverName, channel: parent.name, threadRootSeq: root.seq });
+      return formatRef({ server: serverName, channel: parent.name, rootSeq: root.seq });
     }
 
     const serverName = await getServerName(db, ch.serverId);
@@ -333,7 +333,7 @@ export async function getLatestSeqForScope(db: Database, scopeKey: string): Prom
 
 /**
  * Effective allowed channel-id set for a bot: visible channels MINUS
- * thread/forum_post channels the bot isn't a participant of. Pushes the
+ * thread/post channels the bot isn't a participant of. Pushes the
  * thread-participation narrowing into a pre-computed set so it can join the
  * message SQL as a single `inArray` predicate — the old shape did the
  * narrowing as a JS post-filter AFTER `.limit(max)`, which silently
@@ -350,7 +350,7 @@ async function listAgentAllowedChannelIds(db: Database, botUserId: string): Prom
     .from(communityChannel)
     .where(inArray(communityChannel.id, visibleChannelIds));
   const narrowIds = typeRows
-    .filter((r) => isThread(r.type) || isForumPost(r.type))
+    .filter((r) => isThread(r.type) || isPost(r.type))
     .map((r) => r.id);
   const participating =
     narrowIds.length > 0
@@ -370,7 +370,7 @@ async function listAgentAllowedChannelIds(db: Database, botUserId: string): Prom
  * Visibility rule: same as the human unread path (`listUnreadChannels`) —
  * (1) channel messages restricted to `listVisibleChannelIdsForUser(botUserId)`
  * (respects private-category rosters and private-forum-post narrowness), and
- * (2) thread / forum_post channels additionally require a
+ * (2) thread / post channels additionally require a
  * `community_thread_participant` row for the bot. Both dimensions are folded
  * into ONE `inArray` predicate up front so `.limit(max)` operates on
  * already-visible rows — post-filtering after `limit` (the earlier shape)
@@ -440,7 +440,7 @@ export type InboxSnapshotRow = {
  *
  * Visibility rule mirrors `listUnreadMessagesForAgent`: (1) channel scopes
  * restricted to `listVisibleChannelIdsForUser(botUserId)`, and (2) scopes of
- * type `thread` or `forum_post` additionally require a
+ * type `thread` or `post` additionally require a
  * `community_thread_participant` row for the bot (post-filter). Because the
  * outer `WHERE` is `inArray(channelId, visibleChannelIds)` and non-participated
  * thread rows are dropped in the post-filter, `hasMention` (a correlated
@@ -575,7 +575,7 @@ export async function toInboxRows(
  *
  * Visibility rule identical to `listUnreadMessagesForAgent`: the bot must be
  * able to see the channel (`listVisibleChannelIdsForUser`) AND, for thread /
- * forum_post scopes, hold a `community_thread_participant` row. Both
+ * post scopes, hold a `community_thread_participant` row. Both
  * dimensions are folded into the SQL WHERE via `listAgentAllowedChannelIds`
  * so `LIMIT 1` returns the newest allowed row directly — an earlier shape
  * used a bounded post-filter window that could return `null` when older
@@ -707,7 +707,7 @@ export async function listMessagesBySeq(
   }
 
   // `Page.latestSeq` is documented as "seq of the newest item in THIS page,
-  // for advancing a cursor" (`community-cli-contract.ts`) — not the scope's
+  // for advancing a cursor" (`community-contract.ts`) — not the scope's
   // global latest (that's `getLatestSeqForScope`, a different call for a
   // different purpose: the `send` route's alignment gate). `items` is always
   // seq-ascending by construction above (all four branches sort/reverse to
