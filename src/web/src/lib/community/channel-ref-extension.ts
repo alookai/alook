@@ -105,15 +105,13 @@ const ChannelRefNode = Mention.extend({
  * auto-incrementing unique suffix in `prosemirror-state`) — the node
  * **name** rename above is what actually avoids the schema collision.
  *
- * `renderText` inserts by display name, not id — server/channel names are
- * now guaranteed ref-safe at creation/rename time (`slugify()`, applied by
- * every write route), so `serverName`/`label` round-trip through
- * `chat-syntax-plugin.ts`'s `CHANNEL_REF_RE` and `resolveChannelRefBase`
- * (exact-string match) and render as something a human can actually read.
- * Falls back to `serverId`/`id` if either name is ever missing
- * (paste-from-HTML, drag-drop, etc.) — defensive, not the primary
- * mechanism. `renderHTML` shows a compact in-editor chip — channel name
- * only, not the full path — keeping the compose box readable.
+ * `renderText` serializes to the id token `<#serverId:channelId>` — both
+ * segments are the ids the popup already carries, so `resolveChannelRefBase`
+ * can look them up unambiguously on the render side. When `serverId` or `id`
+ * is missing (paste-from-HTML, drag-drop, etc.) it degrades to the plain
+ * display label rather than emitting a malformed `<#…>`. `renderHTML` shows a
+ * compact in-editor chip — channel name only, not the token — keeping the
+ * compose box readable.
  */
 export function buildCommunityChannelRefExtension(opts: {
   candidatesRef: { current: ChannelRefCandidate[] }
@@ -131,27 +129,20 @@ export function buildCommunityChannelRefExtension(opts: {
 
   return ChannelRefNode.configure({
     HTMLAttributes: { class: "channel-ref-highlight" },
-    // `serverId` has `default: null`; paste-from-HTML, drag-drop, or any
-    // future flow that commits the node without setting it would otherwise
-    // emit the literal string `"/null/<channelId>"` on the wire. Fall back
-    // to the visible label so the recipient reads a real word instead of
-    // a broken pill — degraded, but not misleading. The command flow that
-    // DOES set both fields (Enter/Tab on a suggestion) is unaffected.
-    // The server segment (`serverName ?? serverId`) and channel segment
-    // (`label ?? id`) fall back independently — one can be missing while
-    // the other isn't — and neither ever falls through to a literal
-    // "null"/"undefined" string in the emitted text.
+    // `serverId`/`id` are the ids the token needs. When either is missing
+    // (paste-from-HTML, drag-drop, or any flow that commits the node without
+    // both ids), emit the visible label as plain text rather than a malformed
+    // `<#…>` — degraded, but never a broken pill on the wire. The command flow
+    // that DOES set both fields (Enter/Tab on a suggestion) always produces a
+    // well-formed token.
     renderText: ({ node }) => {
-      const { serverId, serverName, id, label } = node.attrs as {
+      const { serverId, id, label } = node.attrs as {
         serverId?: string | null
-        serverName?: string | null
         id?: string | null
         label?: string | null
       }
-      const server = serverName || serverId
-      const channel = label || id
-      if (!server) return channel ? `/${channel}` : ""
-      return channel ? `/${server}/${channel}` : `/${server}`
+      if (serverId && id) return `<#${serverId}:${id}>`
+      return label || id || ""
     },
     renderHTML: ({ options, node }) => ["span", options.HTMLAttributes, `/${node.attrs.label ?? node.attrs.id}`],
     suggestion: {

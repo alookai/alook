@@ -12,32 +12,29 @@ function resolved(overrides: Partial<ResolvedChannelRef> = {}): ResolvedChannelR
 describe("describeChannelRefPillView", () => {
   it("resolved: null, directoryLoading: true → muted", () => {
     const view = describeChannelRefPillView({
-      ref: "/srv_1/chn_1",
+      ref: "<#srv_1:chn_1>",
       resolved: null,
       directoryLoading: true,
-      thread: null,
       currentServerId: "srv_1",
     })
-    expect(view).toEqual({ kind: "muted", label: "/srv_1/chn_1" })
+    expect(view).toEqual({ kind: "muted", label: "<#srv_1:chn_1>" })
   })
 
   it("resolved: null, directoryLoading: false → plain with text equal to the original ref", () => {
     const view = describeChannelRefPillView({
-      ref: "/usr/bin/ls",
+      ref: "<#srv_gone:chn_gone>",
       resolved: null,
       directoryLoading: false,
-      thread: null,
       currentServerId: "srv_1",
     })
-    expect(view).toEqual({ kind: "plain", text: "/usr/bin/ls" })
+    expect(view).toEqual({ kind: "plain", text: "<#srv_gone:chn_gone>" })
   })
 
-  it("resolved present, no rootSeq → pill, no serverPrefix when resolved.server.id === currentServerId", () => {
+  it("resolved present → pill, no serverPrefix when resolved.server.id === currentServerId", () => {
     const view = describeChannelRefPillView({
-      ref: "/srv_1/chn_1",
+      ref: "<#srv_1:chn_1>",
       resolved: resolved(),
       directoryLoading: false,
-      thread: null,
       currentServerId: "srv_1",
     })
     expect(view).toEqual({
@@ -50,10 +47,9 @@ describe("describeChannelRefPillView", () => {
 
   it("resolved.server.id !== currentServerId → pill with serverPrefix set to the server's name", () => {
     const view = describeChannelRefPillView({
-      ref: "/srv_1/chn_1",
+      ref: "<#srv_1:chn_1>",
       resolved: resolved(),
       directoryLoading: false,
-      thread: null,
       currentServerId: "srv_other",
     })
     expect(view).toEqual({
@@ -61,109 +57,6 @@ describe("describeChannelRefPillView", () => {
       label: "general",
       serverPrefix: "Studio",
       href: { serverId: "srv_1", channelId: "chn_1" },
-    })
-  })
-
-  it("rootSeq set, thread: undefined (loading) → muted", () => {
-    const view = describeChannelRefPillView({
-      ref: "/srv_1/chn_1/#42",
-      resolved: resolved({ rootSeq: 42 }),
-      directoryLoading: false,
-      thread: undefined,
-      currentServerId: "srv_1",
-    })
-    expect(view).toEqual({ kind: "muted", label: "general" })
-  })
-
-  it("rootSeq set, thread found → pill targeting the thread id, label = thread name", () => {
-    const view = describeChannelRefPillView({
-      ref: "/srv_1/chn_1/#42",
-      resolved: resolved({ rootSeq: 42 }),
-      directoryLoading: false,
-      thread: { id: "thr_1", name: "Thread about X", parentSeq: 42 },
-      currentServerId: "srv_1",
-    })
-    expect(view).toEqual({
-      kind: "pill",
-      label: "Thread about X",
-      serverPrefix: undefined,
-      href: { serverId: "srv_1", channelId: "thr_1" },
-    })
-  })
-
-  it("rootSeq set, thread: null (loaded, no match) → pill targeting the base channel — no invented thread link, but carries threadSuffix for the caller to render as trailing plain text", () => {
-    const view = describeChannelRefPillView({
-      ref: "/srv_1/chn_1/#42",
-      resolved: resolved({ rootSeq: 42 }),
-      directoryLoading: false,
-      thread: null,
-      currentServerId: "srv_1",
-    })
-    expect(view).toEqual({
-      kind: "pill",
-      label: "general",
-      serverPrefix: undefined,
-      href: { serverId: "srv_1", channelId: "chn_1" },
-      threadSuffix: 42,
-    })
-  })
-
-  it("cross-server thread-degrade case still sets serverPrefix and threadSuffix", () => {
-    const view = describeChannelRefPillView({
-      ref: "/srv_1/chn_1/#42",
-      resolved: resolved({ rootSeq: 42 }),
-      directoryLoading: false,
-      thread: null,
-      currentServerId: "srv_other",
-    })
-    expect(view.kind).toBe("pill")
-    expect((view as { serverPrefix?: string; threadSuffix?: number }).serverPrefix).toBe("Studio")
-    expect((view as { serverPrefix?: string; threadSuffix?: number }).threadSuffix).toBe(42)
-  })
-
-  it("resolved thread found → pill does NOT carry threadSuffix (suffix is only for the degrade case)", () => {
-    const view = describeChannelRefPillView({
-      ref: "/srv_1/chn_1/#42",
-      resolved: resolved({ rootSeq: 42 }),
-      directoryLoading: false,
-      thread: { id: "thr_1", name: "Thread about X", parentSeq: 42 },
-      currentServerId: "srv_1",
-    })
-    expect((view as { threadSuffix?: number }).threadSuffix).toBeUndefined()
-  })
-
-  it("thread-reply form (rootSeq + seq), thread resolved → pill targets thread id, carries messageSuffix but no threadSuffix", () => {
-    const view = describeChannelRefPillView({
-      ref: "/srv_1/chn_1/#5#42",
-      resolved: resolved({ rootSeq: 5, seq: 42 }),
-      directoryLoading: false,
-      thread: { id: "thr_1", name: "Thread about X", parentSeq: 5 },
-      currentServerId: "srv_1",
-    })
-    expect(view).toEqual({
-      kind: "pill",
-      label: "Thread about X",
-      serverPrefix: undefined,
-      href: { serverId: "srv_1", channelId: "thr_1" },
-      messageSuffix: 42,
-    })
-  })
-
-  it("thread-reply form, thread-not-found degrade → pill targets base channel, carries BOTH threadSuffix and messageSuffix", () => {
-    const view = describeChannelRefPillView({
-      ref: "/srv_1/chn_1/#5#42",
-      resolved: resolved({ rootSeq: 5, seq: 42 }),
-      directoryLoading: false,
-      thread: null,
-      currentServerId: "srv_1",
-    })
-    expect(view).toEqual({
-      kind: "pill",
-      label: "general",
-      serverPrefix: undefined,
-      href: { serverId: "srv_1", channelId: "chn_1" },
-      threadSuffix: 5,
-      messageSuffix: 42,
     })
   })
 })

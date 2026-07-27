@@ -94,38 +94,3 @@ export function ChannelPill({
   }
   return <span title={title} className={className}>{content}</span>
 }
-
-// Server-ref pill — same icon/shape/on-off pattern as `ChannelPill` (reuses
-// `ChannelIcon` rather than a distinct server icon, so a bare `/server` ref
-// and a `/server/channel` ref read as the same visual family), but for a
-// bare `/server` ref (no channel segment) — see `server-ref-pill.tsx`.
-export function ServerPill({
-  children,
-  onClick,
-  muted,
-}: {
-  children?: React.ReactNode
-  onClick?: (e: React.MouseEvent) => void
-  muted?: boolean
-}) {
-  const title = typeof children === "string" ? children : undefined
-  const className = [
-    "inline-flex max-w-[16rem] items-center gap-1 rounded-lg bg-accent px-1 align-bottom font-medium text-foreground",
-    muted ? "opacity-60" : "",
-    onClick ? "group/pill cursor-pointer transition-colors hover:bg-primary/15 hover:text-primary" : "",
-  ].join(" ")
-  const content = (
-    <>
-      <ChannelIcon className="shrink-0 text-xs" />
-      <span className="min-w-0 truncate">{children}</span>
-    </>
-  )
-  if (onClick) {
-    return (
-      <button type="button" onClick={onClick} title={title} className={className}>
-        {content}
-      </button>
-    )
-  }
-  return <span title={title} className={className}>{content}</span>
-}

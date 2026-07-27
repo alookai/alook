@@ -1,7 +1,6 @@
 import type React from "react"
 import { Spoiler, MentionPill } from "./inline-marks"
 import { ChannelRefPill } from "./channel-ref-pill"
-import { ServerRefPill } from "./server-ref-pill"
 import { MessageRefPill } from "./message-ref-pill"
 
 // Match `/c/invite/<token>` — with or without an origin.
@@ -44,15 +43,14 @@ export const MD_ALLOWED_TAGS = {
   spoiler: [],
   mention: ["dataEveryone", "dataTag"],
   channelref: [],
-  serverref: [],
   messageref: [],
 }
-// `spoiler` is deliberately excluded — unlike `mention`/`channelref`/`serverref`/`messageref`
+// `spoiler` is deliberately excluded — unlike `mention`/`channelref`/`messageref`
 // (leaf nodes whose content is always plain tag text), a spoiler must keep its
 // nested markdown children (e.g. `||**bold**||`). Handing it to Streamdown's
 // `literalTagContent` flattens all descendants into one text node, stripping
 // the nested `<strong>`/`<em>` — see message-body.test.tsx's regression case.
-export const MD_LITERAL_TAGS = ["mention", "channelref", "serverref", "messageref"]
+export const MD_LITERAL_TAGS = ["mention", "channelref", "messageref"]
 
 // A mention pill's rendered text is always `@name` (produced by
 // `chat-syntax-plugin.ts`'s `mentionReplacer`, which already drops the
@@ -69,13 +67,12 @@ export const MD_COMPONENTS = {
   mention: ({ children, ...rest }: Record<string, unknown> & { children?: React.ReactNode }) => (
     <MentionPill everyone={rest["data-everyone"] === "1"}>{children}</MentionPill>
   ),
-  // `channelref`/`serverref`/`messageref` are fully self-sufficient via hooks
+  // `channelref`/`messageref` are fully self-sufficient via hooks
   // (resolve via `useChannelRefDirectory`/`useMessages`, navigate via
   // `useRouter`) — unlike `mention`, they need no closure injected by
   // `buildMdComponents`, so the same static entries are reused there too (see
   // the spread below).
   channelref: ChannelRefPill,
-  serverref: ServerRefPill,
   messageref: MessageRefPill,
 } as Record<string, React.ComponentType<Record<string, unknown> & { children?: React.ReactNode }>>
 

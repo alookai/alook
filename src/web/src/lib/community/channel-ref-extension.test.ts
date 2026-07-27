@@ -143,31 +143,14 @@ describe("buildCommunityChannelRefExtension — suggestion.items callback", () =
 })
 
 describe("buildCommunityChannelRefExtension — renderText/renderHTML", () => {
-  it("renderText produces /serverName/label (name-based, not id-based)", () => {
+  it("renderText produces the `<#serverId:channelId>` id token (id-based, not name-based)", () => {
     const { ext } = build()
     const { renderText } = getRenderFns(ext)
     expect(
       renderText({
         node: { attrs: { id: "chn_abc", serverId: "srv_xyz", serverName: "Studio", label: "general" } },
       }),
-    ).toBe("/Studio/general")
-  })
-
-  it("renderText falls back independently per-field — serverName missing falls back to serverId, label missing falls back to id (mixed case, not all-or-nothing)", () => {
-    const { ext } = build()
-    const { renderText } = getRenderFns(ext)
-    // serverName missing, label present.
-    expect(
-      renderText({
-        node: { attrs: { id: "chn_abc", serverId: "srv_xyz", serverName: null, label: "general" } },
-      }),
-    ).toBe("/srv_xyz/general")
-    // serverName present, label missing.
-    expect(
-      renderText({
-        node: { attrs: { id: "chn_abc", serverId: "srv_xyz", serverName: "Studio", label: null } },
-      }),
-    ).toBe("/Studio/chn_abc")
+    ).toBe("<#srv_xyz:chn_abc>")
   })
 
   it("renderHTML shows a compact /label chip", () => {
@@ -184,32 +167,27 @@ describe("buildCommunityChannelRefExtension — renderText/renderHTML", () => {
     expect(spec).toEqual(["span", {}, "/chn_abc"])
   })
 
-  it("renderText NEVER emits a literal `/null/<id>` when serverId is unset (regression guard)", () => {
-    // The `serverId` attribute default is `null`; a paste-from-HTML,
-    // drag-drop, or future keyboard flow that commits a node without
-    // setting `serverId` used to produce `"/null/chn_abc"` on the wire,
-    // rendering as literal broken text to every recipient. Fall back to
-    // the visible `/label` (matching renderHTML's own fallback) so the
-    // ref stays readable even in this degraded path.
+  it("renderText degrades to the display label (never a malformed `<#…>`) when serverId is unset", () => {
+    // The `serverId` attribute default is `null`; a paste-from-HTML or
+    // drag-drop flow that commits a node without setting `serverId` must not
+    // emit `"<#null:chn_abc>"` on the wire. Fall back to the visible label so
+    // the recipient reads a real word instead of a broken token.
     const { ext } = build()
     const { renderText } = getRenderFns(ext)
     expect(
       renderText({ node: { attrs: { id: "chn_abc", serverId: null, label: "general" } } }),
-    ).not.toContain("null")
+    ).not.toContain("<#")
     expect(
       renderText({ node: { attrs: { id: "chn_abc", serverId: null, label: "general" } } }),
-    ).toBe("/general")
+    ).toBe("general")
   })
 
-  it("renderText falls back to the channel id alone when server is missing but the channel id is present", () => {
-    // With independent per-field fallback, a present `id` still lets the
-    // channel segment resolve even when both `serverName`/`serverId` are
-    // missing — only the server segment drops out.
+  it("renderText falls back to the channel id when the label is also missing", () => {
     const { ext } = build()
     const { renderText } = getRenderFns(ext)
     expect(
       renderText({ node: { attrs: { id: "chn_abc", serverId: null, serverName: null, label: null } } }),
-    ).toBe("/chn_abc")
+    ).toBe("chn_abc")
   })
 
   it("renderText emits empty string when nothing at all is present (server AND channel both fully missing)", () => {
