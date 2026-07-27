@@ -22,11 +22,20 @@ export const PUT = withCommunityActor(async (req: NextRequest, ctx) => {
   const auth = await requireDMParticipant(db, dmId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 
-  let body: { lastReadMessageId?: string } = {}
+  let body: { lastReadMessageId?: string; seq?: number } = {}
   try {
     body = await req.json()
   } catch {
     // Body is optional
+  }
+
+  // Seq form: advance all three read cursors (incl. `lastReadSeq`) to the
+  // message at `seq` in this DM. `bumpReadCursor` does its own scope-matched
+  // lookup + MAX semantics; null when no such seq exists here.
+  if (typeof body.seq === "number" && Number.isFinite(body.seq) && body.seq > 0) {
+    const bumped = await queries.communityReadState.bumpReadCursor(db, ctx.userId, { dmConversationId: dmId }, body.seq)
+    if (!bumped) return writeError("message not found", 404)
+    return writeJSON({ ok: true })
   }
 
   let target: { id: string; createdAt: string } | null

@@ -44,18 +44,33 @@ export const PUT = withCommunityActor(async (req: NextRequest, ctx) => {
 
   // Parse the body — best-effort. An empty body is legal (mass mark-read).
   let lastReadMessageId: string | undefined
+  let seq: number | undefined
   try {
     // A truly empty body throws in `req.json()`; catch and treat as `{}`.
     const raw = await req.text()
     if (raw.trim().length > 0) {
-      const body = JSON.parse(raw) as { lastReadMessageId?: unknown }
+      const body = JSON.parse(raw) as { lastReadMessageId?: unknown; seq?: unknown }
       if (typeof body?.lastReadMessageId === "string" && body.lastReadMessageId.length > 0) {
         lastReadMessageId = body.lastReadMessageId
       }
+      if (typeof body?.seq === "number" && Number.isFinite(body.seq) && body.seq > 0) {
+        seq = body.seq
+      }
     }
   } catch {
-    // Malformed JSON — fall through with `lastReadMessageId` unset. The mass
-    // mark-read semantics are the safe fallback.
+    // Malformed JSON — fall through unset. The mass mark-read semantics are
+    // the safe fallback.
+  }
+
+  // Seq form: advance all three read cursors (incl. `lastReadSeq`) to the
+  // message at `seq` in this channel. `bumpReadCursor` does its own
+  // scope-matched lookup + MAX semantics; it returns null when no such seq
+  // exists here. Still clears mentions in the same request.
+  if (seq !== undefined) {
+    const bumped = await queries.communityReadState.bumpReadCursor(db, ctx.userId, { channelId }, seq)
+    if (!bumped) return writeError("message not found", 404)
+    await db.batch([queries.communityMention.markChannelMentionsReadBuilder(db, ctx.userId, channelId)])
+    return writeJSON({ ok: true })
   }
 
   // Resolve the target message. Both branches align (lastReadAt, lastReadMessageId)
