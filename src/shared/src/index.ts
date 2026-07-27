@@ -395,7 +395,6 @@ export type {
   Channel as CommunityCliChannel,
   SenderType as CommunityCliSenderType,
   Sender as CommunityCliSender,
-  ChannelRef as CommunityCliChannelRef,
   Target as CommunityCliTarget,
   MessageContent as CommunityCliMessageContent,
   Message as CommunityCliMessage,
@@ -428,12 +427,11 @@ export type {
   SessionErrorFrame as CommunityCliSessionErrorFrame,
   HostControlChannel,
   AgentSessionReport,
-  ParsedRef as CommunityCliParsedRef,
   AgentActivityState,
   HostBotAuditEventFrame,
   BotAuditEventPayload,
 } from "./community-contract";
-export { DM_SERVER, parseRef, formatRef, parseSeq, formatSeq } from "./community-contract";
+export { DM_SERVER, parseSeq, formatSeq } from "./community-contract";
 
 export type {
   ReasoningEffort,

@@ -37,7 +37,7 @@ import { createPiSdkDriverDeps } from "../drivers/piSdkDeps.js";
 import { createLogger, type Logger } from "../logger.js";
 import type { Driver, LaunchContext } from "../types.js";
 import type { RuntimeConfig } from "../runtimeConfig.js";
-import type { UnreadNotice, HostCommand } from "../server/contract.js";
+import type { HostCommand } from "../server/contract.js";
 import { formatHandle } from "@alook/shared/lib/discriminator";
 
 // Cold-start warmup backoff schedule (ms).
@@ -615,8 +615,8 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       }
       await enrollAgent(agentId);
     },
-    formatUnreadNoticeText: (notice: UnreadNotice) =>
-      `You have unread messages in channel ${notice.channel}.`,
+    formatUnreadNoticeText: () =>
+      "You have unread messages.",
   });
 
   // Register the bot-cache pre-hook. `onCommand` supports multiple listeners

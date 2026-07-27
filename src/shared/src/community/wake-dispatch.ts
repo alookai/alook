@@ -158,13 +158,13 @@ export async function buildUnreadWakeCommand(
   const lastReadSeq = await readState.getWakeReadSeq(db, input.botUserId, scope);
   if (lastReadSeq >= msg.seq) return { state: "skip", reason: "already_read" };
 
-  const channel = await agentInbox.resolveUnreadNoticeChannel(db, scope, input.botUserId);
-  if (!channel) return { state: "skip", reason: "notice_channel_unresolvable" };
+  const resolvedScopeId = await agentInbox.resolveUnreadNoticeChannel(db, scope, input.botUserId);
+  if (!resolvedScopeId) return { state: "skip", reason: "notice_channel_unresolvable" };
 
   const unreadNotice: UnreadNotice = {
     kind: "unread_notice",
-    channel,
     latestSeq: msg.seq,
+    ...(scope.channelId ? { channelId: scope.channelId } : {}),
     ...(scope.dmConversationId ? { dmConversationId: scope.dmConversationId } : {}),
   };
   const config = makeRuntimeConfig({
@@ -192,7 +192,7 @@ export async function buildUnreadWakeCommand(
       ownerUserId: botCtx.ownerUserId,
       launchId: command.launchId,
       messageId: msg.id,
-      channel,
+      channel: resolvedScopeId,
       seq: msg.seq,
       authorId: msg.authorId,
     });

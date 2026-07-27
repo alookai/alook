@@ -126,22 +126,129 @@ describe("createProxyServerApi — reactAdd", () => {
   });
 });
 
-describe("createProxyServerApi — send forwards replyToSeq", () => {
-  it("POSTs replyToSeq in the body (agentId stripped, replyToSeq retained)", async () => {
-    const seen: Array<{ url: string; init?: RequestInit }> = [];
-    const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
-      seen.push({ url, init });
-      return jsonBody(
-        JSON.stringify({ state: "sent", message: { seq: "#8", channel: "/demo/general", sender: "@a", content: { text: "on it" }, time: "" } }),
-        { status: 200 },
-      );
+describe("createProxyServerApi — inboxPull (composed from /inbox/unreads + /messages)", () => {
+  function unreadsBody() {
+    return JSON.stringify({
+      servers: [
+        {
+          serverId: "srv_1",
+          serverName: "studio",
+          channels: [
+            {
+              channelId: "ch_general",
+              type: "text",
+              lastMessageSeq: 3,
+              lastReadSeq: 1,
+              mentionCount: 0,
+              children: [
+                { channelId: "ch_thread", type: "thread", lastMessageSeq: 9, lastReadSeq: null, mentionCount: 1 },
+              ],
+            },
+          ],
+        },
+      ],
+      dms: [{ dmConversationId: "dm_1", lastMessageSeq: 5, lastReadSeq: 4 }],
+      limit: 50,
+      truncated: false,
+    });
+  }
+
+  it("walks each unread scope, pages by afterSeq (lastReadSeq ?? 0), and concatenates messages", async () => {
+    const seen: string[] = [];
+    const fetchImpl: FetchLike = vi.fn(async (url: string) => {
+      seen.push(url);
+      if (url.endsWith("/api/community/inbox/unreads")) return jsonBody(unreadsBody(), { status: 200 });
+      if (url.includes("/channels/ch_general/messages")) {
+        return jsonBody(JSON.stringify({ messages: [{ id: "m1", authorId: "u1", authorName: "Al", content: "hi", seq: 2, createdAt: "t2" }], hasMoreNewer: false }), { status: 200 });
+      }
+      if (url.includes("/channels/ch_thread/messages")) {
+        return jsonBody(JSON.stringify({ messages: [{ id: "m2", authorId: "u2", authorName: "Bo", content: "yo", seq: 6, createdAt: "t6" }], hasMoreNewer: false }), { status: 200 });
+      }
+      if (url.includes("/dm/dm_1/messages")) {
+        return jsonBody(JSON.stringify({ messages: [{ id: "m3", authorId: "u3", authorName: "Cy", content: "sup", seq: 5, createdAt: "t5" }], hasMoreNewer: false }), { status: 200 });
+      }
+      throw new Error(`unexpected ${url}`);
     });
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
-    await api.send({ agentId: "a1", channel: "/demo/general", content: { text: "on it" }, replyToSeq: 37 });
-    expect(seen[0].url).toBe("http://proxy.test/api/send");
-    const body = JSON.parse(String(seen[0].init?.body ?? "{}"));
-    expect(body.replyToSeq).toBe(37);
-    expect(body.agentId).toBeUndefined();
+    const res = await api.inboxPull({ agentId: "a1" as never });
+
+    expect(seen).toContain("http://proxy.test/api/community/inbox/unreads");
+    expect(seen).toContain("http://proxy.test/api/community/channels/ch_general/messages?afterSeq=1");
+    expect(seen).toContain("http://proxy.test/api/community/channels/ch_thread/messages?afterSeq=0");
+    expect(seen).toContain("http://proxy.test/api/community/dm/dm_1/messages?afterSeq=4");
+    expect(res.messages.map((m) => m.id)).toEqual(["m1", "m2", "m3"]);
+    expect(res.messages[0]).toMatchObject({ seq: "#2", channelId: "ch_general", authorId: "u1", sender: "@Al" });
+    expect(res.messages[2]).toMatchObject({ dmConversationId: "dm_1" });
+    expect(res.hasMore).toBe(false);
+  });
+
+  it("honors req.max as an overall cap and sets hasMore when scopes remain", async () => {
+    const fetchImpl: FetchLike = vi.fn(async (url: string) => {
+      if (url.endsWith("/api/community/inbox/unreads")) return jsonBody(unreadsBody(), { status: 200 });
+      if (url.includes("/channels/ch_general/messages")) {
+        return jsonBody(JSON.stringify({ messages: [{ id: "m1", authorId: "u1", content: "hi", seq: 2, createdAt: "t2" }], hasMoreNewer: false }), { status: 200 });
+      }
+      return jsonBody(JSON.stringify({ messages: [], hasMoreNewer: false }), { status: 200 });
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const res = await api.inboxPull({ agentId: "a1" as never, max: 1 });
+    expect(res.messages).toHaveLength(1);
+    expect(res.hasMore).toBe(true);
+  });
+
+  it("sets hasMore when a scope reports hasMoreNewer", async () => {
+    const fetchImpl: FetchLike = vi.fn(async (url: string) => {
+      if (url.endsWith("/api/community/inbox/unreads")) {
+        return jsonBody(JSON.stringify({ servers: [{ serverId: "s", serverName: "s", channels: [{ channelId: "ch_1", lastMessageSeq: 9, lastReadSeq: 0, mentionCount: 0 }] }], dms: [] }), { status: 200 });
+      }
+      return jsonBody(JSON.stringify({ messages: [{ id: "m1", authorId: "u1", content: "hi", seq: 1, createdAt: "t" }], hasMoreNewer: true }), { status: 200 });
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const res = await api.inboxPull({ agentId: "a1" as never });
+    expect(res.hasMore).toBe(true);
+  });
+});
+
+describe("createProxyServerApi — inboxSnapshot (projected from /inbox/unreads)", () => {
+  it("projects each scope to the InboxSnapshot row shape (pending derived from seqs)", async () => {
+    const fetchImpl: FetchLike = vi.fn(async (url: string) => {
+      if (url.endsWith("/api/community/inbox/unreads")) {
+        return jsonBody(
+          JSON.stringify({
+            servers: [
+              {
+                serverId: "s",
+                serverName: "s",
+                channels: [
+                  { channelId: "ch_1", lastMessageSeq: 7, lastReadSeq: 4, mentionCount: 2, children: [] },
+                ],
+              },
+            ],
+            dms: [{ dmConversationId: "dm_1", lastMessageSeq: 5, lastReadSeq: null }],
+          }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unexpected ${url}`);
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const snap = await api.inboxSnapshot({ agentId: "a1" as never });
+    expect(snap.pendingChannels).toBe(2);
+    expect(snap.pendingMessages).toBe(3 + 5);
+    expect(snap.rows[0]).toEqual({
+      channelId: "ch_1",
+      pendingCount: 3,
+      firstPendingSeq: 5,
+      latestSeq: 7,
+      flags: ["mention"],
+    });
+    expect(snap.rows[1]).toEqual({
+      dmConversationId: "dm_1",
+      pendingCount: 5,
+      firstPendingSeq: 1,
+      latestSeq: 5,
+      flags: ["dm"],
+    });
   });
 });
 

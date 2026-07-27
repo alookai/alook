@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { queries, CommunityAgentListChannelsRequestSchema, formatRef } from "@alook/shared"
+import { queries, CommunityAgentListChannelsRequestSchema } from "@alook/shared"
 import type {
   CommunityCliChannelGroup as ChannelGroup,
   ChannelListItem,
@@ -17,7 +17,7 @@ import { withAgentRunnerAuth } from "@/lib/middleware/community-agent-runner-aut
  * visibility rule a human sees: private-category channels appear only when the
  * bot is an admin, the channel's creator, or an added member.
  *
- * Response is `{ groups: [{ category, channels: [{ref, name, type, visibility}] }] }`
+ * Response is `{ groups: [{ category, channels: [{id, serverId, name, type, visibility}] }] }`
  * (plan §Design). Channels are bucketed by their `categoryId` — uncategorized
  * (`categoryId === null`) is emitted first (Discord-style), then categories
  * ordered by `position` (stable-sort by id on ties). Empty groups are dropped
@@ -84,12 +84,11 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
         const cat = c.categoryId ? categoryById.get(c.categoryId) : null
         const isPrivate = !!(cat && (cat.private ?? 0) === 1)
         const item: ChannelListItem = {
-          ref: formatRef({ server: server.name, channel: c.name }),
+          id: c.id,
+          serverId: server.id,
           name: c.name,
           type: c.type,
           visibility: isPrivate ? "private" : "public",
-          id: c.id,
-          serverId: server.id,
         }
         if (!c.categoryId || !cat) {
           uncategorized.push(item)

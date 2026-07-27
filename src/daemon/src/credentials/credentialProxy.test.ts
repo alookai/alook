@@ -191,17 +191,23 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     upstreamClose = upstream.close;
     const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
     proxy = await startCredentialProxy(broker);
-    const reg = broker.mint("agent-1", "l", ["send", "read", "friend"], REAL_KEY);
+    const reg = broker.mint("agent-1", "l", ["send", "read", "friend", "server"], REAL_KEY);
 
-    // The five survivors are rewritten onto the dedicated agent route.
-    await post(proxy.url, reg.voucher, "/api/inboxPull?max=10");
-    expect(upstream.seen.at(-1)!.path).toBe("/api/community/agent/inboxPull?max=10");
-
+    // The survivors (listChannels + the two friend methods) are rewritten onto
+    // the dedicated agent route.
     await post(proxy.url, reg.voucher, "/api/listChannels");
     expect(upstream.seen.at(-1)!.path).toBe("/api/community/agent/listChannels");
 
     await post(proxy.url, reg.voucher, "/api/friendRequest");
     expect(upstream.seen.at(-1)!.path).toBe("/api/community/agent/friendRequest");
+
+    await post(proxy.url, reg.voucher, "/api/listFriends");
+    expect(upstream.seen.at(-1)!.path).toBe("/api/community/agent/listFriends");
+
+    // inboxPull is no longer a survivor — it passes through untouched (the CLI
+    // now composes it from the REST /inbox/unreads + per-scope /messages routes).
+    await post(proxy.url, reg.voucher, "/api/inboxPull?max=10");
+    expect(upstream.seen.at(-1)!.path).toBe("/api/inboxPull?max=10");
   });
 
   it("passes the REST community routes through untouched (not a survivor method)", async () => {

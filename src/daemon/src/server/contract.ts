@@ -23,7 +23,6 @@ export type {
   Channel,
   SenderType,
   Sender,
-  ChannelRef,
   Target,
   MessageContent,
   Message,
@@ -70,13 +69,10 @@ export type {
   AdminApi,
   EnrollmentApi,
   ServerApiError,
-  ParsedRef,
 } from "@alook/shared/community-contract";
 
 export {
   DM_SERVER,
-  parseRef,
-  formatRef,
   parseSeq,
   formatSeq,
 } from "@alook/shared/community-contract";

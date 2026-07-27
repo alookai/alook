@@ -233,6 +233,84 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     };
   }
 
+  // One unread scope node in the `/inbox/unreads` response — a channel (which
+  // may nest thread/post `children`) or a DM. `lastReadSeq` is the bot's read
+  // waterline for that scope (null when it has no read-state row yet → 0), the
+  // `afterSeq` anchor for paging that scope's unread. `lastMessageSeq` is the
+  // scope's newest seq — the two bound the pending window.
+  type UnreadScope = {
+    channelId: string;
+    type?: string;
+    lastMessageSeq: number;
+    lastReadSeq: number | null;
+    mentionCount: number;
+    children?: UnreadScope[];
+  };
+  type UnreadDm = {
+    dmConversationId: string;
+    lastMessageSeq: number;
+    lastReadSeq: number | null;
+  };
+  type UnreadsResponse = {
+    servers: Array<{ serverId: string; serverName: string; channels: UnreadScope[] }>;
+    dms: UnreadDm[];
+  };
+
+  // A message row as the user messages route emits it (`mapMessageForApi`) —
+  // `seq` is a bare number, `createdAt` an ISO string, no path ref / handle.
+  type WireUserMessage = {
+    id: string;
+    authorId: string;
+    authorName?: string;
+    content: string | null;
+    seq: number;
+    createdAt: string;
+  };
+  type WireUserMessagesPage = {
+    messages: WireUserMessage[];
+    hasMore?: boolean;
+    hasMoreNewer?: boolean;
+  };
+
+  // Project a user-route message row onto the CLI `Message` contract for the
+  // given id-scope. `sender` is best-effort from `authorName` (the user route
+  // carries no discriminator); the ack loop keys off `channelId`/
+  // `dmConversationId` + `seq`, so those are the load-bearing fields.
+  function wireToMessage(
+    m: WireUserMessage,
+    scope: { channelId: string } | { dmConversationId: string },
+  ): Message {
+    return {
+      seq: `#${m.seq}`,
+      sender: `@${m.authorName ?? m.authorId}`,
+      content: { text: m.content ?? "" },
+      time: m.createdAt,
+      id: m.id,
+      ...scope,
+      authorId: m.authorId,
+    };
+  }
+
+  // Flatten the unreads tree into an ordered scope list: each server's
+  // channels (each followed by its thread/post children), then DMs.
+  function flattenUnreadScopes(
+    unreads: UnreadsResponse,
+  ): Array<{ scope: { channelId: string } | { dmConversationId: string }; afterSeq: number; node: UnreadScope | UnreadDm }> {
+    const out: Array<{ scope: { channelId: string } | { dmConversationId: string }; afterSeq: number; node: UnreadScope | UnreadDm }> = [];
+    for (const server of unreads.servers ?? []) {
+      for (const channel of server.channels ?? []) {
+        out.push({ scope: { channelId: channel.channelId }, afterSeq: channel.lastReadSeq ?? 0, node: channel });
+        for (const child of channel.children ?? []) {
+          out.push({ scope: { channelId: child.channelId }, afterSeq: child.lastReadSeq ?? 0, node: child });
+        }
+      }
+    }
+    for (const dm of unreads.dms ?? []) {
+      out.push({ scope: { dmConversationId: dm.dmConversationId }, afterSeq: dm.lastReadSeq ?? 0, node: dm });
+    }
+    return out;
+  }
+
   // Build the `?…Seq=` query for a seq-anchored read (at most one of
   // before/after/around, mirroring the user route's aroundSeq/afterSeq/beforeSeq).
   function readQuery(r: ReadRequest): string {
@@ -254,9 +332,77 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     listChannels: (r: ListChannelsRequest) => call<{ groups: ChannelGroup[] }>("listChannels", r),
     channelMember: (r: { agentId?: AgentId; channelId: string }) =>
       rest<ChannelMemberResult>("GET", `/api/community/channels/${encodeURIComponent(r.channelId)}/members`, "channelMember"),
-    // Survivors — still flat RPC; the proxy rewrites these to /api/community/agent/*.
-    inboxPull: (r: InboxPullRequest) => call<InboxPullResponse>("inboxPull", r),
-    inboxSnapshot: (r: { agentId: AgentId }) => call<InboxSnapshot>("inboxSnapshot", r),
+    inboxPull: async (r: InboxPullRequest): Promise<InboxPullResponse> => {
+      const cap = r.max ?? Infinity;
+      const unreads = await rest<UnreadsResponse>("GET", "/api/community/inbox/unreads", "inboxPull");
+      const scopes = flattenUnreadScopes(unreads);
+
+      const messages: Message[] = [];
+      let hasMore = false;
+      for (let i = 0; i < scopes.length; i++) {
+        if (messages.length >= cap) {
+          // A remaining scope means more unread beyond the cap.
+          hasMore = true;
+          break;
+        }
+        const { scope, afterSeq } = scopes[i]!;
+        const scopePath = "channelId" in scope
+          ? `/api/community/channels/${encodeURIComponent(scope.channelId)}`
+          : `/api/community/dm/${encodeURIComponent(scope.dmConversationId)}`;
+        const page = await rest<WireUserMessagesPage>(
+          "GET",
+          `${scopePath}/messages?afterSeq=${afterSeq}`,
+          "inboxPull",
+        );
+        for (const m of page.messages) {
+          messages.push(wireToMessage(m, scope));
+        }
+        // Newer messages remain in this scope beyond the page we fetched.
+        if (page.hasMoreNewer ?? page.hasMore ?? false) hasMore = true;
+      }
+
+      if (messages.length > cap) {
+        messages.length = cap;
+        hasMore = true;
+      }
+      return { messages, hasMore };
+    },
+    inboxSnapshot: async (_r: { agentId: AgentId }): Promise<InboxSnapshot> => {
+      const unreads = await rest<UnreadsResponse>("GET", "/api/community/inbox/unreads", "inboxSnapshot");
+      const rows: InboxSnapshot["rows"] = [];
+      const projectChannel = (node: UnreadScope) => {
+        const lastRead = node.lastReadSeq ?? 0;
+        const pendingCount = Math.max(0, node.lastMessageSeq - lastRead);
+        rows.push({
+          channelId: node.channelId,
+          pendingCount,
+          firstPendingSeq: lastRead + 1,
+          latestSeq: node.lastMessageSeq,
+          flags: node.mentionCount > 0 ? ["mention"] : [],
+        });
+      };
+      for (const server of unreads.servers ?? []) {
+        for (const channel of server.channels ?? []) {
+          projectChannel(channel);
+          for (const child of channel.children ?? []) projectChannel(child);
+        }
+      }
+      for (const dm of unreads.dms ?? []) {
+        const lastRead = dm.lastReadSeq ?? 0;
+        rows.push({
+          dmConversationId: dm.dmConversationId,
+          pendingCount: Math.max(0, dm.lastMessageSeq - lastRead),
+          firstPendingSeq: lastRead + 1,
+          latestSeq: dm.lastMessageSeq,
+          flags: ["dm"],
+        });
+      }
+      return {
+        rows,
+        pendingChannels: rows.length,
+        pendingMessages: rows.reduce((n, r) => n + r.pendingCount, 0),
+      };
+    },
     ack: async (r: AckRequest) => {
       // Advance each scope's read waterline via that scope's REST read route.
       for (const c of r.cursors) {

@@ -495,7 +495,7 @@ function joinPath(basePath: string, reqUrl: string): string {
  * endpoints; the CLI emits them as bare `/api/<method>` and this rewrites them
  * onto `/api/community/agent/<method>`.
  */
-const AGENT_RPC_METHODS = new Set(["inboxPull", "inboxSnapshot", "listChannels", "friendRequest", "listFriends"]);
+const AGENT_RPC_METHODS = new Set(["listChannels", "friendRequest", "listFriends"]);
 
 /**
  * Rewrite a bare `/api/<method>` for one of the surviving agent RPC endpoints

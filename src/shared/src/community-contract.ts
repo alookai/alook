@@ -99,38 +99,9 @@ export interface Sender {
 export const DM_SERVER = ".dm";
 
 /**
- * A path-style channel/target ref string — the ONE addressing grammar exposed
- * to the agent. Plain and direct:
- *
- *     /<server>/<channel>            a channel
- *     /<server>/<channel>#N          the N-th message (seq) in that channel
- *     /<server>/<channel>/#N         the thread rooted at message #N
- *     /.dm/<peer>                    a DM (DM is the standalone `.dm` server);
- *                                    <peer> is the peer's global handle
- *                                    (`name#0042`, e.g. `/.dm/gusye#1231`),
- *                                    NOT a raw user id — see `parseRef`'s
- *                                    `.dm`-specific branch below.
- *     /.dm/<peer>#N , /.dm/<peer>/#N a DM message / DM thread
- *
- * A message is located by **channel + seq** (`<channelRef>#N`) — there is no id.
- *
- * `<server>`/`<channel>` are server/channel display *names*, guaranteed free
- * of whitespace, `/`, and `#` (normalized via `slugify()` at creation/rename
- * time), so each segment is always a single, unambiguous token.
- *
- * On agent surfaces, segments are NAMES (or `#seq`) — raw ids are rejected.
- * The `/c` UI's `resolveChannelRefBase` still accepts ids for pill
- * navigation, since the wire type is a single string shared by both
- * surfaces; the split is enforced by the resolver, not the type. To descend
- * into a subchannel (thread or post), use the canonical `<server>/<channel>/#N`
- * grammar; the underlying row's id is never a valid ref for agents.
- */
-export type ChannelRef = string;
-
-/**
- * Structured form of a target, kept for internal routing/resolution. The wire/
- * agent-facing form is the `ChannelRef` path string above; `parseRef`/`formatRef`
- * convert between them.
+ * Structured form of a target, kept for internal routing/resolution. Agent
+ * surfaces address scopes by id (`--channel <id>` / `--dm <id>`); this
+ * structured form remains for server-side routing helpers.
  */
 export type Target =
   | { server: ServerId; kind: "channel"; channel: ChannelId | string }
@@ -151,14 +122,13 @@ export type Target =
 /**
  * The flat, agent-facing message. This is exactly what the agent sees (one JSON
  * object per line, JSONL). Deliberately minimal:
- *   - `seq`     — "#N", the per-channel sequence (locate via channel + seq).
- *   - `channel` — the path ref, e.g. "/demo-workspace/general" or "/.dm/gustavo#4821".
- *   - `sender`  — "@handle" (`name#0042`, no id, no human/agent/system type).
+ *   - `seq`     — "#N", the per-channel sequence.
+ *   - `sender`  — "@handle" (`name#0042`, no human/agent/system type).
  *   - `content` — `{ text }` today; an object (not a bare string) so future
  *                 content kinds (attachments, embeds, …) can be added without
  *                 breaking the shape.
  *   - `time`    — ISO-8601 timestamp.
- * No `id`, no `type`.
+ *   - `channelId`/`dmConversationId` — the id-scope the message belongs to.
  */
 /**
  * Read-side attachment ref surfaced by inbox pull / send response / resolve.
@@ -223,20 +193,16 @@ export type AgentAttachmentDownloadResult = {
 export interface Message {
   /** Per-channel sequence in display form, e.g. "#12". */
   seq: string;
-  /** Path ref of the containing channel/DM. */
-  channel: ChannelRef;
   /** Sender global handle (`name#0042`), e.g. "@gustavo#4821". */
   sender: string;
   content: MessageContent;
   /** ISO-8601. */
   time: string;
   /**
-   * Id-addressing fields, emitted alongside the ref-shaped keys above. Present
-   * so a caller can address a message/channel/author by id instead of by
-   * `channel` + `seq` ref. `channelId` is set for channel-scoped messages,
-   * `dmConversationId` for DM messages (never both) — mirroring the two REST
-   * scopes (`/channels/:id` vs `/dm/:id`). Optional so both id-addressed and
-   * ref-only callers typecheck against one shape.
+   * Id-addressing fields. A caller addresses a message/channel/author by id.
+   * `channelId` is set for channel-scoped messages, `dmConversationId` for DM
+   * messages (never both) — mirroring the two REST scopes (`/channels/:id` vs
+   * `/dm/:id`). Optional so both scopes typecheck against one shape.
    */
   id?: string;
   channelId?: string;
@@ -269,9 +235,14 @@ export interface Page<T> {
 
 export type InboxFlag = "dm" | "thread" | "mention" | "task";
 
-/** One per channel with pending unread, summarizing the unread without bodies. */
+/**
+ * One per scope with pending unread, summarizing the unread without bodies.
+ * The scope is addressed by id: `channelId` for a channel/thread/post,
+ * `dmConversationId` for a DM (exactly one is set).
+ */
 export interface InboxRow {
-  channel: ChannelRef;
+  channelId?: ChannelId;
+  dmConversationId?: string;
   pendingCount: number;
   firstPendingSeq?: Seq;
   latestSeq?: Seq;
@@ -396,28 +367,21 @@ export interface ListChannelsRequest {
 }
 
 /**
- * One channel as surfaced to the agent CLI (`channel list`). Deliberately
- * drops `id`/`serverId`/`kind` — every other agent-facing command addresses
- * channels by `ChannelRef`, never by raw id, so `ref` is the only locator an
- * agent needs (and is directly reusable as `--channel`/`--target`). `type`
- * is real per-row data (`"text"` vs `"forum"`), not the always-`"channel"`
- * `kind` the old shape hardcoded. `visibility` is derived from the channel's
- * category — `"private"` iff the row's category has `private = 1`, else
- * `"public"` — and lets the agent decide whether to enumerate members via
- * `channel member` or fall back to `server member`.
+ * One channel as surfaced to the agent CLI (`channel list`). Addressed by
+ * `id` — every agent-facing command takes `--channel <id>` / `--dm <id>`, so
+ * `id` (paired with its `serverId`) is the only locator an agent needs. `type`
+ * is real per-row data (`"text"` vs `"forum"`), not an always-`"channel"`
+ * kind. `visibility` is derived from the channel's category — `"private"` iff
+ * the row's category has `private = 1`, else `"public"` — and lets the agent
+ * decide whether to enumerate members via `channel member` or fall back to
+ * `server member`.
  */
 export interface ChannelListItem {
-  ref: ChannelRef;
+  id: string;
+  serverId: string;
   name: string;
   type: TopLevelChannelType;
   visibility: "public" | "private";
-  /**
-   * Id-addressing fields, emitted alongside `ref`. Let a caller address the
-   * channel by `id` (and know its `serverId`) instead of by path ref.
-   * Optional so ref-only and id-addressed callers share one shape.
-   */
-  id?: string;
-  serverId?: string;
 }
 
 /**
@@ -508,8 +472,8 @@ export interface FriendCard {
  * Everything else (tasks, attachments, reminders, search, profile, reactions)
  * is deferred — add to this interface as needed.
  *
- * Channels are addressed by `ChannelRef` path strings (see `parseRef`/`formatRef`);
- * messages by channel + seq. No structured Target or message id crosses the wire.
+ * Scopes are addressed by id (`channelId` / `dmConversationId`); messages by
+ * id, or by scope + seq for pagination.
  */
 export interface ServerApi {
   /** Which servers/workspaces this agent participates in. */
@@ -582,20 +546,22 @@ export interface ServerApi {
 /**
  * A bodiless "you have unread work" signal — deliberately carries no message
  * content. The daemon turns this into a fixed inbox-pull prompt; the agent
- * must call `inboxPull` to fetch the actual message content from the server,
- * which remains the only source of truth for message bodies.
+ * must list its unreads and read each scope by id to fetch the actual message
+ * content from the server, which remains the only source of truth for bodies.
  */
 export interface UnreadNotice {
   kind: "unread_notice";
-  /** Path ref of the scope with unread work (channel, thread, or DM). */
-  channel: ChannelRef;
+  /**
+   * Id of the channel with unread work (a thread/post is itself a channel id).
+   * Absent when the notice targets a DM — then `dmConversationId` is set.
+   */
+  channelId?: string;
   /** The high-water seq that triggered this notice, for `AgentMsg.seq`. */
   latestSeq: Seq;
   /**
    * When the notice targets a DM, the DM's conversation id. Populated
    * server-side (`buildUnreadWakeCommand`) so the daemon can emit
-   * `agent_typing` frames for the correct DM scope without parsing
-   * `channel: ChannelRef` (a peer-handle path). Absent for channel/thread
+   * `agent_typing` frames for the correct DM scope. Absent for channel/thread
    * wakes — bot typing is DM-only for now.
    */
   dmConversationId?: string;
@@ -741,7 +707,7 @@ export type BotAuditEventPayload =
       kind: "wake_trigger";
       payload: {
         messageId: string;
-        channel: ChannelRef;
+        channel: string;
         seq: Seq;
         senderId: string;
         senderHandle: string;
@@ -921,7 +887,7 @@ export interface AdminApi {
   addAgentToServer(req: { agentId: AgentId; server: ServerId }): Promise<void>;
   createChannel(req: { server: ServerId; name: string; kind?: ChannelKind }): Promise<{ channel: Channel }>;
   /** Inject a message into a channel (as a human/agent), triggering delivery. */
-  postMessage(req: { channel: ChannelRef; sender: string; text: string }): Promise<{ message: Message }>;
+  postMessage(req: { channel: string; sender: string; text: string }): Promise<{ message: Message }>;
   /** Provisioning/test surface: mint an invite token for `server join` to consume. */
   createInvite(req: { server: ServerId; createdBy: UserId }): Promise<{ token: string }>;
   /**
@@ -932,7 +898,7 @@ export interface AdminApi {
    * data plane (`ServerApi`) can stay "identity must come through the proxy" —
    * a test harness peeking at a transcript must not self-assert an agentId.
    */
-  readChannel(req: { channel: ChannelRef; limit?: number }): Promise<Page<Message>>;
+  readChannel(req: { channel: string; limit?: number }): Promise<Page<Message>>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -977,136 +943,8 @@ export interface ServerApiError {
 }
 
 /* ------------------------------------------------------------------ */
-/* ChannelRef <-> structured parsing                                   */
+/* Seq parsing                                                         */
 /* ------------------------------------------------------------------ */
-
-/** A parsed channel ref: the channel location + an optional message seq (`#N`). */
-export interface ParsedRef {
-  /** Server segment (a real server id/name, or `.dm`). */
-  server: string;
-  /** Channel name (or DM peer when `server === DM_SERVER`). */
-  channel: string;
-  /** Thread root seq when the ref points into a thread (`/server/channel/#N`). */
-  rootSeq?: Seq;
-  /** Message seq when the ref pins a specific message (`/server/channel#N`). */
-  seq?: Seq;
-}
-
-/**
- * Parse a path ref into its parts. Grammar:
- *   /<server>/<channel>          → { server, channel }
- *   /<server>/<channel>#N        → { server, channel, seq:N }
- *   /<server>/<channel>/#N       → { server, channel, rootSeq:N }
- *   /<server>/<channel>/#N#M     → { server, channel, rootSeq:N, seq:M }
- *   /.dm/<peer>[...]             → DM (server = ".dm", channel = peer, a
- *                                  `name#0042` handle) — see the `.dm`-specific
- *                                  branch below, which differs from the
- *                                  generic channel-ref `#`-split (a handle's
- *                                  `#0042` suffix must NOT be mistaken for a
- *                                  pinned-message seq).
- */
-export function parseRef(ref: ChannelRef): ParsedRef {
-  if (!ref.startsWith("/")) throw new Error(`ref must start with "/": ${ref}`);
-  const body = ref.slice(1);
-  const parts = body.split("/");
-  if (parts.length < 2) throw new Error(`ref needs /<server>/<channel>: ${ref}`);
-  const server = parts[0];
-  // Trailing "#N" on the last segment pins a message seq.
-  let seq: Seq | undefined;
-
-  // Thread form: /server/channel/#N or /server/channel/#N#M  → last part
-  // starts with "#". `#M` (when present) is the message seq WITHIN the
-  // thread channel's own seq space.
-  if (parts.length >= 3 && parts[parts.length - 1].startsWith("#")) {
-    const tail = parseThreadTail(parts[parts.length - 1]);
-    return { server, channel: parts[1], ...tail };
-  }
-  const chSeg = parts[1];
-
-  // DM-specific branch: a DM peer segment is a `name#0042` handle, not a bare
-  // channel name — the generic "first #" split below would mis-parse
-  // `gusye#1231` as peer="gusye", seq=1231. Find the LAST "#" instead: if
-  // there's exactly one "#" in the segment and the tail is exactly 4 digits,
-  // the WHOLE segment is the handle (the common case). Otherwise (2+ "#"s,
-  // or a non-4-digit tail) the text after the last "#" is a seq/thread root,
-  // matching `gusye#1231#42` (pin) / `gusye#1231/#42` (thread, handled by the
-  // thread-form branch above) — see plan §1 for the accepted `a#b` ambiguity.
-  if (server === DM_SERVER) {
-    const lastHash = chSeg.lastIndexOf("#");
-    if (lastHash < 0) return { server, channel: chSeg };
-    const firstHash = chSeg.indexOf("#");
-    const tail = chSeg.slice(lastHash + 1);
-    const isBareHandle = firstHash === lastHash && /^\d{4}$/.test(tail);
-    if (isBareHandle) return { server, channel: chSeg };
-    // A non-numeric tail after the last `#` isn't a valid seq — rather
-    // than throwing (which crashes every caller not wrapped in
-    // try/catch), fall back to treating the whole segment as the
-    // channel/handle. The resolution layer (`parseNameAndTag` in
-    // `resolve-ref.ts`) still rejects the shape cleanly with a 400,
-    // instead of a 500 from a raw throw.
-    const tailNum = Number(tail.startsWith("#") ? tail.slice(1) : tail);
-    if (!Number.isFinite(tailNum)) return { server, channel: chSeg };
-    seq = parseSeq(tail);
-    return { server, channel: chSeg.slice(0, lastHash), seq };
-  }
-
-  // Message form: /server/channel#N (channel segment carries the #N).
-  const hashIdx = chSeg.indexOf("#");
-  if (hashIdx >= 0) {
-    seq = parseSeq(chSeg.slice(hashIdx));
-    return { server, channel: chSeg.slice(0, hashIdx), seq };
-  }
-  return { server, channel: chSeg };
-}
-
-/**
- * Split the trailing thread segment (`#N` or `#N#M`) of a thread-form ref
- * into a `{ rootSeq, seq? }` pair. Called with the raw last segment
- * (leading `#` present).
- *
- * Every token that reaches `parseSeq` here must first be checked for empty:
- * a naive `Number("") === 0` would otherwise silently accept `##5` as
- * `{ rootSeq:0, seq:5 }` or `#5#` as `{ rootSeq:5, seq:0 }` and
- * hand a bogus seq to the wire. Explicit `#0#5` / `#5#0` remain permissive
- * — the server rejects seq/root 0 at `resolve-ref.ts`.
- */
-function parseThreadTail(segment: string): { rootSeq: Seq; seq?: Seq } {
-  const stripped = segment.startsWith("#") ? segment.slice(1) : segment;
-  const tokens = stripped.split("#");
-  if (tokens.length < 1 || tokens.length > 2) {
-    throw new Error(`bad thread ref tail: #${stripped}`);
-  }
-  for (const t of tokens) {
-    if (!t) throw new Error(`bad thread ref tail: #${stripped} (empty seq)`);
-  }
-  const rootSeq = parseSeq(tokens[0]);
-  if (tokens.length === 1) return { rootSeq };
-  return { rootSeq, seq: parseSeq(tokens[1]) };
-}
-
-/**
- * Format a ParsedRef back to a path ref. Valid combinations:
- *   {}                             → /server/channel
- *   { rootSeq }              → /server/channel/#N
- *   { rootSeq, seq }         → /server/channel/#N#M
- * A bare `seq` (no `rootSeq`) is NOT supported — the message form
- * `/server/channel#N` puts `#N` on the channel segment, not on a trailing
- * path segment, and no caller needs to emit that shape via formatRef today.
- */
-export function formatRef(p: {
-  server: string;
-  channel: string;
-  rootSeq?: Seq;
-  seq?: Seq;
-}): ChannelRef {
-  if (p.seq !== undefined && p.rootSeq === undefined) {
-    throw new Error("formatRef: seq without rootSeq is not supported");
-  }
-  const base = `/${p.server}/${p.channel}`;
-  if (p.rootSeq === undefined) return base;
-  if (p.seq === undefined) return `${base}/#${p.rootSeq}`;
-  return `${base}/#${p.rootSeq}#${p.seq}`;
-}
 
 /** "#12" → 12 ; "12" → 12. */
 export function parseSeq(s: string): Seq {

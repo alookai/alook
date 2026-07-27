@@ -84,11 +84,11 @@ describe("POST /api/community/agent/listChannels", () => {
       groups: [
         {
           category: null,
-          channels: [{ ref: "/studio/general", name: "general", type: "text", visibility: "public", id: "ch_1", serverId: "srv_1" }],
+          channels: [{ name: "general", type: "text", visibility: "public", id: "ch_1", serverId: "srv_1" }],
         },
         {
           category: null,
-          channels: [{ ref: "/lounge/random", name: "random", type: "text", visibility: "public", id: "ch_2", serverId: "srv_2" }],
+          channels: [{ name: "random", type: "text", visibility: "public", id: "ch_2", serverId: "srv_2" }],
         },
       ],
     })
@@ -108,7 +108,7 @@ describe("POST /api/community/agent/listChannels", () => {
       groups: [
         {
           category: null,
-          channels: [{ ref: "/studio/general", name: "general", type: "text", visibility: "public", id: "ch_1", serverId: "srv_1" }],
+          channels: [{ name: "general", type: "text", visibility: "public", id: "ch_1", serverId: "srv_1" }],
         },
       ],
     })
@@ -132,15 +132,15 @@ describe("POST /api/community/agent/listChannels", () => {
       groups: [
         {
           category: null,
-          channels: [{ ref: "/demo/announcements", name: "announcements", type: "text", visibility: "public", id: "ch_1", serverId: "srv_1" }],
+          channels: [{ name: "announcements", type: "text", visibility: "public", id: "ch_1", serverId: "srv_1" }],
         },
         {
           category: { name: "Ops", private: false, id: "cat_ops" },
-          channels: [{ ref: "/demo/general", name: "general", type: "text", visibility: "public", id: "ch_2", serverId: "srv_1" }],
+          channels: [{ name: "general", type: "text", visibility: "public", id: "ch_2", serverId: "srv_1" }],
         },
         {
           category: { name: "Founders", private: true, id: "cat_founders" },
-          channels: [{ ref: "/demo/leadership", name: "leadership", type: "text", visibility: "private", id: "ch_3", serverId: "srv_1" }],
+          channels: [{ name: "leadership", type: "text", visibility: "private", id: "ch_3", serverId: "srv_1" }],
         },
       ],
     })
@@ -158,8 +158,8 @@ describe("POST /api/community/agent/listChannels", () => {
         {
           category: null,
           channels: [
-            { ref: "/studio/general", name: "general", type: "text", visibility: "public", id: "ch_1", serverId: "srv_1" },
-            { ref: "/studio/help", name: "help", type: "forum", visibility: "public", id: "ch_2", serverId: "srv_1" },
+            { name: "general", type: "text", visibility: "public", id: "ch_1", serverId: "srv_1" },
+            { name: "help", type: "forum", visibility: "public", id: "ch_2", serverId: "srv_1" },
           ],
         },
       ],
