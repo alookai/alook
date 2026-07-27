@@ -233,11 +233,14 @@ export interface Message {
   /**
    * Id-addressing fields, emitted alongside the ref-shaped keys above. Present
    * so a caller can address a message/channel/author by id instead of by
-   * `channel` + `seq` ref. Optional so both id-addressed and ref-only callers
-   * typecheck against one shape.
+   * `channel` + `seq` ref. `channelId` is set for channel-scoped messages,
+   * `dmConversationId` for DM messages (never both) — mirroring the two REST
+   * scopes (`/channels/:id` vs `/dm/:id`). Optional so both id-addressed and
+   * ref-only callers typecheck against one shape.
    */
   id?: string;
   channelId?: string;
+  dmConversationId?: string;
   authorId?: string;
 }
 

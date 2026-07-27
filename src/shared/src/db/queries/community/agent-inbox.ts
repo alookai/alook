@@ -221,11 +221,12 @@ export async function toAgentMessages(
       content,
       time: r.createdAt,
       // Id fields emitted alongside the ref-shaped keys so a caller can address
-      // by id instead of channel+seq. `channelId` is present only for
-      // channel-scoped messages — DM messages carry no channel id (their scope
-      // axis is the DM conversation, not a channel).
+      // by id instead of channel+seq. A message is either channel-scoped
+      // (`channelId`) or DM-scoped (`dmConversationId`), never both — mirroring
+      // the two addressing scopes.
       id: r.id,
       ...(r.channelId ? { channelId: r.channelId } : {}),
+      ...(r.dmConversationId ? { dmConversationId: r.dmConversationId } : {}),
       authorId: r.authorId,
     };
   });

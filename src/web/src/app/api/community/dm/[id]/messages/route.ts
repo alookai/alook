@@ -15,6 +15,7 @@ import { enrichMessages } from "@/lib/community/enrich-messages"
 import { requireDMParticipant } from "@/lib/community/permissions"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { createCommunityMessage } from "@/lib/community/message-handler"
+import { checkBotAlignment, alignmentBlockedResponse } from "@/lib/community/bot-alignment"
 
 export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
   const dmId = ctx.params?.id
@@ -133,14 +134,35 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   } catch {
     return writeError("invalid request body", 400)
   }
+  const bodyObj = body as Record<string, unknown>
+
+  // A bot must be aligned (caught up on this DM's unread) before it can post.
+  // Humans are not gated. On a block, return the envelope verbatim.
+  let expectedSeq: number | undefined
+  let alignSeen = 0
+  if (ctx.isBot) {
+    const seenUpToSeq = typeof bodyObj.seenUpToSeq === "number" ? bodyObj.seenUpToSeq : undefined
+    const gate = await checkBotAlignment(db, ctx.userId, { dmConversationId: dmId }, seenUpToSeq)
+    if (gate.blocked) return gate.blocked
+    expectedSeq = gate.latestSeq
+    alignSeen = gate.seen
+  }
 
   const result = await createCommunityMessage({
     db,
     authorId: ctx.userId,
     target: { kind: "dm", dmId, otherUserId: auth.value.otherUserId },
-    body: body as Record<string, unknown>,
+    body: bodyObj,
+    ...(expectedSeq !== undefined ? { expectedSeq } : {}),
   })
-  if (!result.ok) return writeError(result.error, result.status)
+  if (!result.ok) {
+    if (ctx.isBot && result.status === 409) {
+      const scopeKey = queries.communityMessage.scopeKeyForTarget({ dmConversationId: dmId })
+      const fresh = await queries.communityAgentInbox.getLatestSeqForScope(db, scopeKey)
+      return alignmentBlockedResponse(fresh, alignSeen)
+    }
+    return writeError(result.error, result.status)
+  }
 
   return writeJSON({ message: result.row }, 201)
 })

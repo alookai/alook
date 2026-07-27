@@ -15,6 +15,7 @@ import { enrichMessages } from "@/lib/community/enrich-messages"
 import { requireChannelMember } from "@/lib/community/permissions"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { createCommunityMessage } from "@/lib/community/message-handler"
+import { checkBotAlignment, alignmentBlockedResponse } from "@/lib/community/bot-alignment"
 
 export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
@@ -147,6 +148,21 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   } catch {
     return writeError("invalid request body", 400)
   }
+  const bodyObj = body as Record<string, unknown>
+
+  // A bot must be aligned (caught up on this channel's unread) before it can
+  // post — see `checkBotAlignment`. Humans are not gated. On a block, return
+  // the `blocked`/`unaligned` envelope verbatim; the CLI translates it into a
+  // "pull, then resend" instruction.
+  let expectedSeq: number | undefined
+  let alignSeen = 0
+  if (ctx.isBot) {
+    const seenUpToSeq = typeof bodyObj.seenUpToSeq === "number" ? bodyObj.seenUpToSeq : undefined
+    const gate = await checkBotAlignment(db, ctx.userId, { channelId }, seenUpToSeq)
+    if (gate.blocked) return gate.blocked
+    expectedSeq = gate.latestSeq
+    alignSeen = gate.seen
+  }
 
   // Child channels (those with a parentChannelId — threads AND posts) fire
   // CHILD_CHANNEL_UPDATE on the parent so its indicator ticks, and both scope
@@ -172,9 +188,20 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
     db,
     authorId: ctx.userId,
     target,
-    body: body as Record<string, unknown>,
+    body: bodyObj,
+    ...(expectedSeq !== undefined ? { expectedSeq } : {}),
   })
-  if (!result.ok) return writeError(result.error, result.status)
+  if (!result.ok) {
+    // A bot that lost the seq race between its alignment check and this claim
+    // gets the same `blocked` shape (with a freshly re-read waterline) instead
+    // of a bare 409 — mirrors the pull-then-resend contract above.
+    if (ctx.isBot && result.status === 409) {
+      const scopeKey = queries.communityMessage.scopeKeyForTarget({ channelId })
+      const fresh = await queries.communityAgentInbox.getLatestSeqForScope(db, scopeKey)
+      return alignmentBlockedResponse(fresh, alignSeen)
+    }
+    return writeError(result.error, result.status)
+  }
 
   return writeJSON({ message: result.row }, 201)
 })
