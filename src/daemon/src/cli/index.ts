@@ -165,28 +165,20 @@ async function cmdMessageSend(opts: Record<string, unknown>): Promise<unknown> {
     throw new CliError("message send: --text <text>, --file <path>, or --attachment <id> is required");
   }
 
-  // `--reply` accepts the hash form the agent already sees in payloads (`"#37"`)
-  // or a bare number; strip the leading `#` and require a positive integer.
-  let replyToSeq: number | undefined;
+  // `--reply` takes the `id` of the message being answered — the same `id`
+  // every pulled message and `channel history` row carries.
   const replyFlag = opts.reply as string | number | undefined;
-  if (replyFlag !== undefined && replyFlag !== "") {
-    const raw = String(replyFlag).trim();
-    const stripped = raw.startsWith("#") ? raw.slice(1) : raw;
-    // Require a plain decimal seq. `Number("0x25")`/`Number("1e3")` would
-    // otherwise coerce hex/exponential forms to a silently-wrong seq.
-    const n = Number(stripped);
-    if (!/^\d+$/.test(stripped) || !Number.isInteger(n) || n < 1) {
-      throw new CliError('message send: --reply must be a message seq like "#37"');
-    }
-    replyToSeq = n;
-  }
+  const replyToId =
+    replyFlag !== undefined && String(replyFlag).trim() !== ""
+      ? String(replyFlag).trim()
+      : undefined;
 
   const res = await api.send({
     agentId: agent,
     ...scope,
     content: { text: text ?? "" },
     attachments: attachmentIds.length > 0 ? attachmentIds : undefined,
-    replyToSeq,
+    replyToId,
   });
   if (res.state === "blocked") {
     const where = scope.channelId ?? scope.dmConversationId;
@@ -433,7 +425,7 @@ function buildProgram(): Command {
       (v, prev: string[] = []) => [...prev, v],
       [] as string[],
     )
-    .option("--reply <seq>", 'reply to a message by its seq in --target (e.g. "#37" or 37)')
+    .option("--reply <messageId>", "reply to a message by its id (from inbox pull / channel history)")
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })
     .action(async function (this: Command) {

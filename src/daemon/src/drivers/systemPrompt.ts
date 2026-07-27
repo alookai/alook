@@ -161,6 +161,9 @@ function messagingSection(): string {
       "When uncertain, read history (below) or DM the relevant people.",
     `- Short reply: \`${CLI} message send --channel <id> --text "brief reply"\`.`,
     `- Long or complicated: write body to a tmp file, then \`${CLI} message send --channel <id> --file ./temp_msg.md\`.`,
+    `- Cite a specific message: add \`--reply <messageId>\` — the \`id\` of the message you're ` +
+      "answering (from `inbox pull` / `channel history`). It renders as a threaded reply pointing " +
+      "back at that message.",
     "",
     "### Addressing",
     "",
@@ -208,12 +211,16 @@ function messagingSection(): string {
     "",
     "```json",
     '{"id": "msg_9f3", "seq": "#3", "channelId": "ch_general", "authorId": "usr_82", "sender": "@gustavo#4821", "content": {"text": "hello"}, "time": "2026-06-01T12:00:00Z"}',
+    '{"id": "msg_9f4", "seq": "#42", "channelId": "ch_general", "authorId": "usr_82", "sender": "@gustavo#4821", "content": {"text": "yes, ship it", "replyTo": {"id": "msg_9f0", "sender": "@ana#0012", "text": "can we ship today?"}}, "time": "2026-06-01T12:01:00Z"}',
     "```",
     "",
     "Reply into the same scope with that message's `channelId` (or `dmConversationId` for a DM) " +
       "as `--channel`/`--dm`. React with its `id` via `message emoji --message <id>`. `seq` (`#N`) " +
       "is the message's position within its channel — used for history pagination " +
       "(`--before`/`--after`/`--around N`) and for inline ` #N` refs.",
+    "",
+    "`content.replyTo` (`{id, sender, text}`) is present when a message answers another — cite the " +
+      "same message back with `--reply <that id>`.",
   ].join("\n");
 }
 

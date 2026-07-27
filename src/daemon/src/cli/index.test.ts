@@ -107,58 +107,24 @@ describe("channel alignment (message send)", () => {
 });
 
 describe("message send --reply", () => {
-  it("strips a leading # from --reply and forwards replyToSeq", async () => {
+  it("forwards --reply as replyToId (the cited message's id)", async () => {
     const sendSpy = vi.fn(async () => ({
       state: "sent" as const,
-      message: { seq: "#8", channel: "/s/general", sender: "@a", content: { text: "on it" }, time: "" },
+      message: { id: "msg_8", seq: "#8", channelId: "ch_general", authorId: "usr_a", sender: "@a", content: { text: "on it" }, time: "" },
     }));
     setApiForTesting(stubApi({ send: sendSpy }));
-    await main(["message", "send", "--target", "/s/general", "--text", "on it", "--reply", "#37"]);
-    expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ replyToSeq: 37 }));
+    await main(["message", "send", "--channel", "ch_general", "--text", "on it", "--reply", "msg_37"]);
+    expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ replyToId: "msg_37" }));
   });
 
-  it("accepts a bare numeric --reply", async () => {
+  it("omits replyToId (undefined) when --reply is absent", async () => {
     const sendSpy = vi.fn(async () => ({
       state: "sent" as const,
-      message: { seq: "#8", channel: "/s/general", sender: "@a", content: { text: "on it" }, time: "" },
+      message: { id: "msg_8", seq: "#8", channelId: "ch_general", authorId: "usr_a", sender: "@a", content: { text: "hi" }, time: "" },
     }));
     setApiForTesting(stubApi({ send: sendSpy }));
-    await main(["message", "send", "--target", "/s/general", "--text", "on it", "--reply", "37"]);
-    expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ replyToSeq: 37 }));
-  });
-
-  it("omits replyToSeq (undefined) when --reply is absent", async () => {
-    const sendSpy = vi.fn(async () => ({
-      state: "sent" as const,
-      message: { seq: "#8", channel: "/s/general", sender: "@a", content: { text: "hi" }, time: "" },
-    }));
-    setApiForTesting(stubApi({ send: sendSpy }));
-    await main(["message", "send", "--target", "/s/general", "--text", "hi"]);
-    expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ replyToSeq: undefined }));
-  });
-
-  it("rejects a non-numeric --reply with a CliError, never calling send", async () => {
-    const sendSpy = vi.fn(async () => ({
-      state: "sent" as const,
-      message: { seq: "#8", channel: "/s/general", sender: "@a", content: { text: "" }, time: "" },
-    }));
-    setApiForTesting(stubApi({ send: sendSpy }));
-    await main(["message", "send", "--target", "/s/general", "--text", "hi", "--reply", "x"]);
-    const env = parseEnvelope(cap.lines());
-    expect(env.error).toContain("--reply must be a message seq");
-    expect(sendSpy).not.toHaveBeenCalled();
-  });
-
-  it("rejects --reply 0 (not a real seq) with a CliError", async () => {
-    const sendSpy = vi.fn(async () => ({
-      state: "sent" as const,
-      message: { seq: "#8", channel: "/s/general", sender: "@a", content: { text: "" }, time: "" },
-    }));
-    setApiForTesting(stubApi({ send: sendSpy }));
-    await main(["message", "send", "--target", "/s/general", "--text", "hi", "--reply", "0"]);
-    const env = parseEnvelope(cap.lines());
-    expect(env.error).toContain("--reply must be a message seq");
-    expect(sendSpy).not.toHaveBeenCalled();
+    await main(["message", "send", "--channel", "ch_general", "--text", "hi"]);
+    expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ replyToId: undefined }));
   });
 });
 

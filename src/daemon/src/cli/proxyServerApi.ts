@@ -251,6 +251,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     content: string | null;
     seq: number;
     createdAt: string;
+    replyTo?: { id: string; authorName: string; text: string; deleted?: boolean };
   };
   type WireUserMessagesPage = {
     messages: WireUserMessage[];
@@ -269,7 +270,19 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     return {
       seq: `#${m.seq}`,
       sender: `@${m.authorName ?? m.authorId}`,
-      content: { text: m.content ?? "" },
+      content: {
+        text: m.content ?? "",
+        ...(m.replyTo
+          ? {
+            replyTo: {
+              id: m.replyTo.id,
+              sender: `@${m.replyTo.authorName}`,
+              text: m.replyTo.text,
+              ...(m.replyTo.deleted ? { deleted: true } : {}),
+            },
+          }
+          : {}),
+      },
       time: m.createdAt,
       id: m.id,
       ...scope,
@@ -491,6 +504,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
           content: r.content,
           ...(r.attachments ? { attachments: r.attachments } : {}),
           ...(r.seenUpToSeq !== undefined ? { seenUpToSeq: r.seenUpToSeq } : {}),
+          ...(r.replyToId ? { replyToId: r.replyToId } : {}),
         },
       );
       if ("state" in body) return body;

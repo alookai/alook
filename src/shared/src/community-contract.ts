@@ -145,12 +145,16 @@ export interface AgentAttachmentRef {
   size: number | null;
 }
 
-/** Cited message preview on a reply — seq + sender only, no body. */
+/** Cited message preview on a reply — enough to show what's being answered. */
 export interface ReplyRef {
-  /** Display form "#N" — matches `Message.seq` (string), NOT the numeric `Seq`. */
-  seq: string;
-  /** Sender global handle (`name#0042`), e.g. "@ana#0012". */
+  /** Id of the cited message — the same id you'd pass to `--reply`. */
+  id: string;
+  /** Sender of the cited message (`@name` best-effort from the user route). */
   sender: string;
+  /** Truncated body of the cited message; empty when deleted. */
+  text: string;
+  /** True when the cited message is gone or out of scope (renders "[deleted]"). */
+  deleted?: boolean;
 }
 
 export interface MessageContent {
@@ -161,7 +165,7 @@ export interface MessageContent {
    * Present only on the read side, and only when this message replies to an
    * in-scope, non-deleted message. Lives inside `content` alongside
    * `text`/`attachments`. On the write side the reply intent travels as the
-   * top-level `SendRequest.replyToSeq`, not here — the route ignores any
+   * top-level `SendRequest.replyToId`, not here — the route ignores any
    * `content.replyTo` on input.
    */
   replyTo?: ReplyRef;
@@ -308,12 +312,12 @@ export interface SendRequest extends ScopeTarget {
    */
   seenUpToSeq?: Seq;
   /**
-   * Seq (within `channel`) of the message this send replies to. The route
-   * resolves it to the target's message id — scope-first, within `channel`
-   * only — and stores it as `replyToId`. A seq with no matching message in
-   * scope is rejected 400 (no cross-scope citing).
+   * Id of the message this send replies to — the `id` carried by every pulled
+   * message and `channel history` row. Stored directly as `replyToId`; the
+   * shared message route resolves the cited-message preview scope-first, so an
+   * id outside the target scope is dropped (no cross-scope citing).
    */
-  replyToSeq?: Seq;
+  replyToId?: string;
 }
 
 /**

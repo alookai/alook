@@ -207,6 +207,30 @@ describe("createProxyServerApi — inboxPull (composed from /inbox/unreads + /me
     const res = await api.inboxPull({ agentId: "a1" as never });
     expect(res.hasMore).toBe(true);
   });
+
+  it("carries the route's replyTo preview into content.replyTo (sender @-prefixed)", async () => {
+    const fetchImpl: FetchLike = vi.fn(async (url: string) => {
+      if (url.endsWith("/api/community/inbox/unreads")) {
+        return jsonBody(JSON.stringify({ servers: [{ serverId: "s", serverName: "s", channels: [{ channelId: "ch_1", lastMessageSeq: 9, lastReadSeq: 0, mentionCount: 0 }] }], dms: [] }), { status: 200 });
+      }
+      return jsonBody(JSON.stringify({ messages: [{ id: "m2", authorId: "u2", authorName: "Bo", content: "on it", seq: 2, createdAt: "t2", replyTo: { id: "m1", authorName: "Al", text: "can you?" } }], hasMoreNewer: false }), { status: 200 });
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const res = await api.inboxPull({ agentId: "a1" as never });
+    expect(res.messages[0].content.replyTo).toEqual({ id: "m1", sender: "@Al", text: "can you?" });
+  });
+
+  it("marks a deleted/out-of-scope cited message with deleted: true", async () => {
+    const fetchImpl: FetchLike = vi.fn(async (url: string) => {
+      if (url.endsWith("/api/community/inbox/unreads")) {
+        return jsonBody(JSON.stringify({ servers: [{ serverId: "s", serverName: "s", channels: [{ channelId: "ch_1", lastMessageSeq: 9, lastReadSeq: 0, mentionCount: 0 }] }], dms: [] }), { status: 200 });
+      }
+      return jsonBody(JSON.stringify({ messages: [{ id: "m2", authorId: "u2", authorName: "Bo", content: "on it", seq: 2, createdAt: "t2", replyTo: { id: "m1", authorName: "Unknown", text: "", deleted: true } }], hasMoreNewer: false }), { status: 200 });
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const res = await api.inboxPull({ agentId: "a1" as never });
+    expect(res.messages[0].content.replyTo).toEqual({ id: "m1", sender: "@Unknown", text: "", deleted: true });
+  });
 });
 
 describe("createProxyServerApi — inboxSnapshot (projected from /inbox/unreads)", () => {

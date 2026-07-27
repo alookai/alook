@@ -1210,7 +1210,6 @@ export const CommunityAgentSendRequestSchema = z
       .max(MAX_ATTACHMENTS_PER_MESSAGE)
       .default([]),
     seenUpToSeq: CommunityAgentSeqSchema.optional(),
-    replyToSeq: CommunityAgentPositiveSeqSchema.optional(),
   })
   .refine(
     (d) => d.content.text.trim().length > 0 || d.attachments.length > 0,
