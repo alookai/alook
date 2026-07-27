@@ -52,6 +52,7 @@ describe("POST /api/community/users/[userId]/block", () => {
     block.mockResolvedValue({
       row: { id: "f1", requesterId: "u1", addresseeId: "u2", status: "blocked" },
       removedFriendshipId: null,
+      broadcasts: [],
     })
     const res = await POST(req, { params: { userId: "u2" } } as never)
     expect(res.status).toBe(200)
@@ -70,6 +71,7 @@ describe("POST /api/community/users/[userId]/block", () => {
     block.mockResolvedValue({
       row: { id: "f2", requesterId: "u1", addresseeId: "u2", status: "blocked" },
       removedFriendshipId: "f_OLD",
+      broadcasts: [],
     })
     const res = await POST(req, { params: { userId: "u2" } } as never)
     expect(res.status).toBe(200)
@@ -82,6 +84,35 @@ describe("POST /api/community/users/[userId]/block", () => {
       type: "community:friend.remove",
       friendshipId: "f_OLD",
     })
+  })
+
+  it("blocking when a gated pending card exists rehydrates the owner's card (no friend.remove)", async () => {
+    // block() soft-cancelled a gated pending row and returned its card fanout.
+    block.mockResolvedValue({
+      row: { id: "f3", requesterId: "u1", addresseeId: "u2", status: "blocked" },
+      removedFriendshipId: null,
+      broadcasts: [
+        {
+          userId: "owner_carol",
+          event: {
+            type: "community:dm.message_updated",
+            dmConversationId: "dm_1",
+            messageId: "m_1",
+            approval: { status: "cancelled" },
+          },
+        },
+      ],
+    })
+    const res = await POST(req, { params: { userId: "u2" } } as never)
+    expect(res.status).toBe(200)
+    const types = broadcastToUser.mock.calls.map((c) => (c[1] as { type: string }).type)
+    expect(types).toContain("community:friend.block")
+    expect(types).not.toContain("community:friend.remove")
+    const cardCall = broadcastToUser.mock.calls.find(
+      (c) => (c[1] as { type: string }).type === "community:dm.message_updated",
+    )
+    expect(cardCall).toBeDefined()
+    expect(cardCall![0]).toBe("owner_carol")
   })
 
   it("400 when blocking yourself", async () => {

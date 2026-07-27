@@ -36,5 +36,10 @@ export const POST = withAuth(async (_req, ctx) => {
     })
   }
 
+  // Rehydrate any approval card referencing a pending row this block
+  // soft-cancelled — an owner's Approve/Deny card or a J2 "waiting on
+  // <addressee>" chip → a non-actionable "cancelled" chip.
+  for (const b of result.broadcasts) broadcastToUserSafe(b.userId, b.event)
+
   return writeJSON(result.row)
 })

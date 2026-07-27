@@ -555,6 +555,12 @@ export type BlockOutcome = {
   /** Friendship id that was deleted to make room, if any. The route uses this
    *  to broadcast a `friend.remove` so the other side's UI stays consistent. */
   removedFriendshipId: string | null;
+  /** DM_MESSAGE_UPDATED fanout for any approval card referencing a pending row
+   *  this block soft-cancelled — a gating owner's Approve/Deny card or a J2
+   *  "waiting on <addressee>" chip — so it rehydrates to a non-actionable
+   *  "cancelled" chip instead of pointing at a now-gone row. Empty when the
+   *  torn-down pending row had no card (or the block tore down nothing). */
+  broadcasts: FriendshipBroadcast[];
 }
 
 export async function block(
@@ -564,6 +570,7 @@ export async function block(
   const existing = await findActive(db, data.blockerId, data.targetId);
 
   let removedFriendshipId: string | null = null;
+  const broadcasts: FriendshipBroadcast[] = [];
   if (existing) {
     if (isBlockedStatus(existing.status)) {
       // Already blocked — keep it idempotent; just refresh `updatedAt` so
@@ -573,17 +580,32 @@ export async function block(
         .set({ updatedAt: new Date().toISOString() })
         .where(eq(communityFriendship.id, existing.id))
         .returning();
-      return { row: rows[0]!, removedFriendshipId: null };
+      return { row: rows[0]!, removedFriendshipId: null, broadcasts: [] };
     }
-    // Wipe the existing pending/accepted row so the blocker's row is the
-    // single source of truth instead of leaving a hybrid status='blocked'
-    // entry whose requester/addressee ordering may not match the blocker.
-    await db
-      .delete(communityFriendship)
-      .where(eq(communityFriendship.id, existing.id));
-    // Tell the route whether to broadcast friend.remove — only if we just
-    // tore down a real friendship, not a pending request.
-    if (isAccepted(existing.status)) {
+    if (existing.status === "pending") {
+      // A pending row may carry a live approval card in the owner's DM — an
+      // actionable Approve/Deny (gated), or a non-actionable "Approved —
+      // waiting on <addressee>" chip after a J2 owner-approve (ungated, still
+      // pending). Soft-cancel it (terminal, so it leaves the
+      // `uq_friendship_active` predicate and the blocked row inserts cleanly)
+      // and rehydrate the card to a "cancelled" chip, rather than hard-deleting
+      // and orphaning it. Mirrors the withdraw path (cancelPendingRequest);
+      // buildCardUpdateBroadcasts returns [] when no card references the row.
+      const rows = await db
+        .update(communityFriendship)
+        .set({ status: "cancelled", resolvedAt: nowIso(), updatedAt: nowIso() })
+        .where(eq(communityFriendship.id, existing.id))
+        .returning();
+      const cancelled = rows[0];
+      if (cancelled) broadcasts.push(...(await buildCardUpdateBroadcasts(db, cancelled)));
+    } else {
+      // Accepted: no owner card to preserve. Wipe the row so the blocker's row
+      // is the single source of truth instead of leaving a hybrid
+      // status='blocked' entry whose requester/addressee ordering may not match
+      // the blocker. Tell the route to broadcast friend.remove.
+      await db
+        .delete(communityFriendship)
+        .where(eq(communityFriendship.id, existing.id));
       removedFriendshipId = existing.id;
     }
   }
@@ -597,7 +619,7 @@ export async function block(
       blockerId: data.blockerId,
     })
     .returning();
-  return { row: rows[0]!, removedFriendshipId };
+  return { row: rows[0]!, removedFriendshipId, broadcasts };
 }
 
 export async function unblock(

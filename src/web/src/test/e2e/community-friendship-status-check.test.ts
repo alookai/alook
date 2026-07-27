@@ -95,3 +95,52 @@ describe("community_friendship.status CHECK constraint", () => {
     expect(() => insertFriendship("not_a_real_status")).toThrow(/CHECK constraint failed/i)
   })
 })
+
+/**
+ * `uq_friendship_active` is a partial unique over the unordered pair scoped to
+ * `status IN ('pending','accepted')`. `block()` relies on this: it soft-cancels
+ * a gated pending row to 'cancelled' (terminal, outside the predicate) and then
+ * inserts a fresh 'blocked' row for the same pair. If the index covered
+ * 'cancelled' or 'blocked', that INSERT would trip the unique constraint and
+ * block-over-a-pending-request would 500. This asserts the invariant on the
+ * real schema.
+ */
+const blkFrCancelled = "e2e_fstatus_blk_c"
+const blkFrBlocked = "e2e_fstatus_blk_b"
+
+describe("uq_friendship_active excludes terminal/blocked rows (block soft-cancel invariant)", () => {
+  afterAll(() => {
+    sqlRun(`DELETE FROM community_friendship WHERE id IN (?, ?)`, blkFrCancelled, blkFrBlocked)
+    sqlRun(`DELETE FROM user WHERE id IN (?, ?)`, reqId, addrId)
+  })
+
+  it("a 'cancelled' row and a fresh 'blocked' row coexist for the same pair", () => {
+    sql("PRAGMA foreign_keys = ON")
+    sqlRun(`DELETE FROM community_friendship WHERE id IN (?, ?)`, blkFrCancelled, blkFrBlocked)
+    sqlRun(`DELETE FROM user WHERE id IN (?, ?)`, reqId, addrId)
+    insertUser(reqId)
+    insertUser(addrId)
+    const now = new Date("2026-07-27T00:00:00.000Z").toISOString()
+
+    // The soft-cancelled former pending row.
+    sqlRun(
+      `INSERT INTO community_friendship (id, requester_id, addressee_id, status, resolved_at, created_at, updated_at)
+       VALUES (?, ?, ?, 'cancelled', ?, ?, ?)`,
+      blkFrCancelled, reqId, addrId, now, now, now,
+    )
+    // The blocker's fresh row, same pair — must NOT trip uq_friendship_active.
+    expect(() =>
+      sqlRun(
+        `INSERT INTO community_friendship (id, requester_id, addressee_id, status, blocker_id, created_at, updated_at)
+         VALUES (?, ?, ?, 'blocked', ?, ?, ?)`,
+        blkFrBlocked, addrId, reqId, addrId, now, now,
+      ),
+    ).not.toThrow()
+
+    const rows = sqlQuery<{ status: string }>(
+      `SELECT status FROM community_friendship WHERE id IN (?, ?) ORDER BY status`,
+      blkFrCancelled, blkFrBlocked,
+    )
+    expect(rows.map((r) => r.status)).toEqual(["blocked", "cancelled"])
+  })
+})

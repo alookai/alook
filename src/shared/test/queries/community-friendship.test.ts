@@ -350,3 +350,144 @@ describe("rejectRequest", () => {
     expect(db.select).toHaveBeenCalled()
   })
 })
+
+/**
+ * `block()` branch logic. It runs, in order: `findActive` (select #1),
+ * then for a pending row an UPDATE→'cancelled' (returning), else for accepted a
+ * DELETE; then always an INSERT of the 'blocked' row (returning). A pending
+ * soft-cancel also runs `buildCardUpdateBroadcasts` (select #2 =
+ * listMessagesReferencingFriendship). This mock sequences the two selects and
+ * records which write path fired.
+ */
+function createBlockDb(opts: {
+  existing: any | null
+  refMessages?: any[]
+  profiles?: any[]
+}) {
+  const selectReturns = [
+    opts.existing ? [opts.existing] : [], // #1 findActive
+    opts.refMessages ?? [], // #2 listMessagesReferencingFriendship (if reached)
+    opts.profiles ?? [], // #3 loadProfiles (only if refMessages non-empty)
+  ]
+  let selectCall = 0
+  const calls = { updated: null as any, deleted: false, inserted: null as any }
+  const db: any = {
+    select: vi.fn(() => {
+      const rows = selectReturns[selectCall] ?? []
+      selectCall += 1
+      const chain: any = {}
+      chain.from = vi.fn(() => chain)
+      chain.innerJoin = vi.fn(() => chain)
+      chain.where = vi.fn(() => Promise.resolve(rows))
+      return chain
+    }),
+    update: vi.fn(() => {
+      const chain: any = {}
+      chain.set = vi.fn((v: any) => {
+        calls.updated = v
+        return chain
+      })
+      chain.where = vi.fn(() => chain)
+      chain.returning = vi.fn(() =>
+        Promise.resolve([{ ...opts.existing, status: calls.updated?.status ?? opts.existing?.status }]),
+      )
+      return chain
+    }),
+    delete: vi.fn(() => {
+      calls.deleted = true
+      const chain: any = {}
+      chain.where = vi.fn(() => Promise.resolve(undefined))
+      return chain
+    }),
+    insert: vi.fn(() => {
+      const chain: any = {}
+      chain.values = vi.fn((v: any) => {
+        calls.inserted = v
+        return chain
+      })
+      chain.returning = vi.fn(() => Promise.resolve([{ id: "fr_blocked", ...calls.inserted }]))
+      return chain
+    }),
+  }
+  return { db, calls }
+}
+
+describe("block", () => {
+  it("soft-cancels a gated pending row (keeps its card) and inserts the blocked row", async () => {
+    const { db, calls } = createBlockDb({
+      existing: {
+        id: "fr_old", requesterId: "u_alice", addresseeId: "bot_yara",
+        status: "pending", needsOwnerApproval: "owner_carol",
+      },
+      refMessages: [],
+    })
+    const res = await q.block(db, { blockerId: "u_alice", targetId: "bot_yara" })
+    // Pending → UPDATE to cancelled, NOT delete.
+    expect(calls.updated?.status).toBe("cancelled")
+    expect(calls.deleted).toBe(false)
+    // Fresh blocked row inserted; no friend.remove (wasn't accepted).
+    expect(calls.inserted?.status).toBe("blocked")
+    expect(res.removedFriendshipId).toBeNull()
+    expect(Array.isArray(res.broadcasts)).toBe(true)
+  })
+
+  it("soft-cancel with a card referencing the row fans DM_MESSAGE_UPDATED to the owner, not the bot", async () => {
+    const { db } = createBlockDb({
+      existing: {
+        id: "fr_old", requesterId: "u_alice", addresseeId: "bot_yara",
+        status: "pending", needsOwnerApproval: "owner_carol",
+      },
+      // listMessagesReferencingFriendship raw rows: a card in the owner↔bot DM.
+      refMessages: [
+        { messageId: "m_1", dmConversationId: "dm_1", user1Id: "owner_carol", user2Id: "bot_yara" },
+      ],
+      // loadProfiles rows — owner_carol is human, bot_yara is a bot.
+      profiles: [
+        { id: "owner_carol", name: "Carol", discriminator: "0003", image: null, isBot: 0, ownerUserId: null },
+        { id: "bot_yara", name: "Yara", discriminator: "0007", image: null, isBot: 1, ownerUserId: "owner_carol" },
+        { id: "u_alice", name: "Alice", discriminator: "0042", image: null, isBot: 0, ownerUserId: null },
+      ],
+    })
+    const res = await q.block(db, { blockerId: "u_alice", targetId: "bot_yara" })
+    // Exactly one broadcast, to the human owner peer (the sessionless bot is skipped).
+    expect(res.broadcasts).toHaveLength(1)
+    expect(res.broadcasts[0]!.userId).toBe("owner_carol")
+    expect(res.broadcasts[0]!.event.type).toBe("community:dm.message_updated")
+    expect((res.broadcasts[0]!.event as any).approval.status).toBe("cancelled")
+  })
+
+  it("soft-cancels an UNGATED pending row too (J2 post-approve card)", async () => {
+    const { db, calls } = createBlockDb({
+      existing: {
+        id: "fr_old", requesterId: "bot_bob", addresseeId: "u_alice",
+        status: "pending", needsOwnerApproval: null,
+      },
+    })
+    await q.block(db, { blockerId: "u_alice", targetId: "bot_bob" })
+    expect(calls.updated?.status).toBe("cancelled")
+    expect(calls.deleted).toBe(false)
+  })
+
+  it("hard-deletes an accepted friendship and reports removedFriendshipId", async () => {
+    const { db, calls } = createBlockDb({
+      existing: {
+        id: "fr_old", requesterId: "u_alice", addresseeId: "u_zoe",
+        status: "accepted", needsOwnerApproval: null,
+      },
+    })
+    const res = await q.block(db, { blockerId: "u_alice", targetId: "u_zoe" })
+    expect(calls.deleted).toBe(true)
+    expect(calls.updated).toBeNull()
+    expect(res.removedFriendshipId).toBe("fr_old")
+    expect(res.broadcasts).toEqual([])
+  })
+
+  it("no prior row → just inserts the blocked row, empty broadcasts", async () => {
+    const { db, calls } = createBlockDb({ existing: null })
+    const res = await q.block(db, { blockerId: "u_alice", targetId: "u_new" })
+    expect(calls.updated).toBeNull()
+    expect(calls.deleted).toBe(false)
+    expect(calls.inserted?.status).toBe("blocked")
+    expect(res.broadcasts).toEqual([])
+  })
+})
