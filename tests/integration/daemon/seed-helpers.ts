@@ -23,6 +23,15 @@ export function nanoid() {
 export interface DaemonItFixture {
   serverId: string
   channelId: string
+  /**
+   * Top-level channel NAME — the only way agent surfaces address a channel.
+   * `resolveChannelByNameForMember` is name-only (migration 0057's partial
+   * unique index; agent refs never accept ids), so agent-facing routes
+   * (`/api/community/agent/*`) must build the ref as `/serverId/channelName`,
+   * while the `/c` UI REST routes (`/api/community/channels/:id/*`) still key
+   * on `channelId`.
+   */
+  channelName: string
   paired: PairedMachine
   bot: SeededCommunityBot
 }
@@ -31,6 +40,7 @@ export async function seedPairedBot(seed: TestSeed, cookie: string): Promise<Dae
   const now = new Date().toISOString()
   const serverId = `srv_${nanoid()}`
   const channelId = `chn_${nanoid()}`
+  const channelName = "general"
   sqlRun(
     `INSERT INTO community_server (id, name, description, owner_id, created_at) VALUES (?, ?, ?, ?, ?)`,
     serverId,
@@ -51,7 +61,7 @@ export async function seedPairedBot(seed: TestSeed, cookie: string): Promise<Dae
     `INSERT INTO community_channel (id, server_id, name, type, position, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
     channelId,
     serverId,
-    "general",
+    channelName,
     "text",
     0,
     now,
@@ -60,7 +70,7 @@ export async function seedPairedBot(seed: TestSeed, cookie: string): Promise<Dae
   const paired = await pairAndActivateMachine(cookie)
   const bot = seedCommunityBot({ ownerUserId: seed.userId, serverId, machineId: paired.machineId, runtime: "claude" })
 
-  return { serverId, channelId, paired, bot }
+  return { serverId, channelId, channelName, paired, bot }
 }
 
 export function cleanupPairedBot(seed: TestSeed, fixture: DaemonItFixture): void {
