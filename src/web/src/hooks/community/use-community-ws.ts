@@ -874,7 +874,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
         }
 
         // ── DM message updated (friend-approval card state change) ───────
-        case "community:dm.message_updated": {
+        case WS_EVENTS.DM_MESSAGE_UPDATED: {
           // Patch the card's approval payload in the focused DM cache so it
           // re-renders in its new state without a refetch.
           if (event.dmConversationId === sub.dmConversationId) {
