@@ -31,6 +31,52 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const cursor = parseCursor(params.get("cursor"))
   const pageSize = parsePageSize(params.get("limit"))
 
+  // Seq-addressed pagination: `aroundSeq`/`afterSeq`/`beforeSeq` locate a
+  // message by its per-channel sequence number, then delegate to the same
+  // createdAt-windowed queries the anchor/since/cursor branches use — seq and
+  // createdAt are assigned in one insert, so they sort identically within a
+  // scope. This lets a caller page by seq without a separate query family;
+  // the createdAt-cursor branches below are unchanged. At most one seq param
+  // is honored (around > after > before).
+  const seqParam = (name: string): number | undefined => {
+    const v = params.get(name)
+    if (!v) return undefined
+    const n = parseInt(v, 10)
+    return Number.isFinite(n) && n > 0 ? n : undefined
+  }
+  const aroundSeq = seqParam("aroundSeq")
+  const afterSeq = seqParam("afterSeq")
+  const beforeSeq = seqParam("beforeSeq")
+
+  if (aroundSeq !== undefined || afterSeq !== undefined || beforeSeq !== undefined) {
+    const targetSeq = aroundSeq ?? afterSeq ?? beforeSeq!
+    const at = await queries.communityMessage.getMessageByChannelAndSeq(db, { channelId }, targetSeq)
+    if (!at) return writeError("message not found", 404)
+    const anchor = { createdAt: at.createdAt, id: at.id }
+
+    if (aroundSeq !== undefined) {
+      const around = await queries.communityMessage.listMessagesAround(db, { channelId, anchor, limit: pageSize })
+      const { items, hasMoreOlder, hasMoreNewer, olderCursor, newerCursor } = buildAnchorResponse(
+        around.older,
+        around.newer,
+        { hasMoreOlder: around.hasMoreOlder, hasMoreNewer: around.hasMoreNewer },
+      )
+      const { messages, latestSeq } = await enrichMessages(db, ctx.userId, { channelId }, items)
+      return writeJSON({ messages, hasMoreOlder, hasMoreNewer, olderCursor, newerCursor, latestSeq })
+    }
+    if (afterSeq !== undefined) {
+      const rows = await queries.communityMessage.listMessagesSince(db, { channelId, since: anchor, limit: pageSize })
+      const { items, hasMoreNewer, newerCursor } = buildSinceResponse(rows, pageSize)
+      const { messages, latestSeq } = await enrichMessages(db, ctx.userId, { channelId }, items)
+      return writeJSON({ messages, hasMoreNewer, newerCursor, latestSeq })
+    }
+    // beforeSeq: strictly-older page, delegating to the cursor query.
+    const rows = await queries.communityMessage.listMessages(db, { channelId, cursor: anchor, limit: pageSize + 1 })
+    const { items, hasMore, cursor: nextCursor } = buildPaginatedResponse(rows, pageSize)
+    const { messages, latestSeq } = await enrichMessages(db, ctx.userId, { channelId }, items.slice().reverse())
+    return writeJSON({ messages, hasMore, cursor: nextCursor, latestSeq })
+  }
+
   // Anchor branch: resolve the target message inside the channel scope first
   // (a scope-first lookup — see AGENTS.md "scope the queries before"), then
   // fetch the centered window and enrich.

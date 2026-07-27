@@ -46,6 +46,7 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
     handle: formatHandle(r.userName ?? "", r.discriminator ?? "0000"),
     role: r.role ?? "member",
     ...(r.nickname ? { nickname: r.nickname } : {}),
+    userId: r.userId,
   }))
 
   return NextResponse.json({ members })

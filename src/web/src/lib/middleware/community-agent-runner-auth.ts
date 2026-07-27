@@ -28,6 +28,72 @@ function serviceUnavailable(): NextResponse {
   )
 }
 
+/** The bot identity a valid `crk_` runner key resolves to. */
+export interface BotActor {
+  botUserId: string
+  ownerUserId: string
+  machineId: string
+}
+
+/**
+ * Resolve a raw `Authorization` header to a `BotActor`, or a `NextResponse`
+ * sentinel the caller early-returns. Shared by `withAgentRunnerAuth` (the
+ * surviving `/agent/*` routes) and `withCommunityActor` (the unified
+ * community actor) so the crk_ validation lives in exactly one place —
+ * the 3-lookup chain (runner key → bot user → binding) and its 401/503
+ * semantics are identical in both.
+ *
+ * Returns `{ kind: "not_bot" }` when the header is absent or is not a `crk_`
+ * bearer — that is NOT an error, it lets a caller fall through to another
+ * auth scheme (session/`al_`). A malformed/revoked `crk_` IS an error and
+ * yields a 401 `NextResponse`.
+ */
+export async function resolveBotActor(
+  db: ReturnType<typeof getDb>,
+  authHeader: string | null,
+): Promise<
+  | { kind: "bot"; actor: BotActor }
+  | { kind: "not_bot" }
+  | { kind: "error"; response: NextResponse }
+> {
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return { kind: "not_bot" }
+  }
+  const raw = authHeader.slice(7).trim()
+  if (!raw.startsWith("crk_")) {
+    return { kind: "not_bot" }
+  }
+
+  const rowLookup = await lookupOr503("findActiveAgentRunnerKeyByBearer", () =>
+    queries.communityMachine.findActiveAgentRunnerKeyByBearer(db, raw),
+  )
+  if (!rowLookup.ok) return { kind: "error", response: rowLookup.response }
+  const row = rowLookup.value
+  if (!row) {
+    return { kind: "error", response: NextResponse.json({ error: "runner key revoked or unknown" }, { status: 401 }) }
+  }
+
+  const botLookup = await lookupOr503("getUserInternal", () =>
+    queries.user.getUserInternal(db, row.agentId),
+  )
+  if (!botLookup.ok) return { kind: "error", response: botLookup.response }
+  const botUser = botLookup.value
+  if (!botUser || !botUser.isBot || botUser.deletedAt !== null) {
+    return { kind: "error", response: NextResponse.json({ error: "bot not found or inactive" }, { status: 401 }) }
+  }
+
+  const bindingLookup = await lookupOr503("getBotBinding", () =>
+    queries.communityBot.getBotBinding(db, row.agentId),
+  )
+  if (!bindingLookup.ok) return { kind: "error", response: bindingLookup.response }
+  const binding = bindingLookup.value
+  if (!binding || binding.machineId !== row.machineId) {
+    return { kind: "error", response: NextResponse.json({ error: "bot binding mismatch" }, { status: 401 }) }
+  }
+
+  return { kind: "bot", actor: { botUserId: row.agentId, ownerUserId: row.userId, machineId: row.machineId } }
+}
+
 /**
  * Run a D1 lookup through `withD1Retry`; on retry-exhaust log the failing
  * step and return a `NextResponse` sentinel the caller can early-return.
@@ -81,8 +147,7 @@ export function withAgentRunnerAuth(handler: AgentRunnerAuthenticatedHandler) {
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return NextResponse.json({ error: "missing or malformed Authorization header" }, { status: 401 })
     }
-    const raw = authHeader.slice(7).trim()
-    if (!raw.startsWith("crk_")) {
+    if (!authHeader.slice(7).trim().startsWith("crk_")) {
       return NextResponse.json({ error: "invalid runner key" }, { status: 401 })
     }
 
@@ -90,38 +155,21 @@ export function withAgentRunnerAuth(handler: AgentRunnerAuthenticatedHandler) {
     const cloudflareEnv = env as Env
     const db = getDb(cloudflareEnv.DB)
 
-    const rowLookup = await lookupOr503("findActiveAgentRunnerKeyByBearer", () =>
-      queries.communityMachine.findActiveAgentRunnerKeyByBearer(db, raw),
-    )
-    if (!rowLookup.ok) return rowLookup.response
-    const row = rowLookup.value
-    if (!row) {
-      return NextResponse.json({ error: "runner key revoked or unknown" }, { status: 401 })
-    }
-
-    const botLookup = await lookupOr503("getUserInternal", () =>
-      queries.user.getUserInternal(db, row.agentId),
-    )
-    if (!botLookup.ok) return botLookup.response
-    const botUser = botLookup.value
-    if (!botUser || !botUser.isBot || botUser.deletedAt !== null) {
-      return NextResponse.json({ error: "bot not found or inactive" }, { status: 401 })
-    }
-
-    const bindingLookup = await lookupOr503("getBotBinding", () =>
-      queries.communityBot.getBotBinding(db, row.agentId),
-    )
-    if (!bindingLookup.ok) return bindingLookup.response
-    const binding = bindingLookup.value
-    if (!binding || binding.machineId !== row.machineId) {
-      return NextResponse.json({ error: "bot binding mismatch" }, { status: 401 })
+    const resolved = await resolveBotActor(db, authHeader)
+    if (resolved.kind === "error") return resolved.response
+    // `not_bot` is unreachable here — the crk_ pre-check above already
+    // rejected every non-crk_ shape, so a resolver `not_bot` would only
+    // mean an empty crk_ prefix, which `findActiveAgentRunnerKeyByBearer`
+    // treats as unknown. Guard anyway to keep the type exhaustive.
+    if (resolved.kind === "not_bot") {
+      return NextResponse.json({ error: "invalid runner key" }, { status: 401 })
     }
 
     return handler(req, {
       env: cloudflareEnv,
-      botUserId: row.agentId,
-      ownerUserId: row.userId,
-      machineId: row.machineId,
+      botUserId: resolved.actor.botUserId,
+      ownerUserId: resolved.actor.ownerUserId,
+      machineId: resolved.actor.machineId,
       params: resolvedParams,
     })
   }

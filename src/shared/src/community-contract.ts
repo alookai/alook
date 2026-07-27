@@ -230,6 +230,15 @@ export interface Message {
   content: MessageContent;
   /** ISO-8601. */
   time: string;
+  /**
+   * Id-addressing fields, emitted alongside the ref-shaped keys above. Present
+   * so a caller can address a message/channel/author by id instead of by
+   * `channel` + `seq` ref. Optional so both id-addressed and ref-only callers
+   * typecheck against one shape.
+   */
+  id?: string;
+  channelId?: string;
+  authorId?: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -394,6 +403,13 @@ export interface ChannelListItem {
   name: string;
   type: TopLevelChannelType;
   visibility: "public" | "private";
+  /**
+   * Id-addressing fields, emitted alongside `ref`. Let a caller address the
+   * channel by `id` (and know its `serverId`) instead of by path ref.
+   * Optional so ref-only and id-addressed callers share one shape.
+   */
+  id?: string;
+  serverId?: string;
 }
 
 /**
@@ -404,6 +420,8 @@ export interface ChannelListItem {
 export interface CategoryRef {
   name: string;
   private: boolean;
+  /** Category id, emitted alongside `name` for id-addressing. Optional. */
+  id?: string;
 }
 
 /**
@@ -433,6 +451,8 @@ export interface ServerMember {
   /** "owner" | "admin" | "member" — never null on the wire (defaults to "member"). */
   role: string;
   nickname?: string;
+  /** Member's user id, emitted alongside `handle` for id-addressing. Optional. */
+  userId?: string;
 }
 
 /* ------------------------------------------------------------------ */

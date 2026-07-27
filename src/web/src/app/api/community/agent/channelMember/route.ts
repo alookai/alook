@@ -126,5 +126,6 @@ async function hydrateMembers(
     handle: formatHandle(r.userName ?? "", r.discriminator ?? "0000"),
     role: r.role ?? "member",
     ...(r.nickname ? { nickname: r.nickname } : {}),
+    userId: r.userId,
   }))
 }

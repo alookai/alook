@@ -88,6 +88,8 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
           name: c.name,
           type: c.type,
           visibility: isPrivate ? "private" : "public",
+          id: c.id,
+          serverId: server.id,
         }
         if (!c.categoryId || !cat) {
           uncategorized.push(item)
@@ -106,7 +108,7 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
         const items = byCategory.get(cat.id)
         if (!items || items.length === 0) continue
         serverGroups.push({
-          category: { name: cat.name, private: (cat.private ?? 0) === 1 },
+          category: { name: cat.name, private: (cat.private ?? 0) === 1, id: cat.id },
           channels: items,
         })
       }

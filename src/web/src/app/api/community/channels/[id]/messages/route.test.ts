@@ -10,6 +10,7 @@ const mockGetChannel = vi.fn()
 const mockCreateMessage = vi.fn()
 const mockGetMessage = vi.fn()
 const mockGetMessageInScope = vi.fn()
+const mockGetMessageByChannelAndSeq = vi.fn()
 const mockGetMessagesByIdsInScope = vi.fn()
 const mockListMembers = vi.fn()
 const mockListMemberUserIds = vi.fn()
@@ -55,6 +56,7 @@ vi.mock("@alook/shared", async () => {
         createMessage: (...a: unknown[]) => mockCreateMessage(...a),
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
         getMessageInScope: (...a: unknown[]) => mockGetMessageInScope(...a),
+        getMessageByChannelAndSeq: (...a: unknown[]) => mockGetMessageByChannelAndSeq(...a),
         getMessagesByIdsInScope: (...a: unknown[]) => mockGetMessagesByIdsInScope(...a),
         listMessages: (...a: unknown[]) => mockListMessages(...a),
         listMessagesAround: (...a: unknown[]) => mockListMessagesAround(...a),
@@ -529,6 +531,69 @@ describe("GET /api/community/channels/[id]/messages", () => {
       const req = new NextRequest("http://localhost/api/community/channels/c1/messages?anchor=m_missing", {
         method: "GET",
       })
+      const res = await GET(req, ctx)
+      expect(res.status).toBe(404)
+      expect(mockListMessagesAround).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("?aroundSeq / ?afterSeq / ?beforeSeq mode", () => {
+    it("resolves aroundSeq to its message and returns a centered window (delegates to listMessagesAround)", async () => {
+      mockGetMessageByChannelAndSeq.mockResolvedValue({ id: "m_anchor", createdAt: "2026-06-30T00:00:03.000Z" })
+      mockListMessagesAround.mockResolvedValue({
+        older: [
+          { id: "m_o1", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "o1", type: "default", mentionType: null, replyToId: null, channelId: "c1", embeds: null, createdAt: "2026-06-30T00:00:02.000Z" },
+        ],
+        newer: [
+          { id: "m_anchor", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "anchor", type: "default", mentionType: null, replyToId: null, channelId: "c1", embeds: null, createdAt: "2026-06-30T00:00:03.000Z" },
+        ],
+        hasMoreOlder: false,
+        hasMoreNewer: false,
+      })
+      mockGetLatestMessageSeq.mockResolvedValue(9)
+      const req = new NextRequest("http://localhost/api/community/channels/c1/messages?aroundSeq=3", { method: "GET" })
+      const res = await GET(req, ctx)
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as { messages: Array<{ id: string }> }
+      expect(body.messages.map((m) => m.id)).toEqual(["m_o1", "m_anchor"])
+      // Scope-first seq resolve passes the channel scope.
+      expect(mockGetMessageByChannelAndSeq).toHaveBeenCalledWith(expect.anything(), { channelId: "c1" }, 3)
+      expect(mockGetMessageInScope).not.toHaveBeenCalled()
+    })
+
+    it("afterSeq delegates to listMessagesSince (strictly newer)", async () => {
+      mockGetMessageByChannelAndSeq.mockResolvedValue({ id: "m_5", createdAt: "2026-06-30T00:00:05.000Z" })
+      mockListMessagesSince.mockResolvedValue([
+        { id: "m_6", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "6", type: "default", mentionType: null, replyToId: null, channelId: "c1", embeds: null, createdAt: "2026-06-30T00:00:06.000Z" },
+      ])
+      mockGetLatestMessageSeq.mockResolvedValue(6)
+      const req = new NextRequest("http://localhost/api/community/channels/c1/messages?afterSeq=5", { method: "GET" })
+      const res = await GET(req, ctx)
+      expect(res.status).toBe(200)
+      expect(mockListMessagesSince).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ channelId: "c1", since: { createdAt: "2026-06-30T00:00:05.000Z", id: "m_5" } }),
+      )
+    })
+
+    it("beforeSeq delegates to listMessages (strictly older cursor)", async () => {
+      mockGetMessageByChannelAndSeq.mockResolvedValue({ id: "m_5", createdAt: "2026-06-30T00:00:05.000Z" })
+      mockListMessages.mockResolvedValue([
+        { id: "m_4", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "4", type: "default", mentionType: null, replyToId: null, channelId: "c1", embeds: null, createdAt: "2026-06-30T00:00:04.000Z" },
+      ])
+      mockGetLatestMessageSeq.mockResolvedValue(5)
+      const req = new NextRequest("http://localhost/api/community/channels/c1/messages?beforeSeq=5", { method: "GET" })
+      const res = await GET(req, ctx)
+      expect(res.status).toBe(200)
+      expect(mockListMessages).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ channelId: "c1", cursor: { createdAt: "2026-06-30T00:00:05.000Z", id: "m_5" } }),
+      )
+    })
+
+    it("returns 404 when the seq resolves to no message", async () => {
+      mockGetMessageByChannelAndSeq.mockResolvedValue(null)
+      const req = new NextRequest("http://localhost/api/community/channels/c1/messages?aroundSeq=999", { method: "GET" })
       const res = await GET(req, ctx)
       expect(res.status).toBe(404)
       expect(mockListMessagesAround).not.toHaveBeenCalled()
