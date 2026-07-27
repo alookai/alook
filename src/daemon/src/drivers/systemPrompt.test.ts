@@ -62,6 +62,18 @@ describe("buildCliSystemPrompt", () => {
     expect(prompt).not.toContain("forum_post");
   });
 
+  // Exception to the "don't assert on prose" rule: id addressing is a
+  // load-bearing contract. The CLI addresses channels/DMs/messages by id
+  // (`--channel`/`--dm`/`--message`), not by the old `/<server>/<channel>`
+  // path refs — the prompt must teach the former and must not resurrect the
+  // latter's ref table.
+  it("teaches id addressing and never resurrects the /<server>/<channel> ref table", () => {
+    const prompt = buildCliSystemPrompt(baseConfig);
+    expect(prompt).toContain("--channel");
+    expect(prompt).toContain("--dm");
+    expect(prompt).not.toContain("/<server>/<channel>");
+  });
+
   it("round-trips config.description verbatim, and omits it when absent", () => {
     const withRole = buildCliSystemPrompt({ ...baseConfig, description: "You are the onboarding assistant." });
     expect(withRole).toContain("You are the onboarding assistant.");

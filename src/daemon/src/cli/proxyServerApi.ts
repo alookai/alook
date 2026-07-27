@@ -36,7 +36,6 @@ import type {
   ListChannelsRequest,
   ChannelGroup,
   ChannelMemberResult,
-  ChannelRef,
   CommunityAgentReactAddResponse,
   ServerMember,
   Page,
@@ -131,6 +130,37 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     return parseJsonResponse<T>(res, method);
   }
 
+  // REST call against a full community path (the bot now shares the user routes).
+  // `agentId` is never sent — identity is the voucher the proxy swaps for the
+  // real runner key + a trusted X-Agent-Id. `label` is only for error messages.
+  async function rest<T>(
+    verb: "GET" | "POST" | "PUT",
+    path: string,
+    label: string,
+    body?: unknown,
+  ): Promise<T> {
+    const init: RequestInit = {
+      method: verb,
+      headers: {
+        authorization: `Bearer ${config.voucher}`,
+        ...(body !== undefined ? { "content-type": "application/json" } : {}),
+      },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    };
+    const res = await fetchImpl(`${base}${path}`, init);
+    return parseJsonResponse<T>(res, label);
+  }
+
+  // The two REST message scopes: a channel id → `/channels/:id`, a DM id →
+  // `/dm/:id`. Exactly one must be set (the CLI's --channel/--dm are mutually
+  // exclusive); we throw a clear client error otherwise rather than emit a
+  // malformed path.
+  function scopeBase(t: { channelId?: string; dmConversationId?: string }, label: string): string {
+    if (t.channelId) return `/api/community/channels/${encodeURIComponent(t.channelId)}`;
+    if (t.dmConversationId) return `/api/community/dm/${encodeURIComponent(t.dmConversationId)}`;
+    throw new Error(`${label}: one of channelId / dmConversationId is required`);
+  }
+
   async function callUpload(req: AttachmentUploadRequest): Promise<AgentAttachmentUploadResult> {
     const form = new FormData();
     // The Blob's `type` becomes `File.type` on the server after multipart parsing;
@@ -141,7 +171,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
         ? new Blob([new Uint8Array(req.file.data)], { type: blobType })
         : req.file.data;
     form.append("file", bytes as Blob, req.file.filename);
-    const url = `${base}/api/attachmentUpload?target=${encodeURIComponent(req.target)}`;
+    const url = `${base}${scopeBase(req, "attachmentUpload")}/upload`;
     const res = await fetchImpl(url, {
       method: "POST",
       headers: { authorization: `Bearer ${config.voucher}` },
@@ -151,13 +181,11 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
   }
 
   async function callDownload(req: AttachmentDownloadRequest): Promise<AgentAttachmentDownloadResult> {
-    const res = await fetchImpl(`${base}/api/attachmentDownload`, {
-      method: "POST",
+    const res = await fetchImpl(`${base}/api/community/attachments/${encodeURIComponent(req.id)}/download`, {
+      method: "GET",
       headers: {
-        "content-type": "application/json",
         authorization: `Bearer ${config.voucher}`,
       },
-      body: JSON.stringify({ id: req.id }),
     });
     if (!res.ok) {
       // Error responses ARE JSON. Streaming success responses are binary.
@@ -185,23 +213,115 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     return { path: req.destPath, filename, contentType, size: size || buf.byteLength };
   }
 
+  // The user messages route returns `{ messages, hasMore?/hasMoreNewer?/
+  // hasMoreOlder?, latestSeq }`; the agent `Page<Message>` shape is
+  // `{ items, hasMore, latestSeq }`. Map `messages`→`items` and collapse the
+  // per-direction "more" flags into one boolean.
+  type WireMessagesPage = {
+    messages: Message[];
+    hasMore?: boolean;
+    hasMoreNewer?: boolean;
+    hasMoreOlder?: boolean;
+    latestSeq?: Seq;
+  };
+  function toPage(w: WireMessagesPage): Page<Message> {
+    const hasMore = w.hasMore ?? w.hasMoreNewer ?? w.hasMoreOlder ?? false;
+    return {
+      items: w.messages,
+      hasMore,
+      ...(w.latestSeq !== undefined ? { latestSeq: w.latestSeq } : {}),
+    };
+  }
+
+  // Build the `?…Seq=` query for a seq-anchored read (at most one of
+  // before/after/around, mirroring the user route's aroundSeq/afterSeq/beforeSeq).
+  function readQuery(r: ReadRequest): string {
+    const q = new URLSearchParams();
+    if (r.around !== undefined) q.set("aroundSeq", String(r.around));
+    else if (r.after !== undefined) q.set("afterSeq", String(r.after));
+    else if (r.before !== undefined) q.set("beforeSeq", String(r.before));
+    if (r.limit !== undefined) q.set("limit", String(r.limit));
+    const s = q.toString();
+    return s ? `?${s}` : "";
+  }
+
   return {
-    listServers: (r: { agentId: AgentId }) => call<{ servers: Server[] }>("listServers", r),
+    listServers: () => rest<{ servers: Server[] }>("GET", "/api/community/servers", "listServers"),
+    // Survivor — the agent's category-grouped `{ groups }` (ref + visibility,
+    // multi-server) has no user-route twin; the human channel tree is the
+    // bootstrap's id-based, unread-enriched, single-server shape. Keep the
+    // dedicated agent route (proxy rewrites to /api/community/agent/*).
     listChannels: (r: ListChannelsRequest) => call<{ groups: ChannelGroup[] }>("listChannels", r),
-    channelMember: (r: { agentId?: AgentId; channel: ChannelRef }) =>
-      call<ChannelMemberResult>("channelMember", r),
+    channelMember: (r: { agentId?: AgentId; channelId: string }) =>
+      rest<ChannelMemberResult>("GET", `/api/community/channels/${encodeURIComponent(r.channelId)}/members`, "channelMember"),
+    // Survivors — still flat RPC; the proxy rewrites these to /api/community/agent/*.
     inboxPull: (r: InboxPullRequest) => call<InboxPullResponse>("inboxPull", r),
     inboxSnapshot: (r: { agentId: AgentId }) => call<InboxSnapshot>("inboxSnapshot", r),
-    ack: (r: AckRequest) => call<void>("ack", r),
-    send: (r: SendRequest) => call<SendResponse>("send", r),
-    read: (r: ReadRequest) => call<Page<Message>>("read", r),
-    resolve: (r: ResolveRequest) => call<{ message: Message }>("resolve", r),
-    listMembers: (r: { agentId: AgentId; server: string }) => call<{ members: ServerMember[] }>("listMembers", r),
-    joinServer: (r: { agentId: AgentId; invite: string }) => call<{ server: Server }>("joinServer", r),
+    ack: async (r: AckRequest) => {
+      // Advance each scope's read waterline via that scope's REST read route.
+      for (const c of r.cursors) {
+        await rest<{ ok: true }>("PUT", `${scopeBase(c, "ack")}/read`, "ack", { seq: c.seq });
+      }
+    },
+    send: async (r: SendRequest) => {
+      // The user route returns `{ message: <row> }` (201) on success, or the
+      // bot alignment gate's `{ state: "blocked", … }` (200). Wrap the success
+      // shape into the `{ state: "sent", message }` the CLI expects; pass the
+      // blocked envelope through unchanged.
+      const body = await rest<SendResponse | { message: Message }>(
+        "POST",
+        `${scopeBase(r, "send")}/messages`,
+        "send",
+        {
+          content: r.content,
+          ...(r.attachments ? { attachments: r.attachments } : {}),
+          ...(r.seenUpToSeq !== undefined ? { seenUpToSeq: r.seenUpToSeq } : {}),
+        },
+      );
+      if ("state" in body) return body;
+      return { state: "sent", message: body.message };
+    },
+    read: async (r: ReadRequest) =>
+      toPage(await rest<WireMessagesPage>("GET", `${scopeBase(r, "read")}/messages${readQuery(r)}`, "read")),
+    resolve: async (r: ResolveRequest) => {
+      // The user route has no single-message-by-seq endpoint; fetch the 1-wide
+      // window centered on `seq` and pick the matching row.
+      const page = await rest<WireMessagesPage>(
+        "GET",
+        `${scopeBase(r, "resolve")}/messages?aroundSeq=${r.seq}&limit=1`,
+        "resolve",
+      );
+      const wanted = `#${r.seq}`;
+      const message = page.messages.find((m) => m.seq === wanted) ?? page.messages[0];
+      if (!message) {
+        const e = new Error(`no message with seq ${wanted}`);
+        (e as { code?: string }).code = "not_found";
+        throw e;
+      }
+      return { message };
+    },
+    listMembers: (r: { agentId: AgentId; server: string }) =>
+      rest<{ members: ServerMember[] }>("GET", `/api/community/servers/${encodeURIComponent(r.server)}/members`, "listMembers"),
+    joinServer: async (r: { agentId: AgentId; invite: string }) => {
+      // The user invite-join route returns `{ member, serverId }`; the CLI
+      // contract wants `{ server: { id, name } }`. The route doesn't echo the
+      // server name, so surface the id (name isn't shown by the CLI's join
+      // output — `{ server }` is passed through, and id is the stable locator).
+      const body = await rest<{ member: { userName?: string | null }; serverId: string }>(
+        "POST",
+        `/api/community/invites/${encodeURIComponent(r.invite)}/join`,
+        "joinServer",
+      );
+      return { server: { id: body.serverId, name: body.serverId } };
+    },
     attachmentUpload: callUpload,
     attachmentDownload: callDownload,
-    reactAdd: (r: { channel: ChannelRef; seq: Seq; emoji: string }) =>
-      call<CommunityAgentReactAddResponse>("reactAdd", r),
+    reactAdd: (r: { messageId: string; emoji: string }) =>
+      rest<CommunityAgentReactAddResponse>(
+        "PUT",
+        `/api/community/messages/${encodeURIComponent(r.messageId)}/reactions/${encodeURIComponent(r.emoji)}`,
+        "reactAdd",
+      ),
     friendRequest: (r: { agentId: AgentId; username: string }) =>
       call<FriendRequestResult>("friendRequest", r),
     listFriends: (r: { agentId: AgentId }) =>

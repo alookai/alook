@@ -249,11 +249,10 @@ export interface Message {
 /* ------------------------------------------------------------------ */
 
 /**
- * Per-channel read/ack waterline. `channel` is the path ref; `seq` is the
- * numeric high-water mark consumed.
+ * Per-scope read/ack waterline. Exactly one of `channelId` / `dmConversationId`
+ * identifies the scope; `seq` is the numeric high-water mark consumed.
  */
-export interface Cursor {
-  channel: ChannelRef;
+export interface Cursor extends ScopeTarget {
   seq: Seq;
 }
 
@@ -310,10 +309,19 @@ export interface AckRequest {
   cursors: Cursor[];
 }
 
-export interface SendRequest {
+/**
+ * The destination of an agent action, addressed by id. Exactly one of
+ * `channelId` / `dmConversationId` is set — mirroring the two REST scopes
+ * (`/channels/:id` vs `/dm/:id`). A thread/post is just a channel id (it IS a
+ * channel row). Agents obtain these ids from `channel list` / pulled messages.
+ */
+export interface ScopeTarget {
+  channelId?: ChannelId;
+  dmConversationId?: string;
+}
+
+export interface SendRequest extends ScopeTarget {
   agentId: AgentId;
-  /** Path ref of the destination channel/DM/thread. */
-  channel: ChannelRef;
   content: MessageContent;
   /**
    * Attachment ids returned by prior `attachmentUpload` calls. Order matters —
@@ -321,7 +329,7 @@ export interface SendRequest {
    */
   attachments?: string[];
   /**
-   * Last seq the agent had seen for this channel — the CHANNEL ALIGNMENT signal.
+   * Last seq the agent had seen for this scope — the CHANNEL ALIGNMENT signal.
    * If the server has newer messages the agent hasn't seen, the send is BLOCKED
    * (see below): the agent must `inboxPull`/`read` to align, then resend. There
    * is no bypass — alignment is a hard precondition, so a blanket "force" flag
@@ -342,9 +350,8 @@ export interface SendRequest {
  * id is the same one that surfaces on the sent message (id continuity across
  * pending → persisted lifecycle).
  */
-export interface AttachmentUploadRequest {
+export interface AttachmentUploadRequest extends ScopeTarget {
   agentId: AgentId;
-  target: ChannelRef;
   file: FileHandle;
 }
 
@@ -367,9 +374,8 @@ export interface CommunityAgentReactAddResponse {
   duplicate?: boolean;
 }
 
-export interface ReadRequest {
+export interface ReadRequest extends ScopeTarget {
   agentId: AgentId;
-  channel: ChannelRef;
   /** Anchor by seq; pick at most one of before/after/around. */
   before?: Seq;
   after?: Seq;
@@ -377,10 +383,9 @@ export interface ReadRequest {
   limit?: number;
 }
 
-/** Locate one message by channel + seq (there is no message id). */
-export interface ResolveRequest {
+/** Locate one message by scope + seq. */
+export interface ResolveRequest extends ScopeTarget {
   agentId: AgentId;
-  channel: ChannelRef;
   seq: Seq;
 }
 
@@ -519,7 +524,7 @@ export interface ServerApi {
    * channels, private forums, posts, and threads (regardless of parent
    * visibility) return the concrete roster.
    */
-  channelMember(req: { agentId?: AgentId; channel: ChannelRef }): Promise<ChannelMemberResult>;
+  channelMember(req: { agentId?: AgentId; channelId: ChannelId }): Promise<ChannelMemberResult>;
 
   /** Drain unread messages for this agent (across all its servers), flat JSONL. */
   inboxPull(req: InboxPullRequest): Promise<InboxPullResponse>;
@@ -551,8 +556,8 @@ export interface ServerApi {
   /** Download an attachment by id, writing to `destPath` (atomic temp-then-rename). */
   attachmentDownload(req: AttachmentDownloadRequest): Promise<AgentAttachmentDownloadResult>;
 
-  /** React to a message with a single emoji. Duplicates are idempotent (`duplicate:true`, no fan-out). */
-  reactAdd(req: { channel: ChannelRef; seq: Seq; emoji: string }): Promise<CommunityAgentReactAddResponse>;
+  /** React to a message (by id) with a single emoji. Duplicates are idempotent (`duplicate:true`, no fan-out). */
+  reactAdd(req: { messageId: string; emoji: string }): Promise<CommunityAgentReactAddResponse>;
 
   /**
    * Send a friend request to `username` (`name#0042`). Owner-gated for human /

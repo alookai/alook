@@ -54,14 +54,14 @@ describe("createProxyServerApi — parseJsonResponse via call<T>", () => {
   it("returns undefined on empty 200 (void endpoint like ack)", async () => {
     const fetchImpl: FetchLike = vi.fn(async () => jsonBody("", { status: 200 }));
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
-    const out = await api.ack({ agentId: "a1", messageIds: [] } as never);
+    const out = await api.ack({ agentId: "a1", cursors: [{ channelId: "ch_1", seq: 3 }] } as never);
     expect(out).toBeUndefined();
   });
 
   it("returns undefined on 204 (empty successful body)", async () => {
     const fetchImpl: FetchLike = vi.fn(async () => jsonBody("", { status: 204 }));
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
-    const out = await api.ack({ agentId: "a1", messageIds: [] } as never);
+    const out = await api.ack({ agentId: "a1", cursors: [{ channelId: "ch_1", seq: 3 }] } as never);
     expect(out).toBeUndefined();
   });
 
@@ -107,23 +107,22 @@ describe("createProxyServerApi — parseJsonResponse via call<T>", () => {
 });
 
 describe("createProxyServerApi — reactAdd", () => {
-  it("POSTs to /api/reactAdd with Bearer voucher and JSON body (no agentId)", async () => {
+  it("PUTs to /api/community/messages/<id>/reactions/<emoji> with Bearer voucher (no body)", async () => {
     const seen: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
       seen.push({ url, init });
       return jsonBody(JSON.stringify({ ok: true, duplicate: false }), { status: 200 });
     });
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
-    const res = await api.reactAdd({ channel: "/demo/general", seq: 42, emoji: "👍" });
+    const res = await api.reactAdd({ messageId: "msg_9f3", emoji: "👍" });
     expect(res).toEqual({ ok: true, duplicate: false });
     expect(seen).toHaveLength(1);
-    expect(seen[0].url).toBe("http://proxy.test/api/reactAdd");
-    expect(seen[0].init?.method).toBe("POST");
+    expect(seen[0].url).toBe(`http://proxy.test/api/community/messages/msg_9f3/reactions/${encodeURIComponent("👍")}`);
+    expect(seen[0].init?.method).toBe("PUT");
     const headers = seen[0].init?.headers as Record<string, string>;
     expect(headers.authorization).toBe("Bearer vch_test");
-    const body = JSON.parse(String(seen[0].init?.body ?? "{}"));
-    expect(body).toEqual({ channel: "/demo/general", seq: 42, emoji: "👍" });
-    expect(body.agentId).toBeUndefined();
+    // No JSON body — the message + emoji travel in the path.
+    expect(seen[0].init?.body).toBeUndefined();
   });
 });
 
@@ -153,7 +152,7 @@ describe("createProxyServerApi — callUpload via parseJsonResponse", () => {
     await expect(
       api.attachmentUpload({
         agentId: "a1",
-        target: "/c/s/g",
+        channelId: "ch_g",
         file: { data: new Uint8Array([1, 2, 3]), filename: "x.png", contentType: "image/png" },
       } as never),
     ).rejects.toThrow(/upstream returned 500 with non-JSON body from \/api\/attachmentUpload/);

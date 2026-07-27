@@ -26,7 +26,7 @@ function stubApi(over: Partial<ServerApi> = {}): ServerApi {
     inboxPull: async () => ({ messages: [], hasMore: false }),
     inboxSnapshot: async () => ({ rows: [], pendingChannels: 0, pendingMessages: 0 }),
     ack: async () => undefined,
-    send: async () => ({ state: "sent", message: { seq: "#1", channel: "/s/c", sender: "@a", content: { text: "" }, time: "" } }),
+    send: async () => ({ state: "sent", message: { id: "msg_1", seq: "#1", channel: "/s/c", channelId: "ch_c", sender: "@a", content: { text: "" }, time: "" } }),
     read: async () => ({ items: [], hasMore: false }),
     resolve: async () => null,
     listMembers: async () => ({ members: [] }),
@@ -55,22 +55,22 @@ describe("envelope contract", () => {
       stubApi({
         send: async () => ({
           state: "sent",
-          message: { seq: "#7", channel: "/s/general", sender: "@a", content: { text: "hi" }, time: "" },
+          message: { id: "msg_7", seq: "#7", channel: "/s/general", channelId: "ch_general", sender: "@a", content: { text: "hi" }, time: "" },
         }),
       }),
     );
-    const code = await main(["message", "send", "--target", "/s/general", "--text", "hi"]);
+    const code = await main(["message", "send", "--channel", "ch_general", "--text", "hi"]);
     const env = parseEnvelope(cap.lines());
     expect(code).toBe(0);
-    expect(env).toEqual({ success: { sent: "/s/general#7" } });
+    expect(env).toEqual({ success: { sent: "msg_7" } });
     expect("error" in env).toBe(false);
     expect("hint" in env).toBe(false); // null fields omitted
   });
 
   it("prints only `error` on failure (with hint when available)", async () => {
     setApiForTesting(stubApi());
-    // Emoji ref without a seq → error carries a recovery hint
-    await main(["message", "emoji", "--target", "/s/general", "--emoji", "👍"]);
+    // Oversize emoji → error carries a recovery hint
+    await main(["message", "emoji", "--message", "msg_1", "--emoji", "🎉".repeat(20)]);
     const env = parseEnvelope(cap.lines());
     expect(typeof env.error).toBe("string");
     expect("success" in env).toBe(false);
@@ -96,7 +96,7 @@ describe("channel alignment (message send)", () => {
     setApiForTesting(
       stubApi({ send: async () => ({ state: "blocked", reason: "unaligned", unreadCount: 3, latestSeq: 12 }) }),
     );
-    await main(["message", "send", "--target", "/s/general", "--text", "hi"]);
+    await main(["message", "send", "--channel", "ch_general", "--text", "hi"]);
     const env = parseEnvelope(cap.lines());
     expect("success" in env).toBe(false);
     expect(env.error).toContain("not aligned");
@@ -168,7 +168,7 @@ describe("inbox pull", () => {
     setApiForTesting(
       stubApi({
         inboxPull: async () => ({
-          messages: [{ seq: "#2", channel: "/s/general", sender: "@x", content: { text: "yo" }, time: "" }],
+          messages: [{ id: "msg_2", seq: "#2", channel: "/s/general", channelId: "ch_general", sender: "@x", content: { text: "yo" }, time: "" }],
           hasMore: false,
         }),
         ack: ackSpy,
@@ -179,6 +179,9 @@ describe("inbox pull", () => {
       success: { acked: number; messages: unknown[]; pulledAt: string };
     };
     expect(ackSpy).toHaveBeenCalledOnce();
+    expect(ackSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ cursors: [{ channelId: "ch_general", seq: 2 }] }),
+    );
     expect(env.success.acked).toBe(1);
     expect(env.success.messages).toHaveLength(1);
     expect(env.success.pulledAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2}$/);
@@ -189,7 +192,7 @@ describe("inbox pull", () => {
     setApiForTesting(
       stubApi({
         inboxPull: async () => ({
-          messages: [{ seq: "#2", channel: "/s/general", sender: "@x", content: { text: "yo" }, time: "" }],
+          messages: [{ id: "msg_2", seq: "#2", channel: "/s/general", channelId: "ch_general", sender: "@x", content: { text: "yo" }, time: "" }],
           hasMore: false,
         }),
         ack: ackSpy,
@@ -213,8 +216,8 @@ describe("inbox pull", () => {
       stubApi({
         inboxPull: async () => ({
           messages: [
-            { seq: "#2", channel: "/s/general", sender: "@x", content: { text: "hi" }, time: "" },
-            { seq: "#3", channel: "/s/general", sender: "@x", content: { text: "bye" }, time: "" },
+            { id: "msg_2", seq: "#2", channel: "/s/general", channelId: "ch_general", sender: "@x", content: { text: "hi" }, time: "" },
+            { id: "msg_3", seq: "#3", channel: "/s/general", channelId: "ch_general", sender: "@x", content: { text: "bye" }, time: "" },
           ],
           hasMore: false,
         }),
@@ -235,7 +238,7 @@ describe("inbox pull", () => {
     setApiForTesting(
       stubApi({
         inboxPull: async () => ({
-          messages: [{ seq: "#2", channel: "/s/general", sender: "@x", content: { text: "yo" }, time: "" }],
+          messages: [{ id: "msg_2", seq: "#2", channel: "/s/general", channelId: "ch_general", sender: "@x", content: { text: "yo" }, time: "" }],
           hasMore: false,
         }),
         ack: async () => undefined,
@@ -482,7 +485,7 @@ describe("channel member", () => {
       hint: "This channel is public. Use `alook server member --server demo` to list who can see it.",
     }));
     setApiForTesting(stubApi({ channelMember: channelMemberSpy }));
-    await main(["channel", "member", "--channel", "/demo/general"]);
+    await main(["channel", "member", "--channel", "ch_general"]);
     const env = parseEnvelope(cap.lines());
     expect(env).toEqual({
       success: {
@@ -491,7 +494,7 @@ describe("channel member", () => {
       },
     });
     expect(channelMemberSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ channel: "/demo/general" }),
+      expect.objectContaining({ channelId: "ch_general" }),
     );
   });
 
@@ -504,7 +507,7 @@ describe("channel member", () => {
       ],
     }));
     setApiForTesting(stubApi({ channelMember: channelMemberSpy }));
-    await main(["channel", "member", "--channel", "/demo/leadership"]);
+    await main(["channel", "member", "--channel", "ch_leadership"]);
     const env = parseEnvelope(cap.lines());
     expect(env).toEqual({
       success: {
@@ -517,12 +520,12 @@ describe("channel member", () => {
     });
   });
 
-  it("thread ref passes through unchanged", async () => {
+  it("thread channel id passes through unchanged", async () => {
     const channelMemberSpy = vi.fn(async () => ({ visibility: "private" as const, members: [] }));
     setApiForTesting(stubApi({ channelMember: channelMemberSpy }));
-    await main(["channel", "member", "--channel", "/demo/general/#12"]);
+    await main(["channel", "member", "--channel", "ch_thread_12"]);
     expect(channelMemberSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ channel: "/demo/general/#12" }),
+      expect.objectContaining({ channelId: "ch_thread_12" }),
     );
   });
 
@@ -531,31 +534,31 @@ describe("channel member", () => {
     setApiForTesting(stubApi({ channelMember: channelMemberSpy }));
     await main(["channel", "member"]);
     const env = parseEnvelope(cap.lines());
-    expect(env).toEqual({ error: "channel member: --channel <ref> is required" });
+    expect(env).toEqual({ error: "channel member: --channel <id> is required" });
     expect(channelMemberSpy).not.toHaveBeenCalled();
   });
 
-  it("DM ref rejected server-side surfaces as {error: <message>}", async () => {
+  it("a server-side rejection surfaces as {error: <message>}", async () => {
     setApiForTesting(
       stubApi({
         channelMember: async () => {
-          throw new Error("channel member is channel-scoped — DM refs are not supported");
+          throw new Error("channel member is channel-scoped — DM ids are not supported");
         },
       }),
     );
-    await main(["channel", "member", "--channel", "/.dm/peer#0042"]);
+    await main(["channel", "member", "--channel", "ch_nope"]);
     const env = parseEnvelope(cap.lines());
-    expect(env).toEqual({ error: "channel member is channel-scoped — DM refs are not supported" });
+    expect(env).toEqual({ error: "channel member is channel-scoped — DM ids are not supported" });
   });
 });
 
 describe("channel history", () => {
-  it("missing --channel → CLI error, no API call made", async () => {
+  it("missing --channel/--dm → CLI error, no API call made", async () => {
     const readSpy = vi.fn(async () => ({ items: [], hasMore: false }));
     setApiForTesting(stubApi({ read: readSpy }));
     await main(["channel", "history"]);
     const env = parseEnvelope(cap.lines());
-    expect(env).toEqual({ error: "channel history: --channel <ref> is required" });
+    expect(env).toEqual({ error: "channel history: --channel <id> or --dm <id> is required" });
     expect(readSpy).not.toHaveBeenCalled();
   });
 
@@ -563,11 +566,11 @@ describe("channel history", () => {
     const readSpy = vi.fn(async () => ({ items: [], hasMore: false }));
     setApiForTesting(stubApi({ read: readSpy }));
     await main([
-      "channel", "history", "--channel", "/demo-workspace/general",
+      "channel", "history", "--channel", "ch_general",
       "--before", "42", "--after", "1", "--around", "20", "--limit", "5",
     ]);
     expect(readSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ channel: "/demo-workspace/general", before: 42, after: 1, around: 20, limit: 5 }),
+      expect.objectContaining({ channelId: "ch_general", before: 42, after: 1, around: 20, limit: 5 }),
     );
   });
 
@@ -575,12 +578,12 @@ describe("channel history", () => {
     setApiForTesting(
       stubApi({
         read: async () => ({
-          items: [{ seq: "#37", channel: "/s/general", sender: "@a", content: { text: "hi" }, time: "" }],
+          items: [{ id: "msg_37", seq: "#37", channel: "/s/general", channelId: "ch_general", sender: "@a", content: { text: "hi" }, time: "" }],
           hasMore: true,
         }),
       }),
     );
-    await main(["channel", "history", "--channel", "/s/general"]);
+    await main(["channel", "history", "--channel", "ch_general"]);
     const env = parseEnvelope(cap.lines()) as { success: { items: unknown[]; hasMore: boolean } };
     expect(env.success.hasMore).toBe(true);
     expect(env.success.items).toHaveLength(1);
@@ -589,54 +592,47 @@ describe("channel history", () => {
 
   it("includes latestSeq when the API returns one", async () => {
     setApiForTesting(stubApi({ read: async () => ({ items: [], hasMore: false, latestSeq: 41 }) }));
-    await main(["channel", "history", "--channel", "/s/general"]);
+    await main(["channel", "history", "--channel", "ch_general"]);
     const env = parseEnvelope(cap.lines()) as { success: { latestSeq: number } };
     expect(env.success.latestSeq).toBe(41);
   });
 
-  it("works for a thread ref — passes it through to api.read() unmodified", async () => {
+  it("works for a thread channel id — passes it through to api.read() unmodified", async () => {
     const readSpy = vi.fn(async () => ({ items: [], hasMore: false }));
     setApiForTesting(stubApi({ read: readSpy }));
-    await main(["channel", "history", "--channel", "/demo-workspace/general/#12"]);
-    expect(readSpy).toHaveBeenCalledWith(expect.objectContaining({ channel: "/demo-workspace/general/#12" }));
+    await main(["channel", "history", "--channel", "ch_thread_12"]);
+    expect(readSpy).toHaveBeenCalledWith(expect.objectContaining({ channelId: "ch_thread_12" }));
   });
 
-  it("works for a DM ref — passes it through to api.read() unmodified", async () => {
+  it("works for a DM id — passes it through to api.read() as dmConversationId", async () => {
     const readSpy = vi.fn(async () => ({ items: [], hasMore: false }));
     setApiForTesting(stubApi({ read: readSpy }));
-    await main(["channel", "history", "--channel", "/.dm/gustavo#4821", "--limit", "20"]);
-    expect(readSpy).toHaveBeenCalledWith(expect.objectContaining({ channel: "/.dm/gustavo#4821", limit: 20 }));
+    await main(["channel", "history", "--dm", "dm_gustavo", "--limit", "20"]);
+    expect(readSpy).toHaveBeenCalledWith(expect.objectContaining({ dmConversationId: "dm_gustavo", limit: 20 }));
   });
 
   it("API error (e.g. channel not found) surfaces as {error, hint?}", async () => {
     setApiForTesting(
       stubApi({
         read: async () => {
-          throw new Error("channel not found: /s/nope");
+          throw new Error("channel not found: ch_nope");
         },
       }),
     );
-    await main(["channel", "history", "--channel", "/s/nope"]);
+    await main(["channel", "history", "--channel", "ch_nope"]);
     const env = parseEnvelope(cap.lines());
-    expect(env).toEqual({ error: "channel not found: /s/nope" });
+    expect(env).toEqual({ error: "channel not found: ch_nope" });
   });
 });
 
 describe("message emoji", () => {
-  it("channel ref — calls reactAdd with (channel, seq, emoji) and prints success envelope", async () => {
+  it("calls reactAdd with {messageId, emoji} and prints success envelope", async () => {
     const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
     setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
-    await main(["message", "emoji", "--target", "/demo/general#42", "--emoji", "👍"]);
-    expect(reactAddSpy).toHaveBeenCalledWith({ channel: "/demo/general", seq: 42, emoji: "👍" });
+    await main(["message", "emoji", "--message", "msg_42", "--emoji", "👍"]);
+    expect(reactAddSpy).toHaveBeenCalledWith({ messageId: "msg_42", emoji: "👍" });
     const env = parseEnvelope(cap.lines());
-    expect(env).toEqual({ success: { target: "/demo/general#42", emoji: "👍", duplicate: false } });
-  });
-
-  it("DM ref — calls reactAdd with the DM channel + seq split out", async () => {
-    const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
-    setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
-    await main(["message", "emoji", "--target", "/.dm/peer#0001#7", "--emoji", "🙏"]);
-    expect(reactAddSpy).toHaveBeenCalledWith({ channel: "/.dm/peer#0001", seq: 7, emoji: "🙏" });
+    expect(env).toEqual({ success: { message: "msg_42", emoji: "👍", duplicate: false } });
   });
 
   it("proxy error surfaces .hint alongside .error and reactAdd throws propagate", async () => {
@@ -649,32 +645,12 @@ describe("message emoji", () => {
         },
       }),
     );
-    await main(["message", "emoji", "--target", "/demo/general#42", "--emoji", "👍"]);
+    await main(["message", "emoji", "--message", "msg_42", "--emoji", "👍"]);
     const env = parseEnvelope(cap.lines());
     expect(env).toEqual({ error: "not a member of #general", hint: "join the channel first" });
   });
 
-  it("thread scope ref without message seq → error, reactAdd never called", async () => {
-    const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
-    setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
-    await main(["message", "emoji", "--target", "/demo/general/#5", "--emoji", "👍"]);
-    const env = parseEnvelope(cap.lines());
-    expect(env.error).toMatch(/needs a ref with a seq/);
-    expect(env.hint).toMatch(/#N#M/);
-    expect(reactAddSpy).not.toHaveBeenCalled();
-  });
-
-  it("bare channel ref (no #N) → error envelope with seq hint, reactAdd never called", async () => {
-    const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
-    setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
-    await main(["message", "emoji", "--target", "/demo/general", "--emoji", "👍"]);
-    const env = parseEnvelope(cap.lines());
-    expect(env.error).toMatch(/needs a ref with a seq/);
-    expect(env.hint).toMatch(/#N/);
-    expect(reactAddSpy).not.toHaveBeenCalled();
-  });
-
-  it("missing --target → commander error, reactAdd never called", async () => {
+  it("missing --message → commander error, reactAdd never called", async () => {
     const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
     setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
     await main(["message", "emoji", "--emoji", "👍"]);
@@ -686,7 +662,7 @@ describe("message emoji", () => {
   it("missing --emoji → commander error, reactAdd never called", async () => {
     const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
     setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
-    await main(["message", "emoji", "--target", "/demo/general#42"]);
+    await main(["message", "emoji", "--message", "msg_42"]);
     const env = parseEnvelope(cap.lines());
     expect("error" in env).toBe(true);
     expect(reactAddSpy).not.toHaveBeenCalled();
@@ -696,7 +672,7 @@ describe("message emoji", () => {
     const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
     setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
     const big = "🎉".repeat(20);
-    await main(["message", "emoji", "--target", "/demo/general#42", "--emoji", big]);
+    await main(["message", "emoji", "--message", "msg_42", "--emoji", big]);
     const env = parseEnvelope(cap.lines());
     expect(env.error).toMatch(/too long/);
     expect(env.hint).toMatch(/single emoji/);
@@ -705,41 +681,8 @@ describe("message emoji", () => {
 
   it("duplicate — envelope surfaces duplicate:true, exit code still 0", async () => {
     setApiForTesting(stubApi({ reactAdd: async () => ({ ok: true as const, duplicate: true }) }));
-    const code = await main(["message", "emoji", "--target", "/demo/general#42", "--emoji", "👍"]);
+    const code = await main(["message", "emoji", "--message", "msg_42", "--emoji", "👍"]);
     expect(code).toBe(0);
-    const env = parseEnvelope(cap.lines()) as { success: { duplicate: boolean } };
-    expect(env.success.duplicate).toBe(true);
-  });
-
-  it("thread-reply ref — calls reactAdd with thread-scope channel + seq split out", async () => {
-    const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
-    setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
-    await main(["message", "emoji", "--target", "/demo/general/#5#42", "--emoji", "👍"]);
-    expect(reactAddSpy).toHaveBeenCalledWith({ channel: "/demo/general/#5", seq: 42, emoji: "👍" });
-    const env = parseEnvelope(cap.lines());
-    expect(env).toEqual({ success: { target: "/demo/general/#5#42", emoji: "👍", duplicate: false } });
-  });
-
-  it("thread ROOT via parent channel ref (regression) unchanged", async () => {
-    const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
-    setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
-    await main(["message", "emoji", "--target", "/demo/general#5", "--emoji", "👀"]);
-    expect(reactAddSpy).toHaveBeenCalledWith({ channel: "/demo/general", seq: 5, emoji: "👀" });
-  });
-
-  it("thread-reply oversize emoji still hits the local check before the wire", async () => {
-    const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
-    setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
-    const big = "🎉".repeat(20);
-    await main(["message", "emoji", "--target", "/demo/general/#5#42", "--emoji", big]);
-    const env = parseEnvelope(cap.lines());
-    expect(env.error).toMatch(/too long/);
-    expect(reactAddSpy).not.toHaveBeenCalled();
-  });
-
-  it("thread-reply duplicate — envelope surfaces duplicate:true", async () => {
-    setApiForTesting(stubApi({ reactAdd: async () => ({ ok: true as const, duplicate: true }) }));
-    await main(["message", "emoji", "--target", "/demo/general/#5#42", "--emoji", "👍"]);
     const env = parseEnvelope(cap.lines()) as { success: { duplicate: boolean } };
     expect(env.success.duplicate).toBe(true);
   });

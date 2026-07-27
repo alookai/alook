@@ -186,21 +186,39 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     expect(upstream.seen.length).toBe(0);
   });
 
-  it("rewrites /api/* to /api/community/agent/* (design §9)", async () => {
+  it("rewrites only the surviving agent RPC methods to /api/community/agent/*", async () => {
+    const upstream = await startUpstream();
+    upstreamClose = upstream.close;
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    proxy = await startCredentialProxy(broker);
+    const reg = broker.mint("agent-1", "l", ["send", "read", "friend"], REAL_KEY);
+
+    // The five survivors are rewritten onto the dedicated agent route.
+    await post(proxy.url, reg.voucher, "/api/inboxPull?max=10");
+    expect(upstream.seen.at(-1)!.path).toBe("/api/community/agent/inboxPull?max=10");
+
+    await post(proxy.url, reg.voucher, "/api/listChannels");
+    expect(upstream.seen.at(-1)!.path).toBe("/api/community/agent/listChannels");
+
+    await post(proxy.url, reg.voucher, "/api/friendRequest");
+    expect(upstream.seen.at(-1)!.path).toBe("/api/community/agent/friendRequest");
+  });
+
+  it("passes the REST community routes through untouched (not a survivor method)", async () => {
     const upstream = await startUpstream();
     upstreamClose = upstream.close;
     const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
     proxy = await startCredentialProxy(broker);
     const reg = broker.mint("agent-1", "l", ["send", "read"], REAL_KEY);
 
+    // `send` is no longer a flat RPC method — the CLI emits it as a REST path,
+    // which must pass through with no `/agent/` rewrite.
+    await post(proxy.url, reg.voucher, "/api/community/channels/ch_1/messages");
+    expect(upstream.seen.at(-1)!.path).toBe("/api/community/channels/ch_1/messages");
+
+    // A bare `/api/send` is not one of the survivors either — unchanged.
     await post(proxy.url, reg.voucher, "/api/send");
-    expect(upstream.seen.at(-1)!.path).toBe("/api/community/agent/send");
-
-    await post(proxy.url, reg.voucher, "/api/inboxPull?max=10");
-    expect(upstream.seen.at(-1)!.path).toBe("/api/community/agent/inboxPull?max=10");
-
-    await post(proxy.url, reg.voucher, "/api");
-    expect(upstream.seen.at(-1)!.path).toBe("/api/community/agent");
+    expect(upstream.seen.at(-1)!.path).toBe("/api/send");
   });
 
   it("leaves non-/api paths untouched", async () => {

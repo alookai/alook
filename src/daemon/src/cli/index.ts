@@ -18,7 +18,6 @@ import { Command, CommanderError } from "commander";
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import type { ServerApi, Cursor, Message } from "../server/contract.js";
-import { parseRef } from "../server/contract.js";
 import { proxyServerApiFromEnv } from "./proxyServerApi.js";
 import { daemonStart, daemonStop, daemonList } from "./daemonStart.js";
 import { parseInviteToken } from "@alook/shared/lib/invite-link";
@@ -127,11 +126,24 @@ function contentTypeFromFilename(filename: string): string {
   }
 }
 
+/**
+ * Resolve the mutually-exclusive `--channel <channelId>` / `--dm <dmId>` flags
+ * into a scope target. A channel id and a DM id map to the two REST scopes
+ * (`/channels/:id`, `/dm/:id`); exactly one must be given.
+ */
+function scopeFromOpts(opts: Record<string, unknown>, cmd: string): { channelId?: string; dmConversationId?: string } {
+  const channelId = opts.channel as string | undefined;
+  const dmId = opts.dm as string | undefined;
+  if (channelId && dmId) throw new CliError(`${cmd}: pass either --channel <id> or --dm <id>, not both`);
+  if (channelId) return { channelId };
+  if (dmId) return { dmConversationId: dmId };
+  throw new CliError(`${cmd}: --channel <id> or --dm <id> is required`);
+}
+
 async function cmdMessageSend(opts: Record<string, unknown>): Promise<unknown> {
   const api = getApi();
   const agent = agentId(opts);
-  const channel = opts.target as string;
-  if (!channel) throw new CliError("message send: --target <ref> is required (e.g. /demo-workspace/general)");
+  const scope = scopeFromOpts(opts, "message send");
 
   let text: string | undefined;
   const fileFlag = opts.file as string | undefined;
@@ -171,60 +183,43 @@ async function cmdMessageSend(opts: Record<string, unknown>): Promise<unknown> {
 
   const res = await api.send({
     agentId: agent,
-    channel,
+    ...scope,
     content: { text: text ?? "" },
     attachments: attachmentIds.length > 0 ? attachmentIds : undefined,
     replyToSeq,
   });
   if (res.state === "blocked") {
+    const where = scope.channelId ?? scope.dmConversationId;
     throw new CliError(
-      `channel not aligned: ${res.unreadCount} unread message(s) in ${channel} (latest #${res.latestSeq}). ` +
+      `channel not aligned: ${res.unreadCount} unread message(s) in ${where} (latest #${res.latestSeq}). ` +
         `Run \`alook inbox pull\` to align, then resend.`,
     );
   }
-  return { sent: `${res.message.channel}${res.message.seq}` };
+  return { sent: res.message.id };
 }
 
 async function cmdMessageEmoji(opts: Record<string, unknown>): Promise<unknown> {
   const api = getApi();
-  const target = opts.target as string;
+  const messageId = opts.message as string;
   const emoji = opts.emoji as string;
-  if (!target) throw new CliError("message emoji: --target <ref> is required (e.g. /demo/general#42)");
+  if (!messageId) throw new CliError("message emoji: --message <id> is required");
   if (!emoji) throw new CliError("message emoji: --emoji <string> is required");
 
-  let parsed: ReturnType<typeof parseRef>;
-  try {
-    parsed = parseRef(target);
-  } catch (err) {
-    throw new CliError(`message emoji: ${(err as Error).message}`);
-  }
-
-  if (parsed.seq === undefined) {
-    const err = new CliError(`message emoji needs a ref with a seq (e.g. ${target}#42)`);
-    (err as { hint?: string }).hint =
-      "pass --target /<server>/<channel>#N, /<server>/<channel>/#N#M for thread reply, or /.dm/<peer>#N";
-    throw err;
-  }
   if (Buffer.byteLength(emoji, "utf8") > MAX_EMOJI_BYTES) {
     const err = new CliError("emoji is too long");
     (err as { hint?: string }).hint = "use a single emoji, not a phrase";
     throw err;
   }
 
-  const channel =
-    parsed.rootSeq !== undefined
-      ? `/${parsed.server}/${parsed.channel}/#${parsed.rootSeq}`
-      : `/${parsed.server}/${parsed.channel}`;
-  const res = await api.reactAdd({ channel, seq: parsed.seq, emoji });
-  return { target, emoji, duplicate: res.duplicate === true };
+  const res = await api.reactAdd({ messageId, emoji });
+  return { message: messageId, emoji, duplicate: res.duplicate === true };
 }
 
 async function cmdAttachmentUpload(opts: Record<string, unknown>): Promise<unknown> {
   const api = getApi();
   const agent = agentId(opts);
-  const target = opts.target as string;
+  const scope = scopeFromOpts(opts, "message attachment upload");
   const filePath = opts.file as string;
-  if (!target) throw new CliError("message attachment upload: --target <ref> is required");
   if (!filePath) throw new CliError("message attachment upload: --file <path> is required");
 
   const fs = await import("fs/promises");
@@ -248,7 +243,7 @@ async function cmdAttachmentUpload(opts: Record<string, unknown>): Promise<unkno
 
   const result = await api.attachmentUpload({
     agentId: agent,
-    target,
+    ...scope,
     file: { data: new Uint8Array(bytes), filename, contentType },
   });
   return result;
@@ -297,11 +292,17 @@ async function cmdInboxPull(opts: Record<string, unknown>): Promise<unknown> {
   let acked = 0;
   let ackError: string | undefined;
   if (opts.ack !== false && messages.length > 0) {
+    // Ack the highest seq per scope. Key by the scope id (channel or DM) the
+    // message carries; skip any message that somehow lacks both (can't ack it).
     const latest = new Map<string, Cursor>();
     for (const m of messages) {
+      const scopeId = m.channelId ?? m.dmConversationId;
+      if (!scopeId) continue;
       const seqN = Number(m.seq.replace("#", ""));
-      const cur = latest.get(m.channel);
-      if (!cur || seqN > cur.seq) latest.set(m.channel, { channel: m.channel, seq: seqN });
+      const cur = latest.get(scopeId);
+      if (!cur || seqN > cur.seq) {
+        latest.set(scopeId, m.channelId ? { channelId: m.channelId, seq: seqN } : { dmConversationId: m.dmConversationId, seq: seqN });
+      }
     }
     try {
       await api.ack({ agentId: agent, cursors: [...latest.values()] });
@@ -364,20 +365,19 @@ async function cmdChannelList(opts: Record<string, unknown>): Promise<unknown> {
 async function cmdChannelMember(opts: Record<string, unknown>): Promise<unknown> {
   const api = getApi();
   const agent = agentId(opts);
-  const channel = opts.channel as string;
-  if (!channel) throw new CliError("channel member: --channel <ref> is required");
-  return await api.channelMember({ agentId: agent, channel });
+  const channelId = opts.channel as string;
+  if (!channelId) throw new CliError("channel member: --channel <id> is required");
+  return await api.channelMember({ agentId: agent, channelId });
 }
 
 async function cmdChannelHistory(opts: Record<string, unknown>): Promise<unknown> {
   const api = getApi();
   const agent = agentId(opts);
-  const channel = opts.channel as string;
-  if (!channel) throw new CliError("channel history: --channel <ref> is required");
+  const scope = scopeFromOpts(opts, "channel history");
   const toSeq = (v: unknown): number | undefined => (v === undefined ? undefined : Number(v));
   const { items, hasMore, latestSeq } = await api.read({
     agentId: agent,
-    channel,
+    ...scope,
     before: toSeq(opts.before),
     after: toSeq(opts.after),
     around: toSeq(opts.around),
@@ -423,7 +423,8 @@ function buildProgram(): Command {
   message
     .command("send")
     .description("send a message to a channel, DM, or thread")
-    .option("--target <ref>", "destination (path-style ref, e.g. /demo-workspace/general)")
+    .option("--channel <id>", "destination channel id (from `channel list`)")
+    .option("--dm <id>", "destination DM conversation id")
     .option("--text <text>", "inline message body (short messages)")
     .option("--file <path>", "read message body from a file (long messages)")
     .option(
@@ -445,7 +446,7 @@ function buildProgram(): Command {
   message
     .command("emoji")
     .description("react to a message with a single emoji")
-    .requiredOption("--target <ref>", "message ref (path-style, e.g. /demo/general#42 or /.dm/peer#7)")
+    .requiredOption("--message <id>", "message id (from inbox pull / channel history)")
     .requiredOption("--emoji <string>", "single emoji character")
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })
@@ -462,7 +463,8 @@ function buildProgram(): Command {
   attachment
     .command("upload")
     .description("upload a local file as a pending attachment for a future send")
-    .option("--target <ref>", "destination (channel, DM, or thread ref)")
+    .option("--channel <id>", "destination channel id")
+    .option("--dm <id>", "destination DM conversation id")
     .option("--file <path>", "local file to upload")
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })
@@ -564,7 +566,8 @@ function buildProgram(): Command {
   channel
     .command("history")
     .description("fetch a page of messages from a channel, thread, or DM")
-    .option("--channel <ref>", "channel/thread/DM ref (path-style)")
+    .option("--channel <id>", "channel or thread id")
+    .option("--dm <id>", "DM conversation id")
     .option("--before <seq>", "messages before this seq")
     .option("--after <seq>", "messages after this seq")
     .option("--around <seq>", "messages around this seq")
@@ -581,7 +584,7 @@ function buildProgram(): Command {
   channel
     .command("member")
     .description("fetch the followed members of a channel or thread; public channels return a hint pointing at `alook server member`")
-    .option("--channel <ref>", "channel/thread ref (path-style)")
+    .option("--channel <id>", "channel or thread id")
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })
     .action(async function (this: Command) {

@@ -232,17 +232,26 @@ function parseBearer(authHeader: string | undefined): string | null {
  */
 export type CapabilityResolver = (method: string, pathname: string) => Capability | undefined;
 
-export const DEFAULT_CAPABILITY_RESOLVER: CapabilityResolver = (_method, pathname) => {
-  // Match `/attachmentUpload` and `/attachmentDownload` (pre-rewrite pathname
-  // — the credential proxy inspects the client's `/api/...` path here). Both
-  // endpoints share the `"attach"` capability so a voucher can be scoped to
-  // attach-only without granting `send`/`read`.
-  if (pathname.includes("/attachment")) return "attach";
+export const DEFAULT_CAPABILITY_RESOLVER: CapabilityResolver = (method, pathname) => {
+  // The proxy inspects the client's pre-rewrite path here. Most ops are now the
+  // plain user REST routes (`/api/community/...`); a few survive as flat agent
+  // RPC (`/api/<method>`). Map both to a capability so a voucher can be scoped.
+  // Order matters — a write (POST/PUT) on `/messages` is `send`, a GET is
+  // `read`, so the verb is checked before the generic channel/server buckets.
+  const verb = method.toUpperCase();
+
+  // Attachments: upload (`…/upload`), download (`…/attachments/:id/download`),
+  // and the media proxy all share the attach-only capability.
+  if (pathname.includes("/upload") || pathname.includes("/attachment") || pathname.includes("/media")) return "attach";
   if (pathname.includes("/friendRequest") || pathname.includes("/listFriends")) return "friend";
-  if (pathname.includes("/send") || pathname.includes("/reactAdd")) return "send";
-  if (pathname.includes("/history") || pathname.includes("/search") || pathname.includes("/inbox"))
+  if (pathname.includes("/reactions") || pathname.includes("/reactAdd")) return "send";
+  if (pathname.endsWith("/messages") && (verb === "POST" || verb === "PUT")) return "send";
+  if (pathname.includes("/send")) return "send";
+  if (pathname.endsWith("/messages") && verb === "GET") return "read";
+  if (pathname.endsWith("/read") || pathname.includes("/history") || pathname.includes("/search") || pathname.includes("/inbox"))
     return "read";
-  if (pathname.includes("/server") || pathname.includes("/channel")) return "server";
+  if (pathname.includes("/invites")) return "server";
+  if (pathname.includes("/server") || pathname.includes("/channel") || pathname.includes("/members")) return "server";
   return undefined;
 };
 
@@ -480,16 +489,25 @@ function joinPath(basePath: string, reqUrl: string): string {
 }
 
 /**
- * Rewrite the CLI's bare `/api/*` ops (`/api/send`, `/api/inboxPull`, …) onto
- * the real server surface at `/api/community/agent/*` (design §9). This is a
- * brand-new API — no prior contract to preserve back-compat for — so the
- * rewrite is unconditional for anything under `/api/`; every other path
- * passes through untouched.
+ * The bot now shares the plain user REST routes for most operations — the CLI
+ * emits those as `/api/community/...` and they pass through untouched. A small
+ * set of operations have no user-route twin and stay as dedicated agent RPC
+ * endpoints; the CLI emits them as bare `/api/<method>` and this rewrites them
+ * onto `/api/community/agent/<method>`.
+ */
+const AGENT_RPC_METHODS = new Set(["inboxPull", "inboxSnapshot", "listChannels", "friendRequest", "listFriends"]);
+
+/**
+ * Rewrite a bare `/api/<method>` for one of the surviving agent RPC endpoints
+ * onto `/api/community/agent/<method>`. Every other path — including the
+ * `/api/community/...` REST routes the CLI now emits directly — passes through
+ * untouched.
  */
 function rewriteAgentPath(reqUrl: string): string {
   const url = new URL(reqUrl, "http://placeholder");
-  if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
-    url.pathname = `/api/community/agent${url.pathname.slice("/api".length)}`;
+  const m = /^\/api\/([^/?]+)$/.exec(url.pathname);
+  if (m && AGENT_RPC_METHODS.has(m[1])) {
+    url.pathname = `/api/community/agent/${m[1]}`;
   }
   return url.pathname + url.search;
 }

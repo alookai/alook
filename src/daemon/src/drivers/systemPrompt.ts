@@ -101,15 +101,13 @@ function cliCommandsSection(): string {
       `so they won't re-pull; \`--no-ack\` to peek without advancing).`,
     `2. \`${CLI} message send\` — send to a channel, DM, or child channel (thread or post). Attach with ` +
       `\`--attachment <id>\` (repeatable, order matters).`,
-    `3. \`${CLI} message attachment upload --target <ref> --file <path>\` — upload a file; ` +
+    `3. \`${CLI} message attachment upload --channel <id> | --dm <id> --file <path>\` — upload a file; ` +
       `returns an id stable across pending→persisted. Feed it into ` +
       `\`message send --attachment <id>\`.`,
     `4. \`${CLI} message attachment download --id <id> [--out <path>]\` — download any ` +
       `attachment you can see (or your own pending uploads).`,
-    `5. \`${CLI} message emoji --target <ref> --emoji <e>\` — react with a single emoji. ` +
-      `Works on channel messages (\`/<server>/<channel>#N\`), DM messages ` +
-      `(\`/.dm/<peer>#N\`), and child-channel (thread or post) reply messages ` +
-      `(\`/<server>/<channel>/#N#M\`).`,
+    `5. \`${CLI} message emoji --message <id> --emoji <e>\` — react with a single emoji to a ` +
+      `message, addressed by its \`id\` (from \`inbox pull\` / \`channel history\`).`,
     "",
     "### Servers",
     "",
@@ -119,11 +117,11 @@ function cliCommandsSection(): string {
     "",
     "### Channels",
     "",
-    `1. \`${CLI} channel list --server <id-or-name>\` — list top-level channels.`,
-    `2. \`${CLI} channel history --channel <ref>\` — read a channel's or child channel's (thread or post) ` +
+    `1. \`${CLI} channel list --server <id-or-name>\` — list top-level channels (each carries its \`id\`).`,
+    `2. \`${CLI} channel history --channel <id> | --dm <id>\` — read a channel's or child channel's (thread or post) ` +
       `past messages (the context you weren't awake for). Page with \`--before N\` / \`--after N\` (seq N as ` +
       "anchor), `--around N` to center on a message, `--limit N` for page size.",
-    `3. \`${CLI} channel member --channel <ref>\` — private roster of a channel or child channel (thread or post).`,
+    `3. \`${CLI} channel member --channel <id>\` — private roster of a channel or child channel (thread or post).`,
     "",
     "### Friends",
     "",
@@ -161,26 +159,22 @@ function messagingSection(): string {
     "",
     "- Reply where the message came from. Post results in the channel that owns the topic. " +
       "When uncertain, read history (below) or DM the relevant people.",
-    `- Short reply: \`${CLI} message send --target <ref> --text "brief reply"\`.`,
-    `- Long or complicated: write body to a tmp file, then \`${CLI} message send --target <ref> --file ./temp_msg.md\`.`,
-    `- Cite a specific message: \`${CLI} message send --target <ref> --reply "#37" --text "on it"\` — ` +
-      "`--reply` takes the `#N` seq (within `--target`) of the message you're answering.",
+    `- Short reply: \`${CLI} message send --channel <id> --text "brief reply"\`.`,
+    `- Long or complicated: write body to a tmp file, then \`${CLI} message send --channel <id> --file ./temp_msg.md\`.`,
     "",
-    "### Channel refs",
+    "### Addressing",
     "",
-    "Path-style refs:",
+    "You address things by id, never by path:",
     "",
-    "| Ref | Meaning |",
-    "|---|---|",
-    "| `/<server>/<channel>` | Channel in a server |",
-    "| `/<server>/<channel>/#N` | Child channel (thread or post) rooted at message #N |",
-    "| `/<server>/<channel>/#N#M` | Message #M inside the child channel (thread or post) rooted at #N (react, etc.) |",
-    "| `/<server>` | A server, no channel |",
-    "| `/.dm/<peer>` | DM with a user/agent (peer = `name#0042`) |",
-    "| `/.dm/<peer>#N` | Message #N in a DM |",
+    "- **A channel** (or a child channel — thread or post — which is itself just a channel) by " +
+      "its `--channel <id>`. Get channel ids from `channel list`; a pulled message carries the " +
+      "id of its own channel as `channelId`.",
+    "- **A DM** by its `--dm <id>`. A pulled DM message carries `dmConversationId`.",
+    "- **A message** (for `message emoji`) by its `--message <id>`. Every pulled message and " +
+      "every `channel history` row carries its own `id`.",
     "",
-    "Use the `channel` field from a received message as `--target`. For a reply inside a child " +
-      "channel (thread or post), use the child-channel ref (`/<server>/<channel>/#N`).",
+    "`message send`, `message attachment upload`, and `channel history` all take `--channel <id>` " +
+      "OR `--dm <id>` (exactly one). Successful sends return `{ sent: <messageId> }`.",
     "",
     "### Reading history",
     "",
@@ -195,34 +189,31 @@ function messagingSection(): string {
     "",
     "### Message formatting",
     "",
-    "The app auto-renders inline tokens in a message body — channel refs, @mentions, and message " +
-      "refs. Two rules for all of them: a token only renders as a **standalone token** — " +
-      "space-prefixed or at line start (glued to other text like `issue#42` it stays literal); " +
-      "and **never wrap it in backticks** — that kills the render. Otherwise write them as bare " +
-      "text.",
+    "The app auto-renders inline tokens in a message body — @mentions and message seq refs. " +
+      "Two rules for both: a token only renders as a **standalone token** — space-prefixed or at " +
+      "line start (glued to other text like `issue#42` it stays literal); and **never wrap it in " +
+      "backticks** — that kills the render. Otherwise write them as bare text.",
     "",
-    "- **Channel refs** render as clickable links.",
     "- **Mentions** — `@name#NNNN` (e.g. `@alice#0001`) notifies that person and highlights the " +
       "message for them.",
     "- **Message refs** — ` #42` renders as a clickable pill jumping to seq 42 *in the current " +
       "channel* (channel-scoped, not global); seq is 1–6 digits.",
     "",
     "```bash",
-    `${CLI} message send --target \"/.dm/alice#0001\" --text \"Check the discussion in /demo/support\"`,
-    `${CLI} message send --target \"/demo/general\" --text \"@alice#0001 Can you review this? See #42\"`,
+    `${CLI} message send --dm dm_a1b2 --text \"On it — pulling the deploy logs now.\"`,
+    `${CLI} message send --channel ch_general --text \"@alice#0001 Can you review this? See #42\"`,
     "```",
     "",
     "### Pulled messages",
     "",
     "```json",
-    '{"seq": "#3", "channel": "/demo/general", "sender": "@gustavo#4821", "content": {"text": "hello"}, "time": "2026-06-01T12:00:00Z"}',
-    '{"seq": "#42", "channel": "/demo/general", "sender": "@gustavo#4821", "content": {"text": "yes, ship it", "replyTo": {"seq": "#37", "sender": "@ana#0012"}}, "time": "2026-06-01T12:01:00Z"}',
+    '{"id": "msg_9f3", "seq": "#3", "channelId": "ch_general", "authorId": "usr_82", "sender": "@gustavo#4821", "content": {"text": "hello"}, "time": "2026-06-01T12:00:00Z"}',
     "```",
     "",
-    "`channel` is the reply ref. `seq` (`#N`) identifies the message within its channel — " +
-      "combine into `/<server>/<channel>/#N` for a reply inside a child channel (thread or post).",
-    "`content.replyTo` (`{seq, sender}`) is present when a message replies to another — cite it " +
-      'back with `--reply "#N"`.',
+    "Reply into the same scope with that message's `channelId` (or `dmConversationId` for a DM) " +
+      "as `--channel`/`--dm`. React with its `id` via `message emoji --message <id>`. `seq` (`#N`) " +
+      "is the message's position within its channel — used for history pagination " +
+      "(`--before`/`--after`/`--around N`) and for inline ` #N` refs.",
   ].join("\n");
 }
 
@@ -381,8 +372,8 @@ function workspaceMemorySection(): string {
       "the work is.",
     "",
     "```md",
-    '- [ ] {"seq": "#42", "channel": "/demo/general", "sender": "@alice#0001", "content": {"text": "can you pull the latest deploy logs and drop the tail here?"}, "time": "2026-06-01T12:00:00Z"}',
-    '- [ ] {"seq": "#12", "channel": "/demo/design/#12", "sender": "@alice#0001", "content": {"text": "follow-up — send a screenshot of the before/after"}, "time": "2026-06-01T12:07:00Z"}',
+    '- [ ] {"id": "msg_42", "seq": "#42", "channelId": "ch_general", "authorId": "usr_1", "sender": "@alice#0001", "content": {"text": "can you pull the latest deploy logs and drop the tail here?"}, "time": "2026-06-01T12:00:00Z"}',
+    '- [ ] {"id": "msg_12", "seq": "#12", "channelId": "ch_design_thread", "authorId": "usr_1", "sender": "@alice#0001", "content": {"text": "follow-up — send a screenshot of the before/after"}, "time": "2026-06-01T12:07:00Z"}',
     "```",
   ].join("\n");
 }

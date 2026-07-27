@@ -215,49 +215,6 @@ export async function listServerChannels(db: Database, serverId: string) {
 }
 
 /**
- * `resolveTargetForMember`'s channel-name resolver: matches by NAME only,
- * scoped to top-level channels (`parentChannelId IS NULL`) — mirrors the
- * DB partial-unique index `idx_channel_server_name` from migration 0057.
- *
- * Ids are NOT accepted from agent surfaces. Agents address channels via
- * the canonical ref grammar (`/server/channel`, `/server/channel/#seq`);
- * ids are a `/c` UI internal. Threads and forum posts must be reached
- * through their parent + `#seq`, never by direct name or id here.
- *
- * The returned array is length 0 or 1: the WHERE clause narrows to a single
- * `(serverId, name)` slot within the top-level partition, and the partial
- * unique index `idx_channel_server_name` (migration 0057) guarantees that
- * slot holds at most one row. The caller returns `channel not found` on
- * empty and passes the single row through otherwise. Visibility-scoped to
- * `userId`'s server membership.
- */
-export async function resolveChannelByNameForMember(
-  db: Database,
-  serverId: string,
-  userId: string,
-  name: string
-) {
-  const rows = await db
-    .select(CHANNEL_COLUMNS)
-    .from(communityChannel)
-    .innerJoin(
-      communityServerMember,
-      and(
-        eq(communityServerMember.serverId, communityChannel.serverId),
-        eq(communityServerMember.userId, userId)
-      )
-    )
-    .where(
-      and(
-        eq(communityChannel.serverId, serverId),
-        eq(communityChannel.name, name),
-        isNull(communityChannel.parentChannelId)
-      )
-    );
-  return rows.map(mapChannelRow);
-}
-
-/**
  * Top-level channels (no threads — `parentChannelId IS NULL`, mirroring
  * `listServerChannels`) a viewer can see via `listChannels`, scoped to server
  * membership AND private-channel visibility: a channel in a PRIVATE category is
