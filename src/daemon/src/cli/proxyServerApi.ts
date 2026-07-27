@@ -311,6 +311,21 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     return out;
   }
 
+  // A friend/pending row as the human friend GETs emit it — the fields the
+  // FriendCard projection needs. `discriminator` is optional defensively (older
+  // rows may lack it); `kind` marks pending direction (`/friends/pending` only).
+  type WireFriendRow = {
+    userId: string;
+    name: string;
+    discriminator?: string | null;
+    bio?: string | null;
+    statusText?: string | null;
+    statusEmoji?: string | null;
+    kind?: "incoming" | "outgoing";
+  };
+  type WireFriends = { friends?: WireFriendRow[] };
+  type WirePending = { pending?: WireFriendRow[] };
+
   // Build the `?…Seq=` query for a seq-anchored read (at most one of
   // before/after/around, mirroring the user route's aroundSeq/afterSeq/beforeSeq).
   function readQuery(r: ReadRequest): string {
@@ -469,11 +484,37 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
         "reactAdd",
       ),
     friendRequest: (r: { agentId: AgentId; username: string }) =>
-      call<FriendRequestResult>("friendRequest", r),
-    listFriends: (r: { agentId: AgentId }) =>
-      call<{ accepted: FriendCard[]; pendingOutgoing: FriendCard[]; pendingIncoming: FriendCard[] }>(
-        "listFriends",
-        r,
-      ),
+      rest<FriendRequestResult>("POST", "/api/community/friends/request", "friendRequest", {
+        username: r.username,
+      }),
+    listFriends: async (
+      _r: { agentId: AgentId },
+    ): Promise<{ accepted: FriendCard[]; pendingOutgoing: FriendCard[]; pendingIncoming: FriendCard[] }> => {
+      // The bot shares the human friend GETs. Compose the three-bucket
+      // FriendCard shape from `/friends` (accepted), `/friends/pending`
+      // (outgoing/incoming, split on `kind`), and `/friends/presence` (the
+      // online id set), rather than a dedicated agent endpoint.
+      const [friendsRes, pendingRes, presenceRes] = await Promise.all([
+        rest<WireFriends>("GET", "/api/community/friends", "listFriends"),
+        rest<WirePending>("GET", "/api/community/friends/pending", "listFriends"),
+        rest<{ online?: string[] }>("GET", "/api/community/friends/presence", "listFriends"),
+      ]);
+      const online = new Set(Array.isArray(presenceRes.online) ? presenceRes.online : []);
+      const toCard = (row: WireFriendRow): FriendCard => ({
+        userId: row.userId,
+        handle: `${row.name}#${row.discriminator ?? ""}`,
+        name: row.name,
+        bio: row.bio ?? null,
+        statusText: row.statusText ?? null,
+        statusEmoji: row.statusEmoji ?? null,
+        presence: online.has(row.userId) ? "online" : "offline",
+      });
+      const pending = Array.isArray(pendingRes.pending) ? pendingRes.pending : [];
+      return {
+        accepted: (Array.isArray(friendsRes.friends) ? friendsRes.friends : []).map(toCard),
+        pendingOutgoing: pending.filter((p) => p.kind === "outgoing").map(toCard),
+        pendingIncoming: pending.filter((p) => p.kind === "incoming").map(toCard),
+      };
+    },
   };
 }

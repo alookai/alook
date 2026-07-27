@@ -1,10 +1,10 @@
 import { queries, readOrStale } from "@alook/shared"
 import { getDb } from "@/lib/db"
-import { withAuth } from "@/lib/middleware/auth"
+import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON } from "@/lib/middleware/helpers"
 import { avatarInitial } from "@/lib/community/avatar"
 
-export const GET = withAuth(async (_req, ctx) => {
+export const GET = withCommunityActor(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
   type FriendRow = Awaited<ReturnType<typeof queries.communityFriendship.listFriends>>[number]
   type BlockedRow = Awaited<ReturnType<typeof queries.communityFriendship.listBlocked>>[number]
@@ -27,6 +27,7 @@ export const GET = withAuth(async (_req, ctx) => {
     avatar: f.friendImage ?? avatarInitial(f.friendName),
     status: "offline" as const,
     sub: "",
+    bio: f.aboutMe ?? null,
     statusEmoji: f.statusEmoji ?? null,
     statusText: f.statusText ?? "",
   }))

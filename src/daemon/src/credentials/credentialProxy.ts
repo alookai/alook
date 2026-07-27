@@ -243,7 +243,7 @@ export const DEFAULT_CAPABILITY_RESOLVER: CapabilityResolver = (method, pathname
   // Attachments: upload (`…/upload`), download (`…/attachments/:id/download`),
   // and the media proxy all share the attach-only capability.
   if (pathname.includes("/upload") || pathname.includes("/attachment") || pathname.includes("/media")) return "attach";
-  if (pathname.includes("/friendRequest") || pathname.includes("/listFriends")) return "friend";
+  if (pathname.includes("/friends") || pathname.includes("/friendRequest") || pathname.includes("/listFriends")) return "friend";
   if (pathname.includes("/reactions") || pathname.includes("/reactAdd")) return "send";
   if (pathname.endsWith("/messages") && (verb === "POST" || verb === "PUT")) return "send";
   if (pathname.includes("/send")) return "send";
@@ -495,7 +495,7 @@ function joinPath(basePath: string, reqUrl: string): string {
  * endpoints; the CLI emits them as bare `/api/<method>` and this rewrites them
  * onto `/api/community/agent/<method>`.
  */
-const AGENT_RPC_METHODS = new Set(["listChannels", "friendRequest", "listFriends"]);
+const AGENT_RPC_METHODS = new Set(["listChannels"]);
 
 /**
  * Rewrite a bare `/api/<method>` for one of the surviving agent RPC endpoints

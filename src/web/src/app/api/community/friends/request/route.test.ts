@@ -4,9 +4,14 @@ import { NextRequest } from "next/server"
 const getUserInternal = vi.fn()
 const getUserByNameAndDiscriminator = vi.fn()
 const getUserByNameCaseInsensitive = vi.fn()
+const getUserPublic = vi.fn()
 const isBlocked = vi.fn()
 const sendRequest = vi.fn()
 const broadcastToUser = vi.fn()
+
+// The community actor the route runs under. Default: human `u1`. A test can set
+// `actorCtx` to a bot ctx before invoking POST to exercise the bot branch.
+let actorCtx: Record<string, unknown> = { env: {}, userId: "u1", isBot: false, email: "u@t.com" }
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
@@ -19,6 +24,7 @@ vi.mock("@alook/shared", async () => {
         getUserInternal: (...a: unknown[]) => getUserInternal(...a),
         getUserByNameAndDiscriminator: (...a: unknown[]) => getUserByNameAndDiscriminator(...a),
         getUserByNameCaseInsensitive: (...a: unknown[]) => getUserByNameCaseInsensitive(...a),
+        getUserPublic: (...a: unknown[]) => getUserPublic(...a),
       },
       communityFriendship: {
         sendRequest: (...a: unknown[]) => sendRequest(...a),
@@ -28,10 +34,10 @@ vi.mock("@alook/shared", async () => {
   }
 })
 
-vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
+vi.mock("@/lib/middleware/community-actor", () => ({
+  withCommunityActor: vi.fn((handler: any) => async (req: any, ctx?: any) => {
     const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: {}, userId: "u1", email: "u@t.com", user: { isBot: false }, params })
+    return handler(req, { ...actorCtx, params })
   }),
 }))
 
@@ -60,12 +66,14 @@ function postReq(body: unknown) {
 describe("POST /api/community/friends/request", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    actorCtx = { env: {}, userId: "u1", isBot: false, email: "u@t.com" }
     getUserInternal.mockResolvedValue({
       id: "u2",
       isBot: false,
       ownerUserId: null,
       deletedAt: null,
     })
+    getUserPublic.mockResolvedValue({ id: "owner_1", name: "Bob" })
     isBlocked.mockResolvedValue(false)
     broadcastToUser.mockResolvedValue(undefined)
   })
@@ -205,6 +213,51 @@ describe("POST /api/community/friends/request", () => {
       const res = await POST(postReq({ username: "nobody" }), {} as never)
 
       expect(res.status).toBe(404)
+      expect(sendRequest).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("bot actor (withCommunityActor crk_ path)", () => {
+    beforeEach(() => {
+      actorCtx = { env: {}, userId: "bot_zoe", isBot: true, ownerUserId: "owner_1" }
+    })
+
+    it("bot→human: 200 pending with a FriendRequestResult carrying the owner hint", async () => {
+      getUserByNameAndDiscriminator.mockResolvedValue({ id: "u_alice" })
+      sendRequest.mockResolvedValue({
+        kind: "created",
+        friendship: { id: "fr_1", requesterId: "bot_zoe", addresseeId: "u_alice", status: "pending" },
+        supersededIds: [],
+        broadcasts: [],
+      })
+      const res = await POST(postReq({ username: "Alice#0042" }), {} as never)
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body).toEqual({
+        friendshipId: "fr_1",
+        status: "pending",
+        hint: "Your owner Bob needs to approve this request in DM.",
+      })
+    })
+
+    it("bot→sibling bot: 200 accepted with hint null", async () => {
+      getUserByNameAndDiscriminator.mockResolvedValue({ id: "bot_yara" })
+      sendRequest.mockResolvedValue({
+        kind: "auto_accepted",
+        friendship: { id: "fr_sib", requesterId: "bot_zoe", addresseeId: "bot_yara", status: "accepted" },
+        supersededIds: [],
+        broadcasts: [],
+      })
+      const res = await POST(postReq({ username: "Yara#0042" }), {} as never)
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body).toEqual({ friendshipId: "fr_sib", status: "accepted", hint: null })
+    })
+
+    it("bot→own owner: 409 already friends, sendRequest never called", async () => {
+      getUserByNameAndDiscriminator.mockResolvedValue({ id: "owner_1" })
+      const res = await POST(postReq({ username: "Bob#0001" }), {} as never)
+      expect(res.status).toBe(409)
       expect(sendRequest).not.toHaveBeenCalled()
     })
   })

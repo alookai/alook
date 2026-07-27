@@ -279,8 +279,6 @@ export {
   CommunityAgentChannelMemberRequestSchema,
   CommunityAgentJoinServerRequestSchema,
   CommunityAgentReactAddRequestSchema,
-  CommunityAgentFriendRequestSchema,
-  CommunityAgentListFriendsSchema,
   CommunityAgentAttachmentUploadResponseSchema,
   CommunityAgentAttachmentDownloadRequestSchema,
   BotAuditEventSchema,

@@ -304,7 +304,7 @@ describe("createProxyServerApi — callDownload", () => {
 });
 
 describe("createProxyServerApi — friendRequest / listFriends", () => {
-  it("friendRequest POSTs to /api/friendRequest, strips agentId, decodes the envelope", async () => {
+  it("friendRequest POSTs the human REST route with { username }, decodes the envelope", async () => {
     const seen: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
       seen.push({ url, init });
@@ -316,7 +316,7 @@ describe("createProxyServerApi — friendRequest / listFriends", () => {
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
     const res = await api.friendRequest({ agentId: "a1" as never, username: "Alice#0042" });
     expect(res).toEqual({ friendshipId: "fr_1", status: "pending", hint: "ask your owner" });
-    expect(seen[0].url).toBe("http://proxy.test/api/friendRequest");
+    expect(seen[0].url).toBe("http://proxy.test/api/community/friends/request");
     expect(seen[0].init?.method).toBe("POST");
     const body = JSON.parse(String(seen[0].init?.body ?? "{}"));
     expect(body).toEqual({ username: "Alice#0042" });
@@ -338,29 +338,54 @@ describe("createProxyServerApi — friendRequest / listFriends", () => {
     }
   });
 
-  it("listFriends POSTs to /api/listFriends and decodes the three buckets verbatim", async () => {
-    const seen: Array<{ url: string }> = [];
+  it("listFriends composes the three human GETs into FriendCard buckets, keyed on kind + presence", async () => {
+    const seen: string[] = [];
     const fetchImpl: FetchLike = vi.fn(async (url: string) => {
-      seen.push({ url });
-      return jsonBody(
-        JSON.stringify({ accepted: [{ userId: "u1", handle: "A#1" }], pendingOutgoing: [], pendingIncoming: [] }),
-        { status: 200 },
-      );
+      seen.push(url);
+      if (url.endsWith("/api/community/friends")) {
+        return jsonBody(
+          JSON.stringify({
+            friends: [
+              { userId: "u1", name: "Alice", discriminator: "0042", bio: "hi", statusEmoji: "🎧", statusText: "Vibing" },
+            ],
+          }),
+        );
+      }
+      if (url.endsWith("/api/community/friends/pending")) {
+        return jsonBody(
+          JSON.stringify({
+            pending: [
+              { userId: "u2", name: "Bob", discriminator: "0001", kind: "outgoing" },
+              { userId: "u3", name: "Cara", discriminator: "0002", kind: "incoming" },
+            ],
+          }),
+        );
+      }
+      return jsonBody(JSON.stringify({ online: ["u1", "u3"] }));
     });
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
     const res = await api.listFriends({ agentId: "a1" as never });
-    expect(res).toEqual({ accepted: [{ userId: "u1", handle: "A#1" }], pendingOutgoing: [], pendingIncoming: [] });
-    expect(seen[0].url).toBe("http://proxy.test/api/listFriends");
+    expect(seen).toEqual([
+      "http://proxy.test/api/community/friends",
+      "http://proxy.test/api/community/friends/pending",
+      "http://proxy.test/api/community/friends/presence",
+    ]);
+    expect(res.accepted).toEqual([
+      { userId: "u1", handle: "Alice#0042", name: "Alice", bio: "hi", statusText: "Vibing", statusEmoji: "🎧", presence: "online" },
+    ]);
+    expect(res.pendingOutgoing).toEqual([
+      { userId: "u2", handle: "Bob#0001", name: "Bob", bio: null, statusText: null, statusEmoji: null, presence: "offline" },
+    ]);
+    expect(res.pendingIncoming).toEqual([
+      { userId: "u3", handle: "Cara#0002", name: "Cara", bio: null, statusText: null, statusEmoji: null, presence: "online" },
+    ]);
   });
 
-  it("both throw the 'non-JSON body' pattern on an empty 500", async () => {
+  it("friendRequest throws the 'non-JSON body' pattern on an empty 500", async () => {
     const fetchImpl: FetchLike = vi.fn(async () => jsonBody("", { status: 500 }));
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
     await expect(api.friendRequest({ agentId: "a1" as never, username: "A#0001" })).rejects.toThrow(
       /upstream returned 500 with non-JSON body from \/api\/friendRequest/,
-    );
-    await expect(api.listFriends({ agentId: "a1" as never })).rejects.toThrow(
-      /upstream returned 500 with non-JSON body from \/api\/listFriends/,
     );
   });
 });

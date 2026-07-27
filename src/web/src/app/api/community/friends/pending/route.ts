@@ -1,10 +1,10 @@
 import { queries, readOrStale } from "@alook/shared"
 import { getDb } from "@/lib/db"
-import { withAuth } from "@/lib/middleware/auth"
+import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON } from "@/lib/middleware/helpers"
 import { avatarInitial } from "@/lib/community/avatar"
 
-export const GET = withAuth(async (_req, ctx) => {
+export const GET = withCommunityActor(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
   type PendingRow = Awaited<ReturnType<typeof queries.communityFriendship.listPending>>[number]
   const { value, stale } = await readOrStale<{ rows: PendingRow[] }>(
@@ -19,7 +19,11 @@ export const GET = withAuth(async (_req, ctx) => {
     id: r.id,
     userId: r.userId,
     name: r.name,
+    discriminator: r.discriminator,
     avatar: r.image ?? avatarInitial(r.name),
+    bio: r.aboutMe ?? null,
+    statusEmoji: r.statusEmoji ?? null,
+    statusText: r.statusText ?? null,
     kind: r.kind,
     needsOwnerApproval: r.needsOwnerApproval,
   }))

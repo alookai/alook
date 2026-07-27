@@ -1305,24 +1305,6 @@ export type CommunityAgentReactAddRequest = z.infer<
   typeof CommunityAgentReactAddRequestSchema
 >;
 
-// POST /api/community/agent/friendRequest — body `{ username: "name#0042" }`.
-// Only the human `name#discriminator` handle is accepted (parsed + resolved
-// server-side); a raw userId is intentionally NOT accepted so the agent surface
-// mirrors the human handle format.
-export const CommunityAgentFriendRequestSchema = z.object({
-  username: z.string().min(1),
-});
-export type CommunityAgentFriendRequest = z.infer<
-  typeof CommunityAgentFriendRequestSchema
->;
-
-// POST /api/community/agent/listFriends — empty body, kept for POST uniformity
-// with the rest of `/api/community/agent/*`.
-export const CommunityAgentListFriendsSchema = z.object({});
-export type CommunityAgentListFriends = z.infer<
-  typeof CommunityAgentListFriendsSchema
->;
-
 // ---------------------------------------------------------------------------
 // Bot activity audit log — event payload
 // ---------------------------------------------------------------------------

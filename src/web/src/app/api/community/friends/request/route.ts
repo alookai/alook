@@ -1,19 +1,14 @@
 import { NextRequest } from "next/server"
 import { queries, parseNameAndTag, isBlocked } from "@alook/shared"
 import { getDb } from "@/lib/db"
-import { withAuth } from "@/lib/middleware/auth"
+import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
 import { requireNotBlocked } from "@/lib/community/permissions"
 import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "@/lib/community/audit"
 
-export const POST = withAuth(async (req: NextRequest, ctx) => {
+export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
-
-  // Belt-and-suspenders: bot sessions never reach here (auth.ts:204 rejects
-  // them), but a future auth regression must not let a bot author friend-graph
-  // state. See plans/agent-friendship-approval-gate.md §Hardening.
-  if (ctx.user?.isBot) return writeError("forbidden", 403)
 
   let body: { userId?: string; username?: string }
   try {
@@ -44,8 +39,12 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (!target || target.deletedAt !== null) return writeError("user not found", 404)
 
   // Owner ↔ own-bot is a synthetic friendship — no row can exist. 409 so the UI
-  // treats it as a no-op.
+  // treats it as a no-op. Covers both directions: a human adding their own bot,
+  // and a bot actor targeting its own owner.
   if (target.isBot === true && target.ownerUserId === ctx.userId) {
+    return writeError("already friends", 409)
+  }
+  if (ctx.isBot && ctx.ownerUserId && targetUserId === ctx.ownerUserId) {
     return writeError("already friends", 409)
   }
 
@@ -72,6 +71,27 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
         changes: JSON.stringify({ supersededBy: result.friendship.id }),
       })
     }
+
+    // A bot expects the discriminated FriendRequestResult; a human keeps the
+    // raw friendship row (201 created / 200 auto-accepted). Sibling / crossover
+    // auto-accept → status "accepted" (no gate); anything else the bot posted is
+    // owner-gated pending, so surface the owner-approval hint.
+    if (ctx.isBot) {
+      if (result.kind === "auto_accepted") {
+        return writeJSON({ friendshipId: result.friendship.id, status: "accepted", hint: null }, 200)
+      }
+      const owner = ctx.ownerUserId ? await queries.user.getUserPublic(db, ctx.ownerUserId) : null
+      const ownerDisplayName = owner?.name ?? "your owner"
+      return writeJSON(
+        {
+          friendshipId: result.friendship.id,
+          status: "pending",
+          hint: `Your owner ${ownerDisplayName} needs to approve this request in DM.`,
+        },
+        200,
+      )
+    }
+
     if (result.kind === "auto_accepted") {
       return writeJSON(result.friendship, 200)
     }
