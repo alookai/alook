@@ -21,6 +21,11 @@ export interface UnreadChannelRow {
   type: string | null;
   lastMessageAt: string;
   lastReadAt: string | null;
+  // Newest seq in the scope + the viewer's read cursor. A bot consumer reads
+  // these to know where to page from (`?afterSeq=lastReadSeq`); the human UI
+  // ignores them and sorts by lastMessageAt.
+  lastMessageSeq: number;
+  lastReadSeq: number | null;
   // null for a top-level channel; set for a thread / forum-post child. The
   // inbox route uses this to nest child unreads under their parent channel.
   parentChannelId: string | null;
@@ -155,6 +160,8 @@ export async function listUnreadChannels(
       parentChannelId: r.parentChannelId,
       lastMessageAt: r.lastMessageAt!,
       lastReadAt: r.lastReadAt,
+      lastMessageSeq: r.lastMessageSeq,
+      lastReadSeq: r.lastReadSeq,
     }));
 }
 
@@ -169,6 +176,10 @@ export interface UnreadDmRow {
   otherUserImage: string | null;
   lastMessageAt: string;
   lastReadAt: string | null;
+  // Seq cursor pair, same purpose as on UnreadChannelRow — a bot pages from
+  // `?afterSeq=lastReadSeq`; the human UI ignores these.
+  lastMessageSeq: number;
+  lastReadSeq: number | null;
 }
 
 /**
@@ -263,5 +274,7 @@ export async function listUnreadDms(
       otherUserImage: r.otherUserImage,
       lastMessageAt: r.lastMessageAt!,
       lastReadAt: r.lastReadAt,
+      lastMessageSeq: r.lastMessageSeq,
+      lastReadSeq: r.lastReadSeq,
     }));
 }

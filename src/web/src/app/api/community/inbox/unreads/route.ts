@@ -5,7 +5,7 @@ import {
   readOrStale,
 } from "@alook/shared"
 import { getDb } from "@/lib/db"
-import { withAuth } from "@/lib/middleware/auth"
+import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON } from "@/lib/middleware/helpers"
 import { parseBoundedInt } from "@/lib/community/messages"
 import { avatarInitial } from "@/lib/community/avatar"
@@ -20,7 +20,7 @@ function shouldBadge(level: string, hasMention: boolean): boolean {
   return true
 }
 
-export const GET = withAuth(async (req, ctx) => {
+export const GET = withCommunityActor(async (req, ctx) => {
   const db = getDb(ctx.env.DB)
   const url = new URL(req.url)
   const limit = parseBoundedInt(
@@ -78,6 +78,9 @@ export const GET = withAuth(async (req, ctx) => {
     serverId: string
     parentChannelId: string | null
   }) => {
+    // A bot has no notification-level concept — it consumes every unread scope,
+    // so the mute cascade doesn't apply. Humans climb their effective level.
+    if (ctx.isBot) return true
     const level = queries.communityNotificationSetting.computeEffectiveLevel(settings, channel)
     return shouldBadge(level, (mentionCountByChannel.get(channel.id) ?? 0) > 0)
   }
@@ -85,7 +88,7 @@ export const GET = withAuth(async (req, ctx) => {
   // Split unread rows into top-level channels and child threads/forum-posts.
   // A child nests under its `parentChannelId`; a parent surfaces in the tree
   // even when it has no direct unread of its own (only unread children).
-  type UnreadChild = { channelId: string; channelName: string; type: string | null; lastMessageAt: string; mentionCount: number }
+  type UnreadChild = { channelId: string; channelName: string; type: string | null; lastMessageAt: string; lastMessageSeq: number; lastReadSeq: number | null; mentionCount: number }
   type ParentNode = {
     channelId: string
     channelName: string
@@ -93,6 +96,8 @@ export const GET = withAuth(async (req, ctx) => {
     serverId: string
     serverName: string
     lastMessageAt: string
+    lastMessageSeq: number
+    lastReadSeq: number | null
     mentionCount: number
     hasDirectUnread: boolean
     children: UnreadChild[]
@@ -115,6 +120,8 @@ export const GET = withAuth(async (req, ctx) => {
         channelName: row.channelName,
         type: row.type,
         lastMessageAt: row.lastMessageAt,
+        lastMessageSeq: row.lastMessageSeq,
+        lastReadSeq: row.lastReadSeq,
         mentionCount: mentionCountByChannel.get(row.channelId) ?? 0,
       })
       childrenByParent.set(row.parentChannelId, list)
@@ -127,6 +134,8 @@ export const GET = withAuth(async (req, ctx) => {
         serverId: row.serverId,
         serverName: row.serverName,
         lastMessageAt: row.lastMessageAt,
+        lastMessageSeq: row.lastMessageSeq,
+        lastReadSeq: row.lastReadSeq,
         mentionCount: mentionCountByChannel.get(row.channelId) ?? 0,
         hasDirectUnread: true,
         children: [],
@@ -160,6 +169,10 @@ export const GET = withAuth(async (req, ctx) => {
         // below (those rows carry serverName via the communityServer join).
         serverName: "",
         lastMessageAt: "",
+        // No direct unread on this parent — its own seq is irrelevant (a bot
+        // pages each unread child by the child's own cursor).
+        lastMessageSeq: 0,
+        lastReadSeq: null,
         mentionCount: mentionCountByChannel.get(pid) ?? 0,
         hasDirectUnread: false,
         children: [],
@@ -216,6 +229,8 @@ export const GET = withAuth(async (req, ctx) => {
         channelName: c.channelName,
         type: c.type ?? undefined,
         lastMessageAt: c.lastMessageAt,
+        lastMessageSeq: c.lastMessageSeq,
+        lastReadSeq: c.lastReadSeq,
         mentionCount: c.mentionCount,
         children: c.children.map((k) => ({ ...k, type: k.type ?? undefined })),
       })),
@@ -267,6 +282,8 @@ export const GET = withAuth(async (req, ctx) => {
       otherUserName: d.otherUserName,
       otherUserAvatar: d.otherUserImage ?? avatarInitial(d.otherUserName),
       lastMessageAt: d.lastMessageAt,
+      lastMessageSeq: d.lastMessageSeq,
+      lastReadSeq: d.lastReadSeq,
     }))
     .sort((a, b) => (a.lastMessageAt < b.lastMessageAt ? 1 : -1))
 

@@ -1,4 +1,4 @@
-import { withAuth } from "@/lib/middleware/auth"
+import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
@@ -10,7 +10,7 @@ import {
 import { parseBoundedInt } from "@/lib/community/messages"
 import { avatarInitial } from "@/lib/community/avatar"
 
-export const GET = withAuth(async (req, ctx) => {
+export const GET = withCommunityActor(async (req, ctx) => {
   const db = getDb(ctx.env.DB)
   const url = new URL(req.url)
   const limit = parseBoundedInt(
