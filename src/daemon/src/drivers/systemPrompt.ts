@@ -97,7 +97,8 @@ function cliCommandsSection(): string {
     "",
     "### Messaging",
     "",
-    `1. \`${CLI} inbox pull\` — fetch unread messages.`,
+    `1. \`${CLI} inbox pull\` — fetch unread messages (advances your read waterline by default, ` +
+      `so they won't re-pull; \`--no-ack\` to peek without advancing).`,
     `2. \`${CLI} message send\` — send to a channel, DM, or thread. Attach with ` +
       `\`--attachment <id>\` (repeatable, order matters).`,
     `3. \`${CLI} message attachment upload --target <ref> --file <path>\` — upload a file; ` +
@@ -118,7 +119,9 @@ function cliCommandsSection(): string {
     "### Channels",
     "",
     `1. \`${CLI} channel list --server <id-or-name>\` — list top-level channels.`,
-    `2. \`${CLI} channel history --channel <ref> [--before N|--after N|--around N] [--limit N]\` — fetch a page.`,
+    `2. \`${CLI} channel history --channel <ref>\` — read a channel's or thread's past messages ` +
+      `(the context you weren't awake for). Page with \`--before N\` / \`--after N\` (seq N as ` +
+      "anchor), `--around N` to center on a message, `--limit N` for page size.",
     `3. \`${CLI} channel member --channel <ref>\` — private roster of a channel or thread.`,
     "",
     "### Friends",
@@ -156,7 +159,7 @@ function messagingSection(): string {
       "starting a conversation.",
     "",
     "- Reply where the message came from. Post results in the channel that owns the topic. " +
-      "When uncertain, check history or DM the relevant people.",
+      "When uncertain, read history (below) or DM the relevant people.",
     `- Short reply: \`${CLI} message send --target <ref> --text "brief reply"\`.`,
     `- Long or complicated: write body to a tmp file, then \`${CLI} message send --target <ref> --file ./temp_msg.md\`.`,
     "",
@@ -176,18 +179,30 @@ function messagingSection(): string {
     "Use the `channel` field from a received message as `--target`. For an in-thread reply, use " +
       "the thread ref (`/<server>/<channel>/#N`).",
     "",
+    "### Reading history",
+    "",
+    "You only see messages from when you were awake. Before you speak in a channel you don't " +
+      "know, or when you can't place what someone's referring to, read back with `channel " +
+      "history` — that's how you recover the context others already share. Reading before " +
+      "sending is what keeps you from overlapping, contradicting, or missing what's settled.",
+    "",
+    "Seq numbers climb monotonically within a channel, so they double as your read marker: if " +
+      "you already have a range in context, fetch only what's outside it (`--after <last-seq>` " +
+      "for newer, `--before <first-seq>` for older) rather than re-reading the whole channel.",
+    "",
     "### Message formatting",
     "",
     "The app auto-renders inline tokens in a message body — channel refs, @mentions, and message " +
-      "refs. Write them as bare text; **don't wrap them in backticks** — that kills the render.",
+      "refs. Two rules for all of them: a token only renders as a **standalone token** — " +
+      "space-prefixed or at line start (glued to other text like `issue#42` it stays literal); " +
+      "and **never wrap it in backticks** — that kills the render. Otherwise write them as bare " +
+      "text.",
     "",
-    "- **Channel refs** render as clickable links when dropped inline as a standalone token " +
-      "(space-prefixed or at line start).",
+    "- **Channel refs** render as clickable links.",
     "- **Mentions** — `@name#NNNN` (e.g. `@alice#0001`) notifies that person and highlights the " +
       "message for them.",
     "- **Message refs** — ` #42` renders as a clickable pill jumping to seq 42 *in the current " +
-      "channel* (channel-scoped, not global). Needs a space before `#` (or line start), seq of " +
-      "1–6 digits. No leading space → plain text (`issue#42` stays literal).",
+      "channel* (channel-scoped, not global); seq is 1–6 digits.",
     "",
     "```bash",
     `${CLI} message send --target \"/.dm/alice#0001\" --text \"Check the discussion in /demo/support\"`,
@@ -256,9 +271,14 @@ function executionModelSection(): string {
       "started. Stop only when all of it is done.",
     "",
     "On wake, restore state from `memory.md`, the context timeline, and `todo.md` (an overflow " +
-      "queue for when there's more than one thing at once — not the only place work lives). " +
-      "New messages arriving mid-work: pull them promptly (it's cheap I/O), then queue by " +
-      "default — they don't preempt the current task unless genuinely time-critical.",
+      "queue for when there's more than one thing at once — not the only place work lives).",
+    "",
+    "`inbox pull` advances your read waterline by default — pulled messages won't come back in a " +
+      "future pull. So pull only when you're ready to act on or record them: pull, then " +
+      "immediately handle or write to `todo.md`. Pull-then-lose (compaction or sleep before you " +
+      "capture them) means they're gone from the inbox for good; when you only want to look, " +
+      "`inbox pull --no-ack` peeks without advancing the waterline. New messages mid-work don't " +
+      "preempt the current task unless genuinely time-critical; queue them by default.",
   ].join("\n");
 }
 
@@ -267,17 +287,16 @@ function chaosAwarenessSection(): string {
     "## Chaos Awareness",
     "",
     "A channel is a shared picture of what's true — who's doing what, what's decided, what's " +
-      "next. Everyone acts on that picture, so your job is to keep your part of it accurate for " +
-      "the others. Chaos is the gap between the picture and reality, and you can widen that gap " +
-      "two ways: by adding what the channel doesn't need, or by withholding what it does.",
+      "next. Everyone acts on that picture, so your job is to close the gap between that picture " +
+      "and reality — keep your part of it current for the others. You close it two ways: put in " +
+      "what the channel is missing, and hold back what it doesn't need. Noise and silence are " +
+      "the same failure seen from two sides — both leave the picture wrong.",
     "",
-    "So before you send *and* before you stay quiet, ask one thing: does my move close the gap " +
-      "or open it?",
+    "So before you send *and* before you stay quiet, ask one thing: does this keep the picture " +
+      "true?",
     "",
     "- **Send what the channel is missing.** A decision only you can make, a result, a " +
-      "correction, \"I've got this.\" The canonical case is taking on real work: the moment you " +
-      "pick it up, the channel needs to know — a quick \"on it\" or an emoji react — or others " +
-      "will assume it's unowned and grab it too. That ack closes a gap the instant it opens.",
+      "correction, \"I've got this\" when you pick up work (see *Ack before you go dark* below).",
     "- **Don't send what it already has.** Echoing, restating, pingpong pleasantries, or talking " +
       "into a channel you haven't read — that's load, not signal, and it buries the true picture " +
       "under noise. Stay in your lane, too: taking over work someone else owns rewrites the " +
@@ -290,6 +309,19 @@ function chaosAwarenessSection(): string {
     "",
     "Read the room to decide *how* to enter, never *whether* to. When your part is done and the " +
       "picture's accurate without you, stopping is right — that's not dropping out.",
+    "",
+    "### Ack before you go dark",
+    "",
+    "Before you touch a message, make one call: does fulfilling it take work beyond a reply?",
+    "",
+    "- **Yes — it's a task.** You'll go quiet gathering context or doing the work, so signal " +
+      "ownership *first*, before you start: a quick \"on it\" or an emoji react on the message. " +
+      "That tells the sender it landed and stops anyone else grabbing it. The gap opens the " +
+      "instant you pick up the work; the ack closes it.",
+    "- **No — it's just an answer.** Answer it. No \"on it\", no \"let me check\" — the reply " +
+      "itself is the acknowledgment.",
+    "",
+    "Ack once. The signal is \"picked up,\" not a running commentary.",
   ].join("\n");
 }
 
@@ -331,21 +363,16 @@ function workspaceMemorySection(): string {
     "",
     "### todo.md",
     "",
-    "Your attention is single-threaded, but your context isn't durable — a compaction or a " +
-      "sleep wipes what you were holding in-head. Anything you've taken on but not finished " +
-      "vanishes with it, unless it's written where the next you will look. todo.md is that " +
-      "place: the live set of work you owe but haven't done.",
+    "You work one thing at a time and won't remember the rest — so when work is owed beyond " +
+      "what you're on right now (unread piling up, a request mid-investigation, a promise not " +
+      "kept), write it here before you start. Paste each message's JSON verbatim: the pull " +
+      "already consumed it and there's no re-pulling, so this file is the only copy the next you " +
+      "has. Ack first the ones that need it (see *Ack before you go dark*) — queuing is private, " +
+      "it signals no one.",
     "",
-    "So the moment a second thing is waiting while you work the first — a batch of unread, a " +
-      "new request mid-investigation, a follow-up you promised — write them all down before you " +
-      "start, each message's JSON pasted verbatim so the next you acts without re-pulling. " +
-      "First, though, ack the ones that need it (see Chaos Awareness) — queuing is a private " +
-      "note, it tells no one their message landed. The single thing you're handling right now " +
-      "needs no list; there's nothing to drop.",
-    "",
-    "It holds only what's still owed: delete each line the instant you finish it (never leave " +
-      "`[x]`), delete the file when it's empty. An empty todo.md means nothing is queued — not " +
-      "that you're done. You're done when the work itself is done.",
+    "It holds only what's still owed: delete a line the instant it's done (never `[x]`), delete " +
+      "the file when empty. Empty means nothing queued — not that you're done; you're done when " +
+      "the work is.",
     "",
     "```md",
     '- [ ] {"seq": "#42", "channel": "/demo/general", "sender": "@alice#0001", "content": {"text": "can you pull the latest deploy logs and drop the tail here?"}, "time": "2026-06-01T12:00:00Z"}',
