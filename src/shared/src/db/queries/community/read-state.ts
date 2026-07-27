@@ -69,17 +69,16 @@ function buildTargetFilter(data: {
  * upsert targets the matching partial-unique index
  * (`idx_read_state_user_channel` or `idx_read_state_user_dm`).
  */
-// lastReadSeq intentionally not maintained here — humans only, bot-wake
-// filter never reads a human's row (see plans/community-agent-cli-bridge.md
-// design §4 for the full accounting of which of the four read-state writers
-// do/don't need to thread `lastReadSeq` through).
+// Advances all three cursors together — `lastReadAt`/`lastReadMessageId` for
+// the anchor/divider, and `lastReadSeq` for the unread predicate (both humans
+// and bots read `seq > lastReadSeq` now). The monotone guard keys on seq.
 export function markReadToMessageBuilder(
   db: Database,
   data: {
     userId: string;
     channelId?: string;
     dmConversationId?: string;
-    message: { id: string; createdAt: string };
+    message: { id: string; createdAt: string; seq: number };
   }
 ) {
   const { userId, channelId, dmConversationId, message } = data;
@@ -111,6 +110,7 @@ export function markReadToMessageBuilder(
         dmConversationId: null,
         lastReadAt: message.createdAt,
         lastReadMessageId: message.id,
+        lastReadSeq: message.seq,
       })
       .onConflictDoUpdate({
         target: [communityReadState.userId, communityReadState.channelId],
@@ -118,8 +118,9 @@ export function markReadToMessageBuilder(
         set: {
           lastReadAt: message.createdAt,
           lastReadMessageId: message.id,
+          lastReadSeq: message.seq,
         },
-        setWhere: sql`${communityReadState.lastReadAt} < ${message.createdAt}`,
+        setWhere: sql`${communityReadState.lastReadSeq} < ${message.seq}`,
       });
   }
 
@@ -131,6 +132,7 @@ export function markReadToMessageBuilder(
       dmConversationId: dmConversationId!,
       lastReadAt: message.createdAt,
       lastReadMessageId: message.id,
+      lastReadSeq: message.seq,
     })
     .onConflictDoUpdate({
       target: [communityReadState.userId, communityReadState.dmConversationId],
@@ -138,8 +140,9 @@ export function markReadToMessageBuilder(
       set: {
         lastReadAt: message.createdAt,
         lastReadMessageId: message.id,
+        lastReadSeq: message.seq,
       },
-      setWhere: sql`${communityReadState.lastReadAt} < ${message.createdAt}`,
+      setWhere: sql`${communityReadState.lastReadSeq} < ${message.seq}`,
     });
 }
 
@@ -153,15 +156,13 @@ export function markReadToMessageBuilder(
  * The routes don't consume the returned row today — see `PUT /dm/:id/read`
  * and `PUT /threads/:id/read` which respond `{ ok: true }`.
  */
-// lastReadSeq intentionally not maintained here — see comment on
-// `markReadToMessageBuilder` above.
 export async function markReadToMessage(
   db: Database,
   data: {
     userId: string;
     channelId?: string;
     dmConversationId?: string;
-    message: { id: string; createdAt: string };
+    message: { id: string; createdAt: string; seq: number };
   }
 ): Promise<void> {
   await markReadToMessageBuilder(db, data);
@@ -181,8 +182,6 @@ export async function markReadToMessage(
  *   channels stay empty in `communityReadState` because the invariant
  *   forbids `lastReadMessageId = null` rows.
  */
-// lastReadSeq intentionally not maintained here — see comment on
-// `markReadToMessageBuilder` above.
 export async function markAllServerChannelsRead(
   db: Database,
   userId: string,
@@ -230,14 +229,14 @@ export async function markAllServerChannelsRead(
 
   // Split latest into (a) rows we need to UPDATE by primary key and (b) rows
   // we need to INSERT fresh.
-  const toUpdate: Array<{ id: string; channelId: string; msgId: string; createdAt: string }> = [];
-  const toInsert: Array<{ channelId: string; msgId: string; createdAt: string }> = [];
+  const toUpdate: Array<{ id: string; channelId: string; msgId: string; createdAt: string; seq: number }> = [];
+  const toInsert: Array<{ channelId: string; msgId: string; createdAt: string; seq: number }> = [];
   for (const l of latest) {
     const existingId = existingByChannel.get(l.channelId);
     if (existingId) {
-      toUpdate.push({ id: existingId, channelId: l.channelId, msgId: l.id, createdAt: l.createdAt });
+      toUpdate.push({ id: existingId, channelId: l.channelId, msgId: l.id, createdAt: l.createdAt, seq: l.seq });
     } else {
-      toInsert.push({ channelId: l.channelId, msgId: l.id, createdAt: l.createdAt });
+      toInsert.push({ channelId: l.channelId, msgId: l.id, createdAt: l.createdAt, seq: l.seq });
     }
   }
 
@@ -254,11 +253,11 @@ export async function markAllServerChannelsRead(
   for (const u of toUpdate) {
     await db
       .update(communityReadState)
-      .set({ lastReadAt: u.createdAt, lastReadMessageId: u.msgId })
+      .set({ lastReadAt: u.createdAt, lastReadMessageId: u.msgId, lastReadSeq: u.seq })
       .where(
         and(
           eq(communityReadState.id, u.id),
-          lt(communityReadState.lastReadAt, u.createdAt)
+          lt(communityReadState.lastReadSeq, u.seq)
         )
       );
   }
@@ -271,6 +270,7 @@ export async function markAllServerChannelsRead(
         dmConversationId: null,
         lastReadAt: i.createdAt,
         lastReadMessageId: i.msgId,
+        lastReadSeq: i.seq,
       }))
     );
   }
@@ -285,8 +285,6 @@ export async function markAllServerChannelsRead(
  * monotone guard, same "empty conversations are skipped, no row written"
  * semantics. Returns the count of conversations that actually got a write.
  */
-// lastReadSeq intentionally not maintained here — see comment on
-// `markReadToMessageBuilder` above.
 export async function markAllDmsRead(
   db: Database,
   userId: string
@@ -329,14 +327,14 @@ export async function markAllDmsRead(
     if (row.dmConversationId) existingByDm.set(row.dmConversationId, row.id);
   }
 
-  const toUpdate: Array<{ id: string; msgId: string; createdAt: string }> = [];
-  const toInsert: Array<{ dmConversationId: string; msgId: string; createdAt: string }> = [];
+  const toUpdate: Array<{ id: string; msgId: string; createdAt: string; seq: number }> = [];
+  const toInsert: Array<{ dmConversationId: string; msgId: string; createdAt: string; seq: number }> = [];
   for (const l of latest) {
     const existingId = existingByDm.get(l.dmConversationId);
     if (existingId) {
-      toUpdate.push({ id: existingId, msgId: l.id, createdAt: l.createdAt });
+      toUpdate.push({ id: existingId, msgId: l.id, createdAt: l.createdAt, seq: l.seq });
     } else {
-      toInsert.push({ dmConversationId: l.dmConversationId, msgId: l.id, createdAt: l.createdAt });
+      toInsert.push({ dmConversationId: l.dmConversationId, msgId: l.id, createdAt: l.createdAt, seq: l.seq });
     }
   }
 
@@ -344,11 +342,11 @@ export async function markAllDmsRead(
   for (const u of toUpdate) {
     await db
       .update(communityReadState)
-      .set({ lastReadAt: u.createdAt, lastReadMessageId: u.msgId })
+      .set({ lastReadAt: u.createdAt, lastReadMessageId: u.msgId, lastReadSeq: u.seq })
       .where(
         and(
           eq(communityReadState.id, u.id),
-          lt(communityReadState.lastReadAt, u.createdAt)
+          lt(communityReadState.lastReadSeq, u.seq)
         )
       );
   }
@@ -361,6 +359,7 @@ export async function markAllDmsRead(
         dmConversationId: i.dmConversationId,
         lastReadAt: i.createdAt,
         lastReadMessageId: i.msgId,
+        lastReadSeq: i.seq,
       }))
     );
   }

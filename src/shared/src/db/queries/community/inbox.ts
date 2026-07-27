@@ -9,48 +9,56 @@ import {
 import { user } from "../../schema";
 import type { Database } from "../../index";
 import { listParticipatingThreadIds } from "./thread";
-import { isThread, isForumPost } from "../../../utils/community-roles";
+import { isThread, isPost } from "../../../utils/community-roles";
 
 export interface UnreadChannelRow {
   channelId: string;
   channelName: string;
   serverId: string;
   serverName: string;
-  // Raw stored channel type (text | forum | thread | forum_post). Threaded
+  // Raw stored channel type (text | forum | thread | post). Threaded
   // through to the inbox so it can render the same entity icon as the sidebar.
   type: string | null;
   lastMessageAt: string;
   lastReadAt: string | null;
+  // Newest seq in the scope + the viewer's read cursor. A bot consumer reads
+  // these to know where to page from (`?afterSeq=lastReadSeq`); the human UI
+  // ignores them and sorts by lastMessageAt.
+  lastMessageSeq: number;
+  lastReadSeq: number | null;
   // null for a top-level channel; set for a thread / forum-post child. The
   // inbox route uses this to nest child unreads under their parent channel.
   parentChannelId: string | null;
 }
 
 /**
- * Two-branch unread predicate, shared by every reader that groups channels
- * by "unread since I last looked."
+ * Two-branch unread predicate, shared by every reader that groups channels by
+ * "unread since I last looked."
  *
- * - Archived / no lastMessageAt → not unread.
- * - Has read-state row → `lastMessageAt > lastReadAt` (normal path; strict
- *   `>` mirrors the "author's own send is not unread" invariant from
- *   `createMessage`, which writes lastMessageAt === lastReadAt in the same
- *   batch).
- * - No read-state row → `lastMessageAt > joinedAt`. Users who joined a
- *   server AFTER historical messages were posted must not have those old
- *   messages flagged as unread. Without this, every non-empty channel
- *   lights up on first join.
+ * - Archived / no messages → not unread.
+ * - Has read-state row → `lastMessageSeq > lastReadSeq` (the seq path — a
+ *   single-column compare, the seq twin of the old `lastMessageAt >
+ *   lastReadAt`; strict `>` excludes the author's own send, which seeds
+ *   lastReadSeq === the new seq in the same batch). Opening a channel writes
+ *   this row, so the `↓N` count derived from `lastReadSeq` stays correct.
+ * - No read-state row → `lastMessageAt > joinedAt`. A member who joined AFTER
+ *   historical messages were posted must not see them flagged unread. seq has
+ *   no cross-scope "join baseline" (it's per-channel), so the join-time
+ *   timestamp fallback is retained for the never-opened case.
  *
  * Pure — exported for direct unit testing.
  */
 export function isChannelUnread(row: {
   archived: boolean;
   lastMessageAt: string | null;
+  lastMessageSeq: number;
   lastReadAt: string | null;
+  lastReadSeq: number | null;
   joinedAt: string;
 }): boolean {
   if (row.archived) return false;
+  if (row.lastReadAt) return row.lastMessageSeq > (row.lastReadSeq ?? 0);
   if (!row.lastMessageAt) return false;
-  if (row.lastReadAt) return row.lastMessageAt > row.lastReadAt;
   return row.lastMessageAt > row.joinedAt;
 }
 
@@ -81,13 +89,13 @@ export async function listUnreadChannels(
       type: communityChannel.type,
       parentChannelId: communityChannel.parentChannelId,
       lastMessageAt: communityChannel.lastMessageAt,
+      lastMessageSeq: communityChannel.lastMessageSeq,
       lastReadAt: communityReadState.lastReadAt,
+      lastReadSeq: communityReadState.lastReadSeq,
       archived: communityChannel.archived,
-      // Sidebar / inbox unread badges must ignore messages posted before
-      // the viewer joined — otherwise every non-empty channel lights up
-      // on first join. `joinedAt` is `notNull()` in the schema and the
-      // INNER JOIN below scopes to real member rows, so it's always
-      // present. See `isChannelUnread` above.
+      // Retained for the no-read-state-row branch of `isChannelUnread`: a
+      // member who joined after old messages were posted must not see them
+      // flagged. INNER JOIN below scopes to real member rows, so notNull.
       joinedAt: communityServerMember.joinedAt,
     })
     .from(communityServerMember)
@@ -115,7 +123,9 @@ export async function listUnreadChannels(
     isChannelUnread({
       archived: r.archived,
       lastMessageAt: r.lastMessageAt,
+      lastMessageSeq: r.lastMessageSeq,
       lastReadAt: r.lastReadAt,
+      lastReadSeq: r.lastReadSeq,
       joinedAt: r.joinedAt,
     })
   );
@@ -128,7 +138,7 @@ export async function listUnreadChannels(
   // table (keyed by channel id), so one `listParticipatingThreadIds` covers
   // both. Top-level channels flow through the visibility path above unchanged.
   const notifyScopedIds = unread
-    .filter((r) => isThread(r.type) || isForumPost(r.type))
+    .filter((r) => isThread(r.type) || isPost(r.type))
     .map((r) => r.channelId);
   const participatingIds =
     notifyScopedIds.length > 0
@@ -138,7 +148,7 @@ export async function listUnreadChannels(
   return unread
     .filter(
       (r) =>
-        (!isThread(r.type) && !isForumPost(r.type)) ||
+        (!isThread(r.type) && !isPost(r.type)) ||
         participatingIds.has(r.channelId),
     )
     .map((r) => ({
@@ -150,6 +160,8 @@ export async function listUnreadChannels(
       parentChannelId: r.parentChannelId,
       lastMessageAt: r.lastMessageAt!,
       lastReadAt: r.lastReadAt,
+      lastMessageSeq: r.lastMessageSeq,
+      lastReadSeq: r.lastReadSeq,
     }));
 }
 
@@ -164,27 +176,29 @@ export interface UnreadDmRow {
   otherUserImage: string | null;
   lastMessageAt: string;
   lastReadAt: string | null;
+  // Seq cursor pair, same purpose as on UnreadChannelRow — a bot pages from
+  // `?afterSeq=lastReadSeq`; the human UI ignores these.
+  lastMessageSeq: number;
+  lastReadSeq: number | null;
 }
 
 /**
  * Mirrors `isChannelUnread` for DMs.
  *
- * - No `lastMessageAt` (empty conversation) → not unread.
- * - Has read-state row → strict `lastMessageAt > lastReadAt`. `createMessage`
- *   writes both timestamps equal in the same batch for the author, so this
- *   naturally excludes the author's own send (same invariant as channels).
+ * - Has read-state row → `lastMessageSeq > lastReadSeq` (seq path; strict `>`
+ *   excludes the author's own send, seeded to the new seq in the same batch).
  * - No read-state row → unread as long as there IS a message. DMs have no
- *   "joinedAt" analog — the conversation only exists because one of the two
- *   participants opened it, and any message means the counterparty hasn't
- *   looked yet.
+ *   "joinedAt" analog — the conversation exists only because a participant
+ *   opened it, so any message means the counterparty hasn't looked yet.
  */
 export function isDmUnread(row: {
   lastMessageAt: string | null;
+  lastMessageSeq: number;
   lastReadAt: string | null;
+  lastReadSeq: number | null;
 }): boolean {
-  if (!row.lastMessageAt) return false;
-  if (row.lastReadAt) return row.lastMessageAt > row.lastReadAt;
-  return true;
+  if (row.lastReadAt) return row.lastMessageSeq > (row.lastReadSeq ?? 0);
+  return !!row.lastMessageAt;
 }
 
 export async function listUnreadDms(
@@ -201,7 +215,9 @@ export async function listUnreadDms(
       user1Id: communityDmConversation.user1Id,
       user2Id: communityDmConversation.user2Id,
       lastMessageAt: communityDmConversation.lastMessageAt,
+      lastMessageSeq: communityDmConversation.lastMessageSeq,
       lastReadAt: communityReadState.lastReadAt,
+      lastReadSeq: communityReadState.lastReadSeq,
       otherUserId: user.id,
       otherUserName: user.name,
       otherUserImage: user.image,
@@ -244,7 +260,12 @@ export async function listUnreadDms(
 
   return rows
     .filter((r) =>
-      isDmUnread({ lastMessageAt: r.lastMessageAt, lastReadAt: r.lastReadAt })
+      isDmUnread({
+        lastMessageAt: r.lastMessageAt,
+        lastMessageSeq: r.lastMessageSeq,
+        lastReadAt: r.lastReadAt,
+        lastReadSeq: r.lastReadSeq,
+      })
     )
     .map((r) => ({
       dmConversationId: r.dmConversationId,
@@ -253,5 +274,7 @@ export async function listUnreadDms(
       otherUserImage: r.otherUserImage,
       lastMessageAt: r.lastMessageAt!,
       lastReadAt: r.lastReadAt,
+      lastMessageSeq: r.lastMessageSeq,
+      lastReadSeq: r.lastReadSeq,
     }));
 }

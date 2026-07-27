@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
+import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
@@ -16,7 +17,7 @@ import { logAudit } from "@/lib/community/audit"
 import { requireServerAdmin, requireServerMember } from "@/lib/community/permissions"
 import { serverIconUrl } from "@/lib/community/storage"
 
-export const GET = withAuth(async (_req, ctx) => {
+export const GET = withCommunityActor(async (_req, ctx) => {
   const serverId = ctx.params?.id
   if (!serverId) return writeError("missing server id", 400)
 
@@ -25,7 +26,7 @@ export const GET = withAuth(async (_req, ctx) => {
   if (!auth.ok) return writeError(auth.error, auth.status)
 
   const visibleChannelIds = await queries.communityChannel.listVisibleChannelIdsForUser(db, ctx.userId)
-  const [server, rawChannels, categories, unreadRows] = await Promise.all([
+  const [server, rawChannels, categories, unreadRows, notifSettings, mentionRows] = await Promise.all([
     queries.communityServer.getServer(db, serverId),
     // Viewer-scoped: private-category channels are only returned if the viewer
     // is the channel creator or an added member (admins get NO special
@@ -37,17 +38,49 @@ export const GET = withAuth(async (_req, ctx) => {
       orderBy: (t, { asc }) => [asc(t.position)],
     }),
     queries.communityInbox.listUnreadChannels(db, ctx.userId, visibleChannelIds),
+    queries.communityNotificationSetting.getSettings(db, ctx.userId),
+    queries.communityMention.listUnreadMentions(db, ctx.userId, { visibleChannelIds }),
   ])
 
   if (!server) return writeError("server not found", 404)
+
+  // Which channels carry an unread @-mention — needed so a `mentions`-level
+  // channel keeps its dot only when the unread includes a mention, matching the
+  // live WS badge (`dispatchMessageNotify`) and the inbox path (`shouldBadge`).
+  const mentionedChannelIds = new Set<string>()
+  for (const m of mentionRows) {
+    if (m.message.channelId) mentionedChannelIds.add(m.message.channelId)
+  }
 
   // Project the viewer's per-channel unread state onto the shared `channels`
   // array once, before splitting into categorized/uncategorized — so both
   // branches inherit `unread` from the same source instead of two separate
   // maps. `listUnreadChannels` scans all of the viewer's servers; scope it
   // down to this one via the Set.
+  //
+  // Cold-start mute suppression (R20): the WS hot path filters badges by
+  // effective level, but this refresh path is level-blind on its own — without
+  // this filter a page reload would bring the red dot back on muted channels.
+  // Reuse M2's in-memory `computeEffectiveLevel` off the single `getSettings`
+  // fetch (no per-channel query) and apply the SAME 3-tier matrix the WS badge
+  // (`dispatchMessageNotify`) and the inbox path (`shouldBadge`) use: `all`
+  // always badges, `nothing` never, `mentions` only when the unread carries an
+  // @-mention. Suppressing only `nothing` here would re-show the dot on reload
+  // for a `mentions`-level channel with plain (non-@) unreads.
   const unreadIds = new Set(
-    unreadRows.filter((r) => r.serverId === serverId).map((r) => r.channelId),
+    unreadRows
+      .filter((r) => {
+        if (r.serverId !== serverId) return false
+        const level = queries.communityNotificationSetting.computeEffectiveLevel(notifSettings, {
+          id: r.channelId,
+          serverId: r.serverId,
+          parentChannelId: r.parentChannelId ?? null,
+        })
+        if (level === "nothing") return false
+        if (level === "mentions") return mentionedChannelIds.has(r.channelId)
+        return true
+      })
+      .map((r) => r.channelId),
   )
   const channels = rawChannels.map((ch) => ({ ...ch, unread: unreadIds.has(ch.id) }))
 

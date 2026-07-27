@@ -232,17 +232,26 @@ function parseBearer(authHeader: string | undefined): string | null {
  */
 export type CapabilityResolver = (method: string, pathname: string) => Capability | undefined;
 
-export const DEFAULT_CAPABILITY_RESOLVER: CapabilityResolver = (_method, pathname) => {
-  // Match `/attachmentUpload` and `/attachmentDownload` (pre-rewrite pathname
-  // — the credential proxy inspects the client's `/api/...` path here). Both
-  // endpoints share the `"attach"` capability so a voucher can be scoped to
-  // attach-only without granting `send`/`read`.
-  if (pathname.includes("/attachment")) return "attach";
-  if (pathname.includes("/friendRequest") || pathname.includes("/listFriends")) return "friend";
-  if (pathname.includes("/send") || pathname.includes("/reactAdd")) return "send";
-  if (pathname.includes("/history") || pathname.includes("/search") || pathname.includes("/inbox"))
+export const DEFAULT_CAPABILITY_RESOLVER: CapabilityResolver = (method, pathname) => {
+  // The bot shares the plain user REST routes for every operation — the CLI
+  // emits them as `/api/community/...` and the proxy forwards them untouched.
+  // Map each to a capability so a voucher can be scoped. Order matters — a
+  // write (POST/PUT) on `/messages` is `send`, a GET is `read`, so the verb is
+  // checked before the generic channel/server buckets.
+  const verb = method.toUpperCase();
+
+  // Attachments: upload (`…/upload`), download (`…/attachments/:id/download`),
+  // and the media proxy all share the attach-only capability.
+  if (pathname.includes("/upload") || pathname.includes("/attachment") || pathname.includes("/media")) return "attach";
+  if (pathname.includes("/friends") || pathname.includes("/friendRequest") || pathname.includes("/listFriends")) return "friend";
+  if (pathname.includes("/reactions") || pathname.includes("/reactAdd")) return "send";
+  if (pathname.endsWith("/messages") && (verb === "POST" || verb === "PUT")) return "send";
+  if (pathname.includes("/send")) return "send";
+  if (pathname.endsWith("/messages") && verb === "GET") return "read";
+  if (pathname.endsWith("/read") || pathname.includes("/history") || pathname.includes("/search") || pathname.includes("/inbox"))
     return "read";
-  if (pathname.includes("/server") || pathname.includes("/channel")) return "server";
+  if (pathname.includes("/invites")) return "server";
+  if (pathname.includes("/server") || pathname.includes("/channel") || pathname.includes("/members")) return "server";
   return undefined;
 };
 
@@ -327,7 +336,6 @@ export async function startCredentialProxy(
     // Tightened from `.endsWith("/inboxPull")` — the attachment-download
     // endpoint returns raw binary, and a loose match here would try to JSON-
     // parse it as an inbox response. Only the exact `/api/inboxPull` path
-    // (pre-rewrite; matches the daemon's CLI callers, see `rewriteAgentPath`)
     // should trigger the timeline recorder callback.
     const isInboxPull = onPull && pathname === "/api/inboxPull";
 
@@ -368,7 +376,7 @@ export async function startCredentialProxy(
         hostname: upstream.hostname,
         port: upstream.port || (upstream.protocol === "https:" ? 443 : 80),
         method: req.method,
-        path: joinPath(upstream.pathname, rewriteAgentPath(req.url ?? "/")),
+        path: joinPath(upstream.pathname, req.url ?? "/"),
         headers: outHeaders,
       },
       (res_) => {
@@ -479,17 +487,3 @@ function joinPath(basePath: string, reqUrl: string): string {
   return (base + reqPath) || "/";
 }
 
-/**
- * Rewrite the CLI's bare `/api/*` ops (`/api/send`, `/api/inboxPull`, …) onto
- * the real server surface at `/api/community/agent/*` (design §9). This is a
- * brand-new API — no prior contract to preserve back-compat for — so the
- * rewrite is unconditional for anything under `/api/`; every other path
- * passes through untouched.
- */
-function rewriteAgentPath(reqUrl: string): string {
-  const url = new URL(reqUrl, "http://placeholder");
-  if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
-    url.pathname = `/api/community/agent${url.pathname.slice("/api".length)}`;
-  }
-  return url.pathname + url.search;
-}

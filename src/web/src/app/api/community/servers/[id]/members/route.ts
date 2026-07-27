@@ -1,4 +1,4 @@
-import { withAuth } from "@/lib/middleware/auth"
+import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
@@ -10,7 +10,7 @@ import { requireServerMember } from "@/lib/community/permissions"
 import { parseBoundedInt, parseMemberCursor, buildMemberPaginatedResponse } from "@/lib/community/messages"
 import { mapMemberForApi } from "@/lib/community/member-payload"
 
-export const GET = withAuth(async (req, ctx) => {
+export const GET = withCommunityActor(async (req, ctx) => {
   const serverId = ctx.params?.id
   if (!serverId) return writeError("missing server id", 400)
 

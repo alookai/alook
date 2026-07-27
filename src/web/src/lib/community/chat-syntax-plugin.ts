@@ -6,11 +6,11 @@ import type { Plugin } from "unified"
 import { spoilerSyntax, spoilerFromMarkdown } from "./spoiler-syntax"
 import type { SpoilerNode } from "./spoiler-syntax"
 
-// Chat-only syntax (`||spoiler||`, `@mention`, `/server/channel` and bare
-// `/server` refs), parsed as real markdown AST nodes rather than
-// string-spliced HTML tags fed through `rehype-raw`. `channelRef`/`serverRef`
-// content is a nanoid charset (`[A-Za-z0-9_-]`); a member `mention` is
-// `@<name>#dddd` where the name may contain spaces but never a markdown
+// Chat-only syntax (`||spoiler||`, `@mention`, `<#serverId:channelId>`
+// channel refs, `#N` message refs), parsed as real markdown AST nodes rather
+// than string-spliced HTML tags fed through `rehype-raw`. A `channelRef`
+// token carries two nanoid-charset ids (`[A-Za-z0-9_-]`); a member `mention`
+// is `@<name>#dddd` where the name may contain spaces but never a markdown
 // metacharacter (validateCommunityName forbids `#`/`@`/line breaks, and the
 // composer only ever inserts names picked from the roster), so a
 // `mdast-util-find-and-replace` pass stays safe — `remark-parse` won't split
@@ -19,36 +19,11 @@ import type { SpoilerNode } from "./spoiler-syntax"
 // comment for why find-and-replace cannot handle spoilers containing nested
 // formatting.
 
-// Mirrors `CHANNEL_REF_REGEX`'s old doc comment: matches a `/server/channel`,
-// `/server/channel/#N` (thread), or `/server/channel/#N#M` (thread reply,
-// see plans/agent-thread-emoji-react.md) ref — the CLI's path grammar
-// (`parseRef`/`formatRef` in `community-cli-contract.ts`). Segment charset
-// `[A-Za-z0-9_-]+` is the nanoid alphabet every `communityServer.id`/
-// `communityChannel.id` is generated with. Trailing
-// `(?=\s|$|[.,;:!?)\]])` boundary lookahead: a 2-segment path followed by
-// ANOTHER `/segment` (e.g. `/api/user/123` in a docs URL) must NOT match —
-// otherwise this regex would greedily take `/api/user` and orphan `/123` as
-// trailing text next to a broken pill. Leading `(?<=^|\s)` lookbehind
-// (verified empirically — a bare leading `\/` with no lookbehind would let
-// this match START mid-path, e.g. matching `/user/123` inside
-// `/api/user/123`): `" /channel-ref"` matches, `"text/channel-ref"` doesn't.
-// Both boundaries are zero-width lookaround (not capture groups) so
-// `findAndReplace` doesn't need to redistribute a leading/trailing text
-// node around the match the way the old string-splice regex's `(^|\s)`
-// capture group did.
-const CHANNEL_REF_RE = /(?<=^|\s)\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+(?:\/#\d+(?:#\d+)?)?(?=\s|$|[.,;:!?)\]])/g
-
-// A bare `/server` ref — one segment, no channel. Same boundary lookaround as
-// `CHANNEL_REF_RE` (leading `(?<=^|\s)`, trailing `(?=\s|$|[.,;:!?)\]])`), which
-// already excludes being followed by another `/segment` — so this never
-// double-matches the first segment of a genuine `/server/channel` ref (that
-// trailing boundary fails when the next char is `/`, and `[A-Za-z0-9_-]+`
-// backtracking can't produce a shorter match that satisfies it either, since
-// every character up to the next `/` is in the segment charset). Registered
-// after `CHANNEL_REF_RE` in `chatSyntaxPlugin`'s pairs list purely for
-// readability (server-only is the "smaller" grammar); the boundary already
-// makes the ordering non-load-bearing for correctness.
-const SERVER_REF_RE = /(?<=^|\s)\/[A-Za-z0-9_-]+(?=\s|$|[.,;:!?)\]])/g
+// Channel-ref token `<#serverId:channelId>` — both segments are the nanoid
+// alphabet (`[A-Za-z0-9_-]+`) every `communityServer.id`/`communityChannel.id`
+// is generated with. The `<#…>` delimiters are unambiguous, so no boundary
+// lookaround is needed. Code spans are excluded via `IGNORE_NODE_TYPES`.
+const CHANNEL_REF_RE = /<#[A-Za-z0-9_-]+:[A-Za-z0-9_-]+>/g
 
 // Message ref: `#NUMBER` where NUMBER is 1-6 digits (seq range 1-999999).
 // Same boundary pattern as channel/server refs: leading `(?<=^|\s)` so
@@ -89,15 +64,10 @@ export interface MentionNode {
   discriminator?: string
 }
 
-/** mdast node produced by a `/server/channel` or `/server/channel/#N` ref. */
+/** mdast node produced by a `<#serverId:channelId>` channel-ref token. */
 export interface ChannelRefNode {
   type: "channelRef"
-  value: string
-}
-
-/** mdast node produced by a bare `/server` ref (no channel segment). */
-export interface ServerRefNode {
-  type: "serverRef"
+  /** The full matched token including delimiters (e.g. `"<#srv_1:chn_1>"`). */
   value: string
 }
 
@@ -112,20 +82,18 @@ declare module "mdast" {
   interface RootContentMap {
     mention: MentionNode
     channelRef: ChannelRefNode
-    serverRef: ServerRefNode
     messageRef: MessageRefNode
   }
   interface PhrasingContentMap {
     mention: MentionNode
     channelRef: ChannelRefNode
-    serverRef: ServerRefNode
     messageRef: MessageRefNode
   }
 }
 
 // `ignore` list mirrors mdast-util-find-and-replace's own default protection
 // for GFM autolinks/definitions, plus `code`/`inlineCode` so `@fake-mention`,
-// `#0042`, `/server/channel`, and `||spoiler||` all stay literal inside a
+// `#0042`, `<#srv:chn>`, and `||spoiler||` all stay literal inside a
 // code span or fenced code block — replacing the old `preprocessMarkdown`'s
 // manual stash/unstash sentinel dance, which existed only because that
 // implementation operated on a raw string before markdown parsing.
@@ -141,10 +109,6 @@ function mentionReplacer(value: string): MentionNode {
 
 function channelRefReplacer(value: string): ChannelRefNode {
   return { type: "channelRef", value }
-}
-
-function serverRefReplacer(value: string): ServerRefNode {
-  return { type: "serverRef", value }
 }
 
 function messageRefReplacer(value: string): MessageRefNode {
@@ -173,11 +137,6 @@ export const chatSyntaxPlugin: Plugin<[], Root> = function chatSyntaxPlugin(this
         [MENTION_RE, mentionReplacer as unknown as (value: string, ...rest: unknown[]) => PhrasingContent | string | false],
         [MESSAGE_REF_RE, messageRefReplacer as unknown as (value: string) => PhrasingContent],
         [CHANNEL_REF_RE, channelRefReplacer as unknown as (value: string) => PhrasingContent],
-        // Runs as its own pass AFTER the channelRef pass above — by then every
-        // `/server/channel` span is already a `channelRef` element (no longer
-        // a `text` node `findAndReplace` visits), so this pass only ever sees
-        // genuine bare `/server` refs among the remaining text.
-        [SERVER_REF_RE, serverRefReplacer as unknown as (value: string) => PhrasingContent],
       ],
       { ignore: IGNORE_NODE_TYPES },
     )
@@ -186,9 +145,9 @@ export const chatSyntaxPlugin: Plugin<[], Root> = function chatSyntaxPlugin(this
 
 // `remarkRehypeOptions.handlers` — converts each custom mdast node directly
 // into a hast element, skipping the HTML-string round-trip entirely. Tag
-// names/attributes match the old string-spliced tags exactly
-// (`<spoiler>`/`<mention data-everyone/data-tag>`/`<channelref>`) so
-// `MD_ALLOWED_TAGS`/`MD_COMPONENTS` in `message-markdown.tsx` need no change.
+// names/attributes match the tags `MD_ALLOWED_TAGS`/`MD_COMPONENTS` in
+// `message-markdown.tsx` allowlist
+// (`<spoiler>`/`<mention data-everyone/data-tag>`/`<channelref>`/`<messageref>`).
 export const chatSyntaxHandlers: Handlers = {
   spoiler: ((state, node: SpoilerNode): Element => ({
     type: "element",
@@ -208,12 +167,6 @@ export const chatSyntaxHandlers: Handlers = {
   channelRef: ((_state, node: ChannelRefNode): Element => ({
     type: "element",
     tagName: "channelref",
-    properties: {},
-    children: [{ type: "text", value: node.value }],
-  })) as Handler,
-  serverRef: ((_state, node: ServerRefNode): Element => ({
-    type: "element",
-    tagName: "serverref",
     properties: {},
     children: [{ type: "text", value: node.value }],
   })) as Handler,

@@ -31,6 +31,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityMembersResolver: {
         resolveScopeMemberUserIds: (...a: unknown[]) => mockResolveScopeMemberUserIds(...a),
+        resolveChannelRecipientUserIds: (...a: unknown[]) => mockResolveChannelRecipientUserIds(...a),
       },
       communityThread: {
         listThreadParticipantUserIds: (...a: unknown[]) => mockListThreadParticipantUserIds(...a),
@@ -68,6 +69,8 @@ const mockGetDM = vi.fn()
 const mockGetCoMemberUserIds = vi.fn()
 const mockGetFriendUserIds = vi.fn()
 const mockResolveScopeMemberUserIds = vi.fn(() => [] as string[])
+// The single shared type→recipient resolver fan-out now delegates to (B8).
+const mockResolveChannelRecipientUserIds = vi.fn(() => [] as string[])
 // Default: non-thread channel → fan-out uses the shared resolver path.
 const mockGetChannelType = vi.fn(() => "text" as string | null)
 const mockListThreadParticipantUserIds = vi.fn(() => [] as string[])
@@ -128,8 +131,8 @@ describe("fanOutToServerMembers", () => {
     expect(mockBroadcastToUser).toHaveBeenCalledTimes(3)
   })
 
-  it("fanOutToChannel resolves recipients via the shared member resolver", async () => {
-    mockResolveScopeMemberUserIds.mockResolvedValue(["u1", "u2"])
+  it("fanOutToChannel resolves recipients via the shared resolveChannelRecipientUserIds (B8)", async () => {
+    mockResolveChannelRecipientUserIds.mockResolvedValue(["u1", "u2"])
 
     await fanOutToChannel("c1", {
       type: WS_EVENTS.MESSAGE_CREATE,
@@ -137,30 +140,14 @@ describe("fanOutToServerMembers", () => {
       message: {} as never,
     } as never)
 
-    expect(mockResolveScopeMemberUserIds).toHaveBeenCalledTimes(1)
-    expect(mockResolveScopeMemberUserIds).toHaveBeenCalledWith(expect.anything(), {
-      scope: "channel",
-      scopeId: "c1",
-    })
-    // The old inline split (getChannel + isChannelPrivate) is gone.
+    // The whole type→recipient rule now lives in the shared resolver; fan-out
+    // no longer branches on channel type or calls the scope resolver directly.
+    expect(mockResolveChannelRecipientUserIds).toHaveBeenCalledTimes(1)
+    expect(mockResolveChannelRecipientUserIds).toHaveBeenCalledWith(expect.anything(), "c1")
+    expect(mockResolveScopeMemberUserIds).not.toHaveBeenCalled()
+    expect(mockGetChannelType).not.toHaveBeenCalled()
     expect(mockGetChannel).not.toHaveBeenCalled()
     expect(mockListMembers).not.toHaveBeenCalled()
-    expect(mockBroadcastToUser).toHaveBeenCalledTimes(2)
-  })
-
-  it("fanOutToChannel routes a THREAD to its participant set (not the channel audience)", async () => {
-    mockGetChannelType.mockResolvedValue("thread")
-    mockListThreadParticipantUserIds.mockResolvedValue(["u1", "u2"])
-
-    await fanOutToChannel("t1", {
-      type: WS_EVENTS.MESSAGE_CREATE,
-      channelId: "t1",
-      message: {} as never,
-    } as never)
-
-    expect(mockListThreadParticipantUserIds).toHaveBeenCalledWith(expect.anything(), "t1")
-    // Thread fan-out must NOT fall back to the channel-audience resolver.
-    expect(mockResolveScopeMemberUserIds).not.toHaveBeenCalled()
     expect(mockBroadcastToUser).toHaveBeenCalledTimes(2)
   })
 })
@@ -234,21 +221,19 @@ describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for ME
     mockEnqueueBotWakes.mockResolvedValue(undefined)
   })
 
-  it("fanOutToChannel enqueues wakes using the same recipient list, minus excludeUserId", async () => {
-    mockResolveScopeMemberUserIds.mockResolvedValue(["u1", "u2", "u3"])
+  it("fanOutToChannel NEVER enqueues wakes — channel wake moved to the level-filtered notify pipeline (batch 3, R15)", async () => {
+    mockResolveChannelRecipientUserIds.mockResolvedValue(["u1", "u2", "u3"])
 
     await fanOutToChannel(
       "c1",
       { type: WS_EVENTS.MESSAGE_CREATE, channelId: "c1", message: {} as never } as never,
-      { excludeUserId: "u1", wakeMessageRow },
+      { excludeUserId: "u1" },
     )
 
-    expect(mockEnqueueBotWakes).toHaveBeenCalledTimes(1)
-    expect(mockEnqueueBotWakes).toHaveBeenCalledWith({
-      recipients: ["u2", "u3"],
-      channelId: "c1",
-      messageRow: wakeMessageRow,
-    })
+    // Channel bot-wake now follows the recipient's effective notification level
+    // via `dispatchMessageNotify` (notify.ts), NOT this fan-out. `fanOutToChannel`
+    // no longer accepts a `wakeMessageRow` and never enqueues.
+    expect(mockEnqueueBotWakes).not.toHaveBeenCalled()
   })
 
   it("fanOutToDM enqueues wakes with dmConversationId scope", async () => {
@@ -268,23 +253,11 @@ describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for ME
     })
   })
 
-  it("does not enqueue wakes when wakeMessageRow is omitted", async () => {
-    mockResolveScopeMemberUserIds.mockResolvedValue(["u1", "u2"])
+  it("fanOutToDM does not enqueue wakes for non-MESSAGE_CREATE events even with a wakeMessageRow", async () => {
+    mockGetDM.mockResolvedValue({ id: "dm1", user1Id: "u1", user2Id: "u2" })
 
-    await fanOutToChannel("c1", {
-      type: WS_EVENTS.MESSAGE_CREATE,
-      channelId: "c1",
-      message: {} as never,
-    } as never)
-
-    expect(mockEnqueueBotWakes).not.toHaveBeenCalled()
-  })
-
-  it("does not enqueue wakes for non-MESSAGE_CREATE events even with a wakeMessageRow", async () => {
-    mockResolveScopeMemberUserIds.mockResolvedValue(["u1", "u2"])
-
-    await fanOutToChannel(
-      "c1",
+    await fanOutToDM(
+      "dm1",
       {
         type: WS_EVENTS.CHILD_CHANNEL_UPDATE,
         parentChannelId: "parent1",
@@ -297,15 +270,15 @@ describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for ME
     expect(mockEnqueueBotWakes).not.toHaveBeenCalled()
   })
 
-  it("a failing enqueueBotWakes does not reject fanOutToChannel", async () => {
-    mockResolveScopeMemberUserIds.mockResolvedValue(["u1"])
+  it("a failing enqueueBotWakes does not reject fanOutToDM", async () => {
+    mockGetDM.mockResolvedValue({ id: "dm1", user1Id: "u1", user2Id: "u2" })
     mockEnqueueBotWakes.mockRejectedValue(new Error("queue down"))
 
     await expect(
-      fanOutToChannel(
-        "c1",
-        { type: WS_EVENTS.MESSAGE_CREATE, channelId: "c1", message: {} as never } as never,
-        { wakeMessageRow },
+      fanOutToDM(
+        "dm1",
+        { type: WS_EVENTS.MESSAGE_CREATE, dmConversationId: "dm1", message: {} as never } as never,
+        { wakeMessageRow: { ...wakeMessageRow, channelId: null, dmConversationId: "dm1" } },
       ),
     ).resolves.toBeUndefined()
   })

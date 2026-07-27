@@ -51,6 +51,29 @@ describe("buildCliSystemPrompt", () => {
     expect(without).not.toContain("#5150");
   });
 
+  // Exception to the "don't assert on prose" rule above: the ref-grammar
+  // wording is a load-bearing contract, not incidental phrasing. `#N` refs now
+  // address both threads AND forum posts, so the prompt must teach the child
+  // channel as "thread or post" and must never leak the internal `forum_post`
+  // storage literal (renamed to `post`). See plan D2c.
+  it("teaches child channels as 'thread or post' and never leaks forum_post", () => {
+    const prompt = buildCliSystemPrompt(baseConfig, { lifecycleKind: "persistent" });
+    expect(prompt).toContain("child channel (thread or post)");
+    expect(prompt).not.toContain("forum_post");
+  });
+
+  // Exception to the "don't assert on prose" rule: id addressing is a
+  // load-bearing contract. The CLI addresses channels/DMs/messages by id
+  // (`--channel`/`--dm`/`--message`), not by the old `/<server>/<channel>`
+  // path refs — the prompt must teach the former and must not resurrect the
+  // latter's ref table.
+  it("teaches id addressing and never resurrects the /<server>/<channel> ref table", () => {
+    const prompt = buildCliSystemPrompt(baseConfig);
+    expect(prompt).toContain("--channel");
+    expect(prompt).toContain("--dm");
+    expect(prompt).not.toContain("/<server>/<channel>");
+  });
+
   it("round-trips config.description verbatim, and omits it when absent", () => {
     const withRole = buildCliSystemPrompt({ ...baseConfig, description: "You are the onboarding assistant." });
     expect(withRole).toContain("You are the onboarding assistant.");

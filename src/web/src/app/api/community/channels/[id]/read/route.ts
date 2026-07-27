@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
+import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
@@ -27,7 +27,7 @@ import { requireChannelMember } from "@/lib/community/permissions"
  * empty channel we short-circuit before writing anything — there are no
  * mentions to clear on a channel with no messages.
  */
-export const PUT = withAuth(async (req: NextRequest, ctx) => {
+export const PUT = withCommunityActor(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
   if (!channelId) return writeError("missing channel id", 400)
 
@@ -44,23 +44,38 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
 
   // Parse the body — best-effort. An empty body is legal (mass mark-read).
   let lastReadMessageId: string | undefined
+  let seq: number | undefined
   try {
     // A truly empty body throws in `req.json()`; catch and treat as `{}`.
     const raw = await req.text()
     if (raw.trim().length > 0) {
-      const body = JSON.parse(raw) as { lastReadMessageId?: unknown }
+      const body = JSON.parse(raw) as { lastReadMessageId?: unknown; seq?: unknown }
       if (typeof body?.lastReadMessageId === "string" && body.lastReadMessageId.length > 0) {
         lastReadMessageId = body.lastReadMessageId
       }
+      if (typeof body?.seq === "number" && Number.isFinite(body.seq) && body.seq > 0) {
+        seq = body.seq
+      }
     }
   } catch {
-    // Malformed JSON — fall through with `lastReadMessageId` unset. The mass
-    // mark-read semantics are the safe fallback.
+    // Malformed JSON — fall through unset. The mass mark-read semantics are
+    // the safe fallback.
+  }
+
+  // Seq form: advance all three read cursors (incl. `lastReadSeq`) to the
+  // message at `seq` in this channel. `bumpReadCursor` does its own
+  // scope-matched lookup + MAX semantics; it returns null when no such seq
+  // exists here. Still clears mentions in the same request.
+  if (seq !== undefined) {
+    const bumped = await queries.communityReadState.bumpReadCursor(db, ctx.userId, { channelId }, seq)
+    if (!bumped) return writeError("message not found", 404)
+    await db.batch([queries.communityMention.markChannelMentionsReadBuilder(db, ctx.userId, channelId)])
+    return writeJSON({ ok: true })
   }
 
   // Resolve the target message. Both branches align (lastReadAt, lastReadMessageId)
   // to a real message — that's the read-state invariant.
-  let target: { id: string; createdAt: string } | null
+  let target: { id: string; createdAt: string; seq: number } | null
   if (lastReadMessageId) {
     const msg = await queries.communityMessage.getMessage(db, lastReadMessageId)
     if (!msg) return writeError("message not found", 404)
@@ -69,7 +84,7 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     if (msg.channelId !== channelId) {
       return writeError("message not in channel", 400)
     }
-    target = { id: msg.id, createdAt: msg.createdAt }
+    target = { id: msg.id, createdAt: msg.createdAt, seq: msg.seq }
   } else {
     target = await queries.communityMessage.getLatestMessage(db, { channelId })
     // Empty channel: no row can be written under the invariant. Nothing to

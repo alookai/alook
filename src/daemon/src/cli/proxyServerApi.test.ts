@@ -54,14 +54,14 @@ describe("createProxyServerApi — parseJsonResponse via call<T>", () => {
   it("returns undefined on empty 200 (void endpoint like ack)", async () => {
     const fetchImpl: FetchLike = vi.fn(async () => jsonBody("", { status: 200 }));
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
-    const out = await api.ack({ agentId: "a1", messageIds: [] } as never);
+    const out = await api.ack({ agentId: "a1", cursors: [{ channelId: "ch_1", seq: 3 }] } as never);
     expect(out).toBeUndefined();
   });
 
   it("returns undefined on 204 (empty successful body)", async () => {
     const fetchImpl: FetchLike = vi.fn(async () => jsonBody("", { status: 204 }));
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
-    const out = await api.ack({ agentId: "a1", messageIds: [] } as never);
+    const out = await api.ack({ agentId: "a1", cursors: [{ channelId: "ch_1", seq: 3 }] } as never);
     expect(out).toBeUndefined();
   });
 
@@ -107,42 +107,207 @@ describe("createProxyServerApi — parseJsonResponse via call<T>", () => {
 });
 
 describe("createProxyServerApi — reactAdd", () => {
-  it("POSTs to /api/reactAdd with Bearer voucher and JSON body (no agentId)", async () => {
+  it("PUTs to /api/community/messages/<id>/reactions/<emoji> with Bearer voucher (no body)", async () => {
     const seen: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
       seen.push({ url, init });
       return jsonBody(JSON.stringify({ ok: true, duplicate: false }), { status: 200 });
     });
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
-    const res = await api.reactAdd({ channel: "/demo/general", seq: 42, emoji: "👍" });
+    const res = await api.reactAdd({ messageId: "msg_9f3", emoji: "👍" });
     expect(res).toEqual({ ok: true, duplicate: false });
     expect(seen).toHaveLength(1);
-    expect(seen[0].url).toBe("http://proxy.test/api/reactAdd");
-    expect(seen[0].init?.method).toBe("POST");
+    expect(seen[0].url).toBe(`http://proxy.test/api/community/messages/msg_9f3/reactions/${encodeURIComponent("👍")}`);
+    expect(seen[0].init?.method).toBe("PUT");
     const headers = seen[0].init?.headers as Record<string, string>;
     expect(headers.authorization).toBe("Bearer vch_test");
-    const body = JSON.parse(String(seen[0].init?.body ?? "{}"));
-    expect(body).toEqual({ channel: "/demo/general", seq: 42, emoji: "👍" });
-    expect(body.agentId).toBeUndefined();
+    // No JSON body — the message + emoji travel in the path.
+    expect(seen[0].init?.body).toBeUndefined();
   });
 });
 
-describe("createProxyServerApi — send forwards replyToSeq", () => {
-  it("POSTs replyToSeq in the body (agentId stripped, replyToSeq retained)", async () => {
+describe("createProxyServerApi — send", () => {
+  it("POSTs content as a STRING (content.text), not the { text } envelope, and wraps { message } into { state: 'sent' }", async () => {
     const seen: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
       seen.push({ url, init });
-      return jsonBody(
-        JSON.stringify({ state: "sent", message: { seq: "#8", channel: "/demo/general", sender: "@a", content: { text: "on it" }, time: "" } }),
-        { status: 200 },
-      );
+      return jsonBody(JSON.stringify({ message: { id: "msg_1", seq: 7 } }), { status: 201 });
     });
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
-    await api.send({ agentId: "a1", channel: "/demo/general", content: { text: "on it" }, replyToSeq: 37 });
-    expect(seen[0].url).toBe("http://proxy.test/api/send");
-    const body = JSON.parse(String(seen[0].init?.body ?? "{}"));
-    expect(body.replyToSeq).toBe(37);
-    expect(body.agentId).toBeUndefined();
+    const res = await api.send({
+      agentId: "u_bot",
+      channelId: "ch_general",
+      content: { text: "hello there" },
+      seenUpToSeq: 6,
+      replyToId: "msg_0",
+    });
+    expect(res).toEqual({ state: "sent", message: { id: "msg_1", seq: 7 } });
+    expect(seen).toHaveLength(1);
+    expect(seen[0].url).toBe("http://proxy.test/api/community/channels/ch_general/messages");
+    expect(seen[0].init?.method).toBe("POST");
+    // The shared human message route reads body.content as a plain string —
+    // sending the { text } object would land empty text → 400.
+    const body = JSON.parse(seen[0].init?.body as string) as Record<string, unknown>;
+    expect(body).toEqual({ content: "hello there", seenUpToSeq: 6, replyToId: "msg_0" });
+  });
+
+  it("passes the alignment-gate blocked envelope through unchanged", async () => {
+    const fetchImpl: FetchLike = vi.fn(async () =>
+      jsonBody(JSON.stringify({ state: "blocked", reason: "unaligned", unreadCount: 2, latestSeq: 9 }), { status: 200 }),
+    );
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const res = await api.send({ agentId: "u_bot", channelId: "ch_general", content: { text: "hi" } });
+    expect(res).toEqual({ state: "blocked", reason: "unaligned", unreadCount: 2, latestSeq: 9 });
+  });
+});
+
+describe("createProxyServerApi — inboxPull (composed from /inbox/unreads + /messages)", () => {
+  function unreadsBody() {
+    return JSON.stringify({
+      servers: [
+        {
+          serverId: "srv_1",
+          serverName: "studio",
+          channels: [
+            {
+              channelId: "ch_general",
+              type: "text",
+              lastMessageSeq: 3,
+              lastReadSeq: 1,
+              mentionCount: 0,
+              children: [
+                { channelId: "ch_thread", type: "thread", lastMessageSeq: 9, lastReadSeq: null, mentionCount: 1 },
+              ],
+            },
+          ],
+        },
+      ],
+      dms: [{ dmConversationId: "dm_1", lastMessageSeq: 5, lastReadSeq: 4 }],
+      limit: 50,
+      truncated: false,
+    });
+  }
+
+  it("walks each unread scope, pages by afterSeq (lastReadSeq ?? 0), and concatenates messages", async () => {
+    const seen: string[] = [];
+    const fetchImpl: FetchLike = vi.fn(async (url: string) => {
+      seen.push(url);
+      if (url.endsWith("/api/community/inbox/unreads")) return jsonBody(unreadsBody(), { status: 200 });
+      if (url.includes("/channels/ch_general/messages")) {
+        return jsonBody(JSON.stringify({ messages: [{ id: "m1", authorId: "u1", authorName: "Al", content: "hi", seq: 2, createdAt: "t2" }], hasMoreNewer: false }), { status: 200 });
+      }
+      if (url.includes("/channels/ch_thread/messages")) {
+        return jsonBody(JSON.stringify({ messages: [{ id: "m2", authorId: "u2", authorName: "Bo", content: "yo", seq: 6, createdAt: "t6" }], hasMoreNewer: false }), { status: 200 });
+      }
+      if (url.includes("/dm/dm_1/messages")) {
+        return jsonBody(JSON.stringify({ messages: [{ id: "m3", authorId: "u3", authorName: "Cy", content: "sup", seq: 5, createdAt: "t5" }], hasMoreNewer: false }), { status: 200 });
+      }
+      throw new Error(`unexpected ${url}`);
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const res = await api.inboxPull({ agentId: "a1" as never });
+
+    expect(seen).toContain("http://proxy.test/api/community/inbox/unreads");
+    expect(seen).toContain("http://proxy.test/api/community/channels/ch_general/messages?afterSeq=1");
+    expect(seen).toContain("http://proxy.test/api/community/channels/ch_thread/messages?afterSeq=0");
+    expect(seen).toContain("http://proxy.test/api/community/dm/dm_1/messages?afterSeq=4");
+    expect(res.messages.map((m) => m.id)).toEqual(["m1", "m2", "m3"]);
+    expect(res.messages[0]).toMatchObject({ seq: "#2", channelId: "ch_general", authorId: "u1", sender: "@Al" });
+    expect(res.messages[2]).toMatchObject({ dmConversationId: "dm_1" });
+    expect(res.hasMore).toBe(false);
+  });
+
+  it("honors req.max as an overall cap and sets hasMore when scopes remain", async () => {
+    const fetchImpl: FetchLike = vi.fn(async (url: string) => {
+      if (url.endsWith("/api/community/inbox/unreads")) return jsonBody(unreadsBody(), { status: 200 });
+      if (url.includes("/channels/ch_general/messages")) {
+        return jsonBody(JSON.stringify({ messages: [{ id: "m1", authorId: "u1", content: "hi", seq: 2, createdAt: "t2" }], hasMoreNewer: false }), { status: 200 });
+      }
+      return jsonBody(JSON.stringify({ messages: [], hasMoreNewer: false }), { status: 200 });
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const res = await api.inboxPull({ agentId: "a1" as never, max: 1 });
+    expect(res.messages).toHaveLength(1);
+    expect(res.hasMore).toBe(true);
+  });
+
+  it("sets hasMore when a scope reports hasMoreNewer", async () => {
+    const fetchImpl: FetchLike = vi.fn(async (url: string) => {
+      if (url.endsWith("/api/community/inbox/unreads")) {
+        return jsonBody(JSON.stringify({ servers: [{ serverId: "s", serverName: "s", channels: [{ channelId: "ch_1", lastMessageSeq: 9, lastReadSeq: 0, mentionCount: 0 }] }], dms: [] }), { status: 200 });
+      }
+      return jsonBody(JSON.stringify({ messages: [{ id: "m1", authorId: "u1", content: "hi", seq: 1, createdAt: "t" }], hasMoreNewer: true }), { status: 200 });
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const res = await api.inboxPull({ agentId: "a1" as never });
+    expect(res.hasMore).toBe(true);
+  });
+
+  it("carries the route's replyTo preview into content.replyTo (sender @-prefixed)", async () => {
+    const fetchImpl: FetchLike = vi.fn(async (url: string) => {
+      if (url.endsWith("/api/community/inbox/unreads")) {
+        return jsonBody(JSON.stringify({ servers: [{ serverId: "s", serverName: "s", channels: [{ channelId: "ch_1", lastMessageSeq: 9, lastReadSeq: 0, mentionCount: 0 }] }], dms: [] }), { status: 200 });
+      }
+      return jsonBody(JSON.stringify({ messages: [{ id: "m2", authorId: "u2", authorName: "Bo", content: "on it", seq: 2, createdAt: "t2", replyTo: { id: "m1", authorName: "Al", text: "can you?" } }], hasMoreNewer: false }), { status: 200 });
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const res = await api.inboxPull({ agentId: "a1" as never });
+    expect(res.messages[0].content.replyTo).toEqual({ id: "m1", sender: "@Al", text: "can you?" });
+  });
+
+  it("marks a deleted/out-of-scope cited message with deleted: true", async () => {
+    const fetchImpl: FetchLike = vi.fn(async (url: string) => {
+      if (url.endsWith("/api/community/inbox/unreads")) {
+        return jsonBody(JSON.stringify({ servers: [{ serverId: "s", serverName: "s", channels: [{ channelId: "ch_1", lastMessageSeq: 9, lastReadSeq: 0, mentionCount: 0 }] }], dms: [] }), { status: 200 });
+      }
+      return jsonBody(JSON.stringify({ messages: [{ id: "m2", authorId: "u2", authorName: "Bo", content: "on it", seq: 2, createdAt: "t2", replyTo: { id: "m1", authorName: "Unknown", text: "", deleted: true } }], hasMoreNewer: false }), { status: 200 });
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const res = await api.inboxPull({ agentId: "a1" as never });
+    expect(res.messages[0].content.replyTo).toEqual({ id: "m1", sender: "@Unknown", text: "", deleted: true });
+  });
+});
+
+describe("createProxyServerApi — inboxSnapshot (projected from /inbox/unreads)", () => {
+  it("projects each scope to the InboxSnapshot row shape (pending derived from seqs)", async () => {
+    const fetchImpl: FetchLike = vi.fn(async (url: string) => {
+      if (url.endsWith("/api/community/inbox/unreads")) {
+        return jsonBody(
+          JSON.stringify({
+            servers: [
+              {
+                serverId: "s",
+                serverName: "s",
+                channels: [
+                  { channelId: "ch_1", lastMessageSeq: 7, lastReadSeq: 4, mentionCount: 2, children: [] },
+                ],
+              },
+            ],
+            dms: [{ dmConversationId: "dm_1", lastMessageSeq: 5, lastReadSeq: null }],
+          }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unexpected ${url}`);
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const snap = await api.inboxSnapshot({ agentId: "a1" as never });
+    expect(snap.pendingChannels).toBe(2);
+    expect(snap.pendingMessages).toBe(3 + 5);
+    expect(snap.rows[0]).toEqual({
+      channelId: "ch_1",
+      pendingCount: 3,
+      firstPendingSeq: 5,
+      latestSeq: 7,
+      flags: ["mention"],
+    });
+    expect(snap.rows[1]).toEqual({
+      dmConversationId: "dm_1",
+      pendingCount: 5,
+      firstPendingSeq: 1,
+      latestSeq: 5,
+      flags: ["dm"],
+    });
   });
 });
 
@@ -153,7 +318,7 @@ describe("createProxyServerApi — callUpload via parseJsonResponse", () => {
     await expect(
       api.attachmentUpload({
         agentId: "a1",
-        target: "/c/s/g",
+        channelId: "ch_g",
         file: { data: new Uint8Array([1, 2, 3]), filename: "x.png", contentType: "image/png" },
       } as never),
     ).rejects.toThrow(/upstream returned 500 with non-JSON body from \/api\/attachmentUpload/);
@@ -197,8 +362,129 @@ describe("createProxyServerApi — callDownload", () => {
   });
 });
 
+describe("createProxyServerApi — listChannels (composed from /servers + /servers/:id)", () => {
+  function serverDetail(id: string, name: string) {
+    return JSON.stringify({
+      id,
+      name,
+      categories: [
+        {
+          id: "cat_ops",
+          name: "Ops",
+          position: 0,
+          private: 0,
+          channels: [{ id: `${id}_c1`, name: "general", type: "text" }],
+        },
+        {
+          id: "cat_founders",
+          name: "Founders",
+          position: 1,
+          private: 1,
+          channels: [{ id: `${id}_c2`, name: "leadership", type: "text" }],
+        },
+        // Empty category — dropped from the grouped output.
+        { id: "cat_empty", name: "Empty", position: 2, private: 0, channels: [] },
+        // Uncategorized bucket arrives as a synthetic category (empty name).
+        {
+          id: "__uncategorized__",
+          name: "",
+          position: -1,
+          private: 0,
+          channels: [{ id: `${id}_c0`, name: "announcements", type: "forum" }],
+        },
+      ],
+    });
+  }
+
+  it("with --server matched by id: uncategorized first, then categories, empty dropped, visibility derived", async () => {
+    const seen: string[] = [];
+    const fetchImpl: FetchLike = vi.fn(async (url: string) => {
+      seen.push(url);
+      if (url.endsWith("/api/community/servers")) {
+        return jsonBody(JSON.stringify({ servers: [{ id: "srv_1", name: "studio" }, { id: "srv_2", name: "lounge" }] }));
+      }
+      if (url.endsWith("/api/community/servers/srv_1")) return jsonBody(serverDetail("srv_1", "studio"));
+      throw new Error(`unexpected ${url}`);
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const res = await api.listChannels({ agentId: "a1" as never, server: "srv_1" });
+    expect(seen).toEqual([
+      "http://proxy.test/api/community/servers",
+      "http://proxy.test/api/community/servers/srv_1",
+    ]);
+    expect(res).toEqual({
+      groups: [
+        {
+          category: null,
+          channels: [{ id: "srv_1_c0", serverId: "srv_1", name: "announcements", type: "forum", visibility: "public" }],
+        },
+        {
+          category: { name: "Ops", private: false, id: "cat_ops" },
+          channels: [{ id: "srv_1_c1", serverId: "srv_1", name: "general", type: "text", visibility: "public" }],
+        },
+        {
+          category: { name: "Founders", private: true, id: "cat_founders" },
+          channels: [{ id: "srv_1_c2", serverId: "srv_1", name: "leadership", type: "text", visibility: "private" }],
+        },
+      ],
+    });
+  });
+
+  it("matches --server by name too", async () => {
+    const fetchImpl: FetchLike = vi.fn(async (url: string) => {
+      if (url.endsWith("/api/community/servers")) {
+        return jsonBody(JSON.stringify({ servers: [{ id: "srv_1", name: "studio" }] }));
+      }
+      return jsonBody(serverDetail("srv_1", "studio"));
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const res = await api.listChannels({ agentId: "a1" as never, server: "studio" });
+    expect(res.groups).toHaveLength(3);
+  });
+
+  it("without --server: concatenates groups across every server the bot is in", async () => {
+    const fetchImpl: FetchLike = vi.fn(async (url: string) => {
+      if (url.endsWith("/api/community/servers")) {
+        return jsonBody(JSON.stringify({ servers: [{ id: "srv_1", name: "studio" }, { id: "srv_2", name: "lounge" }] }));
+      }
+      if (url.endsWith("/api/community/servers/srv_1")) return jsonBody(serverDetail("srv_1", "studio"));
+      if (url.endsWith("/api/community/servers/srv_2")) return jsonBody(serverDetail("srv_2", "lounge"));
+      throw new Error(`unexpected ${url}`);
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const res = await api.listChannels({ agentId: "a1" as never });
+    // 3 groups per server, concatenated in server order.
+    expect(res.groups).toHaveLength(6);
+    expect(res.groups[0].channels[0].serverId).toBe("srv_1");
+    expect(res.groups[3].channels[0].serverId).toBe("srv_2");
+  });
+
+  it("throws not_found when --server matches no server (never fetches a detail)", async () => {
+    const seen: string[] = [];
+    const fetchImpl: FetchLike = vi.fn(async (url: string) => {
+      seen.push(url);
+      return jsonBody(JSON.stringify({ servers: [{ id: "srv_1", name: "studio" }] }));
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    await expect(api.listChannels({ agentId: "a1" as never, server: "nope" })).rejects.toThrow(/server not found: nope/);
+    expect(seen).toEqual(["http://proxy.test/api/community/servers"]);
+  });
+
+  it("empty channel tree → { groups: [] }, not an error", async () => {
+    const fetchImpl: FetchLike = vi.fn(async (url: string) => {
+      if (url.endsWith("/api/community/servers")) {
+        return jsonBody(JSON.stringify({ servers: [{ id: "srv_1", name: "studio" }] }));
+      }
+      return jsonBody(JSON.stringify({ id: "srv_1", name: "studio", categories: [] }));
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const res = await api.listChannels({ agentId: "a1" as never, server: "srv_1" });
+    expect(res).toEqual({ groups: [] });
+  });
+});
+
 describe("createProxyServerApi — friendRequest / listFriends", () => {
-  it("friendRequest POSTs to /api/friendRequest, strips agentId, decodes the envelope", async () => {
+  it("friendRequest POSTs the human REST route with { username }, decodes the envelope", async () => {
     const seen: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
       seen.push({ url, init });
@@ -210,7 +496,7 @@ describe("createProxyServerApi — friendRequest / listFriends", () => {
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
     const res = await api.friendRequest({ agentId: "a1" as never, username: "Alice#0042" });
     expect(res).toEqual({ friendshipId: "fr_1", status: "pending", hint: "ask your owner" });
-    expect(seen[0].url).toBe("http://proxy.test/api/friendRequest");
+    expect(seen[0].url).toBe("http://proxy.test/api/community/friends/request");
     expect(seen[0].init?.method).toBe("POST");
     const body = JSON.parse(String(seen[0].init?.body ?? "{}"));
     expect(body).toEqual({ username: "Alice#0042" });
@@ -232,29 +518,54 @@ describe("createProxyServerApi — friendRequest / listFriends", () => {
     }
   });
 
-  it("listFriends POSTs to /api/listFriends and decodes the three buckets verbatim", async () => {
-    const seen: Array<{ url: string }> = [];
+  it("listFriends composes the three human GETs into FriendCard buckets, keyed on kind + presence", async () => {
+    const seen: string[] = [];
     const fetchImpl: FetchLike = vi.fn(async (url: string) => {
-      seen.push({ url });
-      return jsonBody(
-        JSON.stringify({ accepted: [{ userId: "u1", handle: "A#1" }], pendingOutgoing: [], pendingIncoming: [] }),
-        { status: 200 },
-      );
+      seen.push(url);
+      if (url.endsWith("/api/community/friends")) {
+        return jsonBody(
+          JSON.stringify({
+            friends: [
+              { userId: "u1", name: "Alice", discriminator: "0042", bio: "hi", statusEmoji: "🎧", statusText: "Vibing" },
+            ],
+          }),
+        );
+      }
+      if (url.endsWith("/api/community/friends/pending")) {
+        return jsonBody(
+          JSON.stringify({
+            pending: [
+              { userId: "u2", name: "Bob", discriminator: "0001", kind: "outgoing" },
+              { userId: "u3", name: "Cara", discriminator: "0002", kind: "incoming" },
+            ],
+          }),
+        );
+      }
+      return jsonBody(JSON.stringify({ online: ["u1", "u3"] }));
     });
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
     const res = await api.listFriends({ agentId: "a1" as never });
-    expect(res).toEqual({ accepted: [{ userId: "u1", handle: "A#1" }], pendingOutgoing: [], pendingIncoming: [] });
-    expect(seen[0].url).toBe("http://proxy.test/api/listFriends");
+    expect(seen).toEqual([
+      "http://proxy.test/api/community/friends",
+      "http://proxy.test/api/community/friends/pending",
+      "http://proxy.test/api/community/friends/presence",
+    ]);
+    expect(res.accepted).toEqual([
+      { userId: "u1", handle: "Alice#0042", name: "Alice", bio: "hi", statusText: "Vibing", statusEmoji: "🎧", presence: "online" },
+    ]);
+    expect(res.pendingOutgoing).toEqual([
+      { userId: "u2", handle: "Bob#0001", name: "Bob", bio: null, statusText: null, statusEmoji: null, presence: "offline" },
+    ]);
+    expect(res.pendingIncoming).toEqual([
+      { userId: "u3", handle: "Cara#0002", name: "Cara", bio: null, statusText: null, statusEmoji: null, presence: "online" },
+    ]);
   });
 
-  it("both throw the 'non-JSON body' pattern on an empty 500", async () => {
+  it("friendRequest throws the 'non-JSON body' pattern on an empty 500", async () => {
     const fetchImpl: FetchLike = vi.fn(async () => jsonBody("", { status: 500 }));
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
     await expect(api.friendRequest({ agentId: "a1" as never, username: "A#0001" })).rejects.toThrow(
       /upstream returned 500 with non-JSON body from \/api\/friendRequest/,
-    );
-    await expect(api.listFriends({ agentId: "a1" as never })).rejects.toThrow(
-      /upstream returned 500 with non-JSON body from \/api\/listFriends/,
     );
   });
 });

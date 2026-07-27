@@ -1,8 +1,8 @@
 import { NextRequest } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
+import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, isPost } from "@alook/shared"
 import {
   parseCursor,
   parseAnchor,
@@ -15,8 +15,9 @@ import { enrichMessages } from "@/lib/community/enrich-messages"
 import { requireChannelMember } from "@/lib/community/permissions"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { createCommunityMessage } from "@/lib/community/message-handler"
+import { checkBotAlignment, alignmentBlockedResponse } from "@/lib/community/bot-alignment"
 
-export const GET = withAuth(async (req: NextRequest, ctx) => {
+export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
   if (!channelId) return writeError("missing channel id", 400)
 
@@ -30,6 +31,52 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const since = parseCursor(params.get("since"))
   const cursor = parseCursor(params.get("cursor"))
   const pageSize = parsePageSize(params.get("limit"))
+
+  // Seq-addressed pagination: `aroundSeq`/`afterSeq`/`beforeSeq` locate a
+  // message by its per-channel sequence number, then delegate to the same
+  // createdAt-windowed queries the anchor/since/cursor branches use — seq and
+  // createdAt are assigned in one insert, so they sort identically within a
+  // scope. This lets a caller page by seq without a separate query family;
+  // the createdAt-cursor branches below are unchanged. At most one seq param
+  // is honored (around > after > before).
+  const seqParam = (name: string): number | undefined => {
+    const v = params.get(name)
+    if (!v) return undefined
+    const n = parseInt(v, 10)
+    return Number.isFinite(n) && n > 0 ? n : undefined
+  }
+  const aroundSeq = seqParam("aroundSeq")
+  const afterSeq = seqParam("afterSeq")
+  const beforeSeq = seqParam("beforeSeq")
+
+  if (aroundSeq !== undefined || afterSeq !== undefined || beforeSeq !== undefined) {
+    const targetSeq = aroundSeq ?? afterSeq ?? beforeSeq!
+    const at = await queries.communityMessage.getMessageByChannelAndSeq(db, { channelId }, targetSeq)
+    if (!at) return writeError("message not found", 404)
+    const anchor = { createdAt: at.createdAt, id: at.id }
+
+    if (aroundSeq !== undefined) {
+      const around = await queries.communityMessage.listMessagesAround(db, { channelId, anchor, limit: pageSize })
+      const { items, hasMoreOlder, hasMoreNewer, olderCursor, newerCursor } = buildAnchorResponse(
+        around.older,
+        around.newer,
+        { hasMoreOlder: around.hasMoreOlder, hasMoreNewer: around.hasMoreNewer },
+      )
+      const { messages, latestSeq } = await enrichMessages(db, ctx.userId, { channelId }, items)
+      return writeJSON({ messages, hasMoreOlder, hasMoreNewer, olderCursor, newerCursor, latestSeq })
+    }
+    if (afterSeq !== undefined) {
+      const rows = await queries.communityMessage.listMessagesSince(db, { channelId, since: anchor, limit: pageSize })
+      const { items, hasMoreNewer, newerCursor } = buildSinceResponse(rows, pageSize)
+      const { messages, latestSeq } = await enrichMessages(db, ctx.userId, { channelId }, items)
+      return writeJSON({ messages, hasMoreNewer, newerCursor, latestSeq })
+    }
+    // beforeSeq: strictly-older page, delegating to the cursor query.
+    const rows = await queries.communityMessage.listMessages(db, { channelId, cursor: anchor, limit: pageSize + 1 })
+    const { items, hasMore, cursor: nextCursor } = buildPaginatedResponse(rows, pageSize)
+    const { messages, latestSeq } = await enrichMessages(db, ctx.userId, { channelId }, items.slice().reverse())
+    return writeJSON({ messages, hasMore, cursor: nextCursor, latestSeq })
+  }
 
   // Anchor branch: resolve the target message inside the channel scope first
   // (a scope-first lookup — see AGENTS.md "scope the queries before"), then
@@ -80,7 +127,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   return writeJSON({ messages, hasMore, cursor: nextCursor, latestSeq })
 })
 
-export const POST = withAuth(async (req: NextRequest, ctx) => {
+export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
   if (!channelId) return writeError("missing channel id", 400)
 
@@ -101,18 +148,32 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   } catch {
     return writeError("invalid request body", 400)
   }
+  const bodyObj = body as Record<string, unknown>
 
-  // Child channels (those with a parentChannelId — threads AND forum posts)
-  // fire CHILD_CHANNEL_UPDATE on the parent so its indicator ticks, and both
-  // scope their notify set to participants. They're distinguished by
-  // `channel.type`: a forum_post uses the `forum_post` target kind so it can't
-  // silently ride the thread branch. Detected server-side from the channel row
-  // — clients always POST here, never to a separate endpoint, which avoided a
-  // UI race where a fast user could type before a client-side meta fetch
-  // resolved.
+  // A bot must be aligned (caught up on this channel's unread) before it can
+  // post — see `checkBotAlignment`. Humans are not gated. On a block, return
+  // the `blocked`/`unaligned` envelope verbatim; the CLI translates it into a
+  // "pull, then resend" instruction.
+  let expectedSeq: number | undefined
+  let alignSeen = 0
+  if (ctx.isBot) {
+    const seenUpToSeq = typeof bodyObj.seenUpToSeq === "number" ? bodyObj.seenUpToSeq : undefined
+    const gate = await checkBotAlignment(db, ctx.userId, { channelId }, seenUpToSeq)
+    if (gate.blocked) return gate.blocked
+    expectedSeq = gate.latestSeq
+    alignSeen = gate.seen
+  }
+
+  // Child channels (those with a parentChannelId — threads AND posts) fire
+  // CHILD_CHANNEL_UPDATE on the parent so its indicator ticks, and both scope
+  // their notify set to participants. They're distinguished by `channel.type`:
+  // a post uses the `post` target kind so it can't silently ride the thread
+  // branch. Detected server-side from the channel row — clients always POST
+  // here, never to a separate endpoint, which avoided a UI race where a fast
+  // user could type before a client-side meta fetch resolved.
   const target = channel.parentChannelId
     ? {
-        kind: channel.type === "forum_post" ? ("forum_post" as const) : ("thread" as const),
+        kind: isPost(channel.type) ? ("post" as const) : ("thread" as const),
         channelId,
         parentChannelId: channel.parentChannelId,
         serverId: channel.serverId,
@@ -127,9 +188,20 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     db,
     authorId: ctx.userId,
     target,
-    body: body as Record<string, unknown>,
+    body: bodyObj,
+    ...(expectedSeq !== undefined ? { expectedSeq } : {}),
   })
-  if (!result.ok) return writeError(result.error, result.status)
+  if (!result.ok) {
+    // A bot that lost the seq race between its alignment check and this claim
+    // gets the same `blocked` shape (with a freshly re-read waterline) instead
+    // of a bare 409 — mirrors the pull-then-resend contract above.
+    if (ctx.isBot && result.status === 409) {
+      const scopeKey = queries.communityMessage.scopeKeyForTarget({ channelId })
+      const fresh = await queries.communityAgentInbox.getLatestSeqForScope(db, scopeKey)
+      return alignmentBlockedResponse(fresh, alignSeen)
+    }
+    return writeError(result.error, result.status)
+  }
 
   return writeJSON({ message: result.row }, 201)
 })

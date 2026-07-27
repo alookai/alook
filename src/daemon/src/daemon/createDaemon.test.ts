@@ -439,10 +439,9 @@ describe("deriveAuditLogSubcommand", () => {
     expect(deriveAuditLogSubcommand("/api/reactAdd")).toBe("reactAdd");
   });
 
-  it("maps the rewritten /api/community/agent/* pathnames identically", () => {
-    // The proxy's rewriteAgentPath fires AFTER onProxyRequest, so the sighting
-    // may carry either shape depending on how the CLI called in. Both must
-    // derive to the same subcommand string.
+  it("maps the /api/community/agent/* pathnames identically", () => {
+    // A sighting may still carry the `/api/community/agent/*` shape; stripping
+    // that prefix must derive to the same subcommand as the bare `/api/*` form.
     expect(deriveAuditLogSubcommand("/api/community/agent/send")).toBe("send");
     expect(deriveAuditLogSubcommand("/api/community/agent/inboxPull")).toBe("inboxPull");
     expect(deriveAuditLogSubcommand("/api/community/agent/reactAdd")).toBe("reactAdd");

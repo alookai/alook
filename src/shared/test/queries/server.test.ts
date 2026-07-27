@@ -397,9 +397,11 @@ describe("listUserServers — filter predicates (source-level pin)", () => {
 
   it("subquery counts only kind='mention' (not replies)", () => {
     // `kind = "reply"` events live in For You but do not warrant a red badge
-    // on the server icon — the plan pins this explicitly.
+    // on the server icon — the plan pins this explicitly. The value now comes
+    // from the shared MENTION_KIND constant (H6), so the compiled source
+    // references `MENTION_KIND.MENTION` rather than the raw literal.
     expect(src).toMatch(/communityMention\.kind/);
-    expect(src).toMatch(/"mention"/);
+    expect(src).toMatch(/MENTION_KIND\.MENTION/);
   });
 
   it("joins go through community_message → community_channel so DM mentions never land in the aggregate", () => {

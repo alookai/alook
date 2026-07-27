@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import * as q from "../../src/db/queries/community/friendship";
 import { user } from "../../src/db/schema";
+import { communityFriendship } from "../../src/db/community-schema";
 
 /**
  * `getFriendUserIds` now issues two parallel selects — the real
@@ -274,6 +275,81 @@ describe("ensureSiblingBotFriendship precondition guard", () => {
       /parties must be sibling bots/,
     )
   })
+})
+
+/**
+ * `sendRequest` sibling fold — when both parties are same-owner bots the generic
+ * `sendRequest` delegates to `ensureSiblingBotFriendship` and returns an
+ * `auto_accepted` outcome with no broadcasts. The mock routes reads:
+ *   - `findActive` (SELECT from communityFriendship) → no active row
+ *   - `loadBotFlags` (SELECT from user) → both bots, same owner
+ *   - `ensureSiblingBotFriendship`'s loadBotFlags → same, then findActive → none,
+ *     then INSERT accepted → the inserted row; then getFriendship re-SELECT.
+ * A minimal script-driven mock returns canned results per call in order.
+ */
+function createSiblingSendDb(script: {
+  selects: unknown[][];
+  insertReturns: unknown[];
+}) {
+  let selectIdx = 0;
+  const db: any = {
+    select: vi.fn(() => {
+      const chain: any = {};
+      chain.from = vi.fn(() => chain);
+      chain.innerJoin = vi.fn(() => chain);
+      chain.leftJoin = vi.fn(() => chain);
+      chain.limit = vi.fn(() => Promise.resolve(script.selects[selectIdx++] ?? []));
+      chain.where = vi.fn(() => {
+        const rows = script.selects[selectIdx++] ?? [];
+        const p: any = Promise.resolve(rows);
+        // findActive/getFriendship don't chain past where; limit() is only used
+        // by areFriends. Return a thenable that also exposes limit for safety.
+        p.limit = () => Promise.resolve(rows);
+        return p;
+      });
+      return chain;
+    }),
+    insert: vi.fn(() => {
+      const chain: any = {};
+      chain.values = vi.fn(() => chain);
+      chain.onConflictDoNothing = vi.fn(() => chain);
+      chain.returning = vi.fn(() => Promise.resolve(script.insertReturns));
+      return chain;
+    }),
+  };
+  return db;
+}
+
+describe("sendRequest sibling fold", () => {
+  const siblingFlags = [
+    { id: "botA", isBot: true, ownerUserId: "owner", name: "BotA" },
+    { id: "botB", isBot: true, ownerUserId: "owner", name: "BotB" },
+  ];
+  const acceptedRow = {
+    id: "fr_sib",
+    requesterId: "botA",
+    addresseeId: "botB",
+    status: "accepted",
+    needsOwnerApproval: null,
+  };
+
+  it("same-owner bots → auto_accepted, no broadcasts, no card", async () => {
+    const db = createSiblingSendDb({
+      selects: [
+        [], // sendRequest.findActive → none
+        siblingFlags, // sendRequest.loadBotFlags
+        siblingFlags, // ensureSiblingBotFriendship.loadBotFlags
+        [], // ensureSiblingBotFriendship.findActive → none
+        [acceptedRow], // getFriendship re-SELECT after insert
+      ],
+      insertReturns: [acceptedRow],
+    });
+    const out = await q.sendRequest(db, { requesterId: "botA", addresseeId: "botB" });
+    expect(out.kind).toBe("auto_accepted");
+    expect(out.friendship).toMatchObject({ id: "fr_sib", status: "accepted" });
+    expect(out.broadcasts).toEqual([]);
+    expect(out.supersededIds).toEqual([]);
+  });
 })
 
 /**

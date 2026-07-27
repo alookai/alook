@@ -4,7 +4,7 @@ import { memo, useState } from "react"
 import type React from "react"
 import {
   MessagesSquare, UserPlus, SmilePlus, Reply,
-  MoreHorizontal, FileText, Download, X,
+  MoreHorizontal, X,
 } from "lucide-react"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent } from "@/components/ui/context-menu"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from "@/components/ui/dropdown-menu"
@@ -12,13 +12,12 @@ import { Avatar } from "./avatar"
 import { MessageBody } from "./message-body"
 import { BotApprovalCard } from "./bot-approval-card"
 import { EmojiPickerPopover } from "./emoji-picker"
-import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
-import { NumberTicker } from "@/components/ui/number-ticker"
+import { ReactionChips } from "./reaction-chips"
+import { MessageAttachments } from "./message-attachments"
 import { MessageContextItems, MessageDropdownItems, hasMessageMenu } from "./message-menu"
 import { formatMessageTime } from "./format-time"
 import { tid } from "@/lib/community/testids"
 import { avatarInitial } from "@/lib/community/avatar"
-import { displayName } from "@/lib/community/display-name"
 import { stripInlineMarkup } from "@alook/shared"
 import type { RenderMsg, OpenProfile } from "./_types"
 
@@ -175,32 +174,12 @@ function MessageImpl({
           )}
 
           {m.attachments && (
-            <div className="mt-2 flex flex-col gap-2 pb-2">
-              {m.attachments.map((a, i) =>
-                a.kind === "image" ? (
-                  <button
-                    key={i}
-                    onClick={() => onPreviewImage?.(a.url)}
-                    className="block w-fit max-w-[320px] overflow-hidden rounded-lg border border-border transition-colors hover:border-primary/40"
-                  >
-                    <img src={a.url} alt={a.name} width={a.width} height={a.height} className="max-h-50 max-w-[320px] rounded-lg object-contain" style={{ aspectRatio: attachmentAspectRatio(a.width, a.height) }} onLoad={onImageLoad} />
-                  </button>
-                ) : (
-                  <button
-                    key={i}
-                    onClick={() => onDownloadFile?.(a.url)}
-                    className="flex w-full max-w-[320px] items-center gap-3 rounded-lg border border-border bg-card p-2 text-left transition-colors hover:bg-accent"
-                  >
-                    <FileText className="size-7 shrink-0 text-muted-foreground" />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium text-primary">{a.name}</div>
-                      <div className="text-xs text-muted-foreground">{a.size}</div>
-                    </div>
-                    <Download className="size-4 shrink-0 text-muted-foreground" />
-                  </button>
-                ),
-              )}
-            </div>
+            <MessageAttachments
+              attachments={m.attachments}
+              onPreviewImage={onPreviewImage}
+              onDownloadFile={onDownloadFile}
+              onImageLoad={onImageLoad}
+            />
           )}
 
           {m.embeds && m.embeds.length > 0 && (
@@ -271,49 +250,15 @@ function MessageImpl({
           )}
 
           {m.reactions && (
-            <div className="mt-2 flex flex-wrap gap-1">
-              {m.reactions.map((r, i) => {
-                const names = r.userIds?.length
-                  ? r.userIds.map((id) => resolveUserName?.(id) ?? displayName(null)).join(", ")
-                  : undefined
-                const chip = (
-                  <button
-                    onClick={() => onToggleReaction?.(r.emoji)}
-                    className={[
-                      "flex h-6 items-center gap-1 rounded-md px-2 text-sm",
-                      r.me ? "border border-primary/50 bg-accent" : "bg-secondary",
-                    ].join(" ")}
-                  >
-                    <span>{r.emoji}</span>
-                    <NumberTicker value={r.count} className="text-xs text-muted-foreground" />
-                  </button>
-                )
-                // Until the row is activated, render the bare chip (still fully
-                // clickable) without its Base UI Tooltip root — the name tooltip
-                // only matters on hover, and hover activates the row.
-                if (!names || !activated) return <div key={i}>{chip}</div>
-                return (
-                  <Tooltip key={i}>
-                    <TooltipTrigger render={chip} />
-                    <TooltipContent>Reacted by {names}</TooltipContent>
-                  </Tooltip>
-                )
-              })}
-              {activated ? (
-                <Tooltip>
-                  <EmojiPickerPopover side="top" align="start" onPick={(e) => onReact?.(e)}>
-                    <TooltipTrigger render={<button className="grid h-6 w-7 place-items-center rounded-md bg-secondary text-muted-foreground hover:text-foreground" aria-label="Add reaction" />}>
-                      <SmilePlus className="size-4" />
-                    </TooltipTrigger>
-                  </EmojiPickerPopover>
-                  <TooltipContent>Add reaction</TooltipContent>
-                </Tooltip>
-              ) : (
-                <button className="grid h-6 w-7 place-items-center rounded-md bg-secondary text-muted-foreground hover:text-foreground" aria-label="Add reaction">
-                  <SmilePlus className="size-4" />
-                </button>
-              )}
-            </div>
+            <ReactionChips
+              reactions={m.reactions}
+              interactive
+              radius="md"
+              activated={activated}
+              onToggleReaction={onToggleReaction}
+              onReact={onReact}
+              resolveUserName={resolveUserName}
+            />
           )}
 
           {m.thread && !compact && (

@@ -3,7 +3,7 @@ import { unified } from "unified"
 import remarkParse from "remark-parse"
 import type { Root, PhrasingContent } from "mdast"
 import { chatSyntaxPlugin } from "./chat-syntax-plugin"
-import type { MentionNode, ChannelRefNode, ServerRefNode, MessageRefNode } from "./chat-syntax-plugin"
+import type { MentionNode, ChannelRefNode, MessageRefNode } from "./chat-syntax-plugin"
 
 function parse(md: string): Root {
   const processor = unified().use(remarkParse).use(chatSyntaxPlugin)
@@ -95,95 +95,44 @@ describe("chatSyntaxPlugin — mention", () => {
 })
 
 describe("chatSyntaxPlugin — channelRef", () => {
-  it("wraps /server/channel preceded by a space or at start-of-string", () => {
-    expect(paragraphChildren(parse("see /studio/general"))[1]).toMatchObject({ type: "channelRef", value: "/studio/general" })
-    expect(paragraphChildren(parse("/studio/general"))[0]).toMatchObject({ type: "channelRef", value: "/studio/general" })
+  it("wraps a `<#serverId:channelId>` token", () => {
+    expect(paragraphChildren(parse("see <#srv_1:chn_1>"))[1]).toMatchObject({ type: "channelRef", value: "<#srv_1:chn_1>" })
+    expect(paragraphChildren(parse("<#srv_1:chn_1>"))[0]).toMatchObject({ type: "channelRef", value: "<#srv_1:chn_1>" })
   })
 
-  it("leaves text/studio/general (no leading space) untouched", () => {
-    const children = paragraphChildren(parse("text/studio/general"))
-    expect(children).toHaveLength(1)
-    expect(children[0]).toMatchObject({ type: "text", value: "text/studio/general" })
-  })
-
-  it("does NOT wrap a 3+-segment docs-style path — trailing /segment fails the terminator boundary", () => {
-    expect(paragraphChildren(parse("look at /api/user/123"))).toHaveLength(1)
-    expect(paragraphChildren(parse("hit /docs/api/v1 first"))).toHaveLength(1)
-  })
-
-  it("still wraps a 2-segment ref followed by punctuation (period, comma, close-paren)", () => {
-    const children = paragraphChildren(parse("see /studio/general."))
-    expect(children.map((c) => c.type)).toEqual(["text", "channelRef", "text"])
-    expect(children[1]).toMatchObject({ value: "/studio/general" })
-    expect(children[2]).toMatchObject({ type: "text", value: "." })
-  })
-
-  it("wraps the thread form /studio/general/#42", () => {
-    const children = paragraphChildren(parse("see /studio/general/#42"))
-    expect(children[1]).toMatchObject({ type: "channelRef", value: "/studio/general/#42" })
-  })
-
-  it("wraps the thread-reply form /studio/general/#5#42 as a single channelRef node", () => {
-    const children = paragraphChildren(parse("see /studio/general/#5#42 done"))
+  it("wraps a token that appears mid-word — the `<#…>` delimiters are unambiguous", () => {
+    const children = paragraphChildren(parse("text<#srv_1:chn_1>"))
     const refs = children.filter((c): c is ChannelRefNode => c.type === "channelRef")
     expect(refs).toHaveLength(1)
-    expect(refs[0]).toMatchObject({ type: "channelRef", value: "/studio/general/#5#42" })
+    expect(refs[0]).toMatchObject({ value: "<#srv_1:chn_1>" })
   })
 
-  it("does not match a thread-reply form mid-string (leading-space boundary still applies)", () => {
-    const children = paragraphChildren(parse("text/studio/general/#5#42"))
-    expect(children).toHaveLength(1)
-    expect(children[0]).toMatchObject({ type: "text" })
+  it("wraps a token followed by punctuation", () => {
+    const children = paragraphChildren(parse("see <#srv_1:chn_1>."))
+    const refs = children.filter((c): c is ChannelRefNode => c.type === "channelRef")
+    expect(refs).toHaveLength(1)
+    expect(refs[0]).toMatchObject({ value: "<#srv_1:chn_1>" })
   })
 
-  it("leaves a channel-ref-shaped path inside inline code literal", () => {
-    const children = paragraphChildren(parse("`/studio/general`"))
-    expect(children.map((c) => c.type)).toEqual(["inlineCode"])
-  })
-
-  it("does not double-match a community invite URL — the 3-segment /community/invite/<token> path never satisfies the 2-segment terminator boundary", () => {
-    const bare = paragraphChildren(parse("join /community/invite/abc123XYZ"))
-    expect(bare).toHaveLength(1)
-    expect(bare[0]).toMatchObject({ type: "text", value: "join /community/invite/abc123XYZ" })
-
-    const full = paragraphChildren(parse("join https://alook.ai/community/invite/xY9k2vW7aQ"))
-    expect(full.some((c) => c.type === "channelRef")).toBe(false)
-  })
-})
-
-describe("chatSyntaxPlugin — serverRef", () => {
-  it("wraps a bare /server preceded by a space or at start-of-string", () => {
-    expect(paragraphChildren(parse("check /studio"))[1]).toMatchObject({ type: "serverRef", value: "/studio" })
-    expect(paragraphChildren(parse("/studio"))[0]).toMatchObject({ type: "serverRef", value: "/studio" })
-  })
-
-  it("does not double-match the first segment of a /server/channel ref", () => {
+  it("retires the `/server/channel` grammar — an old ref renders as plain text, not a pill", () => {
     const children = paragraphChildren(parse("see /studio/general"))
-    expect(children.map((c) => c.type)).toEqual(["text", "channelRef"])
-    expect(children.some((c) => c.type === "serverRef")).toBe(false)
+    expect(children.some((c) => c.type === "channelRef")).toBe(false)
+    expect(children.map((c) => c.type)).toEqual(["text"])
   })
 
-  it("leaves text/studio (no leading space) untouched", () => {
-    const children = paragraphChildren(parse("text/studio"))
-    expect(children).toHaveLength(1)
-    expect(children[0]).toMatchObject({ type: "text", value: "text/studio" })
+  it("does not wrap a bare `/server` — server refs are retired", () => {
+    const children = paragraphChildren(parse("check /studio"))
+    expect(children.map((c) => c.type)).toEqual(["text"])
   })
 
-  it("still wraps a bare ref followed by punctuation", () => {
-    const children = paragraphChildren(parse("see /studio."))
-    expect(children.map((c) => c.type)).toEqual(["text", "serverRef", "text"])
-    expect(children[1]).toMatchObject({ value: "/studio" })
-  })
-
-  it("leaves a server-ref-shaped path inside inline code literal", () => {
-    const children = paragraphChildren(parse("`/studio`"))
+  it("leaves a channel-ref token inside inline code literal", () => {
+    const children = paragraphChildren(parse("`<#srv_1:chn_1>`"))
     expect(children.map((c) => c.type)).toEqual(["inlineCode"])
   })
 
-  it("does not match the invite URL's first segment", () => {
-    const bare = paragraphChildren(parse("join /community/invite/abc123XYZ"))
-    expect(bare).toHaveLength(1)
-    expect(bare.some((c) => c.type === "serverRef")).toBe(false)
+  it("does not match a token missing a segment", () => {
+    expect(paragraphChildren(parse("see <#srv_1>")).some((c) => c.type === "channelRef")).toBe(false)
+    expect(paragraphChildren(parse("see <#srv_1:>")).some((c) => c.type === "channelRef")).toBe(false)
   })
 })
 
@@ -231,31 +180,23 @@ describe("chatSyntaxPlugin — message ref", () => {
 
 describe("chatSyntaxPlugin — mixed", () => {
   it("handles a mix of mention, channelRef, and unrelated formatting in one message", () => {
-    const children = paragraphChildren(parse("Here's the **setup**: `pnpm install` ping @Gus#0042 in /studio/dev"))
+    const children = paragraphChildren(parse("Here's the **setup**: `pnpm install` ping @Gus#0042 in <#srv_1:chn_dev>"))
     const types = children.map((c) => c.type)
     expect(types).toContain("strong")
     expect(types).toContain("inlineCode")
     const mention = children.find((c): c is MentionNode => c.type === "mention")
     expect(mention).toMatchObject({ value: "@Gus", discriminator: "0042" })
     const channelRef = children.find((c): c is ChannelRefNode => c.type === "channelRef")
-    expect(channelRef).toMatchObject({ value: "/studio/dev" })
-  })
-
-  it("handles a mention and a bare serverRef together", () => {
-    const children = paragraphChildren(parse("ping @Gus#0042, see /studio for context"))
-    const mention = children.find((c): c is MentionNode => c.type === "mention")
-    expect(mention).toMatchObject({ value: "@Gus", discriminator: "0042" })
-    const serverRef = children.find((c): c is ServerRefNode => c.type === "serverRef")
-    expect(serverRef).toMatchObject({ value: "/studio" })
+    expect(channelRef).toMatchObject({ value: "<#srv_1:chn_dev>" })
   })
 
   it("handles mention, message ref, and channel ref together", () => {
-    const children = paragraphChildren(parse("@Alice#0001 check #42 in /studio/general"))
+    const children = paragraphChildren(parse("@Alice#0001 check #42 in <#srv_1:chn_general>"))
     const mention = children.find((c): c is MentionNode => c.type === "mention")
     expect(mention).toMatchObject({ value: "@Alice", discriminator: "0001" })
     const messageRef = children.find((c): c is MessageRefNode => c.type === "messageRef")
     expect(messageRef).toMatchObject({ value: "#42" })
     const channelRef = children.find((c): c is ChannelRefNode => c.type === "channelRef")
-    expect(channelRef).toMatchObject({ value: "/studio/general" })
+    expect(channelRef).toMatchObject({ value: "<#srv_1:chn_general>" })
   })
 })

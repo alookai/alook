@@ -11,6 +11,7 @@ const mockGetMessage = vi.fn()
 const mockGetLatestMessage = vi.fn()
 const mockMarkReadToMessageBuilder = vi.fn()
 const mockMarkChannelMentionsReadBuilder = vi.fn()
+const mockBumpReadCursor = vi.fn()
 const mockBatch = vi.fn()
 
 vi.mock("@/lib/db", () => ({
@@ -32,6 +33,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityReadState: {
         markReadToMessageBuilder: (...a: unknown[]) => mockMarkReadToMessageBuilder(...a),
+        bumpReadCursor: (...a: unknown[]) => mockBumpReadCursor(...a),
       },
       communityMention: {
         markChannelMentionsReadBuilder: (...a: unknown[]) =>
@@ -169,6 +171,31 @@ describe("PUT /api/community/channels/[id]/read", () => {
     expect(mockMarkReadToMessageBuilder).not.toHaveBeenCalled()
     expect(mockMarkChannelMentionsReadBuilder).not.toHaveBeenCalled()
     expect(mockBatch).not.toHaveBeenCalled()
+  })
+
+  // ── PUT body carries `{ seq }` — seq-addressed watermark (bot ack) ───────────
+  describe("PUT with { seq } body — advances all three cursors via bumpReadCursor", () => {
+    it("bumps to the seq and clears mentions, without touching markReadToMessageBuilder", async () => {
+      mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1" })
+      mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
+      mockBumpReadCursor.mockResolvedValue({ id: "m_9", createdAt: "2026-07-01T12:00:00.000Z", seq: 9 })
+
+      const res = await PUT(putReq({ seq: 9 }), { params: { id: "c1" } } as any)
+      expect(res.status).toBe(200)
+      expect(mockBumpReadCursor).toHaveBeenCalledWith(expect.anything(), "u1", { channelId: "c1" }, 9)
+      expect(mockMarkReadToMessageBuilder).not.toHaveBeenCalled()
+      // Mention clear still fires (single-builder batch).
+      expect(mockMarkChannelMentionsReadBuilder).toHaveBeenCalledWith(expect.anything(), "u1", "c1")
+    })
+
+    it("returns 404 when no message has that seq in this channel", async () => {
+      mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1" })
+      mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
+      mockBumpReadCursor.mockResolvedValue(null)
+
+      const res = await PUT(putReq({ seq: 999 }), { params: { id: "c1" } } as any)
+      expect(res.status).toBe(404)
+    })
   })
 
   // ── #3: PUT body carries `lastReadMessageId` ─────────────────────────────────

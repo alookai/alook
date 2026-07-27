@@ -30,9 +30,11 @@ import { communityKeys } from "@/lib/query-keys"
  * `/threads/:id/read`, top-level channels through `/channels/:id/read`. Both
  * accept an empty body as mass mark-read and both batch the mention clear.
  *
- * Note: `lastReadSeq` (the numeric bot-wake cursor) is intentionally NOT
- * touched here — human read routes don't bump it; that divergence is a
- * separate concern.
+ * The read routes advance all three read cursors together — `lastReadAt` /
+ * `lastReadMessageId` (anchor + NEW divider) and `lastReadSeq` (the unread
+ * predicate + the `↓ N` jump-button count). This eager PUT is what keeps a
+ * read-only viewer's `lastReadSeq` current, so `↓ N` reflects genuinely-unread
+ * messages rather than the whole history.
  */
 export function useEagerChannelRead({
   channelId,

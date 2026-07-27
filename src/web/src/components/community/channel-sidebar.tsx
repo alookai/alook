@@ -18,12 +18,12 @@ import { catId, catOf, isCat, type ChannelTree } from "./use-channel-tree"
 import { InviteDialog } from "./invite-dialog"
 import { ChannelAddMembersDialog } from "./channel-add-members-dialog"
 import type { Channel, SettingsSection } from "./_types"
-import { UNCATEGORIZED_CATEGORY_ID, type ChannelType } from "@alook/shared"
+import { UNCATEGORIZED_CATEGORY_ID, type TopLevelChannelType } from "@alook/shared"
 
 
 type Dialog =
   | { kind: "create-channel"; categoryId: string }
-  | { kind: "edit-channel"; id: string; categoryId: string; name: string; type: ChannelType }
+  | { kind: "edit-channel"; id: string; categoryId: string; name: string; type: TopLevelChannelType }
   | { kind: "create-category" }
   | { kind: "category-settings"; categoryId: string }
   | { kind: "manage-members"; channelId: string; channelName: string }
@@ -53,7 +53,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
   onBlockedCreate?: () => void
   mutedChannels?: Record<string, boolean>
   loading?: boolean
-  onCreateChannel?: (categoryId: string, name: string, type: ChannelType) => Promise<string | null> | void
+  onCreateChannel?: (categoryId: string, name: string, type: TopLevelChannelType) => Promise<string | null> | void
   onCreateCategory?: (name: string, opts?: { private?: boolean }) => Promise<string | null> | void
   onDeleteChannel?: (channelId: string) => void
   onDeleteCategory?: (categoryId: string) => void
@@ -150,7 +150,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
     setDialog({ kind: "create-channel", categoryId })
   }
 
-  const createChannel = async (categoryId: string, { name, type }: { name: string; type: ChannelType }) => {
+  const createChannel = async (categoryId: string, { name, type }: { name: string; type: TopLevelChannelType }) => {
     const id = await onCreateChannel?.(categoryId, name, type)
     if (id) setActiveChannel(id)
   }
@@ -171,7 +171,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
                 active={ch.id === activeChannel}
                 canReorder={isAdmin}
                 onClick={() => setActiveChannel(ch.id)}
-                onEdit={isAdmin ? () => setDialog({ kind: "edit-channel", id: ch.id, categoryId: noneCatId, name: ch.name, type: ch.type ?? "text" }) : undefined}
+                onEdit={isAdmin ? () => setDialog({ kind: "edit-channel", id: ch.id, categoryId: noneCatId, name: ch.name, type: ch.type === "forum" ? "forum" : "text" }) : undefined}
                 onDelete={isAdmin ? () => { removeChannel(ch.id); onDeleteChannel?.(ch.id) } : undefined}
               />
             ))}
@@ -209,7 +209,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
                       active={ch.id === activeChannel}
                       canReorder={isAdmin}
                       onClick={() => setActiveChannel(ch.id)}
-                      onEdit={canManageChannel ? () => setDialog({ kind: "edit-channel", id: ch.id, categoryId: id, name: ch.name, type: ch.type ?? "text" }) : undefined}
+                      onEdit={canManageChannel ? () => setDialog({ kind: "edit-channel", id: ch.id, categoryId: id, name: ch.name, type: ch.type === "forum" ? "forum" : "text" }) : undefined}
                       onDelete={canManageChannel ? () => { removeChannel(ch.id); onDeleteChannel?.(ch.id) } : undefined}
                       onManageMembers={(catPrivate[id] && canManageChannel) ? () => setDialog({ kind: "manage-members", channelId: ch.id, channelName: ch.name }) : undefined}
                     />

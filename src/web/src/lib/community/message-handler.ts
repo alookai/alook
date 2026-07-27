@@ -5,11 +5,14 @@ import {
   MAX_MESSAGE_CONTENT_LENGTH,
   MAX_ATTACHMENTS_PER_MESSAGE,
   WS_EVENTS,
+  PARTICIPANT_SOURCE,
+  MENTION_KIND,
   createLogger,
 } from "@alook/shared"
-import type { MentionType } from "@alook/shared"
+import type { MentionType, ParticipantSource } from "@alook/shared"
 import type { Database } from "@alook/shared"
-import { fanOutToChannel, fanOutToDM } from "./fanout"
+import { fanOutToChannel, fanOutToDM, resolveChannelRecipients } from "./fanout"
+import { dispatchMessageNotify } from "./notify"
 import { broadcastToUser } from "../broadcast"
 import { mapMessageForWs } from "./message-payload"
 import { mediaUrlFromKey } from "./storage"
@@ -26,7 +29,7 @@ export type MessageTarget =
     serverId: string
   }
   | {
-    kind: "forum_post"
+    kind: "post"
     channelId: string
     parentChannelId: string
     serverId: string
@@ -51,13 +54,13 @@ export function isChannelTarget(target: { kind: string } | string): boolean {
   return (typeof target === "string" ? target : target.kind) === "channel"
 }
 
-// A thread and a forum_post share the same notify + parent-tick behavior: both
+// A thread and a post share the same notify + parent-tick behavior: both
 // enroll participants (spoke/mention) and both fire the parent CHILD_CHANNEL_UPDATE
 // via their `parentChannelId`. This narrows to the two variants that carry one.
 function hasParentChannel(
   target: MessageTarget,
-): target is Extract<MessageTarget, { kind: "thread" | "forum_post" }> {
-  return target.kind === "thread" || target.kind === "forum_post"
+): target is Extract<MessageTarget, { kind: "thread" | "post" }> {
+  return target.kind === "thread" || target.kind === "post"
 }
 
 type IncomingAttachment = {
@@ -545,7 +548,7 @@ export async function createCommunityMessage(params: {
   // Mention beats reply — never double-count the same user.
   for (const id of mentionTargets) replyTargets.delete(id)
 
-  // Thread / forum_post participation (notification dimension). Both units'
+  // Thread / post participation (notification dimension). Both units'
   // NOTIFY set is their participant rows — join by:
   //   - speaking: the author becomes a participant (source "spoke").
   //   - @mention: an explicitly mentioned/replied audience member becomes a
@@ -555,8 +558,8 @@ export async function createCommunityMessage(params: {
   // card messages (`skipMentions`) don't add the author. A forum post is
   // enrolled exactly like a thread so it notifies only its participants.
   if (hasParentChannel(target) && !skipMentions) {
-    const rows: { userId: string; source: "spoke" | "mention" }[] = [
-      { userId: authorId, source: "spoke" },
+    const rows: { userId: string; source: ParticipantSource }[] = [
+      { userId: authorId, source: PARTICIPANT_SOURCE.SPOKE },
     ]
     // Only EXPLICIT `@user` mentions + reply targets enroll as participants. A
     // mass `@everyone`/`@here` is in `mentionTargets` (so everyone is notified
@@ -564,7 +567,7 @@ export async function createCommunityMessage(params: {
     // subscribe the whole channel/server to the thread. `replyParticipants` is
     // the pre-dedup snapshot so a reply still enrolls even under `@everyone`.
     for (const id of new Set([...explicitMentionTargets, ...replyParticipants])) {
-      if (id !== authorId) rows.push({ userId: id, source: "mention" })
+      if (id !== authorId) rows.push({ userId: id, source: PARTICIPANT_SOURCE.MENTION })
     }
     // One bulk insert (author + mentioned) instead of N+1 sequential inserts.
     await queries.communityThread.addThreadParticipants(db, target.channelId, rows)
@@ -573,20 +576,27 @@ export async function createCommunityMessage(params: {
   // Mention/reply ROW writes are persistence, not broadcast — they run inline
   // even under `deferBroadcast` (only the WS emissions defer). When
   // `skipMentions` both sets are empty, so these are no-ops.
+  //
+  // ⚠ LOCKED (batch 3, plan §13/M4): mention ROWS are ALWAYS written and are
+  // NEVER gated by the recipient's notification level. A `nothing`-level user
+  // who is @-mentioned still gets a persisted mention row (their inbox mention
+  // list can surface it) — only the LIVE `MENTION_CREATE` push + badge + wake
+  // are level-filtered, and that filtering lives in `dispatchMessageNotify`,
+  // not here. Do not add a level check around these writes.
   const liveMentions = [...mentionTargets]
   const liveReplies = [...replyTargets]
   if (liveMentions.length > 0) {
     await queries.communityMention.createMentions(db, {
       messageId: row.id,
       userIds: liveMentions,
-      kind: "mention",
+      kind: MENTION_KIND.MENTION,
     })
   }
   if (liveReplies.length > 0) {
     await queries.communityMention.createMentions(db, {
       messageId: row.id,
       userIds: liveReplies,
-      kind: "reply",
+      kind: MENTION_KIND.REPLY,
     })
   }
 
@@ -628,22 +638,24 @@ export async function createCommunityMessage(params: {
   // All WS side effects live here so `deferBroadcast` can hand them back as a
   // thunk instead of firing them inline.
   const doBroadcast = async (): Promise<void> => {
-    if (liveMentions.length > 0 || liveReplies.length > 0) {
-      const authorName = row.authorName
-      const channelIdForBroadcast =
-        isDmTarget(target) ? undefined : target.channelId
-      for (const userId of [...liveMentions, ...liveReplies]) {
-        broadcastToUser(userId, {
-          type: WS_EVENTS.MENTION_CREATE,
-          userId,
-          messageId: row.id,
-          ...(channelIdForBroadcast ? { channelId: channelIdForBroadcast } : {}),
-          authorName,
-        }).catch(() => { })
-      }
-    }
-
     if (isDmTarget(target)) {
+      // DM MENTION_CREATE (reply targets) — DMs have no @-mention roster, so
+      // `liveMentions` is empty here; only reply targets appear. DM is NOT in
+      // mute scope (O4), so these always deliver (no level filter).
+      if (liveMentions.length > 0 || liveReplies.length > 0) {
+        const authorName = row.authorName
+        for (const userId of [...liveMentions, ...liveReplies]) {
+          broadcastToUser(userId, {
+            type: WS_EVENTS.MENTION_CREATE,
+            userId,
+            messageId: row.id,
+            authorName,
+          }).catch(() => { })
+        }
+      }
+
+      // MESSAGE_CREATE + direct DM bot-wake (R15 — never routed through the
+      // level-filtered pipeline).
       fanOutToDM(
         target.dmId,
         {
@@ -660,6 +672,13 @@ export async function createCommunityMessage(params: {
         message: messagePayload,
       }).catch(() => { })
     } else {
+      // Resolve the recipient set ONCE and share it between the unfiltered
+      // MESSAGE_CREATE fan-out (R1) and the level-filtered notify pipeline — no
+      // second membership query.
+      const recipients = await resolveChannelRecipients(target.channelId)
+
+      // ⚠ R1 — MESSAGE_CREATE broadcast is unconditional (the ONLY content-sync
+      // path for an open channel); it is NEVER level-filtered.
       fanOutToChannel(
         target.channelId,
         {
@@ -667,7 +686,26 @@ export async function createCommunityMessage(params: {
           channelId: target.channelId,
           message: messagePayload,
         },
-        { excludeUserId: fanoutExclude, wakeMessageRow },
+        { excludeUserId: fanoutExclude, recipients },
+      ).catch(() => { })
+
+      // Level-filtered notify: per-recipient MENTION_CREATE live push + per-user
+      // UNREAD_BUMP badge signal + bot wake. The author is always excluded from
+      // badge/wake (never notifies themselves); mention sets are already
+      // author-excluded upstream. `nothing`-level recipients are dropped from
+      // all three legs — but their mention ROWS were already written above (M4).
+      dispatchMessageNotify(
+        db,
+        { authorName: row.authorName, wakeMessageRow },
+        {
+          id: row.id,
+          seq: row.seq,
+          authorId: row.authorId,
+          channelId: row.channelId,
+          dmConversationId: row.dmConversationId,
+        },
+        recipients.filter((id) => id !== authorId),
+        { mentionedUserIds: [...liveMentions, ...liveReplies] },
       ).catch(() => { })
 
       if (hasParentChannel(target)) {

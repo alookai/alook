@@ -534,7 +534,7 @@ describe("useCreateThread — patches parent message + invalidates threads", () 
       pages: [{ messages: [{ id: "m_p" }], hasMore: false }],
       pageParams: [null],
     })
-    apiFetchMock.mockResolvedValueOnce({ id: "thr_1" })
+    apiFetchMock.mockResolvedValueOnce({ channel: { id: "thr_1" } })
     const mod = await loadMod()
     mod.useCreateThread()
     await runMutation({ channelId: "ch_parent", messageId: "m_p", name: "Discussion" })

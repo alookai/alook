@@ -15,6 +15,7 @@ import type {
   CommunityMemberUpdate,
   CommunityRole,
 } from "@alook/shared"
+import { WS_EVENTS } from "@alook/shared"
 import { avatarInitial } from "@/lib/community/avatar"
 
 // Debounce window for the search input (ms). Kept short — the endpoint is
@@ -374,13 +375,13 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
   const handleMemberEvent = useCallback(
     (event: CommunityMemberJoin | CommunityMemberLeave | CommunityMemberUpdate) => {
       if (!enabled) return
-      if (event.type === "community:member.join") {
+      if (event.type === WS_EVENTS.MEMBER_JOIN) {
         queryClient.setQueryData<MembersPageCache | undefined>(queryKey, (cache) =>
           patchCacheJoin(cache, event),
         )
         return
       }
-      if (event.type === "community:member.leave") {
+      if (event.type === WS_EVENTS.MEMBER_LEAVE) {
         queryClient.setQueryData<MembersPageCache | undefined>(queryKey, (cache) =>
           patchCacheLeave(cache, event),
         )

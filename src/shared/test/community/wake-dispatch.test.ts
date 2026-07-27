@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { sendWakeToMachine } from "../../src/community/wake-dispatch";
-import type { HostCommand } from "../../src/community-cli-contract";
+import type { HostCommand } from "../../src/community-contract";
 
 const dummyCommand = {
   type: "agent:wake",

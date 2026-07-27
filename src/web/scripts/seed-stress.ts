@@ -302,8 +302,8 @@ async function ensureChannel(
   const found = existing.find((c) => c.name === slug)
   if (found) return found.id
   const data = await client.post<{ channel: { id: string } }>(
-    `/api/community/servers/${serverId}/channels`,
-    { name, type: "text" },
+    `/api/community/channels`,
+    { type: "text", serverId, name },
   )
   return data.channel.id
 }

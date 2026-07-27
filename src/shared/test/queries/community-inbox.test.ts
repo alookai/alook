@@ -31,7 +31,9 @@ describe("isChannelUnread — two-branch predicate", () => {
       isChannelUnread({
         archived: true,
         lastMessageAt: after,
+        lastMessageSeq: 1,
         lastReadAt: null,
+        lastReadSeq: null,
         joinedAt: j,
       }),
     ).toBe(false);
@@ -42,29 +44,35 @@ describe("isChannelUnread — two-branch predicate", () => {
       isChannelUnread({
         archived: false,
         lastMessageAt: null,
+        lastMessageSeq: 0,
         lastReadAt: null,
+        lastReadSeq: null,
         joinedAt: j,
       }),
     ).toBe(false);
   });
 
-  it("has read-state, lastMessageAt > lastReadAt → true", () => {
+  it("has read-state, lastMessageSeq > lastReadSeq → true", () => {
     expect(
       isChannelUnread({
         archived: false,
         lastMessageAt: after,
+        lastMessageSeq: 5,
         lastReadAt: j,
+        lastReadSeq: 3,
         joinedAt: j,
       }),
     ).toBe(true);
   });
 
-  it("has read-state, lastMessageAt === lastReadAt → false (author's own send)", () => {
+  it("has read-state, lastMessageSeq === lastReadSeq → false (author's own send)", () => {
     expect(
       isChannelUnread({
         archived: false,
         lastMessageAt: j,
+        lastMessageSeq: 3,
         lastReadAt: j,
+        lastReadSeq: 3,
         joinedAt: j,
       }),
     ).toBe(false);
@@ -75,7 +83,9 @@ describe("isChannelUnread — two-branch predicate", () => {
       isChannelUnread({
         archived: false,
         lastMessageAt: after,
+        lastMessageSeq: 1,
         lastReadAt: null,
+        lastReadSeq: null,
         joinedAt: j,
       }),
     ).toBe(true);
@@ -86,7 +96,9 @@ describe("isChannelUnread — two-branch predicate", () => {
       isChannelUnread({
         archived: false,
         lastMessageAt: before,
+        lastMessageSeq: 1,
         lastReadAt: null,
+        lastReadSeq: null,
         joinedAt: j,
       }),
     ).toBe(false);
@@ -97,7 +109,9 @@ describe("isChannelUnread — two-branch predicate", () => {
       isChannelUnread({
         archived: false,
         lastMessageAt: j,
+        lastMessageSeq: 1,
         lastReadAt: null,
+        lastReadSeq: null,
         joinedAt: j,
       }),
     ).toBe(false);
@@ -144,7 +158,9 @@ describe("listUnreadChannels — author read-watermark behaviour", () => {
         serverName: "server 1",
         parentChannelId: null,
         lastMessageAt: ts,
+        lastMessageSeq: 1,
         lastReadAt: ts, // author's watermark advanced to this exact message
+        lastReadSeq: 1,
         archived: false,
         joinedAt: j,
       },
@@ -169,7 +185,9 @@ describe("listUnreadChannels — author read-watermark behaviour", () => {
         type: "forum",
         parentChannelId: null,
         lastMessageAt: t2,
+        lastMessageSeq: 5,
         lastReadAt: t1,
+        lastReadSeq: 3,
         archived: false,
         joinedAt: j,
       },
@@ -271,7 +289,9 @@ describe("listUnreadChannels — author read-watermark behaviour", () => {
     type: "thread",
     parentChannelId: "ch_parent",
     lastMessageAt: "2026-07-06T00:00:05.000Z",
+    lastMessageSeq: 5,
     lastReadAt: "2026-07-06T00:00:00.000Z",
+    lastReadSeq: 3,
     archived: false,
     joinedAt: j,
   });
@@ -293,10 +313,12 @@ describe("listUnreadChannels — author read-watermark behaviour", () => {
     channelName: "a post",
     serverId: "srv_1",
     serverName: "server 1",
-    type: "forum_post",
+    type: "post",
     parentChannelId: "forum_1",
     lastMessageAt: "2026-07-06T00:00:05.000Z",
+    lastMessageSeq: 5,
     lastReadAt: "2026-07-06T00:00:00.000Z",
+    lastReadSeq: 3,
     archived: false,
     joinedAt: j,
   });
@@ -318,36 +340,32 @@ describe("listUnreadChannels — author read-watermark behaviour", () => {
 });
 
 describe("isDmUnread — predicate", () => {
+  const t = "2026-07-06T00:00:00.000Z";
+  const later = "2026-07-06T00:00:05.000Z";
+
   it("no lastMessageAt → false (empty conversation)", () => {
-    expect(isDmUnread({ lastMessageAt: null, lastReadAt: null })).toBe(false);
+    expect(isDmUnread({ lastMessageAt: null, lastMessageSeq: 0, lastReadAt: null, lastReadSeq: null })).toBe(false);
   });
 
   it("no read-state, has message → true (counterparty never opened)", () => {
     expect(
-      isDmUnread({ lastMessageAt: "2026-07-06T00:00:00.000Z", lastReadAt: null })
+      isDmUnread({ lastMessageAt: t, lastMessageSeq: 1, lastReadAt: null, lastReadSeq: null })
     ).toBe(true);
   });
 
-  it("lastMessageAt === lastReadAt → false (author's own send)", () => {
-    const t = "2026-07-06T00:00:00.000Z";
-    expect(isDmUnread({ lastMessageAt: t, lastReadAt: t })).toBe(false);
+  it("has read-state, lastMessageSeq === lastReadSeq → false (author's own send)", () => {
+    expect(isDmUnread({ lastMessageAt: t, lastMessageSeq: 3, lastReadAt: t, lastReadSeq: 3 })).toBe(false);
   });
 
-  it("lastMessageAt > lastReadAt → true", () => {
+  it("has read-state, lastMessageSeq > lastReadSeq → true", () => {
     expect(
-      isDmUnread({
-        lastMessageAt: "2026-07-06T00:00:05.000Z",
-        lastReadAt: "2026-07-06T00:00:00.000Z",
-      })
+      isDmUnread({ lastMessageAt: later, lastMessageSeq: 5, lastReadAt: t, lastReadSeq: 3 })
     ).toBe(true);
   });
 
-  it("lastMessageAt < lastReadAt → false", () => {
+  it("has read-state, lastMessageSeq < lastReadSeq → false", () => {
     expect(
-      isDmUnread({
-        lastMessageAt: "2026-07-06T00:00:00.000Z",
-        lastReadAt: "2026-07-06T00:00:05.000Z",
-      })
+      isDmUnread({ lastMessageAt: t, lastMessageSeq: 2, lastReadAt: later, lastReadSeq: 5 })
     ).toBe(false);
   });
 });
@@ -371,7 +389,9 @@ describe("listUnreadDms — read-watermark behaviour", () => {
         user1Id: "u_viewer",
         user2Id: "u_alice",
         lastMessageAt: "2026-07-06T00:00:05.000Z",
+        lastMessageSeq: 5,
         lastReadAt: "2026-07-06T00:00:00.000Z",
+        lastReadSeq: 3,
         otherUserId: "u_alice",
         otherUserName: "Alice",
         otherUserImage: null,
@@ -391,7 +411,9 @@ describe("listUnreadDms — read-watermark behaviour", () => {
         user1Id: "u_viewer",
         user2Id: "u_alice",
         lastMessageAt: ts,
+        lastMessageSeq: 2,
         lastReadAt: ts, // viewer sent last, watermark aligned
+        lastReadSeq: 2,
         otherUserId: "u_alice",
         otherUserName: "Alice",
         otherUserImage: null,

@@ -59,7 +59,6 @@ vi.mock("@/lib/community/audit", () => ({
   COMMUNITY_AUDIT_ACTIONS: new Proxy({}, { get: (_t, p) => String(p) }),
 }))
 
-import { POST as requestPost } from "./request/route"
 import { POST as acceptPost } from "./[id]/accept/route"
 import { POST as rejectPost } from "./[id]/reject/route"
 import { DELETE as deleteFriend } from "./[id]/route"
@@ -77,11 +76,6 @@ function jsonReq(url: string, body: unknown = {}) {
 
 describe("friend-graph route hardening — bot ctx yields 403", () => {
   beforeEach(() => vi.clearAllMocks())
-
-  it("POST /friends/request → 403", async () => {
-    const res = await requestPost(jsonReq("http://x/api/community/friends/request", { userId: "u2" }), {} as never)
-    expect(res.status).toBe(403)
-  })
 
   it("POST /friends/[id]/accept → 403", async () => {
     const res = await acceptPost(jsonReq("http://x/a"), { params: { id: "fr_1" } } as never)

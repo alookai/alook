@@ -90,9 +90,9 @@ describe("GET /channels/[id]/participants", () => {
     expect(body.participants[1]).not.toHaveProperty("muted")
   })
 
-  it("also serves a forum_post (its panel is the participant set)", async () => {
+  it("also serves a post (its panel is the participant set)", async () => {
     mockResolveChannelAccessContext.mockResolvedValue(threadCtx({
-      channel: { id: "p1", serverId: "s1", type: "forum_post", parentChannelId: "f1", parentMessageId: null, creatorId: "u1" },
+      channel: { id: "p1", serverId: "s1", type: "post", parentChannelId: "f1", parentMessageId: null, creatorId: "u1" },
     }))
     const res = await GET(new NextRequest("http://localhost/api/community/channels/p1/participants"), { params: { id: "p1" } } as any)
     expect(res.status).toBe(200)

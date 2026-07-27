@@ -102,17 +102,74 @@ export const TYPING_INDICATOR_THROTTLE_MS = 3_000
 export const MESSAGE_DEDUP_CACHE_MAX = 500
 export const MESSAGE_DEDUP_CACHE_TRIM = 400
 
-// Notification levels
-export const NOTIF_LEVELS = {
-  ALL: "All messages",
-  MENTIONS: "Only @mentions",
-  NONE: "Nothing",
-} as const
-export type NotifLevel = typeof NOTIF_LEVELS[keyof typeof NOTIF_LEVELS]
-
-// Notification setting level values (DB enum)
+// Notification setting level values (DB enum). Anchors
+// `community_notification_setting.level` (schema `.default("all")`) — the three
+// real, persisted levels. `NOTIF_LEVELS` below is the single value↔label source
+// derived on top of it.
 export const NOTIFICATION_LEVEL_VALUES = ["all", "mentions", "nothing"] as const
 export type NotificationLevelValue = typeof NOTIFICATION_LEVEL_VALUES[number]
+
+// Single source of truth for the notification-level value↔label bijection.
+// Each row ties the DB `value` to the identity `display` string that flows
+// through the UI props + mutations, plus the menu `label`/`hint` shown in the
+// dropdowns. EVERY UI options array, the display mapper, and the value
+// normaliser derive from this table — no surface may hand-roll its own copy.
+// This is what stops the A8 spelling drift ("All messages" vs "All Messages")
+// from ever recurring: there is exactly one place a spelling can live.
+export const NOTIF_LEVELS = [
+  { value: "all", display: "All Messages", label: "Every message", hint: "Notify for every new message" },
+  { value: "mentions", display: "Only @mentions", label: "Mentions only", hint: "Notify when someone @s you" },
+  { value: "nothing", display: "Nothing", label: "Muted", hint: "No notifications, no badges" },
+] as const satisfies readonly { value: NotificationLevelValue; display: string; label: string; hint: string }[]
+
+// The identity display strings ("All Messages" | "Only @mentions" | "Nothing").
+export type NotifLevel = typeof NOTIF_LEVELS[number]["display"]
+
+// UI-only sentinel for the CHANNEL notification dropdown: "inherit the server
+// default". It is NOT a persisted level — data-wise it means "no channel
+// override row". `mutations/notifications.ts` branches on this EXACT string to
+// DELETE the override row, so the literal must never drift; route every use
+// through this constant.
+export const USE_SERVER_DEFAULT = "Use Server Default"
+
+// value ("all"|…) → identity display string. Unknown input passes through
+// unchanged (forward-compat with a future level value).
+export function notifLevelDisplay(value: string): string {
+  return NOTIF_LEVELS.find((l) => l.value === value)?.display ?? value
+}
+
+// display string (or an already-normalised value) → DB value. The channel
+// sentinel must be intercepted by the caller before reaching here; any other
+// unrecognised input falls back to "mentions" (unchanged from the pre-H3
+// behaviour — this is intentionally NOT the DB default, so the mechanical
+// consolidation doesn't silently alter fall-through semantics).
+export function normalizeNotifLevel(input: string): NotificationLevelValue {
+  const byDisplay = NOTIF_LEVELS.find((l) => l.display === input)
+  if (byDisplay) return byDisplay.value
+  const byValue = NOTIF_LEVELS.find((l) => l.value === input)
+  if (byValue) return byValue.value
+  return "mentions"
+}
+
+// Thread/post participant source — how a user joined a thread's or post's
+// NOTIFY set (`community_thread_participant.source`). Single value source for
+// the literals; `ThreadParticipantSource` (queries/community/thread.ts) derives
+// from this via const-assert so the two can never drift.
+export const PARTICIPANT_SOURCE = {
+  MENTION: "mention",
+  SPOKE: "spoke",
+  ADDED: "added",
+} as const
+export type ParticipantSource = typeof PARTICIPANT_SOURCE[keyof typeof PARTICIPANT_SOURCE]
+
+// Mention row kind — an `@`-mention vs a reply to your message
+// (`community_mention.kind`). Drives the inbox row label. Single value source
+// for the literals; `MentionKind` derives from this via const-assert.
+export const MENTION_KIND = {
+  MENTION: "mention",
+  REPLY: "reply",
+} as const
+export type MentionKind = typeof MENTION_KIND[keyof typeof MENTION_KIND]
 
 // Cache headers
 export const CACHE_IMMUTABLE = "public, max-age=31536000, immutable"

@@ -157,6 +157,8 @@ export {
   PRESENCE_MEMBER_CAP,
   BANNER_COLOR_REGEX,
   NOTIFICATION_LEVEL_VALUES,
+  PARTICIPANT_SOURCE,
+  MENTION_KIND,
   TYPING_INDICATOR_TIMEOUT_MS,
   TYPING_INDICATOR_THROTTLE_MS,
   MESSAGE_DEDUP_CACHE_MAX,
@@ -166,7 +168,7 @@ export {
   CACHE_SHORT,
   CACHE_REVALIDATE,
 } from "./constants/community";
-export type { NotifLevel, NotificationLevelValue } from "./constants/community";
+export type { NotifLevel, NotificationLevelValue, ParticipantSource, MentionKind } from "./constants/community";
 
 export type {
   AgentStatusType,
@@ -243,6 +245,8 @@ export {
   CreateStudioRequestSchema,
   RecruitAgentRequestSchema,
   CreateThreadRequestSchema,
+  CreateChannelRequestSchema,
+  UpdateChannelRequestSchema,
   DaemonPushMessageSchema,
   CommunityMachineRuntimeSchema,
   CommunityMachineRuntimeListSchema,
@@ -275,8 +279,6 @@ export {
   CommunityAgentChannelMemberRequestSchema,
   CommunityAgentJoinServerRequestSchema,
   CommunityAgentReactAddRequestSchema,
-  CommunityAgentFriendRequestSchema,
-  CommunityAgentListFriendsSchema,
   CommunityAgentAttachmentUploadResponseSchema,
   CommunityAgentAttachmentDownloadRequestSchema,
   BotAuditEventSchema,
@@ -339,6 +341,8 @@ export type {
   CreateStudioRequest,
   RecruitAgentRequest,
   CreateThreadRequest,
+  CreateChannelRequest,
+  UpdateChannelRequest,
   DaemonPushMessageType,
   CommunityDaemonReady,
   CommunityPairTokenResponse,
@@ -389,7 +393,6 @@ export type {
   Channel as CommunityCliChannel,
   SenderType as CommunityCliSenderType,
   Sender as CommunityCliSender,
-  ChannelRef as CommunityCliChannelRef,
   Target as CommunityCliTarget,
   MessageContent as CommunityCliMessageContent,
   Message as CommunityCliMessage,
@@ -422,12 +425,11 @@ export type {
   SessionErrorFrame as CommunityCliSessionErrorFrame,
   HostControlChannel,
   AgentSessionReport,
-  ParsedRef as CommunityCliParsedRef,
   AgentActivityState,
   HostBotAuditEventFrame,
   BotAuditEventPayload,
-} from "./community-cli-contract";
-export { DM_SERVER, parseRef, formatRef, parseSeq, formatSeq } from "./community-cli-contract";
+} from "./community-contract";
+export { DM_SERVER, parseSeq, formatSeq } from "./community-contract";
 
 export type {
   ReasoningEffort,
@@ -569,15 +571,13 @@ export {
   isServerOwner,
   canSeePrivateChannel,
   isAssignableRole,
-  isChannelType,
   isForum,
-  isForumPost,
+  isPost,
   isThread,
   ROLES,
   ASSIGNABLE_ROLES,
-  CHANNEL_TYPES,
 } from "./utils/community-roles";
-export type { CommunityRole, ChannelType, StoredChannelType, AssignableRole } from "./utils/community-roles";
+export type { CommunityRole, ChannelType, TopLevelChannelType, ChildChannelType, AssignableRole } from "./utils/community-roles";
 export {
   isAccepted,
   isPending,

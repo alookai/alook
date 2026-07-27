@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
+import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
@@ -44,7 +44,7 @@ async function authorizeReaction(
   return { ok: false, status: 404, error: "message not found" }
 }
 
-export const PUT = withAuth(async (_req: NextRequest, ctx) => {
+export const PUT = withCommunityActor(async (_req: NextRequest, ctx) => {
   const messageId = ctx.params?.id
   const rawEmoji = ctx.params?.emoji
   if (!messageId || !rawEmoji) return writeError("missing params", 400)
@@ -88,7 +88,7 @@ export const PUT = withAuth(async (_req: NextRequest, ctx) => {
   return writeJSON(reaction)
 })
 
-export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
+export const DELETE = withCommunityActor(async (_req: NextRequest, ctx) => {
   const messageId = ctx.params?.id
   const rawEmoji = ctx.params?.emoji
   if (!messageId || !rawEmoji) return writeError("missing params", 400)

@@ -18,7 +18,7 @@ import { ServerSettings } from "@/components/community/server-settings"
 import { ImageCropDialog } from "@/components/community/image-crop-dialog"
 import { validateIconSourceFile } from "@/lib/community/image-crop"
 import type { MobileZone, SettingsSection } from "@/components/community/_types"
-import { canManageServer, type ChannelType } from "@alook/shared"
+import { canManageServer, type TopLevelChannelType } from "@alook/shared"
 import { resolveRowPresence } from "@/lib/community/presence"
 import {
   useCommunityStore,
@@ -39,6 +39,7 @@ import {
 } from "@/hooks/community/use-server-panels"
 import { useCommunityWsStore, useOnlineUserIds } from "@/stores/community/ws"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
+import { notifLevelDisplay } from "@alook/shared/constants/community"
 import {
   useCreateChannel,
   useDeleteChannel,
@@ -99,7 +100,11 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const presence = usePresence(serverId)
   const { online: initialOnline } = presence
   const notifs = useNotificationSettings()
-  const notifLevel = notifs.server[serverId] ?? "Only @mentions"
+  // R19: a server with no setting row is delivered at the climb terminus `all`
+  // server-side, so the UI fallback must be the `all` display value to match —
+  // otherwise the dropdown shows "Mentions only" for a server that's actually
+  // on "Every message".
+  const notifLevel = notifs.server[serverId] ?? notifLevelDisplay("all")
   const channelNotif = notifs.channel
   const currentChannelId = useCurrentChannelId()
   const currentChannelMeta = useCurrentChannelMeta()
@@ -294,7 +299,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     [channelNotif]
   )
 
-  const onCreateChannelInSidebar = useCallback(async (categoryId: string, name: string, type: ChannelType) => {
+  const onCreateChannelInSidebar = useCallback(async (categoryId: string, name: string, type: TopLevelChannelType) => {
     try {
       const res = await createChannelMut.mutateAsync({ serverId, categoryId, name, type })
       return res.channel.id

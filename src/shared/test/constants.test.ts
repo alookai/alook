@@ -6,6 +6,10 @@ import {
   IssueStatus, ACTIVE_ISSUE_STATUSES, TERMINAL_ISSUE_STATUSES, isTerminalIssueStatus,
   MeetingStatus, TERMINAL_MEETING_STATUSES,
 } from "../src/constants"
+import {
+  NOTIF_LEVELS, NOTIFICATION_LEVEL_VALUES, USE_SERVER_DEFAULT,
+  notifLevelDisplay, normalizeNotifLevel,
+} from "../src/constants/community"
 
 describe("constants", () => {
   it("OFFLINE_THRESHOLD_MS is 30s", () => expect(OFFLINE_THRESHOLD_MS).toBe(30_000))
@@ -89,6 +93,51 @@ describe("IssueStatus", () => {
     expect(isTerminalIssueStatus("todo")).toBe(false)
     expect(isTerminalIssueStatus("in_progress")).toBe(false)
     expect(isTerminalIssueStatus("review")).toBe(false)
+  })
+})
+
+describe("NOTIF_LEVELS single source (H3)", () => {
+  it("covers exactly the three DB level values, in order", () => {
+    expect(NOTIF_LEVELS.map((l) => l.value)).toEqual([...NOTIFICATION_LEVEL_VALUES])
+  })
+
+  it("uses the canonical display spellings (A8 regression — 'All Messages', capital M)", () => {
+    const display = Object.fromEntries(NOTIF_LEVELS.map((l) => [l.value, l.display]))
+    expect(display.all).toBe("All Messages")
+    expect(display.mentions).toBe("Only @mentions")
+    expect(display.nothing).toBe("Nothing")
+  })
+
+  it("notifLevelDisplay maps value → display, passes unknown through", () => {
+    expect(notifLevelDisplay("all")).toBe("All Messages")
+    expect(notifLevelDisplay("mentions")).toBe("Only @mentions")
+    expect(notifLevelDisplay("nothing")).toBe("Nothing")
+    expect(notifLevelDisplay("weird")).toBe("weird")
+  })
+
+  it("normalizeNotifLevel maps display → value and is idempotent on values", () => {
+    expect(normalizeNotifLevel("All Messages")).toBe("all")
+    expect(normalizeNotifLevel("Only @mentions")).toBe("mentions")
+    expect(normalizeNotifLevel("Nothing")).toBe("nothing")
+    expect(normalizeNotifLevel("all")).toBe("all")
+    expect(normalizeNotifLevel("mentions")).toBe("mentions")
+    expect(normalizeNotifLevel("nothing")).toBe("nothing")
+  })
+
+  it("normalizeNotifLevel cannot fall through 'All Messages' to 'mentions' (A8 bug)", () => {
+    // The A8 regression: a lowercase 'm' spelling fell through to 'mentions'.
+    // The single source guarantees the display spelling round-trips to 'all'.
+    expect(normalizeNotifLevel(notifLevelDisplay("all"))).toBe("all")
+  })
+
+  it("normalizeNotifLevel keeps the 'mentions' fall-through for unrecognised input", () => {
+    expect(normalizeNotifLevel("Use Server Default")).toBe("mentions")
+    expect(normalizeNotifLevel("garbage")).toBe("mentions")
+  })
+
+  it("USE_SERVER_DEFAULT is the channel inherit sentinel, not a real level", () => {
+    expect(USE_SERVER_DEFAULT).toBe("Use Server Default")
+    expect(NOTIFICATION_LEVEL_VALUES).not.toContain(USE_SERVER_DEFAULT as never)
   })
 })
 

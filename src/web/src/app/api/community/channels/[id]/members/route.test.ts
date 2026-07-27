@@ -156,7 +156,7 @@ describe("GET /channels/[id]/members", () => {
     // Post p1 authored by u2; the forum (anchor) is owned by u1. A public post's
     // panel is its participant set — NOT the whole server / access audience.
     mockResolveChannelAccessContext.mockResolvedValue({
-      channel: { id: "p1", serverId: "s1", type: "forum_post", parentChannelId: "f1", parentMessageId: null, creatorId: "u2" },
+      channel: { id: "p1", serverId: "s1", type: "post", parentChannelId: "f1", parentMessageId: null, creatorId: "u2" },
       anchor: { id: "f1", serverId: "s1", parentChannelId: null, creatorId: "u1" },
       role: "member", isPrivate: false, isChannelMember: false, isCreator: false,
     })
@@ -253,7 +253,7 @@ describe("POST /channels/[id]/members", () => {
 
   it("rejects adding to a forum POST (400): posts take participants, not members", async () => {
     mockResolveChannelAccessContext.mockResolvedValue({
-      channel: { id: "p1", serverId: "s1", type: "forum_post", parentChannelId: "f1", parentMessageId: null, creatorId: "u1" },
+      channel: { id: "p1", serverId: "s1", type: "post", parentChannelId: "f1", parentMessageId: null, creatorId: "u1" },
       anchor: { id: "f1", serverId: "s1", parentChannelId: null, creatorId: "u1" },
       role: "member", isPrivate: true, isChannelMember: true, isCreator: true,
     })

@@ -111,8 +111,8 @@ export interface AgentRouterOpts {
   logger?: Logger;
 }
 
-function defaultFormatUnreadNoticeText(notice: UnreadNotice): string {
-  return `You have unread messages in channel ${notice.channel}.`;
+function defaultFormatUnreadNoticeText(): string {
+  return "You have unread messages.";
 }
 
 /**
@@ -300,7 +300,8 @@ export class AgentRouter {
       case "agent:wake":
         this.log.info("agent:wake received", {
           agentId: cmd.agentId,
-          channel: cmd.unreadNotice.channel,
+          channelId: cmd.unreadNotice.channelId,
+          dmConversationId: cmd.unreadNotice.dmConversationId,
           latestSeq: cmd.unreadNotice.latestSeq,
         });
         try {

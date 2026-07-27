@@ -59,7 +59,7 @@ describe("daemon credential chain — real local proxy against the real web app"
 
     const page = await api.read({
       agentId: fixture.bot.botUserId,
-      channel: `/${fixture.serverId}/${fixture.channelName}`,
+      channelId: fixture.channelId,
     })
     expect(Array.isArray(page.items)).toBe(true)
     expect(typeof page.hasMore).toBe("boolean")

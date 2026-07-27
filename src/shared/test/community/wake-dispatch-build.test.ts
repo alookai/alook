@@ -85,7 +85,7 @@ function seedHappyPath(overrides?: {
   mockCanBotReadWakeScope.mockResolvedValue(overrides?.canRead ?? true);
   mockGetWakeReadSeq.mockResolvedValue(overrides?.readSeq ?? 0);
   mockResolveUnreadNoticeChannel.mockResolvedValue(
-    overrides?.channel === undefined ? "/srv_1/general" : overrides.channel,
+    overrides?.channel === undefined ? "ch_1" : overrides.channel,
   );
   // Audit path best-effort defaults — happy replies so the wake still fires.
   mockGetUsersByIds.mockResolvedValue([{ id: "u_human", name: "gustavo", discriminator: "0042" }]);
@@ -109,7 +109,7 @@ describe("buildUnreadWakeCommand", () => {
     expect(result.command).toMatchObject({
       type: "agent:wake",
       agentId: "bot_1",
-      unreadNotice: { kind: "unread_notice", channel: "/srv_1/general", latestSeq: 7 },
+      unreadNotice: { kind: "unread_notice", channelId: "ch_1", latestSeq: 7 },
     });
     if (result.command.type !== "agent:wake") throw new Error("expected agent:wake");
     expect(typeof result.command.launchId).toBe("string");
@@ -127,7 +127,7 @@ describe("buildUnreadWakeCommand", () => {
   it("ready: resolves a DM scope when the message has no channelId", async () => {
     seedHappyPath({
       message: { channelId: null, dmConversationId: "dm_1" },
-      channel: "/.dm/gustavo#0042",
+      channel: "dm_1",
     });
 
     const result = await buildUnreadWakeCommand(fakeDb, { messageId: "msg_1", botUserId: "bot_1" });
@@ -137,7 +137,6 @@ describe("buildUnreadWakeCommand", () => {
     if (result.command.type !== "agent:wake") throw new Error("expected agent:wake");
     expect(result.command.unreadNotice).toEqual({
       kind: "unread_notice",
-      channel: "/.dm/gustavo#0042",
       latestSeq: 7,
       dmConversationId: "dm_1",
     });
@@ -146,14 +145,14 @@ describe("buildUnreadWakeCommand", () => {
   });
 
   it("ready: resolves a thread scope (channelId still set — thread channels ARE channels)", async () => {
-    seedHappyPath({ channel: "/srv_1/general/#3" });
+    seedHappyPath({ channel: "ch_1" });
 
     const result = await buildUnreadWakeCommand(fakeDb, { messageId: "msg_1", botUserId: "bot_1" });
 
     expect(result.state).toBe("ready");
     if (result.state !== "ready") throw new Error("expected ready");
     if (result.command.type !== "agent:wake") throw new Error("expected agent:wake");
-    expect(result.command.unreadNotice.channel).toBe("/srv_1/general/#3");
+    expect(result.command.unreadNotice.channelId).toBe("ch_1");
     expect(result.command.unreadNotice.dmConversationId).toBeUndefined();
   });
 
@@ -257,7 +256,7 @@ describe("buildUnreadWakeCommand", () => {
     expect(result).toEqual({ state: "skip", reason: "already_read" });
   });
 
-  it("skip: notice_channel_unresolvable when the scope can't be strictly resolved to a ChannelRef (never falls back to /unknown/...)", async () => {
+  it("skip: notice_channel_unresolvable when the scope can't be strictly resolved to an id (never a placeholder)", async () => {
     seedHappyPath({ channel: null });
 
     const result = await buildUnreadWakeCommand(fakeDb, { messageId: "msg_1", botUserId: "bot_1" });
@@ -293,7 +292,7 @@ describe("buildUnreadWakeCommand", () => {
       botId: "bot_1",
       payload: {
         messageId: "msg_1",
-        channel: "/srv_1/general",
+        channel: "ch_1",
         seq: 7,
         senderId: "u_human",
         senderHandle: "@gustavo#0042",
@@ -363,7 +362,7 @@ describe("buildUnreadWakeCommand", () => {
       kind: "wake_trigger",
       payload: {
         messageId: "msg_1",
-        channel: "/srv_1/general",
+        channel: "ch_1",
         seq: 7,
         reason: "unread",
       },

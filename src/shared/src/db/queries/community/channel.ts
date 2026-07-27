@@ -97,7 +97,7 @@ export async function getChannel(db: Database, channelId: string) {
   return row ? mapChannelRow(row) : null;
 }
 
-// Just the `type` of a channel ("text" | "forum" | "forum_post" | "thread" |
+// Just the `type` of a channel ("text" | "forum" | "post" | "thread" |
 // null). A one-column probe for hot paths that only need to branch by type
 // (e.g. fan-out routing a thread to its participant set). Returns null when the
 // channel doesn't exist.
@@ -140,7 +140,7 @@ export async function getChannelForMember(db: Database, channelId: string, userI
   const { memberRole, ...channelRow } = row;
 
   // Unified model — the anchor (`parentChannelId ?? id`) is both the privacy and
-  // roster anchor. A forum_post/thread climbs to its parent forum/channel for
+  // roster anchor. A post/thread climbs to its parent forum/channel for
   // BOTH the category-privacy flag and the roster (member rows + creator); a
   // top-level channel/forum is its own anchor. The single query below reads that
   // anchor and its creator.
@@ -212,73 +212,6 @@ export async function listServerChannels(db: Database, serverId: string) {
     .where(and(eq(communityChannel.serverId, serverId), isNull(communityChannel.parentChannelId)))
     .orderBy(asc(communityChannel.position));
   return rows.map(mapChannelRow);
-}
-
-/**
- * `resolveTargetForMember`'s channel-name resolver: matches by NAME only,
- * scoped to top-level channels (`parentChannelId IS NULL`) — mirrors the
- * DB partial-unique index `idx_channel_server_name` from migration 0057.
- *
- * Ids are NOT accepted from agent surfaces. Agents address channels via
- * the canonical ref grammar (`/server/channel`, `/server/channel/#seq`);
- * ids are a `/c` UI internal. Threads and forum posts must be reached
- * through their parent + `#seq`, never by direct name or id here.
- *
- * The returned array is length 0 or 1: the WHERE clause narrows to a single
- * `(serverId, name)` slot within the top-level partition, and the partial
- * unique index `idx_channel_server_name` (migration 0057) guarantees that
- * slot holds at most one row. The caller returns `channel not found` on
- * empty and passes the single row through otherwise. Visibility-scoped to
- * `userId`'s server membership.
- */
-export async function resolveChannelByNameForMember(
-  db: Database,
-  serverId: string,
-  userId: string,
-  name: string
-) {
-  const rows = await db
-    .select(CHANNEL_COLUMNS)
-    .from(communityChannel)
-    .innerJoin(
-      communityServerMember,
-      and(
-        eq(communityServerMember.serverId, communityChannel.serverId),
-        eq(communityServerMember.userId, userId)
-      )
-    )
-    .where(
-      and(
-        eq(communityChannel.serverId, serverId),
-        eq(communityChannel.name, name),
-        isNull(communityChannel.parentChannelId)
-      )
-    );
-  return rows.map(mapChannelRow);
-}
-
-/**
- * Top-level channels (no threads — `parentChannelId IS NULL`, mirroring
- * `listServerChannels`) a viewer can see via `listChannels`, scoped to server
- * membership AND private-channel visibility: a channel in a PRIVATE category is
- * only returned if the viewer is an admin, the channel's creator, or has a
- * `community_channel_member` row for it. Public/uncategorized channels are
- * visible to any server member. This is the human-tree rule
- * (`listServerChannelsForViewer`) applied to the bot/agent surface.
- */
-export async function listChannelsForMember(db: Database, serverId: string, userId: string) {
-  const member = await db
-    .select({ role: communityServerMember.role })
-    .from(communityServerMember)
-    .where(
-      and(
-        eq(communityServerMember.serverId, serverId),
-        eq(communityServerMember.userId, userId)
-      )
-    )
-    .limit(1);
-  if (member.length === 0) return [];
-  return listServerChannelsForViewer(db, serverId, userId);
 }
 
 /**
@@ -578,7 +511,7 @@ export async function countChannelsInCategory(
 /**
  * The full recipient audience for a PRIVATE channel: explicit members ∪ the
  * unit's creator. Unified model — a unit's roster is always its anchor's
- * (`parentChannelId ?? id`), so a forum_post/thread inherits its parent
+ * (`parentChannelId ?? id`), so a post/thread inherits its parent
  * forum/channel's roster. Only meaningful for a private anchor; callers guard on
  * `isChannelPrivate` first (fan-out short-circuits public channels to
  * `listMemberUserIds` and never calls this).
@@ -607,10 +540,10 @@ export async function getPrivateChannelAudienceUserIds(
 
   // Unified access model — a unit's roster is always its anchor's roster:
   //   - forum / text channel → its OWN explicit members ∪ its OWN creator.
-  //   - forum_post / thread  → climbs `parentChannelId` to the anchor (the
+  //   - post / thread  → climbs `parentChannelId` to the anchor (the
   //     forum / parent channel) and uses THAT roster — a post inherits the
   //     forum's audience exactly like a thread inherits its channel's.
-  // No derived union, no per-post roster: forum ≈ channel, forum_post ≈ thread.
+  // No derived union, no per-post roster: forum ≈ channel, post ≈ thread.
   const rosterAnchorId = target[0]!.parentChannelId ?? target[0]!.id;
   const rosterCreatorId =
     rosterAnchorId === target[0]!.id
@@ -845,7 +778,7 @@ export async function resolveChannelAccessContext(
   const anchor = mapChannelRow(anchorRows[0]!);
 
   // Unified model — privacy anchor == roster anchor == `parentChannelId ?? id`.
-  // A forum_post/thread climbs to its parent (forum/channel) for BOTH the
+  // A post/thread climbs to its parent (forum/channel) for BOTH the
   // category-privacy flag and the roster; a forum/top-level channel is its own
   // anchor. So post access is pure inheritance from the forum, exactly like a
   // thread inherits its channel — no per-post roster, no forum-derived union.

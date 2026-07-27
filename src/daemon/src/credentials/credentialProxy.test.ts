@@ -52,11 +52,11 @@ describe("DEFAULT_CAPABILITY_RESOLVER", () => {
     expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/agent/reactAdd")).toBe("send");
   });
 
-  it("maps friendRequest / listFriends to the `friend` capability, both pre- and post-rewrite", () => {
-    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/friendRequest")).toBe("friend");
-    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/listFriends")).toBe("friend");
-    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/agent/friendRequest")).toBe("friend");
-    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/agent/listFriends")).toBe("friend");
+  it("maps the friend REST routes to the `friend` capability", () => {
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/friends/request")).toBe("friend");
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/friends")).toBe("friend");
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/friends/pending")).toBe("friend");
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/friends/presence")).toBe("friend");
   });
 });
 
@@ -186,21 +186,46 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     expect(upstream.seen.length).toBe(0);
   });
 
-  it("rewrites /api/* to /api/community/agent/* (design §9)", async () => {
+  it("forwards every path untouched — no agent-RPC rewrite survives", async () => {
+    const upstream = await startUpstream();
+    upstreamClose = upstream.close;
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    proxy = await startCredentialProxy(broker);
+    const reg = broker.mint("agent-1", "l", ["send", "read", "friend", "server"], REAL_KEY);
+
+    // listChannels is no longer a survivor — the CLI now composes it from the
+    // human `GET /servers` + `GET /servers/:id` REST routes, which pass through.
+    await post(proxy.url, reg.voucher, "/api/community/servers");
+    expect(upstream.seen.at(-1)!.path).toBe("/api/community/servers");
+
+    // The friend methods emit the human REST friend routes directly, untouched.
+    await post(proxy.url, reg.voucher, "/api/friendRequest");
+    expect(upstream.seen.at(-1)!.path).toBe("/api/friendRequest");
+
+    await post(proxy.url, reg.voucher, "/api/listFriends");
+    expect(upstream.seen.at(-1)!.path).toBe("/api/listFriends");
+
+    // inboxPull passes through untouched (the CLI composes it from the REST
+    // /inbox/unreads + per-scope /messages routes).
+    await post(proxy.url, reg.voucher, "/api/inboxPull?max=10");
+    expect(upstream.seen.at(-1)!.path).toBe("/api/inboxPull?max=10");
+  });
+
+  it("passes the REST community routes through untouched (no rewrite)", async () => {
     const upstream = await startUpstream();
     upstreamClose = upstream.close;
     const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
     proxy = await startCredentialProxy(broker);
     const reg = broker.mint("agent-1", "l", ["send", "read"], REAL_KEY);
 
+    // `send` is no longer a flat RPC method — the CLI emits it as a REST path,
+    // which must pass through with no `/agent/` rewrite.
+    await post(proxy.url, reg.voucher, "/api/community/channels/ch_1/messages");
+    expect(upstream.seen.at(-1)!.path).toBe("/api/community/channels/ch_1/messages");
+
+    // A bare `/api/send` is not one of the survivors either — unchanged.
     await post(proxy.url, reg.voucher, "/api/send");
-    expect(upstream.seen.at(-1)!.path).toBe("/api/community/agent/send");
-
-    await post(proxy.url, reg.voucher, "/api/inboxPull?max=10");
-    expect(upstream.seen.at(-1)!.path).toBe("/api/community/agent/inboxPull?max=10");
-
-    await post(proxy.url, reg.voucher, "/api");
-    expect(upstream.seen.at(-1)!.path).toBe("/api/community/agent");
+    expect(upstream.seen.at(-1)!.path).toBe("/api/send");
   });
 
   it("leaves non-/api paths untouched", async () => {

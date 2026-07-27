@@ -6,6 +6,8 @@ vi.mock("@opennextjs/cloudflare", () => ({
 }))
 
 const mockResolveChannelAccessContext = vi.fn()
+const mockGetChannel = vi.fn()
+const mockGetChannelForMember = vi.fn()
 const mockIsChannelPrivate = vi.fn(() => false)
 const mockGetCategory = vi.fn()
 const mockUpdateChannel = vi.fn()
@@ -29,6 +31,8 @@ vi.mock("@alook/shared", async () => {
         updateChannel: (...a: unknown[]) => mockUpdateChannel(...a),
         deleteChannel: (...a: unknown[]) => mockDeleteChannel(...a),
         getPrivateChannelAudienceUserIds: (...a: unknown[]) => mockGetPrivateChannelAudienceUserIds(...a),
+        getChannel: (...a: unknown[]) => mockGetChannel(...a),
+        getChannelForMember: (...a: unknown[]) => mockGetChannelForMember(...a),
       },
       communityCategory: { getCategory: (...a: unknown[]) => mockGetCategory(...a) },
     },
@@ -60,7 +64,7 @@ vi.mock("@/lib/middleware/helpers", () => {
   }
 })
 
-import { PATCH, DELETE } from "./route"
+import { GET, PATCH, DELETE } from "./route"
 
 const ctx = { params: { id: "c1" } } as any
 function patchReq(body: unknown) {
@@ -183,7 +187,7 @@ describe("PATCH /channels/[id] — permission gate", () => {
 // canManage=false (canManage = isAdmin || (isPrivate && isCreator)), but may
 // still edit THAT post's `forumTags` — and nothing else.
 function forumPostCtx(over: { isCreator?: boolean; type?: string } = {}) {
-  const { isCreator = true, type = "forum_post" } = over
+  const { isCreator = true, type = "post" } = over
   const channel = {
     id: "c1", serverId: "s1", type, parentChannelId: "forum_1",
     parentMessageId: null, creatorId: isCreator ? "u1" : "someone_else", categoryId: null,
@@ -207,9 +211,10 @@ describe("PATCH /channels/[id] — forum-post tag carve-out", () => {
 
   it("a public post's creator (no canManage) can edit that post's tags", async () => {
     mockResolveChannelAccessContext.mockResolvedValue(forumPostCtx({ isCreator: true }))
-    const res = await PATCH(patchReq({ forumTags: JSON.stringify(["Alpha", "alpha", " beta "]) }), ctx)
+    const res = await PATCH(patchReq({ forumTags: ["Alpha", "alpha", " beta "] }), ctx)
     expect(res.status).toBe(200)
-    // Normalized: lowercased, trimmed, deduped.
+    // Normalized: lowercased, trimmed, deduped — persisted as the stringified
+    // JSON the read side (`safeParseForumTags`) expects.
     expect(mockUpdateChannel).toHaveBeenCalledWith(expect.anything(), "c1", {
       forumTags: JSON.stringify(["alpha", "beta"]),
     })
@@ -224,7 +229,7 @@ describe("PATCH /channels/[id] — forum-post tag carve-out", () => {
 
   it("a non-creator non-manager cannot edit the post's tags (403)", async () => {
     mockResolveChannelAccessContext.mockResolvedValue(forumPostCtx({ isCreator: false }))
-    const res = await PATCH(patchReq({ forumTags: JSON.stringify(["x"]) }), ctx)
+    const res = await PATCH(patchReq({ forumTags: ["x"] }), ctx)
     expect(res.status).toBe(403)
     expect(mockUpdateChannel).not.toHaveBeenCalled()
   })
@@ -238,23 +243,23 @@ describe("PATCH /channels/[id] — forum-post tag carve-out", () => {
       ...forumPostCtx({ isCreator: false }), // post authored by "someone_else"
       isCreator: true, // but caller u1 IS the forum/anchor creator (access flag)
     })
-    const res = await PATCH(patchReq({ forumTags: JSON.stringify(["x"]) }), ctx)
+    const res = await PATCH(patchReq({ forumTags: ["x"] }), ctx)
     expect(res.status).toBe(403)
     expect(mockUpdateChannel).not.toHaveBeenCalled()
   })
 
-  it("rejects forumTags on a non-forum_post channel (400)", async () => {
+  it("rejects forumTags on a non-post channel (400)", async () => {
     // A manager editing a plain text channel: canManage true, but tags are a
     // per-post concept only.
     mockResolveChannelAccessContext.mockResolvedValue(accessCtx({ role: "admin", canManage: true }))
-    const res = await PATCH(patchReq({ forumTags: JSON.stringify(["x"]) }), ctx)
+    const res = await PATCH(patchReq({ forumTags: ["x"] }), ctx)
     expect(res.status).toBe(400)
     expect(mockUpdateChannel).not.toHaveBeenCalled()
   })
 
   it("rejects a malformed forumTags payload (not a JSON string array) with 400", async () => {
     mockResolveChannelAccessContext.mockResolvedValue(forumPostCtx({ isCreator: true }))
-    const res = await PATCH(patchReq({ forumTags: JSON.stringify([1, 2]) }), ctx)
+    const res = await PATCH(patchReq({ forumTags: [1, 2] }), ctx)
     expect(res.status).toBe(400)
     expect(mockUpdateChannel).not.toHaveBeenCalled()
   })
@@ -355,7 +360,7 @@ describe("DELETE /channels/[id]", () => {
     expect(mockFanOutToServerMembers).not.toHaveBeenCalled()
   })
 
-  it("admin deletes any forum_post → 204 and broadcasts", async () => {
+  it("admin deletes any post → 204 and broadcasts", async () => {
     mockResolveChannelAccessContext.mockResolvedValue(
       accessCtx({ role: "admin", canManage: true, creatorId: "someone_else" }),
     )
@@ -365,14 +370,14 @@ describe("DELETE /channels/[id]", () => {
     expect(mockFanOutToServerMembers).toHaveBeenCalled()
   })
 
-  it("a PUBLIC forum_post's creator (no canManage) can delete it via the carve-out", async () => {
+  it("a PUBLIC post's creator (no canManage) can delete it via the carve-out", async () => {
     mockResolveChannelAccessContext.mockResolvedValue(forumPostCtx({ isCreator: true }))
     const res = await DELETE(delReq(), ctx)
     expect(res.status).toBe(204)
     expect(mockDeleteChannel).toHaveBeenCalledWith(expect.anything(), "c1")
   })
 
-  it("a private forum_post's creator can delete it (canManage already true)", async () => {
+  it("a private post's creator can delete it (canManage already true)", async () => {
     // Private post creator: canManage = isPrivate && isCreator → true anyway.
     mockResolveChannelAccessContext.mockResolvedValue({
       ...forumPostCtx({ isCreator: true }),
@@ -385,7 +390,7 @@ describe("DELETE /channels/[id]", () => {
     expect(mockDeleteChannel).toHaveBeenCalled()
   })
 
-  it("a non-creator non-admin cannot delete a forum_post → 403", async () => {
+  it("a non-creator non-admin cannot delete a post → 403", async () => {
     mockResolveChannelAccessContext.mockResolvedValue(forumPostCtx({ isCreator: false }))
     const res = await DELETE(delReq(), ctx)
     expect(res.status).toBe(403)
@@ -416,12 +421,53 @@ describe("DELETE /channels/[id]", () => {
     })
   })
 
-  it("the carve-out does NOT let a non-creator delete a normal (non-forum_post) channel", async () => {
+  it("the carve-out does NOT let a non-creator delete a normal (non-post) channel", async () => {
     // canManage=false + type="text" + not creator → still 403 (carve-out is
-    // scoped to forum_post only).
+    // scoped to post only).
     mockResolveChannelAccessContext.mockResolvedValue(accessCtx({ canManage: false }))
     const res = await DELETE(delReq(), ctx)
     expect(res.status).toBe(403)
     expect(mockDeleteChannel).not.toHaveBeenCalled()
+  })
+})
+
+// B6b — GET returns the bare channel object, and preserves the two-step
+// 404-vs-403 gate (unknown → 404, known + non-member → 403) so a single
+// requireChannelAccess doesn't collapse the two codes.
+describe("GET /channels/[id] — B6b read + 404-vs-403 gate", () => {
+  function getReq() {
+    return new NextRequest("http://localhost/api/community/channels/c1")
+  }
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  for (const type of ["text", "forum", "post", "thread"] as const) {
+    it(`returns the bare channel object for a ${type} channel`, async () => {
+      const channel = { id: "c1", serverId: "s1", type, name: type }
+      mockGetChannel.mockResolvedValue(channel)
+      // requireChannelMember → getChannelForMember returns the row when a member
+      mockGetChannelForMember.mockResolvedValue(channel)
+      const res = await GET(getReq(), ctx)
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body.id).toBe("c1")
+      expect(body.type).toBe(type)
+    })
+  }
+
+  it("404 when the channel doesn't exist", async () => {
+    mockGetChannel.mockResolvedValue(null)
+    const res = await GET(getReq(), ctx)
+    expect(res.status).toBe(404)
+    // never reaches the membership check
+    expect(mockGetChannelForMember).not.toHaveBeenCalled()
+  })
+
+  it("403 when the channel exists but the caller isn't a member (e.g. private forum post)", async () => {
+    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1", type: "post", parentChannelId: "forum1" })
+    mockGetChannelForMember.mockResolvedValue(null) // non-member / private climb denies
+    const res = await GET(getReq(), ctx)
+    expect(res.status).toBe(403)
   })
 })

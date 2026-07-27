@@ -8,6 +8,7 @@ import {
   communityMessage,
 } from "../../community-schema";
 import { user } from "../../schema";
+import { MENTION_KIND } from "../../../constants/community";
 import type { Database } from "../../index";
 
 export async function createServer(
@@ -136,7 +137,7 @@ export async function listUserServers(db: Database, userId: string) {
       and(
         eq(communityMention.userId, userId),
         eq(communityMention.read, 0),
-        eq(communityMention.kind, "mention")
+        eq(communityMention.kind, MENTION_KIND.MENTION)
       )
     )
     .groupBy(communityChannel.serverId)

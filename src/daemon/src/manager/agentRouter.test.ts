@@ -105,11 +105,11 @@ describe("AgentRouter — agent:wake", () => {
       agentId: "a1",
       config: { version: 1, runtime: "mock", model: { kind: "default" }, mode: { kind: "default" } },
       launchId: "l1",
-      unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 7 },
+      unreadNotice: { kind: "unread_notice", channelId: "ch_demo", latestSeq: 7 },
     });
 
     expect(registers).toEqual([{ agentId: "a1", sessionId: undefined, launchId: "l1" }]);
-    expect(delivers).toEqual([{ agentId: "a1", text: "You have unread messages in channel /demo/general.", seq: 7 }]);
+    expect(delivers).toEqual([{ agentId: "a1", text: "You have unread messages.", seq: 7 }]);
     expect(wakeAcks).toEqual([{ agentId: "a1", launchId: "l1", status: "ok" }]);
   });
 
@@ -120,7 +120,7 @@ describe("AgentRouter — agent:wake", () => {
       manager: mgr,
       channel: ch,
       runtimeReport: [{ id: "mock" }],
-      formatUnreadNoticeText: (notice) => `custom: ${notice.channel}#${notice.latestSeq}`,
+      formatUnreadNoticeText: (notice) => `custom: ${notice.channelId}#${notice.latestSeq}`,
     });
     await router.start();
 
@@ -129,10 +129,10 @@ describe("AgentRouter — agent:wake", () => {
       agentId: "a1",
       config: { version: 1, runtime: "mock", model: { kind: "default" }, mode: { kind: "default" } },
       launchId: "l1",
-      unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 7 },
+      unreadNotice: { kind: "unread_notice", channelId: "ch_demo", latestSeq: 7 },
     });
 
-    expect(delivers).toEqual([{ agentId: "a1", text: "custom: /demo/general#7", seq: 7 }]);
+    expect(delivers).toEqual([{ agentId: "a1", text: "custom: ch_demo#7", seq: 7 }]);
   });
 
   it("repeated agent:wake commands for the same agent each register + deliver again (no dedup — no deliveryId anymore)", async () => {
@@ -146,7 +146,7 @@ describe("AgentRouter — agent:wake", () => {
       agentId: "a1",
       config: { version: 1, runtime: "mock", model: { kind: "default" }, mode: { kind: "default" } },
       launchId: "l1",
-      unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 7 },
+      unreadNotice: { kind: "unread_notice", channelId: "ch_demo", latestSeq: 7 },
     };
     await fire(wake);
     await fire(wake);
@@ -311,7 +311,7 @@ describe("AgentRouter — unknown runtime → session.error", () => {
       agentId: "a1",
       config: { version: 1, runtime: "gemini", model: { kind: "default" }, mode: { kind: "default" } },
       launchId: "l1",
-      unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 1 },
+      unreadNotice: { kind: "unread_notice", channelId: "ch_demo", latestSeq: 1 },
     });
 
     expect(sessionErrors.length).toBe(1);
@@ -511,12 +511,12 @@ describe("AgentRouter — logging", () => {
       agentId: "a1",
       config: { version: 1, runtime: "mock", model: { kind: "default" }, mode: { kind: "default" } },
       launchId: "l1",
-      unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 7 },
+      unreadNotice: { kind: "unread_notice", channelId: "ch_demo", latestSeq: 7 },
     });
 
     expect(
       logger.calls.info.some(
-        ([m, d]) => m === "agent:wake received" && (d[0] as any).agentId === "a1" && (d[0] as any).channel === "/demo/general",
+        ([m, d]) => m === "agent:wake received" && (d[0] as any).agentId === "a1" && (d[0] as any).channelId === "ch_demo",
       ),
     ).toBe(true);
     expect(logger.calls.info.some(([m, d]) => m === "agent:wake ack" && (d[0] as any).status === "ok")).toBe(true);
@@ -542,7 +542,7 @@ describe("AgentRouter — logging", () => {
       agentId: "a1",
       config: { version: 1, runtime: "gemini", model: { kind: "default" }, mode: { kind: "default" } },
       launchId: "l1",
-      unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 1 },
+      unreadNotice: { kind: "unread_notice", channelId: "ch_demo", latestSeq: 1 },
     });
 
     expect(logger.calls.info.some(([m, d]) => m === "agent:wake ack" && (d[0] as any).status === "error")).toBe(
@@ -627,7 +627,6 @@ describe("AgentRouter — bot typing indicator", () => {
       launchId: "l1",
       unreadNotice: {
         kind: "unread_notice",
-        channel: "/.dm/peer#0042",
         latestSeq: 1,
         dmConversationId: "dm_1",
       },
@@ -657,7 +656,6 @@ describe("AgentRouter — bot typing indicator", () => {
       launchId: "l2",
       unreadNotice: {
         kind: "unread_notice",
-        channel: "/.dm/peer2#0042",
         latestSeq: 3,
         dmConversationId: "dm_2",
       },
@@ -684,7 +682,6 @@ describe("AgentRouter — bot typing indicator", () => {
       launchId: "l3",
       unreadNotice: {
         kind: "unread_notice",
-        channel: "/.dm/peer#0042",
         latestSeq: 4,
         dmConversationId: "dm_1",
       },
@@ -710,7 +707,7 @@ describe("AgentRouter — bot typing indicator", () => {
       launchId: "l4",
       unreadNotice: {
         kind: "unread_notice",
-        channel: "/srv_1/general",
+        channelId: "ch_general",
         latestSeq: 5,
       },
     });

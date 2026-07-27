@@ -1,6 +1,7 @@
 export type CommunityRole = "owner" | "admin" | "member"
-export type ChannelType = "text" | "forum"
-export type StoredChannelType = "text" | "forum" | "forum_post" | "thread"
+export type ChannelType = "text" | "forum" | "post" | "thread"
+export type TopLevelChannelType = "text" | "forum"
+export type ChildChannelType = "post" | "thread"
 
 export const ROLES = {
   OWNER: "owner",
@@ -10,8 +11,6 @@ export const ROLES = {
 
 export const ASSIGNABLE_ROLES = ["admin", "member"] as const
 export type AssignableRole = typeof ASSIGNABLE_ROLES[number]
-
-export const CHANNEL_TYPES = ["text", "forum"] as const
 
 export function canManageServer(role?: string | null): boolean {
   return role === ROLES.OWNER || role === ROLES.ADMIN
@@ -48,16 +47,12 @@ export function isAssignableRole(role: unknown): role is AssignableRole {
   return typeof role === "string" && (ASSIGNABLE_ROLES as readonly string[]).includes(role)
 }
 
-export function isChannelType(t: unknown): t is ChannelType {
-  return typeof t === "string" && (CHANNEL_TYPES as readonly string[]).includes(t)
-}
-
 export function isForum(t: string | null | undefined): boolean {
   return t === "forum"
 }
 
-export function isForumPost(t: string | null | undefined): boolean {
-  return t === "forum_post"
+export function isPost(t: string | null | undefined): boolean {
+  return t === "post"
 }
 
 export function isThread(t: string | null | undefined): boolean {

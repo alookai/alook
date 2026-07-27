@@ -333,6 +333,26 @@ export async function sendRequest(
   const flags = await loadBotFlags(db, [data.requesterId, data.addresseeId]);
   const requester = flags.get(data.requesterId);
   const addressee = flags.get(data.addresseeId);
+
+  // Sibling bots (same owner) auto-accept with no gate and no card — the one
+  // sibling path, shared by every caller. Delegate to `ensureSiblingBotFriendship`
+  // (also called by the createBot backfill) so both entry points stay in sync.
+  if (
+    requester?.isBot &&
+    addressee?.isBot &&
+    requester.ownerUserId &&
+    requester.ownerUserId === addressee.ownerUserId
+  ) {
+    const sib = await ensureSiblingBotFriendship(db, {
+      botA: data.requesterId,
+      botB: data.addresseeId,
+    });
+    if (sib.blocked) throw new Error("blocked");
+    const friendship = await getFriendship(db, sib.friendshipId);
+    if (!friendship) throw new Error("already friends");
+    return { kind: "auto_accepted", friendship, broadcasts: [], supersededIds: [] };
+  }
+
   let needsOwnerApproval: string | null = null;
   if (requester?.isBot) {
     needsOwnerApproval = requester.ownerUserId;
@@ -669,6 +689,7 @@ export async function listFriends(db: Database, userId: string) {
       friendEmail: user.email,
       friendImage: user.image,
       friendDiscriminator: user.discriminator,
+      aboutMe: communityUserProfile.aboutMe,
       statusEmoji: communityUserProfile.statusEmoji,
       statusText: communityUserProfile.statusText,
     })
@@ -691,6 +712,7 @@ export async function listFriends(db: Database, userId: string) {
       friendEmail: user.email,
       friendImage: user.image,
       friendDiscriminator: user.discriminator,
+      aboutMe: communityUserProfile.aboutMe,
       statusEmoji: communityUserProfile.statusEmoji,
       statusText: communityUserProfile.statusText,
     })
@@ -717,6 +739,7 @@ export async function listFriends(db: Database, userId: string) {
       botEmail: user.email,
       botImage: user.image,
       botDiscriminator: user.discriminator,
+      aboutMe: communityUserProfile.aboutMe,
       statusEmoji: communityUserProfile.statusEmoji,
       statusText: communityUserProfile.statusText,
     })
@@ -736,6 +759,7 @@ export async function listFriends(db: Database, userId: string) {
     friendEmail: b.botEmail,
     friendImage: b.botImage,
     friendDiscriminator: b.botDiscriminator,
+    aboutMe: b.aboutMe,
     statusEmoji: b.statusEmoji,
     statusText: b.statusText,
   }));
@@ -965,7 +989,11 @@ export async function listPending(db: Database, userId: string) {
     id: communityFriendship.id,
     userId: user.id,
     name: user.name,
+    discriminator: user.discriminator,
     image: user.image,
+    aboutMe: communityUserProfile.aboutMe,
+    statusEmoji: communityUserProfile.statusEmoji,
+    statusText: communityUserProfile.statusText,
     createdAt: communityFriendship.createdAt,
     needsOwnerApproval: communityFriendship.needsOwnerApproval,
     requesterId: communityFriendship.requesterId,
@@ -975,6 +1003,7 @@ export async function listPending(db: Database, userId: string) {
     .select(rowProjection)
     .from(communityFriendship)
     .innerJoin(user, eq(user.id, communityFriendship.requesterId))
+    .leftJoin(communityUserProfile, eq(communityUserProfile.userId, user.id))
     .where(
       and(
         eq(communityFriendship.addresseeId, userId),
@@ -989,6 +1018,7 @@ export async function listPending(db: Database, userId: string) {
     .select(rowProjection)
     .from(communityFriendship)
     .innerJoin(user, eq(user.id, communityFriendship.addresseeId))
+    .leftJoin(communityUserProfile, eq(communityUserProfile.userId, user.id))
     .where(
       and(
         inArray(communityFriendship.requesterId, outgoingRequesterIds),
@@ -1333,107 +1363,6 @@ export async function ensureSiblingBotFriendship(
   const s2 = await findActive(db, data.botA, data.botB);
   if (s2 && isBlockedStatus(s2.status)) return { blocked: true };
   return { blocked: false, friendshipId: s2?.id ?? newId, wasCreated: false };
-}
-
-// ─── Agent friend list ───────────────────────────────────────────────────────
-
-export type AgentFriendPeerRow = {
-  friendshipId: string;
-  peerUserId: string;
-  name: string;
-  discriminator: string;
-  image: string | null;
-  aboutMe: string | null;
-  statusEmoji: string | null;
-  statusText: string | null;
-};
-
-export type AgentFriendBuckets = {
-  accepted: AgentFriendPeerRow[];
-  pendingOutgoing: AgentFriendPeerRow[];
-  pendingIncoming: AgentFriendPeerRow[];
-};
-
-/**
- * The three friend buckets for a bot. `accepted` = every accepted row the bot
- * participates in (peer projected). `pendingOutgoing` = requesterId=bot AND
- * pending (any gate). `pendingIncoming` = addresseeId=bot AND pending AND
- * needsOwnerApproval IS NULL (target-consent guardrail for bot addressees).
- * No `isBot` is ever projected. Peer profile fields are joined for the CLI card.
- */
-export async function listAgentFriends(
-  db: Database,
-  botUserId: string
-): Promise<AgentFriendBuckets> {
-  const peerSelect = {
-    friendshipId: communityFriendship.id,
-    peerUserId: user.id,
-    name: user.name,
-    discriminator: user.discriminator,
-    image: user.image,
-    aboutMe: communityUserProfile.aboutMe,
-    statusEmoji: communityUserProfile.statusEmoji,
-    statusText: communityUserProfile.statusText,
-  } as const;
-
-  // accepted — join the peer, which is whichever side isn't the bot.
-  const acceptedAsRequester = await db
-    .select(peerSelect)
-    .from(communityFriendship)
-    .innerJoin(user, eq(user.id, communityFriendship.addresseeId))
-    .leftJoin(communityUserProfile, eq(communityUserProfile.userId, user.id))
-    .where(
-      and(
-        eq(communityFriendship.requesterId, botUserId),
-        eq(communityFriendship.status, "accepted"),
-        isNull(user.deletedAt)
-      )
-    );
-  const acceptedAsAddressee = await db
-    .select(peerSelect)
-    .from(communityFriendship)
-    .innerJoin(user, eq(user.id, communityFriendship.requesterId))
-    .leftJoin(communityUserProfile, eq(communityUserProfile.userId, user.id))
-    .where(
-      and(
-        eq(communityFriendship.addresseeId, botUserId),
-        eq(communityFriendship.status, "accepted"),
-        isNull(user.deletedAt)
-      )
-    );
-
-  const pendingOutgoing = await db
-    .select(peerSelect)
-    .from(communityFriendship)
-    .innerJoin(user, eq(user.id, communityFriendship.addresseeId))
-    .leftJoin(communityUserProfile, eq(communityUserProfile.userId, user.id))
-    .where(
-      and(
-        eq(communityFriendship.requesterId, botUserId),
-        eq(communityFriendship.status, "pending"),
-        isNull(user.deletedAt)
-      )
-    );
-
-  const pendingIncoming = await db
-    .select(peerSelect)
-    .from(communityFriendship)
-    .innerJoin(user, eq(user.id, communityFriendship.requesterId))
-    .leftJoin(communityUserProfile, eq(communityUserProfile.userId, user.id))
-    .where(
-      and(
-        eq(communityFriendship.addresseeId, botUserId),
-        eq(communityFriendship.status, "pending"),
-        isNull(communityFriendship.needsOwnerApproval),
-        isNull(user.deletedAt)
-      )
-    );
-
-  return {
-    accepted: [...acceptedAsRequester, ...acceptedAsAddressee],
-    pendingOutgoing,
-    pendingIncoming,
-  };
 }
 
 // ─── DM approval-card hydration ──────────────────────────────────────────────

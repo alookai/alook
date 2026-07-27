@@ -2,6 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { communityChannel, communityThreadParticipant } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
+import type { ParticipantSource } from "../../../constants/community";
 
 // The NOTIFICATION set for a thread (see `community_thread_participant`). A
 // thread is not an access unit — any parent-channel member can read it — so
@@ -12,7 +13,9 @@ import type { Database } from "../../index";
 // header notification level (per-layer, same control a channel uses), not a
 // property of participation. Participation is add / leave only.
 
-export type ThreadParticipantSource = "mention" | "spoke" | "added";
+// Derived from PARTICIPANT_SOURCE (constants/community.ts) so the type and the
+// value constants can never drift.
+export type ThreadParticipantSource = ParticipantSource;
 
 // Idempotent add. `onConflictDoNothing` so a re-mention/re-speak of an existing
 // participant is a no-op (does NOT overwrite `source`).
@@ -145,7 +148,7 @@ export async function removeThreadParticipant(
   return rows[0] ?? null;
 }
 
-// Drop a user's participant rows from EVERY child channel (forum_post OR thread)
+// Drop a user's participant rows from EVERY child channel (post OR thread)
 // under a top-level unit. Called when a member is removed from a forum/channel's
 // access roster: their access is gone, so their leftover notify rows on the
 // unit's posts/threads must go too — else fan-out keeps live-pushing new

@@ -12,7 +12,7 @@
  * viewer (owner or not, first load or WS delta, before or after a reconnect)
  * sees the same phrase for that episode.
  */
-import type { AgentActivityState } from "../community-cli-contract";
+import type { AgentActivityState } from "../community-contract";
 
 export type BotActivityPreset = { emoji: string; text: string };
 

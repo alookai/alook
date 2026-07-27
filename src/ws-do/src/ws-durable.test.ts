@@ -233,10 +233,21 @@ vi.mock("@alook/shared", () => {
   return {
     createDb: (d1: unknown) => mockCreateDb(d1),
     createLogger: () => noopLogger,
-    // Real type-guard impls — fanOutTyping branches on these to route a
-    // thread/forum_post to the participant set vs the access audience.
+    // Real type-guard impls — the shared recipient resolver branches on these
+    // to route a thread/post to the participant set vs the access audience.
     isThread: (t: unknown) => t === "thread",
-    isForumPost: (t: unknown) => t === "forum_post",
+    isPost: (t: unknown) => t === "post",
+    // The DO reads WS event type strings through this canonical map (H5).
+    // Mirror only the members the file references at send/compare sites.
+    WS_EVENTS: {
+      TYPING_START: "community:typing.start",
+      TYPING_STOP: "community:typing.stop",
+      STATUS_UPDATE: "community:status.update",
+      BOT_AUDIT_EVENT: "community:bot.audit_event",
+      PRESENCE_UPDATE: "community:presence.update",
+      MACHINE_STATUS: "community:machine.status",
+      MACHINE_UPDATED: "community:machine.updated",
+    },
     // Minimal `readOrStale` shim — bypasses the classifier so tests can
     // inject arbitrary Error shapes at the query-fn boundary and observe
     // fail-closed semantics. Real production behavior (retry then fallback)
@@ -314,6 +325,16 @@ vi.mock("@alook/shared", () => {
       },
       communityMembersResolver: {
         resolveScopeMemberUserIds: (...a: any[]) => mockResolveScopeMemberUserIds(...a),
+        // Mirror the shared resolver's type→recipient core so the existing
+        // recipient-set assertions keep exercising the ws-do call site: route
+        // thread/post to the participant set, else the access audience.
+        resolveChannelRecipientUserIds: async (db: unknown, channelId: string) => {
+          const t = await mockGetChannelType(db, channelId)
+          if (t === "thread" || t === "post") {
+            return mockListThreadParticipantUserIds(db, channelId)
+          }
+          return mockResolveScopeMemberUserIds(db, { scope: "channel", scopeId: channelId })
+        },
       },
       communityThread: {
         listThreadParticipantUserIds: (...a: any[]) => mockListThreadParticipantUserIds(...a),
@@ -2221,10 +2242,10 @@ describe("WebSocketDurableObject", () => {
       expect(mockStubFetch).toHaveBeenCalledTimes(1)
     })
 
-    it("forum_post: typing fans out to PARTICIPANTS, not the whole server", async () => {
+    it("post: typing fans out to PARTICIPANTS, not the whole server", async () => {
       const { durable, env } = createDO()
       mockGetChannelForMember.mockResolvedValueOnce({ id: "post-1", serverId: "server-1" })
-      mockGetChannelType.mockResolvedValueOnce("forum_post")
+      mockGetChannelType.mockResolvedValueOnce("post")
       mockListThreadParticipantUserIds.mockResolvedValueOnce(["sender-1", "part-1"])
 
       const ws = createMockWebSocket()
@@ -2236,12 +2257,65 @@ describe("WebSocketDurableObject", () => {
       )
       await flush()
 
-      // A public forum post reaches only its participants — same path as a
-      // message fan-out — never the access-audience resolver (the whole server).
+      // A public post reaches only its participants — same path as a message
+      // fan-out — never the access-audience resolver (the whole server).
       expect(mockListThreadParticipantUserIds).toHaveBeenCalledWith(expect.anything(), "post-1")
       expect(mockResolveScopeMemberUserIds).not.toHaveBeenCalled()
       expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:part-1")
       expect((env.WS_DO as any).idFromName).not.toHaveBeenCalledWith("user:sender-1")
+      expect(mockStubFetch).toHaveBeenCalledTimes(1)
+    })
+
+    // The authz gate + id normalization stay at the ws-do call site — only the
+    // type→recipient core moved into the shared resolver. These two guard the
+    // parts that stayed behind (the recipient-set behavior above already
+    // exercises the extracted core through the delegating mock).
+
+    it("authz gate short-circuits BEFORE the shared recipient resolver runs", async () => {
+      const { durable } = createDO()
+      // Non-member — getChannelForMember returns null.
+      mockGetChannelForMember.mockResolvedValueOnce(null)
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "attacker", authenticated: true })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "community:typing.start", channelId: "chan-private" }),
+      )
+      await flush()
+
+      expect(mockGetChannelForMember).toHaveBeenCalledWith(expect.anything(), "chan-private", "attacker")
+      // The gate must reject before the extracted core touches the DB: neither
+      // the channel-type lookup nor either recipient branch may be reached.
+      expect(mockGetChannelType).not.toHaveBeenCalled()
+      expect(mockResolveScopeMemberUserIds).not.toHaveBeenCalled()
+      expect(mockListThreadParticipantUserIds).not.toHaveBeenCalled()
+      expect(mockStubFetch).not.toHaveBeenCalled()
+    })
+
+    it("targetId normalization: threadId takes precedence over channelId", async () => {
+      const { durable, env } = createDO()
+      mockGetChannelForMember.mockResolvedValueOnce({ id: "t-1", serverId: "server-1" })
+      mockGetChannelType.mockResolvedValueOnce("thread")
+      mockListThreadParticipantUserIds.mockResolvedValueOnce(["sender-1", "part-1"])
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true })
+
+      // Both ids present — the call site normalizes `targetId = threadId || channelId`,
+      // so the thread id (t-1) must be used for the gate AND recipient resolution,
+      // never the channel id (chan-ignored).
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "community:typing.start", threadId: "t-1", channelId: "chan-ignored" }),
+      )
+      await flush()
+
+      expect(mockGetChannelForMember).toHaveBeenCalledWith(expect.anything(), "t-1", "sender-1")
+      expect(mockGetChannelForMember).not.toHaveBeenCalledWith(expect.anything(), "chan-ignored", "sender-1")
+      expect(mockListThreadParticipantUserIds).toHaveBeenCalledWith(expect.anything(), "t-1")
+      expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:part-1")
       expect(mockStubFetch).toHaveBeenCalledTimes(1)
     })
 

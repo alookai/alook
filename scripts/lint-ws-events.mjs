@@ -18,8 +18,25 @@ import { readFileSync } from "node:fs"
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "")
 
-const PATTERN_LITERAL = 'type:\\s*"community:'
-const LITERAL_PATHS = ["src/web/src/app/api/community"]
+// Catch every hand-written `community:*` event string, in each form it
+// appears at a send or dispatch site:
+//   - `type: "community:..."`  — payload construction
+//   - `case "community:..."`   — client dispatch switch arms
+//   - `=== / !== / == "community:..."` — event-type comparisons
+// All three should route through `WS_EVENTS.*` from `@alook/shared` so a
+// rename fires a typecheck error at the use site instead of drifting silently.
+const PATTERN_LITERAL =
+  '[!=]==?\\s*"community:|case\\s+"community:|type:\\s*"community:'
+const LITERAL_PATHS = [
+  "src/web/src/app/api/community",
+  "src/web/src/hooks/community",
+  "src/ws-do/src",
+]
+
+// Files whose `community:*` literals are NOT WS event names and must not be
+// flagged. `rate-limits.ts` keys its policy map on `"community:msgSend"` — a
+// rate-limit name, not a broadcast event.
+const LITERAL_WHITELIST = ["src/shared/src/lib/rate-limits.ts"]
 
 const PATTERN_AS_NEVER =
   "(broadcastToUser(?:Safe)?|fanOutToChannel|fanOutToDM|fanOutToServerMembers)\\([^)]*as never"
@@ -93,7 +110,9 @@ function runGitGrep(pattern, paths, { multiline = false } = {}) {
 
 
 
-const literalMatches = runRg(PATTERN_LITERAL, LITERAL_PATHS)
+const literalMatches = runRg(PATTERN_LITERAL, LITERAL_PATHS).filter(
+  (line) => !LITERAL_WHITELIST.some((p) => line.startsWith(p)),
+)
 const castMatches = runRg(PATTERN_AS_NEVER, AS_NEVER_PATHS, { multiline: true })
 
 let failed = false

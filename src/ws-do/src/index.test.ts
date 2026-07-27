@@ -18,6 +18,7 @@ vi.mock("@alook/shared", () => {
   return {
     createDb: () => ({}),
     createLogger: () => noopLogger,
+    WS_EVENTS: { BOT_AUDIT_EVENT: "community:bot.audit_event" },
     queries: {
       communityMachine: {
         hashCredential: (bearer: string) => mockHashCredential(bearer),
