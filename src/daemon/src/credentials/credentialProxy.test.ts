@@ -186,32 +186,32 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     expect(upstream.seen.length).toBe(0);
   });
 
-  it("rewrites only the surviving agent RPC method (listChannels) to /api/community/agent/*", async () => {
+  it("forwards every path untouched — no agent-RPC rewrite survives", async () => {
     const upstream = await startUpstream();
     upstreamClose = upstream.close;
     const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
     proxy = await startCredentialProxy(broker);
     const reg = broker.mint("agent-1", "l", ["send", "read", "friend", "server"], REAL_KEY);
 
-    // listChannels is the sole survivor — rewritten onto the dedicated agent route.
-    await post(proxy.url, reg.voucher, "/api/listChannels");
-    expect(upstream.seen.at(-1)!.path).toBe("/api/community/agent/listChannels");
+    // listChannels is no longer a survivor — the CLI now composes it from the
+    // human `GET /servers` + `GET /servers/:id` REST routes, which pass through.
+    await post(proxy.url, reg.voucher, "/api/community/servers");
+    expect(upstream.seen.at(-1)!.path).toBe("/api/community/servers");
 
-    // The friend methods are no longer survivors — the CLI now emits the human
-    // REST friend routes directly, which pass through untouched.
+    // The friend methods emit the human REST friend routes directly, untouched.
     await post(proxy.url, reg.voucher, "/api/friendRequest");
     expect(upstream.seen.at(-1)!.path).toBe("/api/friendRequest");
 
     await post(proxy.url, reg.voucher, "/api/listFriends");
     expect(upstream.seen.at(-1)!.path).toBe("/api/listFriends");
 
-    // inboxPull is no longer a survivor — it passes through untouched (the CLI
-    // now composes it from the REST /inbox/unreads + per-scope /messages routes).
+    // inboxPull passes through untouched (the CLI composes it from the REST
+    // /inbox/unreads + per-scope /messages routes).
     await post(proxy.url, reg.voucher, "/api/inboxPull?max=10");
     expect(upstream.seen.at(-1)!.path).toBe("/api/inboxPull?max=10");
   });
 
-  it("passes the REST community routes through untouched (not a survivor method)", async () => {
+  it("passes the REST community routes through untouched (no rewrite)", async () => {
     const upstream = await startUpstream();
     upstreamClose = upstream.close;
     const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });

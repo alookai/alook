@@ -13,11 +13,10 @@
  *      (Bearer `cmk_`) → per-agent runner key (`crk_`).
  *   3. credential proxy (http): validates agent vouchers, swaps in runner
  *      keys, stamps X-Agent-Id, and forwards to the server's data plane.
- *      All agent traffic flows through here. The agent-facing catalog is
- *      `/api/{inboxPull,ack,send,read,resolve,listServers,listChannels,
- *      listMembers,channelMember,joinServer,reactAdd,attachmentUpload,
- *      attachmentDownload,friendRequest,listFriends}` (rewritten to
- *      `/api/community/agent/*` — see `rewriteAgentPath` in credentialProxy.ts).
+ *      All agent traffic flows through here. The bot shares the plain human
+ *      REST routes (`/api/community/...`) for every operation — the CLI's
+ *      ServerApi composes each command from those routes; the proxy forwards
+ *      them untouched.
  *
  * It is agnostic on both axes:
  *   - whether the server is a real Alook server or a local `wrangler dev`
@@ -46,10 +45,9 @@ const WARMUP_CEILING_MS = 30_000;
 
 /**
  * Derive the audit-log `cli_invocation` subcommand from a proxy request
- * pathname. The credential proxy rewrites the CLI's bare `/api/*` calls onto
- * `/api/community/agent/*` (see `rewriteAgentPath` in credentialProxy.ts) —
- * but the sighting fires BEFORE that rewrite runs (against the inbound
- * pathname), so we may see either shape here.
+ * pathname. Handles both the bare `/api/<method>` shape (legacy flat RPC that
+ * a few callers still emit) and the `/api/community/agent/<method>` shape,
+ * stripping the latter prefix so both derive to the same subcommand string.
  *
  * `/api/ack` is a paired sibling of `inboxPull` with no user intent, so it's
  * dropped (returns `null`). Anything else outside the `/api/*` prefix returns

@@ -233,11 +233,11 @@ function parseBearer(authHeader: string | undefined): string | null {
 export type CapabilityResolver = (method: string, pathname: string) => Capability | undefined;
 
 export const DEFAULT_CAPABILITY_RESOLVER: CapabilityResolver = (method, pathname) => {
-  // The proxy inspects the client's pre-rewrite path here. Most ops are now the
-  // plain user REST routes (`/api/community/...`); a few survive as flat agent
-  // RPC (`/api/<method>`). Map both to a capability so a voucher can be scoped.
-  // Order matters — a write (POST/PUT) on `/messages` is `send`, a GET is
-  // `read`, so the verb is checked before the generic channel/server buckets.
+  // The bot shares the plain user REST routes for every operation — the CLI
+  // emits them as `/api/community/...` and the proxy forwards them untouched.
+  // Map each to a capability so a voucher can be scoped. Order matters — a
+  // write (POST/PUT) on `/messages` is `send`, a GET is `read`, so the verb is
+  // checked before the generic channel/server buckets.
   const verb = method.toUpperCase();
 
   // Attachments: upload (`…/upload`), download (`…/attachments/:id/download`),
@@ -336,7 +336,6 @@ export async function startCredentialProxy(
     // Tightened from `.endsWith("/inboxPull")` — the attachment-download
     // endpoint returns raw binary, and a loose match here would try to JSON-
     // parse it as an inbox response. Only the exact `/api/inboxPull` path
-    // (pre-rewrite; matches the daemon's CLI callers, see `rewriteAgentPath`)
     // should trigger the timeline recorder callback.
     const isInboxPull = onPull && pathname === "/api/inboxPull";
 
@@ -377,7 +376,7 @@ export async function startCredentialProxy(
         hostname: upstream.hostname,
         port: upstream.port || (upstream.protocol === "https:" ? 443 : 80),
         method: req.method,
-        path: joinPath(upstream.pathname, rewriteAgentPath(req.url ?? "/")),
+        path: joinPath(upstream.pathname, req.url ?? "/"),
         headers: outHeaders,
       },
       (res_) => {
@@ -488,26 +487,3 @@ function joinPath(basePath: string, reqUrl: string): string {
   return (base + reqPath) || "/";
 }
 
-/**
- * The bot now shares the plain user REST routes for most operations — the CLI
- * emits those as `/api/community/...` and they pass through untouched. A small
- * set of operations have no user-route twin and stay as dedicated agent RPC
- * endpoints; the CLI emits them as bare `/api/<method>` and this rewrites them
- * onto `/api/community/agent/<method>`.
- */
-const AGENT_RPC_METHODS = new Set(["listChannels"]);
-
-/**
- * Rewrite a bare `/api/<method>` for one of the surviving agent RPC endpoints
- * onto `/api/community/agent/<method>`. Every other path — including the
- * `/api/community/...` REST routes the CLI now emits directly — passes through
- * untouched.
- */
-function rewriteAgentPath(reqUrl: string): string {
-  const url = new URL(reqUrl, "http://placeholder");
-  const m = /^\/api\/([^/?]+)$/.exec(url.pathname);
-  if (m && AGENT_RPC_METHODS.has(m[1])) {
-    url.pathname = `/api/community/agent/${m[1]}`;
-  }
-  return url.pathname + url.search;
-}

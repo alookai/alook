@@ -19,6 +19,8 @@
  */
 import * as fs from "fs";
 import * as path from "path";
+import { UNCATEGORIZED_CATEGORY_ID } from "@alook/shared/constants/community";
+import type { TopLevelChannelType } from "@alook/shared/utils/community-roles";
 import type {
   AgentAttachmentDownloadResult,
   AgentAttachmentUploadResult,
@@ -35,6 +37,7 @@ import type {
   ResolveRequest,
   ListChannelsRequest,
   ChannelGroup,
+  ChannelListItem,
   ChannelMemberResult,
   CommunityAgentReactAddResponse,
   ServerMember,
@@ -111,23 +114,6 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
       throw e;
     }
     return json as T;
-  }
-
-  async function call<T>(method: string, body: unknown): Promise<T> {
-    // Strip any agentId from the wire body: identity travels ONLY as the voucher,
-    // which the proxy turns into a trusted X-Agent-Id the bridge injects. Sending
-    // an agentId here would be ignored (the bridge overrides it) — we omit it so
-    // the wire carries no self-asserted identity at all.
-    const { agentId: _omit, ...wire } = (body ?? {}) as Record<string, unknown>;
-    const res = await fetchImpl(`${base}/api/${method}`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${config.voucher}`,
-      },
-      body: JSON.stringify(wire),
-    });
-    return parseJsonResponse<T>(res, method);
   }
 
   // REST call against a full community path (the bot now shares the user routes).
@@ -326,6 +312,50 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
   type WireFriends = { friends?: WireFriendRow[] };
   type WirePending = { pending?: WireFriendRow[] };
 
+  // One category node in the human `GET /servers/:id` response — the full
+  // category row plus its viewer-visible channels. The uncategorized bucket
+  // arrives as a synthetic category whose `id === UNCATEGORIZED_CATEGORY_ID`
+  // (empty `name`); every other entry is a real category.
+  type WireServerCategory = {
+    id: string;
+    name: string;
+    position?: number | null;
+    private?: number | null;
+    channels: Array<{ id: string; name: string; type: TopLevelChannelType }>;
+  };
+  type WireServerDetail = { id: string; name: string; categories: WireServerCategory[] };
+
+  // Build the category-grouped `{ groups }` shape from one server's detail
+  // payload. Uncategorized first (Discord-style), then real categories in the
+  // order the server route emits them (position asc). Empty groups are dropped
+  // so a private category the viewer can see no channels in never leaks its
+  // name. `visibility` derives from the category's `private` flag.
+  function groupsFromServerDetail(detail: WireServerDetail): ChannelGroup[] {
+    const uncategorized: ChannelGroup[] = [];
+    const categorized: ChannelGroup[] = [];
+    for (const cat of detail.categories ?? []) {
+      const isUncategorized = cat.id === UNCATEGORIZED_CATEGORY_ID;
+      const isPrivate = !isUncategorized && (cat.private ?? 0) === 1;
+      const channels: ChannelListItem[] = (cat.channels ?? []).map((ch) => ({
+        id: ch.id,
+        serverId: detail.id,
+        name: ch.name,
+        type: ch.type,
+        visibility: isPrivate ? "private" : "public",
+      }));
+      if (channels.length === 0) continue;
+      if (isUncategorized) {
+        uncategorized.push({ category: null, channels });
+      } else {
+        categorized.push({
+          category: { name: cat.name, private: isPrivate, id: cat.id },
+          channels,
+        });
+      }
+    }
+    return [...uncategorized, ...categorized];
+  }
+
   // Build the `?…Seq=` query for a seq-anchored read (at most one of
   // before/after/around, mirroring the user route's aroundSeq/afterSeq/beforeSeq).
   function readQuery(r: ReadRequest): string {
@@ -340,11 +370,35 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
 
   return {
     listServers: () => rest<{ servers: Server[] }>("GET", "/api/community/servers", "listServers"),
-    // Survivor — the agent's category-grouped `{ groups }` (ref + visibility,
-    // multi-server) has no user-route twin; the human channel tree is the
-    // bootstrap's id-based, unread-enriched, single-server shape. Keep the
-    // dedicated agent route (proxy rewrites to /api/community/agent/*).
-    listChannels: (r: ListChannelsRequest) => call<{ groups: ChannelGroup[] }>("listChannels", r),
+    // The bot shares the human server routes. Compose `{ groups }` from
+    // `GET /servers` (to resolve the target server set) + `GET /servers/:id`
+    // (the category tree) rather than a dedicated agent endpoint. With
+    // `req.server`, match it against server id OR name; without it, list across
+    // every server the bot is in, concatenating groups in server order.
+    listChannels: async (r: ListChannelsRequest): Promise<{ groups: ChannelGroup[] }> => {
+      const { servers } = await rest<{ servers: Server[] }>("GET", "/api/community/servers", "listChannels");
+      let targets: Server[];
+      if (r.server) {
+        targets = servers.filter((s) => s.id === r.server || s.name === r.server);
+        if (targets.length === 0) {
+          const e = new Error(`server not found: ${r.server}`);
+          (e as { code?: string }).code = "not_found";
+          throw e;
+        }
+      } else {
+        targets = servers;
+      }
+      const perServer = await Promise.all(
+        targets.map((s) =>
+          rest<WireServerDetail>(
+            "GET",
+            `/api/community/servers/${encodeURIComponent(s.id)}`,
+            "listChannels",
+          ).then(groupsFromServerDetail),
+        ),
+      );
+      return { groups: perServer.flat() };
+    },
     channelMember: (r: { agentId?: AgentId; channelId: string }) =>
       rest<ChannelMemberResult>("GET", `/api/community/channels/${encodeURIComponent(r.channelId)}/members`, "channelMember"),
     inboxPull: async (r: InboxPullRequest): Promise<InboxPullResponse> => {

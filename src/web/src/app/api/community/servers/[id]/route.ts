@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
+import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
@@ -16,7 +17,7 @@ import { logAudit } from "@/lib/community/audit"
 import { requireServerAdmin, requireServerMember } from "@/lib/community/permissions"
 import { serverIconUrl } from "@/lib/community/storage"
 
-export const GET = withAuth(async (_req, ctx) => {
+export const GET = withCommunityActor(async (_req, ctx) => {
   const serverId = ctx.params?.id
   if (!serverId) return writeError("missing server id", 400)
 

@@ -215,30 +215,6 @@ export async function listServerChannels(db: Database, serverId: string) {
 }
 
 /**
- * Top-level channels (no threads — `parentChannelId IS NULL`, mirroring
- * `listServerChannels`) a viewer can see via `listChannels`, scoped to server
- * membership AND private-channel visibility: a channel in a PRIVATE category is
- * only returned if the viewer is an admin, the channel's creator, or has a
- * `community_channel_member` row for it. Public/uncategorized channels are
- * visible to any server member. This is the human-tree rule
- * (`listServerChannelsForViewer`) applied to the bot/agent surface.
- */
-export async function listChannelsForMember(db: Database, serverId: string, userId: string) {
-  const member = await db
-    .select({ role: communityServerMember.role })
-    .from(communityServerMember)
-    .where(
-      and(
-        eq(communityServerMember.serverId, serverId),
-        eq(communityServerMember.userId, userId)
-      )
-    )
-    .limit(1);
-  if (member.length === 0) return [];
-  return listServerChannelsForViewer(db, serverId, userId);
-}
-
-/**
  * Look up an existing thread channel by its `(parentChannelId,
  * parentMessageId)` pair — the partial UNIQUE index this pair is enforced
  * against (migration 0052). Used by `resolveTargetForMember`'s thread

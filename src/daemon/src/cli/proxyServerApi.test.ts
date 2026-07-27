@@ -303,6 +303,127 @@ describe("createProxyServerApi — callDownload", () => {
   });
 });
 
+describe("createProxyServerApi — listChannels (composed from /servers + /servers/:id)", () => {
+  function serverDetail(id: string, name: string) {
+    return JSON.stringify({
+      id,
+      name,
+      categories: [
+        {
+          id: "cat_ops",
+          name: "Ops",
+          position: 0,
+          private: 0,
+          channels: [{ id: `${id}_c1`, name: "general", type: "text" }],
+        },
+        {
+          id: "cat_founders",
+          name: "Founders",
+          position: 1,
+          private: 1,
+          channels: [{ id: `${id}_c2`, name: "leadership", type: "text" }],
+        },
+        // Empty category — dropped from the grouped output.
+        { id: "cat_empty", name: "Empty", position: 2, private: 0, channels: [] },
+        // Uncategorized bucket arrives as a synthetic category (empty name).
+        {
+          id: "__uncategorized__",
+          name: "",
+          position: -1,
+          private: 0,
+          channels: [{ id: `${id}_c0`, name: "announcements", type: "forum" }],
+        },
+      ],
+    });
+  }
+
+  it("with --server matched by id: uncategorized first, then categories, empty dropped, visibility derived", async () => {
+    const seen: string[] = [];
+    const fetchImpl: FetchLike = vi.fn(async (url: string) => {
+      seen.push(url);
+      if (url.endsWith("/api/community/servers")) {
+        return jsonBody(JSON.stringify({ servers: [{ id: "srv_1", name: "studio" }, { id: "srv_2", name: "lounge" }] }));
+      }
+      if (url.endsWith("/api/community/servers/srv_1")) return jsonBody(serverDetail("srv_1", "studio"));
+      throw new Error(`unexpected ${url}`);
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const res = await api.listChannels({ agentId: "a1" as never, server: "srv_1" });
+    expect(seen).toEqual([
+      "http://proxy.test/api/community/servers",
+      "http://proxy.test/api/community/servers/srv_1",
+    ]);
+    expect(res).toEqual({
+      groups: [
+        {
+          category: null,
+          channels: [{ id: "srv_1_c0", serverId: "srv_1", name: "announcements", type: "forum", visibility: "public" }],
+        },
+        {
+          category: { name: "Ops", private: false, id: "cat_ops" },
+          channels: [{ id: "srv_1_c1", serverId: "srv_1", name: "general", type: "text", visibility: "public" }],
+        },
+        {
+          category: { name: "Founders", private: true, id: "cat_founders" },
+          channels: [{ id: "srv_1_c2", serverId: "srv_1", name: "leadership", type: "text", visibility: "private" }],
+        },
+      ],
+    });
+  });
+
+  it("matches --server by name too", async () => {
+    const fetchImpl: FetchLike = vi.fn(async (url: string) => {
+      if (url.endsWith("/api/community/servers")) {
+        return jsonBody(JSON.stringify({ servers: [{ id: "srv_1", name: "studio" }] }));
+      }
+      return jsonBody(serverDetail("srv_1", "studio"));
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const res = await api.listChannels({ agentId: "a1" as never, server: "studio" });
+    expect(res.groups).toHaveLength(3);
+  });
+
+  it("without --server: concatenates groups across every server the bot is in", async () => {
+    const fetchImpl: FetchLike = vi.fn(async (url: string) => {
+      if (url.endsWith("/api/community/servers")) {
+        return jsonBody(JSON.stringify({ servers: [{ id: "srv_1", name: "studio" }, { id: "srv_2", name: "lounge" }] }));
+      }
+      if (url.endsWith("/api/community/servers/srv_1")) return jsonBody(serverDetail("srv_1", "studio"));
+      if (url.endsWith("/api/community/servers/srv_2")) return jsonBody(serverDetail("srv_2", "lounge"));
+      throw new Error(`unexpected ${url}`);
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const res = await api.listChannels({ agentId: "a1" as never });
+    // 3 groups per server, concatenated in server order.
+    expect(res.groups).toHaveLength(6);
+    expect(res.groups[0].channels[0].serverId).toBe("srv_1");
+    expect(res.groups[3].channels[0].serverId).toBe("srv_2");
+  });
+
+  it("throws not_found when --server matches no server (never fetches a detail)", async () => {
+    const seen: string[] = [];
+    const fetchImpl: FetchLike = vi.fn(async (url: string) => {
+      seen.push(url);
+      return jsonBody(JSON.stringify({ servers: [{ id: "srv_1", name: "studio" }] }));
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    await expect(api.listChannels({ agentId: "a1" as never, server: "nope" })).rejects.toThrow(/server not found: nope/);
+    expect(seen).toEqual(["http://proxy.test/api/community/servers"]);
+  });
+
+  it("empty channel tree → { groups: [] }, not an error", async () => {
+    const fetchImpl: FetchLike = vi.fn(async (url: string) => {
+      if (url.endsWith("/api/community/servers")) {
+        return jsonBody(JSON.stringify({ servers: [{ id: "srv_1", name: "studio" }] }));
+      }
+      return jsonBody(JSON.stringify({ id: "srv_1", name: "studio", categories: [] }));
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const res = await api.listChannels({ agentId: "a1" as never, server: "srv_1" });
+    expect(res).toEqual({ groups: [] });
+  });
+});
+
 describe("createProxyServerApi — friendRequest / listFriends", () => {
   it("friendRequest POSTs the human REST route with { username }, decodes the envelope", async () => {
     const seen: Array<{ url: string; init?: RequestInit }> = [];
