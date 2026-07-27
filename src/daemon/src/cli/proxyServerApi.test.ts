@@ -127,6 +127,25 @@ describe("createProxyServerApi — reactAdd", () => {
   });
 });
 
+describe("createProxyServerApi — send forwards replyToSeq", () => {
+  it("POSTs replyToSeq in the body (agentId stripped, replyToSeq retained)", async () => {
+    const seen: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
+      seen.push({ url, init });
+      return jsonBody(
+        JSON.stringify({ state: "sent", message: { seq: "#8", channel: "/demo/general", sender: "@a", content: { text: "on it" }, time: "" } }),
+        { status: 200 },
+      );
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    await api.send({ agentId: "a1", channel: "/demo/general", content: { text: "on it" }, replyToSeq: 37 });
+    expect(seen[0].url).toBe("http://proxy.test/api/send");
+    const body = JSON.parse(String(seen[0].init?.body ?? "{}"));
+    expect(body.replyToSeq).toBe(37);
+    expect(body.agentId).toBeUndefined();
+  });
+});
+
 describe("createProxyServerApi — callUpload via parseJsonResponse", () => {
   it("throws 'non-JSON body' on empty 500", async () => {
     const fetchImpl: FetchLike = vi.fn(async () => jsonBody("", { status: 500 }));

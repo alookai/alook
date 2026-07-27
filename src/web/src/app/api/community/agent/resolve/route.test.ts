@@ -142,4 +142,23 @@ describe("POST /api/community/agent/resolve", () => {
     const res = await POST(req({ channel: "/.dm/peer_1", seq: 2 }, { Authorization: "Bearer crk_abc" }))
     expect(res.status).toBe(400)
   })
+
+  it("read/resolve-route parity: the reply row's replyToId is threaded into toAgentMessage (guards the getMessageByChannelAndSeq projection)", async () => {
+    mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1" }])
+    mockResolveChannelByNameForMember.mockResolvedValue([{ id: "ch_1" }])
+    mockGetChannelForMember.mockResolvedValue({ id: "ch_1", serverId: "srv_1", parentChannelId: null })
+    // getMessageByChannelAndSeq now projects replyToId (see message.ts) — the
+    // route feeds this row straight into toAgentMessage, which surfaces
+    // content.replyTo. If replyToId were dropped from the projection this row
+    // wouldn't carry it (and TS would fail to compile RawAgentMessage).
+    mockGetMessageByChannelAndSeq.mockResolvedValue({ id: "m_1", seq: 42, content: "yes", replyToId: "m_target" })
+    const res = await POST(req({ channel: "/studio/general", seq: 42 }, { Authorization: "Bearer crk_abc" }))
+    expect(res.status).toBe(200)
+    expect(mockToAgentMessage).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ replyToId: "m_target" }),
+      "bot_1",
+      expect.anything()
+    )
+  })
 })

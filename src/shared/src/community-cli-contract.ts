@@ -175,10 +175,26 @@ export interface AgentAttachmentRef {
   size: number | null;
 }
 
+/** Cited message preview on a reply — seq + sender only, no body. */
+export interface ReplyRef {
+  /** Display form "#N" — matches `Message.seq` (string), NOT the numeric `Seq`. */
+  seq: string;
+  /** Sender global handle (`name#0042`), e.g. "@ana#0012". */
+  sender: string;
+}
+
 export interface MessageContent {
   text: string;
   /** Populated only on the read side (`inboxPull`, `send` response, `resolve`). */
   attachments?: AgentAttachmentRef[];
+  /**
+   * Present only on the read side, and only when this message replies to an
+   * in-scope, non-deleted message. Lives inside `content` alongside
+   * `text`/`attachments`. On the write side the reply intent travels as the
+   * top-level `SendRequest.replyToSeq`, not here — the route ignores any
+   * `content.replyTo` on input.
+   */
+  replyTo?: ReplyRef;
   /** Future: embeds, etc. — added without breaking `text`. */
   [extra: string]: unknown;
 }
@@ -300,6 +316,13 @@ export interface SendRequest {
    * can't render it moot.
    */
   seenUpToSeq?: Seq;
+  /**
+   * Seq (within `channel`) of the message this send replies to. The route
+   * resolves it to the target's message id — scope-first, within `channel`
+   * only — and stores it as `replyToId`. A seq with no matching message in
+   * scope is rejected 400 (no cross-scope citing).
+   */
+  replyToSeq?: Seq;
 }
 
 /**

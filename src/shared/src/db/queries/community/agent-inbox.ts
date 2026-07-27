@@ -26,12 +26,15 @@ import {
   DM_SERVER,
   type AgentAttachmentRef,
   type Message,
+  type MessageContent,
+  type ReplyRef,
   type Seq,
   type ChannelRef,
 } from "../../../community-cli-contract";
 import { formatHandle } from "../../../lib/discriminator";
 import { listVisibleChannelIdsForUser } from "./channel";
 import { listParticipatingThreadIds } from "./thread";
+import { getMessagesByIdsInScope, type MessageScope } from "./message";
 import { isThread, isForumPost } from "../../../utils/community-roles";
 
 type RawAgentMessage = {
@@ -42,6 +45,7 @@ type RawAgentMessage = {
   channelId: string | null;
   dmConversationId: string | null;
   seq: number;
+  replyToId: string | null;
 };
 
 const AGENT_MESSAGE_COLUMNS = {
@@ -52,6 +56,7 @@ const AGENT_MESSAGE_COLUMNS = {
   channelId: communityMessage.channelId,
   dmConversationId: communityMessage.dmConversationId,
   seq: communityMessage.seq,
+  replyToId: communityMessage.replyToId,
 } as const;
 
 /** One entry per distinct scope (channel or DM) needing a `ChannelRef`. */
@@ -187,12 +192,13 @@ export async function toAgentMessages(
 ): Promise<Message[]> {
   if (rows.length === 0) return [];
 
-  const [refs, users] = await Promise.all([
+  const [refs, users, replyByMessageId] = await Promise.all([
     resolveScopeRefs(db, rows, viewerId),
     db
       .select({ id: user.id, name: user.name, discriminator: user.discriminator })
       .from(user)
       .where(inArray(user.id, [...new Set(rows.map((r) => r.authorId))])),
+    resolveReplyRefs(db, rows),
   ]);
   const userById = new Map(users.map((u) => [u.id, u]));
 
@@ -204,14 +210,70 @@ export async function toAgentMessages(
     // Absent (not empty array) when a message has no attachments — smaller
     // wire payload; documented invariant in the plan.
     const atts = attachmentsByMessageId?.get(r.id);
+    const content: MessageContent = { text: r.content };
+    if (atts && atts.length > 0) content.attachments = atts;
+    const replyTo = r.replyToId ? replyByMessageId.get(r.replyToId) : undefined;
+    if (replyTo) content.replyTo = replyTo;
     return {
       seq: formatSeq(r.seq),
       channel,
       sender: `@${sender}`,
-      content: atts && atts.length > 0 ? { text: r.content, attachments: atts } : { text: r.content },
+      content,
       time: r.createdAt,
     };
   });
+}
+
+/**
+ * Resolve each row's `replyToId` into a `ReplyRef` ({ seq, sender }) — the
+ * cited-message preview surfaced inside `content.replyTo`. Scope-first: a
+ * `replyToId` is only ever resolved WITHIN its own row's channel/DM (via
+ * `getMessagesByIdsInScope`), so a cite can never leak a message from another
+ * scope. Rows are grouped by scope and one batch query runs per distinct
+ * scope. Targets with `seq <= 0` (legacy sentinel rows) are dropped — they'd
+ * otherwise emit a bogus `"#0"`. Returns a map keyed by `replyToId`; a
+ * `replyToId` absent from the map (deleted / out-of-scope / seq 0) means the
+ * caller omits `replyTo` entirely.
+ */
+async function resolveReplyRefs(
+  db: Database,
+  rows: RawAgentMessage[]
+): Promise<Map<string, ReplyRef>> {
+  // Group each row's replyToId by the row's OWN scope (channel or DM).
+  const idsByScope = new Map<string, { scope: MessageScope; ids: Set<string> }>();
+  for (const r of rows) {
+    if (!r.replyToId) continue;
+    const scope: MessageScope | null = r.channelId
+      ? { channelId: r.channelId }
+      : r.dmConversationId
+        ? { dmConversationId: r.dmConversationId }
+        : null;
+    if (!scope) continue;
+    const key = scopeRefKey(r);
+    let bucket = idsByScope.get(key);
+    if (!bucket) {
+      bucket = { scope, ids: new Set<string>() };
+      idsByScope.set(key, bucket);
+    }
+    bucket.ids.add(r.replyToId);
+  }
+  if (idsByScope.size === 0) return new Map();
+
+  const perScope = await Promise.all(
+    [...idsByScope.values()].map((b) => getMessagesByIdsInScope(db, [...b.ids], b.scope))
+  );
+
+  const out = new Map<string, ReplyRef>();
+  for (const targets of perScope) {
+    for (const t of targets) {
+      if (t.seq <= 0) continue;
+      out.set(t.id, {
+        seq: formatSeq(t.seq),
+        sender: `@${formatHandle(t.authorName, t.discriminator)}`,
+      });
+    }
+  }
+  return out;
 }
 
 /**

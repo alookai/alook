@@ -815,6 +815,7 @@ export async function getMessageByChannelAndSeq(
       channelId: communityMessage.channelId,
       dmConversationId: communityMessage.dmConversationId,
       seq: communityMessage.seq,
+      replyToId: communityMessage.replyToId,
     })
     .from(communityMessage)
     .where(and(scopeCond, eq(communityMessage.seq, seq)));
@@ -1008,10 +1009,12 @@ export async function getMessagesByIdsInScope(db: Database, ids: string[], scope
       replyToId: communityMessage.replyToId,
       embeds: communityMessage.embeds,
       flags: communityMessage.flags,
+      seq: communityMessage.seq,
       createdAt: communityMessage.createdAt,
       channelId: communityMessage.channelId,
       dmConversationId: communityMessage.dmConversationId,
       authorName: user.name,
+      discriminator: user.discriminator,
       authorEmail: user.email,
       authorImage: user.image,
     })

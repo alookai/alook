@@ -112,6 +112,27 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
     }
   }
 
+  // Reply/cite (plan agent-reply-cite.md §Write) — resolve the cited seq to a
+  // message id WITHIN `scopeTarget` (the same channel/DM this send targets).
+  // Scope-first: a `replyToSeq` can never cross-cite into another scope. A seq
+  // with no matching message here (typo, wrong scope, deleted) is a hard 400 —
+  // nothing is posted.
+  let replyToId: string | undefined
+  if (body.replyToSeq !== undefined) {
+    const replyTarget = await queries.communityMessage.getMessageByChannelAndSeq(
+      db,
+      scopeTarget,
+      body.replyToSeq,
+    )
+    if (!replyTarget) {
+      return NextResponse.json(
+        { error: `reply target #${body.replyToSeq} not found in ${body.channel}` },
+        { status: 400 },
+      )
+    }
+    replyToId = replyTarget.id
+  }
+
   // `expectedSeq: latestSeq` reuses the exact snapshot the alignment gate
   // above already fetched — no new query. If another agent's `send` wins
   // the race between that snapshot and this claim, `createCommunityMessage`
@@ -123,7 +144,7 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
     db,
     authorId: ctx.botUserId,
     target,
-    body: { content: body.content.text },
+    body: { content: body.content.text, replyToId },
     source: "cli",
     expectedSeq: latestSeq,
     attachmentIds: body.attachments.length > 0 ? body.attachments : undefined,

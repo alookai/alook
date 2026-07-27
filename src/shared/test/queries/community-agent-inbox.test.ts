@@ -52,6 +52,7 @@ function rawMsg(overrides: Partial<Record<string, unknown>> = {}) {
     channelId: "ch_1",
     dmConversationId: null,
     seq: 1,
+    replyToId: null,
     ...overrides,
   };
 }
@@ -143,6 +144,148 @@ describe("toAgentMessages", () => {
     ]);
     const [msg] = await agentInbox.toAgentMessages(db, [rawMsg({ authorId: "u_ghost" })], "viewer_1");
     expect(msg!.sender).toBe("@u_ghost");
+  });
+
+  it("read/resolvable: a channel reply gets content.replyTo = { seq, sender } from the in-scope target", async () => {
+    // Call order (synchronous phase): 0 channels, 1 author names, 2 reply-scope
+    // getMessagesByIdsInScope query; then (post-await) 3 servers.
+    const db = createSequentialDb([
+      [{ id: "ch_1", name: "general", serverId: "srv_1", parentChannelId: null, parentMessageId: null }],
+      [{ id: "u_1", name: "Alice", discriminator: "1234" }],
+      [{ id: "m_target", seq: 37, authorName: "Ana", discriminator: "0012" }],
+      [{ id: "srv_1", name: "studio" }],
+    ]);
+    const [msg] = await agentInbox.toAgentMessages(
+      db,
+      [rawMsg({ replyToId: "m_target" })],
+      "viewer_1"
+    );
+    expect(msg!.content.replyTo).toEqual({ seq: formatSeq(37), sender: "@Ana#0012" });
+  });
+
+  it("read/DM scope: a DM reply resolves the peer's seq + handle correctly", async () => {
+    // Call order: 0 dms, 1 author names, 2 reply-scope query, 3 DM-peer lookup.
+    const db = createSequentialDb([
+      [{ id: "dm_1", user1Id: "viewer_1", user2Id: "peer_1" }],
+      [{ id: "u_1", name: "Alice", discriminator: "1234" }],
+      [{ id: "m_target", seq: 8, authorName: "Bob", discriminator: "9999" }],
+      [{ id: "peer_1", name: "Bob", discriminator: "9999" }],
+    ]);
+    const [msg] = await agentInbox.toAgentMessages(
+      db,
+      [rawMsg({ channelId: null, dmConversationId: "dm_1", replyToId: "m_target" })],
+      "viewer_1"
+    );
+    expect(msg!.content.replyTo).toEqual({ seq: formatSeq(8), sender: "@Bob#9999" });
+  });
+
+  it("read/deleted target: replyToId with no in-scope target → replyTo absent (no sentinel)", async () => {
+    const db = createSequentialDb([
+      [{ id: "ch_1", name: "general", serverId: "srv_1", parentChannelId: null, parentMessageId: null }],
+      [{ id: "u_1", name: "Alice", discriminator: "1234" }],
+      [], // target row deleted / not returned
+      [{ id: "srv_1", name: "studio" }],
+    ]);
+    const [msg] = await agentInbox.toAgentMessages(
+      db,
+      [rawMsg({ replyToId: "m_gone" })],
+      "viewer_1"
+    );
+    expect(msg!.content).not.toHaveProperty("replyTo");
+  });
+
+  it("read/out-of-scope target: scope-first query returns nothing → replyTo absent", async () => {
+    // getMessagesByIdsInScope scopes on the ROW's own channel; a target that
+    // lives in another channel simply doesn't come back in the batch.
+    const db = createSequentialDb([
+      [{ id: "ch_1", name: "general", serverId: "srv_1", parentChannelId: null, parentMessageId: null }],
+      [{ id: "u_1", name: "Alice", discriminator: "1234" }],
+      [], // target is in a different channel → not returned by the scoped query
+      [{ id: "srv_1", name: "studio" }],
+    ]);
+    const [msg] = await agentInbox.toAgentMessages(
+      db,
+      [rawMsg({ replyToId: "m_elsewhere" })],
+      "viewer_1"
+    );
+    expect(msg!.content).not.toHaveProperty("replyTo");
+  });
+
+  it("read/seq-0 target: replyToId → a legacy seq 0 row → replyTo absent", async () => {
+    const db = createSequentialDb([
+      [{ id: "ch_1", name: "general", serverId: "srv_1", parentChannelId: null, parentMessageId: null }],
+      [{ id: "u_1", name: "Alice", discriminator: "1234" }],
+      [{ id: "m_legacy", seq: 0, authorName: "Ana", discriminator: "0012" }],
+      [{ id: "srv_1", name: "studio" }],
+    ]);
+    const [msg] = await agentInbox.toAgentMessages(
+      db,
+      [rawMsg({ replyToId: "m_legacy" })],
+      "viewer_1"
+    );
+    expect(msg!.content).not.toHaveProperty("replyTo");
+  });
+
+  it("read/non-reply: replyToId null → no replyTo key and no extra reply query", async () => {
+    // Only 3 selects (channels, authors, servers) — resolveReplyRefs returns
+    // early with no db call when no row carries a replyToId.
+    const db = createSequentialDb([
+      [{ id: "ch_1", name: "general", serverId: "srv_1", parentChannelId: null, parentMessageId: null }],
+      [{ id: "u_1", name: "Alice", discriminator: "1234" }],
+      [{ id: "srv_1", name: "studio" }],
+    ]);
+    const [msg] = await agentInbox.toAgentMessages(db, [rawMsg()], "viewer_1");
+    expect(msg!.content).not.toHaveProperty("replyTo");
+    expect(db.select).toHaveBeenCalledTimes(3);
+  });
+
+  it("read/cited-author-not-in-batch: sender comes from the scoped target row, not the batch", async () => {
+    // The only row's author is u_1/Alice; the cited target's author is Ana,
+    // who authored no row in this batch. replyTo.sender must still resolve to
+    // Ana's handle — proving it's read off getMessagesByIdsInScope, not the
+    // `users` batch lookup.
+    const db = createSequentialDb([
+      [{ id: "ch_1", name: "general", serverId: "srv_1", parentChannelId: null, parentMessageId: null }],
+      [{ id: "u_1", name: "Alice", discriminator: "1234" }],
+      [{ id: "m_target", seq: 4, authorName: "Ana", discriminator: "0012" }],
+      [{ id: "srv_1", name: "studio" }],
+    ]);
+    const [msg] = await agentInbox.toAgentMessages(
+      db,
+      [rawMsg({ replyToId: "m_target" })],
+      "viewer_1"
+    );
+    expect(msg!.content.replyTo?.sender).toBe("@Ana#0012");
+  });
+
+  it("read/cross-scope batch: two channels each with a reply resolve within their own scope", async () => {
+    // Two rows in two channels, each replying to a target in its OWN channel.
+    // resolveReplyRefs groups by scope and issues one query per scope.
+    // Sync call phase: 0 channels, 1 authors, 2 reply-scope(ch_1), 3
+    // reply-scope(ch_2); then 4 servers.
+    const db = createSequentialDb([
+      [
+        { id: "ch_1", name: "general", serverId: "srv_1", parentChannelId: null, parentMessageId: null },
+        { id: "ch_2", name: "random", serverId: "srv_1", parentChannelId: null, parentMessageId: null },
+      ],
+      [{ id: "u_1", name: "Alice", discriminator: "1234" }],
+      [{ id: "t_1", seq: 11, authorName: "Ana", discriminator: "0012" }],
+      [{ id: "t_2", seq: 22, authorName: "Ben", discriminator: "3456" }],
+      [{ id: "srv_1", name: "studio" }],
+    ]);
+    const msgs = await agentInbox.toAgentMessages(
+      db,
+      [
+        rawMsg({ id: "m_a", channelId: "ch_1", replyToId: "t_1" }),
+        rawMsg({ id: "m_b", channelId: "ch_2", replyToId: "t_2" }),
+      ],
+      "viewer_1"
+    );
+    const byChannel = new Map(msgs.map((m) => [m.channel, m]));
+    expect(byChannel.get(formatRef({ server: "studio", channel: "general" }))!.content.replyTo)
+      .toEqual({ seq: formatSeq(11), sender: "@Ana#0012" });
+    expect(byChannel.get(formatRef({ server: "studio", channel: "random" }))!.content.replyTo)
+      .toEqual({ seq: formatSeq(22), sender: "@Ben#3456" });
   });
 });
 

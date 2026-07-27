@@ -22,6 +22,7 @@ const mockAreFriends = vi.fn()
 const mockGetLatestSeqForScope = vi.fn()
 const mockGetReadState = vi.fn()
 const mockToAgentMessage = vi.fn()
+const mockGetMessageByChannelAndSeq = vi.fn()
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -51,6 +52,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityMessage: {
         ...actual.queries.communityMessage, // keep the real scopeKeyForTarget
+        getMessageByChannelAndSeq: (...a: unknown[]) => mockGetMessageByChannelAndSeq(...a),
       },
       communityAgentInbox: {
         getLatestSeqForScope: (...a: unknown[]) => mockGetLatestSeqForScope(...a),
@@ -93,6 +95,7 @@ describe("POST /api/community/agent/send", () => {
     mockGetLatestSeqForScope.mockResolvedValue(0)
     mockGetReadState.mockResolvedValue(null)
     mockToAgentMessage.mockImplementation((_db: unknown, row: unknown) => Promise.resolve({ ...row as object, wireShaped: true }))
+    mockGetMessageByChannelAndSeq.mockResolvedValue(null)
   })
 
   it("401 without Authorization", async () => {
@@ -337,5 +340,58 @@ describe("POST /api/community/agent/send", () => {
     // Still only the one successful send from step 2 — this blocked call
     // must not have reached createCommunityMessage.
     expect(mockCreateCommunityMessage).toHaveBeenCalledTimes(1)
+  })
+
+  it("reply/happy path: replyToSeq resolves to an in-scope message id, passed as body.replyToId", async () => {
+    mockGetLatestSeqForScope.mockResolvedValue(5)
+    mockGetReadState.mockResolvedValue({ lastReadSeq: 5 })
+    mockGetMessageByChannelAndSeq.mockResolvedValue({ id: "m_target", seq: 3 })
+    mockCreateCommunityMessage.mockResolvedValue({ ok: true, row: { id: "m_1", seq: 6, content: "on it" } })
+    const res = await POST(
+      req(
+        { channel: "/studio/general", content: { text: "on it" }, replyToSeq: 3 },
+        { Authorization: "Bearer crk_abc" }
+      )
+    )
+    expect(res.status).toBe(200)
+    expect((await res.json()).state).toBe("sent")
+    // Resolution is scope-first: the same scopeTarget the send targets.
+    expect(mockGetMessageByChannelAndSeq).toHaveBeenCalledWith(
+      expect.anything(),
+      { channelId: "ch_1" },
+      3
+    )
+    expect(mockCreateCommunityMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ body: { content: "on it", replyToId: "m_target" } })
+    )
+  })
+
+  it("reply/bad seq: replyToSeq with no matching in-scope message → 400, no row inserted", async () => {
+    mockGetLatestSeqForScope.mockResolvedValue(5)
+    mockGetReadState.mockResolvedValue({ lastReadSeq: 5 })
+    mockGetMessageByChannelAndSeq.mockResolvedValue(null)
+    const res = await POST(
+      req(
+        { channel: "/studio/general", content: { text: "on it" }, replyToSeq: 99999 },
+        { Authorization: "Bearer crk_abc" }
+      )
+    )
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: "reply target #99999 not found in /studio/general" })
+    expect(mockCreateCommunityMessage).not.toHaveBeenCalled()
+  })
+
+  it("reply/no reply: send without replyToSeq → body carries no replyToId (undefined)", async () => {
+    mockGetLatestSeqForScope.mockResolvedValue(5)
+    mockGetReadState.mockResolvedValue({ lastReadSeq: 5 })
+    mockCreateCommunityMessage.mockResolvedValue({ ok: true, row: { id: "m_1", seq: 6, content: "hi" } })
+    const res = await POST(
+      req({ channel: "/studio/general", content: { text: "hi" } }, { Authorization: "Bearer crk_abc" })
+    )
+    expect(res.status).toBe(200)
+    expect(mockGetMessageByChannelAndSeq).not.toHaveBeenCalled()
+    expect(mockCreateCommunityMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ body: { content: "hi", replyToId: undefined } })
+    )
   })
 })

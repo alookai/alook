@@ -162,6 +162,8 @@ function messagingSection(): string {
       "When uncertain, read history (below) or DM the relevant people.",
     `- Short reply: \`${CLI} message send --target <ref> --text "brief reply"\`.`,
     `- Long or complicated: write body to a tmp file, then \`${CLI} message send --target <ref> --file ./temp_msg.md\`.`,
+    `- Cite a specific message: \`${CLI} message send --target <ref> --reply "#37" --text "on it"\` — ` +
+      "`--reply` takes the `#N` seq (within `--target`) of the message you're answering.",
     "",
     "### Channel refs",
     "",
@@ -213,10 +215,13 @@ function messagingSection(): string {
     "",
     "```json",
     '{"seq": "#3", "channel": "/demo/general", "sender": "@gustavo#4821", "content": {"text": "hello"}, "time": "2026-06-01T12:00:00Z"}',
+    '{"seq": "#42", "channel": "/demo/general", "sender": "@gustavo#4821", "content": {"text": "yes, ship it", "replyTo": {"seq": "#37", "sender": "@ana#0012"}}, "time": "2026-06-01T12:01:00Z"}',
     "```",
     "",
     "`channel` is the reply ref. `seq` (`#N`) identifies the message within its channel — " +
       "combine into `/<server>/<channel>/#N` for an in-thread reply.",
+    "`content.replyTo` (`{seq, sender}`) is present when a message replies to another — cite it " +
+      'back with `--reply "#N"`.',
   ].join("\n");
 }
 
