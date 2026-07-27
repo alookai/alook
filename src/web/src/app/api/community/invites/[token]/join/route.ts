@@ -1,17 +1,33 @@
-import { withAuth } from "@/lib/middleware/auth"
+import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries, ROLES, WS_EVENTS, isUniqueConstraintError } from "@alook/shared"
 import type { CommunityMemberJoin } from "@alook/shared"
-import { fanOutToServerMembers } from "@/lib/community/fanout"
-import { logAudit } from "@/lib/community/audit"
+import { fanOutToServerMembers, broadcastToUserSafe } from "@/lib/community/fanout"
+import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "@/lib/community/audit"
 import { memberDisplay } from "@/lib/community/member-payload"
 
-export const POST = withAuth(async (_req, ctx) => {
+export const POST = withCommunityActor(async (_req, ctx) => {
   const token = ctx.params?.token
   if (!token) return writeError("invite token is required", 400)
 
   const db = getDb(ctx.env.DB)
+
+  // Bot owner-gate: a bot may only join via an invite created by its OWNER, so
+  // an owner can hand their bot any link they pasted without the bot having to
+  // reason about who sent it. `createdBy === null` (creator account gone) is
+  // the generic "invalid" case, not an owner mismatch. Both checks run BEFORE
+  // useInvite so a foreign/dead-creator invite is never consumed by a rejected
+  // bot attempt. Humans skip this gate entirely.
+  if (ctx.isBot) {
+    const invite = await queries.communityInvite.getInviteByToken(db, token)
+    if (!invite || invite.createdBy === null) {
+      return writeError("Invalid or expired invite", 400)
+    }
+    if (invite.createdBy !== ctx.ownerUserId) {
+      return writeError("This invite was not created by your owner — refusing to join.", 403)
+    }
+  }
 
   let result: Awaited<ReturnType<typeof queries.communityInvite.useInvite>>
   try {
@@ -30,7 +46,7 @@ export const POST = withAuth(async (_req, ctx) => {
   logAudit(db, {
     serverId: result.invite.serverId,
     actorId: ctx.userId,
-    action: "member_join",
+    action: ctx.isBot ? COMMUNITY_AUDIT_ACTIONS.BOT_JOINED_VIA_INVITE : "member_join",
     targetType: "invite",
     targetId: result.invite.id,
   })
@@ -54,6 +70,15 @@ export const POST = withAuth(async (_req, ctx) => {
     memberEvent,
     { excludeUserId: ctx.userId },
   )
+
+  // A bot's owner isn't necessarily a member of the server the bot just
+  // joined, so the member-scoped fan-out above never reaches them. Send the
+  // join directly to the owner so their bot-list / server-rail updates without
+  // a refresh. If the owner IS a member, the client dedupes by userId, so the
+  // double-delivery is a no-op.
+  if (ctx.isBot && ctx.ownerUserId) {
+    broadcastToUserSafe(ctx.ownerUserId, memberEvent)
+  }
 
   return writeJSON({ member: result.member, serverId: result.invite.serverId })
 })

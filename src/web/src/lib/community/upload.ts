@@ -254,7 +254,7 @@ export function handleBotAvatarUpload(
  */
 export async function runAttachmentUpload(
   req: NextRequest,
-  ctx: AuthContext & { params?: Record<string, string> },
+  ctx: Pick<AuthContext, "env" | "userId"> & { params?: Record<string, string> },
   kind: AttachmentKind,
   permissionCheck: (db: Database, id: string, userId: string) => Promise<Result<unknown>>,
 ): Promise<NextResponse> {

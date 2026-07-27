@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
+import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
@@ -16,7 +16,7 @@ import { requireDMParticipant } from "@/lib/community/permissions"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { createCommunityMessage } from "@/lib/community/message-handler"
 
-export const GET = withAuth(async (req: NextRequest, ctx) => {
+export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
   const dmId = ctx.params?.id
   if (!dmId) return writeError("missing dm id", 400)
 
@@ -114,7 +114,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   return writeJSON({ messages, hasMore, cursor: nextCursor, latestSeq })
 })
 
-export const POST = withAuth(async (req: NextRequest, ctx) => {
+export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   const dmId = ctx.params?.id
   if (!dmId) return writeError("missing dm id", 400)
 

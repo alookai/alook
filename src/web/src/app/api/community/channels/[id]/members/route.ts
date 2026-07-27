@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
+import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries, WS_EVENTS, isForum, isPost, isThread } from "@alook/shared"
@@ -16,7 +16,7 @@ import { mapMemberForApi } from "@/lib/community/member-payload"
  * "admin"), and `isCreator` so the drawer can group and the manage-members
  * dialog can decide which rows are removable. Any caller with access may read.
  */
-export const GET = withAuth(async (_req: NextRequest, ctx) => {
+export const GET = withCommunityActor(async (_req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
   if (!channelId) return writeError("missing channel id", 400)
 
@@ -89,7 +89,7 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
  * forum posts are rejected — they're the NOTIFY dimension, inherit the parent's
  * roster, and take PARTICIPANTS (via the participants route), not access members.
  */
-export const POST = withAuth(async (req: NextRequest, ctx) => {
+export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
   if (!channelId) return writeError("missing channel id", 400)
 

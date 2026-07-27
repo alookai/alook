@@ -5,6 +5,7 @@ import { writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { createAuth } from "@/lib/auth"
 import { bindCacheKV } from "@/lib/cache"
+import { resolveBotActor } from "@/lib/middleware/community-agent-runner-auth"
 import { requireChannelMember, requireDMParticipant } from "@/lib/community/permissions"
 import { isChannelTarget, isThreadTarget, isDmTarget } from "@/lib/community/message-handler"
 
@@ -17,8 +18,10 @@ function isSafeSegment(s: string): boolean {
  * Authenticated media proxy for community attachments.
  *
  * Catch-all `[...key]` requires a custom params shape (`string[]`) that
- * `withAuth`'s `Record<string, string>` typing rejects, so we inline the
- * Better-Auth session lookup here instead of going through `withAuth`.
+ * `withAuth`/`withCommunityActor`'s `Record<string, string>` typing rejects,
+ * so we resolve the caller here instead of going through that middleware.
+ * Both a `crk_` runner key (bot) and a Better-Auth session (human) resolve to
+ * a `userId` used for the membership/participation gate below.
  */
 export const GET = async (
   req: NextRequest,
@@ -32,18 +35,28 @@ export const GET = async (
   const cloudflareEnv = env as Env
   bindCacheKV(cloudflareEnv.CACHE_KV ?? null)
 
-  const auth = createAuth(cloudflareEnv)
-  let session: Awaited<ReturnType<typeof auth.api.getSession>>
-  try {
-    session = await auth.api.getSession({ headers: req.headers })
-  } catch {
-    return writeError("session validation failed", 503)
+  const db = getDb(cloudflareEnv.DB)
+
+  // A `crk_` bearer resolves to the bot's own user id (same 3-lookup chain the
+  // community routes use); anything else falls back to the Better-Auth session.
+  let userId: string
+  const botResolution = await resolveBotActor(db, req.headers.get("Authorization"))
+  if (botResolution.kind === "error") return botResolution.response
+  if (botResolution.kind === "bot") {
+    userId = botResolution.actor.botUserId
+  } else {
+    const auth = createAuth(cloudflareEnv)
+    let session: Awaited<ReturnType<typeof auth.api.getSession>>
+    try {
+      session = await auth.api.getSession({ headers: req.headers })
+    } catch {
+      return writeError("session validation failed", 503)
+    }
+    if (!session) return writeError("unauthorized", 401)
+    userId = session.user.id
   }
-  if (!session) return writeError("unauthorized", 401)
-  const userId = session.user.id
 
   const [kind, id] = key
-  const db = getDb(cloudflareEnv.DB)
 
   // Authorize by resource kind. Each branch loads the parent resource and
   // verifies membership/participation BEFORE serving any bytes.

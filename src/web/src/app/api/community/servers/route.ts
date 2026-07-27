@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
+import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
@@ -13,14 +13,14 @@ import {
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 import { serverIconUrl } from "@/lib/community/storage"
 
-export const GET = withAuth(async (_req, ctx) => {
+export const GET = withCommunityActor(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
   const rows = await queries.communityServer.listUserServers(db, ctx.userId)
   const servers = rows.map((row) => ({ ...row, icon: serverIconUrl(row) }))
   return writeJSON({ servers })
 })
 
-export const POST = withAuth(async (req: NextRequest, ctx) => {
+export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
 
   let body: { name?: string; description?: string }

@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
+import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
@@ -27,7 +27,7 @@ import { requireChannelMember } from "@/lib/community/permissions"
  * empty channel we short-circuit before writing anything — there are no
  * mentions to clear on a channel with no messages.
  */
-export const PUT = withAuth(async (req: NextRequest, ctx) => {
+export const PUT = withCommunityActor(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
   if (!channelId) return writeError("missing channel id", 400)
 

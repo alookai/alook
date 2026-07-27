@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
+import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
@@ -14,7 +14,7 @@ import { requireDMParticipant } from "@/lib/community/permissions"
  * - Body absent / empty → align to the DM's latest message. Empty DM →
  *   no-op (invariant forbids `lastReadMessageId = null` rows).
  */
-export const PUT = withAuth(async (req: NextRequest, ctx) => {
+export const PUT = withCommunityActor(async (req: NextRequest, ctx) => {
   const dmId = ctx.params?.id
   if (!dmId) return writeError("missing dm id", 400)
 
