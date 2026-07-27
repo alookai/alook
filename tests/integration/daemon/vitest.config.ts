@@ -12,10 +12,16 @@ const root = resolve(dir, "../../../")
 // unit tests do.
 export default mergeConfig(shared, defineConfig({
   resolve: {
-    alias: {
-      "@alook/test-utils": resolve(root, "tests/utils/src/index.ts"),
-      "@alook/shared": resolve(root, "src/shared/src/index.ts"),
-    },
+    alias: [
+      { find: "@alook/test-utils", replacement: resolve(root, "tests/utils/src/index.ts") },
+      // Subpaths (`@alook/shared/constants/community`, …) must resolve against
+      // the package's `src/` dir, NOT be prefix-rewritten onto `index.ts`
+      // (which would yield `index.ts/constants/community` → ENOTDIR). This
+      // regex maps `@alook/shared/<sub>` → `src/shared/src/<sub>`; the bare
+      // specifier falls through to the exact-match entry below.
+      { find: /^@alook\/shared\/(.*)$/, replacement: resolve(root, "src/shared/src") + "/$1" },
+      { find: /^@alook\/shared$/, replacement: resolve(root, "src/shared/src/index.ts") },
+    ],
   },
   test: {
     testTimeout: 30_000,
