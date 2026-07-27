@@ -126,6 +126,41 @@ describe("createProxyServerApi — reactAdd", () => {
   });
 });
 
+describe("createProxyServerApi — send", () => {
+  it("POSTs content as a STRING (content.text), not the { text } envelope, and wraps { message } into { state: 'sent' }", async () => {
+    const seen: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
+      seen.push({ url, init });
+      return jsonBody(JSON.stringify({ message: { id: "msg_1", seq: 7 } }), { status: 201 });
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const res = await api.send({
+      agentId: "u_bot",
+      channelId: "ch_general",
+      content: { text: "hello there" },
+      seenUpToSeq: 6,
+      replyToId: "msg_0",
+    });
+    expect(res).toEqual({ state: "sent", message: { id: "msg_1", seq: 7 } });
+    expect(seen).toHaveLength(1);
+    expect(seen[0].url).toBe("http://proxy.test/api/community/channels/ch_general/messages");
+    expect(seen[0].init?.method).toBe("POST");
+    // The shared human message route reads body.content as a plain string —
+    // sending the { text } object would land empty text → 400.
+    const body = JSON.parse(seen[0].init?.body as string) as Record<string, unknown>;
+    expect(body).toEqual({ content: "hello there", seenUpToSeq: 6, replyToId: "msg_0" });
+  });
+
+  it("passes the alignment-gate blocked envelope through unchanged", async () => {
+    const fetchImpl: FetchLike = vi.fn(async () =>
+      jsonBody(JSON.stringify({ state: "blocked", reason: "unaligned", unreadCount: 2, latestSeq: 9 }), { status: 200 }),
+    );
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const res = await api.send({ agentId: "u_bot", channelId: "ch_general", content: { text: "hi" } });
+    expect(res).toEqual({ state: "blocked", reason: "unaligned", unreadCount: 2, latestSeq: 9 });
+  });
+});
+
 describe("createProxyServerApi — inboxPull (composed from /inbox/unreads + /messages)", () => {
   function unreadsBody() {
     return JSON.stringify({

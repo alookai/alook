@@ -496,12 +496,16 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
       // bot alignment gate's `{ state: "blocked", … }` (200). Wrap the success
       // shape into the `{ state: "sent", message }` the CLI expects; pass the
       // blocked envelope through unchanged.
+      // The shared human message route reads `body.content` as a STRING (see
+      // `createCommunityMessage`) — send `content.text`, not the `{ text, … }`
+      // envelope. `content.attachments`/`replyTo` are read-side only; the write
+      // intent travels as top-level `attachments` (ids) / `replyToId`.
       const body = await rest<SendResponse | { message: Message }>(
         "POST",
         `${scopeBase(r, "send")}/messages`,
         "send",
         {
-          content: r.content,
+          content: r.content.text,
           ...(r.attachments ? { attachments: r.attachments } : {}),
           ...(r.seenUpToSeq !== undefined ? { seenUpToSeq: r.seenUpToSeq } : {}),
           ...(r.replyToId ? { replyToId: r.replyToId } : {}),

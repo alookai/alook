@@ -66,9 +66,12 @@ export function useUpdatePostTags() {
   return useMutation<{ tags: string[] }, Error, UpdatePostTagsArgs>({
     mutationFn: async ({ postId, tags }) => {
       const normalized = [...new Set(tags.map((t) => t.trim().toLowerCase()).filter(Boolean))]
+      // The channel PATCH route validates `forumTags` as a string ARRAY
+      // (`UpdateChannelRequestSchema`) and stringifies it server-side — send
+      // the array, not a pre-stringified JSON blob (which Zod rejects → 400).
       await apiFetch(`/api/community/channels/${postId}`, {
         method: "PATCH",
-        body: JSON.stringify({ forumTags: JSON.stringify(normalized) }),
+        body: JSON.stringify({ forumTags: normalized }),
       })
       return { tags: normalized }
     },

@@ -29,7 +29,6 @@ import {
   type TestSeed,
   type SeededCommunityBot,
 } from "@alook/test-utils"
-import { parseSeq } from "@alook/shared"
 import { WsControlChannel } from "../../../src/daemon/src/server/wsControlChannel"
 import type { HostCommand } from "../../../src/daemon/src/server/contract"
 import { nanoid, seedPairedBot, cleanupPairedBot, type DaemonItFixture } from "./seed-helpers"
@@ -65,6 +64,25 @@ async function waitForAsync<T>(
     if (Date.now() > deadline) throw new Error(`waitForAsync: timed out (${lastDetail})`)
     await new Promise((r) => setTimeout(r, intervalMs))
   }
+}
+
+/**
+ * Drain a channel's backlog the way `proxyServerApi.inboxPull` does — read the
+ * shared messages GET and return the newest `seq` seen (bare number on this
+ * route). Polls because wrangler/dev can briefly return an empty page under
+ * fan-out load. Returns 0 when the channel is still empty.
+ */
+async function drainChannelSeq(runnerKey: string, channelId: string, timeoutMs = 15_000): Promise<number> {
+  return waitForAsync(async () => {
+    const res = await fetchWithRetry(`${APP_URL}/api/community/channels/${channelId}/messages`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${runnerKey}` },
+    })
+    if (!res.ok) throw new Error(`messages read failed status=${res.status}`)
+    const body = (await res.json()) as { messages: Array<{ seq: number }> }
+    if (body.messages.length === 0) return undefined
+    return Math.max(...body.messages.map((m) => m.seq))
+  }, timeoutMs)
 }
 
 async function waitForChannelReply(
@@ -146,9 +164,11 @@ describe("daemon control plane — real ws-do wake round-trip", () => {
     expect(wake.type).toBe("agent:wake")
     expect(wake.agentId).toBe(fixture.bot.botUserId)
 
-    // Acting as the "agent" (no CLI spawned): mint the runner key, then
-    // pull the backlog, ack it, and send a reply — all real HTTP against
-    // /api/community/agent/*, exactly what a real agent's CLI would do.
+    // Acting as the "agent" (no CLI spawned): mint the runner key, then pull
+    // the backlog, ack it, and send a reply — all real HTTP against the SHARED
+    // id-addressed routes the bot reaches with its `crk_` runner key (the
+    // `/api/community/agent/*` routes were folded away), exactly what a real
+    // agent's CLI does through `proxyServerApi`.
     const enrollRes = await fetchWithRetry(`${APP_URL}/api/community/daemon/enroll-agent`, {
       method: "POST",
       headers: { Authorization: `Bearer ${fixture.paired.credential}`, "content-type": "application/json" },
@@ -158,34 +178,30 @@ describe("daemon control plane — real ws-do wake round-trip", () => {
     const { runnerKey } = (await enrollRes.json()) as { runnerKey: string; expiresAt: string | null }
     expect(runnerKey.startsWith("crk_")).toBe(true)
 
-    const pullRes = await fetchWithRetry(`${APP_URL}/api/community/agent/inboxPull`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${runnerKey}`, "content-type": "application/json" },
-      body: JSON.stringify({}),
-    })
-    expect(pullRes.ok).toBe(true)
-    // Wire `seq` is formatted `"#N"` (see `formatSeq`/`toAgentMessages`) —
-    // the ack cursor schema wants the bare number back (`parseSeq`).
-    const pulled = (await pullRes.json()) as { messages: Array<{ seq: string; channel: string }> }
-    expect(pulled.messages.length).toBeGreaterThan(0)
-    const lastPulled = pulled.messages[pulled.messages.length - 1]!
+    // Pull the channel backlog via the shared messages GET. Wire `seq` here is
+    // a BARE number (`mapMessageForApi`), unlike the retired agent route's
+    // `"#N"` string, so `parseSeq` is no longer needed on this path.
+    const lastSeq = await drainChannelSeq(runnerKey, fixture.channelId)
+    expect(lastSeq).toBeGreaterThan(0)
 
-    const ackRes = await fetchWithRetry(`${APP_URL}/api/community/agent/ack`, {
-      method: "POST",
+    // Ack via the shared read route's seq form — advances the bot's read
+    // waterline so the alignment gate lets the reply through.
+    const ackRes = await fetchWithRetry(`${APP_URL}/api/community/channels/${fixture.channelId}/read`, {
+      method: "PUT",
       headers: { Authorization: `Bearer ${runnerKey}`, "content-type": "application/json" },
-      body: JSON.stringify({ cursors: [{ channel: lastPulled.channel, seq: parseSeq(lastPulled.seq) }] }),
+      body: JSON.stringify({ seq: lastSeq }),
     })
     expect(ackRes.ok).toBe(true)
 
     const replyText = `reply from the real credential chain ${nanoid()}`
-    const sendRes = await fetchWithRetry(`${APP_URL}/api/community/agent/send`, {
+    const sendRes = await fetchWithRetry(`${APP_URL}/api/community/channels/${fixture.channelId}/messages`, {
       method: "POST",
       headers: { Authorization: `Bearer ${runnerKey}`, "content-type": "application/json" },
-      body: JSON.stringify({ channel: `/${fixture.serverId}/${fixture.channelName}`, content: { text: replyText } }),
+      body: JSON.stringify({ content: replyText, seenUpToSeq: lastSeq }),
     })
     expect(sendRes.ok).toBe(true)
-    const sendBody = (await sendRes.json()) as { state: string }
-    expect(sendBody.state).toBe("sent")
+    const sendBody = (await sendRes.json()) as { message: { id: string } }
+    expect(sendBody.message.id).toBeTruthy()
 
     // The reply is now visible via a real owner-facing read of the channel.
     // Poll: wrangler/dev can briefly return empty bodies under fan-out load.
@@ -270,31 +286,27 @@ describe("daemon control plane — real ws-do wake round-trip", () => {
         expect(enrollRes.ok).toBe(true)
         const { runnerKey } = (await enrollRes.json()) as { runnerKey: string }
 
-        const pullRes = await fetchWithRetry(`${APP_URL}/api/community/agent/inboxPull`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${runnerKey}`, "content-type": "application/json" },
-          body: JSON.stringify({}),
-        })
-        expect(pullRes.ok).toBe(true)
-        const pulled = (await pullRes.json()) as { messages: Array<{ seq: string; channel: string }> }
-        expect(pulled.messages.length).toBeGreaterThan(0)
-        const lastPulled = pulled.messages[pulled.messages.length - 1]!
+        // Same shared id-addressed chain as the first test: pull the channel
+        // backlog, ack the waterline, then reply — each bot on its own runner
+        // key, all over the one shared control-plane socket.
+        const lastSeq = await drainChannelSeq(runnerKey, fixture.channelId)
+        expect(lastSeq).toBeGreaterThan(0)
 
-        await fetchWithRetry(`${APP_URL}/api/community/agent/ack`, {
-          method: "POST",
+        await fetchWithRetry(`${APP_URL}/api/community/channels/${fixture.channelId}/read`, {
+          method: "PUT",
           headers: { Authorization: `Bearer ${runnerKey}`, "content-type": "application/json" },
-          body: JSON.stringify({ cursors: [{ channel: lastPulled.channel, seq: parseSeq(lastPulled.seq) }] }),
+          body: JSON.stringify({ seq: lastSeq }),
         })
 
         const replyText = `reply from ${bot.botUserId} ${nanoid()}`
-        const sendRes = await fetchWithRetry(`${APP_URL}/api/community/agent/send`, {
+        const sendRes = await fetchWithRetry(`${APP_URL}/api/community/channels/${fixture.channelId}/messages`, {
           method: "POST",
           headers: { Authorization: `Bearer ${runnerKey}`, "content-type": "application/json" },
-          body: JSON.stringify({ channel: `/${fixture.serverId}/${fixture.channelName}`, content: { text: replyText } }),
+          body: JSON.stringify({ content: replyText, seenUpToSeq: lastSeq }),
         })
         expect(sendRes.ok).toBe(true)
-        const sendBody = (await sendRes.json()) as { state: string }
-        expect(sendBody.state).toBe("sent")
+        const sendBody = (await sendRes.json()) as { message: { id: string } }
+        expect(sendBody.message.id).toBeTruthy()
 
         await waitForChannelReply(fixture.channelId, cookie, replyText)
       }
