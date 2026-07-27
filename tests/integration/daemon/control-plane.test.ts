@@ -181,7 +181,7 @@ describe("daemon control plane — real ws-do wake round-trip", () => {
     const sendRes = await fetchWithRetry(`${APP_URL}/api/community/agent/send`, {
       method: "POST",
       headers: { Authorization: `Bearer ${runnerKey}`, "content-type": "application/json" },
-      body: JSON.stringify({ channel: `/${fixture.serverId}/${fixture.channelId}`, content: { text: replyText } }),
+      body: JSON.stringify({ channel: `/${fixture.serverId}/${fixture.channelName}`, content: { text: replyText } }),
     })
     expect(sendRes.ok).toBe(true)
     const sendBody = (await sendRes.json()) as { state: string }
@@ -290,7 +290,7 @@ describe("daemon control plane — real ws-do wake round-trip", () => {
         const sendRes = await fetchWithRetry(`${APP_URL}/api/community/agent/send`, {
           method: "POST",
           headers: { Authorization: `Bearer ${runnerKey}`, "content-type": "application/json" },
-          body: JSON.stringify({ channel: `/${fixture.serverId}/${fixture.channelId}`, content: { text: replyText } }),
+          body: JSON.stringify({ channel: `/${fixture.serverId}/${fixture.channelName}`, content: { text: replyText } }),
         })
         expect(sendRes.ok).toBe(true)
         const sendBody = (await sendRes.json()) as { state: string }
