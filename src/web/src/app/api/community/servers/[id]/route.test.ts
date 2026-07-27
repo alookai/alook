@@ -11,6 +11,7 @@ const mockListUnreadChannels = vi.fn()
 const mockListVisibleChannelIds = vi.fn()
 const mockFindManyCategories = vi.fn()
 const mockGetSettings = vi.fn()
+const mockListUnreadMentions = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -38,6 +39,9 @@ vi.mock("@alook/shared", async () => {
       },
       communityInbox: {
         listUnreadChannels: (...a: unknown[]) => mockListUnreadChannels(...a),
+      },
+      communityMention: {
+        listUnreadMentions: (...a: unknown[]) => mockListUnreadMentions(...a),
       },
       communityNotificationSetting: {
         getSettings: (...a: unknown[]) => mockGetSettings(...a),
@@ -122,6 +126,7 @@ describe("GET /api/community/servers/[id]", () => {
     vi.clearAllMocks()
     mockListVisibleChannelIds.mockResolvedValue([])
     mockGetSettings.mockResolvedValue([])
+    mockListUnreadMentions.mockResolvedValue([])
     mockGetMember.mockResolvedValue({ id: "mem_1", userId: "u1", role: "member" })
     mockGetServer.mockResolvedValue({
       id: "s1",
@@ -239,5 +244,33 @@ describe("GET /api/community/servers/[id]", () => {
     const res = await GET(getReq(), ctx)
     const body = await res.json()
     expect(body.categories[0].channels[0]).toMatchObject({ id: "ch_1", unread: false })
+  })
+
+  it("a `mentions`-level channel with only plain unreads projects unread: false on cold-start (matches WS/inbox)", async () => {
+    mockListServerChannels.mockResolvedValue([
+      { id: "ch_1", serverId: "s1", categoryId: "cat_A", name: "general", tags: [] },
+    ])
+    mockListUnreadChannels.mockResolvedValue([
+      { channelId: "ch_1", channelName: "general", serverId: "s1", serverName: "Server", parentChannelId: null, lastMessageAt: "t2", lastReadAt: null },
+    ])
+    mockGetSettings.mockResolvedValue([{ serverId: null, channelId: "ch_1", level: "mentions" }])
+    // No unread mention rows for ch_1 → badge suppressed.
+    const res = await GET(getReq(), ctx)
+    const body = await res.json()
+    expect(body.categories[0].channels[0]).toMatchObject({ id: "ch_1", unread: false })
+  })
+
+  it("a `mentions`-level channel still badges on cold-start when the unread carries an @-mention", async () => {
+    mockListServerChannels.mockResolvedValue([
+      { id: "ch_1", serverId: "s1", categoryId: "cat_A", name: "general", tags: [] },
+    ])
+    mockListUnreadChannels.mockResolvedValue([
+      { channelId: "ch_1", channelName: "general", serverId: "s1", serverName: "Server", parentChannelId: null, lastMessageAt: "t2", lastReadAt: null },
+    ])
+    mockGetSettings.mockResolvedValue([{ serverId: null, channelId: "ch_1", level: "mentions" }])
+    mockListUnreadMentions.mockResolvedValue([{ message: { channelId: "ch_1" } }])
+    const res = await GET(getReq(), ctx)
+    const body = await res.json()
+    expect(body.categories[0].channels[0]).toMatchObject({ id: "ch_1", unread: true })
   })
 })
