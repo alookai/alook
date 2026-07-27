@@ -59,7 +59,7 @@ describe("envelope contract", () => {
         }),
       }),
     );
-    const code = await main(["message", "send", "--target", "/s/general", "--text", "hi", "--chaotic_level", "fine"]);
+    const code = await main(["message", "send", "--target", "/s/general", "--text", "hi"]);
     const env = parseEnvelope(cap.lines());
     expect(code).toBe(0);
     expect(env).toEqual({ success: { sent: "/s/general#7" } });
@@ -69,13 +69,12 @@ describe("envelope contract", () => {
 
   it("prints only `error` on failure (with hint when available)", async () => {
     setApiForTesting(stubApi());
-    // No --chaotic_level → error with hint
-    await main(["message", "send", "--target", "/s/general", "--text", "hi"]);
+    // Emoji ref without a seq → error carries a recovery hint
+    await main(["message", "emoji", "--target", "/s/general", "--emoji", "👍"]);
     const env = parseEnvelope(cap.lines());
     expect(typeof env.error).toBe("string");
-    expect(env.error).toContain("--chaotic_level");
     expect("success" in env).toBe(false);
-    expect("hint" in env).toBe(true); // Chaos level errors include a hint
+    expect("hint" in env).toBe(true);
   });
 
   it("always exits 0 even on error", async () => {
@@ -97,7 +96,7 @@ describe("channel alignment (message send)", () => {
     setApiForTesting(
       stubApi({ send: async () => ({ state: "blocked", reason: "unaligned", unreadCount: 3, latestSeq: 12 }) }),
     );
-    await main(["message", "send", "--target", "/s/general", "--text", "hi", "--chaotic_level", "fine"]);
+    await main(["message", "send", "--target", "/s/general", "--text", "hi"]);
     const env = parseEnvelope(cap.lines());
     expect("success" in env).toBe(false);
     expect(env.error).toContain("not aligned");

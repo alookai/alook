@@ -133,24 +133,6 @@ async function cmdMessageSend(opts: Record<string, unknown>): Promise<unknown> {
   const channel = opts.target as string;
   if (!channel) throw new CliError("message send: --target <ref> is required (e.g. /demo-workspace/general)");
 
-  // Chaos level validation
-  const chaoticLevel = (opts.chaotic_level || opts.chaoticLevel) as string | undefined;
-  const chaoticHint = "Re-read the Chaos Awareness section in AGENTS.md and reflect before sending.";
-
-  if (!chaoticLevel || (chaoticLevel !== "fine" && chaoticLevel !== "severe")) {
-    throw new CliError(
-      "message send: --chaotic_level must be 'fine' or 'severe'.",
-      chaoticHint,
-    );
-  }
-
-  if (chaoticLevel === "severe") {
-    throw new CliError(
-      "message send: --chaotic_level is 'severe'.",
-      chaoticHint,
-    );
-  }
-
   let text: string | undefined;
   const fileFlag = opts.file as string | undefined;
   const textFlag = opts.text as string | undefined;
@@ -433,7 +415,6 @@ function buildProgram(): Command {
       (v, prev: string[] = []) => [...prev, v],
       [] as string[],
     )
-    .option("--chaotic_level <level>", "chaos level: 'fine' or 'severe' (required)")
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })
     .action(async function (this: Command) {

@@ -317,14 +317,12 @@ function chaosAwarenessSection(): string {
     "8. **Actively doing others' job.** Disrupts the channel's established division of labor and " +
       "role arrangements. Stay in your lane unless asked to help.",
     "",
-    "**DM channels (one-on-one):** The above chaos behaviors don't apply in DM channels since " +
-      "they're one-on-one conversations. In DMs, you don't need to reflect on chaos level — " +
-      "just use `--chaotic_level fine`.",
+    "**DM channels (one-on-one):** The above chaos behaviors don't apply in DMs — they're " +
+      "one-on-one, so just say what you mean.",
     "",
-    "**Before sending** any message to a multi-person channel, reflect on the above chaotic " +
-      "behaviors. If any apply, you MUST " +
-      `set \`${CLI} message send --chaotic_level severe\`. If none apply, use ` +
-      "`--chaotic_level fine`.",
+    "**Before sending** to a multi-person channel, run the list above against your message. If " +
+      "any behavior applies, don't send it as-is — research first, ack instead of narrating, " +
+      "or hold your peace. Send when you add signal, not when you'd add noise.",
     "",
     "**Before staying silent** in a multi-person channel, also reflect:",
     "",
