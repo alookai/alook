@@ -195,12 +195,13 @@ async function insertMessageRow(db: Database, data: CreateMessageData, seq: numb
         .update(communityChannel)
         .set({
           lastMessageAt: now,
+          lastMessageSeq: seq,
           messageCount: sql`${communityChannel.messageCount} + 1`,
         })
         .where(eq(communityChannel.id, data.channelId))
     : db
         .update(communityDmConversation)
-        .set({ lastMessageAt: now })
+        .set({ lastMessageAt: now, lastMessageSeq: seq })
         .where(eq(communityDmConversation.id, data.dmConversationId!));
 
   type InsertedMessage = Awaited<typeof insertMsg>[number];
@@ -623,7 +624,7 @@ export async function getLatestMessageSeq(
 export async function getLatestMessage(
   db: Database,
   target: { channelId: string } | { dmConversationId: string }
-): Promise<{ id: string; createdAt: string } | null> {
+): Promise<{ id: string; createdAt: string; seq: number } | null> {
   const cond =
     "channelId" in target
       ? eq(communityMessage.channelId, target.channelId)
@@ -633,6 +634,7 @@ export async function getLatestMessage(
     .select({
       id: communityMessage.id,
       createdAt: communityMessage.createdAt,
+      seq: communityMessage.seq,
     })
     .from(communityMessage)
     .where(cond)
@@ -656,7 +658,7 @@ export async function getLatestMessage(
 export async function getLatestMessagesByChannelIds(
   db: Database,
   channelIds: string[]
-): Promise<Array<{ channelId: string; id: string; createdAt: string }>> {
+): Promise<Array<{ channelId: string; id: string; createdAt: string; seq: number }>> {
   if (channelIds.length === 0) return [];
 
   const latestDates = db
@@ -674,6 +676,7 @@ export async function getLatestMessagesByChannelIds(
       channelId: communityMessage.channelId,
       id: communityMessage.id,
       createdAt: communityMessage.createdAt,
+      seq: communityMessage.seq,
     })
     .from(communityMessage)
     .innerJoin(
@@ -688,7 +691,7 @@ export async function getLatestMessagesByChannelIds(
   // exact `createdAt` (millisecond collisions on batched inserts). Pick the
   // greater id — mirrors the `desc(createdAt), desc(id)` order used by
   // `getLatestMessage` so single-vs-batched callers agree.
-  const bestByChannel = new Map<string, { channelId: string; id: string; createdAt: string }>();
+  const bestByChannel = new Map<string, { channelId: string; id: string; createdAt: string; seq: number }>();
   for (const r of rows) {
     if (!r.channelId) continue;
     const existing = bestByChannel.get(r.channelId);
@@ -697,6 +700,7 @@ export async function getLatestMessagesByChannelIds(
         channelId: r.channelId,
         id: r.id,
         createdAt: r.createdAt,
+        seq: r.seq,
       });
     }
   }
@@ -712,7 +716,7 @@ export async function getLatestMessagesByChannelIds(
 export async function getLatestMessagesByDmIds(
   db: Database,
   dmConversationIds: string[]
-): Promise<Array<{ dmConversationId: string; id: string; createdAt: string }>> {
+): Promise<Array<{ dmConversationId: string; id: string; createdAt: string; seq: number }>> {
   if (dmConversationIds.length === 0) return [];
 
   const latestDates = db
@@ -730,6 +734,7 @@ export async function getLatestMessagesByDmIds(
       dmConversationId: communityMessage.dmConversationId,
       id: communityMessage.id,
       createdAt: communityMessage.createdAt,
+      seq: communityMessage.seq,
     })
     .from(communityMessage)
     .innerJoin(
@@ -740,7 +745,7 @@ export async function getLatestMessagesByDmIds(
       )
     );
 
-  const bestByDm = new Map<string, { dmConversationId: string; id: string; createdAt: string }>();
+  const bestByDm = new Map<string, { dmConversationId: string; id: string; createdAt: string; seq: number }>();
   for (const r of rows) {
     if (!r.dmConversationId) continue;
     const existing = bestByDm.get(r.dmConversationId);
@@ -749,6 +754,7 @@ export async function getLatestMessagesByDmIds(
         dmConversationId: r.dmConversationId,
         id: r.id,
         createdAt: r.createdAt,
+        seq: r.seq,
       });
     }
   }

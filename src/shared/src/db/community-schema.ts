@@ -68,6 +68,10 @@ export const communityChannel: SQLiteTableWithColumns<any> = sqliteTable(
     archived: integer("archived").default(0),
     parentMessageId: text("parent_message_id"),
     lastMessageAt: text("last_message_at"),
+    // Redundant "newest seq in this scope", written alongside lastMessageAt on
+    // every insert. Lets an unread check be a single-column compare
+    // (`lastMessageSeq > lastReadSeq`) — the seq twin of the lastMessageAt cache.
+    lastMessageSeq: integer("last_message_seq").notNull().default(0),
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
   (t) => [
@@ -156,6 +160,8 @@ export const communityDmConversation = sqliteTable(
     user1Id: text("user1_id").references(() => user.id, { onDelete: "set null" }),
     user2Id: text("user2_id").references(() => user.id, { onDelete: "set null" }),
     lastMessageAt: text("last_message_at"),
+    // Seq twin of lastMessageAt — see community_channel.lastMessageSeq.
+    lastMessageSeq: integer("last_message_seq").notNull().default(0),
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
   (t) => [

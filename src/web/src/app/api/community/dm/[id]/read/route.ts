@@ -38,13 +38,13 @@ export const PUT = withCommunityActor(async (req: NextRequest, ctx) => {
     return writeJSON({ ok: true })
   }
 
-  let target: { id: string; createdAt: string } | null
+  let target: { id: string; createdAt: string; seq: number } | null
   if (body.lastReadMessageId) {
     const msg = await queries.communityMessage.getMessage(db, body.lastReadMessageId)
     if (!msg || msg.dmConversationId !== dmId) {
       return writeError("lastReadMessageId does not belong to this dm", 400)
     }
-    target = { id: msg.id, createdAt: msg.createdAt }
+    target = { id: msg.id, createdAt: msg.createdAt, seq: msg.seq }
   } else {
     target = await queries.communityMessage.getLatestMessage(db, { dmConversationId: dmId })
     if (!target) return writeJSON({ ok: true })
