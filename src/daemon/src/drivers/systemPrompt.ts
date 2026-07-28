@@ -202,7 +202,9 @@ function messagingSection(): string {
     "",
     "- **Channel refs** render as clickable links.",
     "- **Mentions** — `@name#NNNN` (e.g. `@alice#0001`) notifies that person and highlights the " +
-      "message for them.",
+      "message for them. Before you @ or ask someone, make sure they're a member of *this* " +
+      "channel — a mention only reaches people who are in it; anyone outside won't see your " +
+      "message at all. Check with `" + CLI + " channel member --channel <ref>` if unsure.",
     "- **Message refs** — ` #42` renders as a clickable pill jumping to seq 42 *in the current " +
       "channel* (channel-scoped, not global); seq is 1–6 digits.",
     "",
