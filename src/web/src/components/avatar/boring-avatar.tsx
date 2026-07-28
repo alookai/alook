@@ -2,6 +2,7 @@
 
 import Avatar from "boring-avatars";
 import { paletteFromSeed } from "@/lib/avatar/boring-palettes";
+import { renderFaceSvg } from "@/lib/avatar/face";
 import { cn } from "@/lib/utils";
 
 /**
@@ -10,8 +11,11 @@ import { cn } from "@/lib/utils";
  * component. `seed` maps to boring-avatars' `name` prop (deterministic), and
  * the palette is chosen deterministically from the same seed.
  *
- * `beam` (default) is the face fallback; `marble` is the gradient background
- * used for server/channel icons and the profile banner.
+ * `beam` (default) is the face fallback — rendered by our own `renderFaceSvg`
+ * (richer shape/eye/mouth vocabulary than the lib's fixed beam), same 36-unit
+ * canvas + seed-derived palette so it drops into the same crop. `marble` is the
+ * gradient background (server/channel icons, profile banner) and stays on the
+ * lib.
  *
  * `square` defaults to true so the underlying SVG is a full square that the
  * container's radius crops — matching how photo `object-cover` avatars behave.
@@ -40,15 +44,21 @@ export function BoringAvatar({
 }) {
   return (
     <span className={cn("inline-flex overflow-hidden align-middle", className)} style={{ width: size, height: size }}>
-      <Avatar
-        size="100%"
-        name={seed}
-        variant={variant}
-        colors={paletteFromSeed(seed)}
-        square={square}
-        className="size-full"
-        preserveAspectRatio={preserveAspectRatio}
-      />
+      {variant === "beam" ? (
+        // Our generated face — self-contained SVG (viewBox 0 0 36 36, 100% w/h),
+        // fills the crop span exactly like the lib's `size="100%"` did.
+        <span className="size-full [&>svg]:block [&>svg]:size-full" dangerouslySetInnerHTML={{ __html: renderFaceSvg(seed, paletteFromSeed(seed)) }} />
+      ) : (
+        <Avatar
+          size="100%"
+          name={seed}
+          variant={variant}
+          colors={paletteFromSeed(seed)}
+          square={square}
+          className="size-full"
+          preserveAspectRatio={preserveAspectRatio}
+        />
+      )}
     </span>
   );
 }
