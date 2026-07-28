@@ -34,6 +34,7 @@ function stubApi(over: Partial<ServerApi> = {}): ServerApi {
     reactAdd: async () => ({ ok: true, duplicate: false }),
     friendRequest: async () => ({ friendshipId: "fr_1", status: "pending", hint: "Your owner needs to approve this request in DM." }),
     listFriends: async () => ({ accepted: [], pendingOutgoing: [], pendingIncoming: [] }),
+    nap: async () => ({ napped: true }),
     ...over,
   } as ServerApi;
 }
@@ -963,5 +964,62 @@ describe("message send — --text escape decoding wired end-to-end", () => {
     fs.rmSync(dir, { recursive: true, force: true });
     expect(sentText).toBe("a\\nb");
     expect(sentText).not.toContain("\n");
+  });
+});
+
+describe("nap", () => {
+  it("errors when neither --handoff nor --text is given, and never calls api.nap", async () => {
+    const napSpy = vi.fn(async () => ({ napped: true }));
+    setApiForTesting(stubApi({ nap: napSpy }));
+    await main(["nap"]);
+    const env = parseEnvelope(cap.lines());
+    expect(typeof env.error).toBe("string");
+    expect(napSpy).not.toHaveBeenCalled();
+  });
+
+  it("errors on a whitespace-only --text handoff (mandatory, real handoff)", async () => {
+    const napSpy = vi.fn(async () => ({ napped: true }));
+    setApiForTesting(stubApi({ nap: napSpy }));
+    await main(["nap", "--text", "   "]);
+    const env = parseEnvelope(cap.lines());
+    expect(typeof env.error).toBe("string");
+    expect(napSpy).not.toHaveBeenCalled();
+  });
+
+  it("calls api.nap with the --text handoff (escapes decoded)", async () => {
+    let handoff: string | undefined;
+    setApiForTesting(
+      stubApi({
+        nap: async (r: Parameters<ServerApi["nap"]>[0]) => {
+          handoff = r.handoff;
+          return { napped: true };
+        },
+      }),
+    );
+    await main(["nap", "--text", "line1\\nline2"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env).toEqual({ success: { napped: true } });
+    expect(handoff).toBe("line1\nline2");
+  });
+
+  it("reads the handoff from --handoff <file>", async () => {
+    const fs = await import("fs");
+    const os = await import("os");
+    const path = await import("path");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nap-"));
+    const file = path.join(dir, "handoff.md");
+    fs.writeFileSync(file, "Was mid-review of PR #42; next: run QA.\n");
+    let handoff: string | undefined;
+    setApiForTesting(
+      stubApi({
+        nap: async (r: Parameters<ServerApi["nap"]>[0]) => {
+          handoff = r.handoff;
+          return { napped: true };
+        },
+      }),
+    );
+    await main(["nap", "--handoff", file]);
+    fs.rmSync(dir, { recursive: true, force: true });
+    expect(handoff).toBe("Was mid-review of PR #42; next: run QA.");
   });
 });

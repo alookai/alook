@@ -105,6 +105,46 @@ export async function pushAgentResetToMachine(
 }
 
 /**
+ * Push an agent-self-initiated `agent:nap` to the bot's OWN machine over WS.
+ *
+ * Twin of `pushAgentResetToMachine` — same narrow allowlist plus the mandatory
+ * `handoff` string (the agent's note to its reborn self, spliced into the nap
+ * rewake prompt daemon-side). Returns `{ sent }`; `sent === 0` means the daemon
+ * isn't connected and the caller translates it into a 409 (and writes NO audit
+ * row — the audit signals a real nap landed, not a request).
+ */
+export async function pushAgentNapToMachine(
+  env: Env,
+  machineId: string,
+  args: { agentId: string; config: RuntimeConfig; launchId: string; handoff: string },
+): Promise<{ sent: number }> {
+  const path = `/community-machine/by-id/${encodeURIComponent(machineId)}/forward-agent-nap`
+  const body = JSON.stringify({
+    agentId: args.agentId,
+    config: args.config,
+    launchId: args.launchId,
+    handoff: args.handoff,
+  })
+  try {
+    const res = await wsDoFetch(
+      env,
+      path,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body },
+      { label: machineId, type: "agent:nap" },
+    )
+    if (!res.ok) {
+      log.warn("agent:nap push non-ok", { machineId, status: res.status })
+      return { sent: 0 }
+    }
+    const data = (await res.json()) as { sent?: number }
+    return { sent: data.sent ?? 0 }
+  } catch (err) {
+    log.warn("agent:nap push threw", { machineId, err: String(err) })
+    return { sent: 0 }
+  }
+}
+
+/**
  * Push an owner-triggered `agent:model_switch` to the machine's daemon over WS.
  *
  * Narrowly typed (only switch fields, no arbitrary HostCommand) so no caller

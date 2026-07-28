@@ -30,7 +30,7 @@ export type BotActivityEventInput = {
   botId: string;
   sessionId?: string | null;
   launchId?: string | null;
-  kind: "cli_invocation" | "tool_call" | "thinking" | "wake_trigger" | "session_reset" | "model_changed" | "error";
+  kind: "cli_invocation" | "tool_call" | "thinking" | "wake_trigger" | "session_reset" | "nap" | "model_changed" | "error";
   payload: string;
 };
 
@@ -216,6 +216,27 @@ export async function insertBotAuditSessionReset(
     sessionId: null,
     launchId: null,
     kind: "session_reset",
+    payload: JSON.stringify({}),
+  });
+}
+
+/**
+ * Nap audit write — the agent reset ITS OWN session via `alook nap`. Actor is
+ * the bot itself (self-initiated), so no `actorId`. Payload is intentionally
+ * empty — the fact of the nap is the signal; the handoff lives in the rewake
+ * prompt, never persisted. Written ONLY after the daemon confirmed delivery of
+ * the `agent:nap` frame (`sent > 0`) — an undelivered nap writes no row,
+ * mirroring reset/model-switch audit-on-delivery.
+ */
+export async function insertBotAuditNap(
+  db: Database,
+  data: { botId: string }
+): Promise<{ id: string; createdAt: string } | null> {
+  return insertBotActivityEventAndPrune(db, {
+    botId: data.botId,
+    sessionId: null,
+    launchId: null,
+    kind: "nap",
     payload: JSON.stringify({}),
   });
 }

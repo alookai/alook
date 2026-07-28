@@ -28,7 +28,7 @@ function fakeManager(initialStatuses: Record<string, "idle" | "starting" | "runn
   const delivers: Array<{ agentId: string; text: string; seq?: number }> = [];
   const registers: Array<{ agentId: string; sessionId?: string; launchId?: string }> = [];
   const forgets: string[] = [];
-  const resets: Array<{ agentId: string; rewakePrompt: string; launchId: string }> = [];
+  const resets: Array<{ agentId: string; rewakePrompt: string; launchId: string; barrierType?: string }> = [];
   const switches: Array<{ agentId: string; rewakePrompt: string; launchId: string }> = [];
   const order: string[] = [];
   const statuses: Record<string, "idle" | "starting" | "running" | "stopping"> = { ...initialStatuses };
@@ -45,8 +45,8 @@ function fakeManager(initialStatuses: Record<string, "idle" | "starting" | "runn
       forgets.push(agentId);
       order.push(`forget:${agentId}`);
     },
-    async resetSession(agentId: string, opts: { launchId: string; rewakePrompt: string }) {
-      resets.push({ agentId, rewakePrompt: opts.rewakePrompt, launchId: opts.launchId });
+    async resetSession(agentId: string, opts: { launchId: string; rewakePrompt: string; barrierType?: string }) {
+      resets.push({ agentId, rewakePrompt: opts.rewakePrompt, launchId: opts.launchId, barrierType: opts.barrierType });
       order.push(`reset:${agentId}`);
     },
     async switchModel(agentId: string, opts: { launchId: string; rewakePrompt: string }) {
@@ -224,6 +224,35 @@ describe("AgentRouter — agent:reset", () => {
       payload: { requested: "gemini", available: ["claude", "codex"] },
     });
     expect(router.buildReady().runningAgents).not.toContain("a1");
+  });
+});
+
+describe("AgentRouter — agent:nap", () => {
+  const CFG = { version: 1 as const, runtime: "mock", model: { kind: "default" as const }, mode: { kind: "default" as const } };
+
+  it("onBeforeAgent then resetSession with the handoff spliced into the rewake prompt + nap barrier, adds to running", async () => {
+    const { mgr, resets, order } = fakeManager();
+    const { ch, fire } = fakeChannel();
+    const beforeCalls: string[] = [];
+    const router = new AgentRouter({
+      manager: mgr,
+      channel: ch,
+      runtimeReport: [{ id: "mock" }],
+      onBeforeAgent: async (id) => { beforeCalls.push(id); order.push(`before:${id}`); },
+    });
+    await router.start();
+
+    const handoff = "Was mid-review of PR #42; next: run the QA suite.";
+    await fire({ type: "agent:nap", agentId: "a1", config: CFG, launchId: "l1", handoff });
+
+    expect(beforeCalls).toEqual(["a1"]);
+    expect(resets).toHaveLength(1);
+    expect(resets[0]).toMatchObject({ agentId: "a1", launchId: "l1", barrierType: "nap" });
+    // The agent's own handoff is carried inline in the rewake prompt (not a file, not a message).
+    expect(resets[0].rewakePrompt).toContain(handoff);
+    expect(order[0]).toBe("before:a1");
+    expect(order[1]).toBe("reset:a1");
+    expect(router.buildReady().runningAgents).toContain("a1");
   });
 });
 

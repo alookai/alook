@@ -490,6 +490,94 @@ export default {
       return Response.json({ sent: delivered })
     }
 
+    // POST /community-machine/by-id/<machineId>/forward-agent-nap — agent
+    // self-initiated `agent:nap` push. Twin of /forward-agent-reset but the
+    // allowlist additionally carries the mandatory `handoff` string (the
+    // agent's note to its reborn self, spliced into the rewake prompt). Same
+    // doName resolution + `/push` fan-out + `{sent}` aggregation. Callers must
+    // use `pushAgentNapToMachine`.
+    const forwardAgentNap = url.pathname.match(/^\/community-machine\/by-id\/([^/]+)\/forward-agent-nap$/)
+    if (forwardAgentNap && request.method === "POST") {
+      const machineId = decodeURIComponent(forwardAgentNap[1])
+      const reqLog = log.child({ traceId, machineId })
+      reqLog.debug("forwarding agent:nap to machine")
+
+      let payload: unknown
+      try {
+        payload = await request.json()
+      } catch {
+        return Response.json({ error: "invalid payload" }, { status: 400 })
+      }
+      if (!payload || typeof payload !== "object") {
+        return Response.json({ error: "invalid payload" }, { status: 400 })
+      }
+      const raw = payload as Record<string, unknown>
+      const allowedKeys = new Set(["agentId", "config", "launchId", "handoff"])
+      for (const key of Object.keys(raw)) {
+        if (!allowedKeys.has(key)) {
+          return Response.json({ error: "invalid payload" }, { status: 400 })
+        }
+      }
+      const { agentId, config, launchId, handoff } = raw
+      if (typeof agentId !== "string" || agentId.length === 0) {
+        return Response.json({ error: "invalid payload" }, { status: 400 })
+      }
+      if (typeof launchId !== "string" || launchId.length === 0) {
+        return Response.json({ error: "invalid payload" }, { status: 400 })
+      }
+      if (!config || typeof config !== "object") {
+        return Response.json({ error: "invalid payload" }, { status: 400 })
+      }
+      if (typeof handoff !== "string" || handoff.trim().length === 0) {
+        return Response.json({ error: "invalid payload" }, { status: 400 })
+      }
+
+      let doNames: string[] = []
+      try {
+        const shared = await import("@alook/shared")
+        const db = shared.createDb((env as unknown as { DB: D1Database }).DB)
+        doNames = await queries.communityMachine.getActiveDoNamesForMachine(db, machineId)
+      } catch (err) {
+        reqLog.error("failed to resolve machine doNames for agent nap", { err })
+        return Response.json({ error: "failed to resolve machine" }, { status: 503 })
+      }
+      if (doNames.length === 0) {
+        return Response.json({ sent: 0 })
+      }
+      const frame = JSON.stringify({ type: "agent:nap", agentId, config, launchId, handoff })
+      let delivered = 0
+      let transientFailure = false
+      for (const dn of doNames) {
+        const doId = env.WS_DO.idFromName("community-machine:" + dn)
+        const stub = env.WS_DO.get(doId)
+        try {
+          const res = await stub.fetch(
+            new Request("http://internal/push", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: frame,
+            }),
+          )
+          if (!res.ok) {
+            transientFailure = true
+            continue
+          }
+          const data = (await res.json()) as { sent?: unknown }
+          if (typeof data.sent !== "number" || !Number.isFinite(data.sent) || data.sent < 0) {
+            transientFailure = true
+            continue
+          }
+          delivered += data.sent
+        } catch {
+          transientFailure = true
+        }
+      }
+      if (delivered === 0 && transientFailure) {
+        return Response.json({ error: "failed to forward agent nap" }, { status: 503 })
+      }
+      return Response.json({ sent: delivered })
+    }
+
     // POST /community-machine/<doName>/force-close — disconnect a daemon by
     // its DO-name suffix (first 32 hex of the credential hash). Callers look
     // the suffix up from `community_machine_credential.do_name`.

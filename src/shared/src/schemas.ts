@@ -1214,6 +1214,17 @@ export type CommunityAgentJoinServerRequest = z.infer<
   typeof CommunityAgentJoinServerRequestSchema
 >;
 
+// `alook nap` — the agent resets its own session with a mandatory handoff (its
+// note to its reborn self, spliced into the rewake prompt). `.trim().min(1)`
+// enforces the handoff is real, not whitespace — the mechanical half of the
+// nap gate.
+export const CommunityAgentNapRequestSchema = z.object({
+  handoff: z.string().trim().min(1),
+});
+export type CommunityAgentNapRequest = z.infer<
+  typeof CommunityAgentNapRequestSchema
+>;
+
 export const CommunityAgentReactAddRequestSchema = z.object({
   channel: z.string().min(1),
   seq: CommunityAgentPositiveSeqSchema,

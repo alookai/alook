@@ -31,6 +31,7 @@ import {
   appendEntry,
 } from "./timeline.js";
 import type { Message } from "../server/contract.js";
+import type { SystemEntryType } from "./types.js";
 
 
 /** Manager/daemon-facing recorder interface (structural, avoids a cyclic import). */
@@ -44,14 +45,15 @@ export interface TimelineRecorderLike {
   /** Latest session id recorded for this agent (resume target), or null. */
   resumeSessionId(agentId: string, provider: string | null): string | null;
   /**
-   * Owner-triggered reset: append a `system: { type: "reset_session" }` row
-   * to the timeline. The resume walker treats that row as a barrier — every
-   * turn at or before it becomes invisible to `resumeSessionId` — and the
-   * agent's own history read (for recall) sees the reset in-line with turns.
-   * Also clears the in-memory session cache so a racing `appendEntryForAgent`
-   * can't bake the stale id into a fresh row.
+   * Reset: append a `system` barrier row to the timeline (`reset_session` for
+   * an owner reset, `nap` for an agent self-reset — default `reset_session`).
+   * The resume walker treats either as a barrier — every turn at or before it
+   * becomes invisible to `resumeSessionId` — and the agent's own history read
+   * (for recall) sees it in-line with turns. Also clears the in-memory session
+   * cache so a racing `appendEntryForAgent` can't bake the stale id into a
+   * fresh row.
    */
-  forgetSession(agentId: string): void;
+  forgetSession(agentId: string, barrierType?: SystemEntryType): void;
 }
 
 export interface TimelineRecorderOptions {
@@ -120,7 +122,7 @@ export function createTimelineRecorder(opts: TimelineRecorderOptions): TimelineR
       const rows = readRecentEntries(dirFor(agentId), { now: now() });
       return findResumableSession(rows, provider ?? undefined);
     },
-    forgetSession(agentId) {
+    forgetSession(agentId, barrierType = "reset_session") {
       const dir = dirFor(agentId);
       try {
         mkdirSync(dir, { recursive: true });
@@ -134,7 +136,7 @@ export function createTimelineRecorder(opts: TimelineRecorderOptions): TimelineR
       // clock reads.
       sessionByAgent.delete(agentId);
       const stamp = now();
-      appendEntry(dir, createSystemEntry("reset_session", stamp.toISOString()), stamp);
+      appendEntry(dir, createSystemEntry(barrierType, stamp.toISOString()), stamp);
     },
   };
 }

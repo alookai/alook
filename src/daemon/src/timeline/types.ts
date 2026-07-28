@@ -36,7 +36,10 @@ import type { Message } from "../server/contract.js";
  * `agent_responses` are empty. The system row is not mergeable with a
  * following turn (see `appendOrMergeEntry`).
  */
-export type SystemEntryType = "reset_session";
+// `reset_session` — owner-triggered reset. `nap` — the agent reset its OWN
+// session (see agent:nap). Both are resume barriers with identical walker
+// semantics; the distinct type just records who initiated it.
+export type SystemEntryType = "reset_session" | "nap";
 
 export interface SystemEntry {
   /** Event kind. Extend by adding to `SystemEntryType`. */

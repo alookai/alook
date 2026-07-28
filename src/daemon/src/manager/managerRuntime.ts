@@ -215,17 +215,17 @@ export interface TimelineRecorder {
   /** Latest session id for this agent (resume target), or null. */
   resumeSessionId(agentId: string, provider: string | null): string | null;
   /**
-   * Owner-triggered reset: the caller asked the daemon to forget this
-   * agent's prior session so the next spawn starts fresh. Recorder appends
-   * a `system: { type: "reset_session" }` row to the timeline — visible to
-   * both the resume walker (returns null on the barrier — every turn at or
-   * before it becomes invisible to `resumeSessionId`) and the agent's own
-   * history read (so the agent sees the reset in-line with turns). Kill
-   * happens BEFORE the barrier is written (see
+   * Reset: the caller asked the daemon to forget this agent's prior session so
+   * the next spawn starts fresh. Recorder appends a `system` barrier row —
+   * `reset_session` (owner) or `nap` (agent self-reset, default
+   * `reset_session`) — visible to both the resume walker (returns null on the
+   * barrier — every turn at or before it becomes invisible to
+   * `resumeSessionId`) and the agent's own history read (so the agent sees it
+   * in-line with turns). Kill happens BEFORE the barrier is written (see
    * `AgentProcessManager.resetSession`), so no race — no `forgot_session_id`
    * needed. Safe to call on an unknown agentId.
    */
-  forgetSession(agentId: string): void;
+  forgetSession(agentId: string, barrierType?: "reset_session" | "nap"): void;
 }
 
 /** Max UTF-8 byte budget for `thinking` text in the audit log. */
@@ -609,11 +609,11 @@ export class AgentProcessManager {
    * orchestration. Caller: `resetSession` (below), after `register` and
    * before `markResetting`.
    */
-  forgetSession(agentId: string): void {
+  forgetSession(agentId: string, barrierType: "reset_session" | "nap" = "reset_session"): void {
     this.resumeSessions.delete(agentId);
     this.liveSessions.delete(agentId);
     this.dispatch({ type: "reset_session", agentId });
-    this.opts.timeline?.forgetSession(agentId);
+    this.opts.timeline?.forgetSession(agentId, barrierType);
   }
 
   /**
@@ -664,10 +664,16 @@ export class AgentProcessManager {
    */
   async resetSession(
     agentId: string,
-    opts: { runtimeConfig: RuntimeConfig; launchId: string; rewakePrompt: string },
+    opts: {
+      runtimeConfig: RuntimeConfig;
+      launchId: string;
+      rewakePrompt: string;
+      /** Timeline barrier kind — `reset_session` (owner) or `nap` (self). Default reset_session. */
+      barrierType?: "reset_session" | "nap";
+    },
   ): Promise<void> {
     this.register(agentId, { runtimeConfig: opts.runtimeConfig, launchId: opts.launchId });
-    this.forgetSession(agentId);
+    this.forgetSession(agentId, opts.barrierType ?? "reset_session");
     this.markResetting(agentId);
     const status = this.state.agents[agentId]?.status;
     if (status === "idle") {

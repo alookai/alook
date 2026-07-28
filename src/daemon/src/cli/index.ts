@@ -422,6 +422,24 @@ async function cmdFriendList(opts: Record<string, unknown>): Promise<unknown> {
   return await api.listFriends({ agentId: agent });
 }
 
+async function cmdNap(opts: Record<string, unknown>): Promise<unknown> {
+  const api = getApi();
+  const fileFlag = opts.handoff as string | undefined;
+  const textFlag = opts.text as string | undefined;
+  let handoff: string | undefined;
+  if (fileFlag) {
+    const fs = await import("fs");
+    if (!fs.existsSync(fileFlag)) throw new CliError(`nap: handoff file not found: ${fileFlag}`);
+    handoff = fs.readFileSync(fileFlag, "utf8").trim();
+  } else if (typeof textFlag === "string") {
+    handoff = decodeTextEscapes(textFlag).trim();
+  }
+  if (!handoff) {
+    throw new CliError("nap: a handoff is required — pass --handoff <file> or --text <note>");
+  }
+  return await api.nap({ handoff });
+}
+
 /* ------------------------------------------------------------------ */
 /* Program definition                                                  */
 /* ------------------------------------------------------------------ */
@@ -635,6 +653,20 @@ function buildProgram(): Command {
       const localOpts = this.opts();
       const globalOpts = program.opts();
       const result = await cmdFriendList({ ...globalOpts, ...localOpts });
+      printEnvelope({ success: result });
+    });
+
+  program
+    .command("nap")
+    .description("end your session and start fresh, carrying a handoff to your reborn self (read the nap rule first)")
+    .option("--handoff <file>", "path to your handoff note (your note to your reborn self)")
+    .option("--text <note>", "inline handoff note (alternative to --handoff)")
+    .exitOverride()
+    .configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      const localOpts = this.opts();
+      const globalOpts = program.opts();
+      const result = await cmdNap({ ...globalOpts, ...localOpts });
       printEnvelope({ success: result });
     });
 

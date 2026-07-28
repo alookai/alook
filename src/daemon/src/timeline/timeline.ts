@@ -284,7 +284,9 @@ export function createSystemEntry(
 export function findResumableSession(rows: ContextTimelineEntry[], provider?: string): string | null {
   for (let i = rows.length - 1; i >= 0; i--) {
     const e = rows[i];
-    if (e.system?.type === "reset_session") return null;
+    // Both reset_session (owner) and nap (agent self-reset) are resume
+    // barriers — a fresh session was deliberately started at this point.
+    if (e.system?.type === "reset_session" || e.system?.type === "nap") return null;
     if (!e.session_id) continue;
     if (provider && e.provider !== provider) continue;
     return e.session_id;

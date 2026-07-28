@@ -209,5 +209,6 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
         "listFriends",
         r,
       ),
+    nap: (r: { handoff: string }) => call<{ napped: boolean }>("nap", r),
   };
 }

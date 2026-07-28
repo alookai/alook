@@ -141,6 +141,24 @@ const REWAKE_PROMPT =
 const MODEL_SWITCH_REWAKE_PROMPT =
   "You were just switched to a different model. Continue any unfinished work.";
 
+/**
+ * Rewake prompt for `agent:nap` — the agent reset ITS OWN session and left a
+ * handoff to its reborn self. Like `REWAKE_PROMPT`, prior context is gone; the
+ * difference is the agent's own handoff note is spliced in inline (it is NOT a
+ * message to anyone, NOT a file on disk — it arrives as part of this first
+ * input). `buildNapRewakePrompt` inserts the handoff between the two halves.
+ */
+function buildNapRewakePrompt(handoff: string): string {
+  return (
+    "You took a nap: you reset your own session, so prior conversation context " +
+    "is gone. Before sleeping you left yourself this handoff —\n\n" +
+    handoff.trim() +
+    "\n\nThen read @todo.md, @memory.md, and your .context_timeline for anything " +
+    "unfinished, and pull your inbox to catch up on unread messages before doing " +
+    "anything else."
+  );
+}
+
 export class AgentRouter {
   private readonly running = new Set<string>();
   /**
@@ -437,6 +455,50 @@ export class AgentRouter {
             error: { code, message: err instanceof Error ? err.message : String(err) },
           });
           this.log.warn("agent:reset failed", {
+            agentId: cmd.agentId,
+            "error.code": code,
+            err: err instanceof Error ? err.message : String(err),
+          });
+        }
+        break;
+      case "agent:nap":
+        this.log.info("agent:nap received", { agentId: cmd.agentId, launchId: cmd.launchId });
+        try {
+          // Self-initiated twin of agent:reset — same enroll → forget-session →
+          // fresh-rewake orchestration and `nap` timeline barrier (written by
+          // resetSession's reset path). The only difference is the rewake
+          // prompt carries the agent's own handoff. onBeforeAgent (enroll) must
+          // run first, exactly as the reset arm does.
+          await this.opts.onBeforeAgent?.(cmd.agentId);
+          await this.opts.manager.resetSession(cmd.agentId, {
+            runtimeConfig: cmd.config,
+            launchId: cmd.launchId,
+            rewakePrompt: buildNapRewakePrompt(cmd.handoff),
+            barrierType: "nap",
+          });
+          this.running.add(cmd.agentId);
+          this.scheduleReadyFrameResend();
+          this.log.info("agent:nap ok", { agentId: cmd.agentId });
+        } catch (err) {
+          if (err instanceof UnknownRuntimeError) {
+            const frame: SessionErrorFrame = {
+              type: "session.error",
+              code: "runtime_not_available",
+              agentId: cmd.agentId,
+              payload: { requested: err.requested ?? null, available: err.available },
+            };
+            await this.opts.channel.reportSessionError?.(frame);
+            this.log.info("agent:nap error", { agentId: cmd.agentId, "error.code": "runtime_not_available" });
+            return;
+          }
+          const code = classifyErrorCode(err);
+          await this.opts.channel.reportWakeAck?.({
+            agentId: cmd.agentId,
+            launchId: cmd.launchId,
+            status: "error",
+            error: { code, message: err instanceof Error ? err.message : String(err) },
+          });
+          this.log.warn("agent:nap failed", {
             agentId: cmd.agentId,
             "error.code": code,
             err: err instanceof Error ? err.message : String(err),

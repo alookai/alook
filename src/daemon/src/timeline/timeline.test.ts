@@ -153,6 +153,14 @@ describe("findResumableSession", () => {
     expect(findResumableSession(rows)).toBeNull();
   });
 
+  it("stops on a nap barrier row and returns null (agent self-reset is a barrier too)", () => {
+    const rows = [
+      { ...createTimelineEntry({ messages: [], provider: "claude", sessionId: "s-old" }) },
+      createSystemEntry("nap", "2026-06-25T12:00:00Z"),
+    ];
+    expect(findResumableSession(rows)).toBeNull();
+  });
+
   it("returns a session id from a row appended AFTER the barrier", () => {
     const rows = [
       { ...createTimelineEntry({ messages: [], provider: "claude", sessionId: "s-old" }) },
