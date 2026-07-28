@@ -22,8 +22,8 @@ export function Spoiler({ children }: { children?: React.ReactNode }) {
   )
 }
 
-// @mention pill. `everyone` styles @everyone/@here distinctly. `onClick` is
-// only wired for resolvable member mentions — @everyone/@here have no
+// @mention pill. `everyone` styles @everyone distinctly. `onClick` is
+// only wired for resolvable member mentions — @everyone has no
 // profile to open, so message-markdown.tsx never passes it for those.
 export function MentionPill({
   children,

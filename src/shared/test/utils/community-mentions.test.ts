@@ -70,7 +70,7 @@ describe("extractMentionedUserIds", () => {
     expect(extractMentionedUserIds("早 @李雷 好", ROSTER)).toEqual([]);
   });
 
-  it("does not match @everyone / @here", () => {
+  it("does not match @everyone (broadcast trigger, not a member handle)", () => {
     expect(extractMentionedUserIds("@everyone hi", ROSTER)).toEqual([]);
   });
 

@@ -16,7 +16,7 @@ export type CreateForumPostArgs = {
   // `useUploadFile` before firing this mutation, and the server persists them
   // as `community_message_attachment` rows on the post's first message.
   attachments?: UploadedAttachment[]
-  // Propagated to the first message so `@everyone`/`@here` audience broadcast
+  // Propagated to the first message so `@everyone` audience broadcast
   // fires end-to-end.
   mentionType?: MentionType
 }

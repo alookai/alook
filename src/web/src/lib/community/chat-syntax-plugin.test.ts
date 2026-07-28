@@ -67,9 +67,14 @@ describe("chatSyntaxPlugin — mention", () => {
     expect(children[1]).toMatchObject({ type: "mention", value: "@everyone", everyone: true })
   })
 
-  it("flags @here", () => {
+  it("does NOT treat @here as a mention — it was removed, renders as plain text", () => {
+    // @here was removed as a broadcast trigger (plans/remove-here-mention.md,
+    // option b). A literal @here is no longer a mention node; it stays text
+    // (incl. historical messages — no legacy rendering).
     const children = paragraphChildren(parse("@here ping"))
-    expect(children[0]).toMatchObject({ type: "mention", value: "@here", everyone: true })
+    expect(children.some((c) => c.type === "mention")).toBe(false)
+    expect(children).toHaveLength(1)
+    expect(children[0]).toMatchObject({ type: "text", value: "@here ping" })
   })
 
   it("does NOT match @everyone inside a longer identifier (trailing boundary guard)", () => {

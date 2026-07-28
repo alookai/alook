@@ -452,7 +452,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     })
   })
 
-  it("@everyone/@here is clamped to the audience (author excluded → only Cara)", async () => {
+  it("@everyone is clamped to the audience (author excluded → only Cara)", async () => {
     mockGetMessage.mockResolvedValue(messageRow({ content: "@everyone hi", mentionType: "everyone" }))
 
     await createCommunityMessage({

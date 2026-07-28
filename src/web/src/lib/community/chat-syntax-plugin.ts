@@ -105,10 +105,13 @@ const MESSAGE_REF_RE = new RegExp(`#\\d{1,6}(?=\\s|$|[${REF_TERM}])`, "gu")
 
 // Two-branch mention grammar (see plans/mandatory-mention-discriminator.md):
 //
-//  1. The literal `@everyone`/`@here` tokens, with a trailing
-//     `(?![\p{L}\p{N}_-])` boundary guard so `@everyoneee` is NOT matched as
-//     `@everyone` — this MUST agree with `detectMentionType`'s boundary check
-//     (mention-extension.ts) and `community-mentions.ts`'s `ID_CHAR_RE`.
+//  1. The literal `@everyone` token, with a trailing `(?![\p{L}\p{N}_-])`
+//     boundary guard so `@everyoneee` is NOT matched as `@everyone` — this MUST
+//     agree with `detectMentionType`'s boundary check (mention-extension.ts)
+//     and `community-mentions.ts`'s `ID_CHAR_RE`. (`@here` was removed as a
+//     broadcast trigger — see plans/remove-here-mention.md; a literal `@here`
+//     now falls through as ordinary text, matching option b: no legacy
+//     rendering for historical `@here`.)
 //
 //  2. A member mention `@<name>#dddd` where the trailing `#dddd` is REQUIRED
 //     and acts as an unambiguous terminator. Because member names are validated
@@ -120,15 +123,15 @@ const MESSAGE_REF_RE = new RegExp(`#\\d{1,6}(?=\\s|$|[${REF_TERM}])`, "gu")
 //     a 5+-digit run from matching a 4-digit tag (`@Gus#00423`). A hand-typed
 //     bare `@Alice` (no tag) is intentionally NOT a mention — it stays text.
 const MENTION_RE =
-  /@(?:everyone|here)(?![\p{L}\p{N}_-])|@[^@#\n\r]*[^@#\n\r\s]#\d{4}(?!\d)/gu
+  /@everyone(?![\p{L}\p{N}_-])|@[^@#\n\r]*[^@#\n\r\s]#\d{4}(?!\d)/gu
 
-/** mdast node produced by `@name`/`@name#0042`/`@everyone`/`@here`. */
+/** mdast node produced by `@name`/`@name#0042`/`@everyone`. */
 export interface MentionNode {
   type: "mention"
   /** Display name — `#dddd` discriminator, if present, is stripped from here (matches the old `<mention>` tag's content). */
   value: string
   everyone: boolean
-  /** The 4-digit discriminator, if the mention carried one (never set for `@everyone`/`@here`). */
+  /** The 4-digit discriminator, if the mention carried one (never set for `@everyone`). */
   discriminator?: string
 }
 
@@ -175,7 +178,7 @@ declare module "mdast" {
 const IGNORE_NODE_TYPES = ["code", "inlineCode", "link", "linkReference"]
 
 function mentionReplacer(value: string): MentionNode {
-  const everyone = value === "@everyone" || value === "@here"
+  const everyone = value === "@everyone"
   if (everyone) return { type: "mention", value, everyone: true }
   const tag = /#(\d{4})$/.exec(value)
   const bare = value.replace(/#\d{4}$/, "")

@@ -39,7 +39,7 @@ export function extractInviteTokens(text: string): string[] {
 // chat-syntax-plugin.ts — `hast-util-sanitize` matches its allowlist against
 // the property key, and kebab-case (`data-tag`) silently drops both, so the
 // mention pill would lose its discriminator (same-name pills all resolve to
-// the first match) and @everyone/@here lose their styling flag.
+// the first match) and @everyone loses its styling flag.
 export const MD_ALLOWED_TAGS = {
   spoiler: [],
   mention: ["dataEveryone", "dataTag"],
@@ -80,7 +80,7 @@ export const MD_COMPONENTS = {
 } as Record<string, React.ComponentType<Record<string, unknown> & { children?: React.ReactNode }>>
 
 // Same as `MD_COMPONENTS`, but the `mention` pill opens the profile card on
-// click (skipped for @everyone/@here — there's no user behind those), and
+// click (skipped for @everyone — there's no user behind it), and
 // `messageref` receives `onJumpToSeq` for click-time navigation. Built
 // per-render (memoized by the caller) rather than statically, since it closes
 // over callbacks.

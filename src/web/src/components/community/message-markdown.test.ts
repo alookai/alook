@@ -25,9 +25,8 @@ describe("mentionNameFromText", () => {
     expect(mentionNameFromText("@Gus#00423")).toBe("Gus#00423")
   })
 
-  it("leaves @everyone / @here as-is (no discriminator to strip)", () => {
+  it("leaves @everyone as-is (no discriminator to strip)", () => {
     expect(mentionNameFromText("@everyone")).toBe("everyone")
-    expect(mentionNameFromText("@here")).toBe("here")
   })
 })
 
@@ -50,7 +49,7 @@ describe("buildMdComponents — mention pill onClick wiring", () => {
     expect(onOpenProfile).toHaveBeenCalledWith("Gus", fakeEvent, "0042")
   })
 
-  it("does not wire onClick for @everyone / @here", () => {
+  it("does not wire onClick for @everyone", () => {
     const onOpenProfile = vi.fn()
     const components = buildMdComponents(onOpenProfile)
     const el = components.mention({ children: "@everyone", "data-everyone": "1" }) as unknown as MentionElement

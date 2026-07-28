@@ -2,7 +2,7 @@
 
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { AtSign, FileIcon, ImageIcon, PlusCircle, Smile, Upload, Users, X } from "lucide-react"
+import { FileIcon, ImageIcon, PlusCircle, Smile, Upload, Users, X } from "lucide-react"
 import { useEditor, EditorContent, type JSONContent } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 import Placeholder from "@tiptap/extension-placeholder"
@@ -114,8 +114,8 @@ export type ComposerProps = {
 // `mode="forumPostBody"` the mapping is inverted (Enter = newline,
 // Shift+Enter = submit) to match /w's issue-sheet convention. While the
 // mention popover is open Enter/Tab/Arrow keys drive selection instead.
-// @everyone / @here are virtual candidates in channel + thread contexts
-// (hidden in DM).
+// @everyone is a virtual candidate in channel + thread contexts
+// (hidden in DM). (@here was removed — plans/remove-here-mention.md.)
 export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer({
   channel,
   context,
@@ -771,8 +771,10 @@ function MentionRow({ item, selected, showMembersHeader, onSelect }: {
         {item.kind === "member" ? (
           <Avatar label={item.avatar} seed={item.userId} size={24} presence={item.status} ringColor="var(--popover)" />
         ) : (
+          // Only `@everyone` remains as a virtual (non-member) item — `@here`
+          // was removed (plans/remove-here-mention.md).
           <span className="grid size-6 place-items-center rounded-full bg-primary/15 text-primary">
-            {item.kind === "everyone" ? <Users className="size-3.5" /> : <AtSign className="size-3.5" />}
+            <Users className="size-3.5" />
           </span>
         )}
         <span className="font-medium">
@@ -788,9 +790,7 @@ function MentionRow({ item, selected, showMembersHeader, onSelect }: {
           )}
         </span>
         {item.kind !== "member" && (
-          <span className="ml-auto text-xs text-muted-foreground">
-            {item.kind === "everyone" ? "Notify everyone" : "Notify online"}
-          </span>
+          <span className="ml-auto text-xs text-muted-foreground">Notify everyone</span>
         )}
       </button>
     </>

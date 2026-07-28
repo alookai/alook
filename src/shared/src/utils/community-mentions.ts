@@ -26,14 +26,17 @@ export interface MentionCandidate {
 }
 
 /**
- * The roster-wide mention triggers. Order matters — when both `@everyone` and
- * `@here` appear in the same message, `everyone` wins (broader scope wins).
+ * The roster-wide mention triggers. `@here` (notify-online) was removed
+ * entirely — `@everyone` is the sole broadcast trigger now. Kept as an array
+ * (not a bare literal) because `VIRTUAL_ITEMS` and `detectMentionType`
+ * (mention-extension.ts) derive from it, and `MentionType` stays a named type
+ * used across the send path.
  */
-export const MENTION_TYPES = ["everyone", "here"] as const;
+export const MENTION_TYPES = ["everyone"] as const;
 export type MentionType = (typeof MENTION_TYPES)[number];
 
 export function isMentionType(value: unknown): value is MentionType {
-  return value === "everyone" || value === "here";
+  return value === "everyone";
 }
 
 const ID_CHAR_RE = /[\p{L}\p{N}_-]/u;

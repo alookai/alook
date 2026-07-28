@@ -30,15 +30,18 @@ describe("rankMentionItems", () => {
     member("u4", "Heath"),
   ]
 
-  it("puts everyone/here at the top in channel context with empty query", () => {
+  it("puts everyone at the top in channel context with empty query", () => {
+    // @here was removed (plans/remove-here-mention.md) — @everyone is the only
+    // virtual mention item now.
     const items = rankMentionItems(roster, "channel", "")
-    expect(items.slice(0, 2).map((i) => i.id)).toEqual(["everyone", "here"])
+    expect(items[0].id).toBe("everyone")
+    expect(items.some((i) => i.id === "here")).toBe(false)
   })
 
-  it("includes everyone/here in thread context", () => {
+  it("includes everyone (not here) in thread context", () => {
     const items = rankMentionItems(roster, "thread", "")
     expect(items.some((i) => i.id === "everyone")).toBe(true)
-    expect(items.some((i) => i.id === "here")).toBe(true)
+    expect(items.some((i) => i.id === "here")).toBe(false)
   })
 
   it("returns no items in DM context — popover is disabled entirely", () => {
@@ -46,20 +49,19 @@ describe("rankMentionItems", () => {
     expect(rankMentionItems(roster, "dm", "al")).toEqual([])
   })
 
-  it("filters everyone in by prefix, drops here", () => {
+  it("filters everyone in by prefix", () => {
     const ids = rankMentionItems(roster, "channel", "ev").map((i) => i.id)
     expect(ids).toContain("everyone")
     expect(ids).not.toContain("here")
   })
 
-  it("filters here in by prefix, drops everyone — and beats a member 'Heath' on prefix", () => {
+  it("no longer surfaces a 'here' virtual row for the 'he' prefix — only member 'Heath' matches", () => {
     const items = rankMentionItems(roster, "channel", "he")
     const ids = items.map((i) => i.id)
-    expect(ids).toContain("here")
+    // @here is gone — the only "he" match is member Heath.
+    expect(ids).not.toContain("here")
     expect(ids).not.toContain("everyone")
-    // Heath also starts with "he" — should still appear, after the virtual row.
     expect(ids).toContain("u4")
-    expect(ids.indexOf("here")).toBeLessThan(ids.indexOf("u4"))
   })
 
   it("ranks member prefix matches before substring matches", () => {
@@ -85,9 +87,8 @@ describe("rankMentionItems", () => {
       { id: "m_alba", userId: "u_alba", name: "Alba", discriminator: "0003", avatar: "A", status: "online", sub: "", role: "owner" },
     ]
     const items = rankMentionItems(memberRoster, "channel", "al")
-    // Virtual items are gated by prefix on the query — "al" filters both out.
+    // The @everyone virtual item is gated by prefix on the query — "al" filters it out.
     expect(items.some((i) => i.id === "everyone")).toBe(false)
-    expect(items.some((i) => i.id === "here")).toBe(false)
     const memberIds = items.filter((i) => i.kind === "member").map((i) => i.id)
     expect(memberIds).toEqual(["m_alice", "m_alba"])
   })
@@ -98,12 +99,11 @@ describe("rankMentionItems", () => {
       { id: "m_mal", userId: "u_mal", name: "Mallory", discriminator: "0002", avatar: "M", status: "online", sub: "", role: "member" },
     ]
     const items = rankMentionItems(memberRoster, "channel", "")
-    // Empty query — @everyone / @here lead, then all members (starts-with
-    // branch fires for empty query too).
+    // Empty query — @everyone leads (the sole virtual item; @here removed),
+    // then all members (starts-with branch fires for empty query too).
     expect(items[0].id).toBe("everyone")
-    expect(items[1].id).toBe("here")
-    expect(items[2].id).toBe("m_al")
-    expect(items[3].id).toBe("m_mal")
+    expect(items[1].id).toBe("m_al")
+    expect(items[2].id).toBe("m_mal")
   })
 
   it("carries the stable userId separately from the membership row id — so the popover avatar seed matches every other surface", () => {
@@ -337,11 +337,12 @@ describe("detectMentionType", () => {
     expect(detectMentionType("hi @everyone")).toBe("everyone")
   })
 
-  it("finds @here as a standalone token", () => {
-    expect(detectMentionType("ping @here please")).toBe("here")
+  it("does NOT detect @here — it was removed as a broadcast trigger", () => {
+    // plans/remove-here-mention.md: @here is no longer a mention type.
+    expect(detectMentionType("ping @here please")).toBe(undefined)
   })
 
-  it("returns everyone when both occur (precedence)", () => {
+  it("still detects @everyone when @here also appears (here is inert now)", () => {
     expect(detectMentionType("yo @here and @everyone")).toBe("everyone")
     expect(detectMentionType("yo @everyone and @here")).toBe("everyone")
   })
@@ -356,13 +357,12 @@ describe("detectMentionType", () => {
     expect(detectMentionType("")).toBe(undefined)
   })
 
-  it("matches at start of string", () => {
+  it("matches @everyone at start of string", () => {
     expect(detectMentionType("@everyone hello")).toBe("everyone")
-    expect(detectMentionType("@here hello")).toBe("here")
   })
 
-  it("matches at end of string", () => {
-    expect(detectMentionType("hello @here")).toBe("here")
+  it("matches @everyone at end of string", () => {
+    expect(detectMentionType("hello @everyone")).toBe("everyone")
   })
 
   it("respects punctuation as a boundary", () => {
@@ -372,8 +372,8 @@ describe("detectMentionType", () => {
 
   it("does not treat a Unicode letter immediately after the token as a boundary — the #4 charset fix", () => {
     // Before the fix, `ID` was ASCII-only (`[A-Za-z0-9_]`), so `ä` in
-    // `@hereäx` was wrongly treated as a non-identifier boundary character,
-    // making `@hereäx` look like a genuine standalone `@here` token.
-    expect(detectMentionType("cc @hereäx")).toBe(undefined)
+    // `@everyoneäx` was wrongly treated as a non-identifier boundary character,
+    // making `@everyoneäx` look like a genuine standalone `@everyone` token.
+    expect(detectMentionType("cc @everyoneäx")).toBe(undefined)
   })
 })

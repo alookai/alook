@@ -213,16 +213,17 @@ export function buildCommunityMentionExtension(opts: {
 }
 
 /**
- * Standalone-token scan for `@everyone` / `@here`. Used at send time to set
+ * Standalone-token scan for `@everyone`. Used at send time to set
  * `mentionType` on the outgoing POST body so the server fans out to all
- * members. Precedence follows MENTION_TYPES order (everyone wins over here).
+ * members. Iterates `MENTION_TYPES` (now just `everyone`; `@here` was removed —
+ * see plans/remove-here-mention.md).
  */
 export function detectMentionType(text: string): MentionType | undefined {
   if (!text) return undefined
   // Unicode-aware (`\p{L}\p{N}_-`) — must agree with the display-side regex
   // in `chat-syntax-plugin.ts` and the server-side boundary check in
-  // `community-mentions.ts`'s `ID_CHAR_RE`, or a name like `@hereäx` would
-  // disagree across surfaces on whether the literal `@here` token is a
+  // `community-mentions.ts`'s `ID_CHAR_RE`, or a name like `@everyoneäx` would
+  // disagree across surfaces on whether the literal `@everyone` token is a
   // genuine standalone mention vs. part of a longer word.
   const ID = /[\p{L}\p{N}_-]/u
   for (const name of MENTION_TYPES) {

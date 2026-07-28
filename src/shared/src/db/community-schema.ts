@@ -468,7 +468,7 @@ export const communityPin = sqliteTable(
 
 // 16. community_mention
 // `kind` distinguishes how the mention was created:
-//   - "mention" — explicit @user / @everyone / @here in the message body
+//   - "mention" — explicit @user / @everyone in the message body
 //   - "reply"   — message replies to one of the user's earlier messages
 // The Mentions tab only surfaces kind="mention"; the For You tab uses both.
 export const communityMention = sqliteTable(

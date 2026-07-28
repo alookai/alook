@@ -73,9 +73,11 @@ test.describe.serial("mentions — candidate scope", () => {
   })
 
   // Open the @-popup in the current composer and return the option locators. The
-  // popup keys each row (members AND @everyone/@here) off its item id — a member
+  // popup keys each row (members AND @everyone) off its item id — a member
   // row id is the server-member row id (identical in server + channel lists), a
-  // virtual row id is the literal "everyone"/"here".
+  // virtual row id is the literal "everyone". (@here was removed —
+  // plans/remove-here-mention.md; `here` is exposed here only to assert its
+  // ABSENCE.)
   async function openMentionPopup(page: import("@playwright/test").Page) {
     const editable = composerEditable(page)
     await editable.click()
@@ -108,7 +110,8 @@ test.describe.serial("mentions — candidate scope", () => {
     await expect(opt.bob).toBeVisible({ timeout: 15_000 })
     await expect(opt.carol).toBeVisible({ timeout: 15_000 })
     await expect(opt.everyone).toBeVisible()
-    await expect(opt.here).toBeVisible()
+    // @here was removed — its popup row must not appear (plans/remove-here-mention.md).
+    await expect(opt.here).toHaveCount(0)
     // Self (alice) is filtered out of the popup at the composer — keyed by her
     // server-member row id (the same id the popup options use), not her userId.
     await expect(page.getByTestId(tid.mentionOption(alice.id))).toHaveCount(0)
@@ -135,7 +138,8 @@ test.describe.serial("mentions — candidate scope", () => {
     const opt = await openMentionPopup(page)
     await expect(opt.bob).toBeVisible({ timeout: 15_000 })
     await expect(opt.everyone).toBeVisible()
-    await expect(opt.here).toBeVisible()
+    // @here was removed — its popup row must not appear (plans/remove-here-mention.md).
+    await expect(opt.here).toHaveCount(0)
     // Carol is a server member but NOT in this private channel's audience.
     await expect(opt.carol).toHaveCount(0)
   })

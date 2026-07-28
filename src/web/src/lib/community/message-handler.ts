@@ -475,13 +475,13 @@ export async function createCommunityMessage(params: {
   // Candidate scoping: a message can only mention/notify users in the unit's
   // OWN audience. For a private channel/post/thread that's the (climb-based)
   // audience — a channel/post can only mention its own members; a thread climbs
-  // to its parent channel's audience. `@everyone`/`@here` and reply targets are
+  // to its parent channel's audience. `@everyone` and reply targets are
   // likewise clamped to that audience. There is NO invite-by-mention at the
   // channel level (roster changes only via owner-add). Public/uncategorized
   // channels are unchanged (whole-server candidates).
   const mentionTargets = new Set<string>()
   // Subset of `mentionTargets` that came from an EXPLICIT `@user` (not a mass
-  // `@everyone`/`@here`). Only explicit mentions enroll someone as a permanent
+  // `@everyone`). Only explicit mentions enroll someone as a permanent
   // thread participant — a broadcast `@everyone` notifies once but must not
   // subscribe the whole channel/server to every future reply (that would defeat
   // the notification dimension). See the thread-participation block below.
@@ -504,7 +504,7 @@ export async function createCommunityMessage(params: {
       const members = audienceIds
         ? allMembers.filter((m) => audienceIds.has(m.userId))
         : allMembers
-      if (mentionType === "everyone" || mentionType === "here") {
+      if (mentionType === "everyone") {
         for (const m of members) {
           if (m.userId !== authorId) mentionTargets.add(m.userId)
         }
@@ -518,7 +518,7 @@ export async function createCommunityMessage(params: {
           explicitMentionTargets.add(id)
         }
       }
-    } else if (mentionType === "everyone" || mentionType === "here") {
+    } else if (mentionType === "everyone") {
       const userIds = audienceIds
         ? [...audienceIds]
         : await queries.communityMember.listMemberUserIds(db, target.serverId)
@@ -559,7 +559,7 @@ export async function createCommunityMessage(params: {
       { userId: authorId, source: "spoke" },
     ]
     // Only EXPLICIT `@user` mentions + reply targets enroll as participants. A
-    // mass `@everyone`/`@here` is in `mentionTargets` (so everyone is notified
+    // mass `@everyone` is in `mentionTargets` (so everyone is notified
     // once) but NOT in `explicitMentionTargets`, so it doesn't permanently
     // subscribe the whole channel/server to the thread. `replyParticipants` is
     // the pre-dedup snapshot so a reply still enrolls even under `@everyone`.

@@ -75,7 +75,7 @@ const REHYPE_PLUGINS: PluggableList = [
 // is rendered natively by streamdown (GFM, matching agent-chat). The shared
 // mermaid/math/cjk plugins give parity with the agent bubble (diagrams, KaTeX
 // math, CJK spacing) and operate on different constructs than the chat-only
-// syntax (spoilers, @mentions, @everyone/@here, #channels) that `chatSyntaxPlugin`
+// syntax (spoilers, @mentions, @everyone, #channels) that `chatSyntaxPlugin`
 // parses directly into mdast nodes and maps to pill components — no custom
 // markdown parser, no HTML-string splicing.
 //
