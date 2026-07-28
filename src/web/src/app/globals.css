@@ -1410,6 +1410,16 @@
   text-decoration-thickness: 1.5px;
 }
 
+/* Community chat markdown — messages span the full row width. The base
+   `.markdown p` caps paragraphs at 65ch (a reading measure for long-form
+   surfaces: blog, agent chat, calendar). Chat rows are already width-bounded
+   by the message column, so the extra cap only leaves dead space on wide
+   viewports; lift it here so a message line extends to the full row. */
+.markdown-chat p,
+.markdown-chat [data-md-p] {
+  max-width: none;
+}
+
 /* User bubble markdown — inherit text color from primary-foreground parent */
 .markdown-user,
 .markdown-user code:not(pre code) {

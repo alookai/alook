@@ -397,6 +397,7 @@ function DmView() {
             replyingTo={replyTo?.authorName}
             onCancelReply={() => setReplyTo(null)}
             autoFocus={bp !== "mobile"}
+            draftKey={`dm/${dmId}`}
           />
         )}
       </main>

@@ -8,6 +8,8 @@ import StarterKit from "@tiptap/starter-kit"
 import Placeholder from "@tiptap/extension-placeholder"
 import { DOMParser as PMDOMParser } from "@tiptap/pm/model"
 import { buildPasteDom } from "@/lib/community/paste-plain-text"
+import { nextListScrollTop } from "@/lib/community/popup-scroll"
+import { readComposerDraft, writeComposerDraft, clearComposerDraft } from "@/lib/community/composer-draft"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useFileAttachments, type PendingFile } from "@/hooks/use-file-attachments"
@@ -98,6 +100,12 @@ export type ComposerProps = {
   // keystroke. Used by the forum-post orchestrator to drive the footer button's
   // `disabled` state without mirroring editor content in parent React state.
   onDirty?: (hasContent: boolean) => void
+  // When set, the composer persists its unsent text under this localStorage
+  // scope (per channel/DM) and restores it on mount — the view remounts on
+  // every channel switch (keyed by id), so this is what survives navigation.
+  // Text only; attachments/replies are not cached. Omitted for forumPostBody
+  // (the parent owns that draft lifecycle).
+  draftKey?: string
 }
 
 // Composer — plain-text TipTap editor with a chat-style @-mention popover.
@@ -124,6 +132,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   hideEmoji = false,
   hideAttach = false,
   onDirty,
+  draftKey,
 }, ref) {
   const isForumPostBody = mode === "forumPostBody"
   const {
@@ -145,6 +154,13 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     allowedMimePrefixes: ALLOWED_ATTACHMENT_MIME_PREFIXES,
   })
   const typingTimer = useRef<NodeJS.Timeout | null>(null)
+
+  // Draft cache key, held in a ref so the editor's `onUpdate` closure (captured
+  // once at build) always persists under the current scope. Restore is
+  // suppressed via this flag so hydrating the editor doesn't fire `onTyping`.
+  const draftKeyRef = useRef(draftKey)
+  useEffect(() => { draftKeyRef.current = draftKey }, [draftKey])
+  const restoringDraftRef = useRef(false)
 
   const [mentionPopup, setMentionPopup] = useState<MentionPopupState>(EMPTY_MENTION_STATE)
   const mentionPopupRef = useRef(mentionPopup)
@@ -307,11 +323,41 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         })
       },
     },
-    onUpdate: () => {
+    onUpdate: ({ editor }) => {
+      // Restore writes into the editor programmatically — don't treat that as
+      // the user typing (would fire a spurious typing indicator + re-save).
+      if (restoringDraftRef.current) return
       fireTyping()
       emitDirtyTransition()
+      const key = draftKeyRef.current
+      if (key && !isForumPostBody) {
+        writeComposerDraft(key, editor.isEmpty ? "" : editor.getText({ blockSeparator: "\n\n" }))
+      }
     },
   })
+
+  // Restore a cached draft on mount / when the scope key changes. The view
+  // remounts on channel switch, so this fires once per composer instance for
+  // the common case; the `draftKey` dep also covers a same-instance scope
+  // change. Uses the paste pipeline so paragraph/hard-break structure round-
+  // trips exactly like `getText({blockSeparator:"\n\n"})` serialized it.
+  useEffect(() => {
+    if (!editor || isForumPostBody || !draftKey) return
+    const text = readComposerDraft(draftKey)
+    if (!text) return
+    restoringDraftRef.current = true
+    try {
+      // `buildPasteDom` produces the same `<p>`/`<br>` block structure the
+      // paste path uses; its innerHTML round-trips through tiptap's own HTML
+      // parser, so the restored paragraphs/hard-breaks match what was saved.
+      editor.commands.setContent(buildPasteDom(text, document).innerHTML)
+    } finally {
+      restoringDraftRef.current = false
+    }
+    // Only re-run when the editor instance or scope key changes — not on every
+    // render. Restoring is a mount-time (per-instance) concern.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, draftKey])
 
   // Emitted-emptiness ref — used by the onDirty transition logic below to fire
   // only when the boolean flips. Initialized to false because the editor mounts
@@ -350,6 +396,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     // Reset is delegated to the parent via `resetAfterSubmit()` on the ref.
     if (isForumPostBody) return
     editor.commands.clearContent()
+    if (draftKeyRef.current) clearComposerDraft(draftKeyRef.current)
     setPendingFiles([])
     setMentionPopup(EMPTY_MENTION_STATE)
     setChannelRefPopup(EMPTY_CHANNEL_REF_STATE)
@@ -519,6 +566,24 @@ function itemsEqual(a: MentionItem[], b: MentionItem[]): boolean {
   return true
 }
 
+// Scroll the currently-highlighted row of a suggestion popover into view.
+// Looks the row up by `aria-selected="true"` (not child index) — the mention
+// list interleaves a "Members" section-header sibling, so an index lookup is
+// off-by-one; the attribute is exact. Drives `scrollTop` directly (the popup is
+// a fixed/transformed portal where `scrollIntoView` misbehaves). Row offsets
+// are container-relative because the list container is `position:relative`.
+function scrollSelectedRowIntoView(list: HTMLDivElement | null): void {
+  if (!list) return
+  const row = list.querySelector<HTMLElement>('[aria-selected="true"]')
+  if (!row) return
+  list.scrollTop = nextListScrollTop(
+    list.scrollTop,
+    list.clientHeight,
+    row.offsetTop,
+    row.offsetHeight,
+  )
+}
+
 // Portal-rendered popup. Anchored above the caret via clientRect() from
 // @tiptap/suggestion. Highlighted row syncs to hover so keyboard + pointer agree.
 function CommunityMentionList({ state }: { state: MentionPopupState }) {
@@ -526,9 +591,7 @@ function CommunityMentionList({ state }: { state: MentionPopupState }) {
   const { items, selectedIndex, command, rect } = state
 
   useEffect(() => {
-    if (!listRef.current) return
-    const el = listRef.current.children[selectedIndex] as HTMLElement | undefined
-    el?.scrollIntoView({ block: "nearest" })
+    scrollSelectedRowIntoView(listRef.current)
   }, [selectedIndex])
 
   if (!rect || items.length === 0 || !command) return null
@@ -551,7 +614,7 @@ function CommunityMentionList({ state }: { state: MentionPopupState }) {
       className="fixed z-100 w-64 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-(--e2)"
       style={{ top: rect.top - 4, left: clampedLeft, transform: "translateY(-100%)" }}
     >
-      <div ref={listRef} className="max-h-60 overflow-x-hidden overflow-y-auto thin-scrollbar">
+      <div ref={listRef} className="relative max-h-60 overflow-x-hidden overflow-y-auto thin-scrollbar">
         {items.map((item, i) => {
           const selected = i === selectedIndex
           return (
@@ -588,9 +651,7 @@ function ChannelRefList({ state }: { state: ChannelRefPopupState }) {
   const { items, selectedIndex, command, rect } = state
 
   useEffect(() => {
-    if (!listRef.current) return
-    const el = listRef.current.children[selectedIndex] as HTMLElement | undefined
-    el?.scrollIntoView({ block: "nearest" })
+    scrollSelectedRowIntoView(listRef.current)
   }, [selectedIndex])
 
   if (!rect || items.length === 0 || !command) return null
@@ -612,7 +673,7 @@ function ChannelRefList({ state }: { state: ChannelRefPopupState }) {
       className="fixed z-100 w-64 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-(--e2)"
       style={{ top: rect.top - 4, left: clampedLeft, transform: "translateY(-100%)" }}
     >
-      <div ref={listRef} className="max-h-60 overflow-x-hidden overflow-y-auto thin-scrollbar">
+      <div ref={listRef} className="relative max-h-60 overflow-x-hidden overflow-y-auto thin-scrollbar">
         {items.map((item, i) => (
           <ChannelRefRow
             key={item.id}

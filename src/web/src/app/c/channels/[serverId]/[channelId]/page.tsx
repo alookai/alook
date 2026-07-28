@@ -1001,6 +1001,7 @@ function ChannelView() {
             replyingTo={replyTo?.authorName}
             onCancelReply={() => setReplyTo(null)}
             autoFocus={bp !== "mobile"}
+            draftKey={`${serverId}/${channelId}`}
           />
         </main>
 
@@ -1150,6 +1151,7 @@ function ChannelView() {
           replyingTo={replyTo?.authorName}
           onCancelReply={() => setReplyTo(null)}
           autoFocus={bp !== "mobile"}
+          draftKey={`${serverId}/${channelId}`}
         />
       </main>
 
