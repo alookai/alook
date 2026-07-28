@@ -13,6 +13,8 @@ import { eq, and, or, inArray, gt, lt, ne, asc, desc, sql, isNotNull } from "dri
 import {
   communityMessage,
   communityChannel,
+  communityChannelMember,
+  communityServerMember,
   communityDmConversation,
   communityServer,
   communityReadState,
@@ -423,6 +425,24 @@ async function listAgentAllowedChannelIds(db: Database, botUserId: string): Prom
 }
 
 /**
+ * The "message is at/after the bot's join baseline" guard for the channel arm,
+ * expressed over the LEFT-JOINed membership rows (see `withJoinBaseline`).
+ * Mirrors the human unread baseline (`inbox.ts` `lastMessageAt > joinedAt`): a
+ * bot's unread must start at the moment it JOINED, not at seq 0 — otherwise a
+ * bot added to a server/channel with backlog gets flooded with all history
+ * (the agent predicate keys on `seq > COALESCE(lastReadSeq,0)`, and a fresh
+ * member has no read-state row → baseline 0 → every message matches).
+ *
+ * Baseline precedence: the private-channel access row's `added_at` when present
+ * (bot explicitly added to that channel), else the server-member `joined_at`
+ * for the channel's server. If neither exists (shouldn't happen for an allowed
+ * channel), COALESCE falls to `''` → any ISO `createdAt > ''` is true → fail
+ * open to the pre-existing behavior, never wrongly suppressing. Strict `>`: a
+ * message whose `createdAt` exactly equals the join timestamp is NOT unread.
+ */
+const channelJoinBaselineGuard = sql`${communityMessage.createdAt} > COALESCE(${communityChannelMember.addedAt}, ${communityServerMember.joinedAt}, '')`;
+
+/**
  * Cross-channel unread fill for `inboxPull`, grouped by channel/DM (not
  * global seq order — `seq` is a per-scope counter, comparing raw values
  * across scopes is meaningless, see plan §7 v4). Always drains one channel's
@@ -462,6 +482,21 @@ export async function listUnreadMessagesForAgent(
         )
       )
     )
+    .leftJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
+    .leftJoin(
+      communityChannelMember,
+      and(
+        eq(communityChannelMember.channelId, communityMessage.channelId),
+        eq(communityChannelMember.userId, botUserId)
+      )
+    )
+    .leftJoin(
+      communityServerMember,
+      and(
+        eq(communityServerMember.serverId, communityChannel.serverId),
+        eq(communityServerMember.userId, botUserId)
+      )
+    )
     .where(
       and(
         ne(communityMessage.authorId, botUserId),
@@ -471,7 +506,8 @@ export async function listUnreadMessagesForAgent(
             isNotNull(communityMessage.channelId),
             allowedChannelIds.length > 0
               ? inArray(communityMessage.channelId, allowedChannelIds)
-              : sql`1 = 0`
+              : sql`1 = 0`,
+            channelJoinBaselineGuard
           ),
           and(
             isNotNull(communityMessage.dmConversationId),
@@ -541,6 +577,21 @@ export async function getInboxSnapshotForAgent(db: Database, botUserId: string):
         )
       )
     )
+    .leftJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
+    .leftJoin(
+      communityChannelMember,
+      and(
+        eq(communityChannelMember.channelId, communityMessage.channelId),
+        eq(communityChannelMember.userId, botUserId)
+      )
+    )
+    .leftJoin(
+      communityServerMember,
+      and(
+        eq(communityServerMember.serverId, communityChannel.serverId),
+        eq(communityServerMember.userId, botUserId)
+      )
+    )
     .where(
       and(
         ne(communityMessage.authorId, botUserId),
@@ -550,7 +601,8 @@ export async function getInboxSnapshotForAgent(db: Database, botUserId: string):
             isNotNull(communityMessage.channelId),
             allowedChannelIds.length > 0
               ? inArray(communityMessage.channelId, allowedChannelIds)
-              : sql`1 = 0`
+              : sql`1 = 0`,
+            channelJoinBaselineGuard
           ),
           and(
             isNotNull(communityMessage.dmConversationId),
@@ -665,6 +717,21 @@ export async function getLatestUnreadMessageForAgent(
         )
       )
     )
+    .leftJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
+    .leftJoin(
+      communityChannelMember,
+      and(
+        eq(communityChannelMember.channelId, communityMessage.channelId),
+        eq(communityChannelMember.userId, botUserId)
+      )
+    )
+    .leftJoin(
+      communityServerMember,
+      and(
+        eq(communityServerMember.serverId, communityChannel.serverId),
+        eq(communityServerMember.userId, botUserId)
+      )
+    )
     .where(
       and(
         ne(communityMessage.authorId, botUserId),
@@ -674,7 +741,8 @@ export async function getLatestUnreadMessageForAgent(
             isNotNull(communityMessage.channelId),
             allowedChannelIds.length > 0
               ? inArray(communityMessage.channelId, allowedChannelIds)
-              : sql`1 = 0`
+              : sql`1 = 0`,
+            channelJoinBaselineGuard
           ),
           and(
             isNotNull(communityMessage.dmConversationId),

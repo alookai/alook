@@ -349,9 +349,11 @@ describe("listUnreadMessagesForAgent", () => {
     await agentInbox.listUnreadMessagesForAgent(db, "bot_1", { max: 50 });
 
     const chainResult = db.select.mock.results[4]!.value;
-    // dm + read-state — communityChannel join dropped now that
-    // participation is folded into `listAgentAllowedChannelIds` up front.
-    expect(chainResult.leftJoin).toHaveBeenCalledTimes(2);
+    // dm + read-state, plus the 3 join-baseline joins (channel + channel-member
+    // + server-member) that back the `createdAt > joinedAt` guard so a freshly
+    // joined bot isn't flooded with pre-join history. Visibility/participation
+    // is still pre-narrowed in `listAgentAllowedChannelIds` up front.
+    expect(chainResult.leftJoin).toHaveBeenCalledTimes(5);
     expect(chainResult.leftJoin.mock.invocationCallOrder[0]).toBeLessThan(
       chainResult.where.mock.invocationCallOrder[0]
     );
@@ -488,8 +490,9 @@ describe("getLatestUnreadMessageForAgent", () => {
     ]);
     await agentInbox.getLatestUnreadMessageForAgent(db, "bot_1");
     const chainResult = db.select.mock.results[4]!.value;
-    // dm + read-state.
-    expect(chainResult.leftJoin).toHaveBeenCalledTimes(2);
+    // dm + read-state + the 3 join-baseline joins (channel, channel-member,
+    // server-member) backing the `createdAt > joinedAt` guard.
+    expect(chainResult.leftJoin).toHaveBeenCalledTimes(5);
     expect(chainResult.leftJoin.mock.invocationCallOrder[0]).toBeLessThan(
       chainResult.where.mock.invocationCallOrder[0]
     );
@@ -635,8 +638,9 @@ describe("getInboxSnapshotForAgent", () => {
     await agentInbox.getInboxSnapshotForAgent(db, "bot_1");
 
     const chainResult = db.select.mock.results[4]!.value;
-    // dm + read-state.
-    expect(chainResult.leftJoin).toHaveBeenCalledTimes(2);
+    // dm + read-state + the 3 join-baseline joins (channel, channel-member,
+    // server-member) backing the `createdAt > joinedAt` guard.
+    expect(chainResult.leftJoin).toHaveBeenCalledTimes(5);
     expect(chainResult.leftJoin.mock.invocationCallOrder[0]).toBeLessThan(
       chainResult.where.mock.invocationCallOrder[0]
     );
