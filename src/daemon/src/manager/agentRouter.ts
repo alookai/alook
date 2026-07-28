@@ -18,7 +18,7 @@
  * `agent:wake`/`agent:stop` outcomes, and supplies a resync snapshot so the
  * server recovers this host's state after a dropped control connection.
  */
-import type { HostCommand, HostControlChannel, HostReady, HostReadyRuntime, UnreadNotice, AgentSessionReport, SessionErrorFrame } from "../server/contract.js";
+import type { HostCommand, HostControlChannel, HostReady, HostReadyRuntime, UnreadNotice, AgentSessionReport, SessionErrorFrame, AgentId } from "../server/contract.js";
 import type { AgentProcessManager } from "./managerRuntime.js";
 import type { TypingScopeTracker } from "./typingScopeTracker.js";
 import { createLogger, type Logger } from "../logger.js";
@@ -314,6 +314,61 @@ export class AgentRouter {
     });
   }
 
+  /**
+   * Shared handler for the restart-family commands (`agent:reset` / `agent:nap`
+   * / `agent:model_switch`). Post-B1 these three are isomorphic: enroll
+   * (`onBeforeAgent`) → the manager restart call (`run`, which differs only in
+   * which `restartAgent` params it passes) → join running-set +
+   * `scheduleReadyFrameResend` on success; on failure, `UnknownRuntimeError` →
+   * `session.error` frame, any other throw → error `reportWakeAck`. `opName` is
+   * the wire command type, used verbatim in the existing per-command log lines
+   * so the log output is byte-identical to the pre-table arms. `wake` and
+   * `stop` are deliberately NOT routed here — their shapes differ materially
+   * (typing/DM tracking + richer acks; stopped-ack + no enroll).
+   */
+  private async runRestartCommand(
+    agentId: AgentId,
+    launchId: string,
+    opName: "agent:reset" | "agent:nap" | "agent:model_switch",
+    run: () => Promise<void>,
+  ): Promise<void> {
+    this.log.info(`${opName} received`, { agentId, launchId });
+    try {
+      await this.opts.onBeforeAgent?.(agentId);
+      await run();
+      this.running.add(agentId);
+      this.scheduleReadyFrameResend();
+      this.log.info(`${opName} ok`, { agentId });
+    } catch (err) {
+      if (err instanceof UnknownRuntimeError) {
+        const frame: SessionErrorFrame = {
+          type: "session.error",
+          code: "runtime_not_available",
+          agentId,
+          payload: { requested: err.requested ?? null, available: err.available },
+        };
+        await this.opts.channel.reportSessionError?.(frame);
+        this.log.info(`${opName} error`, { agentId, "error.code": "runtime_not_available" });
+        return;
+      }
+      // Non-runtime throw (enroll failure, spawn threw, …). Mirror the wake
+      // arm: send an error ack so the web isn't left with only a daemon log
+      // line and no negative signal.
+      const code = classifyErrorCode(err);
+      await this.opts.channel.reportWakeAck?.({
+        agentId,
+        launchId,
+        status: "error",
+        error: { code, message: err instanceof Error ? err.message : String(err) },
+      });
+      this.log.warn(`${opName} failed`, {
+        agentId,
+        "error.code": code,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   private async onCommand(cmd: HostCommand): Promise<void> {
     switch (cmd.type) {
       case "agent:wake":
@@ -415,148 +470,38 @@ export class AgentRouter {
         }
         break;
       case "agent:reset":
-        this.log.info("agent:reset received", { agentId: cmd.agentId, launchId: cmd.launchId });
-        try {
-          await this.opts.onBeforeAgent?.(cmd.agentId);
-          await this.opts.manager.resetSession(cmd.agentId, {
+        await this.runRestartCommand(cmd.agentId, cmd.launchId, "agent:reset", () =>
+          this.opts.manager.resetSession(cmd.agentId, {
             runtimeConfig: cmd.config,
             launchId: cmd.launchId,
             rewakePrompt: REWAKE_PROMPT,
-          });
-          this.running.add(cmd.agentId);
-          this.scheduleReadyFrameResend();
-          this.log.info("agent:reset ok", { agentId: cmd.agentId });
-        } catch (err) {
-          if (err instanceof UnknownRuntimeError) {
-            const frame: SessionErrorFrame = {
-              type: "session.error",
-              code: "runtime_not_available",
-              agentId: cmd.agentId,
-              payload: {
-                requested: err.requested ?? null,
-                available: err.available,
-              },
-            };
-            await this.opts.channel.reportSessionError?.(frame);
-            this.log.info("agent:reset error", {
-              agentId: cmd.agentId,
-              "error.code": "runtime_not_available",
-            });
-            return;
-          }
-          // Non-runtime throw (enroll failure, spawn threw, …). Mirror the
-          // wake arm: send an error ack so the web isn't left with only a
-          // daemon log line and no negative signal.
-          const code = classifyErrorCode(err);
-          await this.opts.channel.reportWakeAck?.({
-            agentId: cmd.agentId,
-            launchId: cmd.launchId,
-            status: "error",
-            error: { code, message: err instanceof Error ? err.message : String(err) },
-          });
-          this.log.warn("agent:reset failed", {
-            agentId: cmd.agentId,
-            "error.code": code,
-            err: err instanceof Error ? err.message : String(err),
-          });
-        }
+          }),
+        );
         break;
       case "agent:nap":
-        this.log.info("agent:nap received", { agentId: cmd.agentId, launchId: cmd.launchId });
-        try {
-          // Self-initiated twin of agent:reset — same enroll → forget-session →
-          // fresh-rewake orchestration and `nap` timeline barrier (written by
-          // resetSession's reset path). The only difference is the rewake
-          // prompt carries the agent's own handoff. onBeforeAgent (enroll) must
-          // run first, exactly as the reset arm does.
-          await this.opts.onBeforeAgent?.(cmd.agentId);
-          await this.opts.manager.resetSession(cmd.agentId, {
+        // Self-initiated twin of agent:reset — same enroll → forget-session →
+        // fresh-rewake orchestration and `nap` timeline barrier; the only
+        // difference is the rewake prompt carries the agent's own handoff.
+        await this.runRestartCommand(cmd.agentId, cmd.launchId, "agent:nap", () =>
+          this.opts.manager.resetSession(cmd.agentId, {
             runtimeConfig: cmd.config,
             launchId: cmd.launchId,
             rewakePrompt: buildNapRewakePrompt(cmd.handoff),
             barrierType: "nap",
-          });
-          this.running.add(cmd.agentId);
-          this.scheduleReadyFrameResend();
-          this.log.info("agent:nap ok", { agentId: cmd.agentId });
-        } catch (err) {
-          if (err instanceof UnknownRuntimeError) {
-            const frame: SessionErrorFrame = {
-              type: "session.error",
-              code: "runtime_not_available",
-              agentId: cmd.agentId,
-              payload: { requested: err.requested ?? null, available: err.available },
-            };
-            await this.opts.channel.reportSessionError?.(frame);
-            this.log.info("agent:nap error", { agentId: cmd.agentId, "error.code": "runtime_not_available" });
-            return;
-          }
-          const code = classifyErrorCode(err);
-          await this.opts.channel.reportWakeAck?.({
-            agentId: cmd.agentId,
-            launchId: cmd.launchId,
-            status: "error",
-            error: { code, message: err instanceof Error ? err.message : String(err) },
-          });
-          this.log.warn("agent:nap failed", {
-            agentId: cmd.agentId,
-            "error.code": code,
-            err: err instanceof Error ? err.message : String(err),
-          });
-        }
+          }),
+        );
         break;
       case "agent:model_switch":
-        this.log.info("agent:model_switch received", { agentId: cmd.agentId, launchId: cmd.launchId });
-        try {
-          // `onBeforeAgent` is the ENROLL step, not error handling — it is the
-          // only writer of `enrolledKeys`. Without it, `doSpawn` →
-          // `baseContextFor` throws `agent <id> not enrolled yet` for any bot
-          // that hasn't woken since the daemon started, and the audit row +
-          // "switched" toast would lie while the daemon never respawns. Must
-          // run BEFORE switchModel, exactly as the agent:reset arm does.
-          await this.opts.onBeforeAgent?.(cmd.agentId);
-          await this.opts.manager.switchModel(cmd.agentId, {
+        // `switchModel` preserves the session (no forget, no barrier); onBeforeAgent
+        // (enroll) still runs first via runRestartCommand — the only writer of
+        // `enrolledKeys`, without which the respawn's `baseContextFor` would throw.
+        await this.runRestartCommand(cmd.agentId, cmd.launchId, "agent:model_switch", () =>
+          this.opts.manager.switchModel(cmd.agentId, {
             runtimeConfig: cmd.config,
             launchId: cmd.launchId,
             rewakePrompt: MODEL_SWITCH_REWAKE_PROMPT,
-          });
-          this.running.add(cmd.agentId);
-          this.scheduleReadyFrameResend();
-          this.log.info("agent:model_switch ok", { agentId: cmd.agentId });
-        } catch (err) {
-          if (err instanceof UnknownRuntimeError) {
-            const frame: SessionErrorFrame = {
-              type: "session.error",
-              code: "runtime_not_available",
-              agentId: cmd.agentId,
-              payload: {
-                requested: err.requested ?? null,
-                available: err.available,
-              },
-            };
-            await this.opts.channel.reportSessionError?.(frame);
-            this.log.info("agent:model_switch error", {
-              agentId: cmd.agentId,
-              "error.code": "runtime_not_available",
-            });
-            return;
-          }
-          // Non-runtime throw (enroll failure, spawn threw, …). Mirror the
-          // wake arm: send an error ack so the web isn't left with only a
-          // daemon log line and no negative signal.
-          const code = classifyErrorCode(err);
-          await this.opts.channel.reportWakeAck?.({
-            agentId: cmd.agentId,
-            launchId: cmd.launchId,
-            status: "error",
-            error: { code, message: err instanceof Error ? err.message : String(err) },
-          });
-          this.log.warn("agent:model_switch failed", {
-            agentId: cmd.agentId,
-            "error.code": code,
-            err: err instanceof Error ? err.message : String(err),
-          });
-        }
+          }),
+        );
         break;
       case "agent:stop":
         this.log.info("agent:stop received", { agentId: cmd.agentId });

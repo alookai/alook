@@ -318,6 +318,48 @@ describe("AgentRouter — agent:model_switch", () => {
   });
 });
 
+// B2 convergence: the RESTART-FAMILY commands (reset / nap / model_switch) all
+// route through the shared `runRestartCommand` handler. This pins that every
+// restart-family command is handled (none silently missing an arm) AND handled
+// via the shared path (enroll → manager call → running-set add + ready resend).
+// SCOPE: restart family ONLY — `agent:wake` and `agent:stop` are deliberately
+// NOT in this set (they have materially different shapes: wake's typing/DM
+// tracking + bot_runtime_missing acks; stop's reportStoppedAck + no enroll), so
+// this is NOT an "all agent:* commands" completeness check. New restart-family
+// commands are O(1) (add a case delegating to runRestartCommand); a new
+// structurally-different command still writes its own arm.
+describe("AgentRouter — restart-family command dispatch (B2 table)", () => {
+  const CFG = { version: 1 as const, runtime: "mock", model: { kind: "default" as const }, mode: { kind: "default" as const } };
+
+  const RESTART_CMDS = [
+    { type: "agent:reset" as const, extra: {} },
+    { type: "agent:nap" as const, extra: { handoff: "did X; next Y" } },
+    { type: "agent:model_switch" as const, extra: {} },
+  ];
+
+  for (const { type, extra } of RESTART_CMDS) {
+    it(`${type} routes through the shared handler: onBeforeAgent → manager call → running-set add`, async () => {
+      const { mgr, order } = fakeManager();
+      const { ch, fire } = fakeChannel();
+      const before: string[] = [];
+      const router = new AgentRouter({
+        manager: mgr,
+        channel: ch,
+        runtimeReport: [{ id: "mock" }],
+        onBeforeAgent: async (id) => { before.push(id); order.push(`before:${id}`); },
+      });
+      await router.start();
+
+      await fire({ type, agentId: "a1", config: CFG, launchId: "l1", ...extra } as never);
+
+      // Shared-handler invariants, identical across all three restart commands:
+      expect(before).toEqual(["a1"]);            // enroll ran
+      expect(order[0]).toBe("before:a1");        // enroll BEFORE the manager call
+      expect(router.buildReady().runningAgents).toContain("a1"); // joined running-set on success
+    });
+  }
+});
+
 describe("AgentRouter — unknown runtime → session.error", () => {
   it("catches UnknownRuntimeError from driverFor and forwards session.error{runtime_not_available}", async () => {
     // Manager whose register() re-throws whatever driverFor throws — mimics
