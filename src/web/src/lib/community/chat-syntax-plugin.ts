@@ -84,14 +84,24 @@ const CHANNEL_REF_RE = new RegExp(`(?<=^|\\s)/${REF_SEG}/${REF_SEG}(?:/#\\d+(?:#
 const SERVER_REF_RE = new RegExp(`(?<=^|\\s)/${REF_SEG}(?=\\s|$|[${REF_TERM}])`, "gu")
 
 // Message ref: `#NUMBER` where NUMBER is 1-6 digits (seq range 1-999999).
-// Same boundary pattern as channel/server refs: leading `(?<=^|\s)` so
-// `text#123` doesn't match (avoids GitHub issue refs, URL fragments),
-// trailing `(?=\s|$|[.,;:!?)\]])` so it works inline and at EOL.
-// Channel-scoped: `#123` refers to message seq 123 in the current channel,
-// not a global identifier. Registered AFTER mention regex so `@Alice#0042`
-// is parsed as mention first (4-digit discriminator), not broken into text
-// `@Alice` + message ref `#0042`.
-const MESSAGE_REF_RE = /(?<=^|\s)#\d{1,6}(?=\s|$|[.,;:!?)\]])/g
+// DELIBERATELY has NO leading `(?<=^|\s)` boundary (unlike channel/server
+// refs): a `#NNN` glued to a preceding word — `issue#42`, `text#123`, `见#42`
+// — SHOULD render as a message-ref pill. Agents dislike prepending a space
+// before a ref, so requiring one dropped the pill in practice (Gus #94, approved
+// #105). This intentionally reverses the older "avoid GitHub issue#42" rule.
+// Trailing boundary reuses the shared `REF_TERM` set (ASCII + full-width CJK
+// terminators) + `u` flag, matching the channel/server refs above, so `见#42。`
+// terminates cleanly before the full-width period. Still 1–6 digits, so 7+
+// digit runs (`#9999999`) don't match. Channel-scoped: `#123` = message seq 123
+// in the current channel, not a global id. Registered LAST in the pass list
+// (after mention AND channel/server refs — see `chatSyntaxPlugin`): the mention
+// pass consumes a valid `@Alice#0042` handle first (so its `#0042` is never
+// split out), and the channelRef pass consumes thread refs `/server/channel/#N`
+// first (so this pass, now lacking a leading-space boundary, can't steal the
+// `#N` out of them). By the time it runs it only sees a genuine standalone
+// `#N`. (An INVALID handle like `@Alice#42` — 2 digits, not a mention — does
+// now yield `@Alice` + msgref `#42`; accepted, minor.)
+const MESSAGE_REF_RE = new RegExp(`#\\d{1,6}(?=\\s|$|[${REF_TERM}])`, "gu")
 
 // Two-branch mention grammar (see plans/mandatory-mention-discriminator.md):
 //
@@ -204,13 +214,21 @@ export const chatSyntaxPlugin: Plugin<[], Root> = function chatSyntaxPlugin(this
       tree,
       [
         [MENTION_RE, mentionReplacer as unknown as (value: string, ...rest: unknown[]) => PhrasingContent | string | false],
-        [MESSAGE_REF_RE, messageRefReplacer as unknown as (value: string) => PhrasingContent],
         [CHANNEL_REF_RE, channelRefReplacer as unknown as (value: string) => PhrasingContent],
         // Runs as its own pass AFTER the channelRef pass above — by then every
         // `/server/channel` span is already a `channelRef` element (no longer
         // a `text` node `findAndReplace` visits), so this pass only ever sees
         // genuine bare `/server` refs among the remaining text.
         [SERVER_REF_RE, serverRefReplacer as unknown as (value: string) => PhrasingContent],
+        // Runs LAST (after both channel/server ref passes). MESSAGE_REF_RE has
+        // no leading-space boundary (a `#N` glued to a word must pill — Gus
+        // #94), so if it ran before channelRef it would steal the `#N` out of a
+        // thread ref (`/server/channel/#N`, `/#N#M`) before channelRef could
+        // claim the whole span. Running it last means those thread refs are
+        // already `channelRef` elements (not text nodes findAndReplace revisits),
+        // so this pass only ever sees a genuine standalone `#N`. Same
+        // consume-the-larger-token-first discipline that puts MENTION first.
+        [MESSAGE_REF_RE, messageRefReplacer as unknown as (value: string) => PhrasingContent],
       ],
       { ignore: IGNORE_NODE_TYPES },
     )

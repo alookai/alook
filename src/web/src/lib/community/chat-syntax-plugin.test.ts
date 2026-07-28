@@ -50,12 +50,16 @@ describe("chatSyntaxPlugin — mention", () => {
     expect(mentions.map((m) => `${m.value}#${m.discriminator}`)).toEqual(["@Alice#0001", "@Bob#0002"])
   })
 
-  it("does not truncate a 5+ digit run into a false-positive discriminator", () => {
-    // "#00423" is not a 4-digit tag, and a bare "@Gus" is no longer a mention,
-    // so the whole token stays plain text.
+  it("does not truncate a 5+ digit run into a false-positive discriminator (still not a mention)", () => {
+    // "#00423" is not a 4-digit tag, so "@Gus#00423" is NOT a mention. Since
+    // message refs no longer require a leading space (Gus #94), the leading
+    // 1–6 digits of the run now read as a message ref (`#00423`, 5 digits ≤ 6),
+    // leaving "@Gus" as text. The key guarantee this test protects is unchanged:
+    // it is NOT parsed as a mention with a truncated discriminator.
     const children = paragraphChildren(parse("hi @Gus#00423"))
     expect(children.some((c) => c.type === "mention")).toBe(false)
-    expect(children.map((c) => c.type)).toEqual(["text"])
+    expect(children.map((c) => c.type)).toEqual(["text", "messageRef"])
+    expect(children.find((c) => c.type === "messageRef")).toMatchObject({ value: "#00423" })
   })
 
   it("flags @everyone", () => {
@@ -130,10 +134,15 @@ describe("chatSyntaxPlugin — channelRef", () => {
     expect(refs[0]).toMatchObject({ type: "channelRef", value: "/studio/general/#5#42" })
   })
 
-  it("does not match a thread-reply form mid-string (leading-space boundary still applies)", () => {
+  it("does not wrap a mid-string thread-reply path as a channelRef (leading-space boundary still applies to CHANNEL refs)", () => {
+    // The channelRef pass still requires a leading space, so `text/.../#5#42`
+    // is NOT a channelRef. But message refs no longer require a leading space
+    // (Gus #94), so the trailing `#42` (a bare `#`+digits token) now reads as a
+    // message ref. The channelRef guarantee this test protects — no channelRef
+    // mid-string — is unchanged.
     const children = paragraphChildren(parse("text/studio/general/#5#42"))
-    expect(children).toHaveLength(1)
-    expect(children[0]).toMatchObject({ type: "text" })
+    expect(children.some((c) => c.type === "channelRef")).toBe(false)
+    expect(children.find((c) => c.type === "messageRef")).toMatchObject({ value: "#42" })
   })
 
   it("leaves a channel-ref-shaped path inside inline code literal", () => {
@@ -262,10 +271,40 @@ describe("chatSyntaxPlugin — message ref", () => {
     expect(messageRef).toMatchObject({ type: "messageRef", value: "#42" })
   })
 
-  it("does NOT parse text#NUMBER (no leading space) as messageRef", () => {
+  it("parses text#NUMBER glued to a preceding word as messageRef (no leading space needed)", () => {
+    // Reversed from the old "avoid GitHub issue#42" rule: agents dislike
+    // prepending a space, so a `#N` glued to a word must still pill (Gus #94,
+    // approved #105). GitHub-style `issue#42` now renders as a message ref.
     const children = paragraphChildren(parse("issue#42 in GitHub"))
+    const messageRef = children.find((c): c is MessageRefNode => c.type === "messageRef")
+    expect(messageRef).toMatchObject({ type: "messageRef", value: "#42" })
+    // The word before keeps its text; only the #42 becomes a ref.
+    expect(children[0]).toMatchObject({ type: "text", value: "issue" })
+  })
+
+  it("parses #NUMBER with NO space in various glued forms", () => {
+    expect(paragraphChildren(parse("text#123")).find((c) => c.type === "messageRef")).toMatchObject({ value: "#123" })
+    // CJK glued form + full-width terminator: 见#42。 → msgref #42 + literal 。
+    const cjk = paragraphChildren(parse("见#42。"))
+    expect(cjk.find((c) => c.type === "messageRef")).toMatchObject({ value: "#42" })
+    expect(cjk.some((c) => c.type === "text" && c.value === "。")).toBe(true)
+  })
+
+  it("a valid @name#0042 handle is still a mention, not a name + message ref (mention pass runs first)", () => {
+    // Dropping the leading-space boundary must NOT split #0042 out of a real
+    // mention — the mention pass runs before the message-ref pass and consumes
+    // the whole handle.
+    const children = paragraphChildren(parse("@Alice#0042"))
     expect(children.some((c) => c.type === "messageRef")).toBe(false)
-    expect(children.map((c) => c.type)).toEqual(["text"])
+    expect(children[0]).toMatchObject({ type: "mention", value: "@Alice", discriminator: "0042" })
+  })
+
+  it("an INVALID @name#42 (2-digit, not a mention) now yields text + message ref #42", () => {
+    // Documented consequence: @Alice#42 isn't a valid 4-digit handle, so it's
+    // not a mention; with the leading boundary gone, its #42 reads as a msgref.
+    const children = paragraphChildren(parse("@Alice#42"))
+    expect(children.some((c) => c.type === "mention")).toBe(false)
+    expect(children.find((c) => c.type === "messageRef")).toMatchObject({ value: "#42" })
   })
 
   it("parses multiple message refs in one message", () => {
@@ -288,6 +327,19 @@ describe("chatSyntaxPlugin — message ref", () => {
   it("does NOT parse 7+ digit numbers", () => {
     const children = paragraphChildren(parse("ref #9999999"))
     expect(children.some((c) => c.type === "messageRef")).toBe(false)
+  })
+
+  it("CONSEQUENCE of no-leading-space: a numeric URL fragment now reads as a message ref", () => {
+    // Documented tradeoff of Gus #94 (approved #105): dropping the leading
+    // boundary means `…#42` glued to a URL becomes a message-ref pill.
+    // `github.com/foo/bar#42` → text + messageRef `#42`. Non-numeric fragments
+    // (`#section`) are unaffected. Flagged to Gus; this test pins the behavior
+    // so it's a deliberate decision, not a silent regression.
+    const numeric = paragraphChildren(parse("see github.com/foo/bar#42"))
+    expect(numeric.find((c) => c.type === "messageRef")).toMatchObject({ value: "#42" })
+
+    const nonNumeric = paragraphChildren(parse("see example.com/page#section"))
+    expect(nonNumeric.some((c) => c.type === "messageRef")).toBe(false)
   })
 })
 
