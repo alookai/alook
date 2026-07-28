@@ -10,7 +10,8 @@ import type { DM } from "@/components/community/_types"
  *
  * The `Presence` field in each DM is a placeholder "offline" — the actual
  * live badge is layered on later from the WS presence store in the consumer.
- * Step 3 will invalidate this key on `community:dm.new_message` events.
+ * The WS handler invalidates this key on `community:message.create` events
+ * (a DM is a channel now) so previews and unread flags stay live.
  */
 export type DmsResponse = { conversations: DM[] }
 

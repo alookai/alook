@@ -12,16 +12,17 @@ import type { Database } from "@alook/shared"
 import { fanOutToChannel, fanOutToDM } from "@/lib/community/fanout"
 import {
   requireChannelMember,
-  requireDMParticipant,
+  requireDMAccess,
 } from "@/lib/community/permissions"
 
-type AccessOk = { ok: true; channelId?: string; dmConversationId?: string }
+type AccessOk = { ok: true; channelId: string; isDm: boolean }
 type AccessErr = { ok: false; status: 401 | 403 | 404; error: string }
 
 /**
  * Resolve the message and verify the caller can react.
  * Reactions follow the same access rules as reading the message itself —
- * for DM, that also requires the other user not to have blocked the caller.
+ * for a DM channel, that also requires the other user not to have blocked the
+ * caller.
  */
 async function authorizeReaction(
   db: Database,
@@ -31,17 +32,15 @@ async function authorizeReaction(
   const message = await queries.communityMessage.getMessage(db, messageId)
   if (!message) return { ok: false, status: 404, error: "message not found" }
 
-  if (message.channelId) {
-    const check = await requireChannelMember(db, message.channelId, userId)
+  const channelType = await queries.communityChannel.getChannelType(db, message.channelId)
+  if (channelType === "dm") {
+    const check = await requireDMAccess(db, message.channelId, userId)
     if (!check.ok) return check
-    return { ok: true, channelId: message.channelId }
+    return { ok: true, channelId: message.channelId, isDm: true }
   }
-  if (message.dmConversationId) {
-    const check = await requireDMParticipant(db, message.dmConversationId, userId)
-    if (!check.ok) return check
-    return { ok: true, dmConversationId: message.dmConversationId }
-  }
-  return { ok: false, status: 404, error: "message not found" }
+  const check = await requireChannelMember(db, message.channelId, userId)
+  if (!check.ok) return check
+  return { ok: true, channelId: message.channelId, isDm: false }
 }
 
 export const PUT = withAuth(async (_req: NextRequest, ctx) => {
@@ -75,14 +74,13 @@ export const PUT = withAuth(async (_req: NextRequest, ctx) => {
     messageId,
     userId: ctx.userId,
     emoji,
-    ...(access.channelId && { channelId: access.channelId }),
-    ...(access.dmConversationId && { dmConversationId: access.dmConversationId }),
+    channelId: access.channelId,
   }
 
-  if (access.channelId) {
+  if (access.isDm) {
+    fanOutToDM(access.channelId, event, { excludeUserId: ctx.userId })
+  } else {
     fanOutToChannel(access.channelId, event, { excludeUserId: ctx.userId })
-  } else if (access.dmConversationId) {
-    fanOutToDM(access.dmConversationId, event, { excludeUserId: ctx.userId })
   }
 
   return writeJSON(reaction)
@@ -110,14 +108,13 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
     messageId,
     userId: ctx.userId,
     emoji,
-    ...(access.channelId && { channelId: access.channelId }),
-    ...(access.dmConversationId && { dmConversationId: access.dmConversationId }),
+    channelId: access.channelId,
   }
 
-  if (access.channelId) {
+  if (access.isDm) {
+    fanOutToDM(access.channelId, event, { excludeUserId: ctx.userId })
+  } else {
     fanOutToChannel(access.channelId, event, { excludeUserId: ctx.userId })
-  } else if (access.dmConversationId) {
-    fanOutToDM(access.dmConversationId, event, { excludeUserId: ctx.userId })
   }
 
   return new Response(null, { status: 204 })

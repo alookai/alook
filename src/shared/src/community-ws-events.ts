@@ -3,7 +3,7 @@
  *
  * Convention: every event type starts with "community:" prefix.
  * The server fans events to each recipient's per-user DO via POST /broadcast/user/<userId>.
- * The client filters events based on its focused subscription (channelId/threadId/dmConversationId).
+ * The client filters events based on its focused subscription (channelId).
  */
 
 import type { ChannelType } from "./utils/community-roles"
@@ -13,9 +13,7 @@ import type { MentionType } from "./utils/community-mentions"
 
 export type CommunityMessageCreate = {
   type: "community:message.create"
-  channelId?: string
-  dmConversationId?: string
-  threadId?: string
+  channelId: string
   message: {
     id: string
     authorId: string
@@ -41,14 +39,29 @@ export type CommunityMessageCreate = {
       height?: number | null
     }[]
     createdAt: string
+    /** Present only on a friend-approval card (DM channels). Client renders the card when set. */
+    approval?: FriendApprovalPayload
   }
+}
+
+/**
+ * A message's friend-approval card changed state (approve / deny / supersede /
+ * accept). Fanned to every DM-channel peer whose channel contains a message
+ * with the friendship's id so first-hop and second-hop cards (J3), and a
+ * superseded card and its replacement, rehydrate without a refetch. Folded from
+ * the old `community:dm.message_updated` — now keyed by `channelId` (the DM's
+ * channel id). `approval` is the fresh per-recipient projection.
+ */
+export type CommunityMessageUpdated = {
+  type: "community:message.updated"
+  channelId: string
+  messageId: string
+  approval: FriendApprovalPayload
 }
 
 export type CommunityReactionAdd = {
   type: "community:reaction.add"
-  channelId?: string
-  dmConversationId?: string
-  threadId?: string
+  channelId: string
   messageId: string
   userId: string
   emoji: string
@@ -56,9 +69,7 @@ export type CommunityReactionAdd = {
 
 export type CommunityReactionRemove = {
   type: "community:reaction.remove"
-  channelId?: string
-  dmConversationId?: string
-  threadId?: string
+  channelId: string
   messageId: string
   userId: string
   emoji: string
@@ -78,23 +89,19 @@ export type CommunityPinRemove = {
 
 export type CommunityTypingStart = {
   type: "community:typing.start"
-  channelId?: string
-  dmConversationId?: string
-  threadId?: string
+  channelId: string
   userId: string
 }
 
 /**
  * Explicit "stop typing" event. Fired by the daemon's bot-typing pipeline
  * when a bot's turn ends, so the pill disappears immediately instead of
- * dangling until the client's 8s auto-expire. Channel/thread fields are
- * shaped for future parity — today only `dmConversationId` is emitted.
+ * dangling until the client's 8s auto-expire. Keyed by `channelId` (a DM is
+ * a channel now).
  */
 export type CommunityTypingStop = {
   type: "community:typing.stop"
-  channelId?: string
-  dmConversationId?: string
-  threadId?: string
+  channelId: string
   userId: string
 }
 
@@ -354,53 +361,6 @@ export type FriendApprovalPayload = {
   waitingOnProfile?: FriendApprovalProfile | null
 }
 
-// ── DM events ─────────────────────────────────────────────────────────────────
-
-export type CommunityDmNewMessage = {
-  type: "community:dm.new_message"
-  dmConversationId: string
-  message: {
-    id: string
-    authorId: string
-    authorName: string
-    authorAvatar?: string
-    content: string
-    embeds?: unknown[]
-    attachments?: {
-      id: string
-      filename: string
-      url: string
-      contentType?: string
-      size?: number
-      width?: number | null
-      height?: number | null
-    }[]
-    createdAt: string
-    /** Present only on a friend-approval card. Client renders the card when set. */
-    approval?: FriendApprovalPayload
-  }
-}
-
-/**
- * A DM message's friend-approval card changed state (approve / deny / supersede
- * / accept). Fanned to every DM peer whose DM contains a message with the
- * friendship's id so first-hop and second-hop cards (J3), and a superseded card
- * and its replacement, rehydrate without a refetch. `approval` is the fresh
- * per-recipient projection.
- */
-export type CommunityDmMessageUpdated = {
-  type: "community:dm.message_updated"
-  dmConversationId: string
-  messageId: string
-  approval: FriendApprovalPayload
-}
-
-export type CommunityDmTyping = {
-  type: "community:dm.typing"
-  dmConversationId: string
-  userId: string
-}
-
 // ── Invite events ────────────────────────────────────────────────────────────
 
 export type CommunityInviteCreate = {
@@ -559,6 +519,7 @@ export type CommunityBotHostFrame = BotAddedFrame | BotUpdatedFrame | BotRemoved
 
 export type CommunityWsEvent =
   | CommunityMessageCreate
+  | CommunityMessageUpdated
   | CommunityReactionAdd
   | CommunityReactionRemove
   | CommunityPinAdd
@@ -588,9 +549,6 @@ export type CommunityWsEvent =
   | CommunityFriendReject
   | CommunityFriendRemove
   | CommunityFriendBlock
-  | CommunityDmNewMessage
-  | CommunityDmMessageUpdated
-  | CommunityDmTyping
   | CommunityPresenceUpdate
   | CommunityStatusUpdate
   | CommunityMentionCreate
@@ -608,6 +566,7 @@ export function isCommunityEvent(msg: { type: string }): msg is CommunityWsEvent
 /** Constant map of every community WS event type string. */
 export const WS_EVENTS = {
   MESSAGE_CREATE: "community:message.create",
+  MESSAGE_UPDATED: "community:message.updated",
   REACTION_ADD: "community:reaction.add",
   REACTION_REMOVE: "community:reaction.remove",
   PIN_ADD: "community:pin.add",
@@ -636,9 +595,6 @@ export const WS_EVENTS = {
   FRIEND_REJECT: "community:friend.reject",
   FRIEND_REMOVE: "community:friend.remove",
   FRIEND_BLOCK: "community:friend.block",
-  DM_NEW_MESSAGE: "community:dm.new_message",
-  DM_MESSAGE_UPDATED: "community:dm.message_updated",
-  DM_TYPING: "community:dm.typing",
   INVITE_CREATE: "community:invite.create",
   MENTION_CREATE: "community:mention.create",
   PRESENCE_UPDATE: "community:presence.update",

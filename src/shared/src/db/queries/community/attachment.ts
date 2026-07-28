@@ -3,8 +3,6 @@ import { nanoid } from "nanoid";
 import { communityAttachment } from "../../community-schema";
 import type { Database } from "../../index";
 
-export type AttachmentKind = "channel" | "dm";
-
 /**
  * Insert an attachment row already tied to a message (human-composer path).
  * The agent-attachment pipeline uses `createPendingAttachment` /
@@ -16,7 +14,6 @@ export async function createAttachment(
   data: {
     messageId: string;
     uploaderId: string;
-    kind: AttachmentKind;
     targetId: string;
     r2Key: string;
     filename: string;
@@ -32,7 +29,6 @@ export async function createAttachment(
     .values({
       messageId: data.messageId,
       uploaderId: data.uploaderId,
-      kind: data.kind,
       targetId: data.targetId,
       r2Key: data.r2Key,
       filename: data.filename,
@@ -57,7 +53,6 @@ export async function createPendingAttachment(
   data: {
     id?: string;
     uploaderId: string;
-    kind: AttachmentKind;
     targetId: string;
     r2Key: string;
     filename: string;
@@ -73,7 +68,6 @@ export async function createPendingAttachment(
       id: data.id ?? nanoid(),
       messageId: null,
       uploaderId: data.uploaderId,
-      kind: data.kind,
       targetId: data.targetId,
       r2Key: data.r2Key,
       filename: data.filename,
@@ -95,7 +89,7 @@ export async function createPendingAttachment(
  */
 export async function findPendingAttachmentsForBot(
   db: Database,
-  data: { ids: string[]; uploaderId: string; kind: AttachmentKind; targetId: string }
+  data: { ids: string[]; uploaderId: string; targetId: string }
 ) {
   if (data.ids.length === 0) return [];
   return db
@@ -106,7 +100,6 @@ export async function findPendingAttachmentsForBot(
         inArray(communityAttachment.id, data.ids),
         isNull(communityAttachment.messageId),
         eq(communityAttachment.uploaderId, data.uploaderId),
-        eq(communityAttachment.kind, data.kind),
         eq(communityAttachment.targetId, data.targetId)
       )
     );

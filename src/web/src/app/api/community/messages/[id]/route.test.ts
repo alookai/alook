@@ -8,7 +8,9 @@ vi.mock("@opennextjs/cloudflare", () => ({
 const mockGetMessage = vi.fn()
 const mockGetMessagesByIdsInScope = vi.fn()
 const mockGetChannelForMember = vi.fn()
+const mockGetChannelType = vi.fn()
 const mockGetDM = vi.fn()
+const mockGetDMPeer = vi.fn()
 const mockIsBlocked = vi.fn()
 const mockListByMessageIds = vi.fn()
 const mockListReactionsByMessageIds = vi.fn()
@@ -22,6 +24,7 @@ vi.mock("@alook/shared", async () => {
     queries: {
       communityChannel: {
         getChannelForMember: (...a: unknown[]) => mockGetChannelForMember(...a),
+        getChannelType: (...a: unknown[]) => mockGetChannelType(...a),
       },
       communityMessage: {
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
@@ -35,6 +38,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityDm: {
         getDM: (...a: unknown[]) => mockGetDM(...a),
+        getDMPeer: (...a: unknown[]) => mockGetDMPeer(...a),
       },
       communityFriendship: {
         isBlocked: (...a: unknown[]) => mockIsBlocked(...a),
@@ -70,6 +74,8 @@ describe("GET /api/community/messages/[id]", () => {
     mockListByMessageIds.mockResolvedValue([])
     mockListReactionsByMessageIds.mockResolvedValue([])
     mockGetMessagesByIdsInScope.mockResolvedValue([])
+    // Default: a normal (non-DM) channel → server-scoped member gate.
+    mockGetChannelType.mockResolvedValue("text")
   })
 
   it("returns the hydrated payload for a channel message when caller is a server member", async () => {
@@ -207,16 +213,15 @@ describe("GET /api/community/messages/[id]", () => {
       replyToId: null,
       embeds: null,
       createdAt: "2026-07-03T00:00:00.000Z",
-      channelId: null,
-      dmConversationId: "dm-1",
+      channelId: "dm-1",
     })
+    mockGetChannelType.mockResolvedValue("dm")
     mockGetDM.mockResolvedValue({
       id: "dm-1",
-      user1Id: "u1",
-      user2Id: "u2",
       lastMessageAt: null,
       createdAt: "2026-07-01T00:00:00.000Z",
     })
+    mockGetDMPeer.mockResolvedValue({ otherUserId: "u2" })
     mockIsBlocked.mockResolvedValue(false)
 
     const res = await GET(req(), { params: { id: "m1" } } as any)
@@ -227,7 +232,7 @@ describe("GET /api/community/messages/[id]", () => {
     expect(mockGetChannelForMember).not.toHaveBeenCalled()
   })
 
-  it("returns 403 when the caller doesn't participate in the DM", async () => {
+  it("returns 404 when the caller doesn't participate in the DM (no access-member row)", async () => {
     mockGetMessage.mockResolvedValue({
       id: "m1",
       authorId: "u-other",
@@ -239,19 +244,19 @@ describe("GET /api/community/messages/[id]", () => {
       replyToId: null,
       embeds: null,
       createdAt: "2026-07-03T00:00:00.000Z",
-      channelId: null,
-      dmConversationId: "dm-1",
+      channelId: "dm-1",
     })
+    mockGetChannelType.mockResolvedValue("dm")
     mockGetDM.mockResolvedValue({
       id: "dm-1",
-      user1Id: "u-other",
-      user2Id: "u-third",
       lastMessageAt: null,
       createdAt: "2026-07-01T00:00:00.000Z",
     })
+    // Caller is not a participant → no access-member row → 404 from requireDMAccess.
+    mockGetDMPeer.mockResolvedValue(null)
 
     const res = await GET(req(), { params: { id: "m1" } } as any)
-    expect(res.status).toBe(403)
+    expect(res.status).toBe(404)
   })
 
   it("returns 400 when the id param is missing", async () => {

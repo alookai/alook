@@ -151,7 +151,6 @@ export async function listUserServers(db: Database, userId: string) {
       ownerId: communityServer.ownerId,
       createdAt: communityServer.createdAt,
       role: communityServerMember.role,
-      nickname: communityServerMember.nickname,
       railOrder: communityServerMember.railOrder,
       // COALESCE has no ORM operator in this Drizzle version — the LEFT JOIN
       // yields NULL for servers with zero unread mentions. Wrap the aggregate

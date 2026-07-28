@@ -90,21 +90,21 @@ describe("AgentTypingMessageSchema", () => {
     const res = AgentTypingMessageSchema.safeParse({
       type: "agent_typing",
       agentId: "bot_1",
-      dmConversationId: "dm_1",
+      channelId: "c_1",
     })
     expect(res.success).toBe(true)
   })
 
-  it("rejects missing dmConversationId", () => {
+  it("rejects missing channelId", () => {
     const res = AgentTypingMessageSchema.safeParse({ type: "agent_typing", agentId: "bot_1" })
     expect(res.success).toBe(false)
   })
 
-  it("rejects empty dmConversationId (min length 1)", () => {
+  it("rejects empty channelId (min length 1)", () => {
     const res = AgentTypingMessageSchema.safeParse({
       type: "agent_typing",
       agentId: "bot_1",
-      dmConversationId: "",
+      channelId: "",
     })
     expect(res.success).toBe(false)
   })
@@ -112,7 +112,7 @@ describe("AgentTypingMessageSchema", () => {
   it("rejects missing agentId", () => {
     const res = AgentTypingMessageSchema.safeParse({
       type: "agent_typing",
-      dmConversationId: "dm_1",
+      channelId: "c_1",
     })
     expect(res.success).toBe(false)
   })
@@ -121,7 +121,7 @@ describe("AgentTypingMessageSchema", () => {
     const res = AgentTypingMessageSchema.safeParse({
       type: "agent_activity",
       agentId: "bot_1",
-      dmConversationId: "dm_1",
+      channelId: "c_1",
     })
     expect(res.success).toBe(false)
   })
@@ -132,12 +132,12 @@ describe("AgentTypingStopMessageSchema", () => {
     const res = AgentTypingStopMessageSchema.safeParse({
       type: "agent_typing_stop",
       agentId: "bot_1",
-      dmConversationId: "dm_1",
+      channelId: "c_1",
     })
     expect(res.success).toBe(true)
   })
 
-  it("rejects missing dmConversationId", () => {
+  it("rejects missing channelId", () => {
     const res = AgentTypingStopMessageSchema.safeParse({
       type: "agent_typing_stop",
       agentId: "bot_1",
@@ -148,7 +148,7 @@ describe("AgentTypingStopMessageSchema", () => {
   it("rejects missing agentId", () => {
     const res = AgentTypingStopMessageSchema.safeParse({
       type: "agent_typing_stop",
-      dmConversationId: "dm_1",
+      channelId: "c_1",
     })
     expect(res.success).toBe(false)
   })

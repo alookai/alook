@@ -36,7 +36,7 @@ export function useEagerDmRead({
 
     // Optimistic trim so the inbox popover drops this DM immediately.
     queryClient.setQueryData<UnreadsResponse>(communityKeys.inboxUnreads(), (prev) =>
-      prev ? { ...prev, dms: prev.dms.filter((d) => d.dmConversationId !== dmId) } : prev,
+      prev ? { ...prev, dms: prev.dms.filter((d) => d.channelId !== dmId) } : prev,
     )
 
     void apiFetch(`/api/community/dm/${dmId}/read`, { method: "PUT" })

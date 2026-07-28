@@ -10,7 +10,7 @@ import { getDb } from "@/lib/db"
 import { withAgentRunnerAuth } from "@/lib/middleware/community-agent-runner-auth"
 import { resolveTargetForMember, resolveErrorResponse } from "@/lib/community/resolve-ref"
 import { isDmTarget } from "@/lib/community/message-handler"
-import { requireChannelMember, requireDMParticipant } from "@/lib/community/permissions"
+import { requireChannelMember, requireDMAccess } from "@/lib/community/permissions"
 import { fanOutToChannel, fanOutToDM } from "@/lib/community/fanout"
 
 /**
@@ -48,11 +48,10 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
   })
   if ("error" in resolved) return resolveErrorResponse(resolved)
 
-  const scopeTarget =
-    isDmTarget(resolved) ? { dmConversationId: resolved.dmConversationId } : { channelId: resolved.channelId }
+  const scopeTarget = { channelId: resolved.channelId }
 
   if (isDmTarget(resolved)) {
-    const gate = await requireDMParticipant(db, resolved.dmConversationId, ctx.botUserId)
+    const gate = await requireDMAccess(db, resolved.channelId, ctx.botUserId)
     if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status })
   } else {
     const gate = await requireChannelMember(db, resolved.channelId, ctx.botUserId)
@@ -82,13 +81,11 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
     messageId: row.id,
     userId: ctx.botUserId,
     emoji: body.emoji,
-    ...(isDmTarget(resolved)
-      ? { dmConversationId: resolved.dmConversationId }
-      : { channelId: resolved.channelId }),
+    channelId: resolved.channelId,
   }
 
   if (isDmTarget(resolved)) {
-    await fanOutToDM(resolved.dmConversationId, event, { excludeUserId: ctx.botUserId })
+    await fanOutToDM(resolved.channelId, event, { excludeUserId: ctx.botUserId })
   } else {
     await fanOutToChannel(resolved.channelId, event, { excludeUserId: ctx.botUserId })
   }

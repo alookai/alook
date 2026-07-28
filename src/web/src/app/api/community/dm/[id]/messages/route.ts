@@ -12,7 +12,7 @@ import {
   buildSinceResponse,
 } from "@/lib/community/messages"
 import { enrichMessages } from "@/lib/community/enrich-messages"
-import { requireDMParticipant } from "@/lib/community/permissions"
+import { requireDMAccess } from "@/lib/community/permissions"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { createCommunityMessage } from "@/lib/community/message-handler"
 
@@ -21,7 +21,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   if (!dmId) return writeError("missing dm id", 400)
 
   const db = getDb(ctx.env.DB)
-  const auth = await requireDMParticipant(db, dmId, ctx.userId)
+  const auth = await requireDMAccess(db, dmId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 
   const params = req.nextUrl.searchParams
@@ -31,11 +31,11 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const pageSize = parsePageSize(params.get("limit"))
 
   if (anchorId) {
-    const anchor = await queries.communityMessage.getMessageInScope(db, anchorId, { dmConversationId: dmId })
+    const anchor = await queries.communityMessage.getMessageInScope(db, anchorId, { channelId: dmId })
     if (!anchor) return writeError("anchor not found", 404)
 
     const around = await queries.communityMessage.listMessagesAround(db, {
-      dmConversationId: dmId,
+      channelId: dmId,
       anchor: { createdAt: anchor.createdAt, id: anchor.id },
       limit: pageSize,
     })
@@ -46,29 +46,29 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       { hasMoreOlder: around.hasMoreOlder, hasMoreNewer: around.hasMoreNewer },
     )
 
-    const { messages, latestSeq } = await enrichMessages(db, ctx.userId, { dmConversationId: dmId }, items)
+    const { messages, latestSeq } = await enrichMessages(db, ctx.userId, { channelId: dmId, isDm: true }, items)
     return writeJSON({ messages, hasMoreOlder, hasMoreNewer, olderCursor, newerCursor, latestSeq })
   }
 
   if (since) {
     const rows = await queries.communityMessage.listMessagesSince(db, {
-      dmConversationId: dmId,
+      channelId: dmId,
       since,
       limit: pageSize,
     })
     const { items, hasMoreNewer, newerCursor } = buildSinceResponse(rows, pageSize)
-    const { messages, latestSeq } = await enrichMessages(db, ctx.userId, { dmConversationId: dmId }, items)
+    const { messages, latestSeq } = await enrichMessages(db, ctx.userId, { channelId: dmId, isDm: true }, items)
     return writeJSON({ messages, hasMoreNewer, newerCursor, latestSeq })
   }
 
   const rows = await queries.communityMessage.listMessages(db, {
-    dmConversationId: dmId,
+    channelId: dmId,
     cursor,
     limit: pageSize + 1,
   })
 
   const { items, hasMore, cursor: nextCursor } = buildPaginatedResponse(rows, pageSize)
-  const { messages, latestSeq } = await enrichMessages(db, ctx.userId, { dmConversationId: dmId }, items.slice().reverse())
+  const { messages, latestSeq } = await enrichMessages(db, ctx.userId, { channelId: dmId, isDm: true }, items.slice().reverse())
   return writeJSON({ messages, hasMore, cursor: nextCursor, latestSeq })
 })
 
@@ -77,7 +77,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (!dmId) return writeError("missing dm id", 400)
 
   const db = getDb(ctx.env.DB)
-  const auth = await requireDMParticipant(db, dmId, ctx.userId)
+  const auth = await requireDMAccess(db, dmId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 
   const rateLimit = await checkRateLimit(ctx.env, "community:msgSend", ctx.userId)
@@ -95,7 +95,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const result = await createCommunityMessage({
     db,
     authorId: ctx.userId,
-    target: { kind: "dm", dmId, otherUserId: auth.value.otherUserId },
+    target: { kind: "dm", channelId: dmId, otherUserId: auth.value.otherUserId },
     body: body as Record<string, unknown>,
   })
   if (!result.ok) return writeError(result.error, result.status)

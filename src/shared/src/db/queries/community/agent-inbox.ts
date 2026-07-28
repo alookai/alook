@@ -9,13 +9,12 @@
  * self-message-excluding) — a different shape from `message.ts`'s
  * `createdAt`-ordered, DB-shaped human-UI queries.
  */
-import { eq, and, or, inArray, gt, lt, ne, asc, desc, sql, isNotNull } from "drizzle-orm";
+import { eq, and, inArray, gt, lt, ne, asc, desc, sql } from "drizzle-orm";
 import {
   communityMessage,
   communityChannel,
   communityChannelMember,
   communityServerMember,
-  communityDmConversation,
   communityServer,
   communityReadState,
   communityMessageSeq,
@@ -44,8 +43,7 @@ type RawAgentMessage = {
   authorId: string;
   content: string;
   createdAt: string;
-  channelId: string | null;
-  dmConversationId: string | null;
+  channelId: string;
   seq: number;
   replyToId: string | null;
 };
@@ -56,64 +54,63 @@ const AGENT_MESSAGE_COLUMNS = {
   content: communityMessage.content,
   createdAt: communityMessage.createdAt,
   channelId: communityMessage.channelId,
-  dmConversationId: communityMessage.dmConversationId,
   seq: communityMessage.seq,
   replyToId: communityMessage.replyToId,
 } as const;
 
-/** One entry per distinct scope (channel or DM) needing a `ChannelRef`. */
-type ScopeInfo = { ref: string; isThread: boolean };
+/** One entry per distinct channel needing a `ChannelRef`. */
+type ScopeInfo = { ref: string; isThread: boolean; isDm: boolean };
 
 /**
- * Batch-resolve a set of channel/DM scopes into their `ChannelRef` path
- * strings — the shared plumbing behind `toAgentMessages` (per-message refs)
- * AND `getInboxSnapshotForAgent` (per-scope `InboxRow.channel` + `thread`
- * flag), so both hydrate refs identically instead of two divergent
- * implementations. Keyed by `channelId` for channel/thread scopes, or
- * `` `dm:${dmConversationId}` `` for DM scopes (channel ids and DM ids are
- * both nanoids from the same id-space, so the `dm:` prefix avoids an
- * accidental collision between the two key spaces).
+ * Batch-resolve a set of channel ids into their `ChannelRef` path strings —
+ * the shared plumbing behind `toAgentMessages` (per-message refs) AND
+ * `getInboxSnapshotForAgent` (per-scope `InboxRow.channel` + `thread`/`dm`
+ * flags), so both hydrate refs identically. Keyed by `channelId`. A DM
+ * (type=dm, server_id NULL) resolves to `/.dm/<peer#0042>` using the OTHER
+ * relation='access' member relative to `viewerId`.
  */
 async function resolveScopeRefs(
   db: Database,
-  scopes: Array<{ channelId: string | null; dmConversationId: string | null }>,
+  scopes: Array<{ channelId: string }>,
   viewerId: string
 ): Promise<Map<string, ScopeInfo>> {
-  const channelIds = [...new Set(scopes.map((s) => s.channelId).filter((x): x is string => !!x))];
-  const dmIds = [...new Set(scopes.map((s) => s.dmConversationId).filter((x): x is string => !!x))];
+  const channelIds = [...new Set(scopes.map((s) => s.channelId))];
+  if (channelIds.length === 0) return new Map();
 
-  const [channels, dms] = await Promise.all([
-    channelIds.length
-      ? db
-        .select({
-          id: communityChannel.id,
-          name: communityChannel.name,
-          serverId: communityChannel.serverId,
-          parentChannelId: communityChannel.parentChannelId,
-          parentMessageId: communityChannel.parentMessageId,
-        })
-        .from(communityChannel)
-        .where(inArray(communityChannel.id, channelIds))
-      : Promise.resolve([]),
-    dmIds.length
-      ? db.select().from(communityDmConversation).where(inArray(communityDmConversation.id, dmIds))
-      : Promise.resolve([]),
-  ]);
+  const channels = await db
+    .select({
+      id: communityChannel.id,
+      name: communityChannel.name,
+      type: communityChannel.type,
+      serverId: communityChannel.serverId,
+      parentChannelId: communityChannel.parentChannelId,
+      parentMessageId: communityChannel.parentMessageId,
+    })
+    .from(communityChannel)
+    .where(inArray(communityChannel.id, channelIds));
 
-  const channelById = new Map(channels.map((c) => [c.id, c]));
-  const dmById = new Map(dms.map((d) => [d.id, d]));
-
-  // DM peer ids → the OTHER party of each dm relative to viewerId — resolved
-  // to name+discriminator so the DM ref is a handle (`/.dm/<peer#0042>`), not
-  // a raw user id. Batched alongside the author-id fetch below (a separate
-  // Promise.all slot, not a second round-trip per dm).
-  const dmPeerIds = [
-    ...new Set(
-      dms
-        .map((dm) => (dm.user1Id === viewerId ? dm.user2Id : dm.user1Id))
-        .filter((x): x is string => !!x)
-    ),
-  ];
+  const dmChannelIds = channels.filter((c) => c.type === "dm").map((c) => c.id);
+  // DM peers: the OTHER access member per DM channel, resolved to a handle.
+  const dmMemberRows = dmChannelIds.length
+    ? await db
+      .select({
+        channelId: communityChannelMember.channelId,
+        userId: communityChannelMember.userId,
+      })
+      .from(communityChannelMember)
+      .where(
+        and(
+          inArray(communityChannelMember.channelId, dmChannelIds),
+          eq(communityChannelMember.relation, "access"),
+          ne(communityChannelMember.userId, viewerId)
+        )
+      )
+    : [];
+  const peerByDmChannel = new Map<string, string>();
+  for (const m of dmMemberRows) {
+    if (!peerByDmChannel.has(m.channelId)) peerByDmChannel.set(m.channelId, m.userId);
+  }
+  const dmPeerIds = [...new Set([...peerByDmChannel.values()])];
   const dmPeerUsers = dmPeerIds.length
     ? await db
       .select({ id: user.id, name: user.name, discriminator: user.discriminator })
@@ -128,7 +125,7 @@ async function resolveScopeRefs(
   const parentMessageIds = [
     ...new Set(channels.map((c) => c.parentMessageId).filter((x): x is string => !!x)),
   ];
-  const serverIds = [...new Set(channels.map((c) => c.serverId))];
+  const serverIds = [...new Set(channels.map((c) => c.serverId).filter((x): x is string => !!x))];
 
   const [parentChannels, servers, parentMessages] = await Promise.all([
     parentChannelIds.length
@@ -151,7 +148,18 @@ async function resolveScopeRefs(
 
   const out = new Map<string, ScopeInfo>();
   for (const ch of channels) {
-    const serverName = serverNameById.get(ch.serverId) ?? ch.serverId;
+    if (ch.type === "dm") {
+      const peerId = peerByDmChannel.get(ch.id);
+      const peer = peerId ? dmPeerById.get(peerId) : undefined;
+      const peerSegment = peer ? formatHandle(peer.name, peer.discriminator) : peerId || "unknown";
+      out.set(ch.id, {
+        ref: formatRef({ server: DM_SERVER, channel: peerSegment }),
+        isThread: false,
+        isDm: true,
+      });
+      continue;
+    }
+    const serverName = ch.serverId ? (serverNameById.get(ch.serverId) ?? ch.serverId) : "unknown";
     if (ch.parentChannelId && ch.parentMessageId) {
       const parent = parentChannelById.get(ch.parentChannelId);
       const rootSeq = parentSeqById.get(ch.parentMessageId);
@@ -159,23 +167,18 @@ async function resolveScopeRefs(
         out.set(ch.id, {
           ref: formatRef({ server: serverName, channel: parent.name, threadRootSeq: rootSeq }),
           isThread: true,
+          isDm: false,
         });
         continue;
       }
     }
-    out.set(ch.id, { ref: formatRef({ server: serverName, channel: ch.name }), isThread: false });
-  }
-  for (const dm of dms) {
-    const peerId = dm.user1Id === viewerId ? dm.user2Id : dm.user1Id;
-    const peer = peerId ? dmPeerById.get(peerId) : undefined;
-    const peerSegment = peer ? formatHandle(peer.name, peer.discriminator) : peerId || "unknown";
-    out.set(`dm:${dm.id}`, { ref: formatRef({ server: DM_SERVER, channel: peerSegment }), isThread: false });
+    out.set(ch.id, { ref: formatRef({ server: serverName, channel: ch.name }), isThread: false, isDm: false });
   }
   return out;
 }
 
-function scopeRefKey(scope: { channelId: string | null; dmConversationId: string | null }): string {
-  return scope.channelId ?? `dm:${scope.dmConversationId}`;
+function scopeRefKey(scope: { channelId: string }): string {
+  return scope.channelId;
 }
 
 /**
@@ -241,16 +244,11 @@ async function resolveReplyRefs(
   db: Database,
   rows: RawAgentMessage[]
 ): Promise<Map<string, ReplyRef>> {
-  // Group each row's replyToId by the row's OWN scope (channel or DM).
+  // Group each row's replyToId by the row's OWN channel scope.
   const idsByScope = new Map<string, { scope: MessageScope; ids: Set<string> }>();
   for (const r of rows) {
     if (!r.replyToId) continue;
-    const scope: MessageScope | null = r.channelId
-      ? { channelId: r.channelId }
-      : r.dmConversationId
-        ? { dmConversationId: r.dmConversationId }
-        : null;
-    if (!scope) continue;
+    const scope: MessageScope = { channelId: r.channelId };
     const key = scopeRefKey(r);
     let bucket = idsByScope.get(key);
     if (!bucket) {
@@ -290,75 +288,71 @@ async function resolveReplyRefs(
  */
 export async function resolveUnreadNoticeChannel(
   db: Database,
-  scope: { channelId?: string; dmConversationId?: string },
+  scope: { channelId: string },
   botUserId: string
 ): Promise<ChannelRef | null> {
-  if (scope.channelId) {
-    const rows = await db
-      .select({
-        id: communityChannel.id,
-        name: communityChannel.name,
-        serverId: communityChannel.serverId,
-        parentChannelId: communityChannel.parentChannelId,
-        parentMessageId: communityChannel.parentMessageId,
-      })
-      .from(communityChannel)
-      .where(eq(communityChannel.id, scope.channelId))
-      .limit(1);
-    const ch = rows[0];
-    if (!ch) return null;
+  const rows = await db
+    .select({
+      id: communityChannel.id,
+      name: communityChannel.name,
+      type: communityChannel.type,
+      serverId: communityChannel.serverId,
+      parentChannelId: communityChannel.parentChannelId,
+      parentMessageId: communityChannel.parentMessageId,
+    })
+    .from(communityChannel)
+    .where(eq(communityChannel.id, scope.channelId))
+    .limit(1);
+  const ch = rows[0];
+  if (!ch) return null;
 
-    if (ch.parentChannelId && ch.parentMessageId) {
-      const [parentRows, rootRows] = await Promise.all([
-        db
-          .select({ name: communityChannel.name, serverId: communityChannel.serverId })
-          .from(communityChannel)
-          .where(eq(communityChannel.id, ch.parentChannelId))
-          .limit(1),
-        db
-          .select({ seq: communityMessage.seq })
-          .from(communityMessage)
-          .where(eq(communityMessage.id, ch.parentMessageId))
-          .limit(1),
-      ]);
-      const parent = parentRows[0];
-      const root = rootRows[0];
-      if (!parent || !root) return null;
-      const serverName = await getServerName(db, parent.serverId);
-      if (!serverName) return null;
-      return formatRef({ server: serverName, channel: parent.name, threadRootSeq: root.seq });
-    }
-
-    const serverName = await getServerName(db, ch.serverId);
-    if (!serverName) return null;
-    return formatRef({ server: serverName, channel: ch.name });
-  }
-
-  if (scope.dmConversationId) {
-    const rows = await db
-      .select()
-      .from(communityDmConversation)
-      .where(eq(communityDmConversation.id, scope.dmConversationId))
-      .limit(1);
-    const dm = rows[0];
-    if (!dm) return null;
-    const peerId = dm.user1Id === botUserId ? dm.user2Id : dm.user1Id;
-    if (!peerId) return null;
+  // DM channel — the notice ref is `/.dm/<peer#0042>`, the OTHER access member.
+  if (ch.type === "dm") {
     const peerRows = await db
       .select({ name: user.name, discriminator: user.discriminator })
-      .from(user)
-      .where(eq(user.id, peerId))
+      .from(communityChannelMember)
+      .innerJoin(user, eq(user.id, communityChannelMember.userId))
+      .where(
+        and(
+          eq(communityChannelMember.channelId, ch.id),
+          eq(communityChannelMember.relation, "access"),
+          ne(communityChannelMember.userId, botUserId)
+        )
+      )
       .limit(1);
     const peer = peerRows[0];
     // A wake command's notice channel must NEVER be a placeholder (see this
-    // function's doc comment) — a peer that no longer resolves to a
-    // name+discriminator is `notice_channel_unresolvable`, same as any other
-    // missing-scope case, not a bare-peerId ref the agent can't act on.
+    // function's doc comment) — a peer that no longer resolves is
+    // `notice_channel_unresolvable`, not a bare-peerId ref.
     if (!peer) return null;
     return formatRef({ server: DM_SERVER, channel: formatHandle(peer.name, peer.discriminator) });
   }
 
-  return null;
+  if (ch.parentChannelId && ch.parentMessageId) {
+    const [parentRows, rootRows] = await Promise.all([
+      db
+        .select({ name: communityChannel.name, serverId: communityChannel.serverId })
+        .from(communityChannel)
+        .where(eq(communityChannel.id, ch.parentChannelId))
+        .limit(1),
+      db
+        .select({ seq: communityMessage.seq })
+        .from(communityMessage)
+        .where(eq(communityMessage.id, ch.parentMessageId))
+        .limit(1),
+    ]);
+    const parent = parentRows[0];
+    const root = rootRows[0];
+    if (!parent || !root || !parent.serverId) return null;
+    const serverName = await getServerName(db, parent.serverId);
+    if (!serverName) return null;
+    return formatRef({ server: serverName, channel: parent.name, threadRootSeq: root.seq });
+  }
+
+  if (!ch.serverId) return null;
+  const serverName = await getServerName(db, ch.serverId);
+  if (!serverName) return null;
+  return formatRef({ server: serverName, channel: ch.name });
 }
 
 async function getServerName(db: Database, serverId: string): Promise<string | null> {
@@ -387,11 +381,11 @@ export async function toAgentMessage(
  * next value to hand out" despite the column name) — 0 if no message has
  * ever been sent in this scope. Used by the `send` route's alignment gate.
  */
-export async function getLatestSeqForScope(db: Database, scopeKey: string): Promise<Seq> {
+export async function getLatestSeqForScope(db: Database, channelId: string): Promise<Seq> {
   const rows = await db
     .select({ nextSeq: communityMessageSeq.nextSeq })
     .from(communityMessageSeq)
-    .where(eq(communityMessageSeq.scopeKey, scopeKey));
+    .where(eq(communityMessageSeq.channelId, channelId));
   return rows[0]?.nextSeq ?? 0;
 }
 
@@ -408,7 +402,25 @@ export async function getLatestSeqForScope(db: Database, scopeKey: string): Prom
  */
 async function listAgentAllowedChannelIds(db: Database, botUserId: string): Promise<string[]> {
   const visibleChannelIds = await listVisibleChannelIdsForUser(db, botUserId);
-  if (visibleChannelIds.length === 0) return [];
+
+  // DM channels the bot holds a relation='access' row on — DMs are channels
+  // now, so they're not covered by `listVisibleChannelIdsForUser` (which walks
+  // server memberships). A DM has no thread/forum narrowing.
+  const dmRows = await db
+    .select({ channelId: communityChannelMember.channelId })
+    .from(communityChannelMember)
+    .innerJoin(communityChannel, eq(communityChannel.id, communityChannelMember.channelId))
+    .where(
+      and(
+        eq(communityChannelMember.userId, botUserId),
+        eq(communityChannelMember.relation, "access"),
+        eq(communityChannel.type, "dm")
+      )
+    );
+  const dmChannelIds = dmRows.map((r) => r.channelId);
+
+  if (visibleChannelIds.length === 0) return dmChannelIds;
+
   const typeRows = await db
     .select({ id: communityChannel.id, type: communityChannel.type })
     .from(communityChannel)
@@ -421,7 +433,8 @@ async function listAgentAllowedChannelIds(db: Database, botUserId: string): Prom
       ? new Set(await listParticipatingThreadIds(db, narrowIds, botUserId))
       : new Set<string>();
   const narrowSet = new Set(narrowIds);
-  return visibleChannelIds.filter((id) => !narrowSet.has(id) || participating.has(id));
+  const serverAllowed = visibleChannelIds.filter((id) => !narrowSet.has(id) || participating.has(id));
+  return [...serverAllowed, ...dmChannelIds];
 }
 
 /**
@@ -471,15 +484,11 @@ export async function listUnreadMessagesForAgent(
       lastReadSeq: sql<number>`COALESCE(${communityReadState.lastReadSeq}, 0)`,
     })
     .from(communityMessage)
-    .leftJoin(communityDmConversation, eq(communityDmConversation.id, communityMessage.dmConversationId))
     .leftJoin(
       communityReadState,
       and(
         eq(communityReadState.userId, botUserId),
-        or(
-          eq(communityReadState.channelId, communityMessage.channelId),
-          eq(communityReadState.dmConversationId, communityMessage.dmConversationId)
-        )
+        eq(communityReadState.channelId, communityMessage.channelId)
       )
     )
     .leftJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
@@ -487,7 +496,8 @@ export async function listUnreadMessagesForAgent(
       communityChannelMember,
       and(
         eq(communityChannelMember.channelId, communityMessage.channelId),
-        eq(communityChannelMember.userId, botUserId)
+        eq(communityChannelMember.userId, botUserId),
+        eq(communityChannelMember.relation, "access")
       )
     )
     .leftJoin(
@@ -501,30 +511,20 @@ export async function listUnreadMessagesForAgent(
       and(
         ne(communityMessage.authorId, botUserId),
         sql`${communityMessage.seq} > COALESCE(${communityReadState.lastReadSeq}, 0)`,
-        or(
-          and(
-            isNotNull(communityMessage.channelId),
-            allowedChannelIds.length > 0
-              ? inArray(communityMessage.channelId, allowedChannelIds)
-              : sql`1 = 0`,
-            channelJoinBaselineGuard
-          ),
-          and(
-            isNotNull(communityMessage.dmConversationId),
-            or(eq(communityDmConversation.user1Id, botUserId), eq(communityDmConversation.user2Id, botUserId))
-          )
-        )
+        allowedChannelIds.length > 0
+          ? inArray(communityMessage.channelId, allowedChannelIds)
+          : sql`1 = 0`,
+        channelJoinBaselineGuard
       )
     )
-    .orderBy(asc(communityMessage.channelId), asc(communityMessage.dmConversationId), asc(communityMessage.seq))
+    .orderBy(asc(communityMessage.channelId), asc(communityMessage.seq))
     .limit(opts.max);
 
   return rows.map(({ lastReadSeq: _lastReadSeq, ...rest }) => rest);
 }
 
 export type InboxSnapshotRow = {
-  channelId: string | null;
-  dmConversationId: string | null;
+  channelId: string;
   pendingCount: number;
   firstPendingSeq: number;
   latestSeq: number;
@@ -552,29 +552,24 @@ export async function getInboxSnapshotForAgent(db: Database, botUserId: string):
   const rows = await db
     .select({
       channelId: communityMessage.channelId,
-      dmConversationId: communityMessage.dmConversationId,
       pendingCount: sql<number>`COUNT(*)`,
       firstPendingSeq: sql<number>`MIN(${communityMessage.seq})`,
       latestSeq: sql<number>`MAX(${communityMessage.seq})`,
       latestSenderId: sql<string>`(SELECT author_id FROM community_message m2
-        WHERE (m2.channel_id = ${communityMessage.channelId} OR m2.dm_conversation_id = ${communityMessage.dmConversationId})
+        WHERE m2.channel_id = ${communityMessage.channelId}
         ORDER BY m2.seq DESC LIMIT 1)`,
       mentionCount: sql<number>`(SELECT COUNT(*) FROM community_mention cm
         INNER JOIN community_message m3 ON m3.id = cm.message_id
         WHERE cm.user_id = ${botUserId} AND cm.kind = 'mention'
-          AND (m3.channel_id = ${communityMessage.channelId} OR m3.dm_conversation_id = ${communityMessage.dmConversationId})
+          AND m3.channel_id = ${communityMessage.channelId}
           AND m3.seq > COALESCE(${communityReadState.lastReadSeq}, 0))`,
     })
     .from(communityMessage)
-    .leftJoin(communityDmConversation, eq(communityDmConversation.id, communityMessage.dmConversationId))
     .leftJoin(
       communityReadState,
       and(
         eq(communityReadState.userId, botUserId),
-        or(
-          eq(communityReadState.channelId, communityMessage.channelId),
-          eq(communityReadState.dmConversationId, communityMessage.dmConversationId)
-        )
+        eq(communityReadState.channelId, communityMessage.channelId)
       )
     )
     .leftJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
@@ -582,7 +577,8 @@ export async function getInboxSnapshotForAgent(db: Database, botUserId: string):
       communityChannelMember,
       and(
         eq(communityChannelMember.channelId, communityMessage.channelId),
-        eq(communityChannelMember.userId, botUserId)
+        eq(communityChannelMember.userId, botUserId),
+        eq(communityChannelMember.relation, "access")
       )
     )
     .leftJoin(
@@ -596,22 +592,13 @@ export async function getInboxSnapshotForAgent(db: Database, botUserId: string):
       and(
         ne(communityMessage.authorId, botUserId),
         sql`${communityMessage.seq} > COALESCE(${communityReadState.lastReadSeq}, 0)`,
-        or(
-          and(
-            isNotNull(communityMessage.channelId),
-            allowedChannelIds.length > 0
-              ? inArray(communityMessage.channelId, allowedChannelIds)
-              : sql`1 = 0`,
-            channelJoinBaselineGuard
-          ),
-          and(
-            isNotNull(communityMessage.dmConversationId),
-            or(eq(communityDmConversation.user1Id, botUserId), eq(communityDmConversation.user2Id, botUserId))
-          )
-        )
+        allowedChannelIds.length > 0
+          ? inArray(communityMessage.channelId, allowedChannelIds)
+          : sql`1 = 0`,
+        channelJoinBaselineGuard
       )
     )
-    .groupBy(communityMessage.channelId, communityMessage.dmConversationId);
+    .groupBy(communityMessage.channelId);
 
   if (rows.length === 0) return [];
 
@@ -630,7 +617,6 @@ export async function getInboxSnapshotForAgent(db: Database, botUserId: string):
     const sender = userById.get(r.latestSenderId);
     return {
       channelId: r.channelId,
-      dmConversationId: r.dmConversationId,
       pendingCount: r.pendingCount,
       firstPendingSeq: r.firstPendingSeq,
       latestSeq: r.latestSeq,
@@ -664,7 +650,7 @@ export async function toInboxRows(
   return rows.map((r) => {
     const scope = refs.get(scopeRefKey(r));
     const flags: Array<"dm" | "thread" | "mention"> = [];
-    if (r.dmConversationId) flags.push("dm");
+    if (scope?.isDm) flags.push("dm");
     if (scope?.isThread) flags.push("thread");
     if (r.hasMention) flags.push("mention");
     return {
@@ -706,15 +692,11 @@ export async function getLatestUnreadMessageForAgent(
       id: communityMessage.id,
     })
     .from(communityMessage)
-    .leftJoin(communityDmConversation, eq(communityDmConversation.id, communityMessage.dmConversationId))
     .leftJoin(
       communityReadState,
       and(
         eq(communityReadState.userId, botUserId),
-        or(
-          eq(communityReadState.channelId, communityMessage.channelId),
-          eq(communityReadState.dmConversationId, communityMessage.dmConversationId)
-        )
+        eq(communityReadState.channelId, communityMessage.channelId)
       )
     )
     .leftJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
@@ -722,7 +704,8 @@ export async function getLatestUnreadMessageForAgent(
       communityChannelMember,
       and(
         eq(communityChannelMember.channelId, communityMessage.channelId),
-        eq(communityChannelMember.userId, botUserId)
+        eq(communityChannelMember.userId, botUserId),
+        eq(communityChannelMember.relation, "access")
       )
     )
     .leftJoin(
@@ -736,19 +719,10 @@ export async function getLatestUnreadMessageForAgent(
       and(
         ne(communityMessage.authorId, botUserId),
         sql`${communityMessage.seq} > COALESCE(${communityReadState.lastReadSeq}, 0)`,
-        or(
-          and(
-            isNotNull(communityMessage.channelId),
-            allowedChannelIds.length > 0
-              ? inArray(communityMessage.channelId, allowedChannelIds)
-              : sql`1 = 0`,
-            channelJoinBaselineGuard
-          ),
-          and(
-            isNotNull(communityMessage.dmConversationId),
-            or(eq(communityDmConversation.user1Id, botUserId), eq(communityDmConversation.user2Id, botUserId))
-          )
-        )
+        allowedChannelIds.length > 0
+          ? inArray(communityMessage.channelId, allowedChannelIds)
+          : sql`1 = 0`,
+        channelJoinBaselineGuard
       )
     )
     .orderBy(desc(communityMessage.createdAt))
@@ -766,13 +740,11 @@ export async function getLatestUnreadMessageForAgent(
  */
 export async function listMessagesBySeq(
   db: Database,
-  target: { channelId?: string; dmConversationId?: string },
+  target: { channelId: string },
   opts: { before?: Seq; after?: Seq; around?: Seq; limit?: number }
 ): Promise<{ items: RawAgentMessage[]; hasMore: boolean; latestSeq?: Seq }> {
   const limit = Math.min(opts.limit ?? 50, 200);
-  const scopeCond = target.channelId
-    ? eq(communityMessage.channelId, target.channelId)
-    : eq(communityMessage.dmConversationId, target.dmConversationId!);
+  const scopeCond = eq(communityMessage.channelId, target.channelId);
   const excludeSentinel = gt(communityMessage.seq, 0);
 
   let items: RawAgentMessage[];

@@ -53,7 +53,6 @@ describe("markReadToMessageBuilder — channel branch", () => {
     expect(valuesArg).toMatchObject({
       userId: "u_1",
       channelId: "c_1",
-      dmConversationId: null,
       lastReadAt: "2026-07-03T00:00:00Z",
       lastReadMessageId: "m_42",
     });
@@ -66,7 +65,7 @@ describe("markReadToMessageBuilder — channel branch", () => {
     });
   });
 
-  it("targets the channel partial-unique index (idx_read_state_user_channel)", () => {
+  it("targets the (userId, channelId) unique index — a plain unique, no targetWhere", () => {
     const db = createInsertBuilderMock();
     readStateQueries.markReadToMessageBuilder(db, {
       userId: "u_1",
@@ -78,7 +77,9 @@ describe("markReadToMessageBuilder — channel branch", () => {
       communityReadState.userId,
       communityReadState.channelId,
     ]);
-    expect(conflictArg.targetWhere).toBeDefined();
+    // The read-state unique is now a plain unique on (userId, channelId) — no
+    // partial-index targetWhere clause.
+    expect(conflictArg.targetWhere).toBeUndefined();
   });
 
   it("includes a monotone setWhere so stale-createdAt PUTs cannot regress the pointer", () => {
@@ -98,55 +99,37 @@ describe("markReadToMessageBuilder — channel branch", () => {
   });
 });
 
-describe("markReadToMessageBuilder — dm branch", () => {
-  it("targets the dm partial-unique index and writes dmConversationId, channelId=null", () => {
+describe("markReadToMessageBuilder — DM is a channel", () => {
+  // DMs are type=dm channels now: `markReadToMessageBuilder` takes `{ channelId }`
+  // only. A DM read-state write goes down the exact same channelId path — there
+  // is no separate dm branch, no dmConversationId column, and no both/neither
+  // validation to throw on. The old "targets the dm partial-unique index",
+  // "throws when neither", and "throws when both" cases are deleted: they tested
+  // a dm-vs-channel split that no longer exists.
+  it("a DM channel read-state write uses the same (userId, channelId) upsert", () => {
     const db = createInsertBuilderMock();
     readStateQueries.markReadToMessageBuilder(db, {
       userId: "u_1",
-      dmConversationId: "dm_1",
+      channelId: "dm_ch_1",
       message: { id: "m_9", createdAt: "2026-07-04T00:00:00Z" },
     });
     const valuesArg = db.values.mock.calls[0][0];
     expect(valuesArg).toMatchObject({
       userId: "u_1",
-      channelId: null,
-      dmConversationId: "dm_1",
+      channelId: "dm_ch_1",
       lastReadAt: "2026-07-04T00:00:00Z",
       lastReadMessageId: "m_9",
     });
     const conflictArg = db.onConflictDoUpdate.mock.calls[0][0];
     expect(conflictArg.target).toEqual([
       communityReadState.userId,
-      communityReadState.dmConversationId,
+      communityReadState.channelId,
     ]);
     expect(conflictArg.set).toMatchObject({
       lastReadAt: "2026-07-04T00:00:00Z",
       lastReadMessageId: "m_9",
     });
-    // DM branch also carries the monotone setWhere — same guarantee.
     expect(conflictArg.setWhere).toBeDefined();
-  });
-
-  it("throws when neither channelId nor dmConversationId is provided", () => {
-    const db = createInsertBuilderMock();
-    expect(() =>
-      readStateQueries.markReadToMessageBuilder(db, {
-        userId: "u_1",
-        message: { id: "m_9", createdAt: "2026-07-04T00:00:00Z" },
-      } as any)
-    ).toThrow();
-  });
-
-  it("throws when BOTH channelId and dmConversationId are provided", () => {
-    const db = createInsertBuilderMock();
-    expect(() =>
-      readStateQueries.markReadToMessageBuilder(db, {
-        userId: "u_1",
-        channelId: "c_1",
-        dmConversationId: "dm_1",
-        message: { id: "m_9", createdAt: "2026-07-04T00:00:00Z" },
-      } as any)
-    ).toThrow();
   });
 });
 
@@ -276,14 +259,12 @@ describe("markAllServerChannelsRead", () => {
     expect(byChannel["c_a"]).toMatchObject({
       userId: "u_1",
       channelId: "c_a",
-      dmConversationId: null,
       lastReadAt: "2026-07-05T10:00:00Z",
       lastReadMessageId: "m_a_latest",
     });
     expect(byChannel["c_b"]).toMatchObject({
       userId: "u_1",
       channelId: "c_b",
-      dmConversationId: null,
       lastReadAt: "2026-07-05T11:00:00Z",
       lastReadMessageId: "m_b_latest",
     });

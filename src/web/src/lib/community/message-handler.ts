@@ -31,7 +31,7 @@ export type MessageTarget =
     parentChannelId: string
     serverId: string
   }
-  | { kind: "dm"; dmId: string; otherUserId: string }
+  | { kind: "dm"; channelId: string; otherUserId: string }
 
 export function isDmTarget<T extends { kind: string }>(target: T): target is Extract<T, { kind: "dm" }>
 export function isDmTarget(kind: string): boolean
@@ -100,12 +100,8 @@ type CreatedAttachment = {
   height?: number | null
 }
 
-function attachmentKindFromTarget(target: MessageTarget): "channel" | "dm" {
-  return target.kind === "dm" ? "dm" : "channel"
-}
-
 function attachmentTargetId(target: MessageTarget): string {
-  return target.kind === "dm" ? target.dmId : target.channelId
+  return target.channelId
 }
 
 type FullMessageRow = NonNullable<
@@ -128,7 +124,7 @@ type CreateMessageOk = {
    * ping / CHILD_CHANNEL_UPDATE, bot-wake enqueue) that `createCommunityMessage`
    * would otherwise have run inline. The DM-card producers deliberately never
    * invoke this — they persist their approval-request row first and fire their
-   * own minimal `DM_NEW_MESSAGE` after it commits (see plan §producer).
+   * own minimal `MESSAGE_CREATE` after it commits (see plan §producer).
    */
   broadcast?: () => Promise<void>
 }
@@ -262,16 +258,14 @@ export async function createCommunityMessage(params: {
   const baseMessageData: {
     authorId: string;
     content: string;
-    channelId: string | undefined;
-    dmConversationId: string | undefined;
+    channelId: string;
     replyToId: string | undefined;
     mentionType: MentionType | undefined;
     type?: string;
   } = {
     authorId,
     content,
-    channelId: isDmTarget(target) ? undefined : target.channelId,
-    dmConversationId: isDmTarget(target) ? target.dmId : undefined,
+    channelId: target.channelId,
     replyToId,
     mentionType,
     ...(messageType !== undefined ? { type: messageType } : {}),
@@ -380,7 +374,6 @@ export async function createCommunityMessage(params: {
       height: r.height,
     }))
   } else if (incomingAttachments?.length) {
-    const kind = attachmentKindFromTarget(target)
     const targetId = attachmentTargetId(target)
     attachments = await Promise.all(
       incomingAttachments.map(async (att, idx) => {
@@ -391,7 +384,6 @@ export async function createCommunityMessage(params: {
         const row = await queries.communityAttachment.createAttachment(db, {
           messageId: created.id,
           uploaderId: authorId,
-          kind,
           targetId,
           r2Key,
           filename: att.filename,
@@ -439,7 +431,7 @@ export async function createCommunityMessage(params: {
       changes: JSON.stringify({
         botId: authorId,
         target: target.kind,
-        targetId: isDmTarget(target) ? target.dmId : target.channelId,
+        targetId: target.channelId,
         messageId: row.id,
         source: source ?? "web",
       }),
@@ -455,7 +447,7 @@ export async function createCommunityMessage(params: {
   const replyTargets = new Set<string>()
   if (!skipMentions && row.replyToId) {
     // single-id path — see `dm/[id]/messages/route.ts` / `channels/[id]/messages/route.ts` for the batched N-id path
-    const scope = isDmTarget(target) ? { dmConversationId: target.dmId } : { channelId: target.channelId }
+    const scope = { channelId: target.channelId }
     const replyMsg = await queries.communityMessage.getMessageInScope(db, row.replyToId, scope)
     if (replyMsg) {
       replyMap.set(replyMsg.id, {
@@ -618,7 +610,6 @@ export async function createCommunityMessage(params: {
       seq: row.seq,
       authorId: row.authorId,
       channelId: row.channelId,
-      dmConversationId: row.dmConversationId,
     }
 
   // `includeAuthorInFanout` fans out MESSAGE_CREATE without `excludeUserId`
@@ -630,35 +621,30 @@ export async function createCommunityMessage(params: {
   const doBroadcast = async (): Promise<void> => {
     if (liveMentions.length > 0 || liveReplies.length > 0) {
       const authorName = row.authorName
-      const channelIdForBroadcast =
-        isDmTarget(target) ? undefined : target.channelId
+      const channelIdForBroadcast = target.channelId
       for (const userId of [...liveMentions, ...liveReplies]) {
         broadcastToUser(userId, {
           type: WS_EVENTS.MENTION_CREATE,
           userId,
           messageId: row.id,
-          ...(channelIdForBroadcast ? { channelId: channelIdForBroadcast } : {}),
+          channelId: channelIdForBroadcast,
           authorName,
         }).catch(() => { })
       }
     }
 
     if (isDmTarget(target)) {
-      fanOutToDM(
-        target.dmId,
+      // DMs are channels now — fan out MESSAGE_CREATE keyed by channelId to
+      // both access members (no separate DM event).
+      fanOutToChannel(
+        target.channelId,
         {
           type: WS_EVENTS.MESSAGE_CREATE,
-          dmConversationId: target.dmId,
+          channelId: target.channelId,
           message: messagePayload,
         },
         { excludeUserId: fanoutExclude, wakeMessageRow },
       ).catch(() => { })
-
-      broadcastToUser(target.otherUserId, {
-        type: WS_EVENTS.DM_NEW_MESSAGE,
-        dmConversationId: target.dmId,
-        message: messagePayload,
-      }).catch(() => { })
     } else {
       fanOutToChannel(
         target.channelId,

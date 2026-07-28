@@ -8,7 +8,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 const mockGetMessage = vi.fn()
 const mockGetLatestMessage = vi.fn()
 const mockMarkReadToMessage = vi.fn()
-const mockRequireDMParticipant = vi.fn()
+const mockRequireDMAccess = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
@@ -29,7 +29,7 @@ vi.mock("@alook/shared", async () => {
 })
 
 vi.mock("@/lib/community/permissions", () => ({
-  requireDMParticipant: (...a: unknown[]) => mockRequireDMParticipant(...a),
+  requireDMAccess: (...a: unknown[]) => mockRequireDMAccess(...a),
 }))
 
 vi.mock("@/lib/middleware/auth", () => ({
@@ -62,13 +62,13 @@ describe("PUT /api/community/dm/[id]/read", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockMarkReadToMessage.mockResolvedValue(undefined)
-    mockRequireDMParticipant.mockResolvedValue({ ok: true })
+    mockRequireDMAccess.mockResolvedValue({ ok: true })
   })
 
   it("body id present: aligns write to the message when it belongs to this dm", async () => {
     mockGetMessage.mockResolvedValue({
       id: "m9",
-      dmConversationId: "dm1",
+      channelId: "dm1",
       createdAt: "2026-07-04T09:00:00.000Z",
     })
 
@@ -78,7 +78,7 @@ describe("PUT /api/community/dm/[id]/read", () => {
     expect(mockGetMessage).toHaveBeenCalledWith(expect.anything(), "m9")
     expect(mockMarkReadToMessage).toHaveBeenCalledWith(expect.anything(), {
       userId: "u1",
-      dmConversationId: "dm1",
+      channelId: "dm1",
       message: { id: "m9", createdAt: "2026-07-04T09:00:00.000Z" },
     })
     expect(mockGetLatestMessage).not.toHaveBeenCalled()
@@ -87,7 +87,7 @@ describe("PUT /api/community/dm/[id]/read", () => {
   it("body id present but message belongs to another dm → 400, no write", async () => {
     mockGetMessage.mockResolvedValue({
       id: "m9",
-      dmConversationId: "dm_other",
+      channelId: "dm_other",
       createdAt: "2026-07-04T09:00:00.000Z",
     })
 
@@ -112,10 +112,10 @@ describe("PUT /api/community/dm/[id]/read", () => {
 
     const res = await PUT(putReq(), { params: { id: "dm1" } } as any)
     expect(res.status).toBe(200)
-    expect(mockGetLatestMessage).toHaveBeenCalledWith(expect.anything(), { dmConversationId: "dm1" })
+    expect(mockGetLatestMessage).toHaveBeenCalledWith(expect.anything(), { channelId: "dm1" })
     expect(mockMarkReadToMessage).toHaveBeenCalledWith(expect.anything(), {
       userId: "u1",
-      dmConversationId: "dm1",
+      channelId: "dm1",
       message: { id: "m_latest", createdAt: "2026-07-05T10:00:00.000Z" },
     })
     expect(mockGetMessage).not.toHaveBeenCalled()
@@ -133,11 +133,11 @@ describe("PUT /api/community/dm/[id]/read", () => {
   it("returns 400 when the dm id is missing", async () => {
     const res = await PUT(putReq(), { params: {} } as any)
     expect(res.status).toBe(400)
-    expect(mockRequireDMParticipant).not.toHaveBeenCalled()
+    expect(mockRequireDMAccess).not.toHaveBeenCalled()
   })
 
   it("returns permission error when caller is not a participant", async () => {
-    mockRequireDMParticipant.mockResolvedValue({ ok: false, error: "not a participant", status: 403 })
+    mockRequireDMAccess.mockResolvedValue({ ok: false, error: "not a participant", status: 403 })
 
     const res = await PUT(putReq(), { params: { id: "dm1" } } as any)
     expect(res.status).toBe(403)

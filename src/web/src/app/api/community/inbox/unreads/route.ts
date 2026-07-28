@@ -235,11 +235,11 @@ export const GET = withAuth(async (req, ctx) => {
   // don't exist today (`communityNotificationSetting` scopes are server/channel
   // only), so no muting pass — every unread DM the viewer participates in
   // surfaces. Blocked-user filtering intentionally stays off: DM messages
-  // route gates on `requireDMParticipant`; an unread from a blocked user is
-  // still the viewer's DM and should appear here.
+  // route gates on `requireDMAccess`; an unread from a blocked user is still
+  // the viewer's DM and should appear here.
   const dms = unreadDms
     .map((d) => ({
-      dmConversationId: d.dmConversationId,
+      channelId: d.channelId,
       otherUserId: d.otherUserId,
       otherUserName: d.otherUserName,
       otherUserAvatar: d.otherUserImage ?? avatarInitial(d.otherUserName),

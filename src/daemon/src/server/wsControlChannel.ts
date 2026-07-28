@@ -106,8 +106,8 @@ type OutboundFrame =
   | ({ type: "ready" } & HostReady)
   | { type: "agent_session"; agentId: AgentId; sessionId: string; launchId: string }
   | { type: "agent_activity"; agentId: AgentId; state: AgentActivityState }
-  | { type: "agent_typing"; agentId: AgentId; dmConversationId: string }
-  | { type: "agent_typing_stop"; agentId: AgentId; dmConversationId: string }
+  | { type: "agent_typing"; agentId: AgentId; channelId: string }
+  | { type: "agent_typing_stop"; agentId: AgentId; channelId: string }
   | {
       type: "agent_wake_ack";
       agentId: AgentId;
@@ -237,7 +237,7 @@ export class WsControlChannel implements HostControlChannel {
    * the client-inbound path (the daemon meters cadence, ws-do fans out
    * unconditionally).
    */
-  reportAgentTyping(info: { agentId: AgentId; dmConversationId: string }): void {
+  reportAgentTyping(info: { agentId: AgentId; channelId: string }): void {
     this.sendFrame({ type: "agent_typing", ...info });
   }
 
@@ -246,7 +246,7 @@ export class WsControlChannel implements HostControlChannel {
    * end; ws-do fans out `community:typing.stop` with no dedup so the pill
    * clears within ~50ms.
    */
-  reportAgentTypingStop(info: { agentId: AgentId; dmConversationId: string }): void {
+  reportAgentTypingStop(info: { agentId: AgentId; channelId: string }): void {
     this.sendFrame({ type: "agent_typing_stop", ...info });
   }
 

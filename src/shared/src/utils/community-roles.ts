@@ -63,3 +63,7 @@ export function isForumPost(t: string | null | undefined): boolean {
 export function isThread(t: string | null | undefined): boolean {
   return t === "thread"
 }
+
+export function isDm(t: string | null | undefined): boolean {
+  return t === "dm"
+}

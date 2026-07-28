@@ -362,12 +362,21 @@ describe("rejectRequest", () => {
 function createBlockDb(opts: {
   existing: any | null
   refMessages?: any[]
+  memberRows?: any[]
   profiles?: any[]
 }) {
+  // `listMessagesReferencingFriendship` now runs TWO selects: the friendship's
+  // card message rows ({ messageId, channelId }), then the access-member rows
+  // of those DM channels ({ channelId, userId }) to build `peerUserIds`. It
+  // short-circuits after the first select when no card message exists, so the
+  // member-rows select only fires when `refMessages` is non-empty.
+  const refMessages = opts.refMessages ?? []
   const selectReturns = [
     opts.existing ? [opts.existing] : [], // #1 findActive
-    opts.refMessages ?? [], // #2 listMessagesReferencingFriendship (if reached)
-    opts.profiles ?? [], // #3 loadProfiles (only if refMessages non-empty)
+    refMessages, // #2 listMessagesReferencingFriendship — card message rows
+    ...(refMessages.length > 0
+      ? [opts.memberRows ?? [], opts.profiles ?? []] // #3 member rows, #4 loadProfiles
+      : []),
   ]
   let selectCall = 0
   const calls = { updated: null as any, deleted: false, inserted: null as any }
@@ -431,15 +440,21 @@ describe("block", () => {
     expect(Array.isArray(res.broadcasts)).toBe(true)
   })
 
-  it("soft-cancel with a card referencing the row fans DM_MESSAGE_UPDATED to the owner, not the bot", async () => {
+  it("soft-cancel with a card referencing the row fans MESSAGE_UPDATED to the owner, not the bot", async () => {
     const { db } = createBlockDb({
       existing: {
         id: "fr_old", requesterId: "u_alice", addresseeId: "bot_yara",
         status: "pending", needsOwnerApproval: "owner_carol",
       },
-      // listMessagesReferencingFriendship raw rows: a card in the owner↔bot DM.
+      // listMessagesReferencingFriendship select #1: card message rows, now
+      // keyed by channelId (the DM's channel), not dmConversationId.
       refMessages: [
-        { messageId: "m_1", dmConversationId: "dm_1", user1Id: "owner_carol", user2Id: "bot_yara" },
+        { messageId: "m_1", channelId: "dm_ch_1" },
+      ],
+      // select #2: the DM channel's relation='access' member rows → peerUserIds.
+      memberRows: [
+        { channelId: "dm_ch_1", userId: "owner_carol" },
+        { channelId: "dm_ch_1", userId: "bot_yara" },
       ],
       // loadProfiles rows — owner_carol is human, bot_yara is a bot.
       profiles: [
@@ -452,7 +467,8 @@ describe("block", () => {
     // Exactly one broadcast, to the human owner peer (the sessionless bot is skipped).
     expect(res.broadcasts).toHaveLength(1)
     expect(res.broadcasts[0]!.userId).toBe("owner_carol")
-    expect(res.broadcasts[0]!.event.type).toBe("community:dm.message_updated")
+    expect(res.broadcasts[0]!.event.type).toBe("community:message.updated")
+    expect((res.broadcasts[0]!.event as any).channelId).toBe("dm_ch_1")
     expect((res.broadcasts[0]!.event as any).approval.status).toBe("cancelled")
   })
 

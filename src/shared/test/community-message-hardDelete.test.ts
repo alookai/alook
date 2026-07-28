@@ -148,7 +148,7 @@ describe("hardDeleteMessage — cascading rollback", () => {
     expect(kinds).toEqual(["delete-msg", "update-channel", "delete-readstate"]);
   });
 
-  it("DM + prior message → batch(delete-msg, update-dm, update-readstate) — no messageCount column touched", async () => {
+  it("DM channel + prior message → batch(delete-msg, update-channel, update-readstate) — a DM is a channel now", async () => {
     const state: MockState = {
       batchCalls: [],
       selectQueue: [
@@ -157,8 +157,7 @@ describe("hardDeleteMessage — cascading rollback", () => {
           rows: [
             {
               id: "msg_1",
-              channelId: null,
-              dmConversationId: "dm_1",
+              channelId: "dm_chan_1",
               authorId: "user_1",
               seq: 3,
               createdAt: "2026-01-01T00:00:03Z",
@@ -172,13 +171,14 @@ describe("hardDeleteMessage — cascading rollback", () => {
       ],
     };
     await queries.communityMessage.hardDeleteMessage(makeDb(state), "msg_1");
-    const [, upDm, upRs] = state.batchCalls[0]!;
+    const [, upChan, upRs] = state.batchCalls[0]!;
     const kinds = state.batchCalls[0]!.map((t) => t.kind);
-    expect(kinds).toEqual(["delete-msg", "update-dm", "update-readstate"]);
-    // DM update must NOT touch messageCount (the DM schema has none).
-    const dmSet = (upDm as { setValues?: Record<string, unknown> }).setValues!;
-    expect(dmSet).not.toHaveProperty("messageCount");
-    expect(typeof dmSet.lastMessageAt).toBe("object"); // inline SQL subquery
+    // DMs are channels now — the scope revert always targets communityChannel,
+    // messageCount and all.
+    expect(kinds).toEqual(["delete-msg", "update-channel", "update-readstate"]);
+    const chanSet = (upChan as { setValues?: Record<string, unknown> }).setValues!;
+    expect(typeof chanSet.messageCount).toBe("object"); // Drizzle SQL fragment
+    expect(typeof chanSet.lastMessageAt).toBe("object"); // inline SQL subquery
     const rsSet = (upRs as { setValues?: Record<string, unknown> }).setValues!;
     expect(rsSet.lastReadMessageId).toBe("msg_0");
     expect(rsSet.lastReadSeq).toBe(2);

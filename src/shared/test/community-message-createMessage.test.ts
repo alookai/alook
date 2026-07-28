@@ -134,23 +134,23 @@ describe("createMessage — batch composition", () => {
     expect(values.lastReadSeq).toBe(42);
     expect(values.lastReadMessageId).toBe("msg_test");
     expect(values.channelId).toBe("chan_1");
-    expect(values.dmConversationId).toBeNull();
 
     expect(msg.id).toBe("msg_test");
     expect(msg.seq).toBe(42);
   });
 
-  it("DM send: batches (insert msg, update dmConversation) and separately upserts author read-state with lastReadSeq", async () => {
+  it("DM send: a DM is a type=dm channel, so it batches (insert msg, update channel) and separately upserts author read-state with lastReadSeq", async () => {
     const { db, state } = makeMockDb(7);
     const msg = await queries.communityMessage.createMessage(db, {
       authorId: "user_1",
       content: "hi",
-      dmConversationId: "dm_1",
+      channelId: "dm_chan_1",
     });
 
     expect(state.batchCalls).toHaveLength(1);
     const batchTags = state.batchCalls[0]!.map((t) => t.kind);
-    expect(batchTags).toEqual(["insert-msg", "update-dm"]);
+    // DMs are channels now — the scope bump always targets communityChannel.
+    expect(batchTags).toEqual(["insert-msg", "update-channel"]);
 
     const readState = state.awaitedStatements.find((s) => s.kind === "insert-readstate");
     expect(readState).toBeDefined();
@@ -158,8 +158,7 @@ describe("createMessage — batch composition", () => {
       .values;
     expect(values.lastReadSeq).toBe(7);
     expect(values.lastReadMessageId).toBe("msg_test");
-    expect(values.channelId).toBeNull();
-    expect(values.dmConversationId).toBe("dm_1");
+    expect(values.channelId).toBe("dm_chan_1");
 
     expect(msg.id).toBe("msg_test");
     expect(msg.seq).toBe(7);

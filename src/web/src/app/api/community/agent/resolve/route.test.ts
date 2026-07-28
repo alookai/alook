@@ -15,6 +15,7 @@ const mockResolveChannelByNameForMember = vi.fn()
 const mockGetChannelForMember = vi.fn()
 const mockGetDM = vi.fn()
 const mockGetDMBetween = vi.fn()
+const mockGetDMPeer = vi.fn()
 const mockIsBlocked = vi.fn()
 const mockGetMessageByChannelAndSeq = vi.fn()
 const mockToAgentMessage = vi.fn()
@@ -40,6 +41,7 @@ vi.mock("@alook/shared", async () => {
       communityDm: {
         getDM: (...a: unknown[]) => mockGetDM(...a),
         getDMBetween: (...a: unknown[]) => mockGetDMBetween(...a),
+        getDMPeer: (...a: unknown[]) => mockGetDMPeer(...a),
       },
       communityMessage: {
         ...actual.queries.communityMessage,
@@ -123,19 +125,20 @@ describe("POST /api/community/agent/resolve", () => {
     expect(mockGetMessageByChannelAndSeq).toHaveBeenCalledWith(expect.anything(), { channelId: "ch_1" }, 3)
   })
 
-  it("200 happy path over a DM ref, gated by requireDMParticipant", async () => {
+  it("200 happy path over a DM ref, gated by requireDMAccess", async () => {
     mockGetUserByNameAndDiscriminator.mockResolvedValue({ id: "peer_1", discriminator: "0001" })
     mockGetUserInternal.mockImplementation((_db: unknown, id: string) =>
       Promise.resolve(id === "peer_1" ? { id: "peer_1", isBot: false, deletedAt: null } : { isBot: true, deletedAt: null })
     )
     // resolveTargetForMember (no createDmIfMissing) needs an existing DM row.
     mockGetDMBetween.mockResolvedValue({ id: "dm_1" })
-    mockGetDM.mockResolvedValue({ id: "dm_1", user1Id: "bot_1", user2Id: "peer_1", lastMessageAt: null, createdAt: "t" })
+    mockGetDM.mockResolvedValue({ id: "dm_1", lastMessageAt: null, createdAt: "t" })
+    mockGetDMPeer.mockResolvedValue({ otherUserId: "peer_1" })
     mockIsBlocked.mockResolvedValue(false)
     mockGetMessageByChannelAndSeq.mockResolvedValue({ id: "m_dm_1", seq: 2, content: "hey" })
     const res = await POST(req({ channel: "/.dm/peer#0001", seq: 2 }, { Authorization: "Bearer crk_abc" }))
     expect(res.status).toBe(200)
-    expect(mockGetMessageByChannelAndSeq).toHaveBeenCalledWith(expect.anything(), { dmConversationId: "dm_1" }, 2)
+    expect(mockGetMessageByChannelAndSeq).toHaveBeenCalledWith(expect.anything(), { channelId: "dm_1" }, 2)
   })
 
   it("400 invalid DM handle when the channel segment has no #0042 tag", async () => {

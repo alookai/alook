@@ -99,7 +99,7 @@ import {
 describe("message-target predicates", () => {
   const channel: MessageTarget = { kind: "channel", channelId: "c1", serverId: "s1" }
   const thread: MessageTarget = { kind: "thread", channelId: "t1", parentChannelId: "c1", serverId: "s1" }
-  const dm: MessageTarget = { kind: "dm", dmId: "d1", otherUserId: "u1" }
+  const dm: MessageTarget = { kind: "dm", channelId: "d1", otherUserId: "u1" }
 
   it("isChannelTarget", () => {
     expect(isChannelTarget(channel)).toBe(true)
@@ -210,14 +210,14 @@ describe("createCommunityMessage — audit relocation (plan §10)", () => {
     expect(JSON.parse(action.changes).source).toBe("web")
   })
 
-  it("DM target: serverId is null and targetId is the dmId", async () => {
+  it("DM target: serverId is null and targetId is the dm channelId", async () => {
     mockGetUserInternal.mockResolvedValue({ id: "author_1", isBot: true, deletedAt: null })
-    mockGetMessage.mockResolvedValue(messageRow({ channelId: null, dmConversationId: "dm_1" }))
+    mockGetMessage.mockResolvedValue(messageRow({ channelId: "dm_1" }))
 
     await createCommunityMessage({
       db: {} as never,
       authorId: "author_1",
-      target: { kind: "dm", dmId: "dm_1", otherUserId: "u2" },
+      target: { kind: "dm", channelId: "dm_1", otherUserId: "u2" },
       body: { content: "hello" },
       source: "daemon-http",
     })

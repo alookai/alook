@@ -3,7 +3,6 @@ import * as messageQueries from "../../src/db/queries/community/message";
 import {
   communityMessage,
   communityChannel,
-  communityDmConversation,
   communityReadState,
   communityMessageSeq,
 } from "../../src/db/community-schema";
@@ -26,10 +25,8 @@ function messageRow(id: string) {
     mentionType: null,
     replyToId: null,
     embeds: null,
-    flags: 0,
     createdAt: "2025-01-01T00:00:00.000Z",
     channelId: "ch_1",
-    dmConversationId: null,
     authorName: `User ${id}`,
     authorEmail: `${id}@x.com`,
     authorImage: null,
@@ -69,7 +66,7 @@ describe("getMessagesByIds", () => {
     expect(result).toHaveLength(2);
   });
 
-  it("returned rows carry the 13-field getMessage projection, no extras", async () => {
+  it("returned rows carry the getMessage projection, no extras", async () => {
     const db = createSelectMock([messageRow("m_1")]);
     const result = await messageQueries.getMessagesByIds(db, ["m_1"]);
     expect(result).toHaveLength(1);
@@ -83,9 +80,7 @@ describe("getMessagesByIds", () => {
         "channelId",
         "content",
         "createdAt",
-        "dmConversationId",
         "embeds",
-        "flags",
         "id",
         "mentionType",
         "replyToId",
@@ -119,13 +114,13 @@ describe("getMessageInScope", () => {
     expect(result).toBeNull();
   });
 
-  it("accepts dmConversationId scope", async () => {
-    const row = { ...messageRow("m_dm"), channelId: null, dmConversationId: "dm_1" };
+  it("accepts a DM channel scope (a DM is a type=dm channel, addressed by channelId)", async () => {
+    const row = { ...messageRow("m_dm"), channelId: "dm_ch_1" };
     const db = createSelectMock([row]);
     const result = await messageQueries.getMessageInScope(db, "m_dm", {
-      dmConversationId: "dm_1",
+      channelId: "dm_ch_1",
     });
-    expect(result?.dmConversationId).toBe("dm_1");
+    expect(result?.channelId).toBe("dm_ch_1");
   });
 });
 
@@ -184,8 +179,8 @@ function createCreateMessageDbMock(opts?: { messageId?: string }) {
           values: vi.fn((v: any) => ({
             onConflictDoUpdate: vi.fn(() => ({
               returning: vi.fn(() => {
-                const next = (seqByScope.get(v.scopeKey) ?? 0) + 1;
-                seqByScope.set(v.scopeKey, next);
+                const next = (seqByScope.get(v.channelId) ?? 0) + 1;
+                seqByScope.set(v.channelId, next);
                 return Promise.resolve([{ nextSeq: next }]);
               }),
             })),
@@ -246,7 +241,6 @@ describe("createMessage — channel path", () => {
     expect(db.__inserts[0].table).toBe(communityMessage);
     expect(db.__inserts[0].values.authorId).toBe("u_author");
     expect(db.__inserts[0].values.channelId).toBe("ch_1");
-    expect(db.__inserts[0].values.dmConversationId).toBeNull();
     // createdAt is pinned explicitly — not left to the schema $defaultFn.
     expect(typeof db.__inserts[0].values.createdAt).toBe("string");
     expect(db.__inserts[0].values.createdAt).toBe(msg.createdAt);
@@ -256,13 +250,12 @@ describe("createMessage — channel path", () => {
     expect(db.__updates[0].set.lastMessageAt).toBe(msg.createdAt);
 
     // Insert #2: the author's own read-state watermark. Upsert against the
-    // (userId, channelId) partial-unique index. This is the whole point of
+    // (userId, channelId) unique index. This is the whole point of
     // the fix — the sender's own send never surfaces as unread.
     expect(db.__inserts[1].table).toBe(communityReadState);
     expect(db.__inserts[1].values).toMatchObject({
       userId: "u_author",
       channelId: "ch_1",
-      dmConversationId: null,
       lastReadAt: msg.createdAt,
       lastReadMessageId: msg.id,
     });
@@ -272,9 +265,9 @@ describe("createMessage — channel path", () => {
       lastReadMessageId: msg.id,
     });
     expect(db.__inserts[1].onConflict.setWhere).toBeDefined();
-    // targetWhere pins the partial-unique-index shape so this upsert lands on
-    // the channel row, not the DM row (they share `(userId, ...)`).
-    expect(db.__inserts[1].onConflict.targetWhere).toBeDefined();
+    // The read-state unique is now a plain unique on (userId, channelId) — no
+    // partial-index targetWhere clause.
+    expect(db.__inserts[1].onConflict.targetWhere).toBeUndefined();
   });
 
   it("timestamp alignment invariant: msg.createdAt === channel.lastMessageAt === readState.lastReadAt", async () => {
@@ -341,77 +334,55 @@ describe("createMessage — channel path", () => {
   });
 });
 
-describe("createMessage — DM path", () => {
-  it("bumps dm.lastMessageAt and upserts author's read-state watermark (dmConversationId-scoped)", async () => {
+describe("createMessage — DM path (a DM is a type=dm channel)", () => {
+  it("bumps the DM channel's lastMessageAt and upserts author's read-state watermark (channelId-scoped)", async () => {
     const db = createCreateMessageDbMock({ messageId: "m_dm" });
     const msg = await messageQueries.createMessage(db, {
       authorId: "u_author",
       content: "hey",
-      dmConversationId: "dm_1",
+      channelId: "dm_ch_1",
     });
 
-    // Insert #1: the message itself, with channelId null and dmConversationId set.
+    // Insert #1: the message itself, on the DM's channel.
     expect(db.__inserts[0].table).toBe(communityMessage);
-    expect(db.__inserts[0].values.channelId).toBeNull();
-    expect(db.__inserts[0].values.dmConversationId).toBe("dm_1");
+    expect(db.__inserts[0].values.channelId).toBe("dm_ch_1");
     expect(db.__inserts[0].values.createdAt).toBe(msg.createdAt);
 
-    // Update: DM conversation lastMessageAt.
-    expect(db.__updates[0].table).toBe(communityDmConversation);
+    // Update: DM channels are channels now — the lastMessageAt bump always
+    // targets communityChannel.
+    expect(db.__updates[0].table).toBe(communityChannel);
     expect(db.__updates[0].set.lastMessageAt).toBe(msg.createdAt);
 
-    // Insert #2: author read-state, keyed on (userId, dmConversationId) with
-    // channelId null — mirrors the partial-unique-index `idx_read_state_user_dm`.
+    // Insert #2: author read-state, keyed on (userId, channelId).
     expect(db.__inserts[1].table).toBe(communityReadState);
     expect(db.__inserts[1].values).toMatchObject({
       userId: "u_author",
-      channelId: null,
-      dmConversationId: "dm_1",
+      channelId: "dm_ch_1",
       lastReadAt: msg.createdAt,
       lastReadMessageId: msg.id,
     });
     expect(db.__inserts[1].onConflict.target).toEqual([
       communityReadState.userId,
-      communityReadState.dmConversationId,
+      communityReadState.channelId,
     ]);
     expect(db.__inserts[1].onConflict.set).toMatchObject({
       lastReadAt: msg.createdAt,
       lastReadMessageId: msg.id,
     });
     expect(db.__inserts[1].onConflict.setWhere).toBeDefined();
-    expect(db.__inserts[1].onConflict.targetWhere).toBeDefined();
+    expect(db.__inserts[1].onConflict.targetWhere).toBeUndefined();
   });
 
-  it("timestamp alignment holds for DM: msg.createdAt === dm.lastMessageAt === readState.lastReadAt", async () => {
+  it("timestamp alignment holds for a DM channel: msg.createdAt === channel.lastMessageAt === readState.lastReadAt", async () => {
     const db = createCreateMessageDbMock();
     const msg = await messageQueries.createMessage(db, {
       authorId: "u_1",
       content: "hi",
-      dmConversationId: "dm_1",
+      channelId: "dm_ch_1",
     });
     expect(db.__updates[0].set.lastMessageAt).toBe(msg.createdAt);
     expect(db.__inserts[1].values.lastReadAt).toBe(msg.createdAt);
     expect(db.__inserts[1].onConflict.set.lastReadAt).toBe(msg.createdAt);
-  });
-});
-
-describe("scopeKeyForTarget", () => {
-  it("prefixes a channelId with 'channel:'", () => {
-    expect(messageQueries.scopeKeyForTarget({ channelId: "c_1" })).toBe("channel:c_1");
-  });
-
-  it("prefixes a dmConversationId with 'dm:'", () => {
-    expect(messageQueries.scopeKeyForTarget({ dmConversationId: "dm_1" })).toBe("dm:dm_1");
-  });
-
-  it("channelId takes precedence when both are somehow set", () => {
-    expect(messageQueries.scopeKeyForTarget({ channelId: "c_1", dmConversationId: "dm_1" })).toBe(
-      "channel:c_1"
-    );
-  });
-
-  it("throws when neither is provided", () => {
-    expect(() => messageQueries.scopeKeyForTarget({})).toThrow();
   });
 });
 
@@ -455,18 +426,18 @@ describe("createMessage — seq assignment", () => {
     return base;
   }
 
-  it("claims the seq scoped to 'channel:<id>' for a channel send", async () => {
+  it("claims the seq scoped to the channelId for a channel send", async () => {
     const db = createSeqSpyDbMock();
     await messageQueries.createMessage(db, { authorId: "u_1", content: "hi", channelId: "ch_1" });
     expect(db.__seqCalls).toHaveLength(1);
-    expect(db.__seqCalls[0].values).toEqual({ scopeKey: "channel:ch_1", nextSeq: 1 });
-    expect(db.__seqCalls[0].onConflict.target).toBe(communityMessageSeq.scopeKey);
+    expect(db.__seqCalls[0].values).toEqual({ channelId: "ch_1", nextSeq: 1 });
+    expect(db.__seqCalls[0].onConflict.target).toBe(communityMessageSeq.channelId);
   });
 
-  it("claims the seq scoped to 'dm:<id>' for a DM send", async () => {
+  it("claims the seq scoped to the DM's channelId for a DM send", async () => {
     const db = createSeqSpyDbMock();
-    await messageQueries.createMessage(db, { authorId: "u_1", content: "hi", dmConversationId: "dm_1" });
-    expect(db.__seqCalls[0].values).toEqual({ scopeKey: "dm:dm_1", nextSeq: 1 });
+    await messageQueries.createMessage(db, { authorId: "u_1", content: "hi", channelId: "dm_ch_1" });
+    expect(db.__seqCalls[0].values).toEqual({ channelId: "dm_ch_1", nextSeq: 1 });
   });
 
   it("passes the claimed seq through to the message row AND the read-state watermark", async () => {
@@ -482,12 +453,12 @@ describe("createMessage — seq assignment", () => {
     expect(db.__inserts[1].onConflict.set.lastReadSeq).toBe(5);
   });
 
-  it("passes the claimed seq through for the DM read-state watermark too", async () => {
+  it("passes the claimed seq through for the DM channel read-state watermark too", async () => {
     const db = createSeqSpyDbMock({ seqSequence: [9] });
     const msg = await messageQueries.createMessage(db, {
       authorId: "u_1",
       content: "hi",
-      dmConversationId: "dm_1",
+      channelId: "dm_ch_1",
     });
     expect(msg.seq).toBe(9);
     expect(db.__inserts[1].values.lastReadSeq).toBe(9);
@@ -616,8 +587,8 @@ describe("createMessage — CAS claim (expectedSeq, plans/fix-agent-send-race-co
     // Both racers hit the seq-claim exactly once each, with the SAME
     // expectedSeq snapshot (they both read `latestSeq=19` before either claimed).
     expect(db.__seqCalls).toHaveLength(2);
-    expect(db.__seqCalls[0].values).toEqual({ scopeKey: "channel:ch_1", nextSeq: 1 });
-    expect(db.__seqCalls[1].values).toEqual({ scopeKey: "channel:ch_1", nextSeq: 1 });
+    expect(db.__seqCalls[0].values).toEqual({ channelId: "ch_1", nextSeq: 1 });
+    expect(db.__seqCalls[1].values).toEqual({ channelId: "ch_1", nextSeq: 1 });
     expect(db.__seqCalls[0].onConflict.setWhere).toBeDefined();
     expect(db.__seqCalls[1].onConflict.setWhere).toBeDefined();
   });
@@ -675,11 +646,11 @@ describe("getLatestMessage", () => {
     expect(db.limit).toHaveBeenCalledWith(1);
   });
 
-  it("dm branch: same shape but scoped by dmConversationId", async () => {
+  it("dm branch: same shape, scoped by the DM's channelId", async () => {
     const db = createLimitMock([
       { id: "m_dm_latest", createdAt: "2026-07-05T11:00:00Z" },
     ]);
-    const result = await messageQueries.getLatestMessage(db, { dmConversationId: "dm_1" });
+    const result = await messageQueries.getLatestMessage(db, { channelId: "dm_ch_1" });
     expect(result).toEqual({ id: "m_dm_latest", createdAt: "2026-07-05T11:00:00Z" });
     expect(db.limit).toHaveBeenCalledWith(1);
   });
@@ -687,7 +658,7 @@ describe("getLatestMessage", () => {
   it("returns null when the target has no messages (empty channel / dm)", async () => {
     const db = createLimitMock([]);
     const cRes = await messageQueries.getLatestMessage(db, { channelId: "c_empty" });
-    const dRes = await messageQueries.getLatestMessage(db, { dmConversationId: "dm_empty" });
+    const dRes = await messageQueries.getLatestMessage(db, { channelId: "dm_ch_empty" });
     expect(cRes).toBeNull();
     expect(dRes).toBeNull();
   });
@@ -727,10 +698,8 @@ function listedRow(id: string, createdAt: string) {
     mentionType: null,
     replyToId: null,
     embeds: null,
-    flags: 0,
     createdAt,
     channelId: "c_1",
-    dmConversationId: null,
     authorName: `User ${id}`,
     authorEmail: `${id}@x.com`,
     authorImage: null,
@@ -805,10 +774,10 @@ describe("listMessagesAround", () => {
     expect(result.newer[0]?.id).toBe("m_anchor");
   });
 
-  it("accepts dmConversationId scope", async () => {
+  it("accepts a DM channel scope", async () => {
     const db = createDualLimitMock([[], [listedRow("m_anchor", "2026-01-01T00:00:01.000Z")]]);
     const result = await messageQueries.listMessagesAround(db, {
-      dmConversationId: "dm_1",
+      channelId: "dm_ch_1",
       anchor: { createdAt: "2026-01-01T00:00:01.000Z", id: "m_anchor" },
       limit: 6,
     });
@@ -844,10 +813,10 @@ describe("listMessagesSince", () => {
     expect(result).toEqual([]);
   });
 
-  it("accepts dmConversationId scope", async () => {
+  it("accepts a DM channel scope", async () => {
     const db = createDualLimitMock([[listedRow("m_1", "2026-01-01T00:00:01.000Z")]]);
     const result = await messageQueries.listMessagesSince(db, {
-      dmConversationId: "dm_1",
+      channelId: "dm_ch_1",
       since: { createdAt: "2026-01-01T00:00:00.000Z", id: "m_0" },
     });
     expect(result).toHaveLength(1);
@@ -874,9 +843,9 @@ describe("getLatestMessageSeq", () => {
     expect(result).toBe(42);
   });
 
-  it("also accepts dmConversationId scope", async () => {
+  it("also accepts a DM channel scope", async () => {
     const db = createSeqMock([{ maxSeq: 7 }]);
-    const result = await messageQueries.getLatestMessageSeq(db, { dmConversationId: "dm_1" });
+    const result = await messageQueries.getLatestMessageSeq(db, { channelId: "dm_ch_1" });
     expect(result).toBe(7);
   });
 
@@ -1047,11 +1016,11 @@ describe("read-state invariant property — every write path", () => {
       message: CHANNEL_MSG,
     });
 
-    // Path B: markReadToMessageBuilder — DM
+    // Path B: markReadToMessageBuilder — DM channel (a DM is a type=dm channel)
     const dbB = makePropertyDb();
     readState.markReadToMessageBuilder(dbB, {
       userId: "u_1",
-      dmConversationId: "dm_1",
+      channelId: "dm_ch_1",
       message: DM_MSG,
     });
 
@@ -1071,12 +1040,12 @@ describe("read-state invariant property — every write path", () => {
       channelId: "c_new",
     });
 
-    // Path E: createMessage — DM branch (author read-watermark upsert)
+    // Path E: createMessage — DM channel branch (author read-watermark upsert)
     const dbE = makePropertyDb();
     await msg.createMessage(dbE, {
       authorId: "u_1",
       content: "hi",
-      dmConversationId: "dm_new",
+      channelId: "dm_ch_new",
     });
 
     // Path F: markAllServerChannelsRead — one channel with a latest message,

@@ -4,6 +4,7 @@ const getMember = vi.fn()
 const getChannelForMember = vi.fn()
 const resolveChannelAccessContext = vi.fn()
 const getDM = vi.fn()
+const getDMPeer = vi.fn()
 const isBlocked = vi.fn()
 
 vi.mock("@alook/shared", async () => {
@@ -16,7 +17,10 @@ vi.mock("@alook/shared", async () => {
         getChannelForMember: (...a: unknown[]) => getChannelForMember(...a),
         resolveChannelAccessContext: (...a: unknown[]) => resolveChannelAccessContext(...a),
       },
-      communityDm: { getDM: (...a: unknown[]) => getDM(...a) },
+      communityDm: {
+        getDM: (...a: unknown[]) => getDM(...a),
+        getDMPeer: (...a: unknown[]) => getDMPeer(...a),
+      },
       communityFriendship: { isBlocked: (...a: unknown[]) => isBlocked(...a) },
     },
   }
@@ -27,7 +31,7 @@ import {
   requireServerAdmin,
   requireChannelMember,
   requireChannelAccess,
-  requireDMParticipant,
+  requireDMAccess,
   requireNotBlocked,
 } from "./permissions"
 
@@ -211,64 +215,53 @@ describe("requireChannelAccess", () => {
   })
 })
 
-describe("requireDMParticipant", () => {
+describe("requireDMAccess", () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it("accepts user1 and returns user2 as otherUserId", async () => {
-    getDM.mockResolvedValue({ id: "d1", user1Id: "u1", user2Id: "u2", lastMessageAt: null, createdAt: "2026-06-30" })
+  it("accepts a participant and returns the peer as otherUserId", async () => {
+    getDM.mockResolvedValue({ id: "d1", lastMessageAt: null, createdAt: "2026-06-30" })
+    getDMPeer.mockResolvedValue({ otherUserId: "u2" })
     isBlocked.mockResolvedValue(false)
-    const res = await requireDMParticipant(db, "d1", "u1")
+    const res = await requireDMAccess(db, "d1", "u1")
     expect(res.ok).toBe(true)
     if (res.ok) expect(res.value.otherUserId).toBe("u2")
   })
 
-  it("accepts user2 and returns user1 as otherUserId", async () => {
-    getDM.mockResolvedValue({ id: "d1", user1Id: "u2", user2Id: "u1", lastMessageAt: null, createdAt: "2026-06-30" })
-    isBlocked.mockResolvedValue(false)
-    const res = await requireDMParticipant(db, "d1", "u1")
-    expect(res.ok).toBe(true)
-    if (res.ok) expect(res.value.otherUserId).toBe("u2")
-  })
-
-  it("rejects an outsider", async () => {
-    getDM.mockResolvedValue({ id: "d1", user1Id: "u2", user2Id: "u3", lastMessageAt: null, createdAt: "2026-06-30" })
-    const res = await requireDMParticipant(db, "d1", "u1")
-    expect(res).toEqual({ ok: false, status: 403, error: "forbidden" })
+  it("rejects an outsider (no peer row) with 404", async () => {
+    getDM.mockResolvedValue({ id: "d1", lastMessageAt: null, createdAt: "2026-06-30" })
+    getDMPeer.mockResolvedValue(null)
+    const res = await requireDMAccess(db, "d1", "u1")
+    expect(res).toEqual({ ok: false, status: 404, error: "dm not found" })
   })
 
   it("returns 404 when the DM doesn't exist", async () => {
     getDM.mockResolvedValue(null)
-    const res = await requireDMParticipant(db, "d1", "u1")
-    expect(res.ok).toBe(false)
-    if (!res.ok) expect(res.status).toBe(404)
-  })
-
-  it("returns 404 when participant ids are null (orphan row)", async () => {
-    getDM.mockResolvedValue({ id: "d1", user1Id: null, user2Id: "u1", lastMessageAt: null, createdAt: "2026-06-30" })
-    const res = await requireDMParticipant(db, "d1", "u1")
+    const res = await requireDMAccess(db, "d1", "u1")
     expect(res.ok).toBe(false)
     if (!res.ok) expect(res.status).toBe(404)
   })
 
   it("returns 403 'blocked' when the participants are in a blocked relationship", async () => {
-    getDM.mockResolvedValue({ id: "d1", user1Id: "u1", user2Id: "u2", lastMessageAt: null, createdAt: "2026-06-30" })
+    getDM.mockResolvedValue({ id: "d1", lastMessageAt: null, createdAt: "2026-06-30" })
+    getDMPeer.mockResolvedValue({ otherUserId: "u2" })
     isBlocked.mockResolvedValue(true)
-    const res = await requireDMParticipant(db, "d1", "u1")
+    const res = await requireDMAccess(db, "d1", "u1")
     expect(res).toEqual({ ok: false, status: 403, error: "blocked" })
   })
 
   it("does not consult isBlocked when the participant check already fails", async () => {
     // Non-participant → short-circuit before the block query. Locking this in
     // keeps the helper from making an unnecessary round-trip for outsiders.
-    getDM.mockResolvedValue({ id: "d1", user1Id: "u2", user2Id: "u3", lastMessageAt: null, createdAt: "2026-06-30" })
-    const res = await requireDMParticipant(db, "d1", "u1")
+    getDM.mockResolvedValue({ id: "d1", lastMessageAt: null, createdAt: "2026-06-30" })
+    getDMPeer.mockResolvedValue(null)
+    const res = await requireDMAccess(db, "d1", "u1")
     expect(res.ok).toBe(false)
     expect(isBlocked).not.toHaveBeenCalled()
   })
 
   it("does not consult isBlocked when the DM is missing", async () => {
     getDM.mockResolvedValue(null)
-    await requireDMParticipant(db, "d1", "u1")
+    await requireDMAccess(db, "d1", "u1")
     expect(isBlocked).not.toHaveBeenCalled()
   })
 })

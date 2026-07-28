@@ -13,7 +13,7 @@
  */
 
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { queries, createLogger, WS_EVENTS, isThread, isForumPost } from "@alook/shared"
+import { queries, createLogger, WS_EVENTS, isThread, isForumPost, isDm } from "@alook/shared"
 import type { CommunityWsEvent, Database } from "@alook/shared"
 import { getDb } from "../db"
 import { broadcastToUser } from "../broadcast"
@@ -50,6 +50,9 @@ async function getServerMemberUserIds(db: Database, serverId: string): Promise<s
  *   A public post therefore no longer blasts the whole server, and a private
  *   post no longer pings every roster member on every message — only the people
  *   actually involved. Nested-membership model.
+ * - DM (`type="dm"`) → its two `relation='access'` members. A DM has
+ *   `server_id = NULL`, so it must NOT fall through to the server-scoped
+ *   resolver (which would query `server_id = NULL` and return an empty set).
  * - channel / forum → the access audience via the shared resolver
  *   (public/private split; a forum owns its roster like a text channel).
  *
@@ -59,6 +62,9 @@ async function getChannelRecipientUserIds(db: Database, channelId: string): Prom
   const rows = await queries.communityChannel.getChannelType(db, channelId)
   if (isThread(rows) || isForumPost(rows)) {
     return queries.communityThread.listThreadParticipantUserIds(db, channelId)
+  }
+  if (isDm(rows)) {
+    return queries.communityChannel.listChannelMemberUserIds(db, channelId)
   }
   return queries.communityMembersResolver.resolveScopeMemberUserIds(db, {
     scope: "channel",
@@ -90,28 +96,30 @@ export async function fanOutToChannel(
 }
 
 /**
- * Fan out an event to both participants of a DM conversation.
+ * Fan out an event to both access members of a DM channel (type=dm). DMs are
+ * channels now — kept as a thin named wrapper for the DM call sites; the
+ * recipient set is the channel's relation='access' members.
  */
 export async function fanOutToDM(
-  dmConversationId: string,
+  channelId: string,
   event: BroadcastableEvent,
   opts?: { excludeUserId?: string } & WakeOpts
 ): Promise<void> {
   try {
     const { env } = getCloudflareContext()
     const db = getDb((env as Env).DB)
-    const dm = await queries.communityDm.getDM(db, dmConversationId)
+    const dm = await queries.communityDm.getDM(db, channelId)
     if (!dm) {
-      log.warn("fanOutToDM: DM conversation not found", { dmConversationId })
+      log.warn("fanOutToDM: DM channel not found", { channelId })
       return
     }
-    const userIds = [dm.user1Id, dm.user2Id].filter(Boolean) as string[]
+    const userIds = await queries.communityChannel.listChannelMemberUserIds(db, channelId)
     await broadcastToRecipients(userIds, event, opts?.excludeUserId)
-    maybeEnqueueWakes(event, userIds, { dmConversationId }, opts)
+    maybeEnqueueWakes(event, userIds, { channelId }, opts)
   } catch (err) {
     log.warn("fanout_to_dm_failed", {
       eventType: event.type,
-      targetId: dmConversationId,
+      targetId: channelId,
       err: String(err),
     })
   }
@@ -127,7 +135,7 @@ export async function fanOutToDM(
 function maybeEnqueueWakes(
   event: BroadcastableEvent,
   recipients: string[],
-  scope: { channelId: string } | { dmConversationId: string },
+  scope: { channelId: string },
   opts?: { excludeUserId?: string } & WakeOpts
 ): void {
   if (event.type !== WS_EVENTS.MESSAGE_CREATE || !opts?.wakeMessageRow) return

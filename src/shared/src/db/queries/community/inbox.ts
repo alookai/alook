@@ -1,7 +1,7 @@
-import { and, eq, isNotNull, isNull, inArray, or } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, inArray, ne } from "drizzle-orm";
 import {
   communityChannel,
-  communityDmConversation,
+  communityChannelMember,
   communityReadState,
   communityServer,
   communityServerMember,
@@ -158,7 +158,7 @@ export async function listUnreadChannels(
 // ──────────────────────────────────────────────────────────────────────────────
 
 export interface UnreadDmRow {
-  dmConversationId: string;
+  channelId: string;
   otherUserId: string;
   otherUserName: string;
   otherUserImage: string | null;
@@ -191,63 +191,70 @@ export async function listUnreadDms(
   db: Database,
   userId: string
 ): Promise<UnreadDmRow[]> {
-  // Every DM the viewer participates in (user1 OR user2), joined to the
-  // counterpart user row (name/avatar for rendering) and the viewer's DM
-  // read-state row. Filtering happens in JS via `isDmUnread` — the shape
-  // mirrors `listUnreadChannels`.
+  // DMs are type='dm' channels; the viewer's DM channels are those they hold a
+  // relation='access' member row on. First resolve those channel ids.
+  const selfRows = await db
+    .select({ channelId: communityChannelMember.channelId })
+    .from(communityChannelMember)
+    .innerJoin(communityChannel, eq(communityChannel.id, communityChannelMember.channelId))
+    .where(
+      and(
+        eq(communityChannelMember.userId, userId),
+        eq(communityChannelMember.relation, "access"),
+        eq(communityChannel.type, "dm")
+      )
+    );
+  const dmChannelIds = selfRows.map((r) => r.channelId);
+  if (dmChannelIds.length === 0) return [];
+
+  // Join each DM channel to the PEER access member → user (name/avatar) and the
+  // viewer's read-state row. Filtering happens in JS via `isDmUnread`.
   const rows = await db
     .select({
-      dmConversationId: communityDmConversation.id,
-      user1Id: communityDmConversation.user1Id,
-      user2Id: communityDmConversation.user2Id,
-      lastMessageAt: communityDmConversation.lastMessageAt,
+      channelId: communityChannel.id,
+      lastMessageAt: communityChannel.lastMessageAt,
       lastReadAt: communityReadState.lastReadAt,
       otherUserId: user.id,
       otherUserName: user.name,
       otherUserImage: user.image,
     })
-    .from(communityDmConversation)
+    .from(communityChannel)
     .innerJoin(
-      user,
-      // The counterpart is whichever side isn't the viewer. `or(eq(user.id,
-      // user1Id), eq(user.id, user2Id))` alone would double-join; instead we
-      // pick the opposite side per row via two eq'd cases that only one of
-      // which is true for a given viewer.
-      or(
-        and(
-          eq(communityDmConversation.user1Id, userId),
-          eq(user.id, communityDmConversation.user2Id)
-        ),
-        and(
-          eq(communityDmConversation.user2Id, userId),
-          eq(user.id, communityDmConversation.user1Id)
-        )
+      communityChannelMember,
+      and(
+        eq(communityChannelMember.channelId, communityChannel.id),
+        eq(communityChannelMember.relation, "access"),
+        ne(communityChannelMember.userId, userId)
       )
     )
+    .innerJoin(user, eq(user.id, communityChannelMember.userId))
     .leftJoin(
       communityReadState,
       and(
-        eq(communityReadState.dmConversationId, communityDmConversation.id),
+        eq(communityReadState.channelId, communityChannel.id),
         eq(communityReadState.userId, userId)
       )
     )
     .where(
       and(
-        or(
-          eq(communityDmConversation.user1Id, userId),
-          eq(communityDmConversation.user2Id, userId)
-        ),
-        isNotNull(communityDmConversation.lastMessageAt),
+        inArray(communityChannel.id, dmChannelIds),
+        isNotNull(communityChannel.lastMessageAt),
         isNull(user.deletedAt)
       )
     );
 
+  const seen = new Set<string>();
   return rows
     .filter((r) =>
       isDmUnread({ lastMessageAt: r.lastMessageAt, lastReadAt: r.lastReadAt })
     )
+    .filter((r) => {
+      if (seen.has(r.channelId)) return false;
+      seen.add(r.channelId);
+      return true;
+    })
     .map((r) => ({
-      dmConversationId: r.dmConversationId,
+      channelId: r.channelId,
       otherUserId: r.otherUserId,
       otherUserName: r.otherUserName,
       otherUserImage: r.otherUserImage,

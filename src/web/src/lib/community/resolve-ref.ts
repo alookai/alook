@@ -6,7 +6,7 @@ import { guardDmOpen } from "./dm-guard"
 
 export type TargetResolution =
   | { kind: "channel"; channelId: string }
-  | { kind: "dm"; dmConversationId: string; otherUserId: string }
+  | { kind: "dm"; channelId: string; otherUserId: string }
   | { error: 400 | 403 | 404; message: string; hint?: Array<{ id: string; path: string }> }
 
 export interface ResolveTargetOpts {
@@ -81,12 +81,12 @@ export async function resolveTargetForMember(
       const guard = await guardDmOpen(db, userId, peerId, { callerKind: opts.callerKind })
       if (!guard.ok) return { error: guard.status, message: guard.error }
       const dm = await queries.communityDm.createOrGetDM(db, { userId1: userId, userId2: peerId })
-      return { kind: "dm", dmConversationId: dm.id, otherUserId: peerId }
+      return { kind: "dm", channelId: dm.id, otherUserId: peerId }
     }
 
     const dm = await queries.communityDm.getDMBetween(db, userId, peerId)
     if (!dm) return { error: 404, message: "dm not found" }
-    return { kind: "dm", dmConversationId: dm.id, otherUserId: peerId }
+    return { kind: "dm", channelId: dm.id, otherUserId: peerId }
   }
 
   // Channel form: resolve server, then channel, both scoped to membership.

@@ -3,7 +3,7 @@ import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries, withD1Retry } from "@alook/shared"
-import { requireDMParticipant } from "@/lib/community/permissions"
+import { requireDMAccess } from "@/lib/community/permissions"
 
 /**
  * GET /api/community/dm/:id/read-state
@@ -15,23 +15,23 @@ import { requireDMParticipant } from "@/lib/community/permissions"
  * "everything is new, but no divider (start at the bottom)", matching common
  * chat-app first-visit UX.
  *
- * `requireDMParticipant` handles both unknown-DM and non-participant cases
- * (returns 403 for either — the DM permission helper deliberately collapses
- * them, unlike the channel route which surfaces a 404 for unknown ids).
+ * `requireDMAccess` handles both unknown-DM and non-participant cases (the DM
+ * permission helper collapses them, unlike the channel route which surfaces a
+ * 404 for unknown ids).
  */
 export const GET = withAuth(async (_req: NextRequest, ctx) => {
   const dmId = ctx.params?.id
   if (!dmId) return writeError("missing dm id", 400)
 
   const db = getDb(ctx.env.DB)
-  const auth = await requireDMParticipant(db, dmId, ctx.userId)
+  const auth = await requireDMAccess(db, dmId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 
   // Server-side retry stack. See channel twin for the invariant.
   const row = await withD1Retry(
     () => queries.communityReadState.getReadState(db, {
       userId: ctx.userId,
-      dmConversationId: dmId,
+      channelId: dmId,
     }),
     { route: "community/dm/read-state" },
   )

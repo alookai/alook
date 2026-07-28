@@ -50,7 +50,6 @@ const MESSAGE_CHANNEL = {
   seq: 7,
   authorId: "u_human",
   channelId: "ch_1",
-  dmConversationId: null,
 };
 
 const BOT_READY: {
@@ -124,9 +123,9 @@ describe("buildUnreadWakeCommand", () => {
     expect(mockResolveUnreadNoticeChannel).toHaveBeenCalledWith(fakeDb, { channelId: "ch_1" }, "bot_1");
   });
 
-  it("ready: resolves a DM scope when the message has no channelId", async () => {
+  it("ready: resolves a DM scope — a DM is a type=dm channel, so it carries a channelId like any other", async () => {
     seedHappyPath({
-      message: { channelId: null, dmConversationId: "dm_1" },
+      message: { channelId: "dm_ch_1" },
       channel: "/.dm/gustavo#0042",
     });
 
@@ -139,10 +138,10 @@ describe("buildUnreadWakeCommand", () => {
       kind: "unread_notice",
       channel: "/.dm/gustavo#0042",
       latestSeq: 7,
-      dmConversationId: "dm_1",
+      channelId: "dm_ch_1",
     });
-    expect(mockCanBotReadWakeScope).toHaveBeenCalledWith(fakeDb, "bot_1", { dmConversationId: "dm_1" });
-    expect(mockResolveUnreadNoticeChannel).toHaveBeenCalledWith(fakeDb, { dmConversationId: "dm_1" }, "bot_1");
+    expect(mockCanBotReadWakeScope).toHaveBeenCalledWith(fakeDb, "bot_1", { channelId: "dm_ch_1" });
+    expect(mockResolveUnreadNoticeChannel).toHaveBeenCalledWith(fakeDb, { channelId: "dm_ch_1" }, "bot_1");
   });
 
   it("ready: resolves a thread scope (channelId still set — thread channels ARE channels)", async () => {
@@ -154,7 +153,6 @@ describe("buildUnreadWakeCommand", () => {
     if (result.state !== "ready") throw new Error("expected ready");
     if (result.command.type !== "agent:wake") throw new Error("expected agent:wake");
     expect(result.command.unreadNotice.channel).toBe("/srv_1/general/#3");
-    expect(result.command.unreadNotice.dmConversationId).toBeUndefined();
   });
 
   it("ready: config.model reflects the binding's model_name (named / custom / default)", async () => {
@@ -186,13 +184,9 @@ describe("buildUnreadWakeCommand", () => {
     expect(mockGetBotWakeContext).not.toHaveBeenCalled();
   });
 
-  it("skip: invalid_message_scope when the message has neither channelId nor dmConversationId", async () => {
-    mockGetWakeMessageScopeById.mockResolvedValue({ ...MESSAGE_CHANNEL, channelId: null, dmConversationId: null });
-
-    const result = await buildUnreadWakeCommand(fakeDb, { messageId: "msg_1", botUserId: "bot_1" });
-
-    expect(result).toEqual({ state: "skip", reason: "invalid_message_scope" });
-  });
+  // Deleted: "skip: invalid_message_scope when the message has neither channelId
+  // nor dmConversationId" — a message's channelId is now NOT NULL (DMs are
+  // type=dm channels), so the both-null case can no longer occur.
 
   it("skip: self_authored when the message's author is the same bot (malformed/internal queue item)", async () => {
     mockGetWakeMessageScopeById.mockResolvedValue({ ...MESSAGE_CHANNEL, authorId: "bot_1" });

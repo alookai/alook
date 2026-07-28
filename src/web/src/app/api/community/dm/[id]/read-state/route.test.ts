@@ -6,7 +6,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 }))
 
 const mockGetReadState = vi.fn()
-const mockRequireDMParticipant = vi.fn()
+const mockRequireDMAccess = vi.fn()
 
 vi.mock("@/lib/db", () => ({
   getDb: vi.fn(() => ({})),
@@ -25,7 +25,7 @@ vi.mock("@alook/shared", async () => {
 })
 
 vi.mock("@/lib/community/permissions", () => ({
-  requireDMParticipant: (...a: unknown[]) => mockRequireDMParticipant(...a),
+  requireDMAccess: (...a: unknown[]) => mockRequireDMAccess(...a),
 }))
 
 vi.mock("@/lib/middleware/auth", () => ({
@@ -56,7 +56,7 @@ function getReq() {
 describe("GET /api/community/dm/[id]/read-state", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockRequireDMParticipant.mockResolvedValue({ ok: true })
+    mockRequireDMAccess.mockResolvedValue({ ok: true })
   })
 
   it("returns { null, null, 0 } when no read-state row exists (never-opened dm)", async () => {
@@ -69,7 +69,7 @@ describe("GET /api/community/dm/[id]/read-state", () => {
     // Args to getReadState should scope by (userId, dmConversationId).
     expect(mockGetReadState).toHaveBeenCalledWith(expect.anything(), {
       userId: "u1",
-      dmConversationId: "dm1",
+      channelId: "dm1",
     })
   })
 
@@ -93,12 +93,12 @@ describe("GET /api/community/dm/[id]/read-state", () => {
   it("returns 400 when the dm id is missing", async () => {
     const res = await GET(getReq(), { params: {} } as any)
     expect(res.status).toBe(400)
-    expect(mockRequireDMParticipant).not.toHaveBeenCalled()
+    expect(mockRequireDMAccess).not.toHaveBeenCalled()
     expect(mockGetReadState).not.toHaveBeenCalled()
   })
 
   it("returns 403 when the caller is not a participant", async () => {
-    mockRequireDMParticipant.mockResolvedValue({
+    mockRequireDMAccess.mockResolvedValue({
       ok: false,
       error: "not a participant",
       status: 403,

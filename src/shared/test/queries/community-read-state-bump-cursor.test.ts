@@ -54,7 +54,6 @@ describe("bumpReadCursor", () => {
     expect(db.__insertCalls[0].values).toMatchObject({
       userId: "u_1",
       channelId: "ch_1",
-      dmConversationId: null,
       lastReadAt: "2026-07-05T10:00:00.000Z",
       lastReadMessageId: "m_5",
       lastReadSeq: 5,
@@ -71,20 +70,19 @@ describe("bumpReadCursor", () => {
     ]);
   });
 
-  it("DM path: channelId is null, dmConversationId carries the scope", async () => {
+  it("DM path: a DM is a type=dm channel, so the scope is carried by channelId like any other", async () => {
     const db = createMockDb([
       [{ id: "m_dm_1", createdAt: "2026-07-05T11:00:00.000Z", seq: 3 }],
       [],
     ]);
-    await bumpReadCursor(db, "u_1", { dmConversationId: "dm_1" }, 3);
+    await bumpReadCursor(db, "u_1", { channelId: "dm_ch_1" }, 3);
     expect(db.__insertCalls[0].values).toMatchObject({
-      channelId: null,
-      dmConversationId: "dm_1",
+      channelId: "dm_ch_1",
       lastReadSeq: 3,
     });
     expect(db.__insertCalls[0].onConflict.target).toEqual([
       communityReadState.userId,
-      communityReadState.dmConversationId,
+      communityReadState.channelId,
     ]);
     expect(db.__insertCalls[0].onConflict.setWhere).toBeDefined();
   });

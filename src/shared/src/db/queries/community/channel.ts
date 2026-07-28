@@ -124,6 +124,18 @@ export async function getChannelType(
  * predicate is in SQL, not a post-fetch check.
  */
 export async function getChannelForMember(db: Database, channelId: string, userId: string) {
+  // DM (type=dm, server_id NULL) — Access resolution step 1: readable iff the
+  // user has a relation='access' member row. No server walk, no inheritance.
+  const dmRows = await db
+    .select(CHANNEL_COLUMNS)
+    .from(communityChannel)
+    .where(and(eq(communityChannel.id, channelId), eq(communityChannel.type, "dm")))
+    .limit(1);
+  if (dmRows[0]) {
+    const isMember = await isChannelMember(db, channelId, userId, "access");
+    return isMember ? mapChannelRow(dmRows[0]) : null;
+  }
+
   const rows = await db
     .select({ ...CHANNEL_COLUMNS, memberRole: communityServerMember.role })
     .from(communityChannel)
@@ -473,7 +485,13 @@ export async function isChannelPrivate(db: Database, channelId: string): Promise
 
 export async function createChannelMember(
   db: Database,
-  data: { channelId: string; userId: string; addedBy?: string | null }
+  data: {
+    channelId: string;
+    userId: string;
+    addedBy?: string | null;
+    relation?: string;
+    source?: string;
+  }
 ) {
   const rows = await db
     .insert(communityChannelMember)
@@ -481,9 +499,15 @@ export async function createChannelMember(
       channelId: data.channelId,
       userId: data.userId,
       addedBy: data.addedBy ?? null,
+      relation: data.relation ?? "access",
+      source: data.source ?? "added",
     })
     .onConflictDoNothing({
-      target: [communityChannelMember.channelId, communityChannelMember.userId],
+      target: [
+        communityChannelMember.channelId,
+        communityChannelMember.userId,
+        communityChannelMember.relation,
+      ],
     })
     .returning();
   return rows[0] ?? null;
@@ -492,14 +516,16 @@ export async function createChannelMember(
 export async function deleteChannelMember(
   db: Database,
   channelId: string,
-  userId: string
+  userId: string,
+  relation: string = "access"
 ) {
   const rows = await db
     .delete(communityChannelMember)
     .where(
       and(
         eq(communityChannelMember.channelId, channelId),
-        eq(communityChannelMember.userId, userId)
+        eq(communityChannelMember.userId, userId),
+        eq(communityChannelMember.relation, relation)
       )
     )
     .returning();
@@ -507,8 +533,9 @@ export async function deleteChannelMember(
 }
 
 /**
- * Members explicitly added to a channel, joined to `user` for display. Scoped
- * to one channel id — cross-channel ids never resolve.
+ * ACCESS members explicitly added to a channel, joined to `user` for display.
+ * Scoped to one channel id — cross-channel ids never resolve. Notify rows
+ * (thread/forum-post participants) are excluded.
  */
 export async function listChannelMembers(db: Database, channelId: string) {
   return db
@@ -520,7 +547,12 @@ export async function listChannelMembers(db: Database, channelId: string) {
       addedAt: communityChannelMember.addedAt,
     })
     .from(communityChannelMember)
-    .where(eq(communityChannelMember.channelId, channelId))
+    .where(
+      and(
+        eq(communityChannelMember.channelId, channelId),
+        eq(communityChannelMember.relation, "access")
+      )
+    )
     .orderBy(asc(communityChannelMember.addedAt));
 }
 
@@ -531,14 +563,20 @@ export async function listChannelMemberUserIds(
   const rows = await db
     .select({ userId: communityChannelMember.userId })
     .from(communityChannelMember)
-    .where(eq(communityChannelMember.channelId, channelId));
+    .where(
+      and(
+        eq(communityChannelMember.channelId, channelId),
+        eq(communityChannelMember.relation, "access")
+      )
+    );
   return rows.map((r) => r.userId);
 }
 
 export async function isChannelMember(
   db: Database,
   channelId: string,
-  userId: string
+  userId: string,
+  relation: string = "access"
 ): Promise<boolean> {
   const rows = await db
     .select({ id: communityChannelMember.id })
@@ -546,7 +584,8 @@ export async function isChannelMember(
     .where(
       and(
         eq(communityChannelMember.channelId, channelId),
-        eq(communityChannelMember.userId, userId)
+        eq(communityChannelMember.userId, userId),
+        eq(communityChannelMember.relation, relation)
       )
     )
     .limit(1);
@@ -560,7 +599,12 @@ export async function getChannelMemberCount(
   const rows = await db
     .select({ cnt: count() })
     .from(communityChannelMember)
-    .where(eq(communityChannelMember.channelId, channelId));
+    .where(
+      and(
+        eq(communityChannelMember.channelId, channelId),
+        eq(communityChannelMember.relation, "access")
+      )
+    );
   return rows[0]?.cnt ?? 0;
 }
 
@@ -713,6 +757,7 @@ async function resolveVisibleChannelIdSet(
     .where(
       and(
         eq(communityChannelMember.userId, userId),
+        eq(communityChannelMember.relation, "access"),
         inArray(communityChannel.serverId, serverIds)
       )
     );
@@ -819,6 +864,21 @@ export async function resolveChannelAccessContext(
   if (target.length === 0) return null;
   const channel = mapChannelRow(target[0]!);
   const anchorId = channel.parentChannelId ?? channel.id;
+
+  // DM (type=dm, server_id NULL) — Access resolution step 1: access iff the
+  // user has a relation='access' member row. No server walk.
+  if (channel.type === "dm") {
+    const isMember = await isChannelMember(db, channel.id, userId, "access");
+    if (!isMember) return null;
+    return {
+      channel,
+      anchor: channel,
+      role: "member",
+      isPrivate: true,
+      isChannelMember: true,
+      isCreator: false,
+    };
+  }
 
   // Server-membership gate against the target's server.
   const member = await db

@@ -161,8 +161,8 @@ describe("GET /api/community/inbox/unreads", () => {
   it("returns unread DMs sorted most-recent first", async () => {
     mockListUnreadChannels.mockResolvedValue([])
     mockListUnreadDms.mockResolvedValue([
-      { dmConversationId: "dm_1", otherUserId: "u2", otherUserName: "Alice", otherUserImage: null, lastMessageAt: "2026-06-25T09:00:00Z" },
-      { dmConversationId: "dm_2", otherUserId: "u3", otherUserName: "Bob", otherUserImage: "https://cdn/b.png", lastMessageAt: "2026-06-25T11:00:00Z" },
+      { channelId: "dm_1", otherUserId: "u2", otherUserName: "Alice", otherUserImage: null, lastMessageAt: "2026-06-25T09:00:00Z" },
+      { channelId: "dm_2", otherUserId: "u3", otherUserName: "Bob", otherUserImage: "https://cdn/b.png", lastMessageAt: "2026-06-25T11:00:00Z" },
     ])
 
     const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
@@ -170,9 +170,9 @@ describe("GET /api/community/inbox/unreads", () => {
 
     expect(res.status).toBe(200)
     expect(body.dms).toHaveLength(2)
-    expect(body.dms[0].dmConversationId).toBe("dm_2")
+    expect(body.dms[0].channelId).toBe("dm_2")
     expect(body.dms[0].otherUserAvatar).toBe("https://cdn/b.png")
-    expect(body.dms[1].dmConversationId).toBe("dm_1")
+    expect(body.dms[1].channelId).toBe("dm_1")
     // No cdn image → avatar falls back to the initial letter.
     expect(body.dms[1].otherUserAvatar).toBe("A")
   })
@@ -189,7 +189,7 @@ describe("GET /api/community/inbox/unreads", () => {
   it("returns dms alongside servers when both have unreads", async () => {
     mockListUnreadChannels.mockResolvedValue([row({ channelId: "c1" })])
     mockListUnreadDms.mockResolvedValue([
-      { dmConversationId: "dm_1", otherUserId: "u2", otherUserName: "Alice", otherUserImage: null, lastMessageAt: "2026-06-25T12:00:00Z" },
+      { channelId: "dm_1", otherUserId: "u2", otherUserName: "Alice", otherUserImage: null, lastMessageAt: "2026-06-25T12:00:00Z" },
     ])
     const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
     const body = await res.json()

@@ -15,7 +15,9 @@ const mockGetBotBinding = vi.fn()
 const mockGetAttachmentById = vi.fn()
 const mockGetMessage = vi.fn()
 const mockGetChannelForMember = vi.fn()
+const mockGetChannelType = vi.fn()
 const mockGetDM = vi.fn()
+const mockGetDMPeer = vi.fn()
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -35,9 +37,11 @@ vi.mock("@alook/shared", async () => {
       },
       communityChannel: {
         getChannelForMember: (...a: unknown[]) => mockGetChannelForMember(...a),
+        getChannelType: (...a: unknown[]) => mockGetChannelType(...a),
       },
       communityDm: {
         getDM: (...a: unknown[]) => mockGetDM(...a),
+        getDMPeer: (...a: unknown[]) => mockGetDMPeer(...a),
       },
       communityFriendship: { isBlocked: async () => false },
     },
@@ -209,7 +213,8 @@ describe("POST /api/community/agent/attachmentDownload", () => {
       contentType: "image/png",
       size: 10,
     })
-    mockGetMessage.mockResolvedValue({ id: "m_1", channelId: "c1", dmConversationId: null })
+    mockGetMessage.mockResolvedValue({ id: "m_1", channelId: "c1" })
+    mockGetChannelType.mockResolvedValue("text")
     mockGetChannelForMember.mockResolvedValue(null) // not a member
     const res = await POST(req({ id: "att_1" }, { Authorization: "Bearer crk_abc" }))
     expect(res.status).toBe(404)

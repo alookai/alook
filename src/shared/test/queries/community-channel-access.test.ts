@@ -30,8 +30,10 @@ function channelRow(over: Record<string, unknown> = {}) {
 
 /**
  * Sequenced select mock: `queue` holds the resolved rows for each select() in
- * call order. getChannelForMember issues: (1) channel+member join → (2) anchor
- * + category-private join → (3, optional) isChannelMember lookup.
+ * call order. getChannelForMember now issues: (1) a leading `type='dm'` probe
+ * (empty for a non-DM channel, which lets the original flow run) → (2)
+ * channel+member join → (3) anchor + category-private join → (4, optional)
+ * isChannelMember lookup.
  */
 function makeSeqDb(queue: any[][]) {
   let i = 0;
@@ -72,13 +74,17 @@ describe("canSeePrivateChannel — shared rule", () => {
 })
 
 describe("getChannelForMember — private visibility", () => {
+  // Every queue leads with `[]` — the new `type='dm'` probe returns no row for
+  // a non-DM channel, then the original server-member → private-category flow
+  // runs exactly as before.
   it("non-server-member → null (empty join)", async () => {
-    const db = makeSeqDb([[]]);
+    const db = makeSeqDb([[], []]);
     expect(await channelQueries.getChannelForMember(db, "c1", "u1")).toBeNull();
   });
 
   it("public channel → returns the channel for any member", async () => {
     const db = makeSeqDb([
+      [], // dm probe → not a DM
       [{ ...channelRow({ categoryId: null }), memberRole: "member" }],
       [{ creatorId: "creator", categoryPrivate: 0 }],
     ]);
@@ -88,6 +94,7 @@ describe("getChannelForMember — private visibility", () => {
 
   it("private channel + non-member, non-creator, non-admin → null", async () => {
     const db = makeSeqDb([
+      [], // dm probe → not a DM
       [{ ...channelRow({ categoryId: "cat1" }), memberRole: "member" }],
       [{ creatorId: "creator", categoryPrivate: 1 }],
       [], // isChannelMember → no row
@@ -97,6 +104,7 @@ describe("getChannelForMember — private visibility", () => {
 
   it("private channel + admin, NOT a member/creator → null (no content privilege)", async () => {
     const db = makeSeqDb([
+      [], // dm probe → not a DM
       [{ ...channelRow({ categoryId: "cat1" }), memberRole: "admin" }],
       [{ creatorId: "creator", categoryPrivate: 1 }],
       [], // isChannelMember → no row; admin role no longer short-circuits
@@ -106,6 +114,7 @@ describe("getChannelForMember — private visibility", () => {
 
   it("private channel + admin who IS an added member → returns the channel", async () => {
     const db = makeSeqDb([
+      [], // dm probe → not a DM
       [{ ...channelRow({ categoryId: "cat1" }), memberRole: "admin" }],
       [{ creatorId: "creator", categoryPrivate: 1 }],
       [{ id: "cm1" }], // isChannelMember → row present
@@ -116,6 +125,7 @@ describe("getChannelForMember — private visibility", () => {
 
   it("private channel + creator → returns the channel", async () => {
     const db = makeSeqDb([
+      [], // dm probe → not a DM
       [{ ...channelRow({ categoryId: "cat1", creatorId: "u1" }), memberRole: "member" }],
       [{ creatorId: "u1", categoryPrivate: 1 }],
     ]);
@@ -125,6 +135,7 @@ describe("getChannelForMember — private visibility", () => {
 
   it("private channel + added member → returns the channel", async () => {
     const db = makeSeqDb([
+      [], // dm probe → not a DM
       [{ ...channelRow({ categoryId: "cat1" }), memberRole: "member" }],
       [{ creatorId: "creator", categoryPrivate: 1 }],
       [{ id: "cm1" }], // isChannelMember → row present
@@ -135,6 +146,7 @@ describe("getChannelForMember — private visibility", () => {
 
   it("strips the joined memberRole from the returned row", async () => {
     const db = makeSeqDb([
+      [], // dm probe → not a DM
       [{ ...channelRow(), memberRole: "member" }],
       [{ creatorId: "creator", categoryPrivate: 0 }],
     ]);

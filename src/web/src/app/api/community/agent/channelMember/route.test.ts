@@ -167,8 +167,8 @@ describe("POST /api/community/agent/channelMember", () => {
       { userId: "u_alice", role: "member", source: "explicit" },
     ])
     mockGetMembersByUserIds.mockResolvedValue([
-      { userName: "gustavo", discriminator: "4821", role: "owner", nickname: "Gus" },
-      { userName: "alice", discriminator: "0193", role: "member", nickname: null },
+      { userName: "gustavo", discriminator: "4821", role: "owner" },
+      { userName: "alice", discriminator: "0193", role: "member" },
     ])
     const res = await POST(req({ channel: "/demo/leadership" }, { Authorization: "Bearer crk_abc" }))
     expect(res.status).toBe(200)
@@ -176,7 +176,7 @@ describe("POST /api/community/agent/channelMember", () => {
     expect(body).toEqual({
       visibility: "private",
       members: [
-        { handle: "gustavo#4821", role: "owner", nickname: "Gus" },
+        { handle: "gustavo#4821", role: "owner" },
         { handle: "alice#0193", role: "member" },
       ],
     })

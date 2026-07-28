@@ -70,7 +70,7 @@ function fakeChannel() {
   const wakeAcks: Array<{ agentId: string; launchId: string; status: string }> = [];
   const readys: Array<Parameters<HostControlChannel["reportReady"]>[0]> = [];
   const sessionErrors: SessionErrorFrame[] = [];
-  const typings: Array<{ agentId: string; dmConversationId: string }> = [];
+  const typings: Array<{ agentId: string; channelId: string }> = [];
   const ch: HostControlChannel = {
     onCommand(cb) {
       handler = cb;
@@ -629,7 +629,7 @@ describe("AgentRouter — bot typing indicator", () => {
         kind: "unread_notice",
         channel: "/.dm/peer#0042",
         latestSeq: 1,
-        dmConversationId: "dm_1",
+        channelId: "dm_1",
       },
     });
     expect(typings).toEqual([]);
@@ -659,10 +659,10 @@ describe("AgentRouter — bot typing indicator", () => {
         kind: "unread_notice",
         channel: "/.dm/peer2#0042",
         latestSeq: 3,
-        dmConversationId: "dm_2",
+        channelId: "dm_2",
       },
     });
-    expect(typings).toEqual([{ agentId: "bot_1", dmConversationId: "dm_2" }]);
+    expect(typings).toEqual([{ agentId: "bot_1", channelId: "dm_2" }]);
   });
 
   it("wake during stopping (beforeStatus=stopping): router does NOT emit — FSM will fire stopping→running", async () => {
@@ -686,7 +686,7 @@ describe("AgentRouter — bot typing indicator", () => {
         kind: "unread_notice",
         channel: "/.dm/peer#0042",
         latestSeq: 4,
-        dmConversationId: "dm_1",
+        channelId: "dm_1",
       },
     });
     expect(typings).toEqual([]);

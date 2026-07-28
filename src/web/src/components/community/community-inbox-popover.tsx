@@ -34,8 +34,8 @@ function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenDm }: {
           <div className="px-2 pb-1 text-xs font-semibold text-muted-foreground">Direct Messages</div>
           {dms.map((d) => (
             <button
-              key={d.dmConversationId}
-              onClick={() => onOpenDm?.(d.dmConversationId)}
+              key={d.channelId}
+              onClick={() => onOpenDm?.(d.channelId)}
               className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent"
             >
               <Avatar label={d.otherUserAvatar} seed={d.otherUserId} size={24} />

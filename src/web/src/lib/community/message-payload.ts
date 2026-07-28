@@ -22,9 +22,9 @@ import { avatarInitial } from "@/lib/community/avatar"
 // queries.communityMessage.{listMessages, getMessage, getMessagesByIds} that
 // this mapper actually consumes. Structural-typed so the module doesn't
 // reach into the shared query package — a row with additional columns
-// (channelId, dmConversationId, authorEmail, flags, …) is still accepted.
-// Those columns are scope-filtered / used by the route BEFORE the row
-// reaches this mapper; the mapper deliberately doesn't see them.
+// (channelId, authorEmail, …) is still accepted. Those columns are
+// scope-filtered / used by the route BEFORE the row reaches this mapper; the
+// mapper deliberately doesn't see them.
 export type MessageRow = {
   id: string
   authorId: string

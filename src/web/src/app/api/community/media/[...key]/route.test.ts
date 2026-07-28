@@ -5,6 +5,7 @@ const r2Get = vi.fn()
 const getSession = vi.fn()
 const getChannelForMember = vi.fn()
 const getDM = vi.fn()
+const getDMPeer = vi.fn()
 const isBlocked = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
@@ -32,7 +33,10 @@ vi.mock("@alook/shared", async () => {
     ...actual,
     queries: {
       communityChannel: { getChannelForMember: (...a: unknown[]) => getChannelForMember(...a) },
-      communityDm: { getDM: (...a: unknown[]) => getDM(...a) },
+      communityDm: {
+        getDM: (...a: unknown[]) => getDM(...a),
+        getDMPeer: (...a: unknown[]) => getDMPeer(...a),
+      },
       communityFriendship: { isBlocked: (...a: unknown[]) => isBlocked(...a) },
     },
   }
@@ -104,10 +108,13 @@ describe("GET /api/community/media/[...key]", () => {
     expect(r2Get).toHaveBeenCalledWith("channel/c1/f1/x.png")
   })
 
-  it("returns 403 when the caller is not a DM participant", async () => {
-    getDM.mockResolvedValue({ id: "d1", user1Id: "ux", user2Id: "uy", lastMessageAt: null, createdAt: "" })
+  it("returns 404 when the caller is not a DM participant (no access-member row)", async () => {
+    // DMs are channels: a non-participant has no relation='access' member row,
+    // so `getDMPeer` returns null and `requireDMAccess` collapses to 404.
+    getDM.mockResolvedValue({ id: "d1", lastMessageAt: null, createdAt: "" })
+    getDMPeer.mockResolvedValue(null)
     const res = await call(["dm", "d1", "f1", "x.png"])
-    expect(res.status).toBe(403)
+    expect(res.status).toBe(404)
     expect(r2Get).not.toHaveBeenCalled()
   })
 
@@ -120,8 +127,9 @@ describe("GET /api/community/media/[...key]", () => {
   it("returns 403 when the caller is blocked by the DM counterpart", async () => {
     // Behaviour change: previously the DM branch skipped the block check and
     // would happily serve the bytes. Folding the block into
-    // `requireDMParticipant` closes that gap.
-    getDM.mockResolvedValue({ id: "d1", user1Id: "u1", user2Id: "u2", lastMessageAt: null, createdAt: "" })
+    // `requireDMAccess` closes that gap.
+    getDM.mockResolvedValue({ id: "d1", lastMessageAt: null, createdAt: "" })
+    getDMPeer.mockResolvedValue({ otherUserId: "u2" })
     isBlocked.mockResolvedValue(true)
     const res = await call(["dm", "d1", "f1", "x.png"])
     expect(res.status).toBe(403)
@@ -129,7 +137,8 @@ describe("GET /api/community/media/[...key]", () => {
   })
 
   it("serves a DM attachment when the caller participates and isn't blocked", async () => {
-    getDM.mockResolvedValue({ id: "d1", user1Id: "u1", user2Id: "u2", lastMessageAt: null, createdAt: "" })
+    getDM.mockResolvedValue({ id: "d1", lastMessageAt: null, createdAt: "" })
+    getDMPeer.mockResolvedValue({ otherUserId: "u2" })
     isBlocked.mockResolvedValue(false)
     const res = await call(["dm", "d1", "f1", "x.png"])
     expect(res.status).toBe(200)

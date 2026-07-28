@@ -325,7 +325,9 @@ export type UnreadServer = {
 // "Unreads" — DMs with unread messages, rendered as a flat sibling section
 // under the same Unreads tab as channels.
 export type UnreadDm = {
-  dmConversationId: string
+  // The DM's channel id (a DM is a channel now). Kept as the row's stable key
+  // and the value passed to `onOpenDm` / the `/c/me/:id` route.
+  channelId: string
   otherUserId: string
   otherUserName: string
   otherUserAvatar: string

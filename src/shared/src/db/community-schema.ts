@@ -45,17 +45,20 @@ export const communityCategory = sqliteTable(
 );
 
 // 3. community_channel
+// `type`: text | forum | forum_post | thread | dm. DMs have server_id + name
+// NULL (no server, no name); their two participants are relation='access'
+// community_channel_member rows.
 export const communityChannel: SQLiteTableWithColumns<any> = sqliteTable(
   "community_channel",
   {
     id: text("id").primaryKey().$defaultFn(() => nanoid()),
-    serverId: text("server_id")
-      .notNull()
-      .references(() => communityServer.id, { onDelete: "cascade" }),
+    serverId: text("server_id").references(() => communityServer.id, {
+      onDelete: "cascade",
+    }),
     categoryId: text("category_id").references(() => communityCategory.id, {
       onDelete: "set null",
     }),
-    name: text("name").notNull(),
+    name: text("name"),
     type: text("type").notNull().default("text"),
     topic: text("topic").default(""),
     position: integer("position").default(0),
@@ -84,12 +87,16 @@ export const communityChannel: SQLiteTableWithColumns<any> = sqliteTable(
 );
 
 // 3b. community_channel_member
-// Explicit per-channel ACCESS membership. Rows exist ONLY for private access
-// units — a top-level channel in a PRIVATE category, or a forum_post under a
-// private forum (creator + directly-added members). Public/uncategorized
-// channels imply access via server membership and store nothing here. Threads
-// are the NOTIFICATION dimension, not access — they never get access rows here;
-// their notify set lives in `community_thread_participant` below.
+// Two axes on one table, split by `relation`:
+//   - "access" — gates private units: a top-level channel in a PRIVATE
+//     category, a forum, or a DM (a DM's two participants are access rows).
+//     Public/uncategorized channels imply access via server membership.
+//   - "notify" — the thread / forum_post participant (notification) set. A
+//     message reaches only the unit's notify members; a thread never notifies
+//     its whole parent channel, a forum post never notifies the whole server.
+// A user may hold BOTH an access and a notify row for the same channel, so the
+// unique key is (channel_id, user_id, relation). `source` records how the row
+// arose: mention | spoke | added.
 export const communityChannelMember = sqliteTable(
   "community_channel_member",
   {
@@ -100,71 +107,18 @@ export const communityChannelMember = sqliteTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    relation: text("relation").notNull().default("access"),
+    source: text("source").notNull().default("added"),
     addedBy: text("added_by").references(() => user.id, { onDelete: "set null" }),
     addedAt: text("added_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
   (t) => [
-    unique("uq_channel_member").on(t.channelId, t.userId),
+    unique("uq_channel_member").on(t.channelId, t.userId, t.relation),
     index("idx_channel_member_user").on(t.userId),
   ]
 );
 
-// 3c. community_thread_participant
-// The NOTIFICATION set for a thread OR a forum_post (`community_channel` rows of
-// type "thread" or "forum_post"). Despite the table name, it serves both: both
-// are the notification dimension, so a message reaches only the unit's
-// participants — a thread never notifies its whole parent channel, and a forum
-// post (public or private) never notifies the whole server / whole roster, only
-// the people actually involved. The FK `threadChannelId` points at
-// `communityChannel.id`, which is why a forum_post id fits without a schema
-// change. `source` records how the user joined:
-//   - "mention" — @-mentioned in the thread/post (within the unit's audience).
-//   - "spoke"   — posted a message in the thread/post (a public post enrolls any
-//                 server member who proactively sends; a private post's roster
-//                 is added separately, see below).
-//   - "added"   — added by another participant (thread picker) or, for a private
-//                 forum_post, coupled from the access roster on member-add.
-// Leaving deletes the row (a later mention/speak re-adds). Admins are NOT
-// auto-added — the notify set is exactly its rows. Muting is the OUTER
-// channel-header notification level, NOT a column here — add/leave only.
-export const communityThreadParticipant = sqliteTable(
-  "community_thread_participant",
-  {
-    id: text("id").primaryKey().$defaultFn(() => nanoid()),
-    threadChannelId: text("thread_channel_id")
-      .notNull()
-      .references(() => communityChannel.id, { onDelete: "cascade" }),
-    userId: text("user_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
-    source: text("source").notNull().default("mention"),
-    addedAt: text("added_at").notNull().$defaultFn(() => new Date().toISOString()),
-  },
-  (t) => [
-    unique("uq_thread_participant").on(t.threadChannelId, t.userId),
-    index("idx_thread_participant_user").on(t.userId),
-  ]
-);
-
-// 4. community_dm_conversation
-export const communityDmConversation = sqliteTable(
-  "community_dm_conversation",
-  {
-    id: text("id").primaryKey().$defaultFn(() => nanoid()),
-    user1Id: text("user1_id").references(() => user.id, { onDelete: "set null" }),
-    user2Id: text("user2_id").references(() => user.id, { onDelete: "set null" }),
-    lastMessageAt: text("last_message_at"),
-    createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
-  },
-  (t) => [
-    unique("uq_dm_conversation_users").on(t.user1Id, t.user2Id),
-    index("idx_dm_conversation_user1_last_message").on(t.user1Id, t.lastMessageAt),
-    index("idx_dm_conversation_user2_last_message").on(t.user2Id, t.lastMessageAt),
-  ]
-);
-
 // 5. community_message
-// CHECK constraint (in migration SQL): exactly one of channelId/dmConversationId is non-null
 export const communityMessage = sqliteTable(
   "community_message",
   {
@@ -177,16 +131,13 @@ export const communityMessage = sqliteTable(
     mentionType: text("mention_type"),
     replyToId: text("reply_to_id"), // Logical reference, no FK
     embeds: text("embeds"),
-    flags: integer("flags").default(0),
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
-    channelId: text("channel_id").references(() => communityChannel.id, {
-      onDelete: "cascade",
-    }),
-    dmConversationId: text("dm_conversation_id").references(
-      () => communityDmConversation.id,
-      { onDelete: "cascade" }
-    ),
-    // Per-scope (channel or DM) monotonic sequence, assigned atomically via
+    channelId: text("channel_id")
+      .notNull()
+      .references(() => communityChannel.id, {
+        onDelete: "cascade",
+      }),
+    // Per-channel monotonic sequence, assigned atomically via
     // `community_message_seq` (see queries/community/message.ts `createMessage`).
     // 0 is a legacy sentinel for pre-migration rows — never addressable by
     // seq. Uniqueness enforced by partial indexes in migration 0052 (excluded
@@ -209,15 +160,17 @@ export const communityMessage = sqliteTable(
       t.mentionType,
       t.createdAt
     ),
-    index("idx_message_dm_created").on(t.dmConversationId, t.createdAt),
   ]
 );
 
-// 6. community_message_seq — atomic per-scope sequence counter.
+// 6. community_message_seq — atomic per-channel sequence counter.
 // See plans/community-agent-cli-bridge.md design §3. `nextSeq` holds the most
 // recently issued value (not "the next value to hand out" despite the name).
+// Because DMs are channels now, the PK is the channel id directly.
 export const communityMessageSeq = sqliteTable("community_message_seq", {
-  scopeKey: text("scope_key").primaryKey(), // 'channel:<id>' or 'dm:<id>'
+  channelId: text("channel_id")
+    .primaryKey()
+    .references(() => communityChannel.id, { onDelete: "cascade" }),
   nextSeq: integer("next_seq").notNull(),
 });
 
@@ -233,7 +186,6 @@ export const communityServerMember = sqliteTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     role: text("role").default("member"),
-    nickname: text("nickname"),
     railOrder: integer("rail_order").default(0),
     joinedAt: text("joined_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
@@ -357,8 +309,9 @@ export const communityFriendship = sqliteTable(
 //   mark "as of now", fetch the latest message first with
 //   `queries.communityMessage.getLatestMessage`; empty → no-op.
 //
-// CHECK constraint (in migration SQL): exactly one of channelId/dmConversationId is non-null
-// Partial unique indexes will be in migration SQL since Drizzle doesn't support partial indexes
+// Unique (user_id, channel_id) — a plain unique now that channelId is the only
+// scope (was two per-scope partial uniques). The unique index lives in the
+// migration SQL.
 export const communityReadState = sqliteTable(
   "community_read_state",
   {
@@ -366,13 +319,11 @@ export const communityReadState = sqliteTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    channelId: text("channel_id").references(() => communityChannel.id, {
-      onDelete: "cascade",
-    }),
-    dmConversationId: text("dm_conversation_id").references(
-      () => communityDmConversation.id,
-      { onDelete: "cascade" }
-    ),
+    channelId: text("channel_id")
+      .notNull()
+      .references(() => communityChannel.id, {
+        onDelete: "cascade",
+      }),
     // INVARIANT: === getMessage(lastReadMessageId).createdAt (see table comment).
     lastReadAt: text("last_read_at").notNull(),
     // INVARIANT: non-null whenever the row exists. Route writes through
@@ -424,7 +375,6 @@ export const communityAttachment = sqliteTable(
       onDelete: "cascade",
     }),
     uploaderId: text("uploader_id").notNull(),
-    kind: text("kind").notNull(), // "channel" | "dm" — threads flatten to "channel"
     targetId: text("target_id").notNull(),
     r2Key: text("r2_key").notNull(),
     filename: text("filename").notNull(),
@@ -438,8 +388,8 @@ export const communityAttachment = sqliteTable(
   (t) => [
     // (message_id, position) matches ORDER BY position on the read path.
     // Drizzle can't express a partial index for the pending lookup here, so
-    // migration 0059 also creates
-    //   idx_attachment_pending_uploader (uploader_id, kind, target_id)
+    // migration 0071 also creates
+    //   idx_attachment_pending_uploader (uploader_id, target_id)
     //     WHERE message_id IS NULL
     // which the send-time validation query uses.
     index("idx_attachment_message").on(t.messageId, t.position),

@@ -116,44 +116,39 @@ export async function requireChannelAccess(
   })
 }
 
-type DMRow = {
+type DMAccess = {
   id: string
-  user1Id: string
-  user2Id: string
   lastMessageAt: string | null
   createdAt: string
+  otherUserId: string
 }
 
-type DMAccess = DMRow & { otherUserId: string }
-
 /**
- * Verify the caller can access this DM: participates AND not in a blocked
- * relationship. Returns the DM row plus the other participant's userId so
- * callers don't have to compute it themselves.
+ * Verify the caller can access this DM channel: holds a relation='access'
+ * member row on the `type=dm` channel AND is not in a blocked relationship
+ * with the peer. Returns the DM channel row plus the other participant's
+ * userId so callers don't have to compute it themselves.
  *
  * The block check is folded in on purpose — every DM endpoint needs it, and
- * the three-line ritual (participant → other → not-blocked) is easy to skip
- * silently. If a future endpoint genuinely needs "participant but skip
- * block" semantics (e.g. an unblock-then-list flow), add an explicit
- * `requireDMParticipantAllowBlocked` helper naming the use case — never
- * re-inline the three-liner at the call site.
+ * the ritual (access → peer → not-blocked) is easy to skip silently. If a
+ * future endpoint genuinely needs "access but skip block" semantics, add an
+ * explicit helper naming the use case — never re-inline the check at the call
+ * site (media/[...key], search inherit it).
  */
-export async function requireDMParticipant(
+export async function requireDMAccess(
   db: Database,
-  dmId: string,
+  channelId: string,
   userId: string,
 ): Promise<Result<DMAccess>> {
-  const dm = await queries.communityDm.getDM(db, dmId)
+  const dm = await queries.communityDm.getDM(db, channelId)
   if (!dm) return err(404, "dm not found")
-  if (!dm.user1Id || !dm.user2Id) return err(404, "dm not found")
-  if (dm.user1Id !== userId && dm.user2Id !== userId) return err(403, "forbidden")
-  const otherUserId = dm.user1Id === userId ? dm.user2Id : dm.user1Id
+  const peer = await queries.communityDm.getDMPeer(db, channelId, userId)
+  if (!peer) return err(404, "dm not found")
+  const otherUserId = peer.otherUserId
   const blocked = await queries.communityFriendship.isBlocked(db, userId, otherUserId)
   if (blocked) return err(403, "blocked")
   return ok({
     id: dm.id,
-    user1Id: dm.user1Id,
-    user2Id: dm.user2Id,
     lastMessageAt: dm.lastMessageAt,
     createdAt: dm.createdAt,
     otherUserId,

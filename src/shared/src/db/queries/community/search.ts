@@ -23,7 +23,6 @@ export async function searchMessages(
   opts: {
     query: string;
     channelId?: string;
-    dmConversationId?: string;
     serverId?: string;
     // Scope for the server branch — the caller's visible channel ids
     // (public/uncategorized ∪ private-where-member). Enforced in SQL so
@@ -47,9 +46,6 @@ export async function searchMessages(
   const conditions = [sql`${communityMessage.content} LIKE ${pattern} ESCAPE '\\'`];
   if (opts.channelId) {
     conditions.push(eq(communityMessage.channelId, opts.channelId));
-  }
-  if (opts.dmConversationId) {
-    conditions.push(eq(communityMessage.dmConversationId, opts.dmConversationId));
   }
 
   return db

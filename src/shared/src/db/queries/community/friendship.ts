@@ -3,7 +3,7 @@ import {
   communityFriendship,
   communityUserProfile,
   communityMessage,
-  communityDmConversation,
+  communityChannelMember,
 } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
@@ -147,7 +147,7 @@ function cardContent(otherName: string, botName: string): string {
 }
 
 /**
- * Build `DM_MESSAGE_UPDATED` broadcasts for every card referencing a
+ * Build `MESSAGE_UPDATED` broadcasts for every card referencing a
  * friendship. One event per (message, human-owner peer) — the bot peer has no
  * session, so it's skipped. Each carries the fresh per-viewer projection.
  */
@@ -180,8 +180,8 @@ async function buildCardUpdateBroadcasts(
     broadcasts.push({
       userId: ownerId,
       event: {
-        type: WS_EVENTS.DM_MESSAGE_UPDATED,
-        dmConversationId: ref.dmConversationId,
+        type: WS_EVENTS.MESSAGE_UPDATED,
+        channelId: ref.channelId,
         messageId: ref.messageId,
         approval,
       },
@@ -404,7 +404,7 @@ export async function sendRequest(
     }
   }
 
-  // Step 7/8: gate → DM card + DM_NEW_MESSAGE to owner; else FRIEND_REQUEST.
+  // Step 7/8: gate → DM card + MESSAGE_CREATE to owner; else FRIEND_REQUEST.
   if (needsOwnerApproval != null) {
     // The card lives in the gating owner's DM with THEIR bot. The bot is
     // whichever party is the bot owned by `needsOwnerApproval`.
@@ -420,7 +420,7 @@ export async function sendRequest(
     const content = cardContent(otherP?.name ?? "Someone", botP?.name ?? "your bot");
     const msg = await createMessage(db, {
       authorId: botId,
-      dmConversationId: dm.id,
+      channelId: dm.id,
       content,
       friendshipId: inserted.id,
     });
@@ -429,13 +429,14 @@ export async function sendRequest(
     broadcasts.push({
       userId: needsOwnerApproval,
       event: {
-        type: WS_EVENTS.DM_NEW_MESSAGE,
-        dmConversationId: dm.id,
+        type: WS_EVENTS.MESSAGE_CREATE,
+        channelId: dm.id,
         message: {
           id: msg.id,
           authorId: botId,
           authorName: botP?.name ?? "",
           content: msg.content,
+          type: "chat",
           createdAt: msg.createdAt,
           ...(approval ? { approval } : {}),
         },
@@ -476,7 +477,7 @@ export type AcceptRequestResult =
 /**
  * Accept a pending request. Permitted only for the addressee on an ungated row
  * (`needsOwnerApproval IS NULL`). Returns broadcasts: FRIEND_ACCEPT to the
- * requester plus DM_MESSAGE_UPDATED for every card referencing the row (flips a
+ * requester plus MESSAGE_UPDATED for every card referencing the row (flips a
  * J2 owner-approve card from "waiting on <addressee>" to "Approved").
  */
 export async function acceptRequest(
@@ -516,7 +517,7 @@ export async function acceptRequest(
  * Reject a pending request (human addressee/requester tearing down). Atomic on
  * `status='pending' AND needsOwnerApproval IS NULL` — a still-gated row can't
  * be rejected directly (target-consent guardrail). Returns the denied row plus
- * the DM_MESSAGE_UPDATED fanout for every card referencing it — symmetric with
+ * the MESSAGE_UPDATED fanout for every card referencing it — symmetric with
  * `acceptRequest`, so a J2 owner-approve card flips from "waiting on
  * <addressee>" to "Denied" instead of lingering. `row` is null (broadcasts: [])
  * if the row is no longer an ungated pending row.
@@ -555,7 +556,7 @@ export type BlockOutcome = {
   /** Friendship id that was deleted to make room, if any. The route uses this
    *  to broadcast a `friend.remove` so the other side's UI stays consistent. */
   removedFriendshipId: string | null;
-  /** DM_MESSAGE_UPDATED fanout for any approval card referencing a pending row
+  /** MESSAGE_UPDATED fanout for any approval card referencing a pending row
    *  this block soft-cancelled — a gating owner's Approve/Deny card or a J2
    *  "waiting on <addressee>" chip — so it rehydrates to a non-actionable
    *  "cancelled" chip instead of pointing at a now-gone row. Empty when the
@@ -1077,7 +1078,7 @@ export async function ownerDecideOnRow(
         const content = cardContent(otherP?.name ?? "Someone", botP?.name ?? "your bot");
         const msg = await createMessage(db, {
           authorId: row.addresseeId,
-          dmConversationId: dm.id,
+          channelId: dm.id,
           content,
           friendshipId: updated.id,
         });
@@ -1086,13 +1087,14 @@ export async function ownerDecideOnRow(
           broadcasts.push({
             userId: addresseeOwner,
             event: {
-              type: WS_EVENTS.DM_NEW_MESSAGE,
-              dmConversationId: dm.id,
+              type: WS_EVENTS.MESSAGE_CREATE,
+              channelId: dm.id,
               message: {
                 id: msg.id,
                 authorId: row.addresseeId,
                 authorName: botP?.name ?? "",
                 content: msg.content,
+                type: "chat",
                 createdAt: msg.createdAt,
                 approval,
               },
@@ -1188,7 +1190,7 @@ async function casTransition(
 
 /**
  * Direction-agnostic, atomic supersede of any active pending row between two
- * users. Returns the superseded rows + the DM_MESSAGE_UPDATED fanout for every
+ * users. Returns the superseded rows + the MESSAGE_UPDATED fanout for every
  * card referencing them (rehydrate as "Replaced"). No-op on non-pending rows.
  */
 export async function supersedePendingBetween(
@@ -1224,7 +1226,7 @@ export async function supersedePendingBetween(
 /**
  * Requester withdraws a still-pending request: mark the row 'cancelled' (a
  * terminal state, distinct from 'superseded') instead of hard-deleting it, and
- * return the DM_MESSAGE_UPDATED fanout for every card referencing it so a
+ * return the MESSAGE_UPDATED fanout for every card referencing it so a
  * gating owner's Approve/Deny card rehydrates to a non-actionable "cancelled"
  * chip without a refetch. No-op (row: null, broadcasts: []) on a non-pending or
  * missing row.
@@ -1454,10 +1456,8 @@ export async function hydrateApprovalsForDmMessages(
   const rows = await db
     .select({
       messageId: communityMessage.id,
-      dmConversationId: communityMessage.dmConversationId,
+      channelId: communityMessage.channelId,
       friendshipId: communityMessage.friendshipId,
-      user1Id: communityDmConversation.user1Id,
-      user2Id: communityDmConversation.user2Id,
       fId: communityFriendship.id,
       requesterId: communityFriendship.requesterId,
       addresseeId: communityFriendship.addresseeId,
@@ -1469,23 +1469,41 @@ export async function hydrateApprovalsForDmMessages(
       communityFriendship,
       eq(communityFriendship.id, communityMessage.friendshipId)
     )
-    .leftJoin(
-      communityDmConversation,
-      eq(communityDmConversation.id, communityMessage.dmConversationId)
-    )
     .where(inArray(communityMessage.id, dmMessageIds));
+
+  // Resolve each card message's DM-channel peers (relation='access' members).
+  const cardChannelIds = [...new Set(rows.map((r) => r.channelId))];
+  const memberRows = cardChannelIds.length
+    ? await db
+        .select({
+          channelId: communityChannelMember.channelId,
+          userId: communityChannelMember.userId,
+        })
+        .from(communityChannelMember)
+        .where(
+          and(
+            inArray(communityChannelMember.channelId, cardChannelIds),
+            eq(communityChannelMember.relation, "access")
+          )
+        )
+    : [];
+  const peersByChannel = new Map<string, string[]>();
+  for (const m of memberRows) {
+    const list = peersByChannel.get(m.channelId) ?? [];
+    list.push(m.userId);
+    peersByChannel.set(m.channelId, list);
+  }
 
   const profileIds = rows.flatMap((r) => [
     r.requesterId,
     r.addresseeId,
-    r.user1Id,
-    r.user2Id,
+    ...(peersByChannel.get(r.channelId) ?? []),
     r.needsOwnerApproval,
   ]).filter((id): id is string => !!id);
   const profiles = await loadProfiles(db, profileIds);
 
   for (const r of rows) {
-    const peerIds = [r.user1Id, r.user2Id].filter((id): id is string => !!id);
+    const peerIds = peersByChannel.get(r.channelId) ?? [];
     const approval = projectApproval(
       {
         id: r.fId,

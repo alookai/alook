@@ -3,7 +3,7 @@ import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
-import { requireDMParticipant } from "@/lib/community/permissions"
+import { requireDMAccess } from "@/lib/community/permissions"
 
 /**
  * GET /api/community/dm/:id/messages/seq/:seq
@@ -29,10 +29,10 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
 
   // Permission check: user must be a participant in this DM
-  const auth = await requireDMParticipant(db, dmId, ctx.userId)
+  const auth = await requireDMAccess(db, dmId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 
-  const message = await queries.communityMessage.getMessageByChannelAndSeq(db, { dmConversationId: dmId }, seq)
+  const message = await queries.communityMessage.getMessageByChannelAndSeq(db, { channelId: dmId }, seq)
   if (!message) {
     return writeJSON({ error: "not_found" }, 404)
   }
