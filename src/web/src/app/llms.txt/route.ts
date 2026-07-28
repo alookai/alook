@@ -1,6 +1,8 @@
 import { getAllPosts } from "@/lib/blog/posts";
 import { buildLlmsTxt, LLMS_TXT_SITE_URL } from "@/lib/blog/llms-txt";
 
+export const dynamic = "force-static";
+
 export async function GET() {
   const posts = await getAllPosts();
   const body = buildLlmsTxt(posts, LLMS_TXT_SITE_URL);

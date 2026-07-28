@@ -1,5 +1,7 @@
 import { getAllPosts } from "@/lib/blog/posts";
 
+export const dynamic = "force-static";
+
 export async function GET() {
   const posts = await getAllPosts();
   const siteUrl = "https://alook.ai";
