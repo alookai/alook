@@ -119,6 +119,7 @@ describe("daemon control plane — real ws-do wake round-trip", () => {
     channel.onResync(() => ({
       ready: { runtimeReport: [{ id: "claude" }], runningAgents: [] },
       sessions: [],
+      activities: [],
     }))
 
     // Step: connect and wait for the daemon's `ready` handshake to actually

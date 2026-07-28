@@ -73,7 +73,7 @@ const RUNTIME_ERROR_KEY = "community-machine-runtime-error"
 
 export class WebSocketDurableObject extends DurableObject<Env> {
   /**
-   * Ephemeral typing dedup: channelId/dmConversationId/threadId -> userId -> last timestamp.
+   * Ephemeral typing dedup: channelId -> userId -> last timestamp.
    * Lost on DO eviction — acceptable, gracefully degraded (typing just re-fires).
    */
   private typingDedup = new Map<string, Map<string, number>>()
@@ -417,10 +417,8 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       const typingMsg = parsed as {
         type: string
         channelId?: string
-        dmConversationId?: string
-        threadId?: string
       }
-      const scopeKey = typingMsg.channelId || typingMsg.dmConversationId || typingMsg.threadId
+      const scopeKey = typingMsg.channelId
       if (!scopeKey) return
 
       // Per-user dedup: drop if last event from same user < 8s ago
@@ -451,18 +449,16 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       // Fan out: resolve recipients and POST to their user DOs.
       // The typing event is forwarded to the recipients' DOs which deliver it
       // via their existing broadcast path. The DO here only handles dedup.
-      // Actual fan-out is performed by the web API layer that calls fanOutToChannel/DM.
+      // Actual fan-out is performed by the web API layer that calls fanOutToChannel.
       // However, for typing events sent directly over WS (not via REST), we fan out here.
       const event = JSON.stringify({
         type: "community:typing.start",
-        channelId: typingMsg.channelId || undefined,
-        dmConversationId: typingMsg.dmConversationId || undefined,
-        threadId: typingMsg.threadId || undefined,
+        channelId: typingMsg.channelId,
         userId: state.userId,
       })
 
       // Resolve recipients and broadcast
-      this.fanOutTyping(state.userId, typingMsg.channelId, typingMsg.dmConversationId, typingMsg.threadId, event).catch((err) => {
+      this.fanOutTyping(state.userId, typingMsg.channelId, event).catch((err) => {
         log.warn("community:typing.start fan-out failed", { err: String(err) })
       })
       return
@@ -846,7 +842,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     // recovers if a heartbeat is dropped.
     const typingParse = AgentTypingMessageSchema.safeParse(parsed)
     if (typingParse.success) {
-      const { agentId, dmConversationId } = typingParse.data
+      const { agentId, channelId } = typingParse.data
       const db = createDb(this.env.DB)
       await this.handleFrameForBoundBot({
         frameType: "agent_typing",
@@ -855,21 +851,21 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         resolveBinding: () => queries.communityBot.getBotBindingWithOwner(db, agentId),
         isMatch: (binding) => binding.machineId === identity.machineId,
         write: async () => {
-          // DM participancy is enforced inside `fanOutTyping` — no need to
-          // pre-query `getDM` here at 5s cadence.
+          // Channel membership is enforced inside `fanOutTyping` — no need to
+          // pre-query here at 5s cadence.
           const event = JSON.stringify({
             type: "community:typing.start",
-            dmConversationId,
+            channelId,
             userId: agentId,
           })
-          await this.fanOutTyping(agentId, undefined, dmConversationId, undefined, event)
+          await this.fanOutTyping(agentId, channelId, event)
         },
       })
       return
     }
     const typingStopParse = AgentTypingStopMessageSchema.safeParse(parsed)
     if (typingStopParse.success) {
-      const { agentId, dmConversationId } = typingStopParse.data
+      const { agentId, channelId } = typingStopParse.data
       const db = createDb(this.env.DB)
       await this.handleFrameForBoundBot({
         frameType: "agent_typing_stop",
@@ -877,8 +873,8 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         machineId: identity.machineId,
         resolveBinding: () => queries.communityBot.getBotBindingWithOwner(db, agentId),
         isMatch: (binding) => binding.machineId === identity.machineId,
-        // DM participancy enforced inside `fanOutTypingStop`.
-        write: () => this.fanOutTypingStop(agentId, dmConversationId),
+        // Channel membership enforced inside `fanOutTypingStop`.
+        write: () => this.fanOutTypingStop(agentId, channelId),
       })
       return
     }
@@ -1258,49 +1254,36 @@ export class WebSocketDurableObject extends DurableObject<Env> {
   private async fanOutTyping(
     senderUserId: string,
     channelId?: string,
-    dmConversationId?: string,
-    threadId?: string,
     event?: string
   ): Promise<void> {
-    if (!event) return
+    if (!event || !channelId) return
     const db = createDb(this.env.DB)
     let recipientUserIds: string[] = []
 
-    if (dmConversationId) {
-      const dm = await queries.communityDm.getDM(db, dmConversationId)
-      if (!dm || (dm.user1Id !== senderUserId && dm.user2Id !== senderUserId)) {
-        log.warn("fanOutTyping: sender not a DM participant", { senderUserId, dmConversationId })
-        return
-      }
-      recipientUserIds = [dm.user1Id, dm.user2Id].filter(Boolean) as string[]
+    // getChannelForMember returns null when senderUserId can't see the
+    // channel — same authz the HTTP layer enforces via requireChannelMember
+    // (src/web/src/lib/community/permissions.ts). For a DM (type=dm) it
+    // resolves via the sender's relation='access' member row.
+    const membership = await queries.communityChannel.getChannelForMember(db, channelId, senderUserId)
+    if (!membership) {
+      log.warn("fanOutTyping: sender not a channel member", { senderUserId, channelId })
+      return
+    }
+    // Recipient set — same split as the message fan-out (fanout.ts):
+    //   - DM → the two relation='access' members.
+    //   - THREAD / FORUM_POST → the participant NOTIFY set. Typing reaches
+    //     only its participants, not the whole parent channel/server.
+    //   - channel / forum → the access audience (public/private split).
+    const channelType = await queries.communityChannel.getChannelType(db, channelId)
+    if (channelType === "dm") {
+      recipientUserIds = await queries.communityChannel.listChannelMemberUserIds(db, channelId)
+    } else if (isThread(channelType) || isForumPost(channelType)) {
+      recipientUserIds = await queries.communityThread.listThreadParticipantUserIds(db, channelId)
     } else {
-      // Both threadId and channelId resolve to a channel after thread→channel unification
-      const targetId = threadId || channelId
-      if (targetId) {
-        // getChannelForMember returns null when senderUserId isn't a member
-        // of the channel's server — same authz the HTTP layer enforces via
-        // requireChannelMember (src/web/src/lib/community/permissions.ts).
-        const membership = await queries.communityChannel.getChannelForMember(db, targetId, senderUserId)
-        if (!membership) {
-          log.warn("fanOutTyping: sender not a channel member", { senderUserId, channelId: targetId })
-          return
-        }
-        // Recipient set — same split as the message fan-out (fanout.ts):
-        //   - THREAD / FORUM_POST → the participant NOTIFY set. Typing reaches
-        //     only its participants, not the whole parent channel/server. A
-        //     public forum post therefore never leaks "X is typing" to the
-        //     server. Admins are never auto-participants.
-        //   - channel / forum → the access audience (public/private split) via
-        //     the shared resolver. Never leaks to non-members.
-        const channelType = await queries.communityChannel.getChannelType(db, targetId)
-        recipientUserIds =
-          isThread(channelType) || isForumPost(channelType)
-            ? await queries.communityThread.listThreadParticipantUserIds(db, targetId)
-            : await queries.communityMembersResolver.resolveScopeMemberUserIds(db, {
-                scope: "channel",
-                scopeId: targetId,
-              })
-      }
+      recipientUserIds = await queries.communityMembersResolver.resolveScopeMemberUserIds(db, {
+        scope: "channel",
+        scopeId: channelId,
+      })
     }
 
     // Exclude the sender
@@ -1324,27 +1307,38 @@ export class WebSocketDurableObject extends DurableObject<Env> {
   }
 
   /**
-   * Fan out an explicit `community:typing.stop` for a DM scope to the DM's
-   * peer. Mirrors `fanOutTyping` for DM but never traverses a dedup cache —
-   * a stop must always land or the pill dangles until the client's 8s expiry.
+   * Fan out an explicit `community:typing.stop` for a channel scope to its
+   * recipients. Mirrors `fanOutTyping` but never traverses a dedup cache — a
+   * stop must always land or the pill dangles until the client's 8s expiry.
+   * A DM is a channel now; recipients are its relation='access' members.
    */
   private async fanOutTypingStop(
     senderUserId: string,
-    dmConversationId: string,
+    channelId: string,
   ): Promise<void> {
     const db = createDb(this.env.DB)
-    const dm = await queries.communityDm.getDM(db, dmConversationId)
-    if (!dm || (dm.user1Id !== senderUserId && dm.user2Id !== senderUserId)) {
-      log.warn("fanOutTypingStop: sender not a DM participant", { senderUserId, dmConversationId })
+    const membership = await queries.communityChannel.getChannelForMember(db, channelId, senderUserId)
+    if (!membership) {
+      log.warn("fanOutTypingStop: sender not a channel member", { senderUserId, channelId })
       return
     }
-    const recipientUserIds = [dm.user1Id, dm.user2Id]
-      .filter(Boolean)
-      .filter((id): id is string => typeof id === "string" && id !== senderUserId)
+    const channelType = await queries.communityChannel.getChannelType(db, channelId)
+    let recipientUserIds: string[]
+    if (channelType === "dm") {
+      recipientUserIds = await queries.communityChannel.listChannelMemberUserIds(db, channelId)
+    } else if (isThread(channelType) || isForumPost(channelType)) {
+      recipientUserIds = await queries.communityThread.listThreadParticipantUserIds(db, channelId)
+    } else {
+      recipientUserIds = await queries.communityMembersResolver.resolveScopeMemberUserIds(db, {
+        scope: "channel",
+        scopeId: channelId,
+      })
+    }
+    recipientUserIds = recipientUserIds.filter((id) => id !== senderUserId)
     if (recipientUserIds.length === 0) return
     const body = JSON.stringify({
       type: "community:typing.stop",
-      dmConversationId,
+      channelId,
       userId: senderUserId,
     })
     for (let i = 0; i < recipientUserIds.length; i += WebSocketDurableObject.SUBREQUEST_BATCH_SIZE) {

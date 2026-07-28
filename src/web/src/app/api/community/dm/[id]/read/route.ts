@@ -3,7 +3,7 @@ import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
-import { requireDMParticipant } from "@/lib/community/permissions"
+import { requireDMAccess } from "@/lib/community/permissions"
 
 /**
  * PUT /api/community/dm/:id/read
@@ -19,7 +19,7 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
   if (!dmId) return writeError("missing dm id", 400)
 
   const db = getDb(ctx.env.DB)
-  const auth = await requireDMParticipant(db, dmId, ctx.userId)
+  const auth = await requireDMAccess(db, dmId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 
   let body: { lastReadMessageId?: string } = {}
@@ -32,18 +32,18 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
   let target: { id: string; createdAt: string } | null
   if (body.lastReadMessageId) {
     const msg = await queries.communityMessage.getMessage(db, body.lastReadMessageId)
-    if (!msg || msg.dmConversationId !== dmId) {
+    if (!msg || msg.channelId !== dmId) {
       return writeError("lastReadMessageId does not belong to this dm", 400)
     }
     target = { id: msg.id, createdAt: msg.createdAt }
   } else {
-    target = await queries.communityMessage.getLatestMessage(db, { dmConversationId: dmId })
+    target = await queries.communityMessage.getLatestMessage(db, { channelId: dmId })
     if (!target) return writeJSON({ ok: true })
   }
 
   await queries.communityReadState.markReadToMessage(db, {
     userId: ctx.userId,
-    dmConversationId: dmId,
+    channelId: dmId,
     message: target,
   })
 

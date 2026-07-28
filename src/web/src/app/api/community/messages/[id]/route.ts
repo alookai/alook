@@ -3,7 +3,7 @@ import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
-import { requireChannelMember, requireDMParticipant } from "@/lib/community/permissions"
+import { requireChannelMember, requireDMAccess } from "@/lib/community/permissions"
 import { groupAttachments, groupReactions } from "@/lib/community/messages"
 import { mapMessageForApi } from "@/lib/community/message-payload"
 
@@ -33,17 +33,15 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
   const message = await queries.communityMessage.getMessage(db, messageId)
   if (!message) return writeError("message not found", 404)
 
-  if (message.channelId) {
-    const auth = await requireChannelMember(db, message.channelId, ctx.userId)
-    if (!auth.ok) return writeError(auth.error, auth.status)
-  } else if (message.dmConversationId) {
-    const auth = await requireDMParticipant(db, message.dmConversationId, ctx.userId)
+  // A DM is a `type=dm` channel — gate accordingly. Every other channel type
+  // (including threads/forum posts) uses the server-scoped member gate.
+  const channelType = await queries.communityChannel.getChannelType(db, message.channelId)
+  if (channelType === "dm") {
+    const auth = await requireDMAccess(db, message.channelId, ctx.userId)
     if (!auth.ok) return writeError(auth.error, auth.status)
   } else {
-    // Row with neither channelId nor dmConversationId shouldn't exist in
-    // practice (both nullable in schema, but creation always sets one). Treat
-    // as not-found rather than leaking existence.
-    return writeError("message not found", 404)
+    const auth = await requireChannelMember(db, message.channelId, ctx.userId)
+    if (!auth.ok) return writeError(auth.error, auth.status)
   }
 
   // Hydrate attachments, reactions, and reply target — same shape as the
@@ -55,7 +53,7 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
       ? queries.communityMessage.getMessagesByIdsInScope(
           db,
           [message.replyToId],
-          message.channelId ? { channelId: message.channelId } : { dmConversationId: message.dmConversationId! },
+          { channelId: message.channelId },
         )
       : Promise.resolve([]),
   ])

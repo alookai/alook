@@ -6,6 +6,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 }))
 
 const mockGetDM = vi.fn()
+const mockGetDMPeer = vi.fn()
 const mockIsBlocked = vi.fn()
 const mockCreateMessage = vi.fn()
 const mockGetMessage = vi.fn()
@@ -22,6 +23,7 @@ const mockListMemberUserIds = vi.fn()
 const mockCreateAttachment = vi.fn()
 const mockGetUserInternal = vi.fn()
 
+const mockFanOutToChannel = vi.fn()
 const mockFanOutToDM = vi.fn()
 const mockBroadcastToUser = vi.fn()
 const mockCheckMessageRateLimit = vi.fn()
@@ -39,6 +41,7 @@ vi.mock("@alook/shared", async () => {
     queries: {
       communityDm: {
         getDM: (...a: unknown[]) => mockGetDM(...a),
+        getDMPeer: (...a: unknown[]) => mockGetDMPeer(...a),
       },
       communityFriendship: {
         isBlocked: (...a: unknown[]) => mockIsBlocked(...a),
@@ -77,6 +80,7 @@ vi.mock("@alook/shared", async () => {
 })
 
 vi.mock("@/lib/community/fanout", () => ({
+  fanOutToChannel: (...a: unknown[]) => mockFanOutToChannel(...a),
   fanOutToDM: (...a: unknown[]) => mockFanOutToDM(...a),
 }))
 
@@ -123,14 +127,14 @@ describe("POST /api/community/dm/[id]/messages", () => {
     vi.clearAllMocks()
     mockGetDM.mockResolvedValue({
       id: "d1",
-      user1Id: "u1",
-      user2Id: "u2",
       lastMessageAt: null,
       createdAt: "2026-06-30T00:00:00.000Z",
     })
+    mockGetDMPeer.mockResolvedValue({ otherUserId: "u2" })
     // Human author by default — `createCommunityMessage`'s bot-authored audit
     // (plan §10) only fires when `isBot === true`, which none of these tests exercise.
     mockGetUserInternal.mockResolvedValue({ isBot: false, deletedAt: null })
+    mockFanOutToChannel.mockResolvedValue(undefined)
     mockFanOutToDM.mockResolvedValue(undefined)
     mockBroadcastToUser.mockResolvedValue(undefined)
     mockCheckMessageRateLimit.mockResolvedValue({ allowed: true })
@@ -145,7 +149,7 @@ describe("POST /api/community/dm/[id]/messages", () => {
     expect(res.status).toBe(429)
     expect(res.headers.get("Retry-After")).toBe("4")
     expect(mockCreateMessage).not.toHaveBeenCalled()
-    expect(mockFanOutToDM).not.toHaveBeenCalled()
+    expect(mockFanOutToChannel).not.toHaveBeenCalled()
   })
 
   it("returns 403 when the DM counterpart is blocked", async () => {
@@ -155,7 +159,7 @@ describe("POST /api/community/dm/[id]/messages", () => {
 
     expect(res.status).toBe(403)
     expect(mockCreateMessage).not.toHaveBeenCalled()
-    expect(mockFanOutToDM).not.toHaveBeenCalled()
+    expect(mockFanOutToChannel).not.toHaveBeenCalled()
   })
 
   it("does not query members for a DM post (target.kind === 'dm')", async () => {
@@ -189,11 +193,10 @@ describe("GET /api/community/dm/[id]/messages", () => {
     vi.clearAllMocks()
     mockGetDM.mockResolvedValue({
       id: "d1",
-      user1Id: "u1",
-      user2Id: "u2",
       lastMessageAt: null,
       createdAt: "2026-06-30T00:00:00.000Z",
     })
+    mockGetDMPeer.mockResolvedValue({ otherUserId: "u2" })
     // Every route branch calls `getLatestMessageSeq` — default to 0 so tests
     // don't have to wire it individually.
     mockGetLatestMessageSeq.mockResolvedValue(0)
@@ -252,7 +255,7 @@ describe("GET /api/community/dm/[id]/messages", () => {
     expect(mockGetMessage).not.toHaveBeenCalled()
     const [, ids, scope] = mockGetMessagesByIdsInScope.mock.calls[0]
     expect(ids.sort()).toEqual(["r-in-scope", "r-in-scope", "r-missing", "r-out-of-scope"].sort())
-    expect(scope).toEqual({ dmConversationId: "d1" })
+    expect(scope).toEqual({ channelId: "d1" })
   })
 
   it("runs attachment, reaction, reply-target, and latest-seq fetches in parallel", async () => {
@@ -298,7 +301,7 @@ describe("GET /api/community/dm/[id]/messages", () => {
     expect(res.status).toBe(200)
     const body = (await res.json()) as { latestSeq: number }
     expect(body.latestSeq).toBe(23)
-    expect(mockGetLatestMessageSeq).toHaveBeenCalledWith(expect.anything(), { dmConversationId: "d1" })
+    expect(mockGetLatestMessageSeq).toHaveBeenCalledWith(expect.anything(), { channelId: "d1" })
   })
 
   describe("?anchor mode", () => {
@@ -342,8 +345,8 @@ describe("GET /api/community/dm/[id]/messages", () => {
       expect(body.olderCursor).toBeUndefined()
       expect(body.newerCursor).toBe(`2026-06-30T00:00:04.000Z|m_n1`)
       expect(body.latestSeq).toBe(11)
-      // Scope-first resolve: anchor lookup passes the DM scope.
-      expect(mockGetMessageInScope).toHaveBeenCalledWith(expect.anything(), "m_anchor", { dmConversationId: "d1" })
+      // Scope-first resolve: anchor lookup passes the DM channel scope.
+      expect(mockGetMessageInScope).toHaveBeenCalledWith(expect.anything(), "m_anchor", { channelId: "d1" })
     })
 
     it("returns 404 when the anchor is not visible in this DM", async () => {

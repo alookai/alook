@@ -294,11 +294,11 @@ function DmView() {
         avatar: currentUser.avatar,
       },
     })
-    communityWsResetTypingThrottle({ dmConversationId: dmId })
+    communityWsResetTypingThrottle({ channelId: dmId })
     setReplyTo(null)
   }
 
-  const handleTyping = () => { communityWsSendTyping({ dmConversationId: dmId }) }
+  const handleTyping = () => { communityWsSendTyping({ channelId: dmId }) }
 
   // Wait for query to catch up to the URL and for messages to load. See
   // the server-side channel page for the same rationale — the store's

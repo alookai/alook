@@ -243,27 +243,24 @@ export async function getBotBindingWithOwner(
 
 /**
  * Wake-dispatch candidate filter — one D1 hit. Given a message's `recipients`
- * (all fanout recipients, human + bot) and the scope it landed in (exactly
- * one of `channelId`/`dmConversationId`), returns only the bots among them
- * that are (a) live (`!deletedAt`), (b) bound to a machine, and (c) actually
- * behind `newSeq` per their own `lastReadSeq` for that scope (`NULL`
- * read-state row counts as "never read", i.e. behind). A bot that's already
- * caught up (e.g. it just authored `newSeq` itself, or acked out-of-band) is
- * filtered out here so the producer never enqueues a wasted wake.
+ * (all fanout recipients, human + bot) and the `channelId` it landed in,
+ * returns only the bots among them that are (a) live (`!deletedAt`), (b) bound
+ * to a machine, and (c) actually behind `newSeq` per their own `lastReadSeq`
+ * for that channel (`NULL` read-state row counts as "never read", i.e.
+ * behind). A bot that's already caught up (e.g. it just authored `newSeq`
+ * itself, or acked out-of-band) is filtered out here so the producer never
+ * enqueues a wasted wake.
  */
 export async function findWakeCandidates(
   db: Database,
   opts: {
     recipients: string[];
-    channelId?: string;
-    dmConversationId?: string;
+    channelId: string;
     newSeq: number;
   }
 ): Promise<Array<{ botUserId: string; name: string | null; machineId: string; runtime: string }>> {
   if (opts.recipients.length === 0) return [];
-  const scopeCond = opts.channelId
-    ? eq(communityReadState.channelId, opts.channelId)
-    : eq(communityReadState.dmConversationId, opts.dmConversationId!);
+  const scopeCond = eq(communityReadState.channelId, opts.channelId);
 
   const rows = await db
     .select({

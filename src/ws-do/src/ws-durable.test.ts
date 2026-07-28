@@ -78,6 +78,7 @@ const mockMarkMachineOnlineIfOffline = vi.fn()
 const mockGetCoMemberUserIds = vi.fn<(db: unknown, userId: string) => Promise<string[]>>().mockResolvedValue([])
 const mockGetFriendUserIds = vi.fn<(db: unknown, userId: string) => Promise<string[]>>().mockResolvedValue([])
 const mockGetChannelForMember = vi.fn()
+const mockListChannelMemberUserIds = vi.fn<(db: unknown, channelId: string) => Promise<string[]>>().mockResolvedValue([])
 const mockIsChannelPrivate = vi.fn<(db: unknown, channelId: string) => Promise<boolean>>().mockResolvedValue(false)
 const mockGetPrivateChannelAudienceUserIds = vi.fn<(db: unknown, channelId: string) => Promise<string[]>>().mockResolvedValue([])
 const mockResolveScopeMemberUserIds = vi.fn<(db: unknown, opts: { scope: string; scopeId: string }) => Promise<string[]>>().mockResolvedValue([])
@@ -180,25 +181,25 @@ vi.mock("@alook/shared", () => {
   }
   const AgentTypingMessageSchema = {
     safeParse(v: unknown) {
-      const m = v as { type?: unknown; agentId?: unknown; dmConversationId?: unknown }
+      const m = v as { type?: unknown; agentId?: unknown; channelId?: unknown }
       if (m?.type !== "agent_typing") return { success: false } as const
       if (typeof m.agentId !== "string" || m.agentId.length === 0) return { success: false } as const
-      if (typeof m.dmConversationId !== "string" || m.dmConversationId.length === 0) return { success: false } as const
+      if (typeof m.channelId !== "string" || m.channelId.length === 0) return { success: false } as const
       return {
         success: true as const,
-        data: { type: "agent_typing" as const, agentId: m.agentId, dmConversationId: m.dmConversationId },
+        data: { type: "agent_typing" as const, agentId: m.agentId, channelId: m.channelId },
       }
     },
   }
   const AgentTypingStopMessageSchema = {
     safeParse(v: unknown) {
-      const m = v as { type?: unknown; agentId?: unknown; dmConversationId?: unknown }
+      const m = v as { type?: unknown; agentId?: unknown; channelId?: unknown }
       if (m?.type !== "agent_typing_stop") return { success: false } as const
       if (typeof m.agentId !== "string" || m.agentId.length === 0) return { success: false } as const
-      if (typeof m.dmConversationId !== "string" || m.dmConversationId.length === 0) return { success: false } as const
+      if (typeof m.channelId !== "string" || m.channelId.length === 0) return { success: false } as const
       return {
         success: true as const,
-        data: { type: "agent_typing_stop" as const, agentId: m.agentId, dmConversationId: m.dmConversationId },
+        data: { type: "agent_typing_stop" as const, agentId: m.agentId, channelId: m.channelId },
       }
     },
   }
@@ -326,6 +327,7 @@ vi.mock("@alook/shared", () => {
       communityChannel: {
         getChannelForMember: (...a: any[]) => mockGetChannelForMember(...a),
         getChannelType: (...a: any[]) => mockGetChannelType(...a),
+        listChannelMemberUserIds: (...a: any[]) => mockListChannelMemberUserIds(...a),
         isChannelPrivate: (...a: any[]) => mockIsChannelPrivate(...a),
         getPrivateChannelAudienceUserIds: (...a: any[]) => mockGetPrivateChannelAudienceUserIds(...a),
       },
@@ -391,6 +393,7 @@ describe("WebSocketDurableObject", () => {
     // thread-typing test overrides this.
     mockGetChannelType.mockResolvedValue("text")
     mockListThreadParticipantUserIds.mockResolvedValue([])
+    mockListChannelMemberUserIds.mockResolvedValue([])
     mockGetBotBinding.mockResolvedValue(null)
     mockUpdateProfile.mockResolvedValue({})
     mockGetProfile.mockResolvedValue(null)
@@ -1493,7 +1496,11 @@ describe("WebSocketDurableObject", () => {
   describe("community-machine — agent_typing / agent_typing_stop frames", () => {
     beforeEach(() => {
       mockGetBotBindingWithOwner.mockReset()
-      mockGetDM.mockReset()
+      mockGetChannelForMember.mockReset()
+      mockGetChannelType.mockReset()
+      mockGetChannelType.mockResolvedValue("dm")
+      mockListChannelMemberUserIds.mockReset()
+      mockListChannelMemberUserIds.mockResolvedValue([])
       mockStubFetch.mockClear()
     })
 
@@ -1509,7 +1516,9 @@ describe("WebSocketDurableObject", () => {
         runtime: "codex",
         ownerUserId: "u_1",
       })
-      mockGetDM.mockResolvedValue({ user1Id: "bot_1", user2Id: "peer_1" })
+      mockGetChannelForMember.mockResolvedValue({ id: "dm_1", serverId: null })
+      mockGetChannelType.mockResolvedValue("dm")
+      mockListChannelMemberUserIds.mockResolvedValue(["bot_1", "peer_1"])
 
       const ws = createMockWebSocket()
       ws.serializeAttachment({
@@ -1522,7 +1531,7 @@ describe("WebSocketDurableObject", () => {
       const frame = JSON.stringify({
         type: "agent_typing",
         agentId: "bot_1",
-        dmConversationId: "dm_1",
+        channelId: "dm_1",
       })
       await durable.webSocketMessage(ws as any, frame)
 
@@ -1531,12 +1540,12 @@ describe("WebSocketDurableObject", () => {
       const body = JSON.parse(await (call![0] as Request).clone().text()) as {
         type: string
         userId: string
-        dmConversationId: string
+        channelId: string
       }
       expect(body).toEqual({
         type: "community:typing.start",
         userId: "bot_1",
-        dmConversationId: "dm_1",
+        channelId: "dm_1",
       })
     })
 
@@ -1564,11 +1573,11 @@ describe("WebSocketDurableObject", () => {
       const frame = JSON.stringify({
         type: "agent_typing",
         agentId: "bot_1",
-        dmConversationId: "dm_1",
+        channelId: "dm_1",
       })
       await durable.webSocketMessage(ws as any, frame)
 
-      expect(mockGetDM).not.toHaveBeenCalled()
+      expect(mockGetChannelForMember).not.toHaveBeenCalled()
       expect(mockStubFetch).not.toHaveBeenCalled()
     })
 
@@ -1584,7 +1593,9 @@ describe("WebSocketDurableObject", () => {
         runtime: "codex",
         ownerUserId: "u_1",
       })
-      mockGetDM.mockResolvedValue({ user1Id: "someone", user2Id: "else" })
+      // Bot isn't a member of the channel → getChannelForMember returns null,
+      // so fanOutTyping bails before resolving recipients.
+      mockGetChannelForMember.mockResolvedValue(null)
 
       const ws = createMockWebSocket()
       ws.serializeAttachment({
@@ -1597,7 +1608,7 @@ describe("WebSocketDurableObject", () => {
       const frame = JSON.stringify({
         type: "agent_typing",
         agentId: "bot_1",
-        dmConversationId: "dm_1",
+        channelId: "dm_1",
       })
       await durable.webSocketMessage(ws as any, frame)
 
@@ -1616,7 +1627,9 @@ describe("WebSocketDurableObject", () => {
         runtime: "codex",
         ownerUserId: "u_1",
       })
-      mockGetDM.mockResolvedValue({ user1Id: "bot_1", user2Id: "peer_1" })
+      mockGetChannelForMember.mockResolvedValue({ id: "dm_1", serverId: null })
+      mockGetChannelType.mockResolvedValue("dm")
+      mockListChannelMemberUserIds.mockResolvedValue(["bot_1", "peer_1"])
 
       const ws = createMockWebSocket()
       ws.serializeAttachment({
@@ -1629,7 +1642,7 @@ describe("WebSocketDurableObject", () => {
       const frame = JSON.stringify({
         type: "agent_typing_stop",
         agentId: "bot_1",
-        dmConversationId: "dm_1",
+        channelId: "dm_1",
       })
       await durable.webSocketMessage(ws as any, frame)
 
@@ -1638,12 +1651,12 @@ describe("WebSocketDurableObject", () => {
       const body = JSON.parse(await (call![0] as Request).clone().text()) as {
         type: string
         userId: string
-        dmConversationId: string
+        channelId: string
       }
       expect(body).toEqual({
         type: "community:typing.stop",
         userId: "bot_1",
-        dmConversationId: "dm_1",
+        channelId: "dm_1",
       })
       // Sender exclusion: only the peer (peer_1) is targeted — a single
       // /broadcast call, addressed via the peer's user DO.
@@ -2324,7 +2337,7 @@ describe("WebSocketDurableObject", () => {
 
       await durable.webSocketMessage(
         ws as any,
-        JSON.stringify({ type: "community:typing.start", threadId: "t-1" }),
+        JSON.stringify({ type: "community:typing.start", channelId: "t-1" }),
       )
       await flush()
 
@@ -2362,44 +2375,36 @@ describe("WebSocketDurableObject", () => {
 
     it("does not fan out when sender is not a participant of the target DM", async () => {
       const { durable, env } = createDO()
-      mockGetDM.mockResolvedValueOnce({
-        id: "dm-1",
-        user1Id: "alice",
-        user2Id: "bob",
-        lastMessageAt: null,
-        createdAt: "",
-      })
+      // A DM is a type=dm channel now; a non-member sender can't see it, so
+      // getChannelForMember returns null and fanOutTyping bails.
+      mockGetChannelForMember.mockResolvedValueOnce(null)
 
       const ws = createMockWebSocket()
       ws.serializeAttachment({ type: "user", userId: "attacker", authenticated: true })
 
       await durable.webSocketMessage(
         ws as any,
-        JSON.stringify({ type: "community:typing.start", dmConversationId: "dm-1" }),
+        JSON.stringify({ type: "community:typing.start", channelId: "dm-1" }),
       )
       await flush()
 
-      expect(mockGetDM).toHaveBeenCalledWith(expect.anything(), "dm-1")
+      expect(mockGetChannelForMember).toHaveBeenCalledWith(expect.anything(), "dm-1", "attacker")
       expect((env.WS_DO as any).get).not.toHaveBeenCalled()
       expect(mockStubFetch).not.toHaveBeenCalled()
     })
 
     it("fans out to the other participant when sender IS a DM participant", async () => {
       const { durable, env } = createDO()
-      mockGetDM.mockResolvedValueOnce({
-        id: "dm-1",
-        user1Id: "alice",
-        user2Id: "bob",
-        lastMessageAt: null,
-        createdAt: "",
-      })
+      mockGetChannelForMember.mockResolvedValueOnce({ id: "dm-1", serverId: null })
+      mockGetChannelType.mockResolvedValueOnce("dm")
+      mockListChannelMemberUserIds.mockResolvedValueOnce(["alice", "bob"])
 
       const ws = createMockWebSocket()
       ws.serializeAttachment({ type: "user", userId: "alice", authenticated: true })
 
       await durable.webSocketMessage(
         ws as any,
-        JSON.stringify({ type: "community:typing.start", dmConversationId: "dm-1" }),
+        JSON.stringify({ type: "community:typing.start", channelId: "dm-1" }),
       )
       await flush()
 

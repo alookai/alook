@@ -15,6 +15,7 @@ const mockResolveChannelByNameForMember = vi.fn()
 const mockGetChannelForMember = vi.fn()
 const mockGetDM = vi.fn()
 const mockGetDMBetween = vi.fn()
+const mockGetDMPeer = vi.fn()
 const mockIsBlocked = vi.fn()
 const mockGetMessageByChannelAndSeq = vi.fn()
 const mockAddReaction = vi.fn()
@@ -47,6 +48,7 @@ vi.mock("@alook/shared", async () => {
       communityDm: {
         getDM: (...a: unknown[]) => mockGetDM(...a),
         getDMBetween: (...a: unknown[]) => mockGetDMBetween(...a),
+        getDMPeer: (...a: unknown[]) => mockGetDMPeer(...a),
       },
       communityMessage: {
         ...actual.queries.communityMessage,
@@ -154,13 +156,14 @@ describe("POST /api/community/agent/reactAdd", () => {
     expect(mockFanOutToDM).not.toHaveBeenCalled()
   })
 
-  it("200 happy path — DM react: fans out via fanOutToDM with dmConversationId", async () => {
+  it("200 happy path — DM react: fans out via fanOutToDM with channelId", async () => {
     mockGetUserByNameAndDiscriminator.mockResolvedValue({ id: "peer_1", discriminator: "0001" })
     mockGetUserInternal.mockImplementation((_db: unknown, id: string) =>
       Promise.resolve(id === "peer_1" ? { id: "peer_1", isBot: false, deletedAt: null } : { isBot: true, deletedAt: null }),
     )
     mockGetDMBetween.mockResolvedValue({ id: "dm_1" })
-    mockGetDM.mockResolvedValue({ id: "dm_1", user1Id: "bot_1", user2Id: "peer_1", lastMessageAt: null, createdAt: "t" })
+    mockGetDM.mockResolvedValue({ id: "dm_1", lastMessageAt: null, createdAt: "t" })
+    mockGetDMPeer.mockResolvedValue({ otherUserId: "peer_1" })
     mockIsBlocked.mockResolvedValue(false)
     mockGetMessageByChannelAndSeq.mockResolvedValue({ id: "m_dm_1", seq: 2, content: "hey" })
     mockAddReaction.mockResolvedValue({ messageId: "m_dm_1", userId: "bot_1", emoji: "🙏" })
@@ -175,7 +178,7 @@ describe("POST /api/community/agent/reactAdd", () => {
       messageId: "m_dm_1",
       userId: "bot_1",
       emoji: "🙏",
-      dmConversationId: "dm_1",
+      channelId: "dm_1",
     })
     expect(opts).toEqual({ excludeUserId: "bot_1" })
     expect(mockFanOutToChannel).not.toHaveBeenCalled()

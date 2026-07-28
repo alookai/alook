@@ -28,6 +28,7 @@ vi.mock("@alook/shared", async () => {
         getChannelType: (...a: unknown[]) => mockGetChannelType(...a),
         isChannelPrivate: (...a: unknown[]) => mockIsChannelPrivate(...a),
         getPrivateChannelAudienceUserIds: (...a: unknown[]) => mockGetPrivateChannelAudienceUserIds(...a),
+        listChannelMemberUserIds: (...a: unknown[]) => mockListChannelMemberUserIds(...a),
       },
       communityMembersResolver: {
         resolveScopeMemberUserIds: (...a: unknown[]) => mockResolveScopeMemberUserIds(...a),
@@ -65,6 +66,7 @@ const mockGetChannel = vi.fn()
 const mockIsChannelPrivate = vi.fn(() => false)
 const mockGetPrivateChannelAudienceUserIds = vi.fn(() => [] as string[])
 const mockGetDM = vi.fn()
+const mockListChannelMemberUserIds = vi.fn()
 const mockGetCoMemberUserIds = vi.fn()
 const mockGetFriendUserIds = vi.fn()
 const mockResolveScopeMemberUserIds = vi.fn(() => [] as string[])
@@ -148,6 +150,27 @@ describe("fanOutToServerMembers", () => {
     expect(mockBroadcastToUser).toHaveBeenCalledTimes(2)
   })
 
+  it("fanOutToChannel routes a DM to its access members (not the empty server-scoped resolver)", async () => {
+    // Regression: a DM has server_id=NULL. Before the isDm branch, it fell
+    // through to resolveScopeMemberUserIds({scope:"channel"}) → WHERE
+    // server_id = NULL → [] → the peer never received the live message frame.
+    mockGetChannelType.mockResolvedValue("dm")
+    mockListChannelMemberUserIds.mockResolvedValue(["u1", "u2"])
+
+    await fanOutToChannel(
+      "dm1",
+      { type: WS_EVENTS.MESSAGE_CREATE, channelId: "dm1", message: {} as never } as never,
+      { excludeUserId: "u1" },
+    )
+
+    expect(mockListChannelMemberUserIds).toHaveBeenCalledWith(expect.anything(), "dm1")
+    // Must NOT fall through to the server-scoped resolver (empty for a DM).
+    expect(mockResolveScopeMemberUserIds).not.toHaveBeenCalled()
+    // u1 excluded → only the peer receives the frame.
+    expect(mockBroadcastToUser).toHaveBeenCalledTimes(1)
+    expect(mockBroadcastToUser.mock.calls[0][0]).toBe("u2")
+  })
+
   it("fanOutToChannel routes a THREAD to its participant set (not the channel audience)", async () => {
     mockGetChannelType.mockResolvedValue("thread")
     mockListThreadParticipantUserIds.mockResolvedValue(["u1", "u2"])
@@ -224,7 +247,6 @@ describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for ME
     seq: 7,
     authorId: "u1",
     channelId: "c1",
-    dmConversationId: null,
   }
 
   beforeEach(() => {
@@ -251,20 +273,22 @@ describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for ME
     })
   })
 
-  it("fanOutToDM enqueues wakes with dmConversationId scope", async () => {
-    mockGetDM.mockResolvedValue({ id: "dm1", user1Id: "u1", user2Id: "u2" })
+  it("fanOutToDM enqueues wakes with channelId scope via listChannelMemberUserIds", async () => {
+    mockGetDM.mockResolvedValue({ id: "dm1" })
+    mockListChannelMemberUserIds.mockResolvedValue(["u1", "u2"])
 
     await fanOutToDM(
       "dm1",
-      { type: WS_EVENTS.MESSAGE_CREATE, dmConversationId: "dm1", message: {} as never } as never,
-      { excludeUserId: "u1", wakeMessageRow: { ...wakeMessageRow, channelId: null, dmConversationId: "dm1" } },
+      { type: WS_EVENTS.MESSAGE_CREATE, channelId: "dm1", message: {} as never } as never,
+      { excludeUserId: "u1", wakeMessageRow: { ...wakeMessageRow, channelId: "dm1" } },
     )
 
+    expect(mockListChannelMemberUserIds).toHaveBeenCalledWith(expect.anything(), "dm1")
     expect(mockEnqueueBotWakes).toHaveBeenCalledTimes(1)
     expect(mockEnqueueBotWakes).toHaveBeenCalledWith({
       recipients: ["u2"],
-      dmConversationId: "dm1",
-      messageRow: { ...wakeMessageRow, channelId: null, dmConversationId: "dm1" },
+      channelId: "dm1",
+      messageRow: { ...wakeMessageRow, channelId: "dm1" },
     })
   })
 

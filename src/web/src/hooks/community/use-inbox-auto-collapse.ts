@@ -16,7 +16,7 @@ import type { Mention, UnreadDm, UnreadServer } from "@/components/community/_ty
  * exact key is no longer present, collapse.
  *
  * Row → key:
- *   - DM row      → `dm:<dmConversationId>`
+ *   - DM row      → `dm:<channelId>` (a DM is a channel)
  *   - channel row → `channel:<channelId>` (top-level OR nested thread/forum-post)
  *   - mention row → `mention:<mention.id>`
  */
@@ -35,7 +35,7 @@ export function inboxItemPresent(lists: InboxLists, key: string): boolean {
   const id = key.slice(sep + 1)
   switch (kind) {
     case "dm":
-      return lists.unreadDms.some((d) => d.dmConversationId === id)
+      return lists.unreadDms.some((d) => d.channelId === id)
     case "channel":
       return lists.unreads.some((s) =>
         s.channels.some(

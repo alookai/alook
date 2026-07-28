@@ -1,18 +1,27 @@
 import { and, eq, inArray } from "drizzle-orm";
-import { communityChannel, communityThreadParticipant } from "../../community-schema";
+import { communityChannel, communityChannelMember } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
 
-// The NOTIFICATION set for a thread (see `community_thread_participant`). A
-// thread is not an access unit — any parent-channel member can read it — so
-// these rows only decide who gets pinged / sees the thread as unread. Admins
-// are NOT auto-included: the notify set is exactly these rows.
+// The NOTIFICATION set for a thread OR forum_post — now relation='notify' rows
+// on `community_channel_member` (formerly the standalone
+// community_thread_participant table). A thread/post is not an access unit —
+// any parent-channel member can read it — so these rows only decide who gets
+// pinged / sees the unit as unread. Admins are NOT auto-included: the notify
+// set is exactly these rows.
 //
-// There is no per-participant mute here — muting a thread is the OUTER channel-
-// header notification level (per-layer, same control a channel uses), not a
-// property of participation. Participation is add / leave only.
+// There is no per-participant mute here — muting is the OUTER channel-header
+// notification level, not a property of participation. Participation is
+// add / leave only. A user may also hold a relation='access' row on the same
+// channel; the two coexist under the (channel_id, user_id, relation) unique.
 
 export type ThreadParticipantSource = "mention" | "spoke" | "added";
+
+const NOTIFY_CONFLICT_TARGET = [
+  communityChannelMember.channelId,
+  communityChannelMember.userId,
+  communityChannelMember.relation,
+] as const;
 
 // Idempotent add. `onConflictDoNothing` so a re-mention/re-speak of an existing
 // participant is a no-op (does NOT overwrite `source`).
@@ -22,15 +31,14 @@ export async function addThreadParticipant(
   data: { threadChannelId: string; userId: string; source: ThreadParticipantSource }
 ) {
   const rows = await db
-    .insert(communityThreadParticipant)
+    .insert(communityChannelMember)
     .values({
-      threadChannelId: data.threadChannelId,
+      channelId: data.threadChannelId,
       userId: data.userId,
+      relation: "notify",
       source: data.source,
     })
-    .onConflictDoNothing({
-      target: [communityThreadParticipant.threadChannelId, communityThreadParticipant.userId],
-    })
+    .onConflictDoNothing({ target: [...NOTIFY_CONFLICT_TARGET] })
     .returning();
   return rows[0] ?? null;
 }
@@ -45,24 +53,33 @@ export async function addThreadParticipants(
 ) {
   if (rows.length === 0) return;
   await db
-    .insert(communityThreadParticipant)
-    .values(rows.map((r) => ({ threadChannelId, userId: r.userId, source: r.source })))
-    .onConflictDoNothing({
-      target: [communityThreadParticipant.threadChannelId, communityThreadParticipant.userId],
-    });
+    .insert(communityChannelMember)
+    .values(
+      rows.map((r) => ({
+        channelId: threadChannelId,
+        userId: r.userId,
+        relation: "notify",
+        source: r.source,
+      }))
+    )
+    .onConflictDoNothing({ target: [...NOTIFY_CONFLICT_TARGET] });
 }
 
 // The NOTIFY set: every participant userId. This is what thread fan-out /
-// mention rows / inbox unread scope to. (Per-user notification suppression is
-// the outer channel-header notif level, not stored here.)
+// mention rows / inbox unread scope to.
 export async function listThreadParticipantUserIds(
   db: Database,
   threadChannelId: string
 ): Promise<string[]> {
   const rows = await db
-    .select({ userId: communityThreadParticipant.userId })
-    .from(communityThreadParticipant)
-    .where(eq(communityThreadParticipant.threadChannelId, threadChannelId));
+    .select({ userId: communityChannelMember.userId })
+    .from(communityChannelMember)
+    .where(
+      and(
+        eq(communityChannelMember.channelId, threadChannelId),
+        eq(communityChannelMember.relation, "notify")
+      )
+    );
   return rows.map((r) => r.userId);
 }
 
@@ -73,23 +90,27 @@ export async function listThreadParticipants(
 ) {
   return db
     .select({
-      userId: communityThreadParticipant.userId,
-      source: communityThreadParticipant.source,
-      addedAt: communityThreadParticipant.addedAt,
+      userId: communityChannelMember.userId,
+      source: communityChannelMember.source,
+      addedAt: communityChannelMember.addedAt,
       userName: user.name,
       userImage: user.image,
       discriminator: user.discriminator,
     })
-    .from(communityThreadParticipant)
-    .innerJoin(user, eq(user.id, communityThreadParticipant.userId))
-    .where(eq(communityThreadParticipant.threadChannelId, threadChannelId));
+    .from(communityChannelMember)
+    .innerJoin(user, eq(user.id, communityChannelMember.userId))
+    .where(
+      and(
+        eq(communityChannelMember.channelId, threadChannelId),
+        eq(communityChannelMember.relation, "notify")
+      )
+    );
 }
 
 // Batch participant hydration for many channels at once — the forum post list's
 // per-card AvatarGroup. One query for N post ids instead of N. Rows carry the
 // channel id so the caller can group them back per post; `addedAt` orders the
-// group (creator's "spoke" row is earliest, so they lead). Soft-deleted users
-// drop out via the inner join, matching how the members list hydrates.
+// group. Soft-deleted users drop out via the inner join.
 export async function listParticipantsForChannels(
   db: Database,
   channelIds: string[]
@@ -97,15 +118,20 @@ export async function listParticipantsForChannels(
   if (channelIds.length === 0) return [];
   return db
     .select({
-      channelId: communityThreadParticipant.threadChannelId,
-      userId: communityThreadParticipant.userId,
-      addedAt: communityThreadParticipant.addedAt,
+      channelId: communityChannelMember.channelId,
+      userId: communityChannelMember.userId,
+      addedAt: communityChannelMember.addedAt,
       userName: user.name,
       userImage: user.image,
     })
-    .from(communityThreadParticipant)
-    .innerJoin(user, eq(user.id, communityThreadParticipant.userId))
-    .where(inArray(communityThreadParticipant.threadChannelId, channelIds));
+    .from(communityChannelMember)
+    .innerJoin(user, eq(user.id, communityChannelMember.userId))
+    .where(
+      and(
+        inArray(communityChannelMember.channelId, channelIds),
+        eq(communityChannelMember.relation, "notify")
+      )
+    );
 }
 
 export async function isThreadParticipant(
@@ -114,44 +140,44 @@ export async function isThreadParticipant(
   userId: string
 ): Promise<boolean> {
   const rows = await db
-    .select({ id: communityThreadParticipant.id })
-    .from(communityThreadParticipant)
+    .select({ id: communityChannelMember.id })
+    .from(communityChannelMember)
     .where(
       and(
-        eq(communityThreadParticipant.threadChannelId, threadChannelId),
-        eq(communityThreadParticipant.userId, userId)
+        eq(communityChannelMember.channelId, threadChannelId),
+        eq(communityChannelMember.userId, userId),
+        eq(communityChannelMember.relation, "notify")
       )
     )
     .limit(1);
   return rows.length > 0;
 }
 
-// Leave: drop the row entirely (a later mention/speak re-adds). Returns the
-// removed row or null.
+// Leave: drop the notify row entirely (a later mention/speak re-adds). Returns
+// the removed row or null.
 export async function removeThreadParticipant(
   db: Database,
   threadChannelId: string,
   userId: string
 ) {
   const rows = await db
-    .delete(communityThreadParticipant)
+    .delete(communityChannelMember)
     .where(
       and(
-        eq(communityThreadParticipant.threadChannelId, threadChannelId),
-        eq(communityThreadParticipant.userId, userId)
+        eq(communityChannelMember.channelId, threadChannelId),
+        eq(communityChannelMember.userId, userId),
+        eq(communityChannelMember.relation, "notify")
       )
     )
     .returning();
   return rows[0] ?? null;
 }
 
-// Drop a user's participant rows from EVERY child channel (forum_post OR thread)
+// Drop a user's notify rows from EVERY child channel (forum_post OR thread)
 // under a top-level unit. Called when a member is removed from a forum/channel's
 // access roster: their access is gone, so their leftover notify rows on the
-// unit's posts/threads must go too — else fan-out keeps live-pushing new
-// post/thread messages to someone who can no longer open them. A later
-// mention/speak (which requires access) re-adds them. Returns the count of
-// removed rows.
+// unit's posts/threads must go too. A later mention/speak (which requires
+// access) re-adds them. Returns the count of removed rows.
 export async function removeParticipantFromChildChannels(
   db: Database,
   parentChannelId: string,
@@ -164,19 +190,20 @@ export async function removeParticipantFromChildChannels(
   const childIds = children.map((c) => c.id);
   if (childIds.length === 0) return 0;
   const removed = await db
-    .delete(communityThreadParticipant)
+    .delete(communityChannelMember)
     .where(
       and(
-        inArray(communityThreadParticipant.threadChannelId, childIds),
-        eq(communityThreadParticipant.userId, userId)
+        inArray(communityChannelMember.channelId, childIds),
+        eq(communityChannelMember.userId, userId),
+        eq(communityChannelMember.relation, "notify")
       )
     )
     .returning();
   return removed.length;
 }
 
-// Of the given thread ids, which the user participates in. Batch form for the
-// inbox unread-threads filter.
+// Of the given thread ids, which the user participates in (notify). Batch form
+// for the inbox unread-threads filter.
 export async function listParticipatingThreadIds(
   db: Database,
   threadChannelIds: string[],
@@ -184,13 +211,14 @@ export async function listParticipatingThreadIds(
 ): Promise<string[]> {
   if (threadChannelIds.length === 0) return [];
   const rows = await db
-    .select({ threadChannelId: communityThreadParticipant.threadChannelId })
-    .from(communityThreadParticipant)
+    .select({ channelId: communityChannelMember.channelId })
+    .from(communityChannelMember)
     .where(
       and(
-        inArray(communityThreadParticipant.threadChannelId, threadChannelIds),
-        eq(communityThreadParticipant.userId, userId)
+        inArray(communityChannelMember.channelId, threadChannelIds),
+        eq(communityChannelMember.userId, userId),
+        eq(communityChannelMember.relation, "notify")
       )
     );
-  return rows.map((r) => r.threadChannelId);
+  return rows.map((r) => r.channelId);
 }

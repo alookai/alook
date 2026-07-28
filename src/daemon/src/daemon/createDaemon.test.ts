@@ -549,7 +549,7 @@ describe("emitImplicitTypingStopOnSend", () => {
   });
 
   it("emits an agent_typing_stop for every active DM scope when the sub is `send`", () => {
-    const emitted: Array<{ agentId: string; dmConversationId: string }> = [];
+    const emitted: Array<{ agentId: string; channelId: string }> = [];
     emitImplicitTypingStopOnSend({
       subcommand: "send",
       agentId: "bot_1",
@@ -557,8 +557,8 @@ describe("emitImplicitTypingStopOnSend", () => {
       reportAgentTypingStop: (info) => emitted.push(info),
     });
     expect(emitted).toEqual([
-      { agentId: "bot_1", dmConversationId: "dm-a" },
-      { agentId: "bot_1", dmConversationId: "dm-b" },
+      { agentId: "bot_1", channelId: "dm-a" },
+      { agentId: "bot_1", channelId: "dm-b" },
     ]);
   });
 

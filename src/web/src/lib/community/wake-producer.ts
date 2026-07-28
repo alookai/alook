@@ -38,15 +38,13 @@ export interface WakeMessageRow {
   id: string
   seq: number
   authorId: string
-  channelId: string | null
-  dmConversationId: string | null
+  channelId: string
 }
 
 export interface EnqueueBotWakesOpts {
   /** Every fanout recipient (human + bot) — this function does its own bot/unread filtering. */
   recipients: string[]
-  channelId?: string
-  dmConversationId?: string
+  channelId: string
   messageRow: WakeMessageRow
 }
 
@@ -88,14 +86,13 @@ function selectWakeTransport(env: Env): WakeTransport {
 }
 
 async function doEnqueueBotWakes(env: Env, opts: EnqueueBotWakesOpts): Promise<void> {
-  const { recipients, channelId, dmConversationId, messageRow } = opts
+  const { recipients, channelId, messageRow } = opts
   if (recipients.length === 0) return
 
   const db = getDb(env.DB)
   const candidates = await queries.communityBot.findWakeCandidates(db, {
     recipients,
     channelId,
-    dmConversationId,
     newSeq: messageRow.seq,
   })
   if (candidates.length === 0) return
@@ -112,9 +109,7 @@ async function doEnqueueBotWakes(env: Env, opts: EnqueueBotWakesOpts): Promise<v
   // treated as "gate indeterminate" — we drop just that candidate (the
   // queue consumer re-runs the same gate at consume time anyway) rather
   // than losing every wake for the message.
-  const scope: { channelId?: string; dmConversationId?: string } = channelId
-    ? { channelId }
-    : { dmConversationId: dmConversationId! }
+  const scope: { channelId: string } = { channelId }
   const gateResults = await Promise.allSettled(
     candidates.map((c) => queries.communityMember.canBotReadWakeScope(db, c.botUserId, scope))
   )

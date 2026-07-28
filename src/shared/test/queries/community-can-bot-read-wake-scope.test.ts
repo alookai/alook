@@ -13,18 +13,6 @@ vi.mock("../../src/db/queries/community/thread", () => ({
 import { canBotReadWakeScope } from "../../src/db/queries/community/member";
 import type { Database } from "../../src/db/index";
 
-// The DM branch runs a real Drizzle query — build the smallest chainable stub
-// that resolves to whatever `rows` we hand it, so DM cases don't need a real
-// DB either.
-function createDmDb(rows: unknown[]): Database {
-  const chain: any = {};
-  chain.select = vi.fn(() => chain);
-  chain.from = vi.fn(() => chain);
-  chain.where = vi.fn(() => chain);
-  chain.limit = vi.fn(() => Promise.resolve(rows));
-  return chain as Database;
-}
-
 const fakeDb = {} as Database;
 
 // The `channel` object the real `resolveChannelAccessContext` returns is a
@@ -120,17 +108,24 @@ describe("canBotReadWakeScope — notification-set narrowing (thread + forum_pos
 });
 
 describe("canBotReadWakeScope — DM scope", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  // A DM is a type=dm channel now: `resolveChannelAccessContext` resolves
+  // access via a relation='access' member row and returns a ctx whose
+  // `channel.type === "dm"`, which short-circuits to true. A non-member gets a
+  // null ctx.
   it("DM + bot is a participant → true", async () => {
-    const db = createDmDb([{ id: "dm_1" }]);
-    expect(await canBotReadWakeScope(db, "bot", { dmConversationId: "dm_1" })).toBe(true);
+    mockResolveChannelAccessContext.mockResolvedValue(ctx({ type: "dm", isChannelMember: true }));
+    expect(await canBotReadWakeScope(fakeDb, "bot", { channelId: "dm_1" })).toBe(true);
   });
 
-  it("DM + bot is NOT a participant → false", async () => {
-    const db = createDmDb([]);
-    expect(await canBotReadWakeScope(db, "bot", { dmConversationId: "dm_1" })).toBe(false);
+  it("DM + bot is NOT a participant (ctx null) → false", async () => {
+    mockResolveChannelAccessContext.mockResolvedValue(null);
+    expect(await canBotReadWakeScope(fakeDb, "bot", { channelId: "dm_1" })).toBe(false);
   });
 
-  it("no scope provided → false", async () => {
-    expect(await canBotReadWakeScope(fakeDb, "bot", {})).toBe(false);
+  it("channel not found (ctx null) → false", async () => {
+    mockResolveChannelAccessContext.mockResolvedValue(null);
+    expect(await canBotReadWakeScope(fakeDb, "bot", { channelId: "nope" })).toBe(false);
   });
 });

@@ -6,7 +6,7 @@ import { queries, MIN_SEARCH_LENGTH, MAX_SEARCH_LENGTH } from "@alook/shared"
 import {
   requireServerMember,
   requireChannelMember,
-  requireDMParticipant,
+  requireDMAccess,
 } from "@/lib/community/permissions"
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
@@ -57,12 +57,14 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     return writeJSON({ results })
   }
 
-  // Block check is inherited from `requireDMParticipant` — do not re-inline.
-  const auth = await requireDMParticipant(db, dmConversationId!, ctx.userId)
+  // A DM is a `type=dm` channel now; the `dmConversationId` query param IS the
+  // DM's channel id. Block check is inherited from `requireDMAccess` — do not
+  // re-inline.
+  const auth = await requireDMAccess(db, dmConversationId!, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
   const results = await queries.communitySearch.searchMessages(db, {
     query: q,
-    dmConversationId: dmConversationId!,
+    channelId: dmConversationId!,
   })
   return writeJSON({ results })
 })

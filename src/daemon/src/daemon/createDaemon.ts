@@ -83,13 +83,13 @@ export function emitImplicitTypingStopOnSend(args: {
   subcommand: string;
   agentId: string;
   typingTracker: Pick<TypingScopeTracker, "snapshot">;
-  reportAgentTypingStop?: (info: { agentId: string; dmConversationId: string }) => void;
+  reportAgentTypingStop?: (info: { agentId: string; channelId: string }) => void;
 }): void {
   if (args.subcommand !== "send") return;
   const emit = args.reportAgentTypingStop;
   if (!emit) return;
-  for (const dmConversationId of args.typingTracker.snapshot(args.agentId)) {
-    emit({ agentId: args.agentId, dmConversationId });
+  for (const channelId of args.typingTracker.snapshot(args.agentId)) {
+    emit({ agentId: args.agentId, channelId });
   }
 }
 
@@ -256,7 +256,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   //
   // `typingTracker` is declared above the proxy so `onProxyRequest`'s
   // implicit-typing.stop hook can read it. Populated by the AgentRouter on
-  // each `agent:wake` (from `unreadNotice.dmConversationId`) and cleared on
+  // each `agent:wake` (from `unreadNotice.channelId`) and cleared on
   // FSM transitions into `idle`/`stopping`.
   //
   // Per-agent heartbeat interval handles. Only alive while an agent is in
@@ -289,12 +289,12 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     // client's 8s expiry, and bypasses the ws-do 8s dedup gate (which only
     // guards the client-inbound `community:typing.start` path — daemon
     // metered heartbeats reach clients unconditionally).
-    for (const dmConversationId of typingTracker.snapshot(agentId)) {
-      channel.reportAgentTyping?.({ agentId, dmConversationId });
+    for (const channelId of typingTracker.snapshot(agentId)) {
+      channel.reportAgentTyping?.({ agentId, channelId });
     }
     const timer = setInterval(() => {
-      for (const dmConversationId of typingTracker.snapshot(agentId)) {
-        channel.reportAgentTyping?.({ agentId, dmConversationId });
+      for (const channelId of typingTracker.snapshot(agentId)) {
+        channel.reportAgentTyping?.({ agentId, channelId });
       }
       reassertAgentActivity(agentId);
     }, TYPING_HEARTBEAT_MS);
@@ -307,8 +307,8 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     // per-scope loop no-ops — matches the "emit-then-clear" rule in the
     // plan's race-handling section.
     stopTypingHeartbeat(agentId);
-    for (const dmConversationId of typingTracker.snapshot(agentId)) {
-      channel.reportAgentTypingStop?.({ agentId, dmConversationId });
+    for (const channelId of typingTracker.snapshot(agentId)) {
+      channel.reportAgentTypingStop?.({ agentId, channelId });
     }
     typingTracker.clear(agentId);
   }

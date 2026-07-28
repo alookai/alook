@@ -97,7 +97,7 @@ describe("resolveTargetForMember", () => {
       mockGetUserByNameAndDiscriminator.mockResolvedValue({ id: "peer_1", discriminator: "0001" })
       mockGetDMBetween.mockResolvedValue({ id: "dm_1" })
       const res = await resolveTargetForMember(db, "u_1", "/.dm/peer#0001")
-      expect(res).toEqual({ kind: "dm", dmConversationId: "dm_1", otherUserId: "peer_1" })
+      expect(res).toEqual({ kind: "dm", channelId: "dm_1", otherUserId: "peer_1" })
       expect(mockIsBlocked).not.toHaveBeenCalled()
     })
 
@@ -116,7 +116,7 @@ describe("resolveTargetForMember", () => {
       mockIsBlocked.mockResolvedValue(false)
       mockCreateOrGetDM.mockResolvedValue({ id: "dm_new" })
       const res = await resolveTargetForMember(db, "u_1", "/.dm/peer#0001", { createDmIfMissing: true })
-      expect(res).toEqual({ kind: "dm", dmConversationId: "dm_new", otherUserId: "peer_1" })
+      expect(res).toEqual({ kind: "dm", channelId: "dm_new", otherUserId: "peer_1" })
       expect(mockCreateOrGetDM).toHaveBeenCalledWith(db, { userId1: "u_1", userId2: "peer_1" })
     })
   })

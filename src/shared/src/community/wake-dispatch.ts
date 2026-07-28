@@ -137,12 +137,7 @@ export async function buildUnreadWakeCommand(
   const msg = await message.getWakeMessageScopeById(db, input.messageId);
   if (!msg) return { state: "skip", reason: "message_missing" };
 
-  const scope = msg.channelId
-    ? { channelId: msg.channelId }
-    : msg.dmConversationId
-      ? { dmConversationId: msg.dmConversationId }
-      : null;
-  if (!scope) return { state: "skip", reason: "invalid_message_scope" };
+  const scope = { channelId: msg.channelId };
 
   // Producer filtering already excludes self-wakes; the consumer must still
   // be robust to malformed/internal queue items that point a bot at its own
@@ -165,7 +160,7 @@ export async function buildUnreadWakeCommand(
     kind: "unread_notice",
     channel,
     latestSeq: msg.seq,
-    ...(scope.dmConversationId ? { dmConversationId: scope.dmConversationId } : {}),
+    channelId: scope.channelId,
   };
   const config = makeRuntimeConfig({
     runtime: botCtx.runtime,

@@ -65,6 +65,9 @@ type CurrentChannelMeta = {
 
 type CommunitySubscription = {
   channelId?: string
+  // The focused DM's channel id. A DM is a channel now; the slot name is kept
+  // only to distinguish "the focused channel is a DM" for the WS handler's
+  // cache-routing (see `use-community-ws.ts`).
   dmConversationId?: string
 }
 

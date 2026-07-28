@@ -15,6 +15,7 @@ const mockResolveChannelByNameForMember = vi.fn()
 const mockGetChannelForMember = vi.fn()
 const mockGetDM = vi.fn()
 const mockGetDMBetween = vi.fn()
+const mockGetDMPeer = vi.fn()
 const mockIsBlocked = vi.fn()
 const mockBumpReadCursor = vi.fn()
 
@@ -39,6 +40,7 @@ vi.mock("@alook/shared", async () => {
       communityDm: {
         getDM: (...a: unknown[]) => mockGetDM(...a),
         getDMBetween: (...a: unknown[]) => mockGetDMBetween(...a),
+        getDMPeer: (...a: unknown[]) => mockGetDMPeer(...a),
       },
       communityReadState: { bumpReadCursor: (...a: unknown[]) => mockBumpReadCursor(...a) },
     },
@@ -128,7 +130,8 @@ describe("POST /api/community/agent/ack", () => {
       Promise.resolve(id === "peer_1" ? { id: "peer_1", isBot: false, deletedAt: null } : { isBot: true, deletedAt: null })
     )
     mockGetDMBetween.mockResolvedValue({ id: "dm_1" })
-    mockGetDM.mockResolvedValue({ id: "dm_1", user1Id: "bot_1", user2Id: "peer_1", lastMessageAt: null, createdAt: "t" })
+    mockGetDM.mockResolvedValue({ id: "dm_1", lastMessageAt: null, createdAt: "t" })
+    mockGetDMPeer.mockResolvedValue({ otherUserId: "peer_1" })
     mockIsBlocked.mockResolvedValue(false)
     mockBumpReadCursor.mockResolvedValue({ id: "m_1", createdAt: "t", seq: 1 })
     const res = await POST(
@@ -146,7 +149,7 @@ describe("POST /api/community/agent/ack", () => {
     expect(await res.json()).toEqual({ ok: true })
     expect(mockBumpReadCursor).toHaveBeenCalledTimes(2)
     expect(mockBumpReadCursor).toHaveBeenNthCalledWith(1, expect.anything(), "bot_1", { channelId: "ch_1" }, 3)
-    expect(mockBumpReadCursor).toHaveBeenNthCalledWith(2, expect.anything(), "bot_1", { dmConversationId: "dm_1" }, 1)
+    expect(mockBumpReadCursor).toHaveBeenNthCalledWith(2, expect.anything(), "bot_1", { channelId: "dm_1" }, 1)
   })
 
   it("400 invalid DM handle when a cursor's channel segment has no #0042 tag", async () => {

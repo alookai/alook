@@ -114,14 +114,13 @@ describe("POST /api/community/invites/[token]/join", () => {
     expect(event.member.discriminator).toBe("0042")
   })
 
-  it("prefers nickname over userName when set", async () => {
+  it("uses userName as the display name (nickname removed)", async () => {
     mockUseInvite.mockResolvedValue({
       invite: { id: "inv_1", serverId: "srv_1" },
       member: {
         id: "mem_1",
         userId: "u_caller",
         role: "member",
-        nickname: "Ali",
         joinedAt: "2026-07-03T00:00:00.000Z",
         userName: "Alice",
         userImage: null,
@@ -130,7 +129,7 @@ describe("POST /api/community/invites/[token]/join", () => {
 
     await callPOST("tok_abc")
     const [, event] = mockFanOut.mock.calls[0]!
-    expect(event.member.name).toBe("Ali")
+    expect(event.member.name).toBe("Alice")
     expect(event.member.avatar).toBeUndefined()
   })
 

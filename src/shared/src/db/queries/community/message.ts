@@ -2,27 +2,20 @@ import { eq, and, asc, desc, gt, lt, or, sql, inArray, isNotNull } from "drizzle
 import {
   communityMessage,
   communityChannel,
-  communityDmConversation,
   communityReadState,
   communityMessageSeq,
+  communityChannelMember,
 } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
 import { createLogger } from "../../../logger";
 
-/** `'channel:<id>'` or `'dm:<id>'` — the `community_message_seq` PK. */
-export function scopeKeyForTarget(target: { channelId?: string; dmConversationId?: string }): string {
-  if (target.channelId) return `channel:${target.channelId}`;
-  if (target.dmConversationId) return `dm:${target.dmConversationId}`;
-  throw new Error("scopeKeyForTarget: neither channelId nor dmConversationId provided");
-}
-
 /**
- * Atomically claim the next seq value for a scope (channel or DM). A single
- * top-level UPSERT — D1's single-writer serialization makes this race-free
- * for uniqueness on its own, no CTE/transaction needed (see
- * plans/community-agent-cli-bridge.md design §3 for why the CTE-fusion
- * approach is not valid SQLite and was rejected).
+ * Atomically claim the next seq value for a channel. A single top-level UPSERT
+ * — D1's single-writer serialization makes this race-free for uniqueness on
+ * its own, no CTE/transaction needed (see plans/community-agent-cli-bridge.md
+ * design §3 for why the CTE-fusion approach is not valid SQLite and was
+ * rejected).
  *
  * Unconditional claim: always advances the counter, no matter what the
  * caller's stale view of the world was. Callers with an `expectedSeq` to
@@ -31,12 +24,12 @@ export function scopeKeyForTarget(target: { channelId?: string; dmConversationId
  * function alone cannot detect a stale-snapshot race, only guarantee
  * uniqueness.
  */
-async function claimNextSeq(db: Database, scopeKey: string): Promise<number> {
+async function claimNextSeq(db: Database, channelId: string): Promise<number> {
   const rows = await db
     .insert(communityMessageSeq)
-    .values({ scopeKey, nextSeq: 1 })
+    .values({ channelId, nextSeq: 1 })
     .onConflictDoUpdate({
-      target: communityMessageSeq.scopeKey,
+      target: communityMessageSeq.channelId,
       set: { nextSeq: sql`${communityMessageSeq.nextSeq} + 1` },
     })
     .returning({ nextSeq: communityMessageSeq.nextSeq });
@@ -58,14 +51,14 @@ async function claimNextSeq(db: Database, scopeKey: string): Promise<number> {
  */
 async function claimNextSeqIfAligned(
   db: Database,
-  scopeKey: string,
+  channelId: string,
   expectedSeq: number
 ): Promise<number | null> {
   const rows = await db
     .insert(communityMessageSeq)
-    .values({ scopeKey, nextSeq: 1 })
+    .values({ channelId, nextSeq: 1 })
     .onConflictDoUpdate({
-      target: communityMessageSeq.scopeKey,
+      target: communityMessageSeq.channelId,
       set: { nextSeq: sql`${communityMessageSeq.nextSeq} + 1` },
       setWhere: sql`${communityMessageSeq.nextSeq} = ${expectedSeq}`,
     })
@@ -96,8 +89,7 @@ export type CreateMessageData = {
   id?: string;
   authorId: string;
   content: string;
-  channelId?: string;
-  dmConversationId?: string;
+  channelId: string;
   type?: string;
   mentionType?: string;
   replyToId?: string;
@@ -143,11 +135,10 @@ export async function createMessage(
   // snapshot: `claimNextSeqIfAligned` returns `null` with ZERO rows written
   // anywhere if another writer already advanced the counter past what this
   // caller saw — return `null` immediately, before any insert/update below.
-  const scopeKey = scopeKeyForTarget(data);
   const seq =
     data.expectedSeq !== undefined
-      ? await claimNextSeqIfAligned(db, scopeKey, data.expectedSeq)
-      : await claimNextSeq(db, scopeKey);
+      ? await claimNextSeqIfAligned(db, data.channelId, data.expectedSeq)
+      : await claimNextSeq(db, data.channelId);
   if (seq === null) return null;
   return insertMessageRow(db, data, seq);
 }
@@ -161,11 +152,11 @@ async function insertMessageRow(db: Database, data: CreateMessageData, seq: numb
   const now = new Date().toISOString();
 
   // Pass `createdAt: now` explicitly so `msg.createdAt` matches the exact
-  // string we write to `channel.lastMessageAt` / `dmConversation.lastMessageAt`
-  // and to the author's read-state watermark below. Without this, the schema
-  // `$defaultFn` fires a microsecond later and the timestamps diverge — the
-  // inbox predicate `lastMessageAt > lastReadAt` would then wrongly fire for
-  // the author's own send on a cold read.
+  // string we write to `channel.lastMessageAt` and to the author's read-state
+  // watermark below. Without this, the schema `$defaultFn` fires a microsecond
+  // later and the timestamps diverge — the inbox predicate
+  // `lastMessageAt > lastReadAt` would then wrongly fire for the author's own
+  // send on a cold read.
   const insertMsg = db
     .insert(communityMessage)
     .values({
@@ -175,8 +166,7 @@ async function insertMessageRow(db: Database, data: CreateMessageData, seq: numb
       ...(data.id !== undefined ? { id: data.id } : {}),
       authorId: data.authorId,
       content: data.content,
-      channelId: data.channelId ?? null,
-      dmConversationId: data.dmConversationId ?? null,
+      channelId: data.channelId,
       type: data.type ?? "default",
       mentionType: data.mentionType ?? null,
       replyToId: data.replyToId ?? null,
@@ -187,21 +177,15 @@ async function insertMessageRow(db: Database, data: CreateMessageData, seq: numb
     })
     .returning();
 
-  // Message insert + scope counter/timestamp bump commit atomically via
-  // `db.batch(...)`. Table CHECK guarantees exactly one of channelId /
-  // dmConversationId is set, so the branch is mutually exclusive.
-  const scopeUpdate = data.channelId
-    ? db
-        .update(communityChannel)
-        .set({
-          lastMessageAt: now,
-          messageCount: sql`${communityChannel.messageCount} + 1`,
-        })
-        .where(eq(communityChannel.id, data.channelId))
-    : db
-        .update(communityDmConversation)
-        .set({ lastMessageAt: now })
-        .where(eq(communityDmConversation.id, data.dmConversationId!));
+  // Message insert + channel counter/timestamp bump commit atomically via
+  // `db.batch(...)`. DMs are channels now, so this is always a channel update.
+  const scopeUpdate = db
+    .update(communityChannel)
+    .set({
+      lastMessageAt: now,
+      messageCount: sql`${communityChannel.messageCount} + 1`,
+    })
+    .where(eq(communityChannel.id, data.channelId));
 
   type InsertedMessage = Awaited<typeof insertMsg>[number];
   const results = (await db.batch([insertMsg, scopeUpdate] as any)) as any[];
@@ -209,47 +193,26 @@ async function insertMessageRow(db: Database, data: CreateMessageData, seq: numb
 
   // Author read-watermark: advance the sender's own read-state to this
   // message so `listUnreadChannels` (predicate: lastMessageAt > lastReadAt)
-  // never surfaces the channel/DM the author just sent in. Kept inline
-  // (NOT folded into `markReadToMessageBuilder`, which is deliberately
-  // "humans only" — see its comment) because this path must write
-  // `lastReadSeq` per design §4 — every author (bot or human) must have
-  // its own `lastReadSeq` stay in lockstep with its sends, or
-  // `enqueueBotWakes` sees a stale watermark. Runs as a separate await
-  // because it needs `msg.id` from the batch result.
-  const readStateStmt = data.channelId
-    ? db
-        .insert(communityReadState)
-        .values({
-          userId: data.authorId,
-          channelId: data.channelId,
-          dmConversationId: null,
-          lastReadAt: now,
-          lastReadMessageId: msg.id,
-          lastReadSeq: seq,
-        })
-        .onConflictDoUpdate({
-          target: [communityReadState.userId, communityReadState.channelId],
-          targetWhere: sql`${communityReadState.channelId} IS NOT NULL`,
-          set: { lastReadAt: now, lastReadMessageId: msg.id, lastReadSeq: seq },
-          setWhere: sql`${communityReadState.lastReadSeq} < ${seq}`,
-        })
-    : db
-        .insert(communityReadState)
-        .values({
-          userId: data.authorId,
-          channelId: null,
-          dmConversationId: data.dmConversationId!,
-          lastReadAt: now,
-          lastReadMessageId: msg.id,
-          lastReadSeq: seq,
-        })
-        .onConflictDoUpdate({
-          target: [communityReadState.userId, communityReadState.dmConversationId],
-          targetWhere: sql`${communityReadState.dmConversationId} IS NOT NULL`,
-          set: { lastReadAt: now, lastReadMessageId: msg.id, lastReadSeq: seq },
-          setWhere: sql`${communityReadState.lastReadSeq} < ${seq}`,
-        });
-  await readStateStmt;
+  // never surfaces the channel the author just sent in. Kept inline (NOT
+  // folded into `markReadToMessageBuilder`, which is deliberately "humans
+  // only" — see its comment) because this path must write `lastReadSeq` per
+  // design §4 — every author (bot or human) must have its own `lastReadSeq`
+  // stay in lockstep with its sends, or `enqueueBotWakes` sees a stale
+  // watermark. Runs as a separate await because it needs `msg.id`.
+  await db
+    .insert(communityReadState)
+    .values({
+      userId: data.authorId,
+      channelId: data.channelId,
+      lastReadAt: now,
+      lastReadMessageId: msg.id,
+      lastReadSeq: seq,
+    })
+    .onConflictDoUpdate({
+      target: [communityReadState.userId, communityReadState.channelId],
+      set: { lastReadAt: now, lastReadMessageId: msg.id, lastReadSeq: seq },
+      setWhere: sql`${communityReadState.lastReadSeq} < ${seq}`,
+    });
 
   return msg;
 }
@@ -282,7 +245,6 @@ export async function hardDeleteMessage(db: Database, messageId: string) {
     .select({
       id: communityMessage.id,
       channelId: communityMessage.channelId,
-      dmConversationId: communityMessage.dmConversationId,
       authorId: communityMessage.authorId,
       seq: communityMessage.seq,
       createdAt: communityMessage.createdAt,
@@ -299,9 +261,7 @@ export async function hardDeleteMessage(db: Database, messageId: string) {
   // UPDATE in the batch is guarded by `lastReadMessageId = messageId`, so a
   // concurrent same-author advance past our seq keeps its own newer state
   // regardless of what this prior lookup returns.
-  const scopeMatch = msg.channelId
-    ? eq(communityMessage.channelId, msg.channelId)
-    : eq(communityMessage.dmConversationId, msg.dmConversationId!);
+  const scopeMatch = eq(communityMessage.channelId, msg.channelId);
   const priorRows = await db
     .select({
       id: communityMessage.id,
@@ -321,36 +281,21 @@ export async function hardDeleteMessage(db: Database, messageId: string) {
   // this UPDATE would otherwise get its timestamp clobbered. Same rule for
   // `messageCount - 1`: a JS-side `oldCount - 1` would clobber any concurrent
   // insert that landed between the pre-batch SELECT and this UPDATE.
-  const scopeUpdate = msg.channelId
-    ? db
-        .update(communityChannel)
-        .set({
-          messageCount: sql`${communityChannel.messageCount} - 1`,
-          lastMessageAt: sql<
-            string | null
-          >`(SELECT MAX(${communityMessage.createdAt}) FROM ${communityMessage} WHERE ${communityMessage.channelId} = ${msg.channelId} AND ${communityMessage.id} != ${messageId})`,
-        })
-        .where(eq(communityChannel.id, msg.channelId))
-    : db
-        .update(communityDmConversation)
-        .set({
-          lastMessageAt: sql<
-            string | null
-          >`(SELECT MAX(${communityMessage.createdAt}) FROM ${communityMessage} WHERE ${communityMessage.dmConversationId} = ${msg.dmConversationId} AND ${communityMessage.id} != ${messageId})`,
-        })
-        .where(eq(communityDmConversation.id, msg.dmConversationId!));
+  const scopeUpdate = db
+    .update(communityChannel)
+    .set({
+      messageCount: sql`${communityChannel.messageCount} - 1`,
+      lastMessageAt: sql<
+        string | null
+      >`(SELECT MAX(${communityMessage.createdAt}) FROM ${communityMessage} WHERE ${communityMessage.channelId} = ${msg.channelId} AND ${communityMessage.id} != ${messageId})`,
+    })
+    .where(eq(communityChannel.id, msg.channelId));
 
-  const readStateWhere = msg.channelId
-    ? and(
-        eq(communityReadState.userId, msg.authorId),
-        eq(communityReadState.channelId, msg.channelId),
-        eq(communityReadState.lastReadMessageId, messageId)
-      )
-    : and(
-        eq(communityReadState.userId, msg.authorId),
-        eq(communityReadState.dmConversationId, msg.dmConversationId!),
-        eq(communityReadState.lastReadMessageId, messageId)
-      );
+  const readStateWhere = and(
+    eq(communityReadState.userId, msg.authorId),
+    eq(communityReadState.channelId, msg.channelId),
+    eq(communityReadState.lastReadMessageId, messageId)
+  );
 
   const readStateStmt = prior
     ? db
@@ -377,11 +322,9 @@ const listedMessageProjection = {
   mentionType: communityMessage.mentionType,
   replyToId: communityMessage.replyToId,
   embeds: communityMessage.embeds,
-  flags: communityMessage.flags,
   seq: communityMessage.seq,
   createdAt: communityMessage.createdAt,
   channelId: communityMessage.channelId,
-  dmConversationId: communityMessage.dmConversationId,
   friendshipId: communityMessage.friendshipId,
   authorName: user.name,
   authorEmail: user.email,
@@ -396,11 +339,9 @@ export type ListedMessageRow = {
   mentionType: string | null;
   replyToId: string | null;
   embeds: unknown | undefined;
-  flags: number | null;
   seq: number;
   createdAt: string;
-  channelId: string | null;
-  dmConversationId: string | null;
+  channelId: string;
   friendshipId: string | null;
   authorName: string;
   authorEmail: string;
@@ -414,22 +355,16 @@ function parseEmbeds(r: { id: string; embeds: string | null } & Record<string, u
 export async function listMessages(
   db: Database,
   opts: {
-    channelId?: string;
-    dmConversationId?: string;
+    channelId: string;
     cursor?: { createdAt: string; id: string };
     limit?: number;
   }
 ) {
   const limit = opts.limit ?? DEFAULT_LIMIT;
 
-  const conditions: ReturnType<typeof eq>[] = [];
-
-  if (opts.channelId) {
-    conditions.push(eq(communityMessage.channelId, opts.channelId));
-  }
-  if (opts.dmConversationId) {
-    conditions.push(eq(communityMessage.dmConversationId, opts.dmConversationId));
-  }
+  const conditions: ReturnType<typeof eq>[] = [
+    eq(communityMessage.channelId, opts.channelId),
+  ];
 
   if (opts.cursor) {
     conditions.push(
@@ -468,8 +403,7 @@ export async function listMessages(
 export async function listMessagesAround(
   db: Database,
   opts: {
-    channelId?: string;
-    dmConversationId?: string;
+    channelId: string;
     anchor: { createdAt: string; id: string };
     limit?: number;
   }
@@ -483,9 +417,9 @@ export async function listMessagesAround(
   const olderHalf = Math.ceil(limit / 2);
   const newerHalf = Math.floor(limit / 2);
 
-  const scopeConds: ReturnType<typeof eq>[] = [];
-  if (opts.channelId) scopeConds.push(eq(communityMessage.channelId, opts.channelId));
-  if (opts.dmConversationId) scopeConds.push(eq(communityMessage.dmConversationId, opts.dmConversationId));
+  const scopeConds: ReturnType<typeof eq>[] = [
+    eq(communityMessage.channelId, opts.channelId),
+  ];
 
   // Older half: strictly older than the anchor tuple, DESC. Fetch one extra
   // row to distinguish "exactly N older" from "N older with more available".
@@ -553,16 +487,15 @@ export async function listMessagesAround(
 export async function listMessagesSince(
   db: Database,
   opts: {
-    channelId?: string;
-    dmConversationId?: string;
+    channelId: string;
     since: { createdAt: string; id: string };
     limit?: number;
   }
 ): Promise<ListedMessageRow[]> {
   const limit = opts.limit ?? DEFAULT_LIMIT;
-  const conditions: ReturnType<typeof eq>[] = [];
-  if (opts.channelId) conditions.push(eq(communityMessage.channelId, opts.channelId));
-  if (opts.dmConversationId) conditions.push(eq(communityMessage.dmConversationId, opts.dmConversationId));
+  const conditions: ReturnType<typeof eq>[] = [
+    eq(communityMessage.channelId, opts.channelId),
+  ];
 
   conditions.push(
     or(
@@ -593,20 +526,15 @@ export async function listMessagesSince(
  */
 export async function getLatestMessageSeq(
   db: Database,
-  target: { channelId: string } | { dmConversationId: string }
+  target: { channelId: string }
 ): Promise<number> {
-  const cond =
-    "channelId" in target
-      ? eq(communityMessage.channelId, target.channelId)
-      : eq(communityMessage.dmConversationId, target.dmConversationId);
-
-  // `MAX()` returns NULL when the scope is empty; coalesce to 0 to keep the
+  // `MAX()` returns NULL when the channel is empty; coalesce to 0 to keep the
   // shape of `latestSeq` scalar rather than optional. No ORM aggregator for
   // MAX in Drizzle — same `sql\`MAX(...)\`` idiom as `getLatestMessagesByChannelIds`.
   const rows = await db
     .select({ maxSeq: sql<number | null>`MAX(${communityMessage.seq})` })
     .from(communityMessage)
-    .where(cond);
+    .where(eq(communityMessage.channelId, target.channelId));
 
   return rows[0]?.maxSeq ?? 0;
 }
@@ -622,20 +550,15 @@ export async function getLatestMessageSeq(
  */
 export async function getLatestMessage(
   db: Database,
-  target: { channelId: string } | { dmConversationId: string }
+  target: { channelId: string }
 ): Promise<{ id: string; createdAt: string } | null> {
-  const cond =
-    "channelId" in target
-      ? eq(communityMessage.channelId, target.channelId)
-      : eq(communityMessage.dmConversationId, target.dmConversationId);
-
   const rows = await db
     .select({
       id: communityMessage.id,
       createdAt: communityMessage.createdAt,
     })
     .from(communityMessage)
-    .where(cond)
+    .where(eq(communityMessage.channelId, target.channelId))
     .orderBy(desc(communityMessage.createdAt), desc(communityMessage.id))
     .limit(1);
 
@@ -703,58 +626,6 @@ export async function getLatestMessagesByChannelIds(
   return Array.from(bestByChannel.values());
 }
 
-/**
- * DM sibling of `getLatestMessagesByChannelIds` — one latest row per DM
- * conversation that HAS messages (empty conversations omitted). Backs the
- * `markAllDmsRead` mass mark-read path; same MAX-per-scope subquery + id
- * dedupe as the channel form.
- */
-export async function getLatestMessagesByDmIds(
-  db: Database,
-  dmConversationIds: string[]
-): Promise<Array<{ dmConversationId: string; id: string; createdAt: string }>> {
-  if (dmConversationIds.length === 0) return [];
-
-  const latestDates = db
-    .select({
-      dmConversationId: communityMessage.dmConversationId,
-      maxCreatedAt: sql<string>`MAX(${communityMessage.createdAt})`.as("max_created_at"),
-    })
-    .from(communityMessage)
-    .where(inArray(communityMessage.dmConversationId, dmConversationIds))
-    .groupBy(communityMessage.dmConversationId)
-    .as("latest_dm_dates");
-
-  const rows = await db
-    .select({
-      dmConversationId: communityMessage.dmConversationId,
-      id: communityMessage.id,
-      createdAt: communityMessage.createdAt,
-    })
-    .from(communityMessage)
-    .innerJoin(
-      latestDates,
-      and(
-        eq(communityMessage.dmConversationId, latestDates.dmConversationId),
-        eq(communityMessage.createdAt, latestDates.maxCreatedAt)
-      )
-    );
-
-  const bestByDm = new Map<string, { dmConversationId: string; id: string; createdAt: string }>();
-  for (const r of rows) {
-    if (!r.dmConversationId) continue;
-    const existing = bestByDm.get(r.dmConversationId);
-    if (!existing || r.id > existing.id) {
-      bestByDm.set(r.dmConversationId, {
-        dmConversationId: r.dmConversationId,
-        id: r.id,
-        createdAt: r.createdAt,
-      });
-    }
-  }
-  return Array.from(bestByDm.values());
-}
-
 export async function getFirstMessageByChannelIds(db: Database, channelIds: string[]) {
   if (channelIds.length === 0) return [];
   // Use a subquery to get the min createdAt per channel, then join to get the content
@@ -799,13 +670,9 @@ export async function getFirstMessageByChannelIds(db: Database, channelIds: stri
  */
 export async function getMessageByChannelAndSeq(
   db: Database,
-  target: { channelId?: string; dmConversationId?: string },
+  target: { channelId: string },
   seq: number
 ) {
-  const scopeCond = target.channelId
-    ? eq(communityMessage.channelId, target.channelId)
-    : eq(communityMessage.dmConversationId, target.dmConversationId!);
-
   const rows = await db
     .select({
       id: communityMessage.id,
@@ -813,12 +680,11 @@ export async function getMessageByChannelAndSeq(
       content: communityMessage.content,
       createdAt: communityMessage.createdAt,
       channelId: communityMessage.channelId,
-      dmConversationId: communityMessage.dmConversationId,
       seq: communityMessage.seq,
       replyToId: communityMessage.replyToId,
     })
     .from(communityMessage)
-    .where(and(scopeCond, eq(communityMessage.seq, seq)));
+    .where(and(eq(communityMessage.channelId, target.channelId), eq(communityMessage.seq, seq)));
   return rows[0] ?? null;
 }
 
@@ -836,8 +702,7 @@ export async function getWakeMessageScopeById(
   id: string;
   seq: number;
   authorId: string;
-  channelId: string | null;
-  dmConversationId: string | null;
+  channelId: string;
 } | null> {
   const rows = await db
     .select({
@@ -845,7 +710,6 @@ export async function getWakeMessageScopeById(
       seq: communityMessage.seq,
       authorId: communityMessage.authorId,
       channelId: communityMessage.channelId,
-      dmConversationId: communityMessage.dmConversationId,
     })
     .from(communityMessage)
     .where(eq(communityMessage.id, messageId))
@@ -863,10 +727,8 @@ export async function getMessage(db: Database, messageId: string) {
       mentionType: communityMessage.mentionType,
       replyToId: communityMessage.replyToId,
       embeds: communityMessage.embeds,
-      flags: communityMessage.flags,
       createdAt: communityMessage.createdAt,
       channelId: communityMessage.channelId,
-      dmConversationId: communityMessage.dmConversationId,
       // Needed by the wake producer's `toAgentMessage(messageRow)` (plan §8) —
       // `enqueueBotWakes` is called from `message-handler.ts` with this exact
       // row, no separate re-fetch.
@@ -900,10 +762,8 @@ export async function getMessagesByIds(db: Database, ids: string[]) {
       mentionType: communityMessage.mentionType,
       replyToId: communityMessage.replyToId,
       embeds: communityMessage.embeds,
-      flags: communityMessage.flags,
       createdAt: communityMessage.createdAt,
       channelId: communityMessage.channelId,
-      dmConversationId: communityMessage.dmConversationId,
       seq: communityMessage.seq,
       authorName: user.name,
       authorEmail: user.email,
@@ -916,57 +776,66 @@ export async function getMessagesByIds(db: Database, ids: string[]) {
 }
 
 /**
- * Every DM message stamped with `friendshipId`, with its DM conversation's two
- * peer user ids. Backs the `DM_MESSAGE_UPDATED` fanout on approve/deny/
- * supersede/accept — the caller emits one event per referencing message to
- * each DM peer so both first-hop and second-hop cards (J3) rehydrate without a
- * refetch. Small result set (≤2 in practice). Only DM-scoped card messages are
- * ever stamped, so a channel row can't leak in here.
+ * Every message stamped with `friendshipId` (approval-card DMs), with the two
+ * access-member peer user ids of the DM channel it lives on. Backs the
+ * `channel:message_updated` fanout on approve/deny/supersede/accept — the
+ * caller emits one event per referencing message to each DM peer so both
+ * first-hop and second-hop cards (J3) rehydrate without a refetch. Small result
+ * set (≤2 in practice). Only DM-scoped card messages are ever stamped.
  */
 export async function listMessagesReferencingFriendship(
   db: Database,
   friendshipId: string
-): Promise<Array<{ messageId: string; dmConversationId: string; peerUserIds: string[] }>> {
-  const rows = await db
+): Promise<Array<{ messageId: string; channelId: string; peerUserIds: string[] }>> {
+  const msgRows = await db
     .select({
       messageId: communityMessage.id,
-      dmConversationId: communityMessage.dmConversationId,
-      user1Id: communityDmConversation.user1Id,
-      user2Id: communityDmConversation.user2Id,
+      channelId: communityMessage.channelId,
     })
     .from(communityMessage)
-    .innerJoin(
-      communityDmConversation,
-      eq(communityDmConversation.id, communityMessage.dmConversationId)
-    )
+    .where(eq(communityMessage.friendshipId, friendshipId));
+  if (msgRows.length === 0) return [];
+
+  const channelIds = [...new Set(msgRows.map((r) => r.channelId))];
+  const memberRows = await db
+    .select({
+      channelId: communityChannelMember.channelId,
+      userId: communityChannelMember.userId,
+    })
+    .from(communityChannelMember)
     .where(
       and(
-        eq(communityMessage.friendshipId, friendshipId),
-        isNotNull(communityMessage.dmConversationId)
+        inArray(communityChannelMember.channelId, channelIds),
+        eq(communityChannelMember.relation, "access")
       )
     );
-  return rows.map((r) => ({
+  const peersByChannel = new Map<string, string[]>();
+  for (const m of memberRows) {
+    const list = peersByChannel.get(m.channelId) ?? [];
+    list.push(m.userId);
+    peersByChannel.set(m.channelId, list);
+  }
+
+  return msgRows.map((r) => ({
     messageId: r.messageId,
-    dmConversationId: r.dmConversationId!,
-    peerUserIds: [r.user1Id, r.user2Id].filter((id): id is string => !!id),
+    channelId: r.channelId,
+    peerUserIds: peersByChannel.get(r.channelId) ?? [],
   }));
 }
 
-/** Scope a single-id/batched-id lookup to a channel or DM. */
-export type MessageScope = { channelId: string } | { dmConversationId: string };
+/** Scope a single-id/batched-id lookup to a channel. */
+export type MessageScope = { channelId: string };
 
 function scopeCondition(scope: MessageScope) {
-  return "channelId" in scope
-    ? eq(communityMessage.channelId, scope.channelId)
-    : eq(communityMessage.dmConversationId, scope.dmConversationId);
+  return eq(communityMessage.channelId, scope.channelId);
 }
 
 /**
- * Scope-first single-message lookup — `WHERE id = ? AND (channelId = ? OR
- * dmConversationId = ?)`. Callers resolving a reply-target preview must use
+ * Scope-first single-message lookup — `WHERE id = ? AND channelId = ?`.
+ * Callers resolving a reply-target preview must use
  * this instead of `getMessage` + a post-hoc `.filter()`: a message whose id a
  * client supplies (e.g. `replyToId`) must never resolve outside the current
- * channel/DM, and folding the check into the WHERE clause makes that
+ * channel, and folding the check into the WHERE clause makes that
  * impossible to accidentally drop in a future refactor (see AGENTS.md:
  * "scope the queries before, not check the ownership after").
  */
@@ -980,10 +849,8 @@ export async function getMessageInScope(db: Database, messageId: string, scope: 
       mentionType: communityMessage.mentionType,
       replyToId: communityMessage.replyToId,
       embeds: communityMessage.embeds,
-      flags: communityMessage.flags,
       createdAt: communityMessage.createdAt,
       channelId: communityMessage.channelId,
-      dmConversationId: communityMessage.dmConversationId,
       authorName: user.name,
       authorEmail: user.email,
       authorImage: user.image,
@@ -1008,11 +875,9 @@ export async function getMessagesByIdsInScope(db: Database, ids: string[], scope
       mentionType: communityMessage.mentionType,
       replyToId: communityMessage.replyToId,
       embeds: communityMessage.embeds,
-      flags: communityMessage.flags,
       seq: communityMessage.seq,
       createdAt: communityMessage.createdAt,
       channelId: communityMessage.channelId,
-      dmConversationId: communityMessage.dmConversationId,
       authorName: user.name,
       discriminator: user.discriminator,
       authorEmail: user.email,

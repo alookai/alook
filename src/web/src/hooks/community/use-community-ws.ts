@@ -19,7 +19,6 @@ import type {
   CommunityReactionAdd,
   CommunityReactionRemove,
   CommunityMachineSummary,
-  CommunityDmNewMessage,
   CommunityTypingStart,
   CommunityPresenceUpdate,
   CommunityChildChannelCreate,
@@ -33,7 +32,6 @@ import type {
   CommunityChannelReorder,
   CommunityPinAdd,
   CommunityPinRemove,
-  CommunityDmTyping,
   CommunityFriendRequest,
   CommunityFriendAccept,
   CommunityFriendReject,
@@ -99,7 +97,11 @@ const MAX_LIVE_PAGE_MESSAGES = 500
 // ── Types (kept for backwards compat with any lingering imports) ─────────
 
 export type Subscription = {
+  // The focused regular channel/thread.
   channelId?: string
+  // The focused DM's channel id. A DM is a channel now; this slot keeps its
+  // name only to mark "the focused channel is a DM" so the handler routes its
+  // events into the `dmMessages` cache and the `dm:` typing scope.
   dmConversationId?: string
 }
 
@@ -116,13 +118,12 @@ export type CommunityWsCallbacks = {
   onMessage?: (event: CommunityMessageCreate) => void
   onAnyMessage?: (event: CommunityMessageCreate) => void
   onReaction?: (event: CommunityReactionAdd | CommunityReactionRemove) => void
-  onTyping?: (event: CommunityTypingStart | CommunityDmTyping) => void
+  onTyping?: (event: CommunityTypingStart) => void
   onPresence?: (event: CommunityPresenceUpdate) => void
   onChildChannel?: (event: CommunityChildChannelCreate | CommunityChildChannelUpdate) => void
   onMember?: (event: CommunityMemberJoin | CommunityMemberLeave | CommunityMemberUpdate) => void
   onChannel?: (event: CommunityChannelCreate | CommunityChannelUpdate | CommunityChannelDelete | CommunityChannelReorder) => void
   onPin?: (event: CommunityPinAdd | CommunityPinRemove) => void
-  onDm?: (event: CommunityDmNewMessage | CommunityDmTyping) => void
   onFriend?: (event: CommunityFriendRequest | CommunityFriendAccept | CommunityFriendReject | CommunityFriendRemove | CommunityFriendBlock) => void
   onServer?: (event: CommunityServerUpdate | CommunityServerDelete) => void
   onCategory?: (event: CommunityCategoryCreate | CommunityCategoryUpdate | CommunityCategoryDelete | CommunityCategoryReorder) => void
@@ -141,7 +142,7 @@ type PageCache = InfiniteData<MessagesPage>
  */
 export function insertMessageIntoCache(
   cache: PageCache | undefined,
-  msg: CommunityMessageCreate["message"] | CommunityDmNewMessage["message"],
+  msg: CommunityMessageCreate["message"],
 ): PageCache | undefined {
   if (!cache) return cache
   if (cache.pages.length === 0) return cache
@@ -241,7 +242,7 @@ function patchAuthorNameInCache(cache: PageCache | undefined, userId: string, ne
 
 /**
  * Patch the `approval` payload of a single cached message — the client-side
- * effect of a `DM_MESSAGE_UPDATED` event. The card re-renders in its new
+ * effect of a `MESSAGE_UPDATED` event. The card re-renders in its new
  * state (approved/denied/superseded/waiting) without a refetch.
  */
 function patchApprovalInCache(
@@ -350,16 +351,13 @@ export function communityWsUnsubscribe() {
 }
 
 /**
- * Send a typing indicator. Client-side debounced at 8s per channelId /
- * dmConversationId. If no WS is connected, the call is a no-op — subsequent
- * connections don't retroactively fire missed typings.
+ * Send a typing indicator. Client-side debounced at 8s per channelId (a DM is
+ * a channel now, so its id is a channelId too). If no WS is connected, the
+ * call is a no-op — subsequent connections don't retroactively fire missed
+ * typings.
  */
-export function communityWsSendTyping(target: {
-  channelId?: string
-  dmConversationId?: string
-  threadId?: string
-}) {
-  const key = target.channelId || target.dmConversationId || target.threadId || ""
+export function communityWsSendTyping(target: { channelId: string }) {
+  const key = target.channelId
   if (!key) return
   const send = activeSend
   if (!send) return
@@ -370,20 +368,16 @@ export function communityWsSendTyping(target: {
   if (now - lastSent < TYPING_INDICATOR_THROTTLE_MS) return
 
   map.set(key, now)
-  send({ type: "community:typing.start", ...target })
+  send({ type: "community:typing.start", channelId: key })
 }
 
 /**
- * Reset the outbound typing.start throttle for a target. Sending a message
+ * Reset the outbound typing.start throttle for a channel. Sending a message
  * ends the current typing burst; the very next keystroke should re-emit
  * typing.start immediately, not wait out the 8s dedup window.
  */
-export function communityWsResetTypingThrottle(target: {
-  channelId?: string
-  dmConversationId?: string
-  threadId?: string
-}) {
-  const key = target.channelId || target.dmConversationId || target.threadId || ""
+export function communityWsResetTypingThrottle(target: { channelId: string }) {
+  const key = target.channelId
   if (!key) return
   useCommunityStore.getState().lastTypingSent.delete(key)
 }
@@ -412,6 +406,14 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
     inboxDebounce.current = setTimeout(() => {
       inboxDebounce.current = null
       void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
+      // A DM is a channel now, so a DM message arrives as `message.create`
+      // with no discriminator distinguishing it from a channel message. Fold
+      // the old `dm.new_message` DM-sidebar refresh in here: invalidate the
+      // DM list too so an unread DM's preview/unread flag updates live. Cheap
+      // — `communityKeys.dms()` is only observed under the `/c/me` layout, so
+      // this is a no-op (marks stale, no refetch) while viewing a server
+      // channel where the DM sidebar isn't mounted.
+      void queryClient.invalidateQueries({ queryKey: communityKeys.dms() })
     }, INBOX_INVALIDATE_DEBOUNCE_MS)
   }, [queryClient])
 
@@ -422,13 +424,15 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
       const sub = useCommunityStore.getState().subscription
       const wsStore = useCommunityWsStore.getState()
       const cbs = callbacksRef.current
-      const matchesFocus = (
-        e: { channelId?: string; dmConversationId?: string },
-      ): boolean => {
-        if (!sub.channelId && !sub.dmConversationId) return false
-        if (e.dmConversationId && sub.dmConversationId) return e.dmConversationId === sub.dmConversationId
-        if (e.channelId && sub.channelId) return e.channelId === sub.channelId
-        return false
+      // A DM is a channel now — every message/typing/reaction event carries a
+      // single `channelId`. The subscription still tracks two slots so the
+      // handler can route a DM channel's events into the `dmMessages` cache vs
+      // a regular channel's into `channelMessages` (`sub.dmConversationId`
+      // holds the focused DM's channel id). An event is "focused" if its
+      // channelId matches either slot.
+      const matchesFocus = (e: { channelId?: string }): boolean => {
+        if (!e.channelId) return false
+        return e.channelId === sub.channelId || e.channelId === sub.dmConversationId
       }
 
       switch (event.type) {
@@ -437,19 +441,22 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           if (wsStore.hasSeenMessage(event.message.id)) return
           wsStore.markSeenMessage(event.message.id)
           // Sending a message is an implicit typing.stop for its author —
-          // clear once we know this is a fresh message. In a DM the bot's
-          // reply is broadcast as BOTH message.create AND dm.new_message;
-          // whichever wins the dedup fires the clear, the loser is a no-op.
-          // Clearing before dedup would also clear on WS-reconnect replays
-          // of stale messages, briefly wiping a still-active heartbeat pill.
-          // message.create is dual-axis: a DM bot reply carries
-          // `dmConversationId` (not `channelId`), so derive the scope from the
-          // event itself — hardcoding `ch:` would target `ch:undefined` and
-          // leave the DM pill hanging until the 8s timer.
-          clearTypingIndicator(typingScopeKey(event), event.message.authorId)
+          // clear once we know this is a fresh message. Clearing before dedup
+          // would also clear on WS-reconnect replays of stale messages,
+          // briefly wiping a still-active heartbeat pill. Derive the scope
+          // from whether this channelId is the focused DM channel (`dm:`) or a
+          // regular channel (`ch:`) so the pill clears in the right bucket.
+          clearTypingIndicator(typingScopeKey(event, sub), event.message.authorId)
 
           // 1) Patch the focused channel/dm page cache if the event matches.
-          if (event.channelId && event.channelId === sub.channelId) {
+          //    A DM is a channel, distinguished only by which subscription slot
+          //    its channelId lands in.
+          if (event.channelId === sub.dmConversationId) {
+            queryClient.setQueryData<PageCache>(
+              communityKeys.dmMessages(event.channelId),
+              (c) => insertMessageIntoCache(c, event.message),
+            )
+          } else if (event.channelId === sub.channelId) {
             queryClient.setQueryData<PageCache>(
               communityKeys.channelMessages(event.channelId),
               (c) => insertMessageIntoCache(c, event.message),
@@ -462,11 +469,6 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             void queryClient.invalidateQueries({
               queryKey: communityKeys.threadParticipants(event.channelId),
             })
-          } else if (event.dmConversationId && event.dmConversationId === sub.dmConversationId) {
-            queryClient.setQueryData<PageCache>(
-              communityKeys.dmMessages(event.dmConversationId),
-              (c) => insertMessageIntoCache(c, event.message),
-            )
           }
 
           // 2) Every message.create — regardless of focus — schedules a
@@ -516,18 +518,19 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
         case "community:reaction.add":
         case "community:reaction.remove": {
           const viewerId = viewerUserIdRef.current
-          if (event.channelId) {
-            queryClient.setQueryData<PageCache>(
-              communityKeys.channelMessages(event.channelId),
-              (c) => applyReactionToCache(c, event, viewerId),
-            )
-          }
-          if (event.dmConversationId) {
-            queryClient.setQueryData<PageCache>(
-              communityKeys.dmMessages(event.dmConversationId),
-              (c) => applyReactionToCache(c, event, viewerId),
-            )
-          }
+          // A reaction event carries only `channelId` with no channel-vs-DM
+          // discriminator. A regular channel's cache lives under
+          // `channelMessages(id)`, a DM channel's under `dmMessages(id)` — patch
+          // both keys; the one that doesn't exist receives `undefined` and the
+          // updater returns it, a harmless no-op.
+          queryClient.setQueryData<PageCache>(
+            communityKeys.channelMessages(event.channelId),
+            (c) => applyReactionToCache(c, event, viewerId),
+          )
+          queryClient.setQueryData<PageCache>(
+            communityKeys.dmMessages(event.channelId),
+            (c) => applyReactionToCache(c, event, viewerId),
+          )
           if (matchesFocus(event)) cbs.onReaction?.(event)
           return
         }
@@ -540,16 +543,14 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           return
         }
 
-        // ── Typing (channel/thread) ─────────────────────────────────────
+        // ── Typing (channel / thread / DM — all keyed by channelId) ──────
         case "community:typing.start": {
           const userId = event.userId
           const viewerId = viewerUserIdRef.current
           if (viewerId && userId === viewerId) return
           // Focus check: only surface typing for the currently-viewed target.
-          // A DM-only typing.start (no channelId) must NOT fire while the
-          // viewer is focused on a channel — `matchesFocus` handles both axes.
           if (!matchesFocus(event)) return
-          applyTypingIndicator(typingScopeKey(event), userId)
+          applyTypingIndicator(typingScopeKey(event, sub), userId)
           cbs.onTyping?.(event)
           return
         }
@@ -562,7 +563,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           const viewerId = viewerUserIdRef.current
           if (viewerId && userId === viewerId) return
           if (!matchesFocus(event)) return
-          clearTypingIndicator(typingScopeKey(event), userId)
+          clearTypingIndicator(typingScopeKey(event, sub), userId)
           return
         }
 
@@ -862,36 +863,18 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           return
         }
 
-        // ── DM new message ──────────────────────────────────────────────
-        case "community:dm.new_message": {
-          if (wsStore.hasSeenMessage(event.message.id)) return
-          wsStore.markSeenMessage(event.message.id)
-          // Same rationale as `community:message.create` above — either the
-          // message.create or dm.new_message broadcast will pass the dedup
-          // first and clear the pill; the other is a no-op.
-          clearTypingIndicator(typingScopeKey(event), event.message.authorId)
-
-          // Focus-scope patch (mirrors community message.create).
-          if (event.dmConversationId === sub.dmConversationId) {
+        // ── Message updated (friend-approval card state change) ──────────
+        // Folded from the old `dm.message_updated` — keyed by `channelId` (the
+        // DM's channel id). Patch the card's approval payload in the focused
+        // DM cache so it re-renders in its new state without a refetch.
+        case "community:message.updated": {
+          if (event.channelId === sub.dmConversationId || event.channelId === sub.channelId) {
             queryClient.setQueryData<PageCache>(
-              communityKeys.dmMessages(event.dmConversationId),
-              (c) => insertMessageIntoCache(c, event.message),
+              communityKeys.dmMessages(event.channelId),
+              (c) => patchApprovalInCache(c, event.messageId, event.approval),
             )
-          }
-          // Refresh DM sidebar (preview + unread mark).
-          void queryClient.invalidateQueries({ queryKey: communityKeys.dms() })
-          scheduleInboxInvalidate()
-          cbs.onDm?.(event)
-          return
-        }
-
-        // ── DM message updated (friend-approval card state change) ───────
-        case "community:dm.message_updated": {
-          // Patch the card's approval payload in the focused DM cache so it
-          // re-renders in its new state without a refetch.
-          if (event.dmConversationId === sub.dmConversationId) {
             queryClient.setQueryData<PageCache>(
-              communityKeys.dmMessages(event.dmConversationId),
+              communityKeys.channelMessages(event.channelId),
               (c) => patchApprovalInCache(c, event.messageId, event.approval),
             )
           }
@@ -902,17 +885,6 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           if (event.approval.status !== "pending" || event.approval.waitingOn !== "you") {
             void queryClient.invalidateQueries({ queryKey: communityKeys.friends() })
           }
-          return
-        }
-
-        // ── DM typing ───────────────────────────────────────────────────
-        case "community:dm.typing": {
-          const viewerId = viewerUserIdRef.current
-          if (viewerId && event.userId === viewerId) return
-          if (event.dmConversationId !== sub.dmConversationId) return
-          applyTypingIndicator(typingScopeKey(event), event.userId)
-          cbs.onDm?.(event)
-          cbs.onTyping?.(event)
           return
         }
 
@@ -1068,6 +1040,10 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
       void queryClient.invalidateQueries({
         queryKey: communityKeys.dmMessages(sub.dmConversationId),
       })
+      // A DM message may have arrived while offline; the DM sidebar preview /
+      // unread flag is only reconciled on `message.create`, none of which land
+      // during the gap. Top it up on reconnect.
+      void queryClient.invalidateQueries({ queryKey: communityKeys.dms() })
     }
     // Inbox counts also need a refetch — unreads and mentions could have
     // grown while offline and the live invalidator only fires on incoming
@@ -1120,12 +1096,12 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
   }, [])
 
   /**
-   * Send a typing indicator. Client-side throttled per channelId /
-   * dmConversationId. The DO also applies server-side dedup.
+   * Send a typing indicator. Client-side throttled per channelId (a DM is a
+   * channel now). The DO also applies server-side dedup.
    */
   const sendTyping = useCallback(
-    (target: { channelId?: string; dmConversationId?: string; threadId?: string }) => {
-      const key = target.channelId || target.dmConversationId || target.threadId || ""
+    (target: { channelId: string }) => {
+      const key = target.channelId
       if (!key) return
 
       const now = Date.now()
@@ -1137,7 +1113,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
       // subscribes to it). Keeping it in the store keeps the lifetime tied
       // to `reset()` on sign-out.
       map.set(key, now)
-      send({ type: "community:typing.start", ...target })
+      send({ type: "community:typing.start", channelId: key })
     },
     [send],
   )
@@ -1163,14 +1139,18 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
 // ── Typing indicator helpers ─────────────────────────────────────────────────
 
 /**
- * The conversation scope key an event belongs to, keyed by the axis it actually
- * carries. `dmConversationId` wins when present (a DM message.create carries it,
- * not `channelId`) — mirrors `matchesFocus`'s dm-first precedence. The `dm:` /
- * `ch:` prefix keeps the two id spaces from colliding. Threads collapse to
- * `ch:<channelId>` on the client (no sender emits `threadId`).
+ * The conversation scope key an event belongs to. Every event carries a single
+ * `channelId` now (a DM is a channel), so the `dm:` / `ch:` prefix — which the
+ * DM page (`dm:<id>`) and channel page (`ch:<id>`) read via
+ * `useTypingUsersForScope` — is derived from the subscription: if the event's
+ * channelId is the focused DM channel, it's a `dm:` scope; otherwise `ch:`.
+ * Threads collapse to `ch:<channelId>`.
  */
-function typingScopeKey(e: { dmConversationId?: string; channelId?: string }): string {
-  return e.dmConversationId ? `dm:${e.dmConversationId}` : `ch:${e.channelId}`
+function typingScopeKey(
+  e: { channelId: string },
+  sub: { channelId?: string; dmConversationId?: string },
+): string {
+  return e.channelId === sub.dmConversationId ? `dm:${e.channelId}` : `ch:${e.channelId}`
 }
 
 // Timer map key: one auto-expire timer per (scope, user) pair.

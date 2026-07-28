@@ -31,7 +31,7 @@ function server(serverId: string, channels: Array<{ id: string; children?: strin
 
 function dm(id: string): UnreadDm {
   return {
-    dmConversationId: id,
+    channelId: id,
     otherUserId: `u-${id}`,
     otherUserName: id,
     otherUserAvatar: "?",

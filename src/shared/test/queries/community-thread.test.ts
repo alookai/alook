@@ -58,8 +58,8 @@ describe("addThreadParticipants — bulk", () => {
     ]);
     expect(chain.insert).toHaveBeenCalledTimes(1); // single bulk insert, not N
     expect(values).toHaveBeenCalledWith([
-      { threadChannelId: "t1", userId: "u1", source: "spoke" },
-      { threadChannelId: "t1", userId: "u2", source: "mention" },
+      { channelId: "t1", userId: "u1", relation: "notify", source: "spoke" },
+      { channelId: "t1", userId: "u2", relation: "notify", source: "mention" },
     ]);
   });
 });
@@ -90,14 +90,14 @@ describe("listParticipatingThreadIds", () => {
   }
 
   it("returns [] without querying for an empty id list", async () => {
-    const db = whereMock([{ threadChannelId: "should_not_be_used" }]);
+    const db = whereMock([{ channelId: "should_not_be_used" }]);
     const res = await threadQueries.listParticipatingThreadIds(db, [], "u1");
     expect(res).toEqual([]);
     expect(db.select).not.toHaveBeenCalled();
   });
 
   it("returns the participating thread ids", async () => {
-    const db = whereMock([{ threadChannelId: "t1" }, { threadChannelId: "t3" }]);
+    const db = whereMock([{ channelId: "t1" }, { channelId: "t3" }]);
     const res = await threadQueries.listParticipatingThreadIds(db, ["t1", "t2", "t3"], "u1");
     expect(res).toEqual(["t1", "t3"]);
   });

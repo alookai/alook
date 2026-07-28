@@ -99,20 +99,21 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   })
 
   // Compose the DM card content. Fall back to a generic phrase when the
-  // caller has no server nickname — never leak a raw nickname of "" or the
-  // string "undefined".
-  const requesterLabel = callerMember.nickname?.trim() || "A friend"
+  // caller has no display name — never leak a raw name of "" or the string
+  // "undefined".
+  const caller = await queries.user.getUserSelf(db, ctx.userId)
+  const requesterLabel = caller?.name?.trim() || "A friend"
   const botName = target.name || "the bot"
   // Unified pipeline, broadcast-deferred: the card must not reach the owner
   // until the approval-request row commits (a rollback below would otherwise
   // leave a phantom, unactionable card). `skipMentions`/`skipWake` — a bot DM
   // card mentions no one and wakes no one. The returned `broadcast` thunk is
-  // never invoked; this route fires its own minimal `DM_NEW_MESSAGE` after the
+  // never invoked; this route fires its own minimal `MESSAGE_CREATE` after the
   // approval row persists.
   const created = await createCommunityMessage({
     db,
     authorId: botId,
-    target: { kind: "dm", dmId: dm.id, otherUserId: ownerId },
+    target: { kind: "dm", channelId: dm.id, otherUserId: ownerId },
     body: { content: `${requesterLabel} wants to add me to a server. Approve?` },
     skipMentions: true,
     skipWake: true,
@@ -165,15 +166,17 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     changes: JSON.stringify({ botId, serverId, requestedByUserId: ctx.userId }),
   })
 
-  // Fan-out the DM to the owner so their DM view updates.
+  // Fan-out the DM to the owner so their DM view updates. DMs are channels
+  // now — key the MESSAGE_CREATE by the DM's channel id.
   broadcastToUserSafe(ownerId, {
-    type: WS_EVENTS.DM_NEW_MESSAGE,
-    dmConversationId: dm.id,
+    type: WS_EVENTS.MESSAGE_CREATE,
+    channelId: dm.id,
     message: {
       id: msg.id,
       authorId: botId,
       authorName: botName,
       content: msg.content,
+      type: "chat",
       createdAt: msg.createdAt,
     },
   })

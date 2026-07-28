@@ -124,6 +124,23 @@ describe("WsControlChannel — resync on (re)connect", () => {
     expect(readyIdx).toBeLessThan(activityIdx);
   });
 
+  it("2b — tolerates a resync provider that omits `activities` (no crash, still sends ready + sessions)", async () => {
+    // Regression: `activities` is optional on ResyncProvider. A provider that
+    // returns only { ready, sessions } must not throw "activities is not
+    // iterable" — the resync loop treats a missing set as empty.
+    const { ch, sockets } = makeChannel();
+    const ready: HostReady = { runtimeReport: [{ id: "mock" }], runningAgents: ["a1"] };
+    ch.onResync(() => ({ ready, sessions: [{ agentId: "a1", sessionId: "s1", launchId: "l1" }] }));
+
+    ch.connect();
+    expect(() => sockets[0].emit("open")).not.toThrow();
+
+    const f = sockets[0].frames();
+    expect(f.some((x) => x.type === "ready")).toBe(true);
+    expect(f.some((x) => x.type === "agent_session" && x.agentId === "a1")).toBe(true);
+    expect(f.some((x) => x.type === "agent_activity")).toBe(false);
+  });
+
   it("does NOT replay a stale ready/session if the resync provider's state changed", async () => {
     const { ch, sockets } = makeChannel();
     let running = ["a1"];

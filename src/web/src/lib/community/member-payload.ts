@@ -7,7 +7,6 @@ export type MemberRow = {
   id: string
   userId: string
   role: string | null
-  nickname: string | null
   userName: string | null
   userImage: string | null
   discriminator: string | null
@@ -35,28 +34,20 @@ export type MappedMember = {
 }
 
 // The single canonical member-DTO mapper shared by every UI member-list
-// endpoint. Centralizes the `nickname ?? userName` display fallback, the
-// `avatarInitial` default, the self-→`online` status guess, the constant
-// `sub: ""` (the client `Member` type requires `sub: string`), and the
-// owner-scoped `isBot`/`ownerUserId` projection.
+// endpoint. Centralizes the `avatarInitial` default, the self-→`online` status
+// guess, the constant `sub: ""` (the client `Member` type requires `sub:
+// string`), and the owner-scoped `isBot`/`ownerUserId` projection.
 //
 // `botGating` is opt-in: only the server-members LIST route applies the
 // owner-scoped `isBot`/`ownerUserId` projection. The search route never emitted
 // bot fields (and doesn't select the columns), so it passes `botGating: false`
 // to stay byte-identical.
-export function memberDisplay(
-  nickname: string | null | undefined,
-  userName: string | null | undefined,
-): string {
-  return nickname ?? userName ?? ""
-}
-
 export function mapMemberForApi(
   row: MemberRow,
   viewerUserId: string,
   opts?: { botGating?: boolean; isCreator?: boolean; source?: string },
 ): MappedMember {
-  const display = memberDisplay(row.nickname, row.userName)
+  const display = row.userName ?? ""
   const isOwnBot =
     !!opts?.botGating &&
     row.userIsBot === true &&

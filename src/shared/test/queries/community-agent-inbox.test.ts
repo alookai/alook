@@ -32,13 +32,13 @@ function createSequentialDb(responses: unknown[][]) {
 describe("getLatestSeqForScope", () => {
   it("returns the counter's nextSeq when a row exists", async () => {
     const db = createSequentialDb([[{ nextSeq: 42 }]]);
-    const result = await agentInbox.getLatestSeqForScope(db, "channel:c1");
+    const result = await agentInbox.getLatestSeqForScope(db, "c1");
     expect(result).toBe(42);
   });
 
   it("returns 0 when no counter row exists yet (scope never messaged in)", async () => {
     const db = createSequentialDb([[]]);
-    const result = await agentInbox.getLatestSeqForScope(db, "channel:new");
+    const result = await agentInbox.getLatestSeqForScope(db, "new");
     expect(result).toBe(0);
   });
 });
@@ -50,7 +50,6 @@ function rawMsg(overrides: Partial<Record<string, unknown>> = {}) {
     content: "hello",
     createdAt: "2026-07-01T00:00:00.000Z",
     channelId: "ch_1",
-    dmConversationId: null,
     seq: 1,
     replyToId: null,
     ...overrides,
@@ -107,20 +106,21 @@ describe("toAgentMessages", () => {
   });
 
   it("hydrates a DM message, addressing the OTHER party (as a name#0042 handle) relative to viewerId", async () => {
-    // Call order: 1. dms query (channels query skipped, channelIds empty),
-    // 2. author names (outer Promise.all's 2nd slot — evaluated synchronously
-    // right after resolveScopeRefs' own internal await yields), 3. the DM-peer
-    // name+discriminator lookup (resolveScopeRefs, after its first internal
-    // Promise.all resolves — parentChannels/servers/parentMessages stay
-    // skipped, no channel scopes at all).
+    // A DM is a type=dm channel now, so it flows through the SAME `channels`
+    // query as any other scope. Call order: 1. channels query (returns the
+    // type=dm channel), 2. author names (outer Promise.all's 2nd slot), 3. the
+    // DM-peer access-member lookup (the OTHER relation='access' member),
+    // 4. that peer's name+discriminator lookup. servers/parentChannels/
+    // parentMessages stay skipped (DM has serverId null, no parent).
     const db = createSequentialDb([
-      [{ id: "dm_1", user1Id: "viewer_1", user2Id: "peer_1" }],
+      [{ id: "dm_ch_1", name: null, type: "dm", serverId: null, parentChannelId: null, parentMessageId: null }],
       [{ id: "u_1", name: "Alice", discriminator: "1234" }],
+      [{ channelId: "dm_ch_1", userId: "peer_1" }],
       [{ id: "peer_1", name: "Bob", discriminator: "9999" }],
     ]);
     const [msg] = await agentInbox.toAgentMessages(
       db,
-      [rawMsg({ channelId: null, dmConversationId: "dm_1" })],
+      [rawMsg({ channelId: "dm_ch_1" })],
       "viewer_1"
     );
     expect(msg!.channel).toBe(formatRef({ server: DM_SERVER, channel: "Bob#9999" }));
@@ -164,16 +164,20 @@ describe("toAgentMessages", () => {
   });
 
   it("read/DM scope: a DM reply resolves the peer's seq + handle correctly", async () => {
-    // Call order: 0 dms, 1 author names, 2 reply-scope query, 3 DM-peer lookup.
+    // A DM is a type=dm channel. Synchronous call phase: 0 channels (returns
+    // the type=dm channel), 1 author names, 2 reply-scope query; then
+    // resolveScopeRefs resumes: 3 DM-peer access-member lookup, 4 that peer's
+    // name+discriminator lookup.
     const db = createSequentialDb([
-      [{ id: "dm_1", user1Id: "viewer_1", user2Id: "peer_1" }],
+      [{ id: "dm_ch_1", name: null, type: "dm", serverId: null, parentChannelId: null, parentMessageId: null }],
       [{ id: "u_1", name: "Alice", discriminator: "1234" }],
       [{ id: "m_target", seq: 8, authorName: "Bob", discriminator: "9999" }],
+      [{ channelId: "dm_ch_1", userId: "peer_1" }],
       [{ id: "peer_1", name: "Bob", discriminator: "9999" }],
     ]);
     const [msg] = await agentInbox.toAgentMessages(
       db,
-      [rawMsg({ channelId: null, dmConversationId: "dm_1", replyToId: "m_target" })],
+      [rawMsg({ channelId: "dm_ch_1", replyToId: "m_target" })],
       "viewer_1"
     );
     expect(msg!.content.replyTo).toEqual({ seq: formatSeq(8), sender: "@Bob#9999" });
@@ -308,16 +312,19 @@ describe("listUnreadMessagesForAgent", () => {
   //  1. `listVisibleChannelIdsForUser` → server-memberships query
   //  2. `listVisibleChannelIdsForUser` → channels+category join
   //  3. `listVisibleChannelIdsForUser` → viewer's channel-member rows
-  //  4. Visible-channel types lookup (skipped when visible set is empty)
-  //  5. `listParticipatingThreadIds` (skipped when no narrow types among visible)
-  //  6. The messages SQL itself
+  //  4. DM channels the bot has an access row on (DMs are channels now, not
+  //     covered by the server-membership walk above)
+  //  5. Visible-channel types lookup (skipped when visible set is empty)
+  //  6. `listParticipatingThreadIds` (skipped when no narrow types among visible)
+  //  7. The messages SQL itself (select index 5)
   it("strips the internal lastReadSeq column before returning rows", async () => {
     const db = createSequentialDb([
       [{ serverId: "srv_1" }], // 1. membership
       [{ id: "ch_1", type: "text", categoryId: null, categoryPrivate: null, creatorId: "u_other", parentChannelId: null }], // 2. channels
       [], // 3. viewer memberChannelIds
-      [{ id: "ch_1", type: "text" }], // 4. types of visible channels
-      [{ ...rawMsg(), lastReadSeq: 0 }], // 5. messages (no narrow types → no participant query)
+      [], // 4. DM access channels
+      [{ id: "ch_1", type: "text" }], // 5. types of visible channels
+      [{ ...rawMsg(), lastReadSeq: 0 }], // 6. messages (no narrow types → no participant query)
     ]);
     const result = await agentInbox.listUnreadMessagesForAgent(db, "bot_1", { max: 50 });
     expect(result).toEqual([rawMsg()]);
@@ -329,31 +336,35 @@ describe("listUnreadMessagesForAgent", () => {
       [{ serverId: "srv_1" }],
       [{ id: "ch_1", type: "text", categoryId: null, categoryPrivate: null, creatorId: "u_other", parentChannelId: null }],
       [],
+      [], // DM access channels
       [{ id: "ch_1", type: "text" }],
       [],
     ]);
     await agentInbox.listUnreadMessagesForAgent(db, "bot_1", { max: 17 });
-    // The 5th `db.select(...)` chain is the message query — that's where `.limit` lands.
-    const chainResult = db.select.mock.results[4]!.value;
+    // The 6th `db.select(...)` chain is the message query — that's where `.limit` lands.
+    const chainResult = db.select.mock.results[5]!.value;
     expect(chainResult.limit).toHaveBeenCalledWith(17);
   });
 
-  it("joins only dm + read-state on the messages SQL (visibility & participation are pre-narrowed)", async () => {
+  it("joins read-state + channel + channel-member + server-member on the messages SQL (visibility & participation are pre-narrowed)", async () => {
     const db = createSequentialDb([
       [{ serverId: "srv_1" }],
       [{ id: "ch_1", type: "text", categoryId: null, categoryPrivate: null, creatorId: "u_other", parentChannelId: null }],
       [],
+      [], // DM access channels
       [{ id: "ch_1", type: "text" }],
       [],
     ]);
     await agentInbox.listUnreadMessagesForAgent(db, "bot_1", { max: 50 });
 
-    const chainResult = db.select.mock.results[4]!.value;
-    // dm + read-state, plus the 3 join-baseline joins (channel + channel-member
-    // + server-member) that back the `createdAt > joinedAt` guard so a freshly
-    // joined bot isn't flooded with pre-join history. Visibility/participation
-    // is still pre-narrowed in `listAgentAllowedChannelIds` up front.
-    expect(chainResult.leftJoin).toHaveBeenCalledTimes(5);
+    const chainResult = db.select.mock.results[5]!.value;
+    // read-state + channel + channel-member (relation='access') + server-member.
+    // No dm-conversation join — DMs are channels now, resolved via the
+    // channel-member join. The channel + channel-member + server-member joins
+    // back the `createdAt > joinedAt` baseline guard so a freshly joined bot
+    // isn't flooded with pre-join history. Visibility/participation is still
+    // pre-narrowed in `listAgentAllowedChannelIds` up front.
+    expect(chainResult.leftJoin).toHaveBeenCalledTimes(4);
     expect(chainResult.leftJoin.mock.invocationCallOrder[0]).toBeLessThan(
       chainResult.where.mock.invocationCallOrder[0]
     );
@@ -373,6 +384,7 @@ describe("listUnreadMessagesForAgent", () => {
         { id: "ch_b_thread", type: "thread", categoryId: null, categoryPrivate: null, creatorId: "u_other", parentChannelId: "ch_a" },
       ],
       [],
+      [], // DM access channels
       [
         { id: "ch_a", type: "text" },
         { id: "ch_b_thread", type: "thread" },
@@ -392,21 +404,23 @@ describe("listUnreadMessagesForAgent", () => {
         { id: "ch_b_thread", type: "thread", categoryId: null, categoryPrivate: null, creatorId: "u_other", parentChannelId: "ch_a" },
       ],
       [],
+      [], // DM access channels
       [
         { id: "ch_a", type: "text" },
         { id: "ch_b_thread", type: "thread" },
       ],
-      [{ threadChannelId: "ch_b_thread" }], // participant row exists
+      [{ channelId: "ch_b_thread" }], // participant (notify) row exists
       [{ ...rawMsg({ id: "m_b", channelId: "ch_b_thread" }), lastReadSeq: 0 }],
     ]);
     const result = await agentInbox.listUnreadMessagesForAgent(db, "bot_1", { max: 50 });
     expect(result.map((r) => r.id)).toEqual(["m_b"]);
   });
 
-  it("returns [] without hitting the messages SQL when the bot has no server memberships", async () => {
+  it("returns [] without hitting the channel messages SQL when the bot has no server memberships or DM channels", async () => {
     const db = createSequentialDb([
       [], // no memberships → listVisibleChannelIdsForUser returns []
-      [{ ...rawMsg(), lastReadSeq: 0 }], // messages SQL (only DM branch could return, guarded by 1=0 on channel side in real SQL)
+      [], // DM access channels: none either → allowedChannelIds empty
+      [{ ...rawMsg(), lastReadSeq: 0 }], // messages SQL (guarded by 1=0 in real SQL when allowed set empty)
     ]);
     const result = await agentInbox.listUnreadMessagesForAgent(db, "bot_1", { max: 50 });
     expect(Array.isArray(result)).toBe(true);
@@ -417,14 +431,16 @@ describe("getLatestUnreadMessageForAgent", () => {
   // Call order (same visibility+participation prelude as
   // listUnreadMessagesForAgent, then a single-row messages SQL):
   //  1-3. `listVisibleChannelIdsForUser`
-  //  4. Visible-channel types lookup
-  //  5. `listParticipatingThreadIds` (only if narrow types among visible)
-  //  6. The messages SQL — `ORDER BY createdAt DESC LIMIT 1`
+  //  4. DM channels the bot has an access row on
+  //  5. Visible-channel types lookup
+  //  6. `listParticipatingThreadIds` (only if narrow types among visible)
+  //  7. The messages SQL — `ORDER BY createdAt DESC LIMIT 1` (select index 5)
   it("returns null when there's no unread anywhere", async () => {
     const db = createSequentialDb([
       [{ serverId: "srv_1" }],
       [{ id: "ch_1", type: "text", categoryId: null, categoryPrivate: null, creatorId: "u_other", parentChannelId: null }],
       [],
+      [], // DM access channels
       [{ id: "ch_1", type: "text" }],
       [],
     ]);
@@ -437,6 +453,7 @@ describe("getLatestUnreadMessageForAgent", () => {
       [{ serverId: "srv_1" }],
       [{ id: "ch_1", type: "text", categoryId: null, categoryPrivate: null, creatorId: "u_other", parentChannelId: null }],
       [],
+      [], // DM access channels
       [{ id: "ch_1", type: "text" }],
       [{ id: "m_latest" }],
     ]);
@@ -455,6 +472,7 @@ describe("getLatestUnreadMessageForAgent", () => {
         { id: "ch_text", type: "text", categoryId: null, categoryPrivate: null, creatorId: "u_other", parentChannelId: null },
       ],
       [],
+      [], // DM access channels
       [
         { id: "ch_thread", type: "thread" },
         { id: "ch_text", type: "text" },
@@ -471,28 +489,30 @@ describe("getLatestUnreadMessageForAgent", () => {
       [{ serverId: "srv_1" }],
       [{ id: "ch_1", type: "text", categoryId: null, categoryPrivate: null, creatorId: "u_other", parentChannelId: null }],
       [],
+      [], // DM access channels
       [{ id: "ch_1", type: "text" }],
       [],
     ]);
     await agentInbox.getLatestUnreadMessageForAgent(db, "bot_1");
-    const chainResult = db.select.mock.results[4]!.value;
+    const chainResult = db.select.mock.results[5]!.value;
     expect(chainResult.orderBy).toHaveBeenCalledTimes(1);
     expect(chainResult.limit).toHaveBeenCalledWith(1);
   });
 
-  it("joins only dm + read-state on the messages SQL (visibility & participation are pre-narrowed)", async () => {
+  it("joins read-state + channel + channel-member + server-member on the messages SQL (visibility & participation are pre-narrowed)", async () => {
     const db = createSequentialDb([
       [{ serverId: "srv_1" }],
       [{ id: "ch_1", type: "text", categoryId: null, categoryPrivate: null, creatorId: "u_other", parentChannelId: null }],
       [],
+      [], // DM access channels
       [{ id: "ch_1", type: "text" }],
       [],
     ]);
     await agentInbox.getLatestUnreadMessageForAgent(db, "bot_1");
-    const chainResult = db.select.mock.results[4]!.value;
-    // dm + read-state + the 3 join-baseline joins (channel, channel-member,
-    // server-member) backing the `createdAt > joinedAt` guard.
-    expect(chainResult.leftJoin).toHaveBeenCalledTimes(5);
+    const chainResult = db.select.mock.results[5]!.value;
+    // read-state + channel + channel-member + server-member. No dm-conversation
+    // join — DMs are channels now.
+    expect(chainResult.leftJoin).toHaveBeenCalledTimes(4);
     expect(chainResult.leftJoin.mock.invocationCallOrder[0]).toBeLessThan(
       chainResult.where.mock.invocationCallOrder[0]
     );
@@ -501,27 +521,28 @@ describe("getLatestUnreadMessageForAgent", () => {
 
 describe("resolveUnreadNoticeChannel", () => {
   it("DM scope: produces a handle-based ref (/.dm/name#0042), not a raw peerId", async () => {
-    // Call order: 1. the dm-conversation row, 2. the peer's name+discriminator.
+    // A DM is a type=dm channel. Call order: 1. the channel row (type=dm),
+    // 2. the OTHER relation='access' member joined to `user` for name+discriminator.
     const db = createSequentialDb([
-      [{ id: "dm_1", user1Id: "bot_1", user2Id: "peer_1" }],
+      [{ id: "dm_ch_1", name: null, type: "dm", serverId: null, parentChannelId: null, parentMessageId: null }],
       [{ name: "Bob", discriminator: "9999" }],
     ]);
-    const result = await agentInbox.resolveUnreadNoticeChannel(db, { dmConversationId: "dm_1" }, "bot_1");
+    const result = await agentInbox.resolveUnreadNoticeChannel(db, { channelId: "dm_ch_1" }, "bot_1");
     expect(result).toBe(formatRef({ server: DM_SERVER, channel: "Bob#9999" }));
   });
 
-  it("DM scope: null when the dm conversation itself doesn't resolve", async () => {
+  it("DM scope: null when the channel itself doesn't resolve", async () => {
     const db = createSequentialDb([[]]);
-    const result = await agentInbox.resolveUnreadNoticeChannel(db, { dmConversationId: "dm_gone" }, "bot_1");
+    const result = await agentInbox.resolveUnreadNoticeChannel(db, { channelId: "dm_gone" }, "bot_1");
     expect(result).toBeNull();
   });
 
   it("DM scope: null (never a bare-peerId placeholder) when the peer no longer resolves to a name+discriminator", async () => {
     const db = createSequentialDb([
-      [{ id: "dm_1", user1Id: "bot_1", user2Id: "peer_1" }],
-      [], // peer row missing (e.g. hard-deleted)
+      [{ id: "dm_ch_1", name: null, type: "dm", serverId: null, parentChannelId: null, parentMessageId: null }],
+      [], // peer access-member row missing (e.g. hard-deleted)
     ]);
-    const result = await agentInbox.resolveUnreadNoticeChannel(db, { dmConversationId: "dm_1" }, "bot_1");
+    const result = await agentInbox.resolveUnreadNoticeChannel(db, { channelId: "dm_ch_1" }, "bot_1");
     expect(result).toBeNull();
   });
 });
@@ -529,15 +550,17 @@ describe("resolveUnreadNoticeChannel", () => {
 describe("getInboxSnapshotForAgent", () => {
   // Call order:
   //  1-3. `listVisibleChannelIdsForUser` (memberships, channels, viewer members)
-  //  4. Visible-channel types lookup
-  //  5. `listParticipatingThreadIds` (skipped when no narrow types among visible)
-  //  6. The snapshot aggregation SQL
-  //  7. sender-name hydration
+  //  4. DM channels the bot has an access row on
+  //  5. Visible-channel types lookup
+  //  6. `listParticipatingThreadIds` (skipped when no narrow types among visible)
+  //  7. The snapshot aggregation SQL (select index 5)
+  //  8. sender-name hydration
   it("returns [] and skips the user-name lookup when there's no pending unread", async () => {
     const db = createSequentialDb([
       [{ serverId: "srv_1" }],
       [{ id: "ch_1", type: "text", categoryId: null, categoryPrivate: null, creatorId: "u_other", parentChannelId: null }],
       [],
+      [], // DM access channels
       [{ id: "ch_1", type: "text" }],
       [],
     ]);
@@ -553,6 +576,7 @@ describe("getInboxSnapshotForAgent", () => {
         { id: "ch_2", type: "text", categoryId: null, categoryPrivate: null, creatorId: "u_other", parentChannelId: null },
       ],
       [],
+      [], // DM access channels
       [
         { id: "ch_1", type: "text" },
         { id: "ch_2", type: "text" },
@@ -560,7 +584,6 @@ describe("getInboxSnapshotForAgent", () => {
       [
         {
           channelId: "ch_1",
-          dmConversationId: null,
           pendingCount: 3,
           firstPendingSeq: 5,
           latestSeq: 7,
@@ -569,7 +592,6 @@ describe("getInboxSnapshotForAgent", () => {
         },
         {
           channelId: "ch_2",
-          dmConversationId: null,
           pendingCount: 1,
           firstPendingSeq: 9,
           latestSeq: 9,
@@ -586,7 +608,6 @@ describe("getInboxSnapshotForAgent", () => {
     expect(result).toEqual([
       {
         channelId: "ch_1",
-        dmConversationId: null,
         pendingCount: 3,
         firstPendingSeq: 5,
         latestSeq: 7,
@@ -595,7 +616,6 @@ describe("getInboxSnapshotForAgent", () => {
       },
       {
         channelId: "ch_2",
-        dmConversationId: null,
         pendingCount: 1,
         firstPendingSeq: 9,
         latestSeq: 9,
@@ -619,6 +639,7 @@ describe("getInboxSnapshotForAgent", () => {
         { id: "ch_thread", type: "thread", categoryId: null, categoryPrivate: null, creatorId: "u_other", parentChannelId: null },
       ],
       [],
+      [], // DM access channels
       [{ id: "ch_thread", type: "thread" }],
       [], // participant lookup: not a participant → ch_thread dropped from allowed
       [], // aggregation SQL: allowedChannelIds is [], WHERE has 1=0, no rows survive
@@ -627,20 +648,21 @@ describe("getInboxSnapshotForAgent", () => {
     expect(result).toEqual([]);
   });
 
-  it("joins only dm + read-state on the aggregation SQL (visibility & participation are pre-narrowed)", async () => {
+  it("joins read-state + channel + channel-member + server-member on the aggregation SQL (visibility & participation are pre-narrowed)", async () => {
     const db = createSequentialDb([
       [{ serverId: "srv_1" }],
       [{ id: "ch_1", type: "text", categoryId: null, categoryPrivate: null, creatorId: "u_other", parentChannelId: null }],
       [],
+      [], // DM access channels
       [{ id: "ch_1", type: "text" }],
       [],
     ]);
     await agentInbox.getInboxSnapshotForAgent(db, "bot_1");
 
-    const chainResult = db.select.mock.results[4]!.value;
-    // dm + read-state + the 3 join-baseline joins (channel, channel-member,
-    // server-member) backing the `createdAt > joinedAt` guard.
-    expect(chainResult.leftJoin).toHaveBeenCalledTimes(5);
+    const chainResult = db.select.mock.results[5]!.value;
+    // read-state + channel + channel-member + server-member. No dm-conversation
+    // join — DMs are channels now.
+    expect(chainResult.leftJoin).toHaveBeenCalledTimes(4);
     expect(chainResult.leftJoin.mock.invocationCallOrder[0]).toBeLessThan(
       chainResult.where.mock.invocationCallOrder[0]
     );
@@ -656,11 +678,13 @@ describe("toInboxRows", () => {
   });
 
   it("sets dm/thread/mention flags based on the row shape", async () => {
-    // Row 1: a DM row with a mention. Row 2: a thread-channel row, no mention.
+    // Row 1: a DM channel (type=dm) with a mention. Row 2: a thread-channel
+    // row, no mention. DMs are channels now, so BOTH rows resolve through
+    // `resolveScopeRefs`'s single `channels` query — there is no separate dms
+    // query, and the `dm` flag comes from `scope.isDm` (channel type=dm).
     const rows: agentInbox.InboxSnapshotRow[] = [
       {
-        channelId: null,
-        dmConversationId: "dm_1",
+        channelId: "dm_ch_1",
         pendingCount: 2,
         firstPendingSeq: 1,
         latestSeq: 2,
@@ -669,7 +693,6 @@ describe("toInboxRows", () => {
       },
       {
         channelId: "thread_1",
-        dmConversationId: null,
         pendingCount: 1,
         firstPendingSeq: 10,
         latestSeq: 10,
@@ -677,13 +700,16 @@ describe("toInboxRows", () => {
         hasMention: false,
       },
     ];
-    // Call order: 1. channels query (channelIds=[thread_1]), 2. dms query
-    // (dmIds=[dm_1]), 3. DM-peer name+discriminator lookup (dmPeerIds=[peer_1],
-    // awaited right after the first internal Promise.all resolves — NOT part
-    // of that Promise.all itself), 4. parentChannels, 5. servers, 6. parentMessages.
+    // Call order (resolveScopeRefs): 1. channels query (channelIds=[dm_ch_1,
+    // thread_1]), 2. the DM-peer access-member lookup (the OTHER member),
+    // 3. that peer's name+discriminator lookup, 4. parentChannels, 5. servers,
+    // 6. parentMessages.
     const db = createSequentialDb([
-      [{ id: "thread_1", name: "thread-x", serverId: "srv_1", parentChannelId: "ch_parent", parentMessageId: "m_root" }],
-      [{ id: "dm_1", user1Id: "viewer_1", user2Id: "peer_1" }],
+      [
+        { id: "dm_ch_1", name: null, type: "dm", serverId: null, parentChannelId: null, parentMessageId: null },
+        { id: "thread_1", name: "thread-x", type: "thread", serverId: "srv_1", parentChannelId: "ch_parent", parentMessageId: "m_root" },
+      ],
+      [{ channelId: "dm_ch_1", userId: "peer_1" }],
       [{ id: "peer_1", name: "Bob", discriminator: "9999" }],
       [{ id: "ch_parent", name: "general" }],
       [{ id: "srv_1", name: "studio" }],

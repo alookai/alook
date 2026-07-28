@@ -18,7 +18,6 @@ import type {
   CommunityPresenceUpdate,
   CommunityStatusUpdate,
   CommunityMentionCreate,
-  CommunityDmNewMessage,
   CommunityServerUpdate,
   CommunityServerDelete,
   CommunityChannelCreate,
@@ -991,43 +990,53 @@ describe("useCommunityWs — channel.* invalidates server(id)", () => {
   })
 })
 
-describe("useCommunityWs — DM new_message", () => {
+describe("useCommunityWs — DM message.create", () => {
   it("patches dmMessages cache when focused + invalidates dms()", async () => {
-    await mountHook()
-    const { useCommunityStore } = await import("@/stores/community")
-    useCommunityStore.getState().subscribe({ dmConversationId: "dm_1" })
-    refCounter = 0
-    stateCounter = 0
-    callbackCounter = 0
-    await mountHook()
+    vi.useFakeTimers()
+    try {
+      await mountHook()
+      const { useCommunityStore } = await import("@/stores/community")
+      useCommunityStore.getState().subscribe({ dmConversationId: "dm_1" })
+      refCounter = 0
+      stateCounter = 0
+      callbackCounter = 0
+      await mountHook()
 
-    capturedQueryClient.setQueryData(communityKeys.dmMessages("dm_1"), {
-      pages: [{ messages: [], hasMore: false }],
-      pageParams: [null],
-    })
-    const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
-    const event: CommunityDmNewMessage = {
-      type: "community:dm.new_message",
-      dmConversationId: "dm_1",
-      message: {
-        id: "dm_m_1",
-        authorId: "u_a",
-        authorName: "a",
-        content: "hi",
-        createdAt: "2026-07-03T00:00:00.000Z",
-      },
+      capturedQueryClient.setQueryData(communityKeys.dmMessages("dm_1"), {
+        pages: [{ messages: [], hasMore: false }],
+        pageParams: [null],
+      })
+      const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+      // A DM is a channel now — its message arrives as `message.create` keyed by
+      // the DM's channel id (which the subscription tracks in `dmConversationId`).
+      const event: CommunityMessageCreate = {
+        type: "community:message.create",
+        channelId: "dm_1",
+        message: {
+          id: "dm_m_1",
+          authorId: "u_a",
+          authorName: "a",
+          content: "hi",
+          type: "chat",
+          createdAt: "2026-07-03T00:00:00.000Z",
+        },
+      }
+      capturedOnMessage!(event)
+      const cache = capturedQueryClient.getQueryData<{ pages: { messages: { id: string }[] }[] }>(
+        communityKeys.dmMessages("dm_1"),
+      )
+      expect(cache?.pages[0].messages).toHaveLength(1)
+      // The inbox + `dms()` invalidation is batched behind the inbox debounce.
+      vi.advanceTimersByTime(600)
+      expect(
+        spy.mock.calls.some((c) => {
+          const key = c[0]?.queryKey as unknown[] | undefined
+          return Array.isArray(key) && key.includes("dms")
+        }),
+      ).toBe(true)
+    } finally {
+      vi.useRealTimers()
     }
-    capturedOnMessage!(event)
-    const cache = capturedQueryClient.getQueryData<{ pages: { messages: { id: string }[] }[] }>(
-      communityKeys.dmMessages("dm_1"),
-    )
-    expect(cache?.pages[0].messages).toHaveLength(1)
-    expect(
-      spy.mock.calls.some((c) => {
-        const key = c[0]?.queryKey as unknown[] | undefined
-        return Array.isArray(key) && key.includes("dms")
-      }),
-    ).toBe(true)
   })
 })
 
@@ -1151,15 +1160,16 @@ describe("useCommunityWs — typing.start honours focus (no DM leak)", () => {
 
     const event: CommunityTypingStart = {
       type: "community:typing.start",
-      dmConversationId: "dm_other",
+      channelId: "dm_other",
       userId: "u_other",
     }
     capturedOnMessage!(event)
 
-    // Focus is on ch_1, so the DM-only typing.start is dropped entirely — no
-    // scope gains a typer.
+    // Focus is on ch_1, so the unfocused DM channel's typing.start is dropped
+    // entirely — no scope gains a typer.
     const state = useCommunityStore.getState()
     expect(state.typingByScope.get("dm:dm_other")).toBeUndefined()
+    expect(state.typingByScope.get("ch:dm_other")).toBeUndefined()
     expect(state.typingByScope.get("ch:ch_1")).toBeUndefined()
   })
 
@@ -1197,9 +1207,12 @@ describe("useCommunityWs — typing state is scoped per conversation", () => {
     callbackCounter = 0
     await mountHook({ viewerUserId: "u_me" })
 
+    // A DM is a channel — typing arrives as `typing.start` keyed by the DM's
+    // channel id. The scope key resolves to `dm:` because the subscription's
+    // `dmConversationId` slot holds that channel id.
     capturedOnMessage!({
-      type: "community:dm.typing",
-      dmConversationId: "dm_1",
+      type: "community:typing.start",
+      channelId: "dm_1",
       userId: "u_peer",
     })
 
@@ -1211,7 +1224,7 @@ describe("useCommunityWs — typing state is scoped per conversation", () => {
     expect(state.typingTimers.has("dm:dm_1|u_peer")).toBe(true)
   })
 
-  it("bot DM reply (message.create carrying dmConversationId) clears the DM pill, not ch:undefined", async () => {
+  it("bot DM reply (message.create on a DM channel) clears the DM pill, in the dm: scope", async () => {
     await mountHook({ viewerUserId: "u_me" })
     const { useCommunityStore } = await import("@/stores/community")
     useCommunityStore.getState().subscribe({ dmConversationId: "dm_bot" })
@@ -1220,34 +1233,35 @@ describe("useCommunityWs — typing state is scoped per conversation", () => {
     callbackCounter = 0
     await mountHook({ viewerUserId: "u_me" })
 
-    // Bot is "typing" in the DM.
+    // Bot is "typing" in the DM (typing.start on the DM channel).
     capturedOnMessage!({
-      type: "community:dm.typing",
-      dmConversationId: "dm_bot",
+      type: "community:typing.start",
+      channelId: "dm_bot",
       userId: "u_bot",
     })
     expect([...(useCommunityStore.getState().typingByScope.get("dm:dm_bot") ?? [])]).toEqual([
       "u_bot",
     ])
 
-    // Its reply arrives as message.create WITH dmConversationId (no channelId) —
-    // the dual-axis case. The scope key must resolve to dm:dm_bot, clearing the
-    // pill. A regression (hardcoded ch:) would target ch:undefined and leave it.
+    // Its reply arrives as message.create on the same DM channel. The scope key
+    // must resolve to dm:dm_bot (via the subscription), clearing the pill — not
+    // leak into a ch: bucket.
     capturedOnMessage!({
       type: "community:message.create",
-      dmConversationId: "dm_bot",
+      channelId: "dm_bot",
       message: {
         id: "m_bot_reply",
         authorId: "u_bot",
         authorName: "bot",
         content: "done",
+        type: "chat",
         createdAt: "2026-07-03T00:00:00.000Z",
       },
     } as CommunityMessageCreate)
 
     const state = useCommunityStore.getState()
     expect(state.typingByScope.get("dm:dm_bot")).toBeUndefined()
-    expect(state.typingByScope.get("ch:undefined")).toBeUndefined()
+    expect(state.typingByScope.get("ch:dm_bot")).toBeUndefined()
     expect(state.typingTimers.has("dm:dm_bot|u_bot")).toBe(false)
   })
 })
@@ -1350,7 +1364,7 @@ describe("useCommunityWs — does NOT auto-mark-read on WS message.create", () =
     expect(markReadMutate).not.toHaveBeenCalled()
   })
 
-  it("does NOT call markRead for a DM new_message either", async () => {
+  it("does NOT call markRead for a DM message.create either", async () => {
     await mountHook({ viewerUserId: "u_me" })
     const { useCommunityStore } = await import("@/stores/community")
     useCommunityStore.getState().subscribe({ dmConversationId: "dm_1" })
@@ -1359,14 +1373,15 @@ describe("useCommunityWs — does NOT auto-mark-read on WS message.create", () =
     callbackCounter = 0
     await mountHook({ viewerUserId: "u_me" })
 
-    const event: CommunityDmNewMessage = {
-      type: "community:dm.new_message",
-      dmConversationId: "dm_1",
+    const event: CommunityMessageCreate = {
+      type: "community:message.create",
+      channelId: "dm_1",
       message: {
         id: "dm_m_1",
         authorId: "u_a",
         authorName: "a",
         content: "hi",
+        type: "chat",
         createdAt: "2026-07-03T00:00:00.000Z",
       },
     }

@@ -571,13 +571,12 @@ export interface UnreadNotice {
   /** The high-water seq that triggered this notice, for `AgentMsg.seq`. */
   latestSeq: Seq;
   /**
-   * When the notice targets a DM, the DM's conversation id. Populated
-   * server-side (`buildUnreadWakeCommand`) so the daemon can emit
-   * `agent_typing` frames for the correct DM scope without parsing
-   * `channel: ChannelRef` (a peer-handle path). Absent for channel/thread
-   * wakes — bot typing is DM-only for now.
+   * The scope's channel id. Populated server-side
+   * (`buildUnreadWakeCommand`) so the daemon can emit `agent_typing` frames
+   * for the correct channel scope without parsing `channel: ChannelRef` (a
+   * peer-handle path for DMs). Present for every wake — a DM is a channel now.
    */
-  dmConversationId?: string;
+  channelId?: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -817,17 +816,17 @@ export interface HostControlChannel {
    */
   reportAgentActivity?(info: { agentId: AgentId; state: AgentActivityState }): Promise<void>;
   /**
-   * Emit an `agent_typing` frame for the given (agentId, dmConversationId)
-   * scope — the daemon-metered heartbeat that keeps the "bot is typing…" pill
-   * lit for a working bot. Optional so LocalControlChannel can omit.
+   * Emit an `agent_typing` frame for the given (agentId, channelId) scope —
+   * the daemon-metered heartbeat that keeps the "bot is typing…" pill lit for
+   * a working bot. Optional so LocalControlChannel can omit.
    */
-  reportAgentTyping?(info: { agentId: AgentId; dmConversationId: string }): void;
+  reportAgentTyping?(info: { agentId: AgentId; channelId: string }): void;
   /**
    * Emit an `agent_typing_stop` frame for the given scope — one-shot on turn
    * end so the pill disappears immediately instead of dangling until the
    * client's 8s auto-expire. Optional so LocalControlChannel can omit.
    */
-  reportAgentTypingStop?(info: { agentId: AgentId; dmConversationId: string }): void;
+  reportAgentTypingStop?(info: { agentId: AgentId; channelId: string }): void;
   /**
    * Report a bot audit event (cli_invocation | tool_call | thinking) upward.
    * Optional so LocalControlChannel can omit — matches `reportAgentActivity?`

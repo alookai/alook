@@ -6,7 +6,6 @@ function row(overrides: Partial<MemberRow> = {}): MemberRow {
     id: "m1",
     userId: "u1",
     role: "member",
-    nickname: null,
     userName: "Ann",
     userImage: null,
     discriminator: "0001",
@@ -17,12 +16,12 @@ function row(overrides: Partial<MemberRow> = {}): MemberRow {
 }
 
 describe("mapMemberForApi", () => {
-  it("produces the canonical display shape with sub, defaults, and nickname fallback", () => {
-    const m = mapMemberForApi(row({ nickname: "Annie" }), "viewer")
+  it("produces the canonical display shape with sub and defaults from userName", () => {
+    const m = mapMemberForApi(row(), "viewer")
     expect(m).toMatchObject({
       id: "m1",
       userId: "u1",
-      name: "Annie", // nickname wins over userName
+      name: "Ann", // display collapses to userName
       discriminator: "0001",
       status: "offline",
       sub: "",
@@ -40,8 +39,8 @@ describe("mapMemberForApi", () => {
     expect(mapMemberForApi(row({ userId: "viewer" }), "viewer").status).toBe("online")
   })
 
-  it("falls back to userName then avatarInitial when nickname/image absent", () => {
-    const m = mapMemberForApi(row({ nickname: null, userName: "Zed", userImage: null }), "viewer")
+  it("falls back to avatarInitial when image absent", () => {
+    const m = mapMemberForApi(row({ userName: "Zed", userImage: null }), "viewer")
     expect(m.name).toBe("Zed")
     expect(m.avatar).toBeTruthy()
   })

@@ -2,14 +2,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
 const mockRunAttachmentUpload = vi.fn()
-const mockRequireDMParticipant = vi.fn()
+const mockRequireDMAccess = vi.fn()
 
 vi.mock("@/lib/community/upload", () => ({
   runAttachmentUpload: (...a: unknown[]) => mockRunAttachmentUpload(...a),
 }))
 
 vi.mock("@/lib/community/permissions", () => ({
-  requireDMParticipant: (...a: unknown[]) => mockRequireDMParticipant(...a),
+  requireDMAccess: (...a: unknown[]) => mockRequireDMAccess(...a),
 }))
 
 vi.mock("@/lib/middleware/auth", () => ({
@@ -37,9 +37,9 @@ describe("POST /api/community/dm/[id]/upload", () => {
     )
   })
 
-  it("delegates to runAttachmentUpload with kind='dm' + requireDMParticipant", async () => {
+  it("delegates to runAttachmentUpload with kind='dm' + requireDMAccess", async () => {
     // DM uploads must go through the DM-scoped permission check, which also
-    // enforces the block relationship. Any drift away from requireDMParticipant
+    // enforces the block relationship. Any drift away from requireDMAccess
     // would silently open uploads to a blocked counterpart — pin the binding.
     const req = postReq()
     await POST(req, ctx)
@@ -50,10 +50,10 @@ describe("POST /api/community/dm/[id]/upload", () => {
     expect(passedCtx).toMatchObject({ userId: "u1", params: { id: "d1" } })
     expect(kind).toBe("dm")
     // Invoke the passed permission-check reference and observe the underlying
-    // mock — pins the route to `requireDMParticipant` (a swap to another
+    // mock — pins the route to `requireDMAccess` (a swap to another
     // helper would hit a different mock).
     await (permCheck as (...a: unknown[]) => unknown)("db", "d1", "u1")
-    expect(mockRequireDMParticipant).toHaveBeenCalledWith("db", "d1", "u1")
+    expect(mockRequireDMAccess).toHaveBeenCalledWith("db", "d1", "u1")
   })
 
   it("returns whatever runAttachmentUpload returns unchanged", async () => {

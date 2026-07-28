@@ -257,7 +257,7 @@ describe("listUnreadChannels — author read-watermark behaviour", () => {
     chain.where = vi.fn(() => {
       call += 1;
       return Promise.resolve(
-        call === 1 ? unreadRows : participatingThreadIds.map((id) => ({ threadChannelId: id }))
+        call === 1 ? unreadRows : participatingThreadIds.map((id) => ({ channelId: id }))
       );
     });
     return chain;
@@ -365,11 +365,11 @@ describe("listUnreadDms — read-watermark behaviour", () => {
   }
 
   it("returns DMs where lastMessageAt > lastReadAt", async () => {
+    // DMs are type=dm channels now — rows key on `channelId` (the DM's channel),
+    // which also feeds the leading selfRows channel-id resolution.
     const db = createUnreadDmRowMock([
       {
-        dmConversationId: "dm_1",
-        user1Id: "u_viewer",
-        user2Id: "u_alice",
+        channelId: "dm_ch_1",
         lastMessageAt: "2026-07-06T00:00:05.000Z",
         lastReadAt: "2026-07-06T00:00:00.000Z",
         otherUserId: "u_alice",
@@ -379,7 +379,7 @@ describe("listUnreadDms — read-watermark behaviour", () => {
     ]);
     const result = await inboxQueries.listUnreadDms(db, "u_viewer");
     expect(result).toHaveLength(1);
-    expect(result[0]!.dmConversationId).toBe("dm_1");
+    expect(result[0]!.channelId).toBe("dm_ch_1");
     expect(result[0]!.otherUserId).toBe("u_alice");
   });
 
@@ -387,9 +387,7 @@ describe("listUnreadDms — read-watermark behaviour", () => {
     const ts = "2026-07-06T00:00:00.000Z";
     const db = createUnreadDmRowMock([
       {
-        dmConversationId: "dm_1",
-        user1Id: "u_viewer",
-        user2Id: "u_alice",
+        channelId: "dm_ch_1",
         lastMessageAt: ts,
         lastReadAt: ts, // viewer sent last, watermark aligned
         otherUserId: "u_alice",
@@ -404,9 +402,7 @@ describe("listUnreadDms — read-watermark behaviour", () => {
   it("returns DM the viewer has never opened (lastReadAt null, lastMessageAt set)", async () => {
     const db = createUnreadDmRowMock([
       {
-        dmConversationId: "dm_1",
-        user1Id: "u_alice",
-        user2Id: "u_viewer",
+        channelId: "dm_ch_1",
         lastMessageAt: "2026-07-06T00:00:00.000Z",
         lastReadAt: null,
         otherUserId: "u_alice",
@@ -425,9 +421,7 @@ describe("listUnreadDms — read-watermark behaviour", () => {
     // catch a regression where either drops the guard.
     const db = createUnreadDmRowMock([
       {
-        dmConversationId: "dm_1",
-        user1Id: "u_viewer",
-        user2Id: "u_alice",
+        channelId: "dm_ch_1",
         lastMessageAt: null,
         lastReadAt: null,
         otherUserId: "u_alice",

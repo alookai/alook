@@ -72,18 +72,18 @@ describe("POST /api/community/agent/listMembers", () => {
     expect(mockListMembers).not.toHaveBeenCalled()
   })
 
-  it("200 maps rows to {handle, role, nickname?}, defaulting null role to member and omitting nickname when unset", async () => {
+  it("200 maps rows to {handle, role}, defaulting null role to member", async () => {
     mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1", name: "Design Studio" }])
     mockListMembers.mockResolvedValue([
-      { userName: "gustavo", discriminator: "4821", role: "owner", nickname: null },
-      { userName: "ally", discriminator: "0192", role: null, nickname: "Ally" },
+      { userName: "gustavo", discriminator: "4821", role: "owner" },
+      { userName: "ally", discriminator: "0192", role: null },
     ])
     const res = await POST(req({ server: "Design Studio" }, { Authorization: "Bearer crk_abc" }))
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
       members: [
         { handle: "gustavo#4821", role: "owner" },
-        { handle: "ally#0192", role: "member", nickname: "Ally" },
+        { handle: "ally#0192", role: "member" },
       ],
     })
   })

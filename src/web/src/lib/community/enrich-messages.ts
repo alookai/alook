@@ -6,19 +6,16 @@ import { mapMessageForApi } from "@/lib/community/message-payload"
 // Message enrichment shared by the channel messages route, the channel
 // bootstrap route, and the DM messages route (previously three near-identical
 // copies — see plans/community-switch-perf-optimization.md WS2). Attaches
-// attachments, reactions, reply-target previews, `latestSeq`, and — for channel
-// scope only — child-channel thread indicators.
+// attachments, reactions, reply-target previews, `latestSeq`, and — for
+// non-DM channel scope only — child-channel thread indicators.
 //
-// `items` is expected in chronological ASC (the wire order). Scope is a channel
-// XOR a DM conversation; child-channel threads only exist under channels.
+// `items` is expected in chronological ASC (the wire order). Every scope is a
+// channel now (a DM is a type=dm channel); `isDm` toggles the DM-only
+// approval-card hydration and skips child-channel threads.
 
 type Db = ReturnType<typeof getDb>
 
-export type MessageScope = { channelId: string } | { dmConversationId: string }
-
-function scopeSeqTarget(scope: MessageScope): { channelId: string } | { dmConversationId: string } {
-  return scope
-}
+export type MessageScope = { channelId: string; isDm?: boolean }
 
 export async function enrichMessages(
   db: Db,
@@ -26,7 +23,7 @@ export async function enrichMessages(
   scope: MessageScope,
   items: Array<{ id: string; replyToId: string | null } & Record<string, unknown>>,
 ): Promise<{ messages: unknown[]; latestSeq: number }> {
-  const isChannel = "channelId" in scope
+  const isDm = scope.isDm === true
   const messageIds = items.map((m) => m.id)
   const replyToIds = items.map((r) => r.replyToId).filter(Boolean) as string[]
 
@@ -38,16 +35,16 @@ export async function enrichMessages(
       ? queries.communityReaction.listReactionsByMessageIds(db, messageIds, userId)
       : Promise.resolve([]),
     replyToIds.length > 0
-      ? queries.communityMessage.getMessagesByIdsInScope(db, replyToIds, scope)
+      ? queries.communityMessage.getMessagesByIdsInScope(db, replyToIds, { channelId: scope.channelId })
       : Promise.resolve([]),
-    // Thread indicators only exist for channel-scoped messages.
-    isChannel
+    // Thread indicators only exist for non-DM channel-scoped messages.
+    !isDm
       ? queries.communityChannel.listChildChannels(db, scope.channelId)
       : Promise.resolve([]),
-    queries.communityMessage.getLatestMessageSeq(db, scopeSeqTarget(scope)),
+    queries.communityMessage.getLatestMessageSeq(db, { channelId: scope.channelId }),
     // Friend-approval cards only ever live in DMs — skip the hydration query
-    // for channel scope entirely.
-    !isChannel && messageIds.length > 0
+    // for non-DM channel scope entirely.
+    isDm && messageIds.length > 0
       ? queries.communityFriendship.hydrateApprovalsForDmMessages(db, messageIds, userId)
       : Promise.resolve(new Map()),
   ])

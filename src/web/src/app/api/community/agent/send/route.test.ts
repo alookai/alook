@@ -16,6 +16,7 @@ const mockResolveChannelByNameForMember = vi.fn()
 const mockGetChannelForMember = vi.fn()
 const mockGetDM = vi.fn()
 const mockGetDMBetween = vi.fn()
+const mockGetDMPeer = vi.fn()
 const mockCreateOrGetDM = vi.fn()
 const mockIsBlocked = vi.fn()
 const mockAreFriends = vi.fn()
@@ -48,6 +49,7 @@ vi.mock("@alook/shared", async () => {
       communityDm: {
         getDM: (...a: unknown[]) => mockGetDM(...a),
         getDMBetween: (...a: unknown[]) => mockGetDMBetween(...a),
+        getDMPeer: (...a: unknown[]) => mockGetDMPeer(...a),
         createOrGetDM: (...a: unknown[]) => mockCreateOrGetDM(...a),
       },
       communityMessage: {
@@ -236,14 +238,15 @@ describe("POST /api/community/agent/send", () => {
     )
     mockIsBlocked.mockResolvedValue(false)
     mockCreateOrGetDM.mockResolvedValue({ id: "dm_new" })
-    mockGetDM.mockResolvedValue({ id: "dm_new", user1Id: "bot_1", user2Id: "peer_1", lastMessageAt: null, createdAt: "t" })
+    mockGetDM.mockResolvedValue({ id: "dm_new", lastMessageAt: null, createdAt: "t" })
+    mockGetDMPeer.mockResolvedValue({ otherUserId: "peer_1" })
     mockCreateCommunityMessage.mockResolvedValue({ ok: true, row: { id: "m_dm", seq: 1, content: "hey" } })
     const res = await POST(
       req({ channel: "/.dm/peer#0001", content: { text: "hey" } }, { Authorization: "Bearer crk_abc" })
     )
     expect(res.status).toBe(200)
     expect(mockCreateCommunityMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ target: { kind: "dm", dmId: "dm_new", otherUserId: "peer_1" } })
+      expect.objectContaining({ target: { kind: "dm", channelId: "dm_new", otherUserId: "peer_1" } })
     )
   })
 
@@ -282,7 +285,8 @@ describe("POST /api/community/agent/send", () => {
     )
     mockIsBlocked.mockResolvedValue(false)
     mockCreateOrGetDM.mockResolvedValue({ id: "dm_new" })
-    mockGetDM.mockResolvedValue({ id: "dm_new", user1Id: "bot_1", user2Id: "peer_1", lastMessageAt: null, createdAt: "t" })
+    mockGetDM.mockResolvedValue({ id: "dm_new", lastMessageAt: null, createdAt: "t" })
+    mockGetDMPeer.mockResolvedValue({ otherUserId: "peer_1" })
     mockCreateCommunityMessage.mockResolvedValue({
       ok: true,
       row: { id: "m_dm", seq: 1, content: "" },

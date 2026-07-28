@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server"
 import { queries, createLogger, CommunityAgentAttachmentDownloadRequestSchema } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAgentRunnerAuth } from "@/lib/middleware/community-agent-runner-auth"
-import { requireChannelMember, requireDMParticipant } from "@/lib/community/permissions"
+import { requireChannelMember, requireDMAccess } from "@/lib/community/permissions"
 
 const log = createLogger({ service: "community-agent-attachment-download" })
 
@@ -69,14 +69,13 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
       if (!message) {
         return NextResponse.json({ error: "attachment not found" }, { status: 404 })
       }
-      if (message.channelId) {
-        const gate = await requireChannelMember(db, message.channelId, ctx.botUserId)
-        if (!gate.ok) return NextResponse.json({ error: "attachment not found" }, { status: 404 })
-      } else if (message.dmConversationId) {
-        const gate = await requireDMParticipant(db, message.dmConversationId, ctx.botUserId)
+      const channelType = await queries.communityChannel.getChannelType(db, message.channelId)
+      if (channelType === "dm") {
+        const gate = await requireDMAccess(db, message.channelId, ctx.botUserId)
         if (!gate.ok) return NextResponse.json({ error: "attachment not found" }, { status: 404 })
       } else {
-        return NextResponse.json({ error: "attachment not found" }, { status: 404 })
+        const gate = await requireChannelMember(db, message.channelId, ctx.botUserId)
+        if (!gate.ok) return NextResponse.json({ error: "attachment not found" }, { status: 404 })
       }
     }
 

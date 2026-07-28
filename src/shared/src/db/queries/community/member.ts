@@ -1,5 +1,5 @@
 import { eq, and, ne, inArray, count, asc, or, gt, like, isNull, sql } from "drizzle-orm";
-import { communityServerMember, communityChannel, communityDmConversation, communityUserProfile } from "../../community-schema";
+import { communityServerMember, communityUserProfile } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
 import {
@@ -56,7 +56,6 @@ export async function listMembers(db: Database, serverId: string) {
       serverId: communityServerMember.serverId,
       userId: communityServerMember.userId,
       role: communityServerMember.role,
-      nickname: communityServerMember.nickname,
       joinedAt: communityServerMember.joinedAt,
       userName: user.name,
       userEmail: user.email,
@@ -82,7 +81,6 @@ export async function getMembersByUserIds(
       serverId: communityServerMember.serverId,
       userId: communityServerMember.userId,
       role: communityServerMember.role,
-      nickname: communityServerMember.nickname,
       joinedAt: communityServerMember.joinedAt,
       userName: user.name,
       userEmail: user.email,
@@ -179,7 +177,6 @@ export async function listMembersPaginated(
     serverId: string;
     userId: string;
     role: string | null;
-    nickname: string | null;
     joinedAt: string;
     userName: string | null;
     userEmail: string;
@@ -220,7 +217,6 @@ export async function listMembersPaginated(
       serverId: communityServerMember.serverId,
       userId: communityServerMember.userId,
       role: communityServerMember.role,
-      nickname: communityServerMember.nickname,
       joinedAt: communityServerMember.joinedAt,
       userName: user.name,
       userEmail: user.email,
@@ -247,8 +243,8 @@ export async function listMembersPaginated(
   return { members, hasMore, cursor };
 }
 
-// Prefix search across name / email / nickname for a single server. Ordered
-// by user.name ASC, id ASC. Capped at MAX_MEMBERS_PAGE_SIZE.
+// Prefix search across name / email for a single server. Ordered by
+// user.name ASC, id ASC. Capped at MAX_MEMBERS_PAGE_SIZE.
 //
 // Blocked users are intentionally NOT filtered here: `listMembers` and
 // `listMembersPaginated` don't filter blocked users either, and mixing the
@@ -273,7 +269,6 @@ export async function searchMembers(
       serverId: communityServerMember.serverId,
       userId: communityServerMember.userId,
       role: communityServerMember.role,
-      nickname: communityServerMember.nickname,
       joinedAt: communityServerMember.joinedAt,
       userName: user.name,
       userEmail: user.email,
@@ -290,8 +285,7 @@ export async function searchMembers(
         eq(communityServerMember.serverId, serverId),
         or(
           like(user.name, pattern),
-          like(user.email, pattern),
-          like(communityServerMember.nickname, pattern)
+          like(user.email, pattern)
         )
       )
     )
@@ -328,7 +322,6 @@ export async function getMemberById(
       serverId: communityServerMember.serverId,
       userId: communityServerMember.userId,
       role: communityServerMember.role,
-      nickname: communityServerMember.nickname,
       joinedAt: communityServerMember.joinedAt,
       userName: user.name,
       userEmail: user.email,
@@ -445,44 +438,30 @@ export async function removeOwnerBotsFromServer(
 export async function canBotReadWakeScope(
   db: Database,
   botUserId: string,
-  scope: { channelId?: string; dmConversationId?: string }
+  scope: { channelId: string }
 ): Promise<boolean> {
-  if (scope.channelId) {
-    const ctx = await resolveChannelAccessContext(db, scope.channelId, botUserId);
-    if (!ctx) return false;
-    const accessible = !ctx.isPrivate || canSeePrivateChannel({
-      role: ctx.role,
-      isCreator: ctx.isCreator,
-      isChannelMember: ctx.isChannelMember,
-    });
-    if (!accessible) return false;
+  const ctx = await resolveChannelAccessContext(db, scope.channelId, botUserId);
+  if (!ctx) return false;
 
-    // Notification-set narrowing — thread + forum_post scopes only notify
-    // their participants (mirrors the human inbox's post-visibility filter).
-    // Bots are just users; participant rows are added the same way (spoke /
-    // mention / added), so the same predicate applies verbatim.
-    if (isThread(ctx.channel.type) || isForumPost(ctx.channel.type)) {
-      return isThreadParticipant(db, scope.channelId, botUserId);
-    }
-    return true;
+  // DM (type=dm) — access is resolved by `resolveChannelAccessContext` (a
+  // relation='access' member row), no server walk or notify narrowing.
+  if (ctx.channel.type === "dm") return true;
+
+  const accessible = !ctx.isPrivate || canSeePrivateChannel({
+    role: ctx.role,
+    isCreator: ctx.isCreator,
+    isChannelMember: ctx.isChannelMember,
+  });
+  if (!accessible) return false;
+
+  // Notification-set narrowing — thread + forum_post scopes only notify
+  // their participants (mirrors the human inbox's post-visibility filter).
+  // Bots are just users; notify rows are added the same way (spoke /
+  // mention / added), so the same predicate applies verbatim.
+  if (isThread(ctx.channel.type) || isForumPost(ctx.channel.type)) {
+    return isThreadParticipant(db, scope.channelId, botUserId);
   }
-  if (scope.dmConversationId) {
-    const rows = await db
-      .select({ id: communityDmConversation.id })
-      .from(communityDmConversation)
-      .where(
-        and(
-          eq(communityDmConversation.id, scope.dmConversationId),
-          or(
-            eq(communityDmConversation.user1Id, botUserId),
-            eq(communityDmConversation.user2Id, botUserId)
-          )
-        )
-      )
-      .limit(1);
-    return rows.length > 0;
-  }
-  return false;
+  return true;
 }
 
 export async function getCoMemberUserIds(db: Database, userId: string): Promise<string[]> {

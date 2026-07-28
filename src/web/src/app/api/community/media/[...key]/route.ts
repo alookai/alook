@@ -5,7 +5,7 @@ import { writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { createAuth } from "@/lib/auth"
 import { bindCacheKV } from "@/lib/cache"
-import { requireChannelMember, requireDMParticipant } from "@/lib/community/permissions"
+import { requireChannelMember, requireDMAccess } from "@/lib/community/permissions"
 import { isChannelTarget, isThreadTarget, isDmTarget } from "@/lib/community/message-handler"
 
 // Reject any segment that could smuggle traversal or escape the bucket.
@@ -53,8 +53,8 @@ export const GET = async (
     if (!check.ok) return writeError(check.error, check.status)
   } else if (isDmTarget(kind)) {
     if (!id) return writeError("not found", 404)
-    // Block check is inherited from `requireDMParticipant` — do not re-inline.
-    const check = await requireDMParticipant(db, id, userId)
+    // Block check is inherited from `requireDMAccess` — do not re-inline.
+    const check = await requireDMAccess(db, id, userId)
     if (!check.ok) return writeError(check.error, check.status)
   } else if (kind === "server-icon") {
     // Icons are readable by any authenticated user — auth-only gate.

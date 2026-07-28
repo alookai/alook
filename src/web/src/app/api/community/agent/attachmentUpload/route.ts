@@ -3,7 +3,7 @@ import { queries, createLogger } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAgentRunnerAuth } from "@/lib/middleware/community-agent-runner-auth"
 import { resolveTargetForMember, resolveErrorResponse } from "@/lib/community/resolve-ref"
-import { requireChannelMember, requireDMParticipant } from "@/lib/community/permissions"
+import { requireChannelMember, requireDMAccess } from "@/lib/community/permissions"
 import { handleAttachmentUpload } from "@/lib/community/upload"
 
 const log = createLogger({ service: "community-agent-attachment-upload" })
@@ -37,10 +37,10 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
     let kind: "channel" | "dm"
     let targetId: string
     if (resolved.kind === "dm") {
-      const gate = await requireDMParticipant(db, resolved.dmConversationId, ctx.botUserId)
+      const gate = await requireDMAccess(db, resolved.channelId, ctx.botUserId)
       if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status })
       kind = "dm"
-      targetId = resolved.dmConversationId
+      targetId = resolved.channelId
     } else {
       const gate = await requireChannelMember(db, resolved.channelId, ctx.botUserId)
       if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status })
@@ -60,7 +60,6 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
 
     const row = await queries.communityAttachment.createPendingAttachment(db, {
       uploaderId: ctx.botUserId,
-      kind,
       targetId,
       r2Key: result.r2Key,
       filename: result.filename,

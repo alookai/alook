@@ -120,7 +120,6 @@ describe("POST /api/community/agent/attachmentUpload", () => {
     )
     expect(mockCreatePendingAttachment).toHaveBeenCalledWith({}, expect.objectContaining({
       uploaderId: "bot_1",
-      kind: "channel",
       targetId: "c1",
       r2Key: "channel/c1/uuid/hi.png",
     }))
