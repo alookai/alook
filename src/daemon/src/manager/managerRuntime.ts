@@ -672,27 +672,64 @@ export class AgentProcessManager {
       barrierType?: "reset_session" | "nap";
     },
   ): Promise<void> {
+    // Reset = restart that FORGETS the session (writes the timeline barrier),
+    // so the fresh spawn starts with no prior context. `agent:nap` reuses this
+    // path with `barrierType: "nap"`.
+    await this.restartAgent(agentId, {
+      runtimeConfig: opts.runtimeConfig,
+      launchId: opts.launchId,
+      rewakePrompt: opts.rewakePrompt,
+      forgetSession: true,
+      barrierType: opts.barrierType ?? "reset_session",
+      opName: "reset",
+    });
+  }
+
+  /**
+   * Shared "kill and rewake" orchestration behind `resetSession` (forget) and
+   * `switchModel` (preserve). Atomic within one Node tick up to `stop()`:
+   *   1. `register` — idempotent; ensures the FSM knows the agent + its runtime
+   *      caps (fresh daemon after restart, bot never woken since).
+   *   2. `forgetSession` (ONLY when `opts.forgetSession`) — clears resume caches
+   *      + writes the timeline barrier + nulls `AgentState.sessionId`. Skipped
+   *      by `switchModel` so the session + history SURVIVE across the relaunch.
+   *   3. `markResetting` — flips `agent.resetting = true` (the SPAWN GATE, not a
+   *      semantic "reset"): a wake landing between here and the respawn queues
+   *      to inbox instead of steering the dying session / double-spawning.
+   *   4. idle → `deliver` emits a fresh `spawn` with the rewake as prompt
+   *      (`resetting` cleared by `onSpawned`). Non-idle → `enqueueRewake` then
+   *      `stop`; `onExit` drains rewake + queued unreads into one fresh spawn
+   *      and clears `resetting`.
+   *
+   * The idle branch's `doSpawn` can throw synchronously (missing
+   * credentialProxy / sdkDriverDepsFor, driver constructor throwing). Without
+   * recovery the FSM would wedge at `starting`+`resetting=true` forever; the
+   * catch dispatches `exit` so `onExit` clears the gate back to `idle`, then
+   * rethrows. This is the single unified failure path for both callers — the
+   * observable failure landing (idle, gate cleared, throw propagated) is
+   * identical to the pre-convergence per-method arms.
+   */
+  private async restartAgent(
+    agentId: string,
+    opts: {
+      runtimeConfig: RuntimeConfig;
+      launchId: string;
+      rewakePrompt: string;
+      forgetSession: boolean;
+      barrierType?: "reset_session" | "nap";
+      /** Human label for logs so a restart failure reads as reset vs model switch. */
+      opName: string;
+    },
+  ): Promise<void> {
     this.register(agentId, { runtimeConfig: opts.runtimeConfig, launchId: opts.launchId });
-    this.forgetSession(agentId, opts.barrierType ?? "reset_session");
+    if (opts.forgetSession) this.forgetSession(agentId, opts.barrierType ?? "reset_session");
     this.markResetting(agentId);
     const status = this.state.agents[agentId]?.status;
     if (status === "idle") {
-      // Idle branch: `deliver` emits a spawn directly via `onWake`. The
-      // resetting gate exempts idle so this fires; any real unread that
-      // races in during the same tick sees status=`starting` (post-spawn
-      // effect) and hits the gate, queueing to inbox for the same drain.
-      //
-      // `doSpawn` can throw synchronously (missing credentialProxy /
-      // sdkDriverDepsFor, or the driver's constructor throwing). Without a
-      // recovery step, the FSM would be stuck at `starting` with
-      // `resetting=true` forever — every subsequent wake would hit the
-      // non-idle gate and queue to inbox instead of respawning. Dispatch an
-      // `exit` so `onExit` clears `resetting` and returns the agent to `idle`,
-      // ready for the next wake.
       try {
         this.deliver(agentId, { text: opts.rewakePrompt });
       } catch (err) {
-        this.log.error("agent reset idle-branch spawn threw synchronously", {
+        this.log.error(`agent ${opts.opName} idle-branch spawn threw synchronously`, {
           agentId,
           err: err instanceof Error ? err.message : String(err),
         });
@@ -701,10 +738,9 @@ export class AgentProcessManager {
       }
       return;
     }
-    // Live / starting / stopping: enqueue the rewake so `onExit`'s drain
-    // picks it up. `stop()` yields the event loop; any inbound wake in the
-    // interim hits the gate and queues to inbox — landing in the SAME
-    // drain-and-spawn as the rewake.
+    // Live / starting / stopping: enqueue the rewake so `onExit`'s drain picks
+    // it up. `stop()` yields the event loop; any inbound wake in the interim
+    // hits the gate and queues to inbox — landing in the SAME drain-and-spawn.
     this.enqueueRewake(agentId, { text: opts.rewakePrompt });
     await this.stop(agentId);
   }
@@ -739,28 +775,19 @@ export class AgentProcessManager {
     agentId: string,
     opts: { runtimeConfig: RuntimeConfig; launchId: string; rewakePrompt: string },
   ): Promise<void> {
-    this.register(agentId, { runtimeConfig: opts.runtimeConfig, launchId: opts.launchId });
-    this.markResetting(agentId);
-    const status = this.state.agents[agentId]?.status;
-    if (status === "idle") {
-      // Idle branch: same synchronous-throw recovery as `resetSession` — a
-      // synchronous `doSpawn` throw would otherwise wedge the FSM at `starting`
-      // with `resetting=true` forever. Dispatch `exit` so `onExit` clears the
-      // gate and returns the agent to `idle`.
-      try {
-        this.deliver(agentId, { text: opts.rewakePrompt });
-      } catch (err) {
-        this.log.error("agent model switch idle-branch spawn threw synchronously", {
-          agentId,
-          err: err instanceof Error ? err.message : String(err),
-        });
-        this.dispatch({ type: "exit", agentId });
-        throw err;
-      }
-      return;
-    }
-    this.enqueueRewake(agentId, { text: opts.rewakePrompt });
-    await this.stop(agentId);
+    // Model switch = restart that PRESERVES the session: skipping `forgetSession`
+    // means no `reset_session` barrier is written and `agent.sessionId` is still
+    // set at exit time, so `onExit` respawns with `resumeSessionId` (live path)
+    // and `findResumableSession` still resolves the last session after a daemon
+    // restart (durable path) — the agent picks up where it left off on the new
+    // model.
+    await this.restartAgent(agentId, {
+      runtimeConfig: opts.runtimeConfig,
+      launchId: opts.launchId,
+      rewakePrompt: opts.rewakePrompt,
+      forgetSession: false,
+      opName: "model switch",
+    });
   }
 
   start(): void {

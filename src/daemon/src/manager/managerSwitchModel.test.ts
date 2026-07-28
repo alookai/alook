@@ -229,4 +229,47 @@ describe("AgentProcessManager.switchModel", () => {
     // forgetSession — the writer of the reset_session barrier — must never run.
     expect(timelineCalls.some((c) => c.startsWith("forget:"))).toBe(false);
   });
+
+  // Convergence contract (B1): resetSession and switchModel now both route
+  // through the shared `restartAgent`; the ONLY behavioral difference is whether
+  // it calls forgetSession (reset does + writes its barrier; switch does not).
+  // This pins that contract in one place so a future refactor can't silently
+  // make switchModel forget or resetSession preserve.
+  it("resetSession forgets (with its barrier) while switchModel preserves — the sole restartAgent divergence", async () => {
+    const mk = () => {
+      const timelineCalls: string[] = [];
+      const timeline: TimelineRecorder = {
+        setSession: () => {},
+        appendResponseToLatest: () => {},
+        resumeSessionId: () => "resumable-sess",
+        forgetSession: (a, barrierType) => timelineCalls.push(`forget:${a}:${barrierType ?? "reset_session"}`),
+      };
+      const mgr = new AgentProcessManager({
+        driverFor: () => fakeDriver("codex"),
+        baseContextFor: () => ({
+          workingDirectory: "/tmp",
+          agentId: "a1",
+          standingPrompt: "",
+          config: {} as LaunchContext["config"],
+          credentialProxy: {} as LaunchContext["credentialProxy"],
+        }),
+        sessionFactory: () => fakeSession(),
+        onRuntimeSpawnFailed: vi.fn(),
+        onRuntimeSessionEstablished: vi.fn(),
+        timeline,
+      });
+      mgr.register("a1");
+      return { mgr, timelineCalls };
+    };
+
+    // reset (idle branch) → forgetSession called with the reset_session barrier.
+    const r = mk();
+    await r.mgr.resetSession("a1", { runtimeConfig: NAMED_CFG, launchId: "l1", rewakePrompt: REWAKE });
+    expect(r.timelineCalls).toContain("forget:a1:reset_session");
+
+    // switch (idle branch) → forgetSession never called.
+    const s = mk();
+    await s.mgr.switchModel("a1", { runtimeConfig: NAMED_CFG, launchId: "l1", rewakePrompt: REWAKE });
+    expect(s.timelineCalls.some((c) => c.startsWith("forget:"))).toBe(false);
+  });
 });
