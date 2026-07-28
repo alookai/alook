@@ -3,11 +3,10 @@
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
-import { User, LogOut, X, Palette, Sun, Moon, Monitor, Database } from "lucide-react"
+import { User, LogOut, X, Palette, Sun, Moon, Monitor, Database, Camera } from "lucide-react"
 import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
+import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
@@ -203,33 +202,56 @@ export function UserSettings({ onClose, userId, userName, aboutMe, avatar, statu
         </header>
         <div className="flex-1 overflow-y-auto thin-scrollbar p-4">
           <TabsContent value="profile">
-            <div className="mx-auto max-w-md space-y-4">
-              <div className="flex items-center gap-4">
-                <Avatar label={avatar} seed={userId ?? undefined} size={80} />
-                <div>
-                  <div className="text-sm font-medium">Avatar</div>
-                  <div className="text-xs text-muted-foreground">PNG, JPG, or WEBP. You&apos;ll be able to crop and zoom before saving.</div>
-                  <Button variant="secondary" size="sm" className="mt-2" onClick={onUploadAvatar}>Upload Photo</Button>
-                </div>
+            <div className="mx-auto max-w-md space-y-6">
+              {/* Avatar — centered in a soft rounded frame, with a hand-rolled
+                  pill button beneath (matches the bot create/edit sheet; a stock
+                  secondary Button reads as the old square style). */}
+              <div className="flex flex-col items-center gap-3">
+                <span className="block size-24 overflow-hidden rounded-2xl ring-1 ring-border/50">
+                  <Avatar label={avatar} seed={userId ?? undefined} size={96} />
+                </span>
+                <button
+                  type="button"
+                  onClick={onUploadAvatar}
+                  className="flex items-center gap-1.5 rounded-full border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                >
+                  <Camera className="size-3.5" /> Change photo
+                </button>
               </div>
-              <Field label="Display Name">
-                <Input value={name} onChange={(e) => setName(e.target.value)} />
-              </Field>
-              <Field label="About Me">
-                <Textarea className="h-24 resize-none" value={value} onChange={(e) => setValue(e.target.value)} />
-              </Field>
-              <Field label="Status">
+              {/* Display name — inline title input, borderless (name-as-heading,
+                  like the agent name on the bot page). */}
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Your name"
+                aria-label="Display name"
+                className="w-full border-0 bg-transparent px-0 py-1 text-2xl font-medium leading-[1.2] tracking-tight shadow-none outline-none placeholder:font-normal placeholder:text-muted-foreground/40 focus-visible:ring-0"
+              />
+              {/* About — borderless auto-resizing textarea. */}
+              <div>
+                <div className="mb-1 text-xs text-muted-foreground">About</div>
+                <AutoResizeTextarea
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                  placeholder="Add a bit about yourself…"
+                  className="w-full border-0 bg-transparent px-0 py-1 text-sm text-foreground shadow-none outline-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
+                />
+              </div>
+              {/* Status — quiet label + a soft chip (more formed than a bare
+                  borderless button, still in the frameless language). */}
+              <div>
+                <div className="mb-1 text-xs text-muted-foreground">Status</div>
                 <StatusEditor emoji={status.emoji} text={status.text} onChange={(emoji, text) => setStatus({ emoji, text })}>
-                  <button className="flex h-9 w-full items-center rounded-md border border-input bg-transparent px-3 text-sm hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+                  <button className="inline-flex items-center gap-1.5 rounded-full border border-border/50 px-3 py-1.5 text-sm transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
                     {hasStatus(status.emoji, status.text) ? (
                       <span>{status.emoji} {status.text}</span>
                     ) : (
-                      <span className="text-muted-foreground">Set a status</span>
+                      <span className="text-muted-foreground/60">Set a status</span>
                     )}
                   </button>
                 </StatusEditor>
-              </Field>
-              <div className="flex items-center justify-end gap-2">
+              </div>
+              <div className="flex items-center justify-end gap-2 pt-2">
                 <Button variant="ghost" size="sm" onClick={handleCancel} disabled={!dirty}>Cancel</Button>
                 <Button size="sm" onClick={handleSave} disabled={!dirty}>Save changes</Button>
               </div>
