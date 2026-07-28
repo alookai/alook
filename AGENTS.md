@@ -118,6 +118,7 @@ Required fields (see `src/web/src/lib/blog/types.ts`): `slug`, `title`, `date`, 
 - Path: `src/web/public/blog/<slug>/<name>.<ext>`, referenced from MDX as `/blog/<slug>/<name>.<ext>`.
 - Naming: short semantic names (`hero.png`, `timeline.png`, `workflow-1-dev-team-pipeline.svg`). No date prefix. Don't repeat the slug — the parent directory already carries it.
 - Format: `png` for photos/screenshots, `svg` for diagrams, `webp` when compression matters. Pick one; don't mix formats for the same purpose in one post.
+- **Safe margin (anti-crop):** keep ≥8% of the shorter side (and ≥64px) empty cream/bg padding on all four edges. Blog MDX applies `rounded-lg` on `img`, so ink or labels flush to the canvas edge get clipped. Do not stretch-crop heroes into OG size if that eats the margin — letterbox on `#FEFDFB` instead.
 
 ## Scrollbar
 
