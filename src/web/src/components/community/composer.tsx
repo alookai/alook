@@ -3,7 +3,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { AtSign, FileIcon, ImageIcon, PlusCircle, Smile, Upload, Users, X } from "lucide-react"
-import { useEditor, EditorContent } from "@tiptap/react"
+import { useEditor, EditorContent, type JSONContent } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 import Placeholder from "@tiptap/extension-placeholder"
 import { DOMParser as PMDOMParser } from "@tiptap/pm/model"
@@ -331,7 +331,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       emitDirtyTransition()
       const key = draftKeyRef.current
       if (key && !isForumPostBody) {
-        writeComposerDraft(key, editor.isEmpty ? "" : editor.getText({ blockSeparator: "\n\n" }))
+        // Persist the ProseMirror doc (JSON), not plain text — so @mention /
+        // channel-ref pill nodes survive the round-trip and restore as pills,
+        // not inert `@label` text.
+        writeComposerDraft(key, editor.isEmpty ? null : editor.getJSON())
       }
     },
   })
@@ -343,14 +346,19 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   // trips exactly like `getText({blockSeparator:"\n\n"})` serialized it.
   useEffect(() => {
     if (!editor || isForumPostBody || !draftKey) return
-    const text = readComposerDraft(draftKey)
-    if (!text) return
+    const doc = readComposerDraft(draftKey)
+    if (!doc) return
     restoringDraftRef.current = true
     try {
-      // `buildPasteDom` produces the same `<p>`/`<br>` block structure the
-      // paste path uses; its innerHTML round-trips through tiptap's own HTML
-      // parser, so the restored paragraphs/hard-breaks match what was saved.
-      editor.commands.setContent(buildPasteDom(text, document).innerHTML)
+      // Restore the stored ProseMirror doc directly — mention / channel-ref
+      // pill nodes come back as pills (a plain-text restore would flatten them
+      // to inert `@label` text). emitUpdate:false so the programmatic set isn't
+      // treated as typing; errorOnInvalidContent:true so a stale/incompatible
+      // doc throws into the catch below instead of silently blanking.
+      editor.commands.setContent(doc as JSONContent, { emitUpdate: false, errorOnInvalidContent: true })
+    } catch {
+      // Corrupt/incompatible stored doc — drop it rather than crash the editor.
+      clearComposerDraft(draftKey)
     } finally {
       restoringDraftRef.current = false
     }
