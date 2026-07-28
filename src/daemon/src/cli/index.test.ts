@@ -39,14 +39,34 @@ function stubApi(over: Partial<ServerApi> = {}): ServerApi {
 }
 
 let cap: ReturnType<typeof captureStdout>;
+
+// Env `getApi`/`proxyServerApiFromEnv` reads to build a proxy-routed ServerApi
+// when no API is injected. The daemon INJECTS these into every agent's process
+// (credential-proxy handoff), so when an agent runs this suite from inside a
+// live daemon they leak into the test and make the "no ServerApi available"
+// case silently take the proxy branch instead. The test must isolate its own
+// preconditions — unset the whole set here (mirror `proxyServerApiFromEnv`; add
+// any new `<PREFIX>_` var it reads to this list) and restore after.
+const PROXY_ENV_KEYS = ["ALOOK_PROXY_URL", "ALOOK_PROXY_TOKEN_FILE"] as const;
+let savedProxyEnv: Record<string, string | undefined> = {};
+
 beforeEach(() => {
   cap = captureStdout();
   process.env.ALOOK_AGENT_ID = "agent_test";
+  savedProxyEnv = {};
+  for (const k of PROXY_ENV_KEYS) {
+    savedProxyEnv[k] = process.env[k];
+    delete process.env[k];
+  }
 });
 afterEach(() => {
   cap.restore();
   setApiForTesting(null);
   delete process.env.ALOOK_AGENT_ID;
+  for (const k of PROXY_ENV_KEYS) {
+    if (savedProxyEnv[k] === undefined) delete process.env[k];
+    else process.env[k] = savedProxyEnv[k];
+  }
 });
 
 describe("envelope contract", () => {
