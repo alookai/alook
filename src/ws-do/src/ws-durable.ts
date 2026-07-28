@@ -796,12 +796,15 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         write: async () => {
           const prior = await queries.communityUserProfile.getProfile(db, agentId)
           const priorEmoji = prior?.statusEmoji ?? null
-          const priorText = prior?.statusText ?? null
+          // `status_text` defaults to "" (schema), so an unset status reads back
+          // as (null, "") not (null, null). Normalize "" → null so "no status"
+          // is treated uniformly as writable, not mistaken for a custom status.
+          const priorText = prior?.statusText ? prior.statusText : null
           // The activity pipeline only owns pills it wrote itself. If the bot
           // carries an owner-set custom status (a non-preset pair), leave it —
           // matches the reconciler's declared intent and stops the heartbeat
-          // re-assert from stomping a custom status every interval. A null pair
-          // (no status yet) is still writable.
+          // re-assert from stomping a custom status every interval. An empty
+          // pair (no status yet) is still writable.
           if (
             (priorEmoji !== null || priorText !== null) &&
             !isBotActivityStatus(priorEmoji, priorText)

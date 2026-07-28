@@ -1388,6 +1388,33 @@ describe("WebSocketDurableObject", () => {
       expect(mockStubFetch).not.toHaveBeenCalled()
     })
 
+    it("regression #3b — a BRAND-NEW bot (profile row exists but status unset: emoji=null, text=\"\") still gets its status written", async () => {
+      // `status_text` defaults to "" in the schema, so an unset status reads
+      // back as (null, "") not (null, null). The custom-status guard must treat
+      // that as "no status" (writable), NOT mistake "" for a custom status —
+      // otherwise new bots never get a pill (the reported regression).
+      const { durable, store } = createDO()
+      store.set("community-machine-identity", {
+        userId: "u_1",
+        machineId: "cm_1",
+        credentialHash: "0".repeat(64),
+      })
+      mockGetBotBinding.mockResolvedValue({ machineId: "cm_1", runtime: "codex" })
+      mockGetCoMemberUserIds.mockResolvedValue(["viewer-1"])
+      mockGetProfile.mockResolvedValue({ statusEmoji: null, statusText: "" })
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "community-machine", machineId: "cm_1", userId: "u_1", authenticated: true })
+
+      const frame = JSON.stringify({ type: "agent_activity", agentId: "bot_1", state: "running" })
+      await durable.webSocketMessage(ws as any, frame)
+
+      expect(mockUpdateProfile).toHaveBeenCalledWith(expect.anything(), "bot_1", {
+        statusEmoji: "⚡",
+        statusText: "Working on it",
+      })
+    })
+
     it("regression #4 — a known idle preset still flips to running (guard didn't over-reach)", async () => {
       const { durable, store } = createDO()
       store.set("community-machine-identity", {
