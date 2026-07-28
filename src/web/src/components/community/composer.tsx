@@ -429,6 +429,20 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     editor.commands.focus("end")
   }, [autoFocus, editor, channel, isForumPostBody])
 
+  // Focus the editor when a reply is initiated. Clicking "reply" on a message
+  // sets `replyingTo` on the parent but doesn't touch the composer, so without
+  // this the reply bar appears while focus stays on the message list — the user
+  // has to click into the input before typing. Fire only on the unset→set edge
+  // (clicking reply), not while a reply is already active or on cancel. Focus
+  // regardless of `autoFocus`: reply is an explicit user action, so popping the
+  // mobile keyboard is intended (same rationale as the drop handler below).
+  const prevReplyingToRef = useRef(replyingTo)
+  useEffect(() => {
+    const opened = !prevReplyingToRef.current && !!replyingTo
+    prevReplyingToRef.current = replyingTo
+    if (opened && editor && !isForumPostBody) editor.commands.focus("end")
+  }, [replyingTo, editor, isForumPostBody])
+
   // Refocus editor after a drop so the user can start typing without
   // clicking. The drop landed on the composer container — the intent is
   // clear.
