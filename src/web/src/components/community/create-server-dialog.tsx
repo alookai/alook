@@ -6,8 +6,6 @@ import { Plus, ChevronRight, Link2 } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { tid } from "@/lib/community/testids"
-import { Input } from "@/components/ui/input"
-import { Field } from "./field"
 import { SlugHint } from "./slug-hint"
 import { ImageCropDialog } from "./image-crop-dialog"
 import { previewSlug } from "@/lib/community/slug-preview"
@@ -44,19 +42,22 @@ export function CreateServerDialog({ onClose, onCreateServer, onJoinServer }: {
     <>
       <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
         <DialogContent className="w-105 max-w-[calc(100vw-2rem)] p-0">
-          <DialogHeader className="border-b border-border px-4 py-4">
-            <DialogTitle>{step === "choose" ? "Create a Server" : step === "create" ? "Customize your server" : "Join a Server"}</DialogTitle>
+          <DialogHeader className="px-5 pt-5 pb-0">
+            <DialogTitle className={step === "choose" ? "" : "text-xs font-normal text-muted-foreground"}>
+              {step === "choose" ? "Create a Server" : step === "create" ? "Customize your server" : "Join a Server"}
+            </DialogTitle>
           </DialogHeader>
-          <div className="px-4 pb-5">
+          <div className="px-5 pb-5">
             {step === "choose" && (
-              <div className="space-y-2">
+              <div className="space-y-1">
                 <p className="mb-3 text-sm text-muted-foreground">Your server is where you and your agents hang out. Make yours and start talking.</p>
-                <button onClick={() => setStep("create")} className="flex w-full items-center gap-3 rounded-lg border border-border bg-card p-3 text-left hover:bg-accent">
+                {/* Frameless hover rows — the icon chip carries the accent, no box. */}
+                <button onClick={() => setStep("create")} className="flex w-full items-center gap-3 rounded-md p-2 text-left transition-colors hover:bg-accent/40">
                   <span className="grid size-10 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground"><Plus className="size-5" /></span>
                   <span className="flex-1 text-sm font-medium">Create a server</span>
                   <ChevronRight className="size-4 text-muted-foreground" />
                 </button>
-                <button onClick={() => setStep("join")} className="flex w-full items-center gap-3 rounded-lg border border-border bg-card p-3 text-left hover:bg-accent">
+                <button onClick={() => setStep("join")} className="flex w-full items-center gap-3 rounded-md p-2 text-left transition-colors hover:bg-accent/40">
                   <span className="grid size-10 shrink-0 place-items-center rounded-full bg-secondary text-foreground"><Link2 className="size-5" /></span>
                   <span className="flex-1 text-sm font-medium">Join with invite</span>
                   <ChevronRight className="size-4 text-muted-foreground" />
@@ -64,30 +65,53 @@ export function CreateServerDialog({ onClose, onCreateServer, onJoinServer }: {
               </div>
             )}
             {step === "create" && (
-              <div className="space-y-4">
-                <div className="flex flex-col items-center gap-2">
-                  <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={onFileChange} />
-                  <button onClick={pickIcon} className="grid size-20 place-items-center overflow-hidden rounded-full border-2 border-dashed border-input text-muted-foreground hover:border-primary hover:text-foreground">
-                    {iconPreview ? (
-                      <img src={iconPreview} alt="" className="size-full object-cover" />
-                    ) : (
+              <div className="flex flex-col items-center gap-4 pt-2">
+                {/* Icon = centered on top, the single upload affordance (the
+                    dropzone IS the button — no redundant separate upload pill).
+                    A server's identity is visual, so the icon leads. NOT
+                    ServerIcon: no server id/marble seed pre-creation. */}
+                <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={onFileChange} />
+                <button onClick={pickIcon} className="group grid size-24 shrink-0 place-items-center overflow-hidden rounded-2xl ring-1 ring-border/50 text-muted-foreground transition-colors hover:text-foreground hover:ring-primary/60">
+                  {iconPreview ? (
+                    <img src={iconPreview} alt="" className="size-full object-cover" />
+                  ) : (
+                    <span className="flex flex-col items-center gap-1">
                       <Plus className="size-6" />
-                    )}
-                  </button>
-                  <span className="text-xs text-muted-foreground">{iconPreview ? "Change icon" : "Upload an icon"}</span>
-                </div>
-                <Field label="Server name">
-                  <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="My community" />
+                      <span className="text-[10px] font-medium">Upload icon</span>
+                    </span>
+                  )}
+                </button>
+                {/* Server name below the icon — left-aligned so the cursor sits
+                    at a consistent left position (a centered input makes the
+                    caret jump around as you type). */}
+                <div className="w-full">
+                  <input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="My community"
+                    autoFocus
+                    aria-label="Server name"
+                    className="w-full border-0 bg-transparent p-0 text-[26px] font-medium leading-tight tracking-tight shadow-none outline-none placeholder:font-normal placeholder:text-muted-foreground/40 focus-visible:ring-0"
+                  />
                   <SlugHint {...namePreview} />
-                </Field>
+                </div>
               </div>
             )}
             {step === "join" && (
-              <Field label="Invite link"><Input value={invite} onChange={(e) => setInvite(e.target.value)} placeholder="Paste an invite link or code" /></Field>
+              <div className="pt-2">
+                <input
+                  value={invite}
+                  onChange={(e) => setInvite(e.target.value)}
+                  placeholder="Paste an invite link or code"
+                  autoFocus
+                  aria-label="Invite link"
+                  className="w-full border-0 bg-transparent p-0 text-lg shadow-none outline-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
+                />
+              </div>
             )}
           </div>
           {step !== "choose" && (
-            <DialogFooter className="mx-0 mb-0 flex-row items-center justify-between rounded-b-xl border-t border-border bg-card px-4 py-3">
+            <DialogFooter className="mx-0 mb-0 flex-row items-center justify-between px-5 pb-5">
               <Button variant="ghost" size="sm" onClick={() => setStep("choose")}>Back</Button>
               <Button
                 size="sm"

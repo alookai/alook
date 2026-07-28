@@ -1,11 +1,11 @@
 "use client"
 
 import { useState } from "react"
+import { Check } from "lucide-react"
 import { EntityIcon } from "./entity-icon"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { tid } from "@/lib/community/testids"
-import { Input } from "@/components/ui/input"
 import { onEnterSubmit } from "@/lib/ime"
 import { SlugHint } from "./slug-hint"
 import { previewSlug } from "@/lib/community/slug-preview"
@@ -40,53 +40,59 @@ export function CreateChannelDialog({ category, initial, onClose, onCreate }: {
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
       <DialogContent className="w-105 max-w-[calc(100vw-2rem)] p-0">
-        <DialogHeader className="border-b border-border px-4 py-4">
-          <DialogTitle>{editing ? "Edit Channel" : "Create Channel"}</DialogTitle>
-          <p className="text-sm text-muted-foreground">{category ? `in ${category}` : "top level"}</p>
+        {/* Small breadcrumb for context; the name below is the hero. */}
+        <DialogHeader className="px-5 pt-5 pb-0">
+          <DialogTitle className="text-xs font-normal text-muted-foreground">
+            {editing ? "Edit channel" : "New channel"}{category ? ` in ${category}` : ""}
+          </DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 px-4 pb-5">
+        <div className="space-y-6 px-5 pb-5 pt-2">
+          {/* Channel name = hero: large inline title input, glyph in front. */}
+          <div>
+            <div className="flex items-center gap-2">
+              <EntityIcon kind={type} className="size-6 shrink-0 text-muted-foreground" />
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={onEnterSubmit(submit)}
+                placeholder="new-channel"
+                autoFocus
+                aria-label="Channel name"
+                className="w-full border-0 bg-transparent p-0 text-[30px] font-medium leading-tight tracking-tight shadow-none outline-none placeholder:font-normal placeholder:text-muted-foreground/40 focus-visible:ring-0"
+              />
+            </div>
+            <div className="mt-1 pl-8">
+              <SlugHint {...namePreview} />
+            </div>
+          </div>
+          {/* Channel type = secondary: quiet vertical list, selected row tinted + check. */}
           {!editing && (
             <div>
-              <div className="mb-2 text-xs font-semibold text-muted-foreground">Channel Type</div>
-              <div className="space-y-2">
+              <div className="mb-1 text-xs text-muted-foreground">Type</div>
+              <div className="space-y-1">
                 {options.map((o) => (
                   <button
                     key={o.value}
                     onClick={() => setType(o.value)}
+                    aria-pressed={type === o.value}
                     className={[
-                      "flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors",
-                      type === o.value ? "border-primary bg-accent" : "border-border bg-card hover:bg-accent/50",
+                      "flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-colors",
+                      type === o.value ? "bg-accent" : "hover:bg-accent/40",
                     ].join(" ")}
                   >
-                    <EntityIcon kind={o.value} className="size-5 shrink-0 text-muted-foreground" />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium">{o.label}</div>
-                      <div className="text-xs text-muted-foreground">{o.desc}</div>
-                    </div>
-                    <span className={`grid size-4 shrink-0 place-items-center rounded-full border ${type === o.value ? "border-primary" : "border-muted-foreground"}`}>
-                      {type === o.value && <span className="size-2 rounded-full bg-primary" />}
+                    <EntityIcon kind={o.value} className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-medium">{o.label}</span>
+                      <span className="block text-xs text-muted-foreground">{o.desc}</span>
                     </span>
+                    {type === o.value && <Check className="size-4 shrink-0 text-primary" />}
                   </button>
                 ))}
               </div>
             </div>
           )}
-          <label className="block">
-            <div className="mb-2 text-xs font-semibold text-muted-foreground">Channel Name</div>
-            <div className="relative">
-              <EntityIcon kind={type} className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onKeyDown={onEnterSubmit(submit)}
-                placeholder="new-channel"
-                className="h-10 pl-9"
-              />
-            </div>
-            <SlugHint {...namePreview} />
-          </label>
         </div>
-        <DialogFooter className="mx-0 mb-0 flex-row items-center justify-end gap-2 rounded-b-xl border-t border-border bg-card px-4 py-3">
+        <DialogFooter className="mx-0 mb-0 flex-row items-center justify-end gap-2 px-5 pb-5">
           <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
           <Button size="sm" data-testid={tid.createChannelSubmit} onClick={submit} disabled={!namePreview.slug}>{editing ? "Save" : "Create Channel"}</Button>
         </DialogFooter>

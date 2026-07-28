@@ -3,9 +3,7 @@
 import { useState } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { onEnterSubmit } from "@/lib/ime"
-import { Field } from "./field"
 import { PrivateCategoryRow } from "./private-category-row"
 
 // Category settings dialog — rename only. Privacy (public/private) is fixed at
@@ -28,22 +26,23 @@ export function CategorySettingsDialog({ name, isPrivate, onClose, onSave }: {
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
       <DialogContent className="w-105 max-w-[calc(100vw-2rem)] p-0">
-        <DialogHeader className="border-b border-border px-4 py-4">
-          <DialogTitle>Category Settings</DialogTitle>
+        <DialogHeader className="px-5 pt-5 pb-0">
+          <DialogTitle className="text-xs font-normal text-muted-foreground">Category settings</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 px-4 pb-5">
-          <Field label="Category name">
-            <Input
-              value={nameDraft}
-              onChange={(e) => setNameDraft(e.target.value)}
-              onKeyDown={onEnterSubmit(save)}
-              placeholder="e.g. text channels"
-              autoFocus
-            />
-          </Field>
+        <div className="space-y-6 px-5 pb-5 pt-2">
+          {/* Category name = hero: large inline title input. */}
+          <input
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onKeyDown={onEnterSubmit(save)}
+            placeholder="e.g. Text channels"
+            autoFocus
+            aria-label="Category name"
+            className="w-full border-0 bg-transparent p-0 text-[30px] font-medium leading-tight tracking-tight shadow-none outline-none placeholder:font-normal placeholder:text-muted-foreground/40 focus-visible:ring-0"
+          />
           {isPrivate && <PrivateCategoryRow isPrivate locked />}
         </div>
-        <DialogFooter className="mx-0 mb-0 flex-row items-center justify-end gap-2 rounded-b-xl border-t border-border bg-card px-4 py-3">
+        <DialogFooter className="mx-0 mb-0 flex-row items-center justify-end gap-2 px-5 pb-5">
           <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
           <Button size="sm" onClick={save} disabled={!trimmedName}>Save</Button>
         </DialogFooter>
