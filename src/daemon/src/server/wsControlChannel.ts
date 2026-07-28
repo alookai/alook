@@ -124,7 +124,12 @@ type OutboundFrame =
   | HostBotAuditEventFrame
   | SessionErrorFrame;
 
-type ResyncProvider = () => { ready: HostReady; sessions: AgentSessionReport[] };
+type AgentActivityReport = { agentId: AgentId; state: AgentActivityState };
+type ResyncProvider = () => {
+  ready: HostReady;
+  sessions: AgentSessionReport[];
+  activities: AgentActivityReport[];
+};
 
 function describeErr(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -306,10 +311,18 @@ export class WsControlChannel implements HostControlChannel {
    */
   private resyncOnConnect(): void {
     if (this.resyncProvider) {
-      const { ready, sessions } = this.resyncProvider();
+      const { ready, sessions, activities } = this.resyncProvider();
       this.sendFrame({ type: "ready", ...ready });
       for (const s of sessions) this.sendFrame({ type: "agent_session", ...s });
-      this.log.info("resync sent", { ready: ready.runtimeReport.length, sessions: sessions.length });
+      // Re-assert each live agent's current activity: `agent_activity` is
+      // edge-triggered, so a frame dropped during the disconnect window is
+      // otherwise lost forever, stranding the pill on a stale state.
+      for (const a of activities) this.sendFrame({ type: "agent_activity", ...a });
+      this.log.info("resync sent", {
+        ready: ready.runtimeReport.length,
+        sessions: sessions.length,
+        activities: activities.length,
+      });
     }
     for (const hook of this.resyncHooks) {
       try {

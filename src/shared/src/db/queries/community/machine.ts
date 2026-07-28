@@ -10,7 +10,7 @@ import {
 import { user } from "../../schema";
 import { communityUserProfile } from "../../community-schema";
 import type { Database } from "../../index";
-import { BOT_ACTIVITY_PRESETS, RUNNING_PRESETS } from "../../../community/bot-activity-presets";
+import { BOT_ACTIVITY_PRESETS, isBotActivityStatus } from "../../../community/bot-activity-presets";
 import { COMMUNITY_MACHINE_PAIR_TOKEN_TTL_MS } from "../../../constants";
 import { isPresenceOnline } from "../../../utils/status";
 import type {
@@ -383,24 +383,6 @@ export async function touchMachineHeartbeat(
 // both. The distinction is server-only: humans PATCH `/api/community/users/me/
 // profile`, bots are written here by the WS DO on `agent_activity` frames.
 // ---------------------------------------------------------------------------
-
-/**
- * All emoji+text pairs the WS DO writes when translating an
- * `AgentActivityState` — used by the reconciler below to distinguish
- * "system-driven bot status pill this DO wrote" from "human-driven status
- * pill the owner set" without adding a `system_driven` column.
- */
-const BOT_ACTIVITY_STATUS_PAIRS: ReadonlyArray<{ emoji: string; text: string }> = [
-  BOT_ACTIVITY_PRESETS.idle,
-  BOT_ACTIVITY_PRESETS.starting,
-  BOT_ACTIVITY_PRESETS.stopping,
-  ...RUNNING_PRESETS,
-];
-
-function isBotActivityStatus(emoji: string | null, text: string | null): boolean {
-  if (emoji === null && text === null) return false;
-  return BOT_ACTIVITY_STATUS_PAIRS.some((p) => p.emoji === emoji && p.text === text);
-}
 
 /**
  * Coarse safety net for `agent_activity` frames dropped mid-disconnect: for

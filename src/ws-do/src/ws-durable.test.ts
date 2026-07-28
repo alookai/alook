@@ -273,6 +273,23 @@ vi.mock("@alook/shared", () => {
       { emoji: "🚀", text: "On it" },
       { emoji: "🔥", text: "In the zone" },
     ],
+    // Real impl of the write-path/reconciler guard — mirrors the shared module
+    // over the presets emitted above (idle/starting/stopping + running pool).
+    isBotActivityStatus: (emoji: string | null, text: string | null) => {
+      if (emoji === null && text === null) return false
+      const pairs = [
+        { emoji: "💤", text: "Idle" },
+        { emoji: "🌀", text: "Waking up" },
+        { emoji: "🌙", text: "Wrapping up" },
+        { emoji: "⚡", text: "Working on it" },
+        { emoji: "🛠️", text: "Cooking" },
+        { emoji: "🧠", text: "Thinking hard" },
+        { emoji: "🔧", text: "Tinkering" },
+        { emoji: "🚀", text: "On it" },
+        { emoji: "🔥", text: "In the zone" },
+      ]
+      return pairs.some((p) => p.emoji === emoji && p.text === text)
+    },
     queries: {
       session: { getValidSession: (db: unknown, token: string) => mockGetValidSession(db, token) },
       machineToken: {
@@ -1346,6 +1363,77 @@ describe("WebSocketDurableObject", () => {
 
       expect(mockUpdateProfile).not.toHaveBeenCalled()
       expect(mockStubFetch).not.toHaveBeenCalled()
+    })
+
+    it("regression #3 — an owner-set custom status is NOT overwritten by a running frame (write-path guard); no DB write, no fan-out", async () => {
+      const { durable, store } = createDO()
+      store.set("community-machine-identity", {
+        userId: "u_1",
+        machineId: "cm_1",
+        credentialHash: "0".repeat(64),
+      })
+      mockGetBotBinding.mockResolvedValue({ machineId: "cm_1", runtime: "codex" })
+      // Prior status is a custom (non-preset) pair the owner set.
+      mockGetProfile.mockResolvedValue({ statusEmoji: "🎨", statusText: "Painting" })
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "community-machine", machineId: "cm_1", userId: "u_1", authenticated: true })
+
+      const frame = JSON.stringify({ type: "agent_activity", agentId: "bot_1", state: "running" })
+      await durable.webSocketMessage(ws as any, frame)
+
+      // Guard skips the write entirely — custom status survives, even though the
+      // bot is working. This is what stops T6's heartbeat re-stomp every 5s.
+      expect(mockUpdateProfile).not.toHaveBeenCalled()
+      expect(mockStubFetch).not.toHaveBeenCalled()
+    })
+
+    it("regression #4 — a known idle preset still flips to running (guard didn't over-reach)", async () => {
+      const { durable, store } = createDO()
+      store.set("community-machine-identity", {
+        userId: "u_1",
+        machineId: "cm_1",
+        credentialHash: "0".repeat(64),
+      })
+      mockGetBotBinding.mockResolvedValue({ machineId: "cm_1", runtime: "codex" })
+      mockGetCoMemberUserIds.mockResolvedValue(["viewer-1"])
+      // Prior is the idle PRESET (pipeline-owned) — must remain writable.
+      mockGetProfile.mockResolvedValue({ statusEmoji: "💤", statusText: "Idle" })
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "community-machine", machineId: "cm_1", userId: "u_1", authenticated: true })
+
+      const frame = JSON.stringify({ type: "agent_activity", agentId: "bot_1", state: "running" })
+      await durable.webSocketMessage(ws as any, frame)
+
+      expect(mockUpdateProfile).toHaveBeenCalledWith(expect.anything(), "bot_1", {
+        statusEmoji: "⚡",
+        statusText: "Working on it",
+      })
+    })
+
+    it("regression #4 — a known running preset still flips back to idle (guard didn't over-reach)", async () => {
+      const { durable, store } = createDO()
+      store.set("community-machine-identity", {
+        userId: "u_1",
+        machineId: "cm_1",
+        credentialHash: "0".repeat(64),
+      })
+      mockGetBotBinding.mockResolvedValue({ machineId: "cm_1", runtime: "codex" })
+      mockGetCoMemberUserIds.mockResolvedValue(["viewer-1"])
+      // Prior is a running PRESET — an idle frame must be allowed to overwrite it.
+      mockGetProfile.mockResolvedValue({ statusEmoji: "⚡", statusText: "Working on it" })
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "community-machine", machineId: "cm_1", userId: "u_1", authenticated: true })
+
+      const frame = JSON.stringify({ type: "agent_activity", agentId: "bot_1", state: "idle" })
+      await durable.webSocketMessage(ws as any, frame)
+
+      expect(mockUpdateProfile).toHaveBeenCalledWith(expect.anything(), "bot_1", {
+        statusEmoji: "💤",
+        statusText: "Idle",
+      })
     })
 
     it("drops the frame with phase='binding_check' when getBotBinding throws — socket stays open, no write", async () => {

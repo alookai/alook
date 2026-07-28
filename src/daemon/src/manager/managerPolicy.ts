@@ -81,6 +81,18 @@ export interface AgentState {
   apm: ApmGatedSteeringState;
 }
 
+/**
+ * An agent counts as actively working iff its process is `running` AND it has
+ * work in hand — a turn in flight, or queued inbox not yet drained into a turn.
+ * `running` alone is not enough: a persistent agent stays `running` for up to
+ * `idleTimeoutMs` after a turn ends with an empty inbox, which is genuinely
+ * idle. Single source of truth for both the activity derivation and the
+ * durability re-assert, so they can never disagree.
+ */
+export function isActivelyWorking(agent: AgentState): boolean {
+  return agent.status === "running" && (agent.turnActive || agent.inbox.length > 0);
+}
+
 export interface ManagerState {
   agents: Record<string, AgentState>;
   /** Stall threshold: no progress for this long while running ⇒ terminate. */

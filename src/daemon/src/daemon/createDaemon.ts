@@ -270,6 +270,19 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       typingHeartbeats.delete(agentId);
     }
   }
+  // Level-triggered activity re-assert (durability for the profile pill).
+  // `onAgentActivity` is edge-triggered, so an `agent_activity` frame dropped
+  // during a disconnect window strands the pill on a stale state with no
+  // recovery. This re-sends the manager's CURRENT derived activity
+  // unconditionally each heartbeat — independent of any transition diff — so a
+  // live, never-reconnecting agent's pill self-heals within one interval. The
+  // heartbeat only runs while the agent is in a starting/running-family state
+  // (torn down on idle/stopping), so it never wrongly asserts "working" for an
+  // idle agent. Idempotent on the ws-do side (rewrites the same preset).
+  function reassertAgentActivity(agentId: string): void {
+    const state = managerRef?.agentActivity(agentId);
+    if (state) channel.reportAgentActivity?.({ agentId, state });
+  }
   function startTypingHeartbeat(agentId: string): void {
     stopTypingHeartbeat(agentId);
     // Immediate emit + every 5s while active — comfortably refreshes the
@@ -283,6 +296,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       for (const dmConversationId of typingTracker.snapshot(agentId)) {
         channel.reportAgentTyping?.({ agentId, dmConversationId });
       }
+      reassertAgentActivity(agentId);
     }, TYPING_HEARTBEAT_MS);
     timer.unref?.();
     typingHeartbeats.set(agentId, timer);

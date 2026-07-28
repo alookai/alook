@@ -70,7 +70,7 @@ describe("WsControlChannel — resync on (re)connect", () => {
     const { ch, sockets } = makeChannel();
     const ready: HostReady = { runtimeReport: [{ id: "mock" }], runningAgents: ["a1"] };
     const sessions: AgentSessionReport[] = [{ agentId: "a1", sessionId: "s1", launchId: "l1" }];
-    ch.onResync(() => ({ ready, sessions }));
+    ch.onResync(() => ({ ready, sessions, activities: [] }));
 
     ch.connect();
     sockets[0].emit("open");
@@ -92,10 +92,42 @@ describe("WsControlChannel — resync on (re)connect", () => {
     expect(f.some((x) => x.type === "agent_session" && x.agentId === "a1")).toBe(true);
   });
 
+  it("2a — replays each live agent's current activity on (re)connect, recovering a frame dropped mid-disconnect", async () => {
+    const { ch, sockets } = makeChannel();
+    const ready: HostReady = { runtimeReport: [{ id: "mock" }], runningAgents: ["a1", "a2"] };
+    ch.onResync(() => ({
+      ready,
+      sessions: [{ agentId: "a1", sessionId: "s1", launchId: "l1" }],
+      activities: [
+        { agentId: "a1", state: "running" },
+        { agentId: "a2", state: "idle" },
+      ],
+    }));
+
+    ch.connect();
+    sockets[0].emit("open");
+
+    // Simulate the reported failure: while the socket was down, a1's `running`
+    // activity frame was dropped and never reached the server. On reconnect the
+    // daemon re-asserts its OWN current truth, so the pill self-heals.
+    sockets[0].emit("close");
+    await new Promise((r) => setTimeout(r, 10));
+    expect(sockets.length).toBe(2);
+    sockets[1].emit("open");
+
+    const f = sockets[1].frames();
+    expect(f.some((x) => x.type === "agent_activity" && x.agentId === "a1" && x.state === "running")).toBe(true);
+    expect(f.some((x) => x.type === "agent_activity" && x.agentId === "a2" && x.state === "idle")).toBe(true);
+    // Activity replay comes after ready + sessions.
+    const readyIdx = f.findIndex((x) => x.type === "ready");
+    const activityIdx = f.findIndex((x) => x.type === "agent_activity");
+    expect(readyIdx).toBeLessThan(activityIdx);
+  });
+
   it("does NOT replay a stale ready/session if the resync provider's state changed", async () => {
     const { ch, sockets } = makeChannel();
     let running = ["a1"];
-    ch.onResync(() => ({ ready: { runtimeReport: [{ id: "mock" }], runningAgents: running }, sessions: [] }));
+    ch.onResync(() => ({ ready: { runtimeReport: [{ id: "mock" }], runningAgents: running }, sessions: [], activities: [] }));
 
     ch.connect();
     sockets[0].emit("open");
@@ -125,7 +157,7 @@ describe("WsControlChannel — auth rejection", () => {
       reconnect: { baseMs: 1, maxMs: 1 },
       onAuthRejected: () => { authRejectedCalled = true; },
     });
-    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [], activities: [] }));
 
     ch.connect();
     sockets[0].emit("open");
@@ -151,7 +183,7 @@ describe("WsControlChannel — auth rejection", () => {
       },
       reconnect: { baseMs: 1, maxMs: 1 },
     });
-    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [], activities: [] }));
 
     ch.connect();
     sockets[0].emit("open");
@@ -171,7 +203,7 @@ describe("WsControlChannel — ready frame", () => {
       runtimeReport: [{ id: "claude", version: "1.0.0" }],
       runningAgents: [],
     };
-    ch.onResync(() => ({ ready, sessions: [] }));
+    ch.onResync(() => ({ ready, sessions: [], activities: [] }));
     ch.connect();
     sockets[0].emit("open");
     const frames = sockets[0].frames();
@@ -185,7 +217,7 @@ describe("WsControlChannel — ready frame", () => {
 describe("WsControlChannel — wake/stop acks", () => {
   it("sends agent_wake_ack when open", async () => {
     const { ch, sockets } = makeChannel();
-    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [], activities: [] }));
     ch.connect();
     sockets[0].emit("open");
     await ch.reportWakeAck({ agentId: "a1", launchId: "l1", status: "ok" });
@@ -198,7 +230,7 @@ describe("WsControlChannel — wake/stop acks", () => {
     // is nothing to buffer for. A dropped ack while offline is fine: the
     // server never addressed this wake attempt on this connection anyway.
     const { ch, sockets } = makeChannel();
-    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [], activities: [] }));
     ch.connect();
     await ch.reportWakeAck({ agentId: "a1", launchId: "l_early", status: "ok" });
     expect(sockets[0].frames().some((f) => f.type === "agent_wake_ack")).toBe(false);
@@ -210,7 +242,7 @@ describe("WsControlChannel — wake/stop acks", () => {
 describe("WsControlChannel — agent activity reports", () => {
   it("sends agent_activity when open", async () => {
     const { ch, sockets } = makeChannel();
-    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [], activities: [] }));
     ch.connect();
     sockets[0].emit("open");
     await ch.reportAgentActivity({ agentId: "a1", state: "running" });
@@ -219,7 +251,7 @@ describe("WsControlChannel — agent activity reports", () => {
 
   it("no-ops (does not throw) when the socket isn't open", async () => {
     const { ch, sockets } = makeChannel();
-    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [], activities: [] }));
     ch.connect();
     await expect(ch.reportAgentActivity({ agentId: "a1", state: "idle" })).resolves.toBeUndefined();
     expect(sockets[0].frames().some((f) => f.type === "agent_activity")).toBe(false);
@@ -229,7 +261,7 @@ describe("WsControlChannel — agent activity reports", () => {
 describe("WsControlChannel — bot audit event reports", () => {
   it("sends a well-formed bot_audit_event frame when open", async () => {
     const { ch, sockets } = makeChannel();
-    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [], activities: [] }));
     ch.connect();
     sockets[0].emit("open");
     await ch.reportBotAuditEvent({
@@ -245,7 +277,7 @@ describe("WsControlChannel — bot audit event reports", () => {
 
   it("no-ops when the socket isn't open", async () => {
     const { ch, sockets } = makeChannel();
-    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [], activities: [] }));
     ch.connect();
     await expect(
       ch.reportBotAuditEvent({
@@ -272,7 +304,7 @@ describe("WsControlChannel — HTTP 401s are non-terminal", () => {
       reconnect: { baseMs: 1, maxMs: 1 },
       onAuthRejected: () => { authRejectedCalls++; },
     });
-    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [], activities: [] }));
 
     ch.connect();
     // Simulate 3 consecutive 401-then-close cycles. The channel MUST keep
@@ -301,7 +333,7 @@ describe("WsControlChannel — HTTP 401s are non-terminal", () => {
       reconnect: { baseMs: 1, maxMs: 1 },
       onAuthRejected: () => { authRejectedCalls++; },
     });
-    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [], activities: [] }));
 
     ch.connect();
     sockets[0].emit("open");
@@ -347,7 +379,7 @@ describe("WsControlChannel — reconnect timer keeps the event loop alive", () =
         },
         reconnect: { baseMs: 50, maxMs: 50 },
       });
-      ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
+      ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [], activities: [] }));
 
       ch.connect();
       sockets[0].emit("open");
@@ -371,6 +403,7 @@ describe("WsControlChannel — logging", () => {
     ch.onResync(() => ({
       ready: { runtimeReport: [{ id: "claude" }], runningAgents: ["a1"] },
       sessions: [{ agentId: "a1", sessionId: "s1", launchId: "l1" }],
+      activities: [],
     }));
     ch.connect();
     sockets[0].emit("open");
@@ -388,7 +421,7 @@ describe("WsControlChannel — logging", () => {
   it("logs warn on close", async () => {
     const logger = stubLogger();
     const { ch, sockets } = makeChannel({ logger });
-    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [], activities: [] }));
     ch.connect();
     sockets[0].emit("open");
     sockets[0].emit("close", 1006, "abnormal");
@@ -401,7 +434,7 @@ describe("WsControlChannel — logging", () => {
   it("logs info on each scheduled reconnect with the computed delayMs", async () => {
     const logger = stubLogger();
     const { ch, sockets } = makeChannel({ logger, reconnect: { baseMs: 10, maxMs: 100 } });
-    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [], activities: [] }));
     ch.connect();
     sockets[0].emit("open");
     sockets[0].emit("close");
@@ -414,7 +447,7 @@ describe("WsControlChannel — logging", () => {
   it("logs error on AUTH_REJECTED", async () => {
     const logger = stubLogger();
     const { ch, sockets } = makeChannel({ logger });
-    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [], activities: [] }));
     ch.connect();
     sockets[0].emit("open");
     sockets[0].emit("message", JSON.stringify({ type: "error", code: "AUTH_REJECTED" }));
@@ -432,7 +465,7 @@ describe("WsControlChannel — logging", () => {
       now: () => now,
       heartbeat: { pingIntervalMs: 10, pongTimeoutMs: 20 },
     });
-    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [], activities: [] }));
     ch.connect();
     sockets[0].emit("open");
     // Advance the injected clock past the pong deadline, then let the

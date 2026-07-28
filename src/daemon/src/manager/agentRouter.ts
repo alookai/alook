@@ -184,6 +184,7 @@ export class AgentRouter {
     this.opts.channel.onResync?.(() => ({
       ready: this.buildReady(),
       sessions: this.opts.manager.liveSessionReports() as AgentSessionReport[],
+      activities: this.opts.manager.liveAgentActivities(),
     }));
     await this.opts.channel.reportReady(this.buildReady());
   }

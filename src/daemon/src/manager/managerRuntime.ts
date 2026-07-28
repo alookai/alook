@@ -19,6 +19,7 @@ import {
   type AgentRuntimeCaps,
   type AgentMsg,
   type AgentState,
+  isActivelyWorking,
 } from "./managerPolicy.js";
 import type { Driver, LaunchContext, SdkDriverDeps } from "../types.js";
 import { resolveLaunchFieldsOrDefault, type RuntimeConfig } from "../runtimeConfig.js";
@@ -814,6 +815,25 @@ export class AgentProcessManager {
     }));
   }
 
+  /**
+   * Current derived activity for every known agent, for control-plane resync
+   * and heartbeat re-assert. Level-triggered snapshot of the same
+   * `deriveActivity` the edge-triggered dispatch uses, so a dropped
+   * `agent_activity` frame can be recovered from the daemon's own truth.
+   */
+  liveAgentActivities(): Array<{ agentId: string; state: AgentActivityState }> {
+    return Object.entries(this.deriveActivitySnapshot(this.state)).map(([agentId, state]) => ({
+      agentId,
+      state,
+    }));
+  }
+
+  /** Current derived activity for one agent, or null if it isn't known. */
+  agentActivity(agentId: string): AgentActivityState | null {
+    const agent = this.state.agents[agentId];
+    return agent ? this.deriveActivity(agent) : null;
+  }
+
   /* --------------------------------------------------------------- */
   /* Core dispatch: reduce → apply effects                            */
   /* --------------------------------------------------------------- */
@@ -843,12 +863,14 @@ export class AgentProcessManager {
 
   /**
    * `AgentState.status` alone doesn't mean "actively working" — a persistent
-   * agent stays `"running"` (turnActive=false) for up to `idleTimeoutMs` after
-   * a turn ends, before the tick loop finally stops it. Report "idle" the
-   * moment the turn ends instead of waiting for that hibernation timeout.
+   * agent stays `"running"` for up to `idleTimeoutMs` after a turn ends, before
+   * the tick loop finally stops it. A `running` agent is "running" only while it
+   * has work in hand (`isActivelyWorking`: turn in flight OR queued inbox);
+   * otherwise it reads "idle" the moment the turn ends, without waiting for the
+   * hibernation timeout. `starting`/`stopping` pass through unchanged.
    */
   private deriveActivity(agent: AgentState): AgentActivityState {
-    if (agent.status === "running" && !agent.turnActive) return "idle";
+    if (agent.status === "running") return isActivelyWorking(agent) ? "running" : "idle";
     return agent.status;
   }
 

@@ -820,11 +820,18 @@ export interface HostControlChannel {
   reportBotAuditEvent?(frame: HostBotAuditEventFrame): Promise<void>;
   /**
    * Register a resync provider invoked on every (re)connect: it returns the
-   * host's current `ready` snapshot + live agent sessions, which the channel
-   * re-sends so the server can recover this host's state after a drop. Optional
-   * so the in-process `LocalControlChannel` (no reconnect) can omit it.
+   * host's current `ready` snapshot + live agent sessions + each live agent's
+   * current derived activity, which the channel re-sends so the server can
+   * recover this host's state after a drop. Activities are replayed because
+   * `agent_activity` is edge-triggered — a frame dropped mid-disconnect is
+   * otherwise lost, stranding the profile pill on a stale state. Optional so the
+   * in-process `LocalControlChannel` (no reconnect) can omit it.
    */
-  onResync?(provider: () => { ready: HostReady; sessions: AgentSessionReport[] }): void;
+  onResync?(provider: () => {
+    ready: HostReady;
+    sessions: AgentSessionReport[];
+    activities: Array<{ agentId: AgentId; state: AgentActivityState }>;
+  }): void;
 }
 
 /** A live agent session the host replays to the server on (re)connect. */

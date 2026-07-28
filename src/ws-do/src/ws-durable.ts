@@ -14,6 +14,7 @@ import {
   HostBotAuditEventFrameSchema,
   pickBotActivityPreset,
   RUNNING_PRESETS,
+  isBotActivityStatus,
   isThread,
   isForumPost,
 } from "@alook/shared"
@@ -796,6 +797,16 @@ export class WebSocketDurableObject extends DurableObject<Env> {
           const prior = await queries.communityUserProfile.getProfile(db, agentId)
           const priorEmoji = prior?.statusEmoji ?? null
           const priorText = prior?.statusText ?? null
+          // The activity pipeline only owns pills it wrote itself. If the bot
+          // carries an owner-set custom status (a non-preset pair), leave it —
+          // matches the reconciler's declared intent and stops the heartbeat
+          // re-assert from stomping a custom status every interval. A null pair
+          // (no status yet) is still writable.
+          if (
+            (priorEmoji !== null || priorText !== null) &&
+            !isBotActivityStatus(priorEmoji, priorText)
+          )
+            return
           const priorIsRunning =
             priorEmoji !== null &&
             RUNNING_PRESETS.some((p) => p.emoji === priorEmoji && p.text === priorText)

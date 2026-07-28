@@ -2,9 +2,13 @@ import { describe, it, expect } from "vitest";
 import {
   reduceManager,
   createInitialManagerState,
+  isActivelyWorking,
   type ManagerState,
+  type AgentState,
+  type AgentStatus,
   type AgentRuntimeCaps,
 } from "./managerPolicy";
+import { createInitialApmGatedSteeringState } from "../runtime/apmStateMachine";
 
 const PERSISTENT_GATED: AgentRuntimeCaps = {
   lifecycleKind: "persistent",
@@ -541,5 +545,40 @@ describe("reduceManager — onExit / onSpawned clear resetting", () => {
     expect(r.state.agents.a.apm.compacting).toBe(false);
     expect(r.state.agents.a.apm.phase).toBe("idle");
     expect(r.state.agents.a.apm.outstandingToolUses).toBe(0);
+  });
+});
+
+describe("isActivelyWorking — single source of truth for the profile pill", () => {
+  function agentWith(fields: { status: AgentStatus; turnActive: boolean; inbox: number }): AgentState {
+    return {
+      agentId: "a",
+      status: fields.status,
+      caps: PERSISTENT_GATED,
+      inbox: Array.from({ length: fields.inbox }, (_, i) => ({ seq: i, text: "m" })),
+      sessionId: null,
+      turnActive: fields.turnActive,
+      lastProgressAt: 0,
+      idleSince: null,
+      resetting: false,
+      apm: createInitialApmGatedSteeringState(),
+    };
+  }
+
+  it("running + turn in flight ⇒ working", () => {
+    expect(isActivelyWorking(agentWith({ status: "running", turnActive: true, inbox: 0 }))).toBe(true);
+  });
+
+  it("running + no turn + queued inbox ⇒ working (the reported bug: mid-task between turns)", () => {
+    expect(isActivelyWorking(agentWith({ status: "running", turnActive: false, inbox: 2 }))).toBe(true);
+  });
+
+  it("running + no turn + empty inbox ⇒ NOT working (genuinely idle, pre-hibernation)", () => {
+    expect(isActivelyWorking(agentWith({ status: "running", turnActive: false, inbox: 0 }))).toBe(false);
+  });
+
+  it("non-running states are never working, even with a queued inbox", () => {
+    for (const status of ["idle", "starting", "stopping"] as AgentStatus[]) {
+      expect(isActivelyWorking(agentWith({ status, turnActive: true, inbox: 3 }))).toBe(false);
+    }
   });
 });

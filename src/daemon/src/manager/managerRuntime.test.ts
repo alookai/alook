@@ -620,6 +620,44 @@ describe("AgentProcessManager — onAgentActivity (derived activity reporting)",
     ]);
   });
 
+  it("liveAgentActivities / agentActivity report the DERIVED state (running while a turn is in flight, idle once it ends) — the level-triggered source for resync + heartbeat re-assert", async () => {
+    const persistentDriver = {
+      ...fakeDriver("codex"),
+      lifecycle: { kind: "persistent", start: "immediate", exit: "natural", inFlightWake: "queue" } as never,
+      supportsStdinNotification: true,
+      busyDeliveryMode: "direct",
+    } as Driver;
+    const session = fakeSession();
+    const mgr = new AgentProcessManager({
+      driverFor: () => persistentDriver,
+      baseContextFor: () => ({
+        workingDirectory: "/tmp",
+        agentId: "a1",
+        standingPrompt: "",
+        config: {} as LaunchContext["config"],
+        credentialProxy: {} as LaunchContext["credentialProxy"],
+      }),
+      sessionFactory: () => session,
+    });
+    mgr.register("a1");
+    // register alone: known but not running ⇒ idle.
+    expect(mgr.agentActivity("a1")).toBe("idle");
+
+    mgr.deliver("a1", { seq: 1, text: "hello" });
+    session.startResolver?.();
+    await Promise.resolve();
+    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" }); // -> running, turnActive
+    expect(mgr.agentActivity("a1")).toBe("running");
+    expect(mgr.liveAgentActivities()).toEqual([{ agentId: "a1", state: "running" }]);
+
+    session.fire("runtime_event", { kind: "turn_end" }); // running, !turnActive, empty inbox -> idle
+    expect(mgr.agentActivity("a1")).toBe("idle");
+    expect(mgr.liveAgentActivities()).toEqual([{ agentId: "a1", state: "idle" }]);
+
+    // Unknown agent has no derivable activity.
+    expect(mgr.agentActivity("nope")).toBeNull();
+  });
+
   it("a tick that stalls/hibernates two different agents at once fires onAgentActivity for both", async () => {
     vi.useFakeTimers();
     try {

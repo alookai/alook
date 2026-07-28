@@ -461,6 +461,8 @@ export type { WakePayload, BuildUnreadWakeResult } from "./community/wake-dispat
 export {
   BOT_ACTIVITY_PRESETS,
   RUNNING_PRESETS,
+  BOT_ACTIVITY_STATUS_PAIRS,
+  isBotActivityStatus,
   pickBotActivityPreset,
 } from "./community/bot-activity-presets";
 export type { BotActivityPreset } from "./community/bot-activity-presets";

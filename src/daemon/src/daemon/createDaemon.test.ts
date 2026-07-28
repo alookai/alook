@@ -425,6 +425,90 @@ describe("createDaemon — logging", () => {
   });
 });
 
+describe("createDaemon — level-triggered activity heartbeat (2b: live-connection self-heal)", () => {
+  const originalFetch = global.fetch;
+  afterEach(() => {
+    global.fetch = originalFetch;
+    vi.useRealTimers();
+  });
+
+  it("re-asserts a running agent's current activity every heartbeat with NO intervening transition — recovery path for a dropped frame on a live socket", async () => {
+    vi.useFakeTimers();
+    global.fetch = vi.fn(async (url: string | URL) => {
+      const href = String(url);
+      if (href.includes("/enroll-agent")) return new Response(JSON.stringify({ runnerKey: "rk_1" }), { status: 200 });
+      return new Response(JSON.stringify({ bots: [] }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    // A persistent, stdin-capable driver stays `running` after session_init
+    // without emitting turn_end — so the agent sits in a STEADY working state,
+    // which is exactly the window 2b exercises.
+    const emitters: Array<EventEmitter> = [];
+    const persistentDriver = {
+      id: "codex",
+      lifecycle: { kind: "persistent", start: "immediate", exit: "natural", inFlightWake: "queue" } as never,
+      session: { recovery: "resume_or_fresh" } as never,
+      model: { detectedModelsVerifiedAs: "launchable", toLaunchSpec: () => ({ args: [] }) } as never,
+      supportsStdinNotification: true,
+      busyDeliveryMode: "direct",
+      probe: () => ({ status: "healthy" as const, version: "test" }),
+      spawn: async () => {
+        const proc = new EventEmitter() as unknown as { kill: () => void; stdin: unknown };
+        (proc as unknown as { kill: () => void }).kill = () => {};
+        emitters.push(proc as unknown as EventEmitter);
+        return { process: proc as never };
+      },
+      parseLine: () => [],
+      encodeStdinMessage: () => null,
+      buildSystemPrompt: () => "",
+    } as unknown as Driver;
+
+    const sockets: FakeSocket[] = [];
+    const daemon = await createDaemon({
+      machineKey: "cmk_hb",
+      serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as any,
+      runtimeReport: [{ id: "codex" }],
+      driverFor: () => persistentDriver,
+      capabilities: [],
+      tickIntervalMs: 1_000_000, // park the stall/hibernation loop out of the way
+    });
+    sockets[0].emit("open");
+    sockets[0].emit("message", JSON.stringify({ type: "bot:added", botId: "bot_1", name: "Bot One", discriminator: "4821" }));
+    sockets[0].emit(
+      "message",
+      JSON.stringify({
+        type: "agent:wake",
+        agentId: "bot_1",
+        config: { version: 1, runtime: "codex", model: { kind: "default" }, mode: { kind: "default" } },
+        launchId: "l1",
+        unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 1 },
+      }),
+    );
+    // Let enroll + spawn resolve, then land the runtime handshake so the FSM
+    // reaches `running` (turnActive) — a steady working state.
+    await vi.advanceTimersByTimeAsync(50);
+    expect(emitters.length).toBeGreaterThan(0);
+    emitters[0].emit("runtime_event", { kind: "session_init", sessionId: "s1" });
+    await vi.advanceTimersByTimeAsync(1);
+
+    const activityFrames = () =>
+      sockets[0].sent.map((s) => JSON.parse(s)).filter((f: any) => f.type === "agent_activity");
+    const beforeCount = activityFrames().length;
+    expect(beforeCount).toBeGreaterThan(0); // the edge transition to running fired
+
+    // Advance ONE heartbeat with no further runtime events → the level-triggered
+    // re-assert must emit another running frame despite zero transitions.
+    await vi.advanceTimersByTimeAsync(5_000);
+    const after = activityFrames();
+    expect(after.length).toBeGreaterThan(beforeCount);
+    expect(after.at(-1)).toMatchObject({ type: "agent_activity", agentId: "bot_1", state: "running" });
+
+    await daemon.stop();
+  });
+});
+
 describe("deriveAuditLogSubcommand", () => {
   it("maps the CLI's bare /api/* pathnames to their subcommand suffix", () => {
     expect(deriveAuditLogSubcommand("/api/send")).toBe("send");
