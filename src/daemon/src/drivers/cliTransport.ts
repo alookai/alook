@@ -48,6 +48,7 @@ import { buildCliSystemPrompt } from "./systemPrompt.js";
 import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
 import { writeCliLink } from "./cliLink.js";
 import { mergeEnvLayers, platformEnv, runtimeContextEnv, type EnvLayer } from "./spawnEnv.js";
+import { buildGitIdentityEnv } from "./gitIdentityEnv.js";
 import { writeAgentFile } from "./agentFile.js";
 
 export interface PreparedCliTransport {
@@ -200,6 +201,20 @@ export async function prepareCliTransport(
     { name: "hostStatic", precedence: 10, vars: cli.extraEnv ?? {} },
     { name: "userEnv", precedence: 20, vars: resolved.envVars },
     { name: "driver", precedence: 30, vars: extraEnv as Record<string, string | undefined> },
+    // Per-agent git identity (GIT_AUTHOR_*/GIT_COMMITTER_*) so commits are
+    // attributed to the agent that made them. ENV-ONLY by design — never writes
+    // ~/.gitconfig or any repo .git/config, so the owner's own git identity is
+    // untouched. Above `driver` (30) so a driver can't clobber it; below
+    // `platformContract` (40) though keys don't overlap. Not sensitive.
+    {
+      name: "gitIdentity",
+      precedence: 35,
+      vars: buildGitIdentityEnv({
+        agentName: ctx.config.agentName,
+        discriminator: ctx.config.agentDiscriminator,
+        agentId: ctx.agentId,
+      }),
+    },
     {
       name: "platformContract",
       precedence: 40,

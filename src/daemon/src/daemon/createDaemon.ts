@@ -541,6 +541,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
         agentCliPath: resolvedCliPath ?? opts.agentCliPath,
         config: {
           ...(botMeta?.name ? { agentName: botMeta.name } : {}),
+          ...(botMeta?.discriminator ? { agentDiscriminator: botMeta.discriminator } : {}),
           ...(botMeta?.name && botMeta?.discriminator
             ? { agentHandle: `@${formatHandle(botMeta.name, botMeta.discriminator)}` }
             : {}),

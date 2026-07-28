@@ -216,6 +216,12 @@ export interface LaunchConfig {
   /** Agent display name (e.g. "Gus"). */
   agentName?: string;
   /**
+   * Agent's 4-digit discriminator (the `0042` in `@Gus#4821`). Carried
+   * explicitly alongside `agentName` so the git-identity builder doesn't have
+   * to re-parse it out of `agentHandle`. See `drivers/gitIdentityEnv.ts`.
+   */
+  agentDiscriminator?: string;
+  /**
    * Agent's global @mention handle, `@name#0042` (e.g. "@Gus#4821"). Every
    * account in Alook — human or agent — has a name plus a 4-digit
    * discriminator; this is the `@`-prefixed pair, unique even when names

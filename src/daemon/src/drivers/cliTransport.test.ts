@@ -143,6 +143,36 @@ describe("prepareCliTransport — layered spawn env", () => {
     expect(spawnEnv.NO_PROXY).toContain("localhost");
   });
 
+  it("injects per-agent GIT_AUTHOR_*/GIT_COMMITTER_* from the agent identity", async () => {
+    const ctx = baseCtx(mkTmp(), {
+      agentId: "a3f90c21beef",
+      config: { agentName: "Melisa", agentDiscriminator: "1043" },
+    });
+    const { spawnEnv } = await prepareCliTransport(ctx, {}, undefined, "linux");
+    expect(spawnEnv.GIT_AUTHOR_NAME).toBe("Melisa#1043");
+    expect(spawnEnv.GIT_AUTHOR_EMAIL).toBe("melisa-1043-a3f90c21@alook.ai");
+    expect(spawnEnv.GIT_COMMITTER_NAME).toBe("Melisa#1043");
+    expect(spawnEnv.GIT_COMMITTER_EMAIL).toBe(spawnEnv.GIT_AUTHOR_EMAIL);
+  });
+
+  it("falls back to a valid generic git NAME when no agent name is set, email still keyed on agentId", async () => {
+    // config: {} (baseCtx default) — degraded/unknown-bot spawn. baseCtx has
+    // agentId "agent_1", so the email stays unique off the id even with no name.
+    const { spawnEnv } = await prepareCliTransport(baseCtx(mkTmp()), {}, undefined, "linux");
+    expect(spawnEnv.GIT_AUTHOR_NAME).toBe("Alook Agent");
+    expect(spawnEnv.GIT_AUTHOR_EMAIL).toBe("agent-1@alook.ai");
+    expect(spawnEnv.GIT_AUTHOR_NAME).not.toBe("");
+  });
+
+  it("a driver trying to spoof GIT_AUTHOR_NAME does NOT win (gitIdentity precedence 35 > driver 30)", async () => {
+    const ctx = baseCtx(mkTmp(), {
+      agentId: "a3f90c21beef",
+      config: { agentName: "Melisa", agentDiscriminator: "1043" },
+    });
+    const { spawnEnv } = await prepareCliTransport(ctx, { GIT_AUTHOR_NAME: "Someone Else" }, undefined, "linux");
+    expect(spawnEnv.GIT_AUTHOR_NAME).toBe("Melisa#1043");
+  });
+
   it("creates a symlink when hostCliPath is set", async () => {
     const wd = mkTmp();
     const host = path.join(wd, "real.js");
