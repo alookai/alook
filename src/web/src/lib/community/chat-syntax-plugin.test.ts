@@ -149,6 +149,52 @@ describe("chatSyntaxPlugin — channelRef", () => {
     const full = paragraphChildren(parse("join https://alook.ai/community/invite/xY9k2vW7aQ"))
     expect(full.some((c) => c.type === "channelRef")).toBe(false)
   })
+
+  it("wraps a ref with a Chinese channel name — slugify preserves CJK, the charset must match it", () => {
+    // The bug Shelly reported (#194): names are slugified display names, not
+    // nanoid ids; slugify keeps CJK/emoji, so an ASCII-only charset dropped the pill.
+    expect(paragraphChildren(parse("see /Gus/架构"))[1]).toMatchObject({ type: "channelRef", value: "/Gus/架构" })
+    expect(paragraphChildren(parse("/Gus/架构"))[0]).toMatchObject({ type: "channelRef", value: "/Gus/架构" })
+  })
+
+  it("wraps a ref with emoji in the server segment (slugify keeps emoji, e.g. \"总部 🎉\" → \"总部-🎉\")", () => {
+    const children = paragraphChildren(parse("go /总部-🎉/general now"))
+    expect(children.find((c) => c.type === "channelRef")).toMatchObject({ value: "/总部-🎉/general" })
+  })
+
+  it("wraps a ref with accented-Latin name (café)", () => {
+    expect(paragraphChildren(parse("see /studio/café done"))[1]).toMatchObject({ type: "channelRef", value: "/studio/café" })
+  })
+
+  it("wraps the thread form on a Unicode name — /Gus/架构/#42", () => {
+    expect(paragraphChildren(parse("see /Gus/架构/#42"))[1]).toMatchObject({ type: "channelRef", value: "/Gus/架构/#42" })
+  })
+
+  it("still terminates a Unicode ref at a trailing ASCII period — the period is not swallowed", () => {
+    // Regression guard for the Unicode charset: the segment class must stay
+    // disjoint from the terminator punctuation, else a greedy match eats the `.`.
+    const children = paragraphChildren(parse("see /Gus/架构."))
+    expect(children.map((c) => c.type)).toEqual(["text", "channelRef", "text"])
+    expect(children[1]).toMatchObject({ value: "/Gus/架构" })
+    expect(children[2]).toMatchObject({ type: "text", value: "." })
+  })
+
+  it("terminates a Unicode ref at a trailing FULL-WIDTH period 。 — the most common CJK sentence ender", () => {
+    // Blair's QA flag: a Chinese sentence ends in 。, so the ref-in-a-sentence
+    // shape `看 /Gus/架构。` is extremely common. The full-width 。 must be a
+    // terminator (in BOTH the segment-exclusion and the lookahead — the segment
+    // is greedy, so lookahead-only would let it swallow the 。), else the pill
+    // target becomes "架构。" and click/highlight mis-targets the real channel.
+    const children = paragraphChildren(parse("看 /Gus/架构。"))
+    expect(children.map((c) => c.type)).toEqual(["text", "channelRef", "text"])
+    expect(children[1]).toMatchObject({ value: "/Gus/架构" })
+    expect(children[2]).toMatchObject({ type: "text", value: "。" })
+  })
+
+  it("terminates at other full-width CJK terminators (！？ etc.)", () => {
+    expect(paragraphChildren(parse("用 /Gus/架构！"))[1]).toMatchObject({ value: "/Gus/架构" })
+    expect(paragraphChildren(parse("是 /Gus/架构？好"))[1]).toMatchObject({ value: "/Gus/架构" })
+  })
 })
 
 describe("chatSyntaxPlugin — serverRef", () => {
@@ -184,6 +230,22 @@ describe("chatSyntaxPlugin — serverRef", () => {
     const bare = paragraphChildren(parse("join /community/invite/abc123XYZ"))
     expect(bare).toHaveLength(1)
     expect(bare.some((c) => c.type === "serverRef")).toBe(false)
+  })
+
+  it("wraps a bare Unicode /server ref (Chinese, emoji)", () => {
+    expect(paragraphChildren(parse("check /架构"))[1]).toMatchObject({ type: "serverRef", value: "/架构" })
+    expect(paragraphChildren(parse("check /总部-🎉 here"))[1]).toMatchObject({ type: "serverRef", value: "/总部-🎉" })
+  })
+
+  it("terminates a Unicode /server ref at trailing punctuation (ASCII + full-width)", () => {
+    const ascii = paragraphChildren(parse("check /架构."))
+    expect(ascii.map((c) => c.type)).toEqual(["text", "serverRef", "text"])
+    expect(ascii[1]).toMatchObject({ value: "/架构" })
+
+    const cjk = paragraphChildren(parse("去 /架构。"))
+    expect(cjk.map((c) => c.type)).toEqual(["text", "serverRef", "text"])
+    expect(cjk[1]).toMatchObject({ value: "/架构" })
+    expect(cjk[2]).toMatchObject({ type: "text", value: "。" })
   })
 })
 

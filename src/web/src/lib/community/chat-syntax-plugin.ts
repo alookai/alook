@@ -23,32 +23,65 @@ import type { SpoilerNode } from "./spoiler-syntax"
 // `/server/channel/#N` (thread), or `/server/channel/#N#M` (thread reply,
 // see plans/agent-thread-emoji-react.md) ref — the CLI's path grammar
 // (`parseRef`/`formatRef` in `community-cli-contract.ts`). Segment charset
-// `[A-Za-z0-9_-]+` is the nanoid alphabet every `communityServer.id`/
-// `communityChannel.id` is generated with. Trailing
-// `(?=\s|$|[.,;:!?)\]])` boundary lookahead: a 2-segment path followed by
-// ANOTHER `/segment` (e.g. `/api/user/123` in a docs URL) must NOT match —
+// `[^\s/#.,;:!?)\]]+` = "any char slugify can emit, minus the terminator
+// punctuation": server/channel names travel on the wire as their SLUGIFIED
+// DISPLAY NAME, not an id (see the round-trip contract in
+// `channel-ref-extension.ts`'s `renderText` doc + `slugify.ts`), and slugify
+// preserves Unicode — it strips only `/` and `#` and collapses whitespace. So
+// the base of the class is the inverse of what slugify removes (everything
+// except whitespace, `/`, `#`), which is what lets non-ASCII names
+// (`/Gus/架构`, `/总部-🎉/general`, `/studio/café`) render as pills like their
+// ASCII kin — matching the `\p{L}` + `u` treatment `MENTION_RE` already uses
+// for `@names`. We ALSO exclude the trailing-boundary punctuation (`REF_TERM`
+// below) from the segment class: the old ASCII class `[A-Za-z0-9_-]` happened
+// to be disjoint from the terminator set, and that disjointness is
+// load-bearing — the segment class `[^\s/#…]+` is GREEDY, so without excluding
+// a terminator char from the segment it gets eaten BEFORE the lookahead can
+// fire (a greedy segment swallows the sentence period in `/studio/general.`;
+// same for the full-width `。` in `看 /Gus/架构。`). So a terminator must live
+// in BOTH places: excluded from the segment (so the match stops there) AND
+// present in the lookahead (so stopping there is legal). slugify never emits a
+// leading/trailing terminator anyway, and a mid-name terminator is a rare
+// corner that degrading to plain text is acceptable for; keeping the boundary
+// correct for ALL refs matters more.
+//
+// `REF_TERM` is the single source of truth for the terminator set — used BOTH
+// as the segment-class exclusion (`REF_SEG`) and the trailing lookahead, so
+// the two can't drift out of the disjointness the boundary relies on. It
+// covers ASCII `.,;:!?)]` AND the common FULL-WIDTH CJK sentence punctuation
+// `。！？；：、）】`: a Chinese sentence ends in `。`, so `看 /Gus/架构。` must
+// yield pill `/Gus/架构` + literal `。`, not swallow the period — full-width
+// terminators matter MORE here since this fix targets CJK names (Blair's QA
+// flag). Kept as a string spliced into `new RegExp(...)` so the shared set is
+// declared once.
+//
+// Trailing `(?=\s|$|[REF_TERM])` boundary lookahead: a 2-segment path followed
+// by ANOTHER `/segment` (e.g. `/api/user/123` in a docs URL) must NOT match —
 // otherwise this regex would greedily take `/api/user` and orphan `/123` as
 // trailing text next to a broken pill. Leading `(?<=^|\s)` lookbehind
 // (verified empirically — a bare leading `\/` with no lookbehind would let
 // this match START mid-path, e.g. matching `/user/123` inside
 // `/api/user/123`): `" /channel-ref"` matches, `"text/channel-ref"` doesn't.
 // Both boundaries are zero-width lookaround (not capture groups) so
-// `findAndReplace` doesn't need to redistribute a leading/trailing text
-// node around the match the way the old string-splice regex's `(^|\s)`
-// capture group did.
-const CHANNEL_REF_RE = /(?<=^|\s)\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+(?:\/#\d+(?:#\d+)?)?(?=\s|$|[.,;:!?)\]])/g
+// `findAndReplace` doesn't need to redistribute a leading/trailing text node
+// around the match the way the old string-splice regex's `(^|\s)` capture
+// group did. `u` flag for correct astral/emoji handling.
+const REF_TERM = ".,;:!?)\\]\\u3002\\uFF01\\uFF1F\\uFF1B\\uFF1A\\u3001\\uFF09\\u3011"
+const REF_SEG = `[^\\s/#${REF_TERM}]+`
+const CHANNEL_REF_RE = new RegExp(`(?<=^|\\s)/${REF_SEG}/${REF_SEG}(?:/#\\d+(?:#\\d+)?)?(?=\\s|$|[${REF_TERM}])`, "gu")
 
 // A bare `/server` ref — one segment, no channel. Same boundary lookaround as
-// `CHANNEL_REF_RE` (leading `(?<=^|\s)`, trailing `(?=\s|$|[.,;:!?)\]])`), which
-// already excludes being followed by another `/segment` — so this never
-// double-matches the first segment of a genuine `/server/channel` ref (that
-// trailing boundary fails when the next char is `/`, and `[A-Za-z0-9_-]+`
-// backtracking can't produce a shorter match that satisfies it either, since
-// every character up to the next `/` is in the segment charset). Registered
-// after `CHANNEL_REF_RE` in `chatSyntaxPlugin`'s pairs list purely for
-// readability (server-only is the "smaller" grammar); the boundary already
-// makes the ordering non-load-bearing for correctness.
-const SERVER_REF_RE = /(?<=^|\s)\/[A-Za-z0-9_-]+(?=\s|$|[.,;:!?)\]])/g
+// `CHANNEL_REF_RE` (leading `(?<=^|\s)`, trailing `REF_TERM`), which already
+// excludes being followed by another `/segment` — so this never double-matches
+// the first segment of a genuine `/server/channel` ref (that trailing boundary
+// fails when the next char is `/`, and the segment class backtracking can't
+// produce a shorter match that satisfies it either, since every character up
+// to the next `/` is in the segment charset). Same `REF_SEG`/`REF_TERM` +
+// `u` flag as `CHANNEL_REF_RE` above (Unicode server names, full-width
+// terminators). Registered after `CHANNEL_REF_RE` in `chatSyntaxPlugin`'s
+// pairs list purely for readability (server-only is the "smaller" grammar);
+// the boundary already makes the ordering non-load-bearing for correctness.
+const SERVER_REF_RE = new RegExp(`(?<=^|\\s)/${REF_SEG}(?=\\s|$|[${REF_TERM}])`, "gu")
 
 // Message ref: `#NUMBER` where NUMBER is 1-6 digits (seq range 1-999999).
 // Same boundary pattern as channel/server refs: leading `(?<=^|\s)` so
