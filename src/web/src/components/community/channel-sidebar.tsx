@@ -14,7 +14,7 @@ import { SortableChannel, PendingChannelRow } from "./sortable-channel"
 import { CreateChannelDialog } from "./create-channel-dialog"
 import { CreateCategoryDialog } from "./create-category-dialog"
 import { CategorySettingsDialog } from "./category-settings-dialog"
-import { catId, catOf, isCat, type ChannelTree } from "./use-channel-tree"
+import { catId, catOf, isCat, reorderChannelsWithin, type ChannelTree } from "./use-channel-tree"
 import { InviteDialog } from "./invite-dialog"
 import { ChannelAddMembersDialog } from "./channel-add-members-dialog"
 import type { Channel, SettingsSection } from "./_types"
@@ -113,7 +113,17 @@ export const ChannelSidebar = memo(function ChannelSidebar({
       }
       // Persist a same-privacy cross-category move: write the new categoryId
       // (translating the synthetic uncategorized bucket to null), then reorder.
-      const allChannelIds = catOrder.flatMap((cat) => (order[cat] ?? []).filter((c) => !c.pending).map((c) => c.id))
+      //
+      // `treeDragEnd(e)` above settles the drop via `setOrder(...)`, which only
+      // applies on the NEXT render — so the `order` closure here is still the
+      // PRE-drop order for a same-category reorder (`onDragOver` never touched
+      // it in that case). Reading it directly would PATCH the old sequence and
+      // the reorder wouldn't persist. Recompute the settled order synchronously
+      // from the same pure helper `treeDragEnd` uses. Cross-category is already
+      // settled by `onDragOver`, and re-settling within the destination is
+      // idempotent — so this is correct for both paths.
+      const settledOrder = reorderChannelsWithin(order, activeStr, overStr)
+      const allChannelIds = catOrder.flatMap((cat) => (settledOrder[cat] ?? []).filter((c) => !c.pending).map((c) => c.id))
       if (destCat && originCat && destCat !== originCat) {
         // The uncategorized bucket (empty name, synthetic id) maps back to a
         // real `categoryId: null` for the PATCH.

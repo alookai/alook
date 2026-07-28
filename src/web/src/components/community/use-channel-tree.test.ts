@@ -63,6 +63,34 @@ describe("reorderChannelsWithin", () => {
   })
 })
 
+// Regression: channel-sidebar's drop handler builds the reorder-PATCH payload
+// from the SETTLED order (reorderChannelsWithin applied synchronously), not the
+// stale pre-drop `order` closure. Same-category reorders previously PATCHed the
+// old sequence → positions rewritten unchanged → reorder didn't persist across
+// refresh. This pins that the payload derivation reflects the moved order.
+describe("reorder-PATCH payload derivation (channel-sidebar drop handler)", () => {
+  const catOrder = ["cat_A", "cat_B"]
+  const payloadFrom = (o: ChannelOrder) =>
+    catOrder.flatMap((cat) => (o[cat] ?? []).map((c) => c.id))
+
+  it("same-category drop: payload reflects the moved order, not the pre-drop order", () => {
+    // Pre-drop order would yield b1,b2,b3 — the stale bug. Settled must move b1 past b3.
+    const settled = reorderChannelsWithin(order, "b1", "b3")
+    expect(payloadFrom(settled)).toEqual(["a1", "a2", "b2", "b3", "b1"])
+    expect(payloadFrom(settled)).not.toEqual(payloadFrom(order))
+  })
+
+  it("re-settling an already-cross-category-settled order is idempotent for the payload", () => {
+    // Cross-category is settled by onDragOver first; applying reorderChannelsWithin
+    // to place it at the drop target within the destination must not corrupt it.
+    const moved = moveChannelAcrossCategories(order, "a1", "b2") // a1 → cat_B before b2
+    const settled = reorderChannelsWithin(moved, "a1", "b2")
+    expect(payloadFrom(settled)).toContain("a1")
+    // a1 left cat_A; cat_A now only a2.
+    expect(settled.cat_A.map((c) => c.id)).toEqual(["a2"])
+  })
+})
+
 describe("reorderCategories", () => {
   it("reorders the category id list", () => {
     expect(reorderCategories(["cat_A", "cat_B", "cat_C"], "cat_A", "cat_C")).toEqual(["cat_B", "cat_C", "cat_A"])
