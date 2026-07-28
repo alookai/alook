@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { main, setApiForTesting } from "./index";
+import { main, setApiForTesting, decodeTextEscapes } from "./index";
 import type { ServerApi } from "../server/contract";
 
 /** Capture exactly the JSON object the CLI prints to stdout. */
@@ -890,5 +890,78 @@ describe("friend list", () => {
     await main(["friend", "list"]);
     const env = parseEnvelope(cap.lines());
     expect(env).toEqual({ success: { accepted: [], pendingOutgoing: [], pendingIncoming: [] } });
+  });
+});
+
+describe("decodeTextEscapes", () => {
+  it("decodes \\n to a real newline", () => {
+    expect(decodeTextEscapes("a\\nb")).toBe("a\nb");
+  });
+
+  it("decodes \\n\\n to two newlines (the reported case)", () => {
+    expect(decodeTextEscapes("a\\n\\nb")).toBe("a\n\nb");
+  });
+
+  it("decodes \\t and \\r", () => {
+    expect(decodeTextEscapes("a\\tb\\rc")).toBe("a\tb\rc");
+  });
+
+  it("treats an escaped backslash as literal — \\\\n is NOT a newline (single-pass correctness)", () => {
+    // Input chars: backslash, backslash, n  →  backslash, n (literal), no LF.
+    expect(decodeTextEscapes("a\\\\nb")).toBe("a\\nb");
+    expect(decodeTextEscapes("a\\\\nb")).not.toContain("\n");
+  });
+
+  it("passes an unknown escape through unchanged (backslash kept)", () => {
+    expect(decodeTextEscapes("a\\qb")).toBe("a\\qb");
+  });
+
+  it("leaves a trailing lone backslash unchanged", () => {
+    expect(decodeTextEscapes("ab\\")).toBe("ab\\");
+  });
+
+  it("leaves plain text (incl. UTF-8/emoji) untouched", () => {
+    expect(decodeTextEscapes("总部 🎉 no escapes")).toBe("总部 🎉 no escapes");
+  });
+});
+
+describe("message send — --text escape decoding wired end-to-end", () => {
+  it("sends a real newline body for --text \"a\\n\\nb\"", async () => {
+    let sentText: string | undefined;
+    setApiForTesting(
+      stubApi({
+        send: async (input: Parameters<ServerApi["send"]>[0]) => {
+          sentText = input.content.text;
+          return { state: "sent", message: { seq: "#1", channel: "/s/c", sender: "@a", content: { text: "" }, time: "" } };
+        },
+      }),
+    );
+    // Two literal chars backslash-n twice, as a shell would pass them.
+    await main(["message", "send", "--target", "/s/general", "--text", "a\\n\\nb"]);
+    expect(sentText).toBe("a\n\nb");
+    expect(sentText!.split("\n")).toHaveLength(3);
+  });
+
+  it("does NOT decode --file content (literal backslash-n stays literal)", async () => {
+    const fs = await import("fs");
+    const os = await import("os");
+    const path = await import("path");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cli-esc-"));
+    const file = path.join(dir, "body.txt");
+    // File bytes contain a literal backslash + n (not a newline).
+    fs.writeFileSync(file, "a\\nb");
+    let sentText: string | undefined;
+    setApiForTesting(
+      stubApi({
+        send: async (input: Parameters<ServerApi["send"]>[0]) => {
+          sentText = input.content.text;
+          return { state: "sent", message: { seq: "#1", channel: "/s/c", sender: "@a", content: { text: "" }, time: "" } };
+        },
+      }),
+    );
+    await main(["message", "send", "--target", "/s/general", "--file", file]);
+    fs.rmSync(dir, { recursive: true, force: true });
+    expect(sentText).toBe("a\\nb");
+    expect(sentText).not.toContain("\n");
   });
 });

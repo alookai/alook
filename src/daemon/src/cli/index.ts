@@ -83,6 +83,21 @@ function agentId(opts: Record<string, unknown>): string {
   return id;
 }
 
+const TEXT_ESCAPE_MAP: Record<string, string> = { n: "\n", t: "\t", r: "\r", "\\": "\\" };
+
+/**
+ * Decode the standard backslash escapes an agent types into `--text`
+ * (`\n`→newline, `\t`→tab, `\r`→CR, `\\`→one backslash). Single left-to-right
+ * pass via one regex so `\\` is consumed as a unit BEFORE its following char —
+ * sequential `.replace` calls would turn `\\n` (an escaped backslash + n) into
+ * a newline, which is wrong. Unknown escapes (`\q`) and a trailing lone `\`
+ * pass through unchanged (backslash kept) — conservative, never drops data.
+ * Only applied to `--text`; `--file` content stays byte-literal.
+ */
+export function decodeTextEscapes(s: string): string {
+  return s.replace(/\\(.)/g, (m, c: string) => TEXT_ESCAPE_MAP[c] ?? m);
+}
+
 /* ------------------------------------------------------------------ */
 /* Commands                                                            */
 /* ------------------------------------------------------------------ */
@@ -139,9 +154,13 @@ async function cmdMessageSend(opts: Record<string, unknown>): Promise<unknown> {
   if (fileFlag) {
     const fs = await import("fs");
     if (!fs.existsSync(fileFlag)) throw new CliError(`message send: file not found: ${fileFlag}`);
+    // `--file` content is already-real bytes — never escape-decode it, or a
+    // literal `\n` in a pasted code snippet / log would get corrupted.
     text = fs.readFileSync(fileFlag, "utf8").trim();
   } else if (typeof textFlag === "string") {
-    text = textFlag;
+    // `--text` is a shell arg where agents naturally type `\n` for a newline;
+    // decode the standard escapes so it doesn't land as a literal backslash-n.
+    text = decodeTextEscapes(textFlag);
   }
 
   // `--attachment` may repeat. Commander wires this via `.option(..., collect, [])`
