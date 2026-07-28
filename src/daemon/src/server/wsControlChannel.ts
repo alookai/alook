@@ -128,7 +128,7 @@ type AgentActivityReport = { agentId: AgentId; state: AgentActivityState };
 type ResyncProvider = () => {
   ready: HostReady;
   sessions: AgentSessionReport[];
-  activities: AgentActivityReport[];
+  activities?: AgentActivityReport[];
 };
 
 function describeErr(err: unknown): string {
@@ -317,11 +317,12 @@ export class WsControlChannel implements HostControlChannel {
       // Re-assert each live agent's current activity: `agent_activity` is
       // edge-triggered, so a frame dropped during the disconnect window is
       // otherwise lost forever, stranding the pill on a stale state.
-      for (const a of activities) this.sendFrame({ type: "agent_activity", ...a });
+      const liveActivities = activities ?? [];
+      for (const a of liveActivities) this.sendFrame({ type: "agent_activity", ...a });
       this.log.info("resync sent", {
         ready: ready.runtimeReport.length,
         sessions: sessions.length,
-        activities: activities.length,
+        activities: liveActivities.length,
       });
     }
     for (const hook of this.resyncHooks) {
