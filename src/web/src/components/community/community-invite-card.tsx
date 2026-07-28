@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { apiFetch } from "@/lib/api/client"
 import { avatarInitial } from "@/lib/community/avatar"
+import { ServerIcon } from "./server-icon"
 import { communityKeys } from "@/lib/query-keys"
 import { useServers } from "@/hooks/community/use-servers"
 import { useJoinServer } from "@/hooks/community/mutations/servers"
@@ -82,17 +83,14 @@ export function CommunityInviteCard({ token }: { token: string }) {
 
   return (
     <div className={cardBase}>
-      {data.serverIcon ? (
-        <img
-          src={data.serverIcon}
-          alt={data.serverName}
-          className="size-12 shrink-0 rounded-lg object-cover"
-        />
-      ) : (
-        <div className="grid size-12 shrink-0 place-items-center rounded-lg bg-primary text-lg font-semibold text-primary-foreground">
-          {avatarInitial(data.serverName)}
-        </div>
-      )}
+      <ServerIcon
+        id={data.serverId}
+        name={data.serverName}
+        initial={avatarInitial(data.serverName)}
+        icon={data.serverIcon}
+        size={48}
+        className="shrink-0 rounded-lg"
+      />
       <div className="min-w-0 flex-1">
         <div className="text-xs font-medium text-muted-foreground">
           You&apos;ve been invited to join

@@ -3,19 +3,19 @@
 import { useEffect, useRef, useState } from "react"
 import type { LucideIcon } from "lucide-react"
 import { useVirtualizer } from "@tanstack/react-virtual"
-import { Settings, Users, Link2, Bell, ScrollText, Trash2, X, Shield, Search } from "lucide-react"
+import { Settings, Users, Link2, Bell, ScrollText, Trash2, X, Shield, Search, Camera } from "lucide-react"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Button } from "@/components/ui/button"
 import { formatMessageTime, formatRelativeTime } from "./format-time"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
+import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea"
 import { Badge, badgeVariants } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "./avatar"
+import { ServerIcon } from "./server-icon"
 import { avatarInitial } from "@/lib/community/avatar"
-import { Field } from "./field"
 import { SlugHint } from "./slug-hint"
 import { previewSlug } from "@/lib/community/slug-preview"
 import { tid } from "@/lib/community/testids"
@@ -30,7 +30,7 @@ function capitalize(s: string): string {
 
 // Full-screen server settings view. Data via props.
 export function ServerSettings({
-  section, setSection, onClose, serverName, serverDescription, serverIcon,
+  section, setSection, onClose, serverId, serverName, serverDescription, serverIcon,
   members, membersLoading, membersLoadingMore, membersHasMore, membersTotal, onLoadMoreMembers, onSearchMembers,
   invites, invitesLoading, auditLog, auditLogLoading, onOpenProfile,
   onKickMember, onSetRole, onRevokeInvite, onCopyInvite, onDeleteServer, onUploadIcon, onUpdateServer, notifLevel, onSetNotifLevel,
@@ -38,6 +38,7 @@ export function ServerSettings({
   section: SettingsSection
   setSection: (s: SettingsSection) => void
   onClose: () => void
+  serverId: string
   serverName: string
   serverDescription?: string
   serverIcon?: string | null
@@ -109,7 +110,7 @@ export function ServerSettings({
             </Button>
           </header>
           <div className="flex-1 overflow-y-auto thin-scrollbar p-4">
-            <TabsContent value="overview"><SettingsOverview serverName={serverName} serverDescription={serverDescription} serverIcon={serverIcon} onUploadIcon={onUploadIcon} onUpdateServer={onUpdateServer} onRequestDelete={() => setConfirmDelete(true)} /></TabsContent>
+            <TabsContent value="overview"><SettingsOverview serverId={serverId} serverName={serverName} serverDescription={serverDescription} serverIcon={serverIcon} onUploadIcon={onUploadIcon} onUpdateServer={onUpdateServer} onRequestDelete={() => setConfirmDelete(true)} /></TabsContent>
             <TabsContent value="members"><SettingsMembers members={members} loading={membersLoading} loadingMore={membersLoadingMore} hasMore={membersHasMore} total={membersTotal} onLoadMore={onLoadMoreMembers} onSearch={onSearchMembers} onOpenProfile={onOpenProfile} onKickMember={onKickMember} onSetRole={onSetRole} /></TabsContent>
             <TabsContent value="invites"><SettingsInvites invites={invites} loading={invitesLoading} onRevokeInvite={onRevokeInvite} onCopyInvite={onCopyInvite} /></TabsContent>
             <TabsContent value="notifications"><SettingsNotifications level={notifLevel ?? "Only @mentions"} onSetLevel={onSetNotifLevel} /></TabsContent>
@@ -121,7 +122,7 @@ export function ServerSettings({
   )
 }
 
-function SettingsOverview({ serverName, serverDescription, serverIcon, onUploadIcon, onUpdateServer, onRequestDelete }: { serverName: string; serverDescription?: string; serverIcon?: string | null; onUploadIcon?: () => void; onUpdateServer?: (name: string, desc: string) => void; onRequestDelete?: () => void }) {
+function SettingsOverview({ serverId, serverName, serverDescription, serverIcon, onUploadIcon, onUpdateServer, onRequestDelete }: { serverId: string; serverName: string; serverDescription?: string; serverIcon?: string | null; onUploadIcon?: () => void; onUpdateServer?: (name: string, desc: string) => void; onRequestDelete?: () => void }) {
   // The draft is mount-only on purpose. The cross-server "stale draft" case
   // is already handled in layout.tsx — switching servers closes the dialog
   // (`setServerSettingsOpen(false)` in the serverId effect), which unmounts
@@ -147,48 +148,66 @@ function SettingsOverview({ serverName, serverDescription, serverIcon, onUploadI
   }
   return (
     <div className="mx-auto max-w-md space-y-10">
-      <section className="space-y-4">
-        <h2 className="text-sm font-medium">Server</h2>
-        <div className="flex items-center gap-4">
-          {serverIcon ? (
-            <img src={serverIcon} alt="Server icon" className="size-20 rounded-2xl object-cover" />
-          ) : (
-            <div className="grid size-20 place-items-center rounded-2xl bg-primary text-2xl font-semibold text-primary-foreground">{avatarInitial(name)}</div>
-          )}
-          <div>
-            <div className="text-sm font-medium">Server icon</div>
-            <div className="text-xs text-muted-foreground">PNG, JPG, or WEBP. You&apos;ll be able to crop and zoom before saving.</div>
-            <Button variant="secondary" size="sm" className="mt-2" onClick={onUploadIcon}>Upload image</Button>
-          </div>
+      <section className="space-y-6">
+        {/* Server icon — centered in a soft rounded frame + hand-rolled pill
+            (matches My Profile; a stock secondary Button reads as the old box). */}
+        <div className="flex flex-col items-center gap-3">
+          <span className="block overflow-hidden rounded-2xl ring-1 ring-border/50">
+            <ServerIcon id={serverId} name={name} initial={avatarInitial(name)} icon={serverIcon} size={96} className="rounded-2xl" />
+          </span>
+          <button
+            type="button"
+            onClick={onUploadIcon}
+            className="flex items-center gap-1.5 rounded-full border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          >
+            <Camera className="size-3.5" /> Change icon
+          </button>
         </div>
-        <Field label="Server name">
-          <Input value={name} onChange={(e) => setName(e.target.value)} />
+        {/* Server name — borderless inline title. */}
+        <div>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Server name"
+            aria-label="Server name"
+            className="w-full border-0 bg-transparent px-0 py-1 text-2xl font-medium leading-[1.2] tracking-tight shadow-none outline-none placeholder:font-normal placeholder:text-muted-foreground/40 focus-visible:ring-0"
+          />
           <SlugHint {...namePreview} />
-        </Field>
-        <Field label="Description"><Textarea className="h-20 resize-none" value={desc} onChange={(e) => setDesc(e.target.value)} /></Field>
+        </div>
+        {/* Description — borderless auto-resizing textarea. */}
+        <div>
+          <div className="mb-1 text-xs text-muted-foreground">Description</div>
+          <AutoResizeTextarea
+            value={desc}
+            onChange={(e) => setDesc(e.target.value)}
+            placeholder="What's this server about?"
+            className="w-full border-0 bg-transparent px-0 py-1 text-sm text-foreground shadow-none outline-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
+          />
+        </div>
         <div className="flex items-center justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={cancel} disabled={!dirty}>Cancel</Button>
           <Button size="sm" onClick={save} disabled={!dirty || namePreview.invalid}>Save changes</Button>
         </div>
       </section>
 
-      <section className="space-y-4">
+      <section className="space-y-3">
         <h2 className="text-sm font-medium text-destructive">Danger Zone</h2>
-        <div className="space-y-3 rounded-lg border border-destructive/30 p-4">
-          <p className="text-sm text-muted-foreground">
-            Deleting this server is permanent and cannot be undone. All channels, messages, and members will be permanently removed.
-          </p>
-          <Button variant="destructive" size="sm" onClick={onRequestDelete}><Trash2 className="size-4" /> Delete Server</Button>
-        </div>
+        {/* Unframed — the red heading + destructive button carry the signal;
+            the extra border/box just added weight. */}
+        <p className="text-sm text-muted-foreground">
+          Deleting this server is permanent and cannot be undone. All channels, messages, and members will be permanently removed.
+        </p>
+        <Button variant="destructive" size="sm" onClick={onRequestDelete}><Trash2 className="size-4" /> Delete Server</Button>
       </section>
     </div>
   )
 }
 
-// Row height for the virtualized settings list — matches the real card height
-// (border + padding + avatar + text). Slight over-estimation is fine; react-
-// virtual re-measures after mount.
-const SETTINGS_ROW_HEIGHT = 68
+// Row height estimate for the virtualized settings list — a frameless hover
+// row (px-2 py-2 + 32px avatar + 8px paddingBottom) is shorter than the old
+// bordered card. Slight over/under-estimation is fine; react-virtual
+// re-measures each row after mount via `measureElement`.
+const SETTINGS_ROW_HEIGHT = 56
 
 function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoadMore, onSearch, onOpenProfile, onKickMember, onSetRole }: {
   members: Member[]
@@ -279,9 +298,9 @@ function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoad
                   paddingBottom: 8,
                 }}
               >
-                <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-2">
+                <div className="flex items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-accent/40">
                   <button onClick={(e) => onOpenProfile?.(m.name, e, undefined, m.userId)} className="shrink-0">
-                    <Avatar label={m.avatar} seed={m.userId} size={32} presence={m.status} ringColor="var(--card)" />
+                    <Avatar label={m.avatar} seed={m.userId} size={32} presence={m.status} ringColor="var(--background)" />
                   </button>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[15px] font-medium">{m.name}</div>
@@ -335,7 +354,7 @@ function SettingsInvites({ invites, loading, onRevokeInvite, onCopyInvite }: {
         <p className="text-sm text-muted-foreground">No active invites — use the invite icon in the sidebar header to share this server.</p>
       )}
       {invites.map((iv) => (
-        <div key={iv.code} className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
+        <div key={iv.code} className="flex items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-accent/40">
           <Link2 className="size-5 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1">
             <div data-testid={tid.inviteToken} className="truncate font-mono text-sm">{iv.code}</div>
@@ -370,7 +389,7 @@ function SettingsNotifications({ level, onSetLevel }: { level: string; onSetLeve
         <button
           key={l.value}
           onClick={() => onSetLevel?.(l.value)}
-          className="flex w-full items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 text-left hover:bg-accent"
+          className={`flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-colors ${level === l.value ? "bg-accent" : "hover:bg-accent/40"}`}
         >
           <span className={`grid size-4 shrink-0 place-items-center rounded-full border ${level === l.value ? "border-primary" : "border-muted-foreground"}`}>
             {level === l.value && <span className="size-2 rounded-full bg-primary" />}
@@ -414,7 +433,7 @@ function SettingsMembersSkeleton() {
     <div className="mx-auto max-w-xl space-y-2">
       <Skeleton className="mb-3 h-4 w-24 rounded" />
       {Array.from({ length: 5 }).map((_, i) => (
-        <div key={i} className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-2">
+        <div key={i} className="flex items-center gap-3 rounded-md px-2 py-2">
           <Skeleton className="size-8 shrink-0 rounded-full" />
           <div className="flex min-w-0 flex-1 flex-col gap-2">
             <Skeleton className="h-4 w-2/5 rounded" />
@@ -432,7 +451,7 @@ function SettingsInvitesSkeleton() {
   return (
     <div className="mx-auto max-w-xl space-y-2">
       {Array.from({ length: 3 }).map((_, i) => (
-        <div key={i} className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
+        <div key={i} className="flex items-center gap-3 rounded-md px-2 py-2">
           <Skeleton className="size-5 shrink-0 rounded" />
           <div className="flex min-w-0 flex-1 flex-col gap-2">
             <Skeleton className="h-4 w-1/2 rounded" />

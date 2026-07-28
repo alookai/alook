@@ -395,6 +395,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
           section={settingsSection}
           setSection={setSettingsSection}
           onClose={closeSettings}
+          serverId={serverId}
           serverName={currentServer?.name ?? ""}
           serverDescription={currentServer?.description ?? ""}
           serverIcon={currentServer?.icon ?? null}
