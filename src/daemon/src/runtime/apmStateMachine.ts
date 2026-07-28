@@ -1,10 +1,9 @@
 /**
  * APM (Agent Process Manager) gated-steering state machine.
  *
- * Where `RuntimeTurnState` answers "is it safe *right now*?", this reducer set
- * is the coarse-grained policy layer that decides WHEN to flush queued inbox
- * notices into a `gated` runtime, and emits the concrete delivery effects
- * (`notify_stdin` / `deliver_stdin`).
+ * This reducer set is the coarse-grained policy layer that decides WHEN to
+ * flush queued inbox notices into a `gated` runtime, and emits the concrete
+ * delivery effects (`notify_stdin` / `deliver_stdin`).
  *
  * It is a pure reducer: `(state, input) -> { nextState?, effects?, ... }`. The
  * orchestrator owns the mutable copy and applies the effects.

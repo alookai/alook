@@ -60,11 +60,8 @@ still-open input channel** — no restart. This is "steering."
 - **`direct`** (codex, kimi, pi): write immediately; the runtime
   tolerates injection any time.
 - **`gated`** (claude): a raw write mid-stream could collide with an active
-  signed thinking block, so writes are **held until a safe boundary**. Two state
-  machines implement this:
-  - `RuntimeTurnState` (`src/runtime/turnState.ts`) — the instantaneous gate:
-    `canSteerBusy = currentTurnId && !steeringGateActive`. Tool boundary closes
-    the gate; progress / turn-start reopens it.
+  signed thinking block, so writes are **held until a safe boundary**,
+  implemented by:
   - `apmStateMachine` (`src/runtime/apmStateMachine.ts`) — the policy reducers
     that decide *when* to flush queued inbox notices and emit the concrete
     `notify_stdin` / `deliver_stdin` effects (clause `SMR-002`). Flushing is
@@ -130,7 +127,6 @@ src/
   runtime/
     runtimeSession.ts            # ChildProcessRuntimeSession + descriptor
     sdkRuntimeSession.ts         # SdkRuntimeSession (in-process)
-    turnState.ts                 # instantaneous steering gate
     apmStateMachine.ts           # gated-delivery policy reducers (SMR-002)
     progressState.ts             # liveness / stall detection
     notificationState.ts         # inbox-notice de-dup + batching

@@ -18,7 +18,6 @@ export {
   type RuntimeSessionDescriptor,
 } from "./runtime/runtimeSession.js";
 export { SdkRuntimeSession, type SdkSessionHandle } from "./runtime/sdkRuntimeSession.js";
-export { RuntimeTurnState } from "./runtime/turnState.js";
 export { RuntimeProgressState } from "./runtime/progressState.js";
 export { RuntimeNotificationState } from "./runtime/notificationState.js";
 export * from "./runtime/apmStateMachine.js";

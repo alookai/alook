@@ -5,8 +5,7 @@
  * channel; the initial prompt and every subsequent message are written as
  * `{type:"user", message:{role:"user", content:[{type:"text",text}]}}` lines.
  * Because mid-stream injection can collide with signed thinking blocks, busy
- * delivery is `gated` — held until a safe boundary (see runtime/apmStateMachine
- * and runtime/turnState).
+ * delivery is `gated` — held until a safe boundary (see runtime/apmStateMachine).
  */
 import type { Driver, EncodeOpts, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
 import { prepareCliTransport, buildCliTransportSystemPrompt, DEFAULT_CLI_CONFIG } from "./cliTransport.js";
