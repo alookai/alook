@@ -78,34 +78,48 @@ async function resolveScopeRefs(
   const channelIds = [...new Set(scopes.map((s) => s.channelId))];
   if (channelIds.length === 0) return new Map();
 
-  const channels = await db
-    .select({
-      id: communityChannel.id,
-      name: communityChannel.name,
-      type: communityChannel.type,
-      serverId: communityChannel.serverId,
-      parentChannelId: communityChannel.parentChannelId,
-      parentMessageId: communityChannel.parentMessageId,
-    })
-    .from(communityChannel)
-    .where(inArray(communityChannel.id, channelIds));
+  // Chunk the `inArray` for D1's 100-param limit — a page of up to 201 agent
+  // messages can span >100 distinct channels; no order/limit → concat.
+  const channels = (
+    await Promise.all(
+      chunk(channelIds, D1_MAX_IN_PARAMS).map((ids) =>
+        db
+          .select({
+            id: communityChannel.id,
+            name: communityChannel.name,
+            type: communityChannel.type,
+            serverId: communityChannel.serverId,
+            parentChannelId: communityChannel.parentChannelId,
+            parentMessageId: communityChannel.parentMessageId,
+          })
+          .from(communityChannel)
+          .where(inArray(communityChannel.id, ids))
+      )
+    )
+  ).flat();
 
   const dmChannelIds = channels.filter((c) => c.type === "dm").map((c) => c.id);
   // DM peers: the OTHER access member per DM channel, resolved to a handle.
   const dmMemberRows = dmChannelIds.length
-    ? await db
-      .select({
-        channelId: communityChannelMember.channelId,
-        userId: communityChannelMember.userId,
-      })
-      .from(communityChannelMember)
-      .where(
-        and(
-          inArray(communityChannelMember.channelId, dmChannelIds),
-          eq(communityChannelMember.relation, "access"),
-          ne(communityChannelMember.userId, viewerId)
+    ? (
+        await Promise.all(
+          chunk(dmChannelIds, D1_MAX_IN_PARAMS).map((ids) =>
+            db
+              .select({
+                channelId: communityChannelMember.channelId,
+                userId: communityChannelMember.userId,
+              })
+              .from(communityChannelMember)
+              .where(
+                and(
+                  inArray(communityChannelMember.channelId, ids),
+                  eq(communityChannelMember.relation, "access"),
+                  ne(communityChannelMember.userId, viewerId)
+                )
+              )
+          )
         )
-      )
+      ).flat()
     : [];
   const peerByDmChannel = new Map<string, string>();
   for (const m of dmMemberRows) {
@@ -113,10 +127,16 @@ async function resolveScopeRefs(
   }
   const dmPeerIds = [...new Set([...peerByDmChannel.values()])];
   const dmPeerUsers = dmPeerIds.length
-    ? await db
-      .select({ id: user.id, name: user.name, discriminator: user.discriminator })
-      .from(user)
-      .where(inArray(user.id, dmPeerIds))
+    ? (
+        await Promise.all(
+          chunk(dmPeerIds, D1_MAX_IN_PARAMS).map((ids) =>
+            db
+              .select({ id: user.id, name: user.name, discriminator: user.discriminator })
+              .from(user)
+              .where(inArray(user.id, ids))
+          )
+        )
+      ).flat()
     : [];
   const dmPeerById = new Map(dmPeerUsers.map((u) => [u.id, u]));
 
@@ -128,19 +148,29 @@ async function resolveScopeRefs(
   ];
   const serverIds = [...new Set(channels.map((c) => c.serverId).filter((x): x is string => !!x))];
 
+  // Each of these `inArray`s is fed by an unbounded channel set (a page of up to
+  // 201 agent messages), so chunk for D1's 100-param limit; no order/limit → concat.
+  const chunkedIn = <T>(
+    ids: string[],
+    run: (batch: string[]) => Promise<T[]>
+  ): Promise<T[]> =>
+    ids.length
+      ? Promise.all(chunk(ids, D1_MAX_IN_PARAMS).map(run)).then((r) => r.flat())
+      : Promise.resolve([]);
+
   const [parentChannels, servers, parentMessages] = await Promise.all([
-    parentChannelIds.length
-      ? db
+    chunkedIn(parentChannelIds, (ids) =>
+      db
         .select({ id: communityChannel.id, name: communityChannel.name })
         .from(communityChannel)
-        .where(inArray(communityChannel.id, parentChannelIds))
-      : Promise.resolve([]),
-    serverIds.length
-      ? db.select({ id: communityServer.id, name: communityServer.name }).from(communityServer).where(inArray(communityServer.id, serverIds))
-      : Promise.resolve([]),
-    parentMessageIds.length
-      ? db.select({ id: communityMessage.id, seq: communityMessage.seq }).from(communityMessage).where(inArray(communityMessage.id, parentMessageIds))
-      : Promise.resolve([]),
+        .where(inArray(communityChannel.id, ids))
+    ),
+    chunkedIn(serverIds, (ids) =>
+      db.select({ id: communityServer.id, name: communityServer.name }).from(communityServer).where(inArray(communityServer.id, ids))
+    ),
+    chunkedIn(parentMessageIds, (ids) =>
+      db.select({ id: communityMessage.id, seq: communityMessage.seq }).from(communityMessage).where(inArray(communityMessage.id, ids))
+    ),
   ]);
 
   const parentChannelById = new Map(parentChannels.map((c) => [c.id, c]));
@@ -198,12 +228,19 @@ export async function toAgentMessages(
 ): Promise<Message[]> {
   if (rows.length === 0) return [];
 
+  const authorIds = [...new Set(rows.map((r) => r.authorId))];
   const [refs, users, replyByMessageId] = await Promise.all([
     resolveScopeRefs(db, rows, viewerId),
-    db
-      .select({ id: user.id, name: user.name, discriminator: user.discriminator })
-      .from(user)
-      .where(inArray(user.id, [...new Set(rows.map((r) => r.authorId))])),
+    // Chunk the `inArray` for D1's 100-param limit — a page of up to 201 agent
+    // messages can carry >100 distinct authors; no order/limit → concat.
+    Promise.all(
+      chunk(authorIds, D1_MAX_IN_PARAMS).map((ids) =>
+        db
+          .select({ id: user.id, name: user.name, discriminator: user.discriminator })
+          .from(user)
+          .where(inArray(user.id, ids))
+      )
+    ).then((r) => r.flat()),
     resolveReplyRefs(db, rows),
   ]);
   const userById = new Map(users.map((u) => [u.id, u]));
@@ -700,11 +737,19 @@ export async function getInboxSnapshotForAgent(db: Database, botUserId: string):
   const filtered = rows;
 
   const senderIds = [...new Set(filtered.map((r) => r.latestSenderId).filter(Boolean))];
+  // Chunk the `inArray` for D1's 100-param limit — one distinct sender per
+  // pending channel, so >100 channels yields >100 ids; no order/limit → concat.
   const users = senderIds.length
-    ? await db
-      .select({ id: user.id, name: user.name, discriminator: user.discriminator })
-      .from(user)
-      .where(inArray(user.id, senderIds))
+    ? (
+        await Promise.all(
+          chunk(senderIds, D1_MAX_IN_PARAMS).map((ids) =>
+            db
+              .select({ id: user.id, name: user.name, discriminator: user.discriminator })
+              .from(user)
+              .where(inArray(user.id, ids))
+          )
+        )
+      ).flat()
     : [];
   const userById = new Map(users.map((u) => [u.id, u]));
 

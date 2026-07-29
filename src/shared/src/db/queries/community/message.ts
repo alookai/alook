@@ -772,25 +772,33 @@ export async function getMessage(db: Database, messageId: string) {
 // per-channel sequence without a separate lookup.
 export async function getMessagesByIds(db: Database, ids: string[]) {
   if (ids.length === 0) return [];
-  const rows = await db
-    .select({
-      id: communityMessage.id,
-      authorId: communityMessage.authorId,
-      content: communityMessage.content,
-      type: communityMessage.type,
-      mentionType: communityMessage.mentionType,
-      replyToId: communityMessage.replyToId,
-      embeds: communityMessage.embeds,
-      createdAt: communityMessage.createdAt,
-      channelId: communityMessage.channelId,
-      seq: communityMessage.seq,
-      authorName: user.name,
-      authorEmail: user.email,
-      authorImage: user.image,
-    })
-    .from(communityMessage)
-    .innerJoin(user, eq(communityMessage.authorId, user.id))
-    .where(inArray(communityMessage.id, ids));
+  // `ids` are the thread/forum-post parents under one channel — unbounded on a
+  // busy forum. Chunk for D1's 100-param limit; no order/limit → concat.
+  const rows = (
+    await Promise.all(
+      chunk(ids, D1_MAX_IN_PARAMS).map((batch) =>
+        db
+          .select({
+            id: communityMessage.id,
+            authorId: communityMessage.authorId,
+            content: communityMessage.content,
+            type: communityMessage.type,
+            mentionType: communityMessage.mentionType,
+            replyToId: communityMessage.replyToId,
+            embeds: communityMessage.embeds,
+            createdAt: communityMessage.createdAt,
+            channelId: communityMessage.channelId,
+            seq: communityMessage.seq,
+            authorName: user.name,
+            authorEmail: user.email,
+            authorImage: user.image,
+          })
+          .from(communityMessage)
+          .innerJoin(user, eq(communityMessage.authorId, user.id))
+          .where(inArray(communityMessage.id, batch))
+      )
+    )
+  ).flat();
   return rows.map((r) => ({ ...r, embeds: safeParseEmbeds(r.embeds, r.id) }));
 }
 
@@ -885,25 +893,33 @@ export async function getMessageInScope(db: Database, messageId: string, scope: 
 /** Batched form of `getMessageInScope` — see its doc comment for the "why". */
 export async function getMessagesByIdsInScope(db: Database, ids: string[], scope: MessageScope) {
   if (ids.length === 0) return [];
-  const rows = await db
-    .select({
-      id: communityMessage.id,
-      authorId: communityMessage.authorId,
-      content: communityMessage.content,
-      type: communityMessage.type,
-      mentionType: communityMessage.mentionType,
-      replyToId: communityMessage.replyToId,
-      embeds: communityMessage.embeds,
-      seq: communityMessage.seq,
-      createdAt: communityMessage.createdAt,
-      channelId: communityMessage.channelId,
-      authorName: user.name,
-      discriminator: user.discriminator,
-      authorEmail: user.email,
-      authorImage: user.image,
-    })
-    .from(communityMessage)
-    .innerJoin(user, eq(communityMessage.authorId, user.id))
-    .where(and(inArray(communityMessage.id, ids), scopeCondition(scope)));
+  // `ids` are the reply-target ids of a message page (up to ~200), so this
+  // `inArray` is unbounded — chunk for D1's 100-param limit; no order/limit → concat.
+  const rows = (
+    await Promise.all(
+      chunk(ids, D1_MAX_IN_PARAMS).map((batch) =>
+        db
+          .select({
+            id: communityMessage.id,
+            authorId: communityMessage.authorId,
+            content: communityMessage.content,
+            type: communityMessage.type,
+            mentionType: communityMessage.mentionType,
+            replyToId: communityMessage.replyToId,
+            embeds: communityMessage.embeds,
+            seq: communityMessage.seq,
+            createdAt: communityMessage.createdAt,
+            channelId: communityMessage.channelId,
+            authorName: user.name,
+            discriminator: user.discriminator,
+            authorEmail: user.email,
+            authorImage: user.image,
+          })
+          .from(communityMessage)
+          .innerJoin(user, eq(communityMessage.authorId, user.id))
+          .where(and(inArray(communityMessage.id, batch), scopeCondition(scope)))
+      )
+    )
+  ).flat();
   return rows.map((r) => ({ ...r, embeds: safeParseEmbeds(r.embeds, r.id) }));
 }
