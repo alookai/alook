@@ -49,7 +49,9 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
   }
   const headerInner = (
     <>
-      {isPrivate && <Lock className="size-3 shrink-0" />}
+      {/* Always reserve the lock's slot so public + private category names share
+          the same left edge (private shows the Lock, public a same-size spacer). */}
+      {isPrivate ? <Lock className="size-3 shrink-0" /> : <span className="size-3 shrink-0" aria-hidden="true" />}
       <span className="flex-1 truncate text-left">{name}</span>
       {onSettings && (
       <button
