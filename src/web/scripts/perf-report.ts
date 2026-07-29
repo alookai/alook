@@ -32,9 +32,19 @@ export interface SwitchAnalysis {
   networkSpanMs: number
   /** true if read-state's response-end precedes messages' request-start. */
   readStateBlocksMessages: boolean | null
+  /** Total mount events reported by react-scan across all commits — INFLATED:
+   * the ring buffer re-reports every still-mounted fiber on each subsequent
+   * commit, so a single first-mount shows up once per later commit. */
   mountCountRaw: number
-  mountCountAdjusted: number
+  /** Distinct fiber ids that mounted — the real "how many components first
+   * mounted this switch". This is the trustworthy render-cost number. */
+  mountCountUnique: number
+  /** Total re-render events. Unlike mounts these are NOT inflated: each
+   * (fiberId, commit, duration) triple is unique, so a fiber re-rendering N
+   * times across N commits is N genuine renders. */
   rerenderCountRaw: number
+  /** Distinct fiber ids that re-rendered at least once. */
+  rerenderCountUnique: number
   unmounts: string[]
   topRenders: Array<{ name: string; count: number; reason?: string }>
   /** attribution of the perceived total. */
@@ -46,26 +56,27 @@ function findResource(resources: CapturedResource[], needle: string): CapturedRe
 }
 
 /**
- * Detect StrictMode double-commit inflation: in dev, the same logical fiber
- * (fiberId) mounts twice in immediate succession. We halve mount counts for
- * fiberIds seen exactly twice back-to-back.
+ * Count mount events two ways. react-scan's ring buffer re-reports every
+ * still-mounted fiber on each subsequent commit, so `mountRaw` (the naive
+ * total) is inflated 6-13× by that echo — an earlier heuristic tried to undo
+ * it by "halving fibers seen an even number of times", but the real repeat
+ * rate isn't 2× and that produced numbers ~3-4× too high. A first mount is
+ * unique per fiber by definition, so deduping by fiberId is lossless and
+ * yields the true count. Fibers without an id (rare) each count as their own
+ * mount — they can't be deduped and dropping them would under-count.
  */
-function adjustForStrictMode(sw: CapturedSwitch): { mountRaw: number; mountAdjusted: number } {
-  const mountIds: number[] = []
+function countMounts(sw: CapturedSwitch): { mountRaw: number; mountUnique: number } {
   let mountRaw = 0
+  const ids = new Set<number>()
+  let idless = 0
   for (const commit of sw.commits) {
     for (const m of commit.mounts) {
       mountRaw++
-      if (typeof m.fiberId === "number") mountIds.push(m.fiberId)
+      if (typeof m.fiberId === "number") ids.add(m.fiberId)
+      else idless++
     }
   }
-  // Count fiberIds appearing an even number of times as StrictMode doubles.
-  const seen = new Map<number, number>()
-  for (const id of mountIds) seen.set(id, (seen.get(id) ?? 0) + 1)
-  let doubled = 0
-  for (const [, n] of seen) if (n >= 2) doubled += Math.floor(n / 2)
-  const mountAdjusted = Math.max(mountRaw - doubled, 0)
-  return { mountRaw, mountAdjusted }
+  return { mountRaw, mountUnique: ids.size + idless }
 }
 
 export function analyzeSwitch(sw: CapturedSwitch): SwitchAnalysis {
@@ -101,18 +112,23 @@ export function analyzeSwitch(sw: CapturedSwitch): SwitchAnalysis {
   const readStateBlocksMessages =
     readState && messages ? readState.responseEnd <= messages.startTime + 1 : null
 
-  const { mountRaw, mountAdjusted } = adjustForStrictMode(sw)
+  const { mountRaw, mountUnique } = countMounts(sw)
   let rerenderCountRaw = 0
+  const rerenderIds = new Set<number>()
+  let rerenderIdless = 0
   const renderTally = new Map<string, { count: number; reason?: string }>()
   for (const commit of sw.commits) {
     for (const r of commit.rerenders) {
       rerenderCountRaw++
+      if (typeof r.fiberId === "number") rerenderIds.add(r.fiberId)
+      else rerenderIdless++
       const cur = renderTally.get(r.name) ?? { count: 0, reason: r.reason }
       cur.count++
       if (!cur.reason && r.reason) cur.reason = r.reason
       renderTally.set(r.name, cur)
     }
   }
+  const rerenderCountUnique = rerenderIds.size + rerenderIdless
   const topRenders = [...renderTally.entries()]
     .map(([name, v]) => ({ name, count: v.count, reason: v.reason }))
     .sort((a, b) => b.count - a.count)
@@ -129,7 +145,7 @@ export function analyzeSwitch(sw: CapturedSwitch): SwitchAnalysis {
         : `network-bound (${networkMs.toFixed(0)}ms of ${perceivedMs.toFixed(0)}ms)`
   } else {
     const nonNetwork = perceivedMs - networkMs
-    verdict = `NOT network-bound — ${nonNetwork.toFixed(0)}ms of ${perceivedMs.toFixed(0)}ms is render/remount/reflow (network only ${networkMs.toFixed(0)}ms); remount=${mountAdjusted} fibers, unmounts=${sw.unmounts.length}`
+    verdict = `NOT network-bound — ${nonNetwork.toFixed(0)}ms of ${perceivedMs.toFixed(0)}ms is render/remount/reflow (network only ${networkMs.toFixed(0)}ms); mounts=${mountUnique} fibers, unmounts=${sw.unmounts.length}`
   }
 
   return {
@@ -144,8 +160,9 @@ export function analyzeSwitch(sw: CapturedSwitch): SwitchAnalysis {
     networkSpanMs,
     readStateBlocksMessages,
     mountCountRaw: mountRaw,
-    mountCountAdjusted: mountAdjusted,
+    mountCountUnique: mountUnique,
     rerenderCountRaw,
+    rerenderCountUnique,
     unmounts: sw.unmounts,
     topRenders,
     verdict,
@@ -165,8 +182,11 @@ export function renderReport(file: CaptureFile): string {
   lines.push("")
   lines.push(
     "> Baseline: on local, network is ~0, so a visible loading spell is itself the anomaly. " +
-      "The headline is perceived latency (click → content stable). Counts are dev-mode; " +
-      "StrictMode-adjusted values remove the double-invoke inflation.",
+      "The headline is perceived latency (click → content stable). Counts are dev-mode. " +
+      "Mounts are reported as `unique` (distinct fiber ids — the trustworthy number) and " +
+      "`raw` (react-scan re-reports every still-mounted fiber on each later commit, inflating " +
+      "the raw total 6-13×). Re-renders are NOT inflated (each is a genuine distinct render), " +
+      "so `raw` is real; `unique` counts how many distinct components re-rendered.",
   )
   lines.push("")
 
@@ -187,7 +207,9 @@ export function renderReport(file: CaptureFile): string {
             : " · read-state/messages overlap (parallel)"),
     )
     lines.push(
-      `- renders: mounts ${a.mountCountRaw} raw / ${a.mountCountAdjusted} StrictMode-adjusted · re-renders ${a.rerenderCountRaw} · unmounts ${a.unmounts.length}`,
+      `- renders: mounts ${a.mountCountUnique} unique (${a.mountCountRaw} raw w/ ring-buffer echo) · ` +
+        `re-renders ${a.rerenderCountRaw} (${a.rerenderCountUnique} distinct components) · ` +
+        `unmounts ${a.unmounts.length}`,
     )
     if (a.topRenders.length) {
       lines.push("- top re-renders:")

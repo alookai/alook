@@ -87,8 +87,31 @@ describe("analyzeSwitch — non-network attribution", () => {
   })
 })
 
-describe("analyzeSwitch — StrictMode adjustment", () => {
-  it("halves mount count for fibers that double-committed", () => {
+describe("analyzeSwitch — mount de-echo (ring-buffer dedup)", () => {
+  it("dedups mounts by fiberId regardless of how many commits re-report them", () => {
+    // react-scan re-reports every still-mounted fiber on each later commit, so
+    // the same first-mount fiber appears once per subsequent commit. The naive
+    // total is inflated; deduping by fiberId recovers the true count. Here two
+    // fibers are echoed across three commits (2 raw each → 6 raw), but only 2
+    // components actually mounted.
+    const echo = [
+      { name: "ChannelView", fiberId: 7, actualDuration: 3 },
+      { name: "MessageList", fiberId: 8, actualDuration: 2 },
+    ]
+    const a = analyzeSwitch(
+      baseSwitch({
+        commits: [
+          { ts: 1050, kind: "commit", mounts: [...echo], rerenders: [] },
+          { ts: 1080, kind: "commit", mounts: [...echo], rerenders: [] },
+          { ts: 1120, kind: "commit", mounts: [...echo], rerenders: [] },
+        ],
+      }),
+    )
+    expect(a.mountCountRaw).toBe(6)
+    expect(a.mountCountUnique).toBe(2)
+  })
+
+  it("counts id-less mounts individually (cannot dedup a missing id)", () => {
     const a = analyzeSwitch(
       baseSwitch({
         commits: [
@@ -96,18 +119,34 @@ describe("analyzeSwitch — StrictMode adjustment", () => {
             ts: 1050,
             kind: "commit",
             mounts: [
-              { name: "ChannelView", fiberId: 7, actualDuration: 3 },
-              { name: "ChannelView", fiberId: 7, actualDuration: 3 },
-              { name: "MessageList", fiberId: 8, actualDuration: 2 },
-              { name: "MessageList", fiberId: 8, actualDuration: 2 },
+              { name: "A", fiberId: 1, actualDuration: 1 },
+              { name: "Anon", actualDuration: 1 },
+              { name: "Anon", actualDuration: 1 },
             ],
             rerenders: [],
           },
         ],
       }),
     )
-    expect(a.mountCountRaw).toBe(4)
-    expect(a.mountCountAdjusted).toBe(2)
+    expect(a.mountCountRaw).toBe(3)
+    expect(a.mountCountUnique).toBe(3) // 1 unique id + 2 id-less
+  })
+})
+
+describe("analyzeSwitch — re-renders are genuine (not deduped away)", () => {
+  it("keeps every re-render in raw but counts distinct components in unique", () => {
+    // Root re-renders across 3 commits — 3 genuine renders, 1 distinct component.
+    const a = analyzeSwitch(
+      baseSwitch({
+        commits: [
+          { ts: 1050, kind: "commit", mounts: [], rerenders: [{ name: "Root", fiberId: 3, actualDuration: 5 }] },
+          { ts: 1080, kind: "commit", mounts: [], rerenders: [{ name: "Root", fiberId: 3, actualDuration: 4 }] },
+          { ts: 1120, kind: "commit", mounts: [], rerenders: [{ name: "Root", fiberId: 3, actualDuration: 6 }] },
+        ],
+      }),
+    )
+    expect(a.rerenderCountRaw).toBe(3)
+    expect(a.rerenderCountUnique).toBe(1)
   })
 })
 

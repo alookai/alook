@@ -154,7 +154,10 @@ export const useCommunityStore = create<CommunityStoreState>((set, get) => ({
 
   setCurrentServerId: (id) => set({ currentServerId: id }),
 
-  setCurrentChannelId: (id) => set({ currentChannelId: id }),
+  setCurrentChannelId: (id) => {
+    if (get().currentChannelId === id) return // no-op on identical value
+    set({ currentChannelId: id })
+  },
 
   setCurrentChannelMeta: (meta) => set({ currentChannelMeta: meta }),
 

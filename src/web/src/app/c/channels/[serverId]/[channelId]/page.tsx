@@ -432,11 +432,15 @@ function ChannelView() {
   const typingNames = useTypingNamesForScope(`ch:${channelId}`)
 
   // Mutations
-  const sendMessageMut = useSendMessage()
+  // Destructure the reference-STABLE mutation methods (TanStack binds
+  // `.mutate`/`.mutateAsync` in the observer, but returns a NEW wrapper object
+  // every render — depending on the whole object would bust every downstream
+  // useMemo/useCallback every render). See doSend / messageActions deps.
+  const { mutateAsync: sendMessageAsync } = useSendMessage()
   const toggleReactionApi = useToggleReactionApi()
-  const pinMessageMut = usePinMessage()
-  const unpinMessageMut = useUnpinMessage()
-  const createThreadMut = useCreateThread()
+  const { mutate: pinMessageMutate } = usePinMessage()
+  const { mutate: unpinMessageMutate } = useUnpinMessage()
+  const { mutateAsync: createThreadAsync } = useCreateThread()
   const createForumPostMut = useCreateForumPost()
   const updatePostTagsMut = useUpdatePostTags()
   const deleteForumPostMut = useDeleteForumPost()
@@ -614,7 +618,7 @@ function ChannelView() {
   const doSend = useCallback(
     async (content: string, opts?: { replyToId?: string; mentionType?: MentionType; attachments?: UploadedAttachment[] }): Promise<SendMessageResult | null> => {
       try {
-        return await sendMessageMut.mutateAsync({
+        return await sendMessageAsync({
           channelId,
           content,
           replyToId: opts?.replyToId,
@@ -630,7 +634,7 @@ function ChannelView() {
         return null
       }
     },
-    [sendMessageMut, channelId, currentUser.id, currentUser.name, currentUser.avatar],
+    [sendMessageAsync, channelId, currentUser.id, currentUser.name, currentUser.avatar],
   )
 
   // Latest-ref for the values the message actions read at call time. Keeping
@@ -662,12 +666,12 @@ function ChannelView() {
     onPin: (id: string) => {
       const isPinned = actionsCtxRef.current.pinnedIds.has(id)
       if (isPinned) {
-        unpinMessageMut.mutate({ channelId, messageId: id }, {
+        unpinMessageMutate({ channelId, messageId: id }, {
           onSuccess: () => toast("Message unpinned"),
           onError: (e) => toastApiError(e, "Failed to unpin message"),
         })
       } else {
-        pinMessageMut.mutate({ channelId, messageId: id }, {
+        pinMessageMutate({ channelId, messageId: id }, {
           onSuccess: () => toast("Message pinned"),
           onError: (e) => toastApiError(e, "Failed to pin message"),
         })
@@ -678,7 +682,7 @@ function ChannelView() {
       const m = actionsCtxRef.current.messages.find((x) => x.id === id)
       const name = deriveThreadName(m?.content, actionsCtxRef.current.channelName)
       try {
-        const data = await createThreadMut.mutateAsync({ channelId, messageId: id, name })
+        const data = await createThreadAsync({ channelId, messageId: id, name })
         router.push(`/c/channels/${params.serverId}/${data.id}`)
       } catch (e) {
         toastApiError(e, "Failed to create thread")
@@ -701,25 +705,32 @@ function ChannelView() {
       a.download = url.split("/").pop() ?? "file"
       a.click()
     },
-    // Deps are all reference-stable: channelId, the mutation objects (TanStack
-    // returns stable refs), doSend (useCallback), router/params. Volatile reads
-    // go through actionsCtxRef.
-  }), [channelId, currentUser.id, toggleReactionApi, unpinMessageMut, pinMessageMut, createThreadMut, doSend, router, params.serverId])
+    // Deps are all reference-stable: channelId/currentUser.id (strings),
+    // toggleReactionApi (useCallback), the mutation METHODS (TanStack binds
+    // `.mutate`/`.mutateAsync` stably — NOT the whole mutation object, which is
+    // a new wrapper every render), doSend (useCallback), router/params. Volatile
+    // reads go through actionsCtxRef. This stability is load-bearing: an unstable
+    // messageActions busts MessageRow/Message's memo and re-renders every visible
+    // row on every commit (see message.tsx messagePropsEqual).
+  }), [channelId, currentUser.id, toggleReactionApi, unpinMessageMutate, pinMessageMutate, createThreadAsync, doSend, router, params.serverId])
 
   const threadActions = useMemo(
     () => ({ ...messageActions, onCreateThread: undefined }),
     [messageActions],
   )
 
-  // Reference-stable across renders (members churns on every presence/roster
-  // tick). A new identity here would bust every memoized message row on a
-  // switch — the exact re-render storm we're killing. Read `members` lazily
-  // through a ref and rebuild the resolver per call; the resolver is cheap.
-  // Memoized on `members`: identity changes only when the roster changes (not
-  // on every render), so it doesn't needlessly bust the memoized message rows,
-  // while still refreshing names when membership genuinely updates. Called
-  // during render (typing names), so a ref-during-render approach is out.
-  const resolveUserName = useMemo(() => makeUserNameResolver(members), [members])
+  // Reference-stable across renders. MUST depend on the RAW roster
+  // (`membersHook.members`), NOT the presence-enriched `members` (line ~110):
+  // `makeUserNameResolver` only reads id/name/email, never presence, yet the
+  // enriched array gets a new identity on every presence/status tick. Keying
+  // this resolver on it re-created it on every tick and busted every memoized
+  // message row (react-scan measured MessageImpl re-rendering with
+  // `props:[resolveUserName]` — ~1/3 of the switch re-render storm). The raw
+  // roster's identity changes only when membership/names genuinely change.
+  const resolveUserName = useMemo(
+    () => makeUserNameResolver(membersHook.members),
+    [membersHook.members],
+  )
 
   // ── Send messages ───────────────────────────────────────────────────────
   const sendMessage = async (markdown: string, attachments?: SendAttachment[], mentionType?: MentionType) => {

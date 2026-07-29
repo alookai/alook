@@ -119,15 +119,21 @@ export function ShellFrame({
   const watchInboxItem = inbox.watchItem
 
   // Mutations wired through the shell.
-  const createServer = useCreateServer()
-  const joinServer = useJoinServer()
-  const leaveServer = useLeaveServer()
-  const uploadServerIcon = useUploadServerIcon()
-  const deleteFolder = useDeleteServerFolder()
-  const reorderServers = useReorderServers()
-  const reorderFolders = useReorderFolders()
-  const updateFolderItems = useUpdateFolderItems()
-  const createFolderWith = useCreateServerFolderWith()
+  // Destructure the STABLE mutation methods, not the whole mutation object.
+  // TanStack's `useMutation` returns a fresh wrapper object every render but
+  // binds `.mutate`/`.mutateAsync` stably; depending on the wrapper made every
+  // rail callback below rebuild each render, busting ServerRail's memo and
+  // re-rendering the whole shell (children included) on any shell re-render.
+  // Mirrors the message-side fix (see page.tsx messageActions deps note).
+  const { mutateAsync: createServerAsync } = useCreateServer()
+  const { mutateAsync: joinServerAsync } = useJoinServer()
+  const { mutate: leaveServerMutate } = useLeaveServer()
+  const { mutate: uploadServerIconMutate } = useUploadServerIcon()
+  const { mutate: deleteFolderMutate } = useDeleteServerFolder()
+  const { mutate: reorderServersMutate } = useReorderServers()
+  const { mutate: reorderFoldersMutate } = useReorderFolders()
+  const { mutate: updateFolderItemsMutate } = useUpdateFolderItems()
+  const { mutate: createFolderWithMutate } = useCreateServerFolderWith()
   const createOrGetDm = useCreateOrGetDm()
   const sendDmMessage = useSendDmMessage()
   const markAllInboxRead = useMarkAllInboxRead()
@@ -171,11 +177,11 @@ export function ShellFrame({
   const onRailCreateServer = useCallback(
     async (name: string, icon?: File) => {
       try {
-        const data = await createServer.mutateAsync({ name })
+        const data = await createServerAsync({ name })
         const newId = data.server.id
         toast(`Server "${name}" created`)
         if (icon) {
-          uploadServerIcon.mutate(
+          uploadServerIconMutate(
             { serverId: newId, file: icon },
             { onError: (e) => toastApiError(e, "Server created, but the icon failed to upload") },
           )
@@ -185,19 +191,19 @@ export function ShellFrame({
         toastApiError(e, "Failed to create server")
       }
     },
-    [createServer, uploadServerIcon, router],
+    [createServerAsync, uploadServerIconMutate, router],
   )
   const onRailJoinServer = useCallback(
     async (invite: string) => {
       try {
-        const data = await joinServer.mutateAsync({ inviteCode: invite })
+        const data = await joinServerAsync({ inviteCode: invite })
         toast("Joined server")
         router.push(`/c/channels/${data.serverId}`)
       } catch (e) {
         toastApiError(e, "Failed to join server")
       }
     },
-    [joinServer, router],
+    [joinServerAsync, router],
   )
   const onRailLeaveServer = useCallback(
     (id: string) => {
@@ -206,7 +212,7 @@ export function ShellFrame({
       // eject effect first. Marker present → layout stays silent and
       // this button owns the "Left server" toast.
       markVoluntaryLeave(id)
-      leaveServer.mutate(
+      leaveServerMutate(
         { serverId: id },
         {
           onSuccess: () => {
@@ -219,7 +225,7 @@ export function ShellFrame({
         },
       )
     },
-    [leaveServer, currentServerId, router, servers],
+    [leaveServerMutate, currentServerId, router, servers],
   )
   const onRailOpenSettings = useCallback(
     (id?: string) => {
@@ -235,7 +241,7 @@ export function ShellFrame({
   )
   const onRailUngroupFolder = useCallback(
     (fId: string) => {
-      deleteFolder.mutate(
+      deleteFolderMutate(
         { folderId: fId },
         {
           onSuccess: () => toast("Group removed"),
@@ -243,43 +249,43 @@ export function ShellFrame({
         },
       )
     },
-    [deleteFolder],
+    [deleteFolderMutate],
   )
   const onRailReorderRail = useCallback(
     (ids: string[]) => {
-      reorderServers.mutate(
+      reorderServersMutate(
         { serverIds: ids },
         { onError: (e) => toastApiError(e, "Failed to save server order") },
       )
     },
-    [reorderServers],
+    [reorderServersMutate],
   )
   const onRailReorderFolders = useCallback(
     (ids: string[]) => {
-      reorderFolders.mutate(
+      reorderFoldersMutate(
         { folderIds: ids },
         { onError: (e) => toastApiError(e, "Failed to reorder groups") },
       )
     },
-    [reorderFolders],
+    [reorderFoldersMutate],
   )
   const onRailFolderItemsChange = useCallback(
     (fId: string, ids: string[]) => {
-      updateFolderItems.mutate(
+      updateFolderItemsMutate(
         { folderId: fId, serverIds: ids },
         { onError: (e) => toastApiError(e, "Failed to update group") },
       )
     },
-    [updateFolderItems],
+    [updateFolderItemsMutate],
   )
   const onRailDragCreateFolder = useCallback(
     (a: string, b: string) => {
-      createFolderWith.mutate(
+      createFolderWithMutate(
         { serverIdA: a, serverIdB: b },
         { onError: (e) => toastApiError(e, "Failed to create group") },
       )
     },
-    [createFolderWith],
+    [createFolderWithMutate],
   )
 
   const railProps = {

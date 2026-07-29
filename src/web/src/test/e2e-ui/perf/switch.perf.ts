@@ -101,12 +101,19 @@ const INPAGE_SETUP = `
     }
   });
   try { lo.observe({ type: 'layout-shift', buffered: true }); } catch (_) {}
+  // Attach a ResizeObserver to the message scroll container. The container is
+  // persistent, but on a cold switch it may be re-created (React swaps the
+  // subtree), so a once-only global guard would leave the observer watching a
+  // detached node and never fire again — hence NO cross-switch guard here, and
+  // we disconnect the prior observer before re-observing the current root.
   window.__PERF_ATTACH_RESIZE__ = () => {
     const root = document.querySelector('.thin-scrollbar');
-    if (!root || window.__PERF_RESIZE_ATTACHED__) return;
-    window.__PERF_RESIZE_ATTACHED__ = true;
+    if (!root) return false;
+    if (window.__PERF_RESIZE_OBSERVER__) window.__PERF_RESIZE_OBSERVER__.disconnect();
     const rz = new ResizeObserver(() => { window.__PERF_RESIZES__.push(performance.now()); });
     rz.observe(root);
+    window.__PERF_RESIZE_OBSERVER__ = rz;
+    return true;
   };
 })()
 `
@@ -235,10 +242,26 @@ test("community switch perceived-latency capture", async ({ browser }) => {
 
     await navigate()
 
-    // Record skeleton + painted anchors as they appear.
+    // Record skeleton + painted anchors as they appear. Both are captured in
+    // ONE polling loop so whichever DOM state shows first stamps its own
+    // timestamp: the message-list loading state renders `[data-slot=skeleton]`
+    // in the scroll container, then swaps to `[data-msg-id]` rows once loaded.
+    // A memory/disk-warm switch can paint rows with no skeleton frame at all,
+    // so skeleton stays null there (correctly — there was no loading spell).
     await page
       .waitForFunction(
         () => {
+          // Scope the skeleton probe to the message scroll container — a bare
+          // `[data-slot=skeleton]` also matches sidebar/member-list skeletons
+          // elsewhere on the page (and leftovers from the prior switch), which
+          // stamped a bogus 16ms skeleton on memory-warm switches that have no
+          // loading spell at all.
+          if (
+            window.__PERF_SKELETON_TS__ == null &&
+            document.querySelector(".thin-scrollbar [data-slot='skeleton']")
+          ) {
+            window.__PERF_SKELETON_TS__ = performance.now()
+          }
           const painted = document.querySelector("[data-msg-id]")
           if (painted && window.__PERF_PAINTED_TS__ == null) {
             window.__PERF_PAINTED_TS__ = performance.now()
@@ -248,6 +271,12 @@ test("community switch perceived-latency capture", async ({ browser }) => {
         { timeout: 25_000 },
       )
       .catch(() => {})
+
+    // Re-attach the ResizeObserver to the CURRENT scroll container. Attaching
+    // once before navigate() misses cold switches where React re-creates the
+    // container after the click, leaving the pre-switch observer on a detached
+    // node — the bug that left contentStableTs perpetually null.
+    await page.evaluate(() => window.__PERF_ATTACH_RESIZE__?.())
 
     // Let reflow settle so the ResizeObserver captures content-stable.
     await page.waitForTimeout(600)

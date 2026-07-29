@@ -69,8 +69,8 @@ declare global {
     __PERF_RESOURCES__?: Array<{ name: string; startTime: number; responseEnd: number }>
     __PERF_SHIFTS__?: Array<{ ts: number; value: number; hadRecentInput: boolean }>
     __PERF_RESIZES__?: number[]
-    __PERF_RESIZE_ATTACHED__?: boolean
-    __PERF_ATTACH_RESIZE__?: () => void
+    __PERF_RESIZE_OBSERVER__?: ResizeObserver
+    __PERF_ATTACH_RESIZE__?: () => boolean
     __PERF_SKELETON_TS__?: number | null
     __PERF_PAINTED_TS__?: number | null
   }

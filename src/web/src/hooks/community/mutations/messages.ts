@@ -1,5 +1,6 @@
 "use client"
 
+import { useCallback } from "react"
 import {
   useMutation,
   useQueryClient,
@@ -488,7 +489,7 @@ export function _resetReactionTimers_forTesting() {
  */
 export function useToggleReactionApi(): (args: ToggleReactionArgs) => void {
   const queryClient = useQueryClient()
-  return (args) => {
+  return useCallback((args: ToggleReactionArgs) => {
     const key = args.channelId
       ? communityKeys.channelMessages(args.channelId)
       : args.dmId
@@ -532,7 +533,7 @@ export function useToggleReactionApi(): (args: ToggleReactionArgs) => void {
       })
     }, REACTION_DEBOUNCE_MS)
     reactionTimers.set(timerKey, { timer, originalMe })
-  }
+  }, [queryClient])
 }
 
 // ── Pin / unpin ────────────────────────────────────────────────────────────
