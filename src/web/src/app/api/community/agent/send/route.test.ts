@@ -21,6 +21,7 @@ const mockCreateOrGetDM = vi.fn()
 const mockIsBlocked = vi.fn()
 const mockAreFriends = vi.fn()
 const mockGetLatestSeqForScope = vi.fn()
+const mockHasDeliverableUnread = vi.fn()
 const mockGetReadState = vi.fn()
 const mockToAgentMessage = vi.fn()
 const mockGetMessageByChannelAndSeq = vi.fn()
@@ -58,6 +59,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityAgentInbox: {
         getLatestSeqForScope: (...a: unknown[]) => mockGetLatestSeqForScope(...a),
+        hasDeliverableUnreadForAgentScope: (...a: unknown[]) => mockHasDeliverableUnread(...a),
         toAgentMessage: (...a: unknown[]) => mockToAgentMessage(...a),
       },
       communityReadState: { getReadState: (...a: unknown[]) => mockGetReadState(...a) },
@@ -95,6 +97,11 @@ describe("POST /api/community/agent/send", () => {
     mockResolveChannelByNameForMember.mockResolvedValue([{ id: "ch_1" }])
     mockGetChannelForMember.mockResolvedValue({ id: "ch_1", serverId: "srv_1", parentChannelId: null })
     mockGetLatestSeqForScope.mockResolvedValue(0)
+    // Default aligned (no deliverable unread) — matches the beforeEach
+    // latest=0. Tests asserting `blocked/unaligned` set this true explicitly;
+    // the wedge test sets it false while latest>seen to prove the gate no
+    // longer blocks on undeliverable backlog.
+    mockHasDeliverableUnread.mockResolvedValue(false)
     mockGetReadState.mockResolvedValue(null)
     mockToAgentMessage.mockImplementation((_db: unknown, row: unknown) => Promise.resolve({ ...row as object, wireShaped: true }))
     mockGetMessageByChannelAndSeq.mockResolvedValue(null)
@@ -124,12 +131,30 @@ describe("POST /api/community/agent/send", () => {
   it("returns { state: blocked, reason: unaligned } when the bot is behind the channel's latest seq and hasn't caught up", async () => {
     mockGetLatestSeqForScope.mockResolvedValue(10)
     mockGetReadState.mockResolvedValue({ lastReadSeq: 4 })
+    mockHasDeliverableUnread.mockResolvedValue(true)
     const res = await POST(
       req({ channel: "/studio/general", content: { text: "hi" } }, { Authorization: "Bearer crk_abc" })
     )
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ state: "blocked", reason: "unaligned", unreadCount: 6, latestSeq: 10 })
     expect(mockCreateCommunityMessage).not.toHaveBeenCalled()
+  })
+
+  it("late-joiner wedge: latestSeq is ahead of `seen` (pre-join backlog) but NO deliverable unread → send is NOT blocked", async () => {
+    // The @-mentioned-into-a-thread-with-backlog case. Raw seq gate would
+    // block forever (latestSeq 20 > seen 0) while inboxPull delivers nothing
+    // to advance the waterline. Gating on deliverable-unread lets the send
+    // through — the backlog is behind the join baseline, so it doesn't count.
+    mockGetLatestSeqForScope.mockResolvedValue(20)
+    mockGetReadState.mockResolvedValue(null) // fresh member, lastReadSeq → 0
+    mockHasDeliverableUnread.mockResolvedValue(false)
+    mockCreateCommunityMessage.mockResolvedValue({ ok: true, row: { id: "m_1", seq: 21, content: "hi" } })
+    const res = await POST(
+      req({ channel: "/studio/general", content: { text: "hi" } }, { Authorization: "Bearer crk_abc" })
+    )
+    expect(res.status).toBe(200)
+    expect((await res.json()).state).toBe("sent")
+    expect(mockCreateCommunityMessage).toHaveBeenCalled()
   })
 
   it("propagates a CAS 409 conflict from createCommunityMessage as blocked/unaligned with a freshly re-fetched latestSeq", async () => {
@@ -307,9 +332,11 @@ describe("POST /api/community/agent/send", () => {
   })
 
   it("sequential scenario: blocked/unaligned → pull+ack (simulated by an advancing lastReadSeq) → send succeeds → a new message arrives → send blocks again", async () => {
-    // 1. Bot is behind: latestSeq=10, bot's own tracked lastReadSeq=4 → blocked.
+    // 1. Bot is behind: latestSeq=10, bot's own tracked lastReadSeq=4 → blocked
+    // (deliverable unread exists).
     mockGetLatestSeqForScope.mockResolvedValueOnce(10)
     mockGetReadState.mockResolvedValueOnce({ lastReadSeq: 4 })
+    mockHasDeliverableUnread.mockResolvedValueOnce(true)
     const blocked1 = await POST(
       req({ channel: "/studio/general", content: { text: "catching up" } }, { Authorization: "Bearer crk_abc" })
     )
@@ -336,6 +363,7 @@ describe("POST /api/community/agent/send", () => {
     // again without a fresh pull+ack.
     mockGetLatestSeqForScope.mockResolvedValueOnce(12)
     mockGetReadState.mockResolvedValueOnce({ lastReadSeq: 10 })
+    mockHasDeliverableUnread.mockResolvedValueOnce(true)
     const blocked2 = await POST(
       req({ channel: "/studio/general", content: { text: "still going" } }, { Authorization: "Bearer crk_abc" })
     )

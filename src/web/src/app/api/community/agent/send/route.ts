@@ -48,16 +48,31 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
   // server is the source of truth for the "seen" waterline: a client that
   // omits `seenUpToSeq` is checked against its OWN tracked `lastReadSeq`,
   // never allowed to skip the gate by simply not sending the field.
+  //
+  // "Unaligned" means the bot has an unread message it could actually PULL —
+  // so the gate shares `inboxPull`'s deliverability predicate (join baseline +
+  // not-own) via `hasDeliverableUnreadForAgentScope`, NOT the raw channel
+  // `nextSeq`. A late joiner (@mentioned into a channel/thread with backlog)
+  // has pre-join messages the pull will never deliver; gating on `nextSeq`
+  // would block it forever while the pull hands over nothing to advance its
+  // `lastReadSeq` — a permanent wedge. `latestSeq` is still fetched: it feeds
+  // the optimistic `expectedSeq` claim below and the `blocked` response shape.
   const [latestSeq, readState] = await Promise.all([
     queries.communityAgentInbox.getLatestSeqForScope(db, resolved.channelId),
     queries.communityReadState.getReadState(db, { userId: ctx.botUserId, ...scopeTarget }),
   ])
   const seen = body.seenUpToSeq ?? readState?.lastReadSeq ?? 0
-  if (latestSeq > seen) {
+  const hasUnread = await queries.communityAgentInbox.hasDeliverableUnreadForAgentScope(
+    db,
+    ctx.botUserId,
+    resolved.channelId,
+    seen,
+  )
+  if (hasUnread) {
     return NextResponse.json({
       state: "blocked",
       reason: "unaligned",
-      unreadCount: latestSeq - seen,
+      unreadCount: Math.max(0, latestSeq - seen),
       latestSeq,
     })
   }

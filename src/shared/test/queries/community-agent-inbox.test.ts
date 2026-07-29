@@ -811,3 +811,24 @@ describe("listMessagesBySeq", () => {
     expect(chainResult.limit).toHaveBeenCalledWith(201);
   });
 });
+
+describe("hasDeliverableUnreadForAgentScope", () => {
+  it("returns true when a deliverable message beyond `seen` exists", async () => {
+    const db = createSequentialDb([[{ seq: 7 }]]);
+    const result = await agentInbox.hasDeliverableUnreadForAgentScope(db, "bot_1", "c1", 3);
+    expect(result).toBe(true);
+  });
+
+  it("returns false when nothing is deliverable beyond `seen` (pre-join backlog / own / already read)", async () => {
+    const db = createSequentialDb([[]]);
+    const result = await agentInbox.hasDeliverableUnreadForAgentScope(db, "bot_1", "c1", 0);
+    expect(result).toBe(false);
+  });
+
+  it("probes with limit(1) — existence check, not a full scan", async () => {
+    const db = createSequentialDb([[]]);
+    await agentInbox.hasDeliverableUnreadForAgentScope(db, "bot_1", "c1", 0);
+    const chainResult = db.select.mock.results[0]!.value;
+    expect(chainResult.limit).toHaveBeenCalledWith(1);
+  });
+});

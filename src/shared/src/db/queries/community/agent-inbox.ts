@@ -523,6 +523,67 @@ export async function listUnreadMessagesForAgent(
   return rows.map(({ lastReadSeq: _lastReadSeq, ...rest }) => rest);
 }
 
+/**
+ * Does `botUserId` have any message in `channelId`, beyond seq `seen`, that
+ * `inboxPull` would actually DELIVER — i.e. at/after the bot's join baseline
+ * and not its own? This is the send route's alignment gate, sharing
+ * `listUnreadMessagesForAgent`'s DELIVERABILITY filters (`channelJoinBaselineGuard`
+ * + `authorId != bot`) so the gate and the pull can never drift on which
+ * messages "count". The `seen` threshold is the gate's own business: the caller
+ * passes `seenUpToSeq ?? lastReadSeq ?? 0`, preserving the daemon's forward-seen
+ * boundary (a bot may report it has seen past its acked `lastReadSeq`).
+ *
+ * Why not `getLatestSeqForScope > seen`: that counts the channel's raw `nextSeq`
+ * — including pre-join backlog and the bot's own messages — which the pull's
+ * baseline + author filters exclude. A bot @mentioned into a channel/thread with
+ * history would then read as permanently "unaligned" (gate sees backlog) while
+ * `inboxPull` delivers nothing to advance its `lastReadSeq` — a wedge that only
+ * luck (a fresh post-join message) breaks. Gating on the deliverable predicate
+ * makes the wedge impossible by construction and needs no read-state migration
+ * for already-stuck bots: the gate stops counting messages the pull never hands
+ * over.
+ *
+ * Visibility (channel roster / thread participation) is the caller's job — the
+ * send route membership-gates the resolved channel before calling this.
+ */
+export async function hasDeliverableUnreadForAgentScope(
+  db: Database,
+  botUserId: string,
+  channelId: string,
+  seen: number
+): Promise<boolean> {
+  const rows = await db
+    .select({ seq: communityMessage.seq })
+    .from(communityMessage)
+    .leftJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
+    .leftJoin(
+      communityChannelMember,
+      and(
+        eq(communityChannelMember.channelId, communityMessage.channelId),
+        eq(communityChannelMember.userId, botUserId),
+        eq(communityChannelMember.relation, "access")
+      )
+    )
+    .leftJoin(
+      communityServerMember,
+      and(
+        eq(communityServerMember.serverId, communityChannel.serverId),
+        eq(communityServerMember.userId, botUserId)
+      )
+    )
+    .where(
+      and(
+        eq(communityMessage.channelId, channelId),
+        ne(communityMessage.authorId, botUserId),
+        gt(communityMessage.seq, seen),
+        channelJoinBaselineGuard
+      )
+    )
+    .limit(1);
+
+  return rows.length > 0;
+}
+
 export type InboxSnapshotRow = {
   channelId: string;
   pendingCount: number;
