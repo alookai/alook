@@ -36,12 +36,17 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
 
   const db = getDb(ctx.env.DB)
 
-  // Preserve the read-state route's 404-vs-403 ordering (unknown channel →
-  // 404, known-but-not-a-member → 403).
-  const channel = await queries.communityChannel.getChannel(db, channelId)
-  if (!channel) return writeError("channel not found", 404)
+  // Access gate first: the happy path (a member with access — the hot
+  // channel-open case) resolves the channel in one query and skips the
+  // existence probe entirely. Only on failure do we run getChannel to split
+  // 404 (unknown channel) from 403 (known but not a member), preserving the
+  // read-state route's 404-vs-403 ordering without paying for it every open.
   const auth = await requireChannelMember(db, channelId, ctx.userId)
-  if (!auth.ok) return writeError(auth.error, auth.status)
+  if (!auth.ok) {
+    const channel = await queries.communityChannel.getChannel(db, channelId)
+    if (!channel) return writeError("channel not found", 404)
+    return writeError(auth.error, auth.status)
+  }
 
   const pageSize = parsePageSize(null)
 
