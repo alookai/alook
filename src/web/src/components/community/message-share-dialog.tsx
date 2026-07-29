@@ -125,7 +125,27 @@ export function MessageShareDialog({ m, open, onClose }: {
                 >
                   {m.authorName}
                 </div>
-                {m.content && <MessageBody text={m.content} />}
+                {/* Cap the message body so a very long message can't blow the
+                    card (and the popup) out vertically (Alli's spec, uiux #38;
+                    24 lines per Gus #37). Two layers:
+                    • Primary bound = `max-h` + `overflow-hidden`. line-clamp
+                      alone only clamps WITHIN one block, so multi-paragraph
+                      markdown (the actual bug case) would escape it — the
+                      max-height hard-bounds any structure (paragraphs, code,
+                      lists) and rasterises cleanly through html-to-image.
+                    • `line-clamp-[24]` is the enhancement: a single-paragraph
+                      message gets a tidy trailing ellipsis; multi-block content
+                      is still caught by max-h (clean cut, no ellipsis — bounded
+                      is the bar). No gradient fade — masks rasterise
+                      unreliably in html-to-image.
+                    Clamped inside cardRef so the PNG matches the preview; the
+                    avatar/name/footer sit outside this box and stay complete.
+                    max-h ≈ 24 lines at the body's 15px/leading-snug. */}
+                {m.content && (
+                  <div className="max-h-[31rem] overflow-hidden line-clamp-[24]">
+                    <MessageBody text={m.content} />
+                  </div>
+                )}
               </div>
             </div>
 
