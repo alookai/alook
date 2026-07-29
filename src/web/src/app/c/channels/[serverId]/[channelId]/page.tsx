@@ -399,6 +399,7 @@ function ChannelView() {
   // settled (fetching done; `null` = never-visited is a valid resolved state).
   useEagerChannelRead({
     channelId,
+    serverId,
     isChildChannel,
     snapshotReady: !readSnapshotFetching,
   })

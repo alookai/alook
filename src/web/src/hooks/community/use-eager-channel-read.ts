@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
+import type { ServersResponse } from "@/hooks/community/use-servers"
 
 /**
  * Eager "mark this channel/thread read on open."
@@ -36,10 +37,12 @@ import { communityKeys } from "@/lib/query-keys"
  */
 export function useEagerChannelRead({
   channelId,
+  serverId,
   isChildChannel,
   snapshotReady,
 }: {
   channelId: string | null | undefined
+  serverId: string | null | undefined
   isChildChannel: boolean
   snapshotReady: boolean
 }) {
@@ -58,12 +61,31 @@ export function useEagerChannelRead({
       : `/api/community/channels/${channelId}/read`
     void apiFetch(endpoint, { method: "PUT" })
       .then(() => {
-        // Refresh the inbox feeds and the rail badge (mention rows dropped).
+        // Always refresh the inbox feeds — the mass mark-read cleared them.
         void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
-        void queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
+
+        // The rail mention badge (`server.mentions`) only needs refreshing when
+        // this server actually carries mentions the PUT may have cleared. Read
+        // it from the `servers()` cache and gate on it: the common case (no
+        // mentions anywhere in the server) skips the invalidate entirely, so a
+        // plain channel switch no longer cascade-refetches every server-level
+        // query. When there ARE mentions, refresh only `server(serverId)` — the
+        // one query that feeds the badge — not the whole `servers()` prefix.
+        if (!serverId) return
+        const servers = queryClient.getQueryData<ServersResponse>(
+          communityKeys.servers(),
+        )
+        const hasMentions = servers?.servers.some(
+          (s) => s.id === serverId && s.mentions > 0,
+        )
+        if (hasMentions) {
+          void queryClient.invalidateQueries({
+            queryKey: communityKeys.server(serverId),
+          })
+        }
       })
       .catch(() => {
         // Silent — the watermark / WS invalidate reconciles the inbox anyway.
       })
-  }, [channelId, isChildChannel, snapshotReady, queryClient])
+  }, [channelId, serverId, isChildChannel, snapshotReady, queryClient])
 }
