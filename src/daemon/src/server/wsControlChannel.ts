@@ -34,6 +34,7 @@ import type {
   AgentActivityState,
   HostBotAuditEventFrame,
 } from "./contract.js";
+import { HostCommandSchema } from "./contract.js";
 import { createLogger, type Logger } from "../logger.js";
 // Re-export so existing importers of these from this module keep working.
 export type { WebSocketLike, WebSocketFactory } from "./contract.js";
@@ -374,9 +375,24 @@ export class WsControlChannel implements HostControlChannel {
       return;
     }
 
-    // Valid server frame — reset backoff (server accepted us).
+    // Valid server frame — reset backoff (server accepted us). AUTH_REJECTED
+    // (above) is an `error` frame, NOT a HostCommand, so it stays ahead of the
+    // schema gate and short-circuits regardless of command validity.
     this.attempt = 0;
-    const cmd = frame as unknown as HostCommand;
+
+    // Validate the downlink shape before dispatch — the mirror of ws-do's
+    // per-frame `safeParse` on the uplink. A malformed/half-written frame (or a
+    // producer bug) must be DROPPED + logged here, never handed to the router's
+    // arms as a lie. Valid frames dispatch exactly as before (transparent gate).
+    const parsed = HostCommandSchema.safeParse(frame);
+    if (!parsed.success) {
+      this.log.warn("dropped malformed HostCommand frame", {
+        type: frame.type,
+        issues: parsed.error.issues.map((i) => ({ path: i.path.join("."), code: i.code })),
+      });
+      return;
+    }
+    const cmd = parsed.data as HostCommand;
     for (const cb of this.commandCbs) {
       // Each listener is fire-and-forget; failures in one must not skip the
       // next. Catch rejections explicitly — a bare `void cb(cmd)` on an async

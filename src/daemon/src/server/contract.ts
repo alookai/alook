@@ -79,4 +79,5 @@ export {
   formatRef,
   parseSeq,
   formatSeq,
+  HostCommandSchema,
 } from "@alook/shared/community-cli-contract";

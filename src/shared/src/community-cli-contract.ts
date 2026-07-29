@@ -22,6 +22,7 @@
  * IDs are **nanoid** strings (not UUIDs).
  */
 
+import { z } from "zod";
 import type { RuntimeConfig } from "./runtime-config";
 import type { ChannelType } from "./utils/community-roles";
 
@@ -1113,3 +1114,112 @@ export function parseSeq(s: string): Seq {
 export function formatSeq(seq: Seq): string {
   return `#${seq}`;
 }
+
+// ---------------------------------------------------------------------------
+// Downlink (server → daemon) command validation
+// ---------------------------------------------------------------------------
+//
+// The mirror of the uplink (daemon → server) frame `safeParse`s in `src/ws-do`
+// (`HostReadyMessageSchema`, `SessionErrorFrameSchema`, `AgentActivityMessageSchema`,
+// … in ws-durable.ts). Before this, the daemon's `WsControlChannel.onMessage`
+// trusted the frame's SHAPE blindly (`typeof frame.type === "string"` then
+// `frame as HostCommand`), so a malformed/half-written frame or a producer bug
+// reached the router's arms as a lie. `HostCommandSchema` closes exactly that
+// asymmetry — the uplink was validated, the downlink was not.
+//
+// Colocated with the `HostCommand` TYPE (above) rather than in `schemas.ts`
+// on purpose: the daemon reaches this file via the `@alook/shared/community-cli-contract`
+// subpath (see `src/daemon/src/server/contract.ts`) and deliberately never
+// imports the main `@alook/shared` barrel, which would drag the server/DB code
+// (drizzle, queries) into the daemon bundle. The lockstep guard below also only
+// compiles here, where the `HostCommand` type is in scope.
+//
+// SHALLOW by design (CTO ruling — plans/daemon-downlink-zod.md): validate the
+// discriminant `type` + each arm's REQUIRED top-level scalars, and enumerate
+// EVERY top-level field per arm (including optional load-bearing ones like
+// `wake.sessionId`) so zod's default strip drops nothing real. The nested typed
+// blobs — `config: RuntimeConfig` and `unreadNotice: UnreadNotice` — stay
+// `z.unknown()` opaque passthrough: their interiors carry optional load-bearing
+// fields (`unreadNotice.channelId?`, resume `sessionId?`) that a hand-listed
+// object schema would most easily strip by accident, and the #6 failure surface
+// is the TOP LEVEL (missing `type`/`agentId`/`launchId`, a half-written frame),
+// not a blob's interior. `resolveLaunchFieldsOrDefault` re-parses `config`
+// downstream with its own defaulting, so deep-validating it here would only turn
+// a forward-compatible server field into a hard drop on an older daemon.
+export const HostCommandSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("agent:wake"),
+    agentId: z.string().min(1),
+    config: z.unknown(),
+    sessionId: z.string().optional(),
+    launchId: z.string().min(1),
+    unreadNotice: z.unknown(),
+  }),
+  z.object({
+    type: z.literal("agent:stop"),
+    agentId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("agent:reset"),
+    agentId: z.string().min(1),
+    config: z.unknown(),
+    launchId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("agent:nap"),
+    agentId: z.string().min(1),
+    config: z.unknown(),
+    launchId: z.string().min(1),
+    handoff: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("agent:model_switch"),
+    agentId: z.string().min(1),
+    config: z.unknown(),
+    launchId: z.string().min(1),
+  }),
+  // The `bot:*` arms are NOT what #6 targets — the daemon acts on `agent:*`;
+  // `bot:*` merely mutate/evict the `botsById` cache at the createDaemon layer.
+  // Per the CTO scope ("bot:* covered for union-completeness, no bespoke
+  // checks"), validate only the discriminant + the load-bearing `botId` (the
+  // key the cache is keyed on / removed by) and keep the descriptive fields
+  // OPTIONAL. Requiring `ownerName`/`discriminator` here would be a bespoke
+  // check AND a behavior change — the daemon today processes a partial bot
+  // frame (updating whatever fields it carries) rather than dropping it, and a
+  // dropped bot frame would silently stale the cache (wrong `agentHandle`),
+  // which is worse than the shallow-shape lie #6 is fixing on the command path.
+  z.object({
+    type: z.literal("bot:added"),
+    botId: z.string().min(1),
+    name: z.string().optional(),
+    discriminator: z.string().optional(),
+    description: z.string().optional(),
+    ownerName: z.string().optional(),
+    ownerDiscriminator: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("bot:updated"),
+    botId: z.string().min(1),
+    name: z.string().optional(),
+    discriminator: z.string().optional(),
+    description: z.string().optional(),
+    ownerName: z.string().optional(),
+    ownerDiscriminator: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("bot:removed"),
+    botId: z.string().min(1),
+  }),
+]);
+
+// Z2 — type↔schema lockstep. The `[T] extends [U]` tuple-wrap defeats union
+// distribution so the WHOLE `HostCommand` union must be assignable to the
+// schema's inferred type in one shot: a future `HostCommand` arm not added to
+// the union above fails to compile (the mirror of #4's capability-completeness
+// guard). Direction is `HostCommand extends infer` (not the reverse) because
+// the `z.unknown()` blobs make `infer` strictly WIDER than `HostCommand` —
+// `RuntimeConfig`/`UnreadNotice` are assignable to `unknown`, never the reverse.
+type _HostCommandSchemaCoversType =
+  [HostCommand] extends [z.infer<typeof HostCommandSchema>] ? true : never;
+const _hostCommandSchemaCoversType: _HostCommandSchemaCoversType = true;
+void _hostCommandSchemaCoversType;

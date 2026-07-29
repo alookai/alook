@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { WsControlChannel } from "./wsControlChannel";
-import type { WebSocketLike, HostReady, AgentSessionReport } from "./contract";
+import type { WebSocketLike, HostReady, AgentSessionReport, HostCommand } from "./contract";
 import type { Logger } from "../logger";
 
 /**
@@ -410,6 +410,152 @@ describe("WsControlChannel — reconnect timer keeps the event loop alive", () =
     } finally {
       globalThis.setTimeout = originalSetTimeout;
     }
+  });
+});
+
+describe("WsControlChannel — downlink HostCommand validation (convergence #6)", () => {
+  // A REAL `agent:wake` frame as `buildUnreadWakeCommand` (wake-dispatch.ts)
+  // constructs it: type/agentId/config/launchId/unreadNotice, with the optional
+  // load-bearing `sessionId` present. `config`/`unreadNotice` are opaque blobs
+  // (validated as `z.unknown()`), so their interiors must survive untouched.
+  const realWake: HostCommand = {
+    type: "agent:wake",
+    agentId: "bot_1",
+    config: { runtime: "claude", model: { kind: "default" }, agentName: "Melisa" } as never,
+    sessionId: "sess_abc",
+    launchId: "launch_1",
+    unreadNotice: {
+      kind: "unread_notice",
+      channel: "/demo/general",
+      latestSeq: 42,
+      channelId: "chan_xyz",
+    },
+  };
+  // Real reset/nap/model_switch frames as ws-do (`index.ts`) serializes them.
+  const realReset: HostCommand = {
+    type: "agent:reset",
+    agentId: "bot_1",
+    config: { runtime: "claude" } as never,
+    launchId: "launch_r",
+  };
+  const realNap: HostCommand = {
+    type: "agent:nap",
+    agentId: "bot_1",
+    config: { runtime: "claude" } as never,
+    launchId: "launch_n",
+    handoff: "note to my reborn self",
+  };
+  const realModelSwitch: HostCommand = {
+    type: "agent:model_switch",
+    agentId: "bot_1",
+    config: { runtime: "claude", model: { kind: "named", id: "opus" } } as never,
+    launchId: "launch_m",
+  };
+  const realStop: HostCommand = { type: "agent:stop", agentId: "bot_1" };
+
+  function driven() {
+    const { ch, sockets } = makeChannel();
+    const received: HostCommand[] = [];
+    ch.onCommand((c) => {
+      received.push(c);
+    });
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [], activities: [] }));
+    ch.connect();
+    sockets[0].emit("open");
+    return { sockets, received };
+  }
+
+  it("dispatches each valid arm unchanged (happy path — the transparent gate)", () => {
+    for (const frame of [realWake, realReset, realNap, realModelSwitch, realStop]) {
+      const { sockets, received } = driven();
+      sockets[0].emit("message", JSON.stringify(frame));
+      expect(received).toHaveLength(1);
+      expect(received[0].type).toBe(frame.type);
+    }
+  });
+
+  it("Z5 — a real producer frame round-trips field-for-field at the top level (default-strip drops nothing real)", () => {
+    // The strip risk: zod rebuilds `parsed.data`, so any top-level field the
+    // schema forgot to enumerate is silently dropped. Assert every real frame's
+    // top-level keys AND values survive — including optional load-bearing ones
+    // (`wake.sessionId`) and the opaque blobs' interiors (`config`,
+    // `unreadNotice.channelId`).
+    for (const frame of [realWake, realReset, realNap, realModelSwitch, realStop]) {
+      const { sockets, received } = driven();
+      sockets[0].emit("message", JSON.stringify(frame));
+      expect(received).toHaveLength(1);
+      // Deep-equal against the exact producer shape — nothing added, nothing lost.
+      expect(received[0]).toEqual(frame);
+      // Explicit belt-and-suspenders on the fields strip loves to eat.
+      if (frame.type === "agent:wake") {
+        expect(received[0]).toHaveProperty("sessionId", "sess_abc");
+        expect((received[0] as typeof realWake).unreadNotice).toEqual(realWake.unreadNotice);
+      }
+    }
+  });
+
+  it("drops + logs a malformed frame instead of dispatching it", () => {
+    const malformed: unknown[] = [
+      { type: "agent:wake", config: {}, launchId: "l", unreadNotice: {} }, // missing agentId
+      { type: "agent:wake", agentId: "b", config: {}, unreadNotice: {} }, // missing launchId
+      { type: "agent:nap", agentId: "b", config: {}, launchId: "l" }, // missing handoff
+      { type: "agent:nap", agentId: "b", config: {}, launchId: "l", handoff: "" }, // empty handoff
+      { type: "agent:reset", agentId: "", config: {}, launchId: "l" }, // empty agentId
+      { type: "agent:unknown", agentId: "b" }, // unknown discriminant
+    ];
+    for (const frame of malformed) {
+      const logger = stubLogger();
+      const { ch, sockets } = makeChannel({ logger });
+      const received: HostCommand[] = [];
+      ch.onCommand((c) => received.push(c));
+      ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [], activities: [] }));
+      ch.connect();
+      sockets[0].emit("open");
+      sockets[0].emit("message", JSON.stringify(frame));
+      expect(received).toHaveLength(0);
+      expect(logger.calls.warn.some(([m]) => m === "dropped malformed HostCommand frame")).toBe(true);
+    }
+  });
+
+  it("keeps AUTH_REJECTED ahead of the schema gate — it is not a HostCommand", () => {
+    // The `{type:"error", code:"AUTH_REJECTED"}` frame is NOT a HostCommand and
+    // must short-circuit BEFORE `HostCommandSchema.safeParse`, still firing
+    // onAuthRejected and never reaching a command listener.
+    let authRejected = false;
+    const received: HostCommand[] = [];
+    const sockets: FakeSocket[] = [];
+    const ch = new WsControlChannel({
+      url: "ws://test",
+      webSocketFactory: () => {
+        const s = new FakeSocket();
+        sockets.push(s);
+        return s;
+      },
+      reconnect: { baseMs: 1, maxMs: 1 },
+      onAuthRejected: () => {
+        authRejected = true;
+      },
+    });
+    ch.onCommand((c) => received.push(c));
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [], activities: [] }));
+    ch.connect();
+    sockets[0].emit("open");
+    sockets[0].emit("message", JSON.stringify({ type: "error", code: "AUTH_REJECTED" }));
+    expect(authRejected).toBe(true);
+    expect(received).toHaveLength(0);
+  });
+
+  it("config forward-compat — an unrecognized-but-well-formed config field still parses (no hard drop)", () => {
+    // Scope (a): `config` is `z.unknown()` opaque passthrough, so a newer server
+    // field on config must NOT hard-drop the frame on an older daemon.
+    const frame: HostCommand = {
+      ...realReset,
+      config: { runtime: "claude", someBrandNewFieldFromANewerServer: true } as never,
+    };
+    const { sockets, received } = driven();
+    sockets[0].emit("message", JSON.stringify(frame));
+    expect(received).toHaveLength(1);
+    expect((received[0] as typeof realReset).config).toEqual(frame.config);
   });
 });
 
