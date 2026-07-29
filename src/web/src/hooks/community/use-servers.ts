@@ -54,6 +54,17 @@ export function useServers(): UseQueryResult<ServersResponse> & {
   const query = useQuery({
     queryKey: communityKeys.servers(),
     queryFn: serversQueryFn,
+    // WS-maintained like the other server-scoped queries: server.update
+    // live-patches this list (name/icon) and mention/member events invalidate
+    // it to refresh counts. So a remount doesn't need to refetch — this is a
+    // once-per-session seed. Without this, every channel switch that remounts a
+    // `useServers` consumer re-fired `GET /api/community/servers` (the rail /
+    // mention-badge list), a per-switch server-level request WS1/WS2 otherwise
+    // eliminated. staleTime: Infinity stops that mount refetch; invalidations
+    // still force a refresh regardless of staleTime, so counts stay live.
+    // refetchOnReconnect backstops the socket-gap case (same as WS2).
+    staleTime: Infinity,
+    refetchOnReconnect: true,
   })
   return {
     ...query,

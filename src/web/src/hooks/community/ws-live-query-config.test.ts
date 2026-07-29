@@ -93,6 +93,19 @@ describe("WS-live queries — staleTime: Infinity + refetchOnReconnect backstop"
     expect(cfg?.staleTime).toBe(Infinity)
     expect(cfg?.refetchOnReconnect).toBe(true)
   })
+
+  it("useServers (the rail / mention-badge list) pairs Infinity staleTime with refetchOnReconnect", async () => {
+    // Regression guard: without this the top-level servers() list refetched
+    // `GET /api/community/servers` on every channel switch that remounted a
+    // consumer — a per-switch server-level request WS1/WS2 were meant to kill.
+    const { useServers } = await import("./use-servers")
+    useServers()
+    const cfg = queryConfigs.find(
+      (c) => JSON.stringify(c.queryKey) === JSON.stringify(["community", "servers"]),
+    )
+    expect(cfg?.staleTime).toBe(Infinity)
+    expect(cfg?.refetchOnReconnect).toBe(true)
+  })
 })
 
 describe("non-WS-live queries — finite staleTime, never Infinity", () => {
