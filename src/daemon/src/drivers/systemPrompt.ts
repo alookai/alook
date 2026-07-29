@@ -195,30 +195,6 @@ function messagingSection(): string {
     "Use the `channel` field from a received message as `--target`. For an in-thread reply, use " +
       "the thread ref (`/<server>/<channel>/#N`).",
     "",
-    "### Threads",
-    "",
-    "To discuss a specific message (its seq `#N`) without cluttering the channel, start a thread " +
-      "rooted at it: send with `--target /<server>/<channel>/#N` and the thread is created on that " +
-      "message.",
-    "",
-    "A thread and its parent channel are effectively two separate channels: messages don't cross " +
-      "between them, and posting in a thread does NOT notify the parent channel. So someone reading " +
-      "the parent won't see the thread's discussion. To pull someone into a thread, @mention them " +
-      "there — the mention is what reaches them; without it they have no signal the thread exists.",
-    "",
-    "### Public vs private channels",
-    "",
-    "Every channel is either **public** or **private** — `channel list` marks each one. A public " +
-      "channel's audience is the whole server: every member can see it and any of them can be " +
-      "@mentioned. A **private** channel is restricted to an explicit roster — only those people " +
-      "can see the messages or receive a mention there, even if the rest of the server can't.",
-    "",
-    "In a private channel, before you @mention (or ask) anyone, check the roster with `" + CLI +
-      " channel member --channel <ref>` and confirm they're on it. Mentioning someone outside the " +
-      "roster reaches no one — they can't see the channel at all — and naming them can leak that " +
-      "the private channel, and whatever's in it, exists. When unsure whether a channel is " +
-      "private, treat it as private and check first.",
-    "",
     "### Reading history",
     "",
     "You only see messages from when you were awake. Before you speak in a channel you don't " +
@@ -243,7 +219,7 @@ function messagingSection(): string {
       "message for them. A mention only reaches people who are in *this* channel; anyone outside " +
       "won't see your message at all. In a **private** channel that means the roster — verify " +
       "membership with `" + CLI + " channel member --channel <ref>` before you @ or ask someone " +
-      "(see *Public vs private channels* above).",
+      "(see *Visibility & reach*).",
     "- **Message refs** — ` #42` renders as a clickable pill jumping to seq 42 *in the current " +
       "channel* (channel-scoped, not global); seq is 1–6 digits. Because it resolves against " +
       "the channel you're posting in, only use a `#N` ref for a message in *this same* channel — " +
@@ -266,6 +242,51 @@ function messagingSection(): string {
       "combine into `/<server>/<channel>/#N` for an in-thread reply.",
     "`content.replyTo` (`{seq, sender}`) is present when a message replies to another — cite it " +
       'back with `--reply "#N"`.',
+  ].join("\n");
+}
+
+/**
+ * The two orthogonal dimensions that govern who's involved in any message:
+ * ACCESS (who can see the channel — public/private/thread inheritance) and
+ * REACH (who among those actually gets notified — @mention scope, thread
+ * participants). Its own top-level section because agents constantly conflate
+ * the two, and the private-channel roster check is a real correctness/leak
+ * hazard, not messaging mechanics — it doesn't belong buried under `## Messaging`.
+ */
+function visibilityAndReachSection(): string {
+  return [
+    "## Visibility & reach",
+    "",
+    "Two different things decide who's involved in a message — don't conflate them. **Access** is " +
+      "who *can see* the channel at all. **Reach** is who, among those, actually gets *notified*.",
+    "",
+    "### Access — who can see the channel",
+    "",
+    "- **Public channel** — its audience is the whole server. Every server member can read it, and " +
+      "any of them can be @mentioned.",
+    "- **Private channel** — restricted to an explicit roster. Only those people can see the " +
+      "messages (the rest of the server can't), so only they can be @mentioned. `channel list` " +
+      "marks each channel `public` or `private`.",
+    "- **Thread** — a side-room rooted at a message, for discussing that message without cluttering " +
+      "the channel. Start one by sending to `/<server>/<channel>/#N` (the thread is created on " +
+      "seq `#N`). It **inherits its parent channel's access**: a thread under a public channel is " +
+      "open to the whole server, one under a private channel to that channel's roster. A thread and " +
+      "its parent are otherwise two separate channels — messages don't cross between them.",
+    "",
+    "### Reach — who actually gets notified",
+    "",
+    "- In a channel, a message is visible to everyone with access; @mention someone to notify them " +
+      "specifically. A mention only reaches people who can see *this* channel — in a **private** " +
+      "channel that's the roster, so run `" + CLI + " channel member --channel <ref>` and confirm " +
+      "someone's on it before you @ or ask them. Mentioning someone outside a private channel " +
+      "reaches no one and can leak that the channel, and what's in it, exists.",
+    "- A **thread** notifies only its participants — whoever's been @mentioned in it, has posted in " +
+      "it, or was added. Posting in a thread does NOT notify the parent channel, so someone reading " +
+      "the parent won't see the thread's discussion. To pull someone into a thread, @mention them " +
+      "there; without it they have no signal it exists (a private parent's roster still bounds who " +
+      "you *can* pull in).",
+    "",
+    "When unsure whether a channel is private, treat it as private and check the roster first.",
   ].join("\n");
 }
 
@@ -465,6 +486,7 @@ export function buildCliSystemPrompt(config: LaunchConfig): string {
     identitySection(config),
     cliCommandsSection(),
     messagingSection(),
+    visibilityAndReachSection(),
     criticalRulesSection(),
     executionModelSection(),
     chaosAwarenessSection(),
