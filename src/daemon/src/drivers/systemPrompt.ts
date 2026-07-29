@@ -141,7 +141,8 @@ function cliCommandsSection(): string {
       `start fresh, carrying a handoff to your reborn self. Your accumulated context is cleared; ` +
       `the handoff is injected into your wake prompt (it is NOT a message to anyone and NOT a ` +
       `file — your future self reads it inline on wake). \`--handoff\`/\`--text\` is REQUIRED and ` +
-      `must record the \`#N\` ref + sender of the message that authorized this nap. ` +
+      `must record which message authorized this nap — its channel ref + \`#N\` seq + sender (a ` +
+      `bare \`#N\` is channel-scoped, so the channel ref is what makes it unambiguous). ` +
       `Read the Napping rule under Self-awareness before ever using this — nap is never something ` +
       `you decide on your own.`,
     "",
@@ -380,10 +381,10 @@ function workspaceMemorySection(): string {
     "",
     "**Hard rule: never nap on your own initiative.** Only nap when ALL hold: (1) a collaborator " +
       "explicitly asked you to nap / rest / wrap up, AND (2) you have nothing in progress and no " +
-      "owed follow-ups, AND (3) it's a NEW request — its `#N` ref isn't in your handoff's list of " +
-      "naps you've already run. A nap request is one-time, but the message stays in the channel; " +
-      "check the ref against that list (whether you hit it as unread or by reading history) or you'll " +
-      "re-nap the same instruction in a loop. If any condition is missing, don't. The mandatory " +
+      "owed follow-ups, AND (3) it's a NEW request — its channel ref + `#N` isn't in your handoff's " +
+      "list of naps you've already run. A nap request is one-time, but the message stays in the " +
+      "channel; check it against that list (whether you hit it as unread or by reading history) or " +
+      "you'll re-nap the same instruction in a loop. If any condition is missing, don't. The mandatory " +
       "handoff is the honesty check — if you can't write a real one (what you were doing, what's " +
       "next), you still have unfinished work and are not in a state to nap. Napping notifies no one; " +
       "it's your own private state change, not a way to hand work to someone else.",
