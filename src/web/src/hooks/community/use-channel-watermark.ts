@@ -56,8 +56,20 @@ export function useChannelWatermark({
   // channel changes so a switch between channels doesn't leak the prior
   // channel's pointer.
   const maxSeenRef = useRef<{ createdAt: string; id: string } | null>(null)
+  // Read-PUT de-dupe (W-READ-DEDUPE, necessity plan): opening a channel already
+  // fires ONE mark-read-to-latest via `useEagerChannelRead`. Without a seed the
+  // watermark would then observe the already-visible tail and fire a SECOND,
+  // redundant read PUT for messages the eager read just covered. So seed
+  // `maxSeen` once per channel to the newest loaded message — the same point
+  // the eager read marks — so the initial visible rows don't advance. Only a
+  // genuinely newer message (a WS arrival, or one scrolled to beyond the seed)
+  // moves the watermark and PUTs, which is a real read the eager PUT didn't
+  // cover. `seededForRef` gates the one-shot per channel (mirrors eager-read's
+  // `firedForRef`); the channel-change reset re-arms it.
+  const seededForRef = useRef<string | null>(null)
   useEffect(() => {
     maxSeenRef.current = null
+    seededForRef.current = null
   }, [channelId])
 
   // Keep the freshest `messages` array visible to the IntersectionObserver
@@ -71,6 +83,33 @@ export function useChannelWatermark({
     messagesRef.current = messages
     advanceRef.current = advance
   })
+
+  // Seed `maxSeen` to the newest loaded message once per channel (see the
+  // `seededForRef` comment above). Runs before the observer effect below and on
+  // the first non-empty `messages`, so the initial visible tail is already
+  // "seen" by the time the IntersectionObserver fires — no redundant read PUT
+  // on open. A later message with a strictly greater (createdAt, id) still
+  // advances past this seed.
+  useEffect(() => {
+    if (!channelId) return
+    if (seededForRef.current === channelId) return
+    if (messages.length === 0) return
+    let newest: { createdAt: string; id: string } | null = null
+    for (const m of messages) {
+      if (!m.createdAt) continue
+      if (
+        !newest ||
+        m.createdAt > newest.createdAt ||
+        (m.createdAt === newest.createdAt && m.id > newest.id)
+      ) {
+        newest = { createdAt: m.createdAt, id: m.id }
+      }
+    }
+    if (newest) {
+      maxSeenRef.current = newest
+      seededForRef.current = channelId
+    }
+  }, [channelId, messages])
 
   useEffect(() => {
     if (!channelId) return
