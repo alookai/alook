@@ -1303,7 +1303,15 @@ export class AgentProcessManager {
     // so it lands in the bot's activity log. `hasEstablished` is already true
     // here (this fires from the `runtime_event` subscriber), so the scope is
     // `runtime`, not `spawn`.
-    if (ev.kind === "error") {
+    //
+    // EXCEPT during an intentional kill (reset / nap / model_switch): the
+    // dying process, interrupted mid-turn, emits a final error `result`
+    // ("death rattle") that is teardown noise, not a fault. `agent.resetting`
+    // is true across the whole kill→respawn window (set at `begin_reset`
+    // before `stop()`, cleared at `onExit`/`spawned`), and the reborn session
+    // isn't spawned until AFTER the flag clears — so gating on it drops only
+    // the intentional-kill noise, never a live session's genuine error.
+    if (ev.kind === "error" && !this.state.agents[agentId]?.resetting) {
       this.emitErrorAudit(agentId, "runtime", "runtime_error", ev.message ?? "Runtime error");
     }
     // Bot audit hook — thinking + non-Bash tool_call, no correlation.

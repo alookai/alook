@@ -1102,6 +1102,23 @@ describe("AgentProcessManager — error audit emission", () => {
     expect(payload.message).toContain("429");
   });
 
+  it("does NOT emit a `runtime_error` row for an error event during an intentional kill (resetting=true)", () => {
+    const onBotAuditEvent = vi.fn();
+    const { mgr, session } = makeManager({ onBotAuditEvent });
+    mgr.deliver("a1", { seq: 1, text: "hello" });
+
+    // Establish, then enter the reset/nap kill window before the dying
+    // process fires its interrupted-turn "death rattle" error.
+    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    mgr.markResetting("a1");
+    session.fire("runtime_event", { kind: "error", message: "turn interrupted" });
+
+    const errCalls = onBotAuditEvent.mock.calls.filter(
+      ([, ev]) => (ev as { kind?: string })?.kind === "error",
+    );
+    expect(errCalls).toHaveLength(0);
+  });
+
   it("scrubs secrets out of an error message before it becomes an audit row", () => {
     const onBotAuditEvent = vi.fn();
     const { mgr, session } = makeManager({ onBotAuditEvent });
