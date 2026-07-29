@@ -33,6 +33,19 @@ export function attachmentAspectRatio(width: number | undefined, height: number 
   return width && height ? `${width}/${height}` : ATTACHMENT_FALLBACK_ASPECT_RATIO
 }
 
+// Whether the "Share as Image" action is offered for a message. Share is
+// computed inside `Message` from the message alone (no handler is threaded in),
+// which is exactly why every surface that renders a message — the main list,
+// the right-click / long-press context menu, and the #N-ref context sheet —
+// inherits an identical action menu. Extracted as a pure predicate so that
+// menu-parity guarantee is directly testable. A share card mirrors
+// avatar/name/content, so it's meaningful only for a non-compact message that
+// has rendered text (an approval- or attachment-only row has nothing to put on
+// the card).
+export function messageCanShare(m: RenderMsg, compact?: boolean): boolean {
+  return !compact && !m.approval && !!m.content
+}
+
 function MessageImpl({
   m, compact, pinned, onOpenThread, onOpenProfile, onJumpReply,
   onToggleReaction, onReact, onReply, onPin, onCreateThread, onCopy, onRetry,
@@ -85,7 +98,7 @@ function MessageImpl({
   // Share is only meaningful for a message with rendered text content (the card
   // mirrors avatar/name/content — an approval/attachment-only row has nothing to
   // put on it).
-  const canShare = !compact && !m.approval && !!m.content
+  const canShare = messageCanShare(m, compact)
   const menuHandlers = {
     onAddReaction: onReact ? () => onReact("👍") : undefined,
     onReply, onPin, pinned,
