@@ -5,36 +5,11 @@ import { getDb } from "@/lib/db"
 import { queries, WS_EVENTS, isThread, isForumPost } from "@alook/shared"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
 import { requireChannelAccess } from "@/lib/community/permissions"
-import { avatarInitial } from "@/lib/community/avatar"
 
-/**
- * List a thread/forum-post's participants — the NOTIFY set. Both thread and
- * forum_post are the notification dimension (their panel == their notify set),
- * so both use this endpoint. Any member with access (who therefore passes the
- * access gate) may read the list.
- */
-export const GET = withAuth(async (_req: NextRequest, ctx) => {
-  const channelId = ctx.params?.id
-  if (!channelId) return writeError("missing channel id", 400)
-
-  const db = getDb(ctx.env.DB)
-  const access = await requireChannelAccess(db, channelId, ctx.userId)
-  if (!access.ok) return writeError(access.error, access.status)
-  const type = access.value.channel.type
-  if (!isThread(type) && !isForumPost(type)) {
-    return writeError("not a thread or forum post", 400)
-  }
-
-  const rows = await queries.communityThread.listThreadParticipants(db, channelId)
-  const participants = rows.map((r) => ({
-    userId: r.userId,
-    name: r.userName ?? null,
-    discriminator: r.discriminator ?? null,
-    avatar: r.userImage ?? avatarInitial(r.userName ?? ""),
-    source: r.source,
-  }))
-  return writeJSON({ participants })
-})
+// GET (the participant-list READ) was retired: the unified `/members` endpoint
+// now serves the notify set in the canonical `MappedMember` shape, and the
+// post/thread panel reads that. Only the participant WRITE endpoints remain
+// here (POST add + DELETE in `[userId]/route.ts`).
 
 /**
  * Add a participant to a thread/forum-post — the "add from channel" flow. ANY

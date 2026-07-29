@@ -51,7 +51,7 @@ vi.mock("@/lib/middleware/helpers", () => {
   }
 })
 
-import { GET, POST } from "./route"
+import { POST } from "./route"
 
 const ctx = { params: { id: "t1" } } as any
 function postReq(body: unknown) {
@@ -71,47 +71,8 @@ function threadCtx(over: Record<string, unknown> = {}) {
   }
 }
 
-describe("GET /channels/[id]/participants", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mockResolveChannelAccessContext.mockResolvedValue(threadCtx())
-    mockListThreadParticipants.mockResolvedValue([
-      { userId: "u1", userName: "Ann", userImage: null, discriminator: "0001", source: "spoke" },
-      { userId: "u2", userName: "Bob", userImage: null, discriminator: "0002", source: "mention" },
-    ])
-  })
-
-  it("lists participants with source", async () => {
-    const res = await GET(new NextRequest("http://localhost/api/community/channels/t1/participants"), ctx)
-    expect(res.status).toBe(200)
-    const body = await res.json()
-    expect(body.participants).toHaveLength(2)
-    expect(body.participants[1]).toMatchObject({ userId: "u2", source: "mention" })
-    expect(body.participants[1]).not.toHaveProperty("muted")
-  })
-
-  it("also serves a forum_post (its panel is the participant set)", async () => {
-    mockResolveChannelAccessContext.mockResolvedValue(threadCtx({
-      channel: { id: "p1", serverId: "s1", type: "forum_post", parentChannelId: "f1", parentMessageId: null, creatorId: "u1" },
-    }))
-    const res = await GET(new NextRequest("http://localhost/api/community/channels/p1/participants"), { params: { id: "p1" } } as any)
-    expect(res.status).toBe(200)
-    const body = await res.json()
-    expect(body.participants).toHaveLength(2)
-  })
-
-  it("400 when the channel is not a thread or forum post", async () => {
-    mockResolveChannelAccessContext.mockResolvedValue(threadCtx({ channel: { id: "c1", serverId: "s1", type: "text", parentChannelId: null, parentMessageId: null, creatorId: "u1" } }))
-    const res = await GET(new NextRequest("http://localhost/api/community/channels/c1/participants"), ctx)
-    expect(res.status).toBe(400)
-  })
-
-  it("403 for a caller who can't see the thread", async () => {
-    mockResolveChannelAccessContext.mockResolvedValue(null)
-    const res = await GET(new NextRequest("http://localhost/api/community/channels/t1/participants"), ctx)
-    expect(res.status).toBe(403)
-  })
-})
+// GET (participant-list read) was retired — the unified `/members` endpoint now
+// serves the notify set. Only the POST write remains on this route.
 
 describe("POST /channels/[id]/participants", () => {
   beforeEach(() => {

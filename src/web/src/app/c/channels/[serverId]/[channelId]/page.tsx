@@ -20,7 +20,7 @@ import { canManageServer } from "@/components/community/_types"
 import type { MentionType } from "@alook/shared"
 import { isForum as isForumType, deriveThreadName } from "@alook/shared"
 import { resolveRowPresence } from "@/lib/community/presence"
-import { makeUserNameResolver, displayName } from "@/lib/community/display-name"
+import { makeUserNameResolver } from "@/lib/community/display-name"
 import { avatarInitial } from "@/lib/community/avatar"
 import {
   useCommunityStore,
@@ -34,7 +34,7 @@ import { useCurrentUser } from "@/contexts/community/current-user"
 import { useServer } from "@/hooks/community/use-servers"
 import { useServerMembers } from "@/hooks/community/use-server-members"
 import { useChannelMembers, useAddableMembers, useAddChannelMember, useRemoveChannelMember } from "@/hooks/community/use-channel-members"
-import { useThreadParticipants, useAddThreadParticipant, useRemoveThreadParticipant } from "@/hooks/community/use-thread-participants"
+import { useAddThreadParticipant, useRemoveThreadParticipant } from "@/hooks/community/use-thread-participants"
 import { useMessages } from "@/hooks/community/use-messages"
 import { useChannelReadStateSnapshot } from "@/hooks/community/use-channel-read-state"
 import { useChannelBootstrap } from "@/hooks/community/use-channel-bootstrap"
@@ -160,11 +160,13 @@ function ChannelView() {
     const cat = cats.find((c) => c.channels.some((ch) => ch.id === anchorId))
     return !!cat?.private
   }, [currentServer, isChildChannel, currentChannelMeta, channelId])
-  // A notify unit (thread/post) has no roster of its own — its own
-  // `useChannelMembers` stays disabled; its panel is the participant set.
-  const channelMembersHook = useChannelMembers(channelId, currentChannelPrivate && !isNotifyUnit)
-  // Thread/post drawer shows the notify PARTICIPANT set, not the channel audience.
-  const threadParticipantsHook = useThreadParticipants(channelId, isNotifyUnit)
+  // Members drawer read: `/members` for BOTH a private channel and a notify
+  // unit (thread/post). For a notify unit `/members` resolves the NOTIFY
+  // (participant) set — same people the old `/participants` read returned — but
+  // in the unified `MappedMember` shape (status/role/isCreator), so a post's
+  // panel matches a channel's. A public top-level channel still uses the server
+  // roster (`members`), so the hook stays gated to private-or-notify-unit.
+  const channelMembersHook = useChannelMembers(channelId, isNotifyUnit || (currentChannelPrivate && !isNotifyUnit))
   const removeThreadParticipantMut = useRemoveThreadParticipant(channelId)
   const addThreadParticipantMut = useAddThreadParticipant(channelId)
   // Top-level channel/forum add-picker source + mutations (add: any member).
@@ -217,18 +219,15 @@ function ChannelView() {
       !q || name.toLowerCase().includes(q) || (disc ?? "").toLowerCase().includes(q)
 
     if (isNotifyUnit) {
-      const unitCreatorId = currentChannelMeta?.creatorId
-      return threadParticipantsHook.participants
-        .filter((p) => matches(p.name ?? "", p.discriminator))
-        .map((p) => withPresence({
-          userId: p.userId,
-          name: displayName(p),
-          discriminator: p.discriminator ?? "0000",
-          avatar: p.avatar,
-          // Rows are all real participants (removable); the unit creator's
-          // (thread starter / post author) row is locked.
-          isCreator: p.userId === unitCreatorId,
-        }))
+      // Notify unit → the participant set, now read from `/members` in the
+      // unified shape (`isCreator` computed server-side against the unit's
+      // author). Participants are ALL real, creator-removable rows, so drop
+      // `source` to `undefined` — the notify set has no explicit/inherited/admin
+      // distinction, and MemberList treats `source === undefined` as removable
+      // (the same behavior the old `/participants` read gave).
+      return channelMembersHook.members
+        .filter((m) => matches(m.name, m.discriminator))
+        .map((m) => withPresence({ ...m, source: undefined }))
     }
     if (!currentChannelPrivate) return members
     return channelMembersHook.members
@@ -236,8 +235,6 @@ function ChannelView() {
       .map((m) => withPresence(m))
   }, [
     isNotifyUnit,
-    threadParticipantsHook.participants,
-    currentChannelMeta,
     currentChannelPrivate,
     members,
     channelMembersHook.members,
@@ -811,7 +808,7 @@ function ChannelView() {
     onOpenThread: enterThread,
     members: panelMembers,
     membersLoading: isNotifyUnit
-      ? threadParticipantsHook.isLoading
+      ? channelMembersHook.isLoading
       : currentChannelPrivate ? channelMembersHook.isLoading : membersHook.loading,
     membersLoadingMore: scopedDrawer ? false : membersHook.loadingMore,
     membersHasMore: scopedDrawer ? false : membersHook.hasMore,
@@ -855,7 +852,7 @@ function ChannelView() {
   const manageMembersDialog = (() => {
     if (!manageMembersOpen) return null
     if (isNotifyUnit) {
-      const participantIds = new Set(threadParticipantsHook.participants.map((p) => p.userId))
+      const participantIds = new Set(channelMembersHook.members.map((m) => m.userId))
       const candidates = parentChannelMembersHook.members
         .filter((m) => !participantIds.has(m.userId) && m.userId !== currentUser.id)
         .map((m) => ({ userId: m.userId, name: m.name ?? null, avatar: m.avatar }))
