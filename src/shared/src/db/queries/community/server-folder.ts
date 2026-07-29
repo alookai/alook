@@ -5,6 +5,11 @@ import {
   communityServer,
 } from "../../community-schema";
 import type { Database } from "../../index";
+import { chunk, maxRowsPerInsert } from "../_chunk";
+
+// communityServerFolderItem emits 3 bind params/row (folder_id, server_id,
+// position), so a single INSERT caps at floor(100/3)=33 rows for D1's limit.
+const FOLDER_ITEM_INSERT_MAX_ROWS = maxRowsPerInsert(3);
 
 export async function createFolder(
   db: Database,
@@ -25,13 +30,7 @@ export async function createFolder(
     .returning();
 
   if (data.serverIds && data.serverIds.length > 0) {
-    await db.insert(communityServerFolderItem).values(
-      data.serverIds.map((serverId, idx) => ({
-        folderId: folder!.id,
-        serverId,
-        position: idx,
-      }))
-    );
+    await insertFolderItems(db, folder!.id, data.serverIds);
   }
 
   return folder!;
@@ -77,13 +76,24 @@ export async function replaceFolderItems(
     .where(eq(communityServerFolderItem.folderId, folderId));
 
   if (serverIds.length > 0) {
-    await db.insert(communityServerFolderItem).values(
-      serverIds.map((serverId, idx) => ({
-        folderId,
-        serverId,
-        position: idx,
-      }))
-    );
+    await insertFolderItems(db, folderId, serverIds);
+  }
+}
+
+// Bulk-insert folder items, chunked so no INSERT exceeds D1's 100-param limit.
+// `position` is the item's index in the FULL list, preserved across chunks.
+async function insertFolderItems(
+  db: Database,
+  folderId: string,
+  serverIds: string[]
+) {
+  const items = serverIds.map((serverId, idx) => ({
+    folderId,
+    serverId,
+    position: idx,
+  }));
+  for (const batch of chunk(items, FOLDER_ITEM_INSERT_MAX_ROWS)) {
+    await db.insert(communityServerFolderItem).values(batch);
   }
 }
 

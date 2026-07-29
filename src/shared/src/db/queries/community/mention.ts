@@ -2,6 +2,11 @@ import { eq, and, inArray, desc } from "drizzle-orm";
 import { communityMention, communityMessage } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
+import { chunk, maxRowsPerInsert, D1_MAX_IN_PARAMS } from "../_chunk";
+
+// communityMention emits 5 bind params/row (id $defaultFn, message_id, user_id,
+// kind default, read default), so a single INSERT caps at floor(100/5)=20 rows.
+const MENTION_INSERT_MAX_ROWS = maxRowsPerInsert(5);
 
 export async function createMentions(
   db: Database,
@@ -10,16 +15,24 @@ export async function createMentions(
   if (data.userIds.length === 0) return [];
 
   const kind = data.kind ?? "mention";
-  const rows = await db
-    .insert(communityMention)
-    .values(
-      data.userIds.map((userId) => ({
-        messageId: data.messageId,
-        userId,
-        kind,
-      }))
+  // `@everyone` expands userIds to the whole server roster — unbounded. Chunk so
+  // no INSERT statement exceeds D1's 100-param limit; concat the returned rows.
+  const rows = (
+    await Promise.all(
+      chunk(data.userIds, MENTION_INSERT_MAX_ROWS).map((batch) =>
+        db
+          .insert(communityMention)
+          .values(
+            batch.map((userId) => ({
+              messageId: data.messageId,
+              userId,
+              kind,
+            }))
+          )
+          .returning()
+      )
     )
-    .returning();
+  ).flat();
   return rows;
 }
 
@@ -41,33 +54,54 @@ export async function listUnreadMentions(
     visibleChannelIds?: string[];
   } = {}
 ) {
-  const conditions = [
+  const baseConditions = [
     eq(communityMention.userId, userId),
     eq(communityMention.read, 0),
   ];
-  if (opts.kind) conditions.push(eq(communityMention.kind, opts.kind));
-  if (opts.visibleChannelIds) {
-    conditions.push(inArray(communityMessage.channelId, opts.visibleChannelIds));
+  if (opts.kind) baseConditions.push(eq(communityMention.kind, opts.kind));
+
+  const runQuery = (extra: ReturnType<typeof inArray>[] = []) => {
+    const q = db
+      .select({
+        mention: communityMention,
+        message: communityMessage,
+        author: user,
+      })
+      .from(communityMention)
+      .innerJoin(
+        communityMessage,
+        eq(communityMention.messageId, communityMessage.id)
+      )
+      .innerJoin(user, eq(communityMessage.authorId, user.id))
+      .where(and(...baseConditions, ...extra))
+      // Deterministic truncation: combining mention + reply kinds under a limit
+      // needs an explicit order so the newest mentions win the cap.
+      .orderBy(desc(communityMessage.createdAt));
+    return opts.limit !== undefined ? q.limit(opts.limit) : q;
+  };
+
+  // No channel scoping → single query (agent single-kind read path).
+  if (!opts.visibleChannelIds) {
+    return runQuery();
   }
+  // `NULL IN (...)` is never true, so an empty scope yields nothing — match
+  // that instead of running an `inArray(col, [])` (which some drivers reject).
+  if (opts.visibleChannelIds.length === 0) return [];
 
-  const q = db
-    .select({
-      mention: communityMention,
-      message: communityMessage,
-      author: user,
-    })
-    .from(communityMention)
-    .innerJoin(
-      communityMessage,
-      eq(communityMention.messageId, communityMessage.id)
+  // D1 caps a statement at 100 bound params. `visibleChannelIds` is an
+  // unbounded authorization scope (all channels the viewer can see across every
+  // server), so chunk the `inArray` and merge: each chunk runs the SAME
+  // order+limit, then we re-sort by createdAt desc and re-apply the limit so the
+  // global newest wins (not each chunk's newest). `message.createdAt` is in the
+  // projection, so the JS re-sort is exact.
+  const chunks = chunk(opts.visibleChannelIds, D1_MAX_IN_PARAMS);
+  const merged = (
+    await Promise.all(
+      chunks.map((ids) => runQuery([inArray(communityMessage.channelId, ids)]))
     )
-    .innerJoin(user, eq(communityMessage.authorId, user.id))
-    .where(and(...conditions))
-    // Deterministic truncation: combining mention + reply kinds under a limit
-    // needs an explicit order so the newest mentions win the cap.
-    .orderBy(desc(communityMessage.createdAt));
-
-  return opts.limit !== undefined ? q.limit(opts.limit) : q;
+  ).flat();
+  merged.sort((a, b) => (a.message.createdAt < b.message.createdAt ? 1 : -1));
+  return opts.limit !== undefined ? merged.slice(0, opts.limit) : merged;
 }
 
 export async function markMentionsRead(

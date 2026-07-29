@@ -3,6 +3,7 @@ import { communityMessage, communityChannel } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
 import { escapeLikePattern } from "../../../utils/sql-like";
+import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 
 const DEFAULT_LIMIT = 50;
 
@@ -77,25 +78,40 @@ export async function searchMessagesInServer(
   if (opts.visibleChannelIds && opts.visibleChannelIds.length === 0) return [];
 
   const pattern = `%${escapeLikePattern(opts.query)}%`;
-  const conditions = [
+  const baseConditions = [
     sql`${communityMessage.content} LIKE ${pattern} ESCAPE '\\'`,
     eq(communityChannel.serverId, opts.serverId),
   ];
-  if (opts.visibleChannelIds) {
-    conditions.push(inArray(communityMessage.channelId, opts.visibleChannelIds));
-  }
 
-  return db
-    .select({
-      message: communityMessage,
-      author: user,
-    })
-    .from(communityMessage)
-    .innerJoin(user, eq(communityMessage.authorId, user.id))
-    .innerJoin(
-      communityChannel,
-      eq(communityMessage.channelId, communityChannel.id)
+  const runQuery = (extra: ReturnType<typeof inArray>[] = []) =>
+    db
+      .select({
+        message: communityMessage,
+        author: user,
+      })
+      .from(communityMessage)
+      .innerJoin(user, eq(communityMessage.authorId, user.id))
+      .innerJoin(
+        communityChannel,
+        eq(communityMessage.channelId, communityChannel.id)
+      )
+      .where(and(...baseConditions, ...extra))
+      .limit(limit);
+
+  if (!opts.visibleChannelIds) return runQuery();
+
+  // D1 caps a statement at 100 bound params; `visibleChannelIds` is unbounded.
+  // Chunk the `inArray` and merge. There's no ORDER BY contract today, so plain
+  // concat+slice would bias toward early-chunk channels (a match in a late chunk
+  // gets dropped once an early chunk fills `limit`). Sort the merged rows by
+  // createdAt desc before slicing → a defensible "most-recent matches" rule
+  // instead of chunk-order bias. `createdAt` is in the projection.
+  const chunks = chunk(opts.visibleChannelIds, D1_MAX_IN_PARAMS);
+  const merged = (
+    await Promise.all(
+      chunks.map((ids) => runQuery([inArray(communityMessage.channelId, ids)]))
     )
-    .where(and(...conditions))
-    .limit(limit);
+  ).flat();
+  merged.sort((a, b) => (a.message.createdAt < b.message.createdAt ? 1 : -1));
+  return merged.slice(0, limit);
 }

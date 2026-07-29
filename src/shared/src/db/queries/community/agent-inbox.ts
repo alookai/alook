@@ -37,6 +37,7 @@ import { listVisibleChannelIdsForUser } from "./channel";
 import { listParticipatingThreadIds } from "./thread";
 import { getMessagesByIdsInScope, type MessageScope } from "./message";
 import { isThread, isForumPost } from "../../../utils/community-roles";
+import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 
 type RawAgentMessage = {
   id: string;
@@ -421,10 +422,17 @@ async function listAgentAllowedChannelIds(db: Database, botUserId: string): Prom
 
   if (visibleChannelIds.length === 0) return dmChannelIds;
 
-  const typeRows = await db
-    .select({ id: communityChannel.id, type: communityChannel.type })
-    .from(communityChannel)
-    .where(inArray(communityChannel.id, visibleChannelIds));
+  // Chunk the `inArray` for D1's 100-param limit; no order/limit → concat.
+  const typeRows = (
+    await Promise.all(
+      chunk(visibleChannelIds, D1_MAX_IN_PARAMS).map((ids) =>
+        db
+          .select({ id: communityChannel.id, type: communityChannel.type })
+          .from(communityChannel)
+          .where(inArray(communityChannel.id, ids))
+      )
+    )
+  ).flat();
   const narrowIds = typeRows
     .filter((r) => isThread(r.type) || isForumPost(r.type))
     .map((r) => r.id);
@@ -477,50 +485,68 @@ export async function listUnreadMessagesForAgent(
   opts: { max: number }
 ): Promise<RawAgentMessage[]> {
   const allowedChannelIds = await listAgentAllowedChannelIds(db, botUserId);
+  if (allowedChannelIds.length === 0) return [];
 
-  const rows = await db
-    .select({
-      ...AGENT_MESSAGE_COLUMNS,
-      lastReadSeq: sql<number>`COALESCE(${communityReadState.lastReadSeq}, 0)`,
-    })
-    .from(communityMessage)
-    .leftJoin(
-      communityReadState,
-      and(
-        eq(communityReadState.userId, botUserId),
-        eq(communityReadState.channelId, communityMessage.channelId)
+  // D1 caps a statement at 100 bound params, and `allowedChannelIds` is
+  // unbounded (a bot allowed into >100 channels). Chunk the `inArray` and merge:
+  // each chunk runs the SAME order+limit; since chunks partition channel ids,
+  // each chunk's result is a subsequence of the global (channelId, seq) order,
+  // so the global top-`max` is contained in the union of per-chunk top-`max`.
+  // Re-sort the union and slice to `max`. Both sort keys are in the projection.
+  const runChunk = (ids: string[]) =>
+    db
+      .select({
+        ...AGENT_MESSAGE_COLUMNS,
+        lastReadSeq: sql<number>`COALESCE(${communityReadState.lastReadSeq}, 0)`,
+      })
+      .from(communityMessage)
+      .leftJoin(
+        communityReadState,
+        and(
+          eq(communityReadState.userId, botUserId),
+          eq(communityReadState.channelId, communityMessage.channelId)
+        )
       )
-    )
-    .leftJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
-    .leftJoin(
-      communityChannelMember,
-      and(
-        eq(communityChannelMember.channelId, communityMessage.channelId),
-        eq(communityChannelMember.userId, botUserId),
-        eq(communityChannelMember.relation, "access")
+      .leftJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
+      .leftJoin(
+        communityChannelMember,
+        and(
+          eq(communityChannelMember.channelId, communityMessage.channelId),
+          eq(communityChannelMember.userId, botUserId),
+          eq(communityChannelMember.relation, "access")
+        )
       )
-    )
-    .leftJoin(
-      communityServerMember,
-      and(
-        eq(communityServerMember.serverId, communityChannel.serverId),
-        eq(communityServerMember.userId, botUserId)
+      .leftJoin(
+        communityServerMember,
+        and(
+          eq(communityServerMember.serverId, communityChannel.serverId),
+          eq(communityServerMember.userId, botUserId)
+        )
       )
-    )
-    .where(
-      and(
-        ne(communityMessage.authorId, botUserId),
-        sql`${communityMessage.seq} > COALESCE(${communityReadState.lastReadSeq}, 0)`,
-        allowedChannelIds.length > 0
-          ? inArray(communityMessage.channelId, allowedChannelIds)
-          : sql`1 = 0`,
-        channelJoinBaselineGuard
+      .where(
+        and(
+          ne(communityMessage.authorId, botUserId),
+          sql`${communityMessage.seq} > COALESCE(${communityReadState.lastReadSeq}, 0)`,
+          inArray(communityMessage.channelId, ids),
+          channelJoinBaselineGuard
+        )
       )
-    )
-    .orderBy(asc(communityMessage.channelId), asc(communityMessage.seq))
-    .limit(opts.max);
+      .orderBy(asc(communityMessage.channelId), asc(communityMessage.seq))
+      .limit(opts.max);
 
-  return rows.map(({ lastReadSeq: _lastReadSeq, ...rest }) => rest);
+  const merged = (
+    await Promise.all(chunk(allowedChannelIds, D1_MAX_IN_PARAMS).map(runChunk))
+  ).flat();
+  merged.sort((a, b) =>
+    a.channelId === b.channelId
+      ? a.seq - b.seq
+      : a.channelId < b.channelId
+        ? -1
+        : 1
+  );
+  return merged
+    .slice(0, opts.max)
+    .map(({ lastReadSeq: _lastReadSeq, ...rest }) => rest);
 }
 
 /**
@@ -609,57 +635,65 @@ export type InboxSnapshotRow = {
  */
 export async function getInboxSnapshotForAgent(db: Database, botUserId: string): Promise<InboxSnapshotRow[]> {
   const allowedChannelIds = await listAgentAllowedChannelIds(db, botUserId);
+  if (allowedChannelIds.length === 0) return [];
 
-  const rows = await db
-    .select({
-      channelId: communityMessage.channelId,
-      pendingCount: sql<number>`COUNT(*)`,
-      firstPendingSeq: sql<number>`MIN(${communityMessage.seq})`,
-      latestSeq: sql<number>`MAX(${communityMessage.seq})`,
-      latestSenderId: sql<string>`(SELECT author_id FROM community_message m2
-        WHERE m2.channel_id = ${communityMessage.channelId}
-        ORDER BY m2.seq DESC LIMIT 1)`,
-      mentionCount: sql<number>`(SELECT COUNT(*) FROM community_mention cm
-        INNER JOIN community_message m3 ON m3.id = cm.message_id
-        WHERE cm.user_id = ${botUserId} AND cm.kind = 'mention'
-          AND m3.channel_id = ${communityMessage.channelId}
-          AND m3.seq > COALESCE(${communityReadState.lastReadSeq}, 0))`,
-    })
-    .from(communityMessage)
-    .leftJoin(
-      communityReadState,
-      and(
-        eq(communityReadState.userId, botUserId),
-        eq(communityReadState.channelId, communityMessage.channelId)
+  // Chunk the `inArray` for D1's 100-param limit. GROUP BY channelId partitions
+  // cleanly across chunks — a channel id lands in exactly one chunk, so its
+  // COUNT/MIN/MAX and the correlated subselects are complete within that chunk.
+  // Concat is loss-free (no channel appears in two chunks).
+  const runChunk = (ids: string[]) =>
+    db
+      .select({
+        channelId: communityMessage.channelId,
+        pendingCount: sql<number>`COUNT(*)`,
+        firstPendingSeq: sql<number>`MIN(${communityMessage.seq})`,
+        latestSeq: sql<number>`MAX(${communityMessage.seq})`,
+        latestSenderId: sql<string>`(SELECT author_id FROM community_message m2
+          WHERE m2.channel_id = ${communityMessage.channelId}
+          ORDER BY m2.seq DESC LIMIT 1)`,
+        mentionCount: sql<number>`(SELECT COUNT(*) FROM community_mention cm
+          INNER JOIN community_message m3 ON m3.id = cm.message_id
+          WHERE cm.user_id = ${botUserId} AND cm.kind = 'mention'
+            AND m3.channel_id = ${communityMessage.channelId}
+            AND m3.seq > COALESCE(${communityReadState.lastReadSeq}, 0))`,
+      })
+      .from(communityMessage)
+      .leftJoin(
+        communityReadState,
+        and(
+          eq(communityReadState.userId, botUserId),
+          eq(communityReadState.channelId, communityMessage.channelId)
+        )
       )
-    )
-    .leftJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
-    .leftJoin(
-      communityChannelMember,
-      and(
-        eq(communityChannelMember.channelId, communityMessage.channelId),
-        eq(communityChannelMember.userId, botUserId),
-        eq(communityChannelMember.relation, "access")
+      .leftJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
+      .leftJoin(
+        communityChannelMember,
+        and(
+          eq(communityChannelMember.channelId, communityMessage.channelId),
+          eq(communityChannelMember.userId, botUserId),
+          eq(communityChannelMember.relation, "access")
+        )
       )
-    )
-    .leftJoin(
-      communityServerMember,
-      and(
-        eq(communityServerMember.serverId, communityChannel.serverId),
-        eq(communityServerMember.userId, botUserId)
+      .leftJoin(
+        communityServerMember,
+        and(
+          eq(communityServerMember.serverId, communityChannel.serverId),
+          eq(communityServerMember.userId, botUserId)
+        )
       )
-    )
-    .where(
-      and(
-        ne(communityMessage.authorId, botUserId),
-        sql`${communityMessage.seq} > COALESCE(${communityReadState.lastReadSeq}, 0)`,
-        allowedChannelIds.length > 0
-          ? inArray(communityMessage.channelId, allowedChannelIds)
-          : sql`1 = 0`,
-        channelJoinBaselineGuard
+      .where(
+        and(
+          ne(communityMessage.authorId, botUserId),
+          sql`${communityMessage.seq} > COALESCE(${communityReadState.lastReadSeq}, 0)`,
+          inArray(communityMessage.channelId, ids),
+          channelJoinBaselineGuard
+        )
       )
-    )
-    .groupBy(communityMessage.channelId);
+      .groupBy(communityMessage.channelId);
+
+  const rows = (
+    await Promise.all(chunk(allowedChannelIds, D1_MAX_IN_PARAMS).map(runChunk))
+  ).flat();
 
   if (rows.length === 0) return [];
 
@@ -747,50 +781,60 @@ export async function getLatestUnreadMessageForAgent(
   botUserId: string
 ): Promise<{ messageId: string } | null> {
   const allowedChannelIds = await listAgentAllowedChannelIds(db, botUserId);
+  if (allowedChannelIds.length === 0) return null;
 
-  const rows = await db
-    .select({
-      id: communityMessage.id,
-    })
-    .from(communityMessage)
-    .leftJoin(
-      communityReadState,
-      and(
-        eq(communityReadState.userId, botUserId),
-        eq(communityReadState.channelId, communityMessage.channelId)
+  // Chunk the `inArray` for D1's 100-param limit; each chunk returns its own
+  // newest-by-createdAt winner (LIMIT 1). To pick the GLOBAL winner across
+  // chunks we must compare `createdAt`, so it's added to the projection (the
+  // original selected only `id` and couldn't be merged).
+  const runChunk = (ids: string[]) =>
+    db
+      .select({
+        id: communityMessage.id,
+        createdAt: communityMessage.createdAt,
+      })
+      .from(communityMessage)
+      .leftJoin(
+        communityReadState,
+        and(
+          eq(communityReadState.userId, botUserId),
+          eq(communityReadState.channelId, communityMessage.channelId)
+        )
       )
-    )
-    .leftJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
-    .leftJoin(
-      communityChannelMember,
-      and(
-        eq(communityChannelMember.channelId, communityMessage.channelId),
-        eq(communityChannelMember.userId, botUserId),
-        eq(communityChannelMember.relation, "access")
+      .leftJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
+      .leftJoin(
+        communityChannelMember,
+        and(
+          eq(communityChannelMember.channelId, communityMessage.channelId),
+          eq(communityChannelMember.userId, botUserId),
+          eq(communityChannelMember.relation, "access")
+        )
       )
-    )
-    .leftJoin(
-      communityServerMember,
-      and(
-        eq(communityServerMember.serverId, communityChannel.serverId),
-        eq(communityServerMember.userId, botUserId)
+      .leftJoin(
+        communityServerMember,
+        and(
+          eq(communityServerMember.serverId, communityChannel.serverId),
+          eq(communityServerMember.userId, botUserId)
+        )
       )
-    )
-    .where(
-      and(
-        ne(communityMessage.authorId, botUserId),
-        sql`${communityMessage.seq} > COALESCE(${communityReadState.lastReadSeq}, 0)`,
-        allowedChannelIds.length > 0
-          ? inArray(communityMessage.channelId, allowedChannelIds)
-          : sql`1 = 0`,
-        channelJoinBaselineGuard
+      .where(
+        and(
+          ne(communityMessage.authorId, botUserId),
+          sql`${communityMessage.seq} > COALESCE(${communityReadState.lastReadSeq}, 0)`,
+          inArray(communityMessage.channelId, ids),
+          channelJoinBaselineGuard
+        )
       )
-    )
-    .orderBy(desc(communityMessage.createdAt))
-    .limit(1);
+      .orderBy(desc(communityMessage.createdAt))
+      .limit(1);
 
-  const r = rows[0];
-  return r ? { messageId: r.id } : null;
+  const winners = (
+    await Promise.all(chunk(allowedChannelIds, D1_MAX_IN_PARAMS).map(runChunk))
+  ).flat();
+  if (winners.length === 0) return null;
+  let best = winners[0]!;
+  for (const w of winners) if (w.createdAt > best.createdAt) best = w;
+  return { messageId: best.id };
 }
 
 /**

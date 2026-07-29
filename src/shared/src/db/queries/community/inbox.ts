@@ -1,4 +1,5 @@
 import { and, eq, isNotNull, isNull, inArray, ne } from "drizzle-orm";
+import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 import {
   communityChannel,
   communityChannelMember,
@@ -72,44 +73,54 @@ export async function listUnreadChannels(
   // parent-climbing, so a child is present only when its parent is visible.
   // Filtering to actually-unread happens in JS via `isChannelUnread`.
   if (visibleChannelIds.length === 0) return [];
-  const rows = await db
-    .select({
-      channelId: communityChannel.id,
-      channelName: communityChannel.name,
-      serverId: communityChannel.serverId,
-      serverName: communityServer.name,
-      type: communityChannel.type,
-      parentChannelId: communityChannel.parentChannelId,
-      lastMessageAt: communityChannel.lastMessageAt,
-      lastReadAt: communityReadState.lastReadAt,
-      archived: communityChannel.archived,
-      // Sidebar / inbox unread badges must ignore messages posted before
-      // the viewer joined — otherwise every non-empty channel lights up
-      // on first join. `joinedAt` is `notNull()` in the schema and the
-      // INNER JOIN below scopes to real member rows, so it's always
-      // present. See `isChannelUnread` above.
-      joinedAt: communityServerMember.joinedAt,
-    })
-    .from(communityServerMember)
-    .innerJoin(
-      communityChannel,
-      eq(communityChannel.serverId, communityServerMember.serverId)
-    )
-    .innerJoin(communityServer, eq(communityServer.id, communityChannel.serverId))
-    .leftJoin(
-      communityReadState,
-      and(
-        eq(communityReadState.channelId, communityChannel.id),
-        eq(communityReadState.userId, userId)
+  // `visibleChannelIds` is an unbounded authorization scope (all channels the
+  // viewer can see across every server). Chunk the `inArray` for D1's 100-param
+  // limit; there's no order/limit/aggregate, so concat is loss-free (the unread
+  // filtering runs in JS below).
+  const rows = (
+    await Promise.all(
+      chunk(visibleChannelIds, D1_MAX_IN_PARAMS).map((ids) =>
+        db
+          .select({
+            channelId: communityChannel.id,
+            channelName: communityChannel.name,
+            serverId: communityChannel.serverId,
+            serverName: communityServer.name,
+            type: communityChannel.type,
+            parentChannelId: communityChannel.parentChannelId,
+            lastMessageAt: communityChannel.lastMessageAt,
+            lastReadAt: communityReadState.lastReadAt,
+            archived: communityChannel.archived,
+            // Sidebar / inbox unread badges must ignore messages posted before
+            // the viewer joined — otherwise every non-empty channel lights up
+            // on first join. `joinedAt` is `notNull()` in the schema and the
+            // INNER JOIN below scopes to real member rows, so it's always
+            // present. See `isChannelUnread` above.
+            joinedAt: communityServerMember.joinedAt,
+          })
+          .from(communityServerMember)
+          .innerJoin(
+            communityChannel,
+            eq(communityChannel.serverId, communityServerMember.serverId)
+          )
+          .innerJoin(communityServer, eq(communityServer.id, communityChannel.serverId))
+          .leftJoin(
+            communityReadState,
+            and(
+              eq(communityReadState.channelId, communityChannel.id),
+              eq(communityReadState.userId, userId)
+            )
+          )
+          .where(
+            and(
+              eq(communityServerMember.userId, userId),
+              inArray(communityChannel.id, ids),
+              isNotNull(communityChannel.lastMessageAt)
+            )
+          )
       )
     )
-    .where(
-      and(
-        eq(communityServerMember.userId, userId),
-        inArray(communityChannel.id, visibleChannelIds),
-        isNotNull(communityChannel.lastMessageAt)
-      )
-    );
+  ).flat();
 
   const unread = rows.filter((r) =>
     isChannelUnread({

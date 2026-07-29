@@ -9,6 +9,7 @@ import {
 import { user } from "../../schema";
 import type { Database } from "../../index";
 import { createLogger } from "../../../logger";
+import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 
 /**
  * Atomically claim the next seq value for a channel. A single top-level UPSERT
@@ -582,30 +583,40 @@ export async function getLatestMessagesByChannelIds(
 ): Promise<Array<{ channelId: string; id: string; createdAt: string }>> {
   if (channelIds.length === 0) return [];
 
-  const latestDates = db
-    .select({
-      channelId: communityMessage.channelId,
-      maxCreatedAt: sql<string>`MAX(${communityMessage.createdAt})`.as("max_created_at"),
-    })
-    .from(communityMessage)
-    .where(inArray(communityMessage.channelId, channelIds))
-    .groupBy(communityMessage.channelId)
-    .as("latest_dates");
+  // D1 caps a statement at 100 bound params. Chunk the `inArray` subquery — each
+  // channel id lands in exactly one chunk (chunks partition), so the per-channel
+  // GROUP BY MAX is complete within its chunk; concat + the existing per-channel
+  // dedup below merges losslessly.
+  const runChunk = (ids: string[]) => {
+    const latestDates = db
+      .select({
+        channelId: communityMessage.channelId,
+        maxCreatedAt: sql<string>`MAX(${communityMessage.createdAt})`.as("max_created_at"),
+      })
+      .from(communityMessage)
+      .where(inArray(communityMessage.channelId, ids))
+      .groupBy(communityMessage.channelId)
+      .as("latest_dates");
 
-  const rows = await db
-    .select({
-      channelId: communityMessage.channelId,
-      id: communityMessage.id,
-      createdAt: communityMessage.createdAt,
-    })
-    .from(communityMessage)
-    .innerJoin(
-      latestDates,
-      and(
-        eq(communityMessage.channelId, latestDates.channelId),
-        eq(communityMessage.createdAt, latestDates.maxCreatedAt)
-      )
-    );
+    return db
+      .select({
+        channelId: communityMessage.channelId,
+        id: communityMessage.id,
+        createdAt: communityMessage.createdAt,
+      })
+      .from(communityMessage)
+      .innerJoin(
+        latestDates,
+        and(
+          eq(communityMessage.channelId, latestDates.channelId),
+          eq(communityMessage.createdAt, latestDates.maxCreatedAt)
+        )
+      );
+  };
+
+  const rows = (
+    await Promise.all(chunk(channelIds, D1_MAX_IN_PARAMS).map(runChunk))
+  ).flat();
 
   // Deduplicate on channelId: two messages in the same channel could share an
   // exact `createdAt` (millisecond collisions on batched inserts). Pick the
@@ -628,30 +639,38 @@ export async function getLatestMessagesByChannelIds(
 
 export async function getFirstMessageByChannelIds(db: Database, channelIds: string[]) {
   if (channelIds.length === 0) return [];
-  // Use a subquery to get the min createdAt per channel, then join to get the content
-  const firstDates = db
-    .select({
-      channelId: communityMessage.channelId,
-      minCreatedAt: sql<string>`MIN(${communityMessage.createdAt})`.as("min_created_at"),
-    })
-    .from(communityMessage)
-    .where(inArray(communityMessage.channelId, channelIds))
-    .groupBy(communityMessage.channelId)
-    .as("first_dates");
+  // Use a subquery to get the min createdAt per channel, then join to get the
+  // content. Chunk the `inArray` for D1's 100-param limit — GROUP BY channelId
+  // partitions cleanly across chunks (defensive; input is page-bounded today).
+  const runChunk = (ids: string[]) => {
+    const firstDates = db
+      .select({
+        channelId: communityMessage.channelId,
+        minCreatedAt: sql<string>`MIN(${communityMessage.createdAt})`.as("min_created_at"),
+      })
+      .from(communityMessage)
+      .where(inArray(communityMessage.channelId, ids))
+      .groupBy(communityMessage.channelId)
+      .as("first_dates");
 
-  const rows = await db
-    .select({
-      channelId: communityMessage.channelId,
-      content: communityMessage.content,
-    })
-    .from(communityMessage)
-    .innerJoin(
-      firstDates,
-      and(
-        eq(communityMessage.channelId, firstDates.channelId),
-        eq(communityMessage.createdAt, firstDates.minCreatedAt)
-      )
-    );
+    return db
+      .select({
+        channelId: communityMessage.channelId,
+        content: communityMessage.content,
+      })
+      .from(communityMessage)
+      .innerJoin(
+        firstDates,
+        and(
+          eq(communityMessage.channelId, firstDates.channelId),
+          eq(communityMessage.createdAt, firstDates.minCreatedAt)
+        )
+      );
+  };
+
+  const rows = (
+    await Promise.all(chunk(channelIds, D1_MAX_IN_PARAMS).map(runChunk))
+  ).flat();
 
   // Deduplicate in case of exact same createdAt within a channel
   const seen = new Set<string>();

@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { communityAttachment } from "../../community-schema";
 import type { Database } from "../../index";
+import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 
 /**
  * Insert an attachment row already tied to a message (human-composer path).
@@ -193,9 +194,29 @@ export async function listByMessageIds(
   messageIds: string[]
 ) {
   if (messageIds.length === 0) return [];
-  return db
-    .select()
-    .from(communityAttachment)
-    .where(inArray(communityAttachment.messageId, messageIds))
-    .orderBy(asc(communityAttachment.position), asc(communityAttachment.createdAt));
+  // Live risk: inboxPull passes a page of up to 200 message ids (> 100). Chunk
+  // the `inArray` for D1's 100-param limit, concat, then re-sort globally by
+  // (position, createdAt) — both keys are in the projection, so per-chunk order
+  // alone would be wrong across chunks.
+  const rows = (
+    await Promise.all(
+      chunk(messageIds, D1_MAX_IN_PARAMS).map((ids) =>
+        db
+          .select()
+          .from(communityAttachment)
+          .where(inArray(communityAttachment.messageId, ids))
+          .orderBy(asc(communityAttachment.position), asc(communityAttachment.createdAt))
+      )
+    )
+  ).flat();
+  rows.sort((a, b) =>
+    a.position !== b.position
+      ? (a.position ?? 0) - (b.position ?? 0)
+      : a.createdAt < b.createdAt
+        ? -1
+        : a.createdAt > b.createdAt
+          ? 1
+          : 0
+  );
+  return rows;
 }

@@ -9,6 +9,7 @@ import {
 } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
+import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 
 export async function createServer(
   db: Database,
@@ -217,7 +218,15 @@ export async function resolveServerByNameForMember(
 
 export async function getServersByIds(db: Database, serverIds: string[]) {
   if (serverIds.length === 0) return [];
-  return db.select().from(communityServer).where(inArray(communityServer.id, serverIds));
+  // Chunk the `inArray` for D1's 100-param limit (mentions hydration can pass a
+  // page's worth of distinct server ids); no order/limit → concat.
+  return (
+    await Promise.all(
+      chunk(serverIds, D1_MAX_IN_PARAMS).map((ids) =>
+        db.select().from(communityServer).where(inArray(communityServer.id, ids))
+      )
+    )
+  ).flat();
 }
 
 export async function setServerIcon(

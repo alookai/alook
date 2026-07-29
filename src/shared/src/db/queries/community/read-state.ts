@@ -1,6 +1,7 @@
 import { eq, and, inArray, lt, sql } from "drizzle-orm";
 import { communityReadState } from "../../community-schema";
 import type { Database } from "../../index";
+import { chunk, maxRowsPerInsert, D1_MAX_IN_PARAMS } from "../_chunk";
 import {
   getLatestMessagesByChannelIds,
   getMessageByChannelAndSeq,
@@ -163,21 +164,28 @@ export async function markAllServerChannelsRead(
   // fires per statement; we can't fold every channel into a single insert
   // with `onConflictDoUpdate` because each channel has a DIFFERENT
   // `(lastReadAt, lastReadMessageId)` pair.
-  const existing = await db
-    .select({
-      id: communityReadState.id,
-      channelId: communityReadState.channelId,
-    })
-    .from(communityReadState)
-    .where(
-      and(
-        eq(communityReadState.userId, userId),
-        inArray(
-          communityReadState.channelId,
-          latest.map((l) => l.channelId)
-        )
+  // `latest` ranges over channels-with-messages (a subset of the visible set,
+  // still possibly >100). Chunk the `inArray` for D1's 100-param limit; no
+  // order/limit → concat.
+  const latestChannelIds = latest.map((l) => l.channelId);
+  const existing = (
+    await Promise.all(
+      chunk(latestChannelIds, D1_MAX_IN_PARAMS).map((ids) =>
+        db
+          .select({
+            id: communityReadState.id,
+            channelId: communityReadState.channelId,
+          })
+          .from(communityReadState)
+          .where(
+            and(
+              eq(communityReadState.userId, userId),
+              inArray(communityReadState.channelId, ids)
+            )
+          )
       )
-    );
+    )
+  ).flat();
 
   const existingByChannel = new Map<string, string>();
   for (const row of existing) {
@@ -220,14 +228,19 @@ export async function markAllServerChannelsRead(
   }
 
   if (toInsert.length > 0) {
-    await db.insert(communityReadState).values(
-      toInsert.map((i) => ({
-        userId,
-        channelId: i.channelId,
-        lastReadAt: i.createdAt,
-        lastReadMessageId: i.msgId,
-      }))
-    );
+    // communityReadState emits 6 bind params/row (id $defaultFn, user_id,
+    // channel_id, last_read_at, last_read_message_id, last_read_seq default),
+    // so cap at floor(100/6)=16 rows/statement for D1's 100-param limit.
+    for (const batch of chunk(toInsert, maxRowsPerInsert(6))) {
+      await db.insert(communityReadState).values(
+        batch.map((i) => ({
+          userId,
+          channelId: i.channelId,
+          lastReadAt: i.createdAt,
+          lastReadMessageId: i.msgId,
+        }))
+      );
+    }
   }
 
   return latest.length;

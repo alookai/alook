@@ -2,6 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { communityChannel, communityChannelMember } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
+import { chunk, maxRowsPerInsert, D1_MAX_IN_PARAMS } from "../_chunk";
 
 // The NOTIFICATION set for a thread OR forum_post — now relation='notify' rows
 // on `community_channel_member` (formerly the standalone
@@ -52,17 +53,23 @@ export async function addThreadParticipants(
   rows: { userId: string; source: ThreadParticipantSource }[]
 ) {
   if (rows.length === 0) return;
-  await db
-    .insert(communityChannelMember)
-    .values(
-      rows.map((r) => ({
-        channelId: threadChannelId,
-        userId: r.userId,
-        relation: "notify",
-        source: r.source,
-      }))
-    )
-    .onConflictDoNothing({ target: [...NOTIFY_CONFLICT_TARGET] });
+  // communityChannelMember emits 6 bind params/row (id $defaultFn, channel_id,
+  // user_id, relation, source, added_at $defaultFn; added_by is an unsupplied
+  // literal null, not a param), so cap at floor(100/6)=16 rows for D1's 100-param
+  // limit. `onConflictDoNothing` adds no VALUES params.
+  for (const batch of chunk(rows, maxRowsPerInsert(6))) {
+    await db
+      .insert(communityChannelMember)
+      .values(
+        batch.map((r) => ({
+          channelId: threadChannelId,
+          userId: r.userId,
+          relation: "notify",
+          source: r.source,
+        }))
+      )
+      .onConflictDoNothing({ target: [...NOTIFY_CONFLICT_TARGET] });
+  }
 }
 
 // The NOTIFY set: every participant userId. This is what thread fan-out /
@@ -210,15 +217,22 @@ export async function listParticipatingThreadIds(
   userId: string
 ): Promise<string[]> {
   if (threadChannelIds.length === 0) return [];
-  const rows = await db
-    .select({ channelId: communityChannelMember.channelId })
-    .from(communityChannelMember)
-    .where(
-      and(
-        inArray(communityChannelMember.channelId, threadChannelIds),
-        eq(communityChannelMember.userId, userId),
-        eq(communityChannelMember.relation, "notify")
+  // Chunk the `inArray` for D1's 100-param limit; no order/limit → concat.
+  const rows = (
+    await Promise.all(
+      chunk(threadChannelIds, D1_MAX_IN_PARAMS).map((ids) =>
+        db
+          .select({ channelId: communityChannelMember.channelId })
+          .from(communityChannelMember)
+          .where(
+            and(
+              inArray(communityChannelMember.channelId, ids),
+              eq(communityChannelMember.userId, userId),
+              eq(communityChannelMember.relation, "notify")
+            )
+          )
       )
-    );
+    )
+  ).flat();
   return rows.map((r) => r.channelId);
 }

@@ -1,6 +1,7 @@
 import { eq, and, inArray, lt } from "drizzle-orm";
 import { workspaceFileRequest } from "../schema";
 import type { Database } from "../index";
+import { chunk, D1_MAX_IN_PARAMS } from "./_chunk";
 
 export async function createRequest(
   db: Database,
@@ -35,10 +36,16 @@ export async function getPendingByWorkspace(
 
 export async function markDispatched(db: Database, ids: string[]) {
   if (ids.length === 0) return;
-  await db
-    .update(workspaceFileRequest)
-    .set({ status: "dispatched", updatedAt: new Date().toISOString() })
-    .where(inArray(workspaceFileRequest.id, ids));
+  // `ids` come from `getPendingByWorkspace` (unbounded SELECT, no LIMIT). Chunk
+  // the `inArray` for D1's 100-param limit — the UPDATE also binds status +
+  // updatedAt, so D1_MAX_IN_PARAMS (90) leaves headroom.
+  const now = new Date().toISOString();
+  for (const batch of chunk(ids, D1_MAX_IN_PARAMS)) {
+    await db
+      .update(workspaceFileRequest)
+      .set({ status: "dispatched", updatedAt: now })
+      .where(inArray(workspaceFileRequest.id, batch));
+  }
 }
 
 export async function completeRequest(

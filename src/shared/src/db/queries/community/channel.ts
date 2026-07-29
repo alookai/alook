@@ -9,6 +9,7 @@ import {
 import type { Database } from "../../index";
 import { createLogger } from "../../../logger";
 import { canManageServer, canSeePrivateChannel } from "../../../utils/community-roles";
+import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 
 // Module-level logger — one tag per shared query module.
 const log = createLogger({ service: "community-queries" });
@@ -444,10 +445,19 @@ export async function getServersLastActivity(
 
 export async function getChannelsByIds(db: Database, channelIds: string[]) {
   if (channelIds.length === 0) return [];
-  const rows = await db
-    .select(CHANNEL_COLUMNS)
-    .from(communityChannel)
-    .where(inArray(communityChannel.id, channelIds));
+  // Hydration on the mentions/unreads paths passes up to a full page (200) of
+  // distinct channel ids — chunk the `inArray` for D1's 100-param limit; no
+  // order/limit → concat.
+  const rows = (
+    await Promise.all(
+      chunk(channelIds, D1_MAX_IN_PARAMS).map((ids) =>
+        db
+          .select(CHANNEL_COLUMNS)
+          .from(communityChannel)
+          .where(inArray(communityChannel.id, ids))
+      )
+    )
+  ).flat();
   return rows.map(mapChannelRow);
 }
 
@@ -821,10 +831,11 @@ export async function listVisibleChannelIds(
  * channel; posts/threads inherit their parent). Admins get NO special
  * visibility — same rule as everyone.
  *
- * Bound-parameter ceiling (accepted risk): a viewer across many large servers
- * can produce a big id set; feeding it whole into a downstream `inArray`
- * approaches SQLite's bound-param limit. Same unchunked pattern as
- * `searchMessagesInServer`. Chunk only if it proves a real limit in practice.
+ * Bound-parameter note: a viewer across many large servers can produce a big
+ * id set. Downstream consumers that feed it into an `inArray` (inbox unread,
+ * mentions, search, mark-all-read, agent-inbox) now CHUNK that `inArray` via
+ * `_chunk.ts` so no single statement exceeds D1's 100-param limit — this id set
+ * is safe to return whole.
  */
 export async function listVisibleChannelIdsForUser(
   db: Database,

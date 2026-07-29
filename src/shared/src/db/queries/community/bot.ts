@@ -37,6 +37,7 @@ import type { Database } from "../../index";
 import { communityBotSyntheticEmail } from "../../../constants";
 import { withUniqueDiscriminator } from "../user";
 import { nanoid } from "nanoid";
+import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -267,24 +268,33 @@ export async function findWakeCandidates(
   if (opts.recipients.length === 0) return [];
   const scopeCond = eq(communityReadState.channelId, opts.channelId);
 
-  const rows = await db
-    .select({
-      botUserId: user.id,
-      name: user.name,
-      machineId: communityBotBinding.machineId,
-      runtime: communityBotBinding.runtime,
-      lastReadSeq: communityReadState.lastReadSeq,
-    })
-    .from(user)
-    .innerJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
-    .leftJoin(communityReadState, and(eq(communityReadState.userId, user.id), scopeCond))
-    .where(
-      and(
-        inArray(user.id, opts.recipients),
-        eq(user.isBot, true),
-        isNull(user.deletedAt)
+  // `recipients` is a message's fan-out audience — unbounded for a large public
+  // channel. Chunk the `inArray` for D1's 100-param limit; no order/limit, and
+  // the seq filter runs in JS below, so concat is loss-free.
+  const rows = (
+    await Promise.all(
+      chunk(opts.recipients, D1_MAX_IN_PARAMS).map((ids) =>
+        db
+          .select({
+            botUserId: user.id,
+            name: user.name,
+            machineId: communityBotBinding.machineId,
+            runtime: communityBotBinding.runtime,
+            lastReadSeq: communityReadState.lastReadSeq,
+          })
+          .from(user)
+          .innerJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
+          .leftJoin(communityReadState, and(eq(communityReadState.userId, user.id), scopeCond))
+          .where(
+            and(
+              inArray(user.id, ids),
+              eq(user.isBot, true),
+              isNull(user.deletedAt)
+            )
+          )
       )
-    );
+    )
+  ).flat();
 
   return rows
     .filter((r) => (r.lastReadSeq ?? 0) < opts.newSeq)

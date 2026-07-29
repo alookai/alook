@@ -3,6 +3,7 @@ import { alias } from "drizzle-orm/sqlite-core";
 import { agentTaskQueue, taskMessage, conversation } from "../schema";
 import type { Database } from "../index";
 import { ClaimedTaskRowSchema } from "../../schemas";
+import { chunk, D1_MAX_IN_PARAMS } from "./_chunk";
 import { TASK_TYPES } from "../../constants";
 
 export async function createTask(
@@ -106,20 +107,28 @@ export async function findSteerableReplacement(
   if (steerableActive.length === 0) return null;
 
   const contextKeys = steerableActive.map((t) => t.contextKey!);
-  const queuedWithMatchingKeys = await db
-    .select({
-      conversationId: agentTaskQueue.conversationId,
-      contextKey: agentTaskQueue.contextKey,
-    })
-    .from(agentTaskQueue)
-    .where(
-      and(
-        eq(agentTaskQueue.agentId, agentId),
-        eq(agentTaskQueue.workspaceId, workspaceId),
-        eq(agentTaskQueue.status, "queued"),
-        inArray(agentTaskQueue.contextKey, contextKeys)
+  // Chunk the `inArray` for D1's 100-param limit; the result feeds a JS
+  // membership set below, so concat across chunks is loss-free.
+  const queuedWithMatchingKeys = (
+    await Promise.all(
+      chunk(contextKeys, D1_MAX_IN_PARAMS).map((keys) =>
+        db
+          .select({
+            conversationId: agentTaskQueue.conversationId,
+            contextKey: agentTaskQueue.contextKey,
+          })
+          .from(agentTaskQueue)
+          .where(
+            and(
+              eq(agentTaskQueue.agentId, agentId),
+              eq(agentTaskQueue.workspaceId, workspaceId),
+              eq(agentTaskQueue.status, "queued"),
+              inArray(agentTaskQueue.contextKey, keys)
+            )
+          )
       )
-    );
+    )
+  ).flat();
 
   const queuedSet = new Set(queuedWithMatchingKeys.map((q) => `${q.conversationId}:${q.contextKey}`));
   for (const active of steerableActive) {
@@ -187,14 +196,16 @@ export async function claimTask(db: Database, agentId: string, workspaceId: stri
 
   let candidates = await candidateQuery;
 
-  // If no non-steerable candidate, try steerable conversations (batched, capped at 50)
+  // If no non-steerable candidate, try steerable conversations (capped at 50).
+  // Match on a synthesized composite key `conversationId || ':' || contextKey`
+  // via a single `inArray` instead of 50 `or(and(eq,eq))` legs. The old shape
+  // bound 2 params/leg → 50 legs = 100 params, plus the agentId/workspaceId/
+  // status params = ~103, over D1's 100 limit. The composite key binds 1
+  // param/leg → 50, well under. Key format mirrors `queuedSet` above.
   if (candidates.length === 0 && steerableConvContextKeys.size > 0) {
-    const steerConditions = [...steerableConvContextKeys.entries()].slice(0, 50).map(([convId, ctxKey]) =>
-      and(
-        eq(agentTaskQueue.conversationId, convId),
-        eq(agentTaskQueue.contextKey, ctxKey),
-      )
-    );
+    const steerKeys = [...steerableConvContextKeys.entries()]
+      .slice(0, 50)
+      .map(([convId, ctxKey]) => `${convId}:${ctxKey}`);
     const steerCandidates = await db
       .select({ id: agentTaskQueue.id })
       .from(agentTaskQueue)
@@ -203,7 +214,10 @@ export async function claimTask(db: Database, agentId: string, workspaceId: stri
           eq(agentTaskQueue.agentId, agentId),
           eq(agentTaskQueue.workspaceId, workspaceId),
           eq(agentTaskQueue.status, "queued"),
-          or(...steerConditions),
+          inArray(
+            sql`${agentTaskQueue.conversationId} || ':' || ${agentTaskQueue.contextKey}`,
+            steerKeys
+          ),
         )
       )
       .orderBy(desc(agentTaskQueue.priority), asc(agentTaskQueue.createdAt))
