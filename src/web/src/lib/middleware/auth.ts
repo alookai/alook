@@ -203,35 +203,32 @@ export function withAuth(handler: AuthenticatedHandler) {
     //   - deletedAt != null → session invalid
     //   - isBot === true    → session invalid (bots must never sign in)
     // Belt-and-braces with the databaseHooks.session.create.before hook.
-    let sessionUserIsBot = false
-    try {
-      const db = getDb(cloudflareEnv.DB)
-      const internal = await queries.user.getUserInternal(
-        db,
-        sessionResult.response.user.id,
-      )
-      sessionUserIsBot = internal?.isBot === true
-      if (!internal || internal.deletedAt !== null || internal.isBot === true) {
-        // Best-effort server-side invalidation. Cookie clear happens via the
-        // 401 response below; Better-Auth will see the missing session next
-        // request.
-        try {
-          await auth.api.signOut({ headers: req.headers })
-        } catch {
-          // ignore — signOut best-effort
-        }
-        const invalid = NextResponse.json(
-          { error: "session no longer valid" },
-          { status: 401 },
-        )
-        // Clear known Better-Auth cookie names to prevent replay.
-        invalid.cookies.set("better-auth.session_token", "", { maxAge: 0, path: "/" })
-        invalid.cookies.set("better-auth.session_data", "", { maxAge: 0, path: "/" })
-        return invalid
+    // isBot/deletedAt ride the session user via better-auth `additionalFields`
+    // (see auth.ts) — no dedicated per-request `getUserInternal` D1 read. Their
+    // freshness = the session cookie-cache period (prod 5min); revocation
+    // latency is therefore bounded by that window and is NOT loosened beyond
+    // today's getSession cookie cache. (Bots never mint a session — the
+    // session.create hook blocks them — so the isBot check is belt-and-braces;
+    // deletedAt is the one with a real, ≤cookie-period latency.)
+    const guardUser = sessionResult.response.user as { isBot?: boolean | null; deletedAt?: string | null }
+    const sessionUserIsBot = guardUser.isBot === true
+    if (sessionUserIsBot || (guardUser.deletedAt ?? null) !== null) {
+      // Best-effort server-side invalidation. Cookie clear happens via the
+      // 401 response below; Better-Auth will see the missing session next
+      // request.
+      try {
+        await auth.api.signOut({ headers: req.headers })
+      } catch {
+        // ignore — signOut best-effort
       }
-    } catch {
-      // Fall through — if the guard read fails, session validation already
-      // succeeded and we don't want to break auth for an incidental read error.
+      const invalid = NextResponse.json(
+        { error: "session no longer valid" },
+        { status: 401 },
+      )
+      // Clear known Better-Auth cookie names to prevent replay.
+      invalid.cookies.set("better-auth.session_token", "", { maxAge: 0, path: "/" })
+      invalid.cookies.set("better-auth.session_data", "", { maxAge: 0, path: "/" })
+      return invalid
     }
 
     const authCtx: AuthContext = {

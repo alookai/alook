@@ -76,6 +76,23 @@ export function createAuth(env: Env) {
           required: false,
           input: false,
         },
+        // Carried on the session user (and its signed cookie) so `withAuth`'s
+        // session guard reads isBot/deletedAt off `getSession().user` instead
+        // of a dedicated per-request `getUserInternal` D1 read. `input: false`
+        // keeps them server-owned (never settable via signup/update). Their
+        // freshness = the session cookie-cache period (prod 5min) — the guard
+        // comment documents that revocation latency is bounded by it and NOT
+        // loosened beyond today's getSession cookie window.
+        isBot: {
+          type: "boolean",
+          required: false,
+          input: false,
+        },
+        deletedAt: {
+          type: "string",
+          required: false,
+          input: false,
+        },
       },
     },
     socialProviders: {

@@ -111,6 +111,38 @@ describe("withAuth middleware", () => {
     expect(testHandler).toHaveBeenCalledOnce();
   });
 
+  it("rejects a session whose user carries isBot=true (guard reads it off the session user, no getUserInternal)", async () => {
+    mockGetSession.mockResolvedValue({
+      headers: new Headers(),
+      response: { user: { id: "bot-1", email: "bot@x.ai", isBot: true, deletedAt: null } },
+    });
+
+    const req = new NextRequest("http://localhost/api/test", {
+      headers: { Authorization: "Bearer some-session-token" },
+    });
+    const res = await wrapped(req);
+
+    expect(res.status).toBe(401);
+    expect((await res.json()).error).toBe("session no longer valid");
+    expect(testHandler).not.toHaveBeenCalled();
+  });
+
+  it("rejects a session whose user is soft-deleted (deletedAt set)", async () => {
+    mockGetSession.mockResolvedValue({
+      headers: new Headers(),
+      response: { user: { id: "user-x", email: "x@example.com", isBot: false, deletedAt: "2026-07-29T00:00:00.000Z" } },
+    });
+
+    const req = new NextRequest("http://localhost/api/test", {
+      headers: { Authorization: "Bearer some-session-token" },
+    });
+    const res = await wrapped(req);
+
+    expect(res.status).toBe(401);
+    expect((await res.json()).error).toBe("session no longer valid");
+    expect(testHandler).not.toHaveBeenCalled();
+  });
+
   it("returns 401 when Better Auth session is null", async () => {
     mockGetSession.mockResolvedValue({ headers: new Headers(), response: null });
 
