@@ -41,7 +41,7 @@ function canonicalRuntimes(list: CommunityMachineRuntime[]): string {
 const log = createLogger({ service: "ws-do" })
 
 type ConnectionState =
-  | { type: "user"; userId: string; authenticated: boolean }
+  | { type: "user"; userId: string; authenticated: boolean; name?: string; discriminator?: string }
   | { type: "daemon"; daemonId: string; userId: string; authenticated: boolean }
   | {
     type: "community-machine"
@@ -371,14 +371,15 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         ws.close(1008, "Unauthorized")
         return
       }
-      const userId = await this.validateToken(msg.token)
-      if (!userId) {
+      const identity = await this.validateToken(msg.token)
+      if (!identity) {
         log.warn("websocket auth failed")
         ws.close(1008, "Unauthorized")
         return
       }
+      const { userId, name, discriminator } = identity
       const wasOnline = this.countAuthenticatedUserConnections(userId) > 0
-      ws.serializeAttachment({ type: "user", userId, authenticated: true } as ConnectionState)
+      ws.serializeAttachment({ type: "user", userId, authenticated: true, name, discriminator } as ConnectionState)
       log.info("websocket authenticated", { userId })
       ws.send(JSON.stringify({ type: "auth.ok" }))
       if (!wasOnline) {
@@ -451,10 +452,16 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       // via their existing broadcast path. The DO here only handles dedup.
       // Actual fan-out is performed by the web API layer that calls fanOutToChannel.
       // However, for typing events sent directly over WS (not via REST), we fan out here.
+      // `name`/`discriminator` ride from the connection state (stamped once at
+      // auth) so the recipient renders the sender's name without a roster
+      // lookup — no per-event DB. Undefined on a pre-existing connection that
+      // predates this field; the client falls back to roster resolution then.
       const event = JSON.stringify({
         type: "community:typing.start",
         channelId: typingMsg.channelId,
         userId: state.userId,
+        name: state.name,
+        discriminator: state.discriminator,
       })
 
       // Resolve recipients and broadcast
@@ -850,13 +857,17 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         machineId: identity.machineId,
         resolveBinding: () => queries.communityBot.getBotBindingWithOwner(db, agentId),
         isMatch: (binding) => binding.machineId === identity.machineId,
-        write: async () => {
+        write: async (binding) => {
           // Channel membership is enforced inside `fanOutTyping` — no need to
-          // pre-query here at 5s cadence.
+          // pre-query here at 5s cadence. `name`/`discriminator` ride from the
+          // binding (already read above) so the client renders the bot's name
+          // without a roster lookup — no per-event DB.
           const event = JSON.stringify({
             type: "community:typing.start",
             channelId,
             userId: agentId,
+            name: binding.name,
+            discriminator: binding.discriminator,
           })
           await this.fanOutTyping(agentId, channelId, event)
         },
@@ -1192,9 +1203,14 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     return token?.hostname || null
   }
 
-  private async validateToken(token: string): Promise<string | null> {
+  private async validateToken(
+    token: string,
+  ): Promise<{ userId: string; name: string; discriminator: string } | null> {
     const db = createDb(this.env.DB)
-    return queries.session.getValidSession(db, token)
+    // Resolve name/discriminator alongside the userId (one join) so the
+    // connection state can carry them — typing fan-out then stamps the name
+    // into the event without a per-event DB lookup. Runs once per WS auth.
+    return queries.session.getValidSessionWithIdentity(db, token)
   }
 
   /**

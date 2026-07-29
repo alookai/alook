@@ -63,6 +63,7 @@ vi.mock("cloudflare:workers", () => ({
 
 // Mock @alook/shared
 const mockGetValidSession = vi.fn<(db: unknown, token: string) => Promise<string | null>>()
+const mockGetValidSessionWithIdentity = vi.fn<(db: unknown, token: string) => Promise<{ userId: string; name: string; discriminator: string } | null>>()
 const mockGetMachineTokenByToken = vi.fn()
 const mockGetLatestTokenForUser = vi.fn()
 const mockGetRuntimeIdsByDaemon = vi.fn()
@@ -90,7 +91,7 @@ const mockListMembers = vi.fn()
 const mockListBotsForMachine = vi.fn<(db: unknown, machineId: string) => Promise<Array<{ id: string; name: string; discriminator: string; description: string }>>>().mockResolvedValue([])
 const mockIsBotOnline = vi.fn<(db: unknown, botUserId: string) => Promise<boolean>>().mockResolvedValue(false)
 const mockGetBotBinding = vi.fn<(db: unknown, botId: string) => Promise<{ machineId: string; runtime: string } | null>>().mockResolvedValue(null)
-const mockGetBotBindingWithOwner = vi.fn<(db: unknown, botId: string) => Promise<{ machineId: string; runtime: string; ownerUserId: string } | null>>().mockResolvedValue(null)
+const mockGetBotBindingWithOwner = vi.fn<(db: unknown, botId: string) => Promise<{ machineId: string; runtime: string; ownerUserId: string; name: string; discriminator: string } | null>>().mockResolvedValue(null)
 const mockInsertBotActivityEventAndPrune = vi.fn<(db: unknown, data: unknown) => Promise<{ id: string; createdAt: string } | null>>().mockResolvedValue(null)
 const mockUpdateProfile = vi
   .fn<(db: unknown, userId: string, data: { statusEmoji?: string | null; statusText?: string | null }) => Promise<unknown>>()
@@ -292,7 +293,10 @@ vi.mock("@alook/shared", () => {
       return pairs.some((p) => p.emoji === emoji && p.text === text)
     },
     queries: {
-      session: { getValidSession: (db: unknown, token: string) => mockGetValidSession(db, token) },
+      session: {
+        getValidSession: (db: unknown, token: string) => mockGetValidSession(db, token),
+        getValidSessionWithIdentity: (db: unknown, token: string) => mockGetValidSessionWithIdentity(db, token),
+      },
       machineToken: {
         getMachineTokenByToken: (...a: any[]) => mockGetMachineTokenByToken(...a),
         getLatestTokenForUser: (...a: any[]) => mockGetLatestTokenForUser(...a),
@@ -573,21 +577,21 @@ describe("WebSocketDurableObject", () => {
   describe("webSocketMessage — auth flow", () => {
     it("authenticates with valid token and sends auth.ok", async () => {
       const { durable } = createDO()
-      mockGetValidSession.mockResolvedValue("user-42")
+      mockGetValidSessionWithIdentity.mockResolvedValue({ userId: "user-42", name: "Ana", discriminator: "0012" })
 
       const ws = createMockWebSocket()
       ws.serializeAttachment({ type: "user", userId: "", authenticated: false })
 
       await durable.webSocketMessage(ws as any, JSON.stringify({ type: "auth", token: "valid-token" }))
 
-      expect(mockGetValidSession).toHaveBeenCalledWith({}, "valid-token")
+      expect(mockGetValidSessionWithIdentity).toHaveBeenCalledWith({}, "valid-token")
       expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "auth.ok" }))
-      expect(ws.deserializeAttachment()).toEqual({ type: "user", userId: "user-42", authenticated: true })
+      expect(ws.deserializeAttachment()).toEqual({ type: "user", userId: "user-42", authenticated: true, name: "Ana", discriminator: "0012" })
     })
 
     it("closes with 1008 on invalid token", async () => {
       const { durable } = createDO()
-      mockGetValidSession.mockResolvedValue(null)
+      mockGetValidSessionWithIdentity.mockResolvedValue(null)
 
       const ws = createMockWebSocket()
       ws.serializeAttachment({ type: "user", userId: "", authenticated: false })
@@ -637,7 +641,7 @@ describe("WebSocketDurableObject", () => {
 
     it("closes with 1008 when session token is expired (getValidSession returns null)", async () => {
       const { durable } = createDO()
-      mockGetValidSession.mockResolvedValue(null)
+      mockGetValidSessionWithIdentity.mockResolvedValue(null)
 
       const ws = createMockWebSocket()
       ws.serializeAttachment({ type: "user", userId: "", authenticated: false })
@@ -1515,6 +1519,8 @@ describe("WebSocketDurableObject", () => {
         machineId: "cm_1",
         runtime: "codex",
         ownerUserId: "u_1",
+        name: "Bot",
+        discriminator: "0007",
       })
       mockGetChannelForMember.mockResolvedValue({ id: "dm_1", serverId: null })
       mockGetChannelType.mockResolvedValue("dm")
@@ -1541,11 +1547,17 @@ describe("WebSocketDurableObject", () => {
         type: string
         userId: string
         channelId: string
+        name?: string
+        discriminator?: string
       }
+      // Bot path carries name/discriminator from the binding (getBotBindingWithOwner's
+      // existing join) so the client renders the bot's name without a roster lookup.
       expect(body).toEqual({
         type: "community:typing.start",
         userId: "bot_1",
         channelId: "dm_1",
+        name: "Bot",
+        discriminator: "0007",
       })
     })
 
@@ -1560,6 +1572,8 @@ describe("WebSocketDurableObject", () => {
         machineId: "cm_OTHER",
         runtime: "codex",
         ownerUserId: "u_1",
+        name: "Bot",
+        discriminator: "0007",
       })
 
       const ws = createMockWebSocket()
@@ -1592,6 +1606,8 @@ describe("WebSocketDurableObject", () => {
         machineId: "cm_1",
         runtime: "codex",
         ownerUserId: "u_1",
+        name: "Bot",
+        discriminator: "0007",
       })
       // Bot isn't a member of the channel → getChannelForMember returns null,
       // so fanOutTyping bails before resolving recipients.
@@ -1626,6 +1642,8 @@ describe("WebSocketDurableObject", () => {
         machineId: "cm_1",
         runtime: "codex",
         ownerUserId: "u_1",
+        name: "Bot",
+        discriminator: "0007",
       })
       mockGetChannelForMember.mockResolvedValue({ id: "dm_1", serverId: null })
       mockGetChannelType.mockResolvedValue("dm")
@@ -1682,6 +1700,8 @@ describe("WebSocketDurableObject", () => {
         machineId: "cm_1",
         runtime: "codex",
         ownerUserId: "owner_1",
+        name: "Bot",
+        discriminator: "0007",
       })
       mockInsertBotActivityEventAndPrune.mockResolvedValue({
         id: "bae_abc",
@@ -1752,6 +1772,8 @@ describe("WebSocketDurableObject", () => {
         machineId: "cm_OTHER",
         runtime: "codex",
         ownerUserId: "owner_1",
+        name: "Bot",
+        discriminator: "0007",
       })
 
       const ws = createMockWebSocket()
@@ -1812,6 +1834,8 @@ describe("WebSocketDurableObject", () => {
         machineId: "cm_1",
         runtime: "codex",
         ownerUserId: "owner_1",
+        name: "Bot",
+        discriminator: "0007",
       })
       // Simulate the D1 batch returning no rows for the primary statement.
       mockInsertBotActivityEventAndPrune.mockResolvedValue(null)
@@ -1848,6 +1872,8 @@ describe("WebSocketDurableObject", () => {
         machineId: "cm_1",
         runtime: "codex",
         ownerUserId: "owner_1",
+        name: "Bot",
+        discriminator: "0007",
       })
       mockInsertBotActivityEventAndPrune.mockRejectedValue(new Error("D1 insert failed"))
 

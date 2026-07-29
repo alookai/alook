@@ -91,6 +91,14 @@ export type CommunityTypingStart = {
   type: "community:typing.start"
   channelId: string
   userId: string
+  // Sender's display name + discriminator, stamped server-side at fan-out from
+  // already-known identity (connection state for humans, bot binding for bots)
+  // — never a per-event DB lookup. Optional so an older client ignores it and
+  // falls back to roster resolution; present, it lets the client render the
+  // name without depending on whether the typer is in the loaded roster page
+  // (the "Unknown member is typing" bug when they aren't).
+  name?: string
+  discriminator?: string
 }
 
 /**
@@ -103,6 +111,8 @@ export type CommunityTypingStop = {
   type: "community:typing.stop"
   channelId: string
   userId: string
+  name?: string
+  discriminator?: string
 }
 
 // ── Child channel events (threads + forum posts) ─────────────────────────────

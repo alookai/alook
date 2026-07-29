@@ -219,12 +219,17 @@ export async function getBotBinding(
 export async function getBotBindingWithOwner(
   db: Database,
   botId: string
-): Promise<{ machineId: string; runtime: string; ownerUserId: string } | null> {
+): Promise<{ machineId: string; runtime: string; ownerUserId: string; name: string; discriminator: string } | null> {
   const rows = await db
     .select({
       machineId: communityBotBinding.machineId,
       runtime: communityBotBinding.runtime,
       ownerUserId: user.ownerUserId,
+      // Bot's display identity — carried on typing fan-out so the client
+      // renders the name without a roster lookup. Free: this join already
+      // reads the `user` row.
+      name: user.name,
+      discriminator: user.discriminator,
     })
     .from(user)
     .innerJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
@@ -238,7 +243,7 @@ export async function getBotBindingWithOwner(
     .limit(1);
   const r = rows[0];
   if (!r || !r.ownerUserId) return null;
-  return { machineId: r.machineId, runtime: r.runtime, ownerUserId: r.ownerUserId };
+  return { machineId: r.machineId, runtime: r.runtime, ownerUserId: r.ownerUserId, name: r.name, discriminator: r.discriminator };
 }
 
 /**
