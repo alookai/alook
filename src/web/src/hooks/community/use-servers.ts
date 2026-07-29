@@ -88,6 +88,13 @@ export function useServer(
     queryKey: enabled ? communityKeys.server(serverId!) : communityKeys.server("__none__"),
     queryFn: enabled ? serverQueryFn(serverId!) : (() => Promise.reject(new Error("disabled"))),
     enabled,
+    // WS events (member.*, channel/category changes) live-patch this
+    // ServerDetail cache, so a remount doesn't need to refetch — this is a
+    // once-per-server seed. staleTime: Infinity stops the per-channel-switch
+    // refetch; refetchOnReconnect backstops the socket-gap case (the WS
+    // reconnect handler does not re-seed server detail).
+    staleTime: Infinity,
+    refetchOnReconnect: true,
   })
   return {
     ...query,

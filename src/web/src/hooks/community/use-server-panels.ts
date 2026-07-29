@@ -67,6 +67,10 @@ export function useInvites(
       ? invitesQueryFn(serverId!)
       : (() => Promise.reject(new Error("disabled"))),
     enabled,
+    // Not WS-live — no invite events patch this cache. A short staleTime keeps
+    // a re-opened settings tab from re-fetching on every mount without going
+    // fully stale.
+    staleTime: 60_000,
   })
   return {
     ...query,
@@ -116,6 +120,9 @@ export function useAuditLog(
       ? auditLogQueryFn(serverId!)
       : (() => Promise.reject(new Error("disabled"))),
     enabled,
+    // Not WS-live — audit rows aren't patched into this cache. A short
+    // staleTime avoids a re-fetch on every settings-tab remount.
+    staleTime: 60_000,
   })
   return {
     ...query,
@@ -146,6 +153,14 @@ export function usePresence(
       : (() => Promise.reject(new Error("disabled"))),
     enabled,
     placeholderData: keepPreviousData,
+    // WS `presence.update` live-patches the online set, so a remount never
+    // needs to re-seed — this fetch is a once-per-server seed. staleTime:
+    // Infinity stops the per-switch refetch. refetchOnReconnect is the
+    // required backstop: the WS reconnect handler does NOT re-seed presence,
+    // so events missed during a socket gap would otherwise leave the roster
+    // permanently stale.
+    staleTime: Infinity,
+    refetchOnReconnect: true,
   })
   return {
     ...query,

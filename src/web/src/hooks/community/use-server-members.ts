@@ -317,6 +317,14 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
     initialPageParam: null,
     getNextPageParam: (last) => (last.hasMore ? (last.cursor ?? null) : undefined),
     enabled,
+    // WS `member.join/leave/update` live-patch this roster cache, so a remount
+    // doesn't need to refetch — this is a once-per-server seed. staleTime:
+    // Infinity stops the per-channel-switch refetch; refetchOnReconnect
+    // backstops the socket-gap case (the WS reconnect handler does not re-seed
+    // the member roster), so events missed while offline can't leave it
+    // permanently stale.
+    staleTime: Infinity,
+    refetchOnReconnect: true,
   })
 
   // ── Search state ────────────────────────────────────────────────────────
