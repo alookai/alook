@@ -167,7 +167,15 @@ function ChannelView() {
   const removeThreadParticipantMut = useRemoveThreadParticipant(channelId)
   const addThreadParticipantMut = useAddThreadParticipant(channelId)
   // Top-level channel/forum add-picker source + mutations (add: any member).
-  const addableChannelMembers = useAddableMembers(channelId, currentChannelPrivate && !isNotifyUnit)
+  // W-LAZY (necessity plan): the addable-members list feeds ONLY the "add
+  // members" dialog, so fetch it only while that dialog is open — not eagerly
+  // on channel open. `manageMembersOpen` gates both the dialog's render and
+  // this fetch, so opening the dialog triggers the fetch and a plain channel
+  // switch never does.
+  const addableChannelMembers = useAddableMembers(
+    channelId,
+    manageMembersOpen && currentChannelPrivate && !isNotifyUnit,
+  )
   const addChannelMemberMut = useAddChannelMember(channelId)
   const removeChannelMemberMut = useRemoveChannelMember(channelId)
   // Notify-unit add-picker source = the parent channel/forum's roster (minus
