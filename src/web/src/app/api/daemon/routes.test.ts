@@ -41,6 +41,9 @@ function applyBase() {
   vi.doMock("@/lib/middleware/auth", m["@/lib/middleware/auth"]);
   vi.doMock("@/lib/middleware/helpers", m["@/lib/middleware/helpers"]);
   vi.doMock("@/lib/logger", m["@/lib/logger"]);
+  vi.doMock("@/lib/broadcast", () => ({
+    broadcastToUser: vi.fn().mockResolvedValue(undefined),
+  }));
 }
 
 function postReq(url: string, body: unknown) {

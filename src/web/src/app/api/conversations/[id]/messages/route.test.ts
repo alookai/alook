@@ -64,6 +64,9 @@ vi.mock("@/lib/services/task", () => {
 vi.mock("@/lib/logger", () => ({
   log: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
+vi.mock("@/lib/broadcast", () => ({
+  broadcastToUser: vi.fn().mockResolvedValue(undefined),
+}));
 
 import { GET, POST } from "./route";
 

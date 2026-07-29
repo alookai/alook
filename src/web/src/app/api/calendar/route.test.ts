@@ -52,6 +52,10 @@ vi.mock("@/lib/api/responses", () => ({
   }),
 }));
 
+vi.mock("@/lib/broadcast", () => ({
+  broadcastToUser: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { GET, POST } from "./route";
 
 describe("GET /api/calendar", () => {
