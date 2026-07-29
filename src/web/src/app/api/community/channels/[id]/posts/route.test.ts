@@ -78,6 +78,11 @@ vi.mock("@alook/shared", async () => {
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToChannel: (...a: unknown[]) => mockFanOutToChannel(...a),
   fanOutToDM: vi.fn(async () => {}),
+  resolveChannelRecipients: vi.fn(async () => [] as string[]),
+}))
+
+vi.mock("@/lib/community/notify", () => ({
+  dispatchMessageNotify: vi.fn(async () => {}),
 }))
 
 // createCommunityMessage's non-fanout side effects — stub so the pipeline runs.

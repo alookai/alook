@@ -153,6 +153,10 @@ function messageCreate(channelId: string, msgId = "m_1"): CommunityMessageCreate
   }
 }
 
+function unreadBump(channelId: string, userId: string) {
+  return { type: "community:unread.bump" as const, userId, channelId }
+}
+
 describe("useCommunityWs — message.create", () => {
   it("patches channelMessages cache when the event matches the focused channel", async () => {
     await mountHook()
@@ -440,7 +444,25 @@ describe("useCommunityWs — message.create patches channel unread in the open s
     }
   }
 
-  it("flips the channel's unread to true when it belongs to the currently-open server's cached ServerDetail", async () => {
+  it("flips the channel's unread to true on unread.bump when it belongs to the currently-open server's cached ServerDetail", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().setCurrentServerId("srv_open")
+    capturedQueryClient.setQueryData(communityKeys.server("srv_open"), serverDetailFixture("ch_random"))
+
+    capturedOnMessage!(unreadBump("ch_random", "u_me"))
+
+    const cache = capturedQueryClient.getQueryData<{
+      categories: { channels: { id: string; unread: boolean }[] }[]
+    }>(communityKeys.server("srv_open"))
+    expect(cache?.categories[0].channels[0]).toMatchObject({ id: "ch_random", unread: true })
+  })
+
+  it("message.create alone does NOT flip the sidebar unread (mute-gated bump is the only trigger now)", async () => {
+    // Regression pin: mute ≠ blindness. The message.create still arrives (and
+    // content syncs), but the unread dot is flipped ONLY by the server's
+    // per-recipient, mute-gated unread.bump — so a muted channel's message.create
+    // must NOT light the dot. Don't "fix" this back onto message.create.
     await mountHook({ viewerUserId: "u_me" })
     const { useCommunityStore } = await import("@/stores/community")
     useCommunityStore.getState().setCurrentServerId("srv_open")
@@ -451,21 +473,16 @@ describe("useCommunityWs — message.create patches channel unread in the open s
     const cache = capturedQueryClient.getQueryData<{
       categories: { channels: { id: string; unread: boolean }[] }[]
     }>(communityKeys.server("srv_open"))
-    expect(cache?.categories[0].channels[0]).toMatchObject({ id: "ch_random", unread: true })
+    expect(cache?.categories[0].channels[0].unread).toBe(false)
   })
 
-  it("does NOT flip unread for a message authored by the viewer themself", async () => {
+  it("does NOT flip unread on a bump addressed to a different user", async () => {
     await mountHook({ viewerUserId: "u_me" })
     const { useCommunityStore } = await import("@/stores/community")
     useCommunityStore.getState().setCurrentServerId("srv_open")
     capturedQueryClient.setQueryData(communityKeys.server("srv_open"), serverDetailFixture("ch_random"))
 
-    const event: CommunityMessageCreate = {
-      type: "community:message.create",
-      channelId: "ch_random",
-      message: { id: "m_self", authorId: "u_me", authorName: "me", content: "hi", createdAt: "2026-07-03T00:00:00.000Z" },
-    }
-    capturedOnMessage!(event)
+    capturedOnMessage!(unreadBump("ch_random", "someone_else"))
 
     const cache = capturedQueryClient.getQueryData<{
       categories: { channels: { id: string; unread: boolean }[] }[]
@@ -484,7 +501,7 @@ describe("useCommunityWs — message.create patches channel unread in the open s
     await mountHook({ viewerUserId: "u_me" })
     capturedQueryClient.setQueryData(communityKeys.server("srv_open"), serverDetailFixture("ch_random"))
 
-    capturedOnMessage!(messageCreate("ch_random"))
+    capturedOnMessage!(unreadBump("ch_random", "u_me"))
 
     const cache = capturedQueryClient.getQueryData<{
       categories: { channels: { id: string; unread: boolean }[] }[]
@@ -498,7 +515,7 @@ describe("useCommunityWs — message.create patches channel unread in the open s
     useCommunityStore.getState().setCurrentServerId("srv_open")
     capturedQueryClient.setQueryData(communityKeys.server("srv_open"), serverDetailFixture("ch_other"))
 
-    expect(() => capturedOnMessage!(messageCreate("ch_random"))).not.toThrow()
+    expect(() => capturedOnMessage!(unreadBump("ch_random", "u_me"))).not.toThrow()
 
     const cache = capturedQueryClient.getQueryData<{
       categories: { channels: { id: string; unread: boolean }[] }[]
@@ -509,10 +526,10 @@ describe("useCommunityWs — message.create patches channel unread in the open s
 
   it("does not crash and is a no-op when no server is currently open", async () => {
     await mountHook({ viewerUserId: "u_me" })
-    expect(() => capturedOnMessage!(messageCreate("ch_random"))).not.toThrow()
+    expect(() => capturedOnMessage!(unreadBump("ch_random", "u_me"))).not.toThrow()
   })
 
-  it("existing focused-channel message patch and debounced inbox invalidation still fire alongside the new unread patch", async () => {
+  it("existing focused-channel message patch and debounced inbox invalidation still fire on message.create", async () => {
     vi.useFakeTimers()
     try {
       await mountHook({ viewerUserId: "u_me" })

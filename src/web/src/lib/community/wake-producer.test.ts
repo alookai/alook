@@ -11,6 +11,11 @@ vi.mock("@opennextjs/cloudflare", () => ({
 
 const mockFindWakeCandidates = vi.fn()
 const mockCanBotReadWakeScope = vi.fn()
+// Default: every bot resolves to "all" (no mute) — existing tests wake as
+// before. The mute-gate tests below override this.
+const mockResolveEffectiveLevelForUsers = vi.fn(
+  async (_db: unknown, userIds: string[]) => new Map(userIds.map((id) => [id, "all"])),
+)
 const mockWarn = vi.fn()
 const mockInfo = vi.fn()
 
@@ -30,6 +35,9 @@ vi.mock("@alook/shared", async () => {
       },
       communityMember: {
         canBotReadWakeScope: (...a: unknown[]) => mockCanBotReadWakeScope(...a),
+      },
+      communityNotificationSetting: {
+        resolveEffectiveLevelForUsers: (...a: unknown[]) => mockResolveEffectiveLevelForUsers(...(a as [unknown, string[]])),
       },
     },
   }
@@ -120,6 +128,82 @@ describe("enqueueBotWakes", () => {
     expect(mockQueueSend).toHaveBeenCalledTimes(1)
     const [payloads] = mockQueueSend.mock.calls[0]!
     expect(payloads).toEqual([{ messageId: "msg_1", botUserId: "bot_visible" }])
+  })
+
+  // ── Mute gate (net-new #4) ──────────────────────────────────────────────
+  it("MUTE GATE — a bot at 'nothing' never wakes, even when mentioned", async () => {
+    mockFindWakeCandidates.mockResolvedValue([
+      { botUserId: "bot_muted", name: "z", machineId: "m1", runtime: "claude" },
+    ])
+    mockResolveEffectiveLevelForUsers.mockResolvedValue(new Map([["bot_muted", "nothing"]]))
+
+    await enqueueBotWakes({
+      recipients: ["bot_muted"],
+      channelId: "c1",
+      messageRow,
+      mentionedUserIds: ["bot_muted"], // even mentioned
+    })
+
+    expect(mockQueueSend).not.toHaveBeenCalled()
+  })
+
+  it("MUTE GATE — a bot at 'mentions' wakes only when in the mention set (incl. @everyone)", async () => {
+    mockFindWakeCandidates.mockResolvedValue([
+      { botUserId: "bot_mentioned", name: "a", machineId: "m1", runtime: "claude" },
+      { botUserId: "bot_plain", name: "b", machineId: "m2", runtime: "codex" },
+    ])
+    mockResolveEffectiveLevelForUsers.mockResolvedValue(
+      new Map([
+        ["bot_mentioned", "mentions"],
+        ["bot_plain", "mentions"],
+      ]),
+    )
+
+    await enqueueBotWakes({
+      recipients: ["bot_mentioned", "bot_plain"],
+      channelId: "c1",
+      messageRow,
+      mentionedUserIds: ["bot_mentioned"], // only this one is in the mention set
+    })
+
+    expect(mockQueueSend).toHaveBeenCalledTimes(1)
+    const [payloads] = mockQueueSend.mock.calls[0]!
+    expect(payloads).toEqual([{ messageId: "msg_1", botUserId: "bot_mentioned" }])
+  })
+
+  it("MUTE GATE — a bot at 'all' wakes on any unread, mentioned or not", async () => {
+    mockFindWakeCandidates.mockResolvedValue([
+      { botUserId: "bot_all", name: "a", machineId: "m1", runtime: "claude" },
+    ])
+    mockResolveEffectiveLevelForUsers.mockResolvedValue(new Map([["bot_all", "all"]]))
+
+    await enqueueBotWakes({
+      recipients: ["bot_all"],
+      channelId: "c1",
+      messageRow,
+      mentionedUserIds: [], // not mentioned — still wakes at 'all'
+    })
+
+    expect(mockQueueSend).toHaveBeenCalledTimes(1)
+    const [payloads] = mockQueueSend.mock.calls[0]!
+    expect(payloads).toEqual([{ messageId: "msg_1", botUserId: "bot_all" }])
+  })
+
+  it("MUTE GATE — a bot with no setting defaults to 'all' (wakes) — covers DM independence (no server/parent to inherit a mute from)", async () => {
+    mockFindWakeCandidates.mockResolvedValue([
+      { botUserId: "bot_dm", name: "a", machineId: "m1", runtime: "claude" },
+    ])
+    // resolver returns an empty map → levelOf falls back to "all"
+    mockResolveEffectiveLevelForUsers.mockResolvedValue(new Map())
+
+    await enqueueBotWakes({
+      recipients: ["bot_dm"],
+      channelId: "dm_channel",
+      messageRow,
+      mentionedUserIds: [],
+    })
+
+    expect(mockQueueSend).toHaveBeenCalledTimes(1)
   })
 
   it("drops (does NOT throw or collapse the batch) when a single candidate's gate check rejects", async () => {

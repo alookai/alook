@@ -20,6 +20,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries, createLogger } from "@alook/shared"
 import type { WakePayload } from "@alook/shared"
 import { getDb } from "../db"
+import { shouldDeliver } from "./notify"
 import { createQueueWakeTransport, createDevHttpWakeTransport } from "./wake-transport"
 import type { WakeTransport } from "./wake-transport"
 
@@ -46,6 +47,13 @@ export interface EnqueueBotWakesOpts {
   recipients: string[]
   channelId: string
   messageRow: WakeMessageRow
+  /**
+   * The message's full mention set (personal @ ∪ @everyone ∪ reply), already
+   * author-excluded. Used by the mute gate: a bot at `mentions` level only
+   * wakes when it's in this set. Omitted → treated as "nobody mentioned" (so a
+   * `mentions`-level bot won't wake on a plain message).
+   */
+  mentionedUserIds?: string[]
 }
 
 /**
@@ -123,7 +131,27 @@ async function doEnqueueBotWakes(env: Env, opts: EnqueueBotWakesOpts): Promise<v
   })
   if (gated.length === 0) return
 
-  const payloads: WakePayload[] = gated.map((c) => ({
+  // Mute gate (net-new — server-side notification level applied to bot wake).
+  // A bot's effective level for this channel decides whether a new message
+  // wakes it: `all` → any unread wakes; `mentions` → only if this bot is in the
+  // message's mention set (personal @ ∪ @everyone ∪ reply — Gener #28: bots and
+  // users share one predicate, @everyone counts); `nothing` → never. This gates
+  // ONLY wake — it never affects what the bot can read via inbox pull / channel
+  // history (mute ≠ blindness). A DM's level is self-contained (resolver finds
+  // no server/parent row → defaults to `all`), so a `nothing` set elsewhere
+  // never suppresses a DM wake.
+  const mentioned = new Set(opts.mentionedUserIds ?? [])
+  const levels = await queries.communityNotificationSetting.resolveEffectiveLevelForUsers(
+    db,
+    gated.map((c) => c.botUserId),
+    channelId,
+  )
+  const woken = gated.filter((c) =>
+    shouldDeliver(levels.get(c.botUserId) ?? "all", mentioned.has(c.botUserId)),
+  )
+  if (woken.length === 0) return
+
+  const payloads: WakePayload[] = woken.map((c) => ({
     messageId: messageRow.id,
     botUserId: c.botUserId,
   }))

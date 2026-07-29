@@ -27,6 +27,8 @@ const mockListReactionsByMessageIds = vi.fn()
 const mockGetUserInternal = vi.fn()
 
 const mockFanOutToChannel = vi.fn()
+const mockResolveChannelRecipients = vi.fn(async () => [] as string[])
+const mockDispatchMessageNotify = vi.fn(async () => {})
 const mockBroadcastToUser = vi.fn()
 const mockCheckMessageRateLimit = vi.fn()
 
@@ -84,6 +86,11 @@ vi.mock("@alook/shared", async () => {
 
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToChannel: (...a: unknown[]) => mockFanOutToChannel(...a),
+  resolveChannelRecipients: (...a: unknown[]) => mockResolveChannelRecipients(...a),
+}))
+
+vi.mock("@/lib/community/notify", () => ({
+  dispatchMessageNotify: (...a: unknown[]) => mockDispatchMessageNotify(...a),
 }))
 
 vi.mock("@/lib/broadcast", () => ({
@@ -210,8 +217,13 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(payload.kind).toBe("mention")
     expect(payload.userIds.sort()).toEqual(["u2", "u3"])
 
-    const broadcastTargets = mockBroadcastToUser.mock.calls.map((c) => c[0]).sort()
-    expect(broadcastTargets).toEqual(["u2", "u3"])
+    // MENTION_CREATE pushes now flow through the level-gated notify pipeline
+    // (not raw broadcastToUser). The @everyone expansion is handed to it as the
+    // mention set — @everyone counts as a mention (Gener #28), author excluded.
+    expect(mockDispatchMessageNotify).toHaveBeenCalledTimes(1)
+    const notifyArgs = mockDispatchMessageNotify.mock.calls[0]
+    const mentionedUserIds = (notifyArgs[4] as { mentionedUserIds: string[] }).mentionedUserIds
+    expect([...mentionedUserIds].sort()).toEqual(["u2", "u3"])
   })
 
   it("resolves @Bob candidate via listMembers (name-projected) when content includes '@'", async () => {

@@ -479,27 +479,12 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             scheduleInboxInvalidate()
           }
 
-          // 3) Live channel-sidebar unread dot: if this message landed in a
-          //    channel that belongs to the currently-open server's cached
-          //    `ServerDetail`, flip that channel's `unread` to `true` —
-          //    no network round-trip. Skip for the viewer's own sends (never
-          //    unread to themselves) and for the currently-**subscribed**
-          //    channel (the dot is already suppressed there via `!active` in
-          //    `sortable-channel.tsx`, but skipping the cache patch too
-          //    avoids a stale `unread: true` lingering for when the user
-          //    later navigates away without the watermark path re-clearing
-          //    it). No-op automatically (via the helper's own "no matching
-          //    channel" branch) if that server's detail isn't cached or
-          //    doesn't contain this channel.
-          if (event.channelId && event.channelId !== sub.channelId && event.message.authorId !== viewerId) {
-            const currentServerId = useCommunityStore.getState().currentServerId
-            if (currentServerId) {
-              queryClient.setQueryData<ServerDetail | undefined>(
-                communityKeys.server(currentServerId),
-                (cache) => patchChannelUnread(cache, event.channelId!, true),
-              )
-            }
-          }
+          // 3) Live channel-sidebar unread dot is NO LONGER flipped here.
+          //    Unread is per-recipient and mute-gated on the server now, so it
+          //    rides the dedicated `community:unread.bump` event (below) — a
+          //    muted (`nothing`/unmentioned-`mentions`) channel must NOT light
+          //    an unread dot even though its `message.create` still arrives
+          //    (mute ≠ blindness: content syncs, the badge does not).
 
           // Note: no auto-mark-read here. See #3 — the
           // IntersectionObserver in `useChannelWatermark` advances the
@@ -511,6 +496,27 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           // Legacy callback fanout — cache patches above are authoritative.
           cbs.onAnyMessage?.(event)
           if (matchesFocus(event)) cbs.onMessage?.(event)
+          return
+        }
+
+        // ── Per-user unread/badge signal ─────────────────────────────────
+        // Mute-gated on the server (only recipients whose effective level
+        // delivers get this), so the sidebar unread dot flips ONLY here — a
+        // muted channel's `message.create` no longer lights it. Skip the
+        // currently-subscribed channel (dot suppressed there anyway) and never
+        // for the viewer's own sends (the server excludes the author, but guard
+        // defensively).
+        case "community:unread.bump": {
+          const viewerId = viewerUserIdRef.current
+          if (event.userId === viewerId && event.channelId !== sub.channelId) {
+            const currentServerId = useCommunityStore.getState().currentServerId
+            if (currentServerId) {
+              queryClient.setQueryData<ServerDetail | undefined>(
+                communityKeys.server(currentServerId),
+                (cache) => patchChannelUnread(cache, event.channelId, true),
+              )
+            }
+          }
           return
         }
 

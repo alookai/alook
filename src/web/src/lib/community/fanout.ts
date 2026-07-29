@@ -31,7 +31,7 @@ type BroadcastableEvent = CommunityWsEvent & { type: string }
  * event.type !== MESSAGE_CREATE) → no wake dispatch, e.g.
  * `CHILD_CHANNEL_UPDATE` never wakes anyone.
  */
-type WakeOpts = { wakeMessageRow?: WakeMessageRow }
+type WakeOpts = { wakeMessageRow?: WakeMessageRow; mentionedUserIds?: string[] }
 
 /**
  * Resolves all member user IDs for a server.
@@ -73,17 +73,31 @@ async function getChannelRecipientUserIds(db: Database, channelId: string): Prom
 }
 
 /**
+ * Public wrapper so `message-handler` can resolve a channel's recipient set
+ * ONCE and share it between the unfiltered `MESSAGE_CREATE` fan-out and the
+ * level-filtered notify pipeline (no second membership query). Same split as
+ * `getChannelRecipientUserIds` (thread/forum_post → participants; dm → access
+ * members; channel/forum → scope audience).
+ */
+export async function resolveChannelRecipients(db: Database, channelId: string): Promise<string[]> {
+  return getChannelRecipientUserIds(db, channelId)
+}
+
+/**
  * Fan out an event to all members of the server that owns a channel.
  */
 export async function fanOutToChannel(
   channelId: string,
   event: BroadcastableEvent,
-  opts?: { excludeUserId?: string } & WakeOpts
+  opts?: { excludeUserId?: string; recipients?: string[] } & WakeOpts
 ): Promise<void> {
   try {
     const { env } = getCloudflareContext()
     const db = getDb((env as Env).DB)
-    const userIds = await getChannelRecipientUserIds(db, channelId)
+    // Reuse a pre-resolved recipient set when the caller already resolved it
+    // (message-handler shares one set between fan-out and the notify pipeline),
+    // else resolve here.
+    const userIds = opts?.recipients ?? await getChannelRecipientUserIds(db, channelId)
     await broadcastToRecipients(userIds, event, opts?.excludeUserId)
     maybeEnqueueWakes(event, userIds, { channelId }, opts)
   } catch (err) {
@@ -144,6 +158,7 @@ function maybeEnqueueWakes(
     recipients: filtered,
     ...scope,
     messageRow: opts.wakeMessageRow,
+    mentionedUserIds: opts.mentionedUserIds,
   }).catch((err) => {
     log.warn("enqueue_bot_wakes_from_fanout_failed", { err: String(err) })
   })

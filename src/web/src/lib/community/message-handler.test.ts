@@ -68,10 +68,17 @@ vi.mock("@alook/shared", async () => {
 const mockFanOutToChannel = vi.fn()
 const mockFanOutToDM = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
+const mockResolveChannelRecipients = vi.fn(async () => [] as string[])
 vi.mock("./fanout", () => ({
   fanOutToChannel: (...a: unknown[]) => mockFanOutToChannel(...a),
   fanOutToDM: (...a: unknown[]) => mockFanOutToDM(...a),
   broadcastToUserSafe: (...a: unknown[]) => mockBroadcastToUserSafe(...a),
+  resolveChannelRecipients: (...a: unknown[]) => mockResolveChannelRecipients(...a),
+}))
+
+const mockDispatchMessageNotify = vi.fn(async () => {})
+vi.mock("./notify", () => ({
+  dispatchMessageNotify: (...a: unknown[]) => mockDispatchMessageNotify(...a),
 }))
 
 const mockBroadcastToUser = vi.fn()

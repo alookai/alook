@@ -396,6 +396,18 @@ export type CommunityMentionCreate = {
   authorName: string
 }
 
+// Per-user unread/badge signal. Unlike MESSAGE_CREATE (a single broadcast to
+// every recipient), the badge is per-recipient — user A may be muted while user
+// B is not for the same message — so it rides a per-user event, gated by the
+// recipient's effective notification level in the notify pipeline. The client's
+// MESSAGE_CREATE handler no longer bumps the badge itself (it only appends
+// content); the badge is bumped only on this event.
+export type CommunityUnreadBump = {
+  type: "community:unread.bump"
+  userId: string
+  channelId: string
+}
+
 // ── Presence events ───────────────────────────────────────────────────────────
 
 export type CommunityPresenceUpdate = {
@@ -562,6 +574,7 @@ export type CommunityWsEvent =
   | CommunityPresenceUpdate
   | CommunityStatusUpdate
   | CommunityMentionCreate
+  | CommunityUnreadBump
   | CommunityMachineCreated
   | CommunityMachineStatus
   | CommunityMachineUpdated
@@ -607,6 +620,7 @@ export const WS_EVENTS = {
   FRIEND_BLOCK: "community:friend.block",
   INVITE_CREATE: "community:invite.create",
   MENTION_CREATE: "community:mention.create",
+  UNREAD_BUMP: "community:unread.bump",
   PRESENCE_UPDATE: "community:presence.update",
   STATUS_UPDATE: "community:status.update",
   MACHINE_CREATED: "community:machine.created",

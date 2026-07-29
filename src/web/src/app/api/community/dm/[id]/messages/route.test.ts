@@ -25,6 +25,8 @@ const mockGetUserInternal = vi.fn()
 
 const mockFanOutToChannel = vi.fn()
 const mockFanOutToDM = vi.fn()
+const mockResolveChannelRecipients = vi.fn(async () => [] as string[])
+const mockDispatchMessageNotify = vi.fn(async () => {})
 const mockBroadcastToUser = vi.fn()
 const mockCheckMessageRateLimit = vi.fn()
 
@@ -82,6 +84,11 @@ vi.mock("@alook/shared", async () => {
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToChannel: (...a: unknown[]) => mockFanOutToChannel(...a),
   fanOutToDM: (...a: unknown[]) => mockFanOutToDM(...a),
+  resolveChannelRecipients: (...a: unknown[]) => mockResolveChannelRecipients(...a),
+}))
+
+vi.mock("@/lib/community/notify", () => ({
+  dispatchMessageNotify: (...a: unknown[]) => mockDispatchMessageNotify(...a),
 }))
 
 vi.mock("@/lib/broadcast", () => ({

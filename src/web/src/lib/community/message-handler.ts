@@ -9,8 +9,8 @@ import {
 } from "@alook/shared"
 import type { MentionType } from "@alook/shared"
 import type { Database } from "@alook/shared"
-import { fanOutToChannel, fanOutToDM } from "./fanout"
-import { broadcastToUser } from "../broadcast"
+import { fanOutToChannel, resolveChannelRecipients } from "./fanout"
+import { dispatchMessageNotify } from "./notify"
 import { mapMessageForWs } from "./message-payload"
 import { mediaUrlFromKey } from "./storage"
 import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "./audit"
@@ -619,43 +619,43 @@ export async function createCommunityMessage(params: {
   // All WS side effects live here so `deferBroadcast` can hand them back as a
   // thunk instead of firing them inline.
   const doBroadcast = async (): Promise<void> => {
-    if (liveMentions.length > 0 || liveReplies.length > 0) {
-      const authorName = row.authorName
-      const channelIdForBroadcast = target.channelId
-      for (const userId of [...liveMentions, ...liveReplies]) {
-        broadcastToUser(userId, {
-          type: WS_EVENTS.MENTION_CREATE,
-          userId,
-          messageId: row.id,
-          channelId: channelIdForBroadcast,
-          authorName,
-        }).catch(() => { })
-      }
-    }
+    // Resolve the recipient set ONCE and share it between the unfiltered
+    // MESSAGE_CREATE fan-out (mute ≠ blindness: content always syncs) and the
+    // level-filtered notify pipeline (per-recipient MENTION_CREATE push +
+    // UNREAD_BUMP badge) — no second membership query. DMs are channels now, so
+    // both DM and channel targets flow through the same path; the notify
+    // pipeline resolves each recipient's effective level (a DM's level is
+    // self-contained, defaulting to `all`).
+    const recipients = await resolveChannelRecipients(db, target.channelId)
 
-    if (isDmTarget(target)) {
-      // DMs are channels now — fan out MESSAGE_CREATE keyed by channelId to
-      // both access members (no separate DM event).
-      fanOutToChannel(
-        target.channelId,
-        {
-          type: WS_EVENTS.MESSAGE_CREATE,
-          channelId: target.channelId,
-          message: messagePayload,
-        },
-        { excludeUserId: fanoutExclude, wakeMessageRow },
-      ).catch(() => { })
-    } else {
-      fanOutToChannel(
-        target.channelId,
-        {
-          type: WS_EVENTS.MESSAGE_CREATE,
-          channelId: target.channelId,
-          message: messagePayload,
-        },
-        { excludeUserId: fanoutExclude, wakeMessageRow },
-      ).catch(() => { })
+    fanOutToChannel(
+      target.channelId,
+      {
+        type: WS_EVENTS.MESSAGE_CREATE,
+        channelId: target.channelId,
+        message: messagePayload,
+      },
+      {
+        excludeUserId: fanoutExclude,
+        recipients,
+        wakeMessageRow,
+        mentionedUserIds: [...liveMentions, ...liveReplies],
+      },
+    ).catch(() => { })
 
+    // Level-filtered human notify legs. Author is excluded (never notifies
+    // self); mention sets are already author-excluded upstream. `nothing`
+    // recipients are dropped from push + badge — but their mention ROWS were
+    // already written above (createMentions is never level-gated).
+    dispatchMessageNotify(
+      db,
+      { authorName: row.authorName },
+      { id: row.id, channelId: row.channelId },
+      recipients.filter((id) => id !== authorId),
+      { mentionedUserIds: [...liveMentions, ...liveReplies] },
+    ).catch(() => { })
+
+    if (!isDmTarget(target)) {
       if (hasParentChannel(target)) {
         const updated = await queries.communityChannel.getChannel(
           db,
