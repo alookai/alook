@@ -105,6 +105,28 @@ describe("toAgentMessages", () => {
     expect(msg!.channel).toBe(formatRef({ server: "studio", channel: "general", threadRootSeq: 7 }));
   });
 
+  it("hydrates a forum-post message with the name-anchor ref (/server/forum/post)", async () => {
+    // A forum_post has a parentChannelId (the forum) but NO parentMessageId
+    // (unlike a thread), so it must be anchored by its own name under the
+    // forum — NOT fall through to the top-level fallback `/server/<post-name>`
+    // (which the name resolver, top-level only, could never parse back).
+    // Call order: 1. channels (the post itself), 2. author names,
+    // 3. parentChannels (the forum), 4. servers. parentMessageIds is empty
+    // (null) so that select is skipped.
+    const db = createSequentialDb([
+      [{ id: "post_1", name: "my-post", type: "forum_post", serverId: "srv_1", parentChannelId: "forum_1", parentMessageId: null }],
+      [{ id: "u_1", name: "Alice" }],
+      [{ id: "forum_1", name: "ideas" }],
+      [{ id: "srv_1", name: "studio" }],
+    ]);
+    const [msg] = await agentInbox.toAgentMessages(
+      db,
+      [rawMsg({ channelId: "post_1" })],
+      "viewer_1"
+    );
+    expect(msg!.channel).toBe(formatRef({ server: "studio", channel: "ideas", childChannelName: "my-post" }));
+  });
+
   it("hydrates a DM message, addressing the OTHER party (as a name#0042 handle) relative to viewerId", async () => {
     // A DM is a type=dm channel now, so it flows through the SAME `channels`
     // query as any other scope. Call order: 1. channels query (returns the

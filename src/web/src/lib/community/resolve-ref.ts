@@ -105,6 +105,34 @@ export async function resolveTargetForMember(
   if (matches.length === 0) return { error: 404, message: `channel not found: ${parsed.channel}` }
   const channel = matches[0]!
 
+  // Forum-post form (`/server/forum/post`) — the resolved `channel` is the
+  // parent forum; descend to the `forum_post` child by name. Runs parallel to
+  // the thread branch below (do NOT fold them: a thread anchors on a root-msg
+  // seq, a post on its own name). Post names are NOT unique within a forum, so
+  // >1 match is an ambiguous ref — return 400 + candidates, NEVER silently pick
+  // one (mirrors the ambiguous-server-name behavior above). A forum post
+  // inherits its forum's access; `requireChannelMember`/`requireChannelAccess`
+  // at the call site climb `parentChannelId` to gate on the forum's roster.
+  if (parsed.childChannelName !== undefined) {
+    const posts = await queries.communityChannel.getChildChannelByName(db, channel.id, parsed.childChannelName)
+    if (posts.length === 0) {
+      return { error: 404, message: `post not found: ${parsed.childChannelName}` }
+    }
+    if (posts.length > 1) {
+      // Ambiguous: >1 post shares this name (only possible for legacy dupes
+      // predating create-time dedup). The red line is met by refusing — we
+      // NEVER silently pick one. A name-based hint can't disambiguate here
+      // (the candidates' name-anchor paths are identical), so we report the
+      // count instead of fabricating useless identical paths; a one-time
+      // slug-dedup migration on legacy posts is the clean fix (deferred).
+      return {
+        error: 400,
+        message: `ambiguous post name "${parsed.childChannelName}" in ${parsed.channel} — ${posts.length} posts share this name; rename the duplicates to address them by name`,
+      }
+    }
+    return { kind: "channel", channelId: posts[0]!.id }
+  }
+
   if (parsed.threadRootSeq === undefined) {
     return { kind: "channel", channelId: channel.id }
   }

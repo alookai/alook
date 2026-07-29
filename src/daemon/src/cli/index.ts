@@ -230,10 +230,15 @@ async function cmdMessageEmoji(opts: Record<string, unknown>): Promise<unknown> 
     throw err;
   }
 
+  // Rebuild the SCOPE ref (no pin-seq — that's passed separately as `seq`).
+  // A forum-post target (`/server/forum/post#N`) must keep its childChannelName
+  // so the reaction lands on the post, not its parent forum.
   const channel =
-    parsed.threadRootSeq !== undefined
-      ? `/${parsed.server}/${parsed.channel}/#${parsed.threadRootSeq}`
-      : `/${parsed.server}/${parsed.channel}`;
+    parsed.childChannelName !== undefined
+      ? `/${parsed.server}/${parsed.channel}/${parsed.childChannelName}`
+      : parsed.threadRootSeq !== undefined
+        ? `/${parsed.server}/${parsed.channel}/#${parsed.threadRootSeq}`
+        : `/${parsed.server}/${parsed.channel}`;
   const res = await api.reactAdd({ channel, seq: parsed.seq, emoji });
   return { target, emoji, duplicate: res.duplicate === true };
 }

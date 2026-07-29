@@ -137,6 +137,40 @@ describe("parseRef", () => {
       seq: 42,
     });
   });
+
+  it('parses "/studio/ideas/my-post" as a forum-post ref (childChannelName)', () => {
+    expect(parseRef("/studio/ideas/my-post")).toEqual({
+      server: "studio",
+      channel: "ideas",
+      childChannelName: "my-post",
+    });
+  });
+
+  it("does not confuse a forum-post ref with a thread ref (3rd segment has no #)", () => {
+    // Thread: 3rd segment starts with "#". Post: it doesn't.
+    expect(parseRef("/studio/ideas/#5")).toEqual({ server: "studio", channel: "ideas", threadRootSeq: 5 });
+    expect(parseRef("/studio/ideas/notes")).toEqual({ server: "studio", channel: "ideas", childChannelName: "notes" });
+  });
+
+  it("throws on a 4th segment (posts have no deeper addressing today)", () => {
+    expect(() => parseRef("/studio/ideas/post/extra")).toThrow();
+  });
+
+  it('parses "/studio/ideas/post#3" — a message pinned inside a forum post', () => {
+    // Symmetric to the top-level message form /server/channel#N — used by
+    // `message emoji` to react to a specific message inside a post.
+    expect(parseRef("/studio/ideas/post#3")).toEqual({
+      server: "studio",
+      channel: "ideas",
+      childChannelName: "post",
+      seq: 3,
+    });
+  });
+
+  it("throws when a forum-post pin-seq ref has an empty post name (#N with no post)", () => {
+    expect(() => parseRef("/studio/ideas/#3")).not.toThrow(); // this is the THREAD form, still valid
+    expect(parseRef("/studio/ideas/#3")).toEqual({ server: "studio", channel: "ideas", threadRootSeq: 3 });
+  });
 });
 
 describe("formatRef", () => {
@@ -180,6 +214,34 @@ describe("formatRef", () => {
     expect(formatRef({ server: "studio", channel: "general", threadRootSeq: 5 })).toBe(
       "/studio/general/#5",
     );
+  });
+
+  it("formats a forum-post ref (childChannelName)", () => {
+    expect(formatRef({ server: "studio", channel: "ideas", childChannelName: "my-post" })).toBe(
+      "/studio/ideas/my-post",
+    );
+  });
+
+  it("round-trips a forum-post ref through parseRef", () => {
+    const input = { server: "studio", channel: "ideas", childChannelName: "my-post" };
+    expect(parseRef(formatRef(input))).toEqual(input);
+  });
+
+  it("formats a forum-post message ref (childChannelName + seq)", () => {
+    expect(formatRef({ server: "studio", channel: "ideas", childChannelName: "my-post", seq: 3 })).toBe(
+      "/studio/ideas/my-post#3",
+    );
+  });
+
+  it("round-trips a forum-post message ref through parseRef", () => {
+    const input = { server: "studio", channel: "ideas", childChannelName: "my-post", seq: 3 };
+    expect(parseRef(formatRef(input))).toEqual(input);
+  });
+
+  it("throws when childChannelName is combined with threadRootSeq (posts have no thread root)", () => {
+    expect(() =>
+      formatRef({ server: "studio", channel: "ideas", childChannelName: "p", threadRootSeq: 5 }),
+    ).toThrow();
   });
 });
 

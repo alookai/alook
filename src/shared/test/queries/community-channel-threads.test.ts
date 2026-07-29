@@ -1,5 +1,22 @@
 import { describe, it, expect, vi } from "vitest";
-import { createThreadChannel } from "../../src/db/queries/community/channel";
+import {
+  createThreadChannel,
+  getChildChannelByName,
+  dedupeChildChannelSlug,
+} from "../../src/db/queries/community/channel";
+
+// A single-select thenable-chain db (FIFO), for the child-channel helpers
+// which each issue exactly one `db.select(...)...`.
+function createSelectDb(rows: unknown[]) {
+  const methods = ["from", "where"];
+  const select = vi.fn(() => {
+    const chain: any = {};
+    for (const m of methods) chain[m] = vi.fn(() => chain);
+    chain.then = (resolve: any, reject: any) => Promise.resolve(rows).then(resolve, reject);
+    return chain;
+  });
+  return { select } as any;
+}
 
 /**
  * `createThreadChannel` mixes two `db.select()` round trips (parent-channel
@@ -111,5 +128,39 @@ describe("createThreadChannel", () => {
     });
     await expect(createThreadChannel(db, "forum_post_1", "m_root", "u_1")).rejects.toThrow(/child channel/);
     expect(db.__insertValues).not.toHaveBeenCalled();
+  });
+});
+
+describe("getChildChannelByName", () => {
+  it("returns all matches (mapped rows) so the caller can detect ambiguity", async () => {
+    const db = createSelectDb([
+      { id: "post_1", name: "dupe", type: "forum_post", serverId: "srv_1", parentChannelId: "forum_1", forumTags: null },
+      { id: "post_2", name: "dupe", type: "forum_post", serverId: "srv_1", parentChannelId: "forum_1", forumTags: null },
+    ]);
+    const rows = await getChildChannelByName(db, "forum_1", "dupe");
+    expect(rows.map((r) => r.id)).toEqual(["post_1", "post_2"]);
+  });
+
+  it("returns [] when no post with that name exists under the forum", async () => {
+    const db = createSelectDb([]);
+    const rows = await getChildChannelByName(db, "forum_1", "ghost");
+    expect(rows).toEqual([]);
+  });
+});
+
+describe("dedupeChildChannelSlug", () => {
+  it("returns the base slug unchanged when no post in the forum uses it", async () => {
+    const db = createSelectDb([{ name: "other" }]);
+    expect(await dedupeChildChannelSlug(db, "forum_1", "ideas")).toBe("ideas");
+  });
+
+  it("appends -2 on the first collision", async () => {
+    const db = createSelectDb([{ name: "ideas" }]);
+    expect(await dedupeChildChannelSlug(db, "forum_1", "ideas")).toBe("ideas-2");
+  });
+
+  it("skips already-taken numbered suffixes (ideas, ideas-2 → ideas-3)", async () => {
+    const db = createSelectDb([{ name: "ideas" }, { name: "ideas-2" }]);
+    expect(await dedupeChildChannelSlug(db, "forum_1", "ideas")).toBe("ideas-3");
   });
 });

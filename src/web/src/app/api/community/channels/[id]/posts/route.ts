@@ -141,12 +141,20 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError(`content must be ≤ ${MAX_MESSAGE_CONTENT_LENGTH} characters`, 400)
   }
 
+  // Dedupe the slug within this forum so the post's name anchor
+  // (`/server/forum/<post>`) is a unique, resolvable address. Post names are
+  // NOT covered by the per-server unique index (top-level channels only), so
+  // uniqueness is enforced here, mirroring top-level channel naming: `ideas`
+  // → `ideas-2` → `ideas-3`. `name` is already slugified (no `/`/`#`/space),
+  // so the anchor round-trips cleanly through parseRef/formatRef.
+  const uniqueName = await queries.communityChannel.dedupeChildChannelSlug(db, channelId, name)
+
   // Create child channel for the forum post. Tags are NOT set at creation —
   // they're added afterward from the post card's tag dialog.
   const postChannel = await queries.communityChannel.createChannel(db, {
     serverId: channel.serverId,
     parentChannelId: channelId,
-    name,
+    name: uniqueName,
     type: "forum_post",
     creatorId: ctx.userId,
   })

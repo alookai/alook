@@ -11,6 +11,7 @@ const mockResolveChannelByNameForMember = vi.fn()
 const mockGetMessageByChannelAndSeq = vi.fn()
 const mockGetThreadChannelByParentMessage = vi.fn()
 const mockCreateThreadChannel = vi.fn()
+const mockGetChildChannelByName = vi.fn()
 const mockIsUniqueConstraintError = vi.fn(() => false)
 
 vi.mock("@alook/shared", async () => {
@@ -38,6 +39,7 @@ vi.mock("@alook/shared", async () => {
         resolveChannelByNameForMember: (...a: unknown[]) => mockResolveChannelByNameForMember(...a),
         getThreadChannelByParentMessage: (...a: unknown[]) => mockGetThreadChannelByParentMessage(...a),
         createThreadChannel: (...a: unknown[]) => mockCreateThreadChannel(...a),
+        getChildChannelByName: (...a: unknown[]) => mockGetChildChannelByName(...a),
       },
       communityMessage: {
         getMessageByChannelAndSeq: (...a: unknown[]) => mockGetMessageByChannelAndSeq(...a),
@@ -238,6 +240,46 @@ describe("resolveTargetForMember", () => {
       await expect(
         resolveTargetForMember(db, "u_1", "/studio/general/#7", { createThreadIfMissing: true })
       ).rejects.toThrow("boom")
+    })
+  })
+
+  describe("forum-post refs (/server/forum/post)", () => {
+    beforeEach(() => {
+      mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1" }])
+      // The parent forum resolves as a top-level channel.
+      mockResolveChannelByNameForMember.mockResolvedValue([{ id: "forum_1", name: "ideas" }])
+    })
+
+    it("resolves a forum post by name under its forum", async () => {
+      mockGetChildChannelByName.mockResolvedValue([{ id: "post_1", name: "my-post" }])
+      const res = await resolveTargetForMember(db, "u_1", "/studio/ideas/my-post")
+      expect(res).toEqual({ kind: "channel", channelId: "post_1" })
+      expect(mockGetChildChannelByName).toHaveBeenCalledWith(db, "forum_1", "my-post")
+    })
+
+    it("404 when no post with that name exists under the forum", async () => {
+      mockGetChildChannelByName.mockResolvedValue([])
+      const res = await resolveTargetForMember(db, "u_1", "/studio/ideas/ghost")
+      expect(res).toEqual({ error: 404, message: "post not found: ghost" })
+    })
+
+    it("400 ambiguous (never silently picks) when >1 post shares the name", async () => {
+      mockGetChildChannelByName.mockResolvedValue([
+        { id: "post_1", name: "dupe" },
+        { id: "post_2", name: "dupe" },
+      ])
+      const res = await resolveTargetForMember(db, "u_1", "/studio/ideas/dupe")
+      expect(res).toMatchObject({ error: 400 })
+      expect((res as { message: string }).message).toMatch(/ambiguous post name "dupe"/)
+      // Critically: no channelId is returned — the caller cannot mis-route.
+      expect(res).not.toHaveProperty("channelId")
+    })
+
+    it("404 when the parent forum itself doesn't resolve", async () => {
+      mockResolveChannelByNameForMember.mockResolvedValue([])
+      const res = await resolveTargetForMember(db, "u_1", "/studio/ideas/my-post")
+      expect(res).toEqual({ error: 404, message: "channel not found: ideas" })
+      expect(mockGetChildChannelByName).not.toHaveBeenCalled()
     })
   })
 })

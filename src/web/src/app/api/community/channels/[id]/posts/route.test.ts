@@ -4,6 +4,7 @@ import { NextRequest } from "next/server"
 const mockGetChannelForMember = vi.fn()
 const mockResolveChannelAccessContext = vi.fn()
 const mockCreateChannel = vi.fn()
+const mockDedupeChildChannelSlug = vi.fn(async (_db: unknown, _parent: unknown, slug: string) => slug)
 const mockCreateMessage = vi.fn()
 const mockGetMessage = vi.fn()
 const mockGetUserSelf = vi.fn()
@@ -29,6 +30,7 @@ vi.mock("@alook/shared", async () => {
         getChannelForMember: (...a: unknown[]) => mockGetChannelForMember(...a),
         resolveChannelAccessContext: (...a: unknown[]) => mockResolveChannelAccessContext(...a),
         createChannel: (...a: unknown[]) => mockCreateChannel(...a),
+        dedupeChildChannelSlug: (...a: unknown[]) => mockDedupeChildChannelSlug(...a),
         listChildChannels: (...a: unknown[]) => mockListChildChannels(...a),
         // createCommunityMessage's private-channel scoping guard is only hit
         // when there are mentions; the happy-path posts have none, so these
@@ -160,6 +162,27 @@ describe("POST /api/community/channels/[id]/posts — name normalization", () =>
     const res = await POST(postReq({ name: "///", content: "hello" }), ctx)
     expect(res.status).toBe(400)
     expect(mockCreateChannel).not.toHaveBeenCalled()
+  })
+
+  it("dedupes the slug within the forum before creating (so the name anchor is unique)", async () => {
+    // The forum already has an "ideas" post → dedupe yields "ideas-2".
+    mockDedupeChildChannelSlug.mockResolvedValueOnce("ideas-2")
+    mockCreateChannel.mockResolvedValue({
+      id: "post1",
+      name: "ideas-2",
+      createdAt: "2026-07-02T00:00:00.000Z",
+    })
+    const res = await POST(postReq({ name: "ideas", content: "hello" }), ctx)
+    expect(res.status).toBe(201)
+    // dedupe is called with the slugified base name under this forum...
+    expect(mockDedupeChildChannelSlug).toHaveBeenCalledWith(expect.anything(), "ch1", "ideas")
+    // ...and the DEDUPED name is what gets persisted.
+    expect(mockCreateChannel).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ name: "ideas-2" }),
+    )
+    const body = await res.json()
+    expect(body.post.name).toBe("ideas-2")
   })
 
   it("returns messageCount 0 in the response (body IS the first message, not a reply)", async () => {

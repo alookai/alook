@@ -203,6 +203,22 @@ async function resolveScopeRefs(
         continue;
       }
     }
+    // Forum post: a `forum_post` child channel has a parent forum but NO
+    // parentMessageId (unlike a thread), so it's anchored by its own name under
+    // the forum: `/server/<forum>/<post>`. Without this it fell through to the
+    // top-level fallback below (`/server/<post-name>`), which the name resolver
+    // — top-level only — can never parse back, 404ing send/read/ack on the post.
+    if (ch.type === "forum_post" && ch.parentChannelId) {
+      const parent = parentChannelById.get(ch.parentChannelId);
+      if (parent) {
+        out.set(ch.id, {
+          ref: formatRef({ server: serverName, channel: parent.name, childChannelName: ch.name }),
+          isThread: false,
+          isDm: false,
+        });
+        continue;
+      }
+    }
     out.set(ch.id, { ref: formatRef({ server: serverName, channel: ch.name }), isThread: false, isDm: false });
   }
   return out;
@@ -385,6 +401,23 @@ export async function resolveUnreadNoticeChannel(
     const serverName = await getServerName(db, parent.serverId);
     if (!serverName) return null;
     return formatRef({ server: serverName, channel: parent.name, threadRootSeq: root.seq });
+  }
+
+  // Forum post: parent forum but no parentMessageId — anchor by the post's own
+  // name under the forum (`/server/<forum>/<post>`). A missing/serverless parent
+  // resolves to null (notice_channel_unresolvable) rather than a bogus ref, per
+  // this function's no-placeholder contract.
+  if (ch.type === "forum_post" && ch.parentChannelId) {
+    const parentRows = await db
+      .select({ name: communityChannel.name, serverId: communityChannel.serverId })
+      .from(communityChannel)
+      .where(eq(communityChannel.id, ch.parentChannelId))
+      .limit(1);
+    const parent = parentRows[0];
+    if (!parent || !parent.serverId) return null;
+    const serverName = await getServerName(db, parent.serverId);
+    if (!serverName) return null;
+    return formatRef({ server: serverName, channel: parent.name, childChannelName: ch.name });
   }
 
   if (!ch.serverId) return null;
