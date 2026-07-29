@@ -149,18 +149,18 @@ describe("prepareCliTransport — layered spawn env", () => {
       config: { agentName: "Melisa", agentDiscriminator: "1043" },
     });
     const { spawnEnv } = await prepareCliTransport(ctx, {}, undefined, "linux");
-    expect(spawnEnv.GIT_AUTHOR_NAME).toBe("Melisa#1043");
-    expect(spawnEnv.GIT_AUTHOR_EMAIL).toBe("melisa-1043-a3f90c21@alook.ai");
-    expect(spawnEnv.GIT_COMMITTER_NAME).toBe("Melisa#1043");
+    expect(spawnEnv.GIT_AUTHOR_NAME).toBe("Melisa");
+    expect(spawnEnv.GIT_AUTHOR_EMAIL).toBe("melisa.1043@alook.ai");
+    expect(spawnEnv.GIT_COMMITTER_NAME).toBe("Melisa");
     expect(spawnEnv.GIT_COMMITTER_EMAIL).toBe(spawnEnv.GIT_AUTHOR_EMAIL);
   });
 
-  it("falls back to a valid generic git NAME when no agent name is set, email still keyed on agentId", async () => {
-    // config: {} (baseCtx default) — degraded/unknown-bot spawn. baseCtx has
-    // agentId "agent_1", so the email stays unique off the id even with no name.
+  it("falls back to a valid generic git identity when no agent name/discriminator is set", async () => {
+    // config: {} (baseCtx default) — degraded/unknown-bot spawn with no name
+    // and no discriminator, so identity falls back to the generic value.
     const { spawnEnv } = await prepareCliTransport(baseCtx(mkTmp()), {}, undefined, "linux");
     expect(spawnEnv.GIT_AUTHOR_NAME).toBe("Alook Agent");
-    expect(spawnEnv.GIT_AUTHOR_EMAIL).toBe("agent-1@alook.ai");
+    expect(spawnEnv.GIT_AUTHOR_EMAIL).toBe("alook-agent@alook.ai");
     expect(spawnEnv.GIT_AUTHOR_NAME).not.toBe("");
   });
 
@@ -170,7 +170,7 @@ describe("prepareCliTransport — layered spawn env", () => {
       config: { agentName: "Melisa", agentDiscriminator: "1043" },
     });
     const { spawnEnv } = await prepareCliTransport(ctx, { GIT_AUTHOR_NAME: "Someone Else" }, undefined, "linux");
-    expect(spawnEnv.GIT_AUTHOR_NAME).toBe("Melisa#1043");
+    expect(spawnEnv.GIT_AUTHOR_NAME).toBe("Melisa");
   });
 
   it("creates a symlink when hostCliPath is set", async () => {

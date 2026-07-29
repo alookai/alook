@@ -212,7 +212,6 @@ export async function prepareCliTransport(
       vars: buildGitIdentityEnv({
         agentName: ctx.config.agentName,
         discriminator: ctx.config.agentDiscriminator,
-        agentId: ctx.agentId,
       }),
     },
     {

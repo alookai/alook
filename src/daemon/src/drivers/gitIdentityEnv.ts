@@ -10,18 +10,17 @@
  * Both author and committer are set: git falls back committer → machine
  * identity otherwise, which would leave attribution half-wrong.
  *
- * The EMAIL is the machine-readable attribution key and MUST be unique per
- * agent. The discriminator alone is not enough (it is FNV-1a(user.id) mod
- * 10000 — a 4-digit space with expected collisions), and the display-name slug
- * is lossy ("Bot One"/"Bot-One" → "bot-one"). Uniqueness therefore comes from
- * `agentId` (a nanoid): a slice of it suffixes the local-part so two distinct
- * agents can never share an email even when name and discriminator collide.
- * The NAME field stays the human `Name#Disc` — display only, so cosmetic
- * ambiguity there is acceptable.
+ * NAME is the plain display name (`Claudette`) and EMAIL is
+ * `<name-slug>.<discriminator>@alook.ai` (`claudette.9873@alook.ai`) — kept
+ * clean/readable per owner preference. The discriminator is FNV-1a(user.id)
+ * mod 10000, so two agents that share a name AND a discriminator would produce
+ * the same identity; that collision is accepted (name#disc is already the
+ * app's display-unique key, and the odds are low). If per-agent uniqueness
+ * ever needs to be guaranteed on the git side again, reintroduce an agentId
+ * suffix in the local-part.
  */
 
 const GIT_IDENTITY_DOMAIN = "alook.ai";
-const SHORT_ID_LEN = 8;
 
 /** Generic identity when an agent's name/handle is unavailable (degraded spawn). */
 const FALLBACK_NAME = "Alook Agent";
@@ -55,31 +54,31 @@ function asciiSlug(s: string): string {
 export interface GitIdentityInput {
   agentName?: string;
   discriminator?: string;
-  agentId?: string;
 }
 
 /**
  * Build the four `GIT_*` env vars for one agent. Pure — no I/O. Always returns
  * a valid, non-empty identity; falls back to a generic one when name is
  * missing.
+ *
+ * Name = the plain display name (`Claudette`). Email =
+ * `<name-slug>.<discriminator>@alook.ai` (`claudette.9873@alook.ai`); if the
+ * name has no ASCII-alphanumeric characters (all CJK/emoji) the local-part is
+ * just the discriminator (`9873@alook.ai`), and if neither is available it
+ * falls back to `alook-agent@alook.ai`.
  */
 export function buildGitIdentityEnv(input: GitIdentityInput): Record<string, string> {
-  const { agentName, discriminator, agentId } = input;
+  const { agentName, discriminator } = input;
 
   const cleanName = agentName ? sanitizeGitName(agentName) : "";
-  const displayName = cleanName
-    ? discriminator
-      ? `${cleanName}#${discriminator}`
-      : cleanName
-    : FALLBACK_NAME;
+  const displayName = cleanName || FALLBACK_NAME;
 
-  // Local-part fragments in readability order: name slug, discriminator, and a
-  // short slice of the (globally unique) agentId. The agentId slice is what
-  // guarantees per-agent uniqueness; the rest is for human readability.
-  const shortId = agentId ? asciiSlug(agentId).slice(0, SHORT_ID_LEN) : "";
+  // Email local-part: `<name-slug>.<discriminator>`, joined with "." and
+  // dropping any empty fragment (all-CJK name → discriminator only; neither →
+  // generic fallback).
   const nameSlug = cleanName ? asciiSlug(cleanName) : "";
   const localPart =
-    [nameSlug, discriminator, shortId].filter(Boolean).join("-") || FALLBACK_LOCAL_PART;
+    [nameSlug, discriminator].filter(Boolean).join(".") || FALLBACK_LOCAL_PART;
   const email = `${localPart}@${GIT_IDENTITY_DOMAIN}`;
 
   return {
