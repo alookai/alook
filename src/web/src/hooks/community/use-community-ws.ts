@@ -697,7 +697,11 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
                   : prev,
             )
           } else {
-            void queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
+            // Refresh the rail LIST only (drop the deleted server). `exact`
+            // so this doesn't cascade-refetch every other server's nested
+            // detail subtree; the deleted server's own subtree is cleared by
+            // the removeQueries below.
+            void queryClient.invalidateQueries({ queryKey: communityKeys.servers(), exact: true })
             queryClient.removeQueries({ queryKey: communityKeys.server(event.serverId) })
             // #10: if the deleted server is the one the viewer is looking at,
             // the store pointers now dangle — reset them so the UI drops back
@@ -813,7 +817,10 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             // so the layout's eject effect can detect the drop and route
             // the user away from the now-forbidden URL.
             if (event.userId === viewerUserIdRef.current) {
-              void queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
+              // Rail LIST only (the layout's eject effect reads it to route the
+              // kicked viewer away). `exact` so a kick doesn't cascade-refetch
+              // every server's nested detail subtree.
+              void queryClient.invalidateQueries({ queryKey: communityKeys.servers(), exact: true })
             }
           } else {
             queryClient.setQueryData<InfiniteData<MembersEnvelope> | undefined>(
@@ -921,9 +928,14 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
         case "community:mention.create": {
           void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
           // The server rail badge counts unread mentions per server; refresh
-          // it on every new mention. No debounce — mention.create is rare
-          // and the servers list is small.
-          void queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
+          // it on every new mention. `exact: true` is essential: the mention
+          // count lives in the `servers()` LIST query, but members/presence/
+          // invites/audit-log/server(id) are all nested UNDER `servers()` in
+          // the key hierarchy — a non-exact invalidate prefix-matches and
+          // force-refetches that whole subtree (and invalidate overrides the
+          // staleTime: Infinity those carry). With an active bot in the server,
+          // every mention.create would otherwise storm-refetch all of them.
+          void queryClient.invalidateQueries({ queryKey: communityKeys.servers(), exact: true })
           cbs.onMention?.(event)
           return
         }

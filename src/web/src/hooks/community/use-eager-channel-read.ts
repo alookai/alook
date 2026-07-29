@@ -67,10 +67,15 @@ export function useEagerChannelRead({
         // The rail mention badge (`server.mentions`) only needs refreshing when
         // this server actually carries mentions the PUT may have cleared. Read
         // it from the `servers()` cache and gate on it: the common case (no
-        // mentions anywhere in the server) skips the invalidate entirely, so a
-        // plain channel switch no longer cascade-refetches every server-level
-        // query. When there ARE mentions, refresh only `server(serverId)` — the
-        // one query that feeds the badge — not the whole `servers()` prefix.
+        // mentions anywhere in the server) skips the invalidate entirely.
+        //
+        // The badge count lives in the `servers()` LIST query — NOT in
+        // `server(serverId)` (that's the detail: categories/channels, no
+        // count). So refresh `servers()` and, critically, with `exact: true`:
+        // members/presence/invites/audit-log/server(id) are all nested under
+        // `servers()` in the key hierarchy, and a non-exact invalidate
+        // prefix-matches and force-refetches that whole subtree (overriding
+        // their staleTime: Infinity). `exact` refreshes only the badge list.
         if (!serverId) return
         const servers = queryClient.getQueryData<ServersResponse>(
           communityKeys.servers(),
@@ -80,7 +85,8 @@ export function useEagerChannelRead({
         )
         if (hasMentions) {
           void queryClient.invalidateQueries({
-            queryKey: communityKeys.server(serverId),
+            queryKey: communityKeys.servers(),
+            exact: true,
           })
         }
       })

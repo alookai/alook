@@ -153,7 +153,7 @@ describe("useEagerChannelRead — rail-badge fan-out gate", () => {
     expect(keys).not.toContain(JSON.stringify(communityKeys.servers()))
   })
 
-  it("refreshes ONLY server(serverId) — not the servers() prefix — when this server has mentions", async () => {
+  it("refreshes the servers() list with exact:true (no cascade) when this server has mentions", async () => {
     const useHook = await loadHook()
     serversCache = { servers: [server("srv_1", 3)] }
     useHook({
@@ -164,9 +164,17 @@ describe("useEagerChannelRead — rail-badge fan-out gate", () => {
     })
     flushEffects()
     await settle()
-    const keys = invalidatedKeys()
-    expect(keys).toContain(JSON.stringify(communityKeys.server("srv_1")))
-    expect(keys).not.toContain(JSON.stringify(communityKeys.servers()))
+    // The badge count lives in the servers() LIST; refresh that, and ONLY that,
+    // with exact:true. A non-exact servers() invalidate prefix-matches the
+    // nested server(id)/members/presence/… subtree and force-refetches all of
+    // it (the per-switch storm). We must NOT touch server(serverId) (it doesn't
+    // even hold the count).
+    const serversCall = invalidateQueries.mock.calls.find(
+      (c) => JSON.stringify(c[0].queryKey) === JSON.stringify(communityKeys.servers()),
+    )
+    expect(serversCall).toBeTruthy()
+    expect(serversCall![0].exact).toBe(true)
+    expect(invalidatedKeys()).not.toContain(JSON.stringify(communityKeys.server("srv_1")))
   })
 
   it("does not PUT until the read-state snapshot is ready", async () => {
