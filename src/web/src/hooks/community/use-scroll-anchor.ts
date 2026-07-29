@@ -46,12 +46,21 @@ export interface ScrollAnchorMessage {
 
 export interface ScrollAnchorState {
   didInitialScroll: boolean
+  // Instant channel switch: the mount scroll now has two phases. Phase 1
+  // (`didInitialScroll`) puts the viewport at the bottom — it may fire early,
+  // off a warm tail-attached cache, before the read snapshot resolves. Phase 2
+  // (`didDividerConverge`) repositions once to the NEW-divider when the read
+  // snapshot lands. When phase 1 already had the divider (read snapshot ready
+  // at mount) both complete together. `didDividerConverge` guards phase 2 so
+  // it fires at most once and never re-yanks after the user starts scrolling.
+  didDividerConverge: boolean
   lastTailId: string | null
 }
 
 export function createScrollAnchorState(): ScrollAnchorState {
   return {
     didInitialScroll: false,
+    didDividerConverge: false,
     lastTailId: null,
   }
 }
@@ -112,6 +121,7 @@ export function decideScrollAction(input: DecideScrollActionInput): DecideScroll
 
   const baseNextState: ScrollAnchorState = {
     didInitialScroll: state.didInitialScroll,
+    didDividerConverge: state.didDividerConverge,
     lastTailId: nextTail,
   }
 
@@ -134,26 +144,83 @@ export function decideScrollAction(input: DecideScrollActionInput): DecideScroll
   // hook instance (keyed by channelId/dmId — see this hook's doc comment),
   // so this branch only ever matters for a same-scope transient empty.
   if (nextLen === 0) {
-    return { action: { type: "none" }, nextState: { ...baseNextState, didInitialScroll: false } }
-  }
-
-  // 1. Mount-time initial scroll — fires exactly once. Bails (without
-  // consuming the gate) until `initialScrollReady` — running before the
-  // owner's async anchor (e.g. `useChannelReadStateSnapshot`) resolves
-  // would silently snap to the bottom and burn the one-shot gate. Also
-  // bails until `heroMeasured` — see this field's doc comment above for why
-  // firing on a stale (default-0) scrollMargin silently mis-targets the
-  // NEW-divider case.
-  if (!state.didInitialScroll) {
-    if (!initialScrollReady || !heroMeasured) {
-      return { action: { type: "none" }, nextState: { ...baseNextState, didInitialScroll: false } }
+    return {
+      action: { type: "none" },
+      nextState: { ...baseNextState, didInitialScroll: false, didDividerConverge: false },
     }
-    return { action: { type: "mount", newDividerBefore }, nextState: { ...baseNextState, didInitialScroll: true } }
   }
 
-  // 2. Self-send / peer-follow — only relevant when the tail actually moved.
+  // Whether the loaded window is tail-attached to the present (its newest page
+  // reaches "now"). Only then is scrolling "to the bottom" scrolling to the
+  // real latest message — an older-only / mid-history window (e.g. a jump
+  // target, or a cold anchor fetch) has `hasMoreNewer` true, and its bottom is
+  // a mid-history edge, so it must NOT take the early-bottom path (Cecilia's
+  // red line #1: judge the tail by hasMoreNewer, not "are there rows").
+  const tailAttached = !hasMoreNewer
+
+  // Phase 1 — mount-time scroll to the bottom. Fires exactly once. Two ways in:
+  //   • Read snapshot already resolved (`initialScrollReady`): do the full
+  //     mount — divider target if there's an unread anchor, else the end — and
+  //     complete BOTH phases at once (nothing left to converge).
+  //   • Warm tail-attached cache, snapshot NOT yet resolved: paint-and-scroll
+  //     to the end immediately so a revisit lands at the bottom on the first
+  //     frame (instant switch) instead of waiting on the network. The
+  //     NEW-divider then converges in phase 2 when the snapshot lands.
+  // Still bails until `heroMeasured` in both cases — firing on a default-0
+  // scrollMargin mis-targets the scroll (see `heroMeasured`'s doc comment).
+  if (!state.didInitialScroll) {
+    if (heroMeasured && initialScrollReady) {
+      return {
+        action: { type: "mount", newDividerBefore },
+        nextState: { ...baseNextState, didInitialScroll: true, didDividerConverge: true },
+      }
+    }
+    if (heroMeasured && tailAttached) {
+      // Early bottom: snapshot not ready, but a tail-attached warm cache means
+      // "bottom" is the true latest — scroll there now, leave phase 2 to place
+      // the divider once the snapshot resolves.
+      return {
+        action: { type: "scrollToEnd" },
+        nextState: { ...baseNextState, didInitialScroll: true, didDividerConverge: false },
+      }
+    }
+    return {
+      action: { type: "none" },
+      nextState: { ...baseNextState, didInitialScroll: false },
+    }
+  }
+
+  // Self-send / peer-follow — only relevant when the tail actually moved.
   const tailChanged = state.lastTailId !== null && state.lastTailId !== nextTail
+
+  // Phase 2 — converge onto the NEW divider, exactly once, after an early
+  // bottom scroll. This is a MOUNT-SETTLING step, so it only applies while the
+  // tail is unchanged: once a live append arrives (`tailChanged`), we're past
+  // mount and the self-send/peer-follow logic below owns the viewport — a live
+  // append also consumes the convergence one-shot (we're no longer settling a
+  // fresh mount). Waits for the read snapshot (`initialScrollReady`) to name
+  // the anchor, and only repositions while the viewer is still parked at the
+  // bottom (`isAtEnd`): if they've started scrolling we must not yank them
+  // (Cecilia's red line #2 — converge, never pull a settled viewport back).
+  if (!state.didDividerConverge && !tailChanged) {
+    if (!initialScrollReady || !heroMeasured) {
+      return { action: { type: "none" }, nextState: baseNextState }
+    }
+    if (newDividerBefore && isAtEnd) {
+      return {
+        action: { type: "mount", newDividerBefore },
+        nextState: { ...baseNextState, didDividerConverge: true },
+      }
+    }
+    // No divider to place, or the viewer already scrolled away — consume the
+    // one-shot without moving them.
+    return { action: { type: "none" }, nextState: { ...baseNextState, didDividerConverge: true } }
+  }
   if (tailChanged) {
+    // A live append means we're past mount-settling: the divider-convergence
+    // one-shot is spent (any pending convergence would now be a stale yank), so
+    // consume it on every tail-changed outcome below.
+    const liveState = { ...baseNextState, didDividerConverge: true }
     const tail = messages[messages.length - 1]
     const isSelfSend = !!viewerUserId && tail?.authorId === viewerUserId
     if (isSelfSend) {
@@ -162,15 +229,16 @@ export function decideScrollAction(input: DecideScrollActionInput): DecideScroll
       // changes via `reconcileServerId` on send success, but the author is
       // still the viewer, so this branch still catches it as an idempotent
       // self-send snap, not a misclassified no-op).
-      return { action: { type: "scrollToEnd" }, nextState: baseNextState }
+      return { action: { type: "scrollToEnd" }, nextState: liveState }
     }
     // Peer send: only follow if the loaded window is tail-attached to the
     // present (`hasMoreNewer` false) AND the viewer was already at/near the
     // bottom just BEFORE this append — otherwise leave the "↓ N" pill to
     // prompt them back down.
     if (!hasMoreNewer && isAtEnd) {
-      return { action: { type: "scrollToEnd" }, nextState: baseNextState }
+      return { action: { type: "scrollToEnd" }, nextState: liveState }
     }
+    return { action: { type: "none" }, nextState: liveState }
   }
 
   return { action: { type: "none" }, nextState: baseNextState }

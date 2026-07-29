@@ -498,13 +498,25 @@ function useMessagesInner(
 
   return {
     ...query,
-    // While the anchor snapshot is still resolving, the query is `enabled:
-    // false` — TanStack forces `isFetching` to `false` in that state, which
-    // makes the native `isLoading = isPending && isFetching` compute to
-    // `false` even though nothing has loaded yet. Left uncorrected, callers
-    // see one frame of "ready but empty" (no skeleton) on a brand-new scope
-    // before the query flips `enabled` and `isLoading` jumps back to `true`.
-    isLoading: query.isLoading || !anchorResolved,
+    // Instant channel switch: a warm channel already has its newest-tail
+    // hydrated into `messages` (from the persisted `channelMessages` cache)
+    // before the read anchor resolves. Those rows must paint immediately rather
+    // than wait on the bootstrap/read-snapshot round-trip — switching must not
+    // happen on a network timescale. So only report loading when there is
+    // genuinely nothing to show yet.
+    //
+    // `!anchorResolved` alone used to force loading=true on every mount: while
+    // the anchor snapshot resolves the query is `enabled: false`, and TanStack
+    // forces `isFetching` false in that state, so native
+    // `isLoading = isPending && isFetching` computes to `false` even with no
+    // data — leaving callers a frame of "ready but empty". We still guard that
+    // empty case, but a non-empty hydrated cache is the warm tail and renders
+    // now. The scroll-to-bottom / NEW-divider / unread count stay gated in the
+    // page + `useScrollAnchor` (which now scrolls a warm tail to the bottom on
+    // first paint and converges the divider once the snapshot lands), so early
+    // painting can't strand the viewport at the top. A cold channel (empty
+    // cache) still shows the skeleton.
+    isLoading: query.isLoading || (!anchorResolved && messages.length === 0),
     messages,
     latestSeq,
     hasMoreOlder,

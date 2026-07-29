@@ -37,8 +37,24 @@ describe("decideScrollAction — mount (rewritten — neither case is free with 
     expect(action).toEqual({ type: "mount", newDividerBefore: undefined })
   })
 
-  it("does not fire (and does not consume the one-shot gate) until initialScrollReady", () => {
+  it("scrolls a warm tail-attached cache to the bottom early — before initialScrollReady (instant switch phase 1)", () => {
+    // A revisit has its newest tail already hydrated; don't wait on the read
+    // snapshot to paint-and-scroll to the bottom. Consumes the phase-1 one-shot
+    // but leaves phase-2 (divider convergence) pending.
     const { action, nextState } = decideScrollAction(baseInput({ initialScrollReady: false }))
+    expect(action).toEqual({ type: "scrollToEnd" })
+    expect(nextState.didInitialScroll).toBe(true)
+    expect(nextState.didDividerConverge).toBe(false)
+  })
+
+  it("does NOT take the early-bottom path for an older-only / mid-history window (hasMoreNewer) — waits on initialScrollReady", () => {
+    // A jump target or cold anchor fetch loads a window whose bottom is a
+    // mid-history edge, not the present. Scrolling "to the end" there would
+    // strand the viewer mid-history, so this must wait for the full mount
+    // (Cecilia's red line #1: judge the tail by hasMoreNewer, not "are there rows").
+    const { action, nextState } = decideScrollAction(
+      baseInput({ initialScrollReady: false, hasMoreNewer: true }),
+    )
     expect(action).toEqual({ type: "none" })
     expect(nextState.didInitialScroll).toBe(false)
   })
@@ -59,13 +75,42 @@ describe("decideScrollAction — mount (rewritten — neither case is free with 
     expect(nextState.didInitialScroll).toBe(false)
   })
 
-  it("fires once both initialScrollReady and heroMeasured become true, even if one lagged behind the other", () => {
-    const notReady = decideScrollAction(baseInput({ initialScrollReady: false, heroMeasured: false }))
+  it("for a cold / mid-history window fires the full mount once both initialScrollReady and heroMeasured become true, even if one lagged", () => {
+    // hasMoreNewer keeps it off the early-bottom path so this still exercises
+    // the "wait for both gates, then mount" sequence.
+    const notReady = decideScrollAction(baseInput({ initialScrollReady: false, heroMeasured: false, hasMoreNewer: true }))
     expect(notReady.action).toEqual({ type: "none" })
-    const heroOnly = decideScrollAction(baseInput({ state: notReady.nextState, initialScrollReady: false, heroMeasured: true }))
+    const heroOnly = decideScrollAction(baseInput({ state: notReady.nextState, initialScrollReady: false, heroMeasured: true, hasMoreNewer: true }))
     expect(heroOnly.action).toEqual({ type: "none" })
-    const bothReady = decideScrollAction(baseInput({ state: heroOnly.nextState, initialScrollReady: true, heroMeasured: true }))
+    const bothReady = decideScrollAction(baseInput({ state: heroOnly.nextState, initialScrollReady: true, heroMeasured: true, hasMoreNewer: true }))
     expect(bothReady.action.type).toBe("mount")
+    // Full mount with the snapshot already resolved completes both phases.
+    expect(bothReady.nextState.didDividerConverge).toBe(true)
+  })
+
+  it("phase 2 — converges to the NEW divider once the snapshot resolves after an early bottom, only while still at the bottom", () => {
+    // Phase 1: warm early bottom (snapshot not ready).
+    const phase1 = decideScrollAction(baseInput({ initialScrollReady: false, newDividerBefore: undefined }))
+    expect(phase1.action).toEqual({ type: "scrollToEnd" })
+    expect(phase1.nextState.didDividerConverge).toBe(false)
+    // Phase 2: snapshot resolves, a divider is now named, viewer still at bottom.
+    const phase2 = decideScrollAction(
+      baseInput({ state: phase1.nextState, initialScrollReady: true, newDividerBefore: "m2", isAtEnd: true }),
+    )
+    expect(phase2.action).toEqual({ type: "mount", newDividerBefore: "m2" })
+    expect(phase2.nextState.didDividerConverge).toBe(true)
+  })
+
+  it("phase 2 — does NOT yank the viewport if the user scrolled away before the snapshot resolved", () => {
+    const phase1 = decideScrollAction(baseInput({ initialScrollReady: false }))
+    expect(phase1.action).toEqual({ type: "scrollToEnd" })
+    // Snapshot resolves with a divider, but the viewer is no longer at the bottom.
+    const phase2 = decideScrollAction(
+      baseInput({ state: phase1.nextState, initialScrollReady: true, newDividerBefore: "m2", isAtEnd: false }),
+    )
+    expect(phase2.action).toEqual({ type: "none" })
+    // One-shot still consumed so it can't fire on a later revalidation.
+    expect(phase2.nextState.didDividerConverge).toBe(true)
   })
 
   it("fires exactly once — a second commit with didInitialScroll already true does not re-mount-scroll", () => {
