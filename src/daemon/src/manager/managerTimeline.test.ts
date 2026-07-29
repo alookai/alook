@@ -18,7 +18,7 @@ function manager(rec: TimelineRecorder, capture: { ctx?: LaunchContext }) {
   const handlers: Record<string, ((arg?: unknown) => void)[]> = {};
   const mgr = new AgentProcessManager({
     driverFor: () =>
-      ({ lifecycle: { kind: "persistent" }, supportsStdinNotification: true, busyDeliveryMode: "gated" }) as never,
+      ({ lifecycle: { kind: "persistent", stdin: "gated", inFlightWake: "queue" } }) as never,
     baseContextFor: (agentId) => ({ agentId, workingDirectory: "/tmp/x", standingPrompt: "", config: {} }),
     sessionFactory: ({ ctx }) => {
       capture.ctx = ctx;
@@ -140,7 +140,7 @@ describe("manager.resetSession", () => {
     }> = [];
     const mgr = new AgentProcessManager({
       driverFor: () =>
-        ({ lifecycle: { kind: "persistent" }, supportsStdinNotification: true, busyDeliveryMode: "direct" }) as never,
+        ({ lifecycle: { kind: "persistent", stdin: "direct", inFlightWake: "steer" } }) as never,
       baseContextFor: (agentId) => ({ agentId, workingDirectory: "/tmp/x", standingPrompt: "", config: {} }),
       sessionFactory: ({ ctx }) => {
         const entry: (typeof sessionsCreated)[number] = { ctx, handlers: {}, stopCalled: false, sends: [] };

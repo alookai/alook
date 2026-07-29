@@ -18,9 +18,7 @@ function managerCapturingCtx(): {
   const mgr = new AgentProcessManager({
     driverFor: () =>
       ({
-        lifecycle: { kind: "persistent" },
-        supportsStdinNotification: true,
-        busyDeliveryMode: "gated",
+        lifecycle: { kind: "persistent", stdin: "gated", inFlightWake: "queue" },
         buildSystemPrompt: (config: { description?: string }) =>
           config.description ? `[system] ${config.description}` : "",
       }) as never,

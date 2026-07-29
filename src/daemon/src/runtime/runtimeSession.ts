@@ -12,6 +12,7 @@
 import { EventEmitter } from "events";
 import type { ChildProcess } from "child_process";
 import type { Driver, LaunchContext, StdinMode } from "../types.js";
+import { busyDeliveryModeOf, supportsStdinNotificationOf } from "../types.js";
 import { killProcessTree, SESSION_STOP_GRACE_MS } from "./killTree.js";
 
 /**
@@ -39,8 +40,10 @@ type DriverInFlightWake = "steer" | "queue" | "spawn_new" | "coalesce_into_pendi
 
 export function descriptorFromDriver(driver: Driver): RuntimeSessionDescriptor {
   const lifecycle = driver.lifecycle.kind === "per_turn" ? "turn_based" : "persistent_stream";
-  const idle = driver.supportsStdinNotification ? "stdin" : "unsupported";
-  const busy = driver.supportsStdinNotification ? "stdin_steer" : "unsupported";
+  // Derived from lifecycle (single source of truth) — see supportsStdinNotificationOf.
+  const supportsStdin = supportsStdinNotificationOf(driver.lifecycle);
+  const idle = supportsStdin ? "stdin" : "unsupported";
+  const busy = supportsStdin ? "stdin_steer" : "unsupported";
   return {
     transport: "child_process",
     lifecycle,
@@ -49,7 +52,7 @@ export function descriptorFromDriver(driver: Driver): RuntimeSessionDescriptor {
     turnBoundary: driver.lifecycle.kind === "per_turn" ? "process_exit" : "parsed_event",
     startPolicy: driver.lifecycle.kind === "per_turn" ? driver.lifecycle.start : "immediate",
     inFlightWake: driver.lifecycle.inFlightWake,
-    busyDelivery: driver.busyDeliveryMode,
+    busyDelivery: busyDeliveryModeOf(driver.lifecycle),
     postTurn: driver.terminateProcessOnTurnEnd
       ? "terminate_process"
       : driver.endStdinOnTurnEnd

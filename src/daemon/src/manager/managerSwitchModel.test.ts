@@ -23,8 +23,6 @@ function fakeDriver(id: string): Driver {
     lifecycle: { kind: "per_turn", start: "immediate", exit: "natural", inFlightWake: "spawn_new" } as never,
     session: { recovery: "resume_or_fresh" } as never,
     model: { detectedModelsVerifiedAs: "launchable", toLaunchSpec: () => ({ args: [] }) } as never,
-    supportsStdinNotification: false,
-    busyDeliveryMode: "none",
     probe: () => ({ status: "healthy" as const, version: "test" }),
     spawn: async () => ({ process: {} as never }),
     parseLine: () => [],

@@ -22,6 +22,7 @@ import {
   isActivelyWorking,
 } from "./managerPolicy.js";
 import type { Driver, LaunchContext, SdkDriverDeps } from "../types.js";
+import { busyDeliveryModeOf, supportsStdinNotificationOf } from "../types.js";
 import { resolveLaunchFieldsOrDefault, type RuntimeConfig } from "../runtimeConfig.js";
 import { createChildProcessRuntimeSession, type ChildProcessRuntimeSession } from "../runtime/runtimeSession.js";
 import { SESSION_STOP_GRACE_MS } from "../runtime/killTree.js";
@@ -590,8 +591,8 @@ export class AgentProcessManager {
     const driver = this.opts.driverFor(agentId, this.runtimeConfigs.get(agentId));
     const caps: AgentRuntimeCaps = {
       lifecycleKind: driver.lifecycle.kind,
-      supportsStdinNotification: driver.supportsStdinNotification,
-      busyDeliveryMode: driver.busyDeliveryMode,
+      supportsStdinNotification: supportsStdinNotificationOf(driver.lifecycle),
+      busyDeliveryMode: busyDeliveryModeOf(driver.lifecycle),
     };
     this.dispatch({ type: "register", agentId, caps });
   }

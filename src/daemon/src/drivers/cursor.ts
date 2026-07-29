@@ -26,8 +26,6 @@ export class CursorDriver implements Driver {
     toLaunchSpec: (modelId: string) => ({ args: ["--model", modelId] }),
   } as const;
 
-  readonly supportsStdinNotification = false;
-  readonly busyDeliveryMode = "none" as const;
 
   readonly capabilities = {
     reasoningEffort: false,

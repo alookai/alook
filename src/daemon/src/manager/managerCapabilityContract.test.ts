@@ -30,6 +30,7 @@ import { describe, it, expect } from "vitest";
 import { AgentProcessManager, type ManagedSession, type SessionFactory } from "./managerRuntime.js";
 import { listRuntimeIds, getDriver } from "../drivers/index.js";
 import type { Driver, LaunchContext } from "../types.js";
+import { busyDeliveryModeOf, supportsStdinNotificationOf } from "../types.js";
 import type { Logger } from "../logger.js";
 
 interface CapabilityProfile {
@@ -46,8 +47,10 @@ function profileOf(driver: Driver): CapabilityProfile {
     lifecycleKind: lifecycle.kind,
     stdin: lifecycle.kind === "persistent" ? lifecycle.stdin : undefined,
     inFlightWake: lifecycle.inFlightWake,
-    supportsStdinNotification: driver.supportsStdinNotification,
-    busyDeliveryMode: driver.busyDeliveryMode,
+    // Derived from lifecycle (single source of truth) since #4 — the two fields
+    // are no longer declared on Driver.
+    supportsStdinNotification: supportsStdinNotificationOf(lifecycle),
+    busyDeliveryMode: busyDeliveryModeOf(lifecycle),
   };
 }
 
@@ -307,4 +310,39 @@ describe("AgentProcessManager capability contract — bucket sanity", () => {
   it("the direct/steer bucket contains exactly pi and kimi — codex moved to gated/queue, NOT just pi alone", () => {
     expect(directSteerBuckets.flatMap((b) => b.driverIds).sort()).toEqual(["kimi", "pi"]);
   });
+});
+
+// #4 capability-unify equivalence table (executable). `busyDeliveryMode` and
+// `supportsStdinNotification` are no longer declared on Driver — they derive
+// from `lifecycle`. This pins that the DERIVED values equal the pre-unify
+// literal declarations for EVERY registered driver, byte-for-byte. If a driver
+// is added/changed such that the derivation would differ from its intended
+// mode, this fails — which is the point: the derivation IS the contract now.
+describe("AgentProcessManager capability contract — #4 lifecycle-derived equivalence", () => {
+  // The authoritative pre-unify values (from daemon-capability-unify.md's table).
+  const EXPECTED: Record<string, { busyDeliveryMode: "direct" | "gated" | "none"; supportsStdinNotification: boolean }> = {
+    claude: { busyDeliveryMode: "gated", supportsStdinNotification: true },
+    codex: { busyDeliveryMode: "gated", supportsStdinNotification: true },
+    kimi: { busyDeliveryMode: "direct", supportsStdinNotification: true },
+    pi: { busyDeliveryMode: "direct", supportsStdinNotification: true },
+    gemini: { busyDeliveryMode: "none", supportsStdinNotification: false },
+    copilot: { busyDeliveryMode: "none", supportsStdinNotification: false },
+    cursor: { busyDeliveryMode: "none", supportsStdinNotification: false },
+    opencode: { busyDeliveryMode: "none", supportsStdinNotification: false },
+    antigravity: { busyDeliveryMode: "none", supportsStdinNotification: false },
+  };
+
+  it("every registered driver is in the equivalence table (guards against an unlisted new driver)", () => {
+    expect(listRuntimeIds().slice().sort()).toEqual(Object.keys(EXPECTED).sort());
+  });
+
+  for (const id of listRuntimeIds()) {
+    it(`${id}: derived busyDeliveryMode + supportsStdinNotification equal the pre-unify values`, () => {
+      const lifecycle = getDriver(id).lifecycle;
+      const expected = EXPECTED[id];
+      expect(expected, `driver ${id} missing from EXPECTED table`).toBeDefined();
+      expect(busyDeliveryModeOf(lifecycle)).toBe(expected!.busyDeliveryMode);
+      expect(supportsStdinNotificationOf(lifecycle)).toBe(expected!.supportsStdinNotification);
+    });
+  }
 });

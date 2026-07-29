@@ -48,8 +48,6 @@ function fakeSdkDriver(): { driver: Driver & { createSession: NonNullable<Driver
     lifecycle: { kind: "persistent", stdin: "direct", inFlightWake: "steer" } as const,
     session: { recovery: "resume_or_fresh" } as const,
     model: { detectedModelsVerifiedAs: "launchable", toLaunchSpec: () => ({ params: {} }) } as const,
-    supportsStdinNotification: true,
-    busyDeliveryMode: "direct" as const,
     probe: () => ({ status: "healthy" as const }),
     spawn: async () => {
       throw new Error("unsupported");
@@ -220,8 +218,6 @@ describe("SdkManagedSession", () => {
       lifecycle: { kind: "persistent", stdin: "direct", inFlightWake: "steer" } as const,
       session: { recovery: "resume_or_fresh" } as const,
       model: { detectedModelsVerifiedAs: "launchable", toLaunchSpec: () => ({ params: {} }) } as const,
-      supportsStdinNotification: true,
-      busyDeliveryMode: "direct" as const,
       probe: () => ({ status: "healthy" as const }),
       spawn: async () => {
         throw new Error("unsupported");
@@ -283,8 +279,6 @@ describe("SdkManagedSession", () => {
       lifecycle: { kind: "persistent", stdin: "direct", inFlightWake: "steer" } as const,
       session: { recovery: "resume_or_fresh" } as const,
       model: { detectedModelsVerifiedAs: "launchable", toLaunchSpec: () => ({ params: {} }) } as const,
-      supportsStdinNotification: true,
-      busyDeliveryMode: "direct" as const,
       probe: () => ({ status: "healthy" as const }),
       spawn: async () => {
         throw new Error("unsupported");
@@ -358,8 +352,6 @@ describe("SdkManagedSession — start() does not block on the whole first turn",
       lifecycle: { kind: "persistent", stdin: "direct", inFlightWake: "steer" } as const,
       session: { recovery: "resume_or_fresh" } as const,
       model: { detectedModelsVerifiedAs: "launchable", toLaunchSpec: () => ({ params: {} }) } as const,
-      supportsStdinNotification: true,
-      busyDeliveryMode: "direct" as const,
       probe: () => ({ status: "healthy" as const }),
       spawn: async () => {
         throw new Error("unsupported");

@@ -37,8 +37,6 @@ export class KimiDriver implements Driver {
     toLaunchSpec: (modelId: string) => ({ args: ["--model", modelId] }),
   } as const;
 
-  readonly supportsStdinNotification = true;
-  readonly busyDeliveryMode = "direct" as const;
 
   readonly capabilities = {
     reasoningEffort: false,

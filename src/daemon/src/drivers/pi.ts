@@ -250,8 +250,6 @@ export class PiDriver implements Driver {
     toLaunchSpec: (modelId: string) => ({ params: { model: modelId } }),
   } as const;
 
-  readonly supportsStdinNotification = true;
-  readonly busyDeliveryMode = "direct" as const;
   readonly supportsNativeStandingPrompt = true;
 
   readonly capabilities = {

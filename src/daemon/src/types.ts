@@ -87,6 +87,29 @@ export interface DriverModel {
 export type BusyDeliveryMode = "direct" | "gated" | "none";
 
 /**
+ * `busyDeliveryMode` and `supportsStdinNotification` are DERIVED from `lifecycle`
+ * — `lifecycle` is the single source of truth for a driver's delivery model, so
+ * the two facts can never drift from it (the pre-convergence duplicate `Driver`
+ * fields could — e.g. codex once declared `busyDeliveryMode: "direct"` against a
+ * `gated` lifecycle). Verified identity (not approximation) across all 9 drivers.
+ *
+ * These take `DriverLifecycle` (not the whole `Driver`) to stay a pure data
+ * function with no `Driver`-interface cycle.
+ *
+ * If a future runtime genuinely needs a delivery mode its lifecycle doesn't
+ * imply (e.g. persistent-but-poll), express it as a NEW `DriverLifecycle` shape
+ * — the canonical source — not a side-channel override field. That keeps the
+ * single-source-of-truth invariant this convergence (#4) established.
+ */
+export function busyDeliveryModeOf(lifecycle: DriverLifecycle): BusyDeliveryMode {
+  return lifecycle.kind === "persistent" ? lifecycle.stdin : "none";
+}
+
+export function supportsStdinNotificationOf(lifecycle: DriverLifecycle): boolean {
+  return lifecycle.kind === "persistent";
+}
+
+/**
  * Declarative description of which `RuntimeConfig` fields a driver actually
  * consumes at launch. Enables the platform to render accurate per-driver
  * config surfaces and (in a follow-up) warn on ignored fields.
@@ -291,9 +314,10 @@ export interface Driver {
   readonly session: DriverSession;
   readonly model: DriverModel;
 
-  /** True if the runtime accepts mid-session input (steering / idle prompts). */
-  readonly supportsStdinNotification: boolean;
-  readonly busyDeliveryMode: BusyDeliveryMode;
+  // `supportsStdinNotification` and `busyDeliveryMode` are NOT declared here —
+  // they are derived from `lifecycle` via `supportsStdinNotificationOf` /
+  // `busyDeliveryModeOf` (single source of truth; see those helpers).
+
   /** True if the runtime takes the standing prompt natively (vs. inline). */
   readonly supportsNativeStandingPrompt?: boolean;
 

@@ -57,9 +57,15 @@ When a message arrives, what happens depends on the runtime's lifecycle:
 One long-lived process spans many turns. A new message is **written onto the
 still-open input channel** — no restart. This is "steering."
 
-- **`direct`** (codex, kimi, pi): write immediately; the runtime
-  tolerates injection any time.
-- **`gated`** (claude): a raw write mid-stream could collide with an active
+The busy-delivery mode is **derived from `lifecycle`** (`busyDeliveryModeOf` /
+`supportsStdinNotificationOf` in `types.ts`) — `lifecycle.stdin` is the single
+source of truth, so a driver's mode can't drift from it (it used to: a driver
+could declare `lifecycle.stdin: "gated"` yet `busyDeliveryMode: "direct"`).
+`persistent+direct → direct`, `persistent+gated → gated`, `per_turn → none`.
+
+- **`direct`** (kimi, pi): write immediately; the runtime tolerates injection
+  any time.
+- **`gated`** (claude, codex): a raw write mid-stream could collide with an active
   signed thinking block, so writes are **held until a safe boundary**,
   implemented by:
   - `apmStateMachine` (`src/runtime/apmStateMachine.ts`) — the policy reducers
@@ -90,7 +96,7 @@ message and terminates the process on turn end.
 | Runtime | Lifecycle | Transport / protocol | Steering | Initial input | Output format |
 |---|---|---|---|---|---|
 | **claude** | persistent | child process, stream-json NDJSON | `gated` | `{type:"user",…}` line on stdin | stream-json |
-| **codex** | persistent | child process, JSON-RPC 2.0 (`app-server --listen stdio://`) | `direct` (`turn/steer`) | `initialize` → `thread/start`/`resume` | JSON-RPC notifications |
+| **codex** | persistent | child process, JSON-RPC 2.0 (`app-server --listen stdio://`) | `gated` | `initialize` → `thread/start`/`resume` | JSON-RPC notifications |
 | **kimi** | persistent | child process, JSON-RPC "wire" | `direct` (`steer`) | `initialize` → `prompt` | JSON-RPC events |
 | **pi** | persistent | in-process SDK (`@earendil-works/pi-coding-agent`), multi-provider | `direct` | `session.prompt()` | SDK event callback |
 | **gemini** | per-turn | child process, stream-json | none | prompt on stdin, then close | stream-json |

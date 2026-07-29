@@ -29,8 +29,6 @@ export class OpenCodeDriver implements Driver {
     toLaunchSpec: (modelId: string) => ({ args: ["--model", modelId] }),
   } as const;
 
-  readonly supportsStdinNotification = false;
-  readonly busyDeliveryMode = "none" as const;
   readonly terminateProcessOnTurnEnd = true;
   readonly deferSpawnUntilMessage = true;
 
