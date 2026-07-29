@@ -109,7 +109,7 @@ export function AddMembersDialog({
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
       <DialogContent className="flex max-h-[80vh] w-full flex-col gap-0 p-0 sm:max-w-md">
-        <header className="border-b border-border px-4 py-3">
+        <header className="border-b border-border/50 px-4 py-3">
           <h2 className="truncate text-sm font-semibold">{title}</h2>
           <p className="text-xs text-muted-foreground">{subtitle}</p>
         </header>

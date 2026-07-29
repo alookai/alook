@@ -141,7 +141,7 @@ export function InviteDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="flex max-h-[80vh] w-full flex-col gap-0 p-0 sm:max-w-md">
-        <header className="border-b border-border px-4 py-3">
+        <header className="border-b border-border/50 px-4 py-3">
           <h2 className="truncate text-sm font-semibold">Invite friends to {serverName}</h2>
         </header>
 
@@ -205,7 +205,7 @@ export function InviteDialog({
           )}
         </div>
 
-        <footer className="border-t border-border px-4 py-3">
+        <footer className="border-t border-border/50 px-4 py-3">
           <div className="text-xs font-medium text-muted-foreground">
             Or, send a server invite link to a friend
           </div>
