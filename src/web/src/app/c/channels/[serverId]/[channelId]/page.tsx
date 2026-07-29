@@ -28,6 +28,7 @@ import {
   useCurrentChannelMeta,
   useUiHandlers,
   useTypingUsersForScope,
+  useTypingNamesForScope,
 } from "@/stores/community"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import { useServer } from "@/hooks/community/use-servers"
@@ -428,6 +429,7 @@ function ChannelView() {
   const notifs = useNotificationSettings()
   const channelNotif = notifs.channel
   const typingUsers = useTypingUsersForScope(`ch:${channelId}`)
+  const typingNames = useTypingNamesForScope(`ch:${channelId}`)
 
   // Mutations
   const sendMessageMut = useSendMessage()
@@ -976,7 +978,7 @@ function ChannelView() {
             loading={messagesLoading}
             pinnedIds={pinnedIds}
             newDividerBefore={newDividerBefore}
-            typingUsers={typingUsers.map((id) => resolveUserName(id))}
+            typingUsers={typingUsers.map((id) => typingNames[id] ?? resolveUserName(id))}
             onOpenThread={() => { }}
             {...threadActions}
             onOpenProfile={openProfile}
@@ -1126,7 +1128,7 @@ function ChannelView() {
           loading={messagesLoading}
           pinnedIds={pinnedIds}
           newDividerBefore={newDividerBefore}
-          typingUsers={typingUsers.map((id) => resolveUserName(id))}
+          typingUsers={typingUsers.map((id) => typingNames[id] ?? resolveUserName(id))}
           onOpenThread={enterThread}
           {...messageActions}
           onOpenProfile={openProfile}

@@ -1189,9 +1189,50 @@ describe("useCommunityWs — typing.start honours focus (no DM leak)", () => {
     }
     capturedOnMessage!(event)
 
-    expect([...(useCommunityStore.getState().typingByScope.get("ch:ch_1") ?? [])]).toEqual([
+    expect([...(useCommunityStore.getState().typingByScope.get("ch:ch_1")?.keys() ?? [])]).toEqual([
       "u_other",
     ])
+  })
+
+  it("stores the name the typing event carries (fixes 'Unknown member' when the typer isn't in the loaded roster)", async () => {
+    await mountHook()
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "ch_1" })
+    refCounter = 0
+    stateCounter = 0
+    callbackCounter = 0
+    await mountHook()
+
+    const event: CommunityTypingStart = {
+      type: "community:typing.start",
+      channelId: "ch_1",
+      userId: "u_other",
+      name: "Alice",
+      discriminator: "0001",
+    }
+    capturedOnMessage!(event)
+
+    // The name rides the event → the consumer renders it directly, no roster
+    // lookup, so a typer outside the loaded roster page is no longer "Unknown".
+    expect(useCommunityStore.getState().typingByScope.get("ch:ch_1")?.get("u_other")).toBe("Alice")
+  })
+
+  it("stores null when the typing event carries no name (older server → consumer falls back to roster)", async () => {
+    await mountHook()
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "ch_1" })
+    refCounter = 0
+    stateCounter = 0
+    callbackCounter = 0
+    await mountHook()
+
+    capturedOnMessage!({
+      type: "community:typing.start",
+      channelId: "ch_1",
+      userId: "u_other",
+    } as CommunityTypingStart)
+
+    expect(useCommunityStore.getState().typingByScope.get("ch:ch_1")?.get("u_other")).toBeNull()
   })
 })
 
@@ -1218,7 +1259,7 @@ describe("useCommunityWs — typing state is scoped per conversation", () => {
 
     const state = useCommunityStore.getState()
     // The typer is confined to dm:dm_1 — a channel view reading ch:* sees nothing.
-    expect([...(state.typingByScope.get("dm:dm_1") ?? [])]).toEqual(["u_peer"])
+    expect([...(state.typingByScope.get("dm:dm_1")?.keys() ?? [])]).toEqual(["u_peer"])
     expect(state.typingByScope.get("ch:dm_1")).toBeUndefined()
     // The 8s timer is keyed by (scope, user), not user alone.
     expect(state.typingTimers.has("dm:dm_1|u_peer")).toBe(true)
@@ -1239,7 +1280,7 @@ describe("useCommunityWs — typing state is scoped per conversation", () => {
       channelId: "dm_bot",
       userId: "u_bot",
     })
-    expect([...(useCommunityStore.getState().typingByScope.get("dm:dm_bot") ?? [])]).toEqual([
+    expect([...(useCommunityStore.getState().typingByScope.get("dm:dm_bot")?.keys() ?? [])]).toEqual([
       "u_bot",
     ])
 

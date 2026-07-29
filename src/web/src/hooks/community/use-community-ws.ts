@@ -550,7 +550,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           if (viewerId && userId === viewerId) return
           // Focus check: only surface typing for the currently-viewed target.
           if (!matchesFocus(event)) return
-          applyTypingIndicator(typingScopeKey(event, sub), userId)
+          applyTypingIndicator(typingScopeKey(event, sub), userId, event.name ?? null)
           cbs.onTyping?.(event)
           return
         }
@@ -1175,7 +1175,7 @@ const timerKey = (scopeKey: string, userId: string) => `${scopeKey}|${userId}`
  * No-ops the set write when the user is already typing in the scope (rule 2 —
  * typing.start re-fires every ~3s).
  */
-function applyTypingIndicator(scopeKey: string, userId: string) {
+function applyTypingIndicator(scopeKey: string, userId: string, name: string | null) {
   useCommunityStore.setState((state) => {
     const tKey = timerKey(scopeKey, userId)
     const existing = state.typingTimers.get(tKey)
@@ -1187,12 +1187,14 @@ function applyTypingIndicator(scopeKey: string, userId: string) {
     nextTimers.set(tKey, timer)
 
     const current = state.typingByScope.get(scopeKey)
-    if (current?.has(userId)) {
-      // Already typing here — only the timer refreshed; leave the set alone.
+    // Already typing here with the same known name — only the timer refreshed,
+    // leave the name map alone (avoids a needless re-render). Otherwise (new
+    // typer, or a name we didn't have before) write the entry.
+    if (current?.has(userId) && current.get(userId) === name) {
       return { typingTimers: nextTimers }
     }
     const nextByScope = new Map(state.typingByScope)
-    nextByScope.set(scopeKey, new Set(current ?? []).add(userId))
+    nextByScope.set(scopeKey, new Map(current ?? []).set(userId, name))
     return { typingByScope: nextByScope, typingTimers: nextTimers }
   })
 }
@@ -1214,24 +1216,24 @@ function clearTypingIndicator(scopeKey: string, userId: string) {
 }
 
 /**
- * Pure state patch: drop userId from `scopeKey`'s set (deleting the scope key
- * when it empties, to avoid unbounded Map growth) and its `(scope, user)`
- * timer. Shared by the auto-expire timer and the explicit clear.
+ * Pure state patch: drop userId from `scopeKey`'s typing map (deleting the
+ * scope key when it empties, to avoid unbounded Map growth) and its
+ * `(scope, user)` timer. Shared by the auto-expire timer and the explicit clear.
  */
 function removeTypingUser(
-  state: { typingByScope: Map<string, Set<string>>; typingTimers: Map<string, ReturnType<typeof setTimeout>> },
+  state: { typingByScope: Map<string, Map<string, string | null>>; typingTimers: Map<string, ReturnType<typeof setTimeout>> },
   scopeKey: string,
   userId: string,
-): Partial<{ typingByScope: Map<string, Set<string>>; typingTimers: Map<string, ReturnType<typeof setTimeout>> }> {
+): Partial<{ typingByScope: Map<string, Map<string, string | null>>; typingTimers: Map<string, ReturnType<typeof setTimeout>> }> {
   const nextTimers = new Map(state.typingTimers)
   nextTimers.delete(timerKey(scopeKey, userId))
   const current = state.typingByScope.get(scopeKey)
   if (!current?.has(userId)) return { typingTimers: nextTimers }
-  const nextSet = new Set(current)
-  nextSet.delete(userId)
+  const nextMap = new Map(current)
+  nextMap.delete(userId)
   const nextByScope = new Map(state.typingByScope)
-  if (nextSet.size === 0) nextByScope.delete(scopeKey)
-  else nextByScope.set(scopeKey, nextSet)
+  if (nextMap.size === 0) nextByScope.delete(scopeKey)
+  else nextByScope.set(scopeKey, nextMap)
   return { typingByScope: nextByScope, typingTimers: nextTimers }
 }
 

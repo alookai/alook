@@ -16,6 +16,7 @@ import {
   useCurrentChannelId,
   useUiHandlers,
   useTypingUsersForScope,
+  useTypingNamesForScope,
 } from "@/stores/community"
 import { useOnlineUserIds, useCommunityWsStore } from "@/stores/community/ws"
 import { tid } from "@/lib/community/testids"
@@ -177,6 +178,7 @@ function DmView() {
 
 
   const typingUsers = useTypingUsersForScope(`dm:${dmId}`)
+  const typingNames = useTypingNamesForScope(`dm:${dmId}`)
   const sendDmMessage = useSendDmMessage()
   const toggleReaction = useToggleReactionApi()
   const uploadFile = useUploadFile()
@@ -345,7 +347,7 @@ function DmView() {
           messages={messages}
           loading={messagesLoading}
           newDividerBefore={newDividerBefore}
-          typingUsers={typingUsers.map((id) => resolveUserName(id))}
+          typingUsers={typingUsers.map((id) => typingNames[id] ?? resolveUserName(id))}
           onOpenThread={() => { }}
           onToggleReaction={dmBlocked ? undefined : messageActions.onToggleReaction}
           onReact={dmBlocked ? undefined : messageActions.onReact}

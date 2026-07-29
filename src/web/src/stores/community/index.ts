@@ -87,9 +87,11 @@ export type CommunityStoreState = {
 
   // Typing indicators, keyed by conversation scope so a DM typer never leaks
   // into a channel view (and vice versa). `scopeKey` is `dm:<id>` / `ch:<id>`
-  // (see `use-community-ws.ts`). Each scope maps to the set of userIds typing
-  // there right now; `typingTimers` auto-expires each `(scope, user)` pair.
-  typingByScope: Map<string, Set<string>>
+  // (see `use-community-ws.ts`). Each scope maps its typing userIds to the
+  // display name the typing event carried (`null` when the event didn't
+  // include one — an older server — so the consumer falls back to roster
+  // resolution). `typingTimers` auto-expires each `(scope, user)` pair.
+  typingByScope: Map<string, Map<string, string | null>>
   typingTimers: Map<string, Timer>
   // Rate-limit for typing.start emissions the viewer sends outbound; keyed
   // by channelId/dmId so switching contexts doesn't cross-throttle.
@@ -238,6 +240,8 @@ export const usePendingMachineTokenId = () =>
 // Module-scoped stable empty array — avoids allocating a fresh `[]` on every
 // selector run for the common no-typing case.
 const EMPTY_TYPING: string[] = []
+// Stable empty object for the no-typing case, so `useShallow` doesn't churn.
+const EMPTY_TYPING_NAMES: Record<string, string | null> = {}
 
 /**
  * The userIds currently typing in a given conversation scope (`dm:<id>` /
@@ -248,7 +252,25 @@ const EMPTY_TYPING: string[] = []
 export const useTypingUsersForScope = (scopeKey: string) =>
   useCommunityStore(
     useShallow((s) => {
-      const set = s.typingByScope.get(scopeKey)
-      return set ? Array.from(set) : EMPTY_TYPING
+      const map = s.typingByScope.get(scopeKey)
+      return map ? Array.from(map.keys()) : EMPTY_TYPING
+    }),
+  )
+
+/**
+ * The display names the typing events carried for a scope, keyed by userId
+ * (`null` when the event didn't include one). Consumers prefer this name and
+ * fall back to roster resolution only when it's absent — the fix for
+ * "Unknown member is typing" when the typer isn't in the loaded roster page.
+ * Returned as a plain object so `useShallow` can compare it entry-wise.
+ */
+export const useTypingNamesForScope = (scopeKey: string) =>
+  useCommunityStore(
+    useShallow((s) => {
+      const map = s.typingByScope.get(scopeKey)
+      if (!map) return EMPTY_TYPING_NAMES
+      const out: Record<string, string | null> = {}
+      for (const [id, name] of map) out[id] = name
+      return out
     }),
   )
