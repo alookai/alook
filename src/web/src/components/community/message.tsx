@@ -4,12 +4,13 @@ import { memo, useState } from "react"
 import type React from "react"
 import {
   MessagesSquare, UserPlus, SmilePlus, Reply,
-  MoreHorizontal, FileText, Download, X,
+  MoreHorizontal, FileText, Download, X, Share,
 } from "lucide-react"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent } from "@/components/ui/context-menu"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from "@/components/ui/dropdown-menu"
 import { Avatar } from "./avatar"
 import { MessageBody } from "./message-body"
+import { MessageShareDialog } from "./message-share-dialog"
 import { BotApprovalCard } from "./bot-approval-card"
 import { EmojiPickerPopover } from "./emoji-picker"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
@@ -66,6 +67,9 @@ function MessageImpl({
   // hover OR focus OR keydown/contextmenu — focus/keydown are required for a11y
   // (keyboard context menu / Tab-to-row have no pointerenter).
   const [activated, setActivated] = useState(false)
+  // Share-as-image dialog. Local to the row — the card is built from `m` alone,
+  // so no callback needs threading through message-list.
+  const [shareOpen, setShareOpen] = useState(false)
 
   if (m.type === "system") {
     const Icon = m.systemKind === "thread" ? MessagesSquare : UserPlus
@@ -78,11 +82,16 @@ function MessageImpl({
     )
   }
 
+  // Share is only meaningful for a message with rendered text content (the card
+  // mirrors avatar/name/content — an approval/attachment-only row has nothing to
+  // put on it).
+  const canShare = !compact && !m.approval && !!m.content
   const menuHandlers = {
     onAddReaction: onReact ? () => onReact("👍") : undefined,
     onReply, onPin, pinned,
     onCreateThread: m.thread ? undefined : onCreateThread,
     onCopy,
+    onShare: canShare ? () => setShareOpen(true) : undefined,
   }
   const showMenu = hasMessageMenu(menuHandlers)
   const interactive = !compact && showMenu
@@ -116,6 +125,11 @@ function MessageImpl({
           {onReply && (
             <button onClick={onReply} className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-label="Reply">
               <Reply className="size-4" />
+            </button>
+          )}
+          {canShare && (
+            <button data-testid={tid.messageShare(m.id)} onClick={() => setShareOpen(true)} className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-label="Share as image">
+              <Share className="size-4" />
             </button>
           )}
           <DropdownMenu onOpenChange={setToolbarOpen}>
@@ -346,19 +360,28 @@ function MessageImpl({
     </div>
   )
 
+  // The share dialog mounts lazily (only once opened) and is rendered alongside
+  // whichever row variant we return, so it survives across both branches.
+  const shareDialog = canShare && shareOpen ? (
+    <MessageShareDialog m={m} open={shareOpen} onClose={() => setShareOpen(false)} />
+  ) : null
+
   // Not interactive, or not yet activated → render the bare row (which carries
   // the pointerenter/focus/keydown activation handlers). The row's Base UI
   // ContextMenu root is only mounted once hover/focus has activated it — and a
   // right-click is always preceded by a pointerenter (mouse arriving on the
   // row), and Shift+F10 by focus, so the menu is mounted before it's invoked.
-  if (!interactive || !activated) return row
+  if (!interactive || !activated) return <>{row}{shareDialog}</>
   return (
-    <ContextMenu>
-      <ContextMenuTrigger className="select-text" render={row} />
-      <ContextMenuContent className="w-48">
-        <MessageContextItems {...menuHandlers} />
-      </ContextMenuContent>
-    </ContextMenu>
+    <>
+      <ContextMenu>
+        <ContextMenuTrigger className="select-text" render={row} />
+        <ContextMenuContent className="w-48">
+          <MessageContextItems {...menuHandlers} />
+        </ContextMenuContent>
+      </ContextMenu>
+      {shareDialog}
+    </>
   )
 }
 

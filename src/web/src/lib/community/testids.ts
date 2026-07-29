@@ -26,6 +26,8 @@ export const tid = {
   memberRow: (id: string) => `community-member-row-${id}`,
   mentionOption: (id: string) => `community-mention-option-${id}`,
   reactionAdd: (msgId: string) => `community-reaction-add-${msgId}`,
+  messageShare: (msgId: string) => `community-message-share-${msgId}`,
+  messageShareCopy: `community-message-share-copy`,
   threadIndicator: (msgId: string) => `community-thread-indicator-${msgId}`,
   railUnreadBadge: (serverId: string) => `community-rail-unread-badge-${serverId}`,
   // Forum post feed (ForumView). `forumPostCard` is the whole clickable card;
