@@ -32,11 +32,7 @@ import {
   consumeVoluntaryLeave,
   pickPostEjectDestination,
 } from "@/components/community/eject-server"
-import {
-  useInvites,
-  useAuditLog,
-  usePresence,
-} from "@/hooks/community/use-server-panels"
+import { usePresence } from "@/hooks/community/use-server-panels"
 import { useCommunityWsStore, useOnlineUserIds } from "@/stores/community/ws"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
 import {
@@ -90,12 +86,9 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   // stays stable across presence ticks.
   const myMember = membersHook.members.find((m) => m.userId === currentUser.id)
   const isAdmin = canManageServer(myMember?.role)
-  // Fetch invites for every member (not just admins) — the invite popover on
-  // the sidebar header reuses cached invites to avoid burning the per-server
-  // active-invite cap. Non-admins can now create invites too, so the cache is
-  // genuinely useful to them as well.
-  const { invites, isLoading: invitesLoading } = useInvites(serverId, true)
-  const { entries: auditLog, isLoading: auditLogLoading } = useAuditLog(serverId, isAdmin)
+  // invites + audit-log are no longer fetched here (W-LAZY, necessity plan):
+  // they're admin-only, low-frequency panel data, so ServerSettings fetches
+  // them itself only when their tab opens — never eagerly on server entry.
   const presence = usePresence(serverId)
   const { online: initialOnline } = presence
   const notifs = useNotificationSettings()
@@ -406,10 +399,6 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
           membersTotal={membersHook.total}
           onLoadMoreMembers={membersHook.loadMore}
           onSearchMembers={membersHook.searchMembers}
-          invites={invites}
-          invitesLoading={invitesLoading}
-          auditLog={auditLog}
-          auditLogLoading={auditLogLoading}
           onKickMember={(memberId) => {
             kickMemberMut.mutate({ serverId, memberId }, {
               onSuccess: () => toast("Member kicked"),

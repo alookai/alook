@@ -19,6 +19,7 @@ import { avatarInitial } from "@/lib/community/avatar"
 import { SlugHint } from "./slug-hint"
 import { previewSlug } from "@/lib/community/slug-preview"
 import { tid } from "@/lib/community/testids"
+import { useInvites, useAuditLog } from "@/hooks/community/use-server-panels"
 import type { SettingsSection, Member, Role, InviteRow, AuditEntry, OpenProfile } from "./_types"
 import { isServerOwner } from "./_types"
 
@@ -32,7 +33,7 @@ function capitalize(s: string): string {
 export function ServerSettings({
   section, setSection, onClose, serverId, serverName, serverDescription, serverIcon,
   members, membersLoading, membersLoadingMore, membersHasMore, membersTotal, onLoadMoreMembers, onSearchMembers,
-  invites, invitesLoading, auditLog, auditLogLoading, onOpenProfile,
+  onOpenProfile,
   onKickMember, onSetRole, onRevokeInvite, onCopyInvite, onDeleteServer, onUploadIcon, onUpdateServer, notifLevel, onSetNotifLevel,
 }: {
   section: SettingsSection
@@ -49,10 +50,6 @@ export function ServerSettings({
   membersTotal?: number
   onLoadMoreMembers?: () => void
   onSearchMembers?: (q: string) => void
-  invites: InviteRow[]
-  invitesLoading?: boolean
-  auditLog: AuditEntry[]
-  auditLogLoading?: boolean
   onOpenProfile?: OpenProfile
   onKickMember?: (memberId: string) => void
   onSetRole?: (memberId: string, role: Role) => void
@@ -65,6 +62,16 @@ export function ServerSettings({
   onSetNotifLevel?: (l: string) => void
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
+
+  // W-LAZY (necessity plan): invites + audit-log are low-frequency, admin-only
+  // panel data — fetch them ONLY when their tab is actually open, never at
+  // mount, never via WS (Gus, 架构 #25). Gating `enabled` on the active section
+  // means opening Settings on any other tab fetches neither; switching TO the
+  // Invites / Audit tab fetches it fresh then. Previously both were eager-
+  // prefetched in the ServerLayout on every server entry.
+  const { invites, isLoading: invitesLoading } = useInvites(serverId, section === "invites")
+  const { entries: auditLog, isLoading: auditLogLoading } = useAuditLog(serverId, section === "audit")
+
   const nav: { id: SettingsSection; label: string; icon: LucideIcon }[] = [
     { id: "overview", label: "Overview", icon: Settings },
     { id: "members", label: "Members", icon: Users },
