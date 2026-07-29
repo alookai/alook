@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { queries, CommunityAgentInboxPullRequestSchema } from "@alook/shared"
+import { queries, withD1Retry, CommunityAgentInboxPullRequestSchema } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAgentRunnerAuth } from "@/lib/middleware/community-agent-runner-auth"
 
@@ -35,7 +35,16 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
   const max = Math.min(parsed.data.max ?? MAX_PULL, MAX_PULL)
 
   // Fetch one extra row to detect whether more unread remain beyond `max`.
-  const rows = await queries.communityAgentInbox.listUnreadMessagesForAgent(db, ctx.botUserId, { max: max + 1 })
+  // Each D1 call is wrapped in withD1Retry so a transient miniflare/D1 blip
+  // (`internal error; reference`, on isRetryableD1Error's list) is retried
+  // instead of surfacing as a hard 500 to the bot — the same armor the
+  // human-facing bootstrap route already has. A non-transient throw still
+  // propagates (withD1Retry rethrows once retries are exhausted / on a
+  // non-retryable error).
+  const rows = await withD1Retry(
+    () => queries.communityAgentInbox.listUnreadMessagesForAgent(db, ctx.botUserId, { max: max + 1 }),
+    { route: "community/agent/inboxPull:list-unread" },
+  )
   const hasMore = rows.length > max
   const page = hasMore ? rows.slice(0, max) : rows
 
@@ -43,7 +52,10 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
   // rows (message_id = NULL) never match this inArray, so agent-uploaded
   // pending rows are naturally excluded from the inbox.
   const messageIds = page.map((r) => r.id)
-  const attachmentRows = await queries.communityAttachment.listByMessageIds(db, messageIds)
+  const attachmentRows = await withD1Retry(
+    () => queries.communityAttachment.listByMessageIds(db, messageIds),
+    { route: "community/agent/inboxPull:attachments" },
+  )
   const attachmentsByMessageId = new Map<string, Array<{ id: string; filename: string; contentType: string | null; size: number | null }>>()
   for (const a of attachmentRows) {
     if (!a.messageId) continue
@@ -52,11 +64,14 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
     attachmentsByMessageId.set(a.messageId, list)
   }
 
-  const messages = await queries.communityAgentInbox.toAgentMessages(
-    db,
-    page,
-    ctx.botUserId,
-    attachmentsByMessageId,
+  const messages = await withD1Retry(
+    () => queries.communityAgentInbox.toAgentMessages(
+      db,
+      page,
+      ctx.botUserId,
+      attachmentsByMessageId,
+    ),
+    { route: "community/agent/inboxPull:hydrate" },
   )
   return NextResponse.json({ messages, hasMore })
 })

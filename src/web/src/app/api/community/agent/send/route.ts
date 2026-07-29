@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { queries, CommunityAgentSendRequestSchema } from "@alook/shared"
+import { queries, withD1Retry, CommunityAgentSendRequestSchema } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAgentRunnerAuth } from "@/lib/middleware/community-agent-runner-auth"
 import { resolveTargetForMember, resolveErrorResponse } from "@/lib/community/resolve-ref"
@@ -57,16 +57,31 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
   // would block it forever while the pull hands over nothing to advance its
   // `lastReadSeq` — a permanent wedge. `latestSeq` is still fetched: it feeds
   // the optimistic `expectedSeq` claim below and the `blocked` response shape.
+  // Each D1 call is wrapped in withD1Retry so a transient miniflare/D1 blip
+  // retries instead of hard-500ing the bot (same armor as bootstrap). The
+  // alignment DECISION (blocked/unaligned) and the CAS 409 below are
+  // structured returns, not thrown errors, so they never enter the retry —
+  // only genuine D1 exceptions do (Cecilia red line: never retry business
+  // failures).
   const [latestSeq, readState] = await Promise.all([
-    queries.communityAgentInbox.getLatestSeqForScope(db, resolved.channelId),
-    queries.communityReadState.getReadState(db, { userId: ctx.botUserId, ...scopeTarget }),
+    withD1Retry(
+      () => queries.communityAgentInbox.getLatestSeqForScope(db, resolved.channelId),
+      { route: "community/agent/send:latest-seq" },
+    ),
+    withD1Retry(
+      () => queries.communityReadState.getReadState(db, { userId: ctx.botUserId, ...scopeTarget }),
+      { route: "community/agent/send:read-state" },
+    ),
   ])
   const seen = body.seenUpToSeq ?? readState?.lastReadSeq ?? 0
-  const hasUnread = await queries.communityAgentInbox.hasDeliverableUnreadForAgentScope(
-    db,
-    ctx.botUserId,
-    resolved.channelId,
-    seen,
+  const hasUnread = await withD1Retry(
+    () => queries.communityAgentInbox.hasDeliverableUnreadForAgentScope(
+      db,
+      ctx.botUserId,
+      resolved.channelId,
+      seen,
+    ),
+    { route: "community/agent/send:has-unread" },
   )
   if (hasUnread) {
     return NextResponse.json({
@@ -110,11 +125,14 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
   // Any mismatch returns the same generic 400, no leakage of which id failed.
   const attachmentTargetId = target.channelId
   if (body.attachments.length > 0) {
-    const rows = await queries.communityAttachment.findPendingAttachmentsForBot(db, {
-      ids: body.attachments,
-      uploaderId: ctx.botUserId,
-      targetId: attachmentTargetId,
-    })
+    const rows = await withD1Retry(
+      () => queries.communityAttachment.findPendingAttachmentsForBot(db, {
+        ids: body.attachments,
+        uploaderId: ctx.botUserId,
+        targetId: attachmentTargetId,
+      }),
+      { route: "community/agent/send:attachments" },
+    )
     if (rows.length !== body.attachments.length) {
       return NextResponse.json(
         { error: "attachment not found or not attachable to this target" },
@@ -130,10 +148,13 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
   // nothing is posted.
   let replyToId: string | undefined
   if (body.replyToSeq !== undefined) {
-    const replyTarget = await queries.communityMessage.getMessageByChannelAndSeq(
-      db,
-      scopeTarget,
-      body.replyToSeq,
+    const replyTarget = await withD1Retry(
+      () => queries.communityMessage.getMessageByChannelAndSeq(
+        db,
+        scopeTarget,
+        body.replyToSeq!,
+      ),
+      { route: "community/agent/send:reply-lookup" },
     )
     if (!replyTarget) {
       return NextResponse.json(
@@ -151,6 +172,11 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
   // shape the gate above returns, with a freshly re-fetched `latestSeq` (the
   // stale one is now off-by-at-least-one). The daemon's existing "blocked →
   // inbox pull → retry" handling needs no changes for this (plan §4).
+  // NOT wrapped in withD1Retry: createCommunityMessage is a CAS-guarded write
+  // (`expectedSeq`). Blindly retrying it on a transient could re-attempt a
+  // partially-applied claim; its own conflict handling returns a structured
+  // 409 (below) which the daemon already realigns on. Its internal transient
+  // resilience, if any, belongs inside the handler, not a blanket outer retry.
   const result = await createCommunityMessage({
     db,
     authorId: ctx.botUserId,
@@ -162,7 +188,10 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
   })
   if (!result.ok) {
     if (result.status === 409) {
-      const freshLatestSeq = await queries.communityAgentInbox.getLatestSeqForScope(db, resolved.channelId)
+      const freshLatestSeq = await withD1Retry(
+        () => queries.communityAgentInbox.getLatestSeqForScope(db, resolved.channelId),
+        { route: "community/agent/send:fresh-latest-seq" },
+      )
       return NextResponse.json({
         state: "blocked",
         reason: "unaligned",

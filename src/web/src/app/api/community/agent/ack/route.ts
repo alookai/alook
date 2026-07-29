@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { queries, CommunityAgentAckRequestSchema } from "@alook/shared"
+import { queries, withD1Retry, CommunityAgentAckRequestSchema } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAgentRunnerAuth } from "@/lib/middleware/community-agent-runner-auth"
 import { resolveTargetForMember, resolveErrorResponse } from "@/lib/community/resolve-ref"
@@ -47,7 +47,13 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
       if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status })
     }
 
-    const bumped = await queries.communityReadState.bumpReadCursor(db, ctx.botUserId, scopeTarget, cursor.seq)
+    // Idempotent write — safe to retry a transient D1 blip (same treatment as
+    // the human-facing routes). A real "no such seq" is a structured `false`
+    // return below, not a thrown error, so it is never retried.
+    const bumped = await withD1Retry(
+      () => queries.communityReadState.bumpReadCursor(db, ctx.botUserId, scopeTarget, cursor.seq),
+      { route: "community/agent/ack:bump" },
+    )
     if (!bumped) {
       return NextResponse.json(
         { error: `no message with seq #${cursor.seq} in ${cursor.channel}` },

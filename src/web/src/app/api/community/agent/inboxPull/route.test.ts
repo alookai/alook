@@ -100,4 +100,27 @@ describe("POST /api/community/agent/inboxPull", () => {
     expect(res.status).toBe(200)
     expect(mockListUnreadMessagesForAgent).toHaveBeenCalledWith(expect.anything(), "bot_1", { max: 201 })
   })
+
+  it("retries a transient D1 error and succeeds (withD1Retry wraps the pull reads)", async () => {
+    // First call throws a retryable transient (`internal error; reference` is
+    // on isRetryableD1Error's list), second succeeds — the route should NOT
+    // 500, it should retry and return the messages.
+    mockListUnreadMessagesForAgent
+      .mockRejectedValueOnce(new Error("D1_ERROR: internal error; reference = abc123"))
+      .mockResolvedValueOnce([{ id: "m_1" }])
+    const res = await POST(req(JSON.stringify({ max: 5 }), { Authorization: "Bearer crk_abc" }))
+    expect(res.status).toBe(200)
+    expect((await res.json()).messages).toHaveLength(1)
+    expect(mockListUnreadMessagesForAgent).toHaveBeenCalledTimes(2)
+  })
+
+  it("a NON-retryable error is not retried and surfaces (no silent swallow)", async () => {
+    // A logic error (not a transient) must propagate, not be retried into a
+    // false success. withD1Retry rethrows non-retryable errors immediately.
+    mockListUnreadMessagesForAgent.mockRejectedValue(new Error("SQLITE_CONSTRAINT: bad column"))
+    await expect(POST(req(JSON.stringify({ max: 5 }), { Authorization: "Bearer crk_abc" }))).rejects.toThrow(
+      /SQLITE_CONSTRAINT/,
+    )
+    expect(mockListUnreadMessagesForAgent).toHaveBeenCalledTimes(1)
+  })
 })
