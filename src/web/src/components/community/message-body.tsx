@@ -2,6 +2,7 @@ import { memo, useMemo } from "react"
 import { Streamdown } from "streamdown"
 import rehypeSanitize, { defaultSchema, type Options as SanitizeSchema } from "rehype-sanitize"
 import { harden } from "rehype-harden"
+import remarkGfm from "remark-gfm"
 import remarkBreaks from "remark-breaks"
 import type { PluggableList } from "unified"
 import { mermaid, cjk, math } from "@/lib/streamdown-plugins"
@@ -72,7 +73,14 @@ const REHYPE_PLUGINS: PluggableList = [
 ]
 
 // Message body renderer. Standard markdown (bold/italic/strike/code/codeblock/quote)
-// is rendered natively by streamdown (GFM, matching agent-chat). The shared
+// plus GFM constructs (tables, task lists, autolinks, strikethrough) render via
+// `remarkGfm` in the remarkPlugins array below — it MUST be listed explicitly
+// because passing a custom `remarkPlugins` replaces Streamdown's default array
+// (which bundles remark-gfm), so without it GFM silently stops parsing. This
+// matches agent-chat, which gets GFM from Streamdown's untouched defaults. The
+// table tags GFM emits are already permitted by rehype-sanitize's defaultSchema
+// (`table/thead/tbody/tr/td/th`); table controls are wired via `controls.table`
+// below. The shared
 // mermaid/math/cjk plugins give parity with the agent bubble (diagrams, KaTeX
 // math, CJK spacing) and operate on different constructs than the chat-only
 // syntax (spoilers, @mentions, @everyone, #channels) that `chatSyntaxPlugin`
@@ -102,7 +110,7 @@ function MessageBodyImpl({
       <Streamdown
         parseIncompleteMarkdown={false}
         plugins={{ mermaid, cjk, math }}
-        remarkPlugins={[chatSyntaxPlugin, remarkBreaks]}
+        remarkPlugins={[remarkGfm, chatSyntaxPlugin, remarkBreaks]}
         remarkRehypeOptions={{ handlers: chatSyntaxHandlers }}
         rehypePlugins={REHYPE_PLUGINS}
         // Deliberately skips the AI-content confirm-before-navigating modal
