@@ -174,8 +174,6 @@ function messagingSection(): string {
     "",
     "- Reply where the message came from. Post results in the channel that owns the topic. " +
       "When uncertain, read history (below) or DM the relevant people.",
-    "- To discuss a specific message (its seq `#N`) without cluttering the channel, start a thread " +
-      "rooted at it: `--target /<server>/<channel>/#N` creates the thread on that message.",
     `- Short reply: \`${CLI} message send --target <ref> --text "brief reply"\`.`,
     `- Long or complicated: write body to a tmp file, then \`${CLI} message send --target <ref> --file ./temp_msg.md\`.`,
     `- Cite a specific message: \`${CLI} message send --target <ref> --reply "#37" --text "on it"\` — ` +
@@ -196,6 +194,17 @@ function messagingSection(): string {
     "",
     "Use the `channel` field from a received message as `--target`. For an in-thread reply, use " +
       "the thread ref (`/<server>/<channel>/#N`).",
+    "",
+    "### Threads",
+    "",
+    "To discuss a specific message (its seq `#N`) without cluttering the channel, start a thread " +
+      "rooted at it: send with `--target /<server>/<channel>/#N` and the thread is created on that " +
+      "message.",
+    "",
+    "A thread and its parent channel are effectively two separate channels: messages don't cross " +
+      "between them, and posting in a thread does NOT notify the parent channel. So someone reading " +
+      "the parent won't see the thread's discussion. To pull someone into a thread, @mention them " +
+      "there — the mention is what reaches them; without it they have no signal the thread exists.",
     "",
     "### Public vs private channels",
     "",
