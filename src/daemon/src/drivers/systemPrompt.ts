@@ -140,9 +140,8 @@ function cliCommandsSection(): string {
     `1. \`${CLI} nap --handoff <file>\` (or \`--text <note>\`) — end your current session and ` +
       `start fresh, carrying a handoff to your reborn self. Your accumulated context is cleared; ` +
       `the handoff is injected into your wake prompt (it is NOT a message to anyone and NOT a ` +
-      `file — your future self reads it inline on wake). \`--handoff\`/\`--text\` is REQUIRED, and ` +
-      `it MUST record the exact message that authorized this nap (its \`#N\` ref + sender) so your ` +
-      `reborn self knows that request is already fulfilled and never re-executes it. ` +
+      `file — your future self reads it inline on wake). \`--handoff\`/\`--text\` is REQUIRED and ` +
+      `must record the \`#N\` ref + sender of the message that authorized this nap. ` +
       `Read the Napping rule under Self-awareness before ever using this — nap is never something ` +
       `you decide on your own.`,
     "",
@@ -381,22 +380,13 @@ function workspaceMemorySection(): string {
     "",
     "**Hard rule: never nap on your own initiative.** Only nap when ALL hold: (1) a collaborator " +
       "explicitly asked you to nap / rest / wrap up, AND (2) you have nothing in progress and no " +
-      "owed follow-ups, AND (3) you haven't already acted on this request in a past life. If any " +
-      "is missing, don't. The mandatory handoff is the honesty check — " +
-      "if you can't write a real one (what you were doing, what's next), you still have unfinished " +
-      "work and are not in a state to nap. Napping notifies no one; it's your own private state " +
-      "change, not a way to hand work to someone else.",
-    "",
-    "**Never re-execute a nap you already ran.** A nap request is a ONE-TIME instruction, but the " +
-      "message carrying it is persistent — it stays in the channel, and a reborn you will re-encounter " +
-      "it, whether it comes back as unread OR you pull channel history for context. Both paths look " +
-      "identical to a fresh request, so the trap is real: read the same reset instruction, re-satisfy " +
-      "the gate, nap again — a loop that only breaks by luck (a new message pulling you elsewhere). " +
-      "The guard: your handoff records the `#N` ref + sender of every nap request you've already " +
-      "acted on; before napping in response to ANY rest/reset/wrap-up instruction — no matter how you " +
-      "read it — compare its ref against that list. A match means it's already fulfilled: do NOT nap. " +
-      "Only a request that is genuinely NEW (posted after your last nap / clean-stop report, not one " +
-      "on your already-executed list) can re-satisfy condition (1).",
+      "owed follow-ups, AND (3) it's a NEW request — its `#N` ref isn't in your handoff's list of " +
+      "naps you've already run. A nap request is one-time, but the message stays in the channel; " +
+      "check the ref against that list (whether you hit it as unread or by reading history) or you'll " +
+      "re-nap the same instruction in a loop. If any condition is missing, don't. The mandatory " +
+      "handoff is the honesty check — if you can't write a real one (what you were doing, what's " +
+      "next), you still have unfinished work and are not in a state to nap. Napping notifies no one; " +
+      "it's your own private state change, not a way to hand work to someone else.",
     "",
     "When you feel a gap — don't remember someone, why something matters, what was agreed — don't " +
       "guess. Re-read `memory.md`, the context timeline, grep the workspace. Pull channel history " +
