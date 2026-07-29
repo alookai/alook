@@ -3,7 +3,7 @@
 import { useRef, useState } from "react"
 import { toast } from "sonner"
 import { Plus, ChevronRight, Link2 } from "lucide-react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { CreateDialogShell } from "./create-dialog-shell"
 import { Button } from "@/components/ui/button"
 import { tid } from "@/lib/community/testids"
 import { SlugHint } from "./slug-hint"
@@ -40,13 +40,29 @@ export function CreateServerDialog({ onClose, onCreateServer, onJoinServer }: {
   }
   return (
     <>
-      <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
-        <DialogContent className="w-105 max-w-[calc(100vw-2rem)] p-0">
-          <DialogHeader className="px-5 pt-5 pb-0">
-            <DialogTitle className={step === "choose" ? "" : "text-xs font-normal text-muted-foreground"}>
-              {step === "choose" ? "Create a Server" : step === "create" ? "Customize your server" : "Join a Server"}
-            </DialogTitle>
-          </DialogHeader>
+      <CreateDialogShell
+        onClose={onClose}
+        mutedTitle={step !== "choose"}
+        title={step === "choose" ? "Create a Server" : step === "create" ? "Customize your server" : "Join a Server"}
+        footerClassName="justify-between"
+        footer={step === "choose" ? undefined : (
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setStep("choose")}>Back</Button>
+            <Button
+              size="sm"
+              data-testid={tid.createServerSubmit}
+              disabled={step === "create" ? !namePreview.slug : !invite.trim()}
+              onClick={() => {
+                if (step === "create") onCreateServer?.(name.trim(), iconFile ?? undefined)
+                else onJoinServer?.(invite.trim())
+                onClose()
+              }}
+            >
+              {step === "create" ? "Create" : "Join Server"}
+            </Button>
+          </>
+        )}
+      >
           <div className="px-5 pb-5">
             {step === "choose" && (
               <div className="space-y-1">
@@ -110,25 +126,7 @@ export function CreateServerDialog({ onClose, onCreateServer, onJoinServer }: {
               </div>
             )}
           </div>
-          {step !== "choose" && (
-            <DialogFooter className="mx-0 mb-0 flex-row items-center justify-between px-5 pb-5">
-              <Button variant="ghost" size="sm" onClick={() => setStep("choose")}>Back</Button>
-              <Button
-                size="sm"
-                data-testid={tid.createServerSubmit}
-                disabled={step === "create" ? !namePreview.slug : !invite.trim()}
-                onClick={() => {
-                  if (step === "create") onCreateServer?.(name.trim(), iconFile ?? undefined)
-                  else onJoinServer?.(invite.trim())
-                  onClose()
-                }}
-              >
-                {step === "create" ? "Create" : "Join Server"}
-              </Button>
-            </DialogFooter>
-          )}
-        </DialogContent>
-      </Dialog>
+      </CreateDialogShell>
       {pendingCropSrc && (
         <ImageCropDialog
           imageSrc={pendingCropSrc.src}

@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { Check } from "lucide-react"
 import { EntityIcon } from "./entity-icon"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { CreateDialogShell } from "./create-dialog-shell"
 import { Button } from "@/components/ui/button"
 import { tid } from "@/lib/community/testids"
 import { onEnterSubmit } from "@/lib/ime"
@@ -38,14 +38,16 @@ export function CreateChannelDialog({ category, initial, onClose, onCreate }: {
   }
 
   return (
-    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
-      <DialogContent className="w-105 max-w-[calc(100vw-2rem)] p-0">
-        {/* Small breadcrumb for context; the name below is the hero. */}
-        <DialogHeader className="px-5 pt-5 pb-0">
-          <DialogTitle className="text-xs font-normal text-muted-foreground">
-            {editing ? "Edit channel" : "New channel"}{category ? ` in ${category}` : ""}
-          </DialogTitle>
-        </DialogHeader>
+    <CreateDialogShell
+      onClose={onClose}
+      title={`${editing ? "Edit channel" : "New channel"}${category ? ` in ${category}` : ""}`}
+      footer={
+        <>
+          <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" data-testid={tid.createChannelSubmit} onClick={submit} disabled={!namePreview.slug}>{editing ? "Save" : "Create Channel"}</Button>
+        </>
+      }
+    >
         <div className="space-y-6 px-5 pb-5 pt-2">
           {/* Channel name = hero: large inline title input, glyph in front. */}
           <div>
@@ -92,11 +94,6 @@ export function CreateChannelDialog({ category, initial, onClose, onCreate }: {
             </div>
           )}
         </div>
-        <DialogFooter className="mx-0 mb-0 flex-row items-center justify-end gap-2 px-5 pb-5">
-          <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" data-testid={tid.createChannelSubmit} onClick={submit} disabled={!namePreview.slug}>{editing ? "Save" : "Create Channel"}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </CreateDialogShell>
   )
 }
