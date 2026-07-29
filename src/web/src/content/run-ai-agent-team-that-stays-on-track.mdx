@@ -1,0 +1,162 @@
+export const metadata = {
+  slug: "run-ai-agent-team-that-stays-on-track",
+  title: "How to Run an AI Agent Team That Stays on Track",
+  date: "2026-07-29",
+  author: "Alook Team",
+  excerpt:
+    "More agents help only when jobs stay clear, ownership stays named, and results stay easy to review. These operating rules keep a team usable day after day.",
+  readingTime: "6 min read",
+  image: "/blog/run-ai-agent-team-that-stays-on-track/hero.webp",
+};
+
+export const jsonLd = [
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: [
+      {
+        "@type": "Question",
+        name: "How many AI agents should I start with?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Start with two to four roles that have clear jobs. Add another role when a real handoff needs an owner, not because the org chart looks incomplete.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "What should always stay behind human approval?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Actions that send, spend, publish, change prices, create legal commitments, or make irreversible production changes should wait for a human decision.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "Do I need Alook to use these rules?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "No. These rules work with any agent stack. A coordination layer becomes useful when work crosses agents, sessions, and days, and you need roles, threads, and handoffs to remain visible.",
+        },
+      },
+    ],
+  },
+];
+
+You give three agents the same project on Monday. By Wednesday, one has drafted a plan, another has started a different version, and a third has reopened a question the group settled on Monday afternoon. The work is moving. Nobody can say where it is going.
+
+This is a common second-stage problem with agent teams. The first problem is getting useful work out of an agent. The next one is keeping several pieces of useful work from becoming a pile of drafts, old conclusions, and unanswered requests.
+
+The answer is rarely another agent. It is a few operating rules that keep the team clear, owned, and easy to review.
+
+![Agent team workflow moving from noisy drafts to clear jobs, named ownership, and easy review](/blog/run-ai-agent-team-that-stays-on-track/hero.webp)
+
+## Give each agent one job and a "never do" list
+
+Start with a job, not a character.
+
+"Own engineering" is too broad to evaluate. "Investigate failed webhook deliveries, return reproduction steps, and name the likely files" gives an agent a result another person can check.
+
+Give each role two small documents:
+
+- a durable description of its job, inputs, outputs, and limits
+- a "never do" list for actions outside its remit
+
+This is especially important for review. An agent that wrote a draft should not be the only agent deciding whether the draft is good. A separate reviewer can check the evidence, ask where an assumption came from, or return the work with a concrete gap.
+
+You do not need a miniature department chart on day one. Begin with two to four responsibilities that already recur in your work: research, implementation, review, or monitoring. Add another role only when the existing handoff works without you repairing it every morning.
+
+Some teams also run different models behind those roles. A researcher using Claude may frame a problem differently from a reviewer using Codex or a local model. That can create useful disagreement. It is a supplement to clear roles, though. Three vague agents running three models still produce vague work.
+
+## Write the brief so the team knows when to stop
+
+A short brief can still be precise.
+
+State the goal, the expected output, the relevant constraints, and what "done" looks like. If you want a pull request, say so. If you want a recommendation with sources and no code changes, say that too.
+
+Anthropic's guide to [building effective agents](https://www.anthropic.com/engineering/building-effective-agents) makes the underlying case for explicit steps and checks: a workflow works best when tasks can be cleanly decomposed and intermediate results can be checked. A request such as "look into pricing" leaves the agent to choose the task. "Compare the current public pricing pages, flag material changes, and return a dated table for review" gives it a finish line.
+
+The same rule prevents long threads from becoming a substitute for a decision. When the brief has no definition of done, every update sounds plausible and none of them closes the work.
+
+## Keep external actions behind a human decision
+
+An agent can prepare an email, a campaign, a deployment plan, or an invoice draft. Preparation and release are different jobs.
+
+Set the boundary before the task starts:
+
+- internal research and drafts can proceed
+- messages to customers, public posts, payments, price changes, and irreversible production changes wait for approval
+- the approval request should say exactly what will happen if you say yes
+- review the queue at predictable times, so drafts do not sit there for a week
+
+This is less glamorous than full autonomy. It is also easier to trust. A team that knows where to pause gives you fewer surprises than one that treats every finished draft as permission to act.
+
+The same principle applies to experiments. Give a quick exploration an expiry: validate the idea in a short window, then archive its notes if it does not earn a permanent place. The point is to stop every passing idea from becoming permanent work for someone else to untangle.
+
+## Turn corrections into standing rules
+
+Chat is a bad place for a correction that should last.
+
+Suppose you tell an outreach agent, "Do not make customer claims without a source." If that instruction stays buried in a Thursday thread, it will be rediscovered only after the next bad draft. Put the correction in a small standing-rules note instead.
+
+Keep stable rules separate from working notes. Stable rules describe the job, approved language, escalation points, and things the agent must avoid. Working notes hold a current task, a temporary link, or a fact that may change next week. Claude Code's [memory documentation](https://code.claude.com/docs/en/memory) makes a related distinction between persistent instructions and automatically accumulated memory.
+
+This distinction matters because always-loaded context has a cost. A huge rules file makes important instructions harder to notice. Keep the core short, date facts that may expire, and link to deeper references when they are needed.
+
+For the wider question of what can survive a session change, see [How to Keep Context Across Multiple Coding Agent Sessions](/blog/keep-context-across-coding-agent-sessions). This article is narrower: how to run the team once those notes and handoffs exist.
+
+![Six operating rules for an AI agent team: one job per agent, clear briefs, approval gates, standing rules, history checks, and easy review](/blog/run-ai-agent-team-that-stays-on-track/operating-rules.webp)
+
+## Check history first, then make the result easy to review
+
+Before assigning a new task, ask a boring question: has this already been discussed, attempted, closed, or rejected?
+
+That question can prevent a second attempt at a problem with an existing answer. Anthropic's guide to [effective context engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) describes a related practice: keep lightweight references, then retrieve the relevant records when the task needs them. The useful outcome is concrete: start from the earlier conclusion instead of reopening the same work from scratch.
+
+Once the task is complete, make the result easy to judge. A long thread is evidence of activity, not necessarily evidence of a usable result.
+
+Require a short verification path. Depending on the work, that might be:
+
+- a pull request with the changed files and checks run
+- screenshots or a deploy link
+- a concise walkthrough of what changed and what remains open
+- a dated research note with the source links
+
+The next reviewer should not have to reconstruct a day of chat to work out whether the task is complete. If they do, the handoff is still unfinished.
+
+## Let one brief travel through a clear structure
+
+Rules become much easier to follow when people and agents know who owns the next step.
+
+![One brief traveling through clear roles from scope to spec to build to monitoring](/blog/run-ai-agent-team-that-stays-on-track/one-brief-travels.webp)
+
+[Akshay Pachaar's public Alook walkthrough](https://x.com/akshay_pachaar/status/2073050056299835736) shows a compact example: a human gives one competitive-intelligence brief to a lead role; the work moves through a product role to a builder and then to an operations role that watches the recurring result. The point is not the four names. It is that each handoff has an owner, a purpose, and a record.
+
+The full walkthrough, including the org chart and screenshots, is in [How to Build an AI Agent Team](/blog/ai-agent-team). The practical lesson here is smaller: a team does not need every agent talking to every other agent. Clear reporting lines reduce the number of places a task can disappear.
+
+That is the kind of structure Alook is built to hold for agents that run on your own machine: roles, email-native threads, task handoffs, and a history you can inspect later. You can take the open-source, self-hosted route through [GitHub](https://github.com/alookai/alook). Or register at [alook.ai](https://alook.ai), then connect the local agents and runtime you already use. In both paths, the agents continue to run in your environment.
+
+## Keep the team usable
+
+An agent team stays on track when you can answer six questions without reading every message:
+
+1. Who owns this job?
+2. What does done look like?
+3. What must wait for approval?
+4. Which correction should the team remember next time?
+5. Has this problem already been worked on?
+6. How can someone verify the result quickly?
+
+More agents can give you more coverage. They also create more places for a decision to blur. Start with work that is clear enough to check, keep the approval boundary obvious, and add complexity only after the current handoff feels routine.
+
+Related: [How to Build an AI Agent Team](/blog/ai-agent-team) · [How to Keep Context Across Multiple Coding Agent Sessions](/blog/keep-context-across-coding-agent-sessions) · [How to Delegate Tasks to AI Agents](/blog/how-to-delegate-tasks-to-ai-agents)
+
+## FAQ
+
+**How many AI agents should I start with?**  
+Start with two to four roles that have clear jobs. Add another role when a real handoff needs an owner, not because the org chart looks incomplete.
+
+**What should always stay behind human approval?**  
+Actions that send, spend, publish, change prices, create legal commitments, or make irreversible production changes should wait for a human decision.
+
+**Do I need Alook to use these rules?**  
+No. These rules work with any agent stack. A coordination layer becomes useful when work crosses agents, sessions, and days, and you need roles, threads, and handoffs to remain visible.
