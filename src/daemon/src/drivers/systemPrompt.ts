@@ -174,6 +174,8 @@ function messagingSection(): string {
     "",
     "- Reply where the message came from. Post results in the channel that owns the topic. " +
       "When uncertain, read history (below) or DM the relevant people.",
+    "- To discuss a specific message (its seq `#N`) without cluttering the channel, start a thread " +
+      "rooted at it: `--target /<server>/<channel>/#N` creates the thread on that message.",
     `- Short reply: \`${CLI} message send --target <ref> --text "brief reply"\`.`,
     `- Long or complicated: write body to a tmp file, then \`${CLI} message send --target <ref> --file ./temp_msg.md\`.`,
     `- Cite a specific message: \`${CLI} message send --target <ref> --reply "#37" --text "on it"\` — ` +
