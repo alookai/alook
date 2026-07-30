@@ -1,20 +1,50 @@
-import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries, ROLES, WS_EVENTS, isUniqueConstraintError } from "@alook/shared"
 import type { CommunityMemberJoin } from "@alook/shared"
-import { fanOutToServerMembers } from "@/lib/community/fanout"
-import { logAudit } from "@/lib/community/audit"
+import { withCommunityActor } from "@/lib/middleware/community-actor"
+import { fanOutToServerMembers, broadcastToUserSafe } from "@/lib/community/fanout"
+import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "@/lib/community/audit"
 
-export const POST = withAuth(async (_req, ctx) => {
+/**
+ * POST /api/community/invites/[token]/join — the unified join route (plan §4
+ * FOLD, §9 phase 4). Serves both a human (session/al_) and a bot (crk_) via
+ * `withCommunityActor`; the old /agent/joinServer folds in here (batch1
+ * cab6c3e7 did the same fold). Only three things branch on `actor.kind`:
+ *   1. owner-gate — a bot may only consume an invite created by ITS OWN owner
+ *      (checked BEFORE useInvite, so a foreign/dead-creator invite is never
+ *      consumed by a rejected attempt); a human joins any valid invite.
+ *   2. audit action — BOT_JOINED_VIA_INVITE vs member_join.
+ *   3. owner broadcast — the bot's owner isn't necessarily a member of the
+ *      joined server, so fanOutToServerMembers won't reach them; send the
+ *      MEMBER_JOIN directly (dedup-safe on re-delivery).
+ * Response is a superset (Fork C): `{ member, serverId, server }` — the human
+ * web client reads member/serverId; the bot's daemon projects `server`
+ * ({id,name}). `invite.createdBy === null` (creator account gone) is the
+ * generic "invalid/expired" case, distinct from an owner mismatch.
+ */
+export const POST = withCommunityActor(async (_req, ctx) => {
   const token = ctx.params?.token
   if (!token) return writeError("invite token is required", 400)
 
   const db = getDb(ctx.env.DB)
+  const actor = ctx.actor
+
+  // Bot owner-gate — runs BEFORE useInvite so a rejected attempt never consumes
+  // the invite. A human skips this and may join any valid invite.
+  if (actor.kind === "bot") {
+    const invite = await queries.communityInvite.getInviteByToken(db, token)
+    if (!invite || invite.createdBy === null) {
+      return writeError("Invalid or expired invite", 400)
+    }
+    if (invite.createdBy !== actor.ownerUserId) {
+      return writeError("This invite was not created by your owner — refusing to join.", 403)
+    }
+  }
 
   let result: Awaited<ReturnType<typeof queries.communityInvite.useInvite>>
   try {
-    result = await queries.communityInvite.useInvite(db, token, ctx.userId)
+    result = await queries.communityInvite.useInvite(db, token, actor.userId)
   } catch (err: unknown) {
     if (isUniqueConstraintError(err)) {
       return writeError("Already a member", 400)
@@ -28,8 +58,8 @@ export const POST = withAuth(async (_req, ctx) => {
 
   logAudit(db, {
     serverId: result.invite.serverId,
-    actorId: ctx.userId,
-    action: "member_join",
+    actorId: actor.userId,
+    action: actor.kind === "bot" ? COMMUNITY_AUDIT_ACTIONS.BOT_JOINED_VIA_INVITE : "member_join",
     targetType: "invite",
     targetId: result.invite.id,
   })
@@ -51,8 +81,31 @@ export const POST = withAuth(async (_req, ctx) => {
   fanOutToServerMembers(
     result.invite.serverId,
     memberEvent,
-    { excludeUserId: ctx.userId },
+    { excludeUserId: actor.userId },
   )
 
-  return writeJSON({ member: result.member, serverId: result.invite.serverId })
+  // A bot's OWNER isn't necessarily a member of the joined server, so the
+  // member-scoped fan-out above never reaches them; send the same event
+  // directly so their bot-list / server-rail updates without a refresh.
+  // patchCacheJoin dedupes by userId, so double-delivery (owner also a member)
+  // is a no-op.
+  if (actor.kind === "bot") {
+    broadcastToUserSafe(actor.ownerUserId, memberEvent)
+  }
+
+  // Superset response: the human web client reads member/serverId; the bot's
+  // daemon reads `server` ({id,name}) and projects it to the CLI. `server` is
+  // populated only for a bot — the human path already has serverId and would
+  // otherwise pay an extra getServer round-trip for a field it ignores (the
+  // superset is about a unified SHAPE, not forcing identical queries).
+  let server: { id: string; name: string } | undefined
+  if (actor.kind === "bot") {
+    const row = await queries.communityServer.getServer(db, result.invite.serverId)
+    server = row ? { id: row.id, name: row.name } : undefined
+  }
+  return writeJSON({
+    member: result.member,
+    serverId: result.invite.serverId,
+    server,
+  })
 })
