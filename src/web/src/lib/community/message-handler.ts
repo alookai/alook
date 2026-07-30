@@ -722,7 +722,21 @@ export async function createCommunityMessage(params: {
       { authorName: row.authorName },
       { id: row.id, channelId: row.channelId },
       recipients.filter((id) => id !== authorId),
-      { mentionedUserIds: [...liveMentions, ...liveReplies] },
+      {
+        mentionedUserIds: [...liveMentions, ...liveReplies],
+        // serverId + railChannelId ride the UNREAD_BUMP so the client patches
+        // the right server tree + (parent, for threads) sidebar row without a
+        // query — straight off the resolved `target` (DM has neither). See
+        // inbox-dot-ws-driven plan.
+        ...(isDmTarget(target)
+          ? {}
+          : {
+              serverId: target.serverId,
+              railChannelId: hasParentChannel(target)
+                ? target.parentChannelId
+                : target.channelId,
+            }),
+      },
     ).catch(() => { })
 
     if (!isDmTarget(target)) {

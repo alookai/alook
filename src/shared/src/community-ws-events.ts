@@ -405,7 +405,29 @@ export type CommunityMentionCreate = {
 export type CommunityUnreadBump = {
   type: "community:unread.bump"
   userId: string
+  /** The channel the message actually landed in (a thread bump = the thread's
+   * id). Use `railChannelId` to locate the sidebar row; this is the true scope. */
   channelId: string
+  /**
+   * The server whose tree/rail badge to patch (inbox-dot-ws-driven plan). Lets
+   * the client patch the RIGHT server — without it the client only patched the
+   * currently-open server, so an other-server message's dot never lit. Absent
+   * on a DM bump or an older server frame → client falls back to the
+   * current-server behavior (backward-compatible).
+   */
+  serverId?: string
+  /**
+   * The sidebar-locatable channel row = `parentChannelId ?? channelId`, computed
+   * server-side. A thread/forum-post message has no independent sidebar row, so
+   * its dot must light the PARENT channel's row; a plain channel is its own row.
+   * Absent → client falls back to `channelId`.
+   */
+  railChannelId?: string
+  /**
+   * Whether this recipient was mentioned by the message — decides +mention vs
+   * +unread on the rail badge and which inbox feed the count lands in.
+   * Per-recipient; known at emit time from the mention set. */
+  isMention?: boolean
 }
 
 // ── Presence events ───────────────────────────────────────────────────────────

@@ -81,7 +81,16 @@ export async function dispatchMessageNotify(
   ctx: MessageNotifyContext,
   message: { id: string; channelId: string },
   recipients: string[],
-  opts: { mentionedUserIds: string[] },
+  opts: {
+    mentionedUserIds: string[]
+    /** Server the message belongs to — rides the UNREAD_BUMP so the client
+     * patches the right server tree/rail (inbox-dot-ws-driven). Undefined for
+     * a DM (no server). From the caller's `target.serverId`, no extra query. */
+    serverId?: string
+    /** Sidebar-locatable row = `parentChannelId ?? channelId` (thread/forum-post
+     * light the parent row). From the caller's target, no extra query. */
+    railChannelId?: string
+  },
 ): Promise<void> {
   try {
     const { channelId } = message
@@ -112,11 +121,19 @@ export async function dispatchMessageNotify(
     // Per-user UNREAD_BUMP badge — per-recipient (A muted, B not), so it rides a
     // per-user event, not a flag on the shared MESSAGE_CREATE payload.
     for (const userId of recipients) {
-      if (!shouldDeliver(levelOf(userId), mentioned.has(userId))) continue
+      const isMention = mentioned.has(userId)
+      if (!shouldDeliver(levelOf(userId), isMention)) continue
       broadcastToUser(userId, {
         type: WS_EVENTS.UNREAD_BUMP,
         userId,
         channelId,
+        // serverId + railChannelId let the client patch the RIGHT server tree
+        // and the right (parent, for threads) sidebar row; isMention splits
+        // +mention vs +unread. All optional — a client on an older frame falls
+        // back to channelId + current-server behavior.
+        ...(opts.serverId !== undefined ? { serverId: opts.serverId } : {}),
+        ...(opts.railChannelId !== undefined ? { railChannelId: opts.railChannelId } : {}),
+        isMention,
       }).catch(() => {})
     }
   } catch (err) {

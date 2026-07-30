@@ -107,4 +107,32 @@ describe("dispatchMessageNotify", () => {
     ).resolves.toBeUndefined()
     expect(bumpEvents()).toEqual([])
   })
+
+  it("bump carries serverId + railChannelId when passed, and per-recipient isMention (inbox-dot)", async () => {
+    mockResolveEffectiveLevelForUsers.mockResolvedValue(
+      new Map([["u_plain", "all"], ["u_mentioned", "all"]]),
+    )
+    await dispatchMessageNotify(db, ctx, msg, ["u_plain", "u_mentioned"], {
+      mentionedUserIds: ["u_mentioned"],
+      serverId: "srv_1",
+      railChannelId: "parent_c1", // thread → parent row
+    })
+    const bumps = bumpEvents()
+    for (const b of bumps) {
+      expect(b.serverId).toBe("srv_1")
+      expect(b.railChannelId).toBe("parent_c1")
+      expect(b.channelId).toBe("c1") // true message channel unchanged
+    }
+    expect(bumps.find((b: any) => b.userId === "u_mentioned").isMention).toBe(true)
+    expect(bumps.find((b: any) => b.userId === "u_plain").isMention).toBe(false)
+  })
+
+  it("bump omits serverId/railChannelId when not passed (DM / backward-compatible frame)", async () => {
+    mockResolveEffectiveLevelForUsers.mockResolvedValue(new Map([["u_dm", "all"]]))
+    await dispatchMessageNotify(db, ctx, msg, ["u_dm"], { mentionedUserIds: [] })
+    const [b] = bumpEvents()
+    expect(b.serverId).toBeUndefined()
+    expect(b.railChannelId).toBeUndefined()
+    expect(b.isMention).toBe(false)
+  })
 })
