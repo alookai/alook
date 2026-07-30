@@ -249,4 +249,61 @@ describe("POST /api/daemon/tasks/[taskId]/messages", () => {
 
     expect(mockBroadcastToUser).not.toHaveBeenCalled();
   });
+
+  // Broadcast-envelope shape: the WS payload the owner receives is a
+  // `task.messages` event carrying taskId + only the broadcastable rows. (Moved
+  // here from the cross-route body-validation file, where the same assertion
+  // relied on a doMock+resetModules+dynamic-import re-application that raced
+  // under full-suite import pressure and flaked; the hoisted mocks in this file
+  // make it deterministic.)
+  it("broadcasts a task.messages envelope with taskId to the conversation owner", async () => {
+    mockGetTask.mockResolvedValue({ id: "t1", workspaceId: "w1", conversationId: "c1" });
+    mockGetConversation.mockResolvedValue({ id: "c1", userId: "owner-u2" });
+    mockCreateTaskMessage.mockResolvedValue({ id: "m1" });
+
+    const res = await POST(
+      new NextRequest("http://localhost/api/daemon/tasks/t1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: [
+            { seq: 1, type: "text", content: "hello" },
+            { seq: 2, type: "tool-use", tool: "Read", content: "" },
+          ],
+        }),
+      }),
+      withParams("t1")
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockBroadcastToUser).toHaveBeenCalledWith(
+      "owner-u2",
+      expect.objectContaining({
+        type: "task.messages",
+        taskId: "t1",
+        messages: [expect.objectContaining({ seq: 1, type: "text", content: "hello" })],
+      })
+    );
+  });
+
+  // The `filtered.length === 0` early-return branch (empty input) — a DIFFERENT
+  // path from "all tool-result" above: it returns before createTaskMessage runs,
+  // so neither the DB write nor the broadcast fires. (Also moved from the
+  // body-validation file to escape the same flaky re-mock race.)
+  it("does not broadcast or write when the messages array is empty", async () => {
+    mockGetTask.mockResolvedValue({ id: "t1", workspaceId: "w1", conversationId: "c1" });
+
+    const res = await POST(
+      new NextRequest("http://localhost/api/daemon/tasks/t1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: [] }),
+      }),
+      withParams("t1")
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockCreateTaskMessage).not.toHaveBeenCalled();
+    expect(mockBroadcastToUser).not.toHaveBeenCalled();
+  });
 });
