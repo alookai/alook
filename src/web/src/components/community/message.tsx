@@ -4,13 +4,12 @@ import { memo, useState } from "react"
 import type React from "react"
 import {
   MessagesSquare, UserPlus, SmilePlus, Reply,
-  MoreHorizontal, FileText, Download, X, Share,
+  MoreHorizontal, FileText, Download, X, Share, Check,
 } from "lucide-react"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent } from "@/components/ui/context-menu"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from "@/components/ui/dropdown-menu"
 import { Avatar } from "./avatar"
 import { MessageBody } from "./message-body"
-import { MessageShareDialog } from "./message-share-dialog"
 import { BotApprovalCard } from "./bot-approval-card"
 import { EmojiPickerPopover } from "./emoji-picker"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
@@ -50,6 +49,7 @@ function MessageImpl({
   m, compact, pinned, onOpenThread, onOpenProfile, onJumpReply,
   onToggleReaction, onReact, onReply, onPin, onCreateThread, onCopy, onRetry,
   onPreviewImage, onDownloadFile, highlighted, resolveUserName, onImageLoad,
+  selectMode, selected, onToggleSelect, onEnterSelect,
 }: {
   m: RenderMsg
   compact?: boolean
@@ -69,6 +69,16 @@ function MessageImpl({
   highlighted?: boolean
   resolveUserName?: (userId: string) => string
   onImageLoad?: () => void
+  // Multi-select for "share as image" (Gus uiux #128/#142). `selectMode` is on
+  // for the whole list while selecting; `selected` is this row's state;
+  // `onToggleSelect` toggles it. `onEnterSelect` is called by the Share button —
+  // clicking Share enters select mode with this row pre-selected (unified entry:
+  // single-share is just select-mode with one message). All undefined when the
+  // surface doesn't support multi-share (keeps the affordance off).
+  selectMode?: boolean
+  selected?: boolean
+  onToggleSelect?: () => void
+  onEnterSelect?: () => void
 }) {
   // keep the hover toolbar pinned open while its ⋯ dropdown is open
   const [toolbarOpen, setToolbarOpen] = useState(false)
@@ -79,9 +89,6 @@ function MessageImpl({
   // hover OR focus OR keydown/contextmenu — focus/keydown are required for a11y
   // (keyboard context menu / Tab-to-row have no pointerenter).
   const [activated, setActivated] = useState(false)
-  // Share-as-image dialog. Local to the row — the card is built from `m` alone,
-  // so no callback needs threading through message-list.
-  const [shareOpen, setShareOpen] = useState(false)
 
   if (m.type === "system") {
     const Icon = m.systemKind === "thread" ? MessagesSquare : UserPlus
@@ -103,24 +110,50 @@ function MessageImpl({
     onReply, onPin, pinned,
     onCreateThread: m.thread ? undefined : onCreateThread,
     onCopy,
-    onShare: canShare ? () => setShareOpen(true) : undefined,
+    // Share enters multi-select mode with this row pre-selected (Gus #142) —
+    // the actual share dialog opens from the select bar. Single-message share
+    // is just this with no further picks.
+    onShare: canShare ? onEnterSelect : undefined,
   }
   const showMenu = hasMessageMenu(menuHandlers)
   const interactive = !compact && showMenu
   const activate = interactive && !activated ? () => setActivated(true) : undefined
+  // In select mode (multi-share), the whole row is a big toggle target and gets
+  // a leading checkbox overlay + a tint when picked. `canShare` rows only —
+  // approval/attachment-only rows aren't selectable (nothing to put on the card).
+  const selectable = selectMode && canShare
   const row = (
     <div
       className={[
         "group relative -mx-2 flex gap-2 rounded px-2 transition-colors",
         m.grouped ? "py-0" : "mt-3 pt-1.5 pb-0",
-        highlighted ? "bg-primary/10" : "hover:bg-accent/40",
+        selectable ? "cursor-pointer pl-9" : "",
+        selected ? "bg-primary/10" : highlighted ? "bg-primary/10" : selectable ? "hover:bg-accent/40" : "hover:bg-accent/40",
       ].join(" ")}
       onPointerEnter={activate}
       onFocusCapture={activate}
       onKeyDownCapture={activate}
+      onClick={selectable ? onToggleSelect : undefined}
     >
+      {selectMode && (
+        // Checkbox overlay (absolute → no layout shift / no virtualizer
+        // remeasure storm on enter/exit, per the list's dynamic measurement).
+        // Selectable rows show an interactive box; non-selectable (approval/
+        // system) rows show nothing so they read as "can't pick this".
+        selectable && (
+          <span
+            aria-hidden
+            className={[
+              "absolute left-1.5 top-1/2 z-20 grid size-4 -translate-y-1/2 place-items-center rounded-[5px] border transition-colors",
+              selected ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/50 bg-card",
+            ].join(" ")}
+          >
+            {selected && <Check className="size-3" strokeWidth={3} />}
+          </span>
+        )
+      )}
       <div className="min-w-0 flex-1">
-      {interactive && activated && (
+      {interactive && activated && !selectMode && (
         <div className={`absolute right-2 z-20 flex items-center gap-1 rounded-lg border border-border/60 bg-card px-2 py-1 shadow-(--e1) transition-opacity duration-150 ${m.grouped ? "-top-2" : "-top-3"} ${toolbarOpen ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"}`}>
           {m.seq != null && m.seq > 0 && (
             <span className="mr-0.5 select-none font-mono text-xs text-muted-foreground" aria-label={`Message ${m.seq}`}>
@@ -139,8 +172,8 @@ function MessageImpl({
               <Reply className="size-4" />
             </button>
           )}
-          {canShare && (
-            <button data-testid={tid.messageShare(m.id)} onClick={() => setShareOpen(true)} className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-label="Share as image">
+          {canShare && onEnterSelect && (
+            <button data-testid={tid.messageShare(m.id)} onClick={onEnterSelect} className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-label="Share as image">
               <Share className="size-4" />
             </button>
           )}
@@ -372,28 +405,22 @@ function MessageImpl({
     </div>
   )
 
-  // The share dialog mounts lazily (only once opened) and is rendered alongside
-  // whichever row variant we return, so it survives across both branches.
-  const shareDialog = canShare && shareOpen ? (
-    <MessageShareDialog m={m} open={shareOpen} onClose={() => setShareOpen(false)} />
-  ) : null
-
   // Not interactive, or not yet activated → render the bare row (which carries
   // the pointerenter/focus/keydown activation handlers). The row's Base UI
   // ContextMenu root is only mounted once hover/focus has activated it — and a
   // right-click is always preceded by a pointerenter (mouse arriving on the
   // row), and Shift+F10 by focus, so the menu is mounted before it's invoked.
-  if (!interactive || !activated) return <>{row}{shareDialog}</>
+  // (The share-as-image dialog now lives in MessageList — the share button
+  // enters multi-select mode; the dialog opens from the select bar there.)
+  // In select mode the row is a toggle target — no context menu / toolbar.
+  if (!interactive || !activated || selectMode) return row
   return (
-    <>
-      <ContextMenu>
-        <ContextMenuTrigger className="select-text" render={row} />
-        <ContextMenuContent className="w-48">
-          <MessageContextItems {...menuHandlers} />
-        </ContextMenuContent>
-      </ContextMenu>
-      {shareDialog}
-    </>
+    <ContextMenu>
+      <ContextMenuTrigger className="select-text" render={row} />
+      <ContextMenuContent className="w-48">
+        <MessageContextItems {...menuHandlers} />
+      </ContextMenuContent>
+    </ContextMenu>
   )
 }
 
@@ -448,7 +475,14 @@ function messagePropsEqual(prev: MessageProps, next: MessageProps): boolean {
     prev.onPreviewImage === next.onPreviewImage &&
     prev.onDownloadFile === next.onDownloadFile &&
     prev.resolveUserName === next.resolveUserName &&
-    prev.onImageLoad === next.onImageLoad
+    prev.onImageLoad === next.onImageLoad &&
+    // Multi-select: `selected` flips per-row on toggle, `selectMode` flips for
+    // all rows on enter/exit — both MUST be compared or the checkbox/tint won't
+    // re-render. The handlers are stable (id-bound in MessageRow).
+    prev.selectMode === next.selectMode &&
+    prev.selected === next.selected &&
+    prev.onToggleSelect === next.onToggleSelect &&
+    prev.onEnterSelect === next.onEnterSelect
   )
 }
 

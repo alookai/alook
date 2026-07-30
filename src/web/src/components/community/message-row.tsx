@@ -33,6 +33,12 @@ export interface MessageRowProps {
   onDownloadFile?: (name: string) => void
   resolveUserName?: (userId: string) => string
   onImageLoad?: () => void
+  // Multi-select share. `selectMode`/`selected` are plain booleans (pass-through);
+  // `onToggleSelectId`/`onEnterSelectId` are id-based (stable), bound per-row here.
+  selectMode?: boolean
+  selected?: boolean
+  onToggleSelectId?: (id: string) => void
+  onEnterSelectId?: (id: string) => void
 }
 
 function MessageRowImpl(props: MessageRowProps) {
@@ -41,6 +47,7 @@ function MessageRowImpl(props: MessageRowProps) {
     onToggleReactionId, onReactId, onReplyId, onPinId, onCreateThreadId,
     onCopyId, onRetryId, onJumpToId, onPreviewImage, onDownloadFile,
     resolveUserName, onImageLoad,
+    selectMode, selected, onToggleSelectId, onEnterSelectId,
   } = props
   const id = m.id
   const replyToId = m.replyTo?.id
@@ -59,6 +66,8 @@ function MessageRowImpl(props: MessageRowProps) {
   const onCopy = useCallback(() => onCopyId?.(id), [onCopyId, id])
   const onRetry = useCallback(() => onRetryId?.(id), [onRetryId, id])
   const onJumpReply = useCallback(() => { if (replyToId) onJumpToId?.(replyToId) }, [onJumpToId, replyToId])
+  const onToggleSelect = useCallback(() => onToggleSelectId?.(id), [onToggleSelectId, id])
+  const onEnterSelect = useCallback(() => onEnterSelectId?.(id), [onEnterSelectId, id])
 
   // Map an absent id-based source to `undefined` so `Message` sees the same
   // "feature off" signal it used to (its interactive/menu logic keys off which
@@ -84,6 +93,10 @@ function MessageRowImpl(props: MessageRowProps) {
       onDownloadFile={onDownloadFile}
       resolveUserName={resolveUserName}
       onImageLoad={onImageLoad}
+      selectMode={selectMode}
+      selected={selected}
+      onToggleSelect={onToggleSelectId ? onToggleSelect : undefined}
+      onEnterSelect={onEnterSelectId ? onEnterSelect : undefined}
     />
   )
 }

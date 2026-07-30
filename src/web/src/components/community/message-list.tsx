@@ -1,13 +1,16 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { ArrowDown } from "lucide-react"
+import { ArrowDown, ImageIcon, X } from "lucide-react"
 import { tid } from "@/lib/community/testids"
 import { DateDivider, NewDivider } from "./dividers"
 import { MessageRow } from "./message-row"
+import { MessageShareDialog } from "./message-share-dialog"
 import { TypingIndicator } from "./typing-indicator"
 import { ChannelIcon } from "./channel-icon"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import type { RenderMsg } from "./_types"
 import { NumberTicker } from "@/components/ui/number-ticker"
 import { useScrollAnchor } from "@/hooks/community/use-scroll-anchor"
 import { flattenMessageItems } from "./message-list-items"
@@ -102,6 +105,49 @@ export function MessageList({
   // ticks, presence updates, etc.) doesn't re-walk the full message list
   // every time.
   const items = useMemo(() => flattenMessageItems(messages, newDividerBefore, !!hasMore), [messages, newDividerBefore, hasMore])
+
+  // ── Multi-message "share as image" (Gus uiux #128/#142) ──────────────────
+  // Clicking Share on a row enters select mode with that row pre-selected; more
+  // rows can be checked; a bottom bar shares the N selected messages as one card.
+  // State lives here (not the page) so both channel + DM lists get it for free,
+  // and this is where the flattened `items` (with `grouped`) already are.
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
+  const [shareOpen, setShareOpen] = useState(false)
+  // Stable id-based handlers (kept out of the row memo's way, mirroring the
+  // action bundle's discipline). `selectedIds`/`selectMode` changing identity is
+  // fine — only the derived per-row boolean reaches each memoized row.
+  const onEnterSelectId = useCallback((id: string) => {
+    setSelectMode(true)
+    setSelectedIds(new Set([id]))
+  }, [])
+  const onToggleSelectId = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+  const exitSelect = useCallback(() => {
+    setSelectMode(false)
+    setSelectedIds(new Set())
+  }, [])
+  // The selected messages, in stream order, with `grouped` recomputed over the
+  // SELECTED subset (the card collapses avatars against adjacent *selected*
+  // messages, not the full stream). Same-author + within the 7-min group window.
+  const selectedMessages = useMemo<RenderMsg[]>(() => {
+    if (selectedIds.size === 0) return []
+    const picked = items.flatMap((it) => (it.kind === "message" && selectedIds.has(it.m.id) ? [it.m] : []))
+    let prev: RenderMsg | null = null
+    return picked.map((m) => {
+      const grouped = !!(prev && !m.replyTo && prev.authorName === m.authorName
+        && prev.createdAt && m.createdAt
+        && new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() < 7 * 60 * 1000)
+      prev = m
+      return { ...m, grouped }
+    })
+  }, [items, selectedIds])
 
   // The hero ("Beginning of the channel…" copy, or a caller-supplied
   // `hero` node such as the thread-opener) renders OUTSIDE the virtualized
@@ -310,6 +356,29 @@ export function MessageList({
         mode={jumpMode ? "jump" : "scroll"}
         onClick={pillOnClick}
       />
+      {/* Select-mode action bar — overlay (absolute, like ScrollDownButton) so
+          it doesn't perturb the scroll viewport's height / trigger a remeasure.
+          "Share N" is disabled at 0; Cancel exits. */}
+      {selectMode && (
+        <div className="absolute inset-x-0 bottom-3 z-20 flex justify-center px-4">
+          <div className="flex items-center gap-2 rounded-full border border-border/60 bg-card px-2 py-1.5 shadow-(--e2)">
+            <span className="px-2 text-sm text-muted-foreground">{selectedIds.size} selected</span>
+            <Button size="sm" variant="ghost" onClick={exitSelect}>
+              <X /> Cancel
+            </Button>
+            <Button size="sm" disabled={selectedIds.size === 0} onClick={() => setShareOpen(true)}>
+              <ImageIcon /> Share {selectedIds.size} as image
+            </Button>
+          </div>
+        </div>
+      )}
+      {shareOpen && selectedMessages.length > 0 && (
+        <MessageShareDialog
+          m={selectedMessages}
+          open={shareOpen}
+          onClose={() => { setShareOpen(false); exitSelect() }}
+        />
+      )}
       <TypingIndicator names={isLoading ? [] : typingUsers ?? []} />
       <div ref={scrollRef} className="flex-1 overflow-x-clip overflow-y-auto thin-scrollbar">
         <div className="flex min-h-full flex-col justify-end px-4 py-8">
@@ -391,6 +460,10 @@ export function MessageList({
                             onDownloadFile={onDownloadFile}
                             resolveUserName={resolveUserName}
                             onImageLoad={onImageLoad}
+                            selectMode={selectMode}
+                            selected={selectedIds.has(item.m.id)}
+                            onToggleSelectId={onToggleSelectId}
+                            onEnterSelectId={onEnterSelectId}
                           />
                         </div>
                       )}
