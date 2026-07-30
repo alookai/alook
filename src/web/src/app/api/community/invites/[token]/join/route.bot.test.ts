@@ -6,6 +6,16 @@ vi.mock("@opennextjs/cloudflare", () => ({
 }))
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
+// Under the unified actor, a request with NO `crk_` bearer falls through to the
+// human withAuth path. Mock Better-Auth to resolve "no session" so a no-auth
+// request yields the human-path 401 ("unauthorized") — the real unified-actor
+// contract — instead of a 503 from unmocked session validation.
+vi.mock("@/lib/auth", () => ({
+  createAuth: vi.fn(() => ({
+    api: { getSession: vi.fn(async () => ({ headers: new Headers(), response: null })) },
+  })),
+}))
+
 const mockFindActiveAgentRunnerKeyByBearer = vi.fn()
 const mockGetUserInternal = vi.fn()
 const mockGetBotBinding = vi.fn()
@@ -49,15 +59,22 @@ vi.mock("@/lib/community/audit", async () => {
 import { POST } from "./route"
 import { isUniqueConstraintError } from "@alook/shared"
 
-function req(body: unknown, headers: Record<string, string> = {}): NextRequest {
-  return new NextRequest("http://localhost/api/community/agent/joinServer", {
+// Bot-path coverage for the UNIFIED join route (folded from /agent/joinServer,
+// plan §9 phase 4/5). The token is a ROUTE PARAM now (`[token]`), not a body
+// field — the invite body carried it on the old flat /agent route; here it
+// rides `ctx.params.token`. A `crk_` bearer drives withCommunityActor's bot
+// path (same resolveBotActor query mocks as before). The human path is covered
+// by the sibling route.test.ts.
+const TOKEN = "tok_abc"
+function req(token: string, headers: Record<string, string> = {}): NextRequest {
+  return new NextRequest(`http://localhost/api/community/invites/${token}/join`, {
     method: "POST",
     headers: { "content-type": "application/json", ...headers },
-    body: typeof body === "string" ? body : JSON.stringify(body),
   })
 }
+const params = (token: string) => ({ params: Promise.resolve({ token }) })
 
-describe("POST /api/community/agent/joinServer", () => {
+describe("POST /api/community/invites/[token]/join — bot path", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockFindActiveAgentRunnerKeyByBearer.mockResolvedValue({ userId: "owner_1", machineId: "m_1", agentId: "bot_1" })
@@ -66,14 +83,14 @@ describe("POST /api/community/agent/joinServer", () => {
   })
 
   it("401 without Authorization", async () => {
-    const res = await POST(req({ invite: "tok_abc" }))
+    const res = await POST(req(TOKEN), params(TOKEN))
     expect(res.status).toBe(401)
     expect(mockGetInviteByToken).not.toHaveBeenCalled()
   })
 
   it("400 'Invalid or expired invite' for an unknown token", async () => {
     mockGetInviteByToken.mockResolvedValue(null)
-    const res = await POST(req({ invite: "tok_unknown" }, { Authorization: "Bearer crk_abc" }))
+    const res = await POST(req("tok_unknown", { Authorization: "Bearer crk_abc" }), params("tok_unknown"))
     expect(res.status).toBe(400)
     expect((await res.json()).error).toBe("Invalid or expired invite")
     expect(mockUseInvite).not.toHaveBeenCalled()
@@ -81,7 +98,7 @@ describe("POST /api/community/agent/joinServer", () => {
 
   it("400 'Invalid or expired invite' (NOT a 403) when invite.createdBy is null", async () => {
     mockGetInviteByToken.mockResolvedValue({ id: "inv_1", serverId: "srv_1", createdBy: null })
-    const res = await POST(req({ invite: "tok_abc" }, { Authorization: "Bearer crk_abc" }))
+    const res = await POST(req(TOKEN, { Authorization: "Bearer crk_abc" }), params(TOKEN))
     expect(res.status).toBe(400)
     expect((await res.json()).error).toBe("Invalid or expired invite")
     expect(mockUseInvite).not.toHaveBeenCalled()
@@ -89,7 +106,7 @@ describe("POST /api/community/agent/joinServer", () => {
 
   it("403 with hint when invite.createdBy is a real, different user id than ctx.ownerUserId", async () => {
     mockGetInviteByToken.mockResolvedValue({ id: "inv_1", serverId: "srv_1", createdBy: "stranger_1" })
-    const res = await POST(req({ invite: "tok_abc" }, { Authorization: "Bearer crk_abc" }))
+    const res = await POST(req(TOKEN, { Authorization: "Bearer crk_abc" }), params(TOKEN))
     expect(res.status).toBe(403)
     const body = await res.json()
     expect(body.error).toContain("not created by your owner")
@@ -100,14 +117,14 @@ describe("POST /api/community/agent/joinServer", () => {
   it("400 'Already a member' on a unique-constraint re-join", async () => {
     mockGetInviteByToken.mockResolvedValue({ id: "inv_1", serverId: "srv_1", createdBy: "owner_1" })
     mockUseInvite.mockRejectedValue(new Error("UNIQUE constraint failed"))
-    const res = await POST(req({ invite: "tok_abc" }, { Authorization: "Bearer crk_abc" }))
+    const res = await POST(req(TOKEN, { Authorization: "Bearer crk_abc" }), params(TOKEN))
     // Guard the test against the mocked isUniqueConstraintError predicate diverging silently.
     expect(isUniqueConstraintError(new Error("UNIQUE constraint failed"))).toBe(true)
     expect(res.status).toBe(400)
     expect((await res.json()).error).toBe("Already a member")
   })
 
-  it("200 {server:{id,name}} on success; fanOutToServerMembers excludes the bot; logAudit uses BOT_JOINED_VIA_INVITE + botUserId", async () => {
+  it("200 superset {member, serverId, server} on success; fanOutToServerMembers excludes the bot; logAudit uses BOT_JOINED_VIA_INVITE + botUserId", async () => {
     mockGetInviteByToken.mockResolvedValue({ id: "inv_1", serverId: "srv_1", createdBy: "owner_1" })
     mockUseInvite.mockResolvedValue({
       invite: { id: "inv_1", serverId: "srv_1" },
@@ -115,9 +132,13 @@ describe("POST /api/community/agent/joinServer", () => {
     })
     mockGetServer.mockResolvedValue({ id: "srv_1", name: "Design Studio" })
 
-    const res = await POST(req({ invite: "tok_abc" }, { Authorization: "Bearer crk_abc" }))
+    const res = await POST(req(TOKEN, { Authorization: "Bearer crk_abc" }), params(TOKEN))
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ server: { id: "srv_1", name: "Design Studio" } })
+    // Superset response (Fork C): the bot's daemon projects `server` down to
+    // the old lean {server:{id,name}} shape; serverId/member ride along.
+    const body = await res.json()
+    expect(body.server).toEqual({ id: "srv_1", name: "Design Studio" })
+    expect(body.serverId).toBe("srv_1")
 
     expect(mockFanOutToServerMembers).toHaveBeenCalledWith(
       "srv_1",

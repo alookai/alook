@@ -38,7 +38,14 @@ export const POST = withCommunityActor(async (_req, ctx) => {
       return writeError("Invalid or expired invite", 400)
     }
     if (invite.createdBy !== actor.ownerUserId) {
-      return writeError("This invite was not created by your owner — refusing to join.", 403)
+      // Preserve the bot CLI's actionable hint (the /agent/joinServer contract).
+      return writeJSON(
+        {
+          error: "This invite was not created by your owner — refusing to join.",
+          hint: "Ask your owner to send an invite link they created themselves.",
+        },
+        403,
+      )
     }
   }
 

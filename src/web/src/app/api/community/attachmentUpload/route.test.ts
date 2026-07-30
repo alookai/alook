@@ -8,6 +8,15 @@ vi.mock("@opennextjs/cloudflare", () => ({
   })),
 }))
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
+// Unified actor: a request with no `crk_` bearer falls through to the human
+// withAuth path. Mock Better-Auth to resolve "no session" so a no-auth request
+// yields the human-path 401 ("unauthorized") — the real unified-actor contract —
+// instead of a 503 from unmocked session validation.
+vi.mock("@/lib/auth", () => ({
+  createAuth: vi.fn(() => ({
+    api: { getSession: vi.fn(async () => ({ headers: new Headers(), response: null })) },
+  })),
+}))
 
 const mockFindActiveAgentRunnerKeyByBearer = vi.fn()
 const mockGetUserInternal = vi.fn()
