@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
@@ -10,17 +9,35 @@ import {
   WS_EVENTS,
   slugify,
 } from "@alook/shared"
+import { withCommunityActor, rejectBot } from "@/lib/middleware/community-actor"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 import { serverIconUrl } from "@/lib/community/storage"
 
-export const GET = withAuth(async (_req, ctx) => {
+/**
+ * GET — list "my servers", serving both a human and a bot via the unified actor
+ * (plan §4 FOLD of /agent/listServers, §9 phase 4). Both list via
+ * `listUserServers(actor.userId)`; the response is a superset (full server rows
+ * incl. id+name+icon) — the web client uses the UI fields, the bot's daemon
+ * projects each row down to `{id, name}` (the old lean listServers shape).
+ * No actor.kind branch needed: `userId` is common to both callers.
+ */
+export const GET = withCommunityActor(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
-  const rows = await queries.communityServer.listUserServers(db, ctx.userId)
+  const rows = await queries.communityServer.listUserServers(db, ctx.actor.userId)
   const servers = rows.map((row) => ({ ...row, icon: serverIconUrl(row) }))
   return writeJSON({ servers })
 })
 
-export const POST = withAuth(async (req: NextRequest, ctx) => {
+/**
+ * POST — create a server. Human-only: there is no bot create-server verb today,
+ * so a bot actor is rejected 403 (`rejectBot`) rather than silently granted a
+ * new capability by the actor unification (plan §5 — capabilities are explicit,
+ * not "whatever the route happens to accept").
+ */
+export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
+  const denied = rejectBot(ctx.actor)
+  if (denied) return denied
+
   const db = getDb(ctx.env.DB)
 
   let body: { name?: string; description?: string }
@@ -56,7 +73,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const { server, ownerMember } = await queries.communityServer.createServer(db, {
     name,
     description,
-    ownerId: ctx.userId,
+    ownerId: ctx.actor.userId,
   })
 
   fanOutToServerMembers(server.id, {
@@ -64,7 +81,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     serverId: server.id,
     member: {
       id: ownerMember.id,
-      userId: ctx.userId,
+      userId: ctx.actor.userId,
       name: ownerMember.userName,
       discriminator: ownerMember.userDiscriminator,
       avatar: ownerMember.userImage ?? undefined,
