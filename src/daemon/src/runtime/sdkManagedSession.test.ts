@@ -191,6 +191,76 @@ describe("SdkManagedSession", () => {
     expect(exited).toHaveBeenCalledTimes(1);
   });
 
+  // Batch S (plans/daemon-fsm-desync.md): SDK has no SIGKILL backstop, so a
+  // vendor SDK whose `inner.stop()` never settles would otherwise pin the
+  // adapter — `emitExit` sits behind an await that never returns and the FSM
+  // is stuck "stopping" forever. `stop()` bounds the disposal wait; past the
+  // deadline it forces "exit" and abandons the inner session.
+  it("stop() forces \"exit\" within the deadline when inner.stop() hangs forever", async () => {
+    vi.useFakeTimers();
+    try {
+      const { driver } = fakeSdkDriver();
+      const adapter = new SdkManagedSession(driver, baseCtx(), fakeDeps());
+      const exited = vi.fn();
+      adapter.on("exit", exited);
+      await adapter.start({ text: "hello" });
+
+      const inner = (adapter as unknown as { inner: SdkRuntimeSession }).inner;
+      // Never settles — the wedged-dispose case the bound exists for.
+      vi.spyOn(inner, "stop").mockReturnValueOnce(new Promise<void>(() => { }));
+
+      const stopPromise = adapter.stop({ forceAfterMs: 2000 });
+      // Before the deadline: still pending, no exit yet.
+      await vi.advanceTimersByTimeAsync(1999);
+      expect(exited).not.toHaveBeenCalled();
+      // Deadline elapses → forced exit, stop() resolves.
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(stopPromise).resolves.toBeUndefined();
+      expect(exited).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stop() best-effort aborts the inner session on the forced (timeout) path", async () => {
+    vi.useFakeTimers();
+    try {
+      const { driver } = fakeSdkDriver();
+      const adapter = new SdkManagedSession(driver, baseCtx(), fakeDeps());
+      await adapter.start({ text: "hello" });
+
+      const inner = (adapter as unknown as { inner: SdkRuntimeSession }).inner;
+      vi.spyOn(inner, "stop").mockReturnValueOnce(new Promise<void>(() => { }));
+      const abort = vi.fn();
+      (inner as unknown as { abort?: () => void }).abort = abort;
+
+      const stopPromise = adapter.stop({ forceAfterMs: 2000 });
+      await vi.advanceTimersByTimeAsync(2000);
+      await stopPromise;
+      expect(abort).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stop() that disposes cleanly before the deadline does NOT wait out the timer", async () => {
+    vi.useFakeTimers();
+    try {
+      const { driver } = fakeSdkDriver();
+      const adapter = new SdkManagedSession(driver, baseCtx(), fakeDeps());
+      const exited = vi.fn();
+      adapter.on("exit", exited);
+      await adapter.start({ text: "hello" });
+
+      // inner.stop() resolves immediately — the real fakeSdkDriver handle's
+      // dispose is synchronous, so no timer advance is needed for exit.
+      await adapter.stop({ forceAfterMs: 60_000 });
+      expect(exited).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // Regression test: `managerRuntime.ts::doSpawn` registers the session in
   // its map (and a `stop`/`terminate_stalled` effect can look it up and call
   // `.stop()`) BEFORE `start()`'s `driver.createSession()` has resolved. If

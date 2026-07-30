@@ -33,6 +33,7 @@
 import { EventEmitter } from "events";
 import type { Driver, LaunchContext, SdkDriverDeps } from "../types.js";
 import type { SdkRuntimeSession } from "./sdkRuntimeSession.js";
+import { SESSION_STOP_GRACE_MS } from "./killTree.js";
 
 type SdkCapableDriver = Driver & { createSession: NonNullable<Driver["createSession"]> };
 
@@ -118,16 +119,62 @@ export class SdkManagedSession {
    * or the manager's exit listener never runs: the session is never removed
    * from `AgentProcessManager`'s map and the FSM never leaves "stopping".
    *
+   * BOUNDED FORCE (plans/daemon-fsm-desync.md batch S): a child process has a
+   * physical backstop — `killProcessTree` escalates to SIGKILL, which an
+   * unresponsive process cannot survive, so its `exit` is guaranteed. An
+   * in-process SDK has no such backstop: if `inner.stop()` never settles (a
+   * vendor SDK wedged mid-dispose), the `finally` below never runs and the FSM
+   * is stuck `stopping` forever — the same "recovery never completes" failure
+   * this whole plan attacks, one layer down. So we bound the wait: `inner.stop()`
+   * races a `forceAfterMs` deadline (default `SESSION_STOP_GRACE_MS`, matching
+   * the child grace the manager already passes), and whichever settles first,
+   * `emitExit()` fires. This is SDK's SIGKILL-equivalent: a GUARANTEED exit.
+   * On the timeout path the inner session is abandoned (best-effort `abort`) —
+   * we stop awaiting it, so a wedged dispose can't pin the agent.
+   *
    * `stopRequested` is set synchronously (before awaiting `starting`) so a
    * `start()` that's still mid-flight sees it as soon as `driver.createSession()`
    * resolves and skips firing the first turn (see `start()`).
    */
-  async stop(): Promise<void> {
+  async stop(opts?: { reason?: string; forceAfterMs?: number }): Promise<void> {
     this.stopRequested = true;
+    const forceAfterMs = opts?.forceAfterMs ?? SESSION_STOP_GRACE_MS;
     this.stopping = (async () => {
       try {
         if (this.starting) await this.starting.catch(() => { });
-        await this.inner?.stop();
+        const inner = this.inner;
+        if (!inner) return;
+        // Race disposal against the force deadline. `inner.stop()` may reject
+        // promptly (surfaced to the caller — see the dispose-rejects test) or
+        // hang indefinitely (the wedged-SDK case this bound exists for). A
+        // timeout WIN means we abandon the inner session rather than await it.
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const forced = new Promise<"forced">((resolve) => {
+          timer = setTimeout(() => resolve("forced"), forceAfterMs);
+          timer.unref?.();
+        });
+        const stopped = inner.stop().then(() => "stopped" as const);
+        // If the deadline wins the race, `stopped` becomes the loser and its
+        // eventual rejection (a wedged dispose that later throws) would be
+        // unhandled — attach a no-op catch so it's marked handled. This does
+        // NOT swallow a PROMPT rejection from the race itself: `Promise.race`
+        // still sees `stopped` reject first in that case and rethrows it, so
+        // `stop()` rejects (dispose-rejects test) while `emitExit` still fires.
+        stopped.catch(() => { });
+        try {
+          const outcome = await Promise.race([stopped, forced]);
+          if (outcome === "forced") {
+            // Wedged dispose — abandon the inner session so it can't pin us.
+            // Best-effort abort; ignore anything it throws.
+            try {
+              (inner as unknown as { abort?: () => void }).abort?.();
+            } catch {
+              // no-op: abort is best-effort on a session we're already dropping
+            }
+          }
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
       } finally {
         this.emitExit();
       }
