@@ -153,8 +153,12 @@ function messageCreate(channelId: string, msgId = "m_1"): CommunityMessageCreate
   }
 }
 
-function unreadBump(channelId: string, userId: string) {
-  return { type: "community:unread.bump" as const, userId, channelId }
+function unreadBump(
+  channelId: string,
+  userId: string,
+  extra?: { serverId?: string; railChannelId?: string; isMention?: boolean },
+) {
+  return { type: "community:unread.bump" as const, userId, channelId, ...extra }
 }
 
 describe("useCommunityWs — message.create", () => {
@@ -527,6 +531,76 @@ describe("useCommunityWs — message.create patches channel unread in the open s
   it("does not crash and is a no-op when no server is currently open", async () => {
     await mountHook({ viewerUserId: "u_me" })
     expect(() => capturedOnMessage!(unreadBump("ch_random", "u_me"))).not.toThrow()
+  })
+
+  // ── inbox-dot-ws-driven ② : bump carries serverId / railChannelId / isMention ──
+
+  it("lights the dot on the bump's OWN serverId, even when a DIFFERENT server is open (the cross-server bug)", async () => {
+    // The core fix: previously the handler only patched the currently-open
+    // server, so a message in another server never lit its dot. With
+    // `serverId` on the bump we patch the right server's detail regardless of
+    // which one is focused.
+    await mountHook({ viewerUserId: "u_me" })
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().setCurrentServerId("srv_open") // a different server is focused
+    capturedQueryClient.setQueryData(communityKeys.server("srv_other"), serverDetailFixture("ch_bg"))
+
+    capturedOnMessage!(unreadBump("ch_bg", "u_me", { serverId: "srv_other" }))
+
+    const cache = capturedQueryClient.getQueryData<{
+      categories: { channels: { id: string; unread: boolean }[] }[]
+    }>(communityKeys.server("srv_other"))
+    expect(cache?.categories[0].channels[0]).toMatchObject({ id: "ch_bg", unread: true })
+  })
+
+  it("lights the PARENT channel row for a thread bump (railChannelId), not the thread's own id", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().setCurrentServerId("srv_open")
+    // The tree row is the parent channel; the thread has no independent row.
+    capturedQueryClient.setQueryData(communityKeys.server("srv_open"), serverDetailFixture("ch_parent"))
+
+    // channelId = the thread's id (true scope), railChannelId = parent row.
+    capturedOnMessage!(unreadBump("ch_thread", "u_me", { serverId: "srv_open", railChannelId: "ch_parent" }))
+
+    const cache = capturedQueryClient.getQueryData<{
+      categories: { channels: { id: string; unread: boolean }[] }[]
+    }>(communityKeys.server("srv_open"))
+    expect(cache?.categories[0].channels[0]).toMatchObject({ id: "ch_parent", unread: true })
+  })
+
+  it("suppresses the dot when the viewer is looking at the RAIL row (thread bump whose parent is open)", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().setCurrentServerId("srv_open")
+    useCommunityStore.getState().subscribe({ channelId: "ch_parent" }) // parent row is open
+    refCounter = 0; stateCounter = 0; callbackCounter = 0
+    await mountHook({ viewerUserId: "u_me" })
+    capturedQueryClient.setQueryData(communityKeys.server("srv_open"), serverDetailFixture("ch_parent"))
+
+    capturedOnMessage!(unreadBump("ch_thread", "u_me", { serverId: "srv_open", railChannelId: "ch_parent" }))
+
+    const cache = capturedQueryClient.getQueryData<{
+      categories: { channels: { id: string; unread: boolean }[] }[]
+    }>(communityKeys.server("srv_open"))
+    expect(cache?.categories[0].channels[0].unread).toBe(false)
+  })
+
+  it("bumps the rail mention badge (servers() mentions +1) ONLY when isMention is set", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    capturedQueryClient.setQueryData(communityKeys.servers(), {
+      servers: [{ id: "srv_x", name: "X", initial: "X", active: false, mentions: 2, icon: null }],
+    })
+
+    // Plain unread (no isMention) → mention count unchanged.
+    capturedOnMessage!(unreadBump("ch_a", "u_me", { serverId: "srv_x" }))
+    let servers = capturedQueryClient.getQueryData<{ servers: { id: string; mentions: number }[] }>(communityKeys.servers())
+    expect(servers?.servers[0].mentions).toBe(2)
+
+    // Mention → +1.
+    capturedOnMessage!(unreadBump("ch_a", "u_me", { serverId: "srv_x", isMention: true }))
+    servers = capturedQueryClient.getQueryData<{ servers: { id: string; mentions: number }[] }>(communityKeys.servers())
+    expect(servers?.servers[0].mentions).toBe(3)
   })
 
   it("existing focused-channel message patch and debounced inbox invalidation still fire on message.create", async () => {
@@ -1570,6 +1644,41 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     expect(
       invalidatedKeys.some(
         (k) => Array.isArray(k) && k[0] === "community" && k[1] === "inbox",
+      ),
+    ).toBe(true)
+  })
+
+  it("re-seeds the rail list + open server's detail on reconnect (inbox-dot-ws-driven ②)", async () => {
+    // Sidebar dots + rail mention badges are now driven by the live
+    // `unread.bump` patch, with no switch-refetch backing them. A bump dropped
+    // during the socket gap would leave them stale, so reconnect must re-seed
+    // both — else the cross-server dot fix silently rots after any disconnect.
+    await mountHook()
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().setCurrentServerId("srv_open")
+    const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+
+    // handleReconnect reads currentServerId via getState() at call time.
+    expect(capturedOnReconnect).not.toBeNull()
+    capturedOnReconnect!()
+
+    const invalidatedKeys = spy.mock.calls.map(
+      (c) => c[0]?.queryKey as unknown[] | undefined,
+    )
+    // Rail LIST = communityKeys.servers() = ["community","servers"] (length 2).
+    expect(
+      invalidatedKeys.some(
+        (k) => Array.isArray(k) && k.length === 2 && k[0] === "community" && k[1] === "servers",
+      ),
+    ).toBe(true)
+    // Open server's DETAIL = communityKeys.server(id) = ["community","servers",id].
+    expect(
+      invalidatedKeys.some(
+        (k) =>
+          Array.isArray(k) &&
+          k[0] === "community" &&
+          k[1] === "servers" &&
+          k[2] === "srv_open",
       ),
     ).toBe(true)
   })

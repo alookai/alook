@@ -508,12 +508,48 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
         // defensively).
         case "community:unread.bump": {
           const viewerId = viewerUserIdRef.current
-          if (event.userId === viewerId && event.channelId !== sub.channelId) {
-            const currentServerId = useCommunityStore.getState().currentServerId
-            if (currentServerId) {
+          // The sidebar row to light: a thread/forum-post message has no
+          // independent tree row, so its dot lights the PARENT channel
+          // (`railChannelId`); a plain channel is its own row. Fall back to
+          // `channelId` for older frames that predate `railChannelId`.
+          const railChannelId = event.railChannelId ?? event.channelId
+          // Suppress the dot for the channel the viewer is actually looking at
+          // (its unread clears on read anyway) — compare against the ROW being
+          // lit, so a thread bump whose parent is open still suppresses.
+          if (event.userId === viewerId && railChannelId !== sub.channelId) {
+            // Channel-tree dot: patch the RIGHT server's detail. `serverId`
+            // (inbox-dot-ws-driven) lets an other-server message light its dot
+            // — previously only the open server was patched, so cross-server
+            // bumps never lit. Absent serverId (DM bump / older frame) → fall
+            // back to the currently-open server (backward-compatible).
+            const targetServerId =
+              event.serverId ?? useCommunityStore.getState().currentServerId
+            if (targetServerId) {
               queryClient.setQueryData<ServerDetail | undefined>(
-                communityKeys.server(currentServerId),
-                (cache) => patchChannelUnread(cache, event.channelId, true),
+                communityKeys.server(targetServerId),
+                (cache) => patchChannelUnread(cache, railChannelId, true),
+              )
+            }
+            // Rail mention badge: the rail row carries only a `mentions` count
+            // (no separate unread dot — plain unread lives on the tree dot
+            // above). So bump the rail badge ONLY for a mention, on the right
+            // server row. Needs `serverId`; a DM/older frame without it can't
+            // locate a rail row, so skip (the tree dot / inbox still reflect it).
+            if (event.isMention && event.serverId) {
+              const bumpServerId = event.serverId
+              queryClient.setQueryData<ServersResponse | undefined>(
+                communityKeys.servers(),
+                (prev) =>
+                  prev
+                    ? {
+                      ...prev,
+                      servers: prev.servers.map((s) =>
+                        s.id === bumpServerId
+                          ? { ...s, mentions: s.mentions + 1 }
+                          : s,
+                      ),
+                    }
+                    : prev,
               )
             }
           }
@@ -1068,6 +1104,20 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
     // `message.create` events, none of which arrive while the socket is
     // down.
     void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
+    // Sidebar unread dots + rail mention badges are now driven by the live
+    // `unread.bump` patch (inbox-dot-ws-driven plan) — no switch-refetch backs
+    // them anymore. A bump dropped during the socket gap would leave the dot /
+    // rail badge stale forever, so re-seed both on reconnect: the rail LIST
+    // (`servers()`, mention counts) and the open server's detail tree
+    // (`server(currentServerId)`, channel dots). `exact` on the list so it
+    // doesn't cascade-refetch every server's nested detail subtree.
+    void queryClient.invalidateQueries({ queryKey: communityKeys.servers(), exact: true })
+    const currentServerId = useCommunityStore.getState().currentServerId
+    if (currentServerId) {
+      void queryClient.invalidateQueries({
+        queryKey: communityKeys.server(currentServerId),
+      })
+    }
     // Bot audit logs are WS-live-patched into the React Query cache; if
     // the socket dropped, any events emitted during the gap never entered
     // the store's ring and so never made it into the cache. Invalidating
