@@ -381,6 +381,26 @@ export function useScrollAnchor({
     overscan: 8,
   })
 
+  // Whether the viewer was within NEAR_BOTTOM_PX of the end BEFORE this
+  // commit's append — the semantics `decideScrollAction` documents for its
+  // `isAtEnd` input. It must be sampled from the user's real scroll position,
+  // NOT `virtualizer.isAtEnd()` read inside the append's own layout effect:
+  // by then the new message (+ any NEW divider) has already grown the content
+  // below, so the post-append reading is measured against the NEW, taller
+  // bottom and reports false even when the viewer was sitting at the old
+  // bottom — which silently killed peer-follow (the "new message doesn't
+  // auto-scroll when I'm at the bottom" bug). Appending content below does not
+  // move `scrollTop`, so it fires no scroll event; this ref therefore still
+  // holds the pre-append position when the layout effect below reads it.
+  const wasAtEndRef = useRef(true)
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const onScroll = () => { wasAtEndRef.current = virtualizer.isAtEnd(NEAR_BOTTOM_PX) }
+    el.addEventListener("scroll", onScroll, { passive: true })
+    return () => el.removeEventListener("scroll", onScroll)
+  }, [virtualizer])
+
   useLayoutEffect(() => {
     const { action, nextState } = decideScrollAction({
       state: stateRef.current,
@@ -390,7 +410,7 @@ export function useScrollAnchor({
       heroMeasured,
       hasMoreNewer,
       viewerUserId,
-      isAtEnd: virtualizer.isAtEnd(NEAR_BOTTOM_PX),
+      isAtEnd: wasAtEndRef.current,
     })
     stateRef.current = nextState
 
