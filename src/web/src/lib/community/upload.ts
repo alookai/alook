@@ -4,7 +4,9 @@ import {
   MAX_SERVER_ICON_SIZE_BYTES,
   ALLOWED_ATTACHMENT_MIME_PREFIXES,
   ALLOWED_ICON_MIME_TYPES,
+  queries,
 } from "@alook/shared"
+import { requireMessageBearingSurface, requireChildSurface } from "./channel-write-guard"
 import type { Database } from "@alook/shared"
 import { writeError, writeJSON } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
@@ -268,6 +270,16 @@ export async function runAttachmentUpload(
   const db = getDb(ctx.env.DB)
   const auth = await permissionCheck(db, id, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
+
+  if (kind === "channel") {
+    const channelType = await queries.communityChannel.getChannelType(db, id)
+    const surface = requireMessageBearingSurface(channelType)
+    if (!surface.ok) return writeError(surface.error, surface.status)
+  } else if (kind === "thread") {
+    const channelType = await queries.communityChannel.getChannelType(db, id)
+    const child = requireChildSurface(channelType)
+    if (!child.ok) return writeError(child.error, child.status)
+  }
 
   const result = await handleAttachmentUpload(req, ctx.env, kind, id, {
     uploader: "user",

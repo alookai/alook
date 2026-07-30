@@ -4,6 +4,7 @@ import { getDb } from "@/lib/db"
 import { withCommunityActor, requireBot } from "@/lib/middleware/community-actor"
 import { resolveTargetForMember, resolveErrorResponse } from "@/lib/community/resolve-ref"
 import { requireChannelMember, requireDMAccess } from "@/lib/community/permissions"
+import { requireMessageBearingSurface } from "@/lib/community/channel-write-guard"
 import { createCommunityMessage, isDmTarget, type MessageTarget } from "@/lib/community/message-handler"
 
 /**
@@ -115,6 +116,8 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
     const gate = await requireChannelMember(db, resolved.channelId, botUserId)
     if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status })
     const channel = gate.value
+    const bearing = requireMessageBearingSurface(channel.type)
+    if (!bearing.ok) return NextResponse.json({ error: bearing.error }, { status: bearing.status })
     // Only threads have a non-null parentChannelId in this path — the ref
     // resolver filters name lookups to top-level (parent_channel_id IS NULL)
     // and thread refs (`#N`) create/reuse rows with type="thread". Forum

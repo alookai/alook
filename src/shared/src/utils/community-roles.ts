@@ -74,3 +74,7 @@ export function isThread(t: string | null | undefined): boolean {
 export function isDm(t: string | null | undefined): boolean {
   return t === "dm"
 }
+
+export function isMessageBearingSurface(t: string | null | undefined): boolean {
+  return t === "text" || t === "forum_post" || t === "thread" || t === "dm"
+}

@@ -580,6 +580,7 @@ export {
   isForumPost,
   isThread,
   isDm,
+  isMessageBearingSurface,
   ROLES,
   ASSIGNABLE_ROLES,
   CHANNEL_TYPES,

@@ -76,7 +76,7 @@ describe("PUT /api/community/threads/[id]/read", () => {
   })
 
   it("body id present: fetches message, scope-checks, batches read + mention-clear to (msg.id, msg.createdAt)", async () => {
-    mockGetChannel.mockResolvedValue({ id: "t1", serverId: "s1" })
+    mockGetChannel.mockResolvedValue({ id: "t1", serverId: "s1", type: "thread" })
     mockGetChannelForMember.mockResolvedValue({ id: "t1", serverId: "s1" })
     mockGetMessage.mockResolvedValue({
       id: "m9",
@@ -102,7 +102,7 @@ describe("PUT /api/community/threads/[id]/read", () => {
   })
 
   it("body id present but message belongs to another channel → 400, no write", async () => {
-    mockGetChannel.mockResolvedValue({ id: "t1", serverId: "s1" })
+    mockGetChannel.mockResolvedValue({ id: "t1", serverId: "s1", type: "thread" })
     mockGetChannelForMember.mockResolvedValue({ id: "t1", serverId: "s1" })
     mockGetMessage.mockResolvedValue({
       id: "m9",
@@ -116,7 +116,7 @@ describe("PUT /api/community/threads/[id]/read", () => {
   })
 
   it("body id present but message does not exist → 404, no write", async () => {
-    mockGetChannel.mockResolvedValue({ id: "t1", serverId: "s1" })
+    mockGetChannel.mockResolvedValue({ id: "t1", serverId: "s1", type: "thread" })
     mockGetChannelForMember.mockResolvedValue({ id: "t1", serverId: "s1" })
     mockGetMessage.mockResolvedValue(null)
 
@@ -126,7 +126,7 @@ describe("PUT /api/community/threads/[id]/read", () => {
   })
 
   it("no body: uses latest message and aligns write to it", async () => {
-    mockGetChannel.mockResolvedValue({ id: "t1", serverId: "s1" })
+    mockGetChannel.mockResolvedValue({ id: "t1", serverId: "s1", type: "thread" })
     mockGetChannelForMember.mockResolvedValue({ id: "t1", serverId: "s1" })
     mockGetLatestMessage.mockResolvedValue({
       id: "m_latest",
@@ -147,7 +147,7 @@ describe("PUT /api/community/threads/[id]/read", () => {
   })
 
   it("no body on EMPTY thread: no write at all, returns 200 { ok: true }", async () => {
-    mockGetChannel.mockResolvedValue({ id: "t1", serverId: "s1" })
+    mockGetChannel.mockResolvedValue({ id: "t1", serverId: "s1", type: "thread" })
     mockGetChannelForMember.mockResolvedValue({ id: "t1", serverId: "s1" })
     mockGetLatestMessage.mockResolvedValue(null)
 
@@ -174,11 +174,20 @@ describe("PUT /api/community/threads/[id]/read", () => {
   })
 
   it("returns 403 when the channel exists but the caller is not a member", async () => {
-    mockGetChannel.mockResolvedValue({ id: "t1", serverId: "s1" })
+    mockGetChannel.mockResolvedValue({ id: "t1", serverId: "s1", type: "thread" })
     mockGetChannelForMember.mockResolvedValue(null)
 
     const res = await PUT(putReq(), { params: { id: "t1" } } as any)
     expect(res.status).toBe(403)
+    expect(mockBatch).not.toHaveBeenCalled()
+  })
+
+  it("returns 400 when the channel id is a top-level channel, not a thread/forum_post", async () => {
+    mockGetChannel.mockResolvedValue({ id: "t1", serverId: "s1", type: "text" })
+
+    const res = await PUT(putReq(), { params: { id: "t1" } } as any)
+    expect(res.status).toBe(400)
+    expect(mockGetChannelForMember).not.toHaveBeenCalled()
     expect(mockBatch).not.toHaveBeenCalled()
   })
 })

@@ -133,7 +133,7 @@ const ctx = { params: { id: "c1" } } as any
 describe("POST /api/community/channels/[id]/messages", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
+    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "text" })
     mockCreateMessage.mockResolvedValue({ id: "m1" })
     // Human author by default — `createCommunityMessage`'s bot-authored audit
     // (plan §10) only fires when `isBot === true`, which none of these tests exercise.
@@ -162,6 +162,20 @@ describe("POST /api/community/channels/[id]/messages", () => {
     mockFanOutToChannel.mockResolvedValue(undefined)
     mockBroadcastToUser.mockResolvedValue(undefined)
     mockCheckMessageRateLimit.mockResolvedValue({ allowed: true })
+  })
+
+  it("rejects a bare message to a forum top-level with 400 (not a message-bearing surface)", async () => {
+    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "forum" })
+    const res = await POST(postReq({ content: "bare into forum index" }), ctx)
+    expect(res.status).toBe(400)
+    expect(mockCreateMessage).not.toHaveBeenCalled()
+  })
+
+  it("rejects a message to a DM channel id via the generic channel route with 400 (block-bypass guard)", async () => {
+    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: null, type: "dm" })
+    const res = await POST(postReq({ content: "sneaking past block" }), ctx)
+    expect(res.status).toBe(400)
+    expect(mockCreateMessage).not.toHaveBeenCalled()
   })
 
   it("returns 429 with Retry-After when the sender is rate limited", async () => {
@@ -280,6 +294,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
     mockGetChannelForMember.mockResolvedValue({
       id: "c1",
       serverId: "s1",
+      type: "thread",
       parentChannelId: "c-parent",
     })
     mockGetChannel.mockResolvedValue({
@@ -310,6 +325,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
     mockGetChannelForMember.mockResolvedValue({
       id: "c1",
       serverId: "s1",
+      type: "text",
       parentChannelId: null,
     })
 
@@ -340,7 +356,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
 describe("GET /api/community/channels/[id]/messages", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
+    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "text" })
     mockListChildChannels.mockResolvedValue([])
     mockListByMessageIds.mockResolvedValue([])
     mockListReactionsByMessageIds.mockResolvedValue([])

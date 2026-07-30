@@ -104,7 +104,7 @@ describe("POST /api/community/agent/send", () => {
     mockGetBotBinding.mockResolvedValue({ machineId: "m_1", runtime: "claude" })
     mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1" }])
     mockResolveChannelByNameForMember.mockResolvedValue([{ id: "ch_1" }])
-    mockGetChannelForMember.mockResolvedValue({ id: "ch_1", serverId: "srv_1", parentChannelId: null })
+    mockGetChannelForMember.mockResolvedValue({ id: "ch_1", serverId: "srv_1", type: "text", parentChannelId: null })
     mockGetLatestSeqForScope.mockResolvedValue(0)
     // Default aligned (no deliverable unread) — matches the beforeEach
     // latest=0. Tests asserting `blocked/unaligned` set this true explicitly;
@@ -197,7 +197,7 @@ describe("POST /api/community/agent/send", () => {
   it("an explicit seenUpToSeq overrides the bot's own tracked lastReadSeq for the alignment check", async () => {
     mockGetLatestSeqForScope.mockResolvedValue(10)
     mockGetReadState.mockResolvedValue({ lastReadSeq: 2 }) // would block if used
-    mockGetChannelForMember.mockResolvedValue({ id: "ch_1", serverId: "srv_1", parentChannelId: null })
+    mockGetChannelForMember.mockResolvedValue({ id: "ch_1", serverId: "srv_1", type: "text", parentChannelId: null })
     mockCreateCommunityMessage.mockResolvedValue({ ok: true, row: { id: "m_1", seq: 10 } })
     const res = await POST(
       req(
@@ -243,7 +243,7 @@ describe("POST /api/community/agent/send", () => {
     // thread ref, without needing to also mock the root-message/thread-row
     // lookups `resolveTargetForMember`'s thread-form parsing would trigger.
     mockResolveChannelByNameForMember.mockResolvedValue([{ id: "thread_1" }])
-    mockGetChannelForMember.mockResolvedValue({ id: "thread_1", serverId: "srv_1", parentChannelId: "ch_parent" })
+    mockGetChannelForMember.mockResolvedValue({ id: "thread_1", serverId: "srv_1", type: "thread", parentChannelId: "ch_parent" })
     mockCreateCommunityMessage.mockResolvedValue({ ok: true, row: { id: "m_1", seq: 1, content: "hi" } })
     const res = await POST(
       req({ channel: "/studio/general", content: { text: "hi" } }, { Authorization: "Bearer crk_abc" })

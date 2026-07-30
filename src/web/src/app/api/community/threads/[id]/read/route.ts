@@ -4,6 +4,7 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
 import { requireChannelMember } from "@/lib/community/permissions"
+import { requireChildSurface } from "@/lib/community/channel-write-guard"
 
 /**
  * PUT /api/community/threads/:id/read
@@ -26,6 +27,8 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
   // both into 403 because the JOIN can't tell the difference.
   const channel = await queries.communityChannel.getChannel(db, channelId)
   if (!channel) return writeError("channel not found", 404)
+  const child = requireChildSurface(channel.type)
+  if (!child.ok) return writeError(child.error, child.status)
   const auth = await requireChannelMember(db, channelId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 

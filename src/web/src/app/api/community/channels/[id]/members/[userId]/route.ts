@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, WS_EVENTS } from "@alook/shared"
+import { queries, WS_EVENTS, isThread, isForumPost } from "@alook/shared"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
 import { logAudit } from "@/lib/community/audit"
 import { requireChannelAccess } from "@/lib/community/permissions"
@@ -26,6 +26,9 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   if (!access.ok) return writeError(access.error, access.status)
 
   const channel = access.value.channel
+  if (isThread(channel.type) || isForumPost(channel.type) || channel.parentMessageId) {
+    return writeError("threads and forum posts inherit their parent's members — remove participants instead", 400)
+  }
   if (channel.creatorId === targetUserId) {
     // Covers both "creator can't be removed" and "creator can't leave".
     return writeError("can't remove the channel creator", 400)

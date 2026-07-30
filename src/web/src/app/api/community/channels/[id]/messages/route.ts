@@ -13,6 +13,7 @@ import {
 } from "@/lib/community/messages"
 import { enrichMessages } from "@/lib/community/enrich-messages"
 import { requireChannelMember } from "@/lib/community/permissions"
+import { requireMessageBearingSurface } from "@/lib/community/channel-write-guard"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { createCommunityMessage } from "@/lib/community/message-handler"
 
@@ -89,6 +90,9 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const auth = await requireChannelMember(db, channelId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
   const channel = auth.value
+
+  const bearing = requireMessageBearingSurface(channel.type)
+  if (!bearing.ok) return writeError(bearing.error, bearing.status)
 
   const rateLimit = await checkRateLimit(ctx.env, "community:msgSend", ctx.userId)
   if (!rateLimit.allowed) {

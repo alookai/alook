@@ -82,6 +82,7 @@ describe("POST /api/community/messages/[id]/threads", () => {
     mockGetChannelForMember.mockResolvedValue({
       id: "c-parent",
       serverId: "s1",
+      type: "text",
     })
     mockListChildChannels.mockResolvedValue([])
     mockCreateChannel.mockResolvedValue({
@@ -199,6 +200,18 @@ describe("POST /api/community/messages/[id]/threads", () => {
     expect(mockCreateChannel).not.toHaveBeenCalled()
   })
 
+  it("400s when rooting a thread on a forum top-level message (not a message-bearing surface)", async () => {
+    mockGetChannelForMember.mockResolvedValue({
+      id: "forum-1",
+      serverId: "s1",
+      type: "forum",
+      parentChannelId: null,
+    })
+    const res = await POST(req({ name: "x" }), ctx)
+    expect(res.status).toBe(400)
+    expect(mockCreateChannel).not.toHaveBeenCalled()
+  })
+
   it("seeds the creator (spoke) AND the parent-message author (added) as default participants", async () => {
     const res = await POST(req({ name: "my thread" }), ctx)
     expect(res.status).toBe(201)
@@ -239,7 +252,7 @@ describe("POST /api/community/messages/[id]/threads", () => {
     // per-userId getChannelForMember returns null for them, so seeding skips
     // the author to avoid pushing a private thread to a non-member.
     mockGetChannelForMember.mockImplementation(async (_db: unknown, _channelId: string, userId: string) => {
-      if (userId === "u1") return { id: "c-parent", serverId: "s1" }
+      if (userId === "u1") return { id: "c-parent", serverId: "s1", type: "text" }
       return null
     })
     const res = await POST(req({ name: "my thread" }), ctx)

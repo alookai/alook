@@ -14,6 +14,21 @@ vi.mock("@/lib/middleware/helpers", () => {
 const mockGetDb = vi.fn(() => ({ __db: true }))
 vi.mock("@/lib/db", () => ({ getDb: (...a: unknown[]) => mockGetDb(...a) }))
 
+const mockGetChannelType = vi.fn()
+vi.mock("@alook/shared", async () => {
+  const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
+  return {
+    ...actual,
+    queries: {
+      ...actual.queries,
+      communityChannel: {
+        ...actual.queries.communityChannel,
+        getChannelType: (...a: unknown[]) => mockGetChannelType(...a),
+      },
+    },
+  }
+})
+
 import {
   handleAttachmentUpload,
   handleServerIconUpload,
@@ -332,7 +347,10 @@ describe("handleBotAvatarUpload", () => {
 })
 
 describe("runAttachmentUpload", () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetChannelType.mockResolvedValue("text")
+  })
 
   function ctxWith(env: Env, params: Record<string, string> | undefined) {
     return {
@@ -423,6 +441,7 @@ describe("runAttachmentUpload", () => {
   })
 
   it("routes 'thread' kind through the thread/ R2 prefix", async () => {
+    mockGetChannelType.mockResolvedValue("thread")
     const put = vi.fn().mockResolvedValue(undefined)
     const perm = vi.fn().mockResolvedValue({ ok: true, value: { id: "t1" } })
     const res = await runAttachmentUpload(
@@ -434,6 +453,34 @@ describe("runAttachmentUpload", () => {
     expect(res.status).toBe(200)
     const [key] = put.mock.calls[0]
     expect(key).toMatch(/^thread\/t1\//)
+  })
+
+  it("rejects a 'channel' upload targeted at a forum top-level with 400", async () => {
+    mockGetChannelType.mockResolvedValue("forum")
+    const put = vi.fn()
+    const perm = vi.fn().mockResolvedValue({ ok: true, value: { id: "c1" } })
+    const res = await runAttachmentUpload(
+      reqWithFile(fakeFile("hi.png", "image/png", 10)),
+      ctxWith(envWithR2(put), { id: "c1" }),
+      "channel",
+      perm as never,
+    )
+    expect(res.status).toBe(400)
+    expect(put).not.toHaveBeenCalled()
+  })
+
+  it("rejects a 'channel' upload targeted at a DM channel id with 400 (block-bypass guard)", async () => {
+    mockGetChannelType.mockResolvedValue("dm")
+    const put = vi.fn()
+    const perm = vi.fn().mockResolvedValue({ ok: true, value: { id: "c1" } })
+    const res = await runAttachmentUpload(
+      reqWithFile(fakeFile("hi.png", "image/png", 10)),
+      ctxWith(envWithR2(put), { id: "c1" }),
+      "channel",
+      perm as never,
+    )
+    expect(res.status).toBe(400)
+    expect(put).not.toHaveBeenCalled()
   })
 
   it("forwards handleAttachmentUpload errors (e.g. oversize) unchanged", async () => {

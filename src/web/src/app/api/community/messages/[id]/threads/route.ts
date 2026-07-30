@@ -5,6 +5,7 @@ import { getDb } from "@/lib/db"
 import { queries, MAX_CHANNEL_NAME_LENGTH, WS_EVENTS, PARTICIPANT_SOURCE } from "@alook/shared"
 import { fanOutToChannel } from "@/lib/community/fanout"
 import { requireChannelMember } from "@/lib/community/permissions"
+import { requireMessageBearingSurface } from "@/lib/community/channel-write-guard"
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const messageId = ctx.params?.id
@@ -29,6 +30,13 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (channel.parentChannelId) {
     return writeError("can't start a thread on a message in a thread or forum post", 400)
   }
+
+  // A thread roots on a real message, so the anchor's channel must be a
+  // message-bearing surface. A `forum` top-level is a post index, not a
+  // message surface — any bare message there is illegitimate (see the
+  // channel-type write guard), so no thread may root on it.
+  const bearing = requireMessageBearingSurface(channel.type)
+  if (!bearing.ok) return writeError(bearing.error, bearing.status)
 
   let body: { name?: string }
   try {
