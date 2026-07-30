@@ -15,7 +15,9 @@ export type BotSummary = {
   // Context lifecycle (my-bots #516/#531): when the agent last refreshed its
   // context (nap OR session reset — both "refresh context"), ISO string, null
   // if it never has; and how many messages it's handled in the CURRENT lifecycle
-  // (reset/nap zero it). Rendered as "Refreshed X ago · N msgs".
+  // (reset/nap zero it) — the field is post-gate "handled" count (excludes
+  // deleted-sender / parse-failed), so it's labeled "Handled N msgs" (Gus #582),
+  // NOT "received". Rendered as "Refreshed X ago · Handled N msgs".
   lastRefreshContextAt: string | null
   handledMessageCount: number
 }
