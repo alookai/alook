@@ -92,6 +92,23 @@ describe("withAuth middleware", () => {
     expect(body.error).toBe("unauthorized");
   });
 
+  it("rejects a crk_ runner-key bearer — a bot never authenticates as a human here (§5 red line)", async () => {
+    // Privilege-escalation red line (plans/22 §5): the human-only community
+    // surfaces (/bots/*, /daemon/*, human inbox, channel management) stay on
+    // withAuth, NOT withCommunityActor. A crk_ bearer is neither an al_ machine
+    // token nor a session, so it falls through to the session path and finds no
+    // session → 401. This is what keeps a bot structurally unable to reach a
+    // human-only route after the actor unification.
+    const req = new NextRequest("http://localhost/api/test", {
+      headers: { Authorization: "Bearer crk_somebottoken" },
+    });
+    mockGetSession.mockResolvedValue({ headers: new Headers(), response: null });
+
+    const res = await wrapped(req);
+    expect(res.status).toBe(401);
+    expect((await res.json()).error).toBe("unauthorized");
+  });
+
   it("authenticates valid Better Auth session and passes userId/email to handler", async () => {
     mockGetSession.mockResolvedValue({
       headers: new Headers(),

@@ -96,13 +96,29 @@ describe("createProxyServerApi — parseJsonResponse via call<T>", () => {
     }
   });
 
-  it("returns parsed JSON on 2xx", async () => {
-    const fetchImpl: FetchLike = vi.fn(async () =>
-      jsonBody(JSON.stringify({ servers: [{ id: "srv_1" }] }), { status: 200 }),
-    );
+  it("GETs /api/community/servers and projects the SUPERSET row down to lean {id,name} (Fork C)", async () => {
+    const seen: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
+      seen.push({ url, init });
+      // Superset response the unified GET /servers returns for a bot: full rows
+      // with icon/ownerId/description that MUST NOT reach the bot's context.
+      return jsonBody(
+        JSON.stringify({
+          servers: [
+            { id: "srv_1", name: "Studio", icon: "https://cdn/x.png", ownerId: "u_owner", description: "secret" },
+            { id: "srv_2", name: "Lab", icon: null, ownerId: "u_owner" },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
     const out = await api.listServers({ agentId: "a1" as never });
-    expect(out).toEqual({ servers: [{ id: "srv_1" }] });
+    // Single projection point: only {id,name} survives — no icon/ownerId/description.
+    expect(out).toEqual({ servers: [{ id: "srv_1", name: "Studio" }, { id: "srv_2", name: "Lab" }] });
+    // Folded verb hits the real REST path (GET), not a flat POST /api/listServers.
+    expect(seen.at(-1)!.url).toBe("http://proxy.test/api/community/servers");
+    expect(seen.at(-1)!.init?.method).toBe("GET");
   });
 });
 
