@@ -18,7 +18,7 @@ import { ServerSettings } from "@/components/community/server-settings"
 import { ImageCropDialog } from "@/components/community/image-crop-dialog"
 import { validateIconSourceFile } from "@/lib/community/image-crop"
 import type { MobileZone, SettingsSection } from "@/components/community/_types"
-import { canManageServer, type ChannelType } from "@alook/shared"
+import { canManageServer, notifLevelDisplay, type ChannelType } from "@alook/shared"
 import { resolveRowPresence } from "@/lib/community/presence"
 import {
   useCommunityStore,
@@ -92,7 +92,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const presence = usePresence(serverId)
   const { online: initialOnline } = presence
   const notifs = useNotificationSettings()
-  const notifLevel = notifs.server[serverId] ?? "Only @mentions"
+  const notifLevel = notifs.server[serverId] ?? notifLevelDisplay("mentions")
   const channelNotif = notifs.channel
   const currentChannelId = useCurrentChannelId()
   const currentChannelMeta = useCurrentChannelMeta()

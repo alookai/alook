@@ -6,6 +6,9 @@ import {
   IssueStatus, ACTIVE_ISSUE_STATUSES, TERMINAL_ISSUE_STATUSES, isTerminalIssueStatus,
   MeetingStatus, TERMINAL_MEETING_STATUSES,
 } from "../src/constants"
+import {
+  NOTIF_LEVELS, NOTIFICATION_LEVEL_VALUES, notifLevelDisplay, normalizeNotifLevel,
+} from "../src/constants/community"
 
 describe("constants", () => {
   it("OFFLINE_THRESHOLD_MS is 30s", () => expect(OFFLINE_THRESHOLD_MS).toBe(30_000))
@@ -106,5 +109,41 @@ describe("MeetingStatus", () => {
     expect(TERMINAL_MEETING_STATUSES).toHaveLength(2)
     expect(TERMINAL_MEETING_STATUSES).toContain("completed")
     expect(TERMINAL_MEETING_STATUSES).toContain("failed")
+  })
+})
+
+describe("notification-level bijection (single source)", () => {
+  it("NOTIF_LEVELS values exactly match the DB enum NOTIFICATION_LEVEL_VALUES", () => {
+    expect(NOTIF_LEVELS.map((l) => l.value)).toEqual([...NOTIFICATION_LEVEL_VALUES])
+  })
+
+  it("every level has a unique, non-empty display string (no drift/dupes)", () => {
+    const displays = NOTIF_LEVELS.map((l) => l.display)
+    expect(new Set(displays).size).toBe(displays.length)
+    for (const d of displays) expect(d.length).toBeGreaterThan(0)
+  })
+
+  it("notifLevelDisplay maps each value to its display; unknown passes through", () => {
+    expect(notifLevelDisplay("all")).toBe("All Messages")
+    expect(notifLevelDisplay("mentions")).toBe("Only @mentions")
+    expect(notifLevelDisplay("nothing")).toBe("Nothing")
+    expect(notifLevelDisplay("bogus")).toBe("bogus")
+  })
+
+  it("normalizeNotifLevel round-trips display→value and value→value", () => {
+    for (const l of NOTIF_LEVELS) {
+      expect(normalizeNotifLevel(l.display)).toBe(l.value) // display → value
+      expect(normalizeNotifLevel(l.value)).toBe(l.value)   // value → value (idempotent)
+    }
+  })
+
+  it("normalizeNotifLevel/notifLevelDisplay are inverse for every level", () => {
+    for (const l of NOTIF_LEVELS) {
+      expect(normalizeNotifLevel(notifLevelDisplay(l.value))).toBe(l.value)
+    }
+  })
+
+  it("normalizeNotifLevel falls back to 'all' (fail-open, NOT the old silent 'mentions' mute) on unknown input", () => {
+    expect(normalizeNotifLevel("totally unknown")).toBe("all")
   })
 })

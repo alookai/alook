@@ -1,6 +1,7 @@
 "use client"
 
 import { useQuery, type UseQueryResult } from "@tanstack/react-query"
+import { notifLevelDisplay } from "@alook/shared"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 
@@ -28,13 +29,10 @@ export type NotificationSettings = {
 const EMPTY_NOTIF_SERVER: Readonly<Record<string, string>> = Object.freeze({})
 const EMPTY_NOTIF_CHANNEL: Readonly<Record<string, string>> = Object.freeze({})
 
-// API-level ("all"|"mentions"|"nothing") → display strings.
-function displayNotifLevel(level: string): string {
-  if (level === "all") return "All Messages"
-  if (level === "mentions") return "Only @mentions"
-  if (level === "nothing") return "Nothing"
-  return level
-}
+// API-level ("all"|"mentions"|"nothing") → display string, from the shared
+// single-source bijection (`notifLevelDisplay`). Was a hand-rolled map that
+// drifted on casing ("All Messages" vs the shared const's "All messages").
+const displayNotifLevel = notifLevelDisplay
 
 export const notificationSettingsQueryFn = async (): Promise<NotificationSettings> => {
   const rows = await apiFetch<NotificationSettingRow[]>(

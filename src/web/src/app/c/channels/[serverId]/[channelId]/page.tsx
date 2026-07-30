@@ -18,7 +18,7 @@ import { AddMembersDialog } from "@/components/community/add-members-dialog"
 import type { RightPanel, Msg, OpenProfile, Role } from "@/components/community/_types"
 import { canManageServer } from "@/components/community/_types"
 import type { MentionType } from "@alook/shared"
-import { isForum as isForumType, deriveThreadName } from "@alook/shared"
+import { isForum as isForumType, deriveThreadName, USE_SERVER_DEFAULT } from "@alook/shared"
 import { resolveRowPresence } from "@/lib/community/presence"
 import { makeUserNameResolver } from "@/lib/community/display-name"
 import { avatarInitial } from "@/lib/community/avatar"
@@ -968,7 +968,7 @@ function ChannelView() {
           forum={isForumType(parentChannel?.type)}
           rightPanel={rightPanel}
           onToggle={togglePanel}
-          notifLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? "Use Server Default"}
+          notifLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
           onSetNotifLevel={(l) => setChannelNotifMut.mutate({ channelId, level: l }, {
             onError: (e) => toastApiError(e, "Failed to update notification level"),
           })}
@@ -1073,7 +1073,7 @@ function ChannelView() {
           forum
           rightPanel={rightPanel}
           onToggle={togglePanel}
-          notifLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? "Use Server Default"}
+          notifLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
           onSetNotifLevel={(l) => setChannelNotifMut.mutate({ channelId, level: l }, {
             onError: (e) => toastApiError(e, "Failed to update notification level"),
           })}
@@ -1130,7 +1130,7 @@ function ChannelView() {
         channel={channelName}
         rightPanel={rightPanel}
         onToggle={togglePanel}
-        notifLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? "Use Server Default"}
+        notifLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
         onSetNotifLevel={(l) => setChannelNotifMut.mutate({ channelId, level: l }, {
           onError: (e) => toastApiError(e, "Failed to update notification level"),
         })}

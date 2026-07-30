@@ -102,17 +102,57 @@ export const TYPING_INDICATOR_THROTTLE_MS = 3_000
 export const MESSAGE_DEDUP_CACHE_MAX = 500
 export const MESSAGE_DEDUP_CACHE_TRIM = 400
 
-// Notification levels
-export const NOTIF_LEVELS = {
-  ALL: "All messages",
-  MENTIONS: "Only @mentions",
-  NONE: "Nothing",
-} as const
-export type NotifLevel = typeof NOTIF_LEVELS[keyof typeof NOTIF_LEVELS]
-
-// Notification setting level values (DB enum)
+// Notification setting level values (DB enum). Anchors
+// `community_notification_setting.level` (schema `.default("all")`) — the three
+// real, persisted levels. `NOTIF_LEVELS` below is the single value↔label source.
 export const NOTIFICATION_LEVEL_VALUES = ["all", "mentions", "nothing"] as const
 export type NotificationLevelValue = typeof NOTIFICATION_LEVEL_VALUES[number]
+
+// Single source of truth for the notification-level value↔label bijection.
+// Each row ties the DB `value` to the `display` string that flows through the
+// UI props + mutations, plus the menu `label`/`hint` shown in the dropdowns.
+// EVERY UI options array, the display mapper, and the reverse normalizer read
+// from here — previously the map was re-hand-rolled in ~5 places with THREE
+// inconsistent `display` spellings ("All messages" / "All Messages" /
+// "All messages"), so a value could round-trip wrong or fall through the
+// normalizer's silent default. Canonical display casing is "All Messages"
+// (what the live UI already renders — so consolidating is zero visible change).
+export const NOTIF_LEVELS = [
+  { value: "all", display: "All Messages", label: "Every message", hint: "Notify for every new message" },
+  { value: "mentions", display: "Only @mentions", label: "Mentions only", hint: "Notify when someone @s you" },
+  { value: "nothing", display: "Nothing", label: "Muted", hint: "No notifications, no badges" },
+] as const satisfies readonly { value: NotificationLevelValue; display: string; label: string; hint: string }[]
+
+// A message notification level's DISPLAY string (the identity string carried by
+// UI props). Derived from the single source so it can't drift from `value`.
+export type NotifLevel = typeof NOTIF_LEVELS[number]["display"]
+
+// UI-only sentinel for the CHANNEL notification dropdown: "inherit the server
+// default". NOT a persisted level — data-wise it means "no channel override
+// row". Kept as a named constant so the ~4 sites that reference it can't
+// misspell the string.
+export const USE_SERVER_DEFAULT = "Use Server Default" as const
+
+// value ("all"|…) → identity display string. Unknown input passes through
+// unchanged (forward-compat with a future level value) — NOT silently coerced.
+export function notifLevelDisplay(value: string): string {
+  return NOTIF_LEVELS.find((l) => l.value === value)?.display ?? value
+}
+
+// display string (or an already-normalized value) → DB value. Recognizes both
+// directions off the single source. Unknown input falls back to the safest
+// non-destructive default `"all"` (never silently MUTES — the old scattered
+// `normalizeNotifLevel` fell back to `"mentions"`, which could quietly demote a
+// user's notifications; in practice the input is always a known dropdown
+// display string so the fallback is unreachable, but "all" is the fail-open
+// choice if it ever isn't).
+export function normalizeNotifLevel(input: string): NotificationLevelValue {
+  const byDisplay = NOTIF_LEVELS.find((l) => l.display === input)
+  if (byDisplay) return byDisplay.value
+  const byValue = NOTIF_LEVELS.find((l) => l.value === input)
+  if (byValue) return byValue.value
+  return "all"
+}
 
 // Cache headers
 export const CACHE_IMMUTABLE = "public, max-age=31536000, immutable"

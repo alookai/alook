@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import type { LucideIcon } from "lucide-react"
 import { Bell, BellOff, Pin, Users, MessagesSquare, ChevronLeft, Check, Pencil, MoreHorizontal } from "lucide-react"
+import { NOTIF_LEVELS, USE_SERVER_DEFAULT, type NotifLevel } from "@alook/shared"
 import { Button } from "@/components/ui/button"
 import { avatarInitial } from "@/lib/community/avatar"
 import { Input } from "@/components/ui/input"
@@ -38,7 +39,10 @@ export function ChannelHeaderSkeleton({ onBack }: { onBack?: () => void }) {
   )
 }
 
-export type ChannelNotifLevel = "Use Server Default" | "All Messages" | "Only @mentions" | "Nothing"
+// A channel can inherit the server default (UI-only sentinel) or pin one of the
+// three real levels. Derived from the shared single-source so the strings can't
+// drift from the notif-level bijection.
+export type ChannelNotifLevel = typeof USE_SERVER_DEFAULT | NotifLevel
 
 export function ChannelHeader({
   channel, rightPanel, onToggle, notifLevel, onSetNotifLevel, onBack,
@@ -100,7 +104,7 @@ export function ChannelHeader({
       <div className="ml-auto flex items-center text-muted-foreground">
         {tools?.members !== false && tool("members", Users, "Member list")}
         <span className="mx-1 h-5 w-px bg-border/60" aria-hidden />
-        <ChannelNotifDropdown level={notifLevel ?? "Use Server Default"} onSetLevel={onSetNotifLevel} />
+        <ChannelNotifDropdown level={notifLevel ?? USE_SERVER_DEFAULT} onSetLevel={onSetNotifLevel} />
         {(tools?.threads !== false || tools?.pinned !== false) && (
           <ChannelOverflowMenu
             rightPanel={rightPanel}
@@ -180,18 +184,22 @@ function ServerCrumb({ id, name, icon, size = 5, className = "" }: { id: string;
   )
 }
 
-const NOTIF_LEVELS: { value: ChannelNotifLevel; label: string; hint: string }[] = [
-  { value: "Use Server Default", label: "Use server default", hint: "Inherit this server's setting" },
-  { value: "All Messages", label: "Every message", hint: "Notify for every new message" },
-  { value: "Only @mentions", label: "Mentions only", hint: "Notify when someone @s you" },
-  { value: "Nothing", label: "Muted", hint: "No notifications, no badges" },
+// The channel dropdown = the inherit sentinel first, then the three shared
+// levels (menu label + hint straight from the single source).
+const CHANNEL_NOTIF_OPTIONS: { value: ChannelNotifLevel; label: string; hint: string }[] = [
+  { value: USE_SERVER_DEFAULT, label: "Use server default", hint: "Inherit this server's setting" },
+  ...NOTIF_LEVELS.map((l) => ({ value: l.display, label: l.label, hint: l.hint })),
 ]
+
+// The "Nothing" display string (the muted state's level) pulled from the single
+// source so the mute-toggle comparison can't drift.
+const MUTED_LEVEL: NotifLevel = NOTIF_LEVELS.find((l) => l.value === "nothing")!.display
 
 function ChannelNotifDropdown({ level, onSetLevel }: {
   level: ChannelNotifLevel
   onSetLevel?: (l: ChannelNotifLevel) => void
 }) {
-  const isMuted = level === "Nothing"
+  const isMuted = level === MUTED_LEVEL
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -200,12 +208,12 @@ function ChannelNotifDropdown({ level, onSetLevel }: {
         {isMuted ? <BellOff className="size-4" /> : <Bell className="size-4" />}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-60">
-        <DropdownMenuItem onClick={() => onSetLevel?.(isMuted ? "Use Server Default" : "Nothing")}>
+        <DropdownMenuItem onClick={() => onSetLevel?.(isMuted ? USE_SERVER_DEFAULT : MUTED_LEVEL)}>
           {isMuted ? <Bell className="size-4" /> : <BellOff className="size-4" />}
           {isMuted ? "Unmute channel" : "Mute channel"}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        {NOTIF_LEVELS.map((n) => (
+        {CHANNEL_NOTIF_OPTIONS.map((n) => (
           <DropdownMenuItem key={n.value} onClick={() => onSetLevel?.(n.value)}>
             <span className="min-w-0 flex-1 text-sm">{n.label}</span>
             {level === n.value && <Check className="size-4 shrink-0 text-primary" />}
