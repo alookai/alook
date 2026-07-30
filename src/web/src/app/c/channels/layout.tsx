@@ -282,7 +282,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
 
   const mutedChannels = useMemo(
     () => Object.fromEntries(
-      Object.entries(channelNotif).map(([k, v]) => [k, v === "Nothing"])
+      Object.entries(channelNotif).map(([k, v]) => [k, v === notifLevelDisplay("nothing")])
     ),
     [channelNotif]
   )
