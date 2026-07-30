@@ -185,8 +185,59 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     return { path: req.destPath, filename, contentType, size: size || buf.byteLength };
   }
 
+  // --- Folded verbs: real REST paths, not flat `/api/<verb>` ---------------
+  // listServers and joinServer FOLDED onto the human routes (GET /servers,
+  // POST /invites/<token>/join). The unified route returns a SUPERSET; the lean
+  // contract projection (Fork C — Aigneis condition 1) happens HERE, at the
+  // single proxy response boundary, NOT per CLI command. These hit
+  // `/api/community/...` directly; `rewriteAgentPath` is idempotent so the path
+  // passes through unprefixed. Mirrors the existing callUpload/callDownload
+  // custom-path pattern.
+
+  /** Project a superset server row down to the lean `Server` ({id,name}). */
+  function projectServer(row: { id: string; name: string }): Server {
+    return { id: row.id, name: row.name };
+  }
+
+  async function callListServers(): Promise<{ servers: Server[] }> {
+    const res = await fetchImpl(`${base}/api/community/servers`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${config.voucher}` },
+    });
+    const body = await parseJsonResponse<{ servers: Array<{ id: string; name: string }> }>(
+      res,
+      "listServers",
+    );
+    // Superset in → lean out: drop icon/ownerId/etc., emit only {id,name}.
+    return { servers: body.servers.map(projectServer) };
+  }
+
+  async function callJoinServer(req: { agentId: AgentId; invite: string }): Promise<{ server: Server }> {
+    // The invite token is a ROUTE PARAM on the folded route (POST
+    // /invites/<token>/join), not a body field. Body is empty; identity rides
+    // the voucher as everywhere else.
+    const res = await fetchImpl(
+      `${base}/api/community/invites/${encodeURIComponent(req.invite)}/join`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${config.voucher}`,
+        },
+        body: "{}",
+      },
+    );
+    const body = await parseJsonResponse<{ server?: { id: string; name: string } }>(res, "joinServer");
+    // Superset {member,serverId,server} in → lean {server:{id,name}} out.
+    if (!body.server) {
+      throw new Error("joinServer: upstream response missing server");
+    }
+    return { server: projectServer(body.server) };
+  }
+
   return {
-    listServers: (r: { agentId: AgentId }) => call<{ servers: Server[] }>("listServers", r),
+    listServers: (_r: { agentId: AgentId }) => callListServers(),
+    joinServer: callJoinServer,
     listChannels: (r: ListChannelsRequest) => call<{ groups: ChannelGroup[] }>("listChannels", r),
     channelMember: (r: { agentId?: AgentId; channel: ChannelRef }) =>
       call<ChannelMemberResult>("channelMember", r),
@@ -197,7 +248,6 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     read: (r: ReadRequest) => call<Page<Message>>("read", r),
     resolve: (r: ResolveRequest) => call<{ message: Message }>("resolve", r),
     listMembers: (r: { agentId: AgentId; server: string }) => call<{ members: ServerMember[] }>("listMembers", r),
-    joinServer: (r: { agentId: AgentId; invite: string }) => call<{ server: Server }>("joinServer", r),
     attachmentUpload: callUpload,
     attachmentDownload: callDownload,
     reactAdd: (r: { channel: ChannelRef; seq: Seq; emoji: string }) =>

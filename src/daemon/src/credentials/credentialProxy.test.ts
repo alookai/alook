@@ -49,14 +49,14 @@ async function post(url: string, voucher: string, path: string) {
 describe("DEFAULT_CAPABILITY_RESOLVER", () => {
   it("maps /api/reactAdd to the `send` capability (a read-only voucher must not react)", () => {
     expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/reactAdd")).toBe("send");
-    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/agent/reactAdd")).toBe("send");
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/reactAdd")).toBe("send");
   });
 
   it("maps friendRequest / listFriends to the `friend` capability, both pre- and post-rewrite", () => {
     expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/friendRequest")).toBe("friend");
     expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/listFriends")).toBe("friend");
-    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/agent/friendRequest")).toBe("friend");
-    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/agent/listFriends")).toBe("friend");
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/friendRequest")).toBe("friend");
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/listFriends")).toBe("friend");
   });
 });
 
@@ -186,21 +186,26 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     expect(upstream.seen.length).toBe(0);
   });
 
-  it("rewrites /api/* to /api/community/agent/* (design §9)", async () => {
+  it("rewrites flat /api/* verbs to /api/community/* (plans/22 §9); is idempotent for already-namespaced paths", async () => {
     const upstream = await startUpstream();
     upstreamClose = upstream.close;
     const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
     proxy = await startCredentialProxy(broker);
-    const reg = broker.mint("agent-1", "l", ["send", "read"], REAL_KEY);
+    const reg = broker.mint("agent-1", "l", ["send", "read", "server"], REAL_KEY);
 
     await post(proxy.url, reg.voucher, "/api/send");
-    expect(upstream.seen.at(-1)!.path).toBe("/api/community/agent/send");
+    expect(upstream.seen.at(-1)!.path).toBe("/api/community/send");
 
     await post(proxy.url, reg.voucher, "/api/inboxPull?max=10");
-    expect(upstream.seen.at(-1)!.path).toBe("/api/community/agent/inboxPull?max=10");
+    expect(upstream.seen.at(-1)!.path).toBe("/api/community/inboxPull?max=10");
 
     await post(proxy.url, reg.voucher, "/api");
-    expect(upstream.seen.at(-1)!.path).toBe("/api/community/agent");
+    expect(upstream.seen.at(-1)!.path).toBe("/api/community");
+
+    // Idempotent: a folded verb's real REST path (already under /api/community/)
+    // passes through unprefixed — NOT doubled into /api/community/community/...
+    await post(proxy.url, reg.voucher, "/api/community/servers");
+    expect(upstream.seen.at(-1)!.path).toBe("/api/community/servers");
   });
 
   it("leaves non-/api paths untouched", async () => {

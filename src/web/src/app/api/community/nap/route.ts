@@ -76,7 +76,15 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   }
 
   // Audit on delivery only (mirrors reset/model-switch). No notification.
-  await queries.communityBotAuditLog.insertBotAuditNap(db, { botId: botUserId })
+  // Stamp lastRefreshContextAt at the SAME chokepoint (single write point),
+  // reusing the audit row's own createdAt so the my-bots "last refreshed"
+  // indicator can never drift from the nap audit event. (Ported from the
+  // incoming my-bots refresh feature onto this moved /community/nap route
+  // during the rebase — the /agent/nap it originally patched was deleted here.)
+  const inserted = await queries.communityBotAuditLog.insertBotAuditNap(db, { botId: botUserId })
+  if (inserted) {
+    await queries.communityBot.touchBotRefreshContext(db, botUserId, inserted.createdAt)
+  }
 
   return NextResponse.json({ napped: true })
 })

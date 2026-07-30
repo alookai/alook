@@ -523,13 +523,16 @@ describe("deriveAuditLogSubcommand", () => {
     expect(deriveAuditLogSubcommand("/api/reactAdd")).toBe("reactAdd");
   });
 
-  it("maps the rewritten /api/community/agent/* pathnames identically", () => {
+  it("maps the rewritten /api/community/* pathnames identically", () => {
     // The proxy's rewriteAgentPath fires AFTER onProxyRequest, so the sighting
-    // may carry either shape depending on how the CLI called in. Both must
-    // derive to the same subcommand string.
+    // may carry either shape depending on how the CLI called in. Both the flat
+    // client path and the post-rewrite /api/community/* path must derive to the
+    // same subcommand string. (The legacy /api/community/agent/* form is still
+    // normalized too, for any in-flight path.)
+    expect(deriveAuditLogSubcommand("/api/community/send")).toBe("send");
+    expect(deriveAuditLogSubcommand("/api/community/inboxPull")).toBe("inboxPull");
+    expect(deriveAuditLogSubcommand("/api/community/reactAdd")).toBe("reactAdd");
     expect(deriveAuditLogSubcommand("/api/community/agent/send")).toBe("send");
-    expect(deriveAuditLogSubcommand("/api/community/agent/inboxPull")).toBe("inboxPull");
-    expect(deriveAuditLogSubcommand("/api/community/agent/reactAdd")).toBe("reactAdd");
   });
 
   it("returns null for `ack` (dropped — paired with inboxPull, no user intent)", () => {

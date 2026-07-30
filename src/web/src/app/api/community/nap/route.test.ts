@@ -32,17 +32,28 @@ vi.mock("@/lib/community/bot-push", () => ({
   pushAgentNapToMachine: (...a: unknown[]) => mockPushAgentNapToMachine(...a),
 }))
 
-// Runner-key auth: the bot acts on ITSELF — botUserId/machineId come from the
-// authenticated runner, not the request body.
-vi.mock("@/lib/middleware/community-agent-runner-auth", () => ({
-  withAgentRunnerAuth: (handler: any) => async (req: any) =>
-    handler(req, { env: { DB: {} }, botUserId: "b1", machineId: "mac_1" }),
+// Unified actor: nap is a bot-only verb (moved from /agent/nap to /community/nap,
+// plans/22 §9). withCommunityActor injects the resolved actor; the bot acts on
+// ITSELF — botUserId/machineId come from the authenticated runner, not the body.
+// requireBot is a passthrough for a bot actor (human → 403, covered by the
+// community-actor unit test). This test mocks the wrapper directly (as the
+// incoming /agent/nap test did) so it stays focused on the nap handler logic.
+vi.mock("@/lib/middleware/community-actor", () => ({
+  withCommunityActor: (handler: any) => async (req: any) =>
+    handler(req, {
+      env: { DB: {} },
+      actor: { kind: "bot", userId: "b1", ownerUserId: "owner_1", machineId: "mac_1" },
+    }),
+  requireBot: (actor: any) =>
+    actor.kind === "bot"
+      ? { ok: true, bot: actor }
+      : { ok: false, response: new Response(null, { status: 403 }) },
 }))
 
 import { POST } from "./route"
 
 function req(body: unknown = { handoff: "note to future self" }) {
-  return new NextRequest("http://localhost/api/community/agent/nap", {
+  return new NextRequest("http://localhost/api/community/nap", {
     method: "POST",
     body: JSON.stringify(body),
   })
@@ -59,7 +70,7 @@ const READY_CTX = {
   ownerUserId: "owner_1",
 }
 
-describe("POST /api/community/agent/nap", () => {
+describe("POST /api/community/nap", () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
@@ -114,7 +125,8 @@ describe("POST /api/community/agent/nap", () => {
     // Single-source invariant (mirror of reset-session): lastRefreshContextAt is
     // stamped exactly once, in lockstep with the nap audit row, reusing that
     // row's OWN createdAt — so the my-bots "last refreshed" indicator can never
-    // drift from the nap audit event.
+    // drift from the nap audit event. (Ported onto the moved /community/nap route
+    // during the rebase — the /agent/nap this feature originally patched is gone.)
     expect(mockTouchBotRefreshContext).toHaveBeenCalledTimes(1)
     expect(mockTouchBotRefreshContext).toHaveBeenCalledWith(
       expect.anything(),

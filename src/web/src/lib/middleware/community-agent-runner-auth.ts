@@ -1,36 +1,22 @@
-import { NextRequest, NextResponse } from "next/server"
-import { getCloudflareContext } from "@opennextjs/cloudflare"
+import { NextResponse } from "next/server"
 import { queries, withD1Retry, createLogger } from "@alook/shared"
 import type { Database } from "@alook/shared"
-import { getDb } from "@/lib/db"
 
 const log = createLogger({ service: "community-agent-runner-auth" })
 
 /**
  * The bot identity resolved from a `crk_` runner key — the BOT's own user id,
- * its OWNER's user id, and the machine it's bound to. Shared by both
- * `withAgentRunnerAuth` (the legacy `/agent/*` wrapper) and the unified
- * `withCommunityActor` (see community-actor.ts).
+ * its OWNER's user id, and the machine it's bound to. Consumed by the unified
+ * `withCommunityActor` (see community-actor.ts). The legacy `withAgentRunnerAuth`
+ * wrapper and the `/api/community/agent/*` route tree it guarded were deleted in
+ * plans/22 §9 phase 5 once every bot verb moved onto the unified actor;
+ * `resolveBotActor` is the surviving, shared crk_ validator.
  */
 export interface ResolvedBotActor {
   botUserId: string
   ownerUserId: string
   machineId: string
 }
-
-interface AgentRunnerAuthContext {
-  env: Env
-  /** The BOT's own user id — `row.agentId` from `findActiveAgentRunnerKeyByBearer`. */
-  botUserId: string
-  /** The bot's OWNER (the human who ran `mintAgentRunnerKey`) — `row.userId`. */
-  ownerUserId: string
-  machineId: string
-}
-
-export type AgentRunnerAuthenticatedHandler = (
-  req: NextRequest,
-  ctx: AgentRunnerAuthContext & { params?: Record<string, string> }
-) => Promise<NextResponse | Response>
 
 const RETRY_OPTS = { route: "community-agent-runner-auth" }
 
@@ -133,60 +119,5 @@ export async function resolveBotActor(
   return {
     kind: "bot",
     actor: { botUserId: row.agentId, ownerUserId: row.userId, machineId: row.machineId },
-  }
-}
-
-/**
- * Agent-runner auth middleware for the CLI bridge (`/api/community/agent/*`).
- * Requires `Authorization: Bearer crk_…`. Now a thin adapter over the shared
- * `resolveBotActor` — behavior is unchanged: a missing/non-`crk_` bearer 401s
- * here (this wrapper is bot-only, so `not_bot` maps to the same 401 the old
- * inline check returned).
- *
- * NOTE (migration): this wrapper stays live until the last `/agent/*` route is
- * moved onto `withCommunityActor`; then it and the `/agent` tree are deleted
- * together. See plans/22-community-unified-actor-route-unify.md §9.
- */
-export function withAgentRunnerAuth(handler: AgentRunnerAuthenticatedHandler) {
-  return async (
-    req: NextRequest,
-    context?: { params?: Promise<Record<string, string>> | Record<string, string> }
-  ) => {
-    const resolvedParams = context?.params
-      ? context.params instanceof Promise
-        ? await context.params
-        : context.params
-      : undefined
-
-    const authHeader = req.headers.get("Authorization")
-    // Preserve the old messages: a missing/malformed Bearer vs a non-crk_
-    // bearer 401'd with distinct copy. `resolveBotActor` collapses both to
-    // `not_bot`, so re-derive the specific 401 here (bot-only wrapper).
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return NextResponse.json({ error: "missing or malformed Authorization header" }, { status: 401 })
-    }
-    if (!authHeader.slice(7).trim().startsWith("crk_")) {
-      return NextResponse.json({ error: "invalid runner key" }, { status: 401 })
-    }
-
-    const { env } = await getCloudflareContext({ async: true })
-    const cloudflareEnv = env as Env
-    const db = getDb(cloudflareEnv.DB)
-
-    const resolved = await resolveBotActor(db, authHeader)
-    if (resolved.kind === "error") return resolved.response
-    // `not_bot` is unreachable here (the crk_ guard above already returned), but
-    // handle it defensively as the same 401 the guard would have produced.
-    if (resolved.kind === "not_bot") {
-      return NextResponse.json({ error: "invalid runner key" }, { status: 401 })
-    }
-
-    return handler(req, {
-      env: cloudflareEnv,
-      botUserId: resolved.actor.botUserId,
-      ownerUserId: resolved.actor.ownerUserId,
-      machineId: resolved.actor.machineId,
-      params: resolvedParams,
-    })
   }
 }

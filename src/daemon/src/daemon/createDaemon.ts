@@ -57,7 +57,12 @@ const WARMUP_CEILING_MS = 30_000;
  * future.
  */
 export function deriveAuditLogSubcommand(pathname: string): string | null {
-  const stripped = pathname.replace(/^\/api\/community\/agent\//, "/api/");
+  // Normalize both the pre-rewrite client path (`/api/<verb>`) and the
+  // post-rewrite upstream path (`/api/community/<verb>`, plans/22 §9 — the old
+  // `/api/community/agent/` tree is gone) down to `/api/<verb>` before slicing.
+  const stripped = pathname
+    .replace(/^\/api\/community\/agent\//, "/api/")
+    .replace(/^\/api\/community\//, "/api/");
   if (!stripped.startsWith("/api/")) return null;
   const sub = stripped.slice("/api/".length).split("/")[0]?.split("?")[0] ?? "";
   if (!sub) return null;

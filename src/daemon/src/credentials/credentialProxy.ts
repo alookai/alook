@@ -481,15 +481,25 @@ function joinPath(basePath: string, reqUrl: string): string {
 
 /**
  * Rewrite the CLI's bare `/api/*` ops (`/api/send`, `/api/inboxPull`, …) onto
- * the real server surface at `/api/community/agent/*` (design §9). This is a
- * brand-new API — no prior contract to preserve back-compat for — so the
- * rewrite is unconditional for anything under `/api/`; every other path
- * passes through untouched.
+ * the real unified-actor server surface at `/api/community/*` (plans/22 §9 — the
+ * `/api/community/agent/*` tree was deleted; every bot verb now lives flat under
+ * `/api/community/`). This is a bot-only API — no back-compat to preserve — so
+ * the rewrite is unconditional for anything under `/api/`.
+ *
+ * IDEMPOTENT: a path already under `/api/community/` passes through untouched.
+ * The two FOLDED verbs (listServers → GET `/api/community/servers`, joinServer →
+ * POST `/api/community/invites/<token>/join`) are addressed with their real REST
+ * paths client-side in `proxyServerApi` (mirroring `callUpload`/`callDownload`);
+ * this guard lets those flow through without being double-prefixed into a
+ * non-existent `/api/community/community/...`.
  */
 function rewriteAgentPath(reqUrl: string): string {
   const url = new URL(reqUrl, "http://placeholder");
+  if (url.pathname.startsWith("/api/community/")) {
+    return url.pathname + url.search;
+  }
   if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
-    url.pathname = `/api/community/agent${url.pathname.slice("/api".length)}`;
+    url.pathname = `/api/community${url.pathname.slice("/api".length)}`;
   }
   return url.pathname + url.search;
 }
