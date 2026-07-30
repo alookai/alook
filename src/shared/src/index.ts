@@ -165,11 +165,13 @@ export {
   USE_SERVER_DEFAULT,
   notifLevelDisplay,
   normalizeNotifLevel,
+  PARTICIPANT_SOURCE,
+  MENTION_KIND,
   CACHE_IMMUTABLE,
   CACHE_SHORT,
   CACHE_REVALIDATE,
 } from "./constants/community";
-export type { NotifLevel, NotificationLevelValue } from "./constants/community";
+export type { NotifLevel, NotificationLevelValue, ParticipantSource, MentionKind } from "./constants/community";
 
 export type {
   AgentStatusType,

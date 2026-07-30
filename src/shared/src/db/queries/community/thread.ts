@@ -3,6 +3,7 @@ import { communityChannel, communityChannelMember } from "../../community-schema
 import { user } from "../../schema";
 import type { Database } from "../../index";
 import { chunk, maxRowsPerInsert, D1_MAX_IN_PARAMS } from "../_chunk";
+import { type ParticipantSource } from "../../../constants/community";
 
 // The NOTIFICATION set for a thread OR forum_post — now relation='notify' rows
 // on `community_channel_member` (formerly the standalone
@@ -16,7 +17,9 @@ import { chunk, maxRowsPerInsert, D1_MAX_IN_PARAMS } from "../_chunk";
 // add / leave only. A user may also hold a relation='access' row on the same
 // channel; the two coexist under the (channel_id, user_id, relation) unique.
 
-export type ThreadParticipantSource = "mention" | "spoke" | "added";
+// Derived from PARTICIPANT_SOURCE (constants/community.ts) so the type and the
+// literal set can never drift.
+export type ThreadParticipantSource = ParticipantSource;
 
 const NOTIFY_CONFLICT_TARGET = [
   communityChannelMember.channelId,

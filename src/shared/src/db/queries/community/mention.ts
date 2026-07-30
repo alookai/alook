@@ -3,6 +3,7 @@ import { communityMention, communityMessage } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
 import { chunk, maxRowsPerInsert, D1_MAX_IN_PARAMS } from "../_chunk";
+import { MENTION_KIND, type MentionKind } from "../../../constants/community";
 
 // communityMention emits 5 bind params/row (id $defaultFn, message_id, user_id,
 // kind default, read default), so a single INSERT caps at floor(100/5)=20 rows.
@@ -10,11 +11,11 @@ const MENTION_INSERT_MAX_ROWS = maxRowsPerInsert(5);
 
 export async function createMentions(
   db: Database,
-  data: { messageId: string; userIds: string[]; kind?: "mention" | "reply" }
+  data: { messageId: string; userIds: string[]; kind?: MentionKind }
 ) {
   if (data.userIds.length === 0) return [];
 
-  const kind = data.kind ?? "mention";
+  const kind = data.kind ?? MENTION_KIND.MENTION;
   // `@everyone` expands userIds to the whole server roster — unbounded. Chunk so
   // no INSERT statement exceeds D1's 100-param limit; concat the returned rows.
   const rows = (
@@ -40,7 +41,7 @@ export async function listUnreadMentions(
   db: Database,
   userId: string,
   opts: {
-    kind?: "mention" | "reply";
+    kind?: MentionKind;
     limit?: number;
     /**
      * Scope mentions to channels the viewer may see (scope-first, in-query —
@@ -194,7 +195,7 @@ export async function hasMentionForMessage(
       and(
         eq(communityMention.messageId, messageId),
         eq(communityMention.userId, userId),
-        eq(communityMention.kind, "mention")
+        eq(communityMention.kind, MENTION_KIND.MENTION)
       )
     )
     .limit(1);

@@ -1,6 +1,7 @@
 import { eq, and, desc, isNull, inArray } from "drizzle-orm";
 import { communityChannel, communityChannelMember } from "../../community-schema";
 import { user } from "../../schema";
+import { PARTICIPANT_SOURCE } from "../../../constants/community";
 import type { Database } from "../../index";
 
 // DMs are channels now (type='dm', server_id NULL). Their two participants are
@@ -90,14 +91,14 @@ export async function createOrGetDM(
       channelId: channel.id,
       userId: data.userId1,
       relation: "access",
-      source: "added",
+      source: PARTICIPANT_SOURCE.ADDED,
       addedAt: now,
     },
     {
       channelId: channel.id,
       userId: data.userId2,
       relation: "access",
-      source: "added",
+      source: PARTICIPANT_SOURCE.ADDED,
       addedAt: now,
     },
   ]);

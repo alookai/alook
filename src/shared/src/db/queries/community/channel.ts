@@ -7,6 +7,7 @@ import {
   communityMessage,
 } from "../../community-schema";
 import type { Database } from "../../index";
+import { PARTICIPANT_SOURCE } from "../../../constants/community";
 import { createLogger } from "../../../logger";
 import { canManageServer, canSeePrivateChannel } from "../../../utils/community-roles";
 import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
@@ -573,7 +574,7 @@ export async function createChannelMember(
       userId: data.userId,
       addedBy: data.addedBy ?? null,
       relation: data.relation ?? "access",
-      source: data.source ?? "added",
+      source: data.source ?? PARTICIPANT_SOURCE.ADDED,
     })
     .onConflictDoNothing({
       target: [

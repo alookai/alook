@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, WS_EVENTS, isThread, isForumPost } from "@alook/shared"
+import { queries, WS_EVENTS, isThread, isForumPost, PARTICIPANT_SOURCE } from "@alook/shared"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
 import { requireChannelAccess } from "@/lib/community/permissions"
 
@@ -62,7 +62,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const created = await queries.communityThread.addThreadParticipant(db, {
     threadChannelId: channelId,
     userId: targetUserId,
-    source: "added",
+    source: PARTICIPANT_SOURCE.ADDED,
   })
 
   // Notify the added user so their inbox/thread view reflects the new

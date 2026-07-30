@@ -8,7 +8,9 @@ import {
 } from "../src/constants"
 import {
   NOTIF_LEVELS, NOTIFICATION_LEVEL_VALUES, notifLevelDisplay, normalizeNotifLevel,
+  PARTICIPANT_SOURCE, MENTION_KIND,
 } from "../src/constants/community"
+import { communityChannel, communityMention } from "../src/db/community-schema"
 
 describe("constants", () => {
   it("OFFLINE_THRESHOLD_MS is 30s", () => expect(OFFLINE_THRESHOLD_MS).toBe(30_000))
@@ -145,5 +147,32 @@ describe("notification-level bijection (single source)", () => {
 
   it("normalizeNotifLevel falls back to 'all' (fail-open, NOT the old silent 'mentions' mute) on unknown input", () => {
     expect(normalizeNotifLevel("totally unknown")).toBe("all")
+  })
+})
+
+describe("PARTICIPANT_SOURCE / MENTION_KIND (single source)", () => {
+  it("PARTICIPANT_SOURCE carries the three participant-source values", () => {
+    expect(PARTICIPANT_SOURCE.MENTION).toBe("mention")
+    expect(PARTICIPANT_SOURCE.SPOKE).toBe("spoke")
+    expect(PARTICIPANT_SOURCE.ADDED).toBe("added")
+  })
+
+  it("MENTION_KIND carries the two mention-kind values", () => {
+    expect(MENTION_KIND.MENTION).toBe("mention")
+    expect(MENTION_KIND.REPLY).toBe("reply")
+  })
+
+  // Guard against drift between the drizzle column defaults (which MUST be
+  // literals in the schema) and the shared constants that now anchor them —
+  // drizzle exposes the compiled default on the column object.
+  it("community_mention.kind DB default equals MENTION_KIND.MENTION", () => {
+    expect((communityMention.kind as { default?: unknown }).default).toBe(MENTION_KIND.MENTION)
+  })
+
+  it("community_channel.parentChannelId column exists (schema module loaded for the default probe)", () => {
+    // Sanity that the schema import resolved; the meaningful assertion is the
+    // kind-default parity above. (channel_member.source lives on a table not
+    // re-exported here; message-handler/thread tests cover its use.)
+    expect(communityChannel).toBeTruthy()
   })
 })

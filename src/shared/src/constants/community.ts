@@ -154,6 +154,28 @@ export function normalizeNotifLevel(input: string): NotificationLevelValue {
   return "all"
 }
 
+// Participant `source` — how a user joined a thread/forum-post's participant
+// (notify) set: an `@`-mention, having spoken in it, or explicitly added.
+// Anchors `community_channel_member.source` / thread-participant `source`.
+// Single value source for the literals; `ThreadParticipantSource`
+// (queries/community/thread.ts) derives from this via const-assert so the two
+// can never drift.
+export const PARTICIPANT_SOURCE = {
+  MENTION: "mention",
+  SPOKE: "spoke",
+  ADDED: "added",
+} as const
+export type ParticipantSource = typeof PARTICIPANT_SOURCE[keyof typeof PARTICIPANT_SOURCE]
+
+// Mention row kind — an `@`-mention vs a reply to your message
+// (`community_mention.kind`). Drives the inbox row label. Single value source
+// for the literals; `MentionKind` derives from this via const-assert.
+export const MENTION_KIND = {
+  MENTION: "mention",
+  REPLY: "reply",
+} as const
+export type MentionKind = typeof MENTION_KIND[keyof typeof MENTION_KIND]
+
 // Cache headers
 export const CACHE_IMMUTABLE = "public, max-age=31536000, immutable"
 export const CACHE_SHORT = "public, max-age=3600"

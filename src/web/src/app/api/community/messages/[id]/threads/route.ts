@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, MAX_CHANNEL_NAME_LENGTH, WS_EVENTS } from "@alook/shared"
+import { queries, MAX_CHANNEL_NAME_LENGTH, WS_EVENTS, PARTICIPANT_SOURCE } from "@alook/shared"
 import { fanOutToChannel } from "@/lib/community/fanout"
 import { requireChannelMember } from "@/lib/community/permissions"
 
@@ -67,14 +67,14 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   // `requireChannelMember` above only gated the creator, so seeding the author
   // unconditionally could push a private channel's thread to someone who lost
   // access (the leak `removeParticipantFromChildChannels` exists to prevent).
-  const seedRows: { userId: string; source: "spoke" | "added" }[] = [
-    { userId: ctx.userId, source: "spoke" },
+  const seedRows: { userId: string; source: typeof PARTICIPANT_SOURCE.SPOKE | typeof PARTICIPANT_SOURCE.ADDED }[] = [
+    { userId: ctx.userId, source: PARTICIPANT_SOURCE.SPOKE },
   ]
   // De-dupe: when the creator threads their own message the author is the same
   // user, and the creator's "spoke" row already covers them.
   if (message.authorId !== ctx.userId) {
     const authorStillMember = await requireChannelMember(db, message.channelId, message.authorId)
-    if (authorStillMember.ok) seedRows.push({ userId: message.authorId, source: "added" })
+    if (authorStillMember.ok) seedRows.push({ userId: message.authorId, source: PARTICIPANT_SOURCE.ADDED })
   }
   await queries.communityThread.addThreadParticipants(db, childChannel.id, seedRows)
 
