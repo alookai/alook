@@ -1,5 +1,10 @@
-import { describe, it, expect } from "vitest";
-import { buildGitIdentityEnv } from "./gitIdentityEnv";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { buildGitIdentityEnv, readHostGitIdentity, resetHostGitIdentityCache } from "./gitIdentityEnv";
+
+const mockExecFileSync = vi.fn();
+vi.mock("child_process", () => ({
+  execFileSync: (...args: unknown[]) => mockExecFileSync(...args),
+}));
 
 describe("buildGitIdentityEnv", () => {
   it("normal identity — plain name, name.disc@alook.ai email, author===committer", () => {
@@ -110,5 +115,56 @@ describe("buildGitIdentityEnv", () => {
     });
     expect(env.GIT_AUTHOR_NAME).toBe("Claudette");
     expect(env.GIT_AUTHOR_EMAIL).toBe("claudette.9873@alook.ai");
+  });
+});
+
+describe("readHostGitIdentity", () => {
+  beforeEach(() => {
+    resetHostGitIdentityCache();
+    mockExecFileSync.mockReset();
+  });
+
+  // Drive execFileSync("git", ["config","--get", <key>], …) by key.
+  const byKey = (map: Record<string, { value?: string; throw?: unknown }>) =>
+    (_git: string, args: string[]) => {
+      const key = args[args.length - 1];
+      const r = map[key] ?? {};
+      if ("throw" in r && r.throw !== undefined) throw r.throw;
+      return (r.value ?? "") + "\n";
+    };
+  const exit1 = () => Object.assign(new Error("exit 1"), { status: 1 }); // unset key
+  const timeout = () => Object.assign(new Error("ETIMEDOUT"), { /* no numeric status */ });
+
+  it("reads name + email from git config", () => {
+    mockExecFileSync.mockImplementation(byKey({ "user.name": { value: "Gus" }, "user.email": { value: "gus@x.com" } }));
+    expect(readHostGitIdentity()).toEqual({ name: "Gus", email: "gus@x.com" });
+  });
+
+  it("unset keys (clean exit-1) ⇒ null, and it's CACHED (definitive not-configured)", () => {
+    mockExecFileSync.mockImplementation(byKey({ "user.name": { throw: exit1() }, "user.email": { throw: exit1() } }));
+    expect(readHostGitIdentity()).toBeNull();
+    // Second call must NOT re-invoke git — a definitive unset is cached.
+    mockExecFileSync.mockClear();
+    expect(readHostGitIdentity()).toBeNull();
+    expect(mockExecFileSync).not.toHaveBeenCalled();
+  });
+
+  it("TRANSIENT failure (no numeric status) is NOT cached — next spawn re-reads and recovers", () => {
+    // First spawn: git times out on both reads → undefined, but transient → no cache.
+    mockExecFileSync.mockImplementation(byKey({ "user.name": { throw: timeout() }, "user.email": { throw: timeout() } }));
+    expect(readHostGitIdentity()).toBeNull();
+    // Second spawn: git answers → the owner identity is recovered (NOT poisoned
+    // by the first unlucky timeout). This is Blair's finding.
+    mockExecFileSync.mockImplementation(byKey({ "user.name": { value: "Gus" }, "user.email": { value: "gus@x.com" } }));
+    expect(readHostGitIdentity()).toEqual({ name: "Gus", email: "gus@x.com" });
+  });
+
+  it("one field transient ⇒ whole read treated as non-definitive (not cached)", () => {
+    mockExecFileSync.mockImplementation(byKey({ "user.name": { value: "Gus" }, "user.email": { throw: timeout() } }));
+    const first = readHostGitIdentity();
+    expect(first).toEqual({ name: "Gus", email: undefined });
+    // Not cached (email read was transient) → re-read picks up the now-available email.
+    mockExecFileSync.mockImplementation(byKey({ "user.name": { value: "Gus" }, "user.email": { value: "gus@x.com" } }));
+    expect(readHostGitIdentity()).toEqual({ name: "Gus", email: "gus@x.com" });
   });
 });

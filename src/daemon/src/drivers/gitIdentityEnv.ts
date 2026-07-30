@@ -144,24 +144,44 @@ let hostGitIdentityMemo: { value: HostGitUser | null } | undefined;
  */
 export function readHostGitIdentity(): HostGitUser | null {
   if (hostGitIdentityMemo) return hostGitIdentityMemo.value;
+
+  // `read` distinguishes THREE outcomes, because caching a transient failure
+  // as "no identity" would silently strip the owner's authorship for the whole
+  // daemon lifetime (Blair's finding):
+  //   - a value        → git ran, key set.
+  //   - undefined      → git ran cleanly but the key is UNSET (a definitive
+  //                      "not configured"; safe to cache).
+  //   - transient=true → `git config` THREW (git missing / timed out / busy);
+  //                      NOT definitive — don't cache, retry next spawn.
+  let transient = false;
   const read = (key: string): string | undefined => {
     try {
+      // `--get` exits 1 (no throw with our stdio) when the key is unset, so a
+      // clean run with empty output = definitively unset, distinct from a throw.
       const out = execFileSync("git", ["config", "--get", key], {
         encoding: "utf8",
         timeout: HOST_GIT_READ_TIMEOUT_MS,
         stdio: ["ignore", "pipe", "ignore"],
       }).trim();
       return out.length > 0 ? out : undefined;
-    } catch {
-      // Unset key exits non-zero; git missing / timeout throws — all mean
-      // "no host identity for this field", never fatal.
+    } catch (err) {
+      // Exit-1 (unset key) is reported by execFileSync as a throw too, so
+      // disambiguate: a non-zero EXIT (status is a number) = git ran, key
+      // unset = definitive. No numeric status (ENOENT / ETIMEDOUT / signal) =
+      // git couldn't answer = transient, must not be cached.
+      const status = (err as { status?: unknown } | undefined)?.status;
+      if (typeof status !== "number") transient = true;
       return undefined;
     }
   };
+
   const name = read("user.name");
   const email = read("user.email");
   const value = name === undefined && email === undefined ? null : { name, email };
-  hostGitIdentityMemo = { value };
+  // Cache only a DEFINITIVE read. If any field's read threw a transient error,
+  // leave the memo empty so the next spawn re-reads (the owner's real identity
+  // isn't lost to one unlucky timeout at daemon start).
+  if (!transient) hostGitIdentityMemo = { value };
   return value;
 }
 
