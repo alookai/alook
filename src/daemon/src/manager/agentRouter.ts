@@ -407,7 +407,29 @@ export class AgentRouter {
           const text = (this.opts.formatUnreadNoticeText ?? defaultFormatUnreadNoticeText)(cmd.unreadNotice);
           // The manager (not this router) decides spawn vs. in-process notify
           // vs. coalesce — see managerPolicy's `onWake`.
-          this.opts.manager.deliver(cmd.agentId, { seq: cmd.unreadNotice.latestSeq, text });
+          const producedEffect = this.opts.manager.deliver(cmd.agentId, {
+            seq: cmd.unreadNotice.latestSeq,
+            text,
+          });
+          // Honest-ack diagnostic (plans/daemon-fsm-desync.md batch B): a wake
+          // that produced NO executable effect was only coalesced into the
+          // inbox. Benign for the queue-and-drain states (starting/stopping/
+          // reset-window/per-turn), but on a `running` agent it can mean the
+          // message is stacking behind a process that will never drain it (the
+          // deaf-orphan class). Surface it as a daemon-local log line so the
+          // stall stops masquerading as a healthy `status:"ok"` ack. This does
+          // NOT change the wire ack status — reachability-based honesty is
+          // batch D's job (it needs a liveness probe this router deliberately
+          // avoids). `producedEffect` is `false` for a legacy mock manager
+          // whose `deliver` returns void, so the diagnostic simply won't fire
+          // in those tests.
+          if (producedEffect === false) {
+            this.log.info("agent:wake produced no effect (coalesced only)", {
+              agentId: cmd.agentId,
+              beforeStatus,
+              latestSeq: cmd.unreadNotice.latestSeq,
+            });
+          }
           if (channelScope && wasActive && beforeStatus === "running") {
             this.opts.channel.reportAgentTyping?.({
               agentId: cmd.agentId,

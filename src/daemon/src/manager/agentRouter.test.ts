@@ -23,8 +23,16 @@ function stubLogger(): Logger & { calls: Record<"debug" | "info" | "warn" | "err
   return logger;
 }
 
-/** Fake manager recording deliver/register; enough for router behavior tests. */
-function fakeManager(initialStatuses: Record<string, "idle" | "starting" | "running" | "stopping"> = {}) {
+/**
+ * Fake manager recording deliver/register; enough for router behavior tests.
+ * `deliverReturns` controls the boolean `deliver` reports (whether the wake
+ * produced an executable effect) — leave undefined to mimic a legacy void
+ * `deliver`, which must NOT trigger the honest-ack diagnostic.
+ */
+function fakeManager(
+  initialStatuses: Record<string, "idle" | "starting" | "running" | "stopping"> = {},
+  deliverReturns?: boolean,
+) {
   const delivers: Array<{ agentId: string; text: string; seq?: number }> = [];
   const registers: Array<{ agentId: string; sessionId?: string; launchId?: string }> = [];
   const forgets: string[] = [];
@@ -40,6 +48,7 @@ function fakeManager(initialStatuses: Record<string, "idle" | "starting" | "runn
     deliver(agentId: string, m: { seq?: number; text: string }) {
       delivers.push({ agentId, text: m.text, seq: m.seq });
       order.push(`deliver:${agentId}`);
+      return deliverReturns;
     },
     forgetSession(agentId: string) {
       forgets.push(agentId);
@@ -153,6 +162,45 @@ describe("AgentRouter — agent:wake", () => {
 
     expect(delivers.length).toBe(2);
     expect(wakeAcks.length).toBe(2);
+  });
+
+  it("logs an honest-ack diagnostic when deliver produced NO executable effect, keeping the wire ack ok", async () => {
+    const { mgr } = fakeManager({ a1: "running" }, false);
+    const { ch, wakeAcks, fire } = fakeChannel();
+    const logger = stubLogger();
+    const router = new AgentRouter({ manager: mgr, channel: ch, runtimeReport: [{ id: "mock" }], logger });
+    await router.start();
+
+    await fire({
+      type: "agent:wake",
+      agentId: "a1",
+      config: { version: 1, runtime: "mock", model: { kind: "default" }, mode: { kind: "default" } },
+      launchId: "l1",
+      unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 7 },
+    });
+
+    // Diagnostic surfaced (batch B), but the wire ack is still ok — reachability
+    // honesty is batch D, this router only reports the local "no effect" fact.
+    expect(logger.calls.info.some(([m]) => m === "agent:wake produced no effect (coalesced only)")).toBe(true);
+    expect(wakeAcks).toEqual([{ agentId: "a1", launchId: "l1", status: "ok" }]);
+  });
+
+  it("does NOT log the honest-ack diagnostic when deliver produced an effect", async () => {
+    const { mgr } = fakeManager({ a1: "idle" }, true);
+    const { ch, fire } = fakeChannel();
+    const logger = stubLogger();
+    const router = new AgentRouter({ manager: mgr, channel: ch, runtimeReport: [{ id: "mock" }], logger });
+    await router.start();
+
+    await fire({
+      type: "agent:wake",
+      agentId: "a1",
+      config: { version: 1, runtime: "mock", model: { kind: "default" }, mode: { kind: "default" } },
+      launchId: "l1",
+      unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 7 },
+    });
+
+    expect(logger.calls.info.some(([m]) => m === "agent:wake produced no effect (coalesced only)")).toBe(false);
   });
 });
 

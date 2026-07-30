@@ -597,9 +597,19 @@ export class AgentProcessManager {
     this.dispatch({ type: "register", agentId, caps });
   }
 
-  /** Inbound message for an agent → drives spawn/steer/queue per policy. */
-  deliver(agentId: string, message: AgentMsg): void {
-    this.dispatch({ type: "wake", agentId, message, nowMs: this.now() });
+  /**
+   * Inbound message for an agent → drives spawn/steer/queue per policy.
+   * Returns whether the wake produced any executable effect (spawn/send/
+   * gated_hold). `false` means the message was only coalesced into the inbox
+   * with nothing dispatched toward a process — benign for the queue-and-drain
+   * cases (starting/stopping/reset-window/per-turn), pathological for a
+   * deaf-but-`running` agent that will never drain. The router uses this for a
+   * daemon-local honest-ack diagnostic; it does NOT change the wire ack status.
+   * See plans/daemon-fsm-desync.md batch B.
+   */
+  deliver(agentId: string, message: AgentMsg): boolean {
+    const effects = this.dispatch({ type: "wake", agentId, message, nowMs: this.now() });
+    return effects.length > 0;
   }
 
   /**
@@ -872,7 +882,7 @@ export class AgentProcessManager {
   /* Core dispatch: reduce → apply effects                            */
   /* --------------------------------------------------------------- */
 
-  private dispatch(event: ManagerEvent): void {
+  private dispatch(event: ManagerEvent): ManagerEffect[] {
     const before = this.deriveActivitySnapshot(this.state);
     const { state, effects } = reduceManager(this.state, event);
     this.state = state;
@@ -887,6 +897,7 @@ export class AgentProcessManager {
         }
       }
     }
+    return effects;
   }
 
   private deriveActivitySnapshot(state: ManagerState): Record<string, AgentActivityState> {
