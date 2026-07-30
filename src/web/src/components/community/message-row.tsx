@@ -39,6 +39,10 @@ export interface MessageRowProps {
   selected?: boolean
   onToggleSelectId?: (id: string) => void
   onEnterSelectId?: (id: string) => void
+  // Direct single-message share (surfaces with no select-mode, e.g. the context
+  // sheet). Independent of `onEnterSelectId` so share never depends on select
+  // plumbing (Cecilia #511).
+  onShareSingleId?: (id: string) => void
 }
 
 function MessageRowImpl(props: MessageRowProps) {
@@ -47,7 +51,7 @@ function MessageRowImpl(props: MessageRowProps) {
     onToggleReactionId, onReactId, onReplyId, onPinId, onCreateThreadId,
     onCopyId, onRetryId, onJumpToId, onPreviewImage, onDownloadFile,
     resolveUserName, onImageLoad,
-    selectMode, selected, onToggleSelectId, onEnterSelectId,
+    selectMode, selected, onToggleSelectId, onEnterSelectId, onShareSingleId,
   } = props
   const id = m.id
   const replyToId = m.replyTo?.id
@@ -68,6 +72,7 @@ function MessageRowImpl(props: MessageRowProps) {
   const onJumpReply = useCallback(() => { if (replyToId) onJumpToId?.(replyToId) }, [onJumpToId, replyToId])
   const onToggleSelect = useCallback(() => onToggleSelectId?.(id), [onToggleSelectId, id])
   const onEnterSelect = useCallback(() => onEnterSelectId?.(id), [onEnterSelectId, id])
+  const onShareSingle = useCallback(() => onShareSingleId?.(id), [onShareSingleId, id])
 
   // Map an absent id-based source to `undefined` so `Message` sees the same
   // "feature off" signal it used to (its interactive/menu logic keys off which
@@ -97,6 +102,7 @@ function MessageRowImpl(props: MessageRowProps) {
       selected={selected}
       onToggleSelect={onToggleSelectId ? onToggleSelect : undefined}
       onEnterSelect={onEnterSelectId ? onEnterSelect : undefined}
+      onShareSingle={onShareSingleId ? onShareSingle : undefined}
     />
   )
 }

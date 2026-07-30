@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter, useParams } from "next/navigation"
 import { toast } from "sonner"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -8,6 +8,7 @@ import { deriveThreadName } from "@alook/shared"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { useSheetResize, SheetResizeHandle } from "@/components/ui/sheet-resize-handle"
 import { MessageRow } from "./message-row"
+import { MessageShareDialog } from "./message-share-dialog"
 import { ChannelIcon } from "./channel-icon"
 import { Skeleton } from "@/components/ui/skeleton"
 import { apiFetch, toastApiError } from "@/lib/api/client"
@@ -464,8 +465,20 @@ function ContextRows({
   onDownloadFile: (url: string) => void
   onOpenContextSheet?: (seq: number) => void
 }) {
+  // Single-message share from the peek sheet. The sheet has no select-mode
+  // context (it's a read-only preview), so Share opens the dialog directly on
+  // the clicked row — via `onShareSingle`, independent of the list's select-mode
+  // plumbing (Cecilia #511: share capability must not depend on it).
+  const [shareTarget, setShareTarget] = useState<RenderMsg | null>(null)
+  const onShareSingleId = useCallback(
+    (id: string) => setShareTarget(rows.find((r) => r.id === id) ?? null),
+    [rows],
+  )
   return (
     <div className="flex flex-col">
+      {shareTarget && (
+        <MessageShareDialog m={shareTarget} open onClose={() => setShareTarget(null)} />
+      )}
       {rows.map((m, i) => {
         const isTarget = m.id === anchorId
         const prev = i > 0 ? rows[i - 1] : null
@@ -493,6 +506,7 @@ function ContextRows({
                 onPreviewImage={onPreviewImage}
                 onDownloadFile={onDownloadFile}
                 resolveUserName={resolveUserName}
+                onShareSingleId={onShareSingleId}
               />
             </div>
           </div>

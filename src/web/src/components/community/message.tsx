@@ -49,7 +49,7 @@ function MessageImpl({
   m, compact, pinned, onOpenThread, onOpenProfile, onJumpReply,
   onToggleReaction, onReact, onReply, onPin, onCreateThread, onCopy, onRetry,
   onPreviewImage, onDownloadFile, highlighted, resolveUserName, onImageLoad,
-  selectMode, selected, onToggleSelect, onEnterSelect,
+  selectMode, selected, onToggleSelect, onEnterSelect, onShareSingle,
 }: {
   m: RenderMsg
   compact?: boolean
@@ -69,16 +69,20 @@ function MessageImpl({
   highlighted?: boolean
   resolveUserName?: (userId: string) => string
   onImageLoad?: () => void
-  // Multi-select for "share as image" (Gus uiux #128/#142). `selectMode` is on
-  // for the whole list while selecting; `selected` is this row's state;
-  // `onToggleSelect` toggles it. `onEnterSelect` is called by the Share button —
-  // clicking Share enters select mode with this row pre-selected (unified entry:
-  // single-share is just select-mode with one message). All undefined when the
-  // surface doesn't support multi-share (keeps the affordance off).
+  // "Share as image" (Gus uiux #128/#142). Two independent ways the Share
+  // affordance can act — a surface wires whichever it supports:
+  //   · `onEnterSelect` — the main list: clicking Share enters multi-select mode
+  //     with this row pre-selected (unified entry; single-share = one pick).
+  //   · `onShareSingle` — a surface with no select-mode context (the message
+  //     context-sheet peek): clicking Share opens the dialog on just this row.
+  // Share shows if EITHER is present — share capability must NOT depend on the
+  // select-mode plumbing (Cecilia #511: coupling them silently dropped share
+  // from every caller that didn't wire select-mode).
   selectMode?: boolean
   selected?: boolean
   onToggleSelect?: () => void
   onEnterSelect?: () => void
+  onShareSingle?: () => void
 }) {
   // keep the hover toolbar pinned open while its ⋯ dropdown is open
   const [toolbarOpen, setToolbarOpen] = useState(false)
@@ -110,10 +114,9 @@ function MessageImpl({
     onReply, onPin, pinned,
     onCreateThread: m.thread ? undefined : onCreateThread,
     onCopy,
-    // Share enters multi-select mode with this row pre-selected (Gus #142) —
-    // the actual share dialog opens from the select bar. Single-message share
-    // is just this with no further picks.
-    onShare: canShare ? onEnterSelect : undefined,
+    // Share: enter multi-select (main list) if wired, else direct single-share
+    // (context-sheet). Undefined only when the surface wired NEITHER.
+    onShare: canShare ? (onEnterSelect ?? onShareSingle) : undefined,
   }
   const showMenu = hasMessageMenu(menuHandlers)
   const interactive = !compact && showMenu
@@ -172,8 +175,8 @@ function MessageImpl({
               <Reply className="size-4" />
             </button>
           )}
-          {canShare && onEnterSelect && (
-            <button data-testid={tid.messageShare(m.id)} onClick={onEnterSelect} className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-label="Share as image">
+          {canShare && (onEnterSelect || onShareSingle) && (
+            <button data-testid={tid.messageShare(m.id)} onClick={onEnterSelect ?? onShareSingle} className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-label="Share as image">
               <Share className="size-4" />
             </button>
           )}
@@ -482,7 +485,8 @@ function messagePropsEqual(prev: MessageProps, next: MessageProps): boolean {
     prev.selectMode === next.selectMode &&
     prev.selected === next.selected &&
     prev.onToggleSelect === next.onToggleSelect &&
-    prev.onEnterSelect === next.onEnterSelect
+    prev.onEnterSelect === next.onEnterSelect &&
+    prev.onShareSingle === next.onShareSingle
   )
 }
 
