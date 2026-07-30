@@ -1102,16 +1102,63 @@ describe("AgentProcessManager — error audit emission", () => {
     expect(payload.message).toContain("429");
   });
 
-  it("does NOT emit a `runtime_error` row for an error event during an intentional kill (resetting=true)", () => {
+  it("does NOT emit a `runtime_error` row for the death rattle of a session an intentional kill superseded", () => {
     const onBotAuditEvent = vi.fn();
     const { mgr, session } = makeManager({ onBotAuditEvent });
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
     // Establish, then enter the reset/nap kill window before the dying
-    // process fires its interrupted-turn "death rattle" error.
+    // process fires its interrupted-turn "death rattle" error. `markResetting`
+    // marks THIS live session's per-session state `superseded`, so the gate
+    // suppresses its rattle by session identity (not the agent-level reset
+    // flag) — the reborn session, a fresh state, would still surface its own.
     session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
     mgr.markResetting("a1");
     session.fire("runtime_event", { kind: "error", message: "turn interrupted" });
+
+    const errCalls = onBotAuditEvent.mock.calls.filter(
+      ([, ev]) => (ev as { kind?: string })?.kind === "error",
+    );
+    expect(errCalls).toHaveLength(0);
+  });
+
+  it("DOES emit a `runtime_error` for a REBORN (non-superseded) session's error even while the agent's reset window is still open — batch C reader-C fix", () => {
+    // Batch C keeps `resetting` open across the respawn until the reborn
+    // process reaches `running`, so the reborn session is live while the reset
+    // window is still open. Gating the audit on the agent-level reset window
+    // would swallow the reborn session's OWN genuine error. The gate instead
+    // keys on per-session identity: only a SUPERSEDED (outgoing/killed)
+    // session's rattle is suppressed. A reborn session gets a fresh state
+    // (`superseded=false`), so its real error must SURFACE.
+    //
+    // The fake harness reuses one session object; we assert the gate's
+    // behavior directly by driving `onRuntimeEvent` with the reborn session's
+    // (non-superseded) identity — mirroring what the real per-session
+    // subscriber closure passes.
+    const onBotAuditEvent = vi.fn();
+    const { mgr } = makeManager({ onBotAuditEvent });
+
+    // Reborn session identity → superseded=false (the subscriber passes its own
+    // session state's flag). A genuine startup error must be audited.
+    (mgr as unknown as {
+      onRuntimeEvent: (a: string, e: unknown, r: string, superseded: boolean) => void;
+    }).onRuntimeEvent("a1", { kind: "error", message: "reborn hit a rate limit" }, "codex", false);
+
+    const errCalls = onBotAuditEvent.mock.calls.filter(
+      ([, ev]) => (ev as { kind?: string })?.kind === "error",
+    );
+    expect(errCalls).toHaveLength(1);
+    expect((errCalls[0]![1] as { payload: { message: string } }).payload.message).toContain("rate limit");
+  });
+
+  it("does NOT emit for a SUPERSEDED session's death rattle (the outgoing session an intentional kill interrupted) — batch C reader-C fix", () => {
+    const onBotAuditEvent = vi.fn();
+    const { mgr } = makeManager({ onBotAuditEvent });
+    // Superseded session identity → its interrupted-turn error is teardown
+    // noise, suppressed regardless of the agent's status.
+    (mgr as unknown as {
+      onRuntimeEvent: (a: string, e: unknown, r: string, superseded: boolean) => void;
+    }).onRuntimeEvent("a1", { kind: "error", message: "turn interrupted" }, "codex", true);
 
     const errCalls = onBotAuditEvent.mock.calls.filter(
       ([, ev]) => (ev as { kind?: string })?.kind === "error",

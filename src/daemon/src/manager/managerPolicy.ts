@@ -78,11 +78,23 @@ export interface AgentState {
    * inbox-only (no `spawn`, no `send`, no `gated_hold`) EXCEPT when the
    * agent is currently `idle` — the orchestrator's idle branch relies on
    * `deliver` still emitting a spawn to kick a fresh session; if the gate
-   * blocked idle too, the reset would silently reset-lock the agent. Cleared
-   * by `onExit` (kill-and-respawn path) and `onSpawned` (idle-branch spawn
-   * path). See plans/bot-reset-session-v2.md.
+   * blocked idle too, the reset would silently reset-lock the agent. SET at
+   * `begin_reset`; CLEARED exclusively by `enterStable` (the single owner of
+   * every transition into a stable `running`/`idle` state — see its doc). See
+   * plans/bot-reset-session-v2.md and plans/daemon-fsm-desync.md batch C.
    */
   resetting: boolean;
+  /**
+   * ms timestamp at which the current reset window began (`begin_reset`); null
+   * when not resetting. Owned by this (recovery) layer alongside `resetting`
+   * itself — SET at `begin_reset`, cleared by `enterStable`. Batch D's
+   * reconcile READS it to detect a reset that never converged (`resetting`
+   * still true, `resettingSince` older than the stale window ⇒ the clearing
+   * event never arrived), then escalates through `enterStable` — state
+   * ownership here, detection ownership there. See plans/daemon-fsm-desync.md
+   * batch C/D.
+   */
+  resettingSince: number | null;
   /**
    * Coarse gated-steering phase (tool/compaction/review boundaries). Only
    * meaningfully consulted when `caps.busyDeliveryMode === "gated"`; kept on
@@ -140,7 +152,7 @@ export type ManagerEvent =
    * effects — the orchestrator dispatches `deliver` (idle branch) or
    * `enqueueRewake` immediately after, and `stop()` follows on live branch.
    */
-  | { type: "begin_reset"; agentId: string }
+  | { type: "begin_reset"; agentId: string; nowMs: number }
   /**
    * Enqueue a synthetic rewake message into the agent's inbox WITHOUT
    * emitting any effect. Used by the reset orchestrator's live/starting/
@@ -199,7 +211,11 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
 
     case "spawned":
       return mutate(state, event.agentId, (a) => {
-        a.status = "running";
+        // Single owner of the stable-state transition: `enterStable` sets
+        // status="running" AND clears the reset window (resetting/
+        // resettingSince) atomically — covering the idle-branch reset path
+        // (deliver → spawn directly, no `exit` fires) without a separate clear.
+        enterStable(a, "running");
         a.turnActive = true;
         a.lastProgressAt = event.nowMs;
         // Fresh process ⇒ no outstanding unanswered delivery yet. Clearing keeps
@@ -209,10 +225,6 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
         // so the fresh-lifecycle invariant doesn't rely on that coincidence.
         a.lastDeliverAt = null;
         a.idleSince = null;
-        // Belt for the idle-branch reset path where `deliver` triggered a
-        // spawn directly (no `exit` fires there). The kill-and-respawn path
-        // clears `resetting` in `onExit`; here we cover the parallel path.
-        if (a.resetting) a.resetting = false;
       });
 
     case "session":
@@ -234,6 +246,10 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
       if (!state.agents[event.agentId]) return { state, effects: [] };
       return mutate(state, event.agentId, (a) => {
         a.resetting = true;
+        // Stamp the window's start so batch D's reconcile can detect a reset
+        // that never converged (still resetting, `resettingSince` older than
+        // the stale window ⇒ the clearing event never arrived).
+        a.resettingSince = event.nowMs;
       });
 
     case "rewake_after_reset":
@@ -466,13 +482,6 @@ function onExit(state: ManagerState, agentId: string): ReduceResult {
   if (!existing) return { state, effects: [] };
   const agent = clone(existing);
   agent.turnActive = false;
-  // Clear `resetting` unconditionally at the top — covers both the normal
-  // path (kill → exit → drain → spawn, resetting cleared before the spawn)
-  // AND the spawn-failure path (`doSpawn` dispatches an immediate `exit`
-  // with `inbox.length === 0`, taking the idle branch below). Without the
-  // top-level clear, the failure path would leave `resetting: true` and
-  // silently reset-lock the agent for every subsequent wake.
-  if (agent.resetting) agent.resetting = false;
   // Fresh process ⇒ fresh gated-steering horizon. Symmetric with `onTurnEnd`;
   // prevents a dead process's `compacting` / outstanding-tool-use flags from
   // silently carrying into the next spawn and re-blocking `onWake`.
@@ -481,7 +490,15 @@ function onExit(state: ManagerState, agentId: string): ReduceResult {
   // deliver marker so the suspected-deaf detector starts clean for the respawn.
   agent.lastDeliverAt = null;
 
-  // Per-turn: if more messages queued, immediately respawn for the next batch.
+  // Per-turn / reset-respawn: if messages are queued (drained rewake + unreads),
+  // respawn for the next batch. `status = "starting"` is TRANSIENT — the reset
+  // window (`resetting`) deliberately stays OPEN across it and closes only when
+  // the fresh process reaches `running` via `spawned` → `enterStable`. This is
+  // the batch-C semantic: a reset ends at "context re-established", not at "old
+  // process died". If the respawn itself wedges (new process never emits
+  // `spawned`), `resetting` stays true with an aging `resettingSince`, so
+  // batch D's reconcile catches the stuck-in-`starting` orphan — which the old
+  // "clear at onExit" behavior left invisible to every running-gated detector.
   if (agent.inbox.length > 0) {
     agent.status = "starting";
     const prompt = drainInboxToPrompt(agent);
@@ -489,7 +506,11 @@ function onExit(state: ManagerState, agentId: string): ReduceResult {
       { type: "spawn", agentId, prompt, resumeSessionId: agent.sessionId },
     ]);
   }
-  agent.status = "idle";
+  // No respawn (incl. the spawn-failure path: `doSpawn` dispatched an immediate
+  // `exit` after draining the inbox into the failed spawn's prompt) ⇒ the agent
+  // settles idle. `enterStable` closes the reset window here — the single owner
+  // of clearing `resetting`, so a failed reset can never leave it stuck.
+  enterStable(agent, "idle");
   return commit(state, agent, []);
 }
 
@@ -575,8 +596,35 @@ function freshAgent(agentId: string, caps: AgentRuntimeCaps): AgentState {
     lastDeliverAt: null,
     idleSince: null,
     resetting: false,
+    resettingSince: null,
     apm: createInitialApmGatedSteeringState(),
   };
+}
+
+/**
+ * Move an agent into a STABLE lifecycle state (`running` or `idle`) — the
+ * SINGLE owner of clearing the reset window. Every transition into a stable
+ * state MUST go through here, never a bare `agent.status = "running"/"idle"`
+ * assignment: that is what makes "the reset window ends exactly when the agent
+ * reaches a stable state" a structural invariant instead of two hand-maintained
+ * clear sites (`onSpawned` and `onExit`) that a deaf/hung process can both miss.
+ *
+ * Batch C (plans/daemon-fsm-desync.md): the old design cleared `resetting` in
+ * `onSpawned` (idle-branch) and `onExit` (kill-branch) — both event-driven, so
+ * an event that never arrives (SDK start wedged → no `spawned`; process won't
+ * emit `exit`) left `resetting` stuck true forever, reset-locking every future
+ * wake. Folding the clear into the stable-state transition means: whatever path
+ * reaches `running`/`idle`, the window closes atomically with it. Batch D's
+ * reconcile, on detecting a reset that never converged (`resettingSince` stale),
+ * escalates through this same helper — recovery reuses the primitive.
+ *
+ * `starting`/`stopping` are TRANSIENT (still mid-reset) and deliberately do NOT
+ * go through here — they don't clear the window.
+ */
+function enterStable(agent: AgentState, status: "running" | "idle"): void {
+  agent.status = status;
+  agent.resetting = false;
+  agent.resettingSince = null;
 }
 
 /** Coalesce all queued messages into one prompt, deduplicating identical lines. */

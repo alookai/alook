@@ -525,6 +525,15 @@ export class AgentProcessManager {
        * a session a fresh wake spawned in between.
        */
       torndown: boolean;
+      /**
+       * Set when this session has been SUPERSEDED by an intentional kill
+       * (reset / nap / model_switch) — `markResetting` flips it before the
+       * kill. The error-audit gate uses it to suppress this outgoing session's
+       * interrupted-turn death rattle while still surfacing a reborn session's
+       * genuine error (the reborn gets a fresh entry with `superseded=false`).
+       * Per-session identity, not agent-level status. See batch C reader-C fix.
+       */
+      superseded: boolean;
     }
   >();
   private readonly opts: Required<
@@ -648,7 +657,15 @@ export class AgentProcessManager {
    * explicit "end reset" event.
    */
   markResetting(agentId: string): void {
-    this.dispatch({ type: "begin_reset", agentId });
+    this.dispatch({ type: "begin_reset", agentId, nowMs: this.now() });
+    // Mark the CURRENTLY-live session (if any) superseded, so its death rattle
+    // — the interrupted-turn error the dying process emits before `exit` — is
+    // suppressed by the error-audit gate, while the reborn session (a fresh
+    // `activeSpawnState` entry with `superseded=false`) still surfaces its own
+    // genuine errors. Per-session identity, set at kill-initiation. If there's
+    // no live session yet (reset of an idle agent), there's nothing to rattle.
+    const live = this.activeSpawnState.get(agentId);
+    if (live) live.superseded = true;
   }
 
   /**
@@ -1071,7 +1088,7 @@ export class AgentProcessManager {
     //     `terminate_stalled` from `applyEffect`) so the process's eventual
     //     `exit` event doesn't ALSO log a redundant/contradictory
     //     "session ended" line for the same termination.
-    const state = { hasEstablished: false, hasReportedSpawnFailure: false, suppressExitLog: false, handshakeTimer: null as ReturnType<typeof setTimeout> | null, torndown: false };
+    const state = { hasEstablished: false, hasReportedSpawnFailure: false, suppressExitLog: false, handshakeTimer: null as ReturnType<typeof setTimeout> | null, torndown: false, superseded: false };
     this.activeSpawnState.set(agentId, state);
     const clearHandshakeTimer = () => {
       if (state.handshakeTimer) {
@@ -1112,7 +1129,12 @@ export class AgentProcessManager {
       if ((e as { kind?: string })?.kind === "turn_end" && driver.lifecycle.kind === "per_turn") {
         state.suppressExitLog = true;
       }
-      this.onRuntimeEvent(agentId, e, driver.id);
+      // Pass THIS session's own state so the error-audit gate can tell a
+      // superseded (being-killed) session's death rattle from a live session's
+      // genuine error — per-session identity, not agent-level status. A reborn
+      // session gets a fresh `state` with `superseded=false`, so its startup
+      // error surfaces even while the agent's reset window is still open.
+      this.onRuntimeEvent(agentId, e, driver.id, state.superseded);
     });
     // Only ChildProcessRuntimeSession emits `stderr`; SdkManagedSession
     // doesn't, so this is harmless when the session is an SDK adapter.
@@ -1305,7 +1327,7 @@ export class AgentProcessManager {
     }
   }
 
-  private onRuntimeEvent(agentId: string, e: unknown, runtimeId: string): void {
+  private onRuntimeEvent(agentId: string, e: unknown, runtimeId: string, sessionSuperseded: boolean): void {
     const ev = e as { kind?: string; sessionId?: string; text?: string; name?: string; input?: unknown; message?: string };
     if (!ev?.kind) return;
     // A runtime-parsed `error` event (rate limit, auth failure, bad-model API
@@ -1315,14 +1337,23 @@ export class AgentProcessManager {
     // here (this fires from the `runtime_event` subscriber), so the scope is
     // `runtime`, not `spawn`.
     //
-    // EXCEPT during an intentional kill (reset / nap / model_switch): the
-    // dying process, interrupted mid-turn, emits a final error `result`
-    // ("death rattle") that is teardown noise, not a fault. `agent.resetting`
-    // is true across the whole kill→respawn window (set at `begin_reset`
-    // before `stop()`, cleared at `onExit`/`spawned`), and the reborn session
-    // isn't spawned until AFTER the flag clears — so gating on it drops only
-    // the intentional-kill noise, never a live session's genuine error.
-    if (ev.kind === "error" && !this.state.agents[agentId]?.resetting) {
+    // EXCEPT for the death rattle of a SUPERSEDED session: an intentional kill
+    // (reset / nap / model_switch) interrupts the dying process mid-turn and it
+    // emits a final error `result` that is teardown noise, not a fault.
+    //
+    // This gates on PER-SESSION identity (`sessionSuperseded`), not the
+    // agent-level `resetting` flag. Batch C keeps `resetting` true across the
+    // respawn until the reborn process reaches `running`, so the reborn session
+    // is LIVE while `resetting` is still set — gating the audit on `resetting`
+    // would swallow the reborn session's own genuine startup error (the exact
+    // "healthy signal silenced" bug this plan attacks). And status can't
+    // separate them either: an old process killed while still `starting` and a
+    // reborn erroring while `starting` share the same status. Only session
+    // IDENTITY distinguishes them: `restartAgent` marks the OUTGOING session's
+    // state `superseded` before killing it, so its rattle is suppressed; the
+    // reborn session has a fresh state (`superseded=false`), so its real error
+    // surfaces. See plans/daemon-fsm-desync.md batch C (reader-C fix).
+    if (ev.kind === "error" && !sessionSuperseded) {
       this.emitErrorAudit(agentId, "runtime", "runtime_error", ev.message ?? "Runtime error");
     }
     // Bot audit hook — thinking + non-Bash tool_call, no correlation.

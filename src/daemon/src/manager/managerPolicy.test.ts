@@ -469,12 +469,14 @@ describe("reduceManager — reset_session", () => {
 });
 
 describe("reduceManager — begin_reset / rewake_after_reset", () => {
-  it("begin_reset sets resetting=true and emits no effects", () => {
+  it("begin_reset sets resetting=true, stamps resettingSince, and emits no effects", () => {
     let s = createInitialManagerState();
     s = register(s, "a", PERSISTENT_GATED);
-    const r = reduceManager(s, { type: "begin_reset", agentId: "a" });
+    const r = reduceManager(s, { type: "begin_reset", agentId: "a", nowMs: 42 });
     expect(r.effects).toEqual([]);
     expect(r.state.agents.a.resetting).toBe(true);
+    // Window start stamped so batch D can detect a reset that never converged.
+    expect(r.state.agents.a.resettingSince).toBe(42);
   });
 
   it("rewake_after_reset appends to inbox and emits no effects", () => {
@@ -487,7 +489,7 @@ describe("reduceManager — begin_reset / rewake_after_reset", () => {
 
   it("both events are no-ops on an unknown agent", () => {
     const s = createInitialManagerState();
-    expect(reduceManager(s, { type: "begin_reset", agentId: "ghost" }).state.agents.ghost).toBeUndefined();
+    expect(reduceManager(s, { type: "begin_reset", agentId: "ghost", nowMs: 1 }).state.agents.ghost).toBeUndefined();
     expect(
       reduceManager(s, { type: "rewake_after_reset", agentId: "ghost", message: { text: "x" } }).state.agents.ghost,
     ).toBeUndefined();
@@ -502,7 +504,7 @@ describe("reduceManager — onWake `resetting` gate", () => {
     s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 2 }).state;
     // Set resetting via the FSM event (bypassing onSpawned's auto-clear
     // which fires before this event).
-    s = reduceManager(s, { type: "begin_reset", agentId: "a" }).state;
+    s = reduceManager(s, { type: "begin_reset", agentId: "a", nowMs: 1 }).state;
     expect(s.agents.a.resetting).toBe(true);
     expect(s.agents.a.status).toBe("running");
 
@@ -516,7 +518,7 @@ describe("reduceManager — onWake `resetting` gate", () => {
     s = register(s, "a", PERSISTENT_GATED);
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 1 }).state;
     s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 2 }).state;
-    s = reduceManager(s, { type: "begin_reset", agentId: "a" }).state;
+    s = reduceManager(s, { type: "begin_reset", agentId: "a", nowMs: 1 }).state;
 
     const r = reduceManager(s, { type: "wake", agentId: "a", message: { text: "unread" }, nowMs: 3 });
     expect(r.effects).toEqual([]);
@@ -528,7 +530,7 @@ describe("reduceManager — onWake `resetting` gate", () => {
     s = register(s, "a", PERSISTENT_DIRECT);
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 1 }).state;
     // status=starting now
-    s = reduceManager(s, { type: "begin_reset", agentId: "a" }).state;
+    s = reduceManager(s, { type: "begin_reset", agentId: "a", nowMs: 1 }).state;
 
     const r = reduceManager(s, { type: "wake", agentId: "a", message: { text: "unread" }, nowMs: 2 });
     expect(r.effects).toEqual([]);
@@ -538,7 +540,7 @@ describe("reduceManager — onWake `resetting` gate", () => {
   it("idle + resetting=true: wake IS EXEMPTED — still spawns (idle branch of reset orchestrator relies on this)", () => {
     let s = createInitialManagerState();
     s = register(s, "a", PERSISTENT_DIRECT);
-    s = reduceManager(s, { type: "begin_reset", agentId: "a" }).state;
+    s = reduceManager(s, { type: "begin_reset", agentId: "a", nowMs: 1 }).state;
     expect(s.agents.a.resetting).toBe(true);
     expect(s.agents.a.status).toBe("idle");
 
@@ -556,22 +558,52 @@ describe("reduceManager — onExit / onSpawned clear resetting", () => {
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 1 }).state;
     s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 2 }).state;
     // Begin reset: mark + enqueue rewake
-    s = reduceManager(s, { type: "begin_reset", agentId: "a" }).state;
+    s = reduceManager(s, { type: "begin_reset", agentId: "a", nowMs: 1 }).state;
     s = reduceManager(s, { type: "rewake_after_reset", agentId: "a", message: { text: "REWAKE" } }).state;
     // Real unread arrives during reset window — gate queues to inbox.
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "unread" }, nowMs: 3 }).state;
     expect(s.agents.a.inbox.map((m) => m.text)).toEqual(["REWAKE", "unread"]);
 
-    // Kill lands → exit
+    // Kill lands → exit → drains rewake+unread into ONE respawn.
     const r = reduceManager(s, { type: "exit", agentId: "a" });
     expect(r.effects).toEqual([{ type: "spawn", agentId: "a", prompt: "REWAKE\nunread", resumeSessionId: null }]);
-    expect(r.state.agents.a.resetting).toBe(false);
+    // Batch C semantic change (intentional): the reset window stays OPEN across
+    // the respawn's transient `starting` state — it closes only when the fresh
+    // process reaches `running` via `spawned`/`enterStable`, i.e. when context
+    // is actually re-established, not merely when the old process died.
+    expect(r.state.agents.a.status).toBe("starting");
+    expect(r.state.agents.a.resetting).toBe(true);
+    // ...and closes on the respawn's `spawned`.
+    const r2 = reduceManager(r.state, { type: "spawned", agentId: "a", nowMs: 5 });
+    expect(r2.state.agents.a.status).toBe("running");
+    expect(r2.state.agents.a.resetting).toBe(false);
+    expect(r2.state.agents.a.resettingSince).toBeNull();
+  });
+
+  it("respawn that itself wedges keeps resetting true + resettingSince aging → batch D's reconcile can catch the stuck-in-starting orphan", () => {
+    let s = createInitialManagerState();
+    s = register(s, "a", PERSISTENT_DIRECT);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 1 }).state;
+    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 2 }).state;
+    s = reduceManager(s, { type: "begin_reset", agentId: "a", nowMs: 3 }).state;
+    s = reduceManager(s, { type: "rewake_after_reset", agentId: "a", message: { text: "REWAKE" } }).state;
+    // Kill → exit → respawn emitted, status goes to the transient `starting`.
+    const r = reduceManager(s, { type: "exit", agentId: "a" });
+    expect(r.effects[0]).toMatchObject({ type: "spawn", agentId: "a" });
+    // The respawn never lands a `spawned` (new process wedged). The reset window
+    // stays open with its ORIGINAL start time — the signal batch D reads to
+    // detect a reset that never converged. Under the old "clear at onExit"
+    // behavior this was `resetting=false, status=starting`, invisible to every
+    // running-gated recovery predicate.
+    expect(r.state.agents.a.status).toBe("starting");
+    expect(r.state.agents.a.resetting).toBe(true);
+    expect(r.state.agents.a.resettingSince).toBe(3);
   });
 
   it("onSpawned clears resetting (idle-branch reset spawn)", () => {
     let s = createInitialManagerState();
     s = register(s, "a", PERSISTENT_DIRECT);
-    s = reduceManager(s, { type: "begin_reset", agentId: "a" }).state;
+    s = reduceManager(s, { type: "begin_reset", agentId: "a", nowMs: 1 }).state;
     // Idle-branch deliver emits spawn (idle exempt).
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "REWAKE" }, nowMs: 1 }).state;
     expect(s.agents.a.resetting).toBe(true);
@@ -582,7 +614,7 @@ describe("reduceManager — onExit / onSpawned clear resetting", () => {
   it("spawn-failure path (exit fires with empty inbox) still clears resetting → no permanent reset-lock", () => {
     let s = createInitialManagerState();
     s = register(s, "a", PERSISTENT_DIRECT);
-    s = reduceManager(s, { type: "begin_reset", agentId: "a" }).state;
+    s = reduceManager(s, { type: "begin_reset", agentId: "a", nowMs: 1 }).state;
     // Simulate driver.start() rejecting: `doSpawn` dispatches an immediate
     // exit; by then drainInboxToPrompt already emptied the inbox into the
     // (failed) spawn's prompt.
