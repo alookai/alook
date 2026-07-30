@@ -19,13 +19,14 @@ const mockCreateChannelMember = vi.fn()
 const mockAddThreadParticipants = vi.fn()
 
 const mockLogError = vi.fn()
+const mockLogWarn = vi.fn()
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
   return {
     ...actual,
     createLogger: () => ({
       info: vi.fn(),
-      warn: vi.fn(),
+      warn: (...a: unknown[]) => mockLogWarn(...a),
       debug: vi.fn(),
       error: (...a: unknown[]) => mockLogError(...a),
     }),
@@ -241,6 +242,138 @@ describe("createCommunityMessage — audit relocation (plan §10)", () => {
       messageId: "msg_1",
       source: "daemon-http",
     })
+  })
+})
+
+describe("createCommunityMessage — replyToId write-path scope validation (dangling-reply / #204 bot=user)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockCreateMessage.mockResolvedValue({ id: "msg_1" })
+    mockGetUserInternal.mockResolvedValue({ id: "author_1", isBot: false, deletedAt: null })
+    mockFanOutToChannel.mockResolvedValue(undefined)
+    mockFanOutToDM.mockResolvedValue(undefined)
+    mockBroadcastToUser.mockResolvedValue(undefined)
+  })
+
+  // The reply target the client asked to answer, living in the SAME channel.
+  const inScopeReply = {
+    id: "reply_1",
+    authorId: "author_2",
+    authorName: "Other",
+    content: "the parent",
+    channelId: "c1",
+  }
+
+  it("in-scope replyToId: persists it, and resolves the target with a SINGLE getMessageInScope lookup (no re-query for the preview)", async () => {
+    mockGetMessageInScope.mockResolvedValue(inScopeReply)
+    mockGetMessage.mockResolvedValue(messageRow({ replyToId: "reply_1" }))
+
+    const result = await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+      body: { content: "answering", replyToId: "reply_1" },
+    })
+
+    expect(result.ok).toBe(true)
+    // replyToId reaches the insert unchanged.
+    expect(mockCreateMessage).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({ replyToId: "reply_1" }),
+    )
+    // The write-path validation replaces the preview's fetch — not one each.
+    expect(mockGetMessageInScope).toHaveBeenCalledTimes(1)
+    expect(mockGetMessageInScope).toHaveBeenCalledWith({}, "reply_1", { channelId: "c1" })
+    expect(mockLogWarn).not.toHaveBeenCalled()
+  })
+
+  it("out-of-scope replyToId: DROPPED (message stored with replyToId undefined), warn-logged, NOT rejected", async () => {
+    // Target message isn't in this channel's scope → getMessageInScope returns null.
+    mockGetMessageInScope.mockResolvedValue(null)
+    mockGetMessage.mockResolvedValue(messageRow({ replyToId: null }))
+
+    const result = await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+      body: { content: "answering across channels", replyToId: "reply_in_other_channel" },
+    })
+
+    // Lenient: the send SUCCEEDS, just as a plain message.
+    expect(result.ok).toBe(true)
+    // The dangling id never reaches the DB — insert carries undefined.
+    expect(mockCreateMessage).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({ replyToId: undefined }),
+    )
+    // Flagged as a likely client bug.
+    expect(mockLogWarn).toHaveBeenCalledWith(
+      "reply_to_out_of_scope_dropped",
+      expect.objectContaining({
+        authorId: "author_1",
+        channelId: "c1",
+        replyToId: "reply_in_other_channel",
+      }),
+    )
+  })
+
+  it("private source channel the author can't see is indistinguishable from missing (getMessageInScope null → same drop, no leak)", async () => {
+    // getMessageInScope is `WHERE id=? AND channelId=?`; a private channel the
+    // author isn't in resolves to null exactly like a nonexistent id — the
+    // handler can't and doesn't branch on which, so neither content nor the
+    // channel's existence leaks.
+    mockGetMessageInScope.mockResolvedValue(null)
+    mockGetMessage.mockResolvedValue(messageRow({ replyToId: null }))
+
+    const result = await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+      body: { content: "peeking", replyToId: "msg_in_private_channel" },
+    })
+
+    expect(result.ok).toBe(true)
+    expect(mockCreateMessage).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({ replyToId: undefined }),
+    )
+  })
+
+  it("bot author (source cli) hits the SAME drop — the send codepath is shared, so bots can't POST a dangling reply either (#204)", async () => {
+    mockGetUserInternal.mockResolvedValue({ id: "author_1", isBot: true, deletedAt: null })
+    mockGetMessageInScope.mockResolvedValue(null)
+    mockGetMessage.mockResolvedValue(messageRow({ replyToId: null }))
+
+    const result = await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+      body: { content: "bot cross-scope reply", replyToId: "reply_elsewhere" },
+      source: "cli",
+    })
+
+    expect(result.ok).toBe(true)
+    expect(mockCreateMessage).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({ replyToId: undefined }),
+    )
+    expect(mockLogWarn).toHaveBeenCalledWith(
+      "reply_to_out_of_scope_dropped",
+      expect.objectContaining({ source: "cli", replyToId: "reply_elsewhere" }),
+    )
+  })
+
+  it("no replyToId: no scope lookup at all (unchanged fast path)", async () => {
+    mockGetMessage.mockResolvedValue(messageRow({ replyToId: null }))
+
+    await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+      body: { content: "no reply here" },
+    })
+
+    expect(mockGetMessageInScope).not.toHaveBeenCalled()
   })
 })
 

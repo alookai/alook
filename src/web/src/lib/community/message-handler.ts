@@ -293,8 +293,41 @@ export async function createCommunityMessage(params: {
     }
   }
 
-  const replyToId =
+  // A client-supplied `replyToId` must reference a message IN THE TARGET
+  // channel. Validate on the WRITE path (not just the preview path below at
+  // ~:520, which only *skips the preview* for an out-of-scope id while still
+  // persisting the dangling reference). Without this, any client — web, CLI,
+  // or bot (#204, bots ride the same send codepath as users) — could POST a
+  // cross-scope `replyToId`; it would insert, then render as an unresolvable
+  // "unknown" reply because `getMessageInScope` can't resolve it. We drop the
+  // out-of-scope id (store as a plain message) rather than 400 — lenient,
+  // matching the send path's "never fail the send on an edge case" posture —
+  // and warn-log it as a likely client bug. `getMessageInScope` is scoped
+  // `WHERE id = ? AND channelId = ?`, so a private source channel the author
+  // can't otherwise see is denied here too (no leak of its content/existence).
+  const rawReplyToId =
     typeof body.replyToId === "string" ? body.replyToId : undefined
+  let replyToId = rawReplyToId
+  // Resolved reply target, in-scope — carried to the preview block below so it
+  // reuses this lookup instead of re-fetching (net: no extra query for the
+  // common in-scope reply; the validation replaces the preview's fetch).
+  let resolvedReplyMsg:
+    | Awaited<ReturnType<typeof queries.communityMessage.getMessageInScope>>
+    | null = null
+  if (rawReplyToId !== undefined) {
+    resolvedReplyMsg = await queries.communityMessage.getMessageInScope(db, rawReplyToId, {
+      channelId: target.channelId,
+    })
+    if (!resolvedReplyMsg) {
+      log.warn("reply_to_out_of_scope_dropped", {
+        authorId,
+        channelId: target.channelId,
+        replyToId: rawReplyToId,
+        source: source ?? "web",
+      })
+      replyToId = undefined
+    }
+  }
   const mentionType: MentionType | undefined =
     !isDmTarget(target) && isMentionType(body.mentionType)
       ? body.mentionType
@@ -515,19 +548,20 @@ export async function createCommunityMessage(params: {
   // below.
   const replyMap = new Map<string, { id: string; authorName: string; content: string | null }>()
   const replyTargets = new Set<string>()
-  if (!skipMentions && row.replyToId) {
+  // Reuse the in-scope reply target resolved at the write-validation step above
+  // (`resolvedReplyMsg`) — it was fetched with the identical `getMessageInScope`
+  // scope, so re-querying here would be redundant. `row.replyToId` is already
+  // null when the id was out-of-scope (dropped above), so this block only runs
+  // for a genuinely in-scope reply.
+  if (!skipMentions && row.replyToId && resolvedReplyMsg) {
     // single-id path — see `dm/[id]/messages/route.ts` / `channels/[id]/messages/route.ts` for the batched N-id path
-    const scope = { channelId: target.channelId }
-    const replyMsg = await queries.communityMessage.getMessageInScope(db, row.replyToId, scope)
-    if (replyMsg) {
-      replyMap.set(replyMsg.id, {
-        id: replyMsg.id,
-        authorName: replyMsg.authorName,
-        content: replyMsg.content,
-      })
-      if (replyMsg.authorId && replyMsg.authorId !== authorId) {
-        replyTargets.add(replyMsg.authorId)
-      }
+    replyMap.set(resolvedReplyMsg.id, {
+      id: resolvedReplyMsg.id,
+      authorName: resolvedReplyMsg.authorName,
+      content: resolvedReplyMsg.content,
+    })
+    if (resolvedReplyMsg.authorId && resolvedReplyMsg.authorId !== authorId) {
+      replyTargets.add(resolvedReplyMsg.authorId)
     }
   }
 
