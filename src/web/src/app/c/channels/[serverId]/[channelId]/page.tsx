@@ -61,6 +61,7 @@ import {
   useSetChannelNotif,
   useUploadFile,
   zipUploadResultsWithDimensions,
+  sendNonce,
   type SendMessageResult,
   type UploadedAttachment,
 } from "@/hooks/community/mutations"
@@ -613,7 +614,7 @@ function ChannelView() {
   // instead lets thread-create + retry callers detect failure without a
   // try/catch each.
   const doSend = useCallback(
-    async (content: string, opts?: { replyToId?: string; mentionType?: MentionType; attachments?: UploadedAttachment[] }): Promise<SendMessageResult | null> => {
+    async (content: string, opts?: { replyToId?: string; mentionType?: MentionType; attachments?: UploadedAttachment[]; nonce?: string }): Promise<SendMessageResult | null> => {
       try {
         return await sendMessageAsync({
           channelId,
@@ -621,6 +622,10 @@ function ChannelView() {
           replyToId: opts?.replyToId,
           mentionType: opts?.mentionType,
           attachments: opts?.attachments,
+          // Idempotency nonce: mint one per fresh send; a retry passes the
+          // failed row's nonce back (see `onRetry`) so the resend dedupes
+          // server-side instead of double-posting.
+          nonce: opts?.nonce ?? sendNonce(),
           author: {
             id: currentUser.id,
             name: currentUser.name,
@@ -691,7 +696,13 @@ function ChannelView() {
     },
     onRetry: (id: string) => {
       const m = actionsCtxRef.current.messages.find((x) => x.id === id)
-      if (m?.content) void doSend(m.content)
+      // Reuse the failed row's nonce so the resend dedupes server-side if the
+      // original actually committed (500-after-commit). Remove the stale failed
+      // row first — `doSend` inserts a fresh optimistic row (reusing the nonce),
+      // and a WS/dedupe reconcile then converges them by nonce/id.
+      if (m?.content) {
+        void doSend(m.content, { nonce: m.clientNonce, replyToId: m.replyTo?.id })
+      }
     },
     onPreviewImage: (url: string) => {
       actionsCtxRef.current.uiHandlers.previewImage?.(url)

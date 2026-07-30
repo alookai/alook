@@ -97,6 +97,12 @@ export type CreateMessageData = {
   embeds?: string;
   /** Back-reference stamped on friend-approval DM card messages only. */
   friendshipId?: string;
+  /**
+   * Client-supplied idempotency key. When present it is persisted so a resend
+   * carrying the same nonce dedupes on (author_id, client_nonce). NULL/absent =
+   * today's behavior (never deduped). See mutation-idempotency plan.
+   */
+  clientNonce?: string;
 };
 
 /**
@@ -173,6 +179,7 @@ async function insertMessageRow(db: Database, data: CreateMessageData, seq: numb
       replyToId: data.replyToId ?? null,
       embeds: data.embeds ?? null,
       friendshipId: data.friendshipId ?? null,
+      clientNonce: data.clientNonce ?? null,
       createdAt: now,
       seq,
     })
@@ -759,6 +766,48 @@ export async function getMessage(db: Database, messageId: string) {
     .from(communityMessage)
     .innerJoin(user, eq(communityMessage.authorId, user.id))
     .where(eq(communityMessage.id, messageId));
+  const row = rows[0];
+  if (!row) return null;
+  return { ...row, embeds: safeParseEmbeds(row.embeds, row.id) };
+}
+
+/**
+ * Idempotency lookup for the message-send dedup path (mutation-idempotency
+ * plan). Returns the message this author already committed under `nonce`, or
+ * null if none. Same select/return shape as `getMessage` so the send handler
+ * can return the existing row as-is (deduped resend). Backed by the partial
+ * unique index `uq_message_author_client_nonce (author_id, client_nonce)`.
+ */
+export async function getMessageByAuthorAndNonce(
+  db: Database,
+  authorId: string,
+  nonce: string
+) {
+  const rows = await db
+    .select({
+      id: communityMessage.id,
+      authorId: communityMessage.authorId,
+      content: communityMessage.content,
+      type: communityMessage.type,
+      mentionType: communityMessage.mentionType,
+      replyToId: communityMessage.replyToId,
+      embeds: communityMessage.embeds,
+      createdAt: communityMessage.createdAt,
+      channelId: communityMessage.channelId,
+      seq: communityMessage.seq,
+      authorName: user.name,
+      authorEmail: user.email,
+      authorImage: user.image,
+    })
+    .from(communityMessage)
+    .innerJoin(user, eq(communityMessage.authorId, user.id))
+    .where(
+      and(
+        eq(communityMessage.authorId, authorId),
+        eq(communityMessage.clientNonce, nonce)
+      )
+    )
+    .limit(1);
   const row = rows[0];
   if (!row) return null;
   return { ...row, embeds: safeParseEmbeds(row.embeds, row.id) };

@@ -271,6 +271,66 @@ describe("inbox pull", () => {
   });
 });
 
+describe("message send — idempotent retry (mutation-idempotency ②)", () => {
+  const okRes = {
+    state: "sent" as const,
+    message: { seq: "#8", channel: "/s/general", sender: "@a", content: { text: "hi" }, time: "" },
+  };
+
+  it("attaches a nonce to the send request", async () => {
+    const sendSpy = vi.fn(async () => okRes);
+    setApiForTesting(stubApi({ send: sendSpy }));
+    await main(["message", "send", "--target", "/s/general", "--text", "hi"]);
+    const arg = sendSpy.mock.calls[0]![0] as { nonce?: string };
+    expect(typeof arg.nonce).toBe("string");
+    expect((arg.nonce ?? "").length).toBeGreaterThan(0);
+  });
+
+  it("retries a transient upstream 5xx and reuses the SAME nonce, then succeeds (no duplicate surfaced)", async () => {
+    let calls = 0;
+    const nonces: (string | undefined)[] = [];
+    const sendSpy = vi.fn(async (req: { nonce?: string }) => {
+      nonces.push(req.nonce);
+      calls++;
+      if (calls === 1) throw new Error("upstream returned 502 with non-JSON body from /api/send");
+      return okRes;
+    });
+    setApiForTesting(stubApi({ send: sendSpy }));
+    await main(["message", "send", "--target", "/s/general", "--text", "hi"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env.success.sent).toBe("/s/general#8"); // succeeded, not an error
+    expect(calls).toBe(2); // retried once
+    expect(nonces[0]).toBe(nonces[1]); // SAME nonce across the retry — server can dedupe
+  });
+
+  it("treats a `deduped` success (same-nonce retry matched the committed message) as sent, not an error", async () => {
+    const sendSpy = vi.fn(async () => ({ ...okRes, deduped: true }));
+    setApiForTesting(stubApi({ send: sendSpy }));
+    await main(["message", "send", "--target", "/s/general", "--text", "hi"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env.success.sent).toBe("/s/general#8");
+    expect(env.error).toBeUndefined();
+  });
+
+  it("does NOT retry a blocked/unaligned business outcome (it's a return, not transient)", async () => {
+    const sendSpy = vi.fn(async () => ({ state: "blocked" as const, reason: "unaligned" as const, unreadCount: 2, latestSeq: 9 }));
+    setApiForTesting(stubApi({ send: sendSpy }));
+    await main(["message", "send", "--target", "/s/general", "--text", "hi"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env.error).toContain("channel not aligned");
+    expect(sendSpy).toHaveBeenCalledTimes(1); // no retry on a business outcome
+  });
+
+  it("does NOT retry a non-transient thrown error (e.g. 4xx), surfaces it once", async () => {
+    const sendSpy = vi.fn(async () => { throw new Error("reply target #5 not found in /s/general"); });
+    setApiForTesting(stubApi({ send: sendSpy }));
+    await main(["message", "send", "--target", "/s/general", "--text", "hi"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env.error).toContain("reply target");
+    expect(sendSpy).toHaveBeenCalledTimes(1); // deterministic business error — not retried
+  });
+});
+
 describe("server list", () => {
   it("prints {success:{servers:[...]}} from a stubbed listServers", async () => {
     setApiForTesting(

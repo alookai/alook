@@ -185,6 +185,7 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
     source: "cli",
     expectedSeq: latestSeq,
     attachmentIds: body.attachments.length > 0 ? body.attachments : undefined,
+    clientNonce: body.nonce,
   })
   if (!result.ok) {
     if (result.status === 409) {
@@ -219,5 +220,5 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
     ctx.botUserId,
     orderedAttachments,
   )
-  return NextResponse.json({ state: "sent", message })
+  return NextResponse.json({ state: "sent", message, deduped: result.deduped })
 })

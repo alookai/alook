@@ -123,13 +123,28 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
         serverId: channel.serverId,
       }
 
+  // Idempotency nonce (mutation-idempotency plan): the human web client mirrors
+  // the agent send route — it generates a random nonce per logical send and
+  // reuses it across retry-pill clicks, so a 500-after-commit resend dedupes
+  // server-side instead of double-posting. Extracted defensively (this route
+  // hands the raw body to the handler, no zod pass); the handler ignores an
+  // absent nonce and falls back to today's behavior.
+  const clientNonce =
+    typeof (body as { nonce?: unknown })?.nonce === "string"
+      ? (body as { nonce: string }).nonce
+      : undefined
+
   const result = await createCommunityMessage({
     db,
     authorId: ctx.userId,
     target,
     body: body as Record<string, unknown>,
+    clientNonce,
   })
   if (!result.ok) return writeError(result.error, result.status)
 
-  return writeJSON({ message: result.row }, 201)
+  // Surface `deduped` so the client reconciles a retry-pill resend that matched
+  // an already-committed message (align the optimistic row to the canonical
+  // seq/id, clear the failed pill) instead of treating it as a fresh insert.
+  return writeJSON({ message: result.row, deduped: result.deduped }, 201)
 })

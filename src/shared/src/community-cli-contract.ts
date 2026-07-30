@@ -324,6 +324,15 @@ export interface SendRequest {
    * scope is rejected 400 (no cross-scope citing).
    */
   replyToSeq?: Seq;
+  /**
+   * Idempotency key (mutation-idempotency plan). Generate ONE per logical
+   * message and REUSE it across retries — the server dedupes on
+   * (author, nonce) before claiming a seq, so a resend over a response-losing
+   * gateway returns the first message (`deduped: true`) instead of inserting a
+   * duplicate. Absent = today's behavior (no dedup). Generic on purpose — any
+   * no-natural-key creation-type write can adopt the same field later.
+   */
+  nonce?: string;
 }
 
 /**
@@ -348,7 +357,19 @@ export interface AttachmentDownloadRequest {
  * must align to first (pull, then resend) — `latestSeq` is the current waterline.
  */
 export type SendResponse =
-  | { state: "sent"; message: Message }
+  | {
+      state: "sent";
+      message: Message;
+      /**
+       * True when this send matched an existing (author, nonce) message — i.e.
+       * a retry of an already-committed send. `message` is the ORIGINAL (its
+       * canonical seq/id), nothing new was inserted and no fan-out re-fired.
+       * The caller treats this as success (not a failure to re-send). Absent /
+       * false = a fresh insert. Only ever true when the request carried a
+       * `nonce`.
+       */
+      deduped?: boolean;
+    }
   | { state: "blocked"; reason: "unaligned"; unreadCount: number; latestSeq: Seq };
 
 export interface CommunityAgentReactAddResponse {

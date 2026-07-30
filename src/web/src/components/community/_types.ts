@@ -120,6 +120,11 @@ export type Msg = {
   createdAt?: string // ISO 8601 timestamp — the UI formats for display
   authorAvatar?: string
   failed?: boolean
+  // Idempotency nonce (mutation-idempotency plan). Stamped on optimistic rows
+  // this client created and echoed back on the WS message-create, so a
+  // 500-after-commit send that the user never retried self-heals: the WS row
+  // reconciles the failed optimistic row by nonce instead of appearing twice.
+  clientNonce?: string
   content?: string
   embeds?: Embed[]
   attachments?: Attachment[]

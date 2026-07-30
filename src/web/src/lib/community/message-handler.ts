@@ -6,6 +6,7 @@ import {
   MAX_ATTACHMENTS_PER_MESSAGE,
   WS_EVENTS,
   createLogger,
+  isUniqueConstraintError,
 } from "@alook/shared"
 import type { MentionType } from "@alook/shared"
 import type { Database } from "@alook/shared"
@@ -127,6 +128,12 @@ type CreateMessageOk = {
    * own minimal `MESSAGE_CREATE` after it commits (see plan §producer).
    */
   broadcast?: () => Promise<void>
+  /**
+   * True when this result is an idempotent replay: a `clientNonce` matched an
+   * already-committed message, so NO new seq was claimed and NO WS fan-out
+   * fired — the returned `row` is the original. Absent/false on a fresh insert.
+   */
+  deduped?: boolean
 }
 
 export type CreateMessageResult = CreateMessageOk | CreateMessageError
@@ -207,6 +214,13 @@ export async function createCommunityMessage(params: {
    * so dodging the collision no longer silently skips enrollment.
    */
   skipChildChannelUpdate?: boolean
+  /**
+   * Idempotency key (mutation-idempotency plan). When present, the handler
+   * dedupes on (author, nonce) BEFORE claiming a seq: a resend carrying a
+   * nonce that already committed returns the original row with `deduped: true`
+   * and fires no side effects. Absent = today's behavior (no dedup lookup).
+   */
+  clientNonce?: string
 }): Promise<CreateMessageResult> {
   const {
     db,
@@ -222,6 +236,7 @@ export async function createCommunityMessage(params: {
     deferBroadcast,
     attachmentIds,
     skipChildChannelUpdate,
+    clientNonce,
   } = params
 
   const content = typeof body.content === "string" ? body.content : ""
@@ -259,6 +274,23 @@ export async function createCommunityMessage(params: {
     return { ok: false, status: 400, error: "content or attachments required" }
   }
 
+  // Idempotency pre-check (mutation-idempotency plan): a resend carrying a
+  // nonce this author already committed must NOT claim a new seq or re-fire WS
+  // fan-out. Look it up BEFORE the seq claim and short-circuit with the
+  // original row. Absent nonce = today's behavior (no lookup at all). The
+  // race where two concurrent first-sends both pass this check is caught at
+  // insert time by the partial-unique-index handler below.
+  if (clientNonce !== undefined) {
+    const existing = await queries.communityMessage.getMessageByAuthorAndNonce(
+      db,
+      authorId,
+      clientNonce,
+    )
+    if (existing) {
+      return { ok: true, row: existing, attachments: [], deduped: true }
+    }
+  }
+
   const replyToId =
     typeof body.replyToId === "string" ? body.replyToId : undefined
   const mentionType: MentionType | undefined =
@@ -273,6 +305,7 @@ export async function createCommunityMessage(params: {
     replyToId: string | undefined;
     mentionType: MentionType | undefined;
     type?: string;
+    clientNonce?: string;
   } = {
     authorId,
     content,
@@ -280,6 +313,7 @@ export async function createCommunityMessage(params: {
     replyToId,
     mentionType,
     ...(messageType !== undefined ? { type: messageType } : {}),
+    ...(clientNonce !== undefined ? { clientNonce } : {}),
   }
 
   // Insert first so `reserveAttachmentsForMessage`'s UPDATE can key off
@@ -296,10 +330,33 @@ export async function createCommunityMessage(params: {
   // is present at all, not just its runtime value — a `number | undefined`
   // typed property doesn't cleanly resolve against either overload, so the
   // pass-through branches explicitly instead of spreading `expectedSeq` in.
-  const created: Awaited<ReturnType<typeof queries.communityMessage.createMessage>> =
-    expectedSeq !== undefined
-      ? await queries.communityMessage.createMessage(db, { ...baseMessageData, expectedSeq })
-      : await queries.communityMessage.createMessage(db, baseMessageData)
+  let created: Awaited<ReturnType<typeof queries.communityMessage.createMessage>>
+  try {
+    created =
+      expectedSeq !== undefined
+        ? await queries.communityMessage.createMessage(db, { ...baseMessageData, expectedSeq })
+        : await queries.communityMessage.createMessage(db, baseMessageData)
+  } catch (err) {
+    // Insert-time idempotency race: two concurrent first-sends with the same
+    // nonce both cleared the pre-check above, then one lost to the partial
+    // unique index `uq_message_author_client_nonce` on INSERT. Recover by
+    // re-fetching the winner's row and returning it as a deduped replay — same
+    // shape as the pre-check hit. The re-fetch is what narrows this to the
+    // NONCE constraint specifically: any OTHER unique violation (or an insert
+    // with no nonce) finds no matching row, so we rethrow the original error
+    // untouched. Only enter this branch when a nonce was actually supplied.
+    if (clientNonce !== undefined && isUniqueConstraintError(err)) {
+      const existing = await queries.communityMessage.getMessageByAuthorAndNonce(
+        db,
+        authorId,
+        clientNonce,
+      )
+      if (existing) {
+        return { ok: true, row: existing, attachments: [], deduped: true }
+      }
+    }
+    throw err
+  }
 
   // Lost the CAS race (plans/fix-agent-send-race-condition.md) — zero rows
   // were written anywhere (no message, no channel/DM bump, no read-state

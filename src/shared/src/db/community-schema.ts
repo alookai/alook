@@ -152,6 +152,15 @@ export const communityMessage = sqliteTable(
       (): any => communityFriendship.id,
       { onDelete: "set null" }
     ),
+    // Client-supplied idempotency key (mutation-idempotency plan). A logical
+    // send generates one nonce and REUSES it across retries; the server
+    // dedupes on (author_id, client_nonce) BEFORE claiming a seq, so a resend
+    // over a response-losing gateway returns the first row instead of inserting
+    // a duplicate. NULL = legacy / no-nonce send = today's behavior (never
+    // deduped). Partial unique index (author_id, client_nonce) WHERE
+    // client_nonce IS NOT NULL lives in the migration (Drizzle DSL can't
+    // express partial indexes — same as the seq partial indexes above).
+    clientNonce: text("client_nonce"),
   },
   (t) => [
     index("idx_message_channel_created").on(t.channelId, t.createdAt),

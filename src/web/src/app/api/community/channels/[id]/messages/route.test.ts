@@ -324,6 +324,17 @@ describe("POST /api/community/channels/[id]/messages", () => {
     // lastMessageAt for the CHILD_CHANNEL_UPDATE payload — must not fire here.
     expect(mockGetChannel).not.toHaveBeenCalled()
   })
+
+  // ── Idempotency nonce (mutation-idempotency plan, ③) ──────────────────────
+  // The human web send path threads `nonce` symmetrically to the agent send
+  // route (bot=user, Gus #204): body `nonce` → `createCommunityMessage`'s
+  // `clientNonce` param → surfaced `deduped` on the response. The route change
+  // is a thin pass-through; the handler-internal dedup (nonce pre-check,
+  // partial-unique backstop) is covered by the handler/① tests, and the
+  // end-to-end retry-dedup by Blair/Olivia's integration pass. Asserting the
+  // nonce plumbing here would require reaching into the handler's own query
+  // mocks (getMessageByAuthorAndNonce), which this route-level suite doesn't
+  // wire — kept out to avoid a wrong-layer assertion.
 })
 
 describe("GET /api/community/channels/[id]/messages", () => {

@@ -92,13 +92,22 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError("invalid request body", 400)
   }
 
+  // Idempotency nonce — mirror the channel send path (mutation-idempotency
+  // plan): reuse the same nonce across retry-pill clicks so a 500-after-commit
+  // resend dedupes server-side. Absent nonce = today's behavior.
+  const clientNonce =
+    typeof (body as { nonce?: unknown })?.nonce === "string"
+      ? (body as { nonce: string }).nonce
+      : undefined
+
   const result = await createCommunityMessage({
     db,
     authorId: ctx.userId,
     target: { kind: "dm", channelId: dmId, otherUserId: auth.value.otherUserId },
     body: body as Record<string, unknown>,
+    clientNonce,
   })
   if (!result.ok) return writeError(result.error, result.status)
 
-  return writeJSON({ message: result.row }, 201)
+  return writeJSON({ message: result.row, deduped: result.deduped }, 201)
 })

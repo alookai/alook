@@ -16,6 +16,7 @@
  */
 import { Command, CommanderError } from "commander";
 import { realpathSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import type { ServerApi, Cursor, Message } from "../server/contract.js";
 import { parseRef } from "../server/contract.js";
@@ -142,6 +143,68 @@ function contentTypeFromFilename(filename: string): string {
   }
 }
 
+/**
+ * Is this a TRANSPORT-transient error worth retrying with the SAME nonce?
+ *
+ * Only true for "the request may or may not have reached/committed on the
+ * server, but the RESPONSE was lost" shapes: an upstream 5xx wrapper, a body
+ * that couldn't be read, or a network-level fetch failure. These are exactly
+ * the errors behind the duplicate-send bug — the server often already
+ * committed, so a same-nonce retry either gets the real response (fresh write)
+ * or the deduped canonical (already-committed), never a second row.
+ *
+ * NOT transient (never retried here): business outcomes. `blocked`/unaligned is
+ * a RETURN value (handled below, never thrown). 4xx business errors (bad
+ * attachment, reply-not-found, forbidden) come back as thrown Errors with the
+ * server's message and are deterministic — retrying would just re-fail.
+ */
+function isTransientSendError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    /upstream returned 5\d\d/.test(msg) ||
+    msg.includes("upstream body read failed") ||
+    msg.includes("fetch failed") ||
+    msg.includes("ECONNRESET") ||
+    msg.includes("ETIMEDOUT") ||
+    msg.includes("socket hang up") ||
+    msg.includes("network")
+  );
+}
+
+/**
+ * Send with a bounded, same-nonce internal retry (mutation-idempotency plan,
+ * ② CLI). The `nonce` is generated ONCE by the caller and reused across every
+ * attempt, so a "committed-but-response-lost" send is absorbed here — the
+ * server dedupes on (author, nonce) and returns the canonical message — instead
+ * of surfacing as an error the agent would naively re-run (creating a
+ * duplicate). Only transient TRANSPORT errors are retried; business outcomes
+ * (blocked return / thrown 4xx) pass straight through. Bounded so a genuinely
+ * down gateway can't hang the agent: after the attempts are spent we throw the
+ * real error and the agent's own rerun (with a fresh nonce) is then safe.
+ */
+async function sendWithRetry(
+  api: ServerApi,
+  req: Parameters<ServerApi["send"]>[0],
+): Promise<Awaited<ReturnType<ServerApi["send"]>>> {
+  const MAX_ATTEMPTS = 4;
+  const BASE_DELAY_MS = 150;
+  const MAX_DELAY_MS = 2000;
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    try {
+      return await api.send(req);
+    } catch (err) {
+      lastErr = err;
+      if (!isTransientSendError(err) || attempt === MAX_ATTEMPTS - 1) throw err;
+      const cap = Math.min(MAX_DELAY_MS, BASE_DELAY_MS * 2 ** attempt);
+      // Deterministic-enough backoff; a small offset per attempt avoids a
+      // thundering retry but doesn't need crypto randomness here.
+      await new Promise((r) => setTimeout(r, cap));
+    }
+  }
+  throw lastErr;
+}
+
 async function cmdMessageSend(opts: Record<string, unknown>): Promise<unknown> {
   const api = getApi();
   const agent = agentId(opts);
@@ -188,12 +251,20 @@ async function cmdMessageSend(opts: Record<string, unknown>): Promise<unknown> {
     replyToSeq = n;
   }
 
-  const res = await api.send({
+  // One idempotency nonce per logical send, reused across sendWithRetry's
+  // internal attempts. A "committed-but-response-lost" 5xx is absorbed by the
+  // same-nonce retry (server returns the canonical/deduped message) so the
+  // agent never sees a false failure and never naively re-runs — the root of
+  // the duplicate-send bug. A brand-new invocation gets a fresh nonce, so two
+  // genuinely-distinct identical sends are never collapsed.
+  const nonce = randomUUID();
+  const res = await sendWithRetry(api, {
     agentId: agent,
     channel,
     content: { text: text ?? "" },
     attachments: attachmentIds.length > 0 ? attachmentIds : undefined,
     replyToSeq,
+    nonce,
   });
   if (res.state === "blocked") {
     throw new CliError(
@@ -201,6 +272,9 @@ async function cmdMessageSend(opts: Record<string, unknown>): Promise<unknown> {
         `Run \`alook inbox pull\` to align, then resend.`,
     );
   }
+  // `deduped` (a same-nonce retry matched the already-committed message) is a
+  // SUCCESS — the message is in the channel; surface its canonical ref exactly
+  // like a fresh send, never as an error.
   return { sent: `${res.message.channel}${res.message.seq}` };
 }
 

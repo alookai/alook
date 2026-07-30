@@ -34,6 +34,7 @@ import {
   useToggleReactionApi,
   useUploadFile,
   zipUploadResultsWithDimensions,
+  sendNonce,
 } from "@/hooks/community/mutations"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import {
@@ -249,6 +250,10 @@ function DmView() {
         sendDmMessage.mutate({
           dmId,
           content: m.content,
+          replyToId: m.replyTo?.id,
+          // Reuse the failed row's nonce so the resend dedupes server-side if
+          // the original committed (`onMutate` drops the stale row first).
+          nonce: m.clientNonce,
           author: {
             id: currentUser.id,
             name: currentUser.name,
@@ -290,6 +295,9 @@ function DmView() {
       content: markdown || "",
       replyToId: replyTo?.id,
       attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
+      // Fresh send mints an idempotency nonce; a retry reuses the failed row's
+      // (see `onRetry`) so a 500-after-commit resend dedupes server-side.
+      nonce: sendNonce(),
       author: {
         id: currentUser.id,
         name: currentUser.name,

@@ -69,14 +69,27 @@ function reconcileServerId(
   serverId: string,
 ): PageCache | undefined {
   if (!cache) return cache
+  // Dedupe guard: if the server row is already in the cache (e.g. a
+  // deduped-replay whose WS message-create already landed, or a nonce-based WS
+  // reconcile that already healed this send), DROP the temp row instead of
+  // renaming it — renaming would leave two rows sharing `serverId`. Only when
+  // `serverId` is absent do we rename the optimistic row in place. This also
+  // clears the `failed` flag, since a successful reconcile means the send
+  // landed.
+  const alreadyPresent = cache.pages.some((p) =>
+    p.messages.some((m) => m.id === serverId),
+  )
   let touched = false
   const pages = cache.pages.map((p) => {
     if (!p.messages.some((m) => m.id === tempId)) return p
     touched = true
+    if (alreadyPresent) {
+      return { ...p, messages: p.messages.filter((m) => m.id !== tempId) }
+    }
     return {
       ...p,
       messages: p.messages.map((m) =>
-        m.id === tempId ? { ...m, id: serverId } : m,
+        m.id === tempId ? { ...m, id: serverId, failed: false } : m,
       ),
     }
   })
@@ -92,6 +105,27 @@ function removeById(
   let touched = false
   const pages = cache.pages.map((p) => {
     const filtered = p.messages.filter((m) => m.id !== id)
+    if (filtered.length === p.messages.length) return p
+    touched = true
+    return { ...p, messages: filtered }
+  })
+  if (!touched) return cache
+  return { ...cache, pages }
+}
+
+// Drop any row carrying `nonce` as its `clientNonce`. Called on a retry-pill
+// resend BEFORE inserting the fresh optimistic row: the retry reuses the failed
+// row's nonce, so without this both the stale failed row and the new row would
+// share one nonce and the WS by-nonce reconcile would match two rows. Removing
+// the stale one first keeps exactly one row per nonce.
+function removeByNonce(
+  cache: PageCache | undefined,
+  nonce: string,
+): PageCache | undefined {
+  if (!cache) return cache
+  let touched = false
+  const pages = cache.pages.map((p) => {
+    const filtered = p.messages.filter((m) => m.clientNonce !== nonce)
     if (filtered.length === p.messages.length) return p
     touched = true
     return { ...p, messages: filtered }
@@ -144,6 +178,17 @@ export function tempMessageId(): string {
   return `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`
 }
 
+// Idempotency nonce (mutation-idempotency plan). Generated ONCE per logical
+// send and REUSED verbatim on every retry-pill resend — the retry caller
+// passes the failed row's `clientNonce` back in via `SendMessageArgs.nonce`,
+// so a 500-after-commit resend matches the already-committed message
+// server-side (returns `deduped: true`) instead of double-posting. A fresh
+// send with no nonce supplied mints a new random one. `crypto.randomUUID` is
+// available in every browser this app targets.
+export function sendNonce(): string {
+  return crypto.randomUUID()
+}
+
 // ── Send message (channel/thread) ──────────────────────────────────────────
 
 export type SendMessageArgs = {
@@ -153,9 +198,17 @@ export type SendMessageArgs = {
   mentionType?: MentionType
   attachments?: { url: string; filename: string; contentType: string; size: number; width?: number; height?: number }[]
   author: { id: string; name: string; avatar: string }
+  // Idempotency nonce. Omitted on a fresh send (the hook mints one); the
+  // retry-pill caller passes the failed row's nonce back so the resend reuses
+  // it and dedupes server-side instead of double-posting.
+  nonce?: string
 }
 
-export type SendMessageResult = { message: { id: string } }
+// `deduped: true` means this POST matched an already-committed send carrying
+// the same nonce — `message` is the canonical (original) row, nothing new was
+// inserted. The caller treats it as success (reconcile the optimistic row,
+// clear the failed pill), never as a failure to resend.
+export type SendMessageResult = { message: { id: string }; deduped?: boolean }
 
 /**
  * Channel/thread send. The server infers thread-vs-channel routing from the
@@ -170,12 +223,12 @@ export function useSendMessage() {
     SendMessageArgs,
     { tempId: string; key: readonly unknown[] }
   >({
-    mutationFn: async ({ channelId, content, replyToId, mentionType, attachments }) => {
+    mutationFn: async ({ channelId, content, replyToId, mentionType, attachments, nonce }) => {
       return apiFetch<SendMessageResult>(
         `/api/community/channels/${channelId}/messages`,
         {
           method: "POST",
-          body: JSON.stringify({ content, replyToId, mentionType, attachments }),
+          body: JSON.stringify({ content, replyToId, mentionType, attachments, nonce }),
         },
       )
     },
@@ -183,6 +236,17 @@ export function useSendMessage() {
       const key = communityKeys.channelMessages(args.channelId)
       await queryClient.cancelQueries({ queryKey: key })
       const tempId = tempMessageId()
+      // Caller supplies the nonce (fresh send mints one, retry reuses the
+      // failed row's). Stamped on the optimistic row so a WS message-create
+      // echoing the same nonce can reconcile this row by nonce — this heals the
+      // no-click phantom (500-after-commit the user never retried).
+      const nonce = args.nonce
+      // Retry reuses the failed row's nonce — drop that stale row first so
+      // exactly one row carries this nonce (else the WS by-nonce reconcile
+      // would match two).
+      if (nonce) {
+        queryClient.setQueryData<PageCache>(key, (c) => removeByNonce(c, nonce))
+      }
       const cache = queryClient.getQueryData<PageCache>(key)
       let replyTo: Msg["replyTo"] | undefined
       if (args.replyToId && cache) {
@@ -214,6 +278,7 @@ export function useSendMessage() {
         authorAvatar: args.author.avatar,
         content: args.content,
         createdAt: new Date().toISOString(),
+        ...(nonce ? { clientNonce: nonce } : {}),
         ...(replyTo ? { replyTo } : {}),
         ...(optimisticAttachments?.length ? { attachments: optimisticAttachments } : {}),
       }
@@ -256,6 +321,8 @@ export type SendDmMessageArgs = {
   replyToId?: string
   attachments?: { url: string; filename: string; contentType: string; size: number; width?: number; height?: number }[]
   author: { id: string; name: string; avatar: string }
+  // Idempotency nonce — see `SendMessageArgs.nonce`.
+  nonce?: string
 }
 
 export function useSendDmMessage() {
@@ -266,12 +333,12 @@ export function useSendDmMessage() {
     SendDmMessageArgs,
     { tempId: string; key: readonly unknown[] }
   >({
-    mutationFn: async ({ dmId, content, replyToId, attachments }) => {
+    mutationFn: async ({ dmId, content, replyToId, attachments, nonce }) => {
       return apiFetch<SendMessageResult>(
         `/api/community/dm/${dmId}/messages`,
         {
           method: "POST",
-          body: JSON.stringify({ content, replyToId, attachments }),
+          body: JSON.stringify({ content, replyToId, attachments, nonce }),
         },
       )
     },
@@ -279,6 +346,13 @@ export function useSendDmMessage() {
       const key = communityKeys.dmMessages(args.dmId)
       await queryClient.cancelQueries({ queryKey: key })
       const tempId = tempMessageId()
+      // Idempotency nonce — mirror the channel path. Caller mints on fresh
+      // send / reuses the failed row's on retry; stamp it on the optimistic
+      // row for WS-by-nonce reconcile.
+      const nonce = args.nonce
+      if (nonce) {
+        queryClient.setQueryData<PageCache>(key, (c) => removeByNonce(c, nonce))
+      }
       const optimisticAttachments = args.attachments?.map(toAttachmentVm)
       const msg: Msg = {
         id: tempId,
@@ -292,6 +366,7 @@ export function useSendDmMessage() {
         authorAvatar: args.author.avatar,
         content: args.content,
         createdAt: new Date().toISOString(),
+        ...(nonce ? { clientNonce: nonce } : {}),
         ...(optimisticAttachments?.length ? { attachments: optimisticAttachments } : {}),
       }
       queryClient.setQueryData<PageCache>(key, (c) => prependOptimistic(c, msg))
