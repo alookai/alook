@@ -68,7 +68,19 @@ import type { SpoilerNode } from "./spoiler-syntax"
 // group did. `u` flag for correct astral/emoji handling.
 const REF_TERM = ".,;:!?)\\]\\u3002\\uFF01\\uFF1F\\uFF1B\\uFF1A\\u3001\\uFF09\\u3011"
 const REF_SEG = `[^\\s/#${REF_TERM}]+`
-const CHANNEL_REF_RE = new RegExp(`(?<=^|\\s)/${REF_SEG}/${REF_SEG}(?:/#\\d+(?:#\\d+)?)?(?=\\s|$|[${REF_TERM}])`, "gu")
+// `/server/channel` plus an optional message/thread suffix. The suffix has two
+// branches (message-ref-upgrade.md):
+//   `#\d+`            — a channel-MESSAGE ref, seq glued straight to the channel
+//                       (`/server/channel#N`). Single seq ONLY — `#N#M` without a
+//                       slash is not a valid form (Cecilia #295, load-bearing).
+//   `/#\d+(?:#\d+)?`  — a THREAD (`/server/channel/#N`) or thread-message
+//                       (`/server/channel/#N#M`) ref; the inner `#M` lives only
+//                       on this slash branch.
+// `REF_SEG` excludes `#`, so the 2nd segment stops at the `#` and the seq falls
+// cleanly into the suffix group. The leading `(?<=^|\s)` prefix-anchor means this
+// only ever matches a full path — never a bare `#` — which is what lets us drop
+// the old bare-`#N` MESSAGE_REF pass and root-solve the disambiguation Gus flagged.
+const CHANNEL_REF_RE = new RegExp(`(?<=^|\\s)/${REF_SEG}/${REF_SEG}(?:#\\d+|/#\\d+(?:#\\d+)?)?(?=\\s|$|[${REF_TERM}])`, "gu")
 
 // A bare `/server` ref — one segment, no channel. Same boundary lookaround as
 // `CHANNEL_REF_RE` (leading `(?<=^|\s)`, trailing `REF_TERM`), which already
@@ -83,25 +95,12 @@ const CHANNEL_REF_RE = new RegExp(`(?<=^|\\s)/${REF_SEG}/${REF_SEG}(?:/#\\d+(?:#
 // the boundary already makes the ordering non-load-bearing for correctness.
 const SERVER_REF_RE = new RegExp(`(?<=^|\\s)/${REF_SEG}(?=\\s|$|[${REF_TERM}])`, "gu")
 
-// Message ref: `#NUMBER` where NUMBER is 1-6 digits (seq range 1-999999).
-// DELIBERATELY has NO leading `(?<=^|\s)` boundary (unlike channel/server
-// refs): a `#NNN` glued to a preceding word — `issue#42`, `text#123`, `见#42`
-// — SHOULD render as a message-ref pill. Agents dislike prepending a space
-// before a ref, so requiring one dropped the pill in practice (Gus #94, approved
-// #105). This intentionally reverses the older "avoid GitHub issue#42" rule.
-// Trailing boundary reuses the shared `REF_TERM` set (ASCII + full-width CJK
-// terminators) + `u` flag, matching the channel/server refs above, so `见#42。`
-// terminates cleanly before the full-width period. Still 1–6 digits, so 7+
-// digit runs (`#9999999`) don't match. Channel-scoped: `#123` = message seq 123
-// in the current channel, not a global id. Registered LAST in the pass list
-// (after mention AND channel/server refs — see `chatSyntaxPlugin`): the mention
-// pass consumes a valid `@Alice#0042` handle first (so its `#0042` is never
-// split out), and the channelRef pass consumes thread refs `/server/channel/#N`
-// first (so this pass, now lacking a leading-space boundary, can't steal the
-// `#N` out of them). By the time it runs it only sees a genuine standalone
-// `#N`. (An INVALID handle like `@Alice#42` — 2 digits, not a mention — does
-// now yield `@Alice` + msgref `#42`; accepted, minor.)
-const MESSAGE_REF_RE = new RegExp(`#\\d{1,6}(?=\\s|$|[${REF_TERM}])`, "gu")
+// (The old bare-`#N` MESSAGE_REF_RE was removed in message-ref-upgrade.md — a
+// message ref is now always the full path `/server/channel#N`, matched by
+// CHANNEL_REF_RE's suffix group above. A bare `#N` now renders as plain text.
+// This kills the fragile "works only because it's the last consumption pass"
+// disambiguation: the prefix-anchored full-path form can't collide with a bare
+// `#`, so no ordering hazard with mentions/spoilers/other `#` syntax.)
 
 // Two-branch mention grammar (see plans/mandatory-mention-discriminator.md):
 //
@@ -147,25 +146,16 @@ export interface ServerRefNode {
   value: string
 }
 
-/** mdast node produced by `#NUMBER` (message seq ref in current channel). */
-export interface MessageRefNode {
-  type: "messageRef"
-  /** The full matched string including `#` (e.g., `"#123"`). */
-  value: string
-}
-
 declare module "mdast" {
   interface RootContentMap {
     mention: MentionNode
     channelRef: ChannelRefNode
     serverRef: ServerRefNode
-    messageRef: MessageRefNode
   }
   interface PhrasingContentMap {
     mention: MentionNode
     channelRef: ChannelRefNode
     serverRef: ServerRefNode
-    messageRef: MessageRefNode
   }
 }
 
@@ -193,13 +183,9 @@ function serverRefReplacer(value: string): ServerRefNode {
   return { type: "serverRef", value }
 }
 
-function messageRefReplacer(value: string): MessageRefNode {
-  return { type: "messageRef", value }
-}
-
 /**
  * remark plugin: combines the spoiler micromark extension (`spoiler-syntax.ts`)
- * with a `mdast-util-find-and-replace` pass for `mention`/`channelRef`/`messageRef`.
+ * with a `mdast-util-find-and-replace` pass for `mention`/`channelRef`.
  * Registers `spoilerSyntax`'s micromark/from-markdown extensions on the
  * processor (the `remark-gfm`-style `this.data(...)` convention) and returns
  * a tree transform running the find-and-replace pass after parsing.
@@ -223,15 +209,6 @@ export const chatSyntaxPlugin: Plugin<[], Root> = function chatSyntaxPlugin(this
         // a `text` node `findAndReplace` visits), so this pass only ever sees
         // genuine bare `/server` refs among the remaining text.
         [SERVER_REF_RE, serverRefReplacer as unknown as (value: string) => PhrasingContent],
-        // Runs LAST (after both channel/server ref passes). MESSAGE_REF_RE has
-        // no leading-space boundary (a `#N` glued to a word must pill — Gus
-        // #94), so if it ran before channelRef it would steal the `#N` out of a
-        // thread ref (`/server/channel/#N`, `/#N#M`) before channelRef could
-        // claim the whole span. Running it last means those thread refs are
-        // already `channelRef` elements (not text nodes findAndReplace revisits),
-        // so this pass only ever sees a genuine standalone `#N`. Same
-        // consume-the-larger-token-first discipline that puts MENTION first.
-        [MESSAGE_REF_RE, messageRefReplacer as unknown as (value: string) => PhrasingContent],
       ],
       { ignore: IGNORE_NODE_TYPES },
     )
@@ -268,12 +245,6 @@ export const chatSyntaxHandlers: Handlers = {
   serverRef: ((_state, node: ServerRefNode): Element => ({
     type: "element",
     tagName: "serverref",
-    properties: {},
-    children: [{ type: "text", value: node.value }],
-  })) as Handler,
-  messageRef: ((_state, node: MessageRefNode): Element => ({
-    type: "element",
-    tagName: "messageref",
     properties: {},
     children: [{ type: "text", value: node.value }],
   })) as Handler,

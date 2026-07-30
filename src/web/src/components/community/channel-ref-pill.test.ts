@@ -48,6 +48,27 @@ describe("describeChannelRefPillView", () => {
     })
   })
 
+  it("channel-message ref (resolved.seq set, no thread) → pill carrying messageSuffix as a trailing #N cursor", () => {
+    // `/server/channel#N` (message-ref-upgrade.md): the pill targets the channel
+    // and renders `#N` as a plain trailing cursor — same treatment as a thread
+    // message ref's `#M`. Cross-channel auto-scroll to the seq isn't wired (the
+    // app deep-links by id, not seq), so `#N` is a cursor, not a link anchor.
+    const view = describeChannelRefPillView({
+      ref: "/srv_1/chn_1#42",
+      resolved: resolved({ seq: 42 }),
+      directoryLoading: false,
+      thread: null,
+      currentServerId: "srv_1",
+    })
+    expect(view).toEqual({
+      kind: "pill",
+      label: "general",
+      serverPrefix: undefined,
+      href: { serverId: "srv_1", channelId: "chn_1" },
+      messageSuffix: 42,
+    })
+  })
+
   it("resolved.server.id !== currentServerId → pill with serverPrefix set to the server's name", () => {
     const view = describeChannelRefPillView({
       ref: "/srv_1/chn_1",

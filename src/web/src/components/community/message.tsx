@@ -49,7 +49,7 @@ export function messageCanShare(m: RenderMsg, compact?: boolean): boolean {
 function MessageImpl({
   m, compact, pinned, onOpenThread, onOpenProfile, onJumpReply,
   onToggleReaction, onReact, onReply, onPin, onCreateThread, onCopy, onRetry,
-  onPreviewImage, onDownloadFile, highlighted, resolveUserName, onImageLoad, messageRefContext,
+  onPreviewImage, onDownloadFile, highlighted, resolveUserName, onImageLoad,
 }: {
   m: RenderMsg
   compact?: boolean
@@ -69,7 +69,6 @@ function MessageImpl({
   highlighted?: boolean
   resolveUserName?: (userId: string) => string
   onImageLoad?: () => void
-  messageRefContext?: { onJumpToSeq?: (seq: number) => void }
 }) {
   // keep the hover toolbar pinned open while its ⋯ dropdown is open
   const [toolbarOpen, setToolbarOpen] = useState(false)
@@ -197,7 +196,7 @@ function MessageImpl({
             <BotApprovalCard approval={m.approval} />
           ) : (
             m.content && (
-              <MessageBody text={m.content} onOpenProfile={onOpenProfile} messageRefContext={messageRefContext} />
+              <MessageBody text={m.content} onOpenProfile={onOpenProfile} />
             )
           )}
 
@@ -449,8 +448,7 @@ function messagePropsEqual(prev: MessageProps, next: MessageProps): boolean {
     prev.onPreviewImage === next.onPreviewImage &&
     prev.onDownloadFile === next.onDownloadFile &&
     prev.resolveUserName === next.resolveUserName &&
-    prev.onImageLoad === next.onImageLoad &&
-    prev.messageRefContext === next.messageRefContext
+    prev.onImageLoad === next.onImageLoad
   )
 }
 

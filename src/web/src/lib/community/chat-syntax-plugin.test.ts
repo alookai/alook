@@ -3,7 +3,7 @@ import { unified } from "unified"
 import remarkParse from "remark-parse"
 import type { Root, PhrasingContent } from "mdast"
 import { chatSyntaxPlugin } from "./chat-syntax-plugin"
-import type { MentionNode, ChannelRefNode, ServerRefNode, MessageRefNode } from "./chat-syntax-plugin"
+import type { MentionNode, ChannelRefNode, ServerRefNode } from "./chat-syntax-plugin"
 
 function parse(md: string): Root {
   const processor = unified().use(remarkParse).use(chatSyntaxPlugin)
@@ -37,11 +37,12 @@ describe("chatSyntaxPlugin — mention", () => {
   it("does not swallow ordinary prose ending in #dddd — the name-run must end in a non-space", () => {
     // No earlier `#`, so a naive non-greedy run would span "bob check issue "
     // and terminate at #0042. The non-space-before-# guard prevents this.
-    // With message ref support, `#0042` is now parsed as a message ref (which
-    // will render as a muted pill when the seq doesn't exist in the channel).
+    // `@bob` is not a valid handle (no #dddd), so not a mention. A bare `#0042`
+    // is no longer a message ref (message-ref-upgrade.md — refs are full-path
+    // now), so the whole thing is plain text.
     const children = paragraphChildren(parse("@bob check issue #0042"))
     expect(children.some((c) => c.type === "mention")).toBe(false)
-    expect(children.map((c) => c.type)).toEqual(["text", "messageRef"])
+    expect(children.every((c) => c.type === "text")).toBe(true)
   })
 
   it("keeps two adjacent handles as two distinct mentions", () => {
@@ -51,15 +52,13 @@ describe("chatSyntaxPlugin — mention", () => {
   })
 
   it("does not truncate a 5+ digit run into a false-positive discriminator (still not a mention)", () => {
-    // "#00423" is not a 4-digit tag, so "@Gus#00423" is NOT a mention. Since
-    // message refs no longer require a leading space (Gus #94), the leading
-    // 1–6 digits of the run now read as a message ref (`#00423`, 5 digits ≤ 6),
-    // leaving "@Gus" as text. The key guarantee this test protects is unchanged:
-    // it is NOT parsed as a mention with a truncated discriminator.
+    // "#00423" is not a 4-digit tag, so "@Gus#00423" is NOT a mention. A bare
+    // `#N` is no longer a message ref (message-ref-upgrade.md), so the run stays
+    // plain text. The key guarantee this test protects is unchanged: it is NOT
+    // parsed as a mention with a truncated discriminator.
     const children = paragraphChildren(parse("hi @Gus#00423"))
     expect(children.some((c) => c.type === "mention")).toBe(false)
-    expect(children.map((c) => c.type)).toEqual(["text", "messageRef"])
-    expect(children.find((c) => c.type === "messageRef")).toMatchObject({ value: "#00423" })
+    expect(children.every((c) => c.type === "text")).toBe(true)
   })
 
   it("flags @everyone", () => {
@@ -139,15 +138,24 @@ describe("chatSyntaxPlugin — channelRef", () => {
     expect(refs[0]).toMatchObject({ type: "channelRef", value: "/studio/general/#5#42" })
   })
 
-  it("does not wrap a mid-string thread-reply path as a channelRef (leading-space boundary still applies to CHANNEL refs)", () => {
-    // The channelRef pass still requires a leading space, so `text/.../#5#42`
-    // is NOT a channelRef. But message refs no longer require a leading space
-    // (Gus #94), so the trailing `#42` (a bare `#`+digits token) now reads as a
-    // message ref. The channelRef guarantee this test protects — no channelRef
-    // mid-string — is unchanged.
+  it("wraps the channel-message form /studio/general#42 (seq glued to the channel)", () => {
+    // message-ref-upgrade.md: `/server/channel#N` is a channel-MESSAGE ref. The
+    // 2nd segment stops at `#` (REF_SEG excludes `#`), so `#42` falls into the
+    // suffix group — the whole span is ONE channelRef (rendered as a pill with a
+    // trailing `#42` cursor, resolved.seq = 42).
+    const children = paragraphChildren(parse("see /studio/general#42 done"))
+    const refs = children.filter((c): c is ChannelRefNode => c.type === "channelRef")
+    expect(refs).toHaveLength(1)
+    expect(refs[0]).toMatchObject({ type: "channelRef", value: "/studio/general#42" })
+  })
+
+  it("does not wrap a mid-string path as a channelRef, and a bare #N is now plain text", () => {
+    // The channelRef pass requires a leading space, so `text/.../#5#42` is NOT a
+    // channelRef. And a bare `#42` is no longer a message ref (message-ref-
+    // upgrade.md), so nothing pills — the whole run is plain text.
     const children = paragraphChildren(parse("text/studio/general/#5#42"))
     expect(children.some((c) => c.type === "channelRef")).toBe(false)
-    expect(children.find((c) => c.type === "messageRef")).toMatchObject({ value: "#42" })
+    expect(children.every((c) => c.type === "text")).toBe(true)
   })
 
   it("leaves a channel-ref-shaped path inside inline code literal", () => {
@@ -263,88 +271,61 @@ describe("chatSyntaxPlugin — serverRef", () => {
   })
 })
 
-describe("chatSyntaxPlugin — message ref", () => {
-  it("parses space + #NUMBER as messageRef", () => {
-    const children = paragraphChildren(parse("see #123"))
-    const messageRef = children.find((c): c is MessageRefNode => c.type === "messageRef")
-    expect(messageRef).toMatchObject({ type: "messageRef", value: "#123" })
+describe("chatSyntaxPlugin — message ref (full-path only; bare #N deprecated)", () => {
+  // message-ref-upgrade.md: a message ref is ALWAYS the full path
+  // `/server/channel#N` (channel message) or `/server/channel/#N#M` (thread
+  // message), matched by CHANNEL_REF_RE as a channelRef. A bare `#N` is no
+  // longer a ref — it renders as plain text (the deprecation).
+
+  it("a bare #N renders as plain text (no ref node)", () => {
+    for (const text of ["see #123", "#42 was fixed", "Fixed in #123.", "See #10 and #20"]) {
+      const children = paragraphChildren(parse(text))
+      expect(children.every((c) => c.type === "text")).toBe(true)
+    }
   })
 
-  it("parses #NUMBER at line start as messageRef", () => {
-    const children = paragraphChildren(parse("#42 was fixed"))
-    const messageRef = children.find((c): c is MessageRefNode => c.type === "messageRef")
-    expect(messageRef).toMatchObject({ type: "messageRef", value: "#42" })
-  })
-
-  it("parses text#NUMBER glued to a preceding word as messageRef (no leading space needed)", () => {
-    // Reversed from the old "avoid GitHub issue#42" rule: agents dislike
-    // prepending a space, so a `#N` glued to a word must still pill (Gus #94,
-    // approved #105). GitHub-style `issue#42` now renders as a message ref.
+  it("a glued word#N renders as plain text (the old issue#42 pill is gone)", () => {
     const children = paragraphChildren(parse("issue#42 in GitHub"))
-    const messageRef = children.find((c): c is MessageRefNode => c.type === "messageRef")
-    expect(messageRef).toMatchObject({ type: "messageRef", value: "#42" })
-    // The word before keeps its text; only the #42 becomes a ref.
-    expect(children[0]).toMatchObject({ type: "text", value: "issue" })
+    expect(children.every((c) => c.type === "text")).toBe(true)
   })
 
-  it("parses #NUMBER with NO space in various glued forms", () => {
-    expect(paragraphChildren(parse("text#123")).find((c) => c.type === "messageRef")).toMatchObject({ value: "#123" })
-    // CJK glued form + full-width terminator: 见#42。 → msgref #42 + literal 。
-    const cjk = paragraphChildren(parse("见#42。"))
-    expect(cjk.find((c) => c.type === "messageRef")).toMatchObject({ value: "#42" })
-    expect(cjk.some((c) => c.type === "text" && c.value === "。")).toBe(true)
+  it("a channel-message ref /server/channel#N is a channelRef carrying the seq", () => {
+    const children = paragraphChildren(parse("see /studio/general#42 done"))
+    const ref = children.find((c): c is ChannelRefNode => c.type === "channelRef")
+    expect(ref).toMatchObject({ type: "channelRef", value: "/studio/general#42" })
   })
 
-  it("a valid @name#0042 handle is still a mention, not a name + message ref (mention pass runs first)", () => {
-    // Dropping the leading-space boundary must NOT split #0042 out of a real
-    // mention — the mention pass runs before the message-ref pass and consumes
-    // the whole handle.
+  it("a thread-message ref /server/channel/#N#M stays a single channelRef", () => {
+    const children = paragraphChildren(parse("see /studio/general/#5#42 done"))
+    const refs = children.filter((c): c is ChannelRefNode => c.type === "channelRef")
+    expect(refs).toHaveLength(1)
+    expect(refs[0]).toMatchObject({ value: "/studio/general/#5#42" })
+  })
+
+  it("a valid @name#0042 handle is still a mention, never split (mention pass runs first)", () => {
     const children = paragraphChildren(parse("@Alice#0042"))
-    expect(children.some((c) => c.type === "messageRef")).toBe(false)
     expect(children[0]).toMatchObject({ type: "mention", value: "@Alice", discriminator: "0042" })
   })
 
-  it("an INVALID @name#42 (2-digit, not a mention) now yields text + message ref #42", () => {
-    // Documented consequence: @Alice#42 isn't a valid 4-digit handle, so it's
-    // not a mention; with the leading boundary gone, its #42 reads as a msgref.
+  it("an INVALID @name#42 (2-digit, not a mention) is now plain text (no bare-#N ref)", () => {
     const children = paragraphChildren(parse("@Alice#42"))
     expect(children.some((c) => c.type === "mention")).toBe(false)
-    expect(children.find((c) => c.type === "messageRef")).toMatchObject({ value: "#42" })
+    expect(children.every((c) => c.type === "text")).toBe(true)
   })
 
-  it("parses multiple message refs in one message", () => {
-    const children = paragraphChildren(parse("See #10 and #20"))
-    const messageRefs = children.filter((c): c is MessageRefNode => c.type === "messageRef")
-    expect(messageRefs.map((m) => m.value)).toEqual(["#10", "#20"])
+  it("a numeric URL fragment is now plain text (no bare-#N pill — the fragile GitHub#42 case is gone)", () => {
+    // The old no-leading-space MESSAGE_REF_RE turned `github.com/foo/bar#42`
+    // into a pill; with full-path-only refs it's plain text. `foo/bar` is not a
+    // prefix-anchored `/seg/seg` path (no leading `/`), so it isn't a channelRef
+    // either. This is the disambiguation win Gus asked for.
+    const children = paragraphChildren(parse("see github.com/foo/bar#42"))
+    expect(children.every((c) => c.type === "text")).toBe(true)
+    expect(children.some((c) => c.type === "channelRef")).toBe(false)
   })
 
-  it("does NOT parse inside code blocks", () => {
+  it("a bare #N inside inline code stays code (unchanged)", () => {
     const children = paragraphChildren(parse("`#42`"))
-    expect(children.some((c) => c.type === "messageRef")).toBe(false)
-  })
-
-  it("parses #NUMBER with trailing punctuation", () => {
-    const children = paragraphChildren(parse("Fixed in #123."))
-    const messageRef = children.find((c): c is MessageRefNode => c.type === "messageRef")
-    expect(messageRef).toMatchObject({ value: "#123" })
-  })
-
-  it("does NOT parse 7+ digit numbers", () => {
-    const children = paragraphChildren(parse("ref #9999999"))
-    expect(children.some((c) => c.type === "messageRef")).toBe(false)
-  })
-
-  it("CONSEQUENCE of no-leading-space: a numeric URL fragment now reads as a message ref", () => {
-    // Documented tradeoff of Gus #94 (approved #105): dropping the leading
-    // boundary means `…#42` glued to a URL becomes a message-ref pill.
-    // `github.com/foo/bar#42` → text + messageRef `#42`. Non-numeric fragments
-    // (`#section`) are unaffected. Flagged to Gus; this test pins the behavior
-    // so it's a deliberate decision, not a silent regression.
-    const numeric = paragraphChildren(parse("see github.com/foo/bar#42"))
-    expect(numeric.find((c) => c.type === "messageRef")).toMatchObject({ value: "#42" })
-
-    const nonNumeric = paragraphChildren(parse("see example.com/page#section"))
-    expect(nonNumeric.some((c) => c.type === "messageRef")).toBe(false)
+    expect(children.map((c) => c.type)).toEqual(["inlineCode"])
   })
 })
 
@@ -368,13 +349,12 @@ describe("chatSyntaxPlugin — mixed", () => {
     expect(serverRef).toMatchObject({ value: "/studio" })
   })
 
-  it("handles mention, message ref, and channel ref together", () => {
-    const children = paragraphChildren(parse("@Alice#0001 check #42 in /studio/general"))
+  it("handles mention, a full-path message ref, and a channel ref together", () => {
+    const children = paragraphChildren(parse("@Alice#0001 check /studio/general#42 in /studio/dev"))
     const mention = children.find((c): c is MentionNode => c.type === "mention")
     expect(mention).toMatchObject({ value: "@Alice", discriminator: "0001" })
-    const messageRef = children.find((c): c is MessageRefNode => c.type === "messageRef")
-    expect(messageRef).toMatchObject({ value: "#42" })
-    const channelRef = children.find((c): c is ChannelRefNode => c.type === "channelRef")
-    expect(channelRef).toMatchObject({ value: "/studio/general" })
+    const refs = children.filter((c): c is ChannelRefNode => c.type === "channelRef")
+    // Two channelRefs: the message ref (with seq) and the plain channel ref.
+    expect(refs.map((r) => r.value)).toEqual(["/studio/general#42", "/studio/dev"])
   })
 })

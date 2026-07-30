@@ -75,6 +75,12 @@ export function describeChannelRefPillView(args: {
       label: resolved.channel.name,
       serverPrefix,
       href: { serverId: resolved.server.id, channelId: resolved.channel.id },
+      // A channel-MESSAGE ref (`/server/channel#N`, message-ref-upgrade.md):
+      // the clickable target is the channel; `#N` renders as a trailing cursor,
+      // exactly like a thread-message ref's `#M` below. (Auto-scroll to the seq
+      // cross-channel would need seq→id deep-link infra the app doesn't have —
+      // `?msg=` anchors by id — so it's a plain cursor, matching the thread case.)
+      ...(resolved.seq !== undefined ? { messageSuffix: resolved.seq } : {}),
     }
   }
 

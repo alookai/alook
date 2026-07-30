@@ -94,16 +94,14 @@ const REHYPE_PLUGINS: PluggableList = [
 function MessageBodyImpl({
   text,
   onOpenProfile,
-  messageRefContext,
 }: {
   text: string
   onOpenProfile?: OpenProfile
-  messageRefContext?: { onJumpToSeq?: (seq: number) => void }
 }) {
   const inviteTokens = useMemo(() => extractInviteTokens(text), [text])
   const components = useMemo(
-    () => buildMdComponents(onOpenProfile, messageRefContext),
-    [onOpenProfile, messageRefContext],
+    () => buildMdComponents(onOpenProfile),
+    [onOpenProfile],
   )
   return (
     <div className="markdown markdown-chat wrap-anywhere text-[15px] leading-snug">

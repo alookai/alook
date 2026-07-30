@@ -442,14 +442,6 @@ function ContextRows({
   onDownloadFile: (url: string) => void
   onOpenContextSheet?: (seq: number) => void
 }) {
-  // Chained `#NUMBER` refs inside the sheet reopen the sheet on the new seq,
-  // via the same setter the parent already owns.
-  const messageRefContext = useMemo(
-    () => ({
-      onJumpToSeq: onOpenContextSheet ? (s: number) => onOpenContextSheet(s) : undefined,
-    }),
-    [onOpenContextSheet],
-  )
   return (
     <div className="flex flex-col">
       {rows.map((m, i) => {
@@ -479,7 +471,6 @@ function ContextRows({
                 onPreviewImage={onPreviewImage}
                 onDownloadFile={onDownloadFile}
                 resolveUserName={resolveUserName}
-                messageRefContext={messageRefContext}
               />
             </div>
           </div>
