@@ -1,15 +1,16 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useCallback, useRef, useState } from "react"
 import Image from "next/image"
 import { toBlob } from "html-to-image"
 import { toast } from "sonner"
-import { Check, Copy, Download, Loader2 } from "lucide-react"
+import { Check, Copy, Download, Highlighter, Loader2 } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Avatar } from "./avatar"
 import { MessageBody } from "./message-body"
 import { tid } from "@/lib/community/testids"
+import { applyHighlightToRange, clearHighlights, hasHighlights } from "@/lib/community/highlight-range"
 import type { RenderMsg } from "./_types"
 
 // Share a single message as an image. Renders a self-contained "share card"
@@ -24,8 +25,39 @@ export function MessageShareDialog({ m, open, onClose }: {
   onClose: () => void
 }) {
   const cardRef = useRef<HTMLDivElement>(null)
+  // The message-body wrapper — highlight operations are scoped to it so a drag
+  // can never wrap the avatar/name/footer, only the message text.
+  const bodyRef = useRef<HTMLDivElement>(null)
   const [busy, setBusy] = useState<"copy" | "download" | null>(null)
   const [copied, setCopied] = useState(false)
+  // Drives the Reset button's presence. Gus (uiux #95): the button is HIDDEN
+  // (not disabled) when there's nothing to reset — "less is more". Mirrors the
+  // DOM (`mark[data-hl]` count) after each apply/reset.
+  const [highlighted, setHighlighted] = useState(false)
+
+  // On mouseup inside the body, wrap the current selection in a highlight.
+  // Text-node-level wrapping (see highlight-range.ts) — never surroundContents,
+  // so it survives spanning multiple markdown elements. Drags stack; the
+  // browser selection is collapsed afterward so it doesn't also land in the PNG.
+  const onBodyMouseUp = useCallback(() => {
+    const body = bodyRef.current
+    if (!body) return
+    const sel = window.getSelection?.()
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) return
+    const range = sel.getRangeAt(0)
+    // Ignore selections that stray outside the message body.
+    if (!body.contains(range.commonAncestorContainer)) return
+    const added = applyHighlightToRange(body, range)
+    sel.removeAllRanges()
+    if (added > 0) setHighlighted(hasHighlights(body))
+  }, [])
+
+  const resetHighlights = useCallback(() => {
+    const body = bodyRef.current
+    if (!body) return
+    clearHighlights(body)
+    setHighlighted(false)
+  }, [])
 
   // Rasterise the card node to a PNG blob. pixelRatio 2 for a crisp image on
   // retina / when pasted into other apps. `cacheBust` avoids stale cross-origin
@@ -142,7 +174,11 @@ export function MessageShareDialog({ m, open, onClose }: {
                     avatar/name/footer sit outside this box and stay complete.
                     max-h ≈ 24 lines at the body's 15px/leading-snug. */}
                 {m.content && (
-                  <div className="max-h-[31rem] overflow-hidden line-clamp-[24]">
+                  <div
+                    ref={bodyRef}
+                    onMouseUp={onBodyMouseUp}
+                    className="max-h-[31rem] overflow-hidden line-clamp-[24] [&_mark[data-hl]]:bg-[rgba(255,208,92,0.5)] [&_mark[data-hl]]:[border-radius:2px] [&_mark[data-hl]]:[padding:0_1px] [&_mark[data-hl]]:[box-decoration-break:clone] [&_mark[data-hl]]:[-webkit-box-decoration-break:clone] [&_mark[data-hl]]:text-inherit"
+                  >
                     <MessageBody text={m.content} />
                   </div>
                 )}
@@ -163,7 +199,19 @@ export function MessageShareDialog({ m, open, onClose }: {
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 px-5 pt-3 pb-5">
+        <div className="flex items-center justify-between gap-2 px-5 pt-3 pb-5">
+          {/* Left slot: Reset highlight — MOUNTED only when a highlight exists
+              (Gus uiux #95: appears when useful, not a disabled ghost). Empty
+              slot otherwise keeps Download/Copy right-aligned. */}
+          <div>
+            {highlighted && (
+              <Button variant="ghost" size="sm" onClick={resetHighlights} disabled={busy !== null}>
+                <Highlighter />
+                Reset highlight
+              </Button>
+            )}
+          </div>
+          <div className="flex gap-2">
           <Button variant="ghost" size="sm" onClick={download} disabled={busy !== null}>
             {busy === "download" ? <Loader2 className="animate-spin" /> : <Download />}
             Download
@@ -177,6 +225,7 @@ export function MessageShareDialog({ m, open, onClose }: {
             {busy === "copy" ? <Loader2 className="animate-spin" /> : copied ? <Check /> : <Copy />}
             {copied ? "Copied" : "Copy image"}
           </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
