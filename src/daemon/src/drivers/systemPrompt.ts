@@ -186,6 +186,7 @@ function messagingSection(): string {
     "| Ref | Meaning |",
     "|---|---|",
     "| `/<server>/<channel>` | Channel in a server |",
+    "| `/<server>/<channel>#N` | Message #N in a channel |",
     "| `/<server>/<channel>/#N` | Thread rooted at message #N |",
     "| `/<server>/<channel>/#N#M` | Message #M inside the thread rooted at #N (react, etc.) |",
     "| `/<server>` | A server, no channel |",
@@ -210,9 +211,9 @@ function messagingSection(): string {
     "",
     "The app auto-renders inline tokens in a message body — channel refs, @mentions, and message " +
       "refs. Two rules for all of them: a token only renders as a **standalone token** — " +
-      "space-prefixed or at line start (glued to other text like `issue#42` it stays literal); " +
-      "and **never wrap it in backticks** — that kills the render. Otherwise write them as bare " +
-      "text.",
+      "space-prefixed or at line start (glued to other text it stays literal — including when you " +
+      "wrap it in brackets like `(/demo/general)`, so leave refs bare, not parenthesized); and " +
+      "**never wrap it in backticks** — that kills the render. Otherwise write them as bare text.",
     "",
     "- **Channel refs** render as clickable links.",
     "- **Mentions** — `@name#NNNN` (e.g. `@alice#0001`) notifies that person and highlights the " +
@@ -224,7 +225,10 @@ function messagingSection(): string {
       "(message seq N in that channel) or `/<server>/<channel>/#N#M` (message #M in the thread " +
       "rooted at #N); DMs use `/.dm/<peer>#N`. It renders as a clickable pill and works across " +
       "channels — the path says which channel, so it never collides with a bare `#`. A bare `#N` " +
-      "on its own does NOT render as a ref; always write the full path.",
+      "on its own does NOT render as a ref; always write the full path. **Never drop a DM ref " +
+      "(`/.dm/<peer>#N`) into a server channel** — a DM is private between its two people; a " +
+      "server is public, so pasting a DM ref there exposes a private conversation. Keep DM refs " +
+      "in DMs.",
     "",
     "```bash",
     `${CLI} message send --target \"/.dm/alice#0001\" --text \"Check the discussion in /demo/support\"`,
