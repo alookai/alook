@@ -165,7 +165,7 @@ export function ChannelRefPill({ children }: { children?: React.ReactNode }) {
       : undefined
   const onClick = sameChannelSeq !== undefined
     ? () => uiHandlers.jumpToSeq?.(sameChannelSeq)
-    : () => uiHandlers.navigate?.(view.href.serverId, view.href.channelId)
+    : () => uiHandlers.navigate?.(view.href.serverId, view.href.channelId, view.messageSuffix)
 
   return (
     <>

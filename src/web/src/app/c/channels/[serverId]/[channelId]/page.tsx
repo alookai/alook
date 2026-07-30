@@ -614,6 +614,24 @@ function ChannelView() {
     return () => useCommunityStore.getState().registerUiHandlers({ jumpToSeq: undefined })
   }, [jumpToSeq])
 
+  // Cross-channel message ref: a pill in another channel navigated here with
+  // `?msgseq=N` (see shell-frame's `navigate`). Land on that message once — a
+  // freshly-opened channel rarely has an arbitrary seq in its initial window,
+  // so this usually opens the context sheet (resolves seq→id server-side); if
+  // the message happens to be loaded, jumpToSeq scrolls to it. Captured once at
+  // mount and the param is stripped so a refresh/back doesn't re-trigger.
+  const [jumpSeqTarget] = useState<number | null>(() => {
+    const raw = searchParams.get("msgseq")
+    const n = raw ? parseInt(raw, 10) : NaN
+    return Number.isFinite(n) && n > 0 ? n : null
+  })
+  useEffect(() => {
+    if (jumpSeqTarget === null) return
+    jumpToSeq(jumpSeqTarget)
+    router.replace(`/c/channels/${params.serverId}/${channelId}`, { scroll: false })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once for this mount's cross-channel jump
+  }, [])
+
   // Stable so it doesn't bust the memoized message rows; reads uiHandlers
   // lazily through the actions ref (assigned just below).
   const openProfile = useCallback<OpenProfile>((name, e, discriminator, userId) => {

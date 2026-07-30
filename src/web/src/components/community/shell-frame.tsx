@@ -409,9 +409,17 @@ export function ShellFrame({
   // shell's router is the live one (rail clicks above navigate through it), so
   // the pills route through this bridge instead.
   const navigate = useCallback(
-    (serverId: string, channelId?: string) => {
+    (serverId: string, channelId?: string, seq?: number) => {
       markSwitch(channelId ? "channel" : "server", channelId ?? serverId)
-      router.push(channelId ? `/c/channels/${serverId}/${channelId}` : `/c/channels/${serverId}`)
+      if (channelId) {
+        // `?msgseq=N` makes the destination channel jump to that message on
+        // arrival (a cross-channel message ref) — the channel page reads it and
+        // calls jumpToSeq. Without a channel (server ref) there's no message.
+        const q = seq !== undefined ? `?msgseq=${seq}` : ""
+        router.push(`/c/channels/${serverId}/${channelId}${q}`)
+      } else {
+        router.push(`/c/channels/${serverId}`)
+      }
     },
     [router],
   )
