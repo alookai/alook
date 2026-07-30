@@ -109,8 +109,13 @@ describe("rejectBot / requireBot guards", () => {
     expect(rejectBot(human)).toBeNull()
   })
 
-  it("requireBot: 403 for a human, null for a bot", () => {
-    expect(requireBot(human)?.status).toBe(403)
-    expect(requireBot(bot)).toBeNull()
+  it("requireBot: 403 for a human; narrows to the bot actor for a bot", () => {
+    const humanGate = requireBot(human)
+    expect(humanGate.ok).toBe(false)
+    if (!humanGate.ok) expect(humanGate.response.status).toBe(403)
+
+    const botGate = requireBot(bot)
+    expect(botGate.ok).toBe(true)
+    if (botGate.ok) expect(botGate.bot).toEqual({ kind: "bot", userId: "b", ownerUserId: "o", machineId: "m" })
   })
 })

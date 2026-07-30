@@ -140,13 +140,25 @@ export function rejectBot(actor: CommunityActor): NextResponse | null {
   return null
 }
 
+/** The bot arm of {@link CommunityActor}, with `ownerUserId`/`machineId`. */
+export type BotActor = Extract<CommunityActor, { kind: "bot" }>
+
 /**
  * Symmetric guard for a bot-only verb (inboxPull/inboxSnapshot/ack/nap, and
  * resolve as a bot op): a human actor → 403 (capability symmetry, Gener #116).
+ *
+ * Returns the NARROWED bot actor on success so callers get typed access to
+ * `ownerUserId`/`machineId` (nap, joinServer, friendRequest need them) without
+ * a second discriminant check. Usage:
+ *   const gate = requireBot(ctx.actor)
+ *   if (!gate.ok) return gate.response
+ *   gate.bot.userId // + .ownerUserId / .machineId
  */
-export function requireBot(actor: CommunityActor): NextResponse | null {
+export function requireBot(
+  actor: CommunityActor,
+): { ok: true; bot: BotActor } | { ok: false; response: NextResponse } {
   if (actor.kind !== "bot") {
-    return NextResponse.json({ error: "forbidden: bot-only endpoint" }, { status: 403 })
+    return { ok: false, response: NextResponse.json({ error: "forbidden: bot-only endpoint" }, { status: 403 }) }
   }
-  return null
+  return { ok: true, bot: actor }
 }
