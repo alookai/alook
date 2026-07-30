@@ -2,7 +2,6 @@
 
 import { useState } from "react"
 import type React from "react"
-import { Hash } from "lucide-react"
 import { ChannelIcon } from "./channel-icon"
 
 // Pill components the streamdown renderer maps custom tags to (see message-markdown.tsx).
@@ -88,9 +87,9 @@ export function ChannelPill({
   ].join(" ")
   const content = (
     <>
-      {isMsgRef
-        ? <Hash className="h-[0.85em] w-auto shrink-0" aria-hidden />
-        : <ChannelIcon className="shrink-0 text-xs" />}
+      {/* Always the channel glyph — a message ref still points AT a channel;
+          the `#N` inside marks it as a specific message (Gus #370). */}
+      <ChannelIcon className="shrink-0 text-xs" />
       {serverPrefix && (
         <span className="shrink-0 text-muted-foreground transition-colors group-hover/pill:text-primary">{serverPrefix} /</span>
       )}
