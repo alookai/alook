@@ -16,6 +16,12 @@ const mockGetActiveDoNamesForMachine = vi.fn(async (_db: unknown, _machineId: st
 vi.mock("@alook/shared", () => {
   const noopLogger = { debug: () => { }, info: () => { }, warn: () => { }, error: () => { }, child() { return this } }
   return {
+    // Real WS event-type strings the DO reads at runtime (#5 T2 — ws-do
+    // broadcasts now use WS_EVENTS.* instead of raw literals). Only the keys
+    // this suite exercises are needed; values match @alook/shared.
+    WS_EVENTS: {
+      BOT_AUDIT_EVENT: "community:bot.audit_event",
+    },
     createDb: () => ({}),
     createLogger: () => noopLogger,
     queries: {

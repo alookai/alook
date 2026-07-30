@@ -1,4 +1,4 @@
-import { createLogger, queries } from "@alook/shared"
+import { createLogger, queries, WS_EVENTS } from "@alook/shared"
 
 export { WebSocketDurableObject } from "./ws-durable"
 export { RateLimitDurableObject } from "./rate-limit-do"
@@ -124,7 +124,7 @@ export default {
         return new Response("invalid kind", { status: 400 })
       }
       const frame = {
-        type: "community:bot.audit_event",
+        type: WS_EVENTS.BOT_AUDIT_EVENT,
         botId: b.botId,
         id: b.id,
         kind: b.kind,

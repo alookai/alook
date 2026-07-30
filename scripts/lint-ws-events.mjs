@@ -3,8 +3,9 @@
  * Guardrail lint for community WS events.
  *
  * 1. `type: "community:*"` hardcoded literals under
- *    `src/web/src/app/api/community` — should be `WS_EVENTS.*` from
- *    `@alook/shared` so a rename fires a typecheck error at the send site.
+ *    `src/web/src/app/api/community` and `src/ws-do/src` (the Durable Object
+ *    that emits presence/machine/typing broadcasts) — should be `WS_EVENTS.*`
+ *    from `@alook/shared` so a rename fires a typecheck error at the send site.
  *
  * 2. `as never` inside any `broadcastToUser*` / `fanOutTo*` call under
  *    `src/web/src` — defeats the discriminated `CommunityWsEvent` union.
@@ -19,7 +20,7 @@ import { readFileSync } from "node:fs"
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "")
 
 const PATTERN_LITERAL = 'type:\\s*"community:'
-const LITERAL_PATHS = ["src/web/src/app/api/community"]
+const LITERAL_PATHS = ["src/web/src/app/api/community", "src/ws-do/src"]
 
 const PATTERN_AS_NEVER =
   "(broadcastToUser(?:Safe)?|fanOutToChannel|fanOutToDM|fanOutToServerMembers)\\([^)]*as never"

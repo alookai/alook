@@ -233,6 +233,18 @@ vi.mock("@alook/shared", () => {
     },
   }
   return {
+    // Real WS event-type strings the DO reads at runtime (#5 T2 — ws-do
+    // broadcasts now use WS_EVENTS.* instead of raw literals). Values match
+    // @alook/shared so the tests' `type: "community:*"` assertions still hold.
+    WS_EVENTS: {
+      TYPING_START: "community:typing.start",
+      TYPING_STOP: "community:typing.stop",
+      MACHINE_STATUS: "community:machine.status",
+      MACHINE_UPDATED: "community:machine.updated",
+      STATUS_UPDATE: "community:status.update",
+      BOT_AUDIT_EVENT: "community:bot.audit_event",
+      PRESENCE_UPDATE: "community:presence.update",
+    },
     createDb: (d1: unknown) => mockCreateDb(d1),
     createLogger: () => noopLogger,
     // Real type-guard impls — fanOutTyping branches on these to route a
