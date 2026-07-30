@@ -20,7 +20,12 @@
  * suffix in the local-part.
  */
 
+import { execFileSync } from "child_process";
+
 const GIT_IDENTITY_DOMAIN = "alook.ai";
+
+/** Timeout for the `git config` read of the host owner's identity. */
+const HOST_GIT_READ_TIMEOUT_MS = 2000;
 
 /** Generic identity when an agent's name/handle is unavailable (degraded spawn). */
 const FALLBACK_NAME = "Alook Agent";
@@ -51,9 +56,26 @@ function asciiSlug(s: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
+/** The host owner's own git identity, if their environment has one. */
+export interface HostGitUser {
+  name?: string;
+  email?: string;
+}
+
 export interface GitIdentityInput {
   agentName?: string;
   discriminator?: string;
+  /**
+   * The host owner's own git identity (from `git config user.name/user.email`),
+   * when present. When BOTH name and email are legible, the commit is
+   * attributed two-ways: AUTHOR = the human owner (they wrote it), COMMITTER =
+   * the agent (it applied it) — git's native author≠committer, both visible in
+   * `git log --format=fuller` / on GitHub. When absent (owner never set a git
+   * identity), falls back to the agent as both author and committer (today's
+   * behavior). Read at the I/O boundary (`readHostGitIdentity`) and passed in;
+   * this builder stays pure.
+   */
+  hostUser?: HostGitUser;
 }
 
 /**
@@ -61,14 +83,19 @@ export interface GitIdentityInput {
  * a valid, non-empty identity; falls back to a generic one when name is
  * missing.
  *
- * Name = the plain display name (`Claudette`). Email =
- * `<name-slug>.<discriminator>@alook.ai` (`claudette.9873@alook.ai`); if the
- * name has no ASCII-alphanumeric characters (all CJK/emoji) the local-part is
- * just the discriminator (`9873@alook.ai`), and if neither is available it
- * falls back to `alook-agent@alook.ai`.
+ * The agent's own identity: name = the plain display name (`Claudette`),
+ * email = `<name-slug>.<discriminator>@alook.ai` (`claudette.9873@alook.ai`);
+ * if the name has no ASCII-alphanumeric characters (all CJK/emoji) the
+ * local-part is just the discriminator (`9873@alook.ai`), and if neither is
+ * available it falls back to `alook-agent@alook.ai`.
+ *
+ * Two-author attribution: when `hostUser` carries a legible name AND email,
+ * AUTHOR is set to the human owner and COMMITTER to the agent (git's native
+ * author/committer split — "the human wrote it, the agent committed it"). With
+ * no host identity, author and committer are both the agent (today's behavior).
  */
 export function buildGitIdentityEnv(input: GitIdentityInput): Record<string, string> {
-  const { agentName, discriminator } = input;
+  const { agentName, discriminator, hostUser } = input;
 
   const cleanName = agentName ? sanitizeGitName(agentName) : "";
   const displayName = cleanName || FALLBACK_NAME;
@@ -81,10 +108,64 @@ export function buildGitIdentityEnv(input: GitIdentityInput): Record<string, str
     [nameSlug, discriminator].filter(Boolean).join(".") || FALLBACK_LOCAL_PART;
   const email = `${localPart}@${GIT_IDENTITY_DOMAIN}`;
 
+  // Two-author split: only when the host owner has a legible name AND email
+  // (partial/empty → not enough to attribute, keep agent-only). Sanitize the
+  // host name the same way (it also becomes a git header line). The host email
+  // is used verbatim except for CR/LF/control stripping — it is the owner's
+  // real address, not something we mint.
+  const hostName = hostUser?.name ? sanitizeGitName(hostUser.name) : "";
+  const hostEmail = hostUser?.email ? sanitizeGitName(hostUser.email) : "";
+  const hasHostAuthor = hostName !== "" && hostEmail !== "";
+
   return {
-    GIT_AUTHOR_NAME: displayName,
-    GIT_AUTHOR_EMAIL: email,
+    GIT_AUTHOR_NAME: hasHostAuthor ? hostName : displayName,
+    GIT_AUTHOR_EMAIL: hasHostAuthor ? hostEmail : email,
     GIT_COMMITTER_NAME: displayName,
     GIT_COMMITTER_EMAIL: email,
   };
+}
+
+let hostGitIdentityMemo: { value: HostGitUser | null } | undefined;
+
+/**
+ * Read the host owner's own git identity from their git config
+ * (`git config --get user.name` / `user.email`). READ-ONLY: this only reads
+ * the owner's existing config — it never writes `~/.gitconfig` or any repo's
+ * `.git/config` (the module's env-only invariant is about not MUTATING the
+ * owner's git state; reading their name/email to credit them as author does
+ * not touch it). Returns `null` for a field the owner never set, and never
+ * throws — any failure (git absent, config unset, timeout) degrades to no host
+ * user, so `buildGitIdentityEnv` falls back to agent-only attribution.
+ *
+ * MEMOIZED for the daemon process: the host owner's git identity is static
+ * across the process lifetime, and this sits on the per-spawn hot path (two
+ * synchronous `git` forks otherwise), so the result — including `null` — is
+ * cached after the first read. `resetHostGitIdentityCache()` clears it (tests).
+ */
+export function readHostGitIdentity(): HostGitUser | null {
+  if (hostGitIdentityMemo) return hostGitIdentityMemo.value;
+  const read = (key: string): string | undefined => {
+    try {
+      const out = execFileSync("git", ["config", "--get", key], {
+        encoding: "utf8",
+        timeout: HOST_GIT_READ_TIMEOUT_MS,
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+      return out.length > 0 ? out : undefined;
+    } catch {
+      // Unset key exits non-zero; git missing / timeout throws — all mean
+      // "no host identity for this field", never fatal.
+      return undefined;
+    }
+  };
+  const name = read("user.name");
+  const email = read("user.email");
+  const value = name === undefined && email === undefined ? null : { name, email };
+  hostGitIdentityMemo = { value };
+  return value;
+}
+
+/** Clear the memoized host git identity (test-only; the value is static in prod). */
+export function resetHostGitIdentityCache(): void {
+  hostGitIdentityMemo = undefined;
 }

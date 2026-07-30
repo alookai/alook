@@ -54,4 +54,61 @@ describe("buildGitIdentityEnv", () => {
     expect(a.GIT_AUTHOR_EMAIL).toBe(b.GIT_AUTHOR_EMAIL);
     expect(a.GIT_AUTHOR_EMAIL).toBe("twin.1043@alook.ai");
   });
+
+  it("host user present (name+email) ⇒ AUTHOR = human owner, COMMITTER = agent (two-author split)", () => {
+    const env = buildGitIdentityEnv({
+      agentName: "Claudette",
+      discriminator: "9873",
+      hostUser: { name: "Gus", email: "gus@example.com" },
+    });
+    // Author = the human owner (they wrote it).
+    expect(env.GIT_AUTHOR_NAME).toBe("Gus");
+    expect(env.GIT_AUTHOR_EMAIL).toBe("gus@example.com");
+    // Committer = the agent (it applied it).
+    expect(env.GIT_COMMITTER_NAME).toBe("Claudette");
+    expect(env.GIT_COMMITTER_EMAIL).toBe("claudette.9873@alook.ai");
+  });
+
+  it("host user with only a name (no email) ⇒ not enough to attribute → agent is both", () => {
+    const env = buildGitIdentityEnv({
+      agentName: "Claudette",
+      discriminator: "9873",
+      hostUser: { name: "Gus" },
+    });
+    expect(env.GIT_AUTHOR_NAME).toBe("Claudette");
+    expect(env.GIT_AUTHOR_EMAIL).toBe("claudette.9873@alook.ai");
+    expect(env.GIT_COMMITTER_NAME).toBe("Claudette");
+    expect(env.GIT_COMMITTER_EMAIL).toBe("claudette.9873@alook.ai");
+  });
+
+  it("host user with only an email (no name) ⇒ not enough to attribute → agent is both", () => {
+    const env = buildGitIdentityEnv({
+      agentName: "Claudette",
+      discriminator: "9873",
+      hostUser: { email: "gus@example.com" },
+    });
+    expect(env.GIT_AUTHOR_NAME).toBe("Claudette");
+    expect(env.GIT_AUTHOR_EMAIL).toBe("claudette.9873@alook.ai");
+  });
+
+  it("host user name is control-char/newline sanitized (commit-metadata injection guard)", () => {
+    const env = buildGitIdentityEnv({
+      agentName: "Claudette",
+      discriminator: "9873",
+      hostUser: { name: "Real\r\nHuman", email: "h@x.com" },
+    });
+    expect(env.GIT_AUTHOR_NAME).toBe("RealHuman");
+    expect(env.GIT_AUTHOR_NAME).not.toMatch(/[\n\r\x00]/);
+    expect(env.GIT_AUTHOR_EMAIL).toBe("h@x.com");
+  });
+
+  it("empty-string host name/email ⇒ treated as absent → agent is both", () => {
+    const env = buildGitIdentityEnv({
+      agentName: "Claudette",
+      discriminator: "9873",
+      hostUser: { name: "", email: "" },
+    });
+    expect(env.GIT_AUTHOR_NAME).toBe("Claudette");
+    expect(env.GIT_AUTHOR_EMAIL).toBe("claudette.9873@alook.ai");
+  });
 });

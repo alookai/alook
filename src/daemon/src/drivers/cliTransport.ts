@@ -48,7 +48,7 @@ import { buildCliSystemPrompt } from "./systemPrompt.js";
 import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
 import { writeCliLink } from "./cliLink.js";
 import { mergeEnvLayers, platformEnv, runtimeContextEnv, type EnvLayer } from "./spawnEnv.js";
-import { buildGitIdentityEnv } from "./gitIdentityEnv.js";
+import { buildGitIdentityEnv, readHostGitIdentity } from "./gitIdentityEnv.js";
 import { writeAgentFile } from "./agentFile.js";
 
 export interface PreparedCliTransport {
@@ -201,9 +201,12 @@ export async function prepareCliTransport(
     { name: "hostStatic", precedence: 10, vars: cli.extraEnv ?? {} },
     { name: "userEnv", precedence: 20, vars: resolved.envVars },
     { name: "driver", precedence: 30, vars: extraEnv as Record<string, string | undefined> },
-    // Per-agent git identity (GIT_AUTHOR_*/GIT_COMMITTER_*) so commits are
-    // attributed to the agent that made them. ENV-ONLY by design — never writes
-    // ~/.gitconfig or any repo .git/config, so the owner's own git identity is
+    // Per-agent git identity (GIT_AUTHOR_*/GIT_COMMITTER_*). Two-author
+    // attribution: when the host owner has a git identity, AUTHOR = the owner
+    // (they wrote it) and COMMITTER = the agent (it applied it); with no host
+    // identity, the agent is both. ENV-ONLY for WRITES — reads the owner's
+    // existing `git config user.*` to credit them, but never writes
+    // ~/.gitconfig or any repo .git/config, so the owner's git state is
     // untouched. Above `driver` (30) so a driver can't clobber it; below
     // `platformContract` (40) though keys don't overlap. Not sensitive.
     {
@@ -212,6 +215,7 @@ export async function prepareCliTransport(
       vars: buildGitIdentityEnv({
         agentName: ctx.config.agentName,
         discriminator: ctx.config.agentDiscriminator,
+        hostUser: readHostGitIdentity() ?? undefined,
       }),
     },
     {

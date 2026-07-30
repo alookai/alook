@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -6,6 +6,19 @@ import { prepareCliTransport, type CliTransportConfig } from "./cliTransport";
 import { CredentialBroker } from "../credentials/credentialProxy";
 import type { LaunchContext } from "../types";
 import { makeRuntimeConfig } from "../runtimeConfig";
+
+// The git-identity two-author split reads the HOST owner's `git config`
+// (readHostGitIdentity) at spawn. That would make GIT_AUTHOR_* depend on
+// whatever git identity the test machine happens to have — flaky across
+// dev/CI. Mock the read to a controllable value; keep buildGitIdentityEnv
+// real. Hoisted vi.mock is file-scoped (no cross-file leak). Default: no host
+// identity → agent is both author+committer (the pre-two-author behavior the
+// existing assertions expect); the two-author test overrides it.
+const mockReadHostGitIdentity = vi.fn<() => { name?: string; email?: string } | null>(() => null);
+vi.mock("./gitIdentityEnv.js", async (importActual) => {
+  const actual = await importActual<typeof import("./gitIdentityEnv.js")>();
+  return { ...actual, readHostGitIdentity: () => mockReadHostGitIdentity() };
+});
 
 const tmpDirs: string[] = [];
 function mkTmp(): string {
@@ -171,6 +184,20 @@ describe("prepareCliTransport — layered spawn env", () => {
     });
     const { spawnEnv } = await prepareCliTransport(ctx, { GIT_AUTHOR_NAME: "Someone Else" }, undefined, "linux");
     expect(spawnEnv.GIT_AUTHOR_NAME).toBe("Melisa");
+  });
+
+  it("two-author: host owner git identity ⇒ AUTHOR = owner, COMMITTER = agent", async () => {
+    mockReadHostGitIdentity.mockReturnValueOnce({ name: "Gus", email: "gus@example.com" });
+    const ctx = baseCtx(mkTmp(), {
+      agentId: "a3f90c21beef",
+      config: { agentName: "Melisa", agentDiscriminator: "1043" },
+    });
+    const { spawnEnv } = await prepareCliTransport(ctx, {}, undefined, "linux");
+    // Author = the human owner (they wrote it), committer = the agent.
+    expect(spawnEnv.GIT_AUTHOR_NAME).toBe("Gus");
+    expect(spawnEnv.GIT_AUTHOR_EMAIL).toBe("gus@example.com");
+    expect(spawnEnv.GIT_COMMITTER_NAME).toBe("Melisa");
+    expect(spawnEnv.GIT_COMMITTER_EMAIL).toBe("melisa.1043@alook.ai");
   });
 
   it("creates a symlink when hostCliPath is set", async () => {
