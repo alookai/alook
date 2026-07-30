@@ -220,15 +220,15 @@ function messagingSection(): string {
       "won't see your message at all. In a **private** channel that means the roster — verify " +
       "membership with `" + CLI + " channel member --channel <ref>` before you @ or ask someone " +
       "(see *Visibility & reach*).",
-    "- **Message refs** — ` #42` renders as a clickable pill jumping to seq 42 *in the current " +
-      "channel* (channel-scoped, not global); seq is 1–6 digits. Because it resolves against " +
-      "the channel you're posting in, only use a `#N` ref for a message in *this same* channel — " +
-      "a seq from another channel points at the wrong message here (or nothing). To point at a " +
-      "message elsewhere, link the channel ref instead, don't cross-channel a bare `#N`.",
+    "- **Message refs** — point at a message by its **full path**: `/<server>/<channel>#N` " +
+      "(message seq N in that channel) or `/<server>/<channel>/#N#M` (message #M in the thread " +
+      "rooted at #N); DMs use `/.dm/<peer>#N`. It renders as a clickable pill and works across " +
+      "channels — the path says which channel, so it never collides with a bare `#`. A bare `#N` " +
+      "on its own does NOT render as a ref; always write the full path.",
     "",
     "```bash",
     `${CLI} message send --target \"/.dm/alice#0001\" --text \"Check the discussion in /demo/support\"`,
-    `${CLI} message send --target \"/demo/general\" --text \"@alice#0001 Can you review this? See #42\"`,
+    `${CLI} message send --target \"/demo/general\" --text \"@alice#0001 Can you review this? See /demo/general#42\"`,
     "```",
     "",
     "### Pulled messages",
