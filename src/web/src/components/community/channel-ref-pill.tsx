@@ -7,7 +7,7 @@ import { ChannelPill } from "./inline-marks"
 import { resolveChannelRefBase, type ResolvedChannelRef } from "@/lib/community/channel-ref"
 import { useChannelRefDirectory } from "@/hooks/community/use-channel-ref-directory"
 import { useThreads } from "@/hooks/community/use-channel-panels"
-import { useCommunityStore } from "@/stores/community"
+import { useCommunityStore, useUiHandlers } from "@/stores/community"
 
 export type ChannelRefPillView =
   | { kind: "plain"; text: string }
@@ -122,6 +122,8 @@ export function ChannelRefPill({ children }: { children?: React.ReactNode }) {
   const ref = String(children ?? "")
   const router = useRouter()
   const currentServerId = useCommunityStore((s) => s.currentServerId)
+  const currentChannelId = useCommunityStore((s) => s.currentChannelId)
+  const uiHandlers = useUiHandlers()
   const { directory, isLoading: directoryLoading } = useChannelRefDirectory()
 
   // The debt record's own verification (see finding #6) confirmed the
@@ -149,16 +151,31 @@ export function ChannelRefPill({ children }: { children?: React.ReactNode }) {
   if (view.kind === "plain") return <>{view.text}</>
   if (view.kind === "muted") return <ChannelPill muted>{view.label}</ChannelPill>
 
+  // A message ref (`#N` suffix) whose target is the ALREADY-OPEN channel should
+  // SCROLL to the message, not navigate (navigating to the current channel is a
+  // no-op that leaves the viewport put — the same-channel regression from
+  // dropping the bare-`#N` pill). Route through the `jumpToSeq` UI-handler the
+  // page registers (message loaded → scroll; else context sheet resolves
+  // seq→id). Cross-channel refs still `router.push`; scroll-after-navigate is a
+  // separate followup (see message-ref-upgrade.md).
+  const sameChannelSeq =
+    view.messageSuffix !== undefined && view.href.channelId === currentChannelId
+      ? view.messageSuffix
+      : undefined
+  const onClick = sameChannelSeq !== undefined
+    ? () => uiHandlers.jumpToSeq?.(sameChannelSeq)
+    : () => router.push(`/c/channels/${view.href.serverId}/${view.href.channelId}`)
+
   return (
     <>
-      <ChannelPill
-        serverPrefix={view.serverPrefix}
-        onClick={() => router.push(`/c/channels/${view.href.serverId}/${view.href.channelId}`)}
-      >
+      <ChannelPill serverPrefix={view.serverPrefix} onClick={onClick} seqSuffix={view.messageSuffix}>
         {view.label}
       </ChannelPill>
+      {/* The `/#N` thread-root suffix stays a detached plain span — it names the
+          thread the pill degraded to (no matching thread found), not the pill's
+          own target. The message `#N` (view.messageSuffix), by contrast, IS the
+          target, so it's rendered INSIDE the pill via `seqSuffix` above. */}
       {view.threadSuffix !== undefined && <span className="text-muted-foreground">/#{view.threadSuffix}</span>}
-      {view.messageSuffix !== undefined && <span className="text-muted-foreground">#{view.messageSuffix}</span>}
     </>
   )
 }

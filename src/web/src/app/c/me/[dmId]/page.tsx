@@ -186,6 +186,16 @@ function DmView() {
 
   const goBack = useCallback(() => { uiHandlers.goBackMobile?.() }, [uiHandlers])
 
+  // Jump to a message by seq within THIS DM — invoked by a same-DM message-ref
+  // pill via the `jumpToSeq` UI-handler. The DM view has no in-place scroll
+  // target prop (unlike the channel page), so always open the context sheet,
+  // which resolves seq→id and shows the message with surrounding context.
+  const jumpToSeq = useCallback((seq: number) => setContextSheetSeq(seq), [])
+  useEffect(() => {
+    useCommunityStore.getState().registerUiHandlers({ jumpToSeq })
+    return () => useCommunityStore.getState().registerUiHandlers({ jumpToSeq: undefined })
+  }, [jumpToSeq])
+
   useEffect(() => {
     useCommunityStore.getState().setCurrentChannelId(dmId)
     communityWsSubscribe({ dmConversationId: dmId })

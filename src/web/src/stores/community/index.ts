@@ -75,6 +75,14 @@ type CommunityUiHandlers = {
   previewImage?: (url: string) => void
   openProfile?: (name: string, e: React.MouseEvent, discriminator?: string, userId?: string) => void
   goBackMobile?: () => void
+  // Jump to message `seq` within the CURRENT channel/DM — the page registers
+  // this (message already loaded → scroll to it; otherwise open the context
+  // sheet, which resolves seq→id server-side). A same-channel message ref pill
+  // (`/server/channel#N` where the channel is the open one) invokes it so
+  // clicking still scrolls to the message — the behavior the bare-`#N` pill had
+  // before message-ref-upgrade.md removed it. Cross-channel jumps route via the
+  // pill's own `router.push` instead (a followup adds scroll-after-navigate).
+  jumpToSeq?: (seq: number) => void
 }
 
 type Timer = ReturnType<typeof setTimeout>
@@ -234,6 +242,7 @@ const stableUiHandlers: CommunityUiHandlers = {
   openProfile: (name, e, discriminator, userId) =>
     useCommunityStore.getState().uiHandlers.openProfile?.(name, e, discriminator, userId),
   goBackMobile: () => useCommunityStore.getState().uiHandlers.goBackMobile?.(),
+  jumpToSeq: (seq) => useCommunityStore.getState().uiHandlers.jumpToSeq?.(seq),
 }
 export const useUiHandlers = () => stableUiHandlers
 

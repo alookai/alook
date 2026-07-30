@@ -598,6 +598,22 @@ function ChannelView() {
   // Message context sheet for unloaded message refs
   const [contextSheetSeq, setContextSheetSeq] = useState<number | null>(null)
 
+  // Jump to a message by seq within THIS channel — invoked by a same-channel
+  // message-ref pill (`/server/channel#N` where the channel is open) via the
+  // `jumpToSeq` UI-handler. Loaded in the window → reuse the mount-time scroll
+  // path (`setScrollToMessageId` scrolls + highlights); not loaded → open the
+  // context sheet, which resolves seq→id server-side. Reads `messages` lazily
+  // off the actions ref so the callback stays reference-stable (no memo churn).
+  const jumpToSeq = useCallback((seq: number) => {
+    const msg = actionsCtxRef.current.messages.find((m) => m.seq === seq)
+    if (msg) setScrollToMessageId(msg.id)
+    else setContextSheetSeq(seq)
+  }, [])
+  useEffect(() => {
+    useCommunityStore.getState().registerUiHandlers({ jumpToSeq })
+    return () => useCommunityStore.getState().registerUiHandlers({ jumpToSeq: undefined })
+  }, [jumpToSeq])
+
   // Stable so it doesn't bust the memoized message rows; reads uiHandlers
   // lazily through the actions ref (assigned just below).
   const openProfile = useCallback<OpenProfile>((name, e, discriminator, userId) => {

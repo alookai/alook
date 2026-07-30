@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import type React from "react"
+import { Hash } from "lucide-react"
 import { ChannelIcon } from "./channel-icon"
 
 // Pill components the streamdown renderer maps custom tags to (see message-markdown.tsx).
@@ -64,13 +65,22 @@ export function ChannelPill({
   onClick,
   serverPrefix,
   muted,
+  seqSuffix,
 }: {
   children?: React.ReactNode
   onClick?: (e: React.MouseEvent) => void
   serverPrefix?: string
   muted?: boolean
+  // A message ref (`/server/channel#N`): render the whole thing as ONE pill —
+  // channel name + `#N` inside — with a leading `#` glyph (instead of the `/`
+  // channel glyph) so it reads as "a message in general", one clickable unit.
+  // A plain channel ref leaves this undefined and keeps the `/` glyph. (Alli
+  // uiux#118: seq is the ref's real target, so it belongs inside the pill, not
+  // floating after it as a detached muted span.)
+  seqSuffix?: number
 }) {
   const title = typeof children === "string" ? children : undefined
+  const isMsgRef = seqSuffix !== undefined
   const className = [
     "inline-flex max-w-[16rem] items-center gap-1 rounded-lg bg-accent px-1 align-bottom font-medium text-foreground",
     muted ? "opacity-60" : "",
@@ -78,11 +88,14 @@ export function ChannelPill({
   ].join(" ")
   const content = (
     <>
-      <ChannelIcon className="shrink-0 text-xs" />
+      {isMsgRef
+        ? <Hash className="h-[0.85em] w-auto shrink-0" aria-hidden />
+        : <ChannelIcon className="shrink-0 text-xs" />}
       {serverPrefix && (
         <span className="shrink-0 text-muted-foreground transition-colors group-hover/pill:text-primary">{serverPrefix} /</span>
       )}
       <span className="min-w-0 truncate">{children}</span>
+      {isMsgRef && <span className="shrink-0 font-semibold">#{seqSuffix}</span>}
     </>
   )
   if (onClick) {
