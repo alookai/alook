@@ -142,6 +142,45 @@ describe("flattenMessageItems", () => {
     expect(messageItems[1].m.grouped).toBe(false)
   })
 
+  it("forces the window-first chat message to grouped when an older page is still pending (hasMoreOlder) — avoids the reload avatar-flash", () => {
+    // Reverse-infinite window with older content beyond the top: the first
+    // message's true predecessor isn't loaded yet, so default it to grouped
+    // (no avatar) rather than guess ungrouped and pop-out on prepend.
+    const items = flattenMessageItems(
+      [
+        msg({ id: "m1", authorName: "Alice", createdAt: "2026-01-01T10:00:00.000Z" }),
+        msg({ id: "m2", authorName: "Bob", createdAt: "2026-01-01T10:01:00.000Z" }),
+      ],
+      undefined,
+      true,
+    )
+    const messageItems = items.filter((i) => i.kind === "message")
+    // First message forced grouped despite having no prev (older page pending).
+    expect(messageItems[0].m.grouped).toBe(true)
+    // A genuinely different author below still groups by the real rule.
+    expect(messageItems[1].m.grouped).toBe(false)
+  })
+
+  it("keeps the window-first message ungrouped when the top is truly reached (hasMoreOlder false) — its avatar shows correctly", () => {
+    const items = flattenMessageItems(
+      [msg({ id: "m1", authorName: "Alice", createdAt: "2026-01-01T10:00:00.000Z" })],
+      undefined,
+      false,
+    )
+    const messageItems = items.filter((i) => i.kind === "message")
+    expect(messageItems[0].m.grouped).toBe(false)
+  })
+
+  it("does not force-group a window-first SYSTEM message even with an older page pending", () => {
+    const items = flattenMessageItems(
+      [msg({ id: "m1", type: "system", systemKind: "thread" })],
+      undefined,
+      true,
+    )
+    const messageItems = items.filter((i) => i.kind === "message")
+    expect(messageItems[0].m.grouped).toBe(false)
+  })
+
   it("does not group a system message even from the same author within the window", () => {
     const items = flattenMessageItems(
       [

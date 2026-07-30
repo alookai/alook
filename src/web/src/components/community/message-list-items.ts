@@ -27,9 +27,27 @@ export type FlatItem =
 // direct unit testing (see message-list.test.ts) — mirrors `member-list.tsx`'s
 // `flattenGroups`/`computeDuplicateNames` pattern of exporting pure list-prep
 // logic out of the component for testability without rendering.
-export function flattenMessageItems(messages: Msg[], newDividerBefore: string | undefined): FlatItem[] {
+// `hasMoreOlder` — whether an older page exists beyond this window's top (the
+// reverse-infinite top sentinel is live). When true, the window's FIRST message
+// has an unknowable true predecessor: its real grouping can't be computed until
+// the older page loads. Defaulting it to ungrouped (avatar shown) then
+// re-grouping on prepend produces a pop-OUT flash (avatar appears, then
+// vanishes when the older same-author message arrives) — read by the eye as
+// "something broke". Instead, default the window-first message to GROUPED (no
+// avatar) while older content is still pending: the common mid-history reload
+// has that top message continuing an older same-author run (so grouped is
+// usually already correct), and when it is genuinely a new group the avatar
+// fades IN on prepend — a gentler, expected "content arrived" motion. Once the
+// top is truly reached (`hasMoreOlder` false), the first message groups by the
+// real rule (nothing above it → ungrouped → its avatar shows, correctly).
+export function flattenMessageItems(
+  messages: Msg[],
+  newDividerBefore: string | undefined,
+  hasMoreOlder = false,
+): FlatItem[] {
   const items: FlatItem[] = []
   let prev: Msg | null = null
+  let seenFirstMessage = false
   for (const m of messages) {
     const prevDate = prev ? dateKey(prev.createdAt) : ""
     const curDate = dateKey(m.createdAt)
@@ -56,9 +74,15 @@ export function flattenMessageItems(messages: Msg[], newDividerBefore: string | 
         items.push({ kind: "new-divider", key: "new-divider" })
       }
     }
-    const grouped = !!(prev && m.type === "chat" && !m.replyTo && !showDateDivider && prev.authorName === m.authorName
+    // Window-first message with an older page still pending: force grouped
+    // (suppress its avatar) rather than guess ungrouped — see the doc comment
+    // above. `m.type === "chat"` keeps a system message (which never groups)
+    // out of this special-case. Chat first-messages only.
+    const isPendingWindowFirst = !seenFirstMessage && hasMoreOlder && m.type === "chat"
+    const grouped = isPendingWindowFirst || !!(prev && m.type === "chat" && !m.replyTo && !showDateDivider && prev.authorName === m.authorName
       && prev.createdAt && m.createdAt && (new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime()) < MESSAGE_GROUP_WINDOW_MS)
     items.push({ kind: "message", m: { ...m, grouped }, key: `msg:${m.id}` })
+    seenFirstMessage = true
     prev = m
   }
   return items

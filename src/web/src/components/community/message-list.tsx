@@ -101,7 +101,7 @@ export function MessageList({
   // Memoized so a re-render triggered by unrelated state (typing indicator
   // ticks, presence updates, etc.) doesn't re-walk the full message list
   // every time.
-  const items = useMemo(() => flattenMessageItems(messages, newDividerBefore), [messages, newDividerBefore])
+  const items = useMemo(() => flattenMessageItems(messages, newDividerBefore, !!hasMore), [messages, newDividerBefore, hasMore])
 
   // The hero ("Beginning of the channel…" copy, or a caller-supplied
   // `hero` node such as the thread-opener) renders OUTSIDE the virtualized
