@@ -411,22 +411,24 @@ export class AgentRouter {
             seq: cmd.unreadNotice.latestSeq,
             text,
           });
-          // Honest-ack diagnostic (plans/daemon-fsm-desync.md batch B): a wake
-          // that produced NO executable effect was only coalesced into the
-          // inbox. Benign for the queue-and-drain states (starting/stopping/
-          // reset-window/per-turn), but on a `running` agent it can mean the
-          // message is stacking behind a process that will never drain it (the
-          // deaf-orphan class). Surface it as a daemon-local log line so the
-          // stall stops masquerading as a healthy `status:"ok"` ack. This does
-          // NOT change the wire ack status — reachability-based honesty is
+          // Honest-ack diagnostic (plans/daemon-fsm-desync.md batch B, narrowed
+          // in batch A): a wake that produced NO executable effect was only
+          // coalesced into the inbox. Coalescing is BENIGN and routine for the
+          // queue-and-drain states (starting/stopping/reset-window/per-turn) —
+          // logging those is just noise on a busy-spawning agent. The
+          // pathological shape is a wake landing on an ALREADY-`running` agent
+          // that produces nothing: the message may be stacking behind a process
+          // that will never drain it (the deaf-orphan class). So gate the
+          // diagnostic on `beforeStatus === "running"` to keep the signal
+          // pointed at the real fault. Surfaced as a daemon-local log line so
+          // the stall stops masquerading as a healthy `status:"ok"` ack; this
+          // does NOT change the wire ack status — reachability-based honesty is
           // batch D's job (it needs a liveness probe this router deliberately
           // avoids). `producedEffect` is `false` for a legacy mock manager
-          // whose `deliver` returns void, so the diagnostic simply won't fire
-          // in those tests.
-          if (producedEffect === false) {
-            this.log.info("agent:wake produced no effect (coalesced only)", {
+          // whose `deliver` returns void, so the diagnostic won't fire there.
+          if (producedEffect === false && beforeStatus === "running") {
+            this.log.info("agent:wake produced no effect (coalesced onto running agent)", {
               agentId: cmd.agentId,
-              beforeStatus,
               latestSeq: cmd.unreadNotice.latestSeq,
             });
           }

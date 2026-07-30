@@ -60,6 +60,17 @@ export interface AgentState {
   turnActive: boolean;
   /** ms timestamp of the last observed progress (event), for stall detection. */
   lastProgressAt: number;
+  /**
+   * ms timestamp of the last `send` effect emitted toward the live process
+   * (drain-send / onTurnEnd drain / gated flush); null if none this lifecycle.
+   * Paired with `lastProgressAt` to detect a deaf process: a `send` was
+   * dispatched (`lastDeliverAt > lastProgressAt`) yet no process-reported
+   * event followed within the stale window — the message went into a stdin
+   * nothing is reading. This is the ONLY signal that catches the
+   * gated-no-turn_end permanent orphan, which slips both existing onTick
+   * predicates. See plans/daemon-fsm-desync.md batch A.
+   */
+  lastDeliverAt: number | null;
   /** ms timestamp since which the agent has been idle (running, no turn, empty inbox); null if not idle. */
   idleSince: number | null;
   /**
@@ -184,13 +195,19 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
       return withAgent(state, event.agentId, (a) => a ?? freshAgent(event.agentId, event.caps), []);
 
     case "wake":
-      return onWake(state, event.agentId, event.message);
+      return onWake(state, event.agentId, event.message, event.nowMs);
 
     case "spawned":
       return mutate(state, event.agentId, (a) => {
         a.status = "running";
         a.turnActive = true;
         a.lastProgressAt = event.nowMs;
+        // Fresh process ⇒ no outstanding unanswered delivery yet. Clearing keeps
+        // the suspected-deaf detector (onTick) from carrying a prior lifecycle's
+        // `lastDeliverAt` across a respawn. Redundant with `lastProgressAt` being
+        // bumped here (a stale deliver would already be < progress), but explicit
+        // so the fresh-lifecycle invariant doesn't rely on that coincidence.
+        a.lastDeliverAt = null;
         a.idleSince = null;
         // Belt for the idle-branch reset path where `deliver` triggered a
         // spawn directly (no `exit` fires there). The kill-and-respawn path
@@ -241,7 +258,7 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
       return onTick(state, event.nowMs);
 
     case "runtime_signal":
-      return onRuntimeSignal(state, event.agentId, event.kind);
+      return onRuntimeSignal(state, event.agentId, event.kind, event.nowMs);
   }
 }
 
@@ -249,7 +266,7 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
 /* Event handlers                                                      */
 /* ------------------------------------------------------------------ */
 
-function onWake(state: ManagerState, agentId: string, message: AgentMsg): ReduceResult {
+function onWake(state: ManagerState, agentId: string, message: AgentMsg, nowMs: number): ReduceResult {
   const existing = state.agents[agentId];
   const agent = existing ? clone(existing) : null;
   if (!agent) {
@@ -306,6 +323,7 @@ function onWake(state: ManagerState, agentId: string, message: AgentMsg): Reduce
       const text = drainInboxToPrompt(agent);
       const mode = agent.turnActive ? "busy" : "idle";
       if (mode === "idle") agent.turnActive = true;
+      agent.lastDeliverAt = nowMs;
       return commit(state, agent, [{ type: "send", agentId, text, mode }]);
     }
     // Per-turn or no stdin ⇒ keep queued; delivered after exit / next spawn.
@@ -336,6 +354,7 @@ function onTurnEnd(state: ManagerState, agentId: string, nowMs: number): ReduceR
   if (agent.inbox.length > 0 && agent.caps.supportsStdinNotification) {
     const text = drainInboxToPrompt(agent);
     agent.turnActive = true;
+    agent.lastDeliverAt = nowMs;
     return commit(state, agent, [{ type: "send", agentId, text, mode: "idle" }]);
   }
 
@@ -360,7 +379,7 @@ function onTurnEnd(state: ManagerState, agentId: string, nowMs: number): ReduceR
  *   3. If the branch calls for it, attempt a flush via
  *      `reduceApmGatedFlushReadiness`, reading the now-fully-updated `apm`.
  */
-function onRuntimeSignal(state: ManagerState, agentId: string, kind: string): ReduceResult {
+function onRuntimeSignal(state: ManagerState, agentId: string, kind: string, nowMs: number): ReduceResult {
   const existing = state.agents[agentId];
   if (!existing) return { state, effects: [] };
   const agent = clone(existing);
@@ -428,6 +447,7 @@ function onRuntimeSignal(state: ManagerState, agentId: string, kind: string): Re
   });
   if (readiness.shouldNotify) {
     const text = drainInboxToPrompt(agent);
+    agent.lastDeliverAt = nowMs;
     return commit(state, agent, [{ type: "send", agentId, text, mode: "busy" }]);
   }
   return commit(state, agent, [
@@ -457,6 +477,9 @@ function onExit(state: ManagerState, agentId: string): ReduceResult {
   // prevents a dead process's `compacting` / outstanding-tool-use flags from
   // silently carrying into the next spawn and re-blocking `onWake`.
   agent.apm = createInitialApmGatedSteeringState();
+  // The dead process can't answer any prior delivery — drop the outstanding
+  // deliver marker so the suspected-deaf detector starts clean for the respawn.
+  agent.lastDeliverAt = null;
 
   // Per-turn: if more messages queued, immediately respawn for the next batch.
   if (agent.inbox.length > 0) {
@@ -491,7 +514,28 @@ function onTick(state: ManagerState, nowMs: number): ReduceResult {
         (a.caps.supportsStdinNotification &&
           a.caps.busyDeliveryMode === "gated" &&
           a.inbox.length > 0));
-    if (stalled) {
+    // Suspected-deaf (plans/daemon-fsm-desync.md batch A): a `send` was
+    // dispatched (`lastDeliverAt` set, and NEWER than the last process-reported
+    // progress) yet the stale window elapsed with no event following it — the
+    // message went into a stdin nothing is reading. This is the ONE trigger
+    // that catches the `gated`-no-`turn_end` permanent orphan, which slips BOTH
+    // existing predicates: `stalled`'s gated sub-clause needs `inbox.length > 0`
+    // but the inbox was drained empty by the very send that stamped
+    // `lastDeliverAt`, and `idleEligible` needs `!turnActive` but the drain-send
+    // set `turnActive = true`. Reuses the existing `terminate_stalled` recovery
+    // (SIGKILL → exit → onExit drain-respawn) — batch A adds a trigger, not a
+    // new recovery path. Batch D upgrades this same suspicion to a confirmed
+    // diagnosis via a liveness probe before any destructive action on the
+    // runtime kinds that lack the SIGKILL backstop (SDK); here it only fires for
+    // a stdin-capable persistent agent whose recovery is physically reliable.
+    const suspectedDeaf =
+      a.status === "running" &&
+      a.caps.lifecycleKind === "persistent" &&
+      a.caps.supportsStdinNotification &&
+      a.lastDeliverAt !== null &&
+      a.lastDeliverAt > a.lastProgressAt &&
+      nowMs - a.lastDeliverAt >= state.staleThresholdMs;
+    if (stalled || suspectedDeaf) {
       agents[id] = { ...a, status: "stopping", idleSince: null };
       effects.push({ type: "terminate_stalled", agentId: id });
       continue;
@@ -528,6 +572,7 @@ function freshAgent(agentId: string, caps: AgentRuntimeCaps): AgentState {
     sessionId: null,
     turnActive: false,
     lastProgressAt: 0,
+    lastDeliverAt: null,
     idleSince: null,
     resetting: false,
     apm: createInitialApmGatedSteeringState(),

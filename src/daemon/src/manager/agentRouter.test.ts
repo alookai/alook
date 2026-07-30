@@ -164,7 +164,9 @@ describe("AgentRouter — agent:wake", () => {
     expect(wakeAcks.length).toBe(2);
   });
 
-  it("logs an honest-ack diagnostic when deliver produced NO executable effect, keeping the wire ack ok", async () => {
+  const NO_EFFECT_DIAG = "agent:wake produced no effect (coalesced onto running agent)";
+
+  it("logs an honest-ack diagnostic when a no-effect wake lands on a running agent, keeping the wire ack ok", async () => {
     const { mgr } = fakeManager({ a1: "running" }, false);
     const { ch, wakeAcks, fire } = fakeChannel();
     const logger = stubLogger();
@@ -181,11 +183,11 @@ describe("AgentRouter — agent:wake", () => {
 
     // Diagnostic surfaced (batch B), but the wire ack is still ok — reachability
     // honesty is batch D, this router only reports the local "no effect" fact.
-    expect(logger.calls.info.some(([m]) => m === "agent:wake produced no effect (coalesced only)")).toBe(true);
+    expect(logger.calls.info.some(([m]) => m === NO_EFFECT_DIAG)).toBe(true);
     expect(wakeAcks).toEqual([{ agentId: "a1", launchId: "l1", status: "ok" }]);
   });
 
-  it("does NOT log the honest-ack diagnostic when deliver produced an effect", async () => {
+  it("does NOT log the diagnostic when deliver produced an effect", async () => {
     const { mgr } = fakeManager({ a1: "idle" }, true);
     const { ch, fire } = fakeChannel();
     const logger = stubLogger();
@@ -200,7 +202,28 @@ describe("AgentRouter — agent:wake", () => {
       unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 7 },
     });
 
-    expect(logger.calls.info.some(([m]) => m === "agent:wake produced no effect (coalesced only)")).toBe(false);
+    expect(logger.calls.info.some(([m]) => m === NO_EFFECT_DIAG)).toBe(false);
+  });
+
+  it("does NOT log the diagnostic for a benign no-effect coalesce on a non-running agent (starting)", async () => {
+    // A no-effect wake while starting/stopping/reset-window is routine
+    // queue-and-drain, not the deaf-orphan fault — must stay quiet (batch A
+    // narrowing per Claudette's gate observation).
+    const { mgr } = fakeManager({ a1: "starting" }, false);
+    const { ch, fire } = fakeChannel();
+    const logger = stubLogger();
+    const router = new AgentRouter({ manager: mgr, channel: ch, runtimeReport: [{ id: "mock" }], logger });
+    await router.start();
+
+    await fire({
+      type: "agent:wake",
+      agentId: "a1",
+      config: { version: 1, runtime: "mock", model: { kind: "default" }, mode: { kind: "default" } },
+      launchId: "l1",
+      unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 7 },
+    });
+
+    expect(logger.calls.info.some(([m]) => m === NO_EFFECT_DIAG)).toBe(false);
   });
 });
 

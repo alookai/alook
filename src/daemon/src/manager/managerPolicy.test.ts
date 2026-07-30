@@ -376,6 +376,72 @@ describe("reduceManager — tick: stall + idle hibernation", () => {
   });
 });
 
+// Batch A (plans/daemon-fsm-desync.md): the suspected-deaf detector catches the
+// gated-no-further-turn_end permanent orphan that slips BOTH existing tick
+// predicates. Reproduces Olivia's wedge: a gated agent turn-ends idle, a later
+// wake drain-sends (stamping lastDeliverAt, re-arming turnActive), then the
+// process goes deaf — no progress, no turn_end, no exit ever follows.
+describe("reduceManager — tick: suspected-deaf detection (batch A)", () => {
+  // Build the exact orphan tuple: running, turnActive (from the drain-send),
+  // inbox empty (drained), lastDeliverAt > lastProgressAt, past the threshold.
+  function toDeafOrphan(staleMs = 100) {
+    let s = createInitialManagerState(staleMs);
+    s = register(s, "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
+    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 0 }).state;
+    s = reduceManager(s, { type: "session", agentId: "a", sessionId: "sess-1" }).state;
+    // Turn ends → turnActive false, idleSince armed, lastProgressAt=10.
+    s = reduceManager(s, { type: "turn_end", agentId: "a", nowMs: 10 }).state;
+    // A later wake on the now-idle turn drain-sends into the (about-to-go-deaf)
+    // process: stamps lastDeliverAt=20, re-arms turnActive, drains the inbox.
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m2" }, nowMs: 20 }).state;
+    return s;
+  }
+
+  it("terminates a gated agent whose delivery got no process response past the threshold", () => {
+    const s = toDeafOrphan();
+    expect(s.agents.a.turnActive).toBe(true);
+    expect(s.agents.a.inbox.length).toBe(0); // drained — slips stalled's gated sub-clause
+    expect(s.agents.a.lastDeliverAt).toBe(20);
+    expect(s.agents.a.lastProgressAt).toBe(10); // deliver newer than last progress
+
+    const r = reduceManager(s, { type: "tick", nowMs: 200 });
+    expect(r.effects).toEqual([{ type: "terminate_stalled", agentId: "a" }]);
+    expect(r.state.agents.a.status).toBe("stopping");
+  });
+
+  it("does NOT terminate before the stale window elapses after delivery", () => {
+    const s = toDeafOrphan();
+    expect(reduceManager(s, { type: "tick", nowMs: 100 }).effects).toEqual([]); // 100-20 < 100
+  });
+
+  it("does NOT flag a healthy agent whose process reported progress after the delivery", () => {
+    let s = toDeafOrphan();
+    // Process answers: a progress event lands after the deliver → lastProgressAt
+    // (30) overtakes lastDeliverAt (20), so the suspicion clears on its own.
+    s = reduceManager(s, { type: "progress", agentId: "a", nowMs: 30 }).state;
+    expect(reduceManager(s, { type: "tick", nowMs: 200 }).effects).toEqual([]);
+  });
+
+  it("does NOT flag a fresh agent that never had a delivery (lastDeliverAt null)", () => {
+    let s = createInitialManagerState(100);
+    s = register(s, "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
+    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 0 }).state;
+    expect(s.agents.a.lastDeliverAt).toBeNull();
+    expect(reduceManager(s, { type: "tick", nowMs: 200 }).effects).toEqual([]);
+  });
+
+  it("clears lastDeliverAt across a respawn (no cross-lifecycle stale suspicion)", () => {
+    let s = toDeafOrphan();
+    // The orphan gets terminated → exit → onExit; then respawn. lastDeliverAt
+    // must be null again so the next lifecycle starts clean.
+    s = reduceManager(s, { type: "tick", nowMs: 200 }).state; // → stopping + terminate
+    s = reduceManager(s, { type: "exit", agentId: "a" }).state;
+    expect(s.agents.a.lastDeliverAt).toBeNull();
+  });
+});
+
 describe("reduceManager — reset_session", () => {
   it("nulls sessionId on a known agent without changing status/turnActive", () => {
     let s = createInitialManagerState();
