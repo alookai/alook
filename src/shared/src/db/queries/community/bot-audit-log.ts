@@ -55,11 +55,20 @@ export type WakeTriggerPayload = {
  */
 export async function insertBotActivityEventAndPrune(
   db: Database,
-  data: BotActivityEventInput
+  data: BotActivityEventInput,
+  /**
+   * Extra Drizzle statements to run in the SAME atomic batch as the insert +
+   * prune — lets a caller fold a companion write (e.g. the per-message
+   * `handledMessageCount` bump on a wake_trigger) into this one round-trip
+   * instead of issuing a separate hot-path write. They share the batch's
+   * all-or-nothing fate. Appended AFTER insert+prune so `results[0]` is still
+   * the insert.
+   */
+  extraStatements: unknown[] = []
 ): Promise<{ id: string; createdAt: string } | null> {
   const insert = insertBotActivityEventStatement(db, data);
   const prune = pruneBotActivityEventsStatement(db, data.botId);
-  const results = (await db.batch([insert, prune] as any)) as any[];
+  const results = (await db.batch([insert, prune, ...extraStatements] as any)) as any[];
   const insertResult = results?.[0];
   const rows: Array<{ id: string; createdAt: string }> = Array.isArray(insertResult)
     ? insertResult
@@ -188,15 +197,26 @@ export async function insertBotAuditWakeTrigger(
     sessionId?: string | null;
     launchId?: string | null;
     payload: WakeTriggerPayload;
-  }
+  },
+  /**
+   * Extra Drizzle statements to fold into the SAME atomic batch as the
+   * wake_trigger insert + prune (see `insertBotActivityEventAndPrune`). The
+   * wake path uses this to bump `handledMessageCount` in the one round-trip
+   * that already writes the audit row, rather than a separate hot-path write.
+   */
+  extraStatements: unknown[] = []
 ): Promise<{ id: string; createdAt: string } | null> {
-  return insertBotActivityEventAndPrune(db, {
-    botId: data.botId,
-    sessionId: data.sessionId ?? null,
-    launchId: data.launchId ?? null,
-    kind: "wake_trigger",
-    payload: JSON.stringify(data.payload),
-  });
+  return insertBotActivityEventAndPrune(
+    db,
+    {
+      botId: data.botId,
+      sessionId: data.sessionId ?? null,
+      launchId: data.launchId ?? null,
+      kind: "wake_trigger",
+      payload: JSON.stringify(data.payload),
+    },
+    extraStatements
+  );
 }
 
 /**

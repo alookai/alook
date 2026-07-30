@@ -6,8 +6,10 @@ vi.mock("../../src/db/queries/community/message", () => ({
 }));
 
 const mockGetBotWakeContext = vi.fn();
+const mockBumpBotHandledMessageCountStatement = vi.fn(() => ({ __stmt: "bump" }));
 vi.mock("../../src/db/queries/community/bot", () => ({
   getBotWakeContext: (...a: unknown[]) => mockGetBotWakeContext(...a),
+  bumpBotHandledMessageCountStatement: (...a: unknown[]) => mockBumpBotHandledMessageCountStatement(...a),
 }));
 
 const mockHasMentionForMessage = vi.fn();
@@ -294,6 +296,14 @@ describe("buildUnreadWakeCommand", () => {
         reason: "unread",
       },
     });
+    // handledMessageCount rides the SAME atomic batch as the audit insert:
+    // the +1 statement is built for this bot and handed to
+    // insertBotAuditWakeTrigger as an extra batch statement — one round-trip,
+    // not a separate hot-path write (Cecilia's perf red line).
+    expect(mockBumpBotHandledMessageCountStatement).toHaveBeenCalledTimes(1);
+    expect(mockBumpBotHandledMessageCountStatement).toHaveBeenCalledWith(expect.anything(), "bot_1");
+    const [, , extraStatements] = mockInsertBotAuditWakeTrigger.mock.calls[0]!;
+    expect(extraStatements).toEqual([{ __stmt: "bump" }]);
   });
 
   it("audit reason is 'mention' when the message carries a mention row for the bot", async () => {
@@ -310,6 +320,9 @@ describe("buildUnreadWakeCommand", () => {
 
     await buildUnreadWakeCommand(fakeDb, { messageId: "msg_1", botUserId: "bot_1" });
     expect(mockInsertBotAuditWakeTrigger).not.toHaveBeenCalled();
+    // Skipped wake never handled the message → no count bump statement is even
+    // built (rides the same post-gate chokepoint as the audit write).
+    expect(mockBumpBotHandledMessageCountStatement).not.toHaveBeenCalled();
   });
 
   it("wake still fires when the audit insert throws (best-effort, MUST NOT gate the wake)", async () => {

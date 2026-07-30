@@ -240,11 +240,18 @@ async function writeWakeTriggerAudit(
     senderHandle: `@${formatHandle(sender.name, sender.discriminator)}`,
     reason: (isMention ? "mention" : "unread") as "unread" | "mention",
   };
-  const inserted = await botAuditLog.insertBotAuditWakeTrigger(db, {
-    botId: input.botUserId,
-    launchId: input.launchId,
-    payload,
-  });
+  // Fold the "handled this lifecycle" count bump into the SAME atomic batch as
+  // the wake_trigger audit insert+prune — one message that triggers a wake =
+  // one batched round-trip, not a separate hot-path write (Cecilia's perf red
+  // line, #533). It shares the audit batch's all-or-nothing fate: a failed
+  // audit write skips the +1 too, which is fine (a dropped increment on a D1
+  // blip is far cheaper than a per-message extra round-trip). The counter is
+  // reset to 0 at nap/session_reset (`touchBotRefreshContext`).
+  const inserted = await botAuditLog.insertBotAuditWakeTrigger(
+    db,
+    { botId: input.botUserId, launchId: input.launchId, payload },
+    [bot.bumpBotHandledMessageCountStatement(db, input.botUserId)]
+  );
   if (!inserted || !env) return;
 
   // ws-do live broadcast — best-effort, must not block the wake. `catch`

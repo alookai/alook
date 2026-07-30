@@ -50,6 +50,18 @@ export type BotRow = {
   description: string;
   createdAt: string;
   updatedAt: string;
+  /**
+   * ISO timestamp of the bot's last "refresh context" (a `nap` or owner
+   * `session_reset`), or null if it has never refreshed. Written only at the
+   * nap/session_reset audit chokepoint — a monotonic historical fact.
+   */
+  lastRefreshContextAt: string | null;
+  /**
+   * Count of messages HANDLED in the current context lifecycle — incremented
+   * once per message that triggered a wake (post-gate), reset to 0 at the same
+   * nap/session_reset chokepoint. NOT raw messages received.
+   */
+  handledMessageCount: number;
 };
 
 export type BotBinding = {
@@ -86,6 +98,8 @@ export async function listBotsForOwner(
       ownerUserId: user.ownerUserId,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
+      lastRefreshContextAt: user.lastRefreshContextAt,
+      handledMessageCount: user.handledMessageCount,
       description: communityUserProfile.aboutMe,
       machineId: communityBotBinding.machineId,
       runtime: communityBotBinding.runtime,
@@ -113,6 +127,8 @@ export async function listBotsForOwner(
     description: r.description ?? "",
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
+    lastRefreshContextAt: r.lastRefreshContextAt ?? null,
+    handledMessageCount: r.handledMessageCount ?? 0,
     machineId: r.machineId,
     runtime: r.runtime,
     modelName: r.modelName ?? null,
@@ -137,6 +153,8 @@ export async function getBotOwnedBy(
       ownerUserId: user.ownerUserId,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
+      lastRefreshContextAt: user.lastRefreshContextAt,
+      handledMessageCount: user.handledMessageCount,
       description: communityUserProfile.aboutMe,
       machineId: communityBotBinding.machineId,
       runtime: communityBotBinding.runtime,
@@ -168,6 +186,8 @@ export async function getBotOwnedBy(
     description: r.description ?? "",
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
+    lastRefreshContextAt: r.lastRefreshContextAt ?? null,
+    handledMessageCount: r.handledMessageCount ?? 0,
     machineId: r.machineId ?? null,
     runtime: r.runtime ?? null,
     modelName: r.modelName ?? null,
@@ -646,6 +666,46 @@ export async function updateBotModel(
     .where(inArray(communityBotBinding.userId, ownerScopedIds))
     .returning({ userId: communityBotBinding.userId });
   return rows.length > 0;
+}
+
+/**
+ * Record a context refresh on a bot: stamp `lastRefreshContextAt` and zero
+ * `handledMessageCount` (the current lifecycle just ended). Called at — and
+ * ONLY at — the two audit chokepoints that record a refresh: `nap`
+ * (self-initiated) and `session_reset` (owner). Keeping this the single write
+ * point is what makes both fields monotonic-per-lifecycle facts that never
+ * drift from the audit log or the live FSM. Scoped to `isBot=true` and not
+ * soft-deleted; the caller has already authorized the action (runner-key for
+ * nap, owner for reset), so no ownerUserId predicate here. `now` is injected so
+ * callers pass the same instant they wrote the audit row.
+ */
+export async function touchBotRefreshContext(
+  db: Database,
+  botId: string,
+  now: string
+): Promise<void> {
+  await db
+    .update(user)
+    .set({ lastRefreshContextAt: now, handledMessageCount: 0 })
+    .where(and(eq(user.id, botId), eq(user.isBot, true), isNull(user.deletedAt)));
+}
+
+/**
+ * Drizzle statement that increments a bot's `handledMessageCount` by one, scoped
+ * to a live bot. Exposed as a statement builder (not an awaited write) so it can
+ * be composed into the SAME `db.batch([...])` as the per-message wake_trigger
+ * audit insert — one message that triggers a wake = one batched round-trip that
+ * writes the audit row AND bumps the count, not two. The counter is reset to 0
+ * by `touchBotRefreshContext` at each nap/session_reset. Riding the audit batch
+ * means it shares that batch's all-or-nothing fate (a failed wake_trigger write
+ * skips the bump too) — acceptable: a dropped +1 on a D1 blip is far cheaper
+ * than an extra hot-path round-trip per message.
+ */
+export function bumpBotHandledMessageCountStatement(db: Database, botId: string) {
+  return db
+    .update(user)
+    .set({ handledMessageCount: sql`${user.handledMessageCount} + 1` })
+    .where(and(eq(user.id, botId), eq(user.isBot, true), isNull(user.deletedAt)));
 }
 
 /**

@@ -4,6 +4,7 @@ import { NextRequest } from "next/server"
 const mockGetBotOwnedBy = vi.fn()
 const mockGetBotWakeContext = vi.fn()
 const mockInsertBotAuditSessionReset = vi.fn()
+const mockTouchBotRefreshContext = vi.fn()
 const mockBroadcastToUser = vi.fn()
 const mockPushAgentResetToMachine = vi.fn()
 
@@ -21,6 +22,7 @@ vi.mock("@alook/shared", async () => {
       communityBot: {
         getBotOwnedBy: (...a: unknown[]) => mockGetBotOwnedBy(...a),
         getBotWakeContext: (...a: unknown[]) => mockGetBotWakeContext(...a),
+        touchBotRefreshContext: (...a: unknown[]) => mockTouchBotRefreshContext(...a),
       },
       communityBotAuditLog: {
         insertBotAuditSessionReset: (...a: unknown[]) => mockInsertBotAuditSessionReset(...a),
@@ -122,6 +124,9 @@ describe("POST /api/community/bots/[id]/reset-session", () => {
     expect(res.status).toBe(409)
     expect(mockPushAgentResetToMachine).toHaveBeenCalledTimes(1)
     expect(mockInsertBotAuditSessionReset).not.toHaveBeenCalled()
+    // No audit row means no refresh happened → the timestamp is not stamped
+    // either (they share the one chokepoint).
+    expect(mockTouchBotRefreshContext).not.toHaveBeenCalled()
     expect(mockBroadcastToUser).not.toHaveBeenCalled()
   })
 
@@ -152,6 +157,15 @@ describe("POST /api/community/bots/[id]/reset-session", () => {
       botId: "b1",
       actorId: "owner_1",
     })
+    // Single-source invariant: lastRefreshContextAt is stamped exactly once, in
+    // lockstep with the audit row, reusing that row's OWN createdAt — so the
+    // my-bots "last refreshed" timestamp can never drift from the audit event.
+    expect(mockTouchBotRefreshContext).toHaveBeenCalledTimes(1)
+    expect(mockTouchBotRefreshContext).toHaveBeenCalledWith(
+      expect.anything(),
+      "b1",
+      "2026-07-24T09:00:00.000Z",
+    )
     expect(mockBroadcastToUser).toHaveBeenCalledTimes(1)
     expect(mockBroadcastToUser).toHaveBeenCalledWith(
       "owner_1",

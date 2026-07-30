@@ -49,6 +49,10 @@ export const POST = withAuth(async (_req, ctx) => {
     actorId: ctx.userId,
   })
   if (inserted) {
+    // Stamp lastRefreshContextAt at the SAME chokepoint (single write point),
+    // in lockstep with the audit row landing — the my-bots "last refreshed"
+    // indicator can never drift from the session_reset audit event.
+    await queries.communityBot.touchBotRefreshContext(db, id, inserted.createdAt)
     try {
       await broadcastToUser(ctx.userId, {
         type: WS_EVENTS.BOT_AUDIT_EVENT,

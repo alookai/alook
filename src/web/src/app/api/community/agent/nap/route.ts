@@ -70,7 +70,13 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
   }
 
   // Audit on delivery only (mirrors reset/model-switch). No notification.
-  await queries.communityBotAuditLog.insertBotAuditNap(db, { botId: ctx.botUserId })
+  // Stamp lastRefreshContextAt at the SAME chokepoint (single write point),
+  // reusing the audit row's own createdAt so the my-bots "last refreshed"
+  // indicator can never drift from the nap audit event.
+  const inserted = await queries.communityBotAuditLog.insertBotAuditNap(db, { botId: ctx.botUserId })
+  if (inserted) {
+    await queries.communityBot.touchBotRefreshContext(db, ctx.botUserId, inserted.createdAt)
+  }
 
   return NextResponse.json({ napped: true })
 })

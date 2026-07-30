@@ -38,6 +38,17 @@ export const user = sqliteTable(
     ownerUserId: text("ownerUserId").references((): AnySQLiteColumn => user.id, { onDelete: "no action" }),
     deletedAt: text("deletedAt"),
     discriminator: text("discriminator").notNull().default("0000"),
+    // For bots: ISO timestamp of the last "refresh context" (a `nap` or an
+    // owner `session_reset` — both reset the agent's working context). Written
+    // only at the nap/session_reset audit chokepoint, so it's a monotonic
+    // historical fact that never drifts from the audit log. NULL = never
+    // refreshed. Surfaced in the my-bots list as "last refreshed N ago".
+    lastRefreshContextAt: text("lastRefreshContextAt"),
+    // For bots: count of messages HANDLED in the current context lifecycle —
+    // incremented once per message that triggered a wake (post-gate), reset to
+    // 0 at the same nap/session_reset chokepoint. NOT raw messages received;
+    // gate-filtered messages the agent never woke for are excluded.
+    handledMessageCount: integer("handledMessageCount", { mode: "number" }).notNull().default(0),
   },
   (t) => [index("idx_user_ownerUserId_isBot").on(t.ownerUserId, t.isBot)]
 );
