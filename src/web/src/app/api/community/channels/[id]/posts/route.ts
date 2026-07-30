@@ -159,28 +159,27 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     creatorId: ctx.userId,
   })
 
-  // Enroll the creator as a participant so the post's notify set (which fan-out
-  // now scopes to for a forum_post, exactly like a thread) starts with its
-  // author. Done via a direct addThreadParticipants call rather than by routing
-  // the first message as `kind:"forum_post"` — that would fire a
-  // CHILD_CHANNEL_UPDATE colliding with the CHILD_CHANNEL_CREATE emitted below.
-  await queries.communityThread.addThreadParticipants(db, postChannel.id, [
-    { userId: ctx.userId, source: "spoke" },
-  ])
-
-  // Create the first message in the post through the unified pipeline so it
-  // gets mention extraction + private-channel audience scoping (the forum's
-  // privacy climbs the parent via `isChannelPrivate`) — the direct
-  // `createMessage` insert this replaced dropped mentions (plan gap #2). Route
-  // as `kind:"channel"` with the post's OWN channelId (NOT `kind:"thread"` —
-  // that fires a CHILD_CHANNEL_UPDATE colliding with the CHILD_CHANNEL_CREATE
-  // this route already emits below). The emitted MESSAGE_CREATE is deduped by
-  // id on the client against that CHILD_CHANNEL_CREATE.
+  // Create the first message in the post through the unified pipeline. Route as
+  // `kind:"forum_post"` (NOT `kind:"channel"`) so the notify-set enroll runs
+  // exactly like a thread: the creator joins as "spoke" AND anyone the post
+  // body @-mentions joins as "mention" — so a person @-ed while creating the
+  // post lands in the members panel, matching reply behavior. `mentionType`
+  // still flows through for @everyone. `skipChildChannelUpdate` suppresses ONLY
+  // the parent CHILD_CHANNEL_UPDATE WS tick (enroll is unaffected) — this route
+  // already emits its own CHILD_CHANNEL_CREATE for the new post below, and the
+  // two would collide. The emitted MESSAGE_CREATE is deduped by id on the
+  // client against that CHILD_CHANNEL_CREATE.
   const created = await createCommunityMessage({
     db,
     authorId: ctx.userId,
-    target: { kind: "channel", channelId: postChannel.id, serverId: channel.serverId },
+    target: {
+      kind: "forum_post",
+      channelId: postChannel.id,
+      parentChannelId: channelId,
+      serverId: channel.serverId,
+    },
     body: { content, attachments: body.attachments, mentionType: body.mentionType },
+    skipChildChannelUpdate: true,
   })
   if (!created.ok) return writeError(created.error, created.status)
   const message = created.row

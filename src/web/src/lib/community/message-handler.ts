@@ -197,6 +197,16 @@ export async function createCommunityMessage(params: {
    * conflict — broadcasting before that commit would show a phantom card.
    */
   deferBroadcast?: boolean
+  /**
+   * Suppress ONLY the parent `CHILD_CHANNEL_UPDATE` WS emission — participant
+   * enroll (the notify-set write) still runs per `kind`. The forum-post CREATE
+   * path opts in: it routes the post's first message as `kind:"forum_post"` so
+   * mentioned users enroll as participants, but must not fire
+   * CHILD_CHANNEL_UPDATE because it already emits its own CHILD_CHANNEL_CREATE
+   * for the new post (the two would collide). Decouples enroll from the WS tick
+   * so dodging the collision no longer silently skips enrollment.
+   */
+  skipChildChannelUpdate?: boolean
 }): Promise<CreateMessageResult> {
   const {
     db,
@@ -211,6 +221,7 @@ export async function createCommunityMessage(params: {
     includeAuthorInFanout,
     deferBroadcast,
     attachmentIds,
+    skipChildChannelUpdate,
   } = params
 
   const content = typeof body.content === "string" ? body.content : ""
@@ -656,7 +667,7 @@ export async function createCommunityMessage(params: {
     ).catch(() => { })
 
     if (!isDmTarget(target)) {
-      if (hasParentChannel(target)) {
+      if (hasParentChannel(target) && !skipChildChannelUpdate) {
         const updated = await queries.communityChannel.getChannel(
           db,
           target.channelId,

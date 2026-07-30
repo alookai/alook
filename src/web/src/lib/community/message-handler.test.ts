@@ -612,6 +612,35 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     ])
   })
 
+  it("forum_post + skipChildChannelUpdate: enroll STILL runs, but the parent CHILD_CHANNEL_UPDATE is suppressed", async () => {
+    // The forum-post CREATE path routes the first message as kind:"forum_post"
+    // (so an @-mentioned user enrolls as a participant → appears in members),
+    // AND sets skipChildChannelUpdate to avoid colliding with its own
+    // CHILD_CHANNEL_CREATE. Enroll and the WS tick are decoupled: enroll runs,
+    // the tick does not.
+    mockGetPrivateChannelAudienceUserIds.mockResolvedValue(["author_1", "cara_1"])
+    mockGetMessage.mockResolvedValue(messageRow({ content: "welcome @Cara#0002", channelId: "p1" }))
+
+    await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "forum_post", channelId: "p1", parentChannelId: "forum_1", serverId: "srv_1" },
+      body: { content: "welcome @Cara#0002" },
+      skipChildChannelUpdate: true,
+    })
+
+    // Enroll is unaffected by the flag — Cara joins as a participant.
+    expect(mockAddThreadParticipants).toHaveBeenCalledWith({}, "p1", [
+      { userId: "author_1", source: "spoke" },
+      { userId: "cara_1", source: "mention" },
+    ])
+    // No CHILD_CHANNEL_UPDATE fanned to the parent forum.
+    const childUpdateCalls = mockFanOutToChannel.mock.calls.filter(
+      (c) => (c[1] as { type?: string })?.type === "community:channel.child_update",
+    )
+    expect(childUpdateCalls).toHaveLength(0)
+  })
+
   it("public channel: mention of any server member is kept, no roster row", async () => {
     mockIsChannelPrivate.mockResolvedValue(false)
     mockGetMessage.mockResolvedValue(messageRow({ content: "hey @Bob#0001" }))
