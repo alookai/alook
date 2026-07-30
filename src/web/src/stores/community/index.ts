@@ -103,6 +103,17 @@ type CommunityUiHandlers = {
   openMessageContext?: (target: { serverId: string; channelId: string; label: string; seq: number }) => void
 }
 
+/** A reply target handed off across a channel navigation. Clicking Reply on a
+ * CROSS-channel message-context sheet can't seed the current channel's composer
+ * (you'd stamp a reply to a message in another channel). Instead the sheet
+ * stashes the target here + navigates to that message's channel; the
+ * destination channel page consumes it on mount and seeds ITS composer, so the
+ * reply lands in the right channel (Gus #449/#452). */
+type PendingReply = {
+  channelId: string
+  target: { id: string; authorName: string; text: string }
+}
+
 type Timer = ReturnType<typeof setTimeout>
 
 export type CommunityStoreState = {
@@ -129,6 +140,10 @@ export type CommunityStoreState = {
   // Machine pairing in flight (raw token id awaiting activate).
   pendingMachineTokenId: string | null
 
+  // A reply target handed off across a channel navigation (cross-channel sheet
+  // Reply → navigate → destination page seeds its composer). See `PendingReply`.
+  pendingReply: PendingReply | null
+
   // What the WS handler should treat as "focused" for setQueryData vs
   // invalidate routing.
   subscription: CommunitySubscription
@@ -144,6 +159,7 @@ export type CommunityStoreState = {
   subscribe: (target: CommunitySubscription) => void
   unsubscribe: () => void
   setPendingMachineTokenId: (tokenId: string | null) => void
+  setPendingReply: (reply: PendingReply | null) => void
   registerUiHandlers: (handlers: CommunityUiHandlers) => void
   reset: () => void
 }
@@ -160,6 +176,7 @@ const initialState = (): Pick<
   | "lastTypingSent"
   | "reactionTimers"
   | "pendingMachineTokenId"
+  | "pendingReply"
   | "subscription"
   | "uiHandlers"
 > => ({
@@ -171,6 +188,7 @@ const initialState = (): Pick<
   lastTypingSent: new Map(),
   reactionTimers: new Map(),
   pendingMachineTokenId: null,
+  pendingReply: null,
   subscription: {},
   uiHandlers: {},
 })
@@ -214,6 +232,8 @@ export const useCommunityStore = create<CommunityStoreState>((set, get) => ({
 
   setPendingMachineTokenId: (tokenId) =>
     set({ pendingMachineTokenId: tokenId }),
+
+  setPendingReply: (reply) => set({ pendingReply: reply }),
 
   registerUiHandlers: (handlers) =>
     set({ uiHandlers: { ...get().uiHandlers, ...handlers } }),

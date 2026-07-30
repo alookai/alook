@@ -613,6 +613,33 @@ function ChannelView() {
     )
   }, [serverId, channelId, channelName])
 
+  // Reply clicked inside the context sheet. Same-channel preview → seed THIS
+  // channel's composer directly. Cross-channel preview → you can't reply here to
+  // a message that lives in another channel (Gus #449/#452), so hand the target
+  // off through the store and navigate to that message's channel; its page seeds
+  // its own composer on arrival (see the pendingReply effect below). Reply stays
+  // available in both cases — it just routes you to where the reply belongs.
+  const onSheetReply = useCallback((target: { id: string; authorName: string; text: string }) => {
+    if (contextTarget && contextTarget.channelId !== channelId) {
+      useCommunityStore.getState().setPendingReply({ channelId: contextTarget.channelId, target })
+      setContextTarget(null)
+      uiHandlers.navigate?.(contextTarget.serverId, contextTarget.channelId)
+    } else {
+      setReplyTo(target)
+      setContextTarget(null)
+    }
+  }, [contextTarget, channelId, uiHandlers])
+
+  // Consume a reply handed off from a cross-channel sheet on another page: if a
+  // pendingReply targets THIS channel, seed the composer once and clear it.
+  const pendingReply = useCommunityStore((s) => s.pendingReply)
+  useEffect(() => {
+    if (pendingReply && pendingReply.channelId === channelId) {
+      setReplyTo(pendingReply.target)
+      useCommunityStore.getState().setPendingReply(null)
+    }
+  }, [pendingReply, channelId])
+
   // Same-channel message ref (`/server/channel#N`, channel open) via `jumpToSeq`:
   // message loaded in the window → scroll+highlight it in place; not loaded →
   // open the context sheet on THIS channel. Reads `messages` lazily off the
@@ -1092,10 +1119,7 @@ function ChannelView() {
           onOpenContextSheet={openContextSeq}
           onOpenProfile={openProfile}
           resolveUserName={resolveUserName}
-          onReply={(target) => {
-            setReplyTo(target)
-            setContextTarget(null)
-          }}
+          onReply={onSheetReply}
         />
       </>
     )
@@ -1243,10 +1267,7 @@ function ChannelView() {
         onOpenContextSheet={openContextSeq}
         onOpenProfile={openProfile}
         resolveUserName={resolveUserName}
-        onReply={(target) => {
-          setReplyTo(target)
-          setContextTarget(null)
-        }}
+        onReply={onSheetReply}
       />
     </>
   )
