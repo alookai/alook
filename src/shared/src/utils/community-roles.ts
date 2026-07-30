@@ -1,6 +1,13 @@
 export type CommunityRole = "owner" | "admin" | "member"
 export type ChannelType = "text" | "forum"
-export type StoredChannelType = "text" | "forum" | "forum_post" | "thread"
+// Every value the `community_channel.type` column can hold. DMs became channels
+// with `type='dm'` in migration 0068 (`isDm` below has always checked for it),
+// but this union previously omitted `dm` — a real type-level gap. Widened to
+// the full stored set so code that switches on a channel's stored type is
+// exhaustive over DM channels too. (We keep `forum_post`, NOT the `post` rename
+// from the abandoned PR-408 batch1 — see
+// plans/22-community-unified-actor-route-unify.md §7 ADAPT.)
+export type StoredChannelType = "text" | "forum" | "forum_post" | "thread" | "dm"
 
 export const ROLES = {
   OWNER: "owner",
