@@ -80,9 +80,16 @@ type CommunityUiHandlers = {
   // sheet, which resolves seq→id server-side). A same-channel message ref pill
   // (`/server/channel#N` where the channel is the open one) invokes it so
   // clicking still scrolls to the message — the behavior the bare-`#N` pill had
-  // before message-ref-upgrade.md removed it. Cross-channel jumps route via the
-  // pill's own `router.push` instead (a followup adds scroll-after-navigate).
+  // before message-ref-upgrade.md removed it.
   jumpToSeq?: (seq: number) => void
+  // Navigate to a server (channelId omitted) or a channel. Registered by the
+  // shell (shell-frame) where the router is the live App-Router instance.
+  // Channel/server-ref pills call this INSTEAD of a subtree `useRouter()`:
+  // those pills render deep inside the memoized Streamdown message tree, where
+  // `useRouter().push` is a no-op (the ref pill's cross-channel click silently
+  // did nothing — a pre-existing bug the full-path refs exposed). The shell
+  // router works (rail clicks navigate through it), so route through the bridge.
+  navigate?: (serverId: string, channelId?: string) => void
 }
 
 type Timer = ReturnType<typeof setTimeout>
@@ -243,6 +250,7 @@ const stableUiHandlers: CommunityUiHandlers = {
     useCommunityStore.getState().uiHandlers.openProfile?.(name, e, discriminator, userId),
   goBackMobile: () => useCommunityStore.getState().uiHandlers.goBackMobile?.(),
   jumpToSeq: (seq) => useCommunityStore.getState().uiHandlers.jumpToSeq?.(seq),
+  navigate: (serverId, channelId) => useCommunityStore.getState().uiHandlers.navigate?.(serverId, channelId),
 }
 export const useUiHandlers = () => stableUiHandlers
 

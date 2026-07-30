@@ -404,13 +404,25 @@ export function ShellFrame({
 
   const previewImage = useCallback((url: string) => setPreview(url), [])
   const goBackMobile = useCallback(() => setMobileZone("nav"), [setMobileZone])
+  // Navigate for channel/server-ref pills. They live deep in the memoized
+  // Streamdown message tree where a subtree `useRouter().push` is a no-op; the
+  // shell's router is the live one (rail clicks above navigate through it), so
+  // the pills route through this bridge instead.
+  const navigate = useCallback(
+    (serverId: string, channelId?: string) => {
+      markSwitch(channelId ? "channel" : "server", channelId ?? serverId)
+      router.push(channelId ? `/c/channels/${serverId}/${channelId}` : `/c/channels/${serverId}`)
+    },
+    [router],
+  )
   useEffect(() => {
     useCommunityStore.getState().registerUiHandlers({
       previewImage,
       openProfile,
       goBackMobile,
+      navigate,
     })
-  }, [previewImage, openProfile, goBackMobile])
+  }, [previewImage, openProfile, goBackMobile, navigate])
 
   // Inline self-status save from the `ProfileCard` header (see status-editor.tsx).
   // Mirrors `userSettingsDialog`'s onSave status branch exactly — both save

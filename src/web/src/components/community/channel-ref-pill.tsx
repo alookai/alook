@@ -2,7 +2,6 @@
 
 import { useMemo } from "react"
 import type React from "react"
-import { useRouter } from "next/navigation"
 import { ChannelPill } from "./inline-marks"
 import { resolveChannelRefBase, type ResolvedChannelRef } from "@/lib/community/channel-ref"
 import { useChannelRefDirectory } from "@/hooks/community/use-channel-ref-directory"
@@ -33,7 +32,7 @@ export type ChannelRefPillView =
 /**
  * Pure — takes already-computed inputs, decides what to render. No hooks.
  * This repo has no jsdom/testing-library, so a component that calls
- * `useChannelRefDirectory`/`useThreads`/`useCommunityStore`/`useRouter`
+ * `useChannelRefDirectory`/`useThreads`/`useCommunityStore`/`useUiHandlers`
  * directly can't be unit-tested the way this function can — mirrors the
  * precedent set by `use-server-members.ts`, which extracts its reducers so
  * hookless logic stays testable and leaves the hook wiring itself untested.
@@ -120,7 +119,6 @@ export function describeChannelRefPillView(args: {
  */
 export function ChannelRefPill({ children }: { children?: React.ReactNode }) {
   const ref = String(children ?? "")
-  const router = useRouter()
   const currentServerId = useCommunityStore((s) => s.currentServerId)
   const currentChannelId = useCommunityStore((s) => s.currentChannelId)
   const uiHandlers = useUiHandlers()
@@ -156,15 +154,18 @@ export function ChannelRefPill({ children }: { children?: React.ReactNode }) {
   // no-op that leaves the viewport put — the same-channel regression from
   // dropping the bare-`#N` pill). Route through the `jumpToSeq` UI-handler the
   // page registers (message loaded → scroll; else context sheet resolves
-  // seq→id). Cross-channel refs still `router.push`; scroll-after-navigate is a
-  // separate followup (see message-ref-upgrade.md).
+  // seq→id). Cross-channel refs navigate via the `navigate` UI-handler — NOT a
+  // local `useRouter()`: this pill renders inside the memoized Streamdown
+  // message tree where `router.push` is a silent no-op (the click did nothing);
+  // the shell registers `navigate` off its live router. Scroll-after-navigate
+  // is a separate followup (see message-ref-upgrade.md).
   const sameChannelSeq =
     view.messageSuffix !== undefined && view.href.channelId === currentChannelId
       ? view.messageSuffix
       : undefined
   const onClick = sameChannelSeq !== undefined
     ? () => uiHandlers.jumpToSeq?.(sameChannelSeq)
-    : () => router.push(`/c/channels/${view.href.serverId}/${view.href.channelId}`)
+    : () => uiHandlers.navigate?.(view.href.serverId, view.href.channelId)
 
   return (
     <>

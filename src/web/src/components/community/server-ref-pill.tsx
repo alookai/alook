@@ -2,10 +2,10 @@
 
 import { useMemo } from "react"
 import type React from "react"
-import { useRouter } from "next/navigation"
 import { ServerPill } from "./inline-marks"
 import { resolveServerRefBase } from "@/lib/community/channel-ref"
 import { useChannelRefDirectory } from "@/hooks/community/use-channel-ref-directory"
+import { useUiHandlers } from "@/stores/community"
 
 export type ServerRefPillView =
   | { kind: "plain"; text: string }
@@ -35,7 +35,7 @@ export function describeServerRefPillView(args: {
  */
 export function ServerRefPill({ children }: { children?: React.ReactNode }) {
   const ref = String(children ?? "")
-  const router = useRouter()
+  const uiHandlers = useUiHandlers()
   const { directory } = useChannelRefDirectory()
 
   const resolved = useMemo(() => resolveServerRefBase(directory, ref), [directory, ref])
@@ -44,8 +44,12 @@ export function ServerRefPill({ children }: { children?: React.ReactNode }) {
 
   if (view.kind === "plain") return <>{view.text}</>
 
+  // Navigate via the `navigate` UI-handler, NOT a local `useRouter()`: this pill
+  // renders in the memoized Streamdown message tree where `router.push` is a
+  // silent no-op (same pre-existing bug as ChannelRefPill). The shell registers
+  // `navigate` off its live router.
   return (
-    <ServerPill onClick={() => router.push(`/c/channels/${view.serverId}`)}>
+    <ServerPill onClick={() => uiHandlers.navigate?.(view.serverId)}>
       {view.label}
     </ServerPill>
   )
