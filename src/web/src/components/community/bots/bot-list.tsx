@@ -265,6 +265,11 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                                   </Button>
                                 )}
                               </div>
+                              {/* One meta line (Gus #573: no third row). Runtime ·
+                                  model · context-lifecycle (my-bots #516/#531):
+                                  last refresh (nap/reset — null omits it, new
+                                  bot never refreshed) + messages handled this
+                                  lifecycle (always shown, defaults 0). */}
                               <span className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
                                 <ProviderLogo provider={bot.runtime} className="size-3.5 shrink-0" />
                                 <span className="truncate">{bot.runtime}</span>
@@ -282,20 +287,13 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                                     local default
                                   </span>
                                 )}
-                              </span>
-                              {/* Context-lifecycle meta (my-bots #516/#531):
-                                  when the agent last refreshed context (nap /
-                                  reset) + how many messages it's handled in the
-                                  CURRENT lifecycle. `lastRefreshContextAt` is
-                                  null for a bot that never refreshed → omit that
-                                  half; the count is always present (defaults 0). */}
-                              <span className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
                                 {bot.lastRefreshContextAt && (
                                   <>
-                                    <span className="truncate">Refreshed {formatRelativeTime(bot.lastRefreshContextAt)}</span>
                                     <span aria-hidden className="shrink-0">·</span>
+                                    <span className="shrink-0">Refreshed {formatRelativeTime(bot.lastRefreshContextAt)}</span>
                                   </>
                                 )}
+                                <span aria-hidden className="shrink-0">·</span>
                                 <span className="shrink-0">{bot.handledMessageCount} msgs</span>
                               </span>
                             </div>
