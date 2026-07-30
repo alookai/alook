@@ -296,7 +296,7 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                                     <span aria-hidden className="shrink-0">·</span>
                                   </>
                                 )}
-                                <span className="shrink-0">{bot.handledMessageCount} handled</span>
+                                <span className="shrink-0">{bot.handledMessageCount} msgs</span>
                               </span>
                             </div>
                           </div>
