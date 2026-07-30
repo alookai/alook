@@ -82,17 +82,25 @@ type CommunityUiHandlers = {
   // clicking still scrolls to the message — the behavior the bare-`#N` pill had
   // before message-ref-upgrade.md removed it.
   jumpToSeq?: (seq: number) => void
-  // Navigate to a server (channelId omitted) or a channel, optionally landing on
-  // a specific message `seq` (a cross-channel message ref). Registered by the
+  // Navigate to a server (channelId omitted) or a channel. Registered by the
   // shell (shell-frame) where the router is the live App-Router instance.
   // Channel/server-ref pills call this INSTEAD of a subtree `useRouter()`:
   // those pills render deep inside the memoized Streamdown message tree, where
   // `useRouter().push` is a no-op (the ref pill's cross-channel click silently
   // did nothing — a pre-existing bug the full-path refs exposed). The shell
   // router works (rail clicks navigate through it), so route through the bridge.
-  // With `seq`, the target channel opens with `?msgseq=N` and jumps to that
-  // message on arrival (see the channel page's `?msgseq` handler).
-  navigate?: (serverId: string, channelId?: string, seq?: number) => void
+  // (A message ref does NOT navigate — it opens the context sheet in place via
+  // `openMessageContext`; only a plain channel/server ref navigates.)
+  navigate?: (serverId: string, channelId?: string) => void
+  // Open the message context side sheet IN PLACE for a message ref — the
+  // channel page registers this. A message ref's intent is "see that message's
+  // context", not "go to that channel" (Gus #417), so clicking it never
+  // navigates: the sheet resolves the target channel's seq→id + surrounding
+  // messages (via the access-checked read path — a private channel the viewer
+  // can't see returns not-found, no leak) and shows them without leaving the
+  // current channel. `label` is the source channel's display name for the sheet
+  // header (passed in so the sheet needn't refetch channel metadata).
+  openMessageContext?: (target: { serverId: string; channelId: string; label: string; seq: number }) => void
 }
 
 type Timer = ReturnType<typeof setTimeout>
@@ -253,7 +261,8 @@ const stableUiHandlers: CommunityUiHandlers = {
     useCommunityStore.getState().uiHandlers.openProfile?.(name, e, discriminator, userId),
   goBackMobile: () => useCommunityStore.getState().uiHandlers.goBackMobile?.(),
   jumpToSeq: (seq) => useCommunityStore.getState().uiHandlers.jumpToSeq?.(seq),
-  navigate: (serverId, channelId, seq) => useCommunityStore.getState().uiHandlers.navigate?.(serverId, channelId, seq),
+  navigate: (serverId, channelId) => useCommunityStore.getState().uiHandlers.navigate?.(serverId, channelId),
+  openMessageContext: (target) => useCommunityStore.getState().uiHandlers.openMessageContext?.(target),
 }
 export const useUiHandlers = () => stableUiHandlers
 

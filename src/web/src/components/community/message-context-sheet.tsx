@@ -8,6 +8,7 @@ import { deriveThreadName } from "@alook/shared"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { useSheetResize, SheetResizeHandle } from "@/components/ui/sheet-resize-handle"
 import { MessageRow } from "./message-row"
+import { ChannelIcon } from "./channel-icon"
 import { Skeleton } from "@/components/ui/skeleton"
 import { apiFetch, toastApiError } from "@/lib/api/client"
 import { ApiError } from "@/lib/errors"
@@ -115,6 +116,7 @@ export function MessageContextSheet({
   open,
   onOpenChange,
   channelId,
+  channelLabel,
   targetSeq,
   pinnedIds,
   onOpenContextSheet,
@@ -126,6 +128,10 @@ export function MessageContextSheet({
   open: boolean
   onOpenChange: (v: boolean) => void
   channelId: string
+  // Source channel's display name for the header — a message ref opens this
+  // sheet to preview a (possibly other) channel's message in place, so the
+  // header names which channel's context this is (Gus #417/#423, Alli #420).
+  channelLabel?: string
   targetSeq: number | null
   pinnedIds?: Set<string>
   onOpenContextSheet?: (seq: number) => void
@@ -362,10 +368,26 @@ export function MessageContextSheet({
         className="flex flex-col p-0 data-[side=right]:sm:inset-y-2 data-[side=right]:sm:right-2 data-[side=right]:sm:h-auto data-[side=right]:sm:rounded-xl data-[side=right]:sm:border data-[side=right]:sm:overflow-hidden"
       >
         <SheetResizeHandle onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} />
+        {/* Header names WHICH channel's context this is (Gus #417/#423, Alli
+            #420): channel icon + name as the primary line, the seq as weaker
+            secondary info — the intent here is "reading a channel's context",
+            the seq is just the locator. Shown consistently (same- or cross-
+            channel) for one message-side-sheet mental model. Frameless (no
+            border) matches the existing quiet header. Falls back to just `#N`
+            if no label was passed (older callers). */}
         <SheetHeader className="gap-0 border-b-0 py-3">
-          <SheetTitle className="flex items-baseline gap-0.5 font-mono text-2xl font-semibold tracking-tight">
-            <span className="text-muted-foreground">#</span>
-            <span>{targetSeq ?? ""}</span>
+          <SheetTitle className="flex items-center gap-1.5 text-lg font-semibold tracking-tight">
+            {channelLabel ? (
+              <>
+                <ChannelIcon className="shrink-0 text-muted-foreground" />
+                <span className="min-w-0 truncate">{channelLabel}</span>
+                <span className="shrink-0 font-mono text-base font-normal text-muted-foreground">#{targetSeq ?? ""}</span>
+              </>
+            ) : (
+              <span className="font-mono text-2xl">
+                <span className="text-muted-foreground">#</span>{targetSeq ?? ""}
+              </span>
+            )}
           </SheetTitle>
         </SheetHeader>
 

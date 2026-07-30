@@ -149,23 +149,29 @@ export function ChannelRefPill({ children }: { children?: React.ReactNode }) {
   if (view.kind === "plain") return <>{view.text}</>
   if (view.kind === "muted") return <ChannelPill muted>{view.label}</ChannelPill>
 
-  // A message ref (`#N` suffix) whose target is the ALREADY-OPEN channel should
-  // SCROLL to the message, not navigate (navigating to the current channel is a
-  // no-op that leaves the viewport put — the same-channel regression from
-  // dropping the bare-`#N` pill). Route through the `jumpToSeq` UI-handler the
-  // page registers (message loaded → scroll; else context sheet resolves
-  // seq→id). Cross-channel refs navigate via the `navigate` UI-handler — NOT a
-  // local `useRouter()`: this pill renders inside the memoized Streamdown
-  // message tree where `router.push` is a silent no-op (the click did nothing);
-  // the shell registers `navigate` off its live router. Scroll-after-navigate
-  // is a separate followup (see message-ref-upgrade.md).
-  const sameChannelSeq =
-    view.messageSuffix !== undefined && view.href.channelId === currentChannelId
-      ? view.messageSuffix
-      : undefined
-  const onClick = sameChannelSeq !== undefined
-    ? () => uiHandlers.jumpToSeq?.(sameChannelSeq)
-    : () => uiHandlers.navigate?.(view.href.serverId, view.href.channelId, view.messageSuffix)
+  // Click intent depends on what the ref points at (Gus #417):
+  //  - A MESSAGE ref (`#N`) means "see that message's context", NOT "go to that
+  //    channel". So it never navigates:
+  //      · same channel  → `jumpToSeq` (message loaded → scroll to it; else the
+  //        context sheet resolves seq→id) — stays put.
+  //      · other channel → `openMessageContext` opens the context side sheet IN
+  //        PLACE for the target channel's seq (access-checked read path), so the
+  //        viewer reads the context without leaving their current channel.
+  //  - A plain CHANNEL/THREAD ref (no `#N`) means "go there" → `navigate`
+  //    (through the shell's live router — a subtree `useRouter().push` no-ops
+  //    inside the memoized Streamdown tree, a pre-existing bug).
+  const isMsgRef = view.messageSuffix !== undefined
+  const sameChannel = view.href.channelId === currentChannelId
+  const onClick = isMsgRef
+    ? sameChannel
+      ? () => uiHandlers.jumpToSeq?.(view.messageSuffix!)
+      : () => uiHandlers.openMessageContext?.({
+        serverId: view.href.serverId,
+        channelId: view.href.channelId,
+        label: view.label,
+        seq: view.messageSuffix!,
+      })
+    : () => uiHandlers.navigate?.(view.href.serverId, view.href.channelId)
 
   return (
     <>

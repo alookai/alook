@@ -595,42 +595,45 @@ function ChannelView() {
     router.push(`/c/channels/${params.serverId}/${id}`)
   }, [router, params.serverId])
 
-  // Message context sheet for unloaded message refs
-  const [contextSheetSeq, setContextSheetSeq] = useState<number | null>(null)
+  // The message context side sheet's target. A message ref opens it to preview
+  // a message + surrounding context WITHOUT navigating (Gus #417). The target
+  // carries the source channel (which may differ from the open one — a
+  // cross-channel ref) so the sheet resolves that channel's seq and shows its
+  // name in the header. `label` is the source channel's display name (passed in
+  // so the sheet needn't refetch metadata).
+  const [contextTarget, setContextTarget] = useState<
+    { serverId: string; channelId: string; label: string; seq: number } | null
+  >(null)
+  // Chained `#N` refs inside the sheet reopen it on the new seq — same channel
+  // as the currently-shown one (a `#N` in a previewed message is scoped to that
+  // message's channel).
+  const openContextSeq = useCallback((seq: number) => {
+    setContextTarget((prev) =>
+      prev ? { ...prev, seq } : { serverId, channelId, label: channelName, seq },
+    )
+  }, [serverId, channelId, channelName])
 
-  // Jump to a message by seq within THIS channel — invoked by a same-channel
-  // message-ref pill (`/server/channel#N` where the channel is open) via the
-  // `jumpToSeq` UI-handler. Loaded in the window → reuse the mount-time scroll
-  // path (`setScrollToMessageId` scrolls + highlights); not loaded → open the
-  // context sheet, which resolves seq→id server-side. Reads `messages` lazily
-  // off the actions ref so the callback stays reference-stable (no memo churn).
+  // Same-channel message ref (`/server/channel#N`, channel open) via `jumpToSeq`:
+  // message loaded in the window → scroll+highlight it in place; not loaded →
+  // open the context sheet on THIS channel. Reads `messages` lazily off the
+  // actions ref so the callback stays reference-stable (no memo churn).
   const jumpToSeq = useCallback((seq: number) => {
     const msg = actionsCtxRef.current.messages.find((m) => m.seq === seq)
     if (msg) setScrollToMessageId(msg.id)
-    else setContextSheetSeq(seq)
-  }, [])
+    else setContextTarget({ serverId, channelId, label: channelName, seq })
+  }, [serverId, channelId, channelName])
+  // Cross-channel message ref via `openMessageContext`: open the sheet IN PLACE
+  // on the target (other) channel — never navigate (Gus #417). The sheet's
+  // access-checked read path returns not-found for a channel the viewer can't
+  // see, so a private-channel ref leaks nothing.
+  const openMessageContext = useCallback(
+    (target: { serverId: string; channelId: string; label: string; seq: number }) => setContextTarget(target),
+    [],
+  )
   useEffect(() => {
-    useCommunityStore.getState().registerUiHandlers({ jumpToSeq })
-    return () => useCommunityStore.getState().registerUiHandlers({ jumpToSeq: undefined })
-  }, [jumpToSeq])
-
-  // Cross-channel message ref: a pill in another channel navigated here with
-  // `?msgseq=N` (see shell-frame's `navigate`). Land on that message once — a
-  // freshly-opened channel rarely has an arbitrary seq in its initial window,
-  // so this usually opens the context sheet (resolves seq→id server-side); if
-  // the message happens to be loaded, jumpToSeq scrolls to it. Captured once at
-  // mount and the param is stripped so a refresh/back doesn't re-trigger.
-  const [jumpSeqTarget] = useState<number | null>(() => {
-    const raw = searchParams.get("msgseq")
-    const n = raw ? parseInt(raw, 10) : NaN
-    return Number.isFinite(n) && n > 0 ? n : null
-  })
-  useEffect(() => {
-    if (jumpSeqTarget === null) return
-    jumpToSeq(jumpSeqTarget)
-    router.replace(`/c/channels/${params.serverId}/${channelId}`, { scroll: false })
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once for this mount's cross-channel jump
-  }, [])
+    useCommunityStore.getState().registerUiHandlers({ jumpToSeq, openMessageContext })
+    return () => useCommunityStore.getState().registerUiHandlers({ jumpToSeq: undefined, openMessageContext: undefined })
+  }, [jumpToSeq, openMessageContext])
 
   // Stable so it doesn't bust the memoized message rows; reads uiHandlers
   // lazily through the actions ref (assigned just below).
@@ -1052,7 +1055,7 @@ function ChannelView() {
             onLoadNewer={fetchNewerMessages}
             onJumpToPresent={jumpToPresent}
             unreadCount={unreadCount}
-            onOpenContextSheet={setContextSheetSeq}
+            onOpenContextSheet={openContextSeq}
           />
           <Composer
             channel={channelName}
@@ -1080,17 +1083,18 @@ function ChannelView() {
         )}
         {manageMembersDialog}
         <MessageContextSheet
-          open={contextSheetSeq !== null}
-          onOpenChange={(v) => { if (!v) setContextSheetSeq(null) }}
-          channelId={channelId}
-          targetSeq={contextSheetSeq}
+          open={contextTarget !== null}
+          onOpenChange={(v) => { if (!v) setContextTarget(null) }}
+          channelId={contextTarget?.channelId ?? channelId}
+          channelLabel={contextTarget?.label}
+          targetSeq={contextTarget?.seq ?? null}
           pinnedIds={pinnedIds}
-          onOpenContextSheet={setContextSheetSeq}
+          onOpenContextSheet={openContextSeq}
           onOpenProfile={openProfile}
           resolveUserName={resolveUserName}
           onReply={(target) => {
             setReplyTo(target)
-            setContextSheetSeq(null)
+            setContextTarget(null)
           }}
         />
       </>
@@ -1202,7 +1206,7 @@ function ChannelView() {
           onLoadNewer={fetchNewerMessages}
           onJumpToPresent={jumpToPresent}
           unreadCount={unreadCount}
-          onOpenContextSheet={setContextSheetSeq}
+          onOpenContextSheet={openContextSeq}
         />
         <Composer
           channel={channelName}
@@ -1230,17 +1234,18 @@ function ChannelView() {
       )}
       {manageMembersDialog}
       <MessageContextSheet
-        open={contextSheetSeq !== null}
-        onOpenChange={(v) => { if (!v) setContextSheetSeq(null) }}
-        channelId={channelId}
-        targetSeq={contextSheetSeq}
+        open={contextTarget !== null}
+        onOpenChange={(v) => { if (!v) setContextTarget(null) }}
+        channelId={contextTarget?.channelId ?? channelId}
+        channelLabel={contextTarget?.label}
+        targetSeq={contextTarget?.seq ?? null}
         pinnedIds={pinnedIds}
-        onOpenContextSheet={setContextSheetSeq}
+        onOpenContextSheet={openContextSeq}
         onOpenProfile={openProfile}
         resolveUserName={resolveUserName}
         onReply={(target) => {
           setReplyTo(target)
-          setContextSheetSeq(null)
+          setContextTarget(null)
         }}
       />
     </>
