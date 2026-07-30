@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { AgentAvatar } from "@/components/avatar"
 import { ProviderLogo } from "@/components/provider-logo"
+import { formatRelativeTime } from "@/components/community/format-time"
 import { useMachines } from "@/hooks/community/use-machines"
 import { useBots, useDeleteBot, useResetBotSession, type BotSummary } from "@/hooks/community/use-bots"
 import { useCreateOrGetDm } from "@/hooks/community/mutations"
@@ -281,6 +282,21 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                                     local default
                                   </span>
                                 )}
+                              </span>
+                              {/* Context-lifecycle meta (my-bots #516/#531):
+                                  when the agent last refreshed context (nap /
+                                  reset) + how many messages it's handled in the
+                                  CURRENT lifecycle. `lastRefreshContextAt` is
+                                  null for a bot that never refreshed → omit that
+                                  half; the count is always present (defaults 0). */}
+                              <span className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+                                {bot.lastRefreshContextAt && (
+                                  <>
+                                    <span className="truncate">Refreshed {formatRelativeTime(bot.lastRefreshContextAt)}</span>
+                                    <span aria-hidden className="shrink-0">·</span>
+                                  </>
+                                )}
+                                <span className="shrink-0">{bot.handledMessageCount} handled</span>
                               </span>
                             </div>
                           </div>

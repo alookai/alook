@@ -12,6 +12,12 @@ export type BotSummary = {
   machineId: string
   runtime: string
   modelName: string | null
+  // Context lifecycle (my-bots #516/#531): when the agent last refreshed its
+  // context (nap OR session reset — both "refresh context"), ISO string, null
+  // if it never has; and how many messages it's handled in the CURRENT lifecycle
+  // (reset/nap zero it). Rendered as "refreshed X ago · N handled".
+  lastRefreshContextAt: string | null
+  handledMessageCount: number
 }
 export type BotsResponse = { bots: BotSummary[] }
 
