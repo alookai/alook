@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server"
 import { queries, createLogger } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withCommunityActor, requireBot } from "@/lib/middleware/community-actor"
-import { resolveTargetForMember, resolveErrorResponse } from "@/lib/community/resolve-ref"
+import { resolveTargetForMember, resolveTargetById, resolveErrorResponse } from "@/lib/community/resolve-ref"
 import { requireChannelMember, requireDMAccess } from "@/lib/community/permissions"
 import { handleAttachmentUpload } from "@/lib/community/upload"
 
@@ -34,13 +34,16 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
 
   try {
     const target = req.nextUrl.searchParams.get("target")
-    if (!target) {
-      return NextResponse.json({ error: "missing target query param" }, { status: 400 })
+    const channelIdParam = req.nextUrl.searchParams.get("channelId")
+    if (!target && !channelIdParam) {
+      return NextResponse.json({ error: "missing target or channelId query param" }, { status: 400 })
     }
 
     const db = getDb(ctx.env.DB)
 
-    const resolved = await resolveTargetForMember(db, botUserId, target)
+    const resolved = channelIdParam
+      ? await resolveTargetById(db, botUserId, channelIdParam)
+      : await resolveTargetForMember(db, botUserId, target!)
     if ("error" in resolved) return resolveErrorResponse(resolved)
 
     let kind: "channel" | "dm"

@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server"
 import { queries, withD1Retry, CommunityAgentAckRequestSchema } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withCommunityActor, requireBot } from "@/lib/middleware/community-actor"
-import { resolveTargetForMember } from "@/lib/community/resolve-ref"
+import { resolveTargetForMember, resolveTargetById } from "@/lib/community/resolve-ref"
 import { isDmTarget } from "@/lib/community/message-handler"
 import { requireChannelMember, requireDMAccess } from "@/lib/community/permissions"
 
@@ -47,28 +47,38 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   const failed: Array<{ channel: string; seq: number; code: "unresolvable" | "forbidden" | "no_such_seq"; error: string }> = []
 
   for (const cursor of parsed.data.cursors) {
-    const resolved = await resolveTargetForMember(db, botUserId, cursor.channel, {
-      createDmIfMissing: false,
-      createThreadIfMissing: false,
-      callerKind: "bot",
-    })
+    // Label the cursor in applied/failed by whichever locator it was addressed
+    // with — the ref if given, else the channelId (id-first path).
+    const label = cursor.channel ?? cursor.channelId!
+    const resolved = cursor.channelId !== undefined
+      ? await resolveTargetById(db, botUserId, cursor.channelId)
+      : await resolveTargetForMember(db, botUserId, cursor.channel!, {
+          createDmIfMissing: false,
+          createThreadIfMissing: false,
+          callerKind: "bot",
+        })
     if ("error" in resolved) {
-      failed.push({ channel: cursor.channel, seq: cursor.seq, code: "unresolvable", error: resolved.message })
+      failed.push({ channel: label, seq: cursor.seq, code: "unresolvable", error: resolved.message })
       continue
     }
 
     const scopeTarget = { channelId: resolved.channelId }
 
+    // Membership gate on the resolved scope. `resolveTargetById` already gated
+    // (its whole purpose), but the ref path's `resolveTargetForMember` only
+    // scopes by membership implicitly and does NOT run the DM block check —
+    // this explicit pass adds it (and re-affirms membership) for both entries,
+    // keeping the `forbidden` failure code the batch reports.
     if (isDmTarget(resolved)) {
       const gate = await requireDMAccess(db, resolved.channelId, botUserId)
       if (!gate.ok) {
-        failed.push({ channel: cursor.channel, seq: cursor.seq, code: "forbidden", error: gate.error })
+        failed.push({ channel: label, seq: cursor.seq, code: "forbidden", error: gate.error })
         continue
       }
     } else {
       const gate = await requireChannelMember(db, resolved.channelId, botUserId)
       if (!gate.ok) {
-        failed.push({ channel: cursor.channel, seq: cursor.seq, code: "forbidden", error: gate.error })
+        failed.push({ channel: label, seq: cursor.seq, code: "forbidden", error: gate.error })
         continue
       }
     }
@@ -85,14 +95,14 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
     )
     if (!bumped) {
       failed.push({
-        channel: cursor.channel,
+        channel: label,
         seq: cursor.seq,
         code: "no_such_seq",
-        error: `no message with seq #${cursor.seq} in ${cursor.channel}`,
+        error: `no message with seq #${cursor.seq} in ${label}`,
       })
       continue
     }
-    applied.push({ channel: cursor.channel, seq: cursor.seq })
+    applied.push({ channel: label, seq: cursor.seq })
   }
 
   return NextResponse.json({ ok: failed.length === 0, applied, failed })

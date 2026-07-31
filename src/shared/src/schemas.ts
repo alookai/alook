@@ -1113,15 +1113,21 @@ const CommunityAgentMessageContentSchema = z
 const CommunityAgentSeqSchema = z.number().int().min(0);
 const CommunityAgentPositiveSeqSchema = z.number().int().min(1);
 
-export const CommunityAgentCursorSchema = z.object({
-  channel: z.string().min(1),
-  seq: CommunityAgentPositiveSeqSchema,
-});
+export const CommunityAgentCursorSchema = z
+  .object({
+    channel: z.string().min(1).optional(),
+    channelId: z.string().min(1).optional(),
+    seq: CommunityAgentPositiveSeqSchema,
+  })
+  .refine((c) => c.channel !== undefined || c.channelId !== undefined, {
+    message: "one of channel (ref) or channelId is required",
+  });
 export type CommunityAgentCursor = z.infer<typeof CommunityAgentCursorSchema>;
 
 export const CommunityAgentSendRequestSchema = z
   .object({
-    channel: z.string().min(1),
+    channel: z.string().min(1).optional(),
+    channelId: z.string().min(1).optional(),
     content: CommunityAgentMessageContentSchema,
     attachments: z
       .array(z.string().min(1))
@@ -1137,7 +1143,10 @@ export const CommunityAgentSendRequestSchema = z
   .refine(
     (d) => d.content.text.trim().length > 0 || d.attachments.length > 0,
     { message: "message must have text or attachments" }
-  );
+  )
+  .refine((d) => d.channel !== undefined || d.channelId !== undefined, {
+    message: "one of channel (ref) or channelId is required",
+  });
 export type CommunityAgentSendRequest = z.infer<typeof CommunityAgentSendRequestSchema>;
 
 // Response body for POST /api/community/agent/attachmentUpload. Bots see
@@ -1171,7 +1180,8 @@ export type CommunityAgentAckRequest = z.infer<typeof CommunityAgentAckRequestSc
 
 export const CommunityAgentReadRequestSchema = z
   .object({
-    channel: z.string().min(1),
+    channel: z.string().min(1).optional(),
+    channelId: z.string().min(1).optional(),
     before: CommunityAgentSeqSchema.optional(),
     after: CommunityAgentSeqSchema.optional(),
     around: CommunityAgentSeqSchema.optional(),
@@ -1180,7 +1190,10 @@ export const CommunityAgentReadRequestSchema = z
   .refine(
     (v) => [v.before, v.after, v.around].filter((x) => x !== undefined).length <= 1,
     { message: "at most one of before/after/around may be supplied" }
-  );
+  )
+  .refine((v) => v.channel !== undefined || v.channelId !== undefined, {
+    message: "one of channel (ref) or channelId is required",
+  });
 export type CommunityAgentReadRequest = z.infer<typeof CommunityAgentReadRequestSchema>;
 
 export const CommunityAgentResolveRequestSchema = z.object({
@@ -1203,10 +1216,15 @@ export type CommunityAgentListMembersRequest = z.infer<
   typeof CommunityAgentListMembersRequestSchema
 >;
 
-export const CommunityAgentChannelMemberRequestSchema = z.object({
-  channel: z.string().min(1),
-  agentId: z.string().optional(),
-});
+export const CommunityAgentChannelMemberRequestSchema = z
+  .object({
+    channel: z.string().min(1).optional(),
+    channelId: z.string().min(1).optional(),
+    agentId: z.string().optional(),
+  })
+  .refine((c) => c.channel !== undefined || c.channelId !== undefined, {
+    message: "one of channel (ref) or channelId is required",
+  });
 export type CommunityAgentChannelMemberRequest = z.infer<
   typeof CommunityAgentChannelMemberRequestSchema
 >;
@@ -1229,11 +1247,16 @@ export type CommunityAgentNapRequest = z.infer<
   typeof CommunityAgentNapRequestSchema
 >;
 
-export const CommunityAgentReactAddRequestSchema = z.object({
-  channel: z.string().min(1),
-  seq: CommunityAgentPositiveSeqSchema,
-  emoji: z.string().min(1),
-});
+export const CommunityAgentReactAddRequestSchema = z
+  .object({
+    channel: z.string().min(1).optional(),
+    channelId: z.string().min(1).optional(),
+    seq: CommunityAgentPositiveSeqSchema,
+    emoji: z.string().min(1),
+  })
+  .refine((c) => c.channel !== undefined || c.channelId !== undefined, {
+    message: "one of channel (ref) or channelId is required",
+  });
 export type CommunityAgentReactAddRequest = z.infer<
   typeof CommunityAgentReactAddRequestSchema
 >;

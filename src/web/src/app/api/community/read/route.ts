@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server"
 import { queries, CommunityAgentReadRequestSchema } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withCommunityActor, requireBot } from "@/lib/middleware/community-actor"
-import { resolveTargetForMember, resolveErrorResponse } from "@/lib/community/resolve-ref"
+import { resolveTargetForMember, resolveTargetById, resolveErrorResponse } from "@/lib/community/resolve-ref"
 import { isDmTarget } from "@/lib/community/message-handler"
 import { requireChannelMember, requireDMAccess } from "@/lib/community/permissions"
 
@@ -31,11 +31,13 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   }
   const body = parsed.data
 
-  const resolved = await resolveTargetForMember(db, botUserId, body.channel, {
-    createDmIfMissing: false,
-    createThreadIfMissing: false,
-    callerKind: "bot",
-  })
+  const resolved = body.channelId !== undefined
+    ? await resolveTargetById(db, botUserId, body.channelId)
+    : await resolveTargetForMember(db, botUserId, body.channel!, {
+        createDmIfMissing: false,
+        createThreadIfMissing: false,
+        callerKind: "bot",
+      })
   if ("error" in resolved) return resolveErrorResponse(resolved)
 
   const scopeTarget = { channelId: resolved.channelId }

@@ -3,6 +3,8 @@ import { queries, parseRef, DM_SERVER, parseNameAndTag } from "@alook/shared"
 import type { Database } from "@alook/shared"
 import { isUniqueConstraintError } from "@alook/shared"
 import { guardDmOpen } from "./dm-guard"
+import { isDmTarget } from "./message-handler"
+import { requireChannelMember, requireDMAccess } from "./permissions"
 
 export type TargetResolution =
   | { kind: "channel"; channelId: string }
@@ -182,6 +184,46 @@ export async function resolveTargetForMember(
     }
     throw err
   }
+}
+
+/**
+ * id-first sibling of `resolveTargetForMember` (ref/id coexistence, PR-2). A
+ * bot that already holds a `channelId` (from the read-side `{id, ref}` or a
+ * body `{label}(channel/id)` ref) skips ref parsing and addresses by id
+ * directly. Returns the SAME `TargetResolution` union so every action route
+ * branches on one line: `body.channelId ? resolveTargetById(...) :
+ * resolveTargetForMember(...)`.
+ *
+ * Critically this is NOT a bare id lookup: `resolveTargetForMember` fused three
+ * jobs — ref→id, membership authorization (its `...ForMember` scoping 404s a
+ * non-member), and DM/channel discrimination. Skipping ref parsing must NOT
+ * skip the other two, or a bot could address a channel it isn't in by passing
+ * a raw id (the class of the phase-1 DM block-bypass). So this path re-runs
+ * both: discriminate DM vs channel from the channel row's type (the same
+ * `type === "dm"` criterion `isDmTarget` keys on — no divergent DM test), then
+ * gate through `requireDMAccess` (DM — also enforces the block check) /
+ * `requireChannelMember` (channel). A non-member is rejected exactly as the ref
+ * path rejects them; a missing/unknown id 404s (aligned with a missing ref).
+ * Never auto-creates (no DM/thread materialization) — an id names an existing
+ * row by definition.
+ */
+export async function resolveTargetById(
+  db: Database,
+  userId: string,
+  channelId: string
+): Promise<TargetResolution> {
+  const channel = await queries.communityChannel.getChannel(db, channelId)
+  if (!channel) return { error: 404, message: `channel not found: ${channelId}` }
+
+  if (isDmTarget(channel.type)) {
+    const gate = await requireDMAccess(db, channelId, userId)
+    if (!gate.ok) return { error: gate.status as 400 | 403 | 404, message: gate.error }
+    return { kind: "dm", channelId, otherUserId: gate.value.otherUserId }
+  }
+
+  const gate = await requireChannelMember(db, channelId, userId)
+  if (!gate.ok) return { error: gate.status as 400 | 403 | 404, message: gate.error }
+  return { kind: "channel", channelId }
 }
 
 /**

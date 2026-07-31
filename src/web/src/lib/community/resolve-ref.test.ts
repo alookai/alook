@@ -13,6 +13,10 @@ const mockGetThreadChannelByParentMessage = vi.fn()
 const mockCreateThreadChannel = vi.fn()
 const mockGetChildChannelByName = vi.fn()
 const mockIsUniqueConstraintError = vi.fn(() => false)
+const mockGetChannel = vi.fn()
+const mockGetChannelForMember = vi.fn()
+const mockGetDM = vi.fn()
+const mockGetDMPeer = vi.fn()
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -28,10 +32,6 @@ vi.mock("@alook/shared", async () => {
         areFriends: (...a: unknown[]) => mockAreFriends(...a),
         isBlocked: (...a: unknown[]) => mockIsBlocked(...a),
       },
-      communityDm: {
-        createOrGetDM: (...a: unknown[]) => mockCreateOrGetDM(...a),
-        getDMBetween: (...a: unknown[]) => mockGetDMBetween(...a),
-      },
       communityServer: {
         resolveServerByNameForMember: (...a: unknown[]) => mockResolveServerByNameForMember(...a),
       },
@@ -40,6 +40,14 @@ vi.mock("@alook/shared", async () => {
         getThreadChannelByParentMessage: (...a: unknown[]) => mockGetThreadChannelByParentMessage(...a),
         createThreadChannel: (...a: unknown[]) => mockCreateThreadChannel(...a),
         getChildChannelByName: (...a: unknown[]) => mockGetChildChannelByName(...a),
+        getChannel: (...a: unknown[]) => mockGetChannel(...a),
+        getChannelForMember: (...a: unknown[]) => mockGetChannelForMember(...a),
+      },
+      communityDm: {
+        createOrGetDM: (...a: unknown[]) => mockCreateOrGetDM(...a),
+        getDMBetween: (...a: unknown[]) => mockGetDMBetween(...a),
+        getDM: (...a: unknown[]) => mockGetDM(...a),
+        getDMPeer: (...a: unknown[]) => mockGetDMPeer(...a),
       },
       communityMessage: {
         getMessageByChannelAndSeq: (...a: unknown[]) => mockGetMessageByChannelAndSeq(...a),
@@ -48,7 +56,7 @@ vi.mock("@alook/shared", async () => {
   }
 })
 
-import { resolveTargetForMember, resolveErrorResponse } from "./resolve-ref"
+import { resolveTargetForMember, resolveTargetById, resolveErrorResponse } from "./resolve-ref"
 
 const db = {} as never
 
@@ -281,6 +289,66 @@ describe("resolveTargetForMember", () => {
       expect(res).toEqual({ error: 404, message: "channel not found: ideas" })
       expect(mockGetChildChannelByName).not.toHaveBeenCalled()
     })
+  })
+})
+
+describe("resolveTargetById (id-first path, ref/id PR-2)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("404 when the channelId names no channel", async () => {
+    mockGetChannel.mockResolvedValue(undefined)
+    const res = await resolveTargetById(db, "u_1", "ch_missing")
+    expect(res).toEqual({ error: 404, message: "channel not found: ch_missing" })
+  })
+
+  it("resolves a channel id (member) to the SAME shape the ref path returns", async () => {
+    // ref path: resolveTargetForMember(/studio/general) → {kind:channel, channelId:ch_1}
+    mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1" }])
+    mockResolveChannelByNameForMember.mockResolvedValue([{ id: "ch_1" }])
+    const viaRef = await resolveTargetForMember(db, "u_1", "/studio/general")
+    // id path: same channelId → member gate passes → same result.
+    mockGetChannel.mockResolvedValue({ id: "ch_1", type: "text" })
+    mockGetChannelForMember.mockResolvedValue({ id: "ch_1", type: "text", serverId: "srv_1" })
+    const viaId = await resolveTargetById(db, "u_1", "ch_1")
+    expect(viaId).toEqual({ kind: "channel", channelId: "ch_1" })
+    expect(viaId).toEqual(viaRef) // both entries → same scope, same result
+  })
+
+  it("403 when a NON-member passes a channel id directly (no authz bypass)", async () => {
+    mockGetChannel.mockResolvedValue({ id: "ch_1", type: "text" })
+    // getChannelForMember returns null for a non-member → requireChannelMember 403.
+    mockGetChannelForMember.mockResolvedValue(undefined)
+    const res = await resolveTargetById(db, "outsider", "ch_1")
+    expect(res).toEqual({ error: 403, message: "forbidden" })
+  })
+
+  it("resolves a DM id (participant) to { kind: dm, otherUserId }", async () => {
+    mockGetChannel.mockResolvedValue({ id: "dm_1", type: "dm" })
+    mockGetDM.mockResolvedValue({ id: "dm_1", lastMessageAt: null, createdAt: "t" })
+    mockGetDMPeer.mockResolvedValue({ otherUserId: "peer_1" })
+    mockIsBlocked.mockResolvedValue(false)
+    const res = await resolveTargetById(db, "u_1", "dm_1")
+    expect(res).toEqual({ kind: "dm", channelId: "dm_1", otherUserId: "peer_1" })
+  })
+
+  it("404 when a NON-participant passes a DM id directly (no authz bypass)", async () => {
+    mockGetChannel.mockResolvedValue({ id: "dm_1", type: "dm" })
+    mockGetDM.mockResolvedValue({ id: "dm_1", lastMessageAt: null, createdAt: "t" })
+    // getDMPeer returns null for a non-participant → requireDMAccess 404 "dm not found".
+    mockGetDMPeer.mockResolvedValue(undefined)
+    const res = await resolveTargetById(db, "outsider", "dm_1")
+    expect(res).toEqual({ error: 404, message: "dm not found" })
+  })
+
+  it("403 when a DM participant is blocked (block check not bypassed on id path)", async () => {
+    mockGetChannel.mockResolvedValue({ id: "dm_1", type: "dm" })
+    mockGetDM.mockResolvedValue({ id: "dm_1", lastMessageAt: null, createdAt: "t" })
+    mockGetDMPeer.mockResolvedValue({ otherUserId: "peer_1" })
+    mockIsBlocked.mockResolvedValue(true)
+    const res = await resolveTargetById(db, "u_1", "dm_1")
+    expect(res).toEqual({ error: 403, message: "blocked" })
   })
 })
 
