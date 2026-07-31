@@ -125,7 +125,9 @@ export function BotActivityHeatmap({
   //     columns; 10 1fr columns span the card, cells auto-size square to the
   //     column width so the ribbon always fills the card, left/right flush.
   //   • desktop: a thin fixed-size strip in the card's empty right side
-  //     (#155/#165) — 4 rows, auto columns, small size-2 cells, w-fit.
+  //     (#155/#165) — 5 rows → 6 columns, small size-2 cells, w-fit. 5 rows
+  //     (not 4) so it divides 30 evenly (Alli #692 / Blair #691): 4 rows left a
+  //     ragged 2-cell last column; 5×6 fills every column, flush bottom-right.
   const isMobile = variant === "mobile"
   return (
     <div
@@ -135,7 +137,7 @@ export function BotActivityHeatmap({
         "grid grid-flow-col gap-[3px]",
         isMobile
           ? "w-full [grid-template-columns:repeat(10,minmax(0,1fr))] [grid-template-rows:repeat(3,auto)]"
-          : "w-fit [grid-template-rows:repeat(4,minmax(0,1fr))]",
+          : "w-fit [grid-template-rows:repeat(5,minmax(0,1fr))]",
         className ?? "",
       ].join(" ")}
     >
