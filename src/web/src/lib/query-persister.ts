@@ -95,7 +95,19 @@ export function isTrustedMessagesPageZero(page: MessagesPage | undefined): boole
     page.hasMoreOlder === undefined &&
     page.hasMoreNewer === undefined
   if (isLegacyNewest) return true
-  if (page.hasMoreNewer === false) return true
+  // Defense-in-depth (paired with buildSinceResponse now emitting an older-side
+  // signal): a page is only a trustworthy standalone tail if the NEXT mount can
+  // read back through it. `hasMoreNewer === false` alone isn't enough — a since
+  // page carried that yet lacked any older signal, so rehydrating it as the
+  // sole page stranded scroll-up (the bug this guards). Require an older-side
+  // signal (`hasMoreOlder`/`hasMore` present) so a page that can't self-report
+  // its older edge never survives to disk, whatever produced it.
+  if (
+    page.hasMoreNewer === false &&
+    (page.hasMoreOlder !== undefined || page.hasMore !== undefined)
+  ) {
+    return true
+  }
   return false
 }
 

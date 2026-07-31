@@ -304,6 +304,34 @@ describe("isTrustedMessagesPageZero", () => {
     ).toBe(false)
   })
 
+  it("rejects a tail-attached page that carries NO older-side signal", () => {
+    // hasMoreNewer===false alone is not enough — without an older-side signal
+    // the next mount computes `hasMoreOlder ?? hasMore ?? false === false` and
+    // scroll-up dies. This is the exact shape the DM-history bug rehydrated.
+    expect(
+      isTrustedMessagesPageZero({
+        messages: [],
+        hasMoreNewer: false,
+        newerCursor: undefined,
+        latestSeq: 0,
+      }),
+    ).toBe(false)
+  })
+
+  it("trusts a since page once it carries the older-side signal (post-fix shape)", () => {
+    // buildSinceResponse now emits hasMoreOlder + olderCursor, so even a since
+    // delta that lands as the standalone tail can be paged back through.
+    expect(
+      isTrustedMessagesPageZero({
+        messages: [],
+        hasMoreNewer: false,
+        hasMoreOlder: true,
+        olderCursor: "cur_older",
+        latestSeq: 0,
+      }),
+    ).toBe(true)
+  })
+
   it("rejects anchor-mode envelopes that still have newer history above (hasMoreNewer=true)", () => {
     expect(
       isTrustedMessagesPageZero({

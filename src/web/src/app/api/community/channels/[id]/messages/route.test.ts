@@ -570,11 +570,17 @@ describe("GET /api/community/channels/[id]/messages", () => {
         messages: Array<{ id: string }>
         hasMoreNewer: boolean
         newerCursor?: string
+        hasMoreOlder: boolean
+        olderCursor?: string
         latestSeq: number
       }
       expect(body.messages.map((m) => m.id)).toEqual(["m_1", "m_2"])
       expect(body.hasMoreNewer).toBe(false)
       expect(body.latestSeq).toBe(2)
+      // A since delta must carry an older-side signal so it can be paged back
+      // through if it lands as the sole/oldest cache page (the DM-history bug).
+      expect(body.hasMoreOlder).toBe(true)
+      expect(body.olderCursor).toBe("2026-06-30T00:00:01.000Z|m_1")
       // Anchor-mode paths must not fire.
       expect(mockGetMessageInScope).not.toHaveBeenCalled()
       expect(mockListMessagesAround).not.toHaveBeenCalled()

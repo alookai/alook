@@ -63,9 +63,9 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       since,
       limit: pageSize,
     })
-    const { items, hasMoreNewer, newerCursor } = buildSinceResponse(rows, pageSize)
+    const { items, hasMoreNewer, newerCursor, hasMoreOlder, olderCursor } = buildSinceResponse(rows, pageSize)
     const { messages, latestSeq } = await enrichMessages(db, ctx.userId, { channelId }, items)
-    return writeJSON({ messages, hasMoreNewer, newerCursor, latestSeq })
+    return writeJSON({ messages, hasMoreNewer, newerCursor, hasMoreOlder, olderCursor, latestSeq })
   }
 
   // Legacy branch (unchanged behavior beyond `latestSeq` addition): newest page
