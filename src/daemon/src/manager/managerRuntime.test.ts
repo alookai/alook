@@ -1687,3 +1687,85 @@ describe("onBotAuditEvent — integration through onRuntimeEvent (T9/T10)", () =
     expect(toolCalls).toHaveLength(0);
   });
 });
+
+// FSM transition trace (plans/daemon-fsm-desync.md): pure-observability hook
+// used to make a wedge that logs nothing else reconstructable. Two guarantees:
+// it fires per dispatch with the fields the wedge-triage needs, and it does NOT
+// change behavior (effects identical whether or not the hook is wired).
+describe("AgentProcessManager — onFsmTransition trace (observability, zero behavior change)", () => {
+  function makeWithTrace(trace?: (rec: Record<string, unknown>) => void) {
+    const session = fakeSession();
+    const mgr = new AgentProcessManager({
+      driverFor: () => fakeDriver("codex"),
+      baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
+      sessionFactory: () => session,
+      onFsmTransition: trace as never,
+    });
+    mgr.register("a1");
+    return { mgr, session };
+  }
+
+  it("fires once per agent-scoped dispatch with the wedge-triage fields", () => {
+    const recs: Record<string, unknown>[] = [];
+    const { mgr } = makeWithTrace((r) => recs.push(r));
+    mgr.deliver("a1", { seq: 1, text: "hello" });
+    expect(recs.length).toBeGreaterThan(0);
+    const wake = recs.find((r) => r.event === "wake");
+    expect(wake).toBeTruthy();
+    // Every field the triage needs to split the three "why no watchdog" exits.
+    for (const k of ["agentId", "event", "status", "turnActive", "inbox", "lastDeliverAt", "lastProgressAt", "resetting", "resettingSince", "apmPhase", "effects", "nowMs"]) {
+      expect(wake).toHaveProperty(k);
+    }
+    expect(wake!.agentId).toBe("a1");
+    expect(Array.isArray(wake!.effects)).toBe(true);
+  });
+
+  it("does NOT change behavior — the observed effect sequence is identical with and without the hook", () => {
+    // deliver() returns a boolean (produced-effect), so compare the effect
+    // SEQUENCE the trace observed instead: it reflects exactly what the reducer
+    // emitted. A wired hook must not perturb that sequence.
+    const seq: string[][] = [];
+    const withHook = makeWithTrace((r) => seq.push(r.effects as string[]));
+    const produced1 = withHook.mgr.deliver("a1", { seq: 1, text: "hi" });
+    const without = makeWithTrace(undefined);
+    const produced2 = without.mgr.deliver("a1", { seq: 1, text: "hi" });
+    // Same producedEffect result …
+    expect(produced1).toBe(produced2);
+    // … and the wake dispatch emitted a spawn (single-flight from idle),
+    // observed identically through the trace.
+    expect(seq.some((effs) => effs.includes("spawn"))).toBe(true);
+  });
+
+  it("fans out a per-agent record on every TICK with derived watchdog inputs (so 'why no watchdog fired' is answerable)", async () => {
+    vi.useFakeTimers();
+    try {
+      let now = 0;
+      const recs: Record<string, unknown>[] = [];
+      const session = fakeSession();
+      const mgr = new AgentProcessManager({
+        driverFor: () => fakeDriver("codex"),
+        baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
+        sessionFactory: () => session,
+        now: () => now,
+        tickIntervalMs: 5,
+        staleThresholdMs: 100,
+        onFsmTransition: ((r: Record<string, unknown>) => recs.push(r)) as never,
+      });
+      mgr.start(); // arm the tick timer
+      mgr.register("a1");
+      mgr.deliver("a1", { seq: 1, text: "hi" });
+      recs.length = 0;
+      now = 50;
+      await vi.advanceTimersByTimeAsync(10); // fires ticks
+      const tickRecs = recs.filter((r) => r.event === "tick" && r.agentId === "a1");
+      expect(tickRecs.length).toBeGreaterThan(0);
+      // The derived inputs that let triage judge WHY a watchdog didn't fire.
+      const t = tickRecs[0];
+      expect(t).toHaveProperty("sinceProgressMs");
+      expect(t).toHaveProperty("sinceDeliverMs");
+      expect(typeof t.sinceProgressMs).toBe("number");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

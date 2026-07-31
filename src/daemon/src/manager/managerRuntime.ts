@@ -154,6 +154,32 @@ export interface ManagerRuntimeOpts {
    */
   onAgentLocallyStopped?: (info: { agentId: string; reason: "stop" | "terminate_stalled" }) => void;
   /**
+   * Pure-observability FSM transition trace. Called once per `dispatch` reduce
+   * (for events carrying an agentId) with the post-reduce key fields + the
+   * effect kinds produced. Wired in `createDaemon` to append to a file when
+   * `ALOOK_FSM_TRACE` is set — lets a wedge that produces no other log be
+   * reconstructed from its FSM history. No behavior change; omit ⇒ no-op.
+   */
+  onFsmTransition?: (rec: {
+    agentId: string;
+    event: string;
+    status: string;
+    turnActive: boolean;
+    inbox: number;
+    lastDeliverAt: number | null;
+    lastProgressAt: number;
+    idleSince: number | null;
+    resetting: boolean;
+    resettingSince: number | null;
+    apmPhase: string;
+    effects: string[];
+    nowMs: number;
+    /** `nowMs - lastProgressAt` — stalled/suspectedDeaf "no progress for how long". */
+    sinceProgressMs: number;
+    /** `nowMs - lastDeliverAt` (null if never delivered) — suspectedDeaf's half. */
+    sinceDeliverMs: number | null;
+  }) => void;
+  /**
    * Optional context-timeline recorder. When provided, the manager logs each
    * spawn as a "running" row, fills in the session id on session_init, and closes
    * the row on turn_end / exit — a pure DAILY LOG, no steering. It also supplies
@@ -549,6 +575,7 @@ export class AgentProcessManager {
       | "onAgentActivity"
       | "onBotAuditEvent"
       | "onAgentLocallyStopped"
+      | "onFsmTransition"
       | "timeline"
       | "wakePromptFooter"
       | "onRuntimeSpawnFailed"
@@ -566,6 +593,7 @@ export class AgentProcessManager {
       | "onAgentActivity"
       | "onBotAuditEvent"
       | "onAgentLocallyStopped"
+      | "onFsmTransition"
       | "timeline"
       | "wakePromptFooter"
       | "onRuntimeSpawnFailed"
@@ -906,6 +934,57 @@ export class AgentProcessManager {
     const before = this.deriveActivitySnapshot(this.state);
     const { state, effects } = reduceManager(this.state, event);
     this.state = state;
+    // FSM transition trace (plans/daemon-fsm-desync.md): pure observability, no
+    // behavior change. Emits one record per reduce so a wedge that leaves no
+    // other log (the gated_hold/send branches are the only ones that log today,
+    // and the wedge slips both) is reconstructable from the agent's FSM history
+    // — the missing capability behind every "no log when it breaks" incident.
+    // Guarded so it's a no-op unless a sink is wired (createDaemon opts).
+    if (this.opts.onFsmTransition) {
+      const nowMs = this.now();
+      const emit = (agentId: string): void => {
+        const a = this.state.agents[agentId];
+        if (!a) return;
+        // Effects this dispatch produced FOR THIS agent (effects carry agentId,
+        // so a tick that terminates one wedged agent attributes correctly).
+        const myEffects = effects.filter((e) => (e as { agentId?: string }).agentId === agentId).map((e) => e.type);
+        this.opts.onFsmTransition!({
+          agentId,
+          event: event.type,
+          status: a.status,
+          turnActive: a.turnActive,
+          inbox: a.inbox.length,
+          lastDeliverAt: a.lastDeliverAt,
+          lastProgressAt: a.lastProgressAt,
+          idleSince: a.idleSince,
+          resetting: a.resetting,
+          resettingSince: a.resettingSince,
+          apmPhase: a.apm.phase,
+          effects: myEffects,
+          nowMs,
+          // Derived watchdog inputs — the ONLY way to judge, per wedge, WHY no
+          // watchdog fired: `sinceProgressMs` is `stalled`/`suspectedDeaf`'s
+          // "no progress for how long" (if it keeps getting reset small on a
+          // wedged agent, lastProgressAt is being bumped by stray progress =
+          // the anchor is unusable — the exit-1 decision). `sinceDeliverMs` is
+          // suspectedDeaf's half (null when no deliver ever happened = its
+          // blind spot). See plans/daemon-fsm-desync.md.
+          sinceProgressMs: nowMs - a.lastProgressAt,
+          sinceDeliverMs: a.lastDeliverAt === null ? null : nowMs - a.lastDeliverAt,
+        });
+      };
+      const agentId = (event as { agentId?: string }).agentId;
+      if (agentId) {
+        // Agent-scoped event (wake / spawned / turn_end / …).
+        emit(agentId);
+      } else if (event.type === "tick") {
+        // A tick carries no agentId but the reducer evaluates EVERY agent's
+        // watchdogs — fan out so each agent's per-tick watchdog inputs + any
+        // effect (or its ABSENCE) are on record. This is what makes "did the
+        // tick run and why did stalled not fire" answerable (exit-3).
+        for (const id of Object.keys(this.state.agents)) emit(id);
+      }
+    }
     for (const effect of effects) this.applyEffect(effect);
     if (this.opts.onAgentActivity) {
       const after = this.deriveActivitySnapshot(this.state);

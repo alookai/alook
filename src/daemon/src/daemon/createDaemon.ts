@@ -26,6 +26,7 @@
  *     — the `driverFor` is INJECTED by the caller.
  */
 import { homedir } from "os";
+import { appendFileSync } from "node:fs";
 import { WsControlChannel } from "../server/wsControlChannel.js";
 import { CredentialBroker, startCredentialProxy } from "../credentials/index.js";
 import { AgentProcessManager, AgentRouter, createTypingScopeTracker } from "../manager/index.js";
@@ -586,6 +587,21 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     // `ready` frame's `runningAgents` reflects what's actually live and the
     // server's reconciler safety net can flip stale pills to idle.
     onAgentLocallyStopped: (info) => router?.markLocallyStopped(info.agentId),
+    // FSM transition trace → file, ONLY when ALOOK_FSM_TRACE is set (opt-in,
+    // zero cost otherwise). One JSON line per reduce so a wedge that logs
+    // nothing else is reconstructable from its FSM history. See
+    // plans/daemon-fsm-desync.md — the "no log when it breaks" fix.
+    ...(process.env.ALOOK_FSM_TRACE
+      ? {
+          onFsmTransition: (rec: Record<string, unknown>) => {
+            try {
+              appendFileSync(process.env.ALOOK_FSM_TRACE as string, JSON.stringify(rec) + "\n");
+            } catch {
+              /* never let tracing break the daemon */
+            }
+          },
+        }
+      : {}),
     // Only the "pi" runtime declares `Driver.createSession` today (in-process
     // SDK, no child process) — this is only ever consulted for that case.
     sdkDriverDepsFor: (ctx) => createPiSdkDriverDeps(ctx),
