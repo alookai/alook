@@ -49,10 +49,10 @@ const DATE_FMT = new Intl.DateTimeFormat(undefined, { month: "short", day: "nume
 // and sparse data collapsed to a single peak cell.
 function bucketFor(total: number): number {
   if (total <= 0) return 0
-  if (total <= 2) return 1 // 1–2
-  if (total <= 5) return 2 // 3–5
-  if (total <= 10) return 3 // 6–10
-  return 4 // 11+
+  if (total <= 3) return 1 // 1–3
+  if (total <= 9) return 2 // 4–9
+  if (total <= 24) return 3 // 10–24
+  return 4 // 25+
 }
 
 function dayLabel(dayKey: string): string {
