@@ -2,6 +2,11 @@
 
 import { useMemo } from "react"
 import { utcDayKeyDaysAgo } from "@alook/shared"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 // One day's activity for a bot: post-gate messages handled + messages the bot
 // sent. Both counts are non-negative integers; a day with no activity is 0/0.
@@ -48,9 +53,17 @@ function bucketFor(total: number, max: number): number {
   return 1
 }
 
-function tooltipFor(day: BotActivityDay): string {
-  const d = new Date(`${day.day}T00:00:00`)
-  const label = Number.isNaN(d.getTime()) ? day.day : DATE_FMT.format(d)
+function dayLabel(dayKey: string): string {
+  const d = new Date(`${dayKey}T00:00:00`)
+  return Number.isNaN(d.getTime()) ? dayKey : DATE_FMT.format(d)
+}
+
+// Tooltip text for a slot. Active days split the two counts; empty days (a gap
+// or a quiet day) still get a tooltip so hovering anywhere reads as responsive
+// (Gus /Gus/working #695 — native `title` gave no feedback on empty cells).
+function tooltipFor(dayKey: string, day: BotActivityDay | undefined): string {
+  const label = dayLabel(dayKey)
+  if (!day || day.handledCount + day.sentCount === 0) return `${label} · no activity`
   return `${label} · ${day.handledCount} handled · ${day.sentCount} sent`
 }
 
@@ -100,14 +113,14 @@ export function BotActivityHeatmap({
       utcDayKeyDaysAgo(now, WINDOW_DAYS - 1 - i),
     )
     const max = days.reduce((m, d) => Math.max(m, d.handledCount + d.sentCount), 0)
-    // Key by calendar day (stable across renders), not grid index.
+    // Key by calendar day (stable across renders), not grid index. Every slot
+    // gets a tooltip (active or empty) so hover always responds.
     return axisKeys.map((key) => {
       const d = byDay.get(key)
-      if (!d) return { key, bucket: 0, title: undefined as string | undefined }
       return {
         key,
-        bucket: bucketFor(d.handledCount + d.sentCount, max),
-        title: tooltipFor(d),
+        bucket: d ? bucketFor(d.handledCount + d.sentCount, max) : 0,
+        title: tooltipFor(key, d),
       }
     })
   }, [days])
@@ -124,10 +137,9 @@ export function BotActivityHeatmap({
   //   • mobile: FULL-WIDTH horizontal ribbon (Gus #164/#165) — 3 rows × 10
   //     columns; 10 1fr columns span the card, cells auto-size square to the
   //     column width so the ribbon always fills the card, left/right flush.
-  //   • desktop: a thin fixed-size strip in the card's empty right side
-  //     (#155/#165) — 5 rows → 6 columns, small size-2 cells, w-fit. 5 rows
-  //     (not 4) so it divides 30 evenly (Alli #692 / Blair #691): 4 rows left a
-  //     ragged 2-cell last column; 5×6 fills every column, flush bottom-right.
+  //   • desktop: a thin strip in the card's empty right side (#155/#165) —
+  //     3 rows → 10 columns (Gus #695: was 5 rows/too small; 3 divides 30 so
+  //     it's still flush, and fewer rows lets each cell be larger). size-3 cells.
   const isMobile = variant === "mobile"
   return (
     <div
@@ -137,20 +149,28 @@ export function BotActivityHeatmap({
         "grid grid-flow-col gap-[3px]",
         isMobile
           ? "w-full [grid-template-columns:repeat(10,minmax(0,1fr))] [grid-template-rows:repeat(3,auto)]"
-          : "w-fit [grid-template-rows:repeat(5,minmax(0,1fr))]",
+          : "w-fit [grid-template-rows:repeat(3,minmax(0,1fr))]",
         className ?? "",
       ].join(" ")}
     >
       {cells.map((c) => (
-        <span
-          key={c.key}
-          title={c.title}
-          className={[
-            "rounded-[2px]",
-            isMobile ? "aspect-square w-full" : "size-2",
-            BUCKET_CLASSES[c.bucket],
-          ].join(" ")}
-        />
+        // A real Tooltip (not native `title`) so hover is instant, styled, and
+        // fires on every cell including empty days (Gus #695 — `title` was
+        // OS-delayed and absent on empty cells, reading as "no reaction").
+        <Tooltip key={c.key}>
+          <TooltipTrigger
+            render={
+              <span
+                className={[
+                  "rounded-[2px]",
+                  isMobile ? "aspect-square w-full" : "size-3",
+                  BUCKET_CLASSES[c.bucket],
+                ].join(" ")}
+              />
+            }
+          />
+          <TooltipContent>{c.title}</TooltipContent>
+        </Tooltip>
       ))}
     </div>
   )
