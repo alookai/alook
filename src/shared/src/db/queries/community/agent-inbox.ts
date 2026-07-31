@@ -276,6 +276,8 @@ export async function toAgentMessages(
     return {
       seq: formatSeq(r.seq),
       channel,
+      channelId: r.channelId,
+      messageId: r.id,
       sender: `@${sender}`,
       content,
       time: r.createdAt,
@@ -812,6 +814,7 @@ export async function toInboxRows(
   viewerId: string
 ): Promise<Array<{
   channel: string;
+  channelId: string;
   pendingCount: number;
   firstPendingSeq: number;
   latestSeq: number;
@@ -828,6 +831,7 @@ export async function toInboxRows(
     if (r.hasMention) flags.push("mention");
     return {
       channel: scope?.ref ?? `/unknown/${scopeRefKey(r)}`,
+      channelId: r.channelId,
       pendingCount: r.pendingCount,
       firstPendingSeq: r.firstPendingSeq,
       latestSeq: r.latestSeq,

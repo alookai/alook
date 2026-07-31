@@ -152,14 +152,20 @@ export type Target =
 /**
  * The flat, agent-facing message. This is exactly what the agent sees (one JSON
  * object per line, JSONL). Deliberately minimal:
- *   - `seq`     — "#N", the per-channel sequence (locate via channel + seq).
- *   - `channel` — the path ref, e.g. "/demo-workspace/general" or "/.dm/gustavo#4821".
- *   - `sender`  — "@handle" (`name#0042`, no id, no human/agent/system type).
- *   - `content` — `{ text }` today; an object (not a bare string) so future
- *                 content kinds (attachments, embeds, …) can be added without
- *                 breaking the shape.
- *   - `time`    — ISO-8601 timestamp.
- * No `id`, no `type`.
+ *   - `seq`       — "#N", the per-channel sequence (locate via channel + seq).
+ *   - `channel`   — the path ref, e.g. "/demo-workspace/general" or "/.dm/gustavo#4821".
+ *   - `channelId` — the raw channel id (address handle). Coexists with `channel`:
+ *                   the path ref stays the addressing grammar; the id is surfaced
+ *                   so callers holding an id can correlate without reparsing.
+ *   - `messageId` — the raw message id (address handle), pairing with `seq`.
+ *   - `sender`    — "@handle" (`name#0042`, no id, no human/agent/system type).
+ *                   Stays a handle — never a raw user/author id.
+ *   - `content`   — `{ text }` today; an object (not a bare string) so future
+ *                   content kinds (attachments, embeds, …) can be added without
+ *                   breaking the shape.
+ *   - `time`      — ISO-8601 timestamp.
+ * `channelId`/`messageId` are the only raw ids surfaced — addressing handles,
+ * not human-UI fields. No `type`, no `authorId`/`userId`.
  */
 /**
  * Read-side attachment ref surfaced by inbox pull / send response / resolve.
@@ -226,6 +232,10 @@ export interface Message {
   seq: string;
   /** Path ref of the containing channel/DM. */
   channel: ChannelRef;
+  /** Raw id of the containing channel (address handle; coexists with `channel`). */
+  channelId: string;
+  /** Raw id of this message (address handle; coexists with `seq`). */
+  messageId: string;
   /** Sender global handle (`name#0042`), e.g. "@gustavo#4821". */
   sender: string;
   content: MessageContent;
@@ -262,6 +272,8 @@ export type InboxFlag = "dm" | "thread" | "mention" | "task";
 /** One per channel with pending unread, summarizing the unread without bodies. */
 export interface InboxRow {
   channel: ChannelRef;
+  /** Raw channel id (address handle; coexists with `channel`). */
+  channelId: string;
   pendingCount: number;
   firstPendingSeq?: Seq;
   latestSeq?: Seq;
@@ -401,18 +413,24 @@ export interface ListChannelsRequest {
 }
 
 /**
- * One channel as surfaced to the agent CLI (`channel list`). Deliberately
- * drops `id`/`serverId`/`kind` — every other agent-facing command addresses
- * channels by `ChannelRef`, never by raw id, so `ref` is the only locator an
- * agent needs (and is directly reusable as `--channel`/`--target`). `type`
- * is real per-row data (`"text"` vs `"forum"`), not the always-`"channel"`
- * `kind` the old shape hardcoded. `visibility` is derived from the channel's
- * category — `"private"` iff the row's category has `private = 1`, else
- * `"public"` — and lets the agent decide whether to enumerate members via
- * `channel member` or fall back to `server member`.
+ * One channel as surfaced to the agent CLI (`channel list`). `ref` stays the
+ * addressing grammar — every other agent-facing command addresses channels by
+ * `ChannelRef`, never by raw id, so `ref` is the only locator an agent needs
+ * (and is directly reusable as `--channel`/`--target`). `id`/`serverId` are
+ * surfaced as address handles alongside it (ref/id coexistence) so callers
+ * holding an id can correlate. `type` is real per-row data (`"text"` vs
+ * `"forum"`), not the always-`"channel"` `kind` the old shape hardcoded.
+ * `visibility` is derived from the channel's category — `"private"` iff the
+ * row's category has `private = 1`, else `"public"` — and lets the agent decide
+ * whether to enumerate members via `channel member` or fall back to
+ * `server member`.
  */
 export interface ChannelListItem {
   ref: ChannelRef;
+  /** Raw channel id (address handle; coexists with `ref`). */
+  id: string;
+  /** Raw id of the server this channel belongs to (address handle). */
+  serverId: string;
   name: string;
   type: ChannelType;
   visibility: "public" | "private";

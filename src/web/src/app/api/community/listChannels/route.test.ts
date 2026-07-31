@@ -93,11 +93,11 @@ describe("POST /api/community/agent/listChannels", () => {
       groups: [
         {
           category: null,
-          channels: [{ ref: "/studio/general", name: "general", type: "text", visibility: "public" }],
+          channels: [{ ref: "/studio/general", id: "ch_1", serverId: "srv_1", name: "general", type: "text", visibility: "public" }],
         },
         {
           category: null,
-          channels: [{ ref: "/lounge/random", name: "random", type: "text", visibility: "public" }],
+          channels: [{ ref: "/lounge/random", id: "ch_2", serverId: "srv_2", name: "random", type: "text", visibility: "public" }],
         },
       ],
     })
@@ -117,7 +117,7 @@ describe("POST /api/community/agent/listChannels", () => {
       groups: [
         {
           category: null,
-          channels: [{ ref: "/studio/general", name: "general", type: "text", visibility: "public" }],
+          channels: [{ ref: "/studio/general", id: "ch_1", serverId: "srv_1", name: "general", type: "text", visibility: "public" }],
         },
       ],
     })
@@ -141,15 +141,15 @@ describe("POST /api/community/agent/listChannels", () => {
       groups: [
         {
           category: null,
-          channels: [{ ref: "/demo/announcements", name: "announcements", type: "text", visibility: "public" }],
+          channels: [{ ref: "/demo/announcements", id: "ch_1", serverId: "srv_1", name: "announcements", type: "text", visibility: "public" }],
         },
         {
           category: { name: "Ops", private: false },
-          channels: [{ ref: "/demo/general", name: "general", type: "text", visibility: "public" }],
+          channels: [{ ref: "/demo/general", id: "ch_2", serverId: "srv_1", name: "general", type: "text", visibility: "public" }],
         },
         {
           category: { name: "Founders", private: true },
-          channels: [{ ref: "/demo/leadership", name: "leadership", type: "text", visibility: "private" }],
+          channels: [{ ref: "/demo/leadership", id: "ch_3", serverId: "srv_1", name: "leadership", type: "text", visibility: "private" }],
         },
       ],
     })
@@ -167,8 +167,8 @@ describe("POST /api/community/agent/listChannels", () => {
         {
           category: null,
           channels: [
-            { ref: "/studio/general", name: "general", type: "text", visibility: "public" },
-            { ref: "/studio/help", name: "help", type: "forum", visibility: "public" },
+            { ref: "/studio/general", id: "ch_1", serverId: "srv_1", name: "general", type: "text", visibility: "public" },
+            { ref: "/studio/help", id: "ch_2", serverId: "srv_1", name: "help", type: "forum", visibility: "public" },
           ],
         },
       ],

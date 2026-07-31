@@ -83,6 +83,8 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
         const isPrivate = !!(cat && (cat.private ?? 0) === 1)
         const item: ChannelListItem = {
           ref: formatRef({ server: server.name, channel: c.name }),
+          id: c.id,
+          serverId: server.id,
           name: c.name,
           type: c.type,
           visibility: isPrivate ? "private" : "public",

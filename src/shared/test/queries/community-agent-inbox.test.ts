@@ -80,10 +80,34 @@ describe("toAgentMessages", () => {
     expect(msg).toEqual({
       seq: formatSeq(1),
       channel: formatRef({ server: "studio", channel: "general" }),
+      channelId: "ch_1",
+      messageId: "m_1",
       sender: "@Alice#1234",
       content: { text: "hello" },
       time: "2026-07-01T00:00:00.000Z",
     });
+  });
+
+  it("projection invariant: exactly the wire fields, address-handle ids present, no internal fields, sender is @-prefixed", async () => {
+    // Fork-C lean: the agent-facing Message surfaces ONLY the addressing
+    // handles (`channelId`/`messageId`) alongside the ref/seq — never a raw
+    // `authorId`/`userId` or any other internal sub-field.
+    const db = createSequentialDb([
+      [{ id: "ch_1", name: "general", serverId: "srv_1", parentChannelId: null, parentMessageId: null }],
+      [{ id: "u_1", name: "Alice", discriminator: "1234" }],
+      [{ id: "srv_1", name: "studio" }],
+    ]);
+    const [msg] = await agentInbox.toAgentMessages(db, [rawMsg()], "viewer_1");
+    expect(Object.keys(msg!).sort()).toEqual(
+      ["channel", "channelId", "content", "messageId", "seq", "sender", "time"].sort()
+    );
+    expect(msg).not.toHaveProperty("authorId");
+    expect(msg).not.toHaveProperty("userId");
+    expect(msg).not.toHaveProperty("id");
+    expect(msg).not.toHaveProperty("replyToId");
+    expect(msg!.sender.startsWith("@")).toBe(true);
+    expect(msg!.channelId).toBe("ch_1");
+    expect(msg!.messageId).toBe("m_1");
   });
 
   it("hydrates a thread message with the thread-form ref (/server/parent/#rootSeq)", async () => {
