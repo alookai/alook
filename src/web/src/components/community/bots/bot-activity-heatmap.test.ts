@@ -76,6 +76,30 @@ describe("BotActivityHeatmap — calendar-axis fill", () => {
     expect(newerIdx - olderIdx).toBe(15)
   })
 
+  it("colors by ABSOLUTE per-day count (busier bots read darker), not relative to own max", () => {
+    // Gus #706/#708: cross-bot comparability. A quiet bot (1/day) must NOT reach
+    // the darkest bucket just because it's that bot's own peak. Bucket class is
+    // on the trigger cell; find each active day's cell by DOM index and read its
+    // bucket class. Thresholds: 1-2→b1, 3-5→b2, 6-10→b3, 11+→b4.
+    const now = new Date()
+    const r = render([
+      { day: utcDayKeyDaysAgo(now, 3), handledCount: 1, sentCount: 0 }, // 1  → b1
+      { day: utcDayKeyDaysAgo(now, 2), handledCount: 3, sentCount: 2 }, // 5  → b2
+      { day: utcDayKeyDaysAgo(now, 1), handledCount: 6, sentCount: 0 }, // 6  → b3
+      { day: utcDayKeyDaysAgo(now, 0), handledCount: 40, sentCount: 5 }, // 45 → b4
+    ])
+    // Split into tokens so "bg-status-online" (b4) doesn't match the /opacity
+    // variants (b1–b3) as a substring.
+    const tokens = cells(r).map((c) => String(c.props.className).split(/\s+/))
+    const idx = (n: number) => 29 - n // oldest→newest slot for n days ago
+    expect(tokens[idx(3)]).toContain("bg-status-online/30") // 1 msg — palest
+    expect(tokens[idx(2)]).toContain("bg-status-online/55") // 5 msgs
+    expect(tokens[idx(1)]).toContain("bg-status-online/80") // 6 msgs
+    expect(tokens[idx(0)]).toContain("bg-status-online") // 45 msgs — darkest, no /opacity
+    // the low-count day must NOT reach the darkest, even though it's this bot's min
+    expect(tokens[idx(3)]).not.toContain("bg-status-online")
+  })
+
   it("labels active days with the split and empty days as 'no activity'", () => {
     const r = render([{ day: utcDayKeyDaysAgo(new Date(), 10), handledCount: 2, sentCount: 0 }])
     const all = tips(r)

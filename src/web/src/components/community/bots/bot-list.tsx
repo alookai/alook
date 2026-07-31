@@ -297,22 +297,15 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                                   </>
                                 )}
                               </span>
-                              {/* Mobile heatmap: full-width ribbon below the meta
-                                  line (Gus /Gus/uiux #164). Desktop places its
-                                  own instance on the card's right (below).
-                                  Visibility is on the wrapper, not the grid
-                                  element, to avoid a display-class conflict. */}
-                              <div className="mt-1.5 sm:hidden">
-                                <BotActivityHeatmap days={bot.dailyActivity} variant="mobile" />
-                              </div>
                             </div>
                           </div>
                           {/* Desktop heatmap: thin strip in the card's empty
                               right side, pushed toward the kebab (Gus
                               /Gus/uiux #155). ml-auto eats the gap so it hugs
-                              the right rather than centering in a justify-between
-                              row. */}
-                          <div className="ml-auto hidden self-center sm:block">
+                              the right. Only shown on wide screens (xl) — as the
+                              window narrows we hide the heatmap first rather than
+                              let it squeeze/truncate the name+meta (Gus #699). */}
+                          <div className="ml-auto hidden self-center xl:block">
                             <BotActivityHeatmap days={bot.dailyActivity} variant="desktop" />
                           </div>
                           <DropdownMenu>
@@ -360,6 +353,15 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
+                        </div>
+                        {/* Mobile heatmap: its OWN full-width row under the top
+                            row (Gus #699) — a sibling of the avatar+meta+kebab
+                            row, not nested in the meta column, so it spans the
+                            whole card (left padding to right padding), not just
+                            the text column. Shown below xl; on xl+ the desktop
+                            strip in the top row takes over. */}
+                        <div className="xl:hidden">
+                          <BotActivityHeatmap days={bot.dailyActivity} variant="mobile" />
                         </div>
                       </Card>
                     )

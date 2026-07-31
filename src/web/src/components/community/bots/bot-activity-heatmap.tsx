@@ -41,16 +41,18 @@ const BUCKET_CLASSES = [
 
 const DATE_FMT = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" })
 
-function bucketFor(total: number, max: number): number {
-  if (total <= 0 || max <= 0) return 0
-  // Map (0, max] onto buckets 1..4 by quartile of the observed max, so a quiet
-  // month still shows contrast instead of collapsing to a single step (Alli
-  // #628 adopted this relative scale over absolute thresholds).
-  const ratio = total / max
-  if (ratio > 0.75) return 4
-  if (ratio > 0.5) return 3
-  if (ratio > 0.25) return 2
-  return 1
+// ABSOLUTE per-day thresholds (Gus /Gus/working #706/#708): the point of the
+// heatmap is to see WHICH AGENTS are busier, not which day — so a day's tint is
+// its raw message count, comparable across bots (a 1-msg day is always pale, a
+// 50-msg day always darkest). A relative-to-own-max scale (the old #628 version)
+// defeated this: every bot's peak went darkest, so all bots looked equally busy
+// and sparse data collapsed to a single peak cell.
+function bucketFor(total: number): number {
+  if (total <= 0) return 0
+  if (total <= 2) return 1 // 1–2
+  if (total <= 5) return 2 // 3–5
+  if (total <= 10) return 3 // 6–10
+  return 4 // 11+
 }
 
 function dayLabel(dayKey: string): string {
@@ -112,14 +114,13 @@ export function BotActivityHeatmap({
     const axisKeys = Array.from({ length: WINDOW_DAYS }, (_, i) =>
       utcDayKeyDaysAgo(now, WINDOW_DAYS - 1 - i),
     )
-    const max = days.reduce((m, d) => Math.max(m, d.handledCount + d.sentCount), 0)
     // Key by calendar day (stable across renders), not grid index. Every slot
     // gets a tooltip (active or empty) so hover always responds.
     return axisKeys.map((key) => {
       const d = byDay.get(key)
       return {
         key,
-        bucket: d ? bucketFor(d.handledCount + d.sentCount, max) : 0,
+        bucket: d ? bucketFor(d.handledCount + d.sentCount) : 0,
         title: tooltipFor(key, d),
       }
     })
@@ -134,12 +135,14 @@ export function BotActivityHeatmap({
   // down each column like a GitHub graph. Always exactly 30 cells into a row
   // count that divides 30 → complete columns, flush bottom edge (#159). Uniform
   // x/y gap both variants (Gus /Gus/uiux #155). Two layouts:
-  //   • mobile: FULL-WIDTH horizontal ribbon (Gus #164/#165) — 3 rows × 10
-  //     columns; 10 1fr columns span the card, cells auto-size square to the
-  //     column width so the ribbon always fills the card, left/right flush.
+  //   • mobile: FULL-WIDTH horizontal ribbon — 2 rows × 15 columns (Gus #699:
+  //     was 3 rows; 2 divides 30, a slimmer ribbon). 15 1fr columns span the
+  //     card, cells auto-size square to the column width, left/right flush. The
+  //     card places this as its own full-width row (not inside the meta column),
+  //     so it truly spans the whole card.
   //   • desktop: a thin strip in the card's empty right side (#155/#165) —
-  //     3 rows → 10 columns (Gus #695: was 5 rows/too small; 3 divides 30 so
-  //     it's still flush, and fewer rows lets each cell be larger). size-3 cells.
+  //     3 rows → 10 columns (Gus #695), size-3 cells. Only shown on wide
+  //     screens (the card hides it before it can squeeze the meta text, #699).
   const isMobile = variant === "mobile"
   return (
     <div
@@ -148,7 +151,7 @@ export function BotActivityHeatmap({
       className={[
         "grid grid-flow-col gap-[3px]",
         isMobile
-          ? "w-full [grid-template-columns:repeat(10,minmax(0,1fr))] [grid-template-rows:repeat(3,auto)]"
+          ? "w-full [grid-template-columns:repeat(15,minmax(0,1fr))] [grid-template-rows:repeat(2,auto)]"
           : "w-fit [grid-template-rows:repeat(3,minmax(0,1fr))]",
         className ?? "",
       ].join(" ")}
