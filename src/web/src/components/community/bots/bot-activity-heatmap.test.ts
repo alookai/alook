@@ -80,40 +80,39 @@ describe("BotActivityHeatmap — calendar-axis fill", () => {
     expect(newerIdx - olderIdx).toBe(15)
   })
 
-  it("colors by ABSOLUTE per-day count (busier bots read darker), not relative to own max", () => {
-    // Gus #706/#708: cross-bot comparability. A quiet bot (1/day) must NOT reach
-    // the darkest bucket just because it's that bot's own peak. Bucket class is
-    // on the trigger cell; find each active day's cell by DOM index and read its
-    // bucket class. Thresholds (Gus #714): 1-50=b1, 51-100=b2, 101-500=b3, 500+=b4.
+  it("colors by ABSOLUTE SENT count per day (busier bots read darker), across fixed bands", () => {
+    // Gus /Gus/general #47: color tracks the day's SENT count only, absolute
+    // bands 0 / 1-10 / 11-30 / 31-50 / 51+ (comparable across bots). Bucket class
+    // is on the trigger cell; find each day's cell by DOM index.
     const now = new Date()
     const r = render([
-      { day: utcDayKeyDaysAgo(now, 3), handledCount: 1, sentCount: 0 }, // 1   → b1
-      { day: utcDayKeyDaysAgo(now, 2), handledCount: 60, sentCount: 0 }, // 60  → b2
-      { day: utcDayKeyDaysAgo(now, 1), handledCount: 200, sentCount: 0 }, // 200 → b3
-      { day: utcDayKeyDaysAgo(now, 0), handledCount: 600, sentCount: 5 }, // 605 → b4
+      { day: utcDayKeyDaysAgo(now, 3), handledCount: 99, sentCount: 5 }, // sent 5  → b1
+      { day: utcDayKeyDaysAgo(now, 2), handledCount: 0, sentCount: 20 }, // sent 20 → b2
+      { day: utcDayKeyDaysAgo(now, 1), handledCount: 0, sentCount: 45 }, // sent 45 → b3
+      { day: utcDayKeyDaysAgo(now, 0), handledCount: 0, sentCount: 80 }, // sent 80 → b4
     ])
     // Split into tokens so "bg-status-online" (b4) doesn't match the /opacity
     // variants (b1–b3) as a substring.
     const tokens = cells(r).map((c) => String(c.props.className).split(/\s+/))
     const idx = (n: number) => 29 - n // oldest→newest slot for n days ago
-    expect(tokens[idx(3)]).toContain("bg-status-online/30") // 1 msg — palest
-    expect(tokens[idx(2)]).toContain("bg-status-online/55") // 60 msgs
-    expect(tokens[idx(1)]).toContain("bg-status-online/80") // 200 msgs
-    expect(tokens[idx(0)]).toContain("bg-status-online") // 605 msgs — darkest, no /opacity
-    // the low-count day must NOT reach the darkest, even though it's this bot's min
+    expect(tokens[idx(3)]).toContain("bg-status-online/30") // sent 5 — palest
+    expect(tokens[idx(2)]).toContain("bg-status-online/55") // sent 20
+    expect(tokens[idx(1)]).toContain("bg-status-online/80") // sent 45
+    expect(tokens[idx(0)]).toContain("bg-status-online") // sent 80 — darkest, no /opacity
+    // a high HANDLED but low SENT day must NOT read dark (handled doesn't color)
     expect(tokens[idx(3)]).not.toContain("bg-status-online")
   })
 
-  it("weights sent x2 for color only — tooltip still shows raw counts (Gus #716/Blair #717)", () => {
+  it("colors by sent, not handled — a handled-heavy / sent-light day stays pale", () => {
     const now = new Date()
-    // 30 handled + 20 sent: raw sum 50 (→ b1), but weighted 30+20*2=70 (→ b2).
-    // Color must use the weighted score; tooltip must show the raw numbers.
-    const r = render([{ day: utcDayKeyDaysAgo(now, 0), handledCount: 30, sentCount: 20 }])
+    // 200 handled but only 3 sent → sent band b1 (pale), NOT dark. Tooltip still
+    // shows both numbers (Blair /Gus/general #48 — color=sent, tooltip=both).
+    const r = render([{ day: utcDayKeyDaysAgo(now, 0), handledCount: 200, sentCount: 3 }])
     const cell = cells(r)[29] // today = last slot
-    expect(String(cell.props.className).split(/\s+/)).toContain("bg-status-online/55") // b2, weighted
+    expect(String(cell.props.className).split(/\s+/)).toContain("bg-status-online/30") // b1 by sent=3
     const tip = tips(r).find((t) => t.includes("handled"))
-    expect(tip).toContain("30 messages handled") // raw, NOT the weighted 70
-    expect(tip).toContain("20 messages sent")
+    expect(tip).toContain("200 messages handled")
+    expect(tip).toContain("3 messages sent")
   })
 
   it("labels active days with full sentences and empty days as 'No activity'", () => {

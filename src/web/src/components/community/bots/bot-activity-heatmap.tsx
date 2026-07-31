@@ -41,19 +41,17 @@ const BUCKET_CLASSES = [
 
 const DATE_FMT = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" })
 
-// ABSOLUTE thresholds (Gus /Gus/working #708/#714): the heatmap is for seeing
-// WHICH AGENTS are busier, not which day — so tint maps a day's weighted score
-// to a fixed band, comparable across bots (a relative-to-own-max scale, the old
-// #628 version, made every bot's peak darkest so all looked equally busy). Bands
-// are sized for the steady-state ~100 msgs/day an agent handles (Gus #714), not
-// today's dev-period cross-wake noise. `score` is the weighted value below, NOT
-// the raw message count.
-function bucketFor(score: number): number {
-  if (score <= 0) return 0
-  if (score <= 50) return 1 // 1–50
-  if (score <= 100) return 2 // 51–100
-  if (score <= 500) return 3 // 101–500
-  return 4 // 500+
+// ABSOLUTE thresholds on the day's SENT count (Gus /Gus/general #47): tint maps
+// how many messages the bot SENT that day — sending is the impact signal that
+// proves it's doing work, so color tracks sent alone (handled is still shown in
+// the tooltip as context, just doesn't drive the color). Fixed bands are
+// comparable across bots (which agents are busier), not relative to own max.
+function bucketFor(sent: number): number {
+  if (sent <= 0) return 0
+  if (sent <= 10) return 1 // 1–10
+  if (sent <= 30) return 2 // 11–30
+  if (sent <= 50) return 3 // 31–50
+  return 4 // 51+
 }
 
 function dayLabel(dayKey: string): string {
@@ -124,11 +122,10 @@ export function BotActivityHeatmap({
       const d = byDay.get(key)
       return {
         key,
-        // Coloring weight (Gus #716): sent counts double — sending a message is
-        // impact/real work, vs just being woken to handle one. This weight feeds
-        // ONLY the color bucket; the tooltip and the stored counts stay raw
-        // (Blair #717 — never let the weight leak into what we display or store).
-        bucket: d ? bucketFor(d.handledCount + d.sentCount * 2) : 0,
+        // Color tracks the day's SENT count only (Gus /Gus/general #47) — sent
+        // is the impact signal. handled still appears in the tooltip as context
+        // but doesn't drive the color (Blair #48 — tooltip keeps both numbers).
+        bucket: d ? bucketFor(d.sentCount) : 0,
         title: tooltipFor(key, d),
       }
     })
