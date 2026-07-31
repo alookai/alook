@@ -224,7 +224,18 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                     return (
                       <Card key={bot.id} className="flex flex-col gap-3 p-4">
                         <div className="flex items-start justify-between gap-3">
-                          <div className="flex min-w-0 items-start gap-3">
+                          {/* id-block + heatmap share a flex-wrap row: the strip
+                              sits to the right of the meta when there's room and
+                              WRAPS to its own line below only when space actually
+                              runs out (Gus #720) — native content-based, no
+                              breakpoint guess, and the strip's cells are a fixed
+                              size so wrapping never changes their size. */}
+                          <div className="flex min-w-0 flex-1 flex-wrap items-start gap-x-3 gap-y-2.5">
+                            {/* min-w keeps the id-block from shrinking to nothing
+                                so the fixed-width strip is forced to WRAP below
+                                (not collide) once the card can't fit both on one
+                                line (Gus #720). */}
+                            <div className="flex min-w-[200px] flex-1 items-start gap-3">
                             <AgentAvatar name={bot.name} avatarUrl={bot.image} seed={bot.id} size={40} />
                             <div className="flex min-w-0 flex-col gap-1">
                               <div className="flex items-center gap-2">
@@ -298,15 +309,14 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                                 )}
                               </span>
                             </div>
-                          </div>
-                          {/* Desktop heatmap: thin strip in the card's empty
-                              right side, pushed toward the kebab (Gus
-                              /Gus/uiux #155). ml-auto eats the gap so it hugs
-                              the right. Only shown on wide screens (xl) — as the
-                              window narrows we hide the heatmap first rather than
-                              let it squeeze/truncate the name+meta (Gus #699). */}
-                          <div className="ml-auto hidden self-center xl:block">
-                            <BotActivityHeatmap days={bot.dailyActivity} variant="desktop" />
+                            </div>
+                            {/* The strip. ml-auto hugs it right of the meta when
+                                they share the line; when the row wraps it drops
+                                to its own full line below the id-block. */}
+                            <BotActivityHeatmap
+                              days={bot.dailyActivity}
+                              className="ml-auto self-center"
+                            />
                           </div>
                           <DropdownMenu>
                             <DropdownMenuTrigger
@@ -353,15 +363,6 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
-                        </div>
-                        {/* Mobile heatmap: its OWN full-width row under the top
-                            row (Gus #699) — a sibling of the avatar+meta+kebab
-                            row, not nested in the meta column, so it spans the
-                            whole card (left padding to right padding), not just
-                            the text column. Shown below xl; on xl+ the desktop
-                            strip in the top row takes over. */}
-                        <div className="xl:hidden">
-                          <BotActivityHeatmap days={bot.dailyActivity} variant="mobile" />
                         </div>
                       </Card>
                     )

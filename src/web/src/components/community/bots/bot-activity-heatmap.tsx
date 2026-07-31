@@ -87,17 +87,15 @@ function tooltipFor(dayKey: string, day: BotActivityDay | undefined): string {
  * 30-day UTC calendar and fill from the sparse rows by day-key, so gaps and empty
  * bots both render as bucket-0 cells and the grid is always exactly 30.
  */
-// The card renders two instances — the desktop strip (on the card's right) and
-// the mobile ribbon (below the meta line) live in different DOM spots, so each
-// picks its layout by `variant` and hides at the other breakpoint. `className`
-// lets the card apply that `hidden`/`sm:hidden` visibility wrapper.
+// ONE fixed-size layout everywhere (Gus /Gus/working #720): a 3-row × 10-col
+// strip of small fixed cells. Cell size never changes, so moving the strip
+// between the card's right side (wide) and its own row below (narrow) has no
+// size jump. `className` lets the card apply layout/visibility wrappers.
 export function BotActivityHeatmap({
   days,
-  variant,
   className,
 }: {
   days: BotActivityDay[]
-  variant: "desktop" | "mobile"
   className?: string
 }) {
   const cells = useMemo(() => {
@@ -136,31 +134,17 @@ export function BotActivityHeatmap({
     [days],
   )
 
-  // Cells flow column-by-column (grid-flow-col), so the 30-day sequence reads
-  // down each column like a GitHub graph. Always exactly 30 cells into a row
-  // count that divides 30 → complete columns, flush bottom edge (#159). Uniform
-  // x/y gap both variants (Gus /Gus/uiux #155). Two layouts:
-  //   • mobile: FULL-WIDTH horizontal ribbon — 2 rows × 15 columns (Gus #699:
-  //     was 3 rows; 2 divides 30, a slimmer ribbon). 15 1fr columns span the
-  //     card, cells auto-size square to the column width, left/right flush. The
-  //     card places this as its own full-width row (not inside the meta column),
-  //     so it truly spans the whole card.
-  //   • desktop: a thin strip in the card's empty right side (#155/#165) —
-  //     3 rows → 10 columns (Gus #695), size-3 cells. Only shown on wide
-  //     screens (the card hides it before it can squeeze the meta text, #699).
-  const isMobile = variant === "mobile"
+  // ONE layout everywhere (Gus #720): cells flow column-by-column
+  // (grid-flow-col), 3 rows → 10 columns (3 divides 30 → flush). Fixed-size
+  // cells (size-3), so cell size is CONSTANT no matter where the card places the
+  // strip (right side when wide, own row below when narrow) — no size jump, and
+  // it stays compact so it only needs to wrap when space actually runs out.
   return (
     <div
       role="img"
       aria-label={`Activity over the last ${WINDOW_DAYS} days: ${total} messages total`}
       className={[
-        "grid grid-flow-col gap-[3px]",
-        isMobile
-          // w-full fills a narrow phone card, but max-w caps how large the 1fr
-          // cells can grow on a wider (below-xl) card so they don't balloon
-          // (Gus /Gus/general #42); left-aligned once capped.
-          ? "w-full max-w-sm [grid-template-columns:repeat(15,minmax(0,1fr))] [grid-template-rows:repeat(2,auto)]"
-          : "w-fit [grid-template-rows:repeat(3,minmax(0,1fr))]",
+        "grid w-fit grid-flow-col gap-[3px] [grid-template-rows:repeat(3,minmax(0,1fr))]",
         className ?? "",
       ].join(" ")}
     >
@@ -172,11 +156,7 @@ export function BotActivityHeatmap({
           <TooltipTrigger
             render={
               <span
-                className={[
-                  "rounded-[2px]",
-                  isMobile ? "aspect-square w-full" : "size-3",
-                  BUCKET_CLASSES[c.bucket],
-                ].join(" ")}
+                className={["size-3 rounded-[2px]", BUCKET_CLASSES[c.bucket]].join(" ")}
               />
             }
           />

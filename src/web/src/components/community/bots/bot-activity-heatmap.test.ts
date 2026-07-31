@@ -26,7 +26,7 @@ function render(days: BotActivityDay[]) {
   let r!: TestRenderer.ReactTestRenderer
   act(() => {
     r = TestRenderer.create(
-      React.createElement(BotActivityHeatmap, { days, variant: "mobile" }),
+      React.createElement(BotActivityHeatmap, { days }),
     )
   })
   return r
