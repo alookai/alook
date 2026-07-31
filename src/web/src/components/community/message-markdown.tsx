@@ -1,13 +1,11 @@
 import type React from "react"
 import { Spoiler, MentionPill } from "./inline-marks"
-import { ChannelRefPill } from "./channel-ref-pill"
-import { ServerRefPill } from "./server-ref-pill"
 import { RefTokenPill } from "./ref-token-pill"
 
 // Match `/c/invite/<token>` — with or without an origin.
 // - token allows [A-Za-z0-9_-] (nanoid alphabet) and length 6..64 (short + old
 //   32-char tokens both fit)
-// - unrelated to chat-only syntax (mention/spoiler/channelRef, now parsed as
+// - unrelated to chat-only syntax (mention/spoiler/refToken, now parsed as
 //   real markdown AST nodes by `chat-syntax-plugin.ts`/`spoiler-syntax.ts`) —
 //   this regex only extracts invite tokens for the join-card row rendered
 //   below the message body; the URL text itself stays untouched and is
@@ -43,16 +41,14 @@ export function extractInviteTokens(text: string): string[] {
 export const MD_ALLOWED_TAGS = {
   spoiler: [],
   mention: ["dataEveryone", "dataTag"],
-  channelref: [],
-  serverref: [],
   reftoken: ["dataType", "dataId", "dataLabel"],
 }
-// `spoiler` is deliberately excluded — unlike `mention`/`channelref`/`serverref`/`messageref`
-// (leaf nodes whose content is always plain tag text), a spoiler must keep its
-// nested markdown children (e.g. `||**bold**||`). Handing it to Streamdown's
+// `spoiler` is deliberately excluded — unlike `mention`/`reftoken` (leaf nodes
+// whose content is always plain tag text), a spoiler must keep its nested
+// markdown children (e.g. `||**bold**||`). Handing it to Streamdown's
 // `literalTagContent` flattens all descendants into one text node, stripping
 // the nested `<strong>`/`<em>` — see message-body.test.tsx's regression case.
-export const MD_LITERAL_TAGS = ["mention", "channelref", "serverref", "reftoken"]
+export const MD_LITERAL_TAGS = ["mention", "reftoken"]
 
 // A mention pill's rendered text is always `@name` (produced by
 // `chat-syntax-plugin.ts`'s `mentionReplacer`, which already drops the
@@ -69,15 +65,10 @@ export const MD_COMPONENTS = {
   mention: ({ children, ...rest }: Record<string, unknown> & { children?: React.ReactNode }) => (
     <MentionPill everyone={rest["data-everyone"] === "1"}>{children}</MentionPill>
   ),
-  // `channelref`/`serverref` are fully self-sufficient via hooks (resolve via
-  // `useChannelRefDirectory`, navigate via `useRouter`) — unlike `mention`,
-  // they need no closure injected by `buildMdComponents`, so the same static
-  // entries are reused there too (see the spread below). A message ref
-  // (`/server/channel#N`) is now a `channelref` too (message-ref-upgrade.md):
-  // the pill navigates to the channel and shows `#N` as a trailing cursor,
-  // same as an existing thread-message ref (`/s/c/#N#M`).
-  channelref: ChannelRefPill,
-  serverref: ServerRefPill,
+  // `reftoken` is fully self-sufficient via hooks (resolves the id→live name via
+  // `useChannelRefDirectory`, navigates via `useRouter`) — unlike `mention`, it
+  // needs no closure injected by `buildMdComponents`, so the same static entry
+  // is reused there too (see the spread below).
   reftoken: RefTokenPill,
 } as Record<string, React.ComponentType<Record<string, unknown> & { children?: React.ReactNode }>>
 

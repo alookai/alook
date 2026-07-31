@@ -40,6 +40,18 @@ export interface ResolveTargetOpts {
  * `createDmIfMissing`/`createThreadIfMissing` are both `true` for `send`
  * only — every other route passes `false` so a stale ref never materializes
  * a DM/thread row as a side effect of a read.
+ *
+ * DORMANT (deliberate — do NOT "optimize" this away): the endpoint accepts a
+ * bare addressing path and resolves it inline, in the SAME HTTP trip as the
+ * action (one round trip). We intentionally did NOT build a client-side
+ * ref→scope-id pre-resolution layer: it buys nothing (the endpoint already
+ * resolves in one trip) and makes a cold ref strictly slower (two trips + a
+ * rename-invalidation cache). If a future need ever forces client-side
+ * resolution, it MUST stay CLI-internal and transparent (one command, two
+ * HTTP calls the caller never sees) — NEVER a manual "resolve, then send the
+ * id" two-step exposed to the agent (that's the PR-408 smell, considered and
+ * rejected). The `{}()` ref token (ref/id 乙) already gives id-first sends
+ * without a resolve step, so this path stays a pure fallback for bare paths.
  */
 export async function resolveTargetForMember(
   db: Database,

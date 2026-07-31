@@ -120,11 +120,18 @@ export const DM_SERVER = ".dm";
  * time), so each segment is always a single, unambiguous token.
  *
  * On agent surfaces, segments are NAMES (or `#seq`) — raw ids are rejected.
- * The `/c` UI's `resolveChannelRefBase` still accepts ids for pill
- * navigation, since the wire type is a single string shared by both
- * surfaces; the split is enforced by the resolver, not the type. To descend
- * into a thread or forum post, use the canonical `<server>/<channel>/#N`
- * grammar; the underlying row's id is never a valid ref for agents.
+ * The split (names for agents, ids never) is enforced by the resolver, not the
+ * type: the wire type is a single string. To descend into a thread or forum
+ * post, use the canonical `<server>/<channel>/#N` grammar; the underlying
+ * row's id is never a valid ref for agents.
+ *
+ * TERMINOLOGY (ref/id coexistence contract, Gener B-ruling): "ref" means the
+ * `{label}(type/id)` body TOKEN (see `parseRefToken`) — the authoritative,
+ * id-carrying reference embedded in message text. This path-string form is an
+ * "addressing path", NOT a "ref": a legacy input still accepted on `--target`
+ * (as a fallback, resolved server-side inline in one trip) but no longer the
+ * word "ref". Body rendering recognizes ONLY the token as a pill; a bare
+ * addressing path in message text degrades to plaintext.
  */
 export type ChannelRef = string;
 
