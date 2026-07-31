@@ -7,10 +7,9 @@ import { spoilerSyntax, spoilerFromMarkdown } from "./spoiler-syntax"
 import type { SpoilerNode } from "./spoiler-syntax"
 import { refTokenGlobalRe, type RefTokenType } from "./ref-token"
 
-// Chat-only syntax (`||spoiler||`, `@mention`, `/server/channel` and bare
-// `/server` refs), parsed as real markdown AST nodes rather than
-// string-spliced HTML tags fed through `rehype-raw`. `channelRef`/`serverRef`
-// content is a nanoid charset (`[A-Za-z0-9_-]`); a member `mention` is
+// Chat-only syntax (`||spoiler||`, `@mention`, and the authoritative
+// `{label}(type/id)` ref token), parsed as real markdown AST nodes rather than
+// string-spliced HTML tags fed through `rehype-raw`. A member `mention` is
 // `@<name>#dddd` where the name may contain spaces but never a markdown
 // metacharacter (validateCommunityName forbids `#`/`@`/line breaks, and the
 // composer only ever inserts names picked from the roster), so a
@@ -20,88 +19,14 @@ import { refTokenGlobalRe, type RefTokenType } from "./ref-token"
 // comment for why find-and-replace cannot handle spoilers containing nested
 // formatting.
 
-// Mirrors `CHANNEL_REF_REGEX`'s old doc comment: matches a `/server/channel`,
-// `/server/channel/#N` (thread), or `/server/channel/#N#M` (thread reply,
-// see plans/agent-thread-emoji-react.md) ref — the CLI's path grammar
-// (`parseRef`/`formatRef` in `community-cli-contract.ts`). Segment charset
-// `[^\s/#.,;:!?)\]]+` = "any char slugify can emit, minus the terminator
-// punctuation": server/channel names travel on the wire as their SLUGIFIED
-// DISPLAY NAME, not an id (see the round-trip contract in
-// `channel-ref-extension.ts`'s `renderText` doc + `slugify.ts`), and slugify
-// preserves Unicode — it strips only `/` and `#` and collapses whitespace. So
-// the base of the class is the inverse of what slugify removes (everything
-// except whitespace, `/`, `#`), which is what lets non-ASCII names
-// (`/Gus/架构`, `/总部-🎉/general`, `/studio/café`) render as pills like their
-// ASCII kin — matching the `\p{L}` + `u` treatment `MENTION_RE` already uses
-// for `@names`. We ALSO exclude the trailing-boundary punctuation (`REF_TERM`
-// below) from the segment class: the old ASCII class `[A-Za-z0-9_-]` happened
-// to be disjoint from the terminator set, and that disjointness is
-// load-bearing — the segment class `[^\s/#…]+` is GREEDY, so without excluding
-// a terminator char from the segment it gets eaten BEFORE the lookahead can
-// fire (a greedy segment swallows the sentence period in `/studio/general.`;
-// same for the full-width `。` in `看 /Gus/架构。`). So a terminator must live
-// in BOTH places: excluded from the segment (so the match stops there) AND
-// present in the lookahead (so stopping there is legal). slugify never emits a
-// leading/trailing terminator anyway, and a mid-name terminator is a rare
-// corner that degrading to plain text is acceptable for; keeping the boundary
-// correct for ALL refs matters more.
-//
-// `REF_TERM` is the single source of truth for the terminator set — used BOTH
-// as the segment-class exclusion (`REF_SEG`) and the trailing lookahead, so
-// the two can't drift out of the disjointness the boundary relies on. It
-// covers ASCII `.,;:!?)]` AND the common FULL-WIDTH CJK sentence punctuation
-// `。！？；：、）】`: a Chinese sentence ends in `。`, so `看 /Gus/架构。` must
-// yield pill `/Gus/架构` + literal `。`, not swallow the period — full-width
-// terminators matter MORE here since this fix targets CJK names (Blair's QA
-// flag). Kept as a string spliced into `new RegExp(...)` so the shared set is
-// declared once.
-//
-// Trailing `(?=\s|$|[REF_TERM])` boundary lookahead: a 2-segment path followed
-// by ANOTHER `/segment` (e.g. `/api/user/123` in a docs URL) must NOT match —
-// otherwise this regex would greedily take `/api/user` and orphan `/123` as
-// trailing text next to a broken pill. Leading `(?<=^|\s)` lookbehind
-// (verified empirically — a bare leading `\/` with no lookbehind would let
-// this match START mid-path, e.g. matching `/user/123` inside
-// `/api/user/123`): `" /channel-ref"` matches, `"text/channel-ref"` doesn't.
-// Both boundaries are zero-width lookaround (not capture groups) so
-// `findAndReplace` doesn't need to redistribute a leading/trailing text node
-// around the match the way the old string-splice regex's `(^|\s)` capture
-// group did. `u` flag for correct astral/emoji handling.
-const REF_TERM = ".,;:!?)\\]\\u3002\\uFF01\\uFF1F\\uFF1B\\uFF1A\\u3001\\uFF09\\u3011"
-const REF_SEG = `[^\\s/#${REF_TERM}]+`
-// `/server/channel` plus an optional message/thread suffix. The suffix has two
-// branches (message-ref-upgrade.md):
-//   `#\d+`            — a channel-MESSAGE ref, seq glued straight to the channel
-//                       (`/server/channel#N`). Single seq ONLY — `#N#M` without a
-//                       slash is not a valid form (Cecilia #295, load-bearing).
-//   `/#\d+(?:#\d+)?`  — a THREAD (`/server/channel/#N`) or thread-message
-//                       (`/server/channel/#N#M`) ref; the inner `#M` lives only
-//                       on this slash branch.
-// `REF_SEG` excludes `#`, so the 2nd segment stops at the `#` and the seq falls
-// cleanly into the suffix group. The leading `(?<=^|\s)` prefix-anchor means this
-// only ever matches a full path — never a bare `#` — which is what lets us drop
-// the old bare-`#N` MESSAGE_REF pass and root-solve the disambiguation Gus flagged.
-const CHANNEL_REF_RE = new RegExp(`(?<=^|\\s)/${REF_SEG}/${REF_SEG}(?:#\\d+|/#\\d+(?:#\\d+)?)?(?=\\s|$|[${REF_TERM}])`, "gu")
-
-// A bare `/server` ref — one segment, no channel. Same boundary lookaround as
-// `CHANNEL_REF_RE` (leading `(?<=^|\s)`, trailing `REF_TERM`), which already
-// excludes being followed by another `/segment` — so this never double-matches
-// the first segment of a genuine `/server/channel` ref (that trailing boundary
-// fails when the next char is `/`, and the segment class backtracking can't
-// produce a shorter match that satisfies it either, since every character up
-// to the next `/` is in the segment charset). Same `REF_SEG`/`REF_TERM` +
-// `u` flag as `CHANNEL_REF_RE` above (Unicode server names, full-width
-// terminators). Registered after `CHANNEL_REF_RE` in `chatSyntaxPlugin`'s
-// pairs list purely for readability (server-only is the "smaller" grammar);
-// the boundary already makes the ordering non-load-bearing for correctness.
-const SERVER_REF_RE = new RegExp(`(?<=^|\\s)/${REF_SEG}(?=\\s|$|[${REF_TERM}])`, "gu")
-
-// (The old bare-`#N` MESSAGE_REF_RE was removed in message-ref-upgrade.md — a
-// message ref is now always the full path `/server/channel#N`, matched by
-// CHANNEL_REF_RE's suffix group above. A bare `#N` now renders as plain text.
-// This kills the fragile "works only because it's the last consumption pass"
-// disambiguation: the prefix-anchored full-path form can't collide with a bare
-// `#`, so no ordering hazard with mentions/spoilers/other `#` syntax.)
+// NOTE: the legacy bare-ref detection (`CHANNEL_REF_RE`/`SERVER_REF_RE`, plus
+// their `REF_TERM`/`REF_SEG` charset) was removed with ref/id decision B
+// (Gener): the composer now emits an authoritative `{label}(type/id)` ref token
+// for every channel/server/message ref, and that token is the ONLY thing this
+// plugin turns into a pill. A bare `/server/channel` (or `/server`) in message
+// text — a stale one from an old message, or a hand-typed one — is no longer
+// recognized and stays plain text. Single path, no legacy branch. See
+// `ref-token.ts` for the token grammar.
 
 // Two-branch mention grammar (see plans/mandatory-mention-discriminator.md):
 //
@@ -135,18 +60,6 @@ export interface MentionNode {
   discriminator?: string
 }
 
-/** mdast node produced by a `/server/channel` or `/server/channel/#N` ref. */
-export interface ChannelRefNode {
-  type: "channelRef"
-  value: string
-}
-
-/** mdast node produced by a bare `/server` ref (no channel segment). */
-export interface ServerRefNode {
-  type: "serverRef"
-  value: string
-}
-
 /**
  * mdast node produced by an authoritative `{label}(type/id)` ref token (ref/id
  * §3). `label` is the unescaped full-path human form (readable fallback); `id`
@@ -162,14 +75,10 @@ export interface RefTokenNode {
 declare module "mdast" {
   interface RootContentMap {
     mention: MentionNode
-    channelRef: ChannelRefNode
-    serverRef: ServerRefNode
     refToken: RefTokenNode
   }
   interface PhrasingContentMap {
     mention: MentionNode
-    channelRef: ChannelRefNode
-    serverRef: ServerRefNode
     refToken: RefTokenNode
   }
 }
@@ -203,17 +112,10 @@ function refTokenReplacer(
   return { type: "refToken", label, refType: refType as RefTokenType, id }
 }
 
-function channelRefReplacer(value: string): ChannelRefNode {
-  return { type: "channelRef", value }
-}
-
-function serverRefReplacer(value: string): ServerRefNode {
-  return { type: "serverRef", value }
-}
 
 /**
  * remark plugin: combines the spoiler micromark extension (`spoiler-syntax.ts`)
- * with a `mdast-util-find-and-replace` pass for `mention`/`channelRef`.
+ * with a `mdast-util-find-and-replace` pass for `mention`/`refToken`.
  * Registers `spoilerSyntax`'s micromark/from-markdown extensions on the
  * processor (the `remark-gfm`-style `this.data(...)` convention) and returns
  * a tree transform running the find-and-replace pass after parsing.
@@ -230,17 +132,15 @@ export const chatSyntaxPlugin: Plugin<[], Root> = function chatSyntaxPlugin(this
     findAndReplace(
       tree,
       [
-        // Authoritative `{label}(type/id)` token first — a distinct grammar that
-        // can't collide with the bare-ref/mention passes; claiming its spans
-        // first keeps the later passes seeing only genuine legacy bare refs.
+        // The authoritative `{label}(type/id)` token is the ONLY thing that
+        // renders as a channel/message/server pill (ref/id §3, decision B —
+        // Gener: single path, no legacy branch). A bare `/server/channel` in
+        // message text — whether a stale one in an old message or a hand-typed
+        // one — is NOT recognized and stays plain text. (Both `channelRef` and
+        // `serverRef` passes were intentionally removed here; the composer emits
+        // the token now, so nothing produces those nodes anymore.)
         [refTokenGlobalRe(), refTokenReplacer as unknown as (value: string, ...rest: unknown[]) => PhrasingContent],
         [MENTION_RE, mentionReplacer as unknown as (value: string, ...rest: unknown[]) => PhrasingContent | string | false],
-        [CHANNEL_REF_RE, channelRefReplacer as unknown as (value: string) => PhrasingContent],
-        // Runs as its own pass AFTER the channelRef pass above — by then every
-        // `/server/channel` span is already a `channelRef` element (no longer
-        // a `text` node `findAndReplace` visits), so this pass only ever sees
-        // genuine bare `/server` refs among the remaining text.
-        [SERVER_REF_RE, serverRefReplacer as unknown as (value: string) => PhrasingContent],
       ],
       { ignore: IGNORE_NODE_TYPES },
     )
@@ -250,7 +150,7 @@ export const chatSyntaxPlugin: Plugin<[], Root> = function chatSyntaxPlugin(this
 // `remarkRehypeOptions.handlers` — converts each custom mdast node directly
 // into a hast element, skipping the HTML-string round-trip entirely. Tag
 // names/attributes match the old string-spliced tags exactly
-// (`<spoiler>`/`<mention data-everyone/data-tag>`/`<channelref>`) so
+// (`<spoiler>`/`<mention data-everyone/data-tag>`/`<reftoken>`) so
 // `MD_ALLOWED_TAGS`/`MD_COMPONENTS` in `message-markdown.tsx` need no change.
 export const chatSyntaxHandlers: Handlers = {
   spoiler: ((state, node: SpoilerNode): Element => ({
@@ -266,18 +166,6 @@ export const chatSyntaxHandlers: Handlers = {
       ...(node.everyone ? { dataEveryone: "1" } : {}),
       ...(node.discriminator ? { dataTag: node.discriminator } : {}),
     },
-    children: [{ type: "text", value: node.value }],
-  })) as Handler,
-  channelRef: ((_state, node: ChannelRefNode): Element => ({
-    type: "element",
-    tagName: "channelref",
-    properties: {},
-    children: [{ type: "text", value: node.value }],
-  })) as Handler,
-  serverRef: ((_state, node: ServerRefNode): Element => ({
-    type: "element",
-    tagName: "serverref",
-    properties: {},
     children: [{ type: "text", value: node.value }],
   })) as Handler,
   refToken: ((_state, node: RefTokenNode): Element => ({
