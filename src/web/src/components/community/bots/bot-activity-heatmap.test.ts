@@ -80,24 +80,35 @@ describe("BotActivityHeatmap — calendar-axis fill", () => {
     // Gus #706/#708: cross-bot comparability. A quiet bot (1/day) must NOT reach
     // the darkest bucket just because it's that bot's own peak. Bucket class is
     // on the trigger cell; find each active day's cell by DOM index and read its
-    // bucket class. Thresholds (Alli #712): 1-3=b1, 4-9=b2, 10-24=b3, 25+=b4.
+    // bucket class. Thresholds (Gus #714): 1-50=b1, 51-100=b2, 101-500=b3, 500+=b4.
     const now = new Date()
     const r = render([
-      { day: utcDayKeyDaysAgo(now, 3), handledCount: 1, sentCount: 0 }, // 1  → b1
-      { day: utcDayKeyDaysAgo(now, 2), handledCount: 3, sentCount: 2 }, // 5  → b2
-      { day: utcDayKeyDaysAgo(now, 1), handledCount: 12, sentCount: 0 }, // 12 → b3
-      { day: utcDayKeyDaysAgo(now, 0), handledCount: 40, sentCount: 5 }, // 45 → b4
+      { day: utcDayKeyDaysAgo(now, 3), handledCount: 1, sentCount: 0 }, // 1   → b1
+      { day: utcDayKeyDaysAgo(now, 2), handledCount: 60, sentCount: 0 }, // 60  → b2
+      { day: utcDayKeyDaysAgo(now, 1), handledCount: 200, sentCount: 0 }, // 200 → b3
+      { day: utcDayKeyDaysAgo(now, 0), handledCount: 600, sentCount: 5 }, // 605 → b4
     ])
     // Split into tokens so "bg-status-online" (b4) doesn't match the /opacity
     // variants (b1–b3) as a substring.
     const tokens = cells(r).map((c) => String(c.props.className).split(/\s+/))
     const idx = (n: number) => 29 - n // oldest→newest slot for n days ago
     expect(tokens[idx(3)]).toContain("bg-status-online/30") // 1 msg — palest
-    expect(tokens[idx(2)]).toContain("bg-status-online/55") // 5 msgs
-    expect(tokens[idx(1)]).toContain("bg-status-online/80") // 12 msgs
-    expect(tokens[idx(0)]).toContain("bg-status-online") // 45 msgs — darkest, no /opacity
+    expect(tokens[idx(2)]).toContain("bg-status-online/55") // 60 msgs
+    expect(tokens[idx(1)]).toContain("bg-status-online/80") // 200 msgs
+    expect(tokens[idx(0)]).toContain("bg-status-online") // 605 msgs — darkest, no /opacity
     // the low-count day must NOT reach the darkest, even though it's this bot's min
     expect(tokens[idx(3)]).not.toContain("bg-status-online")
+  })
+
+  it("weights sent x2 for color only — tooltip still shows raw counts (Gus #716/Blair #717)", () => {
+    const now = new Date()
+    // 30 handled + 20 sent: raw sum 50 (→ b1), but weighted 30+20*2=70 (→ b2).
+    // Color must use the weighted score; tooltip must show the raw numbers.
+    const r = render([{ day: utcDayKeyDaysAgo(now, 0), handledCount: 30, sentCount: 20 }])
+    const cell = cells(r)[29] // today = last slot
+    expect(String(cell.props.className).split(/\s+/)).toContain("bg-status-online/55") // b2, weighted
+    const tip = tips(r).find((t) => t.includes("handled"))
+    expect(tip).toContain("30 handled · 20 sent") // raw, NOT the weighted 70
   })
 
   it("labels active days with the split and empty days as 'no activity'", () => {

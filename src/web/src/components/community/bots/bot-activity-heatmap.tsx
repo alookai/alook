@@ -41,18 +41,19 @@ const BUCKET_CLASSES = [
 
 const DATE_FMT = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" })
 
-// ABSOLUTE per-day thresholds (Gus /Gus/working #706/#708): the point of the
-// heatmap is to see WHICH AGENTS are busier, not which day — so a day's tint is
-// its raw message count, comparable across bots (a 1-msg day is always pale, a
-// 50-msg day always darkest). A relative-to-own-max scale (the old #628 version)
-// defeated this: every bot's peak went darkest, so all bots looked equally busy
-// and sparse data collapsed to a single peak cell.
-function bucketFor(total: number): number {
-  if (total <= 0) return 0
-  if (total <= 3) return 1 // 1–3
-  if (total <= 9) return 2 // 4–9
-  if (total <= 24) return 3 // 10–24
-  return 4 // 25+
+// ABSOLUTE thresholds (Gus /Gus/working #708/#714): the heatmap is for seeing
+// WHICH AGENTS are busier, not which day — so tint maps a day's weighted score
+// to a fixed band, comparable across bots (a relative-to-own-max scale, the old
+// #628 version, made every bot's peak darkest so all looked equally busy). Bands
+// are sized for the steady-state ~100 msgs/day an agent handles (Gus #714), not
+// today's dev-period cross-wake noise. `score` is the weighted value below, NOT
+// the raw message count.
+function bucketFor(score: number): number {
+  if (score <= 0) return 0
+  if (score <= 50) return 1 // 1–50
+  if (score <= 100) return 2 // 51–100
+  if (score <= 500) return 3 // 101–500
+  return 4 // 500+
 }
 
 function dayLabel(dayKey: string): string {
@@ -120,7 +121,11 @@ export function BotActivityHeatmap({
       const d = byDay.get(key)
       return {
         key,
-        bucket: d ? bucketFor(d.handledCount + d.sentCount) : 0,
+        // Coloring weight (Gus #716): sent counts double — sending a message is
+        // impact/real work, vs just being woken to handle one. This weight feeds
+        // ONLY the color bucket; the tooltip and the stored counts stay raw
+        // (Blair #717 — never let the weight leak into what we display or store).
+        bucket: d ? bucketFor(d.handledCount + d.sentCount * 2) : 0,
         title: tooltipFor(key, d),
       }
     })
