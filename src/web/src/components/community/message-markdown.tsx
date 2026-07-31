@@ -2,6 +2,7 @@ import type React from "react"
 import { Spoiler, MentionPill } from "./inline-marks"
 import { ChannelRefPill } from "./channel-ref-pill"
 import { ServerRefPill } from "./server-ref-pill"
+import { RefTokenPill } from "./ref-token-pill"
 
 // Match `/c/invite/<token>` — with or without an origin.
 // - token allows [A-Za-z0-9_-] (nanoid alphabet) and length 6..64 (short + old
@@ -44,13 +45,14 @@ export const MD_ALLOWED_TAGS = {
   mention: ["dataEveryone", "dataTag"],
   channelref: [],
   serverref: [],
+  reftoken: ["dataType", "dataId", "dataLabel"],
 }
 // `spoiler` is deliberately excluded — unlike `mention`/`channelref`/`serverref`/`messageref`
 // (leaf nodes whose content is always plain tag text), a spoiler must keep its
 // nested markdown children (e.g. `||**bold**||`). Handing it to Streamdown's
 // `literalTagContent` flattens all descendants into one text node, stripping
 // the nested `<strong>`/`<em>` — see message-body.test.tsx's regression case.
-export const MD_LITERAL_TAGS = ["mention", "channelref", "serverref"]
+export const MD_LITERAL_TAGS = ["mention", "channelref", "serverref", "reftoken"]
 
 // A mention pill's rendered text is always `@name` (produced by
 // `chat-syntax-plugin.ts`'s `mentionReplacer`, which already drops the
@@ -76,6 +78,7 @@ export const MD_COMPONENTS = {
   // same as an existing thread-message ref (`/s/c/#N#M`).
   channelref: ChannelRefPill,
   serverref: ServerRefPill,
+  reftoken: RefTokenPill,
 } as Record<string, React.ComponentType<Record<string, unknown> & { children?: React.ReactNode }>>
 
 // Same as `MD_COMPONENTS`, but the `mention` pill opens the profile card on

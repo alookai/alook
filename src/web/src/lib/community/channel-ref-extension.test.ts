@@ -143,17 +143,17 @@ describe("buildCommunityChannelRefExtension — suggestion.items callback", () =
 })
 
 describe("buildCommunityChannelRefExtension — renderText/renderHTML", () => {
-  it("renderText produces /serverName/label (name-based, not id-based)", () => {
+  it("renderText emits the {path}(channel/id) token — path is name-based, id authoritative (ref/id §3)", () => {
     const { ext } = build()
     const { renderText } = getRenderFns(ext)
     expect(
       renderText({
         node: { attrs: { id: "chn_abc", serverId: "srv_xyz", serverName: "Studio", label: "general" } },
       }),
-    ).toBe("/Studio/general")
+    ).toBe("{/Studio/general}(channel/chn_abc)")
   })
 
-  it("renderText falls back independently per-field — serverName missing falls back to serverId, label missing falls back to id (mixed case, not all-or-nothing)", () => {
+  it("path label falls back independently per-field (serverName→serverId, label→id) inside the token", () => {
     const { ext } = build()
     const { renderText } = getRenderFns(ext)
     // serverName missing, label present.
@@ -161,13 +161,13 @@ describe("buildCommunityChannelRefExtension — renderText/renderHTML", () => {
       renderText({
         node: { attrs: { id: "chn_abc", serverId: "srv_xyz", serverName: null, label: "general" } },
       }),
-    ).toBe("/srv_xyz/general")
+    ).toBe("{/srv_xyz/general}(channel/chn_abc)")
     // serverName present, label missing.
     expect(
       renderText({
         node: { attrs: { id: "chn_abc", serverId: "srv_xyz", serverName: "Studio", label: null } },
       }),
-    ).toBe("/Studio/chn_abc")
+    ).toBe("{/Studio/chn_abc}(channel/chn_abc)")
   })
 
   it("renderHTML shows a compact /label chip", () => {
@@ -196,20 +196,23 @@ describe("buildCommunityChannelRefExtension — renderText/renderHTML", () => {
     expect(
       renderText({ node: { attrs: { id: "chn_abc", serverId: null, label: "general" } } }),
     ).not.toContain("null")
+    // id present → wraps into the authoritative token; the path label falls
+    // back to the visible `/general` (no `/null/...`), still readable.
     expect(
       renderText({ node: { attrs: { id: "chn_abc", serverId: null, label: "general" } } }),
-    ).toBe("/general")
+    ).toBe("{/general}(channel/chn_abc)")
   })
 
-  it("renderText falls back to the channel id alone when server is missing but the channel id is present", () => {
+  it("wraps into the token with the channel id as path label when server is missing but the channel id is present", () => {
     // With independent per-field fallback, a present `id` still lets the
     // channel segment resolve even when both `serverName`/`serverId` are
-    // missing — only the server segment drops out.
+    // missing — only the server segment drops out of the path label; the id
+    // is still the authoritative token target.
     const { ext } = build()
     const { renderText } = getRenderFns(ext)
     expect(
       renderText({ node: { attrs: { id: "chn_abc", serverId: null, serverName: null, label: null } } }),
-    ).toBe("/chn_abc")
+    ).toBe("{/chn_abc}(channel/chn_abc)")
   })
 
   it("renderText emits empty string when nothing at all is present (server AND channel both fully missing)", () => {

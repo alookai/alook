@@ -3,7 +3,7 @@ import { unified } from "unified"
 import remarkParse from "remark-parse"
 import type { Root, PhrasingContent } from "mdast"
 import { chatSyntaxPlugin } from "./chat-syntax-plugin"
-import type { MentionNode, ChannelRefNode, ServerRefNode } from "./chat-syntax-plugin"
+import type { MentionNode, ChannelRefNode, ServerRefNode, RefTokenNode } from "./chat-syntax-plugin"
 
 function parse(md: string): Root {
   const processor = unified().use(remarkParse).use(chatSyntaxPlugin)
@@ -356,5 +356,45 @@ describe("chatSyntaxPlugin — mixed", () => {
     const refs = children.filter((c): c is ChannelRefNode => c.type === "channelRef")
     // Two channelRefs: the message ref (with seq) and the plain channel ref.
     expect(refs.map((r) => r.value)).toEqual(["/studio/general#42", "/studio/dev"])
+  })
+})
+
+describe("chatSyntaxPlugin — refToken {label}(type/id) (ref/id §3)", () => {
+  it("parses each type into a refToken node with unescaped label + type + id", () => {
+    const ch = paragraphChildren(parse("see {/Alook/general}(channel/K9f_rnJk)"))
+      .find((c): c is RefTokenNode => c.type === "refToken")
+    expect(ch).toMatchObject({ type: "refToken", label: "/Alook/general", refType: "channel", id: "K9f_rnJk" })
+    const msg = paragraphChildren(parse("{/Alook/general#42}(message/m_ab)"))
+      .find((c): c is RefTokenNode => c.type === "refToken")
+    expect(msg).toMatchObject({ refType: "message", id: "m_ab", label: "/Alook/general#42" })
+    const srv = paragraphChildren(parse("{/Alook}(server/srv_x)"))
+      .find((c): c is RefTokenNode => c.type === "refToken")
+    expect(srv).toMatchObject({ refType: "server", id: "srv_x", label: "/Alook" })
+  })
+
+  it("a raw } closes the label (no escape layer) — a sanitized label parses cleanly", () => {
+    // Producers sanitize `}`→`_` (formatRefToken), so a well-formed token never
+    // carries a raw `}` in its label; the sanitized form parses normally.
+    const tok = paragraphChildren(parse("{/Alook/plan_b}(channel/c1)"))
+      .find((c): c is RefTokenNode => c.type === "refToken")
+    expect(tok).toMatchObject({ label: "/Alook/plan_b", refType: "channel", id: "c1" })
+  })
+
+  it("leaves a legacy bare /server/channel as a channelRef (both grammars coexist)", () => {
+    const children = paragraphChildren(parse("old {/Alook/general}(channel/c1) new /Alook/dev"))
+    expect(children.find((c) => c.type === "refToken")).toBeTruthy()
+    const bare = children.find((c): c is ChannelRefNode => c.type === "channelRef")
+    expect(bare).toMatchObject({ type: "channelRef", value: "/Alook/dev" })
+  })
+
+  it("a non-whitelisted type stays plain text (no node)", () => {
+    const children = paragraphChildren(parse("{/x}(user/u_1)"))
+    expect(children.some((c) => c.type === "refToken")).toBe(false)
+  })
+
+  it("a token inside a code span stays literal (IGNORE list)", () => {
+    const children = paragraphChildren(parse("`{/Alook/general}(channel/c1)`"))
+    expect(children.some((c) => c.type === "refToken")).toBe(false)
+    expect(children[0]?.type).toBe("inlineCode")
   })
 })

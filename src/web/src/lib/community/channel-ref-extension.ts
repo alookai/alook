@@ -1,5 +1,6 @@
 import Mention from "@tiptap/extension-mention"
 import { PluginKey } from "@tiptap/pm/state"
+import { formatRefToken } from "./ref-token"
 
 export type ChannelRefCandidate = {
   id: string // channelId (nanoid)
@@ -150,8 +151,16 @@ export function buildCommunityChannelRefExtension(opts: {
       }
       const server = serverName || serverId
       const channel = label || id
-      if (!server) return channel ? `/${channel}` : ""
-      return channel ? `/${server}/${channel}` : `/${server}`
+      // The full-path human label (unchanged from the legacy bare form) — it is
+      // the readable fallback half of the token.
+      const path = !server
+        ? (channel ? `/${channel}` : "")
+        : (channel ? `/${server}/${channel}` : `/${server}`)
+      // ref/id §3: emit the authoritative `{label}(channel/id)` token when the
+      // node carries a channel id (the normal insert path always does). Without
+      // an id (a degenerate node) fall back to the bare path so nothing breaks.
+      if (id && path) return formatRefToken({ label: path, type: "channel", id })
+      return path
     },
     renderHTML: ({ options, node }) => ["span", options.HTMLAttributes, `/${node.attrs.label ?? node.attrs.id}`],
     suggestion: {

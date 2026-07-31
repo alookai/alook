@@ -5,6 +5,7 @@ import type { Element } from "hast"
 import type { Plugin } from "unified"
 import { spoilerSyntax, spoilerFromMarkdown } from "./spoiler-syntax"
 import type { SpoilerNode } from "./spoiler-syntax"
+import { refTokenGlobalRe, type RefTokenType } from "./ref-token"
 
 // Chat-only syntax (`||spoiler||`, `@mention`, `/server/channel` and bare
 // `/server` refs), parsed as real markdown AST nodes rather than
@@ -146,16 +147,30 @@ export interface ServerRefNode {
   value: string
 }
 
+/**
+ * mdast node produced by an authoritative `{label}(type/id)` ref token (ref/id
+ * §3). `label` is the unescaped full-path human form (readable fallback); `id`
+ * is the authoritative target and `refType` names its table.
+ */
+export interface RefTokenNode {
+  type: "refToken"
+  label: string
+  refType: RefTokenType
+  id: string
+}
+
 declare module "mdast" {
   interface RootContentMap {
     mention: MentionNode
     channelRef: ChannelRefNode
     serverRef: ServerRefNode
+    refToken: RefTokenNode
   }
   interface PhrasingContentMap {
     mention: MentionNode
     channelRef: ChannelRefNode
     serverRef: ServerRefNode
+    refToken: RefTokenNode
   }
 }
 
@@ -173,6 +188,19 @@ function mentionReplacer(value: string): MentionNode {
   const tag = /#(\d{4})$/.exec(value)
   const bare = value.replace(/#\d{4}$/, "")
   return tag ? { type: "mention", value: bare, everyone: false, discriminator: tag[1] } : { type: "mention", value: bare, everyone: false }
+}
+
+// `findAndReplace` passes the capture groups after the full match: group 1 =
+// escaped label, group 2 = type, group 3 = id. The regex's type alternation
+// already whitelists {channel,message,server} and the id charset, so any match
+// here is well-formed; a malformed token simply never matches and stays text.
+function refTokenReplacer(
+  _full: string,
+  label: string,
+  refType: string,
+  id: string,
+): RefTokenNode {
+  return { type: "refToken", label, refType: refType as RefTokenType, id }
 }
 
 function channelRefReplacer(value: string): ChannelRefNode {
@@ -202,6 +230,10 @@ export const chatSyntaxPlugin: Plugin<[], Root> = function chatSyntaxPlugin(this
     findAndReplace(
       tree,
       [
+        // Authoritative `{label}(type/id)` token first — a distinct grammar that
+        // can't collide with the bare-ref/mention passes; claiming its spans
+        // first keeps the later passes seeing only genuine legacy bare refs.
+        [refTokenGlobalRe(), refTokenReplacer as unknown as (value: string, ...rest: unknown[]) => PhrasingContent],
         [MENTION_RE, mentionReplacer as unknown as (value: string, ...rest: unknown[]) => PhrasingContent | string | false],
         [CHANNEL_REF_RE, channelRefReplacer as unknown as (value: string) => PhrasingContent],
         // Runs as its own pass AFTER the channelRef pass above — by then every
@@ -247,5 +279,13 @@ export const chatSyntaxHandlers: Handlers = {
     tagName: "serverref",
     properties: {},
     children: [{ type: "text", value: node.value }],
+  })) as Handler,
+  refToken: ((_state, node: RefTokenNode): Element => ({
+    type: "element",
+    tagName: "reftoken",
+    // id/type are the authoritative target; the label is the readable fallback
+    // rendered when the id can't be resolved to a live name.
+    properties: { dataType: node.refType, dataId: node.id, dataLabel: node.label },
+    children: [{ type: "text", value: node.label }],
   })) as Handler,
 }
