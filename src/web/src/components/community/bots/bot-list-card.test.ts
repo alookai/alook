@@ -66,6 +66,8 @@ function bot(over: Partial<BotSummary>): BotSummary {
     machineId: "mac1",
     runtime: "claude",
     modelName: null,
+    lastRefreshContextAt: null,
+    dailyActivity: [],
     ...over,
   }
 }

@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch, readUploadError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
+import type { BotActivityDay } from "@/components/community/bots/bot-activity-heatmap"
 
 export type BotSummary = {
   id: string
@@ -12,14 +13,15 @@ export type BotSummary = {
   machineId: string
   runtime: string
   modelName: string | null
-  // Context lifecycle (my-bots #516/#531): when the agent last refreshed its
-  // context (nap OR session reset — both "refresh context"), ISO string, null
-  // if it never has; and how many messages it's handled in the CURRENT lifecycle
-  // (reset/nap zero it) — the field is post-gate "handled" count (excludes
-  // deleted-sender / parse-failed), so it's labeled "Handled N msgs" (Gus #582),
-  // NOT "received". Rendered as "Refreshed X ago · Handled N msgs".
+  // Context lifecycle (my-bots #516): when the agent last refreshed its context
+  // (nap OR session reset), ISO string, null if it never has. Rendered as the
+  // awake-duration "Awake 17h" (Gus #672/#674 — how long the agent has been
+  // awake since that refresh, not "X ago"); null (never refreshed) omits it.
   lastRefreshContextAt: string | null
-  handledMessageCount: number
+  // Per-day handled/sent activity for the last 30 days (heatmap, Gus #608).
+  // Sparse — only days with activity; oldest→newest; [] for a brand-new bot.
+  // The heatmap builds the full 30-day calendar and fills from this by day-key.
+  dailyActivity: BotActivityDay[]
 }
 export type BotsResponse = { bots: BotSummary[] }
 

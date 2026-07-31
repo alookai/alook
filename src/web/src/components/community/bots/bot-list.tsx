@@ -27,7 +27,8 @@ import {
 } from "@/components/ui/alert-dialog"
 import { AgentAvatar } from "@/components/avatar"
 import { ProviderLogo } from "@/components/provider-logo"
-import { formatRelativeTime } from "@/components/community/format-time"
+import { formatAwakeDuration } from "@/components/community/format-time"
+import { BotActivityHeatmap } from "./bot-activity-heatmap"
 import { useMachines } from "@/hooks/community/use-machines"
 import { useBots, useDeleteBot, useResetBotSession, type BotSummary } from "@/hooks/community/use-bots"
 import { useCreateOrGetDm } from "@/hooks/community/mutations"
@@ -266,10 +267,12 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                                 )}
                               </div>
                               {/* One meta line (Gus #573: no third row). Runtime ·
-                                  model · context-lifecycle (my-bots #516/#531):
-                                  last refresh (nap/reset — null omits it, new
-                                  bot never refreshed) + messages handled this
-                                  lifecycle (always shown, defaults 0). */}
+                                  model · awake-duration (my-bots #516; Gus
+                                  #672/#674 relabelled "Refreshed X ago" → the
+                                  awake concept "Awake 17h"). null lastRefresh =
+                                  never awoke → the segment is omitted. The old
+                                  "Handled N msgs" counter is replaced by the
+                                  30-day activity heatmap (Gus #608). */}
                               <span className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
                                 <ProviderLogo provider={bot.runtime} className="size-3.5 shrink-0" />
                                 <span className="truncate">{bot.runtime}</span>
@@ -290,13 +293,27 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                                 {bot.lastRefreshContextAt && (
                                   <>
                                     <span aria-hidden className="shrink-0">·</span>
-                                    <span className="shrink-0">Refreshed {formatRelativeTime(bot.lastRefreshContextAt)}</span>
+                                    <span className="shrink-0">{formatAwakeDuration(bot.lastRefreshContextAt)}</span>
                                   </>
                                 )}
-                                <span aria-hidden className="shrink-0">·</span>
-                                <span className="shrink-0">Handled {bot.handledMessageCount} msgs</span>
                               </span>
+                              {/* Mobile heatmap: full-width ribbon below the meta
+                                  line (Gus /Gus/uiux #164). Desktop places its
+                                  own instance on the card's right (below).
+                                  Visibility is on the wrapper, not the grid
+                                  element, to avoid a display-class conflict. */}
+                              <div className="mt-1.5 sm:hidden">
+                                <BotActivityHeatmap days={bot.dailyActivity} variant="mobile" />
+                              </div>
                             </div>
+                          </div>
+                          {/* Desktop heatmap: thin strip in the card's empty
+                              right side, pushed toward the kebab (Gus
+                              /Gus/uiux #155). ml-auto eats the gap so it hugs
+                              the right rather than centering in a justify-between
+                              row. */}
+                          <div className="ml-auto hidden self-center sm:block">
+                            <BotActivityHeatmap days={bot.dailyActivity} variant="desktop" />
                           </div>
                           <DropdownMenu>
                             <DropdownMenuTrigger

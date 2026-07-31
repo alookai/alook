@@ -50,6 +50,23 @@ export function formatRelativeTime(iso: string): string {
   return DATE_FMT.format(d)
 }
 
+// How long the agent has been awake since it last refreshed its context (nap /
+// session reset), as a magnitude — "Awake 5m" / "Awake 17h" / "Awake 3d" (Gus
+// #672/#674: the awake concept reads clearer than "Refreshed X ago"). Unlike
+// formatRelativeTime this has no "ago" and no date fallback — it's an elapsed
+// duration, so long-awake agents still read as a running count, not a date.
+export function formatAwakeDuration(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ""
+  const mins = Math.floor((Date.now() - d.getTime()) / 60_000)
+  if (mins < 1) return "Awake <1m"
+  if (mins < 60) return `Awake ${mins}m`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `Awake ${hours}h`
+  const days = Math.floor(hours / 24)
+  return `Awake ${days}d`
+}
+
 // Get just the date key (YYYY-MM-DD) from an ISO string for grouping
 export function dateKey(iso: string | undefined): string {
   if (!iso) return ""
