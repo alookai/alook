@@ -18,8 +18,8 @@ import { Command, CommanderError } from "commander";
 import { realpathSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
-import type { ServerApi, Cursor, Message } from "../server/contract.js";
-import { parseRef } from "../server/contract.js";
+import type { ServerApi, Cursor, Message, RefTokenType } from "../server/contract.js";
+import { parseRef, parseRefToken } from "../server/contract.js";
 import { proxyServerApiFromEnv } from "./proxyServerApi.js";
 import { daemonStart, daemonStop, daemonList } from "./daemonStart.js";
 import { parseInviteToken } from "@alook/shared/lib/invite-link";
@@ -82,6 +82,53 @@ function agentId(opts: Record<string, unknown>): string {
   const id = (opts.agent as string) || process.env.ALOOK_AGENT_ID || process.env.ALOOK_ID;
   if (!id) throw new CliError("agent identity required — pass --agent <id> or set ALOOK_AGENT_ID");
   return id;
+}
+
+// A `--target` value is EITHER an addressing path (`/server/channel`, `/.dm/peer`)
+// OR a `{}()` ref token (ref/id 乙). `resolveTarget` discriminates the two:
+//  - A whole-string channel-class token → `{ channelId }` (send by id, PR-2 fast
+//    path). CLI does the COARSE type-filter here: message/server tokens are
+//    rejected with a hint (they can't be a send/upload destination). This is a
+//    check on the TOKEN TYPE (`(type/id)`), a plain string — distinct from the
+//    endpoint's check on the resolved channel's REAL StoredChannelType
+//    (message-bearing surface, `isMessageBearingSurface`); the two layers judge
+//    different things and don't overlap (Blondie #268).
+//  - Anything else → `{ ref }` (bare path, resolved server-side as before).
+//
+// Shell-residue guard: `{`/`}`/`(` are zsh metacharacters (brace expansion,
+// subshell), so an UNQUOTED token arrives here mangled. A token always starts
+// with `{`; an addressing path always starts with `/` (`/server/channel`,
+// `/.dm/peer`). So a value that STARTS WITH `{` was meant to be a token — if it
+// then fails to parse as one whole token, it's mangled (or a typo), and we fail
+// loudly with the quoting hint rather than silently mis-routing the fragment as
+// a bare ref (→ server 404). Anchoring on the leading `{` means a legitimate
+// bare path that merely CONTAINS `(`/`)` — `slugify` strips only `/`+`#`, so a
+// channel named `plan(b)` yields a valid `/Alook/plan(b)` — is never
+// false-rejected (Blondie #268 (3)).
+type ResolvedTarget = { channelId: string } | { ref: string };
+
+const REF_TOKEN_TARGET_HINT: Record<Exclude<RefTokenType, "channel">, string> = {
+  message:
+    "a message ref token can't be a send target — cite the message with --reply <seq> instead",
+  server:
+    "a server ref token can't be a send target — specify a channel (a channel token or a /server/channel path)",
+};
+
+function resolveTarget(raw: string, flag: string): ResolvedTarget {
+  const token = parseRefToken(raw);
+  if (token) {
+    if (token.type === "channel") return { channelId: token.id };
+    throw new CliError(`${flag}: ${REF_TOKEN_TARGET_HINT[token.type]}`);
+  }
+  // Not a whole-string token. A leading `{` means it was meant to be one but
+  // arrived mangled (unquoted → shell-split) — fail with the quoting hint.
+  if (raw.startsWith("{")) {
+    throw new CliError(
+      `${flag}: malformed ref token — wrap the whole token in quotes so the shell ` +
+        `doesn't split it, e.g. ${flag} "{/server/channel}(channel/<id>)"`,
+    );
+  }
+  return { ref: raw };
 }
 
 const TEXT_ESCAPE_MAP: Record<string, string> = { n: "\n", t: "\t", r: "\r", "\\": "\\" };
@@ -208,8 +255,11 @@ async function sendWithRetry(
 async function cmdMessageSend(opts: Record<string, unknown>): Promise<unknown> {
   const api = getApi();
   const agent = agentId(opts);
-  const channel = opts.target as string;
-  if (!channel) throw new CliError("message send: --target <ref> is required (e.g. /demo-workspace/general)");
+  const targetRaw = opts.target as string;
+  if (!targetRaw) throw new CliError("message send: --target <ref> is required (e.g. /demo-workspace/general)");
+  // `--target` is a path OR a `{}()` channel ref token; a token resolves to a
+  // channelId (send by id), a path stays a ref (resolved server-side).
+  const target = resolveTarget(targetRaw, "message send: --target");
 
   let text: string | undefined;
   const fileFlag = opts.file as string | undefined;
@@ -260,7 +310,7 @@ async function cmdMessageSend(opts: Record<string, unknown>): Promise<unknown> {
   const nonce = randomUUID();
   const res = await sendWithRetry(api, {
     agentId: agent,
-    channel,
+    ...("channelId" in target ? { channelId: target.channelId } : { channel: target.ref }),
     content: { text: text ?? "" },
     attachments: attachmentIds.length > 0 ? attachmentIds : undefined,
     replyToSeq,
@@ -268,7 +318,7 @@ async function cmdMessageSend(opts: Record<string, unknown>): Promise<unknown> {
   });
   if (res.state === "blocked") {
     throw new CliError(
-      `channel not aligned: ${res.unreadCount} unread message(s) in ${channel} (latest #${res.latestSeq}). ` +
+      `channel not aligned: ${res.unreadCount} unread message(s) in ${targetRaw} (latest #${res.latestSeq}). ` +
         `Run \`alook inbox pull\` to align, then resend.`,
     );
   }
@@ -320,10 +370,13 @@ async function cmdMessageEmoji(opts: Record<string, unknown>): Promise<unknown> 
 async function cmdAttachmentUpload(opts: Record<string, unknown>): Promise<unknown> {
   const api = getApi();
   const agent = agentId(opts);
-  const target = opts.target as string;
+  const targetRaw = opts.target as string;
   const filePath = opts.file as string;
-  if (!target) throw new CliError("message attachment upload: --target <ref> is required");
+  if (!targetRaw) throw new CliError("message attachment upload: --target <ref> is required");
   if (!filePath) throw new CliError("message attachment upload: --file <path> is required");
+  // Same path-or-token discrimination as `message send` (ref/id 乙): a channel
+  // token → channelId, a bare path → ref; message/server tokens rejected.
+  const target = resolveTarget(targetRaw, "message attachment upload: --target");
 
   const fs = await import("fs/promises");
   let bytes: Buffer;
@@ -346,7 +399,7 @@ async function cmdAttachmentUpload(opts: Record<string, unknown>): Promise<unkno
 
   const result = await api.attachmentUpload({
     agentId: agent,
-    target,
+    ...("channelId" in target ? { channelId: target.channelId } : { target: target.ref }),
     file: { data: new Uint8Array(bytes), filename, contentType },
   });
   return result;
@@ -539,7 +592,10 @@ function buildProgram(): Command {
   message
     .command("send")
     .description("send a message to a channel, DM, or thread")
-    .option("--target <ref>", "destination (path-style ref, e.g. /demo-workspace/general)")
+    .option(
+      "--target <ref>",
+      'destination — a path (e.g. /demo-workspace/general) or a quoted channel ref token (e.g. "{/demo/general}(channel/<id>)")',
+    )
     .option("--text <text>", "inline message body (short messages)")
     .option("--file <path>", "read message body from a file (long messages)")
     .option(
@@ -578,7 +634,10 @@ function buildProgram(): Command {
   attachment
     .command("upload")
     .description("upload a local file as a pending attachment for a future send")
-    .option("--target <ref>", "destination (channel, DM, or thread ref)")
+    .option(
+      "--target <ref>",
+      'destination — a channel/DM/thread path or a quoted channel ref token (e.g. "{/demo/general}(channel/<id>)")',
+    )
     .option("--file <path>", "local file to upload")
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })

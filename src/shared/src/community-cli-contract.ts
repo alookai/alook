@@ -313,8 +313,23 @@ export interface AckRequest {
 
 export interface SendRequest {
   agentId: AgentId;
-  /** Path ref of the destination channel/DM/thread. */
-  channel: ChannelRef;
+  /**
+   * Path ref of the destination channel/DM/thread. Exactly ONE of `channel` or
+   * `channelId` is set (the route requires one-of, `CommunityAgentSendRequestSchema`):
+   * a bare-path `--target` sets `channel`, a `{}()` ref-token `--target` sets
+   * `channelId` and leaves this unset.
+   */
+  channel?: ChannelRef;
+  /**
+   * Authoritative destination id, extracted from a `{}()` ref token passed as
+   * `--target` (ref/id 乙). When set, the route resolves by id directly
+   * (`resolveTargetById`, PR-2 fast path) and IGNORES `channel` — no path
+   * re-lookup. Membership authz is still enforced on the id. Left unset for a
+   * bare-path `--target`, which resolves via `channel` as before. The CLI only
+   * ever populates this from a CHANNEL-class token; the endpoint still fine-checks
+   * that the resolved channel is a message-bearing surface.
+   */
+  channelId?: ChannelId;
   content: MessageContent;
   /**
    * Attachment ids returned by prior `attachmentUpload` calls. Order matters —
@@ -354,7 +369,18 @@ export interface SendRequest {
  */
 export interface AttachmentUploadRequest {
   agentId: AgentId;
-  target: ChannelRef;
+  /**
+   * Path ref of the target channel/DM/thread. Exactly one of `target` or
+   * `channelId` is set: a bare-path `--target` sets `target`, a `{}()` ref-token
+   * `--target` sets `channelId` (ref/id 乙). Both travel as query params on the
+   * multipart upload request (`?target=` / `?channelId=`).
+   */
+  target?: ChannelRef;
+  /**
+   * Authoritative target id from a `{}()` channel-class ref token — resolves by
+   * id directly (`resolveTargetById`) instead of `target`. See `SendRequest.channelId`.
+   */
+  channelId?: ChannelId;
   file: FileHandle;
 }
 
@@ -1198,6 +1224,78 @@ export function parseSeq(s: string): Seq {
 /** 12 → "#12". */
 export function formatSeq(seq: Seq): string {
   return `#${seq}`;
+}
+
+// ---------------------------------------------------------------------------
+// Body-reference token (ref/id coexistence contract §3)
+// ---------------------------------------------------------------------------
+//
+// Colocated with `parseRef`/`formatRef` above so the two ref grammars — the
+// addressing PATH (`/server/channel`) and the body TOKEN (`{}()`) — are defined
+// in one place (Blondie #268). This is the AUTHORITATIVE definition; the web UI
+// re-exports it from `src/web/src/lib/community/ref-token.ts` so the message
+// renderer and the CLI share one parser (the daemon reaches this file via the
+// `@alook/shared/community-cli-contract` subpath and never the main barrel, so
+// the parser must live HERE, not in web, for the CLI to reuse it).
+//
+// A reference to a channel/message/server embedded in message text serializes as
+//
+//   {full-path label}(type/leafid)
+//
+// e.g. `{/Alook/general}(channel/K9f_rnJk)`, `{/Alook/general#42}(message/m_ab)`,
+// `{/Alook}(server/srv_x)`. The `{}` label is the human-readable, self-describing
+// fallback (shown on degrade / plaintext / copy-out); the `(type/leafid)` is the
+// authoritative target — `type` names which table (channel/message/server ids
+// are same-shape nanoids, so type can't be inferred), `leafid` locates it.
+//
+// `{}` is chosen because markdown leaves it literal (unlike `[]()` which becomes
+// a link, or `<>` which becomes HTML/autolink; Gener #65). No escape layer: the
+// label is a DISPLAY-ONLY fallback (the id is authoritative), so rather than
+// escape the closing `}` inside it — which collides with markdown's OWN `\`
+// escaping once the token sits in message body text — the producer simply
+// strips `}` from the label (`sanitizeLabel`).
+
+export type RefTokenType = "channel" | "message" | "server";
+
+export interface RefToken {
+  label: string;
+  type: RefTokenType;
+  id: string;
+}
+
+const REF_TOKEN_RE =
+  /\{([^}]*)\}\((channel|message|server)\/([A-Za-z0-9_-]+)\)/;
+
+// Global variant for a message-body find-and-replace pass (per-match `lastIndex`
+// state must not leak between calls, so `REF_TOKEN_RE` above stays non-global for
+// single-token `parseRefToken` use; whole-string scanners clone their own global).
+export function refTokenGlobalRe(): RegExp {
+  return new RegExp(REF_TOKEN_RE.source, "gu");
+}
+
+// Strip the closing delimiter from a label before embedding. `}` collapses to
+// `_` (rather than deletion) so two segments don't silently fuse into a new
+// word. Producer-side only; the label is a display fallback, not the target.
+export function sanitizeLabel(label: string): string {
+  return label.replace(/\}/g, "_");
+}
+
+// Serialize a reference to its wire token. `label` is the full-path human form
+// (e.g. `/Alook/general#42`), sanitized so a `}` in a name can't break the
+// closing delimiter.
+export function formatRefToken(token: RefToken): string {
+  return `{${sanitizeLabel(token.label)}}(${token.type}/${token.id})`;
+}
+
+// Parse a single token string. Returns null when it doesn't match the grammar
+// or carries a non-whitelisted type / malformed id — the caller degrades a
+// non-match to plain text (never throws, never drops). The `index === 0` +
+// full-length check makes this a WHOLE-STRING match: `parseRefToken` answers
+// "is this entire string exactly one token?", not "does it contain one".
+export function parseRefToken(raw: string): RefToken | null {
+  const m = REF_TOKEN_RE.exec(raw);
+  if (!m || m.index !== 0 || m[0].length !== raw.length) return null;
+  return { label: m[1]!, type: m[2] as RefTokenType, id: m[3]! };
 }
 
 // ---------------------------------------------------------------------------

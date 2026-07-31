@@ -183,6 +183,102 @@ describe("message send --reply", () => {
   });
 });
 
+describe("message send --target ref token (ref/id 乙)", () => {
+  const sentOk = {
+    state: "sent" as const,
+    message: { seq: "#9", channel: "/s/general", sender: "@a", content: { text: "hi" }, time: "" },
+  };
+
+  it("a channel-class token sends by channelId (id fast path), not by ref", async () => {
+    const sendSpy = vi.fn(async () => sentOk);
+    setApiForTesting(stubApi({ send: sendSpy }));
+    await main(["message", "send", "--target", "{/Alook/general}(channel/K9f_rnJk)", "--text", "hi"]);
+    expect(sendSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ channelId: "K9f_rnJk" }),
+    );
+    // The ref path field is NOT set — the endpoint resolves by id directly.
+    const arg = sendSpy.mock.calls[0]![0] as Record<string, unknown>;
+    expect("channel" in arg).toBe(false);
+  });
+
+  it("a bare path still sends by ref (channel), never channelId", async () => {
+    const sendSpy = vi.fn(async () => sentOk);
+    setApiForTesting(stubApi({ send: sendSpy }));
+    await main(["message", "send", "--target", "/Alook/general", "--text", "hi"]);
+    const arg = sendSpy.mock.calls[0]![0] as Record<string, unknown>;
+    expect(arg.channel).toBe("/Alook/general");
+    expect("channelId" in arg).toBe(false);
+  });
+
+  it("rejects a message-class token with a --reply hint, never calling send", async () => {
+    const sendSpy = vi.fn(async () => sentOk);
+    setApiForTesting(stubApi({ send: sendSpy }));
+    await main(["message", "send", "--target", "{/Alook/general#42}(message/m_ab)", "--text", "hi"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env.error).toContain("--reply");
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects a server-class token with a specify-a-channel hint, never calling send", async () => {
+    const sendSpy = vi.fn(async () => sentOk);
+    setApiForTesting(stubApi({ send: sendSpy }));
+    await main(["message", "send", "--target", "{/Alook}(server/srv_x)", "--text", "hi"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env.error).toContain("specify a channel");
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects a shell-mangled token fragment (stray delimiter) with a quoting hint, never mis-routing it as a bare path", async () => {
+    const sendSpy = vi.fn(async () => sentOk);
+    setApiForTesting(stubApi({ send: sendSpy }));
+    // zsh brace-expansion / subshell would hand the CLI a fragment like this if
+    // the token wasn't quoted whole. It's not a valid token and carries a stray
+    // `(` — must error with the quoting hint, not send `{/Alook/general}` as a ref.
+    await main(["message", "send", "--target", "{/Alook/general}(channel", "--text", "hi"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env.error).toContain("wrap the whole token in quotes");
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("message attachment upload --target ref token (ref/id 乙)", () => {
+  it("a channel-class token uploads by channelId, a bare path by target", async () => {
+    const upSpy = vi.fn(async () => ({ id: "att_1", filename: "f.png", contentType: "image/png", size: 3 }));
+    setApiForTesting(stubApi({ attachmentUpload: upSpy }));
+    const os = await import("os");
+    const path = await import("path");
+    const fs = await import("fs/promises");
+    const tmp = path.join(os.tmpdir(), `alook-yi-upload-${process.pid}.png`);
+    // 1x1 PNG-ish bytes; content type is derived from the .png extension.
+    await fs.writeFile(tmp, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    try {
+      await main(["message", "attachment", "upload", "--target", "{/Alook/general}(channel/K9f_rnJk)", "--file", tmp]);
+      expect(upSpy).toHaveBeenCalledWith(expect.objectContaining({ channelId: "K9f_rnJk" }));
+      let arg = upSpy.mock.calls[0]![0] as Record<string, unknown>;
+      expect("target" in arg).toBe(false);
+
+      upSpy.mockClear();
+      cap.restore();
+      cap = captureStdout();
+      await main(["message", "attachment", "upload", "--target", "/Alook/general", "--file", tmp]);
+      arg = upSpy.mock.calls[0]![0] as Record<string, unknown>;
+      expect(arg.target).toBe("/Alook/general");
+      expect("channelId" in arg).toBe(false);
+    } finally {
+      await fs.rm(tmp, { force: true });
+    }
+  });
+
+  it("rejects a message/server token for upload too, never calling upload", async () => {
+    const upSpy = vi.fn(async () => ({ id: "att_1", filename: "f.png", contentType: "image/png", size: 3 }));
+    setApiForTesting(stubApi({ attachmentUpload: upSpy }));
+    await main(["message", "attachment", "upload", "--target", "{/Alook}(server/srv_x)", "--file", "/nonexistent"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env.error).toContain("specify a channel");
+    expect(upSpy).not.toHaveBeenCalled();
+  });
+});
+
 describe("inbox pull", () => {
   it("acks by default and returns messages in success", async () => {
     const ackSpy = vi.fn(async () => undefined);

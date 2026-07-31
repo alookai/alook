@@ -71,6 +71,8 @@ export type {
   EnrollmentApi,
   ServerApiError,
   ParsedRef,
+  RefToken,
+  RefTokenType,
 } from "@alook/shared/community-cli-contract";
 
 export {
@@ -79,5 +81,9 @@ export {
   formatRef,
   parseSeq,
   formatSeq,
+  parseRefToken,
+  formatRefToken,
+  sanitizeLabel,
+  refTokenGlobalRe,
   HostCommandSchema,
 } from "@alook/shared/community-cli-contract";

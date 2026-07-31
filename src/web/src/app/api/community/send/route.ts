@@ -174,7 +174,7 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
     )
     if (!replyTarget) {
       return NextResponse.json(
-        { error: `reply target #${body.replyToSeq} not found in ${body.channel}` },
+        { error: `reply target #${body.replyToSeq} not found in ${body.channel ?? body.channelId}` },
         { status: 400 },
       )
     }

@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { parseRef, formatRef, formatSeq, parseSeq, DM_SERVER } from "../src/community-cli-contract";
+import {
+  parseRef,
+  formatRef,
+  formatSeq,
+  parseSeq,
+  DM_SERVER,
+  parseRefToken,
+  formatRefToken,
+  sanitizeLabel,
+} from "../src/community-cli-contract";
 
 describe("parseRef", () => {
   it('parses "/studio/general" as a plain channel ref', () => {
@@ -260,5 +269,46 @@ describe("formatSeq / parseSeq", () => {
 
   it("parseSeq throws on a non-numeric value", () => {
     expect(() => parseSeq("#abc")).toThrow();
+  });
+});
+
+describe("ref token {label}(type/id) — shared parser (ref/id §3, reused by web + CLI)", () => {
+  it("parses each whitelisted type into {label, type, id}", () => {
+    expect(parseRefToken("{/Alook/general}(channel/K9f_rnJk)")).toEqual({
+      label: "/Alook/general", type: "channel", id: "K9f_rnJk",
+    });
+    expect(parseRefToken("{/Alook/general#42}(message/m_ab)")).toEqual({
+      label: "/Alook/general#42", type: "message", id: "m_ab",
+    });
+    expect(parseRefToken("{/Alook}(server/srv_x)")).toEqual({
+      label: "/Alook", type: "server", id: "srv_x",
+    });
+  });
+
+  it("returns null for a non-whitelisted type", () => {
+    expect(parseRefToken("{/x}(user/u_1)")).toBeNull();
+  });
+
+  it("returns null unless the WHOLE string is exactly one token (no partial / embedded match)", () => {
+    expect(parseRefToken("see {/Alook/general}(channel/c1) here")).toBeNull();
+    expect(parseRefToken("{/Alook/general}(channel/c1) trailing")).toBeNull();
+    expect(parseRefToken("")).toBeNull();
+    expect(parseRefToken("/Alook/general")).toBeNull();
+  });
+
+  it("returns null on a malformed / shell-mangled fragment", () => {
+    expect(parseRefToken("{/Alook/general}(channel")).toBeNull();
+    expect(parseRefToken("/Alook/general}(channel/c1)")).toBeNull();
+  });
+
+  it("formatRefToken round-trips a well-formed token", () => {
+    const tok = { label: "/Alook/general#42", type: "message" as const, id: "m_ab" };
+    expect(parseRefToken(formatRefToken(tok))).toEqual(tok);
+  });
+
+  it("sanitizeLabel collapses a `}` (which would close the delimiter) to `_`", () => {
+    expect(sanitizeLabel("/Alook/plan}b")).toBe("/Alook/plan_b");
+    expect(formatRefToken({ label: "/Alook/plan}b", type: "channel", id: "c1" }))
+      .toBe("{/Alook/plan_b}(channel/c1)");
   });
 });

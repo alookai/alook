@@ -141,7 +141,13 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
         ? new Blob([new Uint8Array(req.file.data)], { type: blobType })
         : req.file.data;
     form.append("file", bytes as Blob, req.file.filename);
-    const url = `${base}/api/attachmentUpload?target=${encodeURIComponent(req.target)}`;
+    // Exactly one of `channelId` (from a `{}()` ref token) or `target` (bare path)
+    // is set — both travel as query params; the web route reads whichever is
+    // present (`?channelId=` → resolveTargetById, else `?target=` → ref resolve).
+    const q = req.channelId !== undefined
+      ? `channelId=${encodeURIComponent(req.channelId)}`
+      : `target=${encodeURIComponent(req.target ?? "")}`;
+    const url = `${base}/api/attachmentUpload?${q}`;
     const res = await fetchImpl(url, {
       method: "POST",
       headers: { authorization: `Bearer ${config.voucher}` },
