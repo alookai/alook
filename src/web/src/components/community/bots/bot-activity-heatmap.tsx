@@ -156,7 +156,10 @@ export function BotActivityHeatmap({
       className={[
         "grid grid-flow-col gap-[3px]",
         isMobile
-          ? "w-full [grid-template-columns:repeat(15,minmax(0,1fr))] [grid-template-rows:repeat(2,auto)]"
+          // w-full fills a narrow phone card, but max-w caps how large the 1fr
+          // cells can grow on a wider (below-xl) card so they don't balloon
+          // (Gus /Gus/general #42); left-aligned once capped.
+          ? "w-full max-w-sm [grid-template-columns:repeat(15,minmax(0,1fr))] [grid-template-rows:repeat(2,auto)]"
           : "w-fit [grid-template-rows:repeat(3,minmax(0,1fr))]",
         className ?? "",
       ].join(" ")}
