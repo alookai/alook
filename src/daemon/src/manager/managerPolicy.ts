@@ -74,6 +74,19 @@ export interface AgentState {
   /** ms timestamp since which the agent has been idle (running, no turn, empty inbox); null if not idle. */
   idleSince: number | null;
   /**
+   * ms timestamp at which the OLDEST currently-held mid-turn wake was gated
+   * into the inbox (`onWake`'s `gated_hold` branch); null when nothing is being
+   * held. This is the ground-truth "how long has a message been stranded"
+   * clock the L2 stranded-inbox backstop keys on — deliberately NOT reused from
+   * `lastDeliverAt` (the held path never sends, so that stays null) or
+   * `lastProgressAt` (means "last progress event", not "how long held", and can
+   * drift). SET on the first hold while none is outstanding; CLEARED (→ null)
+   * the moment the inbox is drained (onTurnEnd redeliver, onWake steer, the L2
+   * re-deliver) or the lifecycle ends (exit/reset). See
+   * plans/daemon-fsm-desync.md batch L2.
+   */
+  heldSince: number | null;
+  /**
    * True during an owner-triggered reset window. Gates every inbound wake to
    * inbox-only (no `spawn`, no `send`, no `gated_hold`) EXCEPT when the
    * agent is currently `idle` — the orchestrator's idle branch relies on
@@ -132,6 +145,13 @@ export interface ManagerState {
    * `DEFAULT_RESET_STUCK_THRESHOLD_MS`.
    */
   resetStuckThresholdMs: number;
+  /**
+   * Stranded-held-inbox threshold: a `running`+`turnActive` gated agent whose
+   * process self-reports idle (`apm.phase === "idle"`) but still holds a
+   * non-empty inbox past this long ⇒ the tick re-delivers (no kill). See
+   * `DEFAULT_STRANDED_INBOX_THRESHOLD_MS`.
+   */
+  strandedInboxThresholdMs: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -201,6 +221,21 @@ export const DEFAULT_IDLE_TIMEOUT_MS = 300_000;
  * See plans/daemon-fsm-desync.md batch D.
  */
 export const DEFAULT_RESET_STUCK_THRESHOLD_MS = 120_000;
+/**
+ * Stranded-held-inbox threshold: how long a `running` + `turnActive` gated
+ * agent whose process self-reports `apm.phase === "idle"` (the turn actually
+ * ended) may sit with a NON-EMPTY inbox before the tick re-delivers it. This is
+ * the "held message never flushed" backstop: onWake holds a mid-turn wake into
+ * the inbox expecting `onTurnEnd`/`onRuntimeSignal` to flush it at the next safe
+ * boundary, but if the `turn_end` runtime event is lost (e.g. a wake races the
+ * turn's close by ~1s, plans/daemon-fsm-desync.md), `turnActive` stays stuck
+ * true and the held message strands forever with the live process idle. A
+ * SEPARATE constant from `staleThresholdMs`: that measures "a running turn made
+ * no progress" (→ terminate); this measures "the process is demonstrably idle
+ * yet we're still holding its inbox" (→ gently re-deliver, no kill). Different
+ * semantics, independently tunable. See plans/daemon-fsm-desync.md batch L2.
+ */
+export const DEFAULT_STRANDED_INBOX_THRESHOLD_MS = 30_000;
 
 export interface ReduceResult {
   state: ManagerState;
@@ -211,8 +246,9 @@ export function createInitialManagerState(
   staleThresholdMs = DEFAULT_STALE_THRESHOLD_MS,
   idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS,
   resetStuckThresholdMs = DEFAULT_RESET_STUCK_THRESHOLD_MS,
+  strandedInboxThresholdMs = DEFAULT_STRANDED_INBOX_THRESHOLD_MS,
 ): ManagerState {
-  return { agents: {}, staleThresholdMs, idleTimeoutMs, resetStuckThresholdMs };
+  return { agents: {}, staleThresholdMs, idleTimeoutMs, resetStuckThresholdMs, strandedInboxThresholdMs };
 }
 
 /* ------------------------------------------------------------------ */
@@ -344,6 +380,12 @@ function onWake(state: ManagerState, agentId: string, message: AgentMsg, nowMs: 
       // `onRuntimeSignal` flushes it at the next safe boundary.
       const isGatedMidTurn = agent.caps.busyDeliveryMode === "gated" && agent.turnActive;
       if (isGatedMidTurn) {
+        // Start the stranding clock on the FIRST held message while none is
+        // outstanding; leave it if already set so it measures from the OLDEST
+        // held wake (a later wake coalescing in must not reset the timer, or a
+        // steady wake stream would keep the strand invisible to L2 forever). The
+        // matching clear is in `drainInboxToPrompt` (inbox emptied ⇒ null).
+        if (agent.heldSince === null) agent.heldSince = nowMs;
         return commit(state, agent, [
           {
             type: "gated_hold",
@@ -538,6 +580,64 @@ function onTick(state: ManagerState, nowMs: number): ReduceResult {
   for (const id of Object.keys(agents)) {
     const a = agents[id];
 
+    // Stranded-held-inbox re-delivery (plans/daemon-fsm-desync.md batch L2):
+    // the GENTLE backstop, checked BEFORE `stalled` so a recoverable strand is
+    // re-delivered rather than escalated to a kill. onWake holds a mid-turn
+    // wake into the inbox (`gated_hold`) expecting a later `turn_end` /
+    // safe-boundary signal to flush it. If that `turn_end` runtime event is
+    // lost — e.g. a wake races the turn's close by ~1s (Olivia 2026-07-31:
+    // wake 09:41:08, end_turn 09:41:09) — `turnActive` stays stuck true and the
+    // held message strands forever while the live process sits IDLE. The tell
+    // that it's safe to re-deliver is `apm.phase === "idle"`: the process itself
+    // reports no turn in flight (same field `gated_hold`'s `blockedReason`
+    // reads), so a `send` now can't collide with an in-flight tool call /
+    // thinking block / compaction. Emit a plain `send` (idle mode) draining the
+    // inbox — the SAME effect `onTurnEnd` would have emitted had the signal
+    // arrived; NO kill. Distinct from `stalled` (turn-genuinely-stuck →
+    // terminate) and `suspectedDeaf` (a send went unanswered): here nothing was
+    // ever sent and the process is provably idle, so the correct action is to
+    // finally deliver, not to destroy.
+    //
+    // STRANDING ANCHOR = `heldSince` (a dedicated field), NOT `lastDeliverAt` or
+    // `lastProgressAt`. The held path never issues a `send`, so `lastDeliverAt`
+    // stays the `spawned`-time null — keying on it (as `suspectedDeaf` does)
+    // would make this predicate NEVER fire, the exact trap that dooms `stalled`
+    // to key on `lastProgressAt`. And `lastProgressAt` means "last progress
+    // EVENT", not "how long held" — a stray progress event would drift it. So
+    // `onWake` stamps `heldSince` when it first holds a wake, and
+    // `drainInboxToPrompt` clears it; `nowMs - heldSince` is precisely "how long
+    // the oldest held message has been stranded". Threshold sits well above a
+    // normal turn's length so a wake that merely raced the turn's close by ~1s
+    // isn't misread as stranded.
+    //
+    // UPGRADE CHAIN: on re-deliver set `turnActive = true` + `lastDeliverAt =
+    // nowMs` (mirrors `onTurnEnd`'s drain). If the process was merely un-poked,
+    // it now works and emits progress → self-healed. If it's actually deaf, this
+    // send goes unanswered and `lastDeliverAt > lastProgressAt` arms
+    // `suspectedDeaf`, which terminates+respawns after the stale window. So the
+    // gentle re-deliver and the existing kill-path compose into "try feeding
+    // first, escalate to kill only if feeding gets no response" — which is why
+    // L2 needs no kill branch of its own (that would be fire-and-assume).
+    const strandedHeld =
+      a.status === "running" &&
+      a.turnActive &&
+      a.caps.busyDeliveryMode === "gated" &&
+      a.caps.supportsStdinNotification &&
+      a.apm.phase === "idle" &&
+      a.inbox.length > 0 &&
+      a.heldSince !== null &&
+      nowMs - a.heldSince >= state.strandedInboxThresholdMs;
+    if (strandedHeld) {
+      const drainedAgent = clone(a);
+      const text = drainInboxToPrompt(drainedAgent);
+      drainedAgent.turnActive = true;
+      drainedAgent.lastDeliverAt = nowMs;
+      drainedAgent.idleSince = null;
+      agents[id] = drainedAgent;
+      effects.push({ type: "send", agentId: id, text, mode: "idle" });
+      continue;
+    }
+
     // Stalled recovery: running, turn in flight, no progress past threshold.
     // Gated runtimes are normally excluded from restart (their tool-batch/
     // compaction/review boundaries do the flushing), BUT a silent gated turn
@@ -651,6 +751,7 @@ function freshAgent(agentId: string, caps: AgentRuntimeCaps): AgentState {
     lastProgressAt: 0,
     lastDeliverAt: null,
     idleSince: null,
+    heldSince: null,
     resetting: false,
     resettingSince: null,
     apm: createInitialApmGatedSteeringState(),
@@ -694,6 +795,12 @@ function drainInboxToPrompt(agent: AgentState): string {
     }
   }
   agent.inbox = [];
+  // The inbox is now empty, so nothing is stranded — clear the hold clock. This
+  // is the single chokepoint that empties the inbox (every drain path calls it),
+  // so clearing `heldSince` here covers onWake-steer / onTurnEnd-redeliver /
+  // onExit-respawn / the L2 re-deliver at once, keeping the invariant
+  // "heldSince != null ⇔ inbox non-empty and being held" without per-site edits.
+  agent.heldSince = null;
   return unique.join("\n");
 }
 

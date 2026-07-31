@@ -442,6 +442,121 @@ describe("reduceManager — tick: suspected-deaf detection (batch A)", () => {
   });
 });
 
+// Batch L2 (plans/daemon-fsm-desync.md): the stranded-held-inbox re-delivery.
+// Reproduces Olivia 2026-07-31: a mid-turn wake is gated_held into the inbox,
+// then the turn's `turn_end` runtime event is lost (a wake raced the turn close
+// by ~1s), so `turnActive` stays stuck true while the process is demonstrably
+// idle (`apm.phase === "idle"`) — the held message strands forever. The GENTLE
+// backstop re-delivers it (a `send`, no kill), checked BEFORE `stalled` so a
+// recoverable strand is fed rather than terminated.
+describe("reduceManager — tick: stranded-held-inbox re-delivery (batch L2)", () => {
+  // Build the exact wedge tuple: running, turnActive=true, apm.phase idle,
+  // inbox non-empty (a held mid-turn wake), heldSince stamped — the state Olivia
+  // was stuck in. staleThresholdMs kept huge so `stalled`/`suspectedDeaf` can't
+  // fire and confound the assertion; strandedInboxThresholdMs is the 4th arg.
+  function toStrandedWedge(strandedMs = 100) {
+    let s = createInitialManagerState(1_000_000, 300_000, 120_000, strandedMs);
+    s = register(s, "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
+    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 0 }).state; // running, turnActive, apm.phase idle
+    s = reduceManager(s, { type: "session", agentId: "a", sessionId: "sess-1" }).state;
+    // A mid-turn wake at t=10 is gated-held (turnActive true) — lands in inbox,
+    // stamps heldSince=10. This is the message that will strand.
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "held" }, nowMs: 10 }).state;
+    return s;
+  }
+
+  it("re-delivers a held message once the process has sat idle holding it past the threshold", () => {
+    const s = toStrandedWedge();
+    expect(s.agents.a.turnActive).toBe(true);
+    expect(s.agents.a.apm.phase).toBe("idle");
+    expect(s.agents.a.inbox.length).toBe(1);
+    expect(s.agents.a.heldSince).toBe(10);
+
+    const r = reduceManager(s, { type: "tick", nowMs: 200 }); // 200-10 >= 100
+    // GENTLE: a plain idle send draining the inbox — NOT a terminate.
+    expect(r.effects).toEqual([{ type: "send", agentId: "a", text: "held", mode: "idle" }]);
+    expect(r.state.agents.a.status).toBe("running"); // no kill, still running
+    expect(r.state.agents.a.inbox.length).toBe(0); // drained
+    expect(r.state.agents.a.heldSince).toBeNull(); // strand cleared
+    // Upgrade chain armed: lastDeliverAt stamped so suspectedDeaf takes over if
+    // this re-deliver also gets no response.
+    expect(r.state.agents.a.lastDeliverAt).toBe(200);
+    expect(r.state.agents.a.turnActive).toBe(true);
+  });
+
+  it("does NOT re-deliver before the stranded threshold elapses", () => {
+    const s = toStrandedWedge();
+    expect(reduceManager(s, { type: "tick", nowMs: 50 }).effects).toEqual([]); // 50-10 < 100
+  });
+
+  it("measures from the OLDEST held wake — a later coalescing wake does not reset the clock", () => {
+    let s = toStrandedWedge();
+    // A second held wake at t=90 coalesces in; heldSince must stay 10, not jump.
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "held2" }, nowMs: 90 }).state;
+    expect(s.agents.a.heldSince).toBe(10);
+    expect(s.agents.a.inbox.length).toBe(2);
+    // At t=115 the oldest strand is 105ms (>=100) → fire, even though the newest
+    // wake is only 25ms old. Both held messages drain together.
+    const r = reduceManager(s, { type: "tick", nowMs: 115 });
+    expect(r.effects).toEqual([{ type: "send", agentId: "a", text: "held\nheld2", mode: "idle" }]);
+    expect(r.state.agents.a.heldSince).toBeNull();
+  });
+
+  it("re-delivers (does not kill) BEFORE stalled would escalate — gentle-first ordering", () => {
+    // Both stranded (L2) and stalled key on running+turnActive+gated+inbox>0;
+    // with a small stale threshold too, L2 must win by running first + continue.
+    let s = createInitialManagerState(100, 300_000, 120_000, 100); // staleMs==strandedMs==100
+    s = register(s, "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
+    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 0 }).state;
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "held" }, nowMs: 10 }).state;
+    const r = reduceManager(s, { type: "tick", nowMs: 200 });
+    expect(r.effects).toEqual([{ type: "send", agentId: "a", text: "held", mode: "idle" }]);
+    expect(r.effects.some((e) => e.type === "terminate_stalled")).toBe(false);
+  });
+
+  it("does NOT re-deliver when the process reports a turn genuinely in flight (apm.phase not idle)", () => {
+    let s = toStrandedWedge();
+    // A tool_call moves apm.phase off idle — the process IS mid-work, so holding
+    // is correct and a raw send could collide. L2 must not fire.
+    s = reduceManager(s, { type: "runtime_signal", agentId: "a", kind: "tool_call", nowMs: 20 }).state;
+    expect(s.agents.a.apm.phase).not.toBe("idle");
+    expect(reduceManager(s, { type: "tick", nowMs: 200 }).effects).toEqual([]);
+  });
+
+  it("clears heldSince on a normal onTurnEnd redeliver so no stale strand lingers", () => {
+    let s = toStrandedWedge();
+    expect(s.agents.a.heldSince).toBe(10);
+    // The lost turn_end finally arrives (or a real one does): onTurnEnd drains
+    // the held inbox itself → heldSince must clear, so L2 won't double-fire.
+    const r = reduceManager(s, { type: "turn_end", agentId: "a", nowMs: 30 });
+    expect(r.effects).toEqual([{ type: "send", agentId: "a", text: "held", mode: "idle" }]);
+    expect(r.state.agents.a.heldSince).toBeNull();
+  });
+
+  it("UPGRADE CHAIN: a re-deliver that STILL gets no response escalates to suspectedDeaf (why L2 needs no kill branch)", () => {
+    // strandedMs=100, staleMs=100: L2 re-delivers first (gentle), and if the
+    // process is genuinely deaf the re-deliver's stamped lastDeliverAt arms
+    // suspectedDeaf, which terminates+respawns after the stale window.
+    let s = createInitialManagerState(100, 300_000, 120_000, 100);
+    s = register(s, "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
+    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 0 }).state;
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "held" }, nowMs: 10 }).state;
+    // t=200: L2 re-delivers (gentle send, no kill), stamps lastDeliverAt=200.
+    const r1 = reduceManager(s, { type: "tick", nowMs: 200 });
+    expect(r1.effects).toEqual([{ type: "send", agentId: "a", text: "held", mode: "idle" }]);
+    s = r1.state;
+    expect(s.agents.a.lastDeliverAt).toBe(200);
+    // The process never answers the re-deliver → no progress after 200. At
+    // t=400 (>=100 past the deliver) suspectedDeaf fires: NOW it's a kill.
+    const r2 = reduceManager(s, { type: "tick", nowMs: 400 });
+    expect(r2.effects).toEqual([{ type: "terminate_stalled", agentId: "a" }]);
+    expect(r2.state.agents.a.status).toBe("stopping");
+  });
+});
+
 // Batch D (plans/daemon-fsm-desync.md): the reset-stuck reconcile. The reset
 // window (`resetting`) closes only via `enterStable` at a stable running/idle
 // state; if the converging event never arrives the agent wedges in `starting`

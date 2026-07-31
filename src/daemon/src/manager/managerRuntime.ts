@@ -13,6 +13,7 @@
 import {
   reduceManager,
   createInitialManagerState,
+  DEFAULT_STRANDED_INBOX_THRESHOLD_MS,
   type ManagerState,
   type ManagerEvent,
   type ManagerEffect,
@@ -91,6 +92,8 @@ export interface ManagerRuntimeOpts {
   idleTimeoutMs?: number;
   /** Reset-stuck reconcile threshold (ms): `resetting` stuck this long ⇒ escalate. */
   resetStuckThresholdMs?: number;
+  /** Stranded-held-inbox threshold (ms): a running+turnActive gated agent whose process is idle yet holds a non-empty inbox this long ⇒ re-deliver (no kill). */
+  strandedInboxThresholdMs?: number;
   /**
    * Handshake watchdog (ms): a spawned session that never emits its first
    * `runtime_event` (the handshake) within this window is treated as a
@@ -582,13 +585,19 @@ export class AgentProcessManager {
       staleThresholdMs: 120_000,
       idleTimeoutMs: 300_000,
       resetStuckThresholdMs: 120_000,
+      strandedInboxThresholdMs: DEFAULT_STRANDED_INBOX_THRESHOLD_MS,
       handshakeTimeoutMs: 60_000,
       stampWakePromptTime: false,
       ...opts,
     };
     this.now = opts.now ?? (() => Date.now());
     this.log = opts.logger ?? createLogger({ header: "@alook/daemon:manager" });
-    this.state = createInitialManagerState(this.opts.staleThresholdMs, this.opts.idleTimeoutMs, this.opts.resetStuckThresholdMs);
+    this.state = createInitialManagerState(
+      this.opts.staleThresholdMs,
+      this.opts.idleTimeoutMs,
+      this.opts.resetStuckThresholdMs,
+      this.opts.strandedInboxThresholdMs,
+    );
   }
 
   /**
