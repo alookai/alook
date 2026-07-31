@@ -606,8 +606,35 @@ function scrollSelectedRowIntoView(list: HTMLDivElement | null): void {
   )
 }
 
-// Portal-rendered popup. Anchored above the caret via clientRect() from
-// @tiptap/suggestion. Highlighted row syncs to hover so keyboard + pointer agree.
+// Shared positioning for both suggestion popups (@-mention + /-ref). Both are
+// fixed portals anchored to the caret rect. Horizontal: clamp so the 256px
+// popup never runs off the right edge. Vertical: prefer above the caret (the
+// default), but FLIP to below when there isn't room above — otherwise a caret
+// near the top of the viewport (e.g. the create-post form) lifts the popup off
+// the top edge. `POPUP_MAX_HEIGHT` mirrors the list's `max-h-60` (240px).
+const POPUP_WIDTH = 256
+const POPUP_MAX_HEIGHT = 240
+const VIEWPORT_MARGIN = 8
+
+export function popoverStyle(rect: DOMRect, viewportW: number, viewportH: number): React.CSSProperties {
+  const maxLeft = Math.max(VIEWPORT_MARGIN, viewportW - POPUP_WIDTH - VIEWPORT_MARGIN)
+  const left = Math.min(rect.left, maxLeft)
+
+  const spaceAbove = rect.top
+  const flipBelow = spaceAbove < POPUP_MAX_HEIGHT + VIEWPORT_MARGIN && rect.bottom + POPUP_MAX_HEIGHT + VIEWPORT_MARGIN <= viewportH
+  return flipBelow
+    ? { top: rect.bottom + 4, left }
+    : { top: rect.top - 4, left, transform: "translateY(-100%)" }
+}
+
+function viewportSize(): { w: number; h: number } {
+  if (typeof window === "undefined") return { w: POPUP_WIDTH, h: POPUP_MAX_HEIGHT }
+  return { w: window.innerWidth, h: window.innerHeight }
+}
+
+// Portal-rendered popup. Anchored to the caret via clientRect() from
+// @tiptap/suggestion (above by default, flips below near the viewport top —
+// see `popoverStyle`). Highlighted row syncs to hover so keyboard + pointer agree.
 function CommunityMentionList({ state }: { state: MentionPopupState }) {
   const listRef = useRef<HTMLDivElement>(null)
   const { items, selectedIndex, command, rect } = state
@@ -618,23 +645,18 @@ function CommunityMentionList({ state }: { state: MentionPopupState }) {
 
   if (!rect || items.length === 0 || !command) return null
 
-  const POPUP_WIDTH = 256
-  const VIEWPORT_MARGIN = 8
-  const maxLeft = typeof window !== "undefined"
-    ? Math.max(VIEWPORT_MARGIN, window.innerWidth - POPUP_WIDTH - VIEWPORT_MARGIN)
-    : rect.left
-  const clampedLeft = Math.min(rect.left, maxLeft)
-
   // Whether to show a "MEMBERS" section header above the first member row —
   // only when virtual (everyone/here) rows precede members.
   const firstMemberIdx = items.findIndex((it) => it.kind === "member")
   const hasVirtual = items.some((it) => it.kind !== "member")
   const showMembersHeader = hasVirtual && firstMemberIdx > 0
 
+  const vp = viewportSize()
+
   return createPortal(
     <div
       className="fixed z-100 w-64 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-(--e2)"
-      style={{ top: rect.top - 4, left: clampedLeft, transform: "translateY(-100%)" }}
+      style={popoverStyle(rect, vp.w, vp.h)}
     >
       <div ref={listRef} className="relative max-h-60 overflow-x-hidden overflow-y-auto thin-scrollbar">
         {items.map((item, i) => {
@@ -678,22 +700,17 @@ function ChannelRefList({ state }: { state: ChannelRefPopupState }) {
 
   if (!rect || items.length === 0 || !command) return null
 
-  const POPUP_WIDTH = 256
-  const VIEWPORT_MARGIN = 8
-  const maxLeft = typeof window !== "undefined"
-    ? Math.max(VIEWPORT_MARGIN, window.innerWidth - POPUP_WIDTH - VIEWPORT_MARGIN)
-    : rect.left
-  const clampedLeft = Math.min(rect.left, maxLeft)
-
   // The list spans multiple servers (the DM case) when any two candidates
   // differ on serverId — only then does each row show its "serverName /"
   // prefix, so same-server lists stay clean.
   const spansMultipleServers = items.some((it) => it.serverId !== items[0]?.serverId)
 
+  const vp = viewportSize()
+
   return createPortal(
     <div
       className="fixed z-100 w-64 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-(--e2)"
-      style={{ top: rect.top - 4, left: clampedLeft, transform: "translateY(-100%)" }}
+      style={popoverStyle(rect, vp.w, vp.h)}
     >
       <div ref={listRef} className="relative max-h-60 overflow-x-hidden overflow-y-auto thin-scrollbar">
         {items.map((item, i) => (
