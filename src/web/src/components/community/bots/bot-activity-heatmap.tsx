@@ -61,13 +61,18 @@ function dayLabel(dayKey: string): string {
   return Number.isNaN(d.getTime()) ? dayKey : DATE_FMT.format(d)
 }
 
-// Tooltip text for a slot. Active days split the two counts; empty days (a gap
-// or a quiet day) still get a tooltip so hovering anywhere reads as responsive
-// (Gus /Gus/working #695 — native `title` gave no feedback on empty cells).
-function tooltipFor(dayKey: string, day: BotActivityDay | undefined): string {
+function messages(n: number): string {
+  return `${n} ${n === 1 ? "message" : "messages"}`
+}
+
+// Tooltip content for a slot: the date, then a full sentence per counter (Gus
+// /Gus/working #732, Alli #735 — "N messages handled" / "N messages sent",
+// pluralized). Empty days (a gap or a quiet day) still get a tooltip so hovering
+// anywhere reads as responsive (Gus #695), collapsed to one "No activity" line.
+function tooltipFor(dayKey: string, day: BotActivityDay | undefined): string[] {
   const label = dayLabel(dayKey)
-  if (!day || day.handledCount + day.sentCount === 0) return `${label} · no activity`
-  return `${label} · ${day.handledCount} handled · ${day.sentCount} sent`
+  if (!day || day.handledCount + day.sentCount === 0) return [label, "No activity"]
+  return [label, `${messages(day.handledCount)} handled`, `${messages(day.sentCount)} sent`]
 }
 
 /**
@@ -160,7 +165,15 @@ export function BotActivityHeatmap({
               />
             }
           />
-          <TooltipContent>{c.title}</TooltipContent>
+          <TooltipContent>
+            <span className="flex flex-col gap-0.5">
+              {c.title.map((line, i) => (
+                <span key={i} className={i === 0 ? "font-medium" : ""}>
+                  {line}
+                </span>
+              ))}
+            </span>
+          </TooltipContent>
         </Tooltip>
       ))}
     </div>

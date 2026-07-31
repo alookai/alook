@@ -4,15 +4,16 @@ import TestRenderer, { act } from "react-test-renderer"
 import { utcDayKeyDaysAgo } from "@alook/shared"
 
 // The real Tooltip pulls in floating-ui, which needs `window` — unavailable in
-// this node renderer. Mock it to plain passthroughs: the trigger renders its
-// `render` element (the cell span) and the content renders its text into a
-// `data-tip` span, so we can still count cells and read each cell's tooltip.
+// this node renderer. Mock it: the trigger renders its `render` element (the
+// cell) tagged with data-cell; the content wraps its children under a data-tip
+// marker so we can find each and read its (possibly multi-line) text.
 vi.mock("@/components/ui/tooltip", () => ({
   Tooltip: ({ children }: { children?: React.ReactNode }) =>
     React.createElement(React.Fragment, {}, children),
-  TooltipTrigger: ({ render }: { render: React.ReactElement }) => render,
+  TooltipTrigger: ({ render }: { render: React.ReactElement }) =>
+    React.cloneElement(render, { "data-cell": true }),
   TooltipContent: ({ children }: { children?: React.ReactNode }) =>
-    React.createElement("span", { "data-tip": children }),
+    React.createElement("div", { "data-tip": true }, children),
 }))
 
 import { BotActivityHeatmap, type BotActivityDay } from "./bot-activity-heatmap"
@@ -33,18 +34,21 @@ function render(days: BotActivityDay[]) {
 }
 
 // The cell spans in DOM order — the grid renders exactly 30, oldest→newest.
-// (The mocked TooltipContent renders a `data-tip` span; exclude it here.)
 function cells(r: TestRenderer.ReactTestRenderer) {
-  return r.root.findAll(
-    (n) => typeof n.type === "string" && n.type === "span" && n.props["data-tip"] === undefined,
-  )
+  return r.root.findAll((n) => n.props?.["data-cell"] === true)
 }
 
-// Each cell's tooltip text, in DOM order — read from the mocked content spans.
+// Flatten a node's text content (joins the multi-line tooltip spans).
+function textOf(node: TestRenderer.ReactTestInstance): string {
+  return node
+    .findAll((n) => typeof n.children?.[0] === "string")
+    .map((n) => n.children.filter((c): c is string => typeof c === "string").join(""))
+    .join(" ")
+}
+
+// Each cell's tooltip text, in DOM order — joined across its lines.
 function tips(r: TestRenderer.ReactTestRenderer): string[] {
-  return r.root
-    .findAll((n) => typeof n.type === "string" && n.type === "span" && n.props["data-tip"] !== undefined)
-    .map((n) => String(n.props["data-tip"]))
+  return r.root.findAll((n) => n.props?.["data-tip"] === true).map(textOf)
 }
 
 afterEach(() => vi.useRealTimers())
@@ -68,8 +72,8 @@ describe("BotActivityHeatmap — calendar-axis fill", () => {
     ])
     const all = tips(r)
     // Oldest→newest over a 30-day axis (today-29 … today): index = 29 - daysAgo.
-    const olderIdx = all.findIndex((t) => t.includes("4 handled"))
-    const newerIdx = all.findIndex((t) => t.includes("1 handled"))
+    const olderIdx = all.findIndex((t) => t.includes("4 messages handled"))
+    const newerIdx = all.findIndex((t) => t.includes("1 message handled")) // singular
     expect(olderIdx).toBe(29 - 20)
     expect(newerIdx).toBe(29 - 5)
     // 15 calendar days apart → 15 index slots apart, not glued together.
@@ -108,18 +112,28 @@ describe("BotActivityHeatmap — calendar-axis fill", () => {
     const cell = cells(r)[29] // today = last slot
     expect(String(cell.props.className).split(/\s+/)).toContain("bg-status-online/55") // b2, weighted
     const tip = tips(r).find((t) => t.includes("handled"))
-    expect(tip).toContain("30 handled · 20 sent") // raw, NOT the weighted 70
+    expect(tip).toContain("30 messages handled") // raw, NOT the weighted 70
+    expect(tip).toContain("20 messages sent")
   })
 
-  it("labels active days with the split and empty days as 'no activity'", () => {
+  it("labels active days with full sentences and empty days as 'No activity'", () => {
     const r = render([{ day: utcDayKeyDaysAgo(new Date(), 10), handledCount: 2, sentCount: 0 }])
     const all = tips(r)
     // Every slot has a tooltip now (Gus #695 — hover must respond everywhere).
     expect(all.length).toBe(30)
     const active = all.filter((t) => t.includes("handled"))
     expect(active.length).toBe(1)
-    expect(active[0]).toContain("2 handled · 0 sent")
-    // The other 29 read as "no activity", not empty/undefined.
-    expect(all.filter((t) => t.endsWith("no activity")).length).toBe(29)
+    // Full sentences, pluralized (Gus #732 / Alli #735): 2 messages, 0 messages.
+    expect(active[0]).toContain("2 messages handled")
+    expect(active[0]).toContain("0 messages sent")
+    // The other 29 read as "No activity".
+    expect(all.filter((t) => t.includes("No activity")).length).toBe(29)
+  })
+
+  it("pluralizes the tooltip counts (1 message vs N messages)", () => {
+    const r = render([{ day: utcDayKeyDaysAgo(new Date(), 0), handledCount: 1, sentCount: 3 }])
+    const tip = tips(r).find((t) => t.includes("handled"))!
+    expect(tip).toContain("1 message handled") // singular
+    expect(tip).toContain("3 messages sent") // plural
   })
 })
