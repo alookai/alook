@@ -5,6 +5,7 @@ import { getDb } from "@/lib/db"
 import { queries, isUniqueConstraintError, WS_EVENTS } from "@alook/shared"
 import { fanOutToChannel } from "@/lib/community/fanout"
 import { requireChannelMember, requireServerAdmin } from "@/lib/community/permissions"
+import { requirePinnableSurface } from "@/lib/community/channel-write-guard"
 import { logAudit } from "@/lib/community/audit"
 import { avatarInitial } from "@/lib/community/avatar"
 
@@ -35,6 +36,9 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   const channel = await queries.communityChannel.getChannel(db, channelId)
   if (!channel) return writeError("channel not found", 404)
+
+  const pinnable = requirePinnableSurface(channel.type)
+  if (!pinnable.ok) return writeError(pinnable.error, pinnable.status)
 
   // Pinning is a moderation action — require server admin / owner.
   const adminCheck = await requireServerAdmin(db, channel.serverId, ctx.userId)

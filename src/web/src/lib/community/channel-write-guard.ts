@@ -26,7 +26,26 @@ export function requireMessageBearingSurface(channelType: string | null | undefi
   }
 }
 
+export function requireReactableSurface(channelType: string | null | undefined): WriteGuardResult {
+  if (isMessageBearingSurface(channelType)) return pass
+  return {
+    ok: false,
+    status: 400,
+    error: "a forum top-level holds posts, not messages — nothing to react to here",
+  }
+}
+
 export function requireChildSurface(channelType: string | null | undefined): WriteGuardResult {
   if (isThread(channelType) || isForumPost(channelType)) return pass
   return { ok: false, status: 400, error: "not a thread or forum post" }
+}
+
+export function requirePinnableSurface(channelType: string | null | undefined): WriteGuardResult {
+  if (isDm(channelType)) {
+    return { ok: false, status: 400, error: "direct messages don't support pinning" }
+  }
+  if (!isMessageBearingSurface(channelType)) {
+    return { ok: false, status: 400, error: "a forum top-level holds posts, not messages — nothing to pin here" }
+  }
+  return pass
 }

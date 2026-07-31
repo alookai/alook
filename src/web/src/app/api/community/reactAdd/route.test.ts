@@ -132,17 +132,26 @@ describe("POST /api/community/agent/reactAdd", () => {
   it("404 when the channel exists but has no message at that seq", async () => {
     mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1" }])
     mockResolveChannelByNameForMember.mockResolvedValue([{ id: "ch_1" }])
-    mockGetChannelForMember.mockResolvedValue({ id: "ch_1", serverId: "srv_1", parentChannelId: null })
+    mockGetChannelForMember.mockResolvedValue({ id: "ch_1", serverId: "srv_1", type: "text", parentChannelId: null })
     mockGetMessageByChannelAndSeq.mockResolvedValue(null)
     const res = await POST(req({ channel: "/studio/general", seq: 99, emoji: "👍" }, { Authorization: "Bearer crk_abc" }))
     expect(res.status).toBe(404)
     expect(mockAddReaction).not.toHaveBeenCalled()
   })
 
+  it("400 when reacting on a forum top-level (not a message-bearing surface)", async () => {
+    mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1" }])
+    mockResolveChannelByNameForMember.mockResolvedValue([{ id: "ch_1" }])
+    mockGetChannelForMember.mockResolvedValue({ id: "ch_1", serverId: "srv_1", type: "forum", parentChannelId: null })
+    const res = await POST(req({ channel: "/studio/chore", seq: 3, emoji: "👍" }, { Authorization: "Bearer crk_abc" }))
+    expect(res.status).toBe(400)
+    expect(mockAddReaction).not.toHaveBeenCalled()
+  })
+
   it("200 happy path — channel react: inserts, fans out to channel with REACTION_ADD, excluding the bot", async () => {
     mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1" }])
     mockResolveChannelByNameForMember.mockResolvedValue([{ id: "ch_1" }])
-    mockGetChannelForMember.mockResolvedValue({ id: "ch_1", serverId: "srv_1", parentChannelId: null })
+    mockGetChannelForMember.mockResolvedValue({ id: "ch_1", serverId: "srv_1", type: "text", parentChannelId: null })
     mockGetMessageByChannelAndSeq.mockResolvedValue({ id: "m_1", seq: 3, content: "hi" })
     mockAddReaction.mockResolvedValue({ messageId: "m_1", userId: "bot_1", emoji: "👍" })
 
@@ -196,7 +205,7 @@ describe("POST /api/community/agent/reactAdd", () => {
   it("duplicate — addReaction throws unique-constraint → {ok:true, duplicate:true}, no fan-out", async () => {
     mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1" }])
     mockResolveChannelByNameForMember.mockResolvedValue([{ id: "ch_1" }])
-    mockGetChannelForMember.mockResolvedValue({ id: "ch_1", serverId: "srv_1", parentChannelId: null })
+    mockGetChannelForMember.mockResolvedValue({ id: "ch_1", serverId: "srv_1", type: "text", parentChannelId: null })
     mockGetMessageByChannelAndSeq.mockResolvedValue({ id: "m_1", seq: 3, content: "hi" })
     // Match isUniqueConstraintError → matches SQLite UNIQUE constraint messages
     mockAddReaction.mockRejectedValue(new Error("D1_ERROR: UNIQUE constraint failed: community_reaction.message_id, community_reaction.user_id, community_reaction.emoji"))

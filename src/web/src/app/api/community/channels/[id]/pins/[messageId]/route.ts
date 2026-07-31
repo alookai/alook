@@ -5,6 +5,7 @@ import { getDb } from "@/lib/db"
 import { queries, WS_EVENTS } from "@alook/shared"
 import { fanOutToChannel } from "@/lib/community/fanout"
 import { requireServerAdmin } from "@/lib/community/permissions"
+import { requirePinnableSurface } from "@/lib/community/channel-write-guard"
 import { logAudit } from "@/lib/community/audit"
 
 export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
@@ -16,6 +17,9 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
 
   const channel = await queries.communityChannel.getChannel(db, channelId)
   if (!channel) return writeError("channel not found", 404)
+
+  const pinnable = requirePinnableSurface(channel.type)
+  if (!pinnable.ok) return writeError(pinnable.error, pinnable.status)
 
   // Unpinning is a moderation action — require admin / owner.
   const auth = await requireServerAdmin(db, channel.serverId, ctx.userId)

@@ -68,7 +68,7 @@ const ctx = { params: { id: "c1" } } as any;
 describe("POST /api/community/channels/[id]/pins", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1" });
+    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1", type: "text" });
     // Pinning is admin-only — every happy path starts with an admin caller.
     mockGetMember.mockResolvedValue({ userId: "u1", role: "admin" });
     mockGetMessage.mockResolvedValue({ id: "m1", channelId: "c1" });
@@ -114,6 +114,20 @@ describe("POST /api/community/channels/[id]/pins", () => {
 
   it("returns 400 when messageId is missing", async () => {
     const res = await POST(postReq(), ctx);
+    expect(res.status).toBe(400);
+    expect(mockPinMessage).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when pinning in a forum top-level (nothing to pin)", async () => {
+    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1", type: "forum" });
+    const res = await POST(postReq("m1"), ctx);
+    expect(res.status).toBe(400);
+    expect(mockPinMessage).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when pinning in a DM (governance model does not fit)", async () => {
+    mockGetChannel.mockResolvedValue({ id: "c1", serverId: null, type: "dm" });
+    const res = await POST(postReq("m1"), ctx);
     expect(res.status).toBe(400);
     expect(mockPinMessage).not.toHaveBeenCalled();
   });

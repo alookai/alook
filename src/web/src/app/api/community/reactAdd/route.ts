@@ -11,6 +11,7 @@ import { withCommunityActor, requireBot } from "@/lib/middleware/community-actor
 import { resolveTargetForMember, resolveErrorResponse } from "@/lib/community/resolve-ref"
 import { isDmTarget } from "@/lib/community/message-handler"
 import { requireChannelMember, requireDMAccess } from "@/lib/community/permissions"
+import { requireReactableSurface } from "@/lib/community/channel-write-guard"
 import { fanOutToChannel, fanOutToDM } from "@/lib/community/fanout"
 
 /**
@@ -57,9 +58,13 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   if (isDmTarget(resolved)) {
     const gate = await requireDMAccess(db, resolved.channelId, botUserId)
     if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status })
+    const reactable = requireReactableSurface("dm")
+    if (!reactable.ok) return NextResponse.json({ error: reactable.error }, { status: reactable.status })
   } else {
     const gate = await requireChannelMember(db, resolved.channelId, botUserId)
     if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status })
+    const reactable = requireReactableSurface(gate.value.type)
+    if (!reactable.ok) return NextResponse.json({ error: reactable.error }, { status: reactable.status })
   }
 
   const row = await queries.communityMessage.getMessageByChannelAndSeq(db, scopeTarget, body.seq)

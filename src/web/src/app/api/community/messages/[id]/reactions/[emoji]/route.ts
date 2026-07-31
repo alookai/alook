@@ -14,9 +14,10 @@ import {
   requireChannelMember,
   requireDMAccess,
 } from "@/lib/community/permissions"
+import { requireReactableSurface } from "@/lib/community/channel-write-guard"
 
 type AccessOk = { ok: true; channelId: string; isDm: boolean }
-type AccessErr = { ok: false; status: 401 | 403 | 404; error: string }
+type AccessErr = { ok: false; status: 400 | 401 | 403 | 404; error: string }
 
 /**
  * Resolve the message and verify the caller can react.
@@ -33,6 +34,8 @@ async function authorizeReaction(
   if (!message) return { ok: false, status: 404, error: "message not found" }
 
   const channelType = await queries.communityChannel.getChannelType(db, message.channelId)
+  const reactable = requireReactableSurface(channelType)
+  if (!reactable.ok) return { ok: false, status: reactable.status, error: reactable.error }
   if (channelType === "dm") {
     const check = await requireDMAccess(db, message.channelId, userId)
     if (!check.ok) return check

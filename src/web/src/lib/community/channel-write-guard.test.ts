@@ -3,6 +3,8 @@ import {
   requireMessageBearingSurface,
   requireChildSurface,
   rejectDmOnGenericChannelRoute,
+  requireReactableSurface,
+  requirePinnableSurface,
 } from "./channel-write-guard"
 
 describe("requireMessageBearingSurface", () => {
@@ -36,6 +38,36 @@ describe("rejectDmOnGenericChannelRoute", () => {
     expect(rejectDmOnGenericChannelRoute("dm").ok).toBe(false)
     for (const t of ["text", "forum", "forum_post", "thread", null, undefined]) {
       expect(rejectDmOnGenericChannelRoute(t).ok).toBe(true)
+    }
+  })
+})
+
+describe("requireReactableSurface", () => {
+  it("accepts every message-bearing surface incl. dm (reacting in a DM is legit)", () => {
+    for (const t of ["text", "forum_post", "thread", "dm"]) {
+      expect(requireReactableSurface(t).ok).toBe(true)
+    }
+  })
+
+  it("rejects a forum top-level (nothing to react to) with 400", () => {
+    const r = requireReactableSurface("forum")
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.status).toBe(400)
+  })
+})
+
+describe("requirePinnableSurface", () => {
+  it("accepts text/forum_post/thread", () => {
+    for (const t of ["text", "forum_post", "thread"]) {
+      expect(requirePinnableSurface(t).ok).toBe(true)
+    }
+  })
+
+  it("rejects dm (governance model does not fit) and forum top-level with 400", () => {
+    for (const t of ["dm", "forum", null, undefined]) {
+      const r = requirePinnableSurface(t)
+      expect(r.ok).toBe(false)
+      if (!r.ok) expect(r.status).toBe(400)
     }
   })
 })
