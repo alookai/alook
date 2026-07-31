@@ -103,6 +103,16 @@ export type CreateMessageData = {
    * today's behavior (never deduped). See mutation-idempotency plan.
    */
   clientNonce?: string;
+  /**
+   * Extra Drizzle statements to commit in the SAME atomic batch as the message
+   * insert (zero new round-trip). The bot-send routes use this to bump the
+   * per-day sent activity rollup for the heatmap; human sends pass nothing. The
+   * statements run only if the message row is written (they share the batch's
+   * all-or-nothing fate — and if the CAS seq claim above loses, the batch never
+   * runs, so a lost race correctly skips them). This function stays
+   * identity-agnostic: the CALLER decides what to append, not `createMessage`.
+   */
+  extraStatements?: unknown[];
 };
 
 /**
@@ -196,7 +206,11 @@ async function insertMessageRow(db: Database, data: CreateMessageData, seq: numb
     .where(eq(communityChannel.id, data.channelId));
 
   type InsertedMessage = Awaited<typeof insertMsg>[number];
-  const results = (await db.batch([insertMsg, scopeUpdate] as any)) as any[];
+  // Caller-supplied extra statements (e.g. the bot sent-activity rollup bump)
+  // ride this same batch — appended AFTER insert+scope so the message row is
+  // index 0. They share the batch's all-or-nothing commit.
+  const batchStatements = [insertMsg, scopeUpdate, ...(data.extraStatements ?? [])];
+  const results = (await db.batch(batchStatements as any)) as any[];
   const msg = (results[0] as InsertedMessage[])[0]!;
 
   // Author read-watermark: advance the sender's own read-state to this

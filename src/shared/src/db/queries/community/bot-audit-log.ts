@@ -58,8 +58,8 @@ export async function insertBotActivityEventAndPrune(
   data: BotActivityEventInput,
   /**
    * Extra Drizzle statements to run in the SAME atomic batch as the insert +
-   * prune — lets a caller fold a companion write (e.g. the per-message
-   * `handledMessageCount` bump on a wake_trigger) into this one round-trip
+   * prune — lets a caller fold a companion write (e.g. the per-day
+   * `handled` activity-rollup bump on a wake_trigger) into this one round-trip
    * instead of issuing a separate hot-path write. They share the batch's
    * all-or-nothing fate. Appended AFTER insert+prune so `results[0]` is still
    * the insert.
@@ -201,8 +201,9 @@ export async function insertBotAuditWakeTrigger(
   /**
    * Extra Drizzle statements to fold into the SAME atomic batch as the
    * wake_trigger insert + prune (see `insertBotActivityEventAndPrune`). The
-   * wake path uses this to bump `handledMessageCount` in the one round-trip
-   * that already writes the audit row, rather than a separate hot-path write.
+   * wake path uses this to bump the per-day `handled` activity rollup in the
+   * one round-trip that already writes the audit row, rather than a separate
+   * hot-path write.
    */
   extraStatements: unknown[] = []
 ): Promise<{ id: string; createdAt: string } | null> {

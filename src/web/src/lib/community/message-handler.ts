@@ -223,6 +223,15 @@ export async function createCommunityMessage(params: {
    * and fires no side effects. Absent = today's behavior (no dedup lookup).
    */
   clientNonce?: string
+  /**
+   * Extra Drizzle statements to commit in the SAME batch as the message insert
+   * (zero new round-trip). Threaded straight into `createMessage`. The bot-send
+   * routes use this to bump the per-day sent-activity heatmap rollup; human
+   * sends pass nothing. Runs only if the row is written (shares the batch's
+   * all-or-nothing fate; a lost CAS seq claim skips it). This handler stays
+   * identity-agnostic — the bot-only caller supplies the statement.
+   */
+  extraStatements?: unknown[]
 }): Promise<CreateMessageResult> {
   const {
     db,
@@ -239,6 +248,7 @@ export async function createCommunityMessage(params: {
     attachmentIds,
     skipChildChannelUpdate,
     clientNonce,
+    extraStatements,
   } = params
 
   const content = typeof body.content === "string" ? body.content : ""
@@ -341,6 +351,7 @@ export async function createCommunityMessage(params: {
     mentionType: MentionType | undefined;
     type?: string;
     clientNonce?: string;
+    extraStatements?: unknown[];
   } = {
     authorId,
     content,
@@ -349,6 +360,7 @@ export async function createCommunityMessage(params: {
     mentionType,
     ...(messageType !== undefined ? { type: messageType } : {}),
     ...(clientNonce !== undefined ? { clientNonce } : {}),
+    ...(extraStatements !== undefined ? { extraStatements } : {}),
   }
 
   // Insert first so `reserveAttachmentsForMessage`'s UPDATE can key off

@@ -44,11 +44,6 @@ export const user = sqliteTable(
     // historical fact that never drifts from the audit log. NULL = never
     // refreshed. Surfaced in the my-bots list as "last refreshed N ago".
     lastRefreshContextAt: text("lastRefreshContextAt"),
-    // For bots: count of messages HANDLED in the current context lifecycle —
-    // incremented once per message that triggered a wake (post-gate), reset to
-    // 0 at the same nap/session_reset chokepoint. NOT raw messages received;
-    // gate-filtered messages the agent never woke for are excluded.
-    handledMessageCount: integer("handledMessageCount", { mode: "number" }).notNull().default(0),
   },
   (t) => [index("idx_user_ownerUserId_isBot").on(t.ownerUserId, t.isBot)]
 );

@@ -3,6 +3,7 @@ import type { HostCommand, UnreadNotice } from "../community-cli-contract";
 import { makeRuntimeConfig } from "../runtime-config";
 import { resolveModelConfig } from "./bot-model";
 import { formatHandle } from "../lib/discriminator";
+import { utcDayKey } from "../utils/day-key";
 import * as message from "../db/queries/community/message";
 import * as bot from "../db/queries/community/bot";
 import * as member from "../db/queries/community/member";
@@ -240,17 +241,18 @@ async function writeWakeTriggerAudit(
     senderHandle: `@${formatHandle(sender.name, sender.discriminator)}`,
     reason: (isMention ? "mention" : "unread") as "unread" | "mention",
   };
-  // Fold the "handled this lifecycle" count bump into the SAME atomic batch as
-  // the wake_trigger audit insert+prune — one message that triggers a wake =
-  // one batched round-trip, not a separate hot-path write (Cecilia's perf red
-  // line, #533). It shares the audit batch's all-or-nothing fate: a failed
-  // audit write skips the +1 too, which is fine (a dropped increment on a D1
-  // blip is far cheaper than a per-message extra round-trip). The counter is
-  // reset to 0 at nap/session_reset (`touchBotRefreshContext`).
+  // Fold the "handled today" heatmap bump into the SAME atomic batch as the
+  // wake_trigger audit insert+prune — one message that triggers a wake = one
+  // batched round-trip, not a separate hot-path write (Cecilia's perf red line,
+  // #533). It shares the audit batch's all-or-nothing fate: a failed audit
+  // write skips the +1 too, which is fine (a dropped increment on a D1 blip is
+  // far cheaper than a per-message extra round-trip). `day` comes from the
+  // shared `utcDayKey` so it agrees with the sent-side bump for the same
+  // calendar day. This rollup is a calendar fact — never zeroed on nap/reset.
   const inserted = await botAuditLog.insertBotAuditWakeTrigger(
     db,
     { botId: input.botUserId, launchId: input.launchId, payload },
-    [bot.bumpBotHandledMessageCountStatement(db, input.botUserId)]
+    [bot.bumpBotDailyActivityStatement(db, input.botUserId, utcDayKey(new Date()), "handled")]
   );
   if (!inserted || !env) return;
 

@@ -18,7 +18,7 @@
  * return null / 404 at the route. The victim's state must be untouched.
  */
 
-import { aliasedTable, and, count, eq, inArray, isNull, sql } from "drizzle-orm";
+import { aliasedTable, and, count, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import { user } from "../../schema";
 import {
   communityBotBinding,
@@ -31,6 +31,7 @@ import {
   communityFriendship,
   communityUserProfile,
   communityReadState,
+  communityBotDailyActivity,
 } from "../../community-schema";
 import { communityMachine } from "../../community-machine-schema";
 import type { Database } from "../../index";
@@ -56,12 +57,6 @@ export type BotRow = {
    * nap/session_reset audit chokepoint — a monotonic historical fact.
    */
   lastRefreshContextAt: string | null;
-  /**
-   * Count of messages HANDLED in the current context lifecycle — incremented
-   * once per message that triggered a wake (post-gate), reset to 0 at the same
-   * nap/session_reset chokepoint. NOT raw messages received.
-   */
-  handledMessageCount: number;
 };
 
 export type BotBinding = {
@@ -99,7 +94,6 @@ export async function listBotsForOwner(
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       lastRefreshContextAt: user.lastRefreshContextAt,
-      handledMessageCount: user.handledMessageCount,
       description: communityUserProfile.aboutMe,
       machineId: communityBotBinding.machineId,
       runtime: communityBotBinding.runtime,
@@ -128,7 +122,6 @@ export async function listBotsForOwner(
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
     lastRefreshContextAt: r.lastRefreshContextAt ?? null,
-    handledMessageCount: r.handledMessageCount ?? 0,
     machineId: r.machineId,
     runtime: r.runtime,
     modelName: r.modelName ?? null,
@@ -154,7 +147,6 @@ export async function getBotOwnedBy(
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       lastRefreshContextAt: user.lastRefreshContextAt,
-      handledMessageCount: user.handledMessageCount,
       description: communityUserProfile.aboutMe,
       machineId: communityBotBinding.machineId,
       runtime: communityBotBinding.runtime,
@@ -187,7 +179,6 @@ export async function getBotOwnedBy(
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
     lastRefreshContextAt: r.lastRefreshContextAt ?? null,
-    handledMessageCount: r.handledMessageCount ?? 0,
     machineId: r.machineId ?? null,
     runtime: r.runtime ?? null,
     modelName: r.modelName ?? null,
@@ -669,12 +660,11 @@ export async function updateBotModel(
 }
 
 /**
- * Record a context refresh on a bot: stamp `lastRefreshContextAt` and zero
- * `handledMessageCount` (the current lifecycle just ended). Called at — and
- * ONLY at — the two audit chokepoints that record a refresh: `nap`
+ * Record a context refresh on a bot: stamp `lastRefreshContextAt`. Called at —
+ * and ONLY at — the two audit chokepoints that record a refresh: `nap`
  * (self-initiated) and `session_reset` (owner). Keeping this the single write
- * point is what makes both fields monotonic-per-lifecycle facts that never
- * drift from the audit log or the live FSM. Scoped to `isBot=true` and not
+ * point is what makes the field a monotonic historical fact that never drifts
+ * from the audit log or the live FSM. Scoped to `isBot=true` and not
  * soft-deleted; the caller has already authorized the action (runner-key for
  * nap, owner for reset), so no ownerUserId predicate here. `now` is injected so
  * callers pass the same instant they wrote the audit row.
@@ -686,26 +676,121 @@ export async function touchBotRefreshContext(
 ): Promise<void> {
   await db
     .update(user)
-    .set({ lastRefreshContextAt: now, handledMessageCount: 0 })
+    .set({ lastRefreshContextAt: now })
     .where(and(eq(user.id, botId), eq(user.isBot, true), isNull(user.deletedAt)));
 }
 
 /**
- * Drizzle statement that increments a bot's `handledMessageCount` by one, scoped
- * to a live bot. Exposed as a statement builder (not an awaited write) so it can
- * be composed into the SAME `db.batch([...])` as the per-message wake_trigger
- * audit insert — one message that triggers a wake = one batched round-trip that
- * writes the audit row AND bumps the count, not two. The counter is reset to 0
- * by `touchBotRefreshContext` at each nap/session_reset. Riding the audit batch
- * means it shares that batch's all-or-nothing fate (a failed wake_trigger write
- * skips the bump too) — acceptable: a dropped +1 on a D1 blip is far cheaper
- * than an extra hot-path round-trip per message.
+ * Drizzle statement that bumps a bot's per-day activity rollup by one, for the
+ * my-bots heatmap. `column` selects which counter — `handled` (rides the
+ * wake_trigger audit batch, one bump per message the bot woke for) or `sent`
+ * (rides the community_message insert batch, one bump per message the bot
+ * sends). Exposed as a statement builder (not an awaited write) so it composes
+ * into the SAME `db.batch([...])` as that existing write — no new hot-path
+ * round-trip. `day` MUST come from `utcDayKey` (the single day-boundary source)
+ * so handled and sent for the same calendar day land in the same `(botId, day)`
+ * row. Sharing the host batch's all-or-nothing fate is acceptable: a dropped +1
+ * on a D1 blip is far cheaper than a per-message extra round-trip.
+ *
+ * Unlike the retired `handledMessageCount`, this rollup is a CALENDAR fact — it
+ * is never zeroed on nap/reset and never touched by the FSM.
  */
-export function bumpBotHandledMessageCountStatement(db: Database, botId: string) {
+export function bumpBotDailyActivityStatement(
+  db: Database,
+  botId: string,
+  day: string,
+  column: "handled" | "sent"
+) {
+  const isHandled = column === "handled";
   return db
-    .update(user)
-    .set({ handledMessageCount: sql`${user.handledMessageCount} + 1` })
-    .where(and(eq(user.id, botId), eq(user.isBot, true), isNull(user.deletedAt)));
+    .insert(communityBotDailyActivity)
+    .values({
+      botId,
+      day,
+      handledCount: isHandled ? 1 : 0,
+      sentCount: isHandled ? 0 : 1,
+    })
+    .onConflictDoUpdate({
+      target: [communityBotDailyActivity.botId, communityBotDailyActivity.day],
+      set: isHandled
+        ? { handledCount: sql`${communityBotDailyActivity.handledCount} + 1` }
+        : { sentCount: sql`${communityBotDailyActivity.sentCount} + 1` },
+    });
+}
+
+export interface BotDailyActivityRow {
+  day: string;
+  handledCount: number;
+  sentCount: number;
+}
+
+/**
+ * Read a bot's per-day activity for the heatmap: rows with `day >= sinceDay`,
+ * ascending. At most ~30 rows (the caller passes `sinceDay = today - 29`),
+ * covered by the `(botId, day)` PK. A bot with no activity yet returns `[]`
+ * (the caller/FE pads the missing days to zero cells — an empty array is the
+ * normal new-bot path, not an error).
+ */
+export async function getBotDailyActivity(
+  db: Database,
+  botId: string,
+  sinceDay: string
+): Promise<BotDailyActivityRow[]> {
+  const rows = await db
+    .select({
+      day: communityBotDailyActivity.day,
+      handledCount: communityBotDailyActivity.handledCount,
+      sentCount: communityBotDailyActivity.sentCount,
+    })
+    .from(communityBotDailyActivity)
+    .where(
+      and(
+        eq(communityBotDailyActivity.botId, botId),
+        gte(communityBotDailyActivity.day, sinceDay)
+      )
+    )
+    .orderBy(communityBotDailyActivity.day);
+  return rows;
+}
+
+/**
+ * Batch read of per-day activity for ALL of an owner's bots in a single query,
+ * so the my-bots list attaches heatmaps without N+1. Rows are scoped to bots
+ * the caller owns (join on `user.ownerUserId`, isBot, not soft-deleted) and to
+ * `day >= sinceDay`. Returns a Map keyed by botId → that bot's rows (ascending
+ * day); a bot with no activity is simply absent from the map (the caller
+ * defaults it to `[]`).
+ */
+export async function getBotDailyActivityForOwner(
+  db: Database,
+  ownerId: string,
+  sinceDay: string
+): Promise<Map<string, BotDailyActivityRow[]>> {
+  const rows = await db
+    .select({
+      botId: communityBotDailyActivity.botId,
+      day: communityBotDailyActivity.day,
+      handledCount: communityBotDailyActivity.handledCount,
+      sentCount: communityBotDailyActivity.sentCount,
+    })
+    .from(communityBotDailyActivity)
+    .innerJoin(user, eq(user.id, communityBotDailyActivity.botId))
+    .where(
+      and(
+        eq(user.ownerUserId, ownerId),
+        eq(user.isBot, true),
+        isNull(user.deletedAt),
+        gte(communityBotDailyActivity.day, sinceDay)
+      )
+    )
+    .orderBy(communityBotDailyActivity.day);
+  const byBot = new Map<string, BotDailyActivityRow[]>();
+  for (const r of rows) {
+    const list = byBot.get(r.botId) ?? [];
+    list.push({ day: r.day, handledCount: r.handledCount, sentCount: r.sentCount });
+    byBot.set(r.botId, list);
+  }
+  return byBot;
 }
 
 /**

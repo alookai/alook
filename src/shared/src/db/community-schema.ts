@@ -571,3 +571,27 @@ export const communityBotActivityEvent = sqliteTable(
   ]
 );
 
+// 22. community_bot_daily_activity
+// Per-bot, per-calendar-day rollup powering the my-bots activity heatmap:
+// how many messages the bot HANDLED (woke for) and SENT that day. One row per
+// (botId, day); each counter is bumped +1 via an upsert that rides an EXISTING
+// write batch (handled → the wake_trigger audit batch; sent → the community
+// message insert batch), so there is no new hot-path round-trip. `day` is a
+// UTC `YYYY-MM-DD` key computed by a single shared helper so both upserts agree
+// on the day boundary. Unlike `user.handledMessageCount` (the lifecycle counter
+// this replaces), this is a CALENDAR fact: it is NEVER zeroed on nap/reset and
+// never touched by the FSM. Read is the last 30 days per bot (≤30 rows, covered
+// by the PK), so no rolling prune is required.
+export const communityBotDailyActivity = sqliteTable(
+  "community_bot_daily_activity",
+  {
+    botId: text("bot_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    day: text("day").notNull(),
+    handledCount: integer("handled_count").notNull().default(0),
+    sentCount: integer("sent_count").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.botId, t.day] })]
+);
+

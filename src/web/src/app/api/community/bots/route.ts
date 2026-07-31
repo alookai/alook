@@ -4,6 +4,7 @@ import {
   CommunityBotCreateRequestSchema,
   COMMUNITY_BOT_LIMIT_PER_OWNER,
   runtimeSupportsModel,
+  utcDayKeyDaysAgo,
 } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
@@ -14,7 +15,21 @@ import { pushBotEventToMachine } from "@/lib/community/bot-push"
 export const GET = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
   const bots = await queries.communityBot.listBotsForOwner(db, ctx.userId)
-  return writeJSON({ bots })
+  // Attach each bot's last-30-day activity for the my-bots heatmap. One batched
+  // read scoped to the owner's bots (no N+1); bots with no rows default to [].
+  // The FE pads missing days to zero cells, so an empty array is the normal
+  // new-bot path.
+  const sinceDay = utcDayKeyDaysAgo(new Date(), 29)
+  const activityByBot = await queries.communityBot.getBotDailyActivityForOwner(
+    db,
+    ctx.userId,
+    sinceDay,
+  )
+  const withActivity = bots.map((bot) => ({
+    ...bot,
+    dailyActivity: activityByBot.get(bot.id) ?? [],
+  }))
+  return writeJSON({ bots: withActivity })
 })
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {

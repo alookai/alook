@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest"
+import { drizzle } from "drizzle-orm/d1"
 import * as q from "../../src/db/queries/community/bot"
 import {
   communityBotSyntheticEmail,
@@ -22,6 +23,12 @@ describe("community/bot exports", () => {
     expect(typeof q.listBotsForMachine).toBe("function")
     expect(typeof q.listBotsBoundToMachine).toBe("function")
     expect(typeof q.getMachineForOwner).toBe("function")
+  })
+
+  it("exposes bot-activity heatmap helpers", () => {
+    expect(typeof q.bumpBotDailyActivityStatement).toBe("function")
+    expect(typeof q.getBotDailyActivity).toBe("function")
+    expect(typeof q.getBotDailyActivityForOwner).toBe("function")
   })
 
   it("exposes write helpers", () => {
@@ -234,5 +241,31 @@ describe("bot limits", () => {
   })
   it("name max is 32", () => {
     expect(COMMUNITY_BOT_NAME_MAX).toBe(32)
+  })
+})
+
+describe("bumpBotDailyActivityStatement", () => {
+  const fakeDb = drizzle({} as never)
+
+  it("handled: inserts (1,0) and ON CONFLICT bumps handled_count", () => {
+    const { sql: text, params } = q
+      .bumpBotDailyActivityStatement(fakeDb, "bot_1", "2026-07-31", "handled")
+      .toSQL()
+    // upsert on the (bot_id, day) PK
+    expect(text).toContain('insert into "community_bot_daily_activity"')
+    expect(text).toContain("on conflict")
+    // seeds handled=1/sent=0, updates handled_count = handled_count + 1
+    expect(text).toContain('"handled_count" = "community_bot_daily_activity"."handled_count" + 1')
+    expect(text).not.toContain('"sent_count" = ')
+    expect(params).toEqual(["bot_1", "2026-07-31", 1, 0])
+  })
+
+  it("sent: inserts (0,1) and ON CONFLICT bumps sent_count", () => {
+    const { sql: text, params } = q
+      .bumpBotDailyActivityStatement(fakeDb, "bot_1", "2026-07-31", "sent")
+      .toSQL()
+    expect(text).toContain('"sent_count" = "community_bot_daily_activity"."sent_count" + 1')
+    expect(text).not.toContain('"handled_count" = ')
+    expect(params).toEqual(["bot_1", "2026-07-31", 0, 1])
   })
 })

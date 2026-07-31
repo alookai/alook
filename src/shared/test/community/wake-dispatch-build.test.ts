@@ -6,10 +6,10 @@ vi.mock("../../src/db/queries/community/message", () => ({
 }));
 
 const mockGetBotWakeContext = vi.fn();
-const mockBumpBotHandledMessageCountStatement = vi.fn(() => ({ __stmt: "bump" }));
+const mockBumpBotDailyActivityStatement = vi.fn(() => ({ __stmt: "bump" }));
 vi.mock("../../src/db/queries/community/bot", () => ({
   getBotWakeContext: (...a: unknown[]) => mockGetBotWakeContext(...a),
-  bumpBotHandledMessageCountStatement: (...a: unknown[]) => mockBumpBotHandledMessageCountStatement(...a),
+  bumpBotDailyActivityStatement: (...a: unknown[]) => mockBumpBotDailyActivityStatement(...a),
 }));
 
 const mockHasMentionForMessage = vi.fn();
@@ -296,12 +296,17 @@ describe("buildUnreadWakeCommand", () => {
         reason: "unread",
       },
     });
-    // handledMessageCount rides the SAME atomic batch as the audit insert:
-    // the +1 statement is built for this bot and handed to
-    // insertBotAuditWakeTrigger as an extra batch statement — one round-trip,
+    // The per-day "handled" activity rollup rides the SAME atomic batch as the
+    // audit insert: the upsert statement is built for this bot+today and handed
+    // to insertBotAuditWakeTrigger as an extra batch statement — one round-trip,
     // not a separate hot-path write (Cecilia's perf red line).
-    expect(mockBumpBotHandledMessageCountStatement).toHaveBeenCalledTimes(1);
-    expect(mockBumpBotHandledMessageCountStatement).toHaveBeenCalledWith(expect.anything(), "bot_1");
+    expect(mockBumpBotDailyActivityStatement).toHaveBeenCalledTimes(1);
+    expect(mockBumpBotDailyActivityStatement).toHaveBeenCalledWith(
+      expect.anything(),
+      "bot_1",
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      "handled",
+    );
     const [, , extraStatements] = mockInsertBotAuditWakeTrigger.mock.calls[0]!;
     expect(extraStatements).toEqual([{ __stmt: "bump" }]);
   });
@@ -320,9 +325,9 @@ describe("buildUnreadWakeCommand", () => {
 
     await buildUnreadWakeCommand(fakeDb, { messageId: "msg_1", botUserId: "bot_1" });
     expect(mockInsertBotAuditWakeTrigger).not.toHaveBeenCalled();
-    // Skipped wake never handled the message → no count bump statement is even
-    // built (rides the same post-gate chokepoint as the audit write).
-    expect(mockBumpBotHandledMessageCountStatement).not.toHaveBeenCalled();
+    // Skipped wake never handled the message → no activity bump statement is
+    // even built (rides the same post-gate chokepoint as the audit write).
+    expect(mockBumpBotDailyActivityStatement).not.toHaveBeenCalled();
   });
 
   it("wake still fires when the audit insert throws (best-effort, MUST NOT gate the wake)", async () => {

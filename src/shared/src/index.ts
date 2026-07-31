@@ -532,7 +532,7 @@ export { withD1Retry, readOrStale, isRetryableD1Error } from "./db/resilience";
 export type { RetryOpts } from "./db/resilience";
 export * as schema from "./db/schema";
 export * as queries from "./db/queries-index";
-export { communityServer, communityServerInvite, communityFriendship, communityServerMember, communityServerFolder, communityServerFolderItem, communityBotActivityEvent } from "./db/community-schema";
+export { communityServer, communityServerInvite, communityFriendship, communityServerMember, communityServerFolder, communityServerFolderItem, communityBotActivityEvent, communityBotDailyActivity } from "./db/community-schema";
 
 // Logger
 export { Logger, createLogger } from "./logger"
@@ -566,6 +566,7 @@ export type { PromptAgent, PromptMention, ParseResult } from "./utils/prompt-par
 export { MENTION_TOKEN_RE, stripMentionTokens } from "./utils/mention-token";
 export { isValidToken, isValidEmail } from "./utils/validation";
 export { escapeLikePattern } from "./utils/sql-like";
+export { utcDayKey, utcDayKeyDaysAgo } from "./utils/day-key";
 export { isOnline, formatStatus, isPresenceOnline, isPresenceOffline } from "./utils/status";
 export { isUniqueConstraintError } from "./utils/db-errors";
 export { generateWorkspaceSlug, sanitizeSlug, slugSuffix } from "./utils/slug";

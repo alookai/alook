@@ -7,6 +7,8 @@ const mockCreateBot = vi.fn()
 const mockGetUserPublic = vi.fn()
 const mockPushBotEventToMachine = vi.fn()
 const mockLogAudit = vi.fn()
+const mockListBotsForOwner = vi.fn()
+const mockGetBotDailyActivityForOwner = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -23,6 +25,8 @@ vi.mock("@alook/shared", async () => {
         countLiveBotsForOwner: (...a: unknown[]) => mockCountLiveBotsForOwner(...a),
         getMachineForOwner: (...a: unknown[]) => mockGetMachineForOwner(...a),
         createBot: (...a: unknown[]) => mockCreateBot(...a),
+        listBotsForOwner: (...a: unknown[]) => mockListBotsForOwner(...a),
+        getBotDailyActivityForOwner: (...a: unknown[]) => mockGetBotDailyActivityForOwner(...a),
       },
       user: {
         getUserPublic: (...a: unknown[]) => mockGetUserPublic(...a),
@@ -56,7 +60,11 @@ vi.mock("@/lib/middleware/helpers", async () => {
   }
 })
 
-import { POST } from "./route"
+import { GET, POST } from "./route"
+
+function getReq() {
+  return new NextRequest("http://localhost/api/community/bots", { method: "GET" })
+}
 
 function postReq(body: unknown) {
   return new NextRequest("http://localhost/api/community/bots", {
@@ -113,5 +121,46 @@ describe("POST /api/community/bots — model", () => {
     const res = await POST(postReq(base("some-model", "antigravity")), ctx)
     expect(res.status).toBe(400)
     expect(mockCreateBot).not.toHaveBeenCalled()
+  })
+})
+
+describe("GET /api/community/bots — heatmap activity", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("attaches each bot's 30-day dailyActivity from the batched owner read", async () => {
+    mockListBotsForOwner.mockResolvedValue([
+      { id: "bot_1", name: "A", machineId: "m1", runtime: "claude", modelName: null },
+      { id: "bot_2", name: "B", machineId: "m1", runtime: "claude", modelName: null },
+    ])
+    const byBot = new Map<string, unknown[]>([
+      ["bot_1", [{ day: "2026-07-31", handledCount: 3, sentCount: 1 }]],
+    ])
+    mockGetBotDailyActivityForOwner.mockResolvedValue(byBot)
+
+    const res = await GET(getReq(), ctx)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { bots: Array<{ id: string; dailyActivity: unknown[] }> }
+    // bot_1 gets its rows; bot_2 (absent from the map) defaults to [] — the
+    // normal new-bot path, not an error.
+    expect(body.bots.find((b) => b.id === "bot_1")?.dailyActivity).toEqual([
+      { day: "2026-07-31", handledCount: 3, sentCount: 1 },
+    ])
+    expect(body.bots.find((b) => b.id === "bot_2")?.dailyActivity).toEqual([])
+    // Scoped to the caller (u1) and a 30-day (29-days-ago) window.
+    expect(mockGetBotDailyActivityForOwner).toHaveBeenCalledWith(
+      expect.anything(),
+      "u1",
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    )
+  })
+
+  it("returns an empty bots array when the owner has none", async () => {
+    mockListBotsForOwner.mockResolvedValue([])
+    mockGetBotDailyActivityForOwner.mockResolvedValue(new Map())
+    const res = await GET(getReq(), ctx)
+    expect(res.status).toBe(200)
+    expect((await res.json()) as { bots: unknown[] }).toEqual({ bots: [] })
   })
 })

@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { queries, withD1Retry, CommunityAgentSendRequestSchema } from "@alook/shared"
+import { queries, withD1Retry, CommunityAgentSendRequestSchema, utcDayKey } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withCommunityActor, requireBot } from "@/lib/middleware/community-actor"
 import { resolveTargetForMember, resolveErrorResponse } from "@/lib/community/resolve-ref"
@@ -200,6 +200,12 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
     expectedSeq: latestSeq,
     attachmentIds: body.attachments.length > 0 ? body.attachments : undefined,
     clientNonce: body.nonce,
+    // Heatmap: bump this bot's per-day SENT rollup in the SAME batch as the
+    // message insert (zero new round-trip). Only the bot-send routes pass this,
+    // so human sends never bump; `createMessage` stays identity-agnostic.
+    extraStatements: [
+      queries.communityBot.bumpBotDailyActivityStatement(db, botUserId, utcDayKey(new Date()), "sent"),
+    ],
   })
   if (!result.ok) {
     if (result.status === 409) {

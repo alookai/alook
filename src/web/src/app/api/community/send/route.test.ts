@@ -20,6 +20,7 @@ const mockFindActiveAgentRunnerKeyByBearer = vi.fn()
 const mockGetUserInternal = vi.fn()
 const mockGetUserByNameAndDiscriminator = vi.fn()
 const mockGetBotBinding = vi.fn()
+const mockBumpBotDailyActivityStatement = vi.fn(() => ({ __stmt: "sent-bump" }))
 const mockResolveServerByNameForMember = vi.fn()
 const mockResolveChannelByNameForMember = vi.fn()
 const mockGetChannelForMember = vi.fn()
@@ -46,7 +47,12 @@ vi.mock("@alook/shared", async () => {
         getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a),
         getUserByNameAndDiscriminator: (...a: unknown[]) => mockGetUserByNameAndDiscriminator(...a),
       },
-      communityBot: { getBotBinding: (...a: unknown[]) => mockGetBotBinding(...a) },
+      communityBot: {
+        getBotBinding: (...a: unknown[]) => mockGetBotBinding(...a),
+        // Sentinel — the route builds this into `extraStatements`; the upsert
+        // SQL itself is verified in the shared community-bot test.
+        bumpBotDailyActivityStatement: (...a: unknown[]) => mockBumpBotDailyActivityStatement(...a),
+      },
       communityFriendship: {
         isBlocked: (...a: unknown[]) => mockIsBlocked(...a),
         areFriends: (...a: unknown[]) => mockAreFriends(...a),
@@ -433,6 +439,28 @@ describe("POST /api/community/agent/send", () => {
     expect(mockGetMessageByChannelAndSeq).not.toHaveBeenCalled()
     expect(mockCreateCommunityMessage).toHaveBeenCalledWith(
       expect.objectContaining({ body: { content: "hi", replyToId: undefined } })
+    )
+  })
+
+  it("heatmap: a bot send bumps its per-day SENT rollup, folded into the message batch", async () => {
+    mockGetLatestSeqForScope.mockResolvedValue(5)
+    mockGetReadState.mockResolvedValue({ lastReadSeq: 5 })
+    mockCreateCommunityMessage.mockResolvedValue({ ok: true, row: { id: "m_1", seq: 6, content: "hi" } })
+    const res = await POST(
+      req({ channel: "/studio/general", content: { text: "hi" } }, { Authorization: "Bearer crk_abc" })
+    )
+    expect(res.status).toBe(200)
+    // The "sent" upsert is built for THIS bot + today's UTC day key and handed
+    // to createCommunityMessage as an extra batch statement — it rides the
+    // message insert batch (zero new round-trip), not a separate write.
+    expect(mockBumpBotDailyActivityStatement).toHaveBeenCalledWith(
+      expect.anything(),
+      "bot_1",
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      "sent",
+    )
+    expect(mockCreateCommunityMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ extraStatements: [{ __stmt: "sent-bump" }] })
     )
   })
 })
