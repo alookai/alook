@@ -13,6 +13,7 @@
 import {
   reduceManager,
   createInitialManagerState,
+  DEFAULT_STOPPING_STUCK_THRESHOLD_MS,
   type ManagerState,
   type ManagerEvent,
   type ManagerEffect,
@@ -91,6 +92,8 @@ export interface ManagerRuntimeOpts {
   idleTimeoutMs?: number;
   /** Reset-stuck reconcile threshold (ms): `resetting` stuck this long ⇒ escalate. */
   resetStuckThresholdMs?: number;
+  /** Stopping-stuck escalation threshold (ms): `stopping` this long (no exit came) ⇒ force_exit. */
+  stoppingStuckThresholdMs?: number;
   /**
    * Handshake watchdog (ms): a spawned session that never emits its first
    * `runtime_event` (the handshake) within this window is treated as a
@@ -610,13 +613,19 @@ export class AgentProcessManager {
       staleThresholdMs: 120_000,
       idleTimeoutMs: 300_000,
       resetStuckThresholdMs: 120_000,
+      stoppingStuckThresholdMs: DEFAULT_STOPPING_STUCK_THRESHOLD_MS,
       handshakeTimeoutMs: 60_000,
       stampWakePromptTime: false,
       ...opts,
     };
     this.now = opts.now ?? (() => Date.now());
     this.log = opts.logger ?? createLogger({ header: "@alook/daemon:manager" });
-    this.state = createInitialManagerState(this.opts.staleThresholdMs, this.opts.idleTimeoutMs, this.opts.resetStuckThresholdMs);
+    this.state = createInitialManagerState(
+      this.opts.staleThresholdMs,
+      this.opts.idleTimeoutMs,
+      this.opts.resetStuckThresholdMs,
+      this.opts.stoppingStuckThresholdMs,
+    );
   }
 
   /**
@@ -1065,6 +1074,49 @@ export class AgentProcessManager {
         if (spawnState) spawnState.suppressExitLog = true;
         this.logSessionEnded(effect.agentId, effect.type === "stop" ? "stopped" : "terminate_stalled");
         this.opts.onAgentLocallyStopped?.({ agentId: effect.agentId, reason: effect.type });
+        break;
+      }
+      case "force_exit": {
+        // Stopping-stuck black-hole escape (plans/daemon-fsm-desync.md batch L3):
+        // the agent sat in `stopping` past the threshold because the `exit` a
+        // prior stop/terminate expected never came. Force the FSM out.
+        //
+        // (1) Best-effort kill any still-tracked process so we don't leak an
+        //     orphan. The session handle is the ONLY process reference we have
+        //     (activeSpawnState carries no pid), so if it's already gone — the
+        //     very no-op case that caused this wedge (the handle was cleared
+        //     before the original stop ran) — we genuinely CANNOT kill the
+        //     process here; the synthetic exit below still frees the FSM, but
+        //     the old process is orphaned. Warn so that orphan is VISIBLE
+        //     (Claudette's gate requirement) rather than a silent leak — an
+        //     orphan beats a permanent wedge. Actually reaping the orphan needs
+        //     an independent pid record (activeSpawnState.pid); that's a
+        //     followup, so this branch honestly only warns, it does not pretend
+        //     to kill what it can't reach.
+        const session = this.sessions.get(effect.agentId);
+        const state = this.activeSpawnState.get(effect.agentId);
+        if (session) {
+          void Promise.resolve(session.stop({ reason: effect.reason, forceAfterMs: SESSION_STOP_GRACE_MS })).catch(() => {});
+        } else {
+          this.log.warn("force_exit: no session handle to kill before synthetic exit — possible orphan process (reap is a followup, needs an independent pid record)", {
+            agentId: effect.agentId,
+            reason: effect.reason,
+          });
+        }
+        // (2) Tear down tracking + mark torndown so the killed process's eventual
+        //     late `exit` (if the kill does land) is a no-op, not a second
+        //     teardown that could clobber a session a fresh wake spawned in
+        //     between — same guard the handshake-timeout path uses.
+        if (state) state.torndown = true;
+        this.logSessionEnded(effect.agentId, "terminate_stalled");
+        if (this.sessions.get(effect.agentId) === session) this.sessions.delete(effect.agentId);
+        this.liveSessions.delete(effect.agentId);
+        if (this.activeSpawnState.get(effect.agentId) === state) this.activeSpawnState.delete(effect.agentId);
+        this.opts.onAgentLocallyStopped?.({ agentId: effect.agentId, reason: "terminate_stalled" });
+        // (3) Synthetic `exit` → the normal onExit recovery (drain-respawn or
+        //     settle idle; enterStable clears stoppingSince). Universal backstop:
+        //     works whether or not we could kill the process.
+        this.dispatch({ type: "exit", agentId: effect.agentId });
         break;
       }
       case "gated_hold":

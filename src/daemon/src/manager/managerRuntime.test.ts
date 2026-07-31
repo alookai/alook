@@ -522,6 +522,55 @@ describe("AgentProcessManager — session race conditions", () => {
       vi.useRealTimers();
     }
   });
+
+  it("force_exits an agent wedged in `stopping` when its stop produced no exit (batch L3 black-hole escape)", async () => {
+    vi.useFakeTimers();
+    try {
+      let currentTime = 0;
+      const stopSpy = vi.fn();
+      const persistentDriver = {
+        ...fakeDriver("codex"),
+        lifecycle: { kind: "persistent", start: "immediate", exit: "natural", inFlightWake: "queue" } as never,
+      } as Driver;
+      const session = fakeSession();
+      session.stop = stopSpy; // spy: was the process asked to die?
+      // A live session handle is present → force_exit takes the kill path
+      // (session.stop), not the orphan-warn path.
+      const mgr = new AgentProcessManager({
+        driverFor: () => persistentDriver,
+        baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
+        sessionFactory: () => session,
+        now: () => currentTime,
+        tickIntervalMs: 5,
+        idleTimeoutMs: 50,
+        stoppingStuckThresholdMs: 100,
+      });
+      mgr.register("a1");
+      mgr.deliver("a1", { seq: 1, text: "hello" });
+      session.startResolver?.();
+      await Promise.resolve();
+      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      session.fire("runtime_event", { kind: "turn_end" });
+      mgr.start();
+
+      // Idle-timeout tick → status=stopping, issues a stop. Crucially we DO NOT
+      // fire the session's `exit` — the wedge: stop was requested, exit never came.
+      currentTime = 100;
+      await vi.advanceTimersByTimeAsync(10);
+      const stopCallsAfterIdle = stopSpy.mock.calls.length; // idle-timeout stop
+
+      // Now sit in `stopping` past the stopping-stuck threshold with NO exit.
+      currentTime = 300; // 300 - 100(stoppingSince) = 200 >= 100
+      await vi.advanceTimersByTimeAsync(10);
+
+      // force_exit fired: the handler force-killed (a 2nd stop) AND dispatched a
+      // synthetic exit that drove the FSM out of `stopping`.
+      expect(stopSpy.mock.calls.length).toBeGreaterThan(stopCallsAfterIdle);
+      expect(mgr.snapshot().agents["a1"]?.status).not.toBe("stopping");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("AgentProcessManager — onAgentActivity (derived activity reporting)", () => {

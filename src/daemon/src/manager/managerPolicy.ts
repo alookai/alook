@@ -74,6 +74,21 @@ export interface AgentState {
   /** ms timestamp since which the agent has been idle (running, no turn, empty inbox); null if not idle. */
   idleSince: number | null;
   /**
+   * ms timestamp at which the agent entered `stopping`; null whenever it is not
+   * `stopping`. A `stop`/`terminate_stalled` effect expects the process to emit
+   * `exit` shortly after, which drives `onExit` → respawn/idle. If that `exit`
+   * never arrives (the stop was a no-op because the session handle was already
+   * gone, or the kill didn't take), the agent is wedged in `stopping` FOREVER:
+   * no onTick predicate keys on `stopping` (stalled/suspectedDeaf/idle need
+   * `running`, resetStuck needs `resetting` and even guards `!== "stopping"`),
+   * and `onWake` only queues in `stopping`. This clock is the ONLY escape: a
+   * tick that finds `stopping` older than `stoppingStuckThresholdMs` forces the
+   * agent out (see `onTick`'s stopping-stuck branch). SET at every transition
+   * into `stopping`; CLEARED by `enterStable` (→ running/idle) and `onExit`.
+   * See plans/daemon-fsm-desync.md batch L3 (stopping-wedge black hole).
+   */
+  stoppingSince: number | null;
+  /**
    * True during an owner-triggered reset window. Gates every inbound wake to
    * inbox-only (no `spawn`, no `send`, no `gated_hold`) EXCEPT when the
    * agent is currently `idle` — the orchestrator's idle branch relies on
@@ -132,6 +147,12 @@ export interface ManagerState {
    * `DEFAULT_RESET_STUCK_THRESHOLD_MS`.
    */
   resetStuckThresholdMs: number;
+  /**
+   * Stopping-stuck escalation threshold: `status === "stopping"` for longer than
+   * this (from `stoppingSince`) ⇒ the process's `exit` never arrived, so force
+   * the agent out of the black hole. See `DEFAULT_STOPPING_STUCK_THRESHOLD_MS`.
+   */
+  stoppingStuckThresholdMs: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -181,6 +202,17 @@ export type ManagerEffect =
   | { type: "stop"; agentId: string; reason: string }
   | { type: "terminate_stalled"; agentId: string }
   /**
+   * Stopping-stuck escalation (batch L3): the agent has sat in `stopping` past
+   * `stoppingStuckThresholdMs` — the `exit` a prior stop/terminate expected never
+   * arrived, so the agent is wedged in the one state no other watchdog can reach.
+   * The runtime handler force-kills any still-tracked process (best effort; warns
+   * if none is available — a possible orphan) and dispatches a SYNTHETIC `exit`
+   * so the FSM traverses the normal `onExit` → respawn/idle recovery. Universal
+   * backstop: covers both a no-op stop (session handle already gone) and a stop
+   * that ran but produced no exit. See plans/daemon-fsm-desync.md batch L3.
+   */
+  | { type: "force_exit"; agentId: string; reason: string }
+  /**
    * Pure observability: a gated agent has a non-empty inbox but nothing was
    * actually sent — either a mid-turn wake was held, or a boundary flush
    * attempt was still blocked. Never emitted for `direct`/`none` drivers.
@@ -201,6 +233,16 @@ export const DEFAULT_IDLE_TIMEOUT_MS = 300_000;
  * See plans/daemon-fsm-desync.md batch D.
  */
 export const DEFAULT_RESET_STUCK_THRESHOLD_MS = 120_000;
+/**
+ * Stopping-stuck escalation threshold (ms): how long an agent may sit in
+ * `stopping` — waiting for a `stop`/`terminate_stalled`'s expected `exit` — before
+ * the tick concludes the exit will never come and forces the agent out (force-kill
+ * the orphaned process if any + a synthetic `exit` to drive onExit→respawn). MUST
+ * be comfortably larger than `SESSION_STOP_GRACE_MS` (the legitimate SIGTERM→SIGKILL
+ * grace, 2s) so it never races an in-flight stop that's about to succeed — this is
+ * a black-hole safety net, not a fast path. See plans/daemon-fsm-desync.md batch L3.
+ */
+export const DEFAULT_STOPPING_STUCK_THRESHOLD_MS = 30_000;
 
 export interface ReduceResult {
   state: ManagerState;
@@ -211,8 +253,9 @@ export function createInitialManagerState(
   staleThresholdMs = DEFAULT_STALE_THRESHOLD_MS,
   idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS,
   resetStuckThresholdMs = DEFAULT_RESET_STUCK_THRESHOLD_MS,
+  stoppingStuckThresholdMs = DEFAULT_STOPPING_STUCK_THRESHOLD_MS,
 ): ManagerState {
-  return { agents: {}, staleThresholdMs, idleTimeoutMs, resetStuckThresholdMs };
+  return { agents: {}, staleThresholdMs, idleTimeoutMs, resetStuckThresholdMs, stoppingStuckThresholdMs };
 }
 
 /* ------------------------------------------------------------------ */
@@ -500,6 +543,12 @@ function onExit(state: ManagerState, agentId: string): ReduceResult {
   if (!existing) return { state, effects: [] };
   const agent = clone(existing);
   agent.turnActive = false;
+  // The process is gone, so `stopping` no longer applies — clear the
+  // stopping-stuck clock here (covers BOTH onExit branches: the respawn path
+  // sets status="starting" directly, not via enterStable, so it wouldn't be
+  // cleared otherwise; the settle-idle path goes through enterStable which also
+  // clears it, harmless to do twice).
+  agent.stoppingSince = null;
   // Fresh process ⇒ fresh gated-steering horizon. Symmetric with `onTurnEnd`;
   // prevents a dead process's `compacting` / outstanding-tool-use flags from
   // silently carrying into the next spawn and re-blocking `onWake`.
@@ -575,7 +624,7 @@ function onTick(state: ManagerState, nowMs: number): ReduceResult {
       a.lastDeliverAt > a.lastProgressAt &&
       nowMs - a.lastDeliverAt >= state.staleThresholdMs;
     if (stalled || suspectedDeaf) {
-      agents[id] = { ...a, status: "stopping", idleSince: null };
+      agents[id] = { ...a, status: "stopping", idleSince: null, stoppingSince: nowMs };
       effects.push({ type: "terminate_stalled", agentId: id });
       continue;
     }
@@ -613,8 +662,37 @@ function onTick(state: ManagerState, nowMs: number): ReduceResult {
       a.resettingSince !== null &&
       nowMs - a.resettingSince >= state.resetStuckThresholdMs;
     if (resetStuck) {
-      agents[id] = { ...a, status: "stopping", idleSince: null };
+      agents[id] = { ...a, status: "stopping", idleSince: null, stoppingSince: nowMs };
       effects.push({ type: "terminate_stalled", agentId: id });
+      continue;
+    }
+
+    // Stopping-stuck escalation (plans/daemon-fsm-desync.md batch L3): the black
+    // hole. A `stop`/`terminate_stalled` set status=`stopping` expecting the
+    // process to emit `exit` (→ onExit → respawn/idle). If that `exit` never
+    // comes — the stop was a no-op (session handle already gone), or the kill
+    // didn't take — the agent is wedged in `stopping` PERMANENTLY: no predicate
+    // above keys on `stopping` (stalled/suspectedDeaf/idle need `running`;
+    // resetStuck needs `resetting` AND guards `!== "stopping"`), and `onWake`
+    // only queues in `stopping` (inbox grows unboundedly, never delivered —
+    // observed live: Olivia 2026-07-31 stuck 12min, inbox climbing, process
+    // still alive). This is the ONE escape. Force the agent out via `force_exit`
+    // (runtime handler best-effort-kills any tracked process, then dispatches a
+    // SYNTHETIC `exit` so the FSM runs the normal onExit recovery). Threshold ≫
+    // SESSION_STOP_GRACE_MS so it never races a legitimate in-flight stop.
+    // Storm-free: `force_exit` → onExit → enterStable clears `stoppingSince`, so
+    // it can't re-fire for the same stopping episode; if the respawn wedges in
+    // `stopping` again, a fresh `stoppingSince` restarts the clock and it re-
+    // escalates — converging until a respawn sticks.
+    const stoppingStuck =
+      a.status === "stopping" &&
+      a.stoppingSince !== null &&
+      nowMs - a.stoppingSince >= state.stoppingStuckThresholdMs;
+    if (stoppingStuck) {
+      // Leave stoppingSince set until the synthetic exit's onExit clears it —
+      // status stays `stopping` this tick, so the `!== "stopping"` shape holds
+      // and nothing else touches it; the effect drives the transition out.
+      effects.push({ type: "force_exit", agentId: id, reason: "stopping_stuck" });
       continue;
     }
 
@@ -629,7 +707,7 @@ function onTick(state: ManagerState, nowMs: number): ReduceResult {
       state.idleTimeoutMs > 0 &&
       Number.isFinite(state.idleTimeoutMs);
     if (idleEligible && a.idleSince !== null && nowMs - a.idleSince >= state.idleTimeoutMs) {
-      agents[id] = { ...a, status: "stopping", idleSince: null };
+      agents[id] = { ...a, status: "stopping", idleSince: null, stoppingSince: nowMs };
       effects.push({ type: "stop", agentId: id, reason: "idle_timeout" });
     }
   }
@@ -651,6 +729,7 @@ function freshAgent(agentId: string, caps: AgentRuntimeCaps): AgentState {
     lastProgressAt: 0,
     lastDeliverAt: null,
     idleSince: null,
+    stoppingSince: null,
     resetting: false,
     resettingSince: null,
     apm: createInitialApmGatedSteeringState(),
@@ -681,6 +760,8 @@ function enterStable(agent: AgentState, status: "running" | "idle"): void {
   agent.status = status;
   agent.resetting = false;
   agent.resettingSince = null;
+  // Left `stopping` (reached a stable state) ⇒ the stopping-stuck clock is moot.
+  agent.stoppingSince = null;
 }
 
 /** Coalesce all queued messages into one prompt, deduplicating identical lines. */
