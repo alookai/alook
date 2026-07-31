@@ -88,7 +88,7 @@ export function ChannelHeader({
             <span className="truncate text-base font-medium">{channel}</span>
           </button>
           <ChannelIcon className="shrink-0 text-base text-muted-foreground/60" />
-          <span className="min-w-0 truncate text-base font-medium">{breadcrumb.label}</span>
+          <span className="min-w-0 truncate text-base font-medium" title={breadcrumb.label}>{breadcrumb.label}</span>
           {breadcrumb.onRename && (
             <BreadcrumbRename label={breadcrumb.label} onRename={breadcrumb.onRename} />
           )}
