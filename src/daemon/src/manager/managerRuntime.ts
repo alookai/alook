@@ -89,6 +89,8 @@ export interface ManagerRuntimeOpts {
   staleThresholdMs?: number;
   /** Idle hibernation timeout (ms): stop a persistent process idle this long. */
   idleTimeoutMs?: number;
+  /** Reset-stuck reconcile threshold (ms): `resetting` stuck this long ⇒ escalate. */
+  resetStuckThresholdMs?: number;
   /**
    * Handshake watchdog (ms): a spawned session that never emits its first
    * `runtime_event` (the handshake) within this window is treated as a
@@ -579,13 +581,14 @@ export class AgentProcessManager {
       tickIntervalMs: 5_000,
       staleThresholdMs: 120_000,
       idleTimeoutMs: 300_000,
+      resetStuckThresholdMs: 120_000,
       handshakeTimeoutMs: 60_000,
       stampWakePromptTime: false,
       ...opts,
     };
     this.now = opts.now ?? (() => Date.now());
     this.log = opts.logger ?? createLogger({ header: "@alook/daemon:manager" });
-    this.state = createInitialManagerState(this.opts.staleThresholdMs, this.opts.idleTimeoutMs);
+    this.state = createInitialManagerState(this.opts.staleThresholdMs, this.opts.idleTimeoutMs, this.opts.resetStuckThresholdMs);
   }
 
   /**
@@ -1355,6 +1358,27 @@ export class AgentProcessManager {
     // surfaces. See plans/daemon-fsm-desync.md batch C (reader-C fix).
     if (ev.kind === "error" && !sessionSuperseded) {
       this.emitErrorAudit(agentId, "runtime", "runtime_error", ev.message ?? "Runtime error");
+      // Stuck-reset correlation trace (plans/daemon-fsm-desync.md batch D):
+      // PURELY ADDITIVE — this runs AFTER the error has already been decided to
+      // surface (gate above unchanged), and only annotates. If this error fired
+      // while the agent's reset window is wedged (`resetting` still true past
+      // the reconcile threshold), leave a diagnostic line correlating the two:
+      // an error emerging from a bot whose restart never converged is a
+      // higher-signal event than a lone error, and the reconcile watchdog is
+      // about to (or already did) escalate it. Never suppresses — a reborn's
+      // genuine error keeps surfacing exactly as batch C made it.
+      const agent = this.state.agents[agentId];
+      if (
+        agent?.resetting &&
+        agent.resettingSince !== null &&
+        this.now() - agent.resettingSince >= this.state.resetStuckThresholdMs
+      ) {
+        this.log.warn("runtime error during a stuck reset window", {
+          agentId,
+          resettingForMs: this.now() - agent.resettingSince,
+          message: ev.message ?? "Runtime error",
+        });
+      }
     }
     // Bot audit hook — thinking + non-Bash tool_call, no correlation.
     // Context carries the sessionId/launchId learned so far this launch so

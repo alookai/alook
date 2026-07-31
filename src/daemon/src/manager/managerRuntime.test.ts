@@ -82,7 +82,7 @@ function fakeSession(): FakeSession {
   return s;
 }
 
-function makeManager(opts: { logger?: Logger; tickIntervalMs?: number; idleTimeoutMs?: number; staleThresholdMs?: number; handshakeTimeoutMs?: number; now?: () => number; onBotAuditEvent?: (agentId: string, event: unknown, context: { sessionId: string | null; launchId: string | null }) => void } = {}) {
+function makeManager(opts: { logger?: Logger; tickIntervalMs?: number; idleTimeoutMs?: number; staleThresholdMs?: number; resetStuckThresholdMs?: number; handshakeTimeoutMs?: number; now?: () => number; onBotAuditEvent?: (agentId: string, event: unknown, context: { sessionId: string | null; launchId: string | null }) => void } = {}) {
   const session = fakeSession();
   const factory: SessionFactory = () => session;
   const onRuntimeSpawnFailed = vi.fn();
@@ -1164,6 +1164,57 @@ describe("AgentProcessManager — error audit emission", () => {
       ([, ev]) => (ev as { kind?: string })?.kind === "error",
     );
     expect(errCalls).toHaveLength(0);
+  });
+
+  it("adds a stuck-reset correlation trace for a reborn error while the reset window is wedged — WITHOUT suppressing the error (batch D)", () => {
+    // Batch D: the stuck-reset trace is purely additive. A reborn (non-
+    // superseded) session's genuine error must STILL surface as an audit row
+    // (batch C's 命门, unchanged); on top of that, if the agent's reset window
+    // has been stuck past the reconcile threshold, a diagnostic `warn` line
+    // correlates the error with the wedged reset. The gate judge is untouched.
+    let clock = 0;
+    const onBotAuditEvent = vi.fn();
+    const logger = stubLogger();
+    const { mgr } = makeManager({ onBotAuditEvent, logger, now: () => clock, resetStuckThresholdMs: 100 });
+
+    // Put the agent into a reset window that has aged past the threshold.
+    mgr.deliver("a1", { seq: 1, text: "hello" });
+    clock = 10;
+    mgr.markResetting("a1"); // resetting=true, resettingSince=10
+    clock = 200; // now - resettingSince = 190 >= 100 → stuck
+
+    // Reborn (superseded=false) error fires while the window is wedged.
+    (mgr as unknown as {
+      onRuntimeEvent: (a: string, e: unknown, r: string, superseded: boolean) => void;
+    }).onRuntimeEvent("a1", { kind: "error", message: "reborn hit a rate limit" }, "codex", false);
+
+    // 命门: the error STILL surfaces (additive trace never suppresses).
+    const errCalls = onBotAuditEvent.mock.calls.filter(
+      ([, ev]) => (ev as { kind?: string })?.kind === "error",
+    );
+    expect(errCalls).toHaveLength(1);
+    // AND the correlation trace fired.
+    expect(logger.calls.warn.some(([m]) => m === "runtime error during a stuck reset window")).toBe(true);
+  });
+
+  it("does NOT add the stuck-reset trace for a reborn error when the reset window is NOT stuck (batch D)", () => {
+    let clock = 0;
+    const onBotAuditEvent = vi.fn();
+    const logger = stubLogger();
+    const { mgr } = makeManager({ onBotAuditEvent, logger, now: () => clock, resetStuckThresholdMs: 100 });
+
+    mgr.deliver("a1", { seq: 1, text: "hello" });
+    clock = 10;
+    mgr.markResetting("a1"); // resettingSince=10
+    clock = 50; // now - resettingSince = 40 < 100 → NOT stuck
+
+    (mgr as unknown as {
+      onRuntimeEvent: (a: string, e: unknown, r: string, superseded: boolean) => void;
+    }).onRuntimeEvent("a1", { kind: "error", message: "reborn hit a rate limit" }, "codex", false);
+
+    // Error still surfaces (it's a real reborn error), but no stuck-reset trace.
+    expect(onBotAuditEvent.mock.calls.filter(([, ev]) => (ev as { kind?: string })?.kind === "error")).toHaveLength(1);
+    expect(logger.calls.warn.some(([m]) => m === "runtime error during a stuck reset window")).toBe(false);
   });
 
   it("scrubs secrets out of an error message before it becomes an audit row", () => {

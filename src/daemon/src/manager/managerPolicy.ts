@@ -126,6 +126,12 @@ export interface ManagerState {
    * Its sessionId is preserved so the next wake resumes. 0/∞ disables.
    */
   idleTimeoutMs: number;
+  /**
+   * Reset-window convergence threshold: `resetting` stuck true past this long
+   * (measured from `resettingSince`) ⇒ the reconcile watchdog escalates. See
+   * `DEFAULT_RESET_STUCK_THRESHOLD_MS`.
+   */
+  resetStuckThresholdMs: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -184,6 +190,17 @@ export type ManagerEffect =
 /** Default thresholds (ms). */
 export const DEFAULT_STALE_THRESHOLD_MS = 120_000;
 export const DEFAULT_IDLE_TIMEOUT_MS = 300_000;
+/**
+ * Reset-window convergence threshold: how long after a reset was initiated
+ * (`begin_reset` stamps `resettingSince`) the agent may stay non-stable
+ * (`resetting` still true, never reached `running`/`idle` via `enterStable`)
+ * before the reconcile watchdog forces it out. Deliberately a SEPARATE constant
+ * from `staleThresholdMs` — that one measures "a running turn made no progress",
+ * this one measures "a restart never converged". Different physical processes,
+ * independently tunable; sharing a constant would couple two unrelated timeouts.
+ * See plans/daemon-fsm-desync.md batch D.
+ */
+export const DEFAULT_RESET_STUCK_THRESHOLD_MS = 120_000;
 
 export interface ReduceResult {
   state: ManagerState;
@@ -193,8 +210,9 @@ export interface ReduceResult {
 export function createInitialManagerState(
   staleThresholdMs = DEFAULT_STALE_THRESHOLD_MS,
   idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS,
+  resetStuckThresholdMs = DEFAULT_RESET_STUCK_THRESHOLD_MS,
 ): ManagerState {
-  return { agents: {}, staleThresholdMs, idleTimeoutMs };
+  return { agents: {}, staleThresholdMs, idleTimeoutMs, resetStuckThresholdMs };
 }
 
 /* ------------------------------------------------------------------ */
@@ -557,6 +575,44 @@ function onTick(state: ManagerState, nowMs: number): ReduceResult {
       a.lastDeliverAt > a.lastProgressAt &&
       nowMs - a.lastDeliverAt >= state.staleThresholdMs;
     if (stalled || suspectedDeaf) {
+      agents[id] = { ...a, status: "stopping", idleSince: null };
+      effects.push({ type: "terminate_stalled", agentId: id });
+      continue;
+    }
+
+    // Reset-stuck reconcile (plans/daemon-fsm-desync.md batch D): the reset
+    // window (`resetting`) is closed exclusively by `enterStable` when the agent
+    // reaches a stable `running`/`idle` state. If the converging event never
+    // arrives — an idle-branch spawn whose process never emits `spawned`, or an
+    // onExit-respawn that wedges in `starting` — `resetting` stays true forever
+    // with an aging `resettingSince`, and every wake gets gated to the inbox
+    // (onWake's reset gate) and never delivered = a permanent orphan. The three
+    // predicates above can't catch it: they all require `status === "running"`,
+    // but a reset-stuck agent is stuck in `starting`/`stopping` (never reached
+    // running, so `enterStable` never ran, so `resetting` is still true). This
+    // is the ONE belief-vs-reality gap the running-keyed detectors leave open.
+    // Escalate by forcing an `exit`: `onExit` drains any queued rewake and
+    // respawns (or settles idle), and its `enterStable` atomically closes the
+    // window — recovery REUSES C's single-owner clear, no second clear path.
+    // The `status !== "stopping"` guard is what makes this NOT fire-and-assume
+    // AND storm-free: the escalate flips status to `stopping`, so it can't
+    // re-issue a `terminate_stalled` every tick while the (guaranteed) exit is
+    // in flight — the running-keyed predicates get this for free by leaving
+    // `running`, but `resetStuck` keys on `resetting` (which `enterStable`, not
+    // this branch, clears) so it needs the explicit guard. Re-escalation still
+    // happens correctly when it's warranted: if the forced exit's respawn wedges
+    // AGAIN, onExit puts the agent back in `starting` (not `stopping`) with
+    // `resetting` still true and `resettingSince` still aging, so a later tick
+    // fires this anew — the recovery keeps trying until the reset converges to a
+    // stable state (`enterStable` clears `resetting` → this stops firing).
+    // Mutually exclusive with stalled/suspectedDeaf by the disjoint `status`
+    // precondition (they need `running`; a reset-stuck orphan is in `starting`).
+    const resetStuck =
+      a.resetting &&
+      a.status !== "stopping" &&
+      a.resettingSince !== null &&
+      nowMs - a.resettingSince >= state.resetStuckThresholdMs;
+    if (resetStuck) {
       agents[id] = { ...a, status: "stopping", idleSince: null };
       effects.push({ type: "terminate_stalled", agentId: id });
       continue;
