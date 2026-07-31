@@ -5,13 +5,15 @@ import { useParams, useRouter } from "next/navigation"
 import { MessageList } from "@/components/community/message-list"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useServer } from "@/hooks/community/use-servers"
+import { getLastChannel, pickServerLandingChannel } from "@/lib/community/last-channel"
 
 /**
  * /c/channels/:serverId
  *
- * Redirects to the first channel by position. Shows a channel-shell skeleton
- * while waiting for the server detail so the transition feels like a reveal
- * rather than a swap.
+ * Restores the last channel opened in this server (per-browser memory), falling
+ * back to the first channel by position. Shows a channel-shell skeleton while
+ * waiting for the server detail so the transition feels like a reveal rather
+ * than a swap.
  */
 export default function ServerDefaultPage() {
   const params = useParams<{ serverId: string }>()
@@ -22,9 +24,14 @@ export default function ServerDefaultPage() {
   useEffect(() => {
     if (!currentServer) return
     const allChannels = currentServer.categories.flatMap((cat) => cat.channels)
-    const first = allChannels[0]
-    if (first) {
-      router.replace(`/c/channels/${serverId}/${first.id}`)
+    // Restore the remembered last channel when it still exists + is visible
+    // here; otherwise the first channel. See `pickServerLandingChannel`.
+    const target = pickServerLandingChannel(
+      allChannels.map((c) => c.id),
+      getLastChannel(serverId),
+    )
+    if (target) {
+      router.replace(`/c/channels/${serverId}/${target}`)
     }
   }, [currentServer, serverId, router])
 

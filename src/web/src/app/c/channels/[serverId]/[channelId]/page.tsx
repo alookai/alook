@@ -20,6 +20,7 @@ import { canManageServer } from "@/components/community/_types"
 import type { MentionType } from "@alook/shared"
 import { isForum as isForumType, deriveThreadName, USE_SERVER_DEFAULT } from "@alook/shared"
 import { resolveRowPresence } from "@/lib/community/presence"
+import { setLastChannel } from "@/lib/community/last-channel"
 import { makeUserNameResolver } from "@/lib/community/display-name"
 import { avatarInitial } from "@/lib/community/avatar"
 import {
@@ -91,6 +92,12 @@ function ChannelView() {
   const searchParams = useSearchParams()
   const serverId = decodeURIComponent(params.serverId)
   const channelId = params.channelId
+  // Remember this as the server's last-opened channel (per-browser navigation
+  // memory) so re-entering the server restores here instead of the default.
+  // Pure localStorage write; failures are swallowed in the helper.
+  useEffect(() => {
+    setLastChannel(serverId, channelId)
+  }, [serverId, channelId])
   // Cross-channel "jump to message" target, captured ONCE at mount from `?msg=`.
   // `ChannelView` is keyed by `serverId/channelId`, so a fresh jump remounts and
   // re-reads this. The param is stripped from the URL right after (below) so a
