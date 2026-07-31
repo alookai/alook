@@ -224,20 +224,20 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                     return (
                       <Card key={bot.id} className="flex flex-col gap-3 p-4">
                         <div className="flex items-start justify-between gap-3">
-                          {/* id-block + heatmap share a flex-wrap row: the strip
-                              sits to the right of the meta when there's room and
-                              WRAPS to its own line below only when space actually
-                              runs out (Gus #720) — native content-based, no
-                              breakpoint guess, and the strip's cells are a fixed
-                              size so wrapping never changes their size. */}
+                          <AgentAvatar name={bot.name} avatarUrl={bot.image} seed={bot.id} size={40} />
+                          {/* The name/meta column and the heatmap share a
+                              flex-wrap row that starts AFTER the avatar — so when
+                              the strip wraps it aligns to the name column, not the
+                              card's left edge under the avatar (Gus #726/#730).
+                              The strip sits right of the meta when there's room
+                              and drops to its own line below when the card is too
+                              narrow (Gus #720) — native, content/width-based. */}
                           <div className="flex min-w-0 flex-1 flex-wrap items-start gap-x-3 gap-y-2.5">
-                            {/* min-w keeps the id-block from shrinking to nothing
-                                so the fixed-width strip is forced to WRAP below
-                                (not collide) once the card can't fit both on one
-                                line (Gus #720). */}
-                            <div className="flex min-w-[200px] flex-1 items-start gap-3">
-                            <AgentAvatar name={bot.name} avatarUrl={bot.image} seed={bot.id} size={40} />
-                            <div className="flex min-w-0 flex-col gap-1">
+                            {/* min-w = the meta line's natural width, so the strip
+                                is forced to WRAP below before the runtime/model/
+                                awake text has to truncate (Gus #730 — never let
+                                the heatmap squeeze the meta). */}
+                            <div className="flex min-w-[220px] flex-1 flex-col gap-1">
                               <div className="flex items-center gap-2">
                                 <span className="truncate text-[15px] font-medium text-foreground">
                                   {bot.name}
@@ -284,18 +284,26 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                                   never awoke → the segment is omitted. The old
                                   "Handled N msgs" counter is replaced by the
                                   30-day activity heatmap (Gus #608). */}
-                              <span className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
-                                <ProviderLogo provider={bot.runtime} className="size-3.5 shrink-0" />
-                                <span className="truncate">{bot.runtime}</span>
+                              {/* Meta wraps (not truncates): when the card is too
+                                  narrow to fit runtime · model · Awake on one
+                                  line, the segments fold to a second line instead
+                                  of getting cut — provider/model are important
+                                  info and must stay fully readable (Gus #730 /
+                                  Alli #731). */}
+                              <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
+                                <span className="flex items-center gap-1.5">
+                                  <ProviderLogo provider={bot.runtime} className="size-3.5 shrink-0" />
+                                  <span>{bot.runtime}</span>
+                                </span>
                                 <span aria-hidden className="shrink-0">·</span>
                                 {formatModelLabel(bot.runtime, bot.modelName) ? (
-                                  <span data-testid="bot-card-model" className="truncate font-mono">
+                                  <span data-testid="bot-card-model" className="font-mono">
                                     {formatModelLabel(bot.runtime, bot.modelName)}
                                   </span>
                                 ) : (
                                   <span
                                     data-testid="bot-card-model"
-                                    className="truncate font-mono text-muted-foreground/70"
+                                    className="font-mono text-muted-foreground/70"
                                     title="No model set — uses the machine's local default"
                                   >
                                     local default
@@ -309,13 +317,12 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                                 )}
                               </span>
                             </div>
-                            </div>
-                            {/* The strip. No ml-auto: the id-block is flex-1 so
+                            {/* The strip. No ml-auto: the id-column is flex-1 so
                                 it eats the slack and pushes the strip to the
                                 right when they share a line; when the row wraps,
-                                the strip is alone on its line and left-aligns
-                                (Gus #726). self-center only affects the shared
-                                line's vertical alignment. */}
+                                the strip is alone on its line and left-aligns to
+                                the name column (Gus #726/#730). self-center only
+                                affects the shared line's vertical alignment. */}
                             <BotActivityHeatmap
                               days={bot.dailyActivity}
                               className="self-center"
