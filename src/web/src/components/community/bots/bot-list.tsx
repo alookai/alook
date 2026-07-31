@@ -310,12 +310,15 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                               </span>
                             </div>
                             </div>
-                            {/* The strip. ml-auto hugs it right of the meta when
-                                they share the line; when the row wraps it drops
-                                to its own full line below the id-block. */}
+                            {/* The strip. No ml-auto: the id-block is flex-1 so
+                                it eats the slack and pushes the strip to the
+                                right when they share a line; when the row wraps,
+                                the strip is alone on its line and left-aligns
+                                (Gus #726). self-center only affects the shared
+                                line's vertical alignment. */}
                             <BotActivityHeatmap
                               days={bot.dailyActivity}
-                              className="ml-auto self-center"
+                              className="self-center"
                             />
                           </div>
                           <DropdownMenu>
