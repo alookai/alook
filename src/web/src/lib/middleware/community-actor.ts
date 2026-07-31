@@ -37,7 +37,7 @@ export type CommunityActor =
       machineId: string
     }
 
-export interface CommunityActorContext {
+interface CommunityActorContext {
   env: Env
   actor: CommunityActor
   params?: Record<string, string>
