@@ -5,14 +5,36 @@ import {
   dedupeChildChannelSlug,
 } from "../../src/db/queries/community/channel";
 
-// A single-select thenable-chain db (FIFO), for the child-channel helpers
-// which each issue exactly one `db.select(...)...`.
-function createSelectDb(rows: unknown[]) {
-  const methods = ["from", "where"];
+// Walk a Drizzle SQL node for a literal `COLLATE NOCASE` fragment (emitted by
+// the `sql\`... COLLATE NOCASE = ...\`` templates). StringChunk literals live in
+// `.value` (string or string[]); operator nodes hold children in `.queryChunks`.
+function hasCollateNocase(expr: unknown): boolean {
+  if (expr == null || typeof expr !== "object") return false;
+  const e = expr as Record<string, unknown>;
+  const val = e.value;
+  if (typeof val === "string" && /collate\s+nocase/i.test(val)) return true;
+  if (Array.isArray(val) && val.some((v) => typeof v === "string" && /collate\s+nocase/i.test(v))) return true;
+  if (Array.isArray(e.queryChunks)) return e.queryChunks.some((c) => hasCollateNocase(c));
+  return false;
+}
+
+// A thenable-chain db. `getChildChannelByName` issues one `db.select(...)`;
+// `dedupeChildChannelSlug` now issues one select PER candidate (base slug, then
+// `-2`, `-3`, …) so pass an array of per-call responses (FIFO). A bare
+// `rows`-array is treated as the single response for the one-select callers.
+// `.limit(1)` is supported for the dedup existence probe.
+function createSelectDb(responses: unknown[] | unknown[][]) {
+  const perCall: unknown[][] = Array.isArray(responses[0]) || responses.length === 0
+    ? (responses as unknown[][])
+    : [responses as unknown[]];
+  let call = 0;
+  const methods = ["from", "where", "limit"];
   const select = vi.fn(() => {
+    const idx = call++;
     const chain: any = {};
     for (const m of methods) chain[m] = vi.fn(() => chain);
-    chain.then = (resolve: any, reject: any) => Promise.resolve(rows).then(resolve, reject);
+    chain.then = (resolve: any, reject: any) =>
+      Promise.resolve(perCall[idx] ?? []).then(resolve, reject);
     return chain;
   });
   return { select } as any;
@@ -146,21 +168,43 @@ describe("getChildChannelByName", () => {
     const rows = await getChildChannelByName(db, "forum_1", "ghost");
     expect(rows).toEqual([]);
   });
+
+  it("matches the post name with COLLATE NOCASE — same ruler as top-level resolve (ref/id §4)", async () => {
+    const db = createSelectDb([]);
+    await getChildChannelByName(db, "forum_1", "notes");
+    const chain = db.select.mock.results[0]!.value;
+    const [whereExpr] = chain.where.mock.calls[0]!;
+    expect(hasCollateNocase(whereExpr)).toBe(true);
+  });
 });
 
 describe("dedupeChildChannelSlug", () => {
-  it("returns the base slug unchanged when no post in the forum uses it", async () => {
-    const db = createSelectDb([{ name: "other" }]);
+  // Each candidate is now probed with its OWN `COLLATE NOCASE` existence query
+  // (SQL ruler, not a JS Set) — so responses are FIFO per candidate: a
+  // non-empty response means "taken", `[]` means "free".
+  it("returns the base slug unchanged when the first NOCASE probe finds nothing", async () => {
+    const db = createSelectDb([[]]); // base slug free
     expect(await dedupeChildChannelSlug(db, "forum_1", "ideas")).toBe("ideas");
+    expect(db.select).toHaveBeenCalledTimes(1);
   });
 
   it("appends -2 on the first collision", async () => {
-    const db = createSelectDb([{ name: "ideas" }]);
+    const db = createSelectDb([[{ id: "p1" }], []]); // base taken, -2 free
     expect(await dedupeChildChannelSlug(db, "forum_1", "ideas")).toBe("ideas-2");
   });
 
   it("skips already-taken numbered suffixes (ideas, ideas-2 → ideas-3)", async () => {
-    const db = createSelectDb([{ name: "ideas" }, { name: "ideas-2" }]);
+    const db = createSelectDb([[{ id: "p1" }], [{ id: "p2" }], []]); // base, -2 taken; -3 free
     expect(await dedupeChildChannelSlug(db, "forum_1", "ideas")).toBe("ideas-3");
+  });
+
+  it("probes with COLLATE NOCASE — same SQLite ruler as resolve + the index (no JS fold)", async () => {
+    const db = createSelectDb([[]]);
+    await dedupeChildChannelSlug(db, "forum_1", "ideas");
+    // The existence probe's where-expr carries a COLLATE NOCASE fragment: a
+    // case-only variant (`Ideas`) counts as taken, matching the index/resolve.
+    const chain = db.select.mock.results[0]!.value;
+    const [whereExpr] = chain.where.mock.calls[0]!;
+    expect(hasCollateNocase(whereExpr)).toBe(true);
   });
 });

@@ -81,6 +81,19 @@ describe("resolveChannelByNameForMember — SQL invariants", () => {
     expect(tokensContainPhrase(tokens, "parent_channel_id", "is null")).toBe(true);
   });
 
+  it("matches the name with COLLATE NOCASE — the same SQLite ruler as the index + dedup (ref/id §4)", async () => {
+    const db = createSelectChain([]);
+    await channelQueries.resolveChannelByNameForMember(db as never, "srv_1", "u_1", "general");
+    const [whereExpr] = db.where.mock.calls[0]!;
+    const tokens = flattenTokens(whereExpr);
+    // The name predicate carries a COLLATE NOCASE fragment (not a plain eq), so
+    // `general`/`General` fold to the same row via SQLite's own ruler. Guards
+    // against a refactor dropping back to a case-sensitive `eq(name)` — which
+    // would silently re-break the case-insensitive resolution.
+    expect(tokens.some((t) => /collate\s+nocase/i.test(t))).toBe(true);
+    expect(tokens).toContain("col:name");
+  });
+
   it("does NOT fall back to matching by id (agent surfaces reject raw ids)", async () => {
     const db = createSelectChain([]);
     await channelQueries.resolveChannelByNameForMember(

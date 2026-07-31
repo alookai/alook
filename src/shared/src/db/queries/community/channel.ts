@@ -1,4 +1,4 @@
-import { eq, and, asc, desc, isNull, max, inArray, count } from "drizzle-orm";
+import { eq, and, asc, desc, isNull, max, inArray, count, sql } from "drizzle-orm";
 import {
   communityChannel,
   communityCategory,
@@ -264,7 +264,11 @@ export async function resolveChannelByNameForMember(
     .where(
       and(
         eq(communityChannel.serverId, serverId),
-        eq(communityChannel.name, name),
+        // Case-insensitive name match (ref/id §4): `general` and `General`
+        // resolve to the same channel. `COLLATE NOCASE` uses SQLite's own fold
+        // — the SAME ruler as the `idx_channel_server_name` NOCASE index and
+        // the dedup below, so resolve/uniqueness/dedup can't drift.
+        sql`${communityChannel.name} COLLATE NOCASE = ${name}`,
         isNull(communityChannel.parentChannelId)
       )
     );
@@ -341,7 +345,9 @@ export async function getChildChannelByName(
     .where(
       and(
         eq(communityChannel.parentChannelId, parentChannelId),
-        eq(communityChannel.name, name),
+        // Case-insensitive (ref/id §4), same NOCASE ruler as top-level resolve
+        // + dedup.
+        sql`${communityChannel.name} COLLATE NOCASE = ${name}`,
         eq(communityChannel.type, type)
       )
     );
@@ -366,20 +372,34 @@ export async function dedupeChildChannelSlug(
   baseSlug: string,
   type = "forum_post"
 ): Promise<string> {
-  const rows = await db
-    .select({ name: communityChannel.name })
-    .from(communityChannel)
-    .where(
-      and(
-        eq(communityChannel.parentChannelId, parentChannelId),
-        eq(communityChannel.type, type)
+  // Case-insensitive collision check with the SAME ruler as name resolution +
+  // the `idx_channel_server_name` NOCASE index: delegate the fold to SQLite's
+  // `COLLATE NOCASE`, NOT a JS `.toLowerCase()`. A JS fold would be a hand-
+  // written copy of the engine's rule that could silently drift (JS folds
+  // Unicode, SQLite NOCASE folds ASCII only) → the exact "two rulers → silent
+  // ambiguity" hazard §4 forbids. Cost: one query per candidate, but dedup is a
+  // cold path and collisions are rare (usually `baseSlug` is free on the first
+  // check). If this ever became hot, optimize IN-SQL (`... name COLLATE NOCASE
+  // IN (<candidates>)`), keeping the fold in the engine — never pull it back
+  // into JS.
+  async function isTaken(candidate: string): Promise<boolean> {
+    const hit = await db
+      .select({ id: communityChannel.id })
+      .from(communityChannel)
+      .where(
+        and(
+          eq(communityChannel.parentChannelId, parentChannelId),
+          eq(communityChannel.type, type),
+          sql`${communityChannel.name} COLLATE NOCASE = ${candidate}`
+        )
       )
-    );
-  const taken = new Set(rows.map((r) => r.name));
-  if (!taken.has(baseSlug)) return baseSlug;
+      .limit(1);
+    return hit.length > 0;
+  }
+  if (!(await isTaken(baseSlug))) return baseSlug;
   for (let n = 2; ; n++) {
     const candidate = `${baseSlug}-${n}`;
-    if (!taken.has(candidate)) return candidate;
+    if (!(await isTaken(candidate))) return candidate;
   }
 }
 

@@ -214,7 +214,10 @@ export async function resolveServerByNameForMember(
         eq(communityServerMember.userId, userId)
       )
     )
-    .where(eq(communityServer.name, nameOrId));
+    // Case-insensitive server-name match (ref/id §4), same SQLite NOCASE ruler
+    // as channel-name resolution. The id branch above stays exact (ids are
+    // case-sensitive opaque nanoids).
+    .where(sql`${communityServer.name} COLLATE NOCASE = ${nameOrId}`);
 }
 
 export async function getServersByIds(db: Database, serverIds: string[]) {

@@ -412,3 +412,43 @@ describe("listUserServers — filter predicates (source-level pin)", () => {
     expect(src).toMatch(/communityChannel/);
   });
 });
+
+describe("resolveServerByNameForMember — case-insensitive name branch (ref/id §4)", () => {
+  // Walk a Drizzle SQL node for a literal `COLLATE NOCASE` fragment.
+  function hasCollateNocase(expr: unknown): boolean {
+    if (expr == null || typeof expr !== "object") return false;
+    const e = expr as Record<string, unknown>;
+    const val = e.value;
+    if (typeof val === "string" && /collate\s+nocase/i.test(val)) return true;
+    if (Array.isArray(val) && val.some((v) => typeof v === "string" && /collate\s+nocase/i.test(v))) return true;
+    if (Array.isArray(e.queryChunks)) return e.queryChunks.some((c) => hasCollateNocase(c));
+    return false;
+  }
+
+  // Two selects (FIFO): id branch first (returns [] so we fall through), then
+  // the name branch whose where-expr we inspect.
+  function twoSelectDb() {
+    let call = 0;
+    const chains: any[] = [];
+    const select = vi.fn(() => {
+      const chain: any = {};
+      for (const m of ["from", "innerJoin", "where"]) chain[m] = vi.fn(() => chain);
+      chain.then = (res: any, rej: any) => Promise.resolve([]).then(res, rej);
+      chains[call++] = chain;
+      return chain;
+    });
+    return { db: { select } as any, chains };
+  }
+
+  it("id branch is exact; name branch matches with COLLATE NOCASE", async () => {
+    const { db, chains } = twoSelectDb();
+    await serverQueries.resolveServerByNameForMember(db, "u_1", "Alook");
+    // Two selects issued (id branch found nothing → name branch runs).
+    expect(db.select).toHaveBeenCalledTimes(2);
+    const [idWhere] = chains[0].where.mock.calls[0]!;
+    const [nameWhere] = chains[1].where.mock.calls[0]!;
+    // id branch stays case-sensitive (ids are opaque); name branch is NOCASE.
+    expect(hasCollateNocase(idWhere)).toBe(false);
+    expect(hasCollateNocase(nameWhere)).toBe(true);
+  });
+});
