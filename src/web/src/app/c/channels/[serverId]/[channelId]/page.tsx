@@ -20,7 +20,7 @@ import { canManageServer } from "@/components/community/_types"
 import type { MentionType } from "@alook/shared"
 import { isForum as isForumType, deriveThreadName, USE_SERVER_DEFAULT } from "@alook/shared"
 import { resolveRowPresence } from "@/lib/community/presence"
-import { setLastChannel } from "@/lib/community/last-channel"
+import { setLastChannel, getLastChannel, clearLastChannel } from "@/lib/community/last-channel"
 import { makeUserNameResolver } from "@/lib/community/display-name"
 import { avatarInitial } from "@/lib/community/avatar"
 import {
@@ -482,11 +482,22 @@ function ChannelView() {
         .catch((e) => {
           useCommunityStore.getState().setCurrentChannelMeta(null)
           // A channel not in the server tree is either a real thread/forum-post
-          // (meta fetch succeeds above) or one that was just deleted out from
-          // under us (meta 404s here). On the delete case, don't strand the user
-          // on a dead URL with a misleading "thread" error — bounce to the server
-          // root, which forwards to the first remaining channel.
-          if (e instanceof ApiError && e.status === 404) {
+          // (meta fetch succeeds above) or one we can't open: deleted (404) or
+          // no-longer-accessible — gone private / kicked (403, the threads/:id
+          // 404-vs-403 contract). Both mean "can't land here" — bounce to the
+          // server root, which forwards to the first remaining channel, rather
+          // than strand the user on a dead URL with a misleading "thread" error.
+          // This is also what makes last-channel restore safe for a remembered
+          // forum-post id (per-server memory trusts the id; validity is settled
+          // here): a remembered post that was deleted/hidden degrades to default.
+          if (e instanceof ApiError && (e.status === 404 || e.status === 403)) {
+            // BREAK THE REDIRECT LOOP: if this dead id is the server's remembered
+            // last channel, forget it FIRST — otherwise server-root re-reads it,
+            // re-navigates here, bounces again… forever (this exact id was just
+            // written to memory by the mount effect above). Clear only when it
+            // matches, so an unrelated valid memory is never wiped. With no
+            // memory, server-root falls to the default channel — one hop, no loop.
+            if (getLastChannel(serverId) === channelId) clearLastChannel(serverId)
             router.replace(`/c/channels/${params.serverId}`)
             return
           }

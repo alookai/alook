@@ -36,18 +36,45 @@ export function setLastChannel(serverId: string, channelId: string): void {
 }
 
 /**
+ * Forget the remembered channel for a server. Called when the remembered id
+ * turns out to be unopenable (deleted / no-access / garbage) so the next
+ * server-landing has no memory and picks the default — WITHOUT this, a
+ * server-root → dead-id → bounce-to-server-root cycle re-reads the same dead id
+ * forever (the redirect loop this breaks). Same SSR / privacy-mode guard as the
+ * setters; a failure just means the stale id lingers, never a throw.
+ */
+export function clearLastChannel(serverId: string): void {
+  if (typeof window === "undefined") return
+  try {
+    localStorage.removeItem(lastChannelKey(serverId))
+  } catch {
+    /* best-effort — see setLastChannel */
+  }
+}
+
+/**
  * Pick which channel the server-landing page should redirect to: the remembered
- * `last` channel when it still exists among the server's currently-visible
- * `channelIds` (a deleted / no-longer-accessible id isn't in the list → falls
- * through — this IS the graceful fallback, no error path needed), else the
- * first channel by position. `undefined` when the server has no channels.
- * Extracted pure so the selection rule is unit-tested without a page-render
- * harness.
+ * `last` channel when there is one, else the first top-level channel by position.
+ * `undefined` when the server has no channels and there's no memory.
+ *
+ * `last` is trusted and returned directly — it is NOT validated against
+ * `channelIds`. `channelIds` (the server's TOP-LEVEL channels) is only the
+ * source for the DEFAULT when there's no memory. This is deliberate: a
+ * remembered channel may be a FORUM POST or THREAD (a child channel — its id
+ * lives under a forum/parent, never in the top-level list), so validating `last`
+ * against the top-level list would drop every remembered post/thread and always
+ * fall back to default (the bug this fixes). Instead the landing page navigates
+ * to `last` and the destination `[channelId]` page validates it: a real
+ * child-channel renders its opener view; a deleted / no-longer-accessible /
+ * outright-garbage id fails its meta fetch and bounces back to default (see the
+ * 404||403 bounce in that page). "Trust the id" ≠ "trust the id is valid" —
+ * validity is the destination's job, not this selector's. Extracted pure so the
+ * rule is unit-tested without a page-render harness.
  */
 export function pickServerLandingChannel(
   channelIds: readonly string[],
   last: string | null,
 ): string | undefined {
-  if (last !== null && channelIds.includes(last)) return last
+  if (last !== null) return last
   return channelIds[0]
 }
