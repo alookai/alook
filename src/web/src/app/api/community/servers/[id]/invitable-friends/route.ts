@@ -1,4 +1,4 @@
-import { queries } from "@alook/shared"
+import { queries, withD1Retry } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
@@ -23,10 +23,15 @@ export const GET = withAuth(async (_req, ctx) => {
   const auth = await requireServerMember(db, serverId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 
-  const [rawFriends, memberIds] = await Promise.all([
-    queries.communityFriendship.listFriends(db, ctx.userId),
-    queries.communityMember.listMemberUserIds(db, serverId),
-  ])
+  // `withD1Retry` (D1-armor: no-fallback list read; retry to truth).
+  const [rawFriends, memberIds] = await withD1Retry(
+    () =>
+      Promise.all([
+        queries.communityFriendship.listFriends(db, ctx.userId),
+        queries.communityMember.listMemberUserIds(db, serverId),
+      ]),
+    { route: "servers/invitable-friends" },
+  )
   const memberSet = new Set(memberIds)
 
   const friends = rawFriends

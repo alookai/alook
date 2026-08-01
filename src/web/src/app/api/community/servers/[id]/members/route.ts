@@ -3,6 +3,7 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
   queries,
+  withD1Retry,
   DEFAULT_MEMBERS_PAGE_SIZE,
   MAX_MEMBERS_PAGE_SIZE,
 } from "@alook/shared"
@@ -29,10 +30,15 @@ export const GET = withAuth(async (req, ctx) => {
   // Fetch page + total in parallel — total is returned in the envelope so the
   // settings tab (SettingsMembers) can show the real member count without a
   // second round-trip to /members/count.
-  const [page, total] = await Promise.all([
-    queries.communityMember.listMembersPaginated(db, serverId, { cursor, limit }),
-    queries.communityMember.countMembers(db, serverId),
-  ])
+  // `withD1Retry` (D1-armor: no-fallback list read; retry to truth).
+  const [page, total] = await withD1Retry(
+    () =>
+      Promise.all([
+        queries.communityMember.listMembersPaginated(db, serverId, { cursor, limit }),
+        queries.communityMember.countMembers(db, serverId),
+      ]),
+    { route: "servers/members" },
+  )
 
   // Build the cursor string from the raw page rows (which carry joinedAt)
   // BEFORE stripping down to the display shape — the Member type on the

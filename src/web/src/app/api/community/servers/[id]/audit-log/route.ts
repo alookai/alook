@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server"
 import {
   queries,
+  withD1Retry,
   DEFAULT_AUDIT_LOG_PAGE_SIZE,
   MAX_AUDIT_LOG_PAGE_SIZE,
 } from "@alook/shared"
@@ -27,11 +28,16 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     MAX_AUDIT_LOG_PAGE_SIZE,
   )
 
-  const logs = await queries.communityAuditLog.listAuditLog(db, serverId, {
-    action,
-    before,
-    limit,
-  })
+  // `withD1Retry` (D1-armor: no-fallback audit-log read; retry to truth).
+  const logs = await withD1Retry(
+    () =>
+      queries.communityAuditLog.listAuditLog(db, serverId, {
+        action,
+        before,
+        limit,
+      }),
+    { route: "servers/audit-log" },
+  )
 
   return writeJSON({ entries: logs })
 })

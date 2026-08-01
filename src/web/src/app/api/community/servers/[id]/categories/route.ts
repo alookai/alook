@@ -4,6 +4,7 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
   queries,
+  withD1Retry,
   isUniqueConstraintError,
   MAX_CATEGORY_NAME_LENGTH,
   WS_EVENTS,
@@ -40,12 +41,19 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   // 409 wrapper.
   let row
   try {
-    row = await queries.communityCategory.createCategory(db, {
-      serverId,
-      name,
-      private: body.private,
-      creatorId: ctx.userId,
-    })
+    // `withD1Retry` (state 3): createCategory is guarded by the
+    // (server_id, name) unique index — retry can't double-create; the UNIQUE
+    // error rethrows into the catch below (→ 409), unchanged.
+    row = await withD1Retry(
+      () =>
+        queries.communityCategory.createCategory(db, {
+          serverId,
+          name,
+          private: body.private,
+          creatorId: ctx.userId,
+        }),
+      { route: "servers/categories/create" },
+    )
   } catch (err) {
     if (isUniqueConstraintError(err)) {
       return writeError("a category with this name already exists", 409)

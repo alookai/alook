@@ -3,6 +3,8 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
   queries,
+  withD1Retry,
+  nonIdempotentWriteAllowed,
   MIN_INVITE_MAX_USES,
   MAX_INVITE_MAX_USES,
   MAX_INVITE_EXPIRY_DAYS,
@@ -23,7 +25,10 @@ export const GET = withAuth(async (_req, ctx) => {
   const auth = await requireServerMember(db, serverId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 
-  const invites = await queries.communityInvite.listServerInvites(db, serverId)
+  // `withD1Retry` (D1-armor: no-fallback list read; retry to truth).
+  const invites = await withD1Retry(() => queries.communityInvite.listServerInvites(db, serverId), {
+    route: "servers/invites/list",
+  })
   return writeJSON({ invites })
 })
 
@@ -81,12 +86,26 @@ export const POST = withAuth(async (req, ctx) => {
     )
   }
 
-  const invite = await queries.communityInvite.createInvite(db, {
-    serverId,
-    createdBy: ctx.userId,
-    maxUses: body.maxUses,
-    expiresAt: body.expiresAt,
-  })
+  // `nonIdempotentWriteAllowed` (state 4b), NOT retried: createInvite mints a
+  // fresh random token with no idempotency key, so a blind retry on a transient
+  // would create a SECOND invite. Duplicate = one extra ACTIVE invite token,
+  // which until it's revoked is a usable join credential (a touch heavier than a
+  // duplicate channel — a live credential, not just UI clutter), but still
+  // visible + revocable (shows in the invite list), so a comment suffices, no
+  // ticket. Not retried; a transient surfaces as a retryable 500.
+  const invite = await nonIdempotentWriteAllowed(
+    {
+      reason:
+        "createInvite mints a fresh random token with no idempotency key; a retry would create a second active invite token (a usable join credential until revoked)",
+    },
+    () =>
+      queries.communityInvite.createInvite(db, {
+        serverId,
+        createdBy: ctx.userId,
+        maxUses: body.maxUses,
+        expiresAt: body.expiresAt,
+      }),
+  )
 
   logAudit(db, {
     serverId,

@@ -3,6 +3,8 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
   queries,
+  withD1Retry,
+  nonIdempotentWriteAllowed,
   MAX_SERVER_NAME_LENGTH,
   MAX_SERVER_DESCRIPTION_LENGTH,
   ROLES,
@@ -23,7 +25,10 @@ import { serverIconUrl } from "@/lib/community/storage"
  */
 export const GET = withCommunityActor(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
-  const rows = await queries.communityServer.listUserServers(db, ctx.actor.userId)
+  // `withD1Retry` (D1-armor: no-fallback list read; retry to truth).
+  const rows = await withD1Retry(() => queries.communityServer.listUserServers(db, ctx.actor.userId), {
+    route: "servers/list",
+  })
   const servers = rows.map((row) => ({ ...row, icon: serverIconUrl(row) }))
   return writeJSON({ servers })
 })
@@ -70,11 +75,25 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
     description = body.description
   }
 
-  const { server, ownerMember } = await queries.communityServer.createServer(db, {
-    name,
-    description,
-    ownerId: ctx.actor.userId,
-  })
+  // `nonIdempotentWriteAllowed` (state 4b), NOT retried: createServer mints a
+  // fresh server (+ owner member + default category) with a generated id and NO
+  // unique guard on the name (servers may share names), so a blind retry on a
+  // transient would create a SECOND server. No idempotency key → a user's
+  // response-lost retry can create a duplicate; accepted because it's visible +
+  // deletable (not silent, unlike the DM double-create). A transient surfaces as
+  // a 500 the user can retry — safer than a silent double-create.
+  const { server, ownerMember } = await nonIdempotentWriteAllowed(
+    {
+      reason:
+        "createServer mints a fresh server (id + owner member + default category); no name-unique guard and no idempotency key, so a retry would create a duplicate server",
+    },
+    () =>
+      queries.communityServer.createServer(db, {
+        name,
+        description,
+        ownerId: ctx.actor.userId,
+      }),
+  )
 
   fanOutToServerMembers(server.id, {
     type: WS_EVENTS.MEMBER_JOIN,

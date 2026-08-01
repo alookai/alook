@@ -4,6 +4,7 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
   queries,
+  withD1Retry,
   canManageServer,
   isChannelType,
   isUniqueConstraintError,
@@ -72,14 +73,23 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   let row
   try {
-    row = await queries.communityChannel.createChannel(db, {
-      serverId,
-      categoryId: body.categoryId || null,
-      name,
-      type: body.type,
-      topic: body.topic,
-      creatorId: ctx.userId,
-    })
+    // `withD1Retry` (D1-armor state 3): createChannel is guarded by the
+    // (server_id, name) unique index — a retry either lands the same insert or
+    // hits the constraint, so it can't double-create. Transient retries; the
+    // UNIQUE error isn't in the whitelist so withD1Retry rethrows it into the
+    // catch below (→ 409), unchanged.
+    row = await withD1Retry(
+      () =>
+        queries.communityChannel.createChannel(db, {
+          serverId,
+          categoryId: body.categoryId || null,
+          name,
+          type: body.type,
+          topic: body.topic,
+          creatorId: ctx.userId,
+        }),
+      { route: "servers/channels/create" },
+    )
   } catch (err) {
     if (isUniqueConstraintError(err)) {
       return writeError("a channel with this name already exists", 409)
@@ -90,11 +100,17 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   // Private-category channels track an explicit roster; seed the creator so
   // audience resolution + the manage-members list are single queries.
   if (isPrivateCategory) {
-    await queries.communityChannel.createChannelMember(db, {
-      channelId: row.id,
-      userId: ctx.userId,
-      addedBy: ctx.userId,
-    })
+    // `withD1Retry` (state 3): createChannelMember is onConflictDoNothing →
+    // retry can't double-add, idempotent.
+    await withD1Retry(
+      () =>
+        queries.communityChannel.createChannelMember(db, {
+          channelId: row.id,
+          userId: ctx.userId,
+          addedBy: ctx.userId,
+        }),
+      { route: "servers/channels/create-member" },
+    )
   }
 
   const channel = {
