@@ -341,8 +341,11 @@ describe("refDisplayParts — structured display descriptor (ref/id A1, single s
   });
   it("a channel token whose label has a #seq → message sigil (leaf: channel, seq) — parsed via parseRef, not a hand-split (§3.4b: message-vs-channel is label-seq, no message type)", () => {
     expect(refDisplayParts("channel", "/Alook/general#42")).toEqual({ sigilKind: "message", leaf: "general", seq: 42 });
-    // thread-message: the reply seq (42), not the thread root (5).
-    expect(refDisplayParts("channel", "/Alook/general/#5#42")).toEqual({ sigilKind: "message", leaf: "general", seq: 42 });
+    // thread-message DISPLAY seq = the ROOT seq (5, "which message opened the
+    // thread" — human anchor), NOT the thread-internal reply (42). The JUMP axis
+    // (resolveMessageJump) separately uses 42 to land on the exact message (#3,
+    // Faustine #332). Two axes: display=root N, jump=internal M.
+    expect(refDisplayParts("channel", "/Alook/general/#5#42")).toEqual({ sigilKind: "message", leaf: "general", seq: 5 });
     // forum-post message: leaf is the post's childChannelName.
     expect(refDisplayParts("channel", "/Alook/ideas/my-post#3")).toEqual({ sigilKind: "message", leaf: "my-post", seq: 3 });
   });
@@ -362,9 +365,10 @@ describe("formatRefLabel — compact leaf + type sigil (ref/id PR-9)", () => {
   it("server → /<leaf> (same path style as channel)", () => {
     expect(formatRefLabel("server", "/Alook")).toBe("/Alook");
   });
-  it("channel token with a #seq label → #<seq> (message pin; seq grammar, not a channel sigil)", () => {
+  it("channel token with a #seq label → #<seq> (message pin; thread shows ROOT seq, plain shows own seq)", () => {
     expect(formatRefLabel("channel", "/Alook/general#42")).toBe("#42");
-    expect(formatRefLabel("channel", "/Alook/general/#5#42")).toBe("#42");
+    // thread message: display shows the ROOT seq #5 (human anchor), not #42 (#3).
+    expect(formatRefLabel("channel", "/Alook/general/#5#42")).toBe("#5");
   });
   it("channel token with a seq-less label → /<leaf> (plain channel, not a message)", () => {
     expect(formatRefLabel("channel", "/Alook/general")).toBe("/general");

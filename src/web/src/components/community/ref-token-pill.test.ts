@@ -54,51 +54,67 @@ describe("describeRefTokenPillView (hybrid: live name preferred, label fallback)
     ).toEqual({ kind: "server", label: "Alook", serverId: "s_gone" })
   })
 
-  it("message: channel leaf + seq from the label (renders `general #42`) — parsed via parseRef, single source with the preview", () => {
+  it("message pin (channel token, label #seq) renders `general #42` — leaf + display seq from label", () => {
     expect(
-      describeRefTokenPillView({ refType: "message", id: "m1", label: "/Alook/general#42", liveName: null, channelServerId: null }),
+      describeRefTokenPillView({ refType: "channel", id: "c_general", label: "/Alook/general#42", liveName: null, channelServerId: null }),
     ).toEqual({ kind: "message", label: "general", seq: 42 })
   })
 
-  it("message: thread-message label /#5#42 yields the reply seq 42, not the thread root", () => {
+  it("thread message DISPLAY shows the ROOT seq #5 (human anchor), not the thread-internal #42 (#3, Faustine #332)", () => {
+    // Display axis = root N; the JUMP axis (resolveMessageJump) separately uses M=42.
     expect(
-      describeRefTokenPillView({ refType: "message", id: "m2", label: "/Alook/general/#5#42", liveName: null, channelServerId: null }),
-    ).toEqual({ kind: "message", label: "general", seq: 42 })
+      describeRefTokenPillView({ refType: "channel", id: "tid_thread", label: "/Alook/general/#5#42", liveName: null, channelServerId: null }),
+    ).toEqual({ kind: "message", label: "general", seq: 5 })
   })
 
-  it("message: a label with no seq degrades to leaf + null seq (no fabricated seq)", () => {
+  it("channel token with a seq-less label + no owning server → readable non-navigating (message kind, null seq)", () => {
     expect(
-      describeRefTokenPillView({ refType: "message", id: "m3", label: "/Alook/general", liveName: null, channelServerId: null }),
+      describeRefTokenPillView({ refType: "channel", id: "c_x", label: "/Alook/general", liveName: null, channelServerId: null }),
     ).toEqual({ kind: "message", label: "general", seq: null })
   })
 })
 
-describe("resolveMessageJump (ref/id A2 — message pill → context-sheet target)", () => {
+describe("resolveMessageJump (ref/id A2 + #3 — message pill → context-sheet target)", () => {
   const directory: ChannelRefDirectory = [
     { id: "s_alook", name: "Alook", channels: [{ id: "c_general", name: "general" }, { id: "c_ideas", name: "ideas" }] },
     { id: "s_other", name: "Other", channels: [{ id: "c_x", name: "general" }] },
   ]
 
-  it("resolves a /server/channel#seq label to {serverId, channelId, label, seq} by name", () => {
-    expect(resolveMessageJump("/Alook/general#42", directory)).toEqual({
+  it("channelId = the token id (leaf) DIRECTLY, serverId from the label server-seg via directory", () => {
+    // The `()` id is the leaf channel the message lives in; used directly, not a
+    // directory channel lookup. serverId still resolved from the label's server.
+    expect(resolveMessageJump("/Alook/general#42", "c_general", directory)).toEqual({
       serverId: "s_alook", channelId: "c_general", label: "general", seq: 42,
     })
   })
 
-  it("returns null for a thread-message label (/#5#42) — a thread's seq space isn't in the top-level directory, so it can't jump correctly (Ingaborg #337)", () => {
-    expect(resolveMessageJump("/Alook/ideas/#5#42", directory)).toBeNull()
+  it("thread-message (/#5#42) JUMPS to the thread's own channelId (the token id = tid) + reply seq M=42 (#3)", () => {
+    // #3: a thread message's `()` id is the thread's OWN channelId (tid). The
+    // jump uses tid directly + the thread-internal seq M (parsed.seq=42), NOT
+    // the root #N (5) which is only the human display anchor. tid need not be in
+    // the directory — channelId comes from the id arg, only serverId uses the dir.
+    expect(resolveMessageJump("/Alook/ideas/#5#42", "tid_thread", directory)).toEqual({
+      serverId: "s_alook", channelId: "tid_thread", label: "ideas", seq: 42,
+    })
   })
 
-  it("returns null when the label has no seq (nothing to jump to)", () => {
-    expect(resolveMessageJump("/Alook/general", directory)).toBeNull()
+  it("returns null when the label has no seq (a plain channel ref → navigate, not context-jump)", () => {
+    expect(resolveMessageJump("/Alook/general", "c_general", directory)).toBeNull()
   })
 
-  it("returns null when the server or channel isn't in the directory (deleted / no access)", () => {
-    expect(resolveMessageJump("/Ghost/general#1", directory)).toBeNull()
-    expect(resolveMessageJump("/Alook/ghost#1", directory)).toBeNull()
+  it("returns null when the label's server isn't in the directory (renamed / no access)", () => {
+    expect(resolveMessageJump("/Ghost/general#1", "c_whatever", directory)).toBeNull()
+  })
+
+  it("jumps even when the label's channel name is unknown to the directory — channelId is the token id, not a name lookup (#3)", () => {
+    // A thread tid (or a renamed channel) whose name isn't in the directory still
+    // jumps: only the SERVER must resolve; channelId is the id arg directly.
+    expect(resolveMessageJump("/Alook/ghost#1", "tid_or_renamed", directory)).toEqual({
+      serverId: "s_alook", channelId: "tid_or_renamed", label: "ghost", seq: 1,
+    })
   })
 
   it("returns null on an unparseable label rather than throwing", () => {
-    expect(resolveMessageJump("not-a-ref", directory)).toBeNull()
+    expect(resolveMessageJump("not-a-ref", "x", directory)).toBeNull()
   })
 })

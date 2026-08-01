@@ -1351,6 +1351,12 @@ export function compactLabel(label: string): string {
 // parser, NOT a hand-split — single ruler; Blondie #329/#331). The pill renders
 // a message as `<icon> {leaf} #{seq}` (channel context), the preview as just
 // `#{seq}` (the surrounding context already names the channel; Faustine #330).
+//
+// DISPLAY seq for a THREAD message (`/s/c/#N#M`): the ROOT seq N (which message
+// opened the thread — the human-recognizable anchor), NOT the thread-internal M
+// (ref/id #3, Faustine #332). This is the DISPLAY axis; the JUMP axis
+// (`resolveMessageJump`) separately uses M to land on the exact thread message.
+// A plain message (`/s/c#M`, no thread root) displays its own seq M.
 export type RefDisplayParts =
   | { sigilKind: "channel" | "server"; leaf: string }
   | { sigilKind: "message"; leaf: string; seq: number };
@@ -1362,8 +1368,14 @@ export function refDisplayParts(type: RefTokenType, label: string): RefDisplayPa
   // come from one ruler; a malformed label degrades to the plain channel form.
   try {
     const parsed = parseRef(label);
+    // A message pin has a trailing message seq (`parsed.seq` = M). Its DISPLAY
+    // seq is the thread root N when this is a thread message, else M.
     if (parsed.seq !== undefined) {
-      return { sigilKind: "message", leaf: parsed.childChannelName ?? parsed.channel, seq: parsed.seq };
+      return {
+        sigilKind: "message",
+        leaf: parsed.childChannelName ?? parsed.channel,
+        seq: parsed.threadRootSeq ?? parsed.seq,
+      };
     }
     return { sigilKind: "channel", leaf: parsed.childChannelName ?? parsed.channel };
   } catch {

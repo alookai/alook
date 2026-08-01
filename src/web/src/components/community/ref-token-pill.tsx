@@ -15,27 +15,30 @@ import type { ChannelRefDirectory } from "@/lib/community/channel-ref"
 export { compactLabel }
 
 /**
- * Resolve a message token's `data-label` (`/server/channel#seq`) to the target a
- * message-context jump needs — `{ serverId, channelId, label, seq }` — by parsing
- * the label with the shared ref parser (one ruler, not a hand-split) and looking
- * the server/channel NAMES up in the already-loaded directory (ref/id A2).
- * Returns null when the label lacks a seq, doesn't parse, is a thread-message,
- * or the server/channel isn't in the directory (deleted / no access / DM) — the
- * pill then stays readable-but-non-navigating rather than offering a dead or
- * WRONG jump. This is READ locating (open the context sheet), never a
- * write-addressing path — the leaf messageId is not turned into a new addressing
- * axis (Blondie §2.5).
+ * Resolve a message-pin token to the target a message-context jump needs —
+ * `{ serverId, channelId, label, seq }` (ref/id A2 + #3). A message pin is a
+ * channel token whose label carries a `#seq`; the token `id` is the LEAF channel
+ * id the message lives in — the channel's own id for a plain-channel message, or
+ * the THREAD's own id (`tid`) for a thread message (thread = its own channel,
+ * §3.4b). So the jump's channelId is the token `id` DIRECTLY — NOT a directory
+ * lookup: a thread's tid is never in `useChannelRefDirectory` (top-level only),
+ * so looking it up there would miss. `serverId` still comes from the directory
+ * (the server segment IS a top-level entity, always present). `seq` is the
+ * message's own seq (`parsed.seq` = the last `#M`; for a thread label
+ * `/s/c/#N#M` that's the thread-internal M, the message to land on — NOT the
+ * root `#N`, which is only the human-display anchor, see the pill below).
  *
- * Thread-message guard (`/s/c/#root#seq`): a thread is its own channel with its
- * own seq space, and the directory only holds top-level channels — so `seq` here
- * would be resolved against the PARENT channel `c` and jump to the wrong message.
- * The directory can't supply the thread's channelId, so we can't jump correctly;
- * return null (readable, non-navigating) rather than jump wrong. Unreachable
- * today (no producer emits a thread-message token — the composer only emits
- * channel tokens), but guarding it keeps the resolver honest (Ingaborg #337).
+ * Returns null when the label has no seq (a plain channel ref, not a message
+ * pin → navigate, don't context-jump) or the server segment isn't in the
+ * directory (renamed/no-access) — the pill then stays readable-but-non-navigating
+ * rather than a dead jump. READ locating only (opens the context sheet); the id
+ * is never turned into a write-addressing axis (Blondie §2.5). Access is enforced
+ * server-side by the channel's parent anchor, so a private-parent thread the
+ * viewer can't see returns not-found on open — no client-side climb needed.
  */
 export function resolveMessageJump(
   label: string,
+  id: string,
   directory: ChannelRefDirectory,
 ): { serverId: string; channelId: string; label: string; seq: number } | null {
   let parsed: ReturnType<typeof parseRef>
@@ -45,16 +48,18 @@ export function resolveMessageJump(
     return null
   }
   if (parsed.seq === undefined) return null
-  // A thread-message (`threadRootSeq` present) can't be located via the top-level
-  // directory — see the thread-message guard note above.
-  if (parsed.threadRootSeq !== undefined) return null
   const server = directory.find((s) => s.id === parsed.server) ?? directory.find((s) => s.name === parsed.server)
   if (!server) return null
-  const channel =
-    server.channels.find((c) => c.id === parsed.channel) ??
-    server.channels.find((c) => c.name === parsed.channel)
-  if (!channel) return null
-  return { serverId: server.id, channelId: channel.id, label: channel.name, seq: parsed.seq }
+  // channelId = the token's leaf id (tid for a thread, cid for a plain channel) —
+  // used directly, not resolved via the directory (thread tids aren't in it).
+  // The sheet's display label is the channel leaf from the label (the thread's
+  // own name isn't available client-side; the parent/channel leaf reads fine).
+  return {
+    serverId: server.id,
+    channelId: id,
+    label: parsed.childChannelName ?? parsed.channel,
+    seq: parsed.seq,
+  }
 }
 
 export type RefTokenPillView =
@@ -136,8 +141,8 @@ export function RefTokenPill(
   // the directory. `resolveMessageJump` returns null for a seqless label or a
   // server token, so it's safe to run for any non-server token.
   const messageJump = useMemo(
-    () => (refType === "server" ? null : resolveMessageJump(label, directory)),
-    [refType, label, directory],
+    () => (refType === "server" ? null : resolveMessageJump(label, id, directory)),
+    [refType, label, id, directory],
   )
 
   const view = describeRefTokenPillView({ refType, id, label, liveName, channelServerId })
