@@ -58,11 +58,9 @@ src/web/src/app/api/community/machines/[id]/route.ts
 src/web/src/app/api/community/machines/pair/route.ts
 src/web/src/app/api/community/machines/route.ts
 src/web/src/app/api/community/media/[...key]/route.ts
-src/web/src/app/api/community/messages/[id]/reactions/[emoji]/route.ts
 src/web/src/app/api/community/messages/[id]/route.ts
 src/web/src/app/api/community/messages/[id]/threads/route.ts
 src/web/src/app/api/community/nap/route.ts
-src/web/src/app/api/community/reactAdd/route.ts
 src/web/src/app/api/community/read/route.ts
 src/web/src/app/api/community/resolve/route.ts
 src/web/src/app/api/community/search/route.ts

@@ -4,6 +4,7 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
   queries,
+  withD1Retry,
   isUniqueConstraintError,
   MAX_EMOJI_BYTES,
   WS_EVENTS,
@@ -62,11 +63,20 @@ export const PUT = withAuth(async (_req: NextRequest, ctx) => {
 
   let reaction
   try {
-    reaction = await queries.communityReaction.addReaction(db, {
-      messageId,
-      userId: ctx.userId,
-      emoji,
-    })
+    // `withD1Retry` (D1-armor state 3, idempotent write): a reaction is unique
+    // per (messageId, userId, emoji), so a retry can't create a second. A
+    // transient retries; the UNIQUE-constraint error is NOT in the retry
+    // whitelist so withD1Retry rethrows it immediately into the catch below
+    // (dup → { ok: true, duplicate: true }), unchanged.
+    reaction = await withD1Retry(
+      () =>
+        queries.communityReaction.addReaction(db, {
+          messageId,
+          userId: ctx.userId,
+          emoji,
+        }),
+      { route: "reactions/add" },
+    )
   } catch (e) {
     if (isUniqueConstraintError(e)) return writeJSON({ ok: true, duplicate: true })
     throw e
@@ -100,11 +110,17 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   const access = await authorizeReaction(db, messageId, ctx.userId)
   if (!access.ok) return writeError(access.error, access.status)
 
-  await queries.communityReaction.removeReaction(db, {
-    messageId,
-    userId: ctx.userId,
-    emoji,
-  })
+  // `withD1Retry` (D1-armor state 3): remove-by-key is idempotent (re-running
+  // removes the same key / affects 0), safe to retry on a transient.
+  await withD1Retry(
+    () =>
+      queries.communityReaction.removeReaction(db, {
+        messageId,
+        userId: ctx.userId,
+        emoji,
+      }),
+    { route: "reactions/remove" },
+  )
 
   const event = {
     type: WS_EVENTS.REACTION_REMOVE as typeof WS_EVENTS.REACTION_REMOVE,

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
 import {
   queries,
+  withD1Retry,
   CommunityAgentReactAddRequestSchema,
   MAX_EMOJI_BYTES,
   WS_EVENTS,
@@ -75,11 +76,19 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   }
 
   try {
-    await queries.communityReaction.addReaction(db, {
-      messageId: row.id,
-      userId: botUserId,
-      emoji: body.emoji,
-    })
+    // `withD1Retry` (D1-armor state 3, idempotent write): unique per
+    // (messageId, userId, emoji), so a retry can't double-add. Transient
+    // retries; the UNIQUE-constraint error isn't in the whitelist so withD1Retry
+    // rethrows it straight into the catch (dup → { ok: true, duplicate: true }).
+    await withD1Retry(
+      () =>
+        queries.communityReaction.addReaction(db, {
+          messageId: row.id,
+          userId: botUserId,
+          emoji: body.emoji,
+        }),
+      { route: "reactAdd" },
+    )
   } catch (e) {
     if (isUniqueConstraintError(e)) {
       return NextResponse.json({ ok: true, duplicate: true })
