@@ -4,6 +4,7 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
   queries,
+  withD1Retry,
   isUniqueConstraintError,
   MAX_CATEGORY_NAME_LENGTH,
   WS_EVENTS,
@@ -54,7 +55,12 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
 
   let updated
   try {
-    updated = await queries.communityCategory.updateCategory(db, categoryId, changes)
+    // `withD1Retry` (state 3): updateCategory sets fields, idempotent; a name
+    // UNIQUE collision isn't retryable so withD1Retry rethrows into the catch (409).
+    updated = await withD1Retry(
+      () => queries.communityCategory.updateCategory(db, categoryId, changes),
+      { route: "servers/categories/update" },
+    )
   } catch (err) {
     if (isUniqueConstraintError(err)) {
       return writeError("a category with this name already exists", 409)
@@ -103,7 +109,10 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
     return writeError("Move or delete its channels first", 409)
   }
 
-  const deleted = await queries.communityCategory.deleteCategory(db, categoryId)
+  // `withD1Retry` (state 3): delete-by-id is idempotent (0-rows → 404).
+  const deleted = await withD1Retry(() => queries.communityCategory.deleteCategory(db, categoryId), {
+    route: "servers/categories/delete",
+  })
   if (!deleted) return writeError("category not found", 404)
 
   await fanOutToServerMembers(serverId, {

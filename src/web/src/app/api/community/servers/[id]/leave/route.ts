@@ -1,7 +1,7 @@
 import { withAuth } from "@/lib/middleware/auth"
 import { writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, isServerOwner, WS_EVENTS } from "@alook/shared"
+import { queries, withD1Retry, isServerOwner, WS_EVENTS } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "@/lib/community/audit"
 import { requireServerMember } from "@/lib/community/permissions"
@@ -30,8 +30,15 @@ export const POST = withAuth(async (_req, ctx) => {
     ctx.userId,
   )
 
-  await queries.communityMember.removeMember(db, member.id)
-  await queries.communityMember.removeOwnerBotsFromServer(db, serverId, botIdsToCascade)
+  // `withD1Retry` (state 3): both are idempotent removes (delete-by-key /
+  // scoped cascade), safe to retry on a transient.
+  await withD1Retry(() => queries.communityMember.removeMember(db, member.id), {
+    route: "servers/leave/remove-member",
+  })
+  await withD1Retry(
+    () => queries.communityMember.removeOwnerBotsFromServer(db, serverId, botIdsToCascade),
+    { route: "servers/leave/cascade-bots" },
+  )
 
   logAudit(db, {
     serverId,

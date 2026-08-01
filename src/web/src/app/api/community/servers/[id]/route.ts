@@ -4,6 +4,7 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
   queries,
+  withD1Retry,
   isServerOwner,
   MAX_SERVER_NAME_LENGTH,
   MAX_SERVER_DESCRIPTION_LENGTH,
@@ -24,20 +25,28 @@ export const GET = withAuth(async (_req, ctx) => {
   const auth = await requireServerMember(db, serverId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 
-  const visibleChannelIds = await queries.communityChannel.listVisibleChannelIdsForUser(db, ctx.userId)
-  const [server, rawChannels, categories, unreadRows] = await Promise.all([
-    queries.communityServer.getServer(db, serverId),
-    // Viewer-scoped: private-category channels are only returned if the viewer
-    // is the channel creator or an added member (admins get NO special
-    // visibility). Private category HEADERS still appear (below) so members can
-    // create channels in them.
-    queries.communityChannel.listServerChannelsForViewer(db, serverId, ctx.userId),
-    db.query.communityCategory.findMany({
-      where: (t, { eq }) => eq(t.serverId, serverId),
-      orderBy: (t, { asc }) => [asc(t.position)],
-    }),
-    queries.communityInbox.listUnreadChannels(db, ctx.userId, visibleChannelIds),
-  ])
+  // `withD1Retry` (D1-armor: no-fallback server-detail read; retry to truth).
+  // The visible-channel scope + the 4-way detail fetch are wrapped as one unit.
+  const { server, rawChannels, categories, unreadRows } = await withD1Retry(
+    async () => {
+      const visibleChannelIds = await queries.communityChannel.listVisibleChannelIdsForUser(db, ctx.userId)
+      const [server, rawChannels, categories, unreadRows] = await Promise.all([
+        queries.communityServer.getServer(db, serverId),
+        // Viewer-scoped: private-category channels are only returned if the viewer
+        // is the channel creator or an added member (admins get NO special
+        // visibility). Private category HEADERS still appear (below) so members can
+        // create channels in them.
+        queries.communityChannel.listServerChannelsForViewer(db, serverId, ctx.userId),
+        db.query.communityCategory.findMany({
+          where: (t, { eq }) => eq(t.serverId, serverId),
+          orderBy: (t, { asc }) => [asc(t.position)],
+        }),
+        queries.communityInbox.listUnreadChannels(db, ctx.userId, visibleChannelIds),
+      ])
+      return { server, rawChannels, categories, unreadRows }
+    },
+    { route: "servers/detail" },
+  )
 
   if (!server) return writeError("server not found", 404)
 
@@ -123,7 +132,11 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     return writeError("no changes provided", 400)
   }
 
-  const updated = await queries.communityServer.updateServer(db, serverId, changes)
+  // `withD1Retry` (state 3): updateServer sets fields to values, idempotent.
+  const updated = await withD1Retry(
+    () => queries.communityServer.updateServer(db, serverId, changes),
+    { route: "servers/update" },
+  )
   if (!updated) return writeError("server not found", 404)
 
   logAudit(db, {
@@ -161,7 +174,10 @@ export const DELETE = withAuth(async (_req, ctx) => {
     serverId,
   }, { excludeUserId: ctx.userId })
 
-  const deleted = await queries.communityServer.deleteServer(db, serverId)
+  // `withD1Retry` (state 3): delete-by-id is idempotent (0-rows → 404).
+  const deleted = await withD1Retry(() => queries.communityServer.deleteServer(db, serverId), {
+    route: "servers/delete",
+  })
   if (!deleted) return writeError("server not found", 404)
 
   logAudit(db, {

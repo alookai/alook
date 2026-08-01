@@ -4,6 +4,7 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
   queries,
+  withD1Retry,
   canManageServer,
   isServerOwner,
   isAssignableRole,
@@ -35,6 +36,9 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   if (!isAssignableRole(body.role)) {
     return writeError(`role must be one of: ${ASSIGNABLE_ROLES.join(", ")}`, 400)
   }
+  // Capture the narrowed role — inside the withD1Retry closure TS widens
+  // `body.role` back to `string | undefined`.
+  const role = body.role
 
   if (memberId === caller.id) {
     return writeError("cannot change your own role", 400)
@@ -49,7 +53,10 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     return writeError("cannot change the owner's role", 403)
   }
 
-  const updated = await queries.communityMember.updateRole(db, memberId, body.role)
+  // `withD1Retry` (state 3): updateRole sets role to a value, idempotent.
+  const updated = await withD1Retry(() => queries.communityMember.updateRole(db, memberId, role), {
+    route: "servers/members/update-role",
+  })
   if (!updated) return writeError("member not found", 404)
 
   logAudit(db, {
@@ -112,10 +119,16 @@ export const DELETE = withAuth(async (_req, ctx) => {
     )
   }
 
-  const removed = await queries.communityMember.removeMember(db, memberId)
+  // `withD1Retry` (state 3): delete-by-key + scoped cascade, both idempotent.
+  const removed = await withD1Retry(() => queries.communityMember.removeMember(db, memberId), {
+    route: "servers/members/remove",
+  })
   if (!removed) return writeError("member not found", 404)
 
-  await queries.communityMember.removeOwnerBotsFromServer(db, serverId, botIdsToCascade)
+  await withD1Retry(
+    () => queries.communityMember.removeOwnerBotsFromServer(db, serverId, botIdsToCascade),
+    { route: "servers/members/cascade-bots" },
+  )
 
   logAudit(db, {
     serverId,

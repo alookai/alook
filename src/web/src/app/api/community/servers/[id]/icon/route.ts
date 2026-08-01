@@ -3,7 +3,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, CACHE_SHORT, createLogger } from "@alook/shared"
+import { queries, withD1Retry, CACHE_SHORT, createLogger } from "@alook/shared"
 import { requireServerAdmin } from "@/lib/community/permissions"
 import { handleServerIconUpload } from "@/lib/community/upload"
 import { serverIconUrl } from "@/lib/community/storage"
@@ -15,7 +15,10 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
   if (!serverId) return writeError("missing server id", 400)
 
   const db = getDb(ctx.env.DB)
-  const server = await queries.communityServer.getServer(db, serverId)
+  // `withD1Retry` (D1-armor: no-fallback read; retry to truth).
+  const server = await withD1Retry(() => queries.communityServer.getServer(db, serverId), {
+    route: "servers/icon/get",
+  })
   if (!server?.icon) return writeError("no icon", 404)
 
   const obj = await ctx.env.COMMUNITY_MEDIA.get(server.icon)
@@ -46,7 +49,11 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (!result.ok) return result.response
 
   const iconKey = result.key
-  const updated = await queries.communityServer.updateServer(db, serverId, { icon: iconKey })
+  // `withD1Retry` (state 3): set-icon is idempotent (same key), safe to retry.
+  const updated = await withD1Retry(
+    () => queries.communityServer.updateServer(db, serverId, { icon: iconKey }),
+    { route: "servers/icon" },
+  )
   if (!updated) return writeError("server not found", 404)
 
   if (previousKey && previousKey !== iconKey && previousKey.startsWith("server-icon/")) {

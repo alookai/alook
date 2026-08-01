@@ -39,13 +39,5 @@ src/web/src/app/api/community/server-folders/[id]/route.ts
 src/web/src/app/api/community/server-folders/reorder/route.ts
 src/web/src/app/api/community/server-folders/route.ts
 src/web/src/app/api/community/servers/[id]/bots/route.ts
-src/web/src/app/api/community/servers/[id]/categories/[catId]/route.ts
-src/web/src/app/api/community/servers/[id]/categories/reorder/route.ts
-src/web/src/app/api/community/servers/[id]/channels/reorder/route.ts
-src/web/src/app/api/community/servers/[id]/icon/route.ts
-src/web/src/app/api/community/servers/[id]/leave/route.ts
-src/web/src/app/api/community/servers/[id]/members/[memberId]/route.ts
-src/web/src/app/api/community/servers/[id]/route.ts
-src/web/src/app/api/community/servers/reorder/route.ts
 src/web/src/app/api/community/threads/[id]/messages/route.ts
 src/web/src/app/api/community/threads/[id]/route.ts

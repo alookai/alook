@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, WS_EVENTS } from "@alook/shared"
+import { queries, withD1Retry, WS_EVENTS } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 import { requireServerAdmin } from "@/lib/community/permissions"
 
@@ -24,20 +24,24 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   if (!Array.isArray(body.channelIds) || body.channelIds.length === 0) {
     return writeError("channelIds must be a non-empty array", 400)
   }
-  const unique = new Set(body.channelIds)
-  if (unique.size !== body.channelIds.length) {
+  const channelIds = body.channelIds
+  const unique = new Set(channelIds)
+  if (unique.size !== channelIds.length) {
     return writeError("channelIds must be unique", 400)
   }
 
-  const channels = await queries.communityChannel.getChannelsByIds(db, body.channelIds)
-  if (channels.length !== body.channelIds.length) {
+  const channels = await queries.communityChannel.getChannelsByIds(db, channelIds)
+  if (channels.length !== channelIds.length) {
     return writeError("one or more channels not found", 404)
   }
   if (channels.some((ch) => ch.serverId !== serverId)) {
     return writeError("channel does not belong to this server", 400)
   }
 
-  await queries.communityChannel.reorderChannels(db, serverId, body.channelIds)
+  // `withD1Retry` (state 3): reorder sets positions to values, idempotent.
+  await withD1Retry(() => queries.communityChannel.reorderChannels(db, serverId, channelIds), {
+    route: "servers/channels/reorder",
+  })
 
   await fanOutToServerMembers(serverId, {
     type: WS_EVENTS.CHANNEL_REORDER,
