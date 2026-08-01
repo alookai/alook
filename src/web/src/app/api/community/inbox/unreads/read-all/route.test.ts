@@ -12,6 +12,7 @@ vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
 vi.mock("@alook/shared", () => ({
   createDb: vi.fn(() => ({})),
+  withD1Retry: <T,>(fn: () => Promise<T>) => fn(),
   queries: {
     communityReadState: {
       markAllServerChannelsRead: (...args: unknown[]) => mockMarkAllServerChannelsRead(...args),

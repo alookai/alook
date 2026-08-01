@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { queries, CommunityAgentListMembersRequestSchema, formatHandle } from "@alook/shared"
+import { queries, withD1Retry, CommunityAgentListMembersRequestSchema, formatHandle } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withCommunityActor, requireBot } from "@/lib/middleware/community-actor"
 
@@ -34,7 +34,13 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
     return NextResponse.json({ error: "invalid payload", details: parsed.error.flatten() }, { status: 400 })
   }
 
-  const servers = await queries.communityServer.resolveServerByNameForMember(db, botUserId, parsed.data.server)
+  // `withD1Retry` (D1-armor: stale-benign reads). Both the name→server resolve
+  // and the member list retry a transient rather than 500; the resolve's result
+  // still drives the 404/ambiguous branches unchanged.
+  const servers = await withD1Retry(
+    () => queries.communityServer.resolveServerByNameForMember(db, botUserId, parsed.data.server),
+    { route: "listMembers/resolve" },
+  )
   if (servers.length === 0) {
     return NextResponse.json({ error: `server not found: ${parsed.data.server}` }, { status: 404 })
   }
@@ -47,7 +53,9 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   }
   const serverId = servers[0]!.id
 
-  const rows = await queries.communityMember.listMembers(db, serverId)
+  const rows = await withD1Retry(() => queries.communityMember.listMembers(db, serverId), {
+    route: "listMembers",
+  })
   const members = rows.map((r) => ({
     handle: formatHandle(r.userName ?? "", r.discriminator ?? "0000"),
     role: r.role ?? "member",

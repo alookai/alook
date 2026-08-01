@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { queries } from "@alook/shared"
+import { queries, withD1Retry } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withCommunityActor, requireBot } from "@/lib/middleware/community-actor"
 
@@ -16,8 +16,19 @@ export const POST = withCommunityActor(async (_req: NextRequest, ctx) => {
 
   const db = getDb(ctx.env.DB)
 
-  const snapshot = await queries.communityAgentInbox.getInboxSnapshotForAgent(db, botUserId)
-  const rows = await queries.communityAgentInbox.toInboxRows(db, snapshot, botUserId)
+  // `withD1Retry`, NOT `readOrStale` (D1-armor state 2, state-misleading read):
+  // this is the agent's pending-unread view — a stale snapshot would report the
+  // wrong unread count/buckets and mislead the agent's wake/read decisions (same
+  // read-model red line as a zombie/phantom unread). No downstream authoritative
+  // re-read backs this response, so it must retry to the true value rather than
+  // silently degrade to stale. Both reads wrapped as one unit.
+  const rows = await withD1Retry(
+    async () => {
+      const snapshot = await queries.communityAgentInbox.getInboxSnapshotForAgent(db, botUserId)
+      return queries.communityAgentInbox.toInboxRows(db, snapshot, botUserId)
+    },
+    { route: "inboxSnapshot" },
+  )
 
   return NextResponse.json({
     rows,

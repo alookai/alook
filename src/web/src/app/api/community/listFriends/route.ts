@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { queries } from "@alook/shared"
+import { queries, withD1Retry } from "@alook/shared"
 import type { FriendCard } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withCommunityActor, requireBot } from "@/lib/middleware/community-actor"
@@ -24,7 +24,14 @@ export const POST = withCommunityActor(async (_req: NextRequest, ctx) => {
 
   const db = getDb(ctx.env.DB)
 
-  const buckets = await queries.communityFriendship.listAgentFriends(db, botUserId)
+  // `withD1Retry` (D1-armor: stale-benign list read). A bot RPC list has no
+  // cached prior value to fall back to, and an empty-list `readOrStale` fallback
+  // would be indistinguishable from "no friends" — misleading. So retry the
+  // transient to the true list; exhaustion surfaces honestly (not a false-empty).
+  const buckets = await withD1Retry(
+    () => queries.communityFriendship.listAgentFriends(db, botUserId),
+    { route: "listFriends" },
+  )
 
   // Presence is WS-connection-based (see friends/presence route) — one bulk
   // check across every peer id in every bucket.

@@ -49,17 +49,10 @@ src/web/src/app/api/community/friends/[id]/owner-decision/route.ts
 src/web/src/app/api/community/friends/[id]/reject/route.ts
 src/web/src/app/api/community/friends/[id]/route.ts
 src/web/src/app/api/community/friends/request/route.ts
-src/web/src/app/api/community/inbox/dms/read-all/route.ts
-src/web/src/app/api/community/inbox/mentions/[id]/route.ts
-src/web/src/app/api/community/inbox/mentions/read-all/route.ts
-src/web/src/app/api/community/inbox/unreads/read-all/route.ts
-src/web/src/app/api/community/inboxSnapshot/route.ts
 src/web/src/app/api/community/invites/[token]/info/route.ts
 src/web/src/app/api/community/invites/[token]/join/route.ts
 src/web/src/app/api/community/invites/[token]/route.ts
 src/web/src/app/api/community/listChannels/route.ts
-src/web/src/app/api/community/listFriends/route.ts
-src/web/src/app/api/community/listMembers/route.ts
 src/web/src/app/api/community/machines/[id]/reconnect/route.ts
 src/web/src/app/api/community/machines/[id]/route.ts
 src/web/src/app/api/community/machines/pair/route.ts
@@ -89,7 +82,6 @@ src/web/src/app/api/community/servers/[id]/invites/route.ts
 src/web/src/app/api/community/servers/[id]/leave/route.ts
 src/web/src/app/api/community/servers/[id]/members/[memberId]/route.ts
 src/web/src/app/api/community/servers/[id]/members/route.ts
-src/web/src/app/api/community/servers/[id]/members/search/route.ts
 src/web/src/app/api/community/servers/[id]/route.ts
 src/web/src/app/api/community/servers/reorder/route.ts
 src/web/src/app/api/community/servers/route.ts
@@ -104,4 +96,3 @@ src/web/src/app/api/community/users/me/notifications/channel/[id]/route.ts
 src/web/src/app/api/community/users/me/notifications/route.ts
 src/web/src/app/api/community/users/me/notifications/server/[id]/route.ts
 src/web/src/app/api/community/users/me/profile/route.ts
-src/web/src/app/api/community/users/search/route.ts

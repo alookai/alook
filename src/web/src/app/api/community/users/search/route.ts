@@ -4,6 +4,7 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
   queries,
+  withD1Retry,
   MIN_SEARCH_LENGTH,
   MAX_SEARCH_LENGTH,
   DEFAULT_USER_SEARCH_LIMIT,
@@ -26,17 +27,23 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
   // `ada#0042` → exact (name, discriminator) match so users can disambiguate
   // two people with the same name. Anything else falls back to LIKE-substring.
+  // `withD1Retry` (D1-armor: stale-benign search read; retry a transient rather
+  // than 500 or return a misleading empty result-set).
   const tagged = parseNameAndTag(q)
-  const users = tagged
-    ? await queries.user.searchUsersByName(db, tagged.name, {
-        excludeUserId: ctx.userId,
-        discriminator: tagged.discriminator,
-        limit: DEFAULT_USER_SEARCH_LIMIT,
-      })
-    : await queries.user.searchUsersByName(db, q, {
-        excludeUserId: ctx.userId,
-        limit: DEFAULT_USER_SEARCH_LIMIT,
-      })
+  const users = await withD1Retry(
+    () =>
+      tagged
+        ? queries.user.searchUsersByName(db, tagged.name, {
+            excludeUserId: ctx.userId,
+            discriminator: tagged.discriminator,
+            limit: DEFAULT_USER_SEARCH_LIMIT,
+          })
+        : queries.user.searchUsersByName(db, q, {
+            excludeUserId: ctx.userId,
+            limit: DEFAULT_USER_SEARCH_LIMIT,
+          }),
+    { route: "users/search" },
+  )
 
   return writeJSON({
     users: users.map((u) => ({
