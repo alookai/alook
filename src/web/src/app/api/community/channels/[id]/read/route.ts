@@ -60,7 +60,7 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
 
   // Resolve the target message. Both branches align (lastReadAt, lastReadMessageId)
   // to a real message — that's the read-state invariant.
-  let target: { id: string; createdAt: string } | null
+  let target: { id: string; createdAt: string; seq: number } | null
   if (lastReadMessageId) {
     const msg = await queries.communityMessage.getMessage(db, lastReadMessageId)
     if (!msg) return writeError("message not found", 404)
@@ -69,7 +69,7 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     if (msg.channelId !== channelId) {
       return writeError("message not in channel", 400)
     }
-    target = { id: msg.id, createdAt: msg.createdAt }
+    target = { id: msg.id, createdAt: msg.createdAt, seq: msg.seq }
   } else {
     target = await queries.communityMessage.getLatestMessage(db, { channelId })
     // Empty channel: no row can be written under the invariant. Nothing to

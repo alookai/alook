@@ -338,12 +338,15 @@ export const communityReadState = sqliteTable(
     // INVARIANT: non-null whenever the row exists. Route writes through
     // `markReadToMessageBuilder` — never null out.
     lastReadMessageId: text("last_read_message_id"),
-    // Shared per-user cursor for humans AND bots (bots ARE users invariant).
-    // Populated by: the author read-watermark upsert inside `createMessage`
-    // (every author, bot or human), and `bumpReadCursor` (agent `ack` route
-    // only). NOT maintained by the human-only read routes
+    // Shared per-user cursor for humans AND bots (bots ARE users invariant) —
+    // and now the SINGLE unread ruler for both (ref/id read-model seq
+    // unification): the inbox unread predicate is `EXISTS(message.seq >
+    // lastReadSeq)`, the same seq compare the agent inbox uses. Maintained by
+    // EVERY read-state writer: `createMessage`'s author watermark, `bumpReadCursor`
+    // (agent ack), AND the human read routes
     // (`markReadToMessageBuilder`/`markReadToMessage`/`markAllServerChannelsRead`)
-    // — an explicit, documented gap, see plans/community-agent-cli-bridge.md §4.
+    // — the earlier "humans don't maintain it" gap is closed, or a human's read
+    // would never register under the seq predicate.
     lastReadSeq: integer("last_read_seq").notNull().default(0),
   },
   (t) => [index("idx_read_state_user").on(t.userId)]

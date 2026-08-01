@@ -33,7 +33,7 @@ describe("markReadToMessageBuilder — channel branch", () => {
     const result = readStateQueries.markReadToMessageBuilder(db, {
       userId: "u_1",
       channelId: "c_1",
-      message: { id: "m_42", createdAt: "2026-07-03T00:00:00Z" },
+      message: { id: "m_42", createdAt: "2026-07-03T00:00:00Z", seq: 42 },
     });
     expect(result).toBeDefined();
     expect(result).not.toBeInstanceOf(Promise);
@@ -47,7 +47,7 @@ describe("markReadToMessageBuilder — channel branch", () => {
     readStateQueries.markReadToMessageBuilder(db, {
       userId: "u_1",
       channelId: "c_1",
-      message: { id: "m_42", createdAt: "2026-07-03T00:00:00Z" },
+      message: { id: "m_42", createdAt: "2026-07-03T00:00:00Z", seq: 42 },
     });
     const valuesArg = db.values.mock.calls[0][0];
     expect(valuesArg).toMatchObject({
@@ -55,6 +55,9 @@ describe("markReadToMessageBuilder — channel branch", () => {
       channelId: "c_1",
       lastReadAt: "2026-07-03T00:00:00Z",
       lastReadMessageId: "m_42",
+      // ref/id seq unification: humans now store lastReadSeq too, or the seq
+      // unread predicate never sees a human's read.
+      lastReadSeq: 42,
     });
     // The invariant: values and set carry the same aligned tuple.
     expect(valuesArg.lastReadAt).toBe(valuesArg.lastReadMessageId ? "2026-07-03T00:00:00Z" : undefined);
@@ -62,6 +65,7 @@ describe("markReadToMessageBuilder — channel branch", () => {
     expect(conflictArg.set).toMatchObject({
       lastReadAt: "2026-07-03T00:00:00Z",
       lastReadMessageId: "m_42",
+      lastReadSeq: 42,
     });
   });
 
@@ -70,7 +74,7 @@ describe("markReadToMessageBuilder — channel branch", () => {
     readStateQueries.markReadToMessageBuilder(db, {
       userId: "u_1",
       channelId: "c_1",
-      message: { id: "m_1", createdAt: "2026-01-01T00:00:00Z" },
+      message: { id: "m_1", createdAt: "2026-01-01T00:00:00Z", seq: 1 },
     });
     const conflictArg = db.onConflictDoUpdate.mock.calls[0][0];
     expect(conflictArg.target).toEqual([
@@ -87,7 +91,7 @@ describe("markReadToMessageBuilder — channel branch", () => {
     readStateQueries.markReadToMessageBuilder(db, {
       userId: "u_1",
       channelId: "c_1",
-      message: { id: "m_42", createdAt: "2026-07-03T00:00:00Z" },
+      message: { id: "m_42", createdAt: "2026-07-03T00:00:00Z", seq: 42 },
     });
     const conflictArg = db.onConflictDoUpdate.mock.calls[0][0];
     // The setWhere is a Drizzle SQL fragment; we can't easily assert its
@@ -111,7 +115,7 @@ describe("markReadToMessageBuilder — DM is a channel", () => {
     readStateQueries.markReadToMessageBuilder(db, {
       userId: "u_1",
       channelId: "dm_ch_1",
-      message: { id: "m_9", createdAt: "2026-07-04T00:00:00Z" },
+      message: { id: "m_9", createdAt: "2026-07-04T00:00:00Z", seq: 9 },
     });
     const valuesArg = db.values.mock.calls[0][0];
     expect(valuesArg).toMatchObject({
@@ -243,8 +247,8 @@ describe("markAllServerChannelsRead", () => {
     const messageModule = await import("../../src/db/queries/community/message");
     // c_a and c_b have messages; c_c_empty has none.
     const spy = vi.spyOn(messageModule, "getLatestMessagesByChannelIds").mockResolvedValue([
-      { channelId: "c_a", id: "m_a_latest", createdAt: "2026-07-05T10:00:00Z" },
-      { channelId: "c_b", id: "m_b_latest", createdAt: "2026-07-05T11:00:00Z" },
+      { channelId: "c_a", id: "m_a_latest", createdAt: "2026-07-05T10:00:00Z", seq: 10 },
+      { channelId: "c_b", id: "m_b_latest", createdAt: "2026-07-05T11:00:00Z", seq: 11 },
     ]);
 
     const count = await readStateQueries.markAllServerChannelsRead(db, "u_1", ["c_a", "c_b", "c_c_empty"]);
@@ -261,12 +265,14 @@ describe("markAllServerChannelsRead", () => {
       channelId: "c_a",
       lastReadAt: "2026-07-05T10:00:00Z",
       lastReadMessageId: "m_a_latest",
+      lastReadSeq: 10,
     });
     expect(byChannel["c_b"]).toMatchObject({
       userId: "u_1",
       channelId: "c_b",
       lastReadAt: "2026-07-05T11:00:00Z",
       lastReadMessageId: "m_b_latest",
+      lastReadSeq: 11,
     });
     spy.mockRestore();
   });
@@ -279,8 +285,8 @@ describe("markAllServerChannelsRead", () => {
     });
     const messageModule = await import("../../src/db/queries/community/message");
     const spy = vi.spyOn(messageModule, "getLatestMessagesByChannelIds").mockResolvedValue([
-      { channelId: "c_a", id: "m_a_new", createdAt: "2026-07-05T10:00:00Z" },
-      { channelId: "c_b", id: "m_b_new", createdAt: "2026-07-05T11:00:00Z" },
+      { channelId: "c_a", id: "m_a_new", createdAt: "2026-07-05T10:00:00Z", seq: 20 },
+      { channelId: "c_b", id: "m_b_new", createdAt: "2026-07-05T11:00:00Z", seq: 21 },
     ]);
 
     const count = await readStateQueries.markAllServerChannelsRead(db, "u_1", ["c_a", "c_b"]);
@@ -303,6 +309,8 @@ describe("markAllServerChannelsRead", () => {
     expect(bTuple).toBeDefined();
     expect(aTuple!.lastReadAt).toBe("2026-07-05T10:00:00Z");
     expect(bTuple!.lastReadAt).toBe("2026-07-05T11:00:00Z");
+    expect(aTuple!.lastReadSeq).toBe(20);
+    expect(bTuple!.lastReadSeq).toBe(21);
     spy.mockRestore();
   });
 
@@ -314,7 +322,7 @@ describe("markAllServerChannelsRead", () => {
     });
     const messageModule = await import("../../src/db/queries/community/message");
     const spy = vi.spyOn(messageModule, "getLatestMessagesByChannelIds").mockResolvedValue([
-      { channelId: "c_a", id: "m_a_new", createdAt: "2026-07-05T10:00:00Z" },
+      { channelId: "c_a", id: "m_a_new", createdAt: "2026-07-05T10:00:00Z", seq: 20 },
     ]);
 
     await readStateQueries.markAllServerChannelsRead(db, "u_1", ["c_a"]);

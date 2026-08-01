@@ -5,6 +5,13 @@ import { isChannelUnread, isDmUnread } from "../../src/db/queries/community/inbo
 // These tests pin the shape of the public API; SQL behavior is covered by
 // integration runs against D1. The fact that this file imports cleanly
 // also surfaces accidental query syntax regressions at typecheck time.
+//
+// ref/id read-model seq unification: the unread predicate now compares SEQ
+// (`EXISTS(message.seq > lastReadSeq)`, computed in SQL) instead of the old
+// `lastMessageAt > lastReadAt` timestamp. The pure predicates take the SQL
+// results — `hasReadState` (is there a read-state row) + `hasUnreadBeyondSeq`
+// (the EXISTS result) — and the no-read-state branch still uses `joinedAt`
+// (channels) / "any message" (DMs), which are orthogonal to the seq switch.
 
 describe("community/inbox exports", () => {
   it("exports listUnreadChannels", () => {
@@ -21,106 +28,75 @@ describe("community/inbox exports", () => {
   });
 });
 
-describe("isChannelUnread — two-branch predicate", () => {
+describe("isChannelUnread — two-branch predicate (seq)", () => {
   const j = "2026-07-06T00:00:00.000Z"; // joinedAt
   const before = "2026-07-05T00:00:00.000Z"; // before join
   const after = "2026-07-07T00:00:00.000Z"; // after join
 
   it("archived → false", () => {
     expect(
-      isChannelUnread({
-        archived: true,
-        lastMessageAt: after,
-        lastReadAt: null,
-        joinedAt: j,
-      }),
+      isChannelUnread({ archived: true, lastMessageAt: after, hasReadState: false, hasUnreadBeyondSeq: true, joinedAt: j }),
     ).toBe(false);
   });
 
   it("no lastMessageAt → false", () => {
     expect(
-      isChannelUnread({
-        archived: false,
-        lastMessageAt: null,
-        lastReadAt: null,
-        joinedAt: j,
-      }),
+      isChannelUnread({ archived: false, lastMessageAt: null, hasReadState: false, hasUnreadBeyondSeq: false, joinedAt: j }),
     ).toBe(false);
   });
 
-  it("has read-state, lastMessageAt > lastReadAt → true", () => {
+  it("has read-state, a message beyond lastReadSeq exists → true", () => {
     expect(
-      isChannelUnread({
-        archived: false,
-        lastMessageAt: after,
-        lastReadAt: j,
-        joinedAt: j,
-      }),
+      isChannelUnread({ archived: false, lastMessageAt: after, hasReadState: true, hasUnreadBeyondSeq: true, joinedAt: j }),
     ).toBe(true);
   });
 
-  it("has read-state, lastMessageAt === lastReadAt → false (author's own send)", () => {
+  it("has read-state, nothing beyond lastReadSeq → false (caught up / author's own send)", () => {
+    // createMessage advances the author's own lastReadSeq to the message's seq
+    // in the same batch, so the author's own send yields no seq beyond cursor.
     expect(
-      isChannelUnread({
-        archived: false,
-        lastMessageAt: j,
-        lastReadAt: j,
-        joinedAt: j,
-      }),
+      isChannelUnread({ archived: false, lastMessageAt: j, hasReadState: true, hasUnreadBeyondSeq: false, joinedAt: j }),
     ).toBe(false);
   });
 
   it("no read-state, lastMessageAt > joinedAt → true (unread since join)", () => {
     expect(
-      isChannelUnread({
-        archived: false,
-        lastMessageAt: after,
-        lastReadAt: null,
-        joinedAt: j,
-      }),
+      isChannelUnread({ archived: false, lastMessageAt: after, hasReadState: false, hasUnreadBeyondSeq: false, joinedAt: j }),
     ).toBe(true);
   });
 
   it("no read-state, lastMessageAt < joinedAt → false (message pre-dates join)", () => {
     expect(
-      isChannelUnread({
-        archived: false,
-        lastMessageAt: before,
-        lastReadAt: null,
-        joinedAt: j,
-      }),
+      isChannelUnread({ archived: false, lastMessageAt: before, hasReadState: false, hasUnreadBeyondSeq: false, joinedAt: j }),
     ).toBe(false);
   });
 
   it("no read-state, lastMessageAt === joinedAt → false (equal timestamps, matches > semantics)", () => {
     expect(
-      isChannelUnread({
-        archived: false,
-        lastMessageAt: j,
-        lastReadAt: null,
-        joinedAt: j,
-      }),
+      isChannelUnread({ archived: false, lastMessageAt: j, hasReadState: false, hasUnreadBeyondSeq: false, joinedAt: j }),
+    ).toBe(false);
+  });
+
+  it("has read-state takes the seq branch even when lastMessageAt < joinedAt (branch precedence)", () => {
+    // With a read-state row, the joinedAt branch never runs — the seq EXISTS
+    // is authoritative. A pre-join lastMessageAt with hasUnreadBeyondSeq=false
+    // is not unread; the joinedAt comparison is irrelevant here.
+    expect(
+      isChannelUnread({ archived: false, lastMessageAt: before, hasReadState: true, hasUnreadBeyondSeq: false, joinedAt: j }),
     ).toBe(false);
   });
 });
 
 /**
- * Behaviour tests for the JS post-filter in `listUnreadChannels`.
- *
- * We can't run a full D1 join in unit tests, so we mock the DB to return the
- * row shape the join produces. What we're really pinning here is the
- * `lastMessageAt > lastReadAt` predicate — the fix in #1 relies on
- * `createMessage` writing both timestamps equal in the same batch, so this
- * predicate is what naturally excludes the author's own send.
- *
- * These fixtures reflect the DB state that WOULD exist after `createMessage`
- * runs for the given (user, channel) pairs. They document the invariant end-
- * to-end without needing a real SQLite backend.
+ * Behaviour tests for the JS post-filter in `listUnreadChannels`. We can't run a
+ * full D1 join in unit tests, so we mock the DB to return the row shape the join
+ * produces — now carrying `hasReadState` / `hasUnreadBeyondSeq` (the SQL-computed
+ * 0/1 flags) rather than `lastReadAt`. These document the seq predicate end-to-end
+ * without a real SQLite backend.
  */
-describe("listUnreadChannels — author read-watermark behaviour", () => {
+describe("listUnreadChannels — seq read-watermark behaviour", () => {
   function createUnreadRowMock(rows: any[]) {
-    // The query flows: select → from → innerJoin → innerJoin → leftJoin → where
-    // and .where(...) resolves to rows.
+    // select → from → innerJoin → innerJoin → leftJoin → where; .where resolves rows.
     const chain: any = {};
     chain.select = vi.fn(() => chain);
     chain.from = vi.fn(() => chain);
@@ -132,53 +108,31 @@ describe("listUnreadChannels — author read-watermark behaviour", () => {
 
   const j = "2026-07-06T00:00:00.000Z"; // joinedAt used by all fixtures
 
-  it("after author sends in channel A, listUnreadChannels(author) excludes A (lastMessageAt === lastReadAt)", async () => {
-    // Post-createMessage state: channel.lastMessageAt and readState.lastReadAt
-    // are the same string — the timestamp alignment invariant from #1.
-    const ts = "2026-07-06T00:00:00.000Z";
+  it("author is caught up in channel A (nothing beyond lastReadSeq) → excluded", async () => {
+    // Post-createMessage state: the author's lastReadSeq == the channel's latest
+    // seq, so EXISTS(seq > lastReadSeq) is false (hasUnreadBeyondSeq: 0).
     const db = createUnreadRowMock([
       {
-        channelId: "ch_A",
-        channelName: "channel A",
-        serverId: "srv_1",
-        serverName: "server 1",
-        parentChannelId: null,
-        lastMessageAt: ts,
-        lastReadAt: ts, // author's watermark advanced to this exact message
-        archived: false,
-        joinedAt: j,
+        channelId: "ch_A", channelName: "channel A", serverId: "srv_1", serverName: "server 1",
+        parentChannelId: null, lastMessageAt: j, hasReadState: 1, hasUnreadBeyondSeq: 0, archived: false, joinedAt: j,
       },
     ]);
     const result = await inboxQueries.listUnreadChannels(db, "u_author", ["ch_A"]);
     expect(result).toEqual([]);
   });
 
-  it("after author's send, then peer's send in channel A: listUnreadChannels(author) DOES include A (watermark bounded, not sticky)", async () => {
-    // Author's send set watermark to t1; peer's send bumped channel.lastMessageAt
-    // to t2 without touching the author's read-state. Result: t2 > t1, channel
-    // resurfaces as unread — exactly the "watermark is bounded, not sticky"
-    // behaviour the plan calls out.
-    const t1 = "2026-07-06T00:00:00.000Z";
+  it("peer's send beyond the author's cursor → channel A resurfaces (watermark bounded, not sticky)", async () => {
     const t2 = "2026-07-06T00:00:05.000Z";
     const db = createUnreadRowMock([
       {
-        channelId: "ch_A",
-        channelName: "channel A",
-        serverId: "srv_1",
-        serverName: "server 1",
-        type: "forum",
-        parentChannelId: null,
-        lastMessageAt: t2,
-        lastReadAt: t1,
-        archived: false,
-        joinedAt: j,
+        channelId: "ch_A", channelName: "channel A", serverId: "srv_1", serverName: "server 1",
+        type: "forum", parentChannelId: null, lastMessageAt: t2, hasReadState: 1, hasUnreadBeyondSeq: 1, archived: false, joinedAt: j,
       },
     ]);
     const result = await inboxQueries.listUnreadChannels(db, "u_author", ["ch_A"]);
     expect(result).toHaveLength(1);
     expect(result[0]!.channelId).toBe("ch_A");
     expect(result[0]!.lastMessageAt).toBe(t2);
-    expect(result[0]!.lastReadAt).toBe(t1);
     // `type` is carried through so the inbox can render the entity icon.
     expect(result[0]!.type).toBe("forum");
   });
@@ -186,15 +140,8 @@ describe("listUnreadChannels — author read-watermark behaviour", () => {
   it("archived channels are filtered out even when unread", async () => {
     const db = createUnreadRowMock([
       {
-        channelId: "ch_archived",
-        channelName: "old",
-        serverId: "srv_1",
-        serverName: "server 1",
-        parentChannelId: null,
-        lastMessageAt: "2026-07-06T00:00:00.000Z",
-        lastReadAt: null,
-        archived: true,
-        joinedAt: j,
+        channelId: "ch_archived", channelName: "old", serverId: "srv_1", serverName: "server 1",
+        parentChannelId: null, lastMessageAt: "2026-07-06T00:00:00.000Z", hasReadState: 0, hasUnreadBeyondSeq: 0, archived: true, joinedAt: j,
       },
     ]);
     const result = await inboxQueries.listUnreadChannels(db, "u_1", ["ch_archived"]);
@@ -202,19 +149,11 @@ describe("listUnreadChannels — author read-watermark behaviour", () => {
   });
 
   it("channel the user has never opened surfaces as unread when lastMessageAt > joinedAt", async () => {
-    // No read-state row for this (user, channel). Message posted AFTER the
-    // user joined the server → still unread from their perspective.
+    // No read-state row (hasReadState: 0) → joinedAt branch. Message after join.
     const db = createUnreadRowMock([
       {
-        channelId: "ch_new",
-        channelName: "brand new",
-        serverId: "srv_1",
-        serverName: "server 1",
-        parentChannelId: null,
-        lastMessageAt: "2026-07-06T00:01:00.000Z",
-        lastReadAt: null,
-        archived: false,
-        joinedAt: j,
+        channelId: "ch_new", channelName: "brand new", serverId: "srv_1", serverName: "server 1",
+        parentChannelId: null, lastMessageAt: "2026-07-06T00:01:00.000Z", hasReadState: 0, hasUnreadBeyondSeq: 0, archived: false, joinedAt: j,
       },
     ]);
     const result = await inboxQueries.listUnreadChannels(db, "u_1", ["ch_new"]);
@@ -223,20 +162,11 @@ describe("listUnreadChannels — author read-watermark behaviour", () => {
   });
 
   it("channel with messages predating the user's join does NOT surface as unread", async () => {
-    // The bug fix: a user who joined a server with pre-existing history
-    // shouldn't see every old channel as unread. lastReadAt is null (never
-    // opened) but lastMessageAt < joinedAt.
+    // No read-state row, lastMessageAt < joinedAt → joinedAt branch excludes it.
     const db = createUnreadRowMock([
       {
-        channelId: "ch_old",
-        channelName: "old history",
-        serverId: "srv_1",
-        serverName: "server 1",
-        parentChannelId: null,
-        lastMessageAt: "2026-07-05T00:00:00.000Z", // predates joinedAt
-        lastReadAt: null,
-        archived: false,
-        joinedAt: j,
+        channelId: "ch_old", channelName: "old history", serverId: "srv_1", serverName: "server 1",
+        parentChannelId: null, lastMessageAt: "2026-07-05T00:00:00.000Z", hasReadState: 0, hasUnreadBeyondSeq: 0, archived: false, joinedAt: j,
       },
     ]);
     const result = await inboxQueries.listUnreadChannels(db, "u_1", ["ch_old"]);
@@ -245,8 +175,6 @@ describe("listUnreadChannels — author read-watermark behaviour", () => {
 
   // Thread unreads are scoped to PARTICIPATION. The function issues a SECOND
   // query (listParticipatingThreadIds) when the unread set contains threads.
-  // This mock returns the unread rows on the first `.where()` and the
-  // participating-thread ids on the second.
   function createTwoQueryMock(unreadRows: any[], participatingThreadIds: string[]) {
     let call = 0;
     const chain: any = {};
@@ -264,16 +192,9 @@ describe("listUnreadChannels — author read-watermark behaviour", () => {
   }
 
   const unreadThreadRow = (channelId: string) => ({
-    channelId,
-    channelName: "a thread",
-    serverId: "srv_1",
-    serverName: "server 1",
-    type: "thread",
-    parentChannelId: "ch_parent",
-    lastMessageAt: "2026-07-06T00:00:05.000Z",
-    lastReadAt: "2026-07-06T00:00:00.000Z",
-    archived: false,
-    joinedAt: j,
+    channelId, channelName: "a thread", serverId: "srv_1", serverName: "server 1",
+    type: "thread", parentChannelId: "ch_parent", lastMessageAt: "2026-07-06T00:00:05.000Z",
+    hasReadState: 1, hasUnreadBeyondSeq: 1, archived: false, joinedAt: j,
   });
 
   it("thread the viewer participates in surfaces as unread", async () => {
@@ -289,16 +210,9 @@ describe("listUnreadChannels — author read-watermark behaviour", () => {
   });
 
   const unreadPostRow = (channelId: string) => ({
-    channelId,
-    channelName: "a post",
-    serverId: "srv_1",
-    serverName: "server 1",
-    type: "forum_post",
-    parentChannelId: "forum_1",
-    lastMessageAt: "2026-07-06T00:00:05.000Z",
-    lastReadAt: "2026-07-06T00:00:00.000Z",
-    archived: false,
-    joinedAt: j,
+    channelId, channelName: "a post", serverId: "srv_1", serverName: "server 1",
+    type: "forum_post", parentChannelId: "forum_1", lastMessageAt: "2026-07-06T00:00:05.000Z",
+    hasReadState: 1, hasUnreadBeyondSeq: 1, archived: false, joinedAt: j,
   });
 
   it("forum post the viewer participates in surfaces as unread", async () => {
@@ -308,53 +222,39 @@ describe("listUnreadChannels — author read-watermark behaviour", () => {
   });
 
   it("public forum post the viewer has NOT joined is filtered out (visible but un-notified)", async () => {
-    // A public post is visible to the whole server, so it lands in the unread
-    // set, but it must only surface for its participants — an un-joined viewer
-    // gets no unread badge.
     const db = createTwoQueryMock([unreadPostRow("p_out")], []);
     const result = await inboxQueries.listUnreadChannels(db, "u_1", ["p_out"]);
     expect(result).toEqual([]);
   });
 });
 
-describe("isDmUnread — predicate", () => {
+describe("isDmUnread — predicate (seq)", () => {
   it("no lastMessageAt → false (empty conversation)", () => {
-    expect(isDmUnread({ lastMessageAt: null, lastReadAt: null })).toBe(false);
+    expect(isDmUnread({ lastMessageAt: null, hasReadState: false, hasUnreadBeyondSeq: false })).toBe(false);
   });
 
   it("no read-state, has message → true (counterparty never opened)", () => {
     expect(
-      isDmUnread({ lastMessageAt: "2026-07-06T00:00:00.000Z", lastReadAt: null })
+      isDmUnread({ lastMessageAt: "2026-07-06T00:00:00.000Z", hasReadState: false, hasUnreadBeyondSeq: false })
     ).toBe(true);
   });
 
-  it("lastMessageAt === lastReadAt → false (author's own send)", () => {
+  it("has read-state, nothing beyond lastReadSeq → false (caught up / own send)", () => {
     const t = "2026-07-06T00:00:00.000Z";
-    expect(isDmUnread({ lastMessageAt: t, lastReadAt: t })).toBe(false);
+    expect(isDmUnread({ lastMessageAt: t, hasReadState: true, hasUnreadBeyondSeq: false })).toBe(false);
   });
 
-  it("lastMessageAt > lastReadAt → true", () => {
+  it("has read-state, a message beyond lastReadSeq → true", () => {
     expect(
-      isDmUnread({
-        lastMessageAt: "2026-07-06T00:00:05.000Z",
-        lastReadAt: "2026-07-06T00:00:00.000Z",
-      })
+      isDmUnread({ lastMessageAt: "2026-07-06T00:00:05.000Z", hasReadState: true, hasUnreadBeyondSeq: true })
     ).toBe(true);
-  });
-
-  it("lastMessageAt < lastReadAt → false", () => {
-    expect(
-      isDmUnread({
-        lastMessageAt: "2026-07-06T00:00:00.000Z",
-        lastReadAt: "2026-07-06T00:00:05.000Z",
-      })
-    ).toBe(false);
   });
 });
 
-describe("listUnreadDms — read-watermark behaviour", () => {
+describe("listUnreadDms — seq read-watermark behaviour", () => {
   function createUnreadDmRowMock(rows: any[]) {
-    // select → from → innerJoin → leftJoin → where
+    // selfRows select → then the main select → from → innerJoin → leftJoin → where.
+    // Both `.where()` resolutions return `rows`; selfRows only reads `channelId`.
     const chain: any = {};
     chain.select = vi.fn(() => chain);
     chain.from = vi.fn(() => chain);
@@ -364,17 +264,11 @@ describe("listUnreadDms — read-watermark behaviour", () => {
     return chain;
   }
 
-  it("returns DMs where lastMessageAt > lastReadAt", async () => {
-    // DMs are type=dm channels now — rows key on `channelId` (the DM's channel),
-    // which also feeds the leading selfRows channel-id resolution.
+  it("returns DMs with a message beyond the viewer's lastReadSeq", async () => {
     const db = createUnreadDmRowMock([
       {
-        channelId: "dm_ch_1",
-        lastMessageAt: "2026-07-06T00:00:05.000Z",
-        lastReadAt: "2026-07-06T00:00:00.000Z",
-        otherUserId: "u_alice",
-        otherUserName: "Alice",
-        otherUserImage: null,
+        channelId: "dm_ch_1", lastMessageAt: "2026-07-06T00:00:05.000Z",
+        hasReadState: 1, hasUnreadBeyondSeq: 1, otherUserId: "u_alice", otherUserName: "Alice", otherUserImage: null,
       },
     ]);
     const result = await inboxQueries.listUnreadDms(db, "u_viewer");
@@ -383,31 +277,23 @@ describe("listUnreadDms — read-watermark behaviour", () => {
     expect(result[0]!.otherUserId).toBe("u_alice");
   });
 
-  it("filters out DMs where author's watermark equals lastMessageAt", async () => {
+  it("filters out DMs where the viewer is caught up (nothing beyond lastReadSeq)", async () => {
     const ts = "2026-07-06T00:00:00.000Z";
     const db = createUnreadDmRowMock([
       {
-        channelId: "dm_ch_1",
-        lastMessageAt: ts,
-        lastReadAt: ts, // viewer sent last, watermark aligned
-        otherUserId: "u_alice",
-        otherUserName: "Alice",
-        otherUserImage: null,
+        channelId: "dm_ch_1", lastMessageAt: ts,
+        hasReadState: 1, hasUnreadBeyondSeq: 0, otherUserId: "u_alice", otherUserName: "Alice", otherUserImage: null,
       },
     ]);
     const result = await inboxQueries.listUnreadDms(db, "u_viewer");
     expect(result).toEqual([]);
   });
 
-  it("returns DM the viewer has never opened (lastReadAt null, lastMessageAt set)", async () => {
+  it("returns DM the viewer has never opened (no read-state row, message present)", async () => {
     const db = createUnreadDmRowMock([
       {
-        channelId: "dm_ch_1",
-        lastMessageAt: "2026-07-06T00:00:00.000Z",
-        lastReadAt: null,
-        otherUserId: "u_alice",
-        otherUserName: "Alice",
-        otherUserImage: "https://cdn/a.png",
+        channelId: "dm_ch_1", lastMessageAt: "2026-07-06T00:00:00.000Z",
+        hasReadState: 0, hasUnreadBeyondSeq: 0, otherUserId: "u_alice", otherUserName: "Alice", otherUserImage: "https://cdn/a.png",
       },
     ]);
     const result = await inboxQueries.listUnreadDms(db, "u_viewer");
@@ -416,17 +302,10 @@ describe("listUnreadDms — read-watermark behaviour", () => {
   });
 
   it("skips empty conversations (lastMessageAt null)", async () => {
-    // The WHERE clause filters this on the DB side (`isNotNull(lastMessageAt)`),
-    // but the JS predicate is defensive — pinning both layers together lets us
-    // catch a regression where either drops the guard.
     const db = createUnreadDmRowMock([
       {
-        channelId: "dm_ch_1",
-        lastMessageAt: null,
-        lastReadAt: null,
-        otherUserId: "u_alice",
-        otherUserName: "Alice",
-        otherUserImage: null,
+        channelId: "dm_ch_1", lastMessageAt: null,
+        hasReadState: 0, hasUnreadBeyondSeq: 0, otherUserId: "u_alice", otherUserName: "Alice", otherUserImage: null,
       },
     ]);
     const result = await inboxQueries.listUnreadDms(db, "u_viewer");
