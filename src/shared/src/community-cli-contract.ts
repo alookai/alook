@@ -1262,7 +1262,17 @@ export function formatSeq(seq: Seq): string {
 // escaping once the token sits in message body text — the producer simply
 // strips `}` from the label (`sanitizeLabel`).
 
-export type RefTokenType = "channel" | "message" | "server";
+// Only two token types (ref/id §3.4b, Gener-ratified): the `()` payload is an
+// addressing target that lives in one of two tables — a channel (community_channel;
+// this also covers threads/forum-posts, which ARE channels) or a server. There is
+// deliberately NO `message` type: a message is "a channel + a seq", not a third
+// table, so message-vs-channel is inferred from whether the token's LABEL carries
+// a `#<seq>` (`refDisplayParts`/`resolveMessageJump`), not from a type tag. The
+// `()` holds the channelId either way; the seq (if any) rides the label. Encoding
+// message as a type would (a) require a `/`-bearing id or a reverse-resolve to a
+// seq — the id here is a single `[A-Za-z0-9_-]+` segment — and (b) create a
+// type-vs-label conflict (type=message but label has no seq). See §3.4b.
+export type RefTokenType = "channel" | "server";
 
 export interface RefToken {
   label: string;
@@ -1271,7 +1281,7 @@ export interface RefToken {
 }
 
 const REF_TOKEN_RE =
-  /\{([^}]*)\}\((channel|message|server)\/([A-Za-z0-9_-]+)\)/;
+  /\{([^}]*)\}\((channel|server)\/([A-Za-z0-9_-]+)\)/;
 
 // Global variant for a message-body find-and-replace pass (per-match `lastIndex`
 // state must not leak between calls, so `REF_TOKEN_RE` above stays non-global for
@@ -1330,38 +1340,35 @@ export function compactLabel(label: string): string {
 // which would hand it the string form and lose the icon) is what lets the two
 // outlets share the leaf/seq/sigil logic while each renders in its own medium.
 //
-// Per type:
-//   channel/server → { sigilKind, leaf }        leaf = the path's last segment
-//   message        → { sigilKind: "message", leaf, seq }
-//                    leaf = the channel name, seq = the message seq — BOTH parsed
-//                    from the label's `/server/channel#seq` via `parseRef` (the
-//                    shared ref-grammar parser, NOT a hand-split — single ruler).
-//                    The pill renders `<icon> {leaf} #{seq}` (channel context),
-//                    the preview renders just `#{seq}` (the surrounding context
-//                    already names the channel). Faustine #330's match-to-surface.
+// The TYPE picks the table (channel vs server). Within a `channel` token, the
+// message-vs-plain-channel split is inferred from the LABEL — if it carries a
+// `#<seq>` (`/server/channel#42`) it's a message pin, else the channel itself
+// (ref/id §3.4b — there is no `message` type; a message = channel + seq). So:
+//   server                    → { sigilKind: "server", leaf }
+//   channel, label no seq     → { sigilKind: "channel", leaf }
+//   channel, label has seq    → { sigilKind: "message", leaf: channel, seq }
+// leaf + seq are parsed from the label via `parseRef` (the shared ref-grammar
+// parser, NOT a hand-split — single ruler; Blondie #329/#331). The pill renders
+// a message as `<icon> {leaf} #{seq}` (channel context), the preview as just
+// `#{seq}` (the surrounding context already names the channel; Faustine #330).
 export type RefDisplayParts =
   | { sigilKind: "channel" | "server"; leaf: string }
-  | { sigilKind: "message"; leaf: string; seq: number | null };
+  | { sigilKind: "message"; leaf: string; seq: number };
 
 export function refDisplayParts(type: RefTokenType, label: string): RefDisplayParts {
-  if (type === "message") {
-    // Parse the full-path label with the shared ref parser so the channel leaf
-    // and seq come from one ruler (Blondie #329/#331). `parseRef` throws on a
-    // malformed label — degrade to the compact leaf with no seq rather than
-    // fabricate one.
-    try {
-      const parsed = parseRef(label);
-      return {
-        sigilKind: "message",
-        leaf: parsed.childChannelName ?? parsed.channel,
-        seq: parsed.seq ?? null,
-      };
-    } catch {
-      return { sigilKind: "message", leaf: compactLabel(label), seq: null };
+  if (type === "server") return { sigilKind: "server", leaf: compactLabel(label) };
+  // channel token (incl. thread / forum-post bearing surfaces): a `#seq` in the
+  // label makes it a message pin. Parse with the shared ref parser so leaf + seq
+  // come from one ruler; a malformed label degrades to the plain channel form.
+  try {
+    const parsed = parseRef(label);
+    if (parsed.seq !== undefined) {
+      return { sigilKind: "message", leaf: parsed.childChannelName ?? parsed.channel, seq: parsed.seq };
     }
+    return { sigilKind: "channel", leaf: parsed.childChannelName ?? parsed.channel };
+  } catch {
+    return { sigilKind: "channel", leaf: compactLabel(label) };
   }
-  // channel (incl. thread / forum-post bearing surfaces) + server
-  return { sigilKind: type === "server" ? "server" : "channel", leaf: compactLabel(label) };
 }
 
 // The display form of a ref token in a NON-navigating text/preview context:
@@ -1377,16 +1384,14 @@ export function refDisplayParts(type: RefTokenType, label: string): RefDisplayPa
 // `/` slash (`channel-icon.tsx`). A `#<name>` here (the Discord convention) was
 // the ONE symbol that disagreed with both — Gener flagged it (#305/#308), the
 // team ruled `/` (Faustine #314): app-internal consistency beats the external
-// `#channel` habit. `message`'s `#<seq>` stays — that `#N` is the seq grammar
+// `#channel` habit. A message's `#<seq>` stays — that `#N` is the seq grammar
 // (`/server/channel#N`), not a channel sigil, and the body pill shows it the
 // same way (`general #42`). No `user` branch — a user reference is an
 // `@mention`, a separate grammar, not a ref token (`RefTokenType` is
-// channel|message|server only).
+// channel|server only).
 export function formatRefLabel(type: RefTokenType, label: string): string {
   const parts = refDisplayParts(type, label);
-  if (parts.sigilKind === "message") {
-    return parts.seq !== null ? `#${parts.seq}` : parts.leaf;
-  }
+  if (parts.sigilKind === "message") return `#${parts.seq}`;
   return `/${parts.leaf}`;
 }
 

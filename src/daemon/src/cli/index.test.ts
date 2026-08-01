@@ -210,12 +210,24 @@ describe("message send --target ref token (ref/id 乙)", () => {
     expect("channelId" in arg).toBe(false);
   });
 
-  it("rejects a message-class token with a --reply hint, never calling send", async () => {
+  it("a channel token whose label carries a #seq (message pin) sends to the channelId", async () => {
+    // §3.4b dropped the `message` type: a message pin is a channel token with a
+    // seq in the label. Sending targets the channel (the seq just says which
+    // message it referenced); it is NOT rejected.
+    const sendSpy = vi.fn(async () => sentOk);
+    setApiForTesting(stubApi({ send: sendSpy }));
+    await main(["message", "send", "--target", "{/Alook/general#42}(channel/K9f_rnJk)", "--text", "hi"]);
+    expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ channelId: "K9f_rnJk" }));
+  });
+
+  it("a legacy (message/…) token no longer parses → malformed-token quoting hint, never calling send", async () => {
+    // The `message` type was dropped (§3.4b), so `(message/m_ab)` isn't a valid
+    // token; it starts with `{` so it's treated as a mangled token, not a bare path.
     const sendSpy = vi.fn(async () => sentOk);
     setApiForTesting(stubApi({ send: sendSpy }));
     await main(["message", "send", "--target", "{/Alook/general#42}(message/m_ab)", "--text", "hi"]);
     const env = parseEnvelope(cap.lines());
-    expect(env.error).toContain("--reply");
+    expect(env.error).toContain("wrap the whole token in quotes");
     expect(sendSpy).not.toHaveBeenCalled();
   });
 

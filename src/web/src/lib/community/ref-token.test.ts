@@ -29,8 +29,10 @@ describe("formatRefToken / parseRefToken", () => {
   it("formats each type", () => {
     expect(formatRefToken({ label: "/Alook/general", type: "channel", id: "K9f_rnJk" }))
       .toBe("{/Alook/general}(channel/K9f_rnJk)")
-    expect(formatRefToken({ label: "/Alook/general#42", type: "message", id: "m_ab" }))
-      .toBe("{/Alook/general#42}(message/m_ab)")
+    // A message pin is a CHANNEL token whose label carries the `#seq` (ref/id
+    // §3.4b — no `message` type; the `()` id is the channelId, seq rides the label).
+    expect(formatRefToken({ label: "/Alook/general#42", type: "channel", id: "K9f_rnJk" }))
+      .toBe("{/Alook/general#42}(channel/K9f_rnJk)")
     expect(formatRefToken({ label: "/Alook", type: "server", id: "srv_x" }))
       .toBe("{/Alook}(server/srv_x)")
   })
@@ -38,19 +40,23 @@ describe("formatRefToken / parseRefToken", () => {
   it("round-trips format → parse for each type", () => {
     for (const t of [
       { label: "/Alook/general", type: "channel" as const, id: "K9f_rnJk" },
-      { label: "/Alook/general#42", type: "message" as const, id: "m_ab" },
+      { label: "/Alook/general#42", type: "channel" as const, id: "K9f_rnJk" }, // message pin = channel token + seq-in-label
       { label: "/Alook", type: "server" as const, id: "srv_x" },
     ]) {
       expect(parseRefToken(formatRefToken(t))).toEqual(t)
     }
   })
 
-  it("parses a label carrying / and # (full path) intact", () => {
-    expect(parseRefToken("{/Alook/general#42}(message/m_ab)")).toEqual({
+  it("parses a label carrying / and # (full path, message pin) intact", () => {
+    expect(parseRefToken("{/Alook/general#42}(channel/K9f_rnJk)")).toEqual({
       label: "/Alook/general#42",
-      type: "message",
-      id: "m_ab",
+      type: "channel",
+      id: "K9f_rnJk",
     })
+  })
+
+  it("a legacy `message` type no longer parses (dropped in §3.4b) — degrades to null", () => {
+    expect(parseRefToken("{/Alook/general#42}(message/m_ab)")).toBeNull()
   })
 
   it("stops the label at the first } (no escape layer) — a raw } is the delimiter", () => {

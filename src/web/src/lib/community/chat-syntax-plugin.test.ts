@@ -174,11 +174,12 @@ describe("chatSyntaxPlugin — mixed", () => {
   })
 
   it("keeps a mention and a ref token live together while a bare path stays text", () => {
-    const children = paragraphChildren(parse("@Alice#0001 check {/studio/general#42}(message/m_x) in /studio/dev"))
+    // A message pin is a channel token whose label carries the `#seq` (§3.4b).
+    const children = paragraphChildren(parse("@Alice#0001 check {/studio/general#42}(channel/c_x) in /studio/dev"))
     const mention = children.find((c): c is MentionNode => c.type === "mention")
     expect(mention).toMatchObject({ value: "@Alice", discriminator: "0001" })
     const tok = children.find((c): c is RefTokenNode => c.type === "refToken")
-    expect(tok).toMatchObject({ refType: "message", id: "m_x", label: "/studio/general#42" })
+    expect(tok).toMatchObject({ refType: "channel", id: "c_x", label: "/studio/general#42" })
     // The trailing bare `/studio/dev` is plain text under B.
     expect(children.filter((c) => c.type === "refToken")).toHaveLength(1)
   })
@@ -189,12 +190,19 @@ describe("chatSyntaxPlugin — refToken {label}(type/id) (ref/id §3)", () => {
     const ch = paragraphChildren(parse("see {/Alook/general}(channel/K9f_rnJk)"))
       .find((c): c is RefTokenNode => c.type === "refToken")
     expect(ch).toMatchObject({ type: "refToken", label: "/Alook/general", refType: "channel", id: "K9f_rnJk" })
-    const msg = paragraphChildren(parse("{/Alook/general#42}(message/m_ab)"))
+    // A message pin is a channel token; the `#42` rides the label, the id is the channelId (§3.4b).
+    const msg = paragraphChildren(parse("{/Alook/general#42}(channel/K9f_rnJk)"))
       .find((c): c is RefTokenNode => c.type === "refToken")
-    expect(msg).toMatchObject({ refType: "message", id: "m_ab", label: "/Alook/general#42" })
+    expect(msg).toMatchObject({ refType: "channel", id: "K9f_rnJk", label: "/Alook/general#42" })
     const srv = paragraphChildren(parse("{/Alook}(server/srv_x)"))
       .find((c): c is RefTokenNode => c.type === "refToken")
     expect(srv).toMatchObject({ refType: "server", id: "srv_x", label: "/Alook" })
+  })
+
+  it("a legacy (message/…) token no longer parses — stays plain text (§3.4b dropped the type)", () => {
+    const children = paragraphChildren(parse("{/Alook/general#42}(message/m_ab)"))
+    expect(children.some((c) => c.type === "refToken")).toBe(false)
+    expect(children.every((c) => c.type === "text")).toBe(true)
   })
 
   it("a raw } closes the label (no escape layer) — a sanitized label parses cleanly", () => {

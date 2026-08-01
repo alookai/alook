@@ -81,7 +81,7 @@ describe("stripInlineMarkup", () => {
     // preview / derived title never shows the raw token.
     expect(stripInlineMarkup("see {/Alook/general}(channel/K9f_rnJk) now")).toBe("see /general now");
     expect(stripInlineMarkup("in {/Alook}(server/srv_x)")).toBe("in /Alook");
-    expect(stripInlineMarkup("re {/Alook/general#42}(message/m_ab)")).toBe("re #42");
+    expect(stripInlineMarkup("re {/Alook/general#42}(channel/K9f_rnJk)")).toBe("re #42"); // message pin = channel token + seq label
     expect(stripInlineMarkup("{/Alook/general}(channel/c1)")).not.toMatch(/\(channel\/[A-Za-z0-9_-]+\)/);
   });
 });

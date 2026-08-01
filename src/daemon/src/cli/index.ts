@@ -108,8 +108,6 @@ function agentId(opts: Record<string, unknown>): string {
 type ResolvedTarget = { channelId: string } | { ref: string };
 
 const REF_TOKEN_TARGET_HINT: Record<Exclude<RefTokenType, "channel">, string> = {
-  message:
-    "a message ref token can't be a send target — cite the message with --reply <seq> instead",
   server:
     "a server ref token can't be a send target — specify a channel (a channel token or a /server/channel path)",
 };
@@ -117,6 +115,9 @@ const REF_TOKEN_TARGET_HINT: Record<Exclude<RefTokenType, "channel">, string> = 
 function resolveTarget(raw: string, flag: string): ResolvedTarget {
   const token = parseRefToken(raw);
   if (token) {
+    // A channel token targets its channelId. (A message pin is a channel token
+    // whose label carries a `#seq` — §3.4b dropped the `message` type; sending
+    // targets the channel, the label seq just says which message it referenced.)
     if (token.type === "channel") return { channelId: token.id };
     throw new CliError(`${flag}: ${REF_TOKEN_TARGET_HINT[token.type]}`);
   }

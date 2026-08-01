@@ -281,16 +281,19 @@ describe("ref token {label}(type/id) — shared parser (ref/id §3, reused by we
     expect(parseRefToken("{/Alook/general}(channel/K9f_rnJk)")).toEqual({
       label: "/Alook/general", type: "channel", id: "K9f_rnJk",
     });
-    expect(parseRefToken("{/Alook/general#42}(message/m_ab)")).toEqual({
-      label: "/Alook/general#42", type: "message", id: "m_ab",
+    // A message pin is a CHANNEL token whose label carries the `#seq` (§3.4b —
+    // no `message` type; the `()` id is the channelId, the seq rides the label).
+    expect(parseRefToken("{/Alook/general#42}(channel/K9f_rnJk)")).toEqual({
+      label: "/Alook/general#42", type: "channel", id: "K9f_rnJk",
     });
     expect(parseRefToken("{/Alook}(server/srv_x)")).toEqual({
       label: "/Alook", type: "server", id: "srv_x",
     });
   });
 
-  it("returns null for a non-whitelisted type", () => {
+  it("returns null for a non-whitelisted type (incl. the dropped `message` type, §3.4b)", () => {
     expect(parseRefToken("{/x}(user/u_1)")).toBeNull();
+    expect(parseRefToken("{/Alook/general#42}(message/m_ab)")).toBeNull();
   });
 
   it("returns null unless the WHOLE string is exactly one token (no partial / embedded match)", () => {
@@ -305,8 +308,8 @@ describe("ref token {label}(type/id) — shared parser (ref/id §3, reused by we
     expect(parseRefToken("/Alook/general}(channel/c1)")).toBeNull();
   });
 
-  it("formatRefToken round-trips a well-formed token", () => {
-    const tok = { label: "/Alook/general#42", type: "message" as const, id: "m_ab" };
+  it("formatRefToken round-trips a well-formed token (message pin = channel token + seq label)", () => {
+    const tok = { label: "/Alook/general#42", type: "channel" as const, id: "K9f_rnJk" };
     expect(parseRefToken(formatRefToken(tok))).toEqual(tok);
   });
 
@@ -336,16 +339,16 @@ describe("refDisplayParts — structured display descriptor (ref/id A1, single s
     expect(refDisplayParts("channel", "/Alook/general")).toEqual({ sigilKind: "channel", leaf: "general" });
     expect(refDisplayParts("server", "/Alook")).toEqual({ sigilKind: "server", leaf: "Alook" });
   });
-  it("message → { sigilKind, leaf: channel, seq } — parsed via parseRef, not a hand-split", () => {
-    expect(refDisplayParts("message", "/Alook/general#42")).toEqual({ sigilKind: "message", leaf: "general", seq: 42 });
+  it("a channel token whose label has a #seq → message sigil (leaf: channel, seq) — parsed via parseRef, not a hand-split (§3.4b: message-vs-channel is label-seq, no message type)", () => {
+    expect(refDisplayParts("channel", "/Alook/general#42")).toEqual({ sigilKind: "message", leaf: "general", seq: 42 });
     // thread-message: the reply seq (42), not the thread root (5).
-    expect(refDisplayParts("message", "/Alook/general/#5#42")).toEqual({ sigilKind: "message", leaf: "general", seq: 42 });
+    expect(refDisplayParts("channel", "/Alook/general/#5#42")).toEqual({ sigilKind: "message", leaf: "general", seq: 42 });
     // forum-post message: leaf is the post's childChannelName.
-    expect(refDisplayParts("message", "/Alook/ideas/my-post#3")).toEqual({ sigilKind: "message", leaf: "my-post", seq: 3 });
+    expect(refDisplayParts("channel", "/Alook/ideas/my-post#3")).toEqual({ sigilKind: "message", leaf: "my-post", seq: 3 });
   });
-  it("message with an unparseable / seq-less label degrades to leaf + null seq (no fabricated seq)", () => {
-    expect(refDisplayParts("message", "/Alook/general")).toEqual({ sigilKind: "message", leaf: "general", seq: null });
-    expect(refDisplayParts("message", "not-a-path")).toEqual({ sigilKind: "message", leaf: "not-a-path", seq: null });
+  it("a channel token with a seq-less / unparseable label → plain channel sigil (no fabricated seq)", () => {
+    expect(refDisplayParts("channel", "/Alook/general")).toEqual({ sigilKind: "channel", leaf: "general" });
+    expect(refDisplayParts("channel", "not-a-path")).toEqual({ sigilKind: "channel", leaf: "not-a-path" });
   });
 });
 
@@ -359,12 +362,12 @@ describe("formatRefLabel — compact leaf + type sigil (ref/id PR-9)", () => {
   it("server → /<leaf> (same path style as channel)", () => {
     expect(formatRefLabel("server", "/Alook")).toBe("/Alook");
   });
-  it("message → #<seq> (the trailing #N of the full-path label — seq grammar, not a channel sigil)", () => {
-    expect(formatRefLabel("message", "/Alook/general#42")).toBe("#42");
-    expect(formatRefLabel("message", "/Alook/general/#5#42")).toBe("#42");
+  it("channel token with a #seq label → #<seq> (message pin; seq grammar, not a channel sigil)", () => {
+    expect(formatRefLabel("channel", "/Alook/general#42")).toBe("#42");
+    expect(formatRefLabel("channel", "/Alook/general/#5#42")).toBe("#42");
   });
-  it("message with no # in the label falls back to the compact leaf", () => {
-    expect(formatRefLabel("message", "/Alook/general")).toBe("general");
+  it("channel token with a seq-less label → /<leaf> (plain channel, not a message)", () => {
+    expect(formatRefLabel("channel", "/Alook/general")).toBe("/general");
   });
 });
 
@@ -372,7 +375,7 @@ describe("stripRefTokens — plaintext preview formatter (ref/id PR-9)", () => {
   it("replaces each token with its compact display label", () => {
     expect(stripRefTokens("see {/Alook/general}(channel/K9f_rnJk) now")).toBe("see /general now");
     expect(stripRefTokens("in {/Alook}(server/srv_x)")).toBe("in /Alook");
-    expect(stripRefTokens("re {/Alook/general#42}(message/m_ab)")).toBe("re #42");
+    expect(stripRefTokens("re {/Alook/general#42}(channel/K9f_rnJk)")).toBe("re #42"); // message pin = channel token + seq label
   });
   it("handles multiple tokens in one string", () => {
     expect(stripRefTokens("{/A/x}(channel/c1) and {/A/y}(channel/c2)")).toBe("/x and /y");
@@ -389,7 +392,7 @@ describe("stripRefTokens — plaintext preview formatter (ref/id PR-9)", () => {
     const RAW_ID = /\((?:channel|message|server)\/[A-Za-z0-9_-]+\)/;
     const inputs = [
       "see {/Alook/general}(channel/K9f_rnJk)",
-      "{/Alook}(server/srv_x) and {/Alook/general#42}(message/m_ab)",
+      "{/Alook}(server/srv_x) and {/Alook/general#42}(channel/K9f_rnJk)", // message pin = channel token + seq label
       "prefix {/总部-🎉/架构}(channel/nfvEw1) suffix",
       "{/A/x}(channel/c1){/A/y}(channel/c2)",
     ];
