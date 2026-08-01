@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server"
-import { queries } from "@alook/shared"
+import { queries, withD1Retry } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
@@ -30,12 +30,21 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (body.decision !== "approve" && body.decision !== "deny") {
     return writeError("decision must be 'approve' or 'deny'", 400)
   }
+  // Capture the narrowed value — inside the withD1Retry closure TS would widen
+  // `body.decision` back to `unknown`.
+  const decision = body.decision
 
-  const result = await queries.communityFriendship.ownerDecideOnRow(db, {
-    friendshipId: id,
-    actorId: ctx.userId,
-    decision: body.decision,
-  })
+  // `withD1Retry` (state 3): ownerDecideOnRow is a CAS transition (guarded, a
+  // lost race returns already_resolved) → retry-safe by design.
+  const result = await withD1Retry(
+    () =>
+      queries.communityFriendship.ownerDecideOnRow(db, {
+        friendshipId: id,
+        actorId: ctx.userId,
+        decision,
+      }),
+    { route: "friends/owner-decision" },
+  )
   if (!result.ok) {
     if (result.reason === "forbidden") return writeError("forbidden", 403)
     return writeError("already_resolved", 409)

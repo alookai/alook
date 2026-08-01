@@ -1,4 +1,4 @@
-import { queries, WS_EVENTS } from "@alook/shared"
+import { queries, withD1Retry, WS_EVENTS } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
@@ -28,7 +28,12 @@ export const POST = withAuth(async (_req, ctx) => {
     return writeError("owner approval required", 403)
   }
 
-  const { row, broadcasts } = await queries.communityFriendship.rejectRequest(db, id)
+  // `withD1Retry` (state 3): rejectRequest is `UPDATE ... WHERE status='pending'`
+  // → a retry affects 0 rows (already denied), idempotent, safe to retry.
+  const { row, broadcasts } = await withD1Retry(
+    () => queries.communityFriendship.rejectRequest(db, id),
+    { route: "friends/reject" },
+  )
   if (!row) return writeError("request is not pending", 400)
 
   const otherUserId = friendship.requesterId === ctx.userId

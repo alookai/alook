@@ -1,4 +1,4 @@
-import { queries } from "@alook/shared"
+import { queries, withD1Retry } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
@@ -26,10 +26,16 @@ export const POST = withAuth(async (_req, ctx) => {
     return writeError("owner approval required", 403)
   }
 
-  const result = await queries.communityFriendship.acceptRequest(db, {
-    friendshipId: id,
-    actorId: ctx.userId,
-  })
+  // `withD1Retry` (state 3): acceptRequest is guarded by `status !== "pending"`
+  // (re-run finds not-pending → no-op), so it's idempotent, safe to retry.
+  const result = await withD1Retry(
+    () =>
+      queries.communityFriendship.acceptRequest(db, {
+        friendshipId: id,
+        actorId: ctx.userId,
+      }),
+    { route: "friends/accept" },
+  )
   if (!result.ok) return writeError("request is not pending", 400)
 
   for (const b of result.broadcasts) {

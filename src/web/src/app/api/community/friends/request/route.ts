@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server"
-import { queries, parseNameAndTag, isBlocked } from "@alook/shared"
+import { queries, withD1Retry, parseNameAndTag, isBlocked } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
@@ -53,10 +53,20 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (!block.ok) return writeError(block.error, block.status)
 
   try {
-    const result = await queries.communityFriendship.sendRequest(db, {
-      requesterId: ctx.userId,
-      addresseeId: targetUserId,
-    })
+    // `withD1Retry` (state 3): sendRequest is get-first (findActive) + backed by
+    // the `uq_friendship_active` unique index — a response-lost retry finds the
+    // existing row, and a concurrent double-insert hits the unique constraint,
+    // so it can't create a duplicate. Domain errors (blocked / already-friends /
+    // already-sent) aren't in the retry whitelist, so withD1Retry rethrows them
+    // straight into the catch below, unchanged.
+    const result = await withD1Retry(
+      () =>
+        queries.communityFriendship.sendRequest(db, {
+          requesterId: ctx.userId,
+          addresseeId: targetUserId,
+        }),
+      { route: "friends/request" },
+    )
     // The query owns supersede + card writes + broadcast payloads; the route
     // just relays them.
     for (const b of result.broadcasts) {

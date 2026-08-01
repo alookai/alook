@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { queries, WS_EVENTS } from "@alook/shared"
+import { queries, withD1Retry, WS_EVENTS } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeError } from "@/lib/middleware/helpers"
@@ -51,7 +51,12 @@ export const DELETE = withAuth(async (_req, ctx) => {
   // non-actionable "cancelled" chip — a hard delete would leave the card
   // pointing at a deleted row (clicks 409, card lingers until refetch).
   if (friendship.status === "pending" && friendship.needsOwnerApproval != null) {
-    const { row, broadcasts } = await queries.communityFriendship.cancelPendingRequest(db, id)
+    // `withD1Retry` (state 3): cancelPendingRequest is `UPDATE ... WHERE
+    // status='pending'` → a retry affects 0 rows (already cancelled), idempotent.
+    const { row, broadcasts } = await withD1Retry(
+      () => queries.communityFriendship.cancelPendingRequest(db, id),
+      { route: "friends/cancel" },
+    )
     if (row) {
       for (const b of broadcasts) broadcastToUserSafe(b.userId, b.event)
       logAudit(db, {
@@ -65,7 +70,10 @@ export const DELETE = withAuth(async (_req, ctx) => {
     return new NextResponse(null, { status: 204 })
   }
 
-  await queries.communityFriendship.removeFriend(db, id)
+  // `withD1Retry` (state 3): removeFriend is delete-by-key, idempotent.
+  await withD1Retry(() => queries.communityFriendship.removeFriend(db, id), {
+    route: "friends/remove",
+  })
 
   const otherUserId = friendship.requesterId === ctx.userId
     ? friendship.addresseeId
