@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { queries } from "@alook/shared"
+import { queries, withD1Retry } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withCommunityDaemonAuth } from "@/lib/middleware/community-daemon-auth"
 
@@ -16,6 +16,9 @@ import { withCommunityDaemonAuth } from "@/lib/middleware/community-daemon-auth"
  */
 export const GET = withCommunityDaemonAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
-  const bots = await queries.communityBot.listBotsForMachine(db, ctx.machineId)
+  // `withD1Retry` (D1-armor: no-fallback list read; retry to truth).
+  const bots = await withD1Retry(() => queries.communityBot.listBotsForMachine(db, ctx.machineId), {
+    route: "daemon/bots",
+  })
   return NextResponse.json({ bots })
 })

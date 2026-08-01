@@ -1,7 +1,7 @@
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, withD1Retry } from "@alook/shared"
 import { serverIconUrl } from "@/lib/community/storage"
 
 // Requires a logged-in caller: invite unfurls used to be public but that
@@ -13,7 +13,10 @@ export const GET = withAuth(async (_req, ctx) => {
 
   const db = getDb(ctx.env.DB)
 
-  const invite = await queries.communityInvite.getInviteByToken(db, token)
+  // `withD1Retry` (D1-armor: no-fallback read; retry to truth). Drives 404.
+  const invite = await withD1Retry(() => queries.communityInvite.getInviteByToken(db, token), {
+    route: "invites/info/lookup",
+  })
   if (!invite) return writeError("invite not found or expired", 404)
 
   const now = new Date().toISOString()
@@ -24,10 +27,14 @@ export const GET = withAuth(async (_req, ctx) => {
     return writeError("invite has reached max uses", 410)
   }
 
-  const server = await queries.communityServer.getServer(db, invite.serverId)
+  const { server, memberCount } = await withD1Retry(
+    async () => ({
+      server: await queries.communityServer.getServer(db, invite.serverId),
+      memberCount: await queries.communityMember.countMembers(db, invite.serverId),
+    }),
+    { route: "invites/info" },
+  )
   if (!server) return writeError("server not found", 404)
-
-  const memberCount = await queries.communityMember.countMembers(db, invite.serverId)
 
   return writeJSON({
     serverId: invite.serverId,

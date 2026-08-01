@@ -19,12 +19,9 @@ src/web/src/app/api/community/channelMember/route.ts
 src/web/src/app/api/community/channels/[id]/messages/route.ts
 src/web/src/app/api/community/channels/[id]/posts/route.ts
 src/web/src/app/api/community/daemon/activate/route.ts
-src/web/src/app/api/community/daemon/bots/route.ts
 src/web/src/app/api/community/daemon/enroll-agent/route.ts
-src/web/src/app/api/community/daemon/resync-wakes/route.ts
 src/web/src/app/api/community/dm/[id]/messages/route.ts
 src/web/src/app/api/community/friendRequest/route.ts
-src/web/src/app/api/community/invites/[token]/info/route.ts
 src/web/src/app/api/community/invites/[token]/join/route.ts
 src/web/src/app/api/community/invites/[token]/route.ts
 src/web/src/app/api/community/listChannels/route.ts
@@ -33,7 +30,6 @@ src/web/src/app/api/community/machines/[id]/route.ts
 src/web/src/app/api/community/machines/pair/route.ts
 src/web/src/app/api/community/machines/route.ts
 src/web/src/app/api/community/media/[...key]/route.ts
-src/web/src/app/api/community/messages/[id]/route.ts
 src/web/src/app/api/community/messages/[id]/threads/route.ts
 src/web/src/app/api/community/nap/route.ts
 src/web/src/app/api/community/read/route.ts
@@ -59,5 +55,4 @@ src/web/src/app/api/community/servers/[id]/route.ts
 src/web/src/app/api/community/servers/reorder/route.ts
 src/web/src/app/api/community/servers/route.ts
 src/web/src/app/api/community/threads/[id]/messages/route.ts
-src/web/src/app/api/community/threads/[id]/read/route.ts
 src/web/src/app/api/community/threads/[id]/route.ts

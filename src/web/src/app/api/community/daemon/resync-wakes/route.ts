@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { queries, dispatchOneUnreadWake } from "@alook/shared"
+import { queries, withD1Retry, dispatchOneUnreadWake } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withCommunityDaemonAuth } from "@/lib/middleware/community-daemon-auth"
 
@@ -24,11 +24,23 @@ import { withCommunityDaemonAuth } from "@/lib/middleware/community-daemon-auth"
  */
 export const POST = withCommunityDaemonAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
-  const bots = await queries.communityBot.listBotsForMachine(db, ctx.machineId)
+  // `withD1Retry` (D1-armor state 2, state-misleading read — this is one of the
+  // routes Gener saw 500 on a transient in dev.log): retry to the true bot list
+  // rather than 500 the whole resync.
+  const bots = await withD1Retry(() => queries.communityBot.listBotsForMachine(db, ctx.machineId), {
+    route: "resync-wakes/bots",
+  })
 
   let woken = 0
   for (const bot of bots) {
-    const latest = await queries.communityAgentInbox.getLatestUnreadMessageForAgent(db, bot.id)
+    // Per-bot unread read, retried to truth (state-misleading: a stale/failed
+    // read here would mis-decide the wake). A missed wake also self-heals on the
+    // next message to the channel (findWakeCandidates keeps the bot a standing
+    // candidate), so this is retry-to-truth, not silent-stale.
+    const latest = await withD1Retry(
+      () => queries.communityAgentInbox.getLatestUnreadMessageForAgent(db, bot.id),
+      { route: "resync-wakes/latest-unread" },
+    )
     if (!latest) continue
     const result = await dispatchOneUnreadWake(db, ctx.env, { messageId: latest.messageId, botUserId: bot.id })
     if (result.outcome === "sent") woken++

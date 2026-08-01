@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, withD1Retry } from "@alook/shared"
 import { requireChannelMember } from "@/lib/community/permissions"
 import { requireChildSurface } from "@/lib/community/channel-write-guard"
 
@@ -56,14 +56,22 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
   // watermark AND clear the thread's own mentions in one D1 batch (keyed on the
   // thread's channelId). Without the mention clear, opening a thread wouldn't
   // dismiss its mentions (plan gap #4).
-  await db.batch([
-    queries.communityReadState.markReadToMessageBuilder(db, {
-      userId: ctx.userId,
-      channelId,
-      message: target,
-    }),
-    queries.communityMention.markChannelMentionsReadBuilder(db, ctx.userId, channelId),
-  ])
+  // `withD1Retry` (D1-armor state 3): the mark-read + mention-clear batch is
+  // idempotent (set watermark + clear), safe to re-run — wrapped as ONE unit so
+  // the atomic batch retries whole (thread twin of the channels/[id]/read
+  // read-500 fix; this was the bare sibling flagged in the swallow-class audit).
+  await withD1Retry(
+    () =>
+      db.batch([
+        queries.communityReadState.markReadToMessageBuilder(db, {
+          userId: ctx.userId,
+          channelId,
+          message: target,
+        }),
+        queries.communityMention.markChannelMentionsReadBuilder(db, ctx.userId, channelId),
+      ]),
+    { route: "threads/read" },
+  )
 
   return writeJSON({ ok: true })
 })

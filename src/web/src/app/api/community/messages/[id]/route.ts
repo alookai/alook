@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, withD1Retry } from "@alook/shared"
 import { requireChannelMember, requireDMAccess } from "@/lib/community/permissions"
 import { groupAttachments, groupReactions } from "@/lib/community/messages"
 import { mapMessageForApi } from "@/lib/community/message-payload"
@@ -30,7 +30,10 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
 
   const db = getDb(ctx.env.DB)
 
-  const message = await queries.communityMessage.getMessage(db, messageId)
+  // `withD1Retry` (D1-armor: no-fallback read; retry to truth). Drives 404.
+  const message = await withD1Retry(() => queries.communityMessage.getMessage(db, messageId), {
+    route: "messages/get",
+  })
   if (!message) return writeError("message not found", 404)
 
   // A DM is a `type=dm` channel — gate accordingly. Every other channel type
@@ -46,17 +49,21 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
 
   // Hydrate attachments, reactions, and reply target — same shape as the
   // list endpoint. Run in parallel; all three depend only on `messageId`.
-  const [allAttachments, allReactions, replyMessages] = await Promise.all([
-    queries.communityAttachment.listByMessageIds(db, [messageId]),
-    queries.communityReaction.listReactionsByMessageIds(db, [messageId], ctx.userId),
-    message.replyToId
-      ? queries.communityMessage.getMessagesByIdsInScope(
-          db,
-          [message.replyToId],
-          { channelId: message.channelId },
-        )
-      : Promise.resolve([]),
-  ])
+  const [allAttachments, allReactions, replyMessages] = await withD1Retry(
+    () =>
+      Promise.all([
+        queries.communityAttachment.listByMessageIds(db, [messageId]),
+        queries.communityReaction.listReactionsByMessageIds(db, [messageId], ctx.userId),
+        message.replyToId
+          ? queries.communityMessage.getMessagesByIdsInScope(
+              db,
+              [message.replyToId],
+              { channelId: message.channelId },
+            )
+          : Promise.resolve([]),
+      ]),
+    { route: "messages/get/hydrate" },
+  )
 
   const attachmentsByMessage = groupAttachments(allAttachments)
   const reactionsByMessage = groupReactions(allReactions, ctx.userId)
