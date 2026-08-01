@@ -573,11 +573,14 @@ export async function getLatestMessageSeq(
 export async function getLatestMessage(
   db: Database,
   target: { channelId: string }
-): Promise<{ id: string; createdAt: string } | null> {
+): Promise<{ id: string; createdAt: string; seq: number } | null> {
   const rows = await db
     .select({
       id: communityMessage.id,
       createdAt: communityMessage.createdAt,
+      // `seq` so the human read-state writers can store `lastReadSeq` alongside
+      // `lastReadAt`/`lastReadMessageId` (ref/id read-model seq unification).
+      seq: communityMessage.seq,
     })
     .from(communityMessage)
     .where(eq(communityMessage.channelId, target.channelId))
@@ -601,7 +604,7 @@ export async function getLatestMessage(
 export async function getLatestMessagesByChannelIds(
   db: Database,
   channelIds: string[]
-): Promise<Array<{ channelId: string; id: string; createdAt: string }>> {
+): Promise<Array<{ channelId: string; id: string; createdAt: string; seq: number }>> {
   if (channelIds.length === 0) return [];
 
   // D1 caps a statement at 100 bound params. Chunk the `inArray` subquery — each
@@ -624,6 +627,9 @@ export async function getLatestMessagesByChannelIds(
         channelId: communityMessage.channelId,
         id: communityMessage.id,
         createdAt: communityMessage.createdAt,
+        // `seq` so `markAllServerChannelsRead` can store `lastReadSeq` per
+        // channel (ref/id read-model seq unification).
+        seq: communityMessage.seq,
       })
       .from(communityMessage)
       .innerJoin(
@@ -643,7 +649,7 @@ export async function getLatestMessagesByChannelIds(
   // exact `createdAt` (millisecond collisions on batched inserts). Pick the
   // greater id — mirrors the `desc(createdAt), desc(id)` order used by
   // `getLatestMessage` so single-vs-batched callers agree.
-  const bestByChannel = new Map<string, { channelId: string; id: string; createdAt: string }>();
+  const bestByChannel = new Map<string, { channelId: string; id: string; createdAt: string; seq: number }>();
   for (const r of rows) {
     if (!r.channelId) continue;
     const existing = bestByChannel.get(r.channelId);
@@ -652,6 +658,7 @@ export async function getLatestMessagesByChannelIds(
         channelId: r.channelId,
         id: r.id,
         createdAt: r.createdAt,
+        seq: r.seq,
       });
     }
   }

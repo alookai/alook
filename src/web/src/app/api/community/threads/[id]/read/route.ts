@@ -39,14 +39,14 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     // Body is optional
   }
 
-  let target: { id: string; createdAt: string } | null
+  let target: { id: string; createdAt: string; seq: number } | null
   if (body.lastReadMessageId) {
     const msg = await queries.communityMessage.getMessage(db, body.lastReadMessageId)
     if (!msg) return writeError("message not found", 404)
     if (msg.channelId !== channelId) {
       return writeError("message not in channel", 400)
     }
-    target = { id: msg.id, createdAt: msg.createdAt }
+    target = { id: msg.id, createdAt: msg.createdAt, seq: msg.seq }
   } else {
     target = await queries.communityMessage.getLatestMessage(db, { channelId })
     if (!target) return writeJSON({ ok: true })
