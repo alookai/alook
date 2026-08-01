@@ -530,7 +530,13 @@ export { isCommunityEvent, WS_EVENTS } from "./community-ws-events";
 // Database
 export { createDb } from "./db/index";
 export type { Database } from "./db/index";
-export { withD1Retry, readOrStale, isRetryableD1Error } from "./db/resilience";
+export {
+  withD1Retry,
+  readOrStale,
+  isRetryableD1Error,
+  idempotentWrite,
+  nonIdempotentWriteAllowed,
+} from "./db/resilience";
 export type { RetryOpts } from "./db/resilience";
 export * as schema from "./db/schema";
 export * as queries from "./db/queries-index";

@@ -108,6 +108,54 @@ export async function withD1Retry<T>(
   throw lastErr
 }
 
+/**
+ * Carrier for an IDEMPOTENT write (state 4a of the D1-armor convention): a
+ * write that is safe to retry because a resend of the SAME logical operation
+ * collapses onto the first via a dedup key, rather than double-applying.
+ *
+ * `dedupeKey` is a REQUIRED parameter, not decoration: the whole point of this
+ * carrier over a bare `withD1Retry` is that the type system refuses to let an
+ * append-only write be armored WITHOUT proving it has a dedup identity. A
+ * transient retry (or a client resend over a response-losing gateway) must land
+ * on the same key so the write dedups instead of inserting a duplicate row. The
+ * key must be the one that actually participates in the runtime dedup (e.g. the
+ * value written to `community_message.client_nonce`, hit by its partial unique
+ * index) — a key that doesn't reach the dedup path is a hollow gate.
+ *
+ * `dedupeKey` is not consumed here (the dedup happens in the wrapped write via
+ * its own unique constraint); it exists to make "an append-only write with no
+ * dedup identity" unrepresentable at the call site. Retries the same transient
+ * whitelist as `withD1Retry`.
+ */
+export async function idempotentWrite<T>(
+  args: { dedupeKey: string; route?: string },
+  fn: () => Promise<T>,
+): Promise<T> {
+  return withD1Retry(fn, { route: args.route })
+}
+
+/**
+ * Carrier for a NON-IDEMPOTENT write that we DELIBERATELY allow without a dedup
+ * key (state 4b): a write with no idempotency identity where blindly retrying a
+ * transient could double-apply (e.g. an unconditional insert / counter bump).
+ *
+ * By default this does NOT retry — that is the point. A non-idempotent write
+ * must not be auto-retried on a transient (it would risk a second apply); the
+ * caller accepts that a transient surfaces as an error rather than a silent
+ * double-write. `reason` is REQUIRED so every such exemption is explicit,
+ * grep-able, and reviewable (it is the deliberately-more-dangerous sibling of
+ * `idempotentWrite` — the name and the mandatory reason are the guardrail).
+ */
+export async function nonIdempotentWriteAllowed<T>(
+  args: { reason: string; route?: string },
+  fn: () => Promise<T>,
+): Promise<T> {
+  // Intentionally no retry: see the doc comment. `reason`/`route` document the
+  // exemption at the call site and in any future audit grep.
+  void args
+  return fn()
+}
+
 export async function readOrStale<T extends Record<string, unknown>>(
   fn: () => Promise<T>,
   fallback: T,

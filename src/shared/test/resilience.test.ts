@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { DrizzleQueryError } from "drizzle-orm/errors"
-import { withD1Retry, readOrStale, isRetryableD1Error } from "../src/db/resilience"
+import {
+  withD1Retry,
+  readOrStale,
+  isRetryableD1Error,
+  idempotentWrite,
+  nonIdempotentWriteAllowed,
+} from "../src/db/resilience"
 import { mockD1FailingUntil, makeD1Error } from "../src/db/resilience-testing"
 
 describe("withD1Retry", () => {
@@ -274,5 +280,60 @@ describe("readOrStale — TypeScript compile-time constraint", () => {
   it("rejects array T at compile time", () => {
     // @ts-expect-error — T must extend Record<string, unknown>; arrays are not allowed.
     void readOrStale<unknown[]>(async () => [], [])
+  })
+})
+
+describe("idempotentWrite (state 4a carrier)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.spyOn(console, "log").mockImplementation(() => {})
+    vi.spyOn(console, "error").mockImplementation(() => {})
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it("retries the transient whitelist (idempotent write is safe to re-run)", async () => {
+    const fn = vi.fn(mockD1FailingUntil(2, "ok", { errorSignature: "sqlite_busy" }))
+    const p = idempotentWrite({ dedupeKey: "srv:abc" }, fn)
+    await vi.runAllTimersAsync()
+    expect(await p).toBe("ok")
+    expect(fn).toHaveBeenCalledTimes(3)
+  })
+
+  it("does NOT retry a non-retryable (logic) error", async () => {
+    const fn = vi.fn().mockRejectedValue(makeD1Error("sqlite_constraint"))
+    await expect(idempotentWrite({ dedupeKey: "srv:abc" }, fn)).rejects.toBeInstanceOf(
+      DrizzleQueryError,
+    )
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
+
+  it("requires a dedupeKey at compile time", () => {
+    // @ts-expect-error — dedupeKey is mandatory: an append-only write may not be
+    // armored without proving it has a dedup identity.
+    void idempotentWrite({}, async () => "x")
+  })
+})
+
+describe("nonIdempotentWriteAllowed (state 4b carrier)", () => {
+  it("does NOT retry — a non-idempotent write must not be auto-re-run on a transient", async () => {
+    const fn = vi.fn().mockRejectedValueOnce(makeD1Error("internal_error")).mockResolvedValue("ok")
+    await expect(
+      nonIdempotentWriteAllowed({ reason: "createServer — no dedup identity" }, fn),
+    ).rejects.toBeInstanceOf(DrizzleQueryError)
+    // One attempt only: the transient surfaces rather than risking a double-apply.
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
+
+  it("passes through the value on success", async () => {
+    const fn = vi.fn().mockResolvedValue("done")
+    expect(await nonIdempotentWriteAllowed({ reason: "x" }, fn)).toBe("done")
+  })
+
+  it("requires a reason at compile time", () => {
+    // @ts-expect-error — reason is mandatory: every retry exemption must be explicit.
+    void nonIdempotentWriteAllowed({}, async () => "x")
   })
 })

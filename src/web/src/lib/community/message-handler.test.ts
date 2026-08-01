@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 
 const mockCreateMessage = vi.fn()
 const mockGetMessage = vi.fn()
+const mockGetMessageByAuthorAndNonce = vi.fn()
 const mockGetMessageInScope = vi.fn()
 const mockHardDeleteMessage = vi.fn()
 const mockGetUserInternal = vi.fn()
@@ -34,6 +35,7 @@ vi.mock("@alook/shared", async () => {
       communityMessage: {
         createMessage: (...a: unknown[]) => mockCreateMessage(...a),
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
+        getMessageByAuthorAndNonce: (...a: unknown[]) => mockGetMessageByAuthorAndNonce(...a),
         getMessageInScope: (...a: unknown[]) => mockGetMessageInScope(...a),
         hardDeleteMessage: (...a: unknown[]) => mockHardDeleteMessage(...a),
       },
@@ -1018,5 +1020,136 @@ describe("createCommunityMessage — attachment reservation-first flow (agent pa
       }),
     ])
     expect(mockUnreserveAttachments).not.toHaveBeenCalled()
+  })
+})
+
+describe("createCommunityMessage — 4a idempotency armor (srv: fallback + client nonce)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockCreateMessage.mockResolvedValue({ id: "msg_1" })
+    mockGetMessage.mockResolvedValue(messageRow())
+    mockGetUserInternal.mockResolvedValue({ id: "author_1", isBot: false, deletedAt: null })
+    mockFanOutToChannel.mockResolvedValue(undefined)
+    mockFanOutToDM.mockResolvedValue(undefined)
+    mockBroadcastToUser.mockResolvedValue(undefined)
+  })
+
+  it("no client nonce → server synthesizes a srv:-prefixed key and persists it (append-only stays dedup-protected)", async () => {
+    mockGetMessageByAuthorAndNonce.mockResolvedValue(null)
+
+    const result = await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+      body: { content: "hi" },
+    })
+
+    expect(result.ok).toBe(true)
+    // Pre-check ran against a srv: key (not skipped as it was pre-4a).
+    const lookupKey = mockGetMessageByAuthorAndNonce.mock.calls[0]?.[2] as string
+    expect(lookupKey).toMatch(/^srv:[0-9a-f]{64}$/)
+    // The SAME srv: key is persisted to client_nonce so a replay dedups on it.
+    expect(mockCreateMessage).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({ clientNonce: lookupKey }),
+    )
+  })
+
+  it("srv: key is stable for identical (author, channel, content, replyTo) — a replay hits the same key", async () => {
+    mockGetMessageByAuthorAndNonce.mockResolvedValue(null)
+    const call = () =>
+      createCommunityMessage({
+        db: {} as never,
+        authorId: "author_1",
+        target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+        body: { content: "same text" },
+      })
+    await call()
+    await call()
+    const k1 = mockGetMessageByAuthorAndNonce.mock.calls[0]?.[2]
+    const k2 = mockGetMessageByAuthorAndNonce.mock.calls[1]?.[2]
+    expect(k1).toBe(k2)
+  })
+
+  it("different content → different srv: key (distinct sends don't collide)", async () => {
+    mockGetMessageByAuthorAndNonce.mockResolvedValue(null)
+    const send = (content: string) =>
+      createCommunityMessage({
+        db: {} as never,
+        authorId: "author_1",
+        target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+        body: { content },
+      })
+    await send("first")
+    await send("second")
+    expect(mockGetMessageByAuthorAndNonce.mock.calls[0]?.[2]).not.toBe(
+      mockGetMessageByAuthorAndNonce.mock.calls[1]?.[2],
+    )
+  })
+
+  it("two DISTINCT attachment-only sends (empty content, different attachments, no nonce) do NOT collapse — the fingerprint covers attachment identity", async () => {
+    // Regression: empty content + attachments is legitimate; without attachment
+    // identity in the fingerprint, two different images would fingerprint-collide
+    // and the second silently collapse as a "replay" — a dropped message
+    // (never-drop red line). The fingerprint must fall toward double-write, never
+    // silent collapse.
+    mockGetMessageByAuthorAndNonce.mockResolvedValue(null)
+    const sendImage = (url: string) =>
+      createCommunityMessage({
+        db: {} as never,
+        authorId: "author_1",
+        target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+        body: {
+          content: "",
+          attachments: [
+            { url, filename: "img.png", contentType: "image/png", size: 10 },
+          ],
+        },
+      })
+    await sendImage("/api/community/media/channel/c1/img-A.png")
+    await sendImage("/api/community/media/channel/c1/img-B.png")
+    // Distinct attachments → distinct srv: keys → neither is a false replay.
+    expect(mockGetMessageByAuthorAndNonce.mock.calls[0]?.[2]).not.toBe(
+      mockGetMessageByAuthorAndNonce.mock.calls[1]?.[2],
+    )
+  })
+
+  it("same attachment-only send replayed (same attachment, empty content, no nonce) DOES dedup — real replay still protected", async () => {
+    mockGetMessageByAuthorAndNonce.mockResolvedValue(null)
+    const sendSameImage = () =>
+      createCommunityMessage({
+        db: {} as never,
+        authorId: "author_1",
+        target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+        body: {
+          content: "",
+          attachments: [
+            { url: "/api/community/media/channel/c1/img-A.png", filename: "img.png", contentType: "image/png", size: 10 },
+          ],
+        },
+      })
+    await sendSameImage()
+    await sendSameImage()
+    // Identical attachment set → identical srv: key → a real replay dedups.
+    expect(mockGetMessageByAuthorAndNonce.mock.calls[0]?.[2]).toBe(
+      mockGetMessageByAuthorAndNonce.mock.calls[1]?.[2],
+    )
+  })
+
+  it("a client-supplied nonce is used as-is (no srv: prefix) and short-circuits a matched replay", async () => {
+    mockGetMessageByAuthorAndNonce.mockResolvedValue(messageRow({ id: "orig" }))
+
+    const result = await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+      body: { content: "hi" },
+      clientNonce: "client-uuid-123",
+    })
+
+    expect(mockGetMessageByAuthorAndNonce).toHaveBeenCalledWith({}, "author_1", "client-uuid-123")
+    expect(result.ok && result.deduped).toBe(true)
+    // Deduped replay: no new insert.
+    expect(mockCreateMessage).not.toHaveBeenCalled()
   })
 })

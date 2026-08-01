@@ -9,6 +9,7 @@ import {
   MENTION_KIND,
   createLogger,
   isUniqueConstraintError,
+  idempotentWrite,
 } from "@alook/shared"
 import type { MentionType } from "@alook/shared"
 import type { Database } from "@alook/shared"
@@ -19,6 +20,62 @@ import { mediaUrlFromKey } from "./storage"
 import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "./audit"
 
 const log = createLogger({ service: "community-message-handler" })
+
+/**
+ * Server-synthesized idempotency key for a send that arrived WITHOUT a client
+ * nonce (state 4a fallback). `createCommunityMessage` is an append-only write:
+ * a resend of the same logical message over a response-losing gateway would
+ * otherwise double-write, because the dedup partial index only fires when
+ * `client_nonce IS NOT NULL`. Our own clients (web composer + bot CLI) always
+ * send a nonce, so this fallback is for third-party / nonce-less clients only.
+ *
+ * The key is a `srv:`-prefixed content fingerprint over (author, channel,
+ * content, replyTo). The `srv:` namespace can't collide with a real client
+ * nonce (those are bare UUIDs), so a nonce-less resend and a with-nonce send
+ * never dedup into each other. NO time component: a response-lost replay lands
+ * seconds-to-minutes after the original and must hit the SAME key regardless of
+ * interval; a time window in the key would let the replay miss and double-write
+ * (the window belongs to GC of old nonce rows, not to key equality).
+ *
+ * The fingerprint MUST cover attachment identity, not just text: a send with
+ * empty content + attachments is legitimate, so two distinct attachment-only
+ * sends (different images, no text, no replyTo) would otherwise fingerprint
+ * identically and the second would be silently collapsed as a "replay" — a
+ * dropped message. So `attachmentKeys` (human upload URLs or agent pending ids)
+ * are folded in; a real replay carries the same attachments and still dedups.
+ *
+ * Tradeoff (ratified): two DISTINCT sends with identical (author, channel,
+ * content, replyTo, attachments) and no client nonce collapse to one.
+ * Distinguishing a replay from an intentional duplicate is only possible with a
+ * per-send client token (a nonce); a content fingerprint provably cannot. Our
+ * clients send nonces (intentional duplicates get distinct nonces and pass
+ * through), so this only bites a nonce-less client, accepted as a rare-fallback
+ * known edge.
+ */
+async function deriveServerNonce(input: {
+  authorId: string
+  channelId: string
+  content: string
+  replyToId: string | undefined
+  attachmentKeys: string[]
+}): Promise<string> {
+  const material = [
+    input.authorId,
+    input.channelId,
+    input.content,
+    input.replyToId ?? "",
+    // Attachment identity, order-independent, so two distinct attachment-only
+    // sends don't fingerprint-collide (see doc comment). A replay carries the
+    // same set → same joined value → still dedups.
+    [...input.attachmentKeys].sort().join(","),
+  ].join("|")
+  const bytes = new TextEncoder().encode(material)
+  const digest = await crypto.subtle.digest("SHA-256", bytes)
+  const hex = Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")
+  return `srv:${hex}`
+}
 
 export type MessageTarget =
   | { kind: "channel"; channelId: string; serverId: string }
@@ -286,17 +343,41 @@ export async function createCommunityMessage(params: {
     return { ok: false, status: 400, error: "content or attachments required" }
   }
 
-  // Idempotency pre-check (mutation-idempotency plan): a resend carrying a
-  // nonce this author already committed must NOT claim a new seq or re-fire WS
-  // fan-out. Look it up BEFORE the seq claim and short-circuit with the
-  // original row. Absent nonce = today's behavior (no lookup at all). The
-  // race where two concurrent first-sends both pass this check is caught at
-  // insert time by the partial-unique-index handler below.
-  if (clientNonce !== undefined) {
+  // Idempotency key (mutation-idempotency plan + 4a armor). A client-supplied
+  // `clientNonce` is used as-is; when the client sends none, the server
+  // synthesizes a `srv:`-prefixed content fingerprint so an append-only send is
+  // STILL dedup-protected (see `deriveServerNonce`), closing the "nonce optional
+  // -> no dedup -> response-lost replay double-writes" hole. Both flow through
+  // the SAME `(author_id, client_nonce)` partial index, so the pre-check and the
+  // insert-time handler below both cover the fallback.
+  const effectiveNonce =
+    clientNonce ??
+    (await deriveServerNonce({
+      authorId,
+      channelId: target.channelId,
+      content,
+      replyToId:
+        typeof body.replyToId === "string" ? body.replyToId : undefined,
+      // Both attachment paths are in scope here and identify the payload:
+      // human sends carry upload URLs (`body.attachments[].url`), agent sends
+      // carry pre-reserved pending ids (`attachmentIds`). Either distinguishes
+      // two otherwise-identical attachment-only sends.
+      attachmentKeys: [
+        ...(incomingAttachments?.map((a) => a.url) ?? []),
+        ...(attachmentIds ?? []),
+      ],
+    }))
+
+  // Idempotency pre-check: a resend whose key this author already committed must
+  // NOT claim a new seq or re-fire WS fan-out. Look it up BEFORE the seq claim
+  // and short-circuit with the original row. The race where two concurrent
+  // first-sends both pass this check is caught at insert time by the
+  // partial-unique-index handler below.
+  {
     const existing = await queries.communityMessage.getMessageByAuthorAndNonce(
       db,
       authorId,
-      clientNonce,
+      effectiveNonce,
     )
     if (existing) {
       return { ok: true, row: existing, attachments: [], deduped: true }
@@ -359,7 +440,11 @@ export async function createCommunityMessage(params: {
     replyToId,
     mentionType,
     ...(messageType !== undefined ? { type: messageType } : {}),
-    ...(clientNonce !== undefined ? { clientNonce } : {}),
+    // Always persist the EFFECTIVE nonce (client-supplied or the srv: content
+    // fingerprint) so the append-only write is dedup-protected either way. The
+    // pre-check above already short-circuited an exact-key replay; this is what
+    // the partial unique index enforces on the insert-race path.
+    clientNonce: effectiveNonce,
     ...(extraStatements !== undefined ? { extraStatements } : {}),
   }
 
@@ -379,24 +464,36 @@ export async function createCommunityMessage(params: {
   // pass-through branches explicitly instead of spreading `expectedSeq` in.
   let created: Awaited<ReturnType<typeof queries.communityMessage.createMessage>>
   try {
+    // 4a armor. The non-CAS insert is an idempotent append-only write: it's
+    // dedup-protected by `effectiveNonce` on the `(author_id, client_nonce)`
+    // partial index, so a transient retry (or a response-lost resend) collapses
+    // onto the first row instead of double-writing — `idempotentWrite` requires
+    // that dedup key by type. The CAS path (`expectedSeq`, agent-send race fix)
+    // is DELIBERATELY left un-retried: blindly re-running a CAS claim on a
+    // transient could re-attempt a partially-applied seq claim, so it keeps its
+    // bare call (same rationale as the agent `send` route).
     created =
       expectedSeq !== undefined
         ? await queries.communityMessage.createMessage(db, { ...baseMessageData, expectedSeq })
-        : await queries.communityMessage.createMessage(db, baseMessageData)
+        : await idempotentWrite(
+            { dedupeKey: effectiveNonce, route: "community/message-create" },
+            () => queries.communityMessage.createMessage(db, baseMessageData),
+          )
   } catch (err) {
     // Insert-time idempotency race: two concurrent first-sends with the same
     // nonce both cleared the pre-check above, then one lost to the partial
     // unique index `uq_message_author_client_nonce` on INSERT. Recover by
     // re-fetching the winner's row and returning it as a deduped replay — same
     // shape as the pre-check hit. The re-fetch is what narrows this to the
-    // NONCE constraint specifically: any OTHER unique violation (or an insert
-    // with no nonce) finds no matching row, so we rethrow the original error
-    // untouched. Only enter this branch when a nonce was actually supplied.
-    if (clientNonce !== undefined && isUniqueConstraintError(err)) {
+    // NONCE constraint specifically: any OTHER unique violation finds no
+    // matching row, so we rethrow the original error untouched. `effectiveNonce`
+    // is always set now (client nonce or srv: fingerprint), so the srv: fallback
+    // gets the same insert-race recovery.
+    if (isUniqueConstraintError(err)) {
       const existing = await queries.communityMessage.getMessageByAuthorAndNonce(
         db,
         authorId,
-        clientNonce,
+        effectiveNonce,
       )
       if (existing) {
         return { ok: true, row: existing, attachments: [], deduped: true }

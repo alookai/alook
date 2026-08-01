@@ -7,6 +7,7 @@ const mockCreateChannel = vi.fn()
 const mockDedupeChildChannelSlug = vi.fn(async (_db: unknown, _parent: unknown, slug: string) => slug)
 const mockCreateMessage = vi.fn()
 const mockGetMessage = vi.fn()
+const mockGetMessageByAuthorAndNonce = vi.fn()
 const mockGetUserSelf = vi.fn()
 const mockGetUserInternal = vi.fn()
 const mockFanOutToChannel = vi.fn()
@@ -40,6 +41,7 @@ vi.mock("@alook/shared", async () => {
       communityMessage: {
         createMessage: (...a: unknown[]) => mockCreateMessage(...a),
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
+        getMessageByAuthorAndNonce: (...a: unknown[]) => mockGetMessageByAuthorAndNonce(...a),
         getFirstMessageByChannelIds: (...a: unknown[]) => mockGetFirstMessageByChannelIds(...a),
       },
       communityMember: {
