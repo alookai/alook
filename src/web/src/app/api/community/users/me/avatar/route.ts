@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server"
-import { queries } from "@alook/shared"
+import { queries, withD1Retry } from "@alook/shared"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
@@ -12,7 +12,10 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   const db = getDb(ctx.env.DB)
   const url = userAvatarUrl(ctx.userId)
-  await queries.user.updateUser(db, ctx.userId, { image: url })
+  // `withD1Retry` (D1-armor state 3): set-image is idempotent (same url), retry.
+  await withD1Retry(() => queries.user.updateUser(db, ctx.userId, { image: url }), {
+    route: "users/me/avatar",
+  })
 
   return writeJSON({ url })
 })

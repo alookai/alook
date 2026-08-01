@@ -1,4 +1,4 @@
-import { queries, WS_EVENTS } from "@alook/shared"
+import { queries, withD1Retry, WS_EVENTS } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
@@ -14,13 +14,21 @@ export const POST = withAuth(async (_req, ctx) => {
   if (!targetId) return writeError("userId is required", 400)
   if (targetId === ctx.userId) return writeError("cannot block yourself", 400)
 
-  const target = await queries.user.getUserPublic(db, targetId)
+  const target = await withD1Retry(() => queries.user.getUserPublic(db, targetId), {
+    route: "users/block/target",
+  })
   if (!target) return writeError("user not found", 404)
 
-  const result = await queries.communityFriendship.block(db, {
-    blockerId: ctx.userId,
-    targetId,
-  })
+  // `withD1Retry` (D1-armor state 3, idempotent write): block is set-to-blocked
+  // (re-running lands the same blocked state), safe to retry on a transient.
+  const result = await withD1Retry(
+    () =>
+      queries.communityFriendship.block(db, {
+        blockerId: ctx.userId,
+        targetId,
+      }),
+    { route: "users/block" },
+  )
 
   broadcastToUserSafe(targetId, {
     type: WS_EVENTS.FRIEND_BLOCK,

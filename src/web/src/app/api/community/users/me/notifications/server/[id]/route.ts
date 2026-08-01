@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server"
-import { queries, NOTIFICATION_LEVEL_VALUES } from "@alook/shared"
+import { queries, withD1Retry, NOTIFICATION_LEVEL_VALUES } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
@@ -24,11 +24,16 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     return writeError(`level must be one of: ${NOTIFICATION_LEVEL_VALUES.join(", ")}`, 400)
   }
 
-  const setting = await queries.communityNotificationSetting.setServerLevel(db, {
-    userId: ctx.userId,
-    serverId,
-    level: body.level,
-  })
+  // `withD1Retry` (D1-armor state 3): set-level is idempotent (upsert to value).
+  const setting = await withD1Retry(
+    () =>
+      queries.communityNotificationSetting.setServerLevel(db, {
+        userId: ctx.userId,
+        serverId,
+        level: body.level,
+      }),
+    { route: "users/me/notifications/server/set" },
+  )
 
   return writeJSON(setting)
 })

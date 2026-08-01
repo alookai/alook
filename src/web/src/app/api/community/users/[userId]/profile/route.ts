@@ -1,4 +1,4 @@
-import { queries } from "@alook/shared"
+import { queries, withD1Retry } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
@@ -9,16 +9,23 @@ export const GET = withAuth(async (_req, ctx) => {
 
   const db = getDb(ctx.env.DB)
 
-  // Get target user basic info
-  const targetUser = await queries.user.getUserPublic(db, id)
+  // Get target user basic info. `withD1Retry` (D1-armor: no-fallback profile
+  // read) — retry a transient to the true value rather than 500; drives 404.
+  const targetUser = await withD1Retry(() => queries.user.getUserPublic(db, id), {
+    route: "users/profile/target",
+  })
   if (!targetUser) return writeError("user not found", 404)
 
-  // Get profile data
-  const profile = await queries.communityUserProfile.getProfile(db, id)
-
-  // Find mutual servers (servers where both viewer and target are members)
-  const viewerServerIds = await queries.communityMember.listMemberServerIds(db, ctx.userId)
-  const targetServerIds = await queries.communityMember.listMemberServerIds(db, id)
+  // Profile + mutual-server reads, retried as one unit (all reads, no side
+  // effects) so a transient blip doesn't 500 a profile view.
+  const { profile, viewerServerIds, targetServerIds } = await withD1Retry(
+    async () => ({
+      profile: await queries.communityUserProfile.getProfile(db, id),
+      viewerServerIds: await queries.communityMember.listMemberServerIds(db, ctx.userId),
+      targetServerIds: await queries.communityMember.listMemberServerIds(db, id),
+    }),
+    { route: "users/profile" },
+  )
 
   const viewerSet = new Set(viewerServerIds)
   const mutualServers = targetServerIds.filter((sid) => viewerSet.has(sid)).length

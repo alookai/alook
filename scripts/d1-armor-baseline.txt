@@ -86,11 +86,3 @@ src/web/src/app/api/community/servers/route.ts
 src/web/src/app/api/community/threads/[id]/messages/route.ts
 src/web/src/app/api/community/threads/[id]/read/route.ts
 src/web/src/app/api/community/threads/[id]/route.ts
-src/web/src/app/api/community/users/[userId]/block/route.ts
-src/web/src/app/api/community/users/[userId]/profile/route.ts
-src/web/src/app/api/community/users/[userId]/unblock/route.ts
-src/web/src/app/api/community/users/me/avatar/route.ts
-src/web/src/app/api/community/users/me/notifications/channel/[id]/route.ts
-src/web/src/app/api/community/users/me/notifications/route.ts
-src/web/src/app/api/community/users/me/notifications/server/[id]/route.ts
-src/web/src/app/api/community/users/me/profile/route.ts

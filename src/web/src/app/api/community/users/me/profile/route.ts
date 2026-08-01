@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import {
   queries,
+  withD1Retry,
   MAX_PROFILE_ABOUT_LENGTH,
   MAX_STATUS_TEXT_LENGTH,
   MAX_EMOJI_BYTES,
@@ -16,10 +17,17 @@ import { fanOutStatusUpdate, fanOutToServerMembers } from "@/lib/community/fanou
 
 export const GET = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
-  const [profile, viewer] = await Promise.all([
-    queries.communityUserProfile.getProfile(db, ctx.userId),
-    queries.user.getUserSelf(db, ctx.userId),
-  ])
+  // `withD1Retry` (D1-armor: no-fallback self-profile read — the app-load
+  // profile fetch Gener saw 500 on a transient in dev.log). Retry to the true
+  // value rather than 500; both reads wrapped as one unit.
+  const [profile, viewer] = await withD1Retry(
+    () =>
+      Promise.all([
+        queries.communityUserProfile.getProfile(db, ctx.userId),
+        queries.user.getUserSelf(db, ctx.userId),
+      ]),
+    { route: "users/me/profile/get" },
+  )
   return writeJSON({
     aboutMe: profile?.aboutMe ?? "",
     bannerColor: profile?.bannerColor ?? null,
@@ -161,7 +169,12 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     data.statusEmoji !== undefined ||
     data.statusText !== undefined
   ) {
-    updated = await queries.communityUserProfile.updateProfile(db, ctx.userId, data)
+    // `withD1Retry` (D1-armor state 3): updateProfile sets fields to values,
+    // idempotent, safe to retry on a transient.
+    updated = await withD1Retry(
+      () => queries.communityUserProfile.updateProfile(db, ctx.userId, data),
+      { route: "users/me/profile/update" },
+    )
   }
 
   // Fan out only when a status field was actually part of this patch — a
