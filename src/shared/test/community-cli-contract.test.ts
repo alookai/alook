@@ -8,6 +8,9 @@ import {
   parseRefToken,
   formatRefToken,
   sanitizeLabel,
+  compactLabel,
+  formatRefLabel,
+  stripRefTokens,
 } from "../src/community-cli-contract";
 
 describe("parseRef", () => {
@@ -310,5 +313,67 @@ describe("ref token {label}(type/id) — shared parser (ref/id §3, reused by we
     expect(sanitizeLabel("/Alook/plan}b")).toBe("/Alook/plan_b");
     expect(formatRefToken({ label: "/Alook/plan}b", type: "channel", id: "c1" }))
       .toBe("{/Alook/plan_b}(channel/c1)");
+  });
+});
+
+describe("compactLabel", () => {
+  it("takes the last path segment", () => {
+    expect(compactLabel("/Alook/general")).toBe("general");
+    expect(compactLabel("/Alook/general#42")).toBe("general#42");
+    expect(compactLabel("/Alook")).toBe("Alook");
+  });
+  it("trims a trailing slash and falls back to the whole label when there's no /", () => {
+    expect(compactLabel("/Alook/general/")).toBe("general");
+    expect(compactLabel("plain")).toBe("plain");
+  });
+});
+
+describe("formatRefLabel — compact leaf + type sigil (ref/id PR-9)", () => {
+  // The `/` prefix (not `#`) matches the app's `/server/channel` path grammar and
+  // the body pill's slash glyph (Gener #305/#308, Faustine #314): app-internal
+  // consistency over the Discord `#channel` habit.
+  it("channel → /<leaf>", () => {
+    expect(formatRefLabel("channel", "/Alook/general")).toBe("/general");
+  });
+  it("server → /<leaf> (same path style as channel)", () => {
+    expect(formatRefLabel("server", "/Alook")).toBe("/Alook");
+  });
+  it("message → #<seq> (the trailing #N of the full-path label — seq grammar, not a channel sigil)", () => {
+    expect(formatRefLabel("message", "/Alook/general#42")).toBe("#42");
+    expect(formatRefLabel("message", "/Alook/general/#5#42")).toBe("#42");
+  });
+  it("message with no # in the label falls back to the compact leaf", () => {
+    expect(formatRefLabel("message", "/Alook/general")).toBe("general");
+  });
+});
+
+describe("stripRefTokens — plaintext preview formatter (ref/id PR-9)", () => {
+  it("replaces each token with its compact display label", () => {
+    expect(stripRefTokens("see {/Alook/general}(channel/K9f_rnJk) now")).toBe("see /general now");
+    expect(stripRefTokens("in {/Alook}(server/srv_x)")).toBe("in /Alook");
+    expect(stripRefTokens("re {/Alook/general#42}(message/m_ab)")).toBe("re #42");
+  });
+  it("handles multiple tokens in one string", () => {
+    expect(stripRefTokens("{/A/x}(channel/c1) and {/A/y}(channel/c2)")).toBe("/x and /y");
+  });
+  it("leaves plain text (and a non-token) untouched", () => {
+    expect(stripRefTokens("just words")).toBe("just words");
+    expect(stripRefTokens("{/x}(user/u_1)")).toBe("{/x}(user/u_1)"); // non-whitelisted type: not a token
+  });
+
+  // BINARY INVARIANT (Aigneis #286/#290, Blondie #290): a plaintext surface must
+  // NEVER expose the authoritative `(type/id)` half of a token — raw ids are not
+  // for humans (#66). This is the CI backstop for "which surface leaked".
+  it("output never contains a raw (channel|message|server)/<id> residue", () => {
+    const RAW_ID = /\((?:channel|message|server)\/[A-Za-z0-9_-]+\)/;
+    const inputs = [
+      "see {/Alook/general}(channel/K9f_rnJk)",
+      "{/Alook}(server/srv_x) and {/Alook/general#42}(message/m_ab)",
+      "prefix {/总部-🎉/架构}(channel/nfvEw1) suffix",
+      "{/A/x}(channel/c1){/A/y}(channel/c2)",
+    ];
+    for (const raw of inputs) {
+      expect(RAW_ID.test(stripRefTokens(raw))).toBe(false);
+    }
   });
 });

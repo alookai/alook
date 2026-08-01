@@ -75,6 +75,15 @@ describe("stripInlineMarkup", () => {
   it("drops a @mention discriminator but keeps unicode names", () => {
     expect(stripInlineMarkup("hi @李四#0042 there")).toBe("hi @李四 there");
   });
+
+  it("compacts a {}() ref token to its labelled leaf (never the raw (type/id))", () => {
+    // ref/id PR-9: stripInlineMarkup now runs stripRefTokens first, so a body
+    // preview / derived title never shows the raw token.
+    expect(stripInlineMarkup("see {/Alook/general}(channel/K9f_rnJk) now")).toBe("see /general now");
+    expect(stripInlineMarkup("in {/Alook}(server/srv_x)")).toBe("in /Alook");
+    expect(stripInlineMarkup("re {/Alook/general#42}(message/m_ab)")).toBe("re #42");
+    expect(stripInlineMarkup("{/Alook/general}(channel/c1)")).not.toMatch(/\(channel\/[A-Za-z0-9_-]+\)/);
+  });
 });
 
 describe("deriveThreadName", () => {

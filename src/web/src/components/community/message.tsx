@@ -19,7 +19,7 @@ import { formatMessageTime } from "./format-time"
 import { tid } from "@/lib/community/testids"
 import { avatarInitial } from "@/lib/community/avatar"
 import { displayName } from "@/lib/community/display-name"
-import { stripInlineMarkup } from "@alook/shared"
+import { stripInlineMarkup, stripRefTokens } from "@alook/shared"
 import type { RenderMsg, OpenProfile } from "./_types"
 
 // Fallback ratio for an attachment image with no known dimensions
@@ -99,7 +99,9 @@ function MessageImpl({
     return (
       <div className="flex items-center gap-2 px-2 py-1 text-sm text-muted-foreground">
         <Icon className="size-4 shrink-0" />
-        <span className="min-w-0 wrap-break-word">{m.content}</span>
+        {/* System bodies embed derived names (thread/forum) that may contain a
+            ref token — strip to the compact label so it never shows raw `{}()`. */}
+        <span className="min-w-0 wrap-break-word">{stripRefTokens(m.content ?? "")}</span>
         <span className="shrink-0 text-xs" suppressHydrationWarning>{formatMessageTime(m.createdAt)}</span>
       </div>
     )

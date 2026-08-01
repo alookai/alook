@@ -2,6 +2,7 @@
 
 import { memo } from "react"
 import { Users, Ban, Monitor, Bot } from "lucide-react"
+import { stripRefTokens } from "@alook/shared"
 import { Avatar } from "./avatar"
 import { Skeleton } from "@/components/ui/skeleton"
 import { tid } from "@/lib/community/testids"
@@ -82,7 +83,10 @@ export const DmSidebar = memo(function DmSidebar({
               <Avatar label={d.avatar} seed={d.userId} size={32} presence={isBlocked ? undefined : d.status} ringColor="var(--sidebar)" />
               <div className="min-w-0 flex-1 text-left">
                 <div className="truncate text-sm leading-tight text-foreground">{d.name}</div>
-                <div className="truncate text-xs leading-tight text-muted-foreground">{d.preview}</div>
+                {/* preview is empty today (server returns ""), but strip ref tokens
+                    at the render point so if a last-message preview is ever wired
+                    in it can't leak a raw `{}()` token (ref/id §3 invariant). */}
+                <div className="truncate text-xs leading-tight text-muted-foreground">{stripRefTokens(d.preview)}</div>
               </div>
               {isBlocked && <Ban className="size-4 shrink-0 text-destructive" />}
               {!isBlocked && d.unread && <span className="size-2 shrink-0 rounded-full bg-primary" />}

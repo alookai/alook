@@ -1305,6 +1305,67 @@ export function parseRefToken(raw: string): RefToken | null {
   return { label: m[1]!, type: m[2] as RefTokenType, id: m[3]! };
 }
 
+// Compact readable form of a full-path label: the last path segment (channel /
+// post / server name). `/Alook/general` → `general`. Trailing slashes trimmed;
+// falls back to the whole label if there's no `/`. Pure string op, zero deps —
+// the SINGLE source shared by the body pill (`ref-token-pill.tsx` re-exports it)
+// and the plaintext previews (`stripRefTokens` below). Why the leaf, not the
+// full path: a preview/pill always renders in a known server/DM context, so the
+// server segment is redundant; the full path is the self-describing form kept in
+// the token itself for out-of-context uses (copy-out, logs).
+export function compactLabel(label: string): string {
+  const trimmed = label.replace(/\/+$/, "");
+  const seg = trimmed.slice(trimmed.lastIndexOf("/") + 1);
+  return seg || label;
+}
+
+// The display form of a ref token in a NON-navigating text/preview context:
+// compact leaf label + a type sigil. This is the sigil SINGLE SOURCE. Mapping:
+//   channel → `/<leaf>`      (`{/Alook/general}(channel/…)`      → `/general`)
+//             thread / forum-post bearing surfaces are channel-class too and
+//             read the same `/<leaf>` in a preview — no thread/post distinction
+//             is needed at this altitude.
+//   server  → `/<leaf>`      (`{/Alook}(server/…)`               → `/Alook`)
+//   message → `#<seq>`       (`{/Alook/general#42}(message/…)`   → `#42`)
+//             the label's trailing `#N` is the seq; "which message" is enough in
+//             a preview that already sits in the referenced channel's context.
+//
+// The `/` prefix (NOT `#`) is deliberate: this app addresses everything by the
+// `/server/channel` PATH grammar, and the body pill's channel glyph is itself a
+// `/` slash (`channel-icon.tsx`). A `#<name>` here (the Discord convention) was
+// the ONE symbol that disagreed with both — Gener flagged it (#305/#308), the
+// team ruled `/` (Faustine #314): app-internal consistency beats the external
+// `#channel` habit. `message`'s `#<seq>` stays — that `#N` is the seq grammar
+// (`/server/channel#N`), not a channel sigil, and the body pill shows it the
+// same way (`general #42`). No `user` branch — a user reference is an
+// `@mention`, a separate grammar, not a ref token (`RefTokenType` is
+// channel|message|server only).
+export function formatRefLabel(type: RefTokenType, label: string): string {
+  if (type === "server") return `/${compactLabel(label)}`;
+  if (type === "message") {
+    // The seq lives after the LAST `#` in the full-path label (`/s/c#42`,
+    // `/s/c/#5#42`). Fall back to the compact leaf if there's no `#`.
+    const hash = label.lastIndexOf("#");
+    return hash >= 0 ? `#${label.slice(hash + 1)}` : compactLabel(label);
+  }
+  // channel (incl. thread / forum-post bearing surfaces)
+  return `/${compactLabel(label)}`;
+}
+
+// Replace every `{label}(type/id)` token embedded in a string with its compact
+// display label (`formatRefLabel`), so a plaintext surface — a preview, a
+// derived title, a server-built snippet — shows `#general` instead of the raw
+// `{/Alook/general}(channel/K9f_rnJk)`. This is the plaintext counterpart to the
+// body pill: the renderer turns the token into a pill, this turns it into a
+// readable label. INVARIANT (ref/id, Aigneis): the output never contains the
+// authoritative `(type/id)` half — raw ids are not for humans (id-unreadable,
+// #66). Global scan (own regex clone, no shared `lastIndex`).
+export function stripRefTokens(text: string): string {
+  return text.replace(refTokenGlobalRe(), (_full, label: string, type: string) =>
+    formatRefLabel(type as RefTokenType, label),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Downlink (server → daemon) command validation
 // ---------------------------------------------------------------------------

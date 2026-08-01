@@ -9,6 +9,7 @@ import {
   MESSAGE_PREVIEW_LENGTH,
   WS_EVENTS,
   slugify,
+  stripRefTokens,
 } from "@alook/shared"
 import { fanOutToChannel } from "@/lib/community/fanout"
 import { requireChannelMember, requireChannelAccess } from "@/lib/community/permissions"
@@ -78,7 +79,9 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     // creator can be null if the user was deleted (channel.creatorId has ON DELETE SET NULL).
     const authorName = creator ? creator.name : ""
     const authorAvatar = creator?.image ?? avatarInitial(authorName)
-    const preview = (previewMap.get(t.id) ?? "").slice(0, MESSAGE_PREVIEW_LENGTH)
+    // Strip ref tokens BEFORE slicing so `{…}(channel/id)` becomes `#name` (never
+    // a raw token, and never a token cut mid-string by the length cap).
+    const preview = stripRefTokens(previewMap.get(t.id) ?? "").slice(0, MESSAGE_PREVIEW_LENGTH)
     return {
       id: t.id,
       name: t.name,
@@ -209,11 +212,11 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       // shows reply count, so a freshly created post reads 0.
       messageCount: 0,
       lastMessageAt: message.createdAt,
-      parent: { authorName, text: content.slice(0, MESSAGE_PREVIEW_LENGTH) },
+      parent: { authorName, text: stripRefTokens(content).slice(0, MESSAGE_PREVIEW_LENGTH) },
       authorId: ctx.userId,
       authorAvatar,
       tags: [],
-      preview: content.slice(0, MESSAGE_PREVIEW_LENGTH),
+      preview: stripRefTokens(content).slice(0, MESSAGE_PREVIEW_LENGTH),
       // A fresh post's only participant is its creator (just enrolled above).
       participants: [{ id: ctx.userId, name: authorName, avatar: authorAvatar }],
     },

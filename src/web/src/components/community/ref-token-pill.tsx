@@ -6,18 +6,11 @@ import { ChannelPill, ServerPill } from "./inline-marks"
 import { useChannelRefDirectory } from "@/hooks/community/use-channel-ref-directory"
 import { useUiHandlers } from "@/stores/community"
 import type { RefTokenType } from "@/lib/community/ref-token"
-
-// Compact readable form for a full-path label: the last segment (channel/post
-// name, or `#42` for a message), so the pill reads "a channel/message here"
-// rather than spelling the whole `/server/channel` path. Mirrors why the
-// channel pill shows `#general` not `/Alook/general` — the full path is the
-// no-context fallback; the pill has context. Falls back to the whole label if
-// there's no `/`.
-export function compactLabel(label: string): string {
-  const trimmed = label.replace(/\/+$/, "")
-  const seg = trimmed.slice(trimmed.lastIndexOf("/") + 1)
-  return seg || label
-}
+// `compactLabel` is now the shared single source (also used by the plaintext
+// preview formatter `stripRefTokens`, ref/id PR-9). Re-exported here so this
+// module's existing `compactLabel` import surface (+ its test) is unchanged.
+import { compactLabel } from "@alook/shared/community-cli-contract"
+export { compactLabel }
 
 export type RefTokenPillView =
   | { kind: "channel"; label: string; serverId: string; channelId: string }
