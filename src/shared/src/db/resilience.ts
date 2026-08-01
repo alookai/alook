@@ -24,6 +24,14 @@ const RETRYABLE_SIGNATURES = [
   // fetch-rejection wrapper, `ETIMEDOUT` / `ECONNRESET` / `EAI_AGAIN`
   // catch DNS + socket transients seen from daemon-plane routes.
   "Network connection lost",
+  // Durable-Object reset transients that D1 surfaces in PRODUCTION but never
+  // in local miniflare, so they escape dev repro entirely. Copied VERBATIM
+  // from Cloudflare's D1 `retry-queries` best-practices `isRetryableError`
+  // list (case-sensitive `includes` — a single-char drift silently disables
+  // the retry). `... code was updated` fires during OUR OWN deploys, so
+  // without it every in-flight write during a deploy window 500s unretried.
+  "storage caused object to be reset",
+  "reset because its code was updated",
   "connection reset",
   "fetch failed",
   "ETIMEDOUT",

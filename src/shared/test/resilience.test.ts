@@ -127,6 +127,33 @@ describe("classifier — isRetryableD1Error", () => {
     expect(isRetryableD1Error(new DrizzleQueryError("q", [], new Error("connection reset by peer")))).toBe(true)
   })
 
+  it("retries Durable-Object reset transients using Cloudflare's VERBATIM doc strings", () => {
+    // These sentences are copied character-for-character from Cloudflare's D1
+    // `retry-queries` best-practices `isRetryableError` list. The matcher is a
+    // case-sensitive `includes`, so a single-char drift between source and
+    // doc silently disables the retry — asserting the doc's literal wording
+    // here catches that drift instead of it only surfacing in a prod deploy
+    // window (these never occur in local miniflare, so dev repro can't).
+    const storageReset =
+      "Error: Durable Object storage caused object to be reset; retry the request."
+    const codeUpdated =
+      "Error: the Durable Object was reset because its code was updated; retry the request."
+    expect(isRetryableD1Error(new DrizzleQueryError("q", [], new Error(storageReset)))).toBe(true)
+    expect(isRetryableD1Error(new DrizzleQueryError("q", [], new Error(codeUpdated)))).toBe(true)
+  })
+
+  it("does NOT match a non-transient message that merely contains the word 'reset'", () => {
+    // Guards the two DO-reset substrings against over-breadth: a plain SQL
+    // error mentioning "reset" (e.g. a column named `password_reset_at`) is a
+    // logic error, not a transient — must NOT be retried.
+    const err = new DrizzleQueryError(
+      "INSERT",
+      [],
+      new Error("SQLITE_CONSTRAINT_NOTNULL: NOT NULL constraint failed: users.password_reset_at"),
+    )
+    expect(isRetryableD1Error(err)).toBe(false)
+  })
+
   it("retries fetch/socket-level transients daemon-plane routes see", () => {
     for (const sig of [
       "fetch failed",
