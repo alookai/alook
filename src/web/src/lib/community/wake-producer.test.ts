@@ -18,6 +18,7 @@ const mockResolveEffectiveLevelForUsers = vi.fn(
 )
 const mockWarn = vi.fn()
 const mockInfo = vi.fn()
+const mockError = vi.fn()
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -26,7 +27,7 @@ vi.mock("@alook/shared", async () => {
     createLogger: () => ({
       info: (...a: unknown[]) => mockInfo(...a),
       warn: (...a: unknown[]) => mockWarn(...a),
-      error: vi.fn(),
+      error: (...a: unknown[]) => mockError(...a),
       debug: vi.fn(),
     }),
     queries: {
@@ -312,6 +313,43 @@ describe("enqueueBotWakes", () => {
     mockFindWakeCandidates.mockResolvedValue([])
 
     await expect(enqueueBotWakes({ recipients: ["bot1"], channelId: "c1", messageRow })).resolves.toBeUndefined()
+  })
+
+  // ── swallow-class fix: the candidate read is retried + observable ─────────
+  it("a TRANSIENT on the candidate read is retried, then the wake still enqueues (positive delivery)", async () => {
+    mockFindWakeCandidates
+      .mockRejectedValueOnce(new Error("SQLITE_BUSY: database is locked"))
+      .mockResolvedValueOnce([{ botUserId: "bot1", name: "zoe", machineId: "m1", runtime: "claude" }])
+
+    await enqueueBotWakes({ recipients: ["bot1"], channelId: "c1", messageRow })
+
+    // The retry produced the true candidate set → the wake actually enqueued.
+    // Asserting the wake HAPPENED, not "no error thrown".
+    expect(mockFindWakeCandidates.mock.calls.length).toBeGreaterThanOrEqual(2)
+    expect(mockQueueSend).toHaveBeenCalledTimes(1)
+    expect(mockError).not.toHaveBeenCalled()
+  })
+
+  it("retry-exhausted candidate read → ALERT-level observable error (not a silent warn), never throws", async () => {
+    // A persistent transient exhausts withD1Retry — the wake is missed. It must
+    // surface as a real, capturable signal (error), not a silent false-negative.
+    mockFindWakeCandidates.mockRejectedValue(new Error("SQLITE_BUSY: database is locked"))
+
+    await expect(
+      enqueueBotWakes({ recipients: ["bot1"], channelId: "c1", messageRow }),
+    ).resolves.toBeUndefined()
+
+    expect(mockError).toHaveBeenCalledWith(
+      "enqueue_bot_wakes_failed",
+      expect.objectContaining({
+        category: "enqueue_bot_wakes_failed",
+        err: expect.objectContaining({ message: expect.stringContaining("SQLITE_BUSY") }),
+      }),
+    )
+    // Missed wake is now LOUD, not silent: no queue send, and the old
+    // best-effort `warn` for this path is gone.
+    expect(mockQueueSend).not.toHaveBeenCalled()
+    expect(mockWarn).not.toHaveBeenCalledWith("enqueue_bot_wakes_failed", expect.anything())
   })
 })
 

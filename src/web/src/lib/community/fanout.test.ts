@@ -6,6 +6,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 }))
 
 const mockWarn = vi.fn()
+const mockError = vi.fn()
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -14,7 +15,7 @@ vi.mock("@alook/shared", async () => {
     createLogger: () => ({
       info: vi.fn(),
       warn: (...a: unknown[]) => mockWarn(...a),
-      error: vi.fn(),
+      error: (...a: unknown[]) => mockError(...a),
       debug: vi.fn(),
     }),
     queries: {
@@ -229,15 +230,22 @@ describe("fanOutStatusUpdate", () => {
     expect(mockBroadcastToUser).not.toHaveBeenCalled()
   })
 
-  it("never throws — absorbs a DB error and logs a warning", async () => {
+  it("never throws — absorbs a recipient-read DB error and logs it OBSERVABLY (error, not warn)", async () => {
     mockGetCoMemberUserIds.mockRejectedValue(new Error("db down"))
 
     await expect(fanOutStatusUpdate("self1", "🎧", "Vibing")).resolves.toBeUndefined()
 
-    expect(mockWarn).toHaveBeenCalledWith(
-      "fanout_status_update_failed",
-      expect.objectContaining({ userId: "self1", err: expect.stringContaining("db down") }),
+    // The audience read is the false-negative risk: its failure is surfaced at
+    // error level under its own category (not the phase-2 best-effort warn).
+    expect(mockError).toHaveBeenCalledWith(
+      "fanout_status_audience_failed",
+      expect.objectContaining({
+        userId: "self1",
+        err: expect.objectContaining({ message: expect.stringContaining("db down") }),
+      }),
     )
+    // Must not also log the phase-2 broadcast warn — the read never reached it.
+    expect(mockWarn).not.toHaveBeenCalledWith("fanout_status_update_failed", expect.anything())
   })
 })
 
@@ -355,12 +363,13 @@ describe("fanout helpers absorb setup failures", () => {
 
     await expect(fanOutToServerMembers("srv_1", event)).resolves.toBeUndefined()
 
-    expect(mockWarn).toHaveBeenCalledWith(
-      "fanout_to_server_members_failed",
+    // Setup failure happens in phase 1 (recipient read) → observable error.
+    expect(mockError).toHaveBeenCalledWith(
+      "fanout_server_members_failed",
       expect.objectContaining({
         eventType: event.type,
         targetId: "srv_1",
-        err: expect.stringContaining("no cf context"),
+        err: expect.objectContaining({ message: expect.stringContaining("no cf context") }),
       }),
     )
   })
@@ -378,12 +387,12 @@ describe("fanout helpers absorb setup failures", () => {
 
     await expect(fanOutToChannel("c1", event)).resolves.toBeUndefined()
 
-    expect(mockWarn).toHaveBeenCalledWith(
-      "fanout_to_channel_failed",
+    expect(mockError).toHaveBeenCalledWith(
+      "fanout_channel_recipients_failed",
       expect.objectContaining({
         eventType: WS_EVENTS.MESSAGE_CREATE,
         targetId: "c1",
-        err: expect.stringContaining("no cf context"),
+        err: expect.objectContaining({ message: expect.stringContaining("no cf context") }),
       }),
     )
   })
@@ -400,14 +409,100 @@ describe("fanout helpers absorb setup failures", () => {
 
     await expect(fanOutToDM("dm1", event)).resolves.toBeUndefined()
 
-    expect(mockWarn).toHaveBeenCalledWith(
-      "fanout_to_dm_failed",
+    expect(mockError).toHaveBeenCalledWith(
+      "fanout_dm_recipients_failed",
       expect.objectContaining({
         eventType: "community:message.create",
         targetId: "dm1",
-        err: expect.stringContaining("no cf context"),
+        err: expect.objectContaining({ message: expect.stringContaining("no cf context") }),
       }),
     )
+  })
+})
+
+describe("swallow-class fix — recipient read is retried and observable, never a silent false-negative", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetCloudflareContext.mockImplementation(() => ({ env: { DB: {} } }))
+    mockBroadcastToUser.mockResolvedValue(undefined)
+    mockGetChannelType.mockResolvedValue("text")
+  })
+
+  it("a TRANSIENT on the recipient read is retried, then delivery still happens (positive delivery, not error-absence)", async () => {
+    // First attempt hits a transient in the retry whitelist, second succeeds.
+    mockResolveScopeMemberUserIds
+      .mockRejectedValueOnce(new Error("SQLITE_BUSY: database is locked"))
+      .mockResolvedValueOnce(["u1", "u2"])
+
+    await fanOutToChannel("c1", {
+      type: WS_EVENTS.MESSAGE_CREATE,
+      channelId: "c1",
+      message: {} as never,
+    } as never)
+
+    // The retry produced the true recipient list → the broadcast actually
+    // fired to both. Asserting delivery HAPPENED, not "no error thrown".
+    expect(mockResolveScopeMemberUserIds.mock.calls.length).toBeGreaterThanOrEqual(2)
+    expect(mockBroadcastToUser).toHaveBeenCalledTimes(2)
+    expect(mockError).not.toHaveBeenCalled()
+  })
+
+  it("retry-exhausted recipient read → observable error + NO broadcast + never rejects", async () => {
+    // A persistent transient exhausts the retries.
+    mockResolveScopeMemberUserIds.mockRejectedValue(new Error("SQLITE_BUSY: database is locked"))
+
+    await expect(
+      fanOutToChannel("c1", {
+        type: WS_EVENTS.MESSAGE_CREATE,
+        channelId: "c1",
+        message: {} as never,
+      } as never),
+    ).resolves.toBeUndefined()
+
+    expect(mockError).toHaveBeenCalledWith(
+      "fanout_channel_recipients_failed",
+      expect.objectContaining({ targetId: "c1" }),
+    )
+    // No recipient list → nothing broadcast (the false-negative is now LOUD,
+    // not silent). The read failure did not ride the phase-2 best-effort warn.
+    expect(mockBroadcastToUser).not.toHaveBeenCalled()
+    expect(mockWarn).not.toHaveBeenCalledWith("fanout_to_channel_failed", expect.anything())
+  })
+
+  it("a broadcast (phase-2) failure is still absorbed as a best-effort warn — read succeeded", async () => {
+    mockResolveScopeMemberUserIds.mockResolvedValue(["u1", "u2"])
+    mockBroadcastToUser.mockRejectedValue(new Error("ws-do 500"))
+
+    await expect(
+      fanOutToChannel("c1", {
+        type: WS_EVENTS.MESSAGE_CREATE,
+        channelId: "c1",
+        message: {} as never,
+      } as never),
+    ).resolves.toBeUndefined()
+
+    // broadcastToRecipients catches per-user rejections internally (warns), so
+    // the phase-2 wrapper itself doesn't see an error here — the point is the
+    // read succeeded and was NOT reported as a false-negative.
+    expect(mockError).not.toHaveBeenCalled()
+  })
+
+  it("fanOutToDM: a missing DM is a LOGIC guard (warn+return), not an observable read failure", async () => {
+    mockGetDM.mockResolvedValue(null)
+
+    await expect(
+      fanOutToDM("dm1", {
+        type: WS_EVENTS.MESSAGE_CREATE,
+        channelId: "dm1",
+        message: {} as never,
+      } as never),
+    ).resolves.toBeUndefined()
+
+    expect(mockWarn).toHaveBeenCalledWith("fanOutToDM: DM channel not found", { channelId: "dm1" })
+    // Not surfaced as a transient/read failure — a missing DM is legitimately
+    // "nobody to fan out to", not a swallow-class false-negative.
+    expect(mockError).not.toHaveBeenCalled()
+    expect(mockBroadcastToUser).not.toHaveBeenCalled()
   })
 })
 

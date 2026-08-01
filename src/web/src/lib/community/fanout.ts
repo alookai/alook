@@ -13,7 +13,7 @@
  */
 
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { queries, createLogger, WS_EVENTS, isThread, isForumPost, isDm } from "@alook/shared"
+import { queries, createLogger, withD1Retry, WS_EVENTS, isThread, isForumPost, isDm } from "@alook/shared"
 import type { CommunityWsEvent, Database } from "@alook/shared"
 import { getDb } from "../db"
 import { broadcastToUser } from "../broadcast"
@@ -91,13 +91,43 @@ export async function fanOutToChannel(
   event: BroadcastableEvent,
   opts?: { excludeUserId?: string; recipients?: string[] } & WakeOpts
 ): Promise<void> {
+  // Phase 1 — resolve the recipient set. This D1 read is the FALSE-NEGATIVE
+  // risk (read-500 triage / swallow-class): with no recipient list we can
+  // neither broadcast nor enqueue wakes, so a silent failure here = a message
+  // that reaches nobody with no signal. `withD1Retry` retries the transient
+  // whitelist to the true list; a still-escaping error (retry-exhausted or a
+  // logic error) is surfaced OBSERVABLY (`log.error` + its own category)
+  // instead of riding the broadcast's best-effort warn. The human-WS side
+  // self-heals on reconnect-refetch (use-community-ws.ts `handleReconnect`),
+  // so this stays observe-only — the function keeps its never-reject contract
+  // for its fire-and-forget callers.
+  let userIds: string[]
   try {
     const { env } = getCloudflareContext()
     const db = getDb((env as Env).DB)
     // Reuse a pre-resolved recipient set when the caller already resolved it
     // (message-handler shares one set between fan-out and the notify pipeline),
-    // else resolve here.
-    const userIds = opts?.recipients ?? await getChannelRecipientUserIds(db, channelId)
+    // else resolve here (retry-armored).
+    userIds =
+      opts?.recipients ??
+      (await withD1Retry(() => getChannelRecipientUserIds(db, channelId), {
+        route: "fanout/channel-recipients",
+      }))
+  } catch (err) {
+    log.error("fanout_channel_recipients_failed", {
+      category: "fanout_channel_recipients_failed",
+      eventType: event.type,
+      targetId: channelId,
+      err: err instanceof Error ? err : new Error(String(err)),
+    })
+    return
+  }
+
+  // Phase 2 — broadcast + wake are best-effort side effects on a RESOLVED
+  // recipient set. Their own failures are handled internally
+  // (`broadcastToRecipients` per-user catch; `enqueueBotWakes` owns its
+  // `waitUntil` catch), and this warn must not mask the phase-1 read.
+  try {
     await broadcastToRecipients(userIds, event, opts?.excludeUserId)
     maybeEnqueueWakes(event, userIds, { channelId }, opts)
   } catch (err) {
@@ -119,15 +149,39 @@ export async function fanOutToDM(
   event: BroadcastableEvent,
   opts?: { excludeUserId?: string } & WakeOpts
 ): Promise<void> {
+  // Phase 1 — resolve the recipient set (retry-armored, observable on failure;
+  // same false-negative rationale as `fanOutToChannel`). The `getDM`
+  // not-found check is a LOGIC guard, not a transient — a missing DM legitimately
+  // means "nobody to fan out to", so it stays a warn+return inside the retried
+  // read (a null result, not a thrown transient).
+  let userIds: string[]
   try {
     const { env } = getCloudflareContext()
     const db = getDb((env as Env).DB)
-    const dm = await queries.communityDm.getDM(db, channelId)
-    if (!dm) {
-      log.warn("fanOutToDM: DM channel not found", { channelId })
-      return
-    }
-    const userIds = await queries.communityChannel.listChannelMemberUserIds(db, channelId)
+    userIds = await withD1Retry(
+      async () => {
+        const dm = await queries.communityDm.getDM(db, channelId)
+        if (!dm) {
+          log.warn("fanOutToDM: DM channel not found", { channelId })
+          return null
+        }
+        return queries.communityChannel.listChannelMemberUserIds(db, channelId)
+      },
+      { route: "fanout/dm-recipients" },
+    ) ?? []
+    if (userIds.length === 0) return
+  } catch (err) {
+    log.error("fanout_dm_recipients_failed", {
+      category: "fanout_dm_recipients_failed",
+      eventType: event.type,
+      targetId: channelId,
+      err: err instanceof Error ? err : new Error(String(err)),
+    })
+    return
+  }
+
+  // Phase 2 — best-effort broadcast + wake on the resolved set.
+  try {
     await broadcastToRecipients(userIds, event, opts?.excludeUserId)
     maybeEnqueueWakes(event, userIds, { channelId }, opts)
   } catch (err) {
@@ -192,10 +246,25 @@ export async function fanOutStatusUpdate(
   statusEmoji: string | null,
   statusText: string | null,
 ): Promise<void> {
+  // Phase 1 — resolve the audience (retry-armored, observable on failure).
+  let audience: string[]
   try {
     const { env } = getCloudflareContext()
     const db = getDb((env as Env).DB)
-    const audience = await getProfileAudience(db, userId)
+    audience = await withD1Retry(() => getProfileAudience(db, userId), {
+      route: "fanout/status-audience",
+    })
+  } catch (err) {
+    log.error("fanout_status_audience_failed", {
+      category: "fanout_status_audience_failed",
+      userId,
+      err: err instanceof Error ? err : new Error(String(err)),
+    })
+    return
+  }
+
+  // Phase 2 — best-effort broadcast on the resolved audience.
+  try {
     await broadcastToRecipients(audience, {
       type: WS_EVENTS.STATUS_UPDATE,
       userId,
@@ -215,10 +284,26 @@ export async function fanOutToServerMembers(
   event: BroadcastableEvent,
   opts?: { excludeUserId?: string }
 ): Promise<void> {
+  // Phase 1 — resolve the member set (retry-armored, observable on failure).
+  let userIds: string[]
   try {
     const { env } = getCloudflareContext()
     const db = getDb((env as Env).DB)
-    const userIds = await getServerMemberUserIds(db, serverId)
+    userIds = await withD1Retry(() => getServerMemberUserIds(db, serverId), {
+      route: "fanout/server-members",
+    })
+  } catch (err) {
+    log.error("fanout_server_members_failed", {
+      category: "fanout_server_members_failed",
+      eventType: event.type,
+      targetId: serverId,
+      err: err instanceof Error ? err : new Error(String(err)),
+    })
+    return
+  }
+
+  // Phase 2 — best-effort broadcast on the resolved set.
+  try {
     await broadcastToRecipients(userIds, event, opts?.excludeUserId)
   } catch (err) {
     log.warn("fanout_to_server_members_failed", {

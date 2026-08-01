@@ -17,7 +17,7 @@
  * `wrangler dev`/`next dev` processes today).
  */
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { queries, createLogger } from "@alook/shared"
+import { queries, createLogger, withD1Retry } from "@alook/shared"
 import type { WakePayload } from "@alook/shared"
 import { getDb } from "../db"
 import { shouldDeliver } from "./notify"
@@ -69,11 +69,26 @@ export interface EnqueueBotWakesOpts {
  */
 export function enqueueBotWakes(opts: EnqueueBotWakesOpts): Promise<void> {
   const { env, ctx } = getCloudflareContext()
-  const promise = doEnqueueBotWakes(env as Env, opts)
+  // Catch at the source so the promise this function hands back NEVER rejects
+  // (its fire-and-forget callers don't `.catch` it), while a failure is still
+  // surfaced OBSERVABLY exactly once. ALERT-level (not warn): a still-escaping
+  // failure here — the wake-candidate read's retries exhausted, or a logic
+  // error — means one or more bots were NOT woken and nothing else will signal
+  // it. Wake is a state transition (unlike a WS broadcast, which self-heals on
+  // client reconnect-refetch), so this must be a real, capturable signal — the
+  // observable half of the swallow-class red line ("never a silent
+  // false-negative"). The narrow permanent-miss tail (the missed message is the
+  // channel's last AND the daemon never reconnects) is tracked as a separate
+  // wake-compensation follow-up; the next message's doorbell heals every other
+  // case (findWakeCandidates keeps the still-behind bot a standing candidate).
+  const promise = doEnqueueBotWakes(env as Env, opts).catch((err) => {
+    log.error("enqueue_bot_wakes_failed", {
+      category: "enqueue_bot_wakes_failed",
+      err: err instanceof Error ? err : new Error(String(err)),
+    })
+  })
   try {
-    ctx.waitUntil(promise.catch((err) => {
-      log.warn("enqueue_bot_wakes_failed", { err: String(err) })
-    }))
+    ctx.waitUntil(promise)
   } catch {
     // Not in a CF request context (e.g. some test harnesses) — the promise
     // still runs to completion on its own.
@@ -98,11 +113,24 @@ async function doEnqueueBotWakes(env: Env, opts: EnqueueBotWakesOpts): Promise<v
   if (recipients.length === 0) return
 
   const db = getDb(env.DB)
-  const candidates = await queries.communityBot.findWakeCandidates(db, {
-    recipients,
-    channelId,
-    newSeq: messageRow.seq,
-  })
+  // The wake-candidate read is the FALSE-NEGATIVE risk (swallow-class): if a
+  // transient blip loses this list, the affected bots are never woken and the
+  // failure is silent. `withD1Retry` retries the transient whitelist to the
+  // true candidate set; a still-escaping error propagates to `enqueueBotWakes`'
+  // catch, which surfaces it OBSERVABLY (alert-level) instead of a silent warn
+  // (read-500 triage / swallow-class fix). A missed wake self-heals on the next
+  // message to the same channel — `findWakeCandidates`' `lastReadSeq < newSeq`
+  // filter keeps the still-behind bot a standing candidate — so this stays a
+  // best-effort producer; the retry + observable failure is the red-line.
+  const candidates = await withD1Retry(
+    () =>
+      queries.communityBot.findWakeCandidates(db, {
+        recipients,
+        channelId,
+        newSeq: messageRow.seq,
+      }),
+    { route: "wake-producer/find-candidates" },
+  )
   if (candidates.length === 0) return
 
   // Defense-in-depth visibility + participation gate. `findWakeCandidates`
