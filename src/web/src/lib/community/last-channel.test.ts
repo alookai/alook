@@ -3,6 +3,7 @@ import {
   lastChannelKey,
   getLastChannel,
   setLastChannel,
+  clearLastChannel,
   pickServerLandingChannel,
 } from "./last-channel"
 
@@ -70,24 +71,56 @@ describe("last-channel", () => {
     expect(getLastChannel("srv_1")).toBeNull()
     expect(() => setLastChannel("srv_1", "ch_1")).not.toThrow()
   })
+
+  it("clearLastChannel forgets the remembered id (redirect-loop breaker)", () => {
+    setLastChannel("srv_1", "post_dead")
+    setLastChannel("srv_2", "ch_keep")
+    clearLastChannel("srv_1")
+    expect(getLastChannel("srv_1")).toBeNull() // dead id gone → next landing picks default
+    expect(getLastChannel("srv_2")).toBe("ch_keep") // other servers untouched
+  })
+
+  it("clearLastChannel swallows a throwing removeItem and is a no-op under SSR", () => {
+    vi.stubGlobal("localStorage", {
+      getItem: vi.fn(() => null),
+      setItem: vi.fn(),
+      removeItem: vi.fn(() => {
+        throw new Error("SecurityError")
+      }),
+    })
+    expect(() => clearLastChannel("srv_1")).not.toThrow()
+    vi.stubGlobal("window", undefined)
+    expect(() => clearLastChannel("srv_1")).not.toThrow()
+  })
 })
 
 describe("pickServerLandingChannel", () => {
-  it("restores the remembered last channel when it still exists", () => {
+  it("restores the remembered last channel (returned directly, not validated against the list)", () => {
     expect(pickServerLandingChannel(["ch_1", "ch_2", "ch_3"], "ch_2")).toBe("ch_2")
   })
 
-  it("falls back to the first channel when there is no memory", () => {
+  it("restores a remembered id that is NOT in the top-level list — a forum post / thread (the bug this fixes)", () => {
+    // A post/thread is a child channel: its id never appears in the top-level
+    // list, so the old `includes` gate dropped it and always fell to default.
+    // Now it's returned directly; the destination page renders the post opener.
+    expect(pickServerLandingChannel(["ch_1", "ch_2"], "post_abc")).toBe("post_abc")
+  })
+
+  it("falls back to the first top-level channel when there is no memory", () => {
     expect(pickServerLandingChannel(["ch_1", "ch_2"], null)).toBe("ch_1")
   })
 
-  it("falls back to the first channel when the remembered id is gone (deleted / no access)", () => {
-    // The graceful fallback: a stale id simply isn't in the visible list.
-    expect(pickServerLandingChannel(["ch_1", "ch_2"], "ch_deleted")).toBe("ch_1")
+  it("returns a dirty/garbage remembered id as-is — validity is the destination's job (its meta fetch 404/403 → bounce to default)", () => {
+    // "Trust the id" ≠ "trust the id is valid". A localStorage value hand-edited
+    // or written stale by another tab still navigates; the destination page's
+    // 404||403 bounce degrades it to default (Blondie/Melly's dirty-last check).
+    expect(pickServerLandingChannel(["ch_1", "ch_2"], "garbage_id")).toBe("garbage_id")
   })
 
-  it("returns undefined when the server has no channels", () => {
-    expect(pickServerLandingChannel([], "ch_1")).toBeUndefined()
+  it("returns undefined only when there's no memory AND no channels; a remembered id wins even over an empty list", () => {
     expect(pickServerLandingChannel([], null)).toBeUndefined()
+    // With memory, the id is returned even if the top-level list is empty (the
+    // remembered channel may be a child channel under a forum, not top-level).
+    expect(pickServerLandingChannel([], "post_abc")).toBe("post_abc")
   })
 })
