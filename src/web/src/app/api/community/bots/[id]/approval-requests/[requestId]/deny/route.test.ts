@@ -8,6 +8,7 @@ const mockLogAudit = vi.fn()
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
 vi.mock("@alook/shared", () => ({
+  withD1Retry: <T,>(fn: () => Promise<T>) => fn(),
   queries: {
     communityBot: {
       getBotOwnedBy: (...a: unknown[]) => mockGetBotOwnedBy(...a),

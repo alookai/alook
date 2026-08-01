@@ -1,4 +1,4 @@
-import { queries, ROLES, WS_EVENTS } from "@alook/shared"
+import { queries, withD1Retry, ROLES, WS_EVENTS } from "@alook/shared"
 import type { CommunityMemberJoin } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
@@ -38,11 +38,19 @@ export const POST = withAuth(async (_req, ctx) => {
     botId,
   )
   if (!alreadyMember) {
-    const added = await queries.communityMember.addMember(db, {
-      serverId: request.serverId,
-      userId: botId,
-      role: ROLES.MEMBER,
-    })
+    // `withD1Retry` (state 3): addMember is replay-safe here — the alreadyMember
+    // check-then-insert plus the uq_server_member_server_user unique index mean
+    // a retry either finds the row already added or hits the (non-retryable)
+    // unique constraint; it can't double-insert.
+    const added = await withD1Retry(
+      () =>
+        queries.communityMember.addMember(db, {
+          serverId: request.serverId!,
+          userId: botId,
+          role: ROLES.MEMBER,
+        }),
+      { route: "bots/approve/add-member" },
+    )
     const joinEvent: CommunityMemberJoin = {
       type: WS_EVENTS.MEMBER_JOIN,
       serverId: request.serverId,
@@ -58,7 +66,11 @@ export const POST = withAuth(async (_req, ctx) => {
     }
     fanOutToServerMembers(request.serverId, joinEvent)
   }
-  await queries.communityBot.resolveApprovalRequest(db, requestId, "approved")
+  // `withD1Retry` (state 3): resolve-to-"approved" is a set-status write guarded
+  // by the status!=="pending" check above — idempotent, safe to retry.
+  await withD1Retry(() => queries.communityBot.resolveApprovalRequest(db, requestId, "approved"), {
+    route: "bots/approve/resolve",
+  })
   logAudit(db, {
     serverId: request.serverId,
     actorId: ctx.userId,

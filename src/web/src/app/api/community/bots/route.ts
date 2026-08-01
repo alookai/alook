@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server"
 import {
   queries,
+  withD1Retry,
+  nonIdempotentWriteAllowed,
   CommunityBotCreateRequestSchema,
   COMMUNITY_BOT_LIMIT_PER_OWNER,
   runtimeSupportsModel,
@@ -14,16 +16,22 @@ import { pushBotEventToMachine } from "@/lib/community/bot-push"
 
 export const GET = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
-  const bots = await queries.communityBot.listBotsForOwner(db, ctx.userId)
   // Attach each bot's last-30-day activity for the my-bots heatmap. One batched
   // read scoped to the owner's bots (no N+1); bots with no rows default to [].
   // The FE pads missing days to zero cells, so an empty array is the normal
-  // new-bot path.
+  // new-bot path. `withD1Retry` (D1-armor: no-fallback list read; retry to
+  // truth) — both reads wrapped as one unit.
   const sinceDay = utcDayKeyDaysAgo(new Date(), 29)
-  const activityByBot = await queries.communityBot.getBotDailyActivityForOwner(
-    db,
-    ctx.userId,
-    sinceDay,
+  const { bots, activityByBot } = await withD1Retry(
+    async () => ({
+      bots: await queries.communityBot.listBotsForOwner(db, ctx.userId),
+      activityByBot: await queries.communityBot.getBotDailyActivityForOwner(
+        db,
+        ctx.userId,
+        sinceDay,
+      ),
+    }),
+    { route: "bots/list" },
   )
   const withActivity = bots.map((bot) => ({
     ...bot,
@@ -77,15 +85,31 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError(`runtime ${body.runtime} does not support a model selection`, 400)
   }
 
-  const created = await queries.communityBot.createBot(db, {
-    ownerId: ctx.userId,
-    name: body.name,
-    description: body.description,
-    machineId: body.machineId,
-    runtime: body.runtime,
-    image: body.image ?? null,
-    modelName,
-  })
+  // `nonIdempotentWriteAllowed` (D1-armor state 4b), deliberately NOT retried:
+  // createBot mints a fresh bot id + credential via nanoid, so a blind retry on
+  // a transient would create a SECOND ghost bot with its own credential
+  // (identity pollution, not a benign dup). A transient here surfaces as a 500
+  // the user can retry — visible + recoverable, strictly safer than a silent
+  // double-create. NOTE: createBot has no client idempotency key, so a
+  // response-lost retry by the user CAN create a second bot — accepted because
+  // it's visible + deletable (not silent, unlike the DM double-create); to
+  // eliminate it entirely would need an idempotency-key header.
+  const created = await nonIdempotentWriteAllowed(
+    {
+      reason:
+        "createBot mints a fresh bot id/credential (nanoid); a retry would create a second bot — no idempotency key to dedup on",
+    },
+    () =>
+      queries.communityBot.createBot(db, {
+        ownerId: ctx.userId,
+        name: body.name,
+        description: body.description,
+        machineId: body.machineId,
+        runtime: body.runtime,
+        image: body.image ?? null,
+        modelName,
+      }),
+  )
 
   // The bot's owner is the authenticated caller — resolve their handle to
   // carry in the bot:added push so the daemon can tell the agent who owns it.

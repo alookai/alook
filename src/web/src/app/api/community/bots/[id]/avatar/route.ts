@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server"
-import { queries, CACHE_REVALIDATE } from "@alook/shared"
+import { queries, withD1Retry, CACHE_REVALIDATE } from "@alook/shared"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
@@ -45,7 +45,10 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (!result.ok) return result.response
 
   const url = botAvatarUrl(botId)
-  await queries.communityBot.updateBot(db, botId, ctx.userId, { image: url })
+  // `withD1Retry` (D1-armor state 3): set-image is idempotent (same url), retry.
+  await withD1Retry(() => queries.communityBot.updateBot(db, botId, ctx.userId, { image: url }), {
+    route: "bots/avatar",
+  })
 
   return writeJSON({ url })
 })

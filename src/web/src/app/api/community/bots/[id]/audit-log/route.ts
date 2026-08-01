@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server"
-import { queries } from "@alook/shared"
+import { queries, withD1Retry } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
@@ -36,12 +36,17 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     ? Math.max(1, Math.min(MAX_LIMIT, Number.parseInt(limitRaw, 10) || DEFAULT_LIMIT))
     : DEFAULT_LIMIT
 
-  const rows = await queries.communityBotAuditLog.listBotActivityEvents(db, {
-    botId: id,
-    beforeCreatedAt,
-    beforeId,
-    limit,
-  })
+  // `withD1Retry` (D1-armor: no-fallback audit-log read; retry to truth).
+  const rows = await withD1Retry(
+    () =>
+      queries.communityBotAuditLog.listBotActivityEvents(db, {
+        botId: id,
+        beforeCreatedAt,
+        beforeId,
+        limit,
+      }),
+    { route: "bots/audit-log" },
+  )
 
   const events = rows.map((r) => ({
     id: r.id,

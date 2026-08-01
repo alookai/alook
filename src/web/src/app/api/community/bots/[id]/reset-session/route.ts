@@ -1,5 +1,5 @@
 import { nanoid } from "nanoid"
-import { queries, makeRuntimeConfig, resolveModelConfig, formatHandle, WS_EVENTS } from "@alook/shared"
+import { queries, withD1Retry, nonIdempotentWriteAllowed, makeRuntimeConfig, resolveModelConfig, formatHandle, WS_EVENTS } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
@@ -44,15 +44,28 @@ export const POST = withAuth(async (_req, ctx) => {
     return writeError("bot is offline — bring it online before resetting", 409)
   }
 
-  const inserted = await queries.communityBotAuditLog.insertBotAuditSessionReset(db, {
-    botId: id,
-    actorId: ctx.userId,
-  })
+  // `nonIdempotentWriteAllowed` (D1-armor state 4b), NOT retried: this is an
+  // append-only audit insert; a blind retry would duplicate the row. Harm is
+  // benign (one redundant audit row — no user-visible state, no identity
+  // pollution), and not retrying also avoids muddying the "how many resets
+  // happened" audit read. Only reached after a confirmed daemon delivery.
+  const inserted = await nonIdempotentWriteAllowed(
+    { reason: "append-only audit; a retry duplicates one benign log row" },
+    () =>
+      queries.communityBotAuditLog.insertBotAuditSessionReset(db, {
+        botId: id,
+        actorId: ctx.userId,
+      }),
+  )
   if (inserted) {
     // Stamp lastRefreshContextAt at the SAME chokepoint (single write point),
     // in lockstep with the audit row landing — the my-bots "last refreshed"
     // indicator can never drift from the session_reset audit event.
-    await queries.communityBot.touchBotRefreshContext(db, id, inserted.createdAt)
+    // `withD1Retry` (state 3): set-timestamp is idempotent.
+    await withD1Retry(
+      () => queries.communityBot.touchBotRefreshContext(db, id, inserted.createdAt),
+      { route: "bots/reset-session/touch" },
+    )
     try {
       await broadcastToUser(ctx.userId, {
         type: WS_EVENTS.BOT_AUDIT_EVENT,

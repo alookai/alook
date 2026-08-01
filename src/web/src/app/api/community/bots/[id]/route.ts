@@ -3,6 +3,8 @@ import { NextResponse } from "next/server"
 import { nanoid } from "nanoid"
 import {
   queries,
+  withD1Retry,
+  nonIdempotentWriteAllowed,
   CommunityBotPatchRequestSchema,
   WS_EVENTS,
   makeRuntimeConfig,
@@ -62,11 +64,16 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     return writeError("bot owner not resolvable — refusing to push a bot update with unknown ownership", 500)
   }
 
-  const updated = await queries.communityBot.updateBot(db, id, ctx.userId, {
-    name: body.name,
-    description: body.description,
-    image: body.image ?? undefined,
-  })
+  // `withD1Retry` (state 3): updateBot sets fields to values, idempotent.
+  const updated = await withD1Retry(
+    () =>
+      queries.communityBot.updateBot(db, id, ctx.userId, {
+        name: body.name,
+        description: body.description,
+        image: body.image ?? undefined,
+      }),
+    { route: "bots/update" },
+  )
   if (!updated) return writeError("bot not found", 404)
 
   if (willPush && owner && before.machineId) {
@@ -93,7 +100,10 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     // `getBotOwnedBy` 404 check above but has nothing to write the model onto.
     // Reject rather than echo a model the response would claim was saved while
     // a later GET reads the old value (UI/D1 divergence).
-    const wrote = await queries.communityBot.updateBotModel(db, id, ctx.userId, nextModel!)
+    const wrote = await withD1Retry(
+      () => queries.communityBot.updateBotModel(db, id, ctx.userId, nextModel!),
+      { route: "bots/update-model" },
+    )
     if (!wrote) {
       return writeError("bot has no runtime binding — pair it to a machine before setting a model", 409)
     }
@@ -115,12 +125,19 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
       applied = result.sent > 0
 
       if (applied) {
-        const inserted = await queries.communityBotAuditLog.insertBotAuditModelChanged(db, {
-          botId: id,
-          actorId: ctx.userId,
-          from: before.modelName ?? null,
-          to: nextModel!,
-        })
+        // `nonIdempotentWriteAllowed` (4b), NOT retried: append-only audit; a
+        // retry duplicates one benign log row (no user-visible state). Only
+        // reached on confirmed delivery.
+        const inserted = await nonIdempotentWriteAllowed(
+          { reason: "append-only audit; a retry duplicates one benign log row" },
+          () =>
+            queries.communityBotAuditLog.insertBotAuditModelChanged(db, {
+              botId: id,
+              actorId: ctx.userId,
+              from: before.modelName ?? null,
+              to: nextModel!,
+            }),
+        )
         if (inserted) {
           try {
             await broadcastToUser(ctx.userId, {
@@ -186,7 +203,11 @@ export const DELETE = withAuth(async (_req, ctx) => {
     ctx.userId,
   )
 
-  const ok = await queries.communityBot.softDeleteBot(db, id, ctx.userId)
+  // `withD1Retry` (state 3): soft-delete sets deletedAt (idempotent — re-running
+  // lands the same deleted state / 0-rows → 404), safe to retry.
+  const ok = await withD1Retry(() => queries.communityBot.softDeleteBot(db, id, ctx.userId), {
+    route: "bots/delete",
+  })
   if (!ok) return writeError("bot not found", 404)
 
   for (const serverId of priorMemberships) {

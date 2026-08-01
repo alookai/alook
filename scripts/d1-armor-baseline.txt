@@ -15,13 +15,6 @@
 # Lines starting with '#' are comments. One repo-relative path per remaining line.
 src/web/src/app/api/community/attachmentDownload/route.ts
 src/web/src/app/api/community/attachmentUpload/route.ts
-src/web/src/app/api/community/bots/[id]/approval-requests/[requestId]/approve/route.ts
-src/web/src/app/api/community/bots/[id]/approval-requests/[requestId]/deny/route.ts
-src/web/src/app/api/community/bots/[id]/audit-log/route.ts
-src/web/src/app/api/community/bots/[id]/avatar/route.ts
-src/web/src/app/api/community/bots/[id]/reset-session/route.ts
-src/web/src/app/api/community/bots/[id]/route.ts
-src/web/src/app/api/community/bots/route.ts
 src/web/src/app/api/community/channelMember/route.ts
 src/web/src/app/api/community/channels/[id]/messages/route.ts
 src/web/src/app/api/community/channels/[id]/posts/route.ts
@@ -30,7 +23,6 @@ src/web/src/app/api/community/daemon/bots/route.ts
 src/web/src/app/api/community/daemon/enroll-agent/route.ts
 src/web/src/app/api/community/daemon/resync-wakes/route.ts
 src/web/src/app/api/community/dm/[id]/messages/route.ts
-src/web/src/app/api/community/dm/route.ts
 src/web/src/app/api/community/friendRequest/route.ts
 src/web/src/app/api/community/friends/[id]/accept/route.ts
 src/web/src/app/api/community/friends/[id]/owner-decision/route.ts

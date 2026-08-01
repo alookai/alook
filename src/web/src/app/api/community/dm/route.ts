@@ -2,13 +2,16 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, withD1Retry } from "@alook/shared"
 import { guardDmOpen } from "@/lib/community/dm-guard"
 import { avatarInitial } from "@/lib/community/avatar"
 
 export const GET = withAuth(async (_req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
-  const rows = await queries.communityDm.listDMs(db, ctx.userId)
+  // `withD1Retry` (D1-armor: no-fallback DM-list read; retry to truth).
+  const rows = await withD1Retry(() => queries.communityDm.listDMs(db, ctx.userId), {
+    route: "dm/list",
+  })
   const conversations = rows.map((r) => ({
     id: r.id,
     userId: r.otherUserId,
@@ -38,10 +41,19 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const guard = await guardDmOpen(db, ctx.userId, body.userId)
   if (!guard.ok) return writeError(guard.error, guard.status)
 
-  const dm = await queries.communityDm.createOrGetDM(db, {
-    userId1: ctx.userId,
-    userId2: body.userId,
-  })
+  // `withD1Retry` (D1-armor, team-ruled): createOrGetDM is get-first-then-create,
+  // so a response-lost RETRY is safe (the retry finds the existing channel). A
+  // true-concurrency double-create is a pre-existing race orthogonal to retry
+  // (tracked as a separate backlog ticket: pair-key unique constraint); wrapping
+  // in withD1Retry adds no new risk and armors the transient path.
+  const dm = await withD1Retry(
+    () =>
+      queries.communityDm.createOrGetDM(db, {
+        userId1: ctx.userId,
+        userId2: body.userId,
+      }),
+    { route: "dm/create-or-get" },
+  )
 
   return writeJSON({ conversation: dm })
 })
