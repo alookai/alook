@@ -244,4 +244,31 @@ describe("PUT /api/community/channels/[id]/read", () => {
       })
     })
   })
+
+  describe("D1 failure handling (read-500 triage #2)", () => {
+    it("a batch error propagates (route still 500s) — the observe-catch rethrows, never swallows to 200", async () => {
+      mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1" })
+      mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
+      mockGetLatestMessage.mockResolvedValue({ id: "m_latest", createdAt: "2026-07-05T10:00:00.000Z", seq: 7 })
+      // A non-retryable (logic-shaped) throw: withD1Retry won't retry it, and the
+      // route's catch logs then RETHROWS — so the failure surfaces, not a false 200.
+      mockBatch.mockRejectedValue(new Error("boom: some logic error in the batch"))
+
+      await expect(PUT(putReq(), { params: { id: "c1" } } as any)).rejects.toThrow(/boom/)
+    })
+
+    it("a transient SQLITE_BUSY is retried by withD1Retry and then succeeds (200, no user-visible 500)", async () => {
+      mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1" })
+      mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
+      mockGetLatestMessage.mockResolvedValue({ id: "m_latest", createdAt: "2026-07-05T10:00:00.000Z", seq: 7 })
+      // First attempt hits a transient (in the retry whitelist), second succeeds.
+      mockBatch
+        .mockRejectedValueOnce(new Error("SQLITE_BUSY: database is locked"))
+        .mockResolvedValueOnce(undefined)
+
+      const res = await PUT(putReq(), { params: { id: "c1" } } as any)
+      expect(res.status).toBe(200)
+      expect(mockBatch.mock.calls.length).toBeGreaterThanOrEqual(2)
+    })
+  })
 })

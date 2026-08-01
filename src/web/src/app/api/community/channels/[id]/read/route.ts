@@ -2,8 +2,10 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, withD1Retry, createLogger } from "@alook/shared"
 import { requireChannelMember } from "@/lib/community/permissions"
+
+const log = createLogger({ service: "community-channel-read" })
 
 /**
  * PUT /api/community/channels/:id/read
@@ -81,14 +83,43 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
   // Fire both writes in one D1 batch so partial failure can't leave the
   // inbox inconsistent (mark-read succeeded but the mention clear didn't, or
   // vice versa). D1 batches are atomic per SQLite guarantees.
-  await db.batch([
-    queries.communityReadState.markReadToMessageBuilder(db, {
-      userId: ctx.userId,
+  //
+  // `withD1Retry` — this route was the ONLY community WRITE route without it
+  // (send/ack/dm-read/thread-read all wrap their D1 writes); a transient D1 blip
+  // (SQLITE_BUSY / "database is locked") on the auto-read fired at channel-open
+  // therefore surfaced as an unretried, user-visible 500 (read-500 triage #2).
+  // withD1Retry only retries the transient WHITELIST — a logic throw (null in the
+  // batch, constraint, etc.) is NOT retried and propagates unchanged, so this
+  // fixes the transient case WITHOUT masking a real bug (Blondie #363).
+  try {
+    await withD1Retry(
+      () =>
+        db.batch([
+          queries.communityReadState.markReadToMessageBuilder(db, {
+            userId: ctx.userId,
+            channelId,
+            message: target,
+          }),
+          queries.communityMention.markChannelMentionsReadBuilder(db, ctx.userId, channelId),
+        ]),
+      { route: "community/channels/read" },
+    )
+  } catch (err) {
+    // Observability point (read-500 triage #2): if a 500 still escapes — i.e. a
+    // NON-transient (logic) error that withD1Retry doesn't retry, or transient
+    // retries exhausted — capture the stack + the (non-sensitive) inputs so the
+    // next occurrence is diagnosable without waiting for another repro. Observe
+    // ONLY: rethrow unchanged so the route still returns 500 (never swallow a
+    // failure into a false 200 — Blondie #363).
+    log.error("channel_read_failed", {
+      category: "channel_read_failed",
       channelId,
-      message: target,
-    }),
-    queries.communityMention.markChannelMentionsReadBuilder(db, ctx.userId, channelId),
-  ])
+      seq: target.seq,
+      hadExplicitTarget: lastReadMessageId !== null,
+      err: err instanceof Error ? err : new Error(String(err)),
+    })
+    throw err
+  }
 
   return writeJSON({ ok: true })
 })
