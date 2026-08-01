@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
-import { compactLabel, describeRefTokenPillView } from "./ref-token-pill"
+import { compactLabel, describeRefTokenPillView, resolveMessageJump } from "./ref-token-pill"
+import type { ChannelRefDirectory } from "@/lib/community/channel-ref"
 
 describe("compactLabel", () => {
   it("takes the last path segment", () => {
@@ -69,5 +70,35 @@ describe("describeRefTokenPillView (hybrid: live name preferred, label fallback)
     expect(
       describeRefTokenPillView({ refType: "message", id: "m3", label: "/Alook/general", liveName: null, channelServerId: null }),
     ).toEqual({ kind: "message", label: "general", seq: null })
+  })
+})
+
+describe("resolveMessageJump (ref/id A2 — message pill → context-sheet target)", () => {
+  const directory: ChannelRefDirectory = [
+    { id: "s_alook", name: "Alook", channels: [{ id: "c_general", name: "general" }, { id: "c_ideas", name: "ideas" }] },
+    { id: "s_other", name: "Other", channels: [{ id: "c_x", name: "general" }] },
+  ]
+
+  it("resolves a /server/channel#seq label to {serverId, channelId, label, seq} by name", () => {
+    expect(resolveMessageJump("/Alook/general#42", directory)).toEqual({
+      serverId: "s_alook", channelId: "c_general", label: "general", seq: 42,
+    })
+  })
+
+  it("returns null for a thread-message label (/#5#42) — a thread's seq space isn't in the top-level directory, so it can't jump correctly (Ingaborg #337)", () => {
+    expect(resolveMessageJump("/Alook/ideas/#5#42", directory)).toBeNull()
+  })
+
+  it("returns null when the label has no seq (nothing to jump to)", () => {
+    expect(resolveMessageJump("/Alook/general", directory)).toBeNull()
+  })
+
+  it("returns null when the server or channel isn't in the directory (deleted / no access)", () => {
+    expect(resolveMessageJump("/Ghost/general#1", directory)).toBeNull()
+    expect(resolveMessageJump("/Alook/ghost#1", directory)).toBeNull()
+  })
+
+  it("returns null on an unparseable label rather than throwing", () => {
+    expect(resolveMessageJump("not-a-ref", directory)).toBeNull()
   })
 })

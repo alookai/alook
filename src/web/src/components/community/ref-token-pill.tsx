@@ -10,8 +10,52 @@ import type { RefTokenType } from "@/lib/community/ref-token"
 // this rich pill and the plaintext preview (`formatRefLabel`/`stripRefTokens`)
 // can't drift (ref/id A1). `compactLabel` re-exported so this module's existing
 // import surface (+ its test) is unchanged.
-import { compactLabel, refDisplayParts } from "@alook/shared/community-cli-contract"
+import { compactLabel, refDisplayParts, parseRef } from "@alook/shared/community-cli-contract"
+import type { ChannelRefDirectory } from "@/lib/community/channel-ref"
 export { compactLabel }
+
+/**
+ * Resolve a message token's `data-label` (`/server/channel#seq`) to the target a
+ * message-context jump needs — `{ serverId, channelId, label, seq }` — by parsing
+ * the label with the shared ref parser (one ruler, not a hand-split) and looking
+ * the server/channel NAMES up in the already-loaded directory (ref/id A2).
+ * Returns null when the label lacks a seq, doesn't parse, is a thread-message,
+ * or the server/channel isn't in the directory (deleted / no access / DM) — the
+ * pill then stays readable-but-non-navigating rather than offering a dead or
+ * WRONG jump. This is READ locating (open the context sheet), never a
+ * write-addressing path — the leaf messageId is not turned into a new addressing
+ * axis (Blondie §2.5).
+ *
+ * Thread-message guard (`/s/c/#root#seq`): a thread is its own channel with its
+ * own seq space, and the directory only holds top-level channels — so `seq` here
+ * would be resolved against the PARENT channel `c` and jump to the wrong message.
+ * The directory can't supply the thread's channelId, so we can't jump correctly;
+ * return null (readable, non-navigating) rather than jump wrong. Unreachable
+ * today (no producer emits a thread-message token — the composer only emits
+ * channel tokens), but guarding it keeps the resolver honest (Ingaborg #337).
+ */
+export function resolveMessageJump(
+  label: string,
+  directory: ChannelRefDirectory,
+): { serverId: string; channelId: string; label: string; seq: number } | null {
+  let parsed: ReturnType<typeof parseRef>
+  try {
+    parsed = parseRef(label)
+  } catch {
+    return null
+  }
+  if (parsed.seq === undefined) return null
+  // A thread-message (`threadRootSeq` present) can't be located via the top-level
+  // directory — see the thread-message guard note above.
+  if (parsed.threadRootSeq !== undefined) return null
+  const server = directory.find((s) => s.id === parsed.server) ?? directory.find((s) => s.name === parsed.server)
+  if (!server) return null
+  const channel =
+    server.channels.find((c) => c.id === parsed.channel) ??
+    server.channels.find((c) => c.name === parsed.channel)
+  if (!channel) return null
+  return { serverId: server.id, channelId: channel.id, label: channel.name, seq: parsed.seq }
+}
 
 export type RefTokenPillView =
   | { kind: "channel"; label: string; serverId: string; channelId: string }
@@ -89,6 +133,13 @@ export function RefTokenPill(
     return { liveName: null, channelServerId: null }
   }, [directory, refType, id])
 
+  // A message token resolves to a jump target (open the context sheet on that
+  // message) when its channel is in the directory and the label carries a seq.
+  const messageJump = useMemo(
+    () => (refType === "message" ? resolveMessageJump(label, directory) : null),
+    [refType, label, directory],
+  )
+
   const view = describeRefTokenPillView({ refType, id, label, liveName, channelServerId })
 
   if (view.kind === "plain") return <>{view.text}</>
@@ -102,8 +153,16 @@ export function RefTokenPill(
       </ChannelPill>
     )
   }
-  // message (or an unresolved channel): readable pill, no navigation (A2 wires
-  // the jump). A message shows the channel context + seq (`general #42`) via
-  // `seqSuffix`; an unresolved channel has seq=null and shows just the leaf.
-  return <ChannelPill seqSuffix={view.seq ?? undefined}>{view.label}</ChannelPill>
+  // message: `general #42` via `seqSuffix`. Clickable → open the message-context
+  // sheet on that message (ref/id A2), IF the channel resolved and there's a seq;
+  // otherwise (unresolved channel, or a channel token that couldn't find its
+  // server) it stays a readable, non-navigating pill.
+  return (
+    <ChannelPill
+      seqSuffix={view.seq ?? undefined}
+      onClick={messageJump ? () => uiHandlers.openMessageContext?.(messageJump) : undefined}
+    >
+      {view.label}
+    </ChannelPill>
+  )
 }
