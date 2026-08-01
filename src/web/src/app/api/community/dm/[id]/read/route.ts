@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, withD1Retry } from "@alook/shared"
 import { requireDMAccess } from "@/lib/community/permissions"
 
 /**
@@ -41,11 +41,18 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     if (!target) return writeJSON({ ok: true })
   }
 
-  await queries.communityReadState.markReadToMessage(db, {
-    userId: ctx.userId,
-    channelId: dmId,
-    message: target,
-  })
+  // `withD1Retry` (D1-armor state 3, idempotent write): mark-read sets the
+  // watermark to a message, safe to re-run, so a transient retries not 500s
+  // (DM twin of the channels/[id]/read fix, PR read-500 #2).
+  await withD1Retry(
+    () =>
+      queries.communityReadState.markReadToMessage(db, {
+        userId: ctx.userId,
+        channelId: dmId,
+        message: target,
+      }),
+    { route: "dm/read" },
+  )
 
   return writeJSON({ ok: true })
 })

@@ -30,8 +30,6 @@ src/web/src/app/api/community/daemon/bots/route.ts
 src/web/src/app/api/community/daemon/enroll-agent/route.ts
 src/web/src/app/api/community/daemon/resync-wakes/route.ts
 src/web/src/app/api/community/dm/[id]/messages/route.ts
-src/web/src/app/api/community/dm/[id]/messages/seq/[seq]/route.ts
-src/web/src/app/api/community/dm/[id]/read/route.ts
 src/web/src/app/api/community/dm/route.ts
 src/web/src/app/api/community/friendRequest/route.ts
 src/web/src/app/api/community/friends/[id]/accept/route.ts
