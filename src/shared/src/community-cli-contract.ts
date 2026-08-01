@@ -1319,16 +1319,58 @@ export function compactLabel(label: string): string {
   return seg || label;
 }
 
+// Structured display descriptor for a ref token — the SINGLE SOURCE of the
+// leaf / seq / sigil-kind logic, consumed by BOTH display outlets so they can
+// never drift (ref/id A1, Blondie #327/#331, Faustine #330):
+//   - `formatRefLabel` (plaintext previews) bakes it into a string with the
+//     sigil as a CHARACTER (`/general`, `#42`).
+//   - the body pill (`ref-token-pill.tsx`) renders the sigil as an ICON glyph
+//     (`channel-icon.tsx`, a `/` slash) + a separate `#seq` suffix span.
+// Extracting the descriptor (rather than having the pill call `formatRefLabel`,
+// which would hand it the string form and lose the icon) is what lets the two
+// outlets share the leaf/seq/sigil logic while each renders in its own medium.
+//
+// Per type:
+//   channel/server → { sigilKind, leaf }        leaf = the path's last segment
+//   message        → { sigilKind: "message", leaf, seq }
+//                    leaf = the channel name, seq = the message seq — BOTH parsed
+//                    from the label's `/server/channel#seq` via `parseRef` (the
+//                    shared ref-grammar parser, NOT a hand-split — single ruler).
+//                    The pill renders `<icon> {leaf} #{seq}` (channel context),
+//                    the preview renders just `#{seq}` (the surrounding context
+//                    already names the channel). Faustine #330's match-to-surface.
+export type RefDisplayParts =
+  | { sigilKind: "channel" | "server"; leaf: string }
+  | { sigilKind: "message"; leaf: string; seq: number | null };
+
+export function refDisplayParts(type: RefTokenType, label: string): RefDisplayParts {
+  if (type === "message") {
+    // Parse the full-path label with the shared ref parser so the channel leaf
+    // and seq come from one ruler (Blondie #329/#331). `parseRef` throws on a
+    // malformed label — degrade to the compact leaf with no seq rather than
+    // fabricate one.
+    try {
+      const parsed = parseRef(label);
+      return {
+        sigilKind: "message",
+        leaf: parsed.childChannelName ?? parsed.channel,
+        seq: parsed.seq ?? null,
+      };
+    } catch {
+      return { sigilKind: "message", leaf: compactLabel(label), seq: null };
+    }
+  }
+  // channel (incl. thread / forum-post bearing surfaces) + server
+  return { sigilKind: type === "server" ? "server" : "channel", leaf: compactLabel(label) };
+}
+
 // The display form of a ref token in a NON-navigating text/preview context:
-// compact leaf label + a type sigil. This is the sigil SINGLE SOURCE. Mapping:
+// the compact leaf/seq (from `refDisplayParts`) + a type sigil baked in as a
+// character. This is the plaintext outlet of the shared descriptor. Mapping:
 //   channel → `/<leaf>`      (`{/Alook/general}(channel/…)`      → `/general`)
-//             thread / forum-post bearing surfaces are channel-class too and
-//             read the same `/<leaf>` in a preview — no thread/post distinction
-//             is needed at this altitude.
 //   server  → `/<leaf>`      (`{/Alook}(server/…)`               → `/Alook`)
 //   message → `#<seq>`       (`{/Alook/general#42}(message/…)`   → `#42`)
-//             the label's trailing `#N` is the seq; "which message" is enough in
-//             a preview that already sits in the referenced channel's context.
+//             just the seq — the preview already sits in the channel's context.
 //
 // The `/` prefix (NOT `#`) is deliberate: this app addresses everything by the
 // `/server/channel` PATH grammar, and the body pill's channel glyph is itself a
@@ -1341,15 +1383,11 @@ export function compactLabel(label: string): string {
 // `@mention`, a separate grammar, not a ref token (`RefTokenType` is
 // channel|message|server only).
 export function formatRefLabel(type: RefTokenType, label: string): string {
-  if (type === "server") return `/${compactLabel(label)}`;
-  if (type === "message") {
-    // The seq lives after the LAST `#` in the full-path label (`/s/c#42`,
-    // `/s/c/#5#42`). Fall back to the compact leaf if there's no `#`.
-    const hash = label.lastIndexOf("#");
-    return hash >= 0 ? `#${label.slice(hash + 1)}` : compactLabel(label);
+  const parts = refDisplayParts(type, label);
+  if (parts.sigilKind === "message") {
+    return parts.seq !== null ? `#${parts.seq}` : parts.leaf;
   }
-  // channel (incl. thread / forum-post bearing surfaces)
-  return `/${compactLabel(label)}`;
+  return `/${parts.leaf}`;
 }
 
 // Replace every `{label}(type/id)` token embedded in a string with its compact

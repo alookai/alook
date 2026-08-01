@@ -11,6 +11,7 @@ import {
   compactLabel,
   formatRefLabel,
   stripRefTokens,
+  refDisplayParts,
 } from "../src/community-cli-contract";
 
 describe("parseRef", () => {
@@ -325,6 +326,26 @@ describe("compactLabel", () => {
   it("trims a trailing slash and falls back to the whole label when there's no /", () => {
     expect(compactLabel("/Alook/general/")).toBe("general");
     expect(compactLabel("plain")).toBe("plain");
+  });
+});
+
+describe("refDisplayParts — structured display descriptor (ref/id A1, single source)", () => {
+  // The one place leaf/seq/sigil-kind is derived; both the pill (icon) and the
+  // preview (`formatRefLabel`, text) consume this so they can't drift.
+  it("channel / server → { sigilKind, leaf }", () => {
+    expect(refDisplayParts("channel", "/Alook/general")).toEqual({ sigilKind: "channel", leaf: "general" });
+    expect(refDisplayParts("server", "/Alook")).toEqual({ sigilKind: "server", leaf: "Alook" });
+  });
+  it("message → { sigilKind, leaf: channel, seq } — parsed via parseRef, not a hand-split", () => {
+    expect(refDisplayParts("message", "/Alook/general#42")).toEqual({ sigilKind: "message", leaf: "general", seq: 42 });
+    // thread-message: the reply seq (42), not the thread root (5).
+    expect(refDisplayParts("message", "/Alook/general/#5#42")).toEqual({ sigilKind: "message", leaf: "general", seq: 42 });
+    // forum-post message: leaf is the post's childChannelName.
+    expect(refDisplayParts("message", "/Alook/ideas/my-post#3")).toEqual({ sigilKind: "message", leaf: "my-post", seq: 3 });
+  });
+  it("message with an unparseable / seq-less label degrades to leaf + null seq (no fabricated seq)", () => {
+    expect(refDisplayParts("message", "/Alook/general")).toEqual({ sigilKind: "message", leaf: "general", seq: null });
+    expect(refDisplayParts("message", "not-a-path")).toEqual({ sigilKind: "message", leaf: "not-a-path", seq: null });
   });
 });
 

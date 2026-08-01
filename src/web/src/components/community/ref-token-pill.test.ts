@@ -32,6 +32,7 @@ describe("describeRefTokenPillView (hybrid: live name preferred, label fallback)
 
   it("channel: falls back to the compact stored label when unresolved (renders, doesn't navigate)", () => {
     // Deleted / no-access / directory not loaded → no liveName, no serverId.
+    // Lands in the readable non-navigating (`message`-kind) branch with seq=null.
     expect(
       describeRefTokenPillView({
         refType: "channel",
@@ -40,7 +41,7 @@ describe("describeRefTokenPillView (hybrid: live name preferred, label fallback)
         liveName: null,
         channelServerId: null,
       }),
-    ).toEqual({ kind: "message", label: "general" })
+    ).toEqual({ kind: "message", label: "general", seq: null })
   })
 
   it("server: live name when resolved, compact label otherwise", () => {
@@ -52,9 +53,21 @@ describe("describeRefTokenPillView (hybrid: live name preferred, label fallback)
     ).toEqual({ kind: "server", label: "Alook", serverId: "s_gone" })
   })
 
-  it("message: readable non-navigating pill from the compact label (no channelId+seq to jump)", () => {
+  it("message: channel leaf + seq from the label (renders `general #42`) — parsed via parseRef, single source with the preview", () => {
     expect(
       describeRefTokenPillView({ refType: "message", id: "m1", label: "/Alook/general#42", liveName: null, channelServerId: null }),
-    ).toEqual({ kind: "message", label: "general#42" })
+    ).toEqual({ kind: "message", label: "general", seq: 42 })
+  })
+
+  it("message: thread-message label /#5#42 yields the reply seq 42, not the thread root", () => {
+    expect(
+      describeRefTokenPillView({ refType: "message", id: "m2", label: "/Alook/general/#5#42", liveName: null, channelServerId: null }),
+    ).toEqual({ kind: "message", label: "general", seq: 42 })
+  })
+
+  it("message: a label with no seq degrades to leaf + null seq (no fabricated seq)", () => {
+    expect(
+      describeRefTokenPillView({ refType: "message", id: "m3", label: "/Alook/general", liveName: null, channelServerId: null }),
+    ).toEqual({ kind: "message", label: "general", seq: null })
   })
 })

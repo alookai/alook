@@ -434,7 +434,8 @@ export type {
   BotAuditEventPayload,
 } from "./community-cli-contract";
 export { DM_SERVER, parseRef, formatRef, parseSeq, formatSeq } from "./community-cli-contract";
-export { compactLabel, formatRefLabel, stripRefTokens } from "./community-cli-contract";
+export { compactLabel, formatRefLabel, stripRefTokens, refDisplayParts } from "./community-cli-contract";
+export type { RefDisplayParts } from "./community-cli-contract";
 
 export type {
   ReasoningEffort,
