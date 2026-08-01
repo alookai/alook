@@ -1,0 +1,107 @@
+# D1-armor baseline — the "swallow-class / bare-getDb" burn-down list (PR-C3① ratchet).
+#
+# Each line is a community route.ts that calls getDb() WITHOUT a D1-armor carrier
+# (withD1Retry / readOrStale / idempotentWrite / nonIdempotentWriteAllowed). These
+# are the PRE-EXISTING bare routes at C3①'s introduction — grandfathered so the lint
+# can land now (a hard rule would fail all 92 at once). scripts/lint-d1-armor.mjs
+# fails a NEW bare route that is not in this list.
+#
+# RATCHET — this list may only SHRINK, never grow:
+#   - PR-C2 armors each route (wraps its D1 exec in a carrier) and DELETES its line here.
+#   - When this list hits 0 entries, C2 is done and the baseline file can be removed.
+#   - The lint enforces monotonicity: adding a line (letting a new bare route in) fails
+#     the line-count check; a line whose file is no longer bare must be removed.
+#
+# Lines starting with '#' are comments. One repo-relative path per remaining line.
+src/web/src/app/api/community/attachmentDownload/route.ts
+src/web/src/app/api/community/attachmentUpload/route.ts
+src/web/src/app/api/community/bots/[id]/approval-requests/[requestId]/approve/route.ts
+src/web/src/app/api/community/bots/[id]/approval-requests/[requestId]/deny/route.ts
+src/web/src/app/api/community/bots/[id]/audit-log/route.ts
+src/web/src/app/api/community/bots/[id]/avatar/route.ts
+src/web/src/app/api/community/bots/[id]/reset-session/route.ts
+src/web/src/app/api/community/bots/[id]/route.ts
+src/web/src/app/api/community/bots/route.ts
+src/web/src/app/api/community/channelMember/route.ts
+src/web/src/app/api/community/channels/[id]/addable-members/route.ts
+src/web/src/app/api/community/channels/[id]/members/[userId]/route.ts
+src/web/src/app/api/community/channels/[id]/members/route.ts
+src/web/src/app/api/community/channels/[id]/messages/route.ts
+src/web/src/app/api/community/channels/[id]/messages/seq/[seq]/route.ts
+src/web/src/app/api/community/channels/[id]/participants/[userId]/route.ts
+src/web/src/app/api/community/channels/[id]/participants/route.ts
+src/web/src/app/api/community/channels/[id]/pins/[messageId]/route.ts
+src/web/src/app/api/community/channels/[id]/pins/route.ts
+src/web/src/app/api/community/channels/[id]/posts/route.ts
+src/web/src/app/api/community/channels/[id]/route.ts
+src/web/src/app/api/community/channels/[id]/threads/route.ts
+src/web/src/app/api/community/daemon/activate/route.ts
+src/web/src/app/api/community/daemon/bots/route.ts
+src/web/src/app/api/community/daemon/enroll-agent/route.ts
+src/web/src/app/api/community/daemon/resync-wakes/route.ts
+src/web/src/app/api/community/dm/[id]/messages/route.ts
+src/web/src/app/api/community/dm/[id]/messages/seq/[seq]/route.ts
+src/web/src/app/api/community/dm/[id]/read/route.ts
+src/web/src/app/api/community/dm/route.ts
+src/web/src/app/api/community/friendRequest/route.ts
+src/web/src/app/api/community/friends/[id]/accept/route.ts
+src/web/src/app/api/community/friends/[id]/owner-decision/route.ts
+src/web/src/app/api/community/friends/[id]/reject/route.ts
+src/web/src/app/api/community/friends/[id]/route.ts
+src/web/src/app/api/community/friends/request/route.ts
+src/web/src/app/api/community/inbox/dms/read-all/route.ts
+src/web/src/app/api/community/inbox/mentions/[id]/route.ts
+src/web/src/app/api/community/inbox/mentions/read-all/route.ts
+src/web/src/app/api/community/inbox/unreads/read-all/route.ts
+src/web/src/app/api/community/inboxSnapshot/route.ts
+src/web/src/app/api/community/invites/[token]/info/route.ts
+src/web/src/app/api/community/invites/[token]/join/route.ts
+src/web/src/app/api/community/invites/[token]/route.ts
+src/web/src/app/api/community/listChannels/route.ts
+src/web/src/app/api/community/listFriends/route.ts
+src/web/src/app/api/community/listMembers/route.ts
+src/web/src/app/api/community/machines/[id]/reconnect/route.ts
+src/web/src/app/api/community/machines/[id]/route.ts
+src/web/src/app/api/community/machines/pair/route.ts
+src/web/src/app/api/community/machines/route.ts
+src/web/src/app/api/community/media/[...key]/route.ts
+src/web/src/app/api/community/messages/[id]/reactions/[emoji]/route.ts
+src/web/src/app/api/community/messages/[id]/route.ts
+src/web/src/app/api/community/messages/[id]/threads/route.ts
+src/web/src/app/api/community/nap/route.ts
+src/web/src/app/api/community/reactAdd/route.ts
+src/web/src/app/api/community/read/route.ts
+src/web/src/app/api/community/resolve/route.ts
+src/web/src/app/api/community/search/route.ts
+src/web/src/app/api/community/server-folders/[id]/route.ts
+src/web/src/app/api/community/server-folders/reorder/route.ts
+src/web/src/app/api/community/server-folders/route.ts
+src/web/src/app/api/community/servers/[id]/audit-log/route.ts
+src/web/src/app/api/community/servers/[id]/bots/route.ts
+src/web/src/app/api/community/servers/[id]/categories/[catId]/route.ts
+src/web/src/app/api/community/servers/[id]/categories/reorder/route.ts
+src/web/src/app/api/community/servers/[id]/categories/route.ts
+src/web/src/app/api/community/servers/[id]/channels/reorder/route.ts
+src/web/src/app/api/community/servers/[id]/channels/route.ts
+src/web/src/app/api/community/servers/[id]/icon/route.ts
+src/web/src/app/api/community/servers/[id]/invitable-friends/route.ts
+src/web/src/app/api/community/servers/[id]/invites/route.ts
+src/web/src/app/api/community/servers/[id]/leave/route.ts
+src/web/src/app/api/community/servers/[id]/members/[memberId]/route.ts
+src/web/src/app/api/community/servers/[id]/members/route.ts
+src/web/src/app/api/community/servers/[id]/members/search/route.ts
+src/web/src/app/api/community/servers/[id]/route.ts
+src/web/src/app/api/community/servers/reorder/route.ts
+src/web/src/app/api/community/servers/route.ts
+src/web/src/app/api/community/threads/[id]/messages/route.ts
+src/web/src/app/api/community/threads/[id]/read/route.ts
+src/web/src/app/api/community/threads/[id]/route.ts
+src/web/src/app/api/community/users/[userId]/block/route.ts
+src/web/src/app/api/community/users/[userId]/profile/route.ts
+src/web/src/app/api/community/users/[userId]/unblock/route.ts
+src/web/src/app/api/community/users/me/avatar/route.ts
+src/web/src/app/api/community/users/me/notifications/channel/[id]/route.ts
+src/web/src/app/api/community/users/me/notifications/route.ts
+src/web/src/app/api/community/users/me/notifications/server/[id]/route.ts
+src/web/src/app/api/community/users/me/profile/route.ts
+src/web/src/app/api/community/users/search/route.ts
