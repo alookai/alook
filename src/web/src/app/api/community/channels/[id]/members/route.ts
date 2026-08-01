@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, WS_EVENTS, isForum, isForumPost, isThread } from "@alook/shared"
+import { queries, withD1Retry, WS_EVENTS, isForum, isForumPost, isThread } from "@alook/shared"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
 import { logAudit } from "@/lib/community/audit"
 import { requireChannelAccess } from "@/lib/community/permissions"
@@ -126,11 +126,17 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const targetMember = await queries.communityMember.getMember(db, channel.serverId, targetUserId)
   if (!targetMember) return writeError("user is not a member of this server", 400)
 
-  await queries.communityChannel.createChannelMember(db, {
-    channelId,
-    userId: targetUserId,
-    addedBy: ctx.userId,
-  })
+  // `withD1Retry` (D1-armor state 3): createChannelMember is
+  // `onConflictDoNothing`, so a retry can't double-add — idempotent.
+  await withD1Retry(
+    () =>
+      queries.communityChannel.createChannelMember(db, {
+        channelId,
+        userId: targetUserId,
+        addedBy: ctx.userId,
+      }),
+    { route: "channels/members/add" },
+  )
 
   const event = {
     type: WS_EVENTS.CHANNEL_MEMBER_ADD,

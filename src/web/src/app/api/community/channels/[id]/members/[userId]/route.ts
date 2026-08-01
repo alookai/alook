@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, WS_EVENTS, isThread, isForumPost } from "@alook/shared"
+import { queries, withD1Retry, WS_EVENTS, isThread, isForumPost } from "@alook/shared"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
 import { logAudit } from "@/lib/community/audit"
 import { requireChannelAccess } from "@/lib/community/permissions"
@@ -37,14 +37,21 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   const isSelf = targetUserId === ctx.userId
   if (!isSelf && !access.value.isCreator) return writeError("forbidden", 403)
 
-  const removed = await queries.communityChannel.deleteChannelMember(db, channelId, targetUserId)
+  // `withD1Retry` (D1-armor state 3): delete-by-key, idempotent (0-rows → 404).
+  const removed = await withD1Retry(
+    () => queries.communityChannel.deleteChannelMember(db, channelId, targetUserId),
+    { route: "channels/members/remove" },
+  )
   if (!removed) return writeError("member not found", 404)
 
   // A removed member loses access to every child unit (a forum's posts, a
   // channel's threads); drop their leftover participant (notify) rows across
   // those children so fan-out stops pushing new post/thread messages they can no
   // longer read. A later mention/speak (which requires access) re-adds them.
-  await queries.communityThread.removeParticipantFromChildChannels(db, channelId, targetUserId)
+  await withD1Retry(
+    () => queries.communityThread.removeParticipantFromChildChannels(db, channelId, targetUserId),
+    { route: "channels/members/remove-child-participants" },
+  )
 
   const event = {
     type: WS_EVENTS.CHANNEL_MEMBER_REMOVE,

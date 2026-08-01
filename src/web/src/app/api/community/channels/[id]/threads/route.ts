@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, withD1Retry } from "@alook/shared"
 import { requireChannelAccess } from "@/lib/community/permissions"
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
@@ -20,10 +20,15 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const archivedParam = req.nextUrl.searchParams.get("archived")
   const archived = archivedParam === "true" ? true : archivedParam === "false" ? false : undefined
 
-  const childChannels = await queries.communityChannel.listChildChannels(db, channelId, {
-    archived,
-    type: "thread",
-  })
+  // `withD1Retry` (D1-armor: no-fallback list read; retry a transient to truth).
+  const childChannels = await withD1Retry(
+    () =>
+      queries.communityChannel.listChildChannels(db, channelId, {
+        archived,
+        type: "thread",
+      }),
+    { route: "channels/threads" },
+  )
 
   // Collect id sets up front so we can resolve parent-message / creator /
   // first-message previews in three parallel batches instead of 1+2N calls.

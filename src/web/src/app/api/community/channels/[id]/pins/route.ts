@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, isUniqueConstraintError, WS_EVENTS } from "@alook/shared"
+import { queries, withD1Retry, isUniqueConstraintError, WS_EVENTS } from "@alook/shared"
 import { fanOutToChannel } from "@/lib/community/fanout"
 import { requireChannelMember, requireServerAdmin } from "@/lib/community/permissions"
 import { requirePinnableSurface } from "@/lib/community/channel-write-guard"
@@ -60,11 +60,18 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   let pin
   try {
-    pin = await queries.communityPin.pinMessage(db, {
-      channelId,
-      messageId: body.messageId,
-      pinnedBy: ctx.userId,
-    })
+    // `withD1Retry` (D1-armor state 3): a pin is unique per (channel, message),
+    // so a retry can't double-pin. Transient retries; the UNIQUE error isn't in
+    // the whitelist → withD1Retry rethrows into the catch (already-pinned → 409).
+    pin = await withD1Retry(
+      () =>
+        queries.communityPin.pinMessage(db, {
+          channelId,
+          messageId: body.messageId,
+          pinnedBy: ctx.userId,
+        }),
+      { route: "channels/pins/pin" },
+    )
   } catch (e: unknown) {
     if (isUniqueConstraintError(e)) return writeError("message already pinned", 409)
     throw e

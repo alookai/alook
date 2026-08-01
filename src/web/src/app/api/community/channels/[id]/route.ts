@@ -4,6 +4,7 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
   queries,
+  withD1Retry,
   canManageServer,
   isUniqueConstraintError,
   MAX_CHANNEL_NAME_LENGTH,
@@ -123,7 +124,13 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
 
   let updated
   try {
-    updated = await queries.communityChannel.updateChannel(db, channelId, changes)
+    // `withD1Retry` (D1-armor state 3): updateChannel sets fields to values,
+    // idempotent. Transient retries; a name-collision UNIQUE error isn't in the
+    // whitelist → withD1Retry rethrows into the catch (→ 409), unchanged.
+    updated = await withD1Retry(
+      () => queries.communityChannel.updateChannel(db, channelId, changes),
+      { route: "channels/update" },
+    )
   } catch (err) {
     if (isUniqueConstraintError(err)) {
       return writeError("a channel with this name already exists", 409)
@@ -186,7 +193,10 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
     ? await queries.communityChannel.getPrivateChannelAudienceUserIds(db, channelId)
     : null
 
-  const deleted = await queries.communityChannel.deleteChannel(db, channelId)
+  // `withD1Retry` (D1-armor state 3): delete-by-id is idempotent (0-rows → 404).
+  const deleted = await withD1Retry(() => queries.communityChannel.deleteChannel(db, channelId), {
+    route: "channels/delete",
+  })
   if (!deleted) return writeError("channel not found", 404)
 
   const event = {

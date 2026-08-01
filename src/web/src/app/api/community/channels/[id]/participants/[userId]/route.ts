@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, isThread, isForumPost } from "@alook/shared"
+import { queries, withD1Retry, isThread, isForumPost } from "@alook/shared"
 import { requireChannelAccess } from "@/lib/community/permissions"
 
 /**
@@ -34,7 +34,12 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   const isUnitCreator = access.value.channel.creatorId === ctx.userId
   if (!isSelf && !isUnitCreator) return writeError("forbidden", 403)
 
-  const removed = await queries.communityThread.removeThreadParticipant(db, channelId, targetUserId)
+  // `withD1Retry` (D1-armor state 3): remove-participant is delete-by-key,
+  // idempotent (0-rows still maps to 404).
+  const removed = await withD1Retry(
+    () => queries.communityThread.removeThreadParticipant(db, channelId, targetUserId),
+    { route: "channels/participants/remove" },
+  )
   if (!removed) return writeError("participant not found", 404)
   return new Response(null, { status: 204 })
 })

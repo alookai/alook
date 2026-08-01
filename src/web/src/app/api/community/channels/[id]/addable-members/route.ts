@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, withD1Retry } from "@alook/shared"
 import { requireChannelAccess } from "@/lib/community/permissions"
 import { avatarInitial } from "@/lib/community/avatar"
 
@@ -23,10 +23,15 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
   if (!access.ok) return writeError(access.error, access.status)
 
   const channel = access.value.channel
-  const [members, channelMemberIds] = await Promise.all([
-    queries.communityMember.listMembers(db, channel.serverId),
-    queries.communityChannel.listChannelMemberUserIds(db, channelId),
-  ])
+  // `withD1Retry` (D1-armor: no-fallback roster read; retry a transient to truth).
+  const [members, channelMemberIds] = await withD1Retry(
+    () =>
+      Promise.all([
+        queries.communityMember.listMembers(db, channel.serverId),
+        queries.communityChannel.listChannelMemberUserIds(db, channelId),
+      ]),
+    { route: "channels/addable-members" },
+  )
   const inChannel = new Set(channelMemberIds)
   if (channel.creatorId) inChannel.add(channel.creatorId)
 

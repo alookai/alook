@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, WS_EVENTS } from "@alook/shared"
+import { queries, withD1Retry, WS_EVENTS } from "@alook/shared"
 import { fanOutToChannel } from "@/lib/community/fanout"
 import { requireServerAdmin } from "@/lib/community/permissions"
 import { requirePinnableSurface } from "@/lib/community/channel-write-guard"
@@ -25,7 +25,10 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   const auth = await requireServerAdmin(db, channel.serverId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 
-  await queries.communityPin.unpinMessage(db, { channelId, messageId })
+  // `withD1Retry` (D1-armor state 3): unpin is delete-by-key, idempotent.
+  await withD1Retry(() => queries.communityPin.unpinMessage(db, { channelId, messageId }), {
+    route: "channels/pins/unpin",
+  })
 
   fanOutToChannel(channelId, {
     type: WS_EVENTS.PIN_REMOVE,

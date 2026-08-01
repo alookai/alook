@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, WS_EVENTS, isThread, isForumPost, PARTICIPANT_SOURCE } from "@alook/shared"
+import { queries, withD1Retry, WS_EVENTS, isThread, isForumPost, PARTICIPANT_SOURCE } from "@alook/shared"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
 import { requireChannelAccess } from "@/lib/community/permissions"
 
@@ -59,11 +59,17 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError("user is not a member of the parent channel", 400)
   }
 
-  const created = await queries.communityThread.addThreadParticipant(db, {
-    threadChannelId: channelId,
-    userId: targetUserId,
-    source: PARTICIPANT_SOURCE.ADDED,
-  })
+  // `withD1Retry` (D1-armor state 3): addThreadParticipant is
+  // `onConflictDoNothing`, so a retry can't double-add — idempotent.
+  const created = await withD1Retry(
+    () =>
+      queries.communityThread.addThreadParticipant(db, {
+        threadChannelId: channelId,
+        userId: targetUserId,
+        source: PARTICIPANT_SOURCE.ADDED,
+      }),
+    { route: "channels/participants/add" },
+  )
 
   // Notify the added user so their inbox/thread view reflects the new
   // participation. Only on a genuinely-new row (null = already a participant).

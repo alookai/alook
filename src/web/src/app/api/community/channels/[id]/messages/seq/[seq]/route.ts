@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, withD1Retry } from "@alook/shared"
 import { requireChannelMember } from "@/lib/community/permissions"
 
 /**
@@ -32,7 +32,11 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const auth = await requireChannelMember(db, channelId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 
-  const message = await queries.communityMessage.getMessageByChannelAndSeq(db, { channelId }, seq)
+  // `withD1Retry` (D1-armor: no-fallback message-by-seq read; retry to truth).
+  const message = await withD1Retry(
+    () => queries.communityMessage.getMessageByChannelAndSeq(db, { channelId }, seq),
+    { route: "channels/messages/seq" },
+  )
   if (!message) {
     return writeJSON({ error: "not_found" }, 404)
   }
