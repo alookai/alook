@@ -24,6 +24,9 @@ vi.mock("@alook/shared", () => {
     },
     createDb: () => ({}),
     createLogger: () => noopLogger,
+    // Passthrough `withD1Retry` — invoke the query fn once, let throws
+    // propagate (the doNames-resolve error paths the suite exercises).
+    withD1Retry: <T>(fn: () => Promise<T>, _opts?: unknown): Promise<T> => fn(),
     queries: {
       communityMachine: {
         hashCredential: (bearer: string) => mockHashCredential(bearer),

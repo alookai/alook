@@ -4,6 +4,7 @@ import {
   queries,
   createLogger,
   readOrStale,
+  withD1Retry,
   COMMUNITY_MACHINE_HEARTBEAT_MS,
   COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS,
   HostReadyMessageSchema,
@@ -236,7 +237,12 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       doName: string
     } | null = null
     try {
-      auth = await queries.communityMachine.findCredentialByHash(db, hash)
+      // `withD1Retry` (D1-armor state 2): credential-auth lookup — a transient
+      // here would 503 a valid daemon reconnect (mis-judged auth state). Retry
+      // to truth; keep the 503 on exhaustion so the daemon retries via backoff.
+      auth = await withD1Retry(() => queries.communityMachine.findCredentialByHash(db, hash), {
+        route: "ws-do/accept-machine/credential",
+      })
     } catch (err) {
       log.warn("community machine auth lookup threw", { err: String(err) })
       return new Response("auth lookup unavailable", { status: 503 })
@@ -504,11 +510,19 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       }
       try {
         const db = createDb(this.env.DB)
-        const flipped = await queries.communityMachine.markMachineOffline(db, {
-          userId: identity.userId,
-          machineId: identity.machineId,
-          credentialHash: identity.credentialHash,
-        })
+        // `withD1Retry` (D1-armor state 3): presence flip online→offline is
+        // idempotent (credential-scoped UPDATE — re-running sets the same state),
+        // so retry the absorbable transient. The alarm safety-net (armed in the
+        // catch) remains the backstop if retries are exhausted.
+        const flipped = await withD1Retry(
+          () =>
+            queries.communityMachine.markMachineOffline(db, {
+              userId: identity.userId,
+              machineId: identity.machineId,
+              credentialHash: identity.credentialHash,
+            }),
+          { route: "ws-do/ws-close/mark-offline" },
+        )
         if (flipped) {
           // Real transition — broadcast + clean up storage. Alarm no longer needed.
           await this.notifyUserDO(identity.userId, {
@@ -553,15 +567,27 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       const identity = await this.ctx.storage.get<CommunityMachineIdentity>(IDENTITY_KEY)
       for (const m of liveMachines) {
         try {
-          await queries.communityMachine.touchMachineHeartbeat(db, m.userId, m.machineId)
+          // `withD1Retry` (D1-armor state 3): heartbeat last_seen bump is
+          // idempotent; retry the transient (best-effort — the catch still
+          // swallows on exhaustion, next alarm re-bumps).
+          await withD1Retry(
+            () => queries.communityMachine.touchMachineHeartbeat(db, m.userId, m.machineId),
+            { route: "ws-do/alarm/heartbeat" },
+          )
         } catch { /* ok */ }
         if (identity && identity.userId === m.userId && identity.machineId === m.machineId) {
           try {
-            const backfilled = await queries.communityMachine.markMachineOnlineIfOffline(db, {
-              userId: identity.userId,
-              machineId: identity.machineId,
-              credentialHash: identity.credentialHash,
-            })
+            // `withD1Retry` (D1-armor state 3): presence backfill offline→online
+            // is idempotent (credential-scoped); retry the transient.
+            const backfilled = await withD1Retry(
+              () =>
+                queries.communityMachine.markMachineOnlineIfOffline(db, {
+                  userId: identity.userId,
+                  machineId: identity.machineId,
+                  credentialHash: identity.credentialHash,
+                }),
+              { route: "ws-do/alarm/mark-online" },
+            )
             if (backfilled) {
               await this.notifyUserDO(identity.userId, {
                 type: WS_EVENTS.MACHINE_STATUS,
@@ -585,10 +611,13 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     if (!stored) return
     const identity = await this.ctx.storage.get<CommunityMachineIdentity>(IDENTITY_KEY)
     const db = createDb(this.env.DB)
-    const machine = await queries.communityMachine.getMachineByIdForUser(
-      db,
-      stored.userId,
-      stored.machineId
+    // `withD1Retry` (D1-armor state 2): this read decides whether the machine is
+    // stale enough to flip offline — a transient would drive a wrong stale
+    // decision (spurious offline flip or a missed one). Retry to truth. Throws
+    // propagate to the alarm runtime (which reschedules), never a false read.
+    const machine = await withD1Retry(
+      () => queries.communityMachine.getMachineByIdForUser(db, stored.userId, stored.machineId),
+      { route: "ws-do/alarm/get-machine" },
     )
     if (!machine) {
       // Row was deleted — drop the handle so we don't keep waking up forever.
@@ -605,11 +634,17 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       // UI still surfaces the transition even if the DB write skipped.
       if (identity) {
         try {
-          const flipped = await queries.communityMachine.markMachineOffline(db, {
-            userId: identity.userId,
-            machineId: identity.machineId,
-            credentialHash: identity.credentialHash,
-          })
+          // `withD1Retry` (D1-armor state 3): idempotent credential-scoped
+          // offline flip on the stale path; retry the transient.
+          const flipped = await withD1Retry(
+            () =>
+              queries.communityMachine.markMachineOffline(db, {
+                userId: identity.userId,
+                machineId: identity.machineId,
+                credentialHash: identity.credentialHash,
+              }),
+            { route: "ws-do/alarm/stale-mark-offline" },
+          )
           if (flipped) {
             await this.notifyUserDO(stored.userId, {
               type: WS_EVENTS.MACHINE_STATUS,
@@ -795,10 +830,20 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         frameType: "agent_activity",
         agentId,
         machineId: identity.machineId,
-        resolveBinding: () => queries.communityBot.getBotBinding(db, agentId),
+        // `withD1Retry` (D1-armor state 2): security-adjacent ownership lookup —
+        // a transient here drops a valid frame (mis-judged binding state).
+        resolveBinding: () =>
+          withD1Retry(() => queries.communityBot.getBotBinding(db, agentId), {
+            route: "ws-do/agent-activity/binding",
+          }),
         isMatch: (binding) => binding.machineId === identity.machineId,
         write: async () => {
-          const prior = await queries.communityUserProfile.getProfile(db, agentId)
+          // `withD1Retry` (D1-armor state 2): this read decides the status-pill
+          // write below — a transient would skip a legitimate pill update.
+          const prior = await withD1Retry(
+            () => queries.communityUserProfile.getProfile(db, agentId),
+            { route: "ws-do/agent-activity/profile" },
+          )
           const priorEmoji = prior?.statusEmoji ?? null
           // `status_text` defaults to "" (schema), so an unset status reads back
           // as (null, "") not (null, null). Normalize "" → null so "no status"
@@ -826,10 +871,19 @@ export class WebSocketDurableObject extends DurableObject<Env> {
               ? { emoji: priorEmoji as string, text: priorText as string }
               : pickBotActivityPreset(state, Math.random())
           if (preset.emoji === priorEmoji && preset.text === priorText) return
-          await queries.communityUserProfile.updateProfile(db, agentId, {
-            statusEmoji: preset.emoji,
-            statusText: preset.text,
-          })
+          // `withD1Retry` (D1-armor state 3): status-pill write is an
+          // `onConflictDoUpdate` upsert (last-write-wins, verified) — blind retry
+          // is idempotent and a dropped write leaves the pill briefly stale until
+          // the next agent_activity frame overwrites it. Retry beats drop: the
+          // pill is a persistent display state, not a droppable 5s typing frame.
+          await withD1Retry(
+            () =>
+              queries.communityUserProfile.updateProfile(db, agentId, {
+                statusEmoji: preset.emoji,
+                statusText: preset.text,
+              }),
+            { route: "ws-do/agent-activity/update-profile" },
+          )
           await this.broadcastToAudience(agentId, {
             type: WS_EVENTS.STATUS_UPDATE,
             userId: agentId,
@@ -856,7 +910,12 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         frameType: "agent_typing",
         agentId,
         machineId: identity.machineId,
-        resolveBinding: () => queries.communityBot.getBotBindingWithOwner(db, agentId),
+        // `withD1Retry` (D1-armor state 2): ownership lookup — a transient drops
+        // a valid typing frame (mis-judged binding state).
+        resolveBinding: () =>
+          withD1Retry(() => queries.communityBot.getBotBindingWithOwner(db, agentId), {
+            route: "ws-do/agent-typing/binding",
+          }),
         isMatch: (binding) => binding.machineId === identity.machineId,
         write: async (binding) => {
           // Channel membership is enforced inside `fanOutTyping` — no need to
@@ -883,7 +942,12 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         frameType: "agent_typing_stop",
         agentId,
         machineId: identity.machineId,
-        resolveBinding: () => queries.communityBot.getBotBindingWithOwner(db, agentId),
+        // `withD1Retry` (D1-armor state 2): ownership lookup — a transient drops
+        // a valid typing-stop frame (mis-judged binding state).
+        resolveBinding: () =>
+          withD1Retry(() => queries.communityBot.getBotBindingWithOwner(db, agentId), {
+            route: "ws-do/agent-typing-stop/binding",
+          }),
         isMatch: (binding) => binding.machineId === identity.machineId,
         // Channel membership enforced inside `fanOutTypingStop`.
         write: () => this.fanOutTypingStop(agentId, channelId),
@@ -928,7 +992,14 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         // failures stay on the plain `ws_frame_dropped` category via the
         // helper's default.
         writeCategory: "ws_frame_dropped_write",
-        resolveBinding: () => queries.communityBot.getBotBindingWithOwner(db, frame.agentId),
+        // `withD1Retry` (D1-armor state 2): ownership lookup — a transient here
+        // drops a valid audit frame at the binding check (before the write). The
+        // binding-check failure category stays `ws_frame_dropped` (not the
+        // audit-loss SLO's `_write`); retry to truth so a blip isn't a false drop.
+        resolveBinding: () =>
+          withD1Retry(() => queries.communityBot.getBotBindingWithOwner(db, frame.agentId), {
+            route: "ws-do/bot-audit-event/binding",
+          }),
         isMatch: (binding) => binding.machineId === identity.machineId,
         write: async (binding) => {
           const inserted = await queries.communityBotAuditLog.insertBotActivityEventAndPrune(db, {
@@ -970,11 +1041,18 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       const availableRuntimes: CommunityMachineRuntime[] = ready.runtimeReport
 
       const db = createDb(this.env.DB)
-      const result = await queries.communityMachine.upsertMachineByMachineId(
-        db,
-        identity.userId,
-        identity.machineId,
-        { hostname, platform, arch, daemonVersion, osRelease, availableRuntimes }
+      // `withD1Retry` (D1-armor state 3): the machine-metadata upsert is
+      // idempotent (upsert by machineId — re-running writes the same row), so
+      // retry the transient before the outer catch logs `ws_frame_dropped`.
+      const result = await withD1Retry(
+        () =>
+          queries.communityMachine.upsertMachineByMachineId(
+            db,
+            identity.userId,
+            identity.machineId,
+            { hostname, platform, arch, daemonVersion, osRelease, availableRuntimes }
+          ),
+        { route: "ws-do/ready/upsert-machine" },
       )
       if (!result) {
         // The machine row was deleted (or race) between credential validation
@@ -992,10 +1070,17 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       // transition; the reconciler only ever writes `Idle`. Owner-set custom
       // statuses (identified by not matching the known bot presets) are left
       // alone. See plans/community-bot-status-telemetry.md.
-      const activityChanges = await queries.communityMachine.reconcileBotActivityFromRunningAgents(
-        db,
-        machine.id,
-        ready.runningAgents
+      // `withD1Retry` (D1-armor state 3): the activity reconciler (clears stale
+      // system-written pills for bots not currently running) is idempotent;
+      // retry the transient.
+      const activityChanges = await withD1Retry(
+        () =>
+          queries.communityMachine.reconcileBotActivityFromRunningAgents(
+            db,
+            machine.id,
+            ready.runningAgents
+          ),
+        { route: "ws-do/ready/reconcile-activity" },
       )
       await Promise.allSettled(
         activityChanges.map(({ botUserId, statusEmoji, statusText }) =>
@@ -1112,7 +1197,13 @@ export class WebSocketDurableObject extends DurableObject<Env> {
    */
   private async fanOutMachineUpdated(userId: string, machineId: string): Promise<void> {
     const db = createDb(this.env.DB)
-    const row = await queries.communityMachine.getMachineByIdForUser(db, userId, machineId)
+    // `withD1Retry` (D1-armor state 2): no-fallback read that drives the
+    // machine.updated fan-out — a transient would silently skip the fan-out
+    // (the owner's card stays stale). Retry to truth.
+    const row = await withD1Retry(
+      () => queries.communityMachine.getMachineByIdForUser(db, userId, machineId),
+      { route: "ws-do/fan-machine-updated/get-machine" },
+    )
     if (!row) return
     const summary = await this.summaryWithOverlay(row)
     await this.notifyUserDO(userId, {
@@ -1175,7 +1266,13 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         const status = this.machineStatusPayload(payload)
         if (!status) return
         const db = createDb(this.env.DB)
-        const bots = await queries.communityBot.listBotsForMachine(db, status.machineId)
+        // `withD1Retry` (D1-armor state 2): this read drives the bot-presence
+        // fan-out — a transient would drop the online/offline flip for every bot
+        // on this machine (owners see wrong bot presence). Retry to truth.
+        const bots = await withD1Retry(
+          () => queries.communityBot.listBotsForMachine(db, status.machineId),
+          { route: "ws-do/notify-user/list-bots" },
+        )
         if (bots.length === 0) return
         await Promise.allSettled(
           bots.map((bot) => this.broadcastPresence(bot.id, status.online))
@@ -1200,7 +1297,12 @@ export class WebSocketDurableObject extends DurableObject<Env> {
 
   private async getDaemonIdForUser(userId: string): Promise<string | null> {
     const db = createDb(this.env.DB)
-    const token = await queries.machineToken.getLatestTokenForUser(db, userId)
+    // `withD1Retry` (D1-armor state 2): a transient would make check_daemon_status
+    // report a live daemon as unreachable (false negative). Retry to truth.
+    const token = await withD1Retry(
+      () => queries.machineToken.getLatestTokenForUser(db, userId),
+      { route: "ws-do/get-daemon-id/token" },
+    )
     return token?.hostname || null
   }
 
@@ -1211,7 +1313,12 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     // Resolve name/discriminator alongside the userId (one join) so the
     // connection state can carry them — typing fan-out then stamps the name
     // into the event without a per-event DB lookup. Runs once per WS auth.
-    return queries.session.getValidSessionWithIdentity(db, token)
+    // `withD1Retry` (D1-armor state 2): WS-auth session read — a transient here
+    // would false-fail a valid user's WS auth (mis-judged auth state). Retry to
+    // truth; a null (genuinely invalid) still closes the socket.
+    return withD1Retry(() => queries.session.getValidSessionWithIdentity(db, token), {
+      route: "ws-do/validate-token/session",
+    })
   }
 
   /**
@@ -1244,9 +1351,24 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     if (!token.startsWith("al_")) return { kind: "invalid" }
     try {
       const db = createDb(this.env.DB)
-      const mt = await queries.machineToken.getMachineTokenByToken(db, token)
+      // `withD1Retry` (D1-armor state 2): the existing catch already maps a throw
+      // to `transient` (≠ invalid, so the daemon retries rather than dropping the
+      // workspace) — correct on its own. Retrying the absorbable transient here,
+      // before the catch, just reduces reconnect churn; a genuine `invalid`
+      // (null/inactive/unowned) still returns invalid, a real outage still
+      // exhausts to the catch's `transient`.
+      const { mt, machine } = await withD1Retry(
+        async () => {
+          const mt = await queries.machineToken.getMachineTokenByToken(db, token)
+          const machine =
+            mt && mt.status === "active" && mt.workspaceId
+              ? await queries.machine.getMachineByDaemon(db, daemonId, mt.workspaceId)
+              : null
+          return { mt, machine }
+        },
+        { route: "ws-do/validate-machine-token" },
+      )
       if (!mt || mt.status !== "active" || !mt.workspaceId) return { kind: "invalid" }
-      const machine = await queries.machine.getMachineByDaemon(db, daemonId, mt.workspaceId)
       if (!machine) return { kind: "invalid" }
       return { kind: "valid", userId: mt.userId }
     } catch (err) {
@@ -1275,36 +1397,46 @@ export class WebSocketDurableObject extends DurableObject<Env> {
   ): Promise<void> {
     if (!event || !channelId) return
     const db = createDb(this.env.DB)
-    let recipientUserIds: string[] = []
 
-    // getChannelForMember returns null when senderUserId can't see the
-    // channel — same authz the HTTP layer enforces via requireChannelMember
-    // (src/web/src/lib/community/permissions.ts). For a DM (type=dm) it
-    // resolves via the sender's relation='access' member row.
-    const membership = await queries.communityChannel.getChannelForMember(db, channelId, senderUserId)
-    if (!membership) {
-      log.warn("fanOutTyping: sender not a channel member", { senderUserId, channelId })
-      return
-    }
-    // Recipient set — same split as the message fan-out (fanout.ts):
-    //   - DM → the two relation='access' members.
-    //   - THREAD / FORUM_POST → the participant NOTIFY set. Typing reaches
-    //     only its participants, not the whole parent channel/server.
-    //   - channel / forum → the access audience (public/private split).
-    const channelType = await queries.communityChannel.getChannelType(db, channelId)
-    if (channelType === "dm") {
-      recipientUserIds = await queries.communityChannel.listChannelMemberUserIds(db, channelId)
-    } else if (isThread(channelType) || isForumPost(channelType)) {
-      recipientUserIds = await queries.communityThread.listThreadParticipantUserIds(db, channelId)
-    } else {
-      recipientUserIds = await queries.communityMembersResolver.resolveScopeMemberUserIds(db, {
-        scope: "channel",
-        scopeId: channelId,
-      })
-    }
+    // `readOrStale` with `attempts: 0` (D1-armor state 1 — droppable transient
+    // hint): typing is a pure ephemeral cue (client auto-expires it in 8s and
+    // the next frame re-fires), so a D1 blip here must NOT add retry latency to
+    // this 5s-cadence hot path — one try, fail-closed to "fan to nobody". This
+    // is the deliberate opposite of the swallow-class red line: the resolved
+    // recipient set is not state anyone acts on, it's a cue that's fine to drop.
+    // The membership check is folded in (getChannelForMember → null when the
+    // sender can't see the channel, same authz as requireChannelMember).
+    const { value: recipients } = await readOrStale<{ ids: string[] }>(
+      async () => {
+        const membership = await queries.communityChannel.getChannelForMember(db, channelId, senderUserId)
+        if (!membership) {
+          log.warn("fanOutTyping: sender not a channel member", { senderUserId, channelId })
+          return { ids: [] }
+        }
+        // Recipient set — same split as the message fan-out (fanout.ts):
+        //   - DM → the two relation='access' members.
+        //   - THREAD / FORUM_POST → the participant NOTIFY set (typing reaches
+        //     only its participants, not the whole parent channel/server).
+        //   - channel / forum → the access audience (public/private split).
+        const channelType = await queries.communityChannel.getChannelType(db, channelId)
+        if (channelType === "dm") {
+          return { ids: await queries.communityChannel.listChannelMemberUserIds(db, channelId) }
+        } else if (isThread(channelType) || isForumPost(channelType)) {
+          return { ids: await queries.communityThread.listThreadParticipantUserIds(db, channelId) }
+        }
+        return {
+          ids: await queries.communityMembersResolver.resolveScopeMemberUserIds(db, {
+            scope: "channel",
+            scopeId: channelId,
+          }),
+        }
+      },
+      { ids: [] },
+      { attempts: 0, route: "ws-do/fan-typing/recipients" },
+    )
 
     // Exclude the sender
-    recipientUserIds = recipientUserIds.filter((id) => id !== senderUserId)
+    const recipientUserIds = recipients.ids.filter((id) => id !== senderUserId)
     if (recipientUserIds.length === 0) return
 
     // POST to each user's DO broadcast endpoint (batched to stay under subrequest limit)
@@ -1334,24 +1466,34 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     channelId: string,
   ): Promise<void> {
     const db = createDb(this.env.DB)
-    const membership = await queries.communityChannel.getChannelForMember(db, channelId, senderUserId)
-    if (!membership) {
-      log.warn("fanOutTypingStop: sender not a channel member", { senderUserId, channelId })
-      return
-    }
-    const channelType = await queries.communityChannel.getChannelType(db, channelId)
-    let recipientUserIds: string[]
-    if (channelType === "dm") {
-      recipientUserIds = await queries.communityChannel.listChannelMemberUserIds(db, channelId)
-    } else if (isThread(channelType) || isForumPost(channelType)) {
-      recipientUserIds = await queries.communityThread.listThreadParticipantUserIds(db, channelId)
-    } else {
-      recipientUserIds = await queries.communityMembersResolver.resolveScopeMemberUserIds(db, {
-        scope: "channel",
-        scopeId: channelId,
-      })
-    }
-    recipientUserIds = recipientUserIds.filter((id) => id !== senderUserId)
+    // `readOrStale` with `attempts: 0` (D1-armor state 1 — droppable transient
+    // hint): same as `fanOutTyping`, a typing-stop is an ephemeral cue that the
+    // client auto-expires in 8s regardless, so a D1 blip fails closed to "fan to
+    // nobody" without adding retry latency to this hot path.
+    const { value: recipients } = await readOrStale<{ ids: string[] }>(
+      async () => {
+        const membership = await queries.communityChannel.getChannelForMember(db, channelId, senderUserId)
+        if (!membership) {
+          log.warn("fanOutTypingStop: sender not a channel member", { senderUserId, channelId })
+          return { ids: [] }
+        }
+        const channelType = await queries.communityChannel.getChannelType(db, channelId)
+        if (channelType === "dm") {
+          return { ids: await queries.communityChannel.listChannelMemberUserIds(db, channelId) }
+        } else if (isThread(channelType) || isForumPost(channelType)) {
+          return { ids: await queries.communityThread.listThreadParticipantUserIds(db, channelId) }
+        }
+        return {
+          ids: await queries.communityMembersResolver.resolveScopeMemberUserIds(db, {
+            scope: "channel",
+            scopeId: channelId,
+          }),
+        }
+      },
+      { ids: [] },
+      { attempts: 0, route: "ws-do/fan-typing-stop/recipients" },
+    )
+    const recipientUserIds = recipients.ids.filter((id) => id !== senderUserId)
     if (recipientUserIds.length === 0) return
     const body = JSON.stringify({
       type: WS_EVENTS.TYPING_STOP,
@@ -1417,12 +1559,23 @@ export class WebSocketDurableObject extends DurableObject<Env> {
 
   private async getCoMembers(userId: string): Promise<string[]> {
     const db = createDb(this.env.DB)
-    return queries.communityMember.getCoMemberUserIds(db, userId)
+    // `withD1Retry` (D1-armor state 2): the presence audience decides WHO sees
+    // this user's online/offline flip — unlike typing (a droppable cue), a
+    // dropped audience member means a real contact never learns the user is
+    // online/offline (a wrong presence state persists until the next flip).
+    // Retry to truth.
+    return withD1Retry(() => queries.communityMember.getCoMemberUserIds(db, userId), {
+      route: "ws-do/presence-audience/co-members",
+    })
   }
 
   private async getFriendIds(userId: string): Promise<string[]> {
     const db = createDb(this.env.DB)
-    return queries.communityFriendship.getFriendUserIds(db, userId)
+    // `withD1Retry` (D1-armor state 2): presence-audience read (see
+    // `getCoMembers`) — friends must learn online/offline flips; retry to truth.
+    return withD1Retry(() => queries.communityFriendship.getFriendUserIds(db, userId), {
+      route: "ws-do/presence-audience/friends",
+    })
   }
 
   /**

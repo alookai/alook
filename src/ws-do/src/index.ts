@@ -1,4 +1,4 @@
-import { createLogger, queries, WS_EVENTS } from "@alook/shared"
+import { createLogger, queries, withD1Retry, WS_EVENTS } from "@alook/shared"
 
 export { WebSocketDurableObject } from "./ws-durable"
 export { RateLimitDurableObject } from "./rate-limit-do"
@@ -229,7 +229,16 @@ export default {
       try {
         const shared = await import("@alook/shared")
         const db = shared.createDb((env as unknown as { DB: D1Database }).DB)
-        doNames = await queries.communityMachine.getActiveDoNamesForMachine(db, machineId)
+        // `withD1Retry` (D1-armor state 2): this doName resolve decides WHERE to
+        // deliver — a transient here false-drops to {sent:0} (a silent missed
+        // delivery indistinguishable from "no live daemon"), the exact swallow
+        // class this effort removes. Retry to truth; on exhaustion the catch
+        // still degrades to {sent:0} (reconnect warmup re-syncs), but an
+        // absorbable blip no longer looks like an offline daemon.
+        doNames = await withD1Retry(
+          () => queries.communityMachine.getActiveDoNamesForMachine(db, machineId),
+          { route: "ws-do/push/do-names" },
+        )
       } catch {
         // If we can't reach D1 to resolve, silently drop — the daemon's
         // reconnect warmup will re-sync authoritative state.
@@ -277,7 +286,13 @@ export default {
       try {
         const shared = await import("@alook/shared")
         const db = shared.createDb((env as unknown as { DB: D1Database }).DB)
-        doNames = await queries.communityMachine.getActiveDoNamesForMachine(db, machineId)
+        // `withD1Retry` (D1-armor state 2): doName resolve for the wake path — a
+        // transient here would 503 a wake that should have landed (missed wake,
+        // the motivating class). Retry to truth; keep the 503 on exhaustion.
+        doNames = await withD1Retry(
+          () => queries.communityMachine.getActiveDoNamesForMachine(db, machineId),
+          { route: "ws-do/forward-agent-wake/do-names" },
+        )
       } catch (err) {
         reqLog.error("failed to resolve machine doNames for agent wake", { err })
         return Response.json({ error: "failed to resolve machine" }, { status: 503 })
@@ -362,7 +377,13 @@ export default {
       try {
         const shared = await import("@alook/shared")
         const db = shared.createDb((env as unknown as { DB: D1Database }).DB)
-        doNames = await queries.communityMachine.getActiveDoNamesForMachine(db, machineId)
+        // `withD1Retry` (D1-armor state 2): doName resolve for the owner-triggered
+        // agent:reset push — a transient would 503 a reset that should deliver.
+        // Retry to truth; keep the 503 on exhaustion.
+        doNames = await withD1Retry(
+          () => queries.communityMachine.getActiveDoNamesForMachine(db, machineId),
+          { route: "ws-do/forward-agent-reset/do-names" },
+        )
       } catch (err) {
         reqLog.error("failed to resolve machine doNames for agent reset", { err })
         return Response.json({ error: "failed to resolve machine" }, { status: 503 })
@@ -448,7 +469,13 @@ export default {
       try {
         const shared = await import("@alook/shared")
         const db = shared.createDb((env as unknown as { DB: D1Database }).DB)
-        doNames = await queries.communityMachine.getActiveDoNamesForMachine(db, machineId)
+        // `withD1Retry` (D1-armor state 2): doName resolve for the model-switch
+        // push — a transient would 503 a switch that should deliver. Retry to
+        // truth; keep the 503 on exhaustion.
+        doNames = await withD1Retry(
+          () => queries.communityMachine.getActiveDoNamesForMachine(db, machineId),
+          { route: "ws-do/forward-agent-model/do-names" },
+        )
       } catch (err) {
         reqLog.error("failed to resolve machine doNames for agent model switch", { err })
         return Response.json({ error: "failed to resolve machine" }, { status: 503 })
@@ -536,7 +563,13 @@ export default {
       try {
         const shared = await import("@alook/shared")
         const db = shared.createDb((env as unknown as { DB: D1Database }).DB)
-        doNames = await queries.communityMachine.getActiveDoNamesForMachine(db, machineId)
+        // `withD1Retry` (D1-armor state 2): doName resolve for the agent:nap push —
+        // a transient would 503 a nap that should deliver. Retry to truth; keep
+        // the 503 on exhaustion.
+        doNames = await withD1Retry(
+          () => queries.communityMachine.getActiveDoNamesForMachine(db, machineId),
+          { route: "ws-do/forward-agent-nap/do-names" },
+        )
       } catch (err) {
         reqLog.error("failed to resolve machine doNames for agent nap", { err })
         return Response.json({ error: "failed to resolve machine" }, { status: 503 })

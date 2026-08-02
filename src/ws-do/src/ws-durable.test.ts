@@ -263,6 +263,10 @@ vi.mock("@alook/shared", () => {
       try { return { value: await fn(), stale: false } }
       catch { return { value: fallback, stale: true } }
     },
+    // Minimal `withD1Retry` shim — passthrough that invokes the query fn once
+    // and lets its throw propagate (same boundary the tests inject errors at).
+    // Real retry semantics are covered by the shared `resilience.test.ts` suite.
+    withD1Retry: <T>(fn: () => Promise<T>, _opts?: unknown): Promise<T> => fn(),
     COMMUNITY_MACHINE_HEARTBEAT_MS: 60_000,
     COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS: 120_000,
     SessionErrorFrameSchema,
