@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { queries, parseRef, DM_SERVER, parseNameAndTag } from "@alook/shared"
+import { queries, withD1Retry, parseRef, DM_SERVER, parseNameAndTag } from "@alook/shared"
 import type { Database } from "@alook/shared"
 import { isUniqueConstraintError } from "@alook/shared"
 import { guardDmOpen } from "./dm-guard"
@@ -85,7 +85,10 @@ export async function resolveTargetForMember(
     if (!handle) {
       return { error: 400, message: "invalid DM handle, expected name#0042" }
     }
-    const peer = await queries.user.getUserByNameAndDiscriminator(db, handle.name, handle.discriminator)
+    const peer = await withD1Retry(
+      () => queries.user.getUserByNameAndDiscriminator(db, handle.name, handle.discriminator),
+      { route: "resolve-ref/dm-peer" },
+    )
     if (!peer) {
       return { error: 404, message: "user not found" }
     }
@@ -94,17 +97,27 @@ export async function resolveTargetForMember(
     if (opts?.createDmIfMissing) {
       const guard = await guardDmOpen(db, userId, peerId, { callerKind: opts.callerKind })
       if (!guard.ok) return { error: guard.status, message: guard.error }
-      const dm = await queries.communityDm.createOrGetDM(db, { userId1: userId, userId2: peerId })
+      // get-first-then-create → response-lost retry is safe (finds existing);
+      // concurrency double-create is the pre-existing race (separate backlog).
+      const dm = await withD1Retry(
+        () => queries.communityDm.createOrGetDM(db, { userId1: userId, userId2: peerId }),
+        { route: "resolve-ref/create-or-get-dm" },
+      )
       return { kind: "dm", channelId: dm.id, otherUserId: peerId }
     }
 
-    const dm = await queries.communityDm.getDMBetween(db, userId, peerId)
+    const dm = await withD1Retry(() => queries.communityDm.getDMBetween(db, userId, peerId), {
+      route: "resolve-ref/dm-between",
+    })
     if (!dm) return { error: 404, message: "dm not found" }
     return { kind: "dm", channelId: dm.id, otherUserId: peerId }
   }
 
   // Channel form: resolve server, then channel, both scoped to membership.
-  const servers = await queries.communityServer.resolveServerByNameForMember(db, userId, parsed.server)
+  const servers = await withD1Retry(
+    () => queries.communityServer.resolveServerByNameForMember(db, userId, parsed.server),
+    { route: "resolve-ref/server" },
+  )
   if (servers.length === 0) return { error: 404, message: `server not found: ${parsed.server}` }
   if (servers.length > 1) {
     return {
@@ -115,7 +128,12 @@ export async function resolveTargetForMember(
   }
   const serverId = servers[0]!.id
 
-  const matches = await queries.communityChannel.resolveChannelByNameForMember(db, serverId, userId, parsed.channel)
+  // The hot bot-send resolve read — this was the one throwing SQLITE_BUSY 500s
+  // (Ingaborg #162). withD1Retry absorbs the transient instead of failing send.
+  const matches = await withD1Retry(
+    () => queries.communityChannel.resolveChannelByNameForMember(db, serverId, userId, parsed.channel),
+    { route: "resolve-ref/channel" },
+  )
   if (matches.length === 0) return { error: 404, message: `channel not found: ${parsed.channel}` }
   const channel = matches[0]!
 
@@ -128,7 +146,10 @@ export async function resolveTargetForMember(
   // inherits its forum's access; `requireChannelMember`/`requireChannelAccess`
   // at the call site climb `parentChannelId` to gate on the forum's roster.
   if (parsed.childChannelName !== undefined) {
-    const posts = await queries.communityChannel.getChildChannelByName(db, channel.id, parsed.childChannelName)
+    const posts = await withD1Retry(
+      () => queries.communityChannel.getChildChannelByName(db, channel.id, parsed.childChannelName!),
+      { route: "resolve-ref/child-channel" },
+    )
     if (posts.length === 0) {
       return { error: 404, message: `post not found: ${parsed.childChannelName}` }
     }
@@ -165,19 +186,22 @@ export async function resolveTargetForMember(
 
   // Thread form (`/server/channel/#N`) — translate the root seq to the
   // parent message's id, then find (or create) the thread's own channel row.
-  const rootMessage = await queries.communityMessage.getMessageByChannelAndSeq(
-    db,
-    { channelId: channel.id },
-    parsed.threadRootSeq
+  const rootMessage = await withD1Retry(
+    () =>
+      queries.communityMessage.getMessageByChannelAndSeq(
+        db,
+        { channelId: channel.id },
+        parsed.threadRootSeq!,
+      ),
+    { route: "resolve-ref/root-message" },
   )
   if (!rootMessage || parsed.threadRootSeq === 0) {
     return { error: 404, message: `no message with seq #${parsed.threadRootSeq} in this channel` }
   }
 
-  const existingThread = await queries.communityChannel.getThreadChannelByParentMessage(
-    db,
-    channel.id,
-    rootMessage.id
+  const existingThread = await withD1Retry(
+    () => queries.communityChannel.getThreadChannelByParentMessage(db, channel.id, rootMessage.id),
+    { route: "resolve-ref/existing-thread" },
   )
   if (existingThread) return { kind: "channel", channelId: existingThread.id }
 
@@ -186,12 +210,22 @@ export async function resolveTargetForMember(
   }
 
   try {
-    const created = await queries.communityChannel.createThreadChannel(db, channel.id, rootMessage.id, userId)
+    // `withD1Retry` (state 3): createThreadChannel is replay-safe — the
+    // existing-thread check above + the one-thread-per-message unique constraint
+    // mean a retry either finds the row or hits the (non-retryable) UNIQUE, which
+    // rethrows into the catch below and re-selects the winner. Can't double-create.
+    const created = await withD1Retry(
+      () => queries.communityChannel.createThreadChannel(db, channel.id, rootMessage.id, userId),
+      { route: "resolve-ref/create-thread" },
+    )
     return { kind: "channel", channelId: created.id }
   } catch (err) {
     if (isUniqueConstraintError(err)) {
       // Lost the race to a concurrent thread-create — re-select the winner.
-      const winner = await queries.communityChannel.getThreadChannelByParentMessage(db, channel.id, rootMessage.id)
+      const winner = await withD1Retry(
+        () => queries.communityChannel.getThreadChannelByParentMessage(db, channel.id, rootMessage.id),
+        { route: "resolve-ref/thread-winner" },
+      )
       if (winner) return { kind: "channel", channelId: winner.id }
     }
     throw err
@@ -224,7 +258,9 @@ export async function resolveTargetById(
   userId: string,
   channelId: string
 ): Promise<TargetResolution> {
-  const channel = await queries.communityChannel.getChannel(db, channelId)
+  const channel = await withD1Retry(() => queries.communityChannel.getChannel(db, channelId), {
+    route: "resolve-ref/by-id",
+  })
   if (!channel) return { error: 404, message: `channel not found: ${channelId}` }
 
   if (isDmTarget(channel.type)) {
