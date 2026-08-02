@@ -134,13 +134,29 @@ export function mapMessageForApi(row: MessageRow, ctx: ApiMessageContext) {
 export type WsMessageContext = {
   replyMap: Map<string, ReplyTargetRow>
   attachments: WsAttachment[]
+  /**
+   * The sender's client-provided idempotency nonce, echoed on the broadcast so
+   * the sender's optimistic row can be reconciled in place (see
+   * `CommunityMessageCreate.message.clientNonce`). Pass the RAW client nonce
+   * (undefined when the client sent none); the `srv:`-prefixed server fallback
+   * is filtered out below so a content fingerprint never reaches the wire.
+   */
+  clientNonce?: string
 }
 
 export function mapMessageForWs(row: MessageRow, ctx: WsMessageContext) {
   const core = coreFields(row)
+  // Echo ONLY a client-provided nonce, and never the `srv:`-prefixed server
+  // fallback (a content fingerprint — a content-correlation leak on the
+  // broadcast wire, and a fallback send has no client optimistic row to match
+  // anyway). The prefix guard is defense-in-depth: callers pass the raw client
+  // nonce, but if a `srv:` value ever reaches here it is dropped, not fanned.
+  const clientNonce =
+    ctx.clientNonce && !ctx.clientNonce.startsWith("srv:") ? ctx.clientNonce : undefined
   return {
     ...core,
     ...splitType(row.type),
+    ...(clientNonce ? { clientNonce } : {}),
     replyTo: resolveReply(row, ctx.replyMap),
     // The shared CommunityMessageCreate.embeds is `unknown[]` — narrow here
     // rather than widening the wire type.

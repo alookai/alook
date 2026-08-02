@@ -39,6 +39,20 @@ export type CommunityMessageCreate = {
       height?: number | null
     }[]
     createdAt: string
+    /**
+     * The sender's CLIENT-PROVIDED idempotency nonce, echoed back so the
+     * sender's client can match this broadcast against its optimistic row and
+     * update it in place (tempId→id) instead of inserting a duplicate — the
+     * optimistic row and the echo otherwise share no key (the echo carries the
+     * server id; the optimistic row a `temp_` id). Present ONLY when the client
+     * supplied a nonce (i.e. only when there is an optimistic row to match).
+     * The server-side `srv:`-prefixed fallback nonce is deliberately NEVER put
+     * here: it is a content fingerprint (existence/content-correlation leak on
+     * the broadcast wire) AND a fallback send has no client optimistic row to
+     * match, so it is structurally unneeded. Absent = no client nonce (nothing
+     * to reconcile) — a plain random opaque token when present, safe to fan out.
+     */
+    clientNonce?: string
     /** Present only on a friend-approval card (DM channels). Client renders the card when set. */
     approval?: FriendApprovalPayload
   }

@@ -700,6 +700,12 @@ export async function createCommunityMessage(params: {
 
   const messagePayload = mapMessageForWs(row, {
     replyMap,
+    // Raw client nonce (NOT `effectiveNonce`): echoed so the sender's optimistic
+    // row reconciles in place. `undefined` when the client sent none — in which
+    // case `effectiveNonce` is the `srv:` fallback, which must not reach the wire
+    // (content fingerprint; no client optimistic row to match). `mapMessageForWs`
+    // also prefix-guards `srv:` defensively.
+    clientNonce,
     attachments: attachments.map((a) => ({
       id: a.id,
       filename: a.filename,
