@@ -41,6 +41,7 @@
     "bump": "node scripts/bump-version.mjs",
     "typegrep:ws": "node scripts/lint-ws-events.mjs",
     "typegrep:d1-armor": "node scripts/lint-d1-armor.mjs",
+    "census:d1": "node scripts/census-d1.mjs",
     "prepare": "simple-git-hooks"
   },
   "simple-git-hooks": {
