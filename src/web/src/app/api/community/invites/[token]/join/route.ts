@@ -1,6 +1,6 @@
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, ROLES, WS_EVENTS, isUniqueConstraintError } from "@alook/shared"
+import { queries, withD1Retry, ROLES, WS_EVENTS, isUniqueConstraintError } from "@alook/shared"
 import type { CommunityMemberJoin } from "@alook/shared"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { fanOutToServerMembers, broadcastToUserSafe } from "@/lib/community/fanout"
@@ -33,7 +33,13 @@ export const POST = withCommunityActor(async (_req, ctx) => {
   // Bot owner-gate — runs BEFORE useInvite so a rejected attempt never consumes
   // the invite. A human skips this and may join any valid invite.
   if (actor.kind === "bot") {
-    const invite = await queries.communityInvite.getInviteByToken(db, token)
+    // `withD1Retry` (D1-armor state 2): the owner-gate read decides whether the
+    // bot may consume this invite — a transient would false-reject a valid
+    // owner-created invite (mis-judged state); retry to truth.
+    const invite = await withD1Retry(
+      () => queries.communityInvite.getInviteByToken(db, token),
+      { route: "invites/join/owner-gate" },
+    )
     if (!invite || invite.createdBy === null) {
       return writeError("Invalid or expired invite", 400)
     }
@@ -51,6 +57,13 @@ export const POST = withCommunityActor(async (_req, ctx) => {
 
   let result: Awaited<ReturnType<typeof queries.communityInvite.useInvite>>
   try {
+    // Deliberately NOT wrapped in withD1Retry here: `useInvite` is a non-atomic
+    // multi-statement sequence (member insert + `uses` bump + reads), and a
+    // whole-fn retry would leave a half-completed member-joined-but-uses-not-
+    // bumped state (Blondie #244). The D1-armor lives INSIDE `useInvite`, which
+    // now batches the member insert + `uses` increment into one atomic
+    // `db.batch` wrapped in withD1Retry — the correct retry granularity is that
+    // atomic write unit, not this whole delegating call.
     result = await queries.communityInvite.useInvite(db, token, actor.userId)
   } catch (err: unknown) {
     if (isUniqueConstraintError(err)) {
@@ -107,7 +120,12 @@ export const POST = withCommunityActor(async (_req, ctx) => {
   // superset is about a unified SHAPE, not forcing identical queries).
   let server: { id: string; name: string } | undefined
   if (actor.kind === "bot") {
-    const row = await queries.communityServer.getServer(db, result.invite.serverId)
+    // `withD1Retry` (D1-armor state 2): the bot daemon needs {id,name} to
+    // project the joined server to its CLI — a transient would drop it; retry.
+    const row = await withD1Retry(
+      () => queries.communityServer.getServer(db, result.invite.serverId),
+      { route: "invites/join/get-server" },
+    )
     server = row ? { id: row.id, name: row.name } : undefined
   }
   return writeJSON({

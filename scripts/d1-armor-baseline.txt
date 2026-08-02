@@ -13,4 +13,3 @@
 #     the line-count check; a line whose file is no longer bare must be removed.
 #
 # Lines starting with '#' are comments. One repo-relative path per remaining line.
-src/web/src/app/api/community/invites/[token]/join/route.ts

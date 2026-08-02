@@ -5,6 +5,7 @@ import {
 } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
+import { withD1Retry } from "../../resilience";
 
 export async function createInvite(
   db: Database,
@@ -76,26 +77,41 @@ export async function useInvite(
     return null;
   }
 
-  // Insert new server member FIRST — the `(serverId, userId)` UNIQUE
-  // constraint may reject this ("already a member") or D1 may transiently
-  // fail. Incrementing `uses` before the insert would burn an invite slot
-  // on every rejected attempt (bots retrying a failed join can exhaust
-  // `maxUses` without a single successful join).
-  const memberRows = await db
-    .insert(communityServerMember)
-    .values({
-      serverId: invite.serverId,
-      userId,
-      role: "member",
-    })
-    .returning();
-  const insertedMember = memberRows[0]!;
-
-  // Atomic increment uses — only after the insert has committed.
-  await db
-    .update(communityServerInvite)
-    .set({ uses: sql`${communityServerInvite.uses} + 1` })
-    .where(eq(communityServerInvite.id, invite.id));
+  // Insert the member row AND increment `uses` as ONE atomic `db.batch` unit,
+  // wrapped in `withD1Retry` (D1-armor state 3). Rationale (Blondie #244):
+  //   - The `(serverId, userId)` UNIQUE guards against a double-join; a real
+  //     duplicate rethrows the (non-retryable) constraint, which the route maps
+  //     to "Already a member". So a blind retry can never OVER-count `uses`.
+  //   - But these two writes MUST be atomic. If they ran as separate statements
+  //     under one retry, a transient on the `uses` bump AFTER the member insert
+  //     committed would, on retry, hit the UNIQUE on the re-inserted member and
+  //     rethrow — leaving the member joined but `uses` never incremented
+  //     (UNDER-count: a silently un-consumed invite slot). The batch makes ①②
+  //     all-or-nothing, so the member row and the `uses` bump commit together or
+  //     not at all; retrying the whole batch is safe (D1 batches are atomic).
+  //   - Member INSERT is ①; incrementing `uses` before it would burn a slot on
+  //     every rejected attempt, so the insert stays first WITHIN the batch.
+  // The WS-hydration user read (③) stays OUTSIDE — it's a read, benign on
+  // failure, and must not be inside the atomic write unit.
+  const batchResults = (await withD1Retry(
+    () =>
+      db.batch([
+        db
+          .insert(communityServerMember)
+          .values({
+            serverId: invite.serverId,
+            userId,
+            role: "member",
+          })
+          .returning(),
+        db
+          .update(communityServerInvite)
+          .set({ uses: sql`${communityServerInvite.uses} + 1` })
+          .where(eq(communityServerInvite.id, invite.id)),
+      ] as const),
+    { route: "invite/use" },
+  )) as unknown as [Array<typeof communityServerMember.$inferSelect>, unknown];
+  const insertedMember = batchResults[0][0]!;
 
   // Join the joined-user row so WS listeners can render name/avatar without
   // waiting for the next /members refetch.
