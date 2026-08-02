@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
 import {
   queries,
+  withD1Retry,
   CommunityAgentChannelMemberRequestSchema,
   DM_SERVER,
   formatHandle,
@@ -100,20 +101,29 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   // (`community_thread_participant`), always private on the wire regardless of
   // the parent's public/private state. Forum posts are not agent-addressable,
   // so this handler only sees `thread` or top-level channel rows here.
+  // `withD1Retry` (D1-armor: no-fallback roster reads; retry to truth).
   if (isThread(channel.type)) {
-    const userIds = await queries.communityThread.listThreadParticipantUserIds(db, channelId)
+    const userIds = await withD1Retry(
+      () => queries.communityThread.listThreadParticipantUserIds(db, channelId),
+      { route: "channelMember/thread-participants" },
+    )
     const members = await hydrateMembers(db, channel.serverId, userIds)
     return NextResponse.json<ChannelMemberResult>({ visibility: "private", members })
   }
 
   if (!isPrivate) {
-    const server = await queries.communityServer.getServer(db, channel.serverId)
+    const server = await withD1Retry(() => queries.communityServer.getServer(db, channel.serverId), {
+      route: "channelMember/server",
+    })
     const serverName = server?.name ?? channel.serverId
     const hint = `This channel is public. Use \`alook server member --server ${serverName}\` to list who can see it.`
     return NextResponse.json<ChannelMemberResult>({ visibility: "public", hint })
   }
 
-  const scoped = await queries.communityMembersResolver.resolveScopeMembers(db, { scope: "channel", scopeId: channelId })
+  const scoped = await withD1Retry(
+    () => queries.communityMembersResolver.resolveScopeMembers(db, { scope: "channel", scopeId: channelId }),
+    { route: "channelMember/scope-members" },
+  )
   const userIds = scoped.map((s) => s.userId)
   const members = await hydrateMembers(db, channel.serverId, userIds)
   return NextResponse.json<ChannelMemberResult>({ visibility: "private", members })
@@ -132,7 +142,10 @@ async function hydrateMembers(
   userIds: string[],
 ): Promise<ServerMember[]> {
   if (userIds.length === 0) return []
-  const rows = await queries.communityMember.getMembersByUserIds(db, serverId, userIds)
+  const rows = await withD1Retry(
+    () => queries.communityMember.getMembersByUserIds(db, serverId, userIds),
+    { route: "channelMember/hydrate" },
+  )
   return rows.map((r) => ({
     handle: formatHandle(r.userName ?? "", r.discriminator ?? "0000"),
     role: r.role ?? "member",

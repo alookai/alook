@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server"
-import { queries, MAX_FOLDER_NAME_LENGTH } from "@alook/shared"
+import { queries, withD1Retry, MAX_FOLDER_NAME_LENGTH } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
@@ -27,7 +27,10 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     if (name.length > MAX_FOLDER_NAME_LENGTH) {
       return writeError(`name must be ≤ ${MAX_FOLDER_NAME_LENGTH} characters`, 400)
     }
-    await queries.communityServerFolder.updateFolder(db, folderId, { name })
+    // `withD1Retry` (state 3): updateFolder sets fields, idempotent.
+    await withD1Retry(() => queries.communityServerFolder.updateFolder(db, folderId, { name }), {
+      route: "server-folders/update",
+    })
   }
 
   if (body.serverIds !== undefined) {
@@ -43,7 +46,11 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
         return writeError(`not a member of server ${stranger}`, 400)
       }
     }
-    await queries.communityServerFolder.replaceFolderItems(db, folderId, body.serverIds)
+    // `withD1Retry` (state 3): replaceFolderItems sets the item set to a value,
+    // idempotent (re-running lands the same set).
+    await withD1Retry(() => queries.communityServerFolder.replaceFolderItems(db, folderId, body.serverIds!), {
+      route: "server-folders/replace-items",
+    })
   }
 
   const updated = await queries.communityServerFolder.getFolder(db, folderId, ctx.userId)
@@ -58,7 +65,10 @@ export const DELETE = withAuth(async (_req, ctx) => {
   const folder = await queries.communityServerFolder.getFolder(db, folderId, ctx.userId)
   if (!folder) return writeError("folder not found", 404)
 
-  await queries.communityServerFolder.deleteFolder(db, folderId)
+  // `withD1Retry` (state 3): delete-by-key is idempotent.
+  await withD1Retry(() => queries.communityServerFolder.deleteFolder(db, folderId), {
+    route: "server-folders/delete",
+  })
 
   return new Response(null, { status: 204 })
 })

@@ -1,12 +1,15 @@
 import { NextRequest } from "next/server"
-import { queries, MAX_FOLDER_NAME_LENGTH } from "@alook/shared"
+import { queries, withD1Retry, nonIdempotentWriteAllowed, MAX_FOLDER_NAME_LENGTH } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 
 export const GET = withAuth(async (_req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
-  const folders = await queries.communityServerFolder.listFolders(db, ctx.userId)
+  // `withD1Retry` (D1-armor: no-fallback list read; retry to truth).
+  const folders = await withD1Retry(() => queries.communityServerFolder.listFolders(db, ctx.userId), {
+    route: "server-folders/list",
+  })
   return writeJSON({ folders })
 })
 
@@ -43,11 +46,18 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     }
   }
 
-  const folder = await queries.communityServerFolder.createFolder(db, {
-    userId: ctx.userId,
-    name,
-    serverIds: body.serverIds,
-  })
+  // `nonIdempotentWriteAllowed` (state 4b), NOT retried: createFolder mints a
+  // fresh folder with a generated id and no unique guard, so a retry would
+  // create a duplicate. Visible + deletable in the sidebar → comment, no ticket.
+  const folder = await nonIdempotentWriteAllowed(
+    { reason: "createFolder mints a fresh folder (generated id, no unique guard); a retry would create a duplicate" },
+    () =>
+      queries.communityServerFolder.createFolder(db, {
+        userId: ctx.userId,
+        name,
+        serverIds: body.serverIds,
+      }),
+  )
 
   return writeJSON(folder, 201)
 })

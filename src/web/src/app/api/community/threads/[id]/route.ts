@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, withD1Retry } from "@alook/shared"
 import { requireChannelMember } from "@/lib/community/permissions"
 
 // Thread/forum-post metadata is edited through the shared channel PATCH at
@@ -17,7 +17,10 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
   // routes (pins, threads, PATCH/DELETE) also honor: unknown channel → 404,
   // known channel + non-member → 403. `requireChannelMember` alone collapses
   // both into 403 because the JOIN can't tell the difference.
-  const channel = await queries.communityChannel.getChannel(db, channelId)
+  // `withD1Retry` (D1-armor: no-fallback read; retry to truth). Drives 404.
+  const channel = await withD1Retry(() => queries.communityChannel.getChannel(db, channelId), {
+    route: "threads/get",
+  })
   if (!channel) return writeError("channel not found", 404)
   const auth = await requireChannelMember(db, channelId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)

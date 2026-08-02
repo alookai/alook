@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { queries, createLogger, CommunityAgentAttachmentDownloadRequestSchema } from "@alook/shared"
+import { queries, withD1Retry, createLogger, CommunityAgentAttachmentDownloadRequestSchema } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withCommunityActor, requireBot } from "@/lib/middleware/community-actor"
 import { requireChannelMember, requireDMAccess } from "@/lib/community/permissions"
@@ -57,7 +57,10 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
     }
 
     const db = getDb(ctx.env.DB)
-    const row = await queries.communityAttachment.getAttachmentById(db, parsed.data.id)
+    // `withD1Retry` (D1-armor: no-fallback read; retry to truth). Drives 404.
+    const row = await withD1Retry(() => queries.communityAttachment.getAttachmentById(db, parsed.data.id), {
+      route: "attachmentDownload",
+    })
     if (!row) {
       return NextResponse.json({ error: "attachment not found" }, { status: 404 })
     }

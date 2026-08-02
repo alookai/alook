@@ -1,7 +1,7 @@
 import { withAuth } from "@/lib/middleware/auth"
 import { writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, withD1Retry } from "@alook/shared"
 import { logAudit } from "@/lib/community/audit"
 import { requireServerAdmin } from "@/lib/community/permissions"
 
@@ -11,13 +11,19 @@ export const DELETE = withAuth(async (_req, ctx) => {
 
   const db = getDb(ctx.env.DB)
 
-  const invite = await queries.communityInvite.getInviteByToken(db, token)
+  // `withD1Retry` (D1-armor: no-fallback read; retry to truth). Drives 404.
+  const invite = await withD1Retry(() => queries.communityInvite.getInviteByToken(db, token), {
+    route: "invites/revoke/lookup",
+  })
   if (!invite) return writeError("invite not found", 404)
 
   const auth = await requireServerAdmin(db, invite.serverId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 
-  await queries.communityInvite.revokeInvite(db, invite.id)
+  // `withD1Retry` (state 3): revoke is a set-revoked write, idempotent.
+  await withD1Retry(() => queries.communityInvite.revokeInvite(db, invite.id), {
+    route: "invites/revoke",
+  })
 
   logAudit(db, {
     serverId: invite.serverId,
