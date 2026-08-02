@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { queries, createLogger } from "@alook/shared"
+import { queries, nonIdempotentWriteAllowed, createLogger } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withCommunityActor, requireBot } from "@/lib/middleware/community-actor"
 import { resolveTargetForMember, resolveTargetById, resolveErrorResponse } from "@/lib/community/resolve-ref"
@@ -70,14 +70,28 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
     // compensate.
     r2KeyToCleanUp = result.r2Key
 
-    const row = await queries.communityAttachment.createPendingAttachment(db, {
-      uploaderId: botUserId,
-      targetId,
-      r2Key: result.r2Key,
-      filename: result.filename,
-      contentType: result.contentType,
-      size: result.size,
-    })
+    // `nonIdempotentWriteAllowed` (D1-armor state 4b): unguarded create (fresh
+    // nanoid id, no unique / onConflict), so a blind retry would double-create.
+    // NOT retried — but the harm is benign: a duplicate is an orphan
+    // `pending_attachment` row (messageId=null), never surfaced to anyone and
+    // reaped by the pending-attachment GC. No natural dedupeKey (r2Key is a
+    // per-call UUID). It doesn't lose any user-visible content — the attachment
+    // only becomes visible when linked into a message on the C1-armored send
+    // path — so it's below the never-drop line (Aigneis #242/#243: orphan ≠ the
+    // DM double-create class). A transient here surfaces as the route's 500 +
+    // R2-blob cleanup in the catch below.
+    const row = await nonIdempotentWriteAllowed(
+      { reason: "orphan pending_attachment (messageId=null) is invisible + GC-reaped; no dedupeKey (r2Key is per-call UUID); no user-visible dup or lost content", route: "attachmentUpload/create-pending" },
+      () =>
+        queries.communityAttachment.createPendingAttachment(db, {
+          uploaderId: botUserId,
+          targetId,
+          r2Key: result.r2Key,
+          filename: result.filename,
+          contentType: result.contentType,
+          size: result.size,
+        }),
+    )
 
     return NextResponse.json({
       id: row.id,

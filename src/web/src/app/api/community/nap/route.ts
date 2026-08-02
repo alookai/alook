@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server"
 import { nanoid } from "nanoid"
 import {
   queries,
+  withD1Retry,
   makeRuntimeConfig,
   resolveModelConfig,
   formatHandle,
@@ -49,7 +50,12 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
 
   // Resolve the bot's own wake context (runtime + model) to build the config
   // the daemon needs to respawn a fresh session. `botUserId` is the caller.
-  const wakeCtx = await queries.communityBot.getBotWakeContext(db, botUserId)
+  // `withD1Retry` (D1-armor state 2): the wake-context read gates the whole nap
+  // (a transient would 409 a nap that should proceed — mis-judged state); retry
+  // to truth.
+  const wakeCtx = await withD1Retry(() => queries.communityBot.getBotWakeContext(db, botUserId), {
+    route: "nap/wake-context",
+  })
   if (wakeCtx.state !== "ready") {
     return NextResponse.json({ error: wakeCtx.state }, { status: 409 })
   }
@@ -81,9 +87,23 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   // indicator can never drift from the nap audit event. (Ported from the
   // incoming my-bots refresh feature onto this moved /community/nap route
   // during the rebase — the /agent/nap it originally patched was deleted here.)
-  const inserted = await queries.communityBotAuditLog.insertBotAuditNap(db, { botId: botUserId })
+  // `withD1Retry` (D1-armor state 3): the nap audit is a real lifecycle record
+  // (a nap landed at the daemon), NOT the high-frequency benign chat-activity
+  // class — losing it is a lifecycle-audit gap. It's a bounded insert+prune
+  // batch (500-row-per-bot), so a retried transient at worst writes one
+  // in-bounds duplicate row (benign, same as the wake_trigger audit), which
+  // beats a silently-lost nap record. Retry to record.
+  const inserted = await withD1Retry(
+    () => queries.communityBotAuditLog.insertBotAuditNap(db, { botId: botUserId }),
+    { route: "nap/audit" },
+  )
   if (inserted) {
-    await queries.communityBot.touchBotRefreshContext(db, botUserId, inserted.createdAt)
+    // `withD1Retry` (D1-armor state 3): idempotent (SET lastRefreshContextAt to
+    // the audit row's own createdAt — re-running writes the same value).
+    await withD1Retry(
+      () => queries.communityBot.touchBotRefreshContext(db, botUserId, inserted.createdAt),
+      { route: "nap/touch-refresh" },
+    )
   }
 
   return NextResponse.json({ napped: true })
