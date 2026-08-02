@@ -5,6 +5,7 @@ const mockCreatePairingToken = vi.fn()
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
 vi.mock("@alook/shared", () => ({
+  withD1Retry: <T,>(fn: () => Promise<T>) => fn(),
   queries: {
     communityMachine: {
       createPairingToken: (...a: unknown[]) => mockCreatePairingToken(...a),
