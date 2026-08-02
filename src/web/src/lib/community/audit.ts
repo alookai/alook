@@ -1,4 +1,4 @@
-import { queries, createLogger } from "@alook/shared"
+import { queries, withD1Retry, createLogger } from "@alook/shared"
 import type { Database } from "@alook/shared"
 
 const log = createLogger({ service: "community-audit" })
@@ -69,7 +69,10 @@ function causeChain(err: unknown): string[] {
 }
 
 export function logAudit(db: Database, action: AuditAction): void {
-  queries.communityAuditLog.logAction(db, action).catch((err) => {
+  // `withD1Retry` (D1-armor state 3): the audit write is idempotent-ish
+  // best-effort — retry a transient before the fire-and-forget `.catch` swallows
+  // the row, so a SQLITE_BUSY blip doesn't silently drop an audit entry.
+  withD1Retry(() => queries.communityAuditLog.logAction(db, action), { route: "audit/log" }).catch((err) => {
     log.warn("audit_write_failed", {
       err: String(err),
       cause: causeChain(err).join(" <- "),

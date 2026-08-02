@@ -9,6 +9,7 @@ vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
 const mockFindActiveCredential = vi.fn()
 vi.mock("@alook/shared", () => ({
+  withD1Retry: <T,>(fn: () => Promise<T>) => fn(),
   queries: {
     communityMachine: {
       findActiveCredentialByBearer: (...a: unknown[]) => mockFindActiveCredential(...a),

@@ -12,6 +12,7 @@ import * as agentInbox from "../db/queries/community/agent-inbox";
 import * as mention from "../db/queries/community/mention";
 import * as botAuditLog from "../db/queries/community/bot-audit-log";
 import { getUsersByIds } from "../db/queries/user";
+import { withD1Retry } from "../db/resilience";
 import type { Database } from "../db/index";
 
 /**
@@ -135,7 +136,16 @@ export async function buildUnreadWakeCommand(
   input: { messageId: string; botUserId: string },
   env?: WakeDispatchEnv
 ): Promise<BuildUnreadWakeResult> {
-  const msg = await message.getWakeMessageScopeById(db, input.messageId);
+  // `withD1Retry` (D1-armor state 2, state-misleading reads): this is the
+  // wake-command rebuild path — a transient on ANY of these reads would produce
+  // a wrong skip (a MISSED WAKE), the exact silent failure that motivated this
+  // whole effort. Each read drives a skip/build gate, so each retries to truth
+  // individually (never a false-empty → false skip). Runs on the daemon-plane
+  // (wake-worker), reached from a thin index.ts entry — armor lives here, in the
+  // shared orchestration fn, because the reads don't surface at the entry file.
+  const msg = await withD1Retry(() => message.getWakeMessageScopeById(db, input.messageId), {
+    route: "wake-dispatch/message-scope",
+  });
   if (!msg) return { state: "skip", reason: "message_missing" };
 
   const scope = { channelId: msg.channelId };
@@ -145,16 +155,25 @@ export async function buildUnreadWakeCommand(
   // message.
   if (msg.authorId === input.botUserId) return { state: "skip", reason: "self_authored" };
 
-  const botCtx = await bot.getBotWakeContext(db, input.botUserId);
+  const botCtx = await withD1Retry(() => bot.getBotWakeContext(db, input.botUserId), {
+    route: "wake-dispatch/bot-ctx",
+  });
   if (botCtx.state !== "ready") return { state: "skip", reason: botCtx.state };
 
-  const canRead = await member.canBotReadWakeScope(db, input.botUserId, scope);
+  const canRead = await withD1Retry(() => member.canBotReadWakeScope(db, input.botUserId, scope), {
+    route: "wake-dispatch/can-read",
+  });
   if (!canRead) return { state: "skip", reason: "bot_not_in_scope" };
 
-  const lastReadSeq = await readState.getWakeReadSeq(db, input.botUserId, scope);
+  const lastReadSeq = await withD1Retry(() => readState.getWakeReadSeq(db, input.botUserId, scope), {
+    route: "wake-dispatch/read-seq",
+  });
   if (lastReadSeq >= msg.seq) return { state: "skip", reason: "already_read" };
 
-  const channel = await agentInbox.resolveUnreadNoticeChannel(db, scope, input.botUserId);
+  const channel = await withD1Retry(
+    () => agentInbox.resolveUnreadNoticeChannel(db, scope, input.botUserId),
+    { route: "wake-dispatch/notice-channel" },
+  );
   if (!channel) return { state: "skip", reason: "notice_channel_unresolvable" };
 
   const unreadNotice: UnreadNotice = {
@@ -249,10 +268,18 @@ async function writeWakeTriggerAudit(
   // far cheaper than a per-message extra round-trip). `day` comes from the
   // shared `utcDayKey` so it agrees with the sent-side bump for the same
   // calendar day. This rollup is a calendar fact — never zeroed on nap/reset.
-  const inserted = await botAuditLog.insertBotAuditWakeTrigger(
-    db,
-    { botId: input.botUserId, launchId: input.launchId, payload },
-    [bot.bumpBotDailyActivityStatement(db, input.botUserId, utcDayKey(new Date()), "handled")]
+  // `withD1Retry` (D1-armor): best-effort audit + daily-rollup write. The file's
+  // policy (see the caller's comment) is explicit — on a D1 blip a retried
+  // (possibly duplicate) row beats a silently-lost wake-trigger record, so retry
+  // the transient rather than let the caller's catch swallow it.
+  const inserted = await withD1Retry(
+    () =>
+      botAuditLog.insertBotAuditWakeTrigger(
+        db,
+        { botId: input.botUserId, launchId: input.launchId, payload },
+        [bot.bumpBotDailyActivityStatement(db, input.botUserId, utcDayKey(new Date()), "handled")]
+      ),
+    { route: "wake-dispatch/audit" },
   );
   if (!inserted || !env) return;
 

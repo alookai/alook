@@ -1,4 +1,4 @@
-import { queries, canManageServer, canSeePrivateChannel } from "@alook/shared"
+import { queries, withD1Retry, canManageServer, canSeePrivateChannel } from "@alook/shared"
 import type { Database } from "@alook/shared"
 
 type PermissionError =
@@ -16,7 +16,11 @@ export async function requireServerMember(
   serverId: string,
   userId: string,
 ): Promise<Result<Awaited<ReturnType<typeof queries.communityMember.getMember>>>> {
-  const member = await queries.communityMember.getMember(db, serverId, userId)
+  // `withD1Retry` (D1-armor: access-check read — a transient here would 403 a
+  // legitimate member, i.e. mis-judge permission state; retry to the true row).
+  const member = await withD1Retry(() => queries.communityMember.getMember(db, serverId, userId), {
+    route: "permissions/server-member",
+  })
   if (!member) return err(403, "not a member of this server")
   return ok(member)
 }
@@ -27,7 +31,9 @@ export async function requireServerAdmin(
   serverId: string,
   userId: string,
 ): Promise<Result<Awaited<ReturnType<typeof queries.communityMember.getMember>>>> {
-  const member = await queries.communityMember.getMember(db, serverId, userId)
+  const member = await withD1Retry(() => queries.communityMember.getMember(db, serverId, userId), {
+    route: "permissions/server-admin",
+  })
   if (!member) return err(403, "not a member of this server")
   if (!canManageServer(member.role)) return err(403, "admin permission required")
   return ok(member)
@@ -49,7 +55,13 @@ export async function requireChannelMember(
   channelId: string,
   userId: string,
 ): Promise<Result<NonNullable<Awaited<ReturnType<typeof queries.communityChannel.getChannelForMember>>>>> {
-  const channel = await queries.communityChannel.getChannelForMember(db, channelId, userId)
+  // `withD1Retry` — the hottest access-check read (Aigneis's #1 safety target):
+  // a transient 500/miss here 403s a legitimate member out of a channel they can
+  // read (mis-judged permission state). Retry to truth rather than false-deny.
+  const channel = await withD1Retry(
+    () => queries.communityChannel.getChannelForMember(db, channelId, userId),
+    { route: "permissions/channel-member" },
+  )
   if (!channel) return err(403, "forbidden")
   return ok(channel)
 }
@@ -88,7 +100,11 @@ export async function requireChannelAccess(
   channelId: string,
   userId: string,
 ): Promise<Result<ChannelAccess>> {
-  const ctx = await queries.communityChannel.resolveChannelAccessContext(db, channelId, userId)
+  // `withD1Retry` (access-check read; transient → false 403). Retry to truth.
+  const ctx = await withD1Retry(
+    () => queries.communityChannel.resolveChannelAccessContext(db, channelId, userId),
+    { route: "permissions/channel-access" },
+  )
   if (!ctx) return err(403, "forbidden")
 
   const isAdmin = canManageServer(ctx.role)
@@ -140,12 +156,22 @@ export async function requireDMAccess(
   channelId: string,
   userId: string,
 ): Promise<Result<DMAccess>> {
-  const dm = await queries.communityDm.getDM(db, channelId)
+  // `withD1Retry` (access-check chain — DM membership + block gate). A transient
+  // in this sequence would false-deny DM access; retry the reads to truth.
+  const { dm, peer, blocked } = await withD1Retry(
+    async () => {
+      const dm = await queries.communityDm.getDM(db, channelId)
+      const peer = dm ? await queries.communityDm.getDMPeer(db, channelId, userId) : null
+      const blocked = peer
+        ? await queries.communityFriendship.isBlocked(db, userId, peer.otherUserId)
+        : false
+      return { dm, peer, blocked }
+    },
+    { route: "permissions/dm-access" },
+  )
   if (!dm) return err(404, "dm not found")
-  const peer = await queries.communityDm.getDMPeer(db, channelId, userId)
   if (!peer) return err(404, "dm not found")
   const otherUserId = peer.otherUserId
-  const blocked = await queries.communityFriendship.isBlocked(db, userId, otherUserId)
   if (blocked) return err(403, "blocked")
   return ok({
     id: dm.id,
@@ -165,7 +191,10 @@ export async function requireNotBlocked(
   userA: string,
   userB: string,
 ): Promise<Result<true>> {
-  const blocked = await queries.communityFriendship.isBlocked(db, userA, userB)
+  // `withD1Retry` (block-gate read; transient → false 403). Retry to truth.
+  const blocked = await withD1Retry(() => queries.communityFriendship.isBlocked(db, userA, userB), {
+    route: "permissions/not-blocked",
+  })
   if (blocked) return err(403, "blocked")
   return ok(true)
 }

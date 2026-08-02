@@ -21,7 +21,6 @@ src/web/src/app/api/community/invites/[token]/join/route.ts
 src/web/src/app/api/community/machines/[id]/reconnect/route.ts
 src/web/src/app/api/community/machines/[id]/route.ts
 src/web/src/app/api/community/machines/pair/route.ts
-src/web/src/app/api/community/media/[...key]/route.ts
 src/web/src/app/api/community/messages/[id]/threads/route.ts
 src/web/src/app/api/community/nap/route.ts
 src/web/src/app/api/community/servers/[id]/bots/route.ts

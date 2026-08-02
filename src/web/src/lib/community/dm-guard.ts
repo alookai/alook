@@ -1,4 +1,4 @@
-import { queries } from "@alook/shared"
+import { queries, withD1Retry } from "@alook/shared"
 import type { Database } from "@alook/shared"
 import { requireNotBlocked } from "./permissions"
 
@@ -41,7 +41,11 @@ export async function guardDmOpen(
     return { ok: false, status: 400, error: "cannot DM yourself", code: "cannot_dm_self" }
   }
 
-  const peer = await queries.user.getUserInternal(db, peerId)
+  // `withD1Retry` (D1-armor: DM access-guard read; a transient would false-deny
+  // DM access, i.e. mis-judge access state — retry to truth).
+  const peer = await withD1Retry(() => queries.user.getUserInternal(db, peerId), {
+    route: "dm-guard/peer",
+  })
   if (!peer || peer.deletedAt !== null) {
     return { ok: false, status: 404, error: "user not found", code: "user_not_found" }
   }
@@ -49,7 +53,10 @@ export async function guardDmOpen(
   if (peer.isBot === true) {
     const isOwner = peer.ownerUserId === senderId
     if (!isOwner) {
-      const areFriends = await queries.communityFriendship.areFriends(db, senderId, peerId)
+      const areFriends = await withD1Retry(
+        () => queries.communityFriendship.areFriends(db, senderId, peerId),
+        { route: "dm-guard/are-friends" },
+      )
       if (!areFriends) {
         return callerKind === "bot"
           ? { ok: false, status: 403, error: "not friends with this bot", code: "not_friends" }

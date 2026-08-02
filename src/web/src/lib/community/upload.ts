@@ -5,6 +5,7 @@ import {
   ALLOWED_ATTACHMENT_MIME_PREFIXES,
   ALLOWED_ICON_MIME_TYPES,
   queries,
+  withD1Retry,
 } from "@alook/shared"
 import { requireMessageBearingSurface, requireChildSurface } from "./channel-write-guard"
 import type { Database } from "@alook/shared"
@@ -272,11 +273,16 @@ export async function runAttachmentUpload(
   if (!auth.ok) return writeError(auth.error, auth.status)
 
   if (kind === "channel") {
-    const channelType = await queries.communityChannel.getChannelType(db, id)
+    // `withD1Retry` (D1-armor: no-fallback surface-type read; retry to truth).
+    const channelType = await withD1Retry(() => queries.communityChannel.getChannelType(db, id), {
+      route: "upload/channel-type",
+    })
     const surface = requireMessageBearingSurface(channelType)
     if (!surface.ok) return writeError(surface.error, surface.status)
   } else if (kind === "thread") {
-    const channelType = await queries.communityChannel.getChannelType(db, id)
+    const channelType = await withD1Retry(() => queries.communityChannel.getChannelType(db, id), {
+      route: "upload/thread-type",
+    })
     const child = requireChildSurface(channelType)
     if (!child.ok) return writeError(child.error, child.status)
   }

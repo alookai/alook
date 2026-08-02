@@ -32,7 +32,7 @@
  * where "mentioned" = personal @ ∪ @everyone ∪ reply-to-me (the caller's full
  * mention set — @everyone counts, no split; Gener #28).
  */
-import { queries, WS_EVENTS, createLogger } from "@alook/shared"
+import { queries, withD1Retry, WS_EVENTS, createLogger } from "@alook/shared"
 import type { Database, NotificationLevelValue } from "@alook/shared"
 import { broadcastToUser } from "../broadcast"
 
@@ -97,10 +97,11 @@ export async function dispatchMessageNotify(
     const mentioned = new Set(opts.mentionedUserIds)
 
     const everyone = [...new Set([...recipients, ...opts.mentionedUserIds])]
-    const levels = await queries.communityNotificationSetting.resolveEffectiveLevelForUsers(
-      db,
-      everyone,
-      channelId,
+    // `withD1Retry` (D1-armor: no-fallback notify-level read; retry to truth).
+    const levels = await withD1Retry(
+      () =>
+        queries.communityNotificationSetting.resolveEffectiveLevelForUsers(db, everyone, channelId),
+      { route: "notify/levels" },
     )
     const levelOf = (userId: string): NotificationLevelValue => levels.get(userId) ?? "all"
 

@@ -29,6 +29,13 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm typegrep:ws
+      # D1-armor ratchet — the ONLY teeth on the push path. The per-machine
+      # pre-commit hook can't gate direct pushes / fresh clones / CI (it isn't
+      # version-controlled; each machine must `npx simple-git-hooks` to arm it),
+      # so a new bare D1 execution slips through everywhere the hook isn't
+      # installed. This is the version-controlled gate that covers the whole
+      # push face. Mirrors the pre-commit hook, which also runs it.
+      - run: pnpm typegrep:d1-armor
 
   knip:
     name: Dead Code Detection (knip)

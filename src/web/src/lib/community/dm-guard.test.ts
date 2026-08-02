@@ -5,6 +5,7 @@ const mockAreFriends = vi.fn()
 const mockIsBlocked = vi.fn()
 
 vi.mock("@alook/shared", () => ({
+  withD1Retry: <T,>(fn: () => Promise<T>) => fn(),
   queries: {
     user: { getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a) },
     communityFriendship: {
