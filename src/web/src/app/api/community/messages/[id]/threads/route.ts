@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, MAX_CHANNEL_NAME_LENGTH, WS_EVENTS, PARTICIPANT_SOURCE } from "@alook/shared"
+import { queries, withD1Retry, MAX_CHANNEL_NAME_LENGTH, WS_EVENTS, PARTICIPANT_SOURCE } from "@alook/shared"
 import { fanOutToChannel } from "@/lib/community/fanout"
 import { requireChannelMember } from "@/lib/community/permissions"
 import { requireMessageBearingSurface } from "@/lib/community/channel-write-guard"
@@ -13,7 +13,11 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   const db = getDb(ctx.env.DB)
 
-  const message = await queries.communityMessage.getMessage(db, messageId)
+  // `withD1Retry` (D1-armor state 2): a transient would 404 an existing message
+  // (mis-judged state) and block thread creation; retry to truth.
+  const message = await withD1Retry(() => queries.communityMessage.getMessage(db, messageId), {
+    route: "threads/get-message",
+  })
   if (!message) return writeError("message not found", 404)
   if (!message.channelId) return writeError("message is not in a channel", 400)
 
@@ -51,21 +55,34 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   }
 
   // One thread per message.
-  const existing = await queries.communityChannel.listChildChannels(db, message.channelId, {
-    type: "thread",
-  })
+  // `withD1Retry` (D1-armor state 2): this get-first drives the "already has a
+  // thread" 409 guard — a transient would either false-409 or false-allow a
+  // second thread; retry to truth.
+  const existing = await withD1Retry(
+    () => queries.communityChannel.listChildChannels(db, message.channelId, { type: "thread" }),
+    { route: "threads/list-existing" },
+  )
   if (existing.some((c) => c.parentMessageId === messageId)) {
     return writeError("message already has a thread", 409)
   }
 
-  const childChannel = await queries.communityChannel.createChannel(db, {
-    serverId: channel.serverId,
-    parentChannelId: message.channelId,
-    parentMessageId: messageId,
-    name,
-    type: "thread",
-    creatorId: ctx.userId,
-  })
+  // `withD1Retry` (D1-armor state 3): the thread create is guarded against
+  // double-create by the get-first 409 above PLUS the
+  // `uq_community_channel_parent_message` UNIQUE — a retried transient that
+  // already committed rethrows the (non-retryable) UNIQUE rather than minting a
+  // second thread channel, so blind retry is safe.
+  const childChannel = await withD1Retry(
+    () =>
+      queries.communityChannel.createChannel(db, {
+        serverId: channel.serverId,
+        parentChannelId: message.channelId,
+        parentMessageId: messageId,
+        name,
+        type: "thread",
+        creatorId: ctx.userId,
+      }),
+    { route: "threads/create-channel" },
+  )
 
   // Seed the default NOTIFY set: the thread creator (source "spoke", matching
   // the forum-post creation flow and what the message-handler would write once
@@ -84,7 +101,11 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     const authorStillMember = await requireChannelMember(db, message.channelId, message.authorId)
     if (authorStillMember.ok) seedRows.push({ userId: message.authorId, source: PARTICIPANT_SOURCE.ADDED })
   }
-  await queries.communityThread.addThreadParticipants(db, childChannel.id, seedRows)
+  // `withD1Retry` (D1-armor state 3): idempotent — onConflictDoNothing on
+  // uq_channel_member, so a retried transient adds nothing already present.
+  await withD1Retry(() => queries.communityThread.addThreadParticipants(db, childChannel.id, seedRows), {
+    route: "threads/add-participants",
+  })
 
   // Note: we intentionally do NOT clone the parent message into the new thread
   // channel. The `parentMessageId` pointer above is the single source of truth

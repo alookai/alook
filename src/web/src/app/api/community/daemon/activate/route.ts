@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import {
   queries,
+  withD1Retry,
   createLogger,
   CommunityDaemonActivateRequestSchema,
   WS_EVENTS,
@@ -47,20 +48,32 @@ export const POST = withCommunityPairingToken(async (req, ctx) => {
     // appear until the WS `ready` frame lands (which never arrives if the
     // daemon dies between HTTP activate and WS connect).
     const { runtimeReport, ...rest } = parsed.data
-    const result = await queries.communityMachine.activateMachineCredential(db, tokenId, {
-      ...rest,
-      availableRuntimes: runtimeReport,
-    })
+    // `withD1Retry` (D1-armor state 3): a retried transient can't double-activate
+    // — the CAS flip (`UPDATE status='revoked' WHERE status='pending'`) admits
+    // exactly one winner; a second run finds no pending row and throws
+    // `already_active` (→409), and the credential INSERT sits behind that single
+    // winning flip. So blind retry either completes the interrupted activation or
+    // hits the guard, never mints a duplicate credential.
+    const result = await withD1Retry(
+      () =>
+        queries.communityMachine.activateMachineCredential(db, tokenId, {
+          ...rest,
+          availableRuntimes: runtimeReport,
+        }),
+      { route: "daemon/activate/credential" },
+    )
 
     // Broadcast machine.created carrying the pairing token so the client
     // side (which is waiting on that specific `cmt_` to resolve) can
     // reconcile its pending state. The WS DO's later `ready`-frame handler
     // does NOT re-emit machine.created — activation is the single source
     // of the create event.
-    const machine = await queries.communityMachine.getMachineByIdForUser(
-      db,
-      result.userId,
-      result.machineId
+    // `withD1Retry` (D1-armor state 2): re-read the just-activated row to carry
+    // detected runtimes into the machine.created broadcast — a transient here
+    // would silently skip the broadcast (client stuck on pending). Retry to truth.
+    const machine = await withD1Retry(
+      () => queries.communityMachine.getMachineByIdForUser(db, result.userId, result.machineId),
+      { route: "daemon/activate/get-machine" },
     )
     if (machine) {
       const summary = queries.communityMachine.toSummary(machine)

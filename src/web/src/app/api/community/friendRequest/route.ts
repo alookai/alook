@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
 import {
   queries,
+  withD1Retry,
   CommunityAgentFriendRequestSchema,
   parseNameAndTag,
   isBlocked,
@@ -47,7 +48,12 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   if (!handle) {
     return NextResponse.json({ error: "username must be in name#0042 form" }, { status: 400 })
   }
-  const target = await queries.user.getUserByNameAndDiscriminator(db, handle.name, handle.discriminator)
+  // `withD1Retry` (D1-armor state 2): handle→user resolve — a transient would
+  // 404 a real target (mis-judged state); retry to truth.
+  const target = await withD1Retry(
+    () => queries.user.getUserByNameAndDiscriminator(db, handle.name, handle.discriminator),
+    { route: "friendRequest/resolve-handle" },
+  )
   if (!target) return NextResponse.json({ error: "user not found" }, { status: 404 })
 
   // Guards in order (design steps 3–4).
@@ -60,7 +66,11 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   }
 
   // Resolve internal flags to detect the sibling-bot case.
-  const targetInternal = await queries.user.getUserInternal(db, target.id)
+  // `withD1Retry` (D1-armor state 2): drives the sibling-bot branch decision;
+  // retry to truth.
+  const targetInternal = await withD1Retry(() => queries.user.getUserInternal(db, target.id), {
+    route: "friendRequest/target-internal",
+  })
   if (!targetInternal || targetInternal.deletedAt !== null) {
     return NextResponse.json({ error: "user not found" }, { status: 404 })
   }
@@ -70,10 +80,17 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
     const block = await requireNotBlocked(db, botUserId, target.id)
     if (!block.ok) return NextResponse.json({ error: "blocked", code: "blocked" }, { status: 403 })
 
-    const result = await queries.communityFriendship.ensureSiblingBotFriendship(db, {
-      botA: botUserId,
-      botB: target.id,
-    })
+    // `withD1Retry` (D1-armor state 3): idempotent — get-first + onConflictDoNothing
+    // backed by uq_friendship_active, so a retried transient returns the existing/
+    // survivor row, never double-creates.
+    const result = await withD1Retry(
+      () =>
+        queries.communityFriendship.ensureSiblingBotFriendship(db, {
+          botA: botUserId,
+          botB: target.id,
+        }),
+      { route: "friendRequest/ensure-sibling" },
+    )
     if (result.blocked) {
       return NextResponse.json({ error: "blocked", code: "blocked" }, { status: 403 })
     }
@@ -86,10 +103,20 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
 
   let result
   try {
-    result = await queries.communityFriendship.sendRequest(db, {
-      requesterId: botUserId,
-      addresseeId: target.id,
-    })
+    // `withD1Retry` (D1-armor state 3): double-send is blocked by
+    // uq_friendship_active; a retried transient re-runs the guarded batch, while
+    // a real duplicate surfaces as a non-retryable constraint error that
+    // withD1Retry rethrows straight into the catch below (which maps it to the
+    // "already sent"/"already friends" 409). So retry absorbs the blip without
+    // ever creating a second pending row.
+    result = await withD1Retry(
+      () =>
+        queries.communityFriendship.sendRequest(db, {
+          requesterId: botUserId,
+          addresseeId: target.id,
+        }),
+      { route: "friendRequest/send" },
+    )
   } catch (err: unknown) {
     if (err instanceof Error) {
       if (isBlocked(err.message)) {
@@ -133,7 +160,11 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
 
   // Bot-origin sendRequest always sets needsOwnerApproval, so this is always
   // the pending variant. Resolve the owner's display name for the hint copy.
-  const owner = await queries.user.getUserPublic(db, ownerUserId)
+  // `withD1Retry` (D1-armor state 2): owner display name for the hint copy —
+  // retry to truth (falls back to "your owner" only on a genuine null).
+  const owner = await withD1Retry(() => queries.user.getUserPublic(db, ownerUserId), {
+    route: "friendRequest/owner",
+  })
   const ownerDisplayName = owner?.name ?? "your owner"
   return NextResponse.json({
     friendshipId: result.friendship.id,

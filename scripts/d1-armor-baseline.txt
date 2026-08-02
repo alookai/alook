@@ -14,10 +14,6 @@
 #
 # Lines starting with '#' are comments. One repo-relative path per remaining line.
 src/web/src/app/api/community/attachmentUpload/route.ts
-src/web/src/app/api/community/daemon/activate/route.ts
-src/web/src/app/api/community/daemon/enroll-agent/route.ts
-src/web/src/app/api/community/friendRequest/route.ts
 src/web/src/app/api/community/invites/[token]/join/route.ts
-src/web/src/app/api/community/messages/[id]/threads/route.ts
 src/web/src/app/api/community/nap/route.ts
 src/web/src/app/api/community/servers/[id]/bots/route.ts
