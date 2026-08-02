@@ -61,3 +61,78 @@ describe("insertMessageIntoCache — attachment width/height", () => {
     ])
   })
 })
+
+// reply-disappear root-cause fix (step 2): a message.create echo of the
+// SENDER's own send carries the same clientNonce the optimistic row was stamped
+// with (WS step 1), so `insertMessageIntoCache` reconciles that row IN PLACE
+// (temp id → server id) instead of appending a duplicate. The duplicate was the
+// 2-row transient that, collapsed under an unlucky POST-vs-WS ordering, made a
+// just-sent reply vanish. These lock "one row, no double-insert" — the machine
+// oracle for the fix (Ingaborg's dt=0 ADD,ADD → single ADD).
+describe("insertMessageIntoCache — optimistic-row reconcile by clientNonce (reply-disappear step 2)", () => {
+  const optimisticRow = {
+    id: "temp_abc",
+    type: "chat" as const,
+    authorId: "author_1",
+    authorName: "Author",
+    content: "hello",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    clientNonce: "nonce-xyz",
+  }
+  const cacheWithOptimistic = () => ({ pages: [{ messages: [{ ...optimisticRow }] }], pageParams: [null] })
+
+  function echo(overrides: Partial<CommunityMessageCreate["message"]> = {}): CommunityMessageCreate["message"] {
+    return {
+      id: "msg_server_1",
+      type: "chat",
+      authorId: "author_1",
+      authorName: "Author",
+      authorAvatar: "A",
+      content: "hello",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      clientNonce: "nonce-xyz",
+      ...overrides,
+    } as CommunityMessageCreate["message"]
+  }
+
+  it("same-nonce echo renames the optimistic row in place (temp→server id) — ONE row, no duplicate", () => {
+    const result = insertMessageIntoCache(cacheWithOptimistic() as never, echo())
+    const rows = result?.pages[0].messages
+    expect(rows).toHaveLength(1)
+    expect(rows?.[0].id).toBe("msg_server_1")
+    expect(rows?.[0].clientNonce).toBe("nonce-xyz")
+    expect(rows?.[0].failed).toBe(false)
+  })
+
+  it("preserves the optimistic row's position (reconcile in place, not append)", () => {
+    const older = { id: "m_old", type: "chat" as const, authorId: "a", authorName: "X", content: "prev", createdAt: "2025-12-31T00:00:00.000Z" }
+    const cache = { pages: [{ messages: [older, { ...optimisticRow }] }], pageParams: [null] }
+    const result = insertMessageIntoCache(cache as never, echo())
+    const rows = result?.pages[0].messages
+    expect(rows).toHaveLength(2)
+    expect(rows?.map((m) => m.id)).toEqual(["m_old", "msg_server_1"])
+  })
+
+  it("an echo with a DIFFERENT nonce (someone else's message) is appended normally — no false reconcile", () => {
+    const result = insertMessageIntoCache(cacheWithOptimistic() as never, echo({ id: "msg_other", clientNonce: "other-nonce" }))
+    const rows = result?.pages[0].messages
+    expect(rows).toHaveLength(2)
+    expect(rows?.map((m) => m.id)).toEqual(["temp_abc", "msg_other"])
+  })
+
+  it("an echo with NO clientNonce (srv-fallback, never echoed anyway) is appended — no reconcile", () => {
+    const result = insertMessageIntoCache(cacheWithOptimistic() as never, echo({ id: "msg_nononce", clientNonce: undefined }))
+    const rows = result?.pages[0].messages
+    expect(rows).toHaveLength(2)
+    expect(rows?.map((m) => m.id)).toEqual(["temp_abc", "msg_nononce"])
+  })
+
+  it("the server-id dedup still wins first: a re-delivered echo (server id already present) is a no-op", () => {
+    // After a prior reconcile the row already carries the server id; a duplicate
+    // echo must not touch the cache (id check precedes the nonce reconcile).
+    const cache = { pages: [{ messages: [{ ...optimisticRow, id: "msg_server_1" }] }], pageParams: [null] }
+    const result = insertMessageIntoCache(cache as never, echo())
+    expect(result?.pages[0].messages).toHaveLength(1)
+    expect(result?.pages[0].messages[0].id).toBe("msg_server_1")
+  })
+})

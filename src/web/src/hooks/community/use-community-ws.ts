@@ -148,6 +148,33 @@ export function insertMessageIntoCache(
   if (cache.pages.length === 0) return cache
   const first = cache.pages[0]
   if (first.messages.some((m) => m.id === msg.id)) return cache
+  // Reconcile the SENDER's own optimistic row instead of inserting a second row.
+  // A message.create echo of a send the viewer just made carries the same
+  // `clientNonce` the optimistic row was stamped with (WS step-1). Without this,
+  // the echo (server id) shares no key with the optimistic row (temp id) and
+  // gets appended as a DUPLICATE — the 2-row transient that, collapsed under an
+  // unlucky POST-vs-WS ordering, made a just-sent reply vanish (reply-disappear).
+  // Rename the optimistic row to the server id in place: exactly one row, so the
+  // collapse has nothing to double-delete. `reconcileServerId` (the POST path)
+  // then finds no temp id and no-ops — both orderings converge to one row.
+  // `srv:`-fallback nonces are never echoed (WS step-1), so this only ever
+  // matches the sender's own client-provided nonce; others' messages (no
+  // matching optimistic row) fall through to the normal append below.
+  const nonce = "clientNonce" in msg ? (msg as { clientNonce?: string }).clientNonce : undefined
+  if (nonce) {
+    for (let pi = 0; pi < cache.pages.length; pi++) {
+      const p = cache.pages[pi]
+      const mi = p.messages.findIndex((m) => m.clientNonce === nonce)
+      if (mi !== -1) {
+        const pages = cache.pages.slice()
+        const msgs = p.messages.slice()
+        // Rename in place (temp id → server id), clear `failed`, keep position.
+        msgs[mi] = { ...msgs[mi], id: msg.id, failed: false }
+        pages[pi] = { ...p, messages: msgs }
+        return { ...cache, pages }
+      }
+    }
+  }
   const attachments: Attachment[] | undefined = msg.attachments?.map((a) => {
     const isImage = a.contentType?.startsWith("image/")
     return isImage
