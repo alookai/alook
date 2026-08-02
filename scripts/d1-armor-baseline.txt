@@ -16,15 +16,11 @@
 src/web/src/app/api/community/attachmentDownload/route.ts
 src/web/src/app/api/community/attachmentUpload/route.ts
 src/web/src/app/api/community/channelMember/route.ts
-src/web/src/app/api/community/channels/[id]/messages/route.ts
-src/web/src/app/api/community/channels/[id]/posts/route.ts
 src/web/src/app/api/community/daemon/activate/route.ts
 src/web/src/app/api/community/daemon/enroll-agent/route.ts
-src/web/src/app/api/community/dm/[id]/messages/route.ts
 src/web/src/app/api/community/friendRequest/route.ts
 src/web/src/app/api/community/invites/[token]/join/route.ts
 src/web/src/app/api/community/invites/[token]/route.ts
-src/web/src/app/api/community/listChannels/route.ts
 src/web/src/app/api/community/machines/[id]/reconnect/route.ts
 src/web/src/app/api/community/machines/[id]/route.ts
 src/web/src/app/api/community/machines/pair/route.ts
@@ -32,9 +28,6 @@ src/web/src/app/api/community/machines/route.ts
 src/web/src/app/api/community/media/[...key]/route.ts
 src/web/src/app/api/community/messages/[id]/threads/route.ts
 src/web/src/app/api/community/nap/route.ts
-src/web/src/app/api/community/read/route.ts
-src/web/src/app/api/community/resolve/route.ts
-src/web/src/app/api/community/search/route.ts
 src/web/src/app/api/community/server-folders/[id]/route.ts
 src/web/src/app/api/community/server-folders/reorder/route.ts
 src/web/src/app/api/community/server-folders/route.ts

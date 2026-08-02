@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, MIN_SEARCH_LENGTH, MAX_SEARCH_LENGTH } from "@alook/shared"
+import { queries, withD1Retry, MIN_SEARCH_LENGTH, MAX_SEARCH_LENGTH } from "@alook/shared"
 import {
   requireServerMember,
   requireChannelMember,
@@ -34,26 +34,33 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     if (!auth.ok) return writeError(auth.error, auth.status)
     // Scope to the viewer's visible channels so private-channel content never
     // surfaces in server-wide search.
-    const visibleChannelIds = await queries.communityChannel.listVisibleChannelIds(
-      db,
-      serverId,
-      ctx.userId,
+    // `withD1Retry` (D1-armor: no-fallback search read; retry to truth, never a
+    // misleading empty result-set). Visible-channel scope + search as one unit.
+    const results = await withD1Retry(
+      async () => {
+        const visibleChannelIds = await queries.communityChannel.listVisibleChannelIds(
+          db,
+          serverId,
+          ctx.userId,
+        )
+        return queries.communitySearch.searchMessagesInServer(db, {
+          query: q,
+          serverId,
+          visibleChannelIds,
+        })
+      },
+      { route: "search/server" },
     )
-    const results = await queries.communitySearch.searchMessagesInServer(db, {
-      query: q,
-      serverId,
-      visibleChannelIds,
-    })
     return writeJSON({ results })
   }
 
   if (channelId) {
     const auth = await requireChannelMember(db, channelId, ctx.userId)
     if (!auth.ok) return writeError(auth.error, auth.status)
-    const results = await queries.communitySearch.searchMessages(db, {
-      query: q,
-      channelId,
-    })
+    const results = await withD1Retry(
+      () => queries.communitySearch.searchMessages(db, { query: q, channelId }),
+      { route: "search/channel" },
+    )
     return writeJSON({ results })
   }
 
@@ -62,9 +69,9 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   // re-inline.
   const auth = await requireDMAccess(db, dmConversationId!, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
-  const results = await queries.communitySearch.searchMessages(db, {
-    query: q,
-    channelId: dmConversationId!,
-  })
+  const results = await withD1Retry(
+    () => queries.communitySearch.searchMessages(db, { query: q, channelId: dmConversationId! }),
+    { route: "search/dm" },
+  )
   return writeJSON({ results })
 })

@@ -4,6 +4,8 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
   queries,
+  withD1Retry,
+  nonIdempotentWriteAllowed,
   MAX_CHANNEL_NAME_LENGTH,
   MAX_MESSAGE_CONTENT_LENGTH,
   MESSAGE_PREVIEW_LENGTH,
@@ -32,10 +34,15 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
   const tag = req.nextUrl.searchParams.get("tag")
 
-  let childChannels = await queries.communityChannel.listChildChannels(db, channelId, {
-    archived: false,
-    type: "forum_post",
-  })
+  // `withD1Retry` (D1-armor: no-fallback forum-post list read; retry to truth).
+  let childChannels = await withD1Retry(
+    () =>
+      queries.communityChannel.listChildChannels(db, channelId, {
+        archived: false,
+        type: "forum_post",
+      }),
+    { route: "channels/posts/list" },
+  )
 
   if (tag) {
     childChannels = childChannels.filter((ch) => ch.tags.includes(tag))
@@ -49,13 +56,15 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
   // Batch-fetch all creators in one query
   const creatorIds = [...new Set(childChannels.map((t) => t.creatorId).filter(Boolean) as string[])]
-  const creators = creatorIds.length > 0 ? await queries.user.getUsersByIds(db, creatorIds) : []
+  const creators = creatorIds.length > 0
+    ? await withD1Retry(() => queries.user.getUsersByIds(db, creatorIds), { route: "channels/posts/creators" })
+    : []
   const creatorMap = new Map(creators.map((u) => [u.id, u]))
 
   // Batch-fetch first message for each post channel
   const postChannelIds = childChannels.map((t) => t.id)
   const firstMessages = postChannelIds.length > 0
-    ? await queries.communityMessage.getFirstMessageByChannelIds(db, postChannelIds)
+    ? await withD1Retry(() => queries.communityMessage.getFirstMessageByChannelIds(db, postChannelIds), { route: "channels/posts/first-messages" })
     : []
   const previewMap = new Map(firstMessages.map((m) => [m.channelId, m.content]))
 
@@ -65,7 +74,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   // by channel id and ordered by `addedAt` so the creator (earliest "spoke"
   // row) leads.
   const participantRows = postChannelIds.length > 0
-    ? await queries.communityThread.listParticipantsForChannels(db, postChannelIds)
+    ? await withD1Retry(() => queries.communityThread.listParticipantsForChannels(db, postChannelIds), { route: "channels/posts/participants" })
     : []
   const participantsByPost = new Map<string, { id: string; name: string; avatar: string }[]>()
   for (const r of [...participantRows].sort((a, b) => a.addedAt.localeCompare(b.addedAt))) {
@@ -154,13 +163,26 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   // Create child channel for the forum post. Tags are NOT set at creation —
   // they're added afterward from the post card's tag dialog.
-  const postChannel = await queries.communityChannel.createChannel(db, {
-    serverId: channel.serverId,
-    parentChannelId: channelId,
-    name: uniqueName,
-    type: "forum_post",
-    creatorId: ctx.userId,
-  })
+  // `nonIdempotentWriteAllowed` (state 4b), NOT retried: forum-post names are
+  // NOT covered by the per-server unique index (top-level channels only — see
+  // the dedupe note above), so createChannel here has no unique guard and a
+  // blind retry would create a SECOND post (the retry would even re-dedupe to a
+  // different slug). Duplicate = a visible, deletable extra post (not silent),
+  // so a comment suffices; a transient surfaces as a retryable 500.
+  const postChannel = await nonIdempotentWriteAllowed(
+    {
+      reason:
+        "createChannel for a forum_post has no unique guard (post names aren't in the per-server unique index); a retry would create a second post",
+    },
+    () =>
+      queries.communityChannel.createChannel(db, {
+        serverId: channel.serverId,
+        parentChannelId: channelId,
+        name: uniqueName,
+        type: "forum_post",
+        creatorId: ctx.userId,
+      }),
+  )
 
   // Create the first message in the post through the unified pipeline. Route as
   // `kind:"forum_post"` (NOT `kind:"channel"`) so the notify-set enroll runs

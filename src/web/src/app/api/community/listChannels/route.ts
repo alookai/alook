@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { queries, CommunityAgentListChannelsRequestSchema, formatRef } from "@alook/shared"
+import { queries, withD1Retry, CommunityAgentListChannelsRequestSchema, formatRef } from "@alook/shared"
 import type {
   CommunityCliChannelGroup as ChannelGroup,
   ChannelListItem,
@@ -44,7 +44,11 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
 
   let servers: Array<{ id: string; name: string }>
   if (parsed.data.server) {
-    servers = await queries.communityServer.resolveServerByNameForMember(db, botUserId, parsed.data.server)
+    // `withD1Retry` (D1-armor: no-fallback read; retry to truth). Drives 404/400.
+    servers = await withD1Retry(
+      () => queries.communityServer.resolveServerByNameForMember(db, botUserId, parsed.data.server!),
+      { route: "listChannels/resolve" },
+    )
     if (servers.length === 0) {
       return NextResponse.json({ error: `server not found: ${parsed.data.server}` }, { status: 404 })
     }
@@ -56,7 +60,9 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
       )
     }
   } else {
-    servers = await queries.communityServer.listUserServers(db, botUserId)
+    servers = await withD1Retry(() => queries.communityServer.listUserServers(db, botUserId), {
+      route: "listChannels/list-servers",
+    })
   }
 
   // Fan out per-server DB work in parallel — for a bot in N servers this
@@ -64,10 +70,14 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   // loop would.
   const perServer = await Promise.all(
     servers.map(async (server) => {
-      const [rows, categories] = await Promise.all([
-        queries.communityChannel.listChannelsForMember(db, server.id, botUserId),
-        queries.communityCategory.listCategoriesByServer(db, server.id),
-      ])
+      const [rows, categories] = await withD1Retry(
+        () =>
+          Promise.all([
+            queries.communityChannel.listChannelsForMember(db, server.id, botUserId),
+            queries.communityCategory.listCategoriesByServer(db, server.id),
+          ]),
+        { route: "listChannels/per-server" },
+      )
 
       const categoryById = new Map<string, { id: string; name: string; position: number | null; private: number | null }>()
       for (const c of categories) categoryById.set(c.id, c)

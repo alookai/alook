@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { queries, CommunityAgentReadRequestSchema } from "@alook/shared"
+import { queries, withD1Retry, CommunityAgentReadRequestSchema } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withCommunityActor, requireBot } from "@/lib/middleware/community-actor"
 import { resolveTargetForMember, resolveTargetById, resolveErrorResponse } from "@/lib/community/resolve-ref"
@@ -50,13 +50,25 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
     if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status })
   }
 
-  const { items, hasMore, latestSeq } = await queries.communityAgentInbox.listMessagesBySeq(db, scopeTarget, {
-    before: body.before,
-    after: body.after,
-    around: body.around,
-    limit: body.limit,
-  })
-  const messages = await queries.communityAgentInbox.toAgentMessages(db, items, botUserId)
+  // `withD1Retry` (D1-armor: no-fallback agent RPC read; retry to truth). The
+  // page fetch + agent-message shaping are wrapped as one unit.
+  const { messages, hasMore, latestSeq } = await withD1Retry(
+    async () => {
+      const { items, hasMore, latestSeq } = await queries.communityAgentInbox.listMessagesBySeq(
+        db,
+        scopeTarget,
+        {
+          before: body.before,
+          after: body.after,
+          around: body.around,
+          limit: body.limit,
+        },
+      )
+      const messages = await queries.communityAgentInbox.toAgentMessages(db, items, botUserId)
+      return { messages, hasMore, latestSeq }
+    },
+    { route: "read" },
+  )
 
   return NextResponse.json({ items: messages, hasMore, ...(latestSeq !== undefined ? { latestSeq } : {}) })
 })

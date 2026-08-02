@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, withD1Retry } from "@alook/shared"
 import {
   parseCursor,
   parseAnchor,
@@ -31,45 +31,65 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const pageSize = parsePageSize(params.get("limit"))
 
   if (anchorId) {
-    const anchor = await queries.communityMessage.getMessageInScope(db, anchorId, { channelId: dmId })
+    // `withD1Retry` (D1-armor: no-fallback paginated read; retry to truth). The
+    // anchor lookup drives 404; the window fetch + enrich are wrapped as a unit.
+    const anchor = await withD1Retry(
+      () => queries.communityMessage.getMessageInScope(db, anchorId, { channelId: dmId }),
+      { route: "dm/messages/anchor-lookup" },
+    )
     if (!anchor) return writeError("anchor not found", 404)
 
-    const around = await queries.communityMessage.listMessagesAround(db, {
-      channelId: dmId,
-      anchor: { createdAt: anchor.createdAt, id: anchor.id },
-      limit: pageSize,
-    })
-
-    const { items, hasMoreOlder, hasMoreNewer, olderCursor, newerCursor } = buildAnchorResponse(
-      around.older,
-      around.newer,
-      { hasMoreOlder: around.hasMoreOlder, hasMoreNewer: around.hasMoreNewer },
+    const result = await withD1Retry(
+      async () => {
+        const around = await queries.communityMessage.listMessagesAround(db, {
+          channelId: dmId,
+          anchor: { createdAt: anchor.createdAt, id: anchor.id },
+          limit: pageSize,
+        })
+        const { items, hasMoreOlder, hasMoreNewer, olderCursor, newerCursor } = buildAnchorResponse(
+          around.older,
+          around.newer,
+          { hasMoreOlder: around.hasMoreOlder, hasMoreNewer: around.hasMoreNewer },
+        )
+        const { messages, latestSeq } = await enrichMessages(db, ctx.userId, { channelId: dmId, isDm: true }, items)
+        return { messages, hasMoreOlder, hasMoreNewer, olderCursor, newerCursor, latestSeq }
+      },
+      { route: "dm/messages/anchor" },
     )
-
-    const { messages, latestSeq } = await enrichMessages(db, ctx.userId, { channelId: dmId, isDm: true }, items)
-    return writeJSON({ messages, hasMoreOlder, hasMoreNewer, olderCursor, newerCursor, latestSeq })
+    return writeJSON(result)
   }
 
   if (since) {
-    const rows = await queries.communityMessage.listMessagesSince(db, {
-      channelId: dmId,
-      since,
-      limit: pageSize,
-    })
-    const { items, hasMoreNewer, newerCursor, hasMoreOlder, olderCursor } = buildSinceResponse(rows, pageSize)
-    const { messages, latestSeq } = await enrichMessages(db, ctx.userId, { channelId: dmId, isDm: true }, items)
-    return writeJSON({ messages, hasMoreNewer, newerCursor, hasMoreOlder, olderCursor, latestSeq })
+    const result = await withD1Retry(
+      async () => {
+        const rows = await queries.communityMessage.listMessagesSince(db, {
+          channelId: dmId,
+          since,
+          limit: pageSize,
+        })
+        const { items, hasMoreNewer, newerCursor, hasMoreOlder, olderCursor } = buildSinceResponse(rows, pageSize)
+        const { messages, latestSeq } = await enrichMessages(db, ctx.userId, { channelId: dmId, isDm: true }, items)
+        return { messages, hasMoreNewer, newerCursor, hasMoreOlder, olderCursor, latestSeq }
+      },
+      { route: "dm/messages/since" },
+    )
+    return writeJSON(result)
   }
 
-  const rows = await queries.communityMessage.listMessages(db, {
-    channelId: dmId,
-    cursor,
-    limit: pageSize + 1,
-  })
-
-  const { items, hasMore, cursor: nextCursor } = buildPaginatedResponse(rows, pageSize)
-  const { messages, latestSeq } = await enrichMessages(db, ctx.userId, { channelId: dmId, isDm: true }, items.slice().reverse())
-  return writeJSON({ messages, hasMore, cursor: nextCursor, latestSeq })
+  const result = await withD1Retry(
+    async () => {
+      const rows = await queries.communityMessage.listMessages(db, {
+        channelId: dmId,
+        cursor,
+        limit: pageSize + 1,
+      })
+      const { items, hasMore, cursor: nextCursor } = buildPaginatedResponse(rows, pageSize)
+      const { messages, latestSeq } = await enrichMessages(db, ctx.userId, { channelId: dmId, isDm: true }, items.slice().reverse())
+      return { messages, hasMore, cursor: nextCursor, latestSeq }
+    },
+    { route: "dm/messages/legacy" },
+  )
+  return writeJSON(result)
 })
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
