@@ -409,6 +409,10 @@ export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
     capabilities: CAPABILITIES,
     agentCliPath,
     workingDirectoryBase: baseDir,
+    // Default-on bounded FSM trace lives under <baseDir>/logs (batch E1). This
+    // is what makes "the last wedge's FSM history" always available without
+    // pre-setting ALOOK_FSM_TRACE. The env var, if set, overrides this.
+    fsmTraceDir: path.join(baseDir, "logs"),
     hostname: os.hostname(),
     platform: process.platform,
     arch: process.arch,

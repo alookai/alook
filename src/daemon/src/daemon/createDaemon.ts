@@ -26,7 +26,8 @@
  *     — the `driverFor` is INJECTED by the caller.
  */
 import { homedir } from "os";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { createRotatingFileSink } from "../util/rotatingFileSink.js";
 import { WsControlChannel } from "../server/wsControlChannel.js";
 import { CredentialBroker, startCredentialProxy } from "../credentials/index.js";
 import { AgentProcessManager, AgentRouter, createTypingScopeTracker } from "../manager/index.js";
@@ -44,6 +45,13 @@ import { formatHandle } from "@alook/shared/lib/discriminator";
 // Cold-start warmup backoff schedule (ms).
 const WARMUP_BACKOFF_MS = [250, 500, 1000, 2000, 4000] as const;
 const WARMUP_CEILING_MS = 30_000;
+/**
+ * Per-file cap for the DEFAULT-ON bounded FSM trace (batch E1). The rotating
+ * sink keeps the active file + one rotated generation, so total on-disk ≈
+ * 2×this ≈ 16MB — about 4h of history at the observed ~14 rows/min/agent rate,
+ * enough to hold the last wedge. The `ALOOK_FSM_TRACE` override is unbounded.
+ */
+const FSM_TRACE_MAX_BYTES = 8 * 1024 * 1024;
 
 /**
  * Derive the audit-log `cli_invocation` subcommand from a proxy request
@@ -129,6 +137,14 @@ export interface CreateDaemonOptions {
   capabilities: string[];
   /** Working directory base for agent launch contexts. */
   workingDirectoryBase?: string;
+  /**
+   * Directory for the DEFAULT-ON bounded FSM transition trace
+   * (`<fsmTraceDir>/fsm-trace.jsonl`, size-capped/rotating — batch E1). When
+   * omitted the default trace is off (test stubs). `ALOOK_FSM_TRACE=<path>`
+   * overrides BOTH: it takes precedence and uses an unbounded single-file
+   * append (deep-investigation mode). See plans/daemon-fsm-desync.md batch E.
+   */
+  fsmTraceDir?: string;
   /**
    * Absolute path to the host's agent CLI entrypoint. Real deployments point this
    * at the shim/binary the agent subprocess invokes (via a symlink in PATH).
@@ -587,21 +603,44 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     // `ready` frame's `runningAgents` reflects what's actually live and the
     // server's reconciler safety net can flip stale pills to idle.
     onAgentLocallyStopped: (info) => router?.markLocallyStopped(info.agentId),
-    // FSM transition trace → file, ONLY when ALOOK_FSM_TRACE is set (opt-in,
-    // zero cost otherwise). One JSON line per reduce so a wedge that logs
-    // nothing else is reconstructable from its FSM history. See
-    // plans/daemon-fsm-desync.md — the "no log when it breaks" fix.
-    ...(process.env.ALOOK_FSM_TRACE
-      ? {
+    // FSM transition trace → file. One JSON line per reduce so a wedge that
+    // logs nothing else is reconstructable from its FSM history (the "no log
+    // when it breaks" fix, plans/daemon-fsm-desync.md). Two modes:
+    //   - DEFAULT ON (batch E1): a bounded, size-capped/rotating sink at
+    //     `<fsmTraceDir>/fsm-trace.jsonl` — so we're never blind to the last
+    //     wedge without pre-setting an env, and it can't fill the disk.
+    //   - `ALOOK_FSM_TRACE=<path>` OVERRIDE: unbounded single-file append at
+    //     that path (deep-investigation mode; takes precedence over the
+    //     default). Content is FSM metadata only (no PII) — safe to default on.
+    ...(() => {
+      const overridePath = process.env.ALOOK_FSM_TRACE;
+      if (overridePath) {
+        return {
           onFsmTransition: (rec: Record<string, unknown>) => {
             try {
-              appendFileSync(process.env.ALOOK_FSM_TRACE as string, JSON.stringify(rec) + "\n");
+              appendFileSync(overridePath, JSON.stringify(rec) + "\n");
             } catch {
               /* never let tracing break the daemon */
             }
           },
+        };
+      }
+      if (opts.fsmTraceDir) {
+        try {
+          mkdirSync(opts.fsmTraceDir, { recursive: true });
+        } catch {
+          /* best-effort: if the dir can't be made, sink writes just no-op */
         }
-      : {}),
+        const sink = createRotatingFileSink(
+          `${opts.fsmTraceDir}/fsm-trace.jsonl`,
+          FSM_TRACE_MAX_BYTES,
+        );
+        return {
+          onFsmTransition: (rec: Record<string, unknown>) => sink.write(JSON.stringify(rec)),
+        };
+      }
+      return {};
+    })(),
     // Only the "pi" runtime declares `Driver.createSession` today (in-process
     // SDK, no child process) — this is only ever consulted for that case.
     sdkDriverDepsFor: (ctx) => createPiSdkDriverDeps(ctx),
