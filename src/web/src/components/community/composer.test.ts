@@ -1,6 +1,16 @@
 import { describe, it, expect } from "vitest"
-import { pendingFilesToSendAttachments, popoverStyle } from "./composer"
+import { clipboardFiles, pendingFilesToSendAttachments, popoverStyle } from "./composer"
 import type { PendingFile } from "@/hooks/use-file-attachments"
+
+// Minimal DataTransferItemList stand-in: each entry declares its `kind` and the
+// File its `getAsFile()` yields (null models the browser returning nothing for
+// a "file" item). Indexed access + `.length` is all `clipboardFiles` touches.
+function itemList(entries: Array<{ kind: string; file: File | null }>): DataTransferItemList {
+  const items = entries.map((e) => ({ kind: e.kind, getAsFile: () => e.file })) as unknown as DataTransferItem[]
+  const list = { length: items.length } as unknown as DataTransferItemList
+  items.forEach((it, i) => { (list as unknown as Record<number, DataTransferItem>)[i] = it })
+  return list
+}
 
 function rectAt(top: number, opts: { left?: number; height?: number } = {}): DOMRect {
   const height = opts.height ?? 16
@@ -57,6 +67,44 @@ describe("pendingFilesToSendAttachments", () => {
       { file: a, width: 100, height: 200 },
       { file: b, width: 300, height: 400 },
     ])
+  })
+})
+
+// `clipboardFiles` is the pure filter behind `editorProps.handlePaste` — it
+// picks the pasted File(s) out of the clipboard so an image paste routes to
+// `addPendingFiles` (same as picker/drop). A text-only paste yields [] so the
+// handler returns false and the paste falls through to `clipboardTextParser`.
+describe("clipboardFiles", () => {
+  const png = new File(["x"], "photo.png", { type: "image/png" })
+  const jpg = new File(["y"], "shot.jpg", { type: "image/jpeg" })
+
+  it("returns [] when there's no clipboard items list", () => {
+    expect(clipboardFiles(undefined)).toEqual([])
+  })
+
+  it("returns [] for a text-only paste (no file items → falls through to text parser)", () => {
+    expect(clipboardFiles(itemList([{ kind: "string", file: null }]))).toEqual([])
+  })
+
+  it("collects a single pasted image file", () => {
+    expect(clipboardFiles(itemList([{ kind: "file", file: png }]))).toEqual([png])
+  })
+
+  it("collects multiple pasted files in order, ignoring interleaved string items", () => {
+    const list = itemList([
+      { kind: "string", file: null },
+      { kind: "file", file: png },
+      { kind: "file", file: jpg },
+    ])
+    expect(clipboardFiles(list)).toEqual([png, jpg])
+  })
+
+  it("skips a file item whose getAsFile() returns null", () => {
+    const list = itemList([
+      { kind: "file", file: null },
+      { kind: "file", file: png },
+    ])
+    expect(clipboardFiles(list)).toEqual([png])
   })
 })
 

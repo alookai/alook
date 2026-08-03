@@ -48,6 +48,23 @@ export function pendingFilesToSendAttachments(pendingFiles: PendingFile[]): Send
   return pendingFiles.map((pf) => ({ file: pf.file, width: pf.width, height: pf.height }))
 }
 
+// Pure extraction of the paste → File[] collection used by `handlePaste`:
+// keep only clipboard items whose `kind === "file"` (a pasted image, or any
+// dragged-in-then-copied file) and unwrap each via `getAsFile()`, dropping the
+// occasional null the API returns. Extracted (like `pendingFilesToSendAttachments`)
+// so the filtering is unit-testable without mounting the tiptap editor.
+export function clipboardFiles(items: DataTransferItemList | undefined): File[] {
+  if (!items) return []
+  const files: File[] = []
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].kind === "file") {
+      const f = items[i].getAsFile()
+      if (f) files.push(f)
+    }
+  }
+  return files
+}
+
 type ComposerMode = "chat" | "forumPostBody"
 
 export type ComposerHandle = {
@@ -138,6 +155,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const {
     pendingFiles,
     setPendingFiles,
+    addPendingFiles,
     fileInputRef,
     handleFileSelect,
     removePendingFile,
@@ -305,6 +323,21 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
           event.preventDefault()
           send()
+          return true
+        }
+        return false
+      },
+      // Paste an image (or any file) from the clipboard → same pipeline as the
+      // file picker / drag-drop: `addPendingFiles` (25MB + MIME + thumbnail).
+      // Consume the event (`preventDefault` + `return true`) once files are
+      // found so ProseMirror doesn't ALSO paste the image as text/HTML. Text-
+      // only pastes return false and fall through to `clipboardTextParser`
+      // below, which preserves both newline levels.
+      handlePaste: (_view, event) => {
+        const files = clipboardFiles(event.clipboardData?.items)
+        if (files.length > 0) {
+          event.preventDefault()
+          addPendingFiles(files)
           return true
         }
         return false
