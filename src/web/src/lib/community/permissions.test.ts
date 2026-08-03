@@ -241,6 +241,26 @@ describe("requireDMAccess", () => {
     if (!res.ok) expect(res.status).toBe(404)
   })
 
+  // Existence-mask parity: the no-dm and no-peer 404s must be BYTE-IDENTICAL to
+  // each other, not merely both 404. If they diverge (e.g. one grows a distinct
+  // error string), a caller can tell "DM exists but you're not in it" apart from
+  // "no such DM" and probe DM existence for arbitrary channel ids. The two
+  // branches deep-equal here, not each-asserted-404 — divergence must fail the
+  // test, whichever branch drifts. (Freezes today's correct behavior as a
+  // before-baseline invariant ahead of the channel-type trait refactor, where
+  // the 404-on-no-access rule moves into a visibility trait value.)
+  it("existence mask: no-dm and no-peer 404s are byte-identical (no existence oracle)", async () => {
+    getDM.mockResolvedValue(null)
+    const noDm = await requireDMAccess(db, "d1", "u1")
+
+    getDM.mockResolvedValue({ id: "d1", lastMessageAt: null, createdAt: "2026-06-30" })
+    getDMPeer.mockResolvedValue(null)
+    const noPeer = await requireDMAccess(db, "d1", "u1")
+
+    expect(noDm).toEqual(noPeer)
+    expect(noDm).toEqual({ ok: false, status: 404, error: "dm not found" })
+  })
+
   it("returns 403 'blocked' when the participants are in a blocked relationship", async () => {
     getDM.mockResolvedValue({ id: "d1", lastMessageAt: null, createdAt: "2026-06-30" })
     getDMPeer.mockResolvedValue({ otherUserId: "u2" })
