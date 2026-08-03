@@ -73,4 +73,17 @@ describe("ClaudeEventNormalizer.normalizeLine", () => {
     expect(out.some((e) => e.kind === "error" && (e as any).message === "boom")).toBe(true);
     expect(out.some((e) => e.kind === "turn_end")).toBe(true);
   });
+
+  it("errored result emits `error` BEFORE the trailing `turn_end` (the ordering B1's errored-turn marker relies on)", () => {
+    // managerRuntime buffers the `error`'s message on the way past, then reads
+    // it out when the trailing `turn_end` arrives to stamp `endReason:"errored"`.
+    // That handoff only works if error precedes turn_end in the SAME batch.
+    // See plans/daemon-runtime-error-rewake.md B1.
+    const out = new ClaudeEventNormalizer().normalizeLine(
+      J({ type: "result", is_error: true, result: "boom", session_id: "s1" }),
+    );
+    const kinds = out.map((e) => e.kind);
+    expect(kinds.indexOf("error")).toBeGreaterThanOrEqual(0);
+    expect(kinds.indexOf("error")).toBeLessThan(kinds.indexOf("turn_end"));
+  });
 });

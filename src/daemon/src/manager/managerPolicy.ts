@@ -165,7 +165,26 @@ export type ManagerEvent =
   | { type: "spawned"; agentId: string; nowMs: number }
   | { type: "session"; agentId: string; sessionId: string }
   | { type: "progress"; agentId: string; nowMs: number }
-  | { type: "turn_end"; agentId: string; nowMs: number }
+  /**
+   * `endReason:"errored"` is set when a turn ended NON-cleanly — either a
+   * mid-turn runtime `error` OR a `terminate_stalled` kill (managerRuntime
+   * buffers the cause, stamps it here on the trailing turn_end). Absent = clean
+   * turn-end. STRICTLY BINARY (single literal, not a union) so the rewake gate
+   * keyed on `=== "errored"` can't be silently widened — red line 1. The CAUSE
+   * rides on the separate `terminationCause` field (for B2 policy branching:
+   * `killed_stalled` gets a tighter rewake bound than `runtime_error` since an
+   * input-caused hang recurs deterministically); `errorDetail` is free-text.
+   * B1 only RECORDS these (trace); the rewake policy that consumes them is B2.
+   * See plans/daemon-runtime-error-rewake.md.
+   */
+  | {
+      type: "turn_end";
+      agentId: string;
+      nowMs: number;
+      endReason?: "errored";
+      terminationCause?: "runtime_error" | "killed_stalled";
+      errorDetail?: string;
+    }
   | { type: "exit"; agentId: string }
   | { type: "tick"; nowMs: number }
   /**

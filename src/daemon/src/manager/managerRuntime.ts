@@ -185,6 +185,18 @@ export interface ManagerRuntimeOpts {
     sinceDeliverMs: number | null;
     /** `nowMs - stoppingSince` (null unless in `stopping`) — stopping-stuck backstop clock. */
     sinceStoppingMs: number | null;
+    /**
+     * Present only on a `turn_end` that ended NON-cleanly. `endReason:"errored"`
+     * is the binary crashed-vs-clean judgement; `terminationCause` is the cause
+     * (`runtime_error` = mid-turn runtime error; `killed_stalled` = stall
+     * watchdog kill) for B2 policy branching; `errorDetail` is free-text. Absent
+     * on a clean turn_end and every non-turn_end event — makes a non-clean turn
+     * externally distinguishable from a clean nap/idle in the trace (B1 red line
+     * 7). See plans/daemon-runtime-error-rewake.md.
+     */
+    endReason?: "errored";
+    terminationCause?: "runtime_error" | "killed_stalled";
+    errorDetail?: string;
   }) => void;
   /**
    * Optional context-timeline recorder. When provided, the manager logs each
@@ -583,6 +595,31 @@ export class AgentProcessManager {
        */
       pid: number | null;
     }
+  >();
+  /**
+   * agentId → why the current turn ended NON-cleanly, buffered until the
+   * trailing `turn_end` reads+clears it. Two symmetric marker points feed it
+   * (Cecilia 架构#352 / Claudette #353 — key on CAUSE, never on bare `status`,
+   * so a voluntary idle-timeout `stop` that also flips `stopping` is never
+   * misread as a crash):
+   *   - `runtime_error`: a runtime `error` event mid-turn, set ONLY in the
+   *     `!sessionSuperseded` branch (an intentional reset/nap death-rattle never
+   *     marks). Carries the free-text `detail` for lossless fsm-trace.
+   *   - `killed_stalled`: the `terminate_stalled` effect (the stall watchdog
+   *     SIGKILLing a wedged turn — Blair's actual case). By construction, no
+   *     dependence on whether the runtime emits a trailing error rattle.
+   * At the trailing `turn_end` this becomes `endReason:"errored"` (the binary
+   * can-rewake judgement) + `terminationCause` (the cause, for B2 policy
+   * branching). A kill's marker is authoritative: if a `killed_stalled` marker
+   * is present, a following `runtime_error` rattle must NOT downgrade it (the
+   * kill is the real cause; the rattle is its side effect). Cleared on the
+   * `exit` teardown too, so a hard exit with no trailing turn_end can't leak a
+   * stale marker onto the next turn (B1 3a). See
+   * plans/daemon-runtime-error-rewake.md.
+   */
+  private readonly nonCleanEndMarker = new Map<
+    string,
+    { cause: "runtime_error" | "killed_stalled"; detail?: string }
   >();
   private readonly opts: Required<
     Omit<
@@ -1032,6 +1069,17 @@ export class AgentProcessManager {
           sinceProgressMs: nowMs - a.lastProgressAt,
           sinceDeliverMs: a.lastDeliverAt === null ? null : nowMs - a.lastDeliverAt,
           sinceStoppingMs: a.stoppingSince === null ? null : nowMs - a.stoppingSince,
+          // Non-clean-turn tag, carried on the `turn_end` event itself (not agent
+          // state). Spread so a clean turn_end / any other event omits the keys
+          // entirely rather than emitting explicit undefineds. B1.
+          ...(event.type === "turn_end" && (event as { endReason?: "errored" }).endReason === "errored"
+            ? {
+                endReason: "errored" as const,
+                terminationCause: (event as { terminationCause?: "runtime_error" | "killed_stalled" })
+                  .terminationCause,
+                errorDetail: (event as { errorDetail?: string }).errorDetail,
+              }
+            : {}),
         });
       };
       const agentId = (event as { agentId?: string }).agentId;
@@ -1124,6 +1172,14 @@ export class AgentProcessManager {
         // termination doesn't produce two contradictory "session ended" lines.
         const spawnState = this.activeSpawnState.get(effect.agentId);
         if (spawnState) spawnState.suppressExitLog = true;
+        // `terminate_stalled` is the stall watchdog SIGKILLing a wedged turn —
+        // an INVOLUNTARY kill (Blair's case). Mark it by cause so the trailing
+        // turn_end tags `killed_stalled`, independent of whether the runtime
+        // emits a death-rattle error. `stop` (voluntary idle-timeout) does NOT
+        // mark — that's a clean end (Cecilia 架构#352 red line 2). See B1.
+        if (effect.type === "terminate_stalled") {
+          this.nonCleanEndMarker.set(effect.agentId, { cause: "killed_stalled" });
+        }
         this.logSessionEnded(effect.agentId, effect.type === "stop" ? "stopped" : "terminate_stalled");
         this.opts.onAgentLocallyStopped?.({ agentId: effect.agentId, reason: effect.type });
         break;
@@ -1394,7 +1450,14 @@ export class AgentProcessManager {
       this.flushThinkingAudit(agentId);
       this.sessions.delete(agentId);
       this.liveSessions.delete(agentId);
-      if (this.activeSpawnState.get(agentId) === state) this.activeSpawnState.delete(agentId);
+      if (this.activeSpawnState.get(agentId) === state) {
+        this.activeSpawnState.delete(agentId);
+        // Clear a non-clean-end marker (either cause) that never saw its trailing
+        // `turn_end` (a hard exit bypasses the normalizer, B1 3a) so it can't
+        // leak onto the next turn. Same `=== state` guard as above: a late exit
+        // from a stale/superseded spawn must NOT drop a fresh session's marker.
+        this.nonCleanEndMarker.delete(agentId);
+      }
       this.dispatch({ type: "exit", agentId });
     });
 
@@ -1555,6 +1618,16 @@ export class AgentProcessManager {
     // surfaces. See plans/daemon-fsm-desync.md batch C (reader-C fix).
     if (ev.kind === "error" && !sessionSuperseded) {
       this.emitErrorAudit(agentId, "runtime", "runtime_error", ev.message ?? "Runtime error");
+      // Mark this turn non-clean (cause=runtime_error) so the trailing
+      // `turn_end` (a separate normalizer event, B1) carries `endReason:"errored"`
+      // + `terminationCause` + detail into the FSM/trace. Gated by the SAME
+      // `!sessionSuperseded` as the audit above, so an intentional reset/nap
+      // death-rattle never marks. A stall-kill's rattle also reaches here — but
+      // if `killed_stalled` was already marked (the kill IS the cause), DON'T
+      // downgrade it: the rattle is the kill's side effect, not the reason.
+      if (this.nonCleanEndMarker.get(agentId)?.cause !== "killed_stalled") {
+        this.nonCleanEndMarker.set(agentId, { cause: "runtime_error", detail: ev.message ?? "Runtime error" });
+      }
       // Stuck-reset correlation trace (plans/daemon-fsm-desync.md batch D):
       // PURELY ADDITIVE — this runs AFTER the error has already been decided to
       // surface (gate above unchanged), and only annotates. If this error fired
@@ -1647,7 +1720,25 @@ export class AgentProcessManager {
     this.dispatch({ type: "runtime_signal", agentId, kind: ev.kind, nowMs: this.now() });
     if (ev.kind === "turn_end") {
       this.logSessionEnded(agentId, "turn_end");
-      this.dispatch({ type: "turn_end", agentId, nowMs: this.now() });
+      // Read+clear the non-clean-end marker set this turn by a preceding runtime
+      // `error` OR a `terminate_stalled` kill (B1). Present ⇒ the turn is ending
+      // NON-cleanly; carry the binary judgement (`endReason:"errored"`) + the
+      // cause (`terminationCause`, for B2 policy branching) + free-text detail
+      // into the FSM so onTurnEnd + fsm-trace can tell it from a clean end.
+      const marker = this.nonCleanEndMarker.get(agentId);
+      this.nonCleanEndMarker.delete(agentId);
+      this.dispatch(
+        marker !== undefined
+          ? {
+              type: "turn_end",
+              agentId,
+              nowMs: this.now(),
+              endReason: "errored",
+              terminationCause: marker.cause,
+              errorDetail: marker.detail,
+            }
+          : { type: "turn_end", agentId, nowMs: this.now() },
+      );
     }
   }
 }

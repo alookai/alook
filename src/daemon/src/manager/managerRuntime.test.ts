@@ -1950,4 +1950,170 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
       vi.useRealTimers();
     }
   });
+
+  // ---- B1: crashed-turn tag (plans/daemon-runtime-error-rewake.md) ----------
+  // The trailing turn_end after a mid-turn `error` carries `endReason:"errored"`
+  // + `errorDetail` into the trace, so a crashed turn is externally
+  // distinguishable from a clean nap/idle (red line 7). B1 only RECORDS it —
+  // onTurnEnd behavior is unchanged (verified in the "clean" case below).
+
+  it("a mid-turn error then turn_end stamps endReason=errored + terminationCause=runtime_error + errorDetail (red line 6/7)", () => {
+    const recs: Record<string, unknown>[] = [];
+    const { mgr, session } = makeWithTrace((r) => recs.push(r));
+    mgr.deliver("a1", { seq: 1, text: "hi" });
+    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    // Genuinely interrupt the turn: an `error` event (as the normalizer emits
+    // from an is_error result) FOLLOWED by the trailing turn_end.
+    session.fire("runtime_event", { kind: "error", message: "boom: model overloaded" });
+    session.fire("runtime_event", { kind: "turn_end" });
+
+    const turnEnd = recs.find((r) => r.event === "turn_end" && r.agentId === "a1");
+    expect(turnEnd).toBeTruthy();
+    expect(turnEnd!.endReason).toBe("errored");
+    expect(turnEnd!.terminationCause).toBe("runtime_error");
+    expect(turnEnd!.errorDetail).toBe("boom: model overloaded");
+  });
+
+  it("a CLEAN turn_end (no preceding error/kill) carries no endReason/terminationCause/errorDetail (byte-for-byte the old row)", () => {
+    const recs: Record<string, unknown>[] = [];
+    const { mgr, session } = makeWithTrace((r) => recs.push(r));
+    mgr.deliver("a1", { seq: 1, text: "hi" });
+    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    session.fire("runtime_event", { kind: "turn_end" });
+
+    const turnEnd = recs.find((r) => r.event === "turn_end" && r.agentId === "a1");
+    expect(turnEnd).toBeTruthy();
+    expect(turnEnd!.endReason).toBeUndefined();
+    expect(turnEnd!.terminationCause).toBeUndefined();
+    expect(turnEnd!.errorDetail).toBeUndefined();
+  });
+
+  it("an intentional-kill (superseded) death-rattle error does NOT tag its turn_end errored (red line 5 — reset/nap is not a crash)", () => {
+    const recs: Record<string, unknown>[] = [];
+    const { mgr, session } = makeWithTrace((r) => recs.push(r));
+    mgr.deliver("a1", { seq: 1, text: "hi" });
+    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    // Enter the reset/nap kill window, THEN the dying process rattles. The
+    // marker is gated by the same `!sessionSuperseded` as the audit, so it must
+    // NOT set — a nap must stay indistinguishable-from-clean, not read as crash.
+    mgr.markResetting("a1");
+    session.fire("runtime_event", { kind: "error", message: "turn interrupted" });
+    session.fire("runtime_event", { kind: "turn_end" });
+
+    const turnEnd = recs.find((r) => r.event === "turn_end" && r.agentId === "a1");
+    expect(turnEnd).toBeTruthy();
+    expect(turnEnd!.endReason).toBeUndefined();
+    expect(turnEnd!.terminationCause).toBeUndefined();
+  });
+
+  it("a mid-turn error followed by a hard exit (no turn_end) clears the marker so the NEXT turn is not mis-tagged (3a marker-leak guard)", () => {
+    const recs: Record<string, unknown>[] = [];
+    const { mgr, session } = makeWithTrace((r) => recs.push(r));
+    mgr.deliver("a1", { seq: 1, text: "hi" });
+    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    // Error with NO trailing turn_end, then a hard process exit (bypasses the
+    // normalizer) — the marker would otherwise leak in the map.
+    session.fire("runtime_event", { kind: "error", message: "crashed hard" });
+    session.fire("exit");
+
+    // A fresh wake spawns a new session; its clean turn_end must NOT inherit the
+    // stale marker.
+    recs.length = 0;
+    mgr.deliver("a1", { seq: 2, text: "again" });
+    session.fire("runtime_event", { kind: "session_init", sessionId: "s2" });
+    session.fire("runtime_event", { kind: "turn_end" });
+
+    const turnEnd = recs.find((r) => r.event === "turn_end" && r.agentId === "a1");
+    expect(turnEnd).toBeTruthy();
+    expect(turnEnd!.endReason).toBeUndefined();
+    expect(turnEnd!.terminationCause).toBeUndefined();
+  });
+
+  it("red line 6 — a REAL stall (no progress past threshold → terminate_stalled) tags the turn_end killed_stalled, NOT injected error (Blair's actual case)", async () => {
+    vi.useFakeTimers();
+    try {
+      let now = 0;
+      const recs: Record<string, unknown>[] = [];
+      // Default fakeDriver (per_turn) satisfies the `stalled` predicate's first
+      // sub-clause — the same setup the proven "terminate_stalled from the stall
+      // watchdog" test uses. We only add the trace sink.
+      const session = fakeSession();
+      const mgr = new AgentProcessManager({
+        driverFor: () => fakeDriver("codex"),
+        baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
+        sessionFactory: () => session,
+        now: () => now,
+        tickIntervalMs: 5,
+        staleThresholdMs: 100, // wedge → terminate_stalled after 100ms of no progress
+        onFsmTransition: ((r: Record<string, unknown>) => recs.push(r)) as never,
+      });
+      mgr.start();
+      mgr.register("a1");
+      mgr.deliver("a1", { seq: 1, text: "hi" });
+      session.startResolver?.();
+      await Promise.resolve();
+      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      // Turn is in flight (turnActive) and makes NO progress. No error injected —
+      // this is a genuine hang, exactly Blair's case.
+      now = 200; // past staleThreshold=100 → stalled watchdog fires terminate_stalled
+      await vi.advanceTimersByTimeAsync(10);
+      const killTick = recs.find((r) => Array.isArray(r.effects) && (r.effects as string[]).includes("terminate_stalled"));
+      expect(killTick).toBeTruthy(); // the stall kill actually fired
+
+      // The SIGKILL makes the process emit its trailing turn_end (no error
+      // rattle needed — that's the whole point of keying on cause, not rattle).
+      recs.length = 0;
+      session.fire("runtime_event", { kind: "turn_end" });
+      const turnEnd = recs.find((r) => r.event === "turn_end" && r.agentId === "a1");
+      expect(turnEnd).toBeTruthy();
+      expect(turnEnd!.endReason).toBe("errored");
+      expect(turnEnd!.terminationCause).toBe("killed_stalled");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a VOLUNTARY idle-timeout stop (which also flips status→stopping) does NOT produce a tagged turn_end (red line 2 — cause, not bare status)", async () => {
+    // Cecilia's "don't treat 'not seen' as 'won't happen'": idle-hibernation's
+    // `stop(idle_timeout)` flips status→stopping too, but it is a CLEAN end. We
+    // key on the terminate_stalled EFFECT, not on status, so no marker is set →
+    // any turn_end around a voluntary stop stays untagged.
+    vi.useFakeTimers();
+    try {
+      let now = 0;
+      const recs: Record<string, unknown>[] = [];
+      const persistentDriver = {
+        ...fakeDriver("codex"),
+        lifecycle: { kind: "persistent", start: "immediate", exit: "natural", inFlightWake: "queue" } as never,
+      } as Driver;
+      const session = fakeSession();
+      const mgr = new AgentProcessManager({
+        driverFor: () => persistentDriver,
+        baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
+        sessionFactory: () => session,
+        now: () => now,
+        tickIntervalMs: 5,
+        idleTimeoutMs: 50, // idle → voluntary stop(idle_timeout), flips stopping
+        stoppingStuckThresholdMs: 1_000_000, // don't force_exit during the test
+        onFsmTransition: ((r: Record<string, unknown>) => recs.push(r)) as never,
+      });
+      mgr.start();
+      mgr.register("a1");
+      mgr.deliver("a1", { seq: 1, text: "hi" });
+      session.startResolver?.();
+      await Promise.resolve();
+      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      session.fire("runtime_event", { kind: "turn_end" }); // clean end → idle
+      recs.length = 0;
+      now = 100; // past idleTimeout=50 → idle-hibernation issues a voluntary stop
+      await vi.advanceTimersByTimeAsync(10);
+      const stoppingRec = recs.find((r) => r.status === "stopping" && r.agentId === "a1");
+      expect(stoppingRec).toBeTruthy(); // it DID flip stopping (voluntary)
+      // No terminate_stalled marker was set, so no tagged turn_end can appear.
+      const tagged = recs.find((r) => r.event === "turn_end" && r.endReason === "errored");
+      expect(tagged).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
