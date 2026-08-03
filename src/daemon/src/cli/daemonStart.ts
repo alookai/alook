@@ -30,10 +30,8 @@ const CAPABILITIES = ["send", "read", "mentions", "tasks", "reactions", "server"
 const STOP_GRACE_MS = 5000;
 /** How often `daemonStop` polls `isProcessAlive` while waiting on SIGTERM. */
 const POLL_MS = 100;
-/** How many hex chars of the machine-key SHA-256 make up the pidfile name. */
+/** How many hex chars of the machine-key SHA-256 make up the pidfile name (= the list/stop `id`). */
 const MACHINE_KEY_HASH_PREFIX_LEN = 12;
-/** How many chars of the pasted machine key `daemonList` shows as the "keyPrefix". */
-const MACHINE_KEY_DISPLAY_PREFIX_LEN = 20;
 
 function resolveDefaultBaseDir(): string {
   const root = process.env.ALOOK_PROJECT_ROOT || path.join(homedir(), ".alook");
@@ -112,16 +110,37 @@ export interface DaemonListOpts {
 }
 
 export interface DaemonInfo {
-  keyHash: string;
-  keyPrefix: string;
+  /**
+   * The daemon's addressing id, shown to humans and passed to `daemon stop
+   * <id>`. It is the pidfile's keyHash name — NOT the machine key (a credential
+   * that must never enter the human operation path, red line 2). list shows it,
+   * stop eats it → the two compose (the whole point of C3).
+   */
+  id: string;
   pid: number;
   alive: boolean;
+  /**
+   * Agent count + last-activity ms-epoch from status.json (the daemon's
+   * periodic snapshot). NULL when no snapshot yet. CAVEAT (red line 5):
+   * status.json is per-baseDir/GLOBAL, not per-daemon — so these two are
+   * accurate at the common one-daemon-per-machine case; with multiple daemons
+   * sharing a baseDir they reflect the last writer, not this row. The CLI
+   * renderer surfaces that caveat.
+   */
+  agents: number | null;
+  lastActiveMs: number | null;
 }
 
 export function daemonList(opts: DaemonListOpts): DaemonInfo[] {
   const baseDir = opts.baseDir || process.env.ALOOK_DATA_DIR || DEFAULT_BASE_DIR;
   const dir = daemonsDir(baseDir);
   if (!fs.existsSync(dir)) return [];
+
+  // status.json is per-baseDir (global). Read once; attach to each row with the
+  // documented caveat that it's the last writer, exact only at 1 daemon/baseDir.
+  const status = daemonStatus({ baseDir });
+  const agents = status.found ? status.agents.length : null;
+  const lastActiveMs = status.writtenAt;
 
   const files = fs.readdirSync(dir).filter((f) => f.endsWith(".pid"));
   const results: DaemonInfo[] = [];
@@ -136,10 +155,11 @@ export function daemonList(opts: DaemonListOpts): DaemonInfo[] {
       try { fs.unlinkSync(filePath); } catch { /* ok */ }
     }
     results.push({
-      keyHash: file.replace(".pid", ""),
-      keyPrefix: data.key.slice(0, MACHINE_KEY_DISPLAY_PREFIX_LEN) + "…",
+      id: file.replace(".pid", ""),
       pid: data.pid,
       alive,
+      agents: alive ? agents : null,
+      lastActiveMs: alive ? lastActiveMs : null,
     });
   }
 
@@ -206,17 +226,27 @@ export function daemonStatus(opts: DaemonStatusOpts): DaemonStatusResult {
 /* ------------------------------------------------------------------ */
 
 export interface DaemonStopOpts {
-  machineKey: string;
+  /** Stop by the id shown in `daemon list` (= the pidfile's keyHash name). */
+  id?: string;
+  /** Legacy/programmatic: stop by full machine key (hashed to the pidfile). */
+  machineKey?: string;
   baseDir?: string;
 }
 
-export async function daemonStop(opts: DaemonStopOpts): Promise<void> {
-  const baseDir = opts.baseDir || process.env.ALOOK_DATA_DIR || DEFAULT_BASE_DIR;
-  const pf = pidfilePath(baseDir, opts.machineKey);
+/**
+ * Core stop: SIGTERM → wait for the daemon's own ordered shutdown (stopAll
+ * agent children, close channel/proxy, remove pidfile) → escalate to SIGKILL
+ * only if it overruns the grace window. This kill/teardown semantic is
+ * UNCHANGED by stop-by-id (plans/daemon-cli-humanize-charter.md red line 3) —
+ * only HOW the daemon is addressed changed (id vs machine key resolve to the
+ * same pidfile). `notFoundHint` tailors the "nothing here" message to how the
+ * caller addressed it.
+ */
+async function stopByPidfile(pf: string, notFoundHint: string): Promise<void> {
   const data = readPidFile(pf);
 
   if (!data) {
-    log.info("no daemon running for this machine key (pidfile not found)");
+    log.info(notFoundHint);
     return;
   }
   if (!isProcessAlive(data.pid)) {
@@ -240,6 +270,25 @@ export async function daemonStop(opts: DaemonStopOpts): Promise<void> {
     log.info("daemon stopped");
   }
   try { fs.unlinkSync(pf); } catch { /* ok */ }
+}
+
+export async function daemonStop(opts: DaemonStopOpts): Promise<void> {
+  const baseDir = opts.baseDir || process.env.ALOOK_DATA_DIR || DEFAULT_BASE_DIR;
+  // Prefer the id (what `daemon list` shows and a human passes) — it IS the
+  // pidfile's keyHash name, so it resolves directly with no machine key. A
+  // machine key is still accepted for programmatic/legacy callers (hashed to
+  // the same pidfile). The credential never has to enter the human's stop
+  // command (red line 2): `daemon stop <id>`, not `--machine-key <secret>`.
+  if (opts.id) {
+    const pf = path.join(daemonsDir(baseDir), `${opts.id}.pid`);
+    await stopByPidfile(pf, `no daemon with id '${opts.id}' (pidfile not found — check \`alook daemon list\`)`);
+    return;
+  }
+  if (opts.machineKey) {
+    await stopByPidfile(pidfilePath(baseDir, opts.machineKey), "no daemon running for this machine key (pidfile not found)");
+    return;
+  }
+  log.error("daemon stop: an id (from `alook daemon list`) is required");
 }
 
 /* ------------------------------------------------------------------ */

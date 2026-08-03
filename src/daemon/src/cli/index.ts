@@ -21,7 +21,7 @@ import { pathToFileURL } from "node:url";
 import type { ServerApi, Cursor, Message } from "../server/contract.js";
 import { parseRef } from "../server/contract.js";
 import { proxyServerApiFromEnv } from "./proxyServerApi.js";
-import { daemonStart, daemonStop, daemonList, daemonStatus } from "./daemonStart.js";
+import { daemonStart, daemonStop, daemonList, daemonStatus, type DaemonInfo } from "./daemonStart.js";
 import { parseInviteToken } from "@alook/shared/lib/invite-link";
 import { MAX_EMOJI_BYTES } from "@alook/shared/constants/community";
 import { nowLocalISO, toLocalISO } from "../util/localTime.js";
@@ -61,6 +61,43 @@ function printEnvelope(env: Envelope): void {
   if (env.code !== undefined && env.code !== null) out.code = env.code;
   if (env.hint !== undefined && env.hint !== null) out.hint = env.hint;
   process.stdout.write(JSON.stringify(out) + "\n");
+}
+
+/** "just now (12s)" / "3m ago" / "2h ago" — human relative time from an ms epoch. */
+function relTime(ms: number | null, nowMs: number): string {
+  if (ms == null) return "—";
+  const s = Math.max(0, Math.round((nowMs - ms) / 1000));
+  if (s < 60) return `just now (${s}s)`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m ago`;
+  return `${Math.round(m / 60)}h ago`;
+}
+
+/**
+ * Render `daemon list` as a human table (C2/C3). Columns: ID (pass to `daemon
+ * stop <id>`), AGENTS + LAST ACTIVE (from the global status.json — accurate at
+ * one-daemon-per-machine, a footnote flags the multi-daemon caveat, red line 5),
+ * PID, STATE. NO machine key / hash prefix (credential stays out of human view).
+ */
+export function renderDaemonList(daemons: DaemonInfo[], nowMs: number = Date.now()): string {
+  if (daemons.length === 0) return "No daemons running on this machine.";
+  const header = ["ID", "AGENTS", "LAST ACTIVE", "PID", "STATE"];
+  const rows = daemons.map((d) => [
+    d.id,
+    d.agents == null ? "—" : String(d.agents),
+    relTime(d.lastActiveMs, nowMs),
+    String(d.pid),
+    d.alive ? "● running" : "○ dead",
+  ]);
+  const widths = header.map((h, i) => Math.max(h.length, ...rows.map((r) => r[i]!.length)));
+  const fmt = (cols: string[]) => cols.map((c, i) => c.padEnd(widths[i]!)).join("  ");
+  const lines = [fmt(header), ...rows.map(fmt)];
+  // Footnote the global-status caveat only when it could mislead (>1 daemon).
+  if (daemons.length > 1) {
+    lines.push("");
+    lines.push("Note: AGENTS/LAST ACTIVE come from a per-machine snapshot; with multiple daemons they reflect the last writer, not each row.");
+  }
+  return lines.join("\n");
 }
 
 /* ------------------------------------------------------------------ */
@@ -773,15 +810,17 @@ function buildProgram(): Command {
 
   daemon
     .command("stop")
-    .description("stop the daemon for a specific machine key")
-    .requiredOption("--machine-key <key>", "machine key identifying which daemon to stop")
+    .argument("[id]", "daemon id from `alook daemon list` (the ID column)")
+    .description("stop a daemon by its id (from `alook daemon list`)")
+    .option("--machine-key <key>", "legacy: identify the daemon by full machine key instead of id")
     .option("--base-dir <path>", "data directory (or ALOOK_DATA_DIR env)")
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })
-    .action(async function (this: Command) {
+    .action(async function (this: Command, id: string | undefined) {
       const localOpts = this.opts();
       await daemonStop({
-        machineKey: localOpts.machineKey as string,
+        id,
+        machineKey: localOpts.machineKey as string | undefined,
         baseDir: localOpts.baseDir as string | undefined,
       });
     });
@@ -795,7 +834,10 @@ function buildProgram(): Command {
     .action(function (this: Command) {
       const localOpts = this.opts();
       const daemons = daemonList({ baseDir: localOpts.baseDir as string | undefined });
-      printEnvelope({ success: { daemons } });
+      // `daemon list` is for a HUMAN operator — print a table, not JSON (the
+      // agent-facing commands keep their JSON envelope). The ID column is what
+      // you pass to `daemon stop <id>`.
+      process.stdout.write(renderDaemonList(daemons) + "\n");
     });
 
   daemon

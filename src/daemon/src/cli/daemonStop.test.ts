@@ -56,4 +56,31 @@ describe("daemonStop — event-loop friendly (no spin loop)", () => {
     await exited;
     expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
   }, 15_000);
+
+  it("stops by ID (the pidfile name shown in `daemon list`) — no machine key needed (C3)", async () => {
+    const child = spawn(process.execPath, ["-e", "setInterval(()=>{}, 1000)"], { stdio: "ignore" });
+    const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+
+    const machineKey = "cmk_secret_should_not_be_needed";
+    const daemonsDir = path.join(baseDir, "daemons");
+    fs.mkdirSync(daemonsDir, { recursive: true });
+    const crypto = await import("crypto");
+    const id = crypto.createHash("sha256").update(machineKey).digest("hex").slice(0, 12);
+    pidfile = path.join(daemonsDir, `${id}.pid`);
+    fs.writeFileSync(pidfile, JSON.stringify({ pid: child.pid, key: machineKey }));
+
+    // Stop using ONLY the id (what `daemon list` shows) — the credential
+    // (machineKey) never enters the call. This is the C3 compose: list shows id,
+    // stop eats id.
+    await daemonStop({ id, baseDir });
+
+    expect(fs.existsSync(pidfile)).toBe(false); // same SIGTERM→cleanup semantic
+    await exited;
+    expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
+  }, 15_000);
+
+  it("stop with an unknown id is a no-op (no throw), points at `daemon list`", async () => {
+    // No pidfile for this id → graceful message, no crash.
+    await expect(daemonStop({ id: "deadbeef0000", baseDir })).resolves.toBeUndefined();
+  });
 });

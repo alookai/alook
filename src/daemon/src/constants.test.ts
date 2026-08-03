@@ -70,13 +70,13 @@ describe("magic-number extractions", () => {
   it("MACHINE_KEY_HASH_PREFIX_LEN is set to 12 in cli/daemonStart.ts", () => {
     expect(readSrc("cli/daemonStart.ts")).toMatch(/MACHINE_KEY_HASH_PREFIX_LEN\s*=\s*12\b/);
   });
-
-  it("MACHINE_KEY_DISPLAY_PREFIX_LEN is set to 20 in cli/daemonStart.ts", () => {
-    expect(readSrc("cli/daemonStart.ts")).toMatch(/MACHINE_KEY_DISPLAY_PREFIX_LEN\s*=\s*20\b/);
-  });
 });
 
 describe("deleted symbols stay deleted", () => {
+  it("MACHINE_KEY_DISPLAY_PREFIX_LEN is gone from cli/daemonStart.ts (C3 dropped keyPrefix; list shows no credential)", () => {
+    expect(readSrc("cli/daemonStart.ts")).not.toMatch(/\bMACHINE_KEY_DISPLAY_PREFIX_LEN\b/);
+  });
+
   it("readCommandVersion is no longer exported by drivers/probe.ts", () => {
     expect(readSrc("drivers/probe.ts")).not.toMatch(/\breadCommandVersion\b/);
   });
