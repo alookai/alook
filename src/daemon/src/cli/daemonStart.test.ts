@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { credentialFilePathByMachineId } from "./daemonStart";
+import { credentialFilePathByMachineId, daemonStatus } from "./daemonStart";
 
 describe("daemonStart — credentialFilePath by machineId", () => {
   let baseDir: string;
@@ -33,5 +33,59 @@ describe("daemonStart — credentialFilePath by machineId", () => {
     expect(files).toEqual([`${machineId}.credential.json`]);
     const parsed = JSON.parse(fs.readFileSync(p, "utf8"));
     expect(parsed).toEqual({ credential: "cmk_second", machineId });
+  });
+});
+
+describe("daemonStatus — reads snapshot + always flags freshness (batch E2)", () => {
+  let baseDir: string;
+  beforeEach(() => {
+    baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "alook-status-test-"));
+  });
+  afterEach(() => {
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  const writeSnap = (writtenAt: number) => {
+    fs.writeFileSync(
+      path.join(baseDir, "status.json"),
+      JSON.stringify({
+        writtenAt,
+        agents: [
+          { agentId: "a1", status: "running", derivedActivity: "idle", turnActive: false, inbox: 0, sinceProgressMs: 10, stoppingSince: null },
+        ],
+      }),
+    );
+  };
+
+  it("missing file → freshness 'missing', found false, no throw", () => {
+    const r = daemonStatus({ baseDir, now: () => 1000 });
+    expect(r.found).toBe(false);
+    expect(r.freshness).toBe("missing");
+    expect(r.agents).toEqual([]);
+  });
+
+  it("recent snapshot → 'fresh' with the agent projection + age", () => {
+    writeSnap(1000);
+    const r = daemonStatus({ baseDir, now: () => 3000 }); // 2s old
+    expect(r.found).toBe(true);
+    expect(r.freshness).toBe("fresh");
+    expect(r.ageMs).toBe(2000);
+    expect(r.agents[0]?.agentId).toBe("a1");
+    expect(r.agents[0]?.derivedActivity).toBe("idle");
+  });
+
+  it("old snapshot → 'stale' (never mistaken for live truth)", () => {
+    writeSnap(1000);
+    const r = daemonStatus({ baseDir, now: () => 1000 + 60_000 }); // 60s old
+    expect(r.freshness).toBe("stale");
+    expect(r.ageMs).toBe(60_000);
+    expect(r.found).toBe(true); // still returns the last-known frame
+  });
+
+  it("corrupt/half-written file → treated as missing, no throw", () => {
+    fs.writeFileSync(path.join(baseDir, "status.json"), "{ not valid json");
+    const r = daemonStatus({ baseDir, now: () => 1000 });
+    expect(r.found).toBe(false);
+    expect(r.freshness).toBe("missing");
   });
 });

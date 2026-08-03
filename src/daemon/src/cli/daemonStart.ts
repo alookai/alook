@@ -12,6 +12,7 @@ import * as os from "os";
 import { homedir } from "os";
 import { WebSocket } from "ws";
 import { createDaemon } from "../daemon/createDaemon.js";
+import type { DaemonStatusSnapshot } from "../util/statusFile.js";
 import { getDriver } from "../drivers/index.js";
 import { resolveAlookCliPathWithFallback, detectRuntimes, type RuntimeInfo } from "../discovery.js";
 import { createLogger } from "../logger.js";
@@ -143,6 +144,61 @@ export function daemonList(opts: DaemonListOpts): DaemonInfo[] {
   }
 
   return results;
+}
+
+/* ------------------------------------------------------------------ */
+/* daemon status                                                       */
+/* ------------------------------------------------------------------ */
+
+export interface DaemonStatusOpts {
+  baseDir?: string;
+  /** Injectable clock for tests; defaults to Date.now. */
+  now?: () => number;
+}
+
+export interface DaemonStatusResult {
+  /** true if status.json was found and parsed. */
+  found: boolean;
+  /** ms since the snapshot was written (null if not found). */
+  ageMs: number | null;
+  /**
+   * Freshness verdict: "fresh" (< a few write intervals), "stale" (older —
+   * daemon may be paused/down; the frame is a last-known state), or "missing".
+   * The CLI ALWAYS surfaces this so a stale snapshot is never mistaken for
+   * live truth — an unflagged stale read would be exactly the "state unsynced"
+   * blind spot this whole feature exists to kill.
+   */
+  freshness: "fresh" | "stale" | "missing";
+  /** The snapshot's own writtenAt (ms epoch), or null. */
+  writtenAt: number | null;
+  agents: DaemonStatusSnapshot["agents"];
+}
+
+/** Older than this ⇒ "stale" (a few status-write intervals of slack). */
+const STATUS_STALE_MS = 20_000;
+
+export function daemonStatus(opts: DaemonStatusOpts): DaemonStatusResult {
+  const baseDir = opts.baseDir || process.env.ALOOK_DATA_DIR || DEFAULT_BASE_DIR;
+  const now = opts.now ?? (() => Date.now());
+  const statusPath = path.join(baseDir, "status.json");
+  if (!fs.existsSync(statusPath)) {
+    return { found: false, ageMs: null, freshness: "missing", writtenAt: null, agents: [] };
+  }
+  try {
+    const snap = JSON.parse(fs.readFileSync(statusPath, "utf8")) as DaemonStatusSnapshot;
+    const ageMs = now() - snap.writtenAt;
+    return {
+      found: true,
+      ageMs,
+      freshness: ageMs <= STATUS_STALE_MS ? "fresh" : "stale",
+      writtenAt: snap.writtenAt,
+      agents: Array.isArray(snap.agents) ? snap.agents : [],
+    };
+  } catch {
+    // File present but unreadable/half-written/corrupt → treat as missing
+    // rather than crash (a `daemon status` must never throw on a bad file).
+    return { found: false, ageMs: null, freshness: "missing", writtenAt: null, agents: [] };
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -413,6 +469,8 @@ export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
     // is what makes "the last wedge's FSM history" always available without
     // pre-setting ALOOK_FSM_TRACE. The env var, if set, overrides this.
     fsmTraceDir: path.join(baseDir, "logs"),
+    // Periodic `daemon status` snapshot (batch E2) → <baseDir>/status.json.
+    statusFilePath: path.join(baseDir, "status.json"),
     hostname: os.hostname(),
     platform: process.platform,
     arch: process.arch,

@@ -21,7 +21,7 @@ import { pathToFileURL } from "node:url";
 import type { ServerApi, Cursor, Message } from "../server/contract.js";
 import { parseRef } from "../server/contract.js";
 import { proxyServerApiFromEnv } from "./proxyServerApi.js";
-import { daemonStart, daemonStop, daemonList } from "./daemonStart.js";
+import { daemonStart, daemonStop, daemonList, daemonStatus } from "./daemonStart.js";
 import { parseInviteToken } from "@alook/shared/lib/invite-link";
 import { MAX_EMOJI_BYTES } from "@alook/shared/constants/community";
 import { nowLocalISO, toLocalISO } from "../util/localTime.js";
@@ -796,6 +796,21 @@ function buildProgram(): Command {
       const localOpts = this.opts();
       const daemons = daemonList({ baseDir: localOpts.baseDir as string | undefined });
       printEnvelope({ success: { daemons } });
+    });
+
+  daemon
+    .command("status")
+    .description("dump each agent's current FSM state from the daemon's status snapshot")
+    .option("--base-dir <path>", "data directory (or ALOOK_DATA_DIR env)")
+    .exitOverride()
+    .configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(function (this: Command) {
+      const localOpts = this.opts();
+      const status = daemonStatus({ baseDir: localOpts.baseDir as string | undefined });
+      // ALWAYS surface freshness — a stale snapshot must never read as live
+      // truth (the "state unsynced" blind spot this feature kills). The reader
+      // gets the raw fields + an explicit freshness verdict + snapshot age.
+      printEnvelope({ success: { status } });
     });
 
   return program;

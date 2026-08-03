@@ -28,6 +28,7 @@
 import { homedir } from "os";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { createRotatingFileSink } from "../util/rotatingFileSink.js";
+import { writeStatusFile } from "../util/statusFile.js";
 import { WsControlChannel } from "../server/wsControlChannel.js";
 import { CredentialBroker, startCredentialProxy } from "../credentials/index.js";
 import { AgentProcessManager, AgentRouter, createTypingScopeTracker } from "../manager/index.js";
@@ -52,6 +53,8 @@ const WARMUP_CEILING_MS = 30_000;
  * enough to hold the last wedge. The `ALOOK_FSM_TRACE` override is unbounded.
  */
 const FSM_TRACE_MAX_BYTES = 8 * 1024 * 1024;
+/** How often the daemon rewrites the `daemon status` snapshot file (batch E2). */
+const STATUS_WRITE_INTERVAL_MS = 5_000;
 
 /**
  * Derive the audit-log `cli_invocation` subcommand from a proxy request
@@ -145,6 +148,13 @@ export interface CreateDaemonOptions {
    * append (deep-investigation mode). See plans/daemon-fsm-desync.md batch E.
    */
   fsmTraceDir?: string;
+  /**
+   * Absolute path for the periodic `daemon status` snapshot file (batch E2).
+   * The running daemon writes a slim per-agent FSM projection here (atomic
+   * tmp→rename) on a timer; the `daemon status` CLI reads it. Omit for test
+   * stubs → no snapshot writing. See plans/daemon-fsm-desync.md batch E2.
+   */
+  statusFilePath?: string;
   /**
    * Absolute path to the host's agent CLI entrypoint. Real deployments point this
    * at the shim/binary the agent subprocess invokes (via a symlink in PATH).
@@ -652,6 +662,22 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   managerRef = manager;
   manager.start();
 
+  // Periodic `daemon status` snapshot (batch E2): the daemon has no IPC, so it
+  // writes a slim per-agent FSM projection to a file that the out-of-band
+  // `daemon status` CLI reads. Best-effort + atomic (inside writeStatusFile).
+  // Interval a bit slower than the tick — this is for human/agent diagnosis,
+  // not a hot path; staleness is bounded by this interval and the reader always
+  // flags the snapshot's age via `writtenAt`.
+  let statusTimer: ReturnType<typeof setInterval> | null = null;
+  if (opts.statusFilePath) {
+    const statusPath = opts.statusFilePath;
+    const writeStatus = () =>
+      writeStatusFile(statusPath, { writtenAt: Date.now(), agents: manager.statusProjection(Date.now()) });
+    writeStatus(); // one immediately so `daemon status` works right after boot
+    statusTimer = setInterval(writeStatus, STATUS_WRITE_INTERVAL_MS);
+    statusTimer.unref?.();
+  }
+
   router = new AgentRouter({
     manager,
     channel,
@@ -730,6 +756,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       for (const agentId of [...typingHeartbeats.keys()]) {
         emitTypingStopsAndClear(agentId);
       }
+      if (statusTimer) clearInterval(statusTimer);
       channel.close();
       await proxy.close();
       await manager.stopAll();

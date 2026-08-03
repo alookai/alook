@@ -20,6 +20,7 @@ import {
   type AgentRuntimeCaps,
   type AgentMsg,
   type AgentState,
+  type AgentStatus,
   isActivelyWorking,
 } from "./managerPolicy.js";
 import type { Driver, LaunchContext, SdkDriverDeps } from "../types.js";
@@ -949,6 +950,36 @@ export class AgentProcessManager {
   agentActivity(agentId: string): AgentActivityState | null {
     const agent = this.state.agents[agentId];
     return agent ? this.deriveActivity(agent) : null;
+  }
+
+  /**
+   * Slim per-agent FSM projection for the `daemon status` snapshot file (batch
+   * E2). Metadata only — NO message content, NO PII. Exposes BOTH the raw FSM
+   * `status` AND the `derivedActivity` (the running/idle display) so a reader
+   * can tell apart the three idle-looking states the frontend's coarse marker
+   * conflates: between-turns idle (running + !turnActive), a real turn in
+   * flight, and a wedge (climbing `sinceProgressMs` / non-null `stoppingSince`).
+   * `nowMs` is passed in so the caller stamps a single consistent `writtenAt`.
+   * See plans/daemon-fsm-desync.md batch E2.
+   */
+  statusProjection(nowMs: number): Array<{
+    agentId: string;
+    status: AgentStatus;
+    derivedActivity: AgentActivityState;
+    turnActive: boolean;
+    inbox: number;
+    sinceProgressMs: number;
+    stoppingSince: number | null;
+  }> {
+    return Object.values(this.state.agents).map((a) => ({
+      agentId: a.agentId,
+      status: a.status,
+      derivedActivity: this.deriveActivity(a),
+      turnActive: a.turnActive,
+      inbox: a.inbox.length,
+      sinceProgressMs: nowMs - a.lastProgressAt,
+      stoppingSince: a.stoppingSince,
+    }));
   }
 
   /* --------------------------------------------------------------- */
