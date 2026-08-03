@@ -2206,6 +2206,84 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
       exitEffectsFor({ code: 0, reason: "runtime_exit" }, true),
     );
   });
+
+  // ---- T2: launch-failure reason into trace (audit↔trace two-skins closure) ----
+  // A spawn that never establishes (ENOENT / pre_handshake_exit / handshake_timeout
+  // / spawn_threw) previously reached the web audit but dispatched a BARE exit —
+  // in the trace it was indistinguishable from a clean exit. T2 carries the
+  // failure reason (same value as the audit) onto the exit event → trace.
+
+  it("T2 — a pre-handshake exit records spawnFailureReason on the trace exit row", () => {
+    const recs: Record<string, unknown>[] = [];
+    const { mgr, session } = makeWithTrace((r) => recs.push(r));
+    mgr.deliver("a1", { seq: 1, text: "hi" });
+    // Exit with NO prior runtime_event (never established) → pre_handshake_exit.
+    session.fire("exit");
+
+    const exitRec = recs.find((r) => r.event === "exit" && r.agentId === "a1");
+    expect(exitRec).toBeTruthy();
+    expect(exitRec!.spawnFailureReason).toBe("pre_handshake_exit");
+  });
+
+  it("T2 — an ENOENT spawn error carries that exact reason (same string as the web audit) into the trace", () => {
+    const recs: Record<string, unknown>[] = [];
+    const { mgr, session } = makeWithTrace((r) => recs.push(r));
+    mgr.deliver("a1", { seq: 1, text: "hi" });
+    session.fire("error", { code: "ENOENT" });
+    session.fire("exit");
+
+    const exitRec = recs.find((r) => r.event === "exit" && r.agentId === "a1");
+    expect(exitRec).toBeTruthy();
+    expect(exitRec!.spawnFailureReason).toBe("ENOENT");
+  });
+
+  it("T2 — a normal established exit carries NO spawnFailureReason", () => {
+    const recs: Record<string, unknown>[] = [];
+    const { mgr, session } = makeWithTrace((r) => recs.push(r));
+    mgr.deliver("a1", { seq: 1, text: "hi" });
+    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" }); // established
+    session.fire("exit", { code: 0, reason: "runtime_exit" });
+
+    const exitRec = recs.find((r) => r.event === "exit" && r.agentId === "a1");
+    expect(exitRec).toBeTruthy();
+    expect(exitRec!.spawnFailureReason).toBeUndefined();
+  });
+
+  it("T2 no-leak (Claudette #398) — a spawn failure then a SUCCESSFUL spawn + clean exit: the clean exit carries NO stale spawnFailureReason", () => {
+    // Guards the per-spawn `state` isolation: the failure reason lives on the
+    // spawn's own `state` object (fresh each doSpawn), so a later spawn's exit
+    // can't inherit it. This assertion would also catch a regression to a
+    // per-agent map that forgot to clear (the B1 3a leak class).
+    const recs: Record<string, unknown>[] = [];
+    // Fresh session per spawn so the second (successful) launch is a real new
+    // session, exercising a real second doSpawn with its own `state`.
+    const sessions: FakeSession[] = [];
+    const mgr = new AgentProcessManager({
+      driverFor: () => fakeDriver("codex"),
+      baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
+      sessionFactory: () => {
+        const s = fakeSession();
+        sessions.push(s);
+        return s;
+      },
+      onFsmTransition: ((r: Record<string, unknown>) => recs.push(r)) as never,
+    });
+    mgr.register("a1");
+
+    // Spawn #1: fails pre-handshake.
+    mgr.deliver("a1", { seq: 1, text: "hi" });
+    sessions[0]!.fire("exit"); // → pre_handshake_exit, agent back to idle
+
+    // Spawn #2: succeeds (establishes), then exits cleanly.
+    recs.length = 0;
+    mgr.deliver("a1", { seq: 2, text: "again" });
+    sessions[1]!.fire("runtime_event", { kind: "session_init", sessionId: "s2" });
+    sessions[1]!.fire("exit", { code: 0, reason: "runtime_exit" });
+
+    const cleanExit = recs.find((r) => r.event === "exit" && r.agentId === "a1");
+    expect(cleanExit).toBeTruthy();
+    expect(cleanExit!.spawnFailureReason).toBeUndefined(); // no stale reason from spawn #1
+  });
 });
 
 describe("T1 — abnormal-exit user audit stays gated (no nap-noise on deliberate kill)", () => {

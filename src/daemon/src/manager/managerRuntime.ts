@@ -208,6 +208,13 @@ export interface ManagerRuntimeOpts {
     exitCode?: number | null;
     exitSignal?: string | null;
     abnormal?: boolean;
+    /**
+     * Present on an `exit` that followed a LAUNCH failure: the reason string
+     * (same value as the web audit — ENOENT/handshake_timeout/pre_handshake_exit/
+     * spawn_threw/Node code). T2: makes a failed-to-start distinguishable from a
+     * clean exit in the trace. Absent on a normal exit.
+     */
+    spawnFailureReason?: string | null;
   }) => void;
   /**
    * Optional context-timeline recorder. When provided, the manager logs each
@@ -1099,6 +1106,11 @@ export class AgentProcessManager {
                 exitCode: (event as { exitCode?: number | null }).exitCode ?? null,
                 exitSignal: (event as { exitSignal?: string | null }).exitSignal ?? null,
                 abnormal: (event as { abnormal?: boolean }).abnormal ?? false,
+                // Launch-failure reason (T2). Included only when present so a
+                // normal exit row stays free of the key.
+                ...((event as { spawnFailureReason?: string | null }).spawnFailureReason != null
+                  ? { spawnFailureReason: (event as { spawnFailureReason?: string | null }).spawnFailureReason }
+                  : {}),
               }
             : {}),
         });
@@ -1360,7 +1372,7 @@ export class AgentProcessManager {
     //     `terminate_stalled` from `applyEffect`) so the process's eventual
     //     `exit` event doesn't ALSO log a redundant/contradictory
     //     "session ended" line for the same termination.
-    const state = { hasEstablished: false, hasReportedSpawnFailure: false, suppressExitLog: false, handshakeTimer: null as ReturnType<typeof setTimeout> | null, torndown: false, superseded: false, pid: null as number | null };
+    const state = { hasEstablished: false, hasReportedSpawnFailure: false, suppressExitLog: false, handshakeTimer: null as ReturnType<typeof setTimeout> | null, torndown: false, superseded: false, pid: null as number | null, spawnFailureReason: null as string | null };
     this.activeSpawnState.set(agentId, state);
     const clearHandshakeTimer = () => {
       if (state.handshakeTimer) {
@@ -1374,6 +1386,14 @@ export class AgentProcessManager {
     ) => {
       if (state.hasEstablished || state.hasReportedSpawnFailure) return;
       state.hasReportedSpawnFailure = true;
+      // Record the launch-failure reason on THIS spawn's state so the exit
+      // dispatch that follows can carry it into the fsm-trace (T2 — same reason
+      // string the web audit below gets, so trace and audit "say the same word":
+      // ENOENT / handshake_timeout / pre_handshake_exit / spawn_threw / a Node
+      // error code). Lives on per-spawn `state` (fresh each doSpawn), so it can't
+      // leak into a later spawn's exit — no per-agent-map read-clear needed. See
+      // plans/daemon-trace-completeness-charter.md T2.
+      state.spawnFailureReason = reason;
       this.log.warn("spawn failed", { agentId, runtime: driver.id, reason });
       this.opts.onRuntimeSpawnFailed?.(driver.id, reason);
       // Surface to the owner: a spawn that never handshakes is otherwise
@@ -1493,7 +1513,7 @@ export class AgentProcessManager {
         // from a stale/superseded spawn must NOT drop a fresh session's marker.
         this.nonCleanEndMarker.delete(agentId);
       }
-      this.dispatch({ type: "exit", agentId, exitCode, exitSignal, abnormal });
+      this.dispatch({ type: "exit", agentId, exitCode, exitSignal, abnormal, spawnFailureReason: state.spawnFailureReason });
     });
 
     // Stamp the wake-prompt timestamp AT the last mile — right before the
@@ -1544,7 +1564,10 @@ export class AgentProcessManager {
           if (this.sessions.get(agentId) === session) this.sessions.delete(agentId);
           this.liveSessions.delete(agentId);
           if (this.activeSpawnState.get(agentId) === state) this.activeSpawnState.delete(agentId);
-          this.dispatch({ type: "exit", agentId });
+          // T2: carry the launch-failure reason (just set by reportSpawnFailure)
+          // into the FSM/trace — a handshake_timeout exit is otherwise a bare
+          // exit in the trace, indistinguishable from a clean one.
+          this.dispatch({ type: "exit", agentId, spawnFailureReason: state.spawnFailureReason });
         }, this.opts.handshakeTimeoutMs);
       })
       .catch((err: unknown) => {
@@ -1556,7 +1579,8 @@ export class AgentProcessManager {
           "spawn_threw";
         reportSpawnFailure(String(code));
         if (this.sessions.get(agentId) === session) this.sessions.delete(agentId);
-        this.dispatch({ type: "exit", agentId });
+        // T2: carry the launch-failure reason into the FSM/trace (same as above).
+        this.dispatch({ type: "exit", agentId, spawnFailureReason: state.spawnFailureReason });
       });
   }
 

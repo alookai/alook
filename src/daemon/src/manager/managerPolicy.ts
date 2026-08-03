@@ -196,7 +196,26 @@ export type ManagerEvent =
    * MEANS in FSM terms (deliberate kill vs crash) is a separate semantic layer
    * left to T3, which may only LAYER fields on top, never overwrite these.
    */
-  | { type: "exit"; agentId: string; exitCode?: number | null; exitSignal?: string | null; abnormal?: boolean }
+  | {
+      type: "exit";
+      agentId: string;
+      exitCode?: number | null;
+      exitSignal?: string | null;
+      abnormal?: boolean;
+      /**
+       * Present when this exit followed a LAUNCH failure (never established):
+       * the reason string reportSpawnFailure recorded — the SAME value the web
+       * audit gets (ENOENT / handshake_timeout / pre_handshake_exit /
+       * spawn_threw / a Node error code). T2 (audit↔trace two-skins closure,
+       * plans/daemon-trace-completeness-charter.md): without it, a
+       * failed-to-start exit is a bare exit in the trace, indistinguishable from
+       * a clean one. Orthogonal to exitCode/exitSignal (a launch failure often
+       * has no real code/signal) — consumers detect "was it a launch failure" by
+       * this field's presence, not by guessing code/signal combos. Observability
+       * only; `onExit` must not branch on it.
+       */
+      spawnFailureReason?: string | null;
+    }
   | { type: "tick"; nowMs: number }
   /**
    * Owner-triggered "reset session". Nulls `AgentState.sessionId` so the next
