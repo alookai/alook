@@ -174,6 +174,7 @@ export interface ManagerRuntimeOpts {
     idleSince: number | null;
     resetting: boolean;
     resettingSince: number | null;
+    stoppingSince: number | null;
     apmPhase: string;
     effects: string[];
     nowMs: number;
@@ -181,6 +182,8 @@ export interface ManagerRuntimeOpts {
     sinceProgressMs: number;
     /** `nowMs - lastDeliverAt` (null if never delivered) — suspectedDeaf's half. */
     sinceDeliverMs: number | null;
+    /** `nowMs - stoppingSince` (null unless in `stopping`) — stopping-stuck backstop clock. */
+    sinceStoppingMs: number | null;
   }) => void;
   /**
    * Optional context-timeline recorder. When provided, the manager logs each
@@ -968,6 +971,7 @@ export class AgentProcessManager {
           idleSince: a.idleSince,
           resetting: a.resetting,
           resettingSince: a.resettingSince,
+          stoppingSince: a.stoppingSince,
           apmPhase: a.apm.phase,
           effects: myEffects,
           nowMs,
@@ -977,9 +981,13 @@ export class AgentProcessManager {
           // wedged agent, lastProgressAt is being bumped by stray progress =
           // the anchor is unusable — the exit-1 decision). `sinceDeliverMs` is
           // suspectedDeaf's half (null when no deliver ever happened = its
-          // blind spot). See plans/daemon-fsm-desync.md.
+          // blind spot). `sinceStoppingMs` is the stopping-stuck backstop's
+          // clock (null unless in `stopping`) — how close it is to `force_exit`,
+          // so a stopping-wedge is legible in the trace instead of inferred from
+          // a bare `status=stopping` streak. See plans/daemon-fsm-desync.md.
           sinceProgressMs: nowMs - a.lastProgressAt,
           sinceDeliverMs: a.lastDeliverAt === null ? null : nowMs - a.lastDeliverAt,
+          sinceStoppingMs: a.stoppingSince === null ? null : nowMs - a.stoppingSince,
         });
       };
       const agentId = (event as { agentId?: string }).agentId;

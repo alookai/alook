@@ -1817,4 +1817,50 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
       vi.useRealTimers();
     }
   });
+
+  it("carries stoppingSince + sinceStoppingMs — null while not stopping, populated once in `stopping` (batch H)", async () => {
+    vi.useFakeTimers();
+    try {
+      let now = 0;
+      const recs: Record<string, unknown>[] = [];
+      const persistentDriver = {
+        ...fakeDriver("codex"),
+        lifecycle: { kind: "persistent", start: "immediate", exit: "natural", inFlightWake: "queue" } as never,
+      } as Driver;
+      const session = fakeSession();
+      const mgr = new AgentProcessManager({
+        driverFor: () => persistentDriver,
+        baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
+        sessionFactory: () => session,
+        now: () => now,
+        tickIntervalMs: 5,
+        idleTimeoutMs: 50, // drive into `stopping` via idle-timeout
+        stoppingStuckThresholdMs: 1_000_000, // huge so it does NOT force_exit during this test — we just want the stopping snapshot
+        onFsmTransition: ((r: Record<string, unknown>) => recs.push(r)) as never,
+      });
+      mgr.start();
+      mgr.register("a1");
+      mgr.deliver("a1", { seq: 1, text: "hi" });
+      session.startResolver?.();
+      await Promise.resolve();
+      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      session.fire("runtime_event", { kind: "turn_end" });
+
+      // While running/idle-not-stopping, the field is null.
+      const runningRec = recs.find((r) => r.status === "running");
+      expect(runningRec).toBeTruthy();
+      expect(runningRec!.stoppingSince).toBeNull();
+      expect(runningRec!.sinceStoppingMs).toBeNull();
+
+      recs.length = 0;
+      now = 100; // past idleTimeout=50 → idle-hibernation tick sets status=stopping, stoppingSince=100
+      await vi.advanceTimersByTimeAsync(10);
+      const stoppingRec = recs.find((r) => r.status === "stopping" && r.agentId === "a1");
+      expect(stoppingRec).toBeTruthy();
+      expect(stoppingRec!.stoppingSince).toBe(100);
+      expect(typeof stoppingRec!.sinceStoppingMs).toBe("number"); // now - 100, populated
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
