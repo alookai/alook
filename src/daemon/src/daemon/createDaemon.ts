@@ -28,6 +28,7 @@
 import { homedir } from "os";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { createRotatingFileSink } from "../util/rotatingFileSink.js";
+import { createTraceSampler } from "../util/traceSampler.js";
 import { writeStatusFile } from "../util/statusFile.js";
 import { WsControlChannel } from "../server/wsControlChannel.js";
 import { CredentialBroker, startCredentialProxy } from "../credentials/index.js";
@@ -49,8 +50,12 @@ const WARMUP_CEILING_MS = 30_000;
 /**
  * Per-file cap for the DEFAULT-ON bounded FSM trace (batch E1). The rotating
  * sink keeps the active file + one rotated generation, so total on-disk ≈
- * 2×this ≈ 16MB — about 4h of history at the observed ~14 rows/min/agent rate,
- * enough to hold the last wedge. The `ALOOK_FSM_TRACE` override is unbounded.
+ * 2×this ≈ 16MB. RAW row rate at N≈8 agents is ~74% unchanged-state tick noise
+ * → only ~2h of history unsampled; the T4 heartbeat sampler (createTraceSampler)
+ * folds that noise so TRANSITION rows survive ≥12h @ N=8 in the same budget.
+ * (≥12h is @ N=8 — write rate scales with agent count, so a much larger fleet
+ * warrants revisiting this cap.) The `ALOOK_FSM_TRACE` override is unbounded and
+ * unsampled (full-fidelity deep dives).
  */
 const FSM_TRACE_MAX_BYTES = 8 * 1024 * 1024;
 /** How often the daemon rewrites the `daemon status` snapshot file (batch E2). */
@@ -645,8 +650,15 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
           `${opts.fsmTraceDir}/fsm-trace.jsonl`,
           FSM_TRACE_MAX_BYTES,
         );
+        // Heartbeat sampler between the manager and the sink (batch T4): folds
+        // redundant unchanged-state ticks + progress/runtime_signal noise so the
+        // bounded file retains transition rows ≥12h (@ N=8) instead of ~2h.
+        // Transitions and watchdog-fired (effects-carrying) frames are never
+        // dropped. The ALOOK_FSM_TRACE override above is unbounded → unsampled,
+        // for full-fidelity deep dives.
+        const sampler = createTraceSampler((rec) => sink.write(JSON.stringify(rec)));
         return {
-          onFsmTransition: (rec: Record<string, unknown>) => sink.write(JSON.stringify(rec)),
+          onFsmTransition: (rec: Record<string, unknown>) => sampler.offer(rec),
         };
       }
       return {};
