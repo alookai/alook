@@ -75,29 +75,25 @@ function relTime(ms: number | null, nowMs: number): string {
 
 /**
  * Render `daemon list` as a human table (C2/C3). Columns: ID (pass to `daemon
- * stop <id>`), AGENTS + LAST ACTIVE (from the global status.json — accurate at
- * one-daemon-per-machine, a footnote flags the multi-daemon caveat, red line 5),
- * PID, STATE. NO machine key / hash prefix (credential stays out of human view).
+ * stop <id>`), AGENTS (`running/total` — how many are actually working a turn
+ * vs total registered, C2), LAST ACTIVE, PID, STATE. Data is per-daemon since
+ * C0 (each row reads its own daemon's status.json), so no multi-daemon caveat.
+ * NO machine key / hash prefix (credential stays out of human view, red line 2).
  */
 export function renderDaemonList(daemons: DaemonInfo[], nowMs: number = Date.now()): string {
   if (daemons.length === 0) return "No daemons running on this machine.";
   const header = ["ID", "AGENTS", "LAST ACTIVE", "PID", "STATE"];
   const rows = daemons.map((d) => [
     d.id,
-    d.agents == null ? "—" : String(d.agents),
+    // `running/total`: e.g. "2/8" = 2 working, 8 registered. "—" if no snapshot.
+    d.agents == null ? "—" : `${d.running ?? 0}/${d.agents}`,
     relTime(d.lastActiveMs, nowMs),
     String(d.pid),
     d.alive ? "● running" : "○ dead",
   ]);
   const widths = header.map((h, i) => Math.max(h.length, ...rows.map((r) => r[i]!.length)));
   const fmt = (cols: string[]) => cols.map((c, i) => c.padEnd(widths[i]!)).join("  ");
-  const lines = [fmt(header), ...rows.map(fmt)];
-  // Footnote the global-status caveat only when it could mislead (>1 daemon).
-  if (daemons.length > 1) {
-    lines.push("");
-    lines.push("Note: AGENTS/LAST ACTIVE come from a per-machine snapshot; with multiple daemons they reflect the last writer, not each row.");
-  }
-  return lines.join("\n");
+  return [fmt(header), ...rows.map(fmt)].join("\n");
 }
 
 /* ------------------------------------------------------------------ */

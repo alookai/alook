@@ -143,13 +143,17 @@ export interface DaemonInfo {
   pid: number;
   alive: boolean;
   /**
-   * Agent count + last-activity ms-epoch from THIS daemon's own status.json
+   * Agent counts + last-activity ms-epoch from THIS daemon's own status.json
    * (`daemons/<id>/status.json`, per-daemon since C0). NULL when no snapshot yet
-   * (or a dead daemon). Now accurate per-row even with multiple daemons sharing
-   * a baseDir — the pre-C0 global single file made every row show the last
-   * writer's count; the per-key subdir fixes that.
+   * (or a dead daemon). Per-row accurate even with multiple daemons sharing a
+   * baseDir (pre-C0 the global single file made every row show the last
+   * writer's count). `running` = agents with derivedActivity "running" (actually
+   * working a turn); `agents` = total registered — the render shows
+   * `running/agents` so an operator sees "how many are busy" not just "how many
+   * exist" (C2, the AGENTS-count-imprecision fix).
    */
   agents: number | null;
+  running: number | null;
   lastActiveMs: number | null;
 }
 
@@ -171,15 +175,17 @@ export function daemonList(opts: DaemonListOpts): DaemonInfo[] {
     }
     // Per-daemon status: read THIS daemon's own snapshot (C0), not a global one.
     let agents: number | null = null;
+    let running: number | null = null;
     let lastActiveMs: number | null = null;
     if (alive && statusPath) {
       const s = daemonStatusFromFile(statusPath, now);
       if (s.found) {
         agents = s.agents.length;
+        running = s.agents.filter((a) => a.derivedActivity === "running").length;
         lastActiveMs = s.writtenAt;
       }
     }
-    results.push({ id, pid: data.pid, alive, agents, lastActiveMs });
+    results.push({ id, pid: data.pid, alive, agents, running, lastActiveMs });
   };
 
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {

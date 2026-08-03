@@ -67,12 +67,11 @@ describe("renderDaemonList — human table (C2)", () => {
 
   it("prints a table with the ID column and no machine key", () => {
     const out = renderDaemonList(
-      [{ id: "0ad8e360b064", pid: 39967, alive: true, agents: 8, lastActiveMs: NOW - 12_000 }],
+      [{ id: "0ad8e360b064", pid: 39967, alive: true, agents: 8, running: 2, lastActiveMs: NOW - 12_000 }],
       NOW,
     );
     expect(out).toContain("ID");
     expect(out).toContain("0ad8e360b064");
-    expect(out).toContain("8"); // agents
     expect(out).toContain("39967"); // pid
     expect(out).toContain("running");
     expect(out).toContain("just now (12s)");
@@ -80,26 +79,36 @@ describe("renderDaemonList — human table (C2)", () => {
     expect(out).not.toContain("cmt_");
   });
 
+  it("AGENTS column shows running/total, not just total (C2 imprecision fix)", () => {
+    const out = renderDaemonList(
+      [{ id: "d1", pid: 1, alive: true, agents: 8, running: 2, lastActiveMs: NOW }],
+      NOW,
+    );
+    // "2/8" = 2 working of 8 registered — the fix for AGENTS overstating activity.
+    expect(out).toContain("2/8");
+  });
+
   it("empty state is human, not JSON", () => {
     const out = renderDaemonList([], NOW);
     expect(out).toBe("No daemons running on this machine.");
   });
 
-  it("footnotes the global-status caveat only with >1 daemon (red line 5)", () => {
-    const one = renderDaemonList([{ id: "a", pid: 1, alive: true, agents: 3, lastActiveMs: NOW }], NOW);
-    expect(one).not.toContain("last writer");
+  it("per-daemon data → NO multi-daemon caveat footnote (C0 made each row its own)", () => {
     const two = renderDaemonList(
       [
-        { id: "a", pid: 1, alive: true, agents: 3, lastActiveMs: NOW },
-        { id: "b", pid: 2, alive: true, agents: 3, lastActiveMs: NOW },
+        { id: "a", pid: 1, alive: true, agents: 3, running: 3, lastActiveMs: NOW },
+        { id: "b", pid: 2, alive: true, agents: 7, running: 1, lastActiveMs: NOW },
       ],
       NOW,
     );
-    expect(two).toContain("last writer");
+    // Each row is its own daemon's snapshot now — no "last writer" caveat.
+    expect(two).not.toContain("last writer");
+    expect(two).toContain("3/3");
+    expect(two).toContain("1/7"); // distinct per row, not a shared count
   });
 
-  it("renders — for missing agents/lastActive (dead or no snapshot)", () => {
-    const out = renderDaemonList([{ id: "x", pid: 5, alive: false, agents: null, lastActiveMs: null }], NOW);
+  it("renders — for missing agents (dead or no snapshot)", () => {
+    const out = renderDaemonList([{ id: "x", pid: 5, alive: false, agents: null, running: null, lastActiveMs: null }], NOW);
     expect(out).toContain("○ dead");
     expect(out).toContain("—");
   });
@@ -110,7 +119,8 @@ describe("daemonList — C0 per-daemon subdir layout + multi-daemon isolation", 
   beforeEach(() => { baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "alook-c0-")); });
   afterEach(() => { fs.rmSync(baseDir, { recursive: true, force: true }); });
 
-  const writeDaemon = (id: string, pid: number, agents: number, writtenAt: number) => {
+  // `running` defaults to all agents; pass fewer to mix in idle agents.
+  const writeDaemon = (id: string, pid: number, agents: number, writtenAt: number, running = agents) => {
     const dir = path.join(baseDir, "daemons", id);
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, "daemon.pid"), JSON.stringify({ pid, key: `cmk_${id}` }));
@@ -119,7 +129,10 @@ describe("daemonList — C0 per-daemon subdir layout + multi-daemon isolation", 
       JSON.stringify({
         writtenAt,
         agents: Array.from({ length: agents }, (_, i) => ({
-          agentId: `${id}-a${i}`, status: "running", derivedActivity: "running", turnActive: true, inbox: 0, sinceProgressMs: 1, stoppingSince: null,
+          agentId: `${id}-a${i}`,
+          status: "running",
+          derivedActivity: i < running ? "running" : "idle",
+          turnActive: i < running, inbox: 0, sinceProgressMs: 1, stoppingSince: null,
         })),
       }),
     );
@@ -132,6 +145,14 @@ describe("daemonList — C0 per-daemon subdir layout + multi-daemon isolation", 
     expect(row).toBeTruthy();
     expect(row!.alive).toBe(true);
     expect(row!.agents).toBe(3); // this daemon's own count, from its own status.json
+  });
+
+  it("running counts only derivedActivity==='running', not total (C2)", () => {
+    // 6 agents, but only 4 actually working (2 idle) — the AGENTS-imprecision case.
+    writeDaemon("222222222222", process.pid, 6, Date.now(), 4);
+    const row = daemonList({ baseDir }).find((d) => d.id === "222222222222");
+    expect(row!.agents).toBe(6); // total registered
+    expect(row!.running).toBe(4); // only the working ones → renders "4/6"
   });
 
   it("TWO daemons each show their OWN agent count — not the last writer's (the multi-daemon bug fix)", () => {
