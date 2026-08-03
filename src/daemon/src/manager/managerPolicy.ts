@@ -215,6 +215,20 @@ export type ManagerEvent =
        * only; `onExit` must not branch on it.
        */
       spawnFailureReason?: string | null;
+      /**
+       * The FSM-level SEMANTIC of this exit, LAYERED on the physical fact above
+       * (T3, plans/daemon-trace-completeness-charter.md): `killed_stalled` (stall
+       * watchdog SIGKILL — same word as B1's turn_end-path `terminationCause`,
+       * one concept one token), `idle_stop` (voluntary idle-timeout hibernation),
+       * `force_exit` (stopping-stuck black-hole escape). Distinguishes a
+       * stall-kill-via-exit from a clean idle-stop (physically identical:
+       * reason=requested, signal set, abnormal=false) and labels the synthetic
+       * force_exit. FORENSICS ONLY: DELIBERATELY SEPARATE from `terminationCause`
+       * (which is turn_end-only and read by B2's rewake gate) so NO policy ever
+       * reads this — it can never leak into a rewake decision. Never overwrites
+       * the physical exit fields.
+       */
+      terminationSemantics?: string | null;
     }
   | { type: "tick"; nowMs: number }
   /**

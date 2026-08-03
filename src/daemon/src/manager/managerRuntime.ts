@@ -215,6 +215,12 @@ export interface ManagerRuntimeOpts {
      * clean exit in the trace. Absent on a normal exit.
      */
     spawnFailureReason?: string | null;
+    /**
+     * FSM semantic of an `exit` (T3): killed_stalled / idle_stop / force_exit.
+     * Layered on the physical fact; forensics-only, no policy reads it. Absent on
+     * a plain runtime exit.
+     */
+    terminationSemantics?: string | null;
   }) => void;
   /**
    * Optional context-timeline recorder. When provided, the manager logs each
@@ -612,6 +618,20 @@ export class AgentProcessManager {
        * plans/daemon-fsm-desync.md batch F.
        */
       pid: number | null;
+      /**
+       * Launch-failure reason (T2) recorded by reportSpawnFailure, read by the
+       * trailing exit dispatch → trace. Same value as the web audit. Null unless
+       * this spawn failed to establish. See daemon-trace-completeness-charter T2.
+       */
+      spawnFailureReason: string | null;
+      /**
+       * Recovery-transition SEMANTIC (T3): killed_stalled / idle_stop, set in the
+       * stop/terminate_stalled applyEffect branch (split by effect.type), read by
+       * the exit listener's dispatch → trace. force_exit sets its own semantic
+       * INLINE (state already deleted by then). Null on a plain runtime exit.
+       * Forensics-only, layered on the physical exit fact. See charter T3.
+       */
+      terminationSemantics: string | null;
     }
   >();
   /**
@@ -1111,6 +1131,11 @@ export class AgentProcessManager {
                 ...((event as { spawnFailureReason?: string | null }).spawnFailureReason != null
                   ? { spawnFailureReason: (event as { spawnFailureReason?: string | null }).spawnFailureReason }
                   : {}),
+                // Recovery semantic (T3). Included only when present — a plain
+                // runtime exit has none.
+                ...((event as { terminationSemantics?: string | null }).terminationSemantics != null
+                  ? { terminationSemantics: (event as { terminationSemantics?: string | null }).terminationSemantics }
+                  : {}),
               }
             : {}),
         });
@@ -1213,6 +1238,21 @@ export class AgentProcessManager {
         if (effect.type === "terminate_stalled") {
           this.nonCleanEndMarker.set(effect.agentId, { cause: "killed_stalled" });
         }
+        // T3: record the recovery SEMANTIC of this stop on the per-spawn state so
+        // the trailing exit (via the exit listener, where state is still alive)
+        // carries it into the trace. Split by effect.type — the two share this
+        // branch but mean opposite things: `terminate_stalled` = stall watchdog
+        // SIGKILL (killed_stalled, same word as B1's turn_end-path cause — one
+        // concept, one token); voluntary `stop` = idle-timeout hibernation
+        // (idle_stop). Conflating them would re-create the "stall-kill
+        // impersonates idle" bug in the trace. Purely additive semantic layer
+        // over the physical exit fact (exitSignal/etc), never overwriting it —
+        // and NOTHING reads it for policy (kept out of B2's rewake gate, which
+        // reads terminationCause on turn_end only). See
+        // plans/daemon-trace-completeness-charter.md T3.
+        if (spawnState) {
+          spawnState.terminationSemantics = effect.type === "terminate_stalled" ? "killed_stalled" : "idle_stop";
+        }
         this.logSessionEnded(effect.agentId, effect.type === "stop" ? "stopped" : "terminate_stalled");
         this.opts.onAgentLocallyStopped?.({ agentId: effect.agentId, reason: effect.type });
         break;
@@ -1266,7 +1306,12 @@ export class AgentProcessManager {
         // (3) Synthetic `exit` → the normal onExit recovery (drain-respawn or
         //     settle idle; enterStable clears stoppingSince). Universal backstop:
         //     works whether or not we could kill the process.
-        this.dispatch({ type: "exit", agentId: effect.agentId });
+        //     T3: `terminationSemantics` is set INLINE here, not via the state
+        //     marker — activeSpawnState was already deleted at (2) above, so the
+        //     marker is unreadable by the time this synthetic exit dispatches.
+        //     Labels this as the stopping-stuck black-hole escape (force_exit),
+        //     otherwise the synthetic exit is a bare, unexplained exit in trace.
+        this.dispatch({ type: "exit", agentId: effect.agentId, terminationSemantics: "force_exit" });
         break;
       }
       case "gated_hold":
@@ -1372,7 +1417,7 @@ export class AgentProcessManager {
     //     `terminate_stalled` from `applyEffect`) so the process's eventual
     //     `exit` event doesn't ALSO log a redundant/contradictory
     //     "session ended" line for the same termination.
-    const state = { hasEstablished: false, hasReportedSpawnFailure: false, suppressExitLog: false, handshakeTimer: null as ReturnType<typeof setTimeout> | null, torndown: false, superseded: false, pid: null as number | null, spawnFailureReason: null as string | null };
+    const state = { hasEstablished: false, hasReportedSpawnFailure: false, suppressExitLog: false, handshakeTimer: null as ReturnType<typeof setTimeout> | null, torndown: false, superseded: false, pid: null as number | null, spawnFailureReason: null as string | null, terminationSemantics: null as string | null };
     this.activeSpawnState.set(agentId, state);
     const clearHandshakeTimer = () => {
       if (state.handshakeTimer) {
@@ -1513,7 +1558,7 @@ export class AgentProcessManager {
         // from a stale/superseded spawn must NOT drop a fresh session's marker.
         this.nonCleanEndMarker.delete(agentId);
       }
-      this.dispatch({ type: "exit", agentId, exitCode, exitSignal, abnormal, spawnFailureReason: state.spawnFailureReason });
+      this.dispatch({ type: "exit", agentId, exitCode, exitSignal, abnormal, spawnFailureReason: state.spawnFailureReason, terminationSemantics: state.terminationSemantics });
     });
 
     // Stamp the wake-prompt timestamp AT the last mile — right before the

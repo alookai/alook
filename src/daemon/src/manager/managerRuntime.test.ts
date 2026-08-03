@@ -2284,6 +2284,148 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
     expect(cleanExit).toBeTruthy();
     expect(cleanExit!.spawnFailureReason).toBeUndefined(); // no stale reason from spawn #1
   });
+
+  // ---- T3: recovery-transition semantics into trace ----
+  // A stall-kill that exits WITHOUT a turn_end is physically identical to a
+  // clean idle-timeout stop (reason=requested, signal set, abnormal=false); a
+  // force_exit synthetic exit is bare. T3 layers a `terminationSemantics` label
+  // (killed_stalled / idle_stop / force_exit) ON TOP of the physical fact —
+  // never overwriting it, and read by NO policy (kept out of B2's gate).
+
+  it("T3 — terminate_stalled then its real exit records terminationSemantics=killed_stalled", async () => {
+    vi.useFakeTimers();
+    try {
+      let now = 0;
+      const recs: Record<string, unknown>[] = [];
+      const session = fakeSession();
+      const mgr = new AgentProcessManager({
+        driverFor: () => fakeDriver("codex"),
+        baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
+        sessionFactory: () => session,
+        now: () => now,
+        tickIntervalMs: 5,
+        staleThresholdMs: 100,
+        onFsmTransition: ((r: Record<string, unknown>) => recs.push(r)) as never,
+      });
+      mgr.start();
+      mgr.register("a1");
+      mgr.deliver("a1", { seq: 1, text: "hi" });
+      session.startResolver?.();
+      await Promise.resolve();
+      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      now = 200; // past staleThreshold → terminate_stalled (sets the semantic marker)
+      await vi.advanceTimersByTimeAsync(10);
+      // The killed process's real exit (via the exit listener, where state lives).
+      recs.length = 0;
+      session.fire("exit", { signal: "SIGKILL", reason: "requested" });
+
+      const exitRec = recs.find((r) => r.event === "exit" && r.agentId === "a1");
+      expect(exitRec).toBeTruthy();
+      expect(exitRec!.terminationSemantics).toBe("killed_stalled");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("T3 — a VOLUNTARY idle-timeout stop's real exit records idle_stop, NOT killed_stalled (mis-label guard, Claudette #407)", async () => {
+    vi.useFakeTimers();
+    try {
+      let now = 0;
+      const recs: Record<string, unknown>[] = [];
+      const persistentDriver = {
+        ...fakeDriver("codex"),
+        lifecycle: { kind: "persistent", start: "immediate", exit: "natural", inFlightWake: "queue" } as never,
+      } as Driver;
+      const session = fakeSession();
+      const mgr = new AgentProcessManager({
+        driverFor: () => persistentDriver,
+        baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
+        sessionFactory: () => session,
+        now: () => now,
+        tickIntervalMs: 5,
+        idleTimeoutMs: 50,
+        stoppingStuckThresholdMs: 1_000_000, // don't force_exit during the test
+        onFsmTransition: ((r: Record<string, unknown>) => recs.push(r)) as never,
+      });
+      mgr.start();
+      mgr.register("a1");
+      mgr.deliver("a1", { seq: 1, text: "hi" });
+      session.startResolver?.();
+      await Promise.resolve();
+      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      session.fire("runtime_event", { kind: "turn_end" }); // clean end → idle
+      now = 100; // past idleTimeout → voluntary stop (sets idle_stop, NOT killed_stalled)
+      await vi.advanceTimersByTimeAsync(10);
+      recs.length = 0;
+      session.fire("exit", { signal: "SIGTERM", reason: "requested" });
+
+      const exitRec = recs.find((r) => r.event === "exit" && r.agentId === "a1");
+      expect(exitRec).toBeTruthy();
+      expect(exitRec!.terminationSemantics).toBe("idle_stop");
+      expect(exitRec!.terminationSemantics).not.toBe("killed_stalled");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("T3 — force_exit's synthetic exit records terminationSemantics=force_exit and does NOT pollute the physical fields (Claudette #407)", async () => {
+    vi.useFakeTimers();
+    try {
+      let now = 0;
+      const recs: Record<string, unknown>[] = [];
+      const persistentDriver = {
+        ...fakeDriver("codex"),
+        lifecycle: { kind: "persistent", start: "immediate", exit: "natural", inFlightWake: "queue" } as never,
+      } as Driver;
+      const session = fakeSession();
+      session.stop = vi.fn(); // swallow the stop so no real exit fires — force wedge
+      const mgr = new AgentProcessManager({
+        driverFor: () => persistentDriver,
+        baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
+        sessionFactory: () => session,
+        now: () => now,
+        tickIntervalMs: 5,
+        idleTimeoutMs: 50,
+        stoppingStuckThresholdMs: 100,
+        onFsmTransition: ((r: Record<string, unknown>) => recs.push(r)) as never,
+      });
+      mgr.start();
+      mgr.register("a1");
+      mgr.deliver("a1", { seq: 1, text: "hi" });
+      session.startResolver?.();
+      await Promise.resolve();
+      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      session.fire("runtime_event", { kind: "turn_end" });
+      now = 100; // idle-timeout → stopping (stop swallowed, no exit)
+      await vi.advanceTimersByTimeAsync(10);
+      recs.length = 0;
+      now = 300; // stopping-stuck past threshold → force_exit synthetic exit
+      await vi.advanceTimersByTimeAsync(10);
+
+      const exitRec = recs.find((r) => r.event === "exit" && r.agentId === "a1");
+      expect(exitRec).toBeTruthy();
+      expect(exitRec!.terminationSemantics).toBe("force_exit");
+      // Physical layer NOT polluted by the semantic label (synthetic exit has no
+      // real code/signal): abnormal false, code/signal null.
+      expect(exitRec!.abnormal).toBe(false);
+      expect(exitRec!.exitCode).toBeNull();
+      expect(exitRec!.exitSignal).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("T3 — a plain runtime exit (no recovery) carries NO terminationSemantics", () => {
+    const recs: Record<string, unknown>[] = [];
+    const { mgr, session } = makeWithTrace((r) => recs.push(r));
+    mgr.deliver("a1", { seq: 1, text: "hi" });
+    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    session.fire("exit", { code: 0, reason: "runtime_exit" });
+
+    const exitRec = recs.find((r) => r.event === "exit" && r.agentId === "a1");
+    expect(exitRec).toBeTruthy();
+    expect(exitRec!.terminationSemantics).toBeUndefined();
+  });
 });
 
 describe("T1 — abnormal-exit user audit stays gated (no nap-noise on deliberate kill)", () => {
