@@ -197,6 +197,17 @@ export interface ManagerRuntimeOpts {
     endReason?: "errored";
     terminationCause?: "runtime_error" | "killed_stalled";
     errorDetail?: string;
+    /**
+     * Present only on an `exit` event: the RAW PHYSICAL termination fact (T1,
+     * plans/daemon-trace-completeness-charter.md). `exitCode`/`exitSignal` = how
+     * the OS reported the death; `abnormal` = not a deliberate stop AND died on
+     * non-zero code or a signal. Makes a hard exit (segfault/OOM/external
+     * SIGKILL — no turn_end) distinguishable from a clean exit in the trace.
+     * Physical fact only; FSM semantics of the exit are a T3 layer on top.
+     */
+    exitCode?: number | null;
+    exitSignal?: string | null;
+    abnormal?: boolean;
   }) => void;
   /**
    * Optional context-timeline recorder. When provided, the manager logs each
@@ -1080,6 +1091,16 @@ export class AgentProcessManager {
                 errorDetail: (event as { errorDetail?: string }).errorDetail,
               }
             : {}),
+          // Raw physical exit fact, carried on the `exit` event (not agent
+          // state). Spread on exit only so non-exit events omit the keys. T1 —
+          // makes a hard exit distinguishable from a clean one in the trace.
+          ...(event.type === "exit"
+            ? {
+                exitCode: (event as { exitCode?: number | null }).exitCode ?? null,
+                exitSignal: (event as { exitSignal?: string | null }).exitSignal ?? null,
+                abnormal: (event as { abnormal?: boolean }).abnormal ?? false,
+              }
+            : {}),
         });
       };
       const agentId = (event as { agentId?: string }).agentId;
@@ -1428,21 +1449,35 @@ export class AgentProcessManager {
       // Guarded by `hasReportedSpawnFailure` so an ENOENT (already reported
       // via `error`) doesn't get overwritten with generic `pre_handshake_exit`.
       reportSpawnFailure("pre_handshake_exit");
+      // `abnormal` = the RAW PHYSICAL FACT of how the process died: it wasn't a
+      // deliberate stop (`reason !== "requested"`) and it left a non-zero code or
+      // died on a signal. Computed UNCONDITIONALLY (not gated by
+      // `hasEstablished`/`suppressExitLog`) because it feeds the fsm-trace exit
+      // row (T1, plans/daemon-trace-completeness-charter.md): the trace is a
+      // forensic layer that must record how a process physically terminated for
+      // EVERY exit path — a hard exit (segfault/OOM/external SIGKILL) bypasses the
+      // normalizer, emits no turn_end, and would otherwise be indistinguishable
+      // from a clean exit in the trace. What this exit MEANS in FSM terms
+      // (deliberate kill vs crash) is a SEPARATE semantic layer left to T3; T1
+      // only records the physical fact and never reinterprets it.
+      const exitCode = typeof info?.code === "number" ? info.code : null;
+      const exitSignal = info?.signal ?? null;
+      const abnormal =
+        info?.reason !== "requested" && ((exitCode !== null && exitCode !== 0) || !!exitSignal);
       // Only an ESTABLISHED session "ended" — a pre-handshake exit is
       // already covered by the spawn-failed warning above. And only if this
       // termination wasn't already logged under a more specific reason (see
       // `suppressExitLog` above).
       if (state.hasEstablished && !state.suppressExitLog) {
         this.logSessionEnded(agentId, "exit");
-        // An established session that dies with a non-zero code / on a signal
-        // and WASN'T a deliberate stop (`reason !== "requested"`) is an
-        // unexpected mid-run crash — surface it. A clean `code === 0` exit or
-        // a requested stop is normal turn/lifecycle end, no error row.
-        const abnormal =
-          info?.reason !== "requested" &&
-          ((typeof info?.code === "number" && info.code !== 0) || !!info?.signal);
+        // USER-FACING abnormal-exit audit. Stays STRICTLY inside the
+        // `!suppressExitLog` gate — a deliberate stop (reset/nap/terminate_stalled
+        // sets suppressExitLog) must NOT surface an `abnormal_exit` row in the
+        // user's activity, or it re-creates the nap-noise bug (a self-initiated
+        // kill showing as a fault). The `abnormal` physical fact above is shared,
+        // but its user-audit sink is gated while its trace sink (below) is not.
         if (abnormal) {
-          const detail = info?.signal ? `signal ${info.signal}` : `code ${info?.code}`;
+          const detail = exitSignal ? `signal ${exitSignal}` : `code ${exitCode}`;
           this.emitErrorAudit(agentId, "exit", "abnormal_exit", `Session ended unexpectedly (${detail})`);
         }
       }
@@ -1458,7 +1493,7 @@ export class AgentProcessManager {
         // from a stale/superseded spawn must NOT drop a fresh session's marker.
         this.nonCleanEndMarker.delete(agentId);
       }
-      this.dispatch({ type: "exit", agentId });
+      this.dispatch({ type: "exit", agentId, exitCode, exitSignal, abnormal });
     });
 
     // Stamp the wake-prompt timestamp AT the last mile — right before the

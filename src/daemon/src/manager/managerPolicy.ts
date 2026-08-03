@@ -185,7 +185,18 @@ export type ManagerEvent =
       terminationCause?: "runtime_error" | "killed_stalled";
       errorDetail?: string;
     }
-  | { type: "exit"; agentId: string }
+  /**
+   * `exitCode`/`exitSignal`/`abnormal` are the RAW PHYSICAL termination fact of
+   * the process, recorded for fsm-trace forensics (T1,
+   * plans/daemon-trace-completeness-charter.md) — how the process died, for
+   * EVERY exit path, so a hard exit (segfault/OOM/external SIGKILL, which
+   * bypasses the normalizer and emits no turn_end) is distinguishable from a
+   * clean exit in the trace. OBSERVABILITY ONLY: `onExit` must NOT branch its
+   * respawn-vs-idle decision on these (red line — kept read-only). What the exit
+   * MEANS in FSM terms (deliberate kill vs crash) is a separate semantic layer
+   * left to T3, which may only LAYER fields on top, never overwrite these.
+   */
+  | { type: "exit"; agentId: string; exitCode?: number | null; exitSignal?: string | null; abnormal?: boolean }
   | { type: "tick"; nowMs: number }
   /**
    * Owner-triggered "reset session". Nulls `AgentState.sessionId` so the next

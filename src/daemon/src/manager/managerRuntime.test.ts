@@ -2116,4 +2116,140 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
       vi.useRealTimers();
     }
   });
+
+  // ---- T1: hard-exit physical fact into trace (daemon-trace-completeness-charter) ----
+  // A hard exit (segfault/OOM/external SIGKILL) bypasses the normalizer, emits no
+  // turn_end, and would otherwise be indistinguishable from a clean exit in the
+  // trace. T1 threads the raw physical fact (exitCode/exitSignal/abnormal) onto
+  // the exit event → trace. Physical fact only; onExit behavior UNCHANGED.
+
+  it("T1 — an established session's exit on a signal records exitSignal + abnormal=true on the trace exit row", () => {
+    const recs: Record<string, unknown>[] = [];
+    const { mgr, session } = makeWithTrace((r) => recs.push(r));
+    mgr.deliver("a1", { seq: 1, text: "hi" });
+    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" }); // hasEstablished
+    // Hard death on SIGKILL, NOT a requested stop → abnormal physical fact.
+    session.fire("exit", { signal: "SIGKILL", reason: "runtime_exit" });
+
+    const exitRec = recs.find((r) => r.event === "exit" && r.agentId === "a1");
+    expect(exitRec).toBeTruthy();
+    expect(exitRec!.exitSignal).toBe("SIGKILL");
+    expect(exitRec!.exitCode).toBeNull();
+    expect(exitRec!.abnormal).toBe(true);
+  });
+
+  it("T1 — an established session's non-zero code exit records exitCode + abnormal=true", () => {
+    const recs: Record<string, unknown>[] = [];
+    const { mgr, session } = makeWithTrace((r) => recs.push(r));
+    mgr.deliver("a1", { seq: 1, text: "hi" });
+    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    session.fire("exit", { code: 137, reason: "runtime_exit" });
+
+    const exitRec = recs.find((r) => r.event === "exit" && r.agentId === "a1");
+    expect(exitRec).toBeTruthy();
+    expect(exitRec!.exitCode).toBe(137);
+    expect(exitRec!.exitSignal).toBeNull();
+    expect(exitRec!.abnormal).toBe(true);
+  });
+
+  it("T1 — a clean code-0 exit records abnormal=false (distinguishable from a crash in the trace)", () => {
+    const recs: Record<string, unknown>[] = [];
+    const { mgr, session } = makeWithTrace((r) => recs.push(r));
+    mgr.deliver("a1", { seq: 1, text: "hi" });
+    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    session.fire("exit", { code: 0, reason: "runtime_exit" });
+
+    const exitRec = recs.find((r) => r.event === "exit" && r.agentId === "a1");
+    expect(exitRec).toBeTruthy();
+    expect(exitRec!.exitCode).toBe(0);
+    expect(exitRec!.abnormal).toBe(false);
+  });
+
+  it("T1 — a deliberate stop (reason=requested) records the physical fact but abnormal=false", () => {
+    // A requested stop that still died on a signal (SIGTERM grace → the process
+    // exits): the physical fact (signal) is recorded, but it's NOT abnormal —
+    // reason==="requested" gates that. So trace shows how it died without
+    // mislabeling an intentional stop as a crash.
+    const recs: Record<string, unknown>[] = [];
+    const { mgr, session } = makeWithTrace((r) => recs.push(r));
+    mgr.deliver("a1", { seq: 1, text: "hi" });
+    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    session.fire("exit", { signal: "SIGTERM", reason: "requested" });
+
+    const exitRec = recs.find((r) => r.event === "exit" && r.agentId === "a1");
+    expect(exitRec).toBeTruthy();
+    expect(exitRec!.exitSignal).toBe("SIGTERM");
+    expect(exitRec!.abnormal).toBe(false);
+  });
+
+  it("T1 — the exit physical fact is READ-ONLY: abnormal exit and clean exit produce the SAME onExit respawn/idle decision (Claudette #382)", () => {
+    // With a queued inbox, onExit respawns (spawn effect); with empty inbox it
+    // settles idle. That decision keys on inbox.length ONLY — the new
+    // exitCode/exitSignal/abnormal fields must NOT change the branch.
+    function exitEffectsFor(exitInfo: Record<string, unknown>, queueBefore: boolean): string[] {
+      const recs: Record<string, unknown>[] = [];
+      const { mgr, session } = makeWithTrace((r) => recs.push(r));
+      mgr.deliver("a1", { seq: 1, text: "hi" });
+      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      if (queueBefore) mgr.deliver("a1", { seq: 2, text: "queued" }); // inbox non-empty at exit
+      recs.length = 0;
+      session.fire("exit", exitInfo);
+      const exitRec = recs.find((r) => r.event === "exit" && r.agentId === "a1");
+      return (exitRec!.effects as string[]) ?? [];
+    }
+    // Empty inbox: idle (no spawn), identical for abnormal vs clean.
+    expect(exitEffectsFor({ signal: "SIGKILL", reason: "runtime_exit" }, false)).toEqual(
+      exitEffectsFor({ code: 0, reason: "runtime_exit" }, false),
+    );
+    // Queued inbox: respawn (spawn), identical for abnormal vs clean.
+    expect(exitEffectsFor({ signal: "SIGKILL", reason: "runtime_exit" }, true)).toEqual(
+      exitEffectsFor({ code: 0, reason: "runtime_exit" }, true),
+    );
+  });
+});
+
+describe("T1 — abnormal-exit user audit stays gated (no nap-noise on deliberate kill)", () => {
+  it("a deliberate stop (suppressExitLog) records the physical fact in trace but emits NO user-facing abnormal_exit audit", async () => {
+    vi.useFakeTimers();
+    try {
+      let now = 0;
+      const recs: Record<string, unknown>[] = [];
+      const onBotAuditEvent = vi.fn();
+      const session = fakeSession();
+      const mgr = new AgentProcessManager({
+        driverFor: () => fakeDriver("codex"),
+        baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
+        sessionFactory: () => session,
+        now: () => now,
+        tickIntervalMs: 5,
+        staleThresholdMs: 100,
+        onFsmTransition: ((r: Record<string, unknown>) => recs.push(r)) as never,
+        onBotAuditEvent: onBotAuditEvent as never,
+      });
+      mgr.start();
+      mgr.register("a1");
+      mgr.deliver("a1", { seq: 1, text: "hi" });
+      session.startResolver?.();
+      await Promise.resolve();
+      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      // Stall → terminate_stalled sets suppressExitLog before the kill.
+      now = 200;
+      await vi.advanceTimersByTimeAsync(10);
+      // The killed process exits on a signal (a requested/deliberate stop path).
+      session.fire("exit", { signal: "SIGKILL", reason: "requested" });
+
+      // Trace: the physical fact IS recorded (forensics needs it).
+      const exitRec = recs.find((r) => r.event === "exit" && r.agentId === "a1");
+      expect(exitRec).toBeTruthy();
+      expect(exitRec!.exitSignal).toBe("SIGKILL");
+      // User audit: NO abnormal_exit row — a deliberate kill must not look like a
+      // fault in the user's activity (the nap-noise bug must not reappear here).
+      const abnormalAudits = onBotAuditEvent.mock.calls.filter(
+        ([, ev]) => (ev as { kind?: string; payload?: { code?: string } })?.payload?.code === "abnormal_exit",
+      );
+      expect(abnormalAudits).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
