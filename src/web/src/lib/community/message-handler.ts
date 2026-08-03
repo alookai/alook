@@ -9,6 +9,7 @@ import {
   MENTION_KIND,
   createLogger,
   isUniqueConstraintError,
+  withD1Retry,
 } from "@alook/shared"
 import type { MentionType } from "@alook/shared"
 import type { Database } from "@alook/shared"
@@ -293,10 +294,9 @@ export async function createCommunityMessage(params: {
   // race where two concurrent first-sends both pass this check is caught at
   // insert time by the partial-unique-index handler below.
   if (clientNonce !== undefined) {
-    const existing = await queries.communityMessage.getMessageByAuthorAndNonce(
-      db,
-      authorId,
-      clientNonce,
+    const existing = await withD1Retry(
+      () => queries.communityMessage.getMessageByAuthorAndNonce(db, authorId, clientNonce),
+      { route: "message-handler:nonce-precheck" },
     )
     if (existing) {
       return { ok: true, row: existing, attachments: [], deduped: true }
@@ -325,9 +325,10 @@ export async function createCommunityMessage(params: {
     | Awaited<ReturnType<typeof queries.communityMessage.getMessageInScope>>
     | null = null
   if (rawReplyToId !== undefined) {
-    resolvedReplyMsg = await queries.communityMessage.getMessageInScope(db, rawReplyToId, {
-      channelId: target.channelId,
-    })
+    resolvedReplyMsg = await withD1Retry(
+      () => queries.communityMessage.getMessageInScope(db, rawReplyToId, { channelId: target.channelId }),
+      { route: "message-handler:reply-scope" },
+    )
     if (!resolvedReplyMsg) {
       log.warn("reply_to_out_of_scope_dropped", {
         authorId,
@@ -393,10 +394,9 @@ export async function createCommunityMessage(params: {
     // with no nonce) finds no matching row, so we rethrow the original error
     // untouched. Only enter this branch when a nonce was actually supplied.
     if (clientNonce !== undefined && isUniqueConstraintError(err)) {
-      const existing = await queries.communityMessage.getMessageByAuthorAndNonce(
-        db,
-        authorId,
-        clientNonce,
+      const existing = await withD1Retry(
+        () => queries.communityMessage.getMessageByAuthorAndNonce(db, authorId, clientNonce),
+        { route: "message-handler:nonce-insert-race" },
       )
       if (existing) {
         return { ok: true, row: existing, attachments: [], deduped: true }
@@ -521,7 +521,10 @@ export async function createCommunityMessage(params: {
     )
   }
 
-  const row = await queries.communityMessage.getMessage(db, created.id)
+  const row = await withD1Retry(
+    () => queries.communityMessage.getMessage(db, created.id),
+    { route: "message-handler:read-back" },
+  )
   if (!row) {
     // createMessage just inserted this row; getMessage returning null means
     // the DB is gone — surface that to the caller instead of inventing data.
@@ -535,7 +538,10 @@ export async function createCommunityMessage(params: {
   // the repo; this mirrors the check the daemon route did before its own
   // `logAudit` call was removed. Fire-and-forget — `logAudit` already
   // swallows its own errors.
-  const author = await queries.user.getUserInternal(db, authorId)
+  const author = await withD1Retry(
+    () => queries.user.getUserInternal(db, authorId),
+    { route: "message-handler:author-lookup" },
+  )
   if (author?.isBot === true) {
     logAudit(db, {
       serverId: isDmTarget(target) ? null : target.serverId,
@@ -600,14 +606,25 @@ export async function createCommunityMessage(params: {
     // each climb `parentChannelId` for a thread — two parent lookups per message
     // on the send path. Cheap (indexed id lookups) and not merged to keep both
     // helpers single-purpose; revisit only if the send path shows up hot.
-    const isPrivate = await queries.communityChannel.isChannelPrivate(db, target.channelId)
+    const isPrivate = await withD1Retry(
+      () => queries.communityChannel.isChannelPrivate(db, target.channelId),
+      { route: "message-handler:is-private" },
+    )
     const audienceIds = isPrivate
-      ? new Set(await queries.communityChannel.getPrivateChannelAudienceUserIds(db, target.channelId))
+      ? new Set(
+          await withD1Retry(
+            () => queries.communityChannel.getPrivateChannelAudienceUserIds(db, target.channelId),
+            { route: "message-handler:private-audience" },
+          ),
+        )
       : null
 
     const hasAtMention = typeof row.content === "string" && row.content.includes("@")
     if (hasAtMention) {
-      const allMembers = await queries.communityMember.listMembers(db, target.serverId)
+      const allMembers = await withD1Retry(
+        () => queries.communityMember.listMembers(db, target.serverId),
+        { route: "message-handler:list-members" },
+      )
       // Scope candidates to the audience when private.
       const members = audienceIds
         ? allMembers.filter((m) => audienceIds.has(m.userId))
@@ -629,7 +646,10 @@ export async function createCommunityMessage(params: {
     } else if (mentionType === "everyone") {
       const userIds = audienceIds
         ? [...audienceIds]
-        : await queries.communityMember.listMemberUserIds(db, target.serverId)
+        : await withD1Retry(
+            () => queries.communityMember.listMemberUserIds(db, target.serverId),
+            { route: "message-handler:list-member-ids" },
+          )
       for (const uid of userIds) {
         if (uid !== authorId) mentionTargets.add(uid)
       }
@@ -793,9 +813,9 @@ export async function createCommunityMessage(params: {
 
     if (!isDmTarget(target)) {
       if (hasParentChannel(target) && !skipChildChannelUpdate) {
-        const updated = await queries.communityChannel.getChannel(
-          db,
-          target.channelId,
+        const updated = await withD1Retry(
+          () => queries.communityChannel.getChannel(db, target.channelId),
+          { route: "message-handler:child-channel-read" },
         )
         fanOutToChannel(
           target.parentChannelId,

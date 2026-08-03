@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { queries } from "@alook/shared"
+import { queries, withD1Retry } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withCommunityActor, requireBot } from "@/lib/middleware/community-actor"
 
@@ -16,8 +16,14 @@ export const POST = withCommunityActor(async (_req: NextRequest, ctx) => {
 
   const db = getDb(ctx.env.DB)
 
-  const snapshot = await queries.communityAgentInbox.getInboxSnapshotForAgent(db, botUserId)
-  const rows = await queries.communityAgentInbox.toInboxRows(db, snapshot, botUserId)
+  const snapshot = await withD1Retry(
+    () => queries.communityAgentInbox.getInboxSnapshotForAgent(db, botUserId),
+    { route: "community/inboxSnapshot:snapshot" },
+  )
+  const rows = await withD1Retry(
+    () => queries.communityAgentInbox.toInboxRows(db, snapshot, botUserId),
+    { route: "community/inboxSnapshot:rows" },
+  )
 
   return NextResponse.json({
     rows,

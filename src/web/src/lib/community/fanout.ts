@@ -13,7 +13,7 @@
  */
 
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { queries, createLogger, WS_EVENTS, isThread, isForumPost, isDm } from "@alook/shared"
+import { queries, createLogger, WS_EVENTS, isThread, isForumPost, isDm, withD1Retry } from "@alook/shared"
 import type { CommunityWsEvent, Database } from "@alook/shared"
 import { getDb } from "../db"
 import { broadcastToUser } from "../broadcast"
@@ -59,17 +59,26 @@ async function getServerMemberUserIds(db: Database, serverId: string): Promise<s
  * The split lives here so fan-out and bot-wake use the same recipient set.
  */
 async function getChannelRecipientUserIds(db: Database, channelId: string): Promise<string[]> {
-  const rows = await queries.communityChannel.getChannelType(db, channelId)
+  const rows = await withD1Retry(
+    () => queries.communityChannel.getChannelType(db, channelId),
+    { route: "fanout:channel-type" },
+  )
   if (isThread(rows) || isForumPost(rows)) {
-    return queries.communityThread.listThreadParticipantUserIds(db, channelId)
+    return withD1Retry(
+      () => queries.communityThread.listThreadParticipantUserIds(db, channelId),
+      { route: "fanout:thread-participants" },
+    )
   }
   if (isDm(rows)) {
-    return queries.communityChannel.listChannelMemberUserIds(db, channelId)
+    return withD1Retry(
+      () => queries.communityChannel.listChannelMemberUserIds(db, channelId),
+      { route: "fanout:dm-members" },
+    )
   }
-  return queries.communityMembersResolver.resolveScopeMemberUserIds(db, {
-    scope: "channel",
-    scopeId: channelId,
-  })
+  return withD1Retry(
+    () => queries.communityMembersResolver.resolveScopeMemberUserIds(db, { scope: "channel", scopeId: channelId }),
+    { route: "fanout:scope-members" },
+  )
 }
 
 /**

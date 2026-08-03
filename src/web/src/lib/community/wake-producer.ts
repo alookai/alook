@@ -17,7 +17,7 @@
  * `wrangler dev`/`next dev` processes today).
  */
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { queries, createLogger } from "@alook/shared"
+import { queries, createLogger, withD1Retry } from "@alook/shared"
 import type { WakePayload } from "@alook/shared"
 import { getDb } from "../db"
 import { shouldDeliver } from "./notify"
@@ -98,11 +98,10 @@ async function doEnqueueBotWakes(env: Env, opts: EnqueueBotWakesOpts): Promise<v
   if (recipients.length === 0) return
 
   const db = getDb(env.DB)
-  const candidates = await queries.communityBot.findWakeCandidates(db, {
-    recipients,
-    channelId,
-    newSeq: messageRow.seq,
-  })
+  const candidates = await withD1Retry(
+    () => queries.communityBot.findWakeCandidates(db, { recipients, channelId, newSeq: messageRow.seq }),
+    { route: "wake-producer:find-candidates" },
+  )
   if (candidates.length === 0) return
 
   // Defense-in-depth visibility + participation gate. `findWakeCandidates`
@@ -141,10 +140,14 @@ async function doEnqueueBotWakes(env: Env, opts: EnqueueBotWakesOpts): Promise<v
   // no server/parent row → defaults to `all`), so a `nothing` set elsewhere
   // never suppresses a DM wake.
   const mentioned = new Set(opts.mentionedUserIds ?? [])
-  const levels = await queries.communityNotificationSetting.resolveEffectiveLevelForUsers(
-    db,
-    gated.map((c) => c.botUserId),
-    channelId,
+  const levels = await withD1Retry(
+    () =>
+      queries.communityNotificationSetting.resolveEffectiveLevelForUsers(
+        db,
+        gated.map((c) => c.botUserId),
+        channelId,
+      ),
+    { route: "wake-producer:effective-levels" },
   )
   const woken = gated.filter((c) =>
     shouldDeliver(levels.get(c.botUserId) ?? "all", mentioned.has(c.botUserId)),
