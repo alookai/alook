@@ -388,6 +388,32 @@
    ╰───────────────────────╯
 */
 
+/* Onboarding motion tiles (community/onboarding-tiles/*). Scoped .ot-* classes;
+   accent/green maps to the real --status-online token so it matches the app's
+   presence dot and themes light/dark automatically. */
+.ot-svg {
+  display: block;
+  color: var(--line, var(--muted-foreground));
+}
+.ot-art {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ot-art-fill {
+  fill: currentColor;
+  stroke: none;
+}
+.ot-accent {
+  color: var(--status-online);
+}
+.ot-center {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
 .typewriter-wrapper {
   container-type: size;
 }

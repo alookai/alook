@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { ChevronLeft, Bot as BotIcon, Monitor, MoreVertical, Plus } from "lucide-react"
+import { ChevronLeft, Monitor, MoreVertical, HelpCircle } from "lucide-react"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
 import { isPresenceOnline, formatModelLabel } from "@alook/shared"
@@ -36,6 +36,8 @@ import { useOnlineUserIds } from "@/stores/community/ws"
 import { CreateBotSheet } from "./create-bot-sheet"
 import { EditBotSheet } from "./edit-bot-sheet"
 import { BotActivityModal } from "./bot-activity-modal"
+import { CreateTile } from "@/components/community/onboarding-tiles/create-tile"
+import { AgentHelpGallery } from "@/components/community/onboarding-tiles/agent-help-gallery"
 
 /**
  * BotList — the /c/me/bots surface.
@@ -68,6 +70,7 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
   const [activityOpen, setActivityOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<BotSummary | null>(null)
   const [confirmReset, setConfirmReset] = useState<BotSummary | null>(null)
+  const [helpOpen, setHelpOpen] = useState(false)
   const del = useDeleteBot()
   const resetSession = useResetBotSession()
   const createOrGetDm = useCreateOrGetDm()
@@ -158,16 +161,21 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
       <div className="flex min-h-0 flex-1 flex-col">
         {backBar}
         <div className="flex flex-1 flex-col items-center justify-center gap-4 p-12 text-center">
-          <div className="grid size-12 place-items-center rounded-2xl bg-secondary text-muted-foreground">
-            <BotIcon className="size-6" />
+          <div className="w-full max-w-70 overflow-hidden rounded-xl">
+            <div className="aspect-200/130 w-full">
+              <CreateTile />
+            </div>
           </div>
           <div className="flex flex-col gap-1">
             <h2 className="text-lg font-medium text-foreground">No bots yet</h2>
             <p className="max-w-md text-sm text-muted-foreground">
-              Give your daemon a voice. A bot is a first-class community member you own,
-              bound to a paired machine and a runtime.
+              Create a bot and chat with it from anywhere — spin up servers and
+              share it with family and friends.
             </p>
           </div>
+          {/* No help ? in the empty state (Gus): the gallery is about mechanics
+              a user only needs AFTER they own a bot — it lives in the populated
+              header instead. */}
           <Button onClick={() => setCreateOpen(true)}>Create a bot</Button>
         </div>
         <CreateBotSheet open={createOpen} onOpenChange={setCreateOpen} />
@@ -186,10 +194,18 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
               Bots you own — they show up as friends and can be added to any server.
             </p>
           </div>
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus className="size-4" />
-            Create a bot
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="How your agent works"
+              onClick={() => setHelpOpen(true)}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <HelpCircle className="size-5" />
+            </Button>
+            <Button onClick={() => setCreateOpen(true)}>Create a bot</Button>
+          </div>
         </header>
 
         <div className="flex flex-col gap-6">
@@ -385,6 +401,7 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
       </div>
 
       <CreateBotSheet open={createOpen} onOpenChange={setCreateOpen} />
+      <AgentHelpGallery open={helpOpen} onOpenChange={setHelpOpen} />
       <EditBotSheet bot={editingBot} open={editOpen} onOpenChange={setEditOpen} />
       <BotActivityModal
         bot={activityBot}

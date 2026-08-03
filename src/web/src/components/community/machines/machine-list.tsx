@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
-import { ChevronLeft, Monitor } from "lucide-react"
+import { ChevronLeft } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import type { CommunityMachineSummary } from "@alook/shared"
 import { isPresenceOnline } from "@alook/shared"
@@ -21,6 +21,7 @@ import {
 import { apiFetch } from "@/lib/api/client"
 import { MachineCard } from "./machine-card"
 import { PairMachineSheet, type PairMachineSheetMode } from "./pair-machine-sheet"
+import { ConnectTile } from "@/components/community/onboarding-tiles/connect-tile"
 import { useMachines, type MachinesResponse } from "@/hooks/community/use-machines"
 import { useBots } from "@/hooks/community/use-bots"
 import { useCommunityStore, usePendingMachineTokenId } from "@/stores/community"
@@ -165,14 +166,16 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
       <div className="flex min-h-0 flex-1 flex-col">
         {backBar}
         <div className="flex flex-1 flex-col items-center justify-center gap-4 p-12 text-center">
-          <div className="grid size-12 place-items-center rounded-2xl bg-secondary text-muted-foreground">
-            <Monitor className="size-6" />
+          <div className="w-full max-w-70 overflow-hidden rounded-xl">
+            <div className="aspect-200/130 w-full">
+              <ConnectTile />
+            </div>
           </div>
           <div className="flex flex-col gap-1">
             <h2 className="text-lg font-medium text-foreground">No machines yet</h2>
             <p className="max-w-md text-sm text-muted-foreground">
-              Connect your computer to keep your agent always-on. Generate a key,
-              run the daemon, and the machine shows up here.
+              Connect a machine and your bots run on it always-on — reach them from
+              your phone or anywhere, wherever you sign in.
             </p>
           </div>
           <Button onClick={openPair}>Connect a machine</Button>

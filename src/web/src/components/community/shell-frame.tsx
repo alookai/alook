@@ -174,6 +174,9 @@ export function ShellFrame({
     (id: string) => { markSwitch("server", id); router.push(`/c/channels/${id}`) },
     [router],
   )
+  // A genuinely-empty user starts by connecting a machine, not creating a
+  // server — route there instead of auto-popping the create-server dialog.
+  const onRailEmptyState = useCallback(() => { router.push("/c/me/machines") }, [router])
   const onRailCreateServer = useCallback(
     async (name: string, icon?: File) => {
       try {
@@ -302,6 +305,7 @@ export function ShellFrame({
     view,
     onHome: goHome,
     onServer: goServer,
+    onEmptyState: onRailEmptyState,
     onServerNavigate: onRailServerNavigate,
     onCreateServer: onRailCreateServer,
     onJoinServer: onRailJoinServer,

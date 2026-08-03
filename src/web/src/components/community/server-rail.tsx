@@ -20,7 +20,7 @@ import type { Server, CommunityFolder, MobileZone, View } from "./_types"
 
 export const ServerRail = memo(function ServerRail({
   servers, folders, activeServerId: activeServerIdProp, serversLoading, serversReady, setMobileZone, view, bottomInset,
-  onHome, onServer, onServerNavigate, onCreateServer, onJoinServer, onLeaveServer,
+  onHome, onServer, onEmptyState, onServerNavigate, onCreateServer, onJoinServer, onLeaveServer,
   onOpenSettings, onOpenInvitePopover, onUngroupFolder, onReorderRail, onReorderFolders, onFolderItemsChange, onDragCreateFolder,
 }: {
   servers: Server[]
@@ -39,6 +39,10 @@ export const ServerRail = memo(function ServerRail({
   bottomInset?: number
   onHome: () => void
   onServer: () => void
+  // Fired once when a genuinely-empty user (no servers/folders) first settles —
+  // routes them to the machines page (the real starting point) instead of
+  // popping the create-server dialog. The manual "+" affordance still opens it.
+  onEmptyState?: () => void
   onServerNavigate?: (id: string) => void
   onCreateServer?: (name: string, icon?: File) => void
   onJoinServer?: (invite: string) => void
@@ -84,9 +88,12 @@ export const ServerRail = memo(function ServerRail({
     // list is transiently empty. `serversReady` is `isFetched && !isFetching`.
     if (!didAutoOpen && serversReady && servers.length === 0 && folders.length === 0) {
       setDidAutoOpen(true)
-      setCreateOpen(true)
+      // A brand-new user's starting point is connecting a machine, not making a
+      // server (Gus): route to machines instead of auto-popping create-server.
+      // The manual "+" below still opens the dialog on demand.
+      onEmptyState?.()
     }
-  }, [servers.length, folders.length, serversReady, didAutoOpen])
+  }, [servers.length, folders.length, serversReady, didAutoOpen, onEmptyState])
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
   const pickServer = (id: string) => { setActiveId(id); onServer(); onServerNavigate?.(id); setMobileZone?.("nav") }
