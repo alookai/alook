@@ -26,7 +26,7 @@ import type { Driver, LaunchContext, SdkDriverDeps } from "../types.js";
 import { busyDeliveryModeOf, supportsStdinNotificationOf } from "../types.js";
 import { resolveLaunchFieldsOrDefault, type RuntimeConfig } from "../runtimeConfig.js";
 import { createChildProcessRuntimeSession, type ChildProcessRuntimeSession } from "../runtime/runtimeSession.js";
-import { SESSION_STOP_GRACE_MS } from "../runtime/killTree.js";
+import { SESSION_STOP_GRACE_MS, killProcessTree } from "../runtime/killTree.js";
 import { scrubRuntimeErrorDiagnosticText } from "../runtime/errorDiagnostics.js";
 import { SdkManagedSession } from "../runtime/sdkManagedSession.js";
 import { DEFAULT_CLI_CONFIG } from "../drivers/cliTransport.js";
@@ -568,6 +568,19 @@ export class AgentProcessManager {
        * Per-session identity, not agent-level status. See batch C reader-C fix.
        */
       superseded: boolean;
+      /**
+       * OS pid of this spawn's child process, recorded once `session.start()`
+       * resolves (the process exists by then; `activeSpawnState` is created at
+       * :1226 BEFORE start(), when there is no pid yet). Null for SDK in-process
+       * sessions (no OS pid). Read ONLY by `force_exit`'s no-session-handle
+       * branch: when the stopping-stuck backstop fires but `this.sessions` no
+       * longer holds the session (batch G / Hypothesis A — the map entry was
+       * gone while the OS process lived on), the pid recorded here is the only
+       * way to actually kill the orphan instead of merely warning. Never a
+       * behavioral decision input; purely the kill-target of last resort. See
+       * plans/daemon-fsm-desync.md batch F.
+       */
+      pid: number | null;
     }
   >();
   private readonly opts: Required<
@@ -1089,24 +1102,33 @@ export class AgentProcessManager {
         // the agent sat in `stopping` past the threshold because the `exit` a
         // prior stop/terminate expected never came. Force the FSM out.
         //
-        // (1) Best-effort kill any still-tracked process so we don't leak an
-        //     orphan. The session handle is the ONLY process reference we have
-        //     (activeSpawnState carries no pid), so if it's already gone — the
-        //     very no-op case that caused this wedge (the handle was cleared
-        //     before the original stop ran) — we genuinely CANNOT kill the
-        //     process here; the synthetic exit below still frees the FSM, but
-        //     the old process is orphaned. Warn so that orphan is VISIBLE
-        //     (Claudette's gate requirement) rather than a silent leak — an
-        //     orphan beats a permanent wedge. Actually reaping the orphan needs
-        //     an independent pid record (activeSpawnState.pid); that's a
-        //     followup, so this branch honestly only warns, it does not pretend
-        //     to kill what it can't reach.
+        // (1) Best-effort kill the process so we don't leak an orphan, via a
+        //     three-way fallback (batch F):
+        //     - session handle present → stop() it (the normal path);
+        //     - handle gone but we recorded its pid at spawn → killProcessTree
+        //       the pid directly. This is the case that caused this wedge
+        //       (batch G / Hypothesis A: the map entry was cleared while the OS
+        //       process lived on) — now we can actually reap the orphan instead
+        //       of only warning. killProcessTree self-guards a dead/invalid pid.
+        //     - neither (SDK in-process session: no OS pid) → genuinely
+        //       unkillable, so warn (honest, not a fake kill).
+        //     DIAGNOSTIC (batch G): log which branch we took + that the session
+        //     handle was absent, so the proximate no-op root (why sessions map
+        //     lost the entry) has a durable data point at each real occurrence.
         const session = this.sessions.get(effect.agentId);
         const state = this.activeSpawnState.get(effect.agentId);
         if (session) {
           void Promise.resolve(session.stop({ reason: effect.reason, forceAfterMs: SESSION_STOP_GRACE_MS })).catch(() => {});
+        } else if (state?.pid != null) {
+          // Orphan reap: handle gone (sessions.has === false) but pid recorded.
+          this.log.warn("force_exit: session handle gone at force_exit — reaping orphan via recorded pid (batch G Hypothesis A confirmed at runtime)", {
+            agentId: effect.agentId,
+            reason: effect.reason,
+            pid: state.pid,
+          });
+          void Promise.resolve(killProcessTree(state.pid, { graceMs: SESSION_STOP_GRACE_MS })).catch(() => {});
         } else {
-          this.log.warn("force_exit: no session handle to kill before synthetic exit — possible orphan process (reap is a followup, needs an independent pid record)", {
+          this.log.warn("force_exit: no session handle AND no recorded pid — cannot kill (SDK in-process session or pre-spawn); possible orphan", {
             agentId: effect.agentId,
             reason: effect.reason,
           });
@@ -1230,7 +1252,7 @@ export class AgentProcessManager {
     //     `terminate_stalled` from `applyEffect`) so the process's eventual
     //     `exit` event doesn't ALSO log a redundant/contradictory
     //     "session ended" line for the same termination.
-    const state = { hasEstablished: false, hasReportedSpawnFailure: false, suppressExitLog: false, handshakeTimer: null as ReturnType<typeof setTimeout> | null, torndown: false, superseded: false };
+    const state = { hasEstablished: false, hasReportedSpawnFailure: false, suppressExitLog: false, handshakeTimer: null as ReturnType<typeof setTimeout> | null, torndown: false, superseded: false, pid: null as number | null };
     this.activeSpawnState.set(agentId, state);
     const clearHandshakeTimer = () => {
       if (state.handshakeTimer) {
@@ -1362,6 +1384,11 @@ export class AgentProcessManager {
         // tracks anymore, wedging the agent (its inbox already drained into
         // this now-dead spawn) until the daemon restarts.
         if (this.sessions.get(agentId) !== session) return;
+        // Record the child pid now that `start()` resolved (the process exists).
+        // This is the orphan-kill target of last resort for `force_exit` when
+        // the session handle is later gone (batch F). A child-process session
+        // exposes `.pid`; an SDK in-process session has none → stays null.
+        state.pid = (session as { pid?: number }).pid ?? null;
         this.dispatch({ type: "spawned", agentId, nowMs: this.now() });
         // Arm the handshake watchdog. The FSM just went `running`+`turnActive`
         // optimistically (managerPolicy's `spawned`), but the process hasn't

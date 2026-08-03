@@ -571,6 +571,93 @@ describe("AgentProcessManager — session race conditions", () => {
       vi.useRealTimers();
     }
   });
+
+  it("force_exit reaps the orphan via the recorded pid when the session handle is gone (batch F, Hypothesis A)", async () => {
+    vi.useFakeTimers();
+    try {
+      let currentTime = 0;
+      const persistentDriver = {
+        ...fakeDriver("codex"),
+        lifecycle: { kind: "persistent", start: "immediate", exit: "natural", inFlightWake: "queue" } as never,
+      } as Driver;
+      const session = fakeSession();
+      // A dead/never-existed pid: killProcessTree self-guards (isAlive → false),
+      // so this exercises the pid-kill BRANCH without signalling a real process.
+      (session as unknown as { pid: number }).pid = 2147483646;
+      const mgr = new AgentProcessManager({
+        driverFor: () => persistentDriver,
+        baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
+        sessionFactory: () => session,
+        now: () => currentTime,
+        tickIntervalMs: 5,
+        idleTimeoutMs: 50,
+        stoppingStuckThresholdMs: 100,
+      });
+      mgr.register("a1");
+      mgr.deliver("a1", { seq: 1, text: "hello" });
+      session.startResolver?.();
+      await Promise.resolve();
+      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      // pid recorded at spawn.
+      expect((mgr as unknown as { activeSpawnState: Map<string, { pid: number | null }> }).activeSpawnState.get("a1")?.pid).toBe(2147483646);
+      session.fire("runtime_event", { kind: "turn_end" });
+      mgr.start();
+      currentTime = 100;
+      await vi.advanceTimersByTimeAsync(10); // → stopping
+
+      // Simulate Hypothesis A: the session handle is gone from the map (the wedge
+      // cause) while force_exit is about to fire. The recorded pid must be the
+      // fallback kill target — no crash, and the FSM still escapes stopping.
+      (mgr as unknown as { sessions: Map<string, unknown> }).sessions.delete("a1");
+      currentTime = 300;
+      await vi.advanceTimersByTimeAsync(10); // → force_exit (no session, pid present)
+
+      expect(mgr.snapshot().agents["a1"]?.status).not.toBe("stopping"); // escaped via synthetic exit
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("force_exit with neither session handle nor recorded pid warns and does not crash (SDK-style)", async () => {
+    vi.useFakeTimers();
+    try {
+      let currentTime = 0;
+      const logger = stubLogger();
+      const persistentDriver = {
+        ...fakeDriver("codex"),
+        lifecycle: { kind: "persistent", start: "immediate", exit: "natural", inFlightWake: "queue" } as never,
+      } as Driver;
+      const session = fakeSession(); // no pid set → getter returns undefined → recorded pid stays null
+      const mgr = new AgentProcessManager({
+        driverFor: () => persistentDriver,
+        baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
+        sessionFactory: () => session,
+        logger,
+        now: () => currentTime,
+        tickIntervalMs: 5,
+        idleTimeoutMs: 50,
+        stoppingStuckThresholdMs: 100,
+      });
+      mgr.register("a1");
+      mgr.deliver("a1", { seq: 1, text: "hello" });
+      session.startResolver?.();
+      await Promise.resolve();
+      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      session.fire("runtime_event", { kind: "turn_end" });
+      mgr.start();
+      currentTime = 100;
+      await vi.advanceTimersByTimeAsync(10); // → stopping
+      (mgr as unknown as { sessions: Map<string, unknown> }).sessions.delete("a1"); // no handle
+      currentTime = 300;
+      await vi.advanceTimersByTimeAsync(10); // → force_exit: no session, no pid
+
+      // Warned about the unkillable orphan, and still escaped stopping (no crash).
+      expect(logger.calls.warn.some(([m]) => typeof m === "string" && m.includes("no session handle AND no recorded pid"))).toBe(true);
+      expect(mgr.snapshot().agents["a1"]?.status).not.toBe("stopping");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("AgentProcessManager — onAgentActivity (derived activity reporting)", () => {
