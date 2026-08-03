@@ -877,9 +877,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   } catch (err) {
     if (err instanceof CommanderError) {
       if (err.code === "commander.helpDisplayed" || err.code === "commander.help") {
-        // Help requested — find the relevant command and output its help text
-        const helpText = getHelpText(program, argv);
-        printEnvelope({ success: { usage: helpText } });
+        // `-h`/`--help` is a HUMAN reading usage in a terminal — print the plain
+        // commander usage text, NOT the agent JSON envelope. Help is the one
+        // path that's human-facing; every other outcome (success results,
+        // errors, unknownCommand) stays a one-JSON-line envelope for agents to
+        // consume. (Gus 架构#473: -h wrongly returned `{"success":{"usage":…}}`.)
+        process.stdout.write(getHelpText(program, argv) + "\n");
       } else if (err.code === "commander.unknownCommand") {
         printEnvelope({ error: `unknown command: ${argv.join(" ") || "(none)"}. Run \`alook help\`.` });
       } else {

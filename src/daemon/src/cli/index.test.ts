@@ -110,6 +110,32 @@ describe("envelope contract", () => {
     await main(["inbox", "pull"]);
     expect(parseEnvelope(cap.lines()).error).toContain("no ServerApi available");
   });
+
+  it("`-h` prints PLAIN TEXT usage, NOT a JSON envelope (Gus 架构#473)", async () => {
+    const code = await main(["-h"]);
+    expect(code).toBe(0);
+    const out = cap.lines().join("");
+    // Human usage text — commander's help, not `{"success":{"usage":…}}`.
+    expect(out).toContain("Usage:");
+    expect(out.trimStart().startsWith("{")).toBe(false); // not JSON
+    expect(() => JSON.parse(out)).toThrow(); // definitively not the envelope
+  });
+
+  it("a subcommand `-h` is also plain text", async () => {
+    await main(["message", "-h"]);
+    const out = cap.lines().join("");
+    expect(out).toContain("Usage:");
+    expect(out.trimStart().startsWith("{")).toBe(false);
+  });
+
+  it("BOUNDARY: normal commands + errors still emit JSON (only -h is text)", async () => {
+    // Guard Gus's caveat (#477): the -h→text change must NOT bleed into the
+    // JSON output every other command/agent path depends on.
+    setApiForTesting(stubApi());
+    await main(["bogus", "command"]); // unknownCommand → still JSON
+    const env = parseEnvelope(cap.lines()); // parseEnvelope asserts exactly one JSON line
+    expect(env.error).toContain("unknown command");
+  });
 });
 
 describe("channel alignment (message send)", () => {
