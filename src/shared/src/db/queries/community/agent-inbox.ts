@@ -639,8 +639,16 @@ export async function listUnreadMessagesForAgent(
  * for already-stuck bots: the gate stops counting messages the pull never hands
  * over.
  *
- * Visibility (channel roster / thread participation) is the caller's job — the
- * send route membership-gates the resolved channel before calling this.
+ * Thread/forum-post participation narrowing: the pull's allowed set
+ * (`listAgentAllowedChannelIds`) additionally drops thread/forum_post channels
+ * the bot holds no `relation='notify'` row on — those are never delivered. The
+ * gate MUST mirror that same narrowing (via the SAME `listParticipatingThreadIds`
+ * predicate, not a re-derived one) or it counts backlog in a non-participated
+ * thread that the pull will never hand over — the exact "not aligned: N unread"
+ * deadlock a bot hit trying to post into a thread it hadn't engaged. This drops
+ * ONLY true spectators: a bot @mentioned into a thread gets a `notify` row on the
+ * send hot path (`addThreadParticipants`, source=mention), so its owed mention
+ * still counts as deliverable — the narrowing is not-more-not-less than the pull.
  */
 export async function hasDeliverableUnreadForAgentScope(
   db: Database,
@@ -648,6 +656,21 @@ export async function hasDeliverableUnreadForAgentScope(
   channelId: string,
   seen: number
 ): Promise<boolean> {
+  // Participation narrowing, single-channel form of `listAgentAllowedChannelIds`'s
+  // set-wide step: a thread/forum_post the bot doesn't participate in is never
+  // deliverable, so its backlog must not register as unread here. Short-circuits
+  // before the deliverable scan — cheaper for the common spectator case too.
+  const typeRows = await db
+    .select({ type: communityChannel.type })
+    .from(communityChannel)
+    .where(eq(communityChannel.id, channelId))
+    .limit(1);
+  const type = typeRows[0]?.type;
+  if (isThread(type) || isForumPost(type)) {
+    const participating = await listParticipatingThreadIds(db, [channelId], botUserId);
+    if (participating.length === 0) return false;
+  }
+
   const rows = await db
     .select({ seq: communityMessage.seq })
     .from(communityMessage)

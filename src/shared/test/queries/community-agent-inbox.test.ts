@@ -835,22 +835,55 @@ describe("listMessagesBySeq", () => {
 });
 
 describe("hasDeliverableUnreadForAgentScope", () => {
+  // Call order (see the query's body):
+  //  1. channel-type lookup (participation-narrowing pre-check)
+  //  2. `listParticipatingThreadIds` — ONLY when (1) is thread/forum_post
+  //  3. the deliverable-unread existence scan (limit 1)
+  // For a plain (non-thread) channel, (2) is skipped: (1)=type, (2)=scan.
   it("returns true when a deliverable message beyond `seen` exists", async () => {
-    const db = createSequentialDb([[{ seq: 7 }]]);
+    const db = createSequentialDb([[{ type: "text" }], [{ seq: 7 }]]);
     const result = await agentInbox.hasDeliverableUnreadForAgentScope(db, "bot_1", "c1", 3);
     expect(result).toBe(true);
   });
 
   it("returns false when nothing is deliverable beyond `seen` (pre-join backlog / own / already read)", async () => {
-    const db = createSequentialDb([[]]);
+    const db = createSequentialDb([[{ type: "text" }], []]);
     const result = await agentInbox.hasDeliverableUnreadForAgentScope(db, "bot_1", "c1", 0);
     expect(result).toBe(false);
   });
 
   it("probes with limit(1) — existence check, not a full scan", async () => {
-    const db = createSequentialDb([[]]);
+    const db = createSequentialDb([[{ type: "text" }], []]);
     await agentInbox.hasDeliverableUnreadForAgentScope(db, "bot_1", "c1", 0);
-    const chainResult = db.select.mock.results[0]!.value;
+    // The scan is the 2nd select for a non-thread channel (type lookup is 1st).
+    const chainResult = db.select.mock.results[1]!.value;
     expect(chainResult.limit).toHaveBeenCalledWith(1);
+  });
+
+  // The deadlock this fix closes: a thread the bot doesn't participate in has
+  // unread backlog the pull will NEVER deliver, so the gate must NOT count it
+  // (else send is wedged on "not aligned" forever). Participation narrowing
+  // returns false BEFORE the deliverable scan — mirroring the pull's allowed set.
+  it("returns false for a non-participated thread even with unread beyond `seen` (never-drop deadlock fix)", async () => {
+    // (1) type=thread → (2) listParticipatingThreadIds returns [] (not a
+    // participant). Short-circuits false; the deliverable scan never runs.
+    const db = createSequentialDb([[{ type: "thread" }], []]);
+    const result = await agentInbox.hasDeliverableUnreadForAgentScope(db, "bot_1", "thread_x", 0);
+    expect(result).toBe(false);
+    // Only two selects: type lookup + participation. No scan (would be a 3rd).
+    expect(db.select).toHaveBeenCalledTimes(2);
+  });
+
+  // The other side of the coin (Aigneis's never-drop invariant): a bot
+  // @mentioned into a thread gets a `relation='notify'` row on the send hot
+  // path, so it IS a participant — its owed message must still count as
+  // deliverable. Narrowing is not-more-not-less than the pull.
+  it("returns true for a participated thread with a deliverable message (mention isn't dropped)", async () => {
+    // (1) type=thread → (2) participation returns the channel id (notify row
+    // exists) → (3) the deliverable scan finds an unread message.
+    const db = createSequentialDb([[{ type: "thread" }], [{ channelId: "thread_x" }], [{ seq: 4 }]]);
+    const result = await agentInbox.hasDeliverableUnreadForAgentScope(db, "bot_1", "thread_x", 0);
+    expect(result).toBe(true);
+    expect(db.select).toHaveBeenCalledTimes(3);
   });
 });
