@@ -810,17 +810,15 @@ function buildProgram(): Command {
 
   daemon
     .command("stop")
-    .argument("[id]", "daemon id from `alook daemon list` (the ID column)")
+    .argument("<id>", "daemon id from `alook daemon list` (the ID column)")
     .description("stop a daemon by its id (from `alook daemon list`)")
-    .option("--machine-key <key>", "legacy: identify the daemon by full machine key instead of id")
     .option("--base-dir <path>", "data directory (or ALOOK_DATA_DIR env)")
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })
-    .action(async function (this: Command, id: string | undefined) {
+    .action(async function (this: Command, id: string) {
       const localOpts = this.opts();
       await daemonStop({
         id,
-        machineKey: localOpts.machineKey as string | undefined,
         baseDir: localOpts.baseDir as string | undefined,
       });
     });
@@ -842,13 +840,23 @@ function buildProgram(): Command {
 
   daemon
     .command("status")
-    .description("dump each agent's current FSM state from the daemon's status snapshot")
+    .argument("[id]", "daemon id from `alook daemon list` (omit if only one daemon)")
+    .description("dump each agent's current FSM state from a daemon's status snapshot")
     .option("--base-dir <path>", "data directory (or ALOOK_DATA_DIR env)")
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })
-    .action(function (this: Command) {
+    .action(function (this: Command, id: string | undefined) {
       const localOpts = this.opts();
-      const status = daemonStatus({ baseDir: localOpts.baseDir as string | undefined });
+      const status = daemonStatus({ id, baseDir: localOpts.baseDir as string | undefined });
+      // Multiple daemons + no id → ambiguous: tell the reader which id to pass
+      // (status is per-daemon since C0, so it can't guess which one).
+      if (status.ambiguous) {
+        printEnvelope({
+          error: "multiple daemons on this machine — pass an id: `alook daemon status <id>`",
+          hint: `available ids: ${(status.availableIds ?? []).join(", ")} (see \`alook daemon list\`)`,
+        });
+        return;
+      }
       // ALWAYS surface freshness — a stale snapshot must never read as live
       // truth (the "state unsynced" blind spot this feature kills). The reader
       // gets the raw fields + an explicit freshness verdict + snapshot age.

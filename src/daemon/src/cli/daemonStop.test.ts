@@ -35,18 +35,14 @@ describe("daemonStop — event-loop friendly (no spin loop)", () => {
     // where the event lags behind the OS process actually being gone).
     const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
 
-    const machineKey = "cmk_test_key";
+    const id = "abc123def456";
     const daemonsDir = path.join(baseDir, "daemons");
-    fs.mkdirSync(daemonsDir, { recursive: true });
-    // pidfile name is <sha256(machineKey).slice(0,12)>.pid — we don't care
-    // about the exact hash here; just create one that daemonStop will find
-    // by re-computing the same hash.
-    const crypto = await import("crypto");
-    const hash = crypto.createHash("sha256").update(machineKey).digest("hex").slice(0, 12);
-    pidfile = path.join(daemonsDir, `${hash}.pid`);
-    fs.writeFileSync(pidfile, JSON.stringify({ pid: child.pid, key: machineKey }));
+    // Per-key subdir layout (C0): pidfile is daemons/<id>/daemon.pid.
+    fs.mkdirSync(path.join(daemonsDir, id), { recursive: true });
+    pidfile = path.join(daemonsDir, id, "daemon.pid");
+    fs.writeFileSync(pidfile, JSON.stringify({ pid: child.pid, key: "cmk_test_key" }));
 
-    const stopPromise = daemonStop({ machineKey, baseDir });
+    const stopPromise = daemonStop({ id, baseDir });
     expect(stopPromise).toBeInstanceOf(Promise);
     await stopPromise;
 
@@ -63,10 +59,11 @@ describe("daemonStop — event-loop friendly (no spin loop)", () => {
 
     const machineKey = "cmk_secret_should_not_be_needed";
     const daemonsDir = path.join(baseDir, "daemons");
-    fs.mkdirSync(daemonsDir, { recursive: true });
     const crypto = await import("crypto");
     const id = crypto.createHash("sha256").update(machineKey).digest("hex").slice(0, 12);
-    pidfile = path.join(daemonsDir, `${id}.pid`);
+    // Per-key subdir (C0): daemons/<id>/daemon.pid — id is the subdir name.
+    fs.mkdirSync(path.join(daemonsDir, id), { recursive: true });
+    pidfile = path.join(daemonsDir, id, "daemon.pid");
     fs.writeFileSync(pidfile, JSON.stringify({ pid: child.pid, key: machineKey }));
 
     // Stop using ONLY the id (what `daemon list` shows) — the credential

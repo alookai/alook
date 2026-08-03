@@ -54,8 +54,31 @@ function daemonsDir(baseDir: string): string {
   return path.join(baseDir, "daemons");
 }
 
+/**
+ * Per-daemon subdirectory (batch C0): each daemon's own on-disk files
+ * (daemon.pid + status.json + fsm-trace.jsonl + daemon.log) live under
+ * `daemons/<keyHash>/`, so multiple daemons sharing a baseDir never clobber a
+ * shared file. `<keyHash>` is the daemon's addressing id (what `daemon list`
+ * shows and `daemon stop <id>` takes). Mirrors the pre-C0 per-key pidfile
+ * naming — this just collects the per-daemon set into one directory.
+ */
+function daemonDir(baseDir: string, machineKey: string): string {
+  return path.join(daemonsDir(baseDir), keyHash(machineKey));
+}
+function daemonDirById(baseDir: string, id: string): string {
+  return path.join(daemonsDir(baseDir), id);
+}
+
 function pidfilePath(baseDir: string, machineKey: string): string {
-  return path.join(daemonsDir(baseDir), `${keyHash(machineKey)}.pid`);
+  return path.join(daemonDir(baseDir, machineKey), "daemon.pid");
+}
+
+/** Per-daemon status snapshot (C0): `daemons/<keyHash>/status.json`. */
+function statusFilePathForKey(baseDir: string, machineKey: string): string {
+  return path.join(daemonDir(baseDir, machineKey), "status.json");
+}
+function statusFilePathById(baseDir: string, id: string): string {
+  return path.join(daemonDirById(baseDir, id), "status.json");
 }
 
 function isProcessAlive(pid: number): boolean {
@@ -120,12 +143,11 @@ export interface DaemonInfo {
   pid: number;
   alive: boolean;
   /**
-   * Agent count + last-activity ms-epoch from status.json (the daemon's
-   * periodic snapshot). NULL when no snapshot yet. CAVEAT (red line 5):
-   * status.json is per-baseDir/GLOBAL, not per-daemon — so these two are
-   * accurate at the common one-daemon-per-machine case; with multiple daemons
-   * sharing a baseDir they reflect the last writer, not this row. The CLI
-   * renderer surfaces that caveat.
+   * Agent count + last-activity ms-epoch from THIS daemon's own status.json
+   * (`daemons/<id>/status.json`, per-daemon since C0). NULL when no snapshot yet
+   * (or a dead daemon). Now accurate per-row even with multiple daemons sharing
+   * a baseDir — the pre-C0 global single file made every row show the last
+   * writer's count; the per-key subdir fixes that.
    */
   agents: number | null;
   lastActiveMs: number | null;
@@ -136,31 +158,37 @@ export function daemonList(opts: DaemonListOpts): DaemonInfo[] {
   const dir = daemonsDir(baseDir);
   if (!fs.existsSync(dir)) return [];
 
-  // status.json is per-baseDir (global). Read once; attach to each row with the
-  // documented caveat that it's the last writer, exact only at 1 daemon/baseDir.
-  const status = daemonStatus({ baseDir });
-  const agents = status.found ? status.agents.length : null;
-  const lastActiveMs = status.writtenAt;
-
-  const files = fs.readdirSync(dir).filter((f) => f.endsWith(".pid"));
   const results: DaemonInfo[] = [];
+  const now = Date.now();
 
-  for (const file of files) {
-    const filePath = path.join(dir, file);
-    const data = readPidFile(filePath);
-    if (!data) continue;
+  const pushRow = (id: string, pidfile: string, statusPath: string | null): void => {
+    const data = readPidFile(pidfile);
+    if (!data) return;
     const alive = isProcessAlive(data.pid);
-    // Clean up stale pidfiles
     if (!alive) {
-      try { fs.unlinkSync(filePath); } catch { /* ok */ }
+      // Prune the stale pidfile (subdir daemon.pid or legacy flat).
+      try { fs.unlinkSync(pidfile); } catch { /* ok */ }
     }
-    results.push({
-      id: file.replace(".pid", ""),
-      pid: data.pid,
-      alive,
-      agents: alive ? agents : null,
-      lastActiveMs: alive ? lastActiveMs : null,
-    });
+    // Per-daemon status: read THIS daemon's own snapshot (C0), not a global one.
+    let agents: number | null = null;
+    let lastActiveMs: number | null = null;
+    if (alive && statusPath) {
+      const s = daemonStatusFromFile(statusPath, now);
+      if (s.found) {
+        agents = s.agents.length;
+        lastActiveMs = s.writtenAt;
+      }
+    }
+    results.push({ id, pid: data.pid, alive, agents, lastActiveMs });
+  };
+
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    // Per-key subdir layout (C0): daemons/<id>/daemon.pid + status.json. Each
+    // daemon has its own directory; id = the directory name.
+    if (entry.isDirectory()) {
+      const id = entry.name;
+      pushRow(id, path.join(dir, id, "daemon.pid"), path.join(dir, id, "status.json"));
+    }
   }
 
   return results;
@@ -172,6 +200,13 @@ export function daemonList(opts: DaemonListOpts): DaemonInfo[] {
 
 export interface DaemonStatusOpts {
   baseDir?: string;
+  /**
+   * Which daemon's status to read (the id from `daemon list`). Since C0 status
+   * is per-daemon (`daemons/<id>/status.json`). If omitted and exactly ONE
+   * daemon exists, that one is used; if omitted with multiple daemons it's
+   * ambiguous → `ambiguous:true` (the CLI then tells the user to pass an id).
+   */
+  id?: string;
   /** Injectable clock for tests; defaults to Date.now. */
   now?: () => number;
 }
@@ -192,21 +227,26 @@ export interface DaemonStatusResult {
   /** The snapshot's own writtenAt (ms epoch), or null. */
   writtenAt: number | null;
   agents: DaemonStatusSnapshot["agents"];
+  /**
+   * Set when no `id` was given AND more than one daemon exists — the caller must
+   * disambiguate. `found` is false in that case (no single snapshot to return).
+   */
+  ambiguous?: boolean;
+  /** The ids available to pass, when ambiguous. */
+  availableIds?: string[];
 }
 
 /** Older than this ⇒ "stale" (a few status-write intervals of slack). */
 const STATUS_STALE_MS = 20_000;
 
-export function daemonStatus(opts: DaemonStatusOpts): DaemonStatusResult {
-  const baseDir = opts.baseDir || process.env.ALOOK_DATA_DIR || DEFAULT_BASE_DIR;
-  const now = opts.now ?? (() => Date.now());
-  const statusPath = path.join(baseDir, "status.json");
-  if (!fs.existsSync(statusPath)) {
-    return { found: false, ageMs: null, freshness: "missing", writtenAt: null, agents: [] };
-  }
+const MISSING_STATUS: DaemonStatusResult = { found: false, ageMs: null, freshness: "missing", writtenAt: null, agents: [] };
+
+/** Read+parse ONE status.json at a known path. Never throws (best-effort). */
+function daemonStatusFromFile(statusPath: string, nowMs: number): DaemonStatusResult {
+  if (!fs.existsSync(statusPath)) return MISSING_STATUS;
   try {
     const snap = JSON.parse(fs.readFileSync(statusPath, "utf8")) as DaemonStatusSnapshot;
-    const ageMs = now() - snap.writtenAt;
+    const ageMs = nowMs - snap.writtenAt;
     return {
       found: true,
       ageMs,
@@ -217,8 +257,39 @@ export function daemonStatus(opts: DaemonStatusOpts): DaemonStatusResult {
   } catch {
     // File present but unreadable/half-written/corrupt → treat as missing
     // rather than crash (a `daemon status` must never throw on a bad file).
-    return { found: false, ageMs: null, freshness: "missing", writtenAt: null, agents: [] };
+    return MISSING_STATUS;
   }
+}
+
+/** The subdir ids of daemons that have a per-key status file (C0). */
+function daemonIdsWithStatus(baseDir: string): string[] {
+  const dir = daemonsDir(baseDir);
+  if (!fs.existsSync(dir)) return [];
+  const ids: string[] = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory() && fs.existsSync(path.join(dir, entry.name, "status.json"))) {
+      ids.push(entry.name);
+    }
+  }
+  return ids;
+}
+
+export function daemonStatus(opts: DaemonStatusOpts): DaemonStatusResult {
+  const baseDir = opts.baseDir || process.env.ALOOK_DATA_DIR || DEFAULT_BASE_DIR;
+  const nowMs = (opts.now ?? (() => Date.now()))();
+  // Explicit id → that daemon's per-key status.
+  if (opts.id) {
+    return daemonStatusFromFile(statusFilePathById(baseDir, opts.id), nowMs);
+  }
+  // No id: auto-pick the sole daemon; ambiguous if more than one.
+  const ids = daemonIdsWithStatus(baseDir);
+  if (ids.length === 1) {
+    return daemonStatusFromFile(statusFilePathById(baseDir, ids[0]!), nowMs);
+  }
+  if (ids.length > 1) {
+    return { ...MISSING_STATUS, ambiguous: true, availableIds: ids };
+  }
+  return MISSING_STATUS;
 }
 
 /* ------------------------------------------------------------------ */
@@ -226,10 +297,8 @@ export function daemonStatus(opts: DaemonStatusOpts): DaemonStatusResult {
 /* ------------------------------------------------------------------ */
 
 export interface DaemonStopOpts {
-  /** Stop by the id shown in `daemon list` (= the pidfile's keyHash name). */
-  id?: string;
-  /** Legacy/programmatic: stop by full machine key (hashed to the pidfile). */
-  machineKey?: string;
+  /** The id shown in `daemon list` (= the daemon's subdir name / keyHash). */
+  id: string;
   baseDir?: string;
 }
 
@@ -238,9 +307,7 @@ export interface DaemonStopOpts {
  * agent children, close channel/proxy, remove pidfile) → escalate to SIGKILL
  * only if it overruns the grace window. This kill/teardown semantic is
  * UNCHANGED by stop-by-id (plans/daemon-cli-humanize-charter.md red line 3) —
- * only HOW the daemon is addressed changed (id vs machine key resolve to the
- * same pidfile). `notFoundHint` tailors the "nothing here" message to how the
- * caller addressed it.
+ * only HOW the daemon is addressed changed (its list id, not a machine key).
  */
 async function stopByPidfile(pf: string, notFoundHint: string): Promise<void> {
   const data = readPidFile(pf);
@@ -274,21 +341,13 @@ async function stopByPidfile(pf: string, notFoundHint: string): Promise<void> {
 
 export async function daemonStop(opts: DaemonStopOpts): Promise<void> {
   const baseDir = opts.baseDir || process.env.ALOOK_DATA_DIR || DEFAULT_BASE_DIR;
-  // Prefer the id (what `daemon list` shows and a human passes) — it IS the
-  // pidfile's keyHash name, so it resolves directly with no machine key. A
-  // machine key is still accepted for programmatic/legacy callers (hashed to
-  // the same pidfile). The credential never has to enter the human's stop
-  // command (red line 2): `daemon stop <id>`, not `--machine-key <secret>`.
-  if (opts.id) {
-    const pf = path.join(daemonsDir(baseDir), `${opts.id}.pid`);
-    await stopByPidfile(pf, `no daemon with id '${opts.id}' (pidfile not found — check \`alook daemon list\`)`);
-    return;
-  }
-  if (opts.machineKey) {
-    await stopByPidfile(pidfilePath(baseDir, opts.machineKey), "no daemon running for this machine key (pidfile not found)");
-    return;
-  }
-  log.error("daemon stop: an id (from `alook daemon list`) is required");
+  // Stop by the id `daemon list` shows — it IS the daemon's subdir name, so it
+  // resolves the pidfile directly. The machine key (a credential) never enters
+  // the human's stop command (red line 2): `daemon stop <id>`.
+  await stopByPidfile(
+    path.join(daemonDirById(baseDir, opts.id), "daemon.pid"),
+    `no daemon with id '${opts.id}' (pidfile not found — check \`alook daemon list\`)`,
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -514,12 +573,14 @@ export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
     capabilities: CAPABILITIES,
     agentCliPath,
     workingDirectoryBase: baseDir,
-    // Default-on bounded FSM trace lives under <baseDir>/logs (batch E1). This
-    // is what makes "the last wedge's FSM history" always available without
-    // pre-setting ALOOK_FSM_TRACE. The env var, if set, overrides this.
-    fsmTraceDir: path.join(baseDir, "logs"),
-    // Periodic `daemon status` snapshot (batch E2) → <baseDir>/status.json.
-    statusFilePath: path.join(baseDir, "status.json"),
+    // Default-on bounded FSM trace + periodic status snapshot both live in THIS
+    // daemon's per-key subdir `daemons/<keyHash>/` (batch C0), NOT a shared
+    // <baseDir> path — so multiple daemons on one baseDir never interleave their
+    // traces or clobber each other's status.json, and each daemon's trace gets
+    // its OWN rotation budget (restoring T4's ≥12h-per-daemon retention). The
+    // ALOOK_FSM_TRACE env override (createDaemon) still wins for deep dives.
+    fsmTraceDir: daemonDir(baseDir, opts.machineKey),
+    statusFilePath: statusFilePathForKey(baseDir, opts.machineKey),
     hostname: os.hostname(),
     platform: process.platform,
     arch: process.arch,

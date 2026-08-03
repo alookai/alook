@@ -4,8 +4,10 @@
  * The FSM daemon has NO IPC — `daemon stop`/`list`/`status` are separate CLI
  * processes, and `manager.snapshot()` lives only inside the running daemon. So
  * to answer "what is each agent's FSM state right now" out-of-band, the running
- * daemon periodically writes a slim projection to `<baseDir>/status.json` and
- * the `daemon status` CLI reads that file (Cecilia's ruling (a): snapshot-file,
+ * daemon periodically writes a slim projection to its per-key status file
+ * (`daemons/<keyHash>/status.json` since batch C0 — was a single global
+ * `<baseDir>/status.json`, which multiple daemons clobbered) and the
+ * `daemon status` CLI reads that file (Cecilia's ruling (a): snapshot-file,
  * not a control listener — zero new network/attack surface, crash-safe: if the
  * daemon dies the last frame is still readable). See plans/daemon-fsm-desync.md.
  *

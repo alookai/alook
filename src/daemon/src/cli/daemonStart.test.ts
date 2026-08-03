@@ -45,9 +45,14 @@ describe("daemonStatus — reads snapshot + always flags freshness (batch E2)", 
     fs.rmSync(baseDir, { recursive: true, force: true });
   });
 
+  // Per-key layout (C0): status lives at daemons/<id>/status.json.
+  const ID = "d0d0d0d0d0d0";
+  const daemonSubdir = () => path.join(baseDir, "daemons", ID);
   const writeSnap = (writtenAt: number) => {
+    const dir = daemonSubdir();
+    fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(
-      path.join(baseDir, "status.json"),
+      path.join(dir, "status.json"),
       JSON.stringify({
         writtenAt,
         agents: [
@@ -58,7 +63,7 @@ describe("daemonStatus — reads snapshot + always flags freshness (batch E2)", 
   };
 
   it("missing file → freshness 'missing', found false, no throw", () => {
-    const r = daemonStatus({ baseDir, now: () => 1000 });
+    const r = daemonStatus({ id: ID, baseDir, now: () => 1000 });
     expect(r.found).toBe(false);
     expect(r.freshness).toBe("missing");
     expect(r.agents).toEqual([]);
@@ -66,7 +71,7 @@ describe("daemonStatus — reads snapshot + always flags freshness (batch E2)", 
 
   it("recent snapshot → 'fresh' with the agent projection + age", () => {
     writeSnap(1000);
-    const r = daemonStatus({ baseDir, now: () => 3000 }); // 2s old
+    const r = daemonStatus({ id: ID, baseDir, now: () => 3000 }); // 2s old
     expect(r.found).toBe(true);
     expect(r.freshness).toBe("fresh");
     expect(r.ageMs).toBe(2000);
@@ -74,18 +79,40 @@ describe("daemonStatus — reads snapshot + always flags freshness (batch E2)", 
     expect(r.agents[0]?.derivedActivity).toBe("idle");
   });
 
+  it("recent snapshot resolvable WITHOUT an id when only one daemon exists (auto-pick)", () => {
+    writeSnap(1000);
+    const r = daemonStatus({ baseDir, now: () => 3000 });
+    expect(r.found).toBe(true);
+    expect(r.agents[0]?.agentId).toBe("a1");
+  });
+
   it("old snapshot → 'stale' (never mistaken for live truth)", () => {
     writeSnap(1000);
-    const r = daemonStatus({ baseDir, now: () => 1000 + 60_000 }); // 60s old
+    const r = daemonStatus({ id: ID, baseDir, now: () => 1000 + 60_000 }); // 60s old
     expect(r.freshness).toBe("stale");
     expect(r.ageMs).toBe(60_000);
     expect(r.found).toBe(true); // still returns the last-known frame
   });
 
   it("corrupt/half-written file → treated as missing, no throw", () => {
-    fs.writeFileSync(path.join(baseDir, "status.json"), "{ not valid json");
-    const r = daemonStatus({ baseDir, now: () => 1000 });
+    const dir = daemonSubdir();
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "status.json"), "{ not valid json");
+    const r = daemonStatus({ id: ID, baseDir, now: () => 1000 });
     expect(r.found).toBe(false);
     expect(r.freshness).toBe("missing");
+  });
+
+  it("multiple daemons + no id → ambiguous (per-daemon status can't guess which)", () => {
+    // Two daemons each with their own status.json subdir.
+    for (const id of ["aaaaaaaaaaaa", "bbbbbbbbbbbb"]) {
+      const dir = path.join(baseDir, "daemons", id);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "status.json"), JSON.stringify({ writtenAt: 1000, agents: [] }));
+    }
+    const r = daemonStatus({ baseDir, now: () => 1000 });
+    expect(r.found).toBe(false);
+    expect(r.ambiguous).toBe(true);
+    expect(r.availableIds?.sort()).toEqual(["aaaaaaaaaaaa", "bbbbbbbbbbbb"]);
   });
 });
