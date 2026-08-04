@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { useParams } from "next/navigation"
+import { useParams, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
 import { useBreakpoint } from "@/hooks/use-mobile"
@@ -33,6 +33,7 @@ import {
   useSendDmMessage,
   useToggleReactionApi,
   useUploadFile,
+  useToggleMark,
   zipUploadResultsWithDimensions,
   sendNonce,
 } from "@/hooks/community/mutations"
@@ -106,7 +107,18 @@ function DmView() {
       : (readSnapshot?.lastReadMessageId ?? null),
   })
 
-  const [contextSheetSeq, setContextSheetSeq] = useState<number | null>(null)
+  // Cross-navigation deep-link: a Marked-tab row for a DM message navigates
+  // here with `?seq=<n>` and we open the context sheet on that message. Read
+  // once at mount (frozen), mirroring the channel page's `?msg=` — a
+  // refresh/back doesn't re-trigger it. The DM view has no in-place scroll
+  // anchor, so the context sheet (seq → id + surrounding window) is the jump.
+  const searchParams = useSearchParams()
+  const [initialSeq] = useState<number | null>(() => {
+    const raw = searchParams.get("seq")
+    const n = raw ? Number(raw) : NaN
+    return Number.isFinite(n) ? n : null
+  })
+  const [contextSheetSeq, setContextSheetSeq] = useState<number | null>(initialSeq)
   // DM composer has no "current server" — flatten every member server's
   // channels into one cross-server candidate list so a `/`-ref can be
   // dropped into a DM (see plan community-channel-ref.md §6).
@@ -183,6 +195,7 @@ function DmView() {
   const sendDmMessage = useSendDmMessage()
   const toggleReaction = useToggleReactionApi()
   const uploadFile = useUploadFile()
+  const toggleMark = useToggleMark()
 
   const goBack = useCallback(() => { uiHandlers.goBackMobile?.() }, [uiHandlers])
 
@@ -254,6 +267,8 @@ function DmView() {
       const m = messages.find((x) => x.id === id)
       if (m?.content) { navigator.clipboard?.writeText(m.content); toast("Copied to clipboard") }
     },
+    // A DM is a channel (type='dm'), so its id IS the mark route's channelId.
+    onMark: (id: string) => toggleMark(dmId, id),
     onRetry: (id: string) => {
       const m = messages.find((x) => x.id === id)
       if (m?.content) {
@@ -281,7 +296,7 @@ function DmView() {
       a.download = url.split("/").pop() ?? "file"
       a.click()
     },
-  }), [toggleReaction, dmId, currentUser.id, currentUser.name, currentUser.avatar, messages, sendDmMessage, uiHandlers])
+  }), [toggleReaction, toggleMark, dmId, currentUser.id, currentUser.name, currentUser.avatar, messages, sendDmMessage, uiHandlers])
 
   // DM endpoint ignores mentionType. Replies are supported — the backend
   // persists replyToId for DMs too.
@@ -371,6 +386,7 @@ function DmView() {
           onReact={dmBlocked ? undefined : messageActions.onReact}
           onReply={dmBlocked ? undefined : messageActions.onReply}
           onCopy={messageActions.onCopy}
+          onMark={dmBlocked ? undefined : messageActions.onMark}
           onRetry={dmBlocked ? undefined : messageActions.onRetry}
           onPreviewImage={messageActions.onPreviewImage}
           onDownloadFile={messageActions.onDownloadFile}

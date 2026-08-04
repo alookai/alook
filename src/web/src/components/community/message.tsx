@@ -1,6 +1,7 @@
 "use client"
 
 import { memo, useState } from "react"
+import { useMessageMarked } from "@/hooks/community/use-inbox"
 import type React from "react"
 import {
   MessagesSquare, UserPlus, SmilePlus, Reply,
@@ -47,7 +48,7 @@ export function messageCanShare(m: RenderMsg, compact?: boolean): boolean {
 
 function MessageImpl({
   m, compact, pinned, onOpenThread, onOpenProfile, onJumpReply,
-  onToggleReaction, onReact, onReply, onPin, onCreateThread, onCopy, onRetry,
+  onToggleReaction, onReact, onReply, onPin, onMark, onCreateThread, onCopy, onRetry,
   onPreviewImage, onDownloadFile, highlighted, resolveUserName, onImageLoad,
   selectMode, selected, onToggleSelect, onEnterSelect, onShareSingle,
 }: {
@@ -61,6 +62,10 @@ function MessageImpl({
   onReact?: (emoji: string) => void
   onReply?: () => void
   onPin?: () => void
+  // Toggle this message in the viewer's private saved ("marked") set. The
+  // Mark/Unmark label is driven by a lazy per-message read (see `marked`
+  // below), so a channel never pre-loads mark state for every row.
+  onMark?: () => void
   onCreateThread?: () => void
   onCopy?: () => void
   onRetry?: () => void
@@ -86,6 +91,16 @@ function MessageImpl({
 }) {
   // keep the hover toolbar pinned open while its ⋯ dropdown is open
   const [toolbarOpen, setToolbarOpen] = useState(false)
+  // Right-click context-menu open state — tracked so the Mark/Unmark label's
+  // lazy read fires for the context menu too, not just the ⋯ dropdown.
+  const [contextOpen, setContextOpen] = useState(false)
+  // The Mark/Unmark label needs to know if THIS message is already in the
+  // viewer's saved set. That's a single indexed row read, fired lazily only
+  // while a menu that shows the item is open (never per-row on mount) — so a
+  // channel scroll doesn't pre-load mark state for every row. Defaults to
+  // "Mark"; flips to "Unmark" silently once the read resolves (no spinner).
+  const markMenuOpen = (toolbarOpen || contextOpen) && !!onMark
+  const { data: markedData } = useMessageMarked(m.id, markMenuOpen)
   // Lazy-mount the row's Base UI overlay roots (ContextMenu / DropdownMenu /
   // EmojiPicker Popover / reaction Tooltips). Eagerly mounting them per visible
   // row was the bulk of the switch re-render storm (FloatingTree/MenuRoot ×1000s
@@ -112,6 +127,7 @@ function MessageImpl({
   const menuHandlers = {
     onAddReaction: onReact ? () => onReact("👍") : undefined,
     onReply, onPin, pinned,
+    onMark, marked: markedData?.marked ?? false,
     onCreateThread: m.thread ? undefined : onCreateThread,
     onCopy,
     // Share: enter multi-select (main list) if wired, else direct single-share
@@ -418,7 +434,7 @@ function MessageImpl({
   // In select mode the row is a toggle target — no context menu / toolbar.
   if (!interactive || !activated || selectMode) return row
   return (
-    <ContextMenu>
+    <ContextMenu onOpenChange={setContextOpen}>
       <ContextMenuTrigger className="select-text" render={row} />
       <ContextMenuContent className="w-48">
         <MessageContextItems {...menuHandlers} />
@@ -472,6 +488,7 @@ function messagePropsEqual(prev: MessageProps, next: MessageProps): boolean {
     prev.onReact === next.onReact &&
     prev.onReply === next.onReply &&
     prev.onPin === next.onPin &&
+    prev.onMark === next.onMark &&
     prev.onCreateThread === next.onCreateThread &&
     prev.onCopy === next.onCopy &&
     prev.onRetry === next.onRetry &&

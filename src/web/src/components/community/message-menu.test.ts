@@ -44,4 +44,30 @@ describe("messageMenuItems", () => {
     expect(labels).toEqual(["Add Reaction", "Reply", "Create Thread", "Pin Message", "Copy Text", "Share as Image"])
     expect(labels).not.toContain("sep")
   })
+
+  it("includes Mark only when onMark is provided, and toggles label on `marked`", () => {
+    expect(messageMenuItems({}).some((it) => it.label === "Mark")).toBe(false)
+    // Unmarked (or state not yet resolved) → "Mark"; text-only like Pin.
+    const mark = messageMenuItems({ onMark: () => {} })
+    expect(mark.some((it) => it.label === "Mark")).toBe(true)
+    expect(mark.find((it) => it.label === "Mark")?.icon).toBeUndefined()
+    // Already marked → "Unmark".
+    const unmark = messageMenuItems({ onMark: () => {}, marked: true })
+    expect(unmark.some((it) => it.label === "Unmark")).toBe(true)
+    expect(unmark.some((it) => it.label === "Mark")).toBe(false)
+  })
+
+  it("wires the Mark/Unmark onClick to the same onMark handler", () => {
+    const onMark = vi.fn()
+    messageMenuItems({ onMark }).find((it) => it.label === "Mark")?.onClick?.()
+    messageMenuItems({ onMark, marked: true }).find((it) => it.label === "Unmark")?.onClick?.()
+    expect(onMark).toHaveBeenCalledTimes(2)
+  })
+
+  it("orders Mark right after Pin (both text-only, before Copy)", () => {
+    const labels = messageMenuItems({
+      onReply: () => {}, onPin: () => {}, onMark: () => {}, onCopy: () => {},
+    }).map((it) => it.label)
+    expect(labels).toEqual(["Reply", "Pin Message", "Mark", "Copy Text"])
+  })
 })

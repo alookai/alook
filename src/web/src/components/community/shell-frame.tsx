@@ -23,7 +23,7 @@ import { ProfileCard } from "./profile-card"
 import { ImageLightbox } from "./image-lightbox"
 import { ImageCropDialog } from "./image-crop-dialog"
 import { validateIconSourceFile } from "@/lib/community/image-crop"
-import type { MobileZone, Profile, View } from "./_types"
+import type { Marked, MobileZone, Profile, View } from "./_types"
 import { resolveProfileTarget, buildSelfProfile } from "./profile-lookup"
 import { resolveProfilePresence } from "@/lib/community/presence"
 import { avatarInitial } from "@/lib/community/avatar"
@@ -36,7 +36,7 @@ import { useServers } from "@/hooks/community/use-servers"
 import { useFolders } from "@/hooks/community/use-folders"
 import { useFriends } from "@/hooks/community/use-friends"
 import { useServerMembers } from "@/hooks/community/use-server-members"
-import { useInboxUnreads, useInboxMentions } from "@/hooks/community/use-inbox"
+import { useInboxUnreads, useInboxMentions, useInboxMarked } from "@/hooks/community/use-inbox"
 import { useInboxAutoCollapse } from "@/hooks/community/use-inbox-auto-collapse"
 import {
   useCreateServer,
@@ -51,6 +51,7 @@ import {
   useCreateOrGetDm,
   useMarkAllInboxRead,
   useDeleteMention,
+  useUnmarkMessage,
   useUpdateProfile,
   useSendDmMessage,
   useUploadUserAvatar,
@@ -113,6 +114,13 @@ export function ShellFrame({
   const unreadDms = inboxUnreads.dms
   const mentions = inboxMentions.mentions
   const inboxLoading = inboxUnreads.isLoading || inboxMentions.isLoading
+  // Marked feed is lazy: it has no bell badge, so it only fetches once the
+  // viewer opens the Marked tab. `markedTabOpened` latches true on first open
+  // (the query then lives normally under communityKeys.inboxMarked()).
+  const [markedTabOpened, setMarkedTabOpened] = useState(false)
+  const inboxMarked = useInboxMarked(markedTabOpened)
+  const marked = inboxMarked.marked
+  const { mutate: unmarkMessageMutate } = useUnmarkMessage()
   // Popover open-state + auto-collapse: the inbox closes itself once the row
   // the viewer clicked leaves the list. See use-inbox-auto-collapse.
   const inbox = useInboxAutoCollapse({ unreads: unreadFeed, unreadDms, mentions })
@@ -496,6 +504,27 @@ export function ShellFrame({
     [router, watchInboxItem],
   )
 
+  // A Marked row is cross-channel — clicking one navigates to the message's
+  // channel AND opens the context sheet on it (Gus: always land on the channel
+  // so you see WHERE the message lives, then the sheet shows it + its context;
+  // same feel as a DM row). Both surfaces use the same `?seq=<n>` deep-link the
+  // destination page reads to open its sheet — server rows go to
+  // `/c/channels/<s>/<c>`, DM rows to `/c/me/<channelId>` (a DM channel's id IS
+  // its `/c/me/<id>` route param). serverId (null ⇒ DM) picks the route only.
+  // `watchInboxItem` collapses the popover once the destination opens.
+  const openMarked = useCallback(
+    (mk: Marked) => {
+      watchInboxItem(`marked:${mk.id}`)
+      const seqQuery = mk.m.seq != null ? `?seq=${mk.m.seq}` : ""
+      if (mk.serverId) {
+        router.push(`/c/channels/${mk.serverId}/${mk.channelId}${seqQuery}`)
+      } else {
+        router.push(`/c/me/${mk.channelId}${seqQuery}`)
+      }
+    },
+    [router, watchInboxItem],
+  )
+
   const openInboxDm = useCallback(
     (dmId: string) => {
       // Optimistic clear on `communityKeys.dms()` so the sidebar updates
@@ -521,14 +550,19 @@ export function ShellFrame({
       unreads={unreadFeed}
       unreadDms={unreadDms}
       mentions={mentions}
+      marked={marked}
+      markedLoading={inboxMarked.isLoading}
       loading={inboxLoading}
       onOpenChannel={openServerChannel}
       onOpenDm={openInboxDm}
       onOpenMention={(mention) => {
         if (mention.serverId && mention.channelId) openServerChannel(mention.serverId, mention.channelId, `mention:${mention.id}`)
       }}
+      onOpenMarked={openMarked}
+      onMarkedTabSelected={() => setMarkedTabOpened(true)}
       onMarkAllRead={() => { markAllInboxRead.mutate() }}
       onDeleteMention={(id) => deleteMention.mutate({ mentionId: id })}
+      onUnmark={(messageId) => unmarkMessageMutate({ messageId })}
     />
   )
   const inboxHasUnread =

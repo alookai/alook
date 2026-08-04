@@ -43,6 +43,7 @@ export * as communityInvite from "./queries/community/invite";
 export * as communityReaction from "./queries/community/reaction";
 export * as communityAttachment from "./queries/community/attachment";
 export * as communityPin from "./queries/community/pin";
+export * as communityMessageMark from "./queries/community/mark";
 export * as communityMention from "./queries/community/mention";
 export * as communityReadState from "./queries/community/read-state";
 export * as communityUserProfile from "./queries/community/user-profile";

@@ -94,6 +94,15 @@ export const communityKeys = {
   inbox: () => [...communityKeys.all, "inbox"] as const,
   inboxUnreads: () => [...communityKeys.inbox(), "unreads"] as const,
   inboxMentions: () => [...communityKeys.inbox(), "mentions"] as const,
+  // Per-user saved ("marked") messages, cross-channel newest-first. Nested
+  // under inbox() so the WS reconciliation `invalidateQueries({ queryKey:
+  // communityKeys.inbox() })` refreshes it alongside the other feeds.
+  inboxMarked: () => [...communityKeys.inbox(), "marked"] as const,
+  // Whether the viewer has marked a single message — fetched lazily when the
+  // message's ⋯ menu opens (drives the Mark/Unmark label). Keyed per message
+  // so re-opening the same menu reuses the cached answer.
+  messageMarked: (messageId: string) =>
+    [...communityKeys.all, "message", messageId, "marked"] as const,
 
   // ── Social ──────────────────────────────────────────────────────────────
   friends: () => [...communityKeys.all, "friends"] as const,

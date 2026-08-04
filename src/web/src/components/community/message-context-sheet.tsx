@@ -17,7 +17,7 @@ import { formatDateLabel } from "./format-time"
 import { DateDivider } from "./dividers"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import { useUiHandlers } from "@/stores/community"
-import { usePinMessage, useUnpinMessage, useCreateThread } from "@/hooks/community/mutations"
+import { usePinMessage, useUnpinMessage, useCreateThread, useToggleMark } from "@/hooks/community/mutations"
 import type { Msg, OpenProfile, Reaction, RenderMsg } from "./_types"
 import type { MessagesPage } from "@/hooks/community/use-messages"
 
@@ -158,6 +158,7 @@ export function MessageContextSheet({
   const pinMessageMut = usePinMessage()
   const unpinMessageMut = useUnpinMessage()
   const createThreadMut = useCreateThread()
+  const toggleMark = useToggleMark()
 
   const queryKey = useMemo(
     () => ["messageContext", type, channelId, targetSeq] as const,
@@ -251,6 +252,13 @@ export function MessageContextSheet({
     if (!m) return
     onReply({ id: m.id, authorName: m.authorName ?? "", text: m.content ?? "" })
   }, [findMessage, onReply])
+
+  // Mark works for both channel and DM (unlike pin) — the sheet's channelId is
+  // the mark route's channelId for either. `useToggleMark` reads the per-message
+  // marked cache (populated when this row's menu opened) to pick POST vs DELETE.
+  const onMarkId = useCallback((id: string) => {
+    toggleMark(channelId, id)
+  }, [toggleMark, channelId])
 
   const onPinId = useCallback((id: string) => {
     if (type === "dm") return
@@ -420,6 +428,7 @@ export function MessageContextSheet({
               onReply={onReply ? onReplyId : undefined}
               onCopy={onCopyId}
               onPin={type === "channel" ? onPinId : undefined}
+              onMark={onMarkId}
               onCreateThread={type === "channel" ? onCreateThreadId : undefined}
               onPreviewImage={onPreviewImage}
               onDownloadFile={onDownloadFile}
@@ -444,6 +453,7 @@ function ContextRows({
   onReply,
   onCopy,
   onPin,
+  onMark,
   onCreateThread,
   onPreviewImage,
   onDownloadFile,
@@ -460,6 +470,7 @@ function ContextRows({
   onReply?: (id: string) => void
   onCopy: (id: string) => void
   onPin?: (id: string) => void
+  onMark?: (id: string) => void
   onCreateThread?: (id: string) => void
   onPreviewImage: (url: string) => void
   onDownloadFile: (url: string) => void
@@ -501,6 +512,7 @@ function ContextRows({
                 onReactId={onReact}
                 onReplyId={onReply}
                 onPinId={onPin}
+                onMarkId={onMark}
                 onCreateThreadId={onCreateThread}
                 onCopyId={onCopy}
                 onPreviewImage={onPreviewImage}

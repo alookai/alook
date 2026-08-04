@@ -73,9 +73,20 @@ describe("ChildProcessRuntimeSession — real subprocess exit fills the physical
         });
       },
     );
-    expect(exitInfo.signal).toBe("SIGKILL");
-    expect(exitInfo.code).toBeNull();
-    expect(exitInfo.reason).toBe("runtime_exit");
+    if (process.platform === "win32") {
+      // Windows has no POSIX signals: process.kill(pid, "SIGKILL") routes through
+      // TerminateProcess, so Node reports signal=null (never "SIGKILL") — "which
+      // signal killed it" is a physical fact that does not exist on this platform.
+      // The cross-platform invariant this test actually guards (see file header) is
+      // that a non-requested death is tagged reason="runtime_exit", the shape the
+      // abnormal predicate reads; the signal NAME is a POSIX-only implementation detail.
+      expect(exitInfo.signal).toBeNull();
+      expect(exitInfo.reason).toBe("runtime_exit");
+    } else {
+      expect(exitInfo.signal).toBe("SIGKILL");
+      expect(exitInfo.code).toBeNull();
+      expect(exitInfo.reason).toBe("runtime_exit");
+    }
   });
 
   it("a real clean exit (code 0) emits code=0, null signal", async () => {

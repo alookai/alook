@@ -21,7 +21,7 @@ import type { Msg, OpenProfile } from "./_types"
 export function MessageList({
   channel, messages, loading, pinnedIds, newDividerBefore, typingUsers, onOpenThread, onOpenProfile,
   onToggleReaction, onReact,
-  onReply, onPin, onCreateThread, onCopy, onRetry, onPreviewImage, onDownloadFile,
+  onReply, onPin, onMark, onCreateThread, onCopy, onRetry, onPreviewImage, onDownloadFile,
   resolveUserName, scrollToMessageId, hero, variant = "channel", onScrollRoot, viewerUserId, initialScrollReady = true,
   hasMore, isFetchingOlder, onLoadOlder,
   hasMoreNewer, isFetchingNewer, onLoadNewer, onJumpToPresent, unreadCount, onOpenContextSheet,
@@ -38,6 +38,7 @@ export function MessageList({
   onReact?: (id: string, emoji: string) => void
   onReply?: (id: string) => void
   onPin?: (id: string) => void
+  onMark?: (id: string) => void
   onCreateThread?: (id: string) => void
   onCopy?: (id: string) => void
   onRetry?: (id: string) => void
@@ -452,6 +453,7 @@ export function MessageList({
                             onReactId={onReact}
                             onReplyId={onReply}
                             onPinId={onPin}
+                            onMarkId={onMark}
                             onCreateThreadId={onCreateThread}
                             onCopyId={onCopy}
                             onRetryId={onRetry}

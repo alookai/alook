@@ -25,6 +25,7 @@ export interface MessageRowProps {
   onReactId?: (id: string, emoji: string) => void
   onReplyId?: (id: string) => void
   onPinId?: (id: string) => void
+  onMarkId?: (id: string) => void
   onCreateThreadId?: (id: string) => void
   onCopyId?: (id: string) => void
   onRetryId?: (id: string) => void
@@ -48,7 +49,7 @@ export interface MessageRowProps {
 function MessageRowImpl(props: MessageRowProps) {
   const {
     m, pinned, highlighted, onOpenThread, onOpenProfile,
-    onToggleReactionId, onReactId, onReplyId, onPinId, onCreateThreadId,
+    onToggleReactionId, onReactId, onReplyId, onPinId, onMarkId, onCreateThreadId,
     onCopyId, onRetryId, onJumpToId, onPreviewImage, onDownloadFile,
     resolveUserName, onImageLoad,
     selectMode, selected, onToggleSelectId, onEnterSelectId, onShareSingleId,
@@ -66,6 +67,7 @@ function MessageRowImpl(props: MessageRowProps) {
   const onReact = useCallback((emoji: string) => onReactId?.(id, emoji), [onReactId, id])
   const onReply = useCallback(() => onReplyId?.(id), [onReplyId, id])
   const onPin = useCallback(() => onPinId?.(id), [onPinId, id])
+  const onMark = useCallback(() => onMarkId?.(id), [onMarkId, id])
   const onCreateThread = useCallback(() => onCreateThreadId?.(id), [onCreateThreadId, id])
   const onCopy = useCallback(() => onCopyId?.(id), [onCopyId, id])
   const onRetry = useCallback(() => onRetryId?.(id), [onRetryId, id])
@@ -91,6 +93,7 @@ function MessageRowImpl(props: MessageRowProps) {
       onReact={onReactId ? onReact : undefined}
       onReply={onReplyId ? onReply : undefined}
       onPin={onPinId ? onPin : undefined}
+      onMark={onMarkId ? onMark : undefined}
       onCreateThread={onCreateThreadId ? onCreateThread : undefined}
       onCopy={onCopyId ? onCopy : undefined}
       onRetry={onRetryId ? onRetry : undefined}

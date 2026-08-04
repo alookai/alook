@@ -53,6 +53,7 @@ import {
   useToggleReactionApi,
   usePinMessage,
   useUnpinMessage,
+  useToggleMark,
   useCreateThread,
   useCreateForumPost,
   useUpdatePostTags,
@@ -445,6 +446,7 @@ function ChannelView() {
   const toggleReactionApi = useToggleReactionApi()
   const { mutate: pinMessageMutate } = usePinMessage()
   const { mutate: unpinMessageMutate } = useUnpinMessage()
+  const toggleMark = useToggleMark()
   const { mutateAsync: createThreadAsync } = useCreateThread()
   const createForumPostMut = useCreateForumPost()
   const updatePostTagsMut = useUpdatePostTags()
@@ -680,6 +682,23 @@ function ChannelView() {
     return () => useCommunityStore.getState().registerUiHandlers({ jumpToSeq: undefined, openMessageContext: undefined })
   }, [jumpToSeq, openMessageContext])
 
+  // Marked-tab (and any cross-channel) deep-link: a `?seq=<n>` on the URL opens
+  // the context sheet on that message. Unlike the `?msg=` mount-anchor path,
+  // this is an EFFECT keyed on the seq param — so it fires even when navigating
+  // to an ALREADY-MOUNTED channel page (Next reuses the component, so a
+  // mount-once useState read would miss the new param). The sheet reads by
+  // (channelId, seq) and cold-fetches its own window, so the target row need
+  // not be in the loaded list. We strip the param right after so a refresh/back
+  // doesn't re-open it, and re-arm cleanly for the next jump.
+  const seqParam = searchParams.get("seq")
+  useEffect(() => {
+    if (!seqParam) return
+    const seq = Number(seqParam)
+    if (!Number.isFinite(seq)) return
+    setContextTarget({ serverId, channelId, label: channelName, seq })
+    router.replace(`/c/channels/${params.serverId}/${channelId}`, { scroll: false })
+  }, [seqParam, serverId, channelId, channelName, router, params.serverId])
+
   // Stable so it doesn't bust the memoized message rows; reads uiHandlers
   // lazily through the actions ref (assigned just below).
   const openProfile = useCallback<OpenProfile>((name, e, discriminator, userId) => {
@@ -762,6 +781,7 @@ function ChannelView() {
         setRightPanel("pinned")
       }
     },
+    onMark: (id: string) => toggleMark(channelId, id),
     onCreateThread: async (id: string) => {
       const m = actionsCtxRef.current.messages.find((x) => x.id === id)
       const name = deriveThreadName(m?.content, actionsCtxRef.current.channelName)
@@ -802,7 +822,7 @@ function ChannelView() {
     // reads go through actionsCtxRef. This stability is load-bearing: an unstable
     // messageActions busts MessageRow/Message's memo and re-renders every visible
     // row on every commit (see message.tsx messagePropsEqual).
-  }), [channelId, currentUser.id, toggleReactionApi, unpinMessageMutate, pinMessageMutate, createThreadAsync, doSend, router, params.serverId])
+  }), [channelId, currentUser.id, toggleReactionApi, unpinMessageMutate, pinMessageMutate, toggleMark, createThreadAsync, doSend, router, params.serverId])
 
   const threadActions = useMemo(
     () => ({ ...messageActions, onCreateThread: undefined }),

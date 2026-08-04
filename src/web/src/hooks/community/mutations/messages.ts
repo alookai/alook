@@ -14,6 +14,7 @@ import { useCommunityStore } from "@/stores/community"
 import type { Msg, Attachment } from "@/components/community/_types"
 import type { MessagesPage } from "@/hooks/community/use-messages"
 import type { PinsResponse } from "@/hooks/community/use-channel-panels"
+import type { MarkedResponse, MessageMarkedResponse } from "@/hooks/community/use-inbox"
 import type { MentionType } from "@alook/shared"
 import { isBlocked } from "@alook/shared"
 
@@ -661,6 +662,107 @@ export function useUnpinMessage() {
       if (ctx.snapshot) queryClient.setQueryData(ctx.key, ctx.snapshot)
     },
   })
+}
+
+// ── Mark / unmark (per-user saved messages) ──────────────────────────────────
+//
+// mark ≠ pin: a pin is channel-scoped and shared; a mark is the viewer's own
+// private saved-messages set. So these hit a distinct per-user route
+// (`/api/community/marks`, self-scoped by ctx.userId server-side), never the
+// pins route. The ⋯ menu's Mark/Unmark label is driven by `useMessageMarked`
+// (a lazy single-row read on menu-open); these mutations flip that per-message
+// cache optimistically so the label updates instantly, and prune the Marked
+// list on unmark. POST is idempotent server-side (UNIQUE(userId,messageId)).
+
+export type MarkMessageArgs = { channelId: string; messageId: string }
+
+export function useMarkMessage() {
+  const queryClient = useQueryClient()
+  return useMutation<void, Error, MarkMessageArgs, { prev: MessageMarkedResponse | undefined }>({
+    mutationFn: async ({ channelId, messageId }) => {
+      await apiFetch(`/api/community/marks`, {
+        method: "POST",
+        body: JSON.stringify({ channelId, messageId }),
+      })
+    },
+    onMutate: async ({ messageId }) => {
+      const key = communityKeys.messageMarked(messageId)
+      await queryClient.cancelQueries({ queryKey: key })
+      const prev = queryClient.getQueryData<MessageMarkedResponse>(key)
+      queryClient.setQueryData<MessageMarkedResponse>(key, { marked: true })
+      return { prev }
+    },
+    onSuccess: () => {
+      // The Marked list gains a row — refetch it so the tab reflects the new
+      // save next time it's opened (list carries the enriched snapshot + seq
+      // we don't reconstruct locally).
+      void queryClient.invalidateQueries({ queryKey: communityKeys.inboxMarked() })
+    },
+    onError: (err, args, ctx) => {
+      queryClient.setQueryData(communityKeys.messageMarked(args.messageId), ctx?.prev)
+      toastApiError(err, "Failed to mark message")
+    },
+  })
+}
+
+export type UnmarkMessageArgs = { messageId: string }
+
+export function useUnmarkMessage() {
+  const queryClient = useQueryClient()
+  return useMutation<void, Error, UnmarkMessageArgs, {
+    prevMarked: MessageMarkedResponse | undefined
+    prevList: MarkedResponse | undefined
+  }>({
+    mutationFn: async ({ messageId }) => {
+      await apiFetch(`/api/community/marks/${messageId}`, { method: "DELETE" })
+    },
+    onMutate: async ({ messageId }) => {
+      const markedKey = communityKeys.messageMarked(messageId)
+      const listKey = communityKeys.inboxMarked()
+      await queryClient.cancelQueries({ queryKey: markedKey })
+      const prevMarked = queryClient.getQueryData<MessageMarkedResponse>(markedKey)
+      const prevList = queryClient.getQueryData<MarkedResponse>(listKey)
+      queryClient.setQueryData<MessageMarkedResponse>(markedKey, { marked: false })
+      // Drop the row from the Marked list immediately (list rows are keyed by
+      // the message id via `m.id`, mirroring useDeleteMention's optimistic prune).
+      queryClient.setQueryData<MarkedResponse | undefined>(listKey, (prev) =>
+        prev ? { ...prev, marked: prev.marked.filter((mk) => mk.m.id !== messageId) } : prev,
+      )
+      return { prevMarked, prevList }
+    },
+    onError: (err, args, ctx) => {
+      queryClient.setQueryData(communityKeys.messageMarked(args.messageId), ctx?.prevMarked)
+      if (ctx?.prevList) queryClient.setQueryData(communityKeys.inboxMarked(), ctx.prevList)
+      toastApiError(err, "Failed to unmark message")
+    },
+  })
+}
+
+/**
+ * Toggle a message's marked state with one call. Reads the per-message
+ * `messageMarked` cache — populated by `useMessageMarked` when the menu that
+ * fired this action opened — to decide POST (mark) vs DELETE (unmark). If the
+ * read hasn't landed yet (cache miss), defaults to marking, which is safe:
+ * POST is idempotent server-side, so a double-mark is a no-op rather than an
+ * error. Returns a stable callback for the message-actions bundle.
+ */
+export function useToggleMark() {
+  const queryClient = useQueryClient()
+  const { mutate: markMutate } = useMarkMessage()
+  const { mutate: unmarkMutate } = useUnmarkMessage()
+  return useCallback(
+    (channelId: string, messageId: string) => {
+      const cached = queryClient.getQueryData<MessageMarkedResponse>(
+        communityKeys.messageMarked(messageId),
+      )
+      if (cached?.marked) {
+        unmarkMutate({ messageId }, { onSuccess: () => toast("Removed from marked") })
+      } else {
+        markMutate({ channelId, messageId }, { onSuccess: () => toast("Message marked") })
+      }
+    },
+    [queryClient, markMutate, unmarkMutate],
+  )
 }
 
 // ── Create thread ──────────────────────────────────────────────────────────

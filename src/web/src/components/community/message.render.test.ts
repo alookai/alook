@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { Message } from "./message"
 import type { RenderMsg } from "./_types"
 
@@ -32,11 +33,18 @@ const genericMock = {
 }
 
 let renderCount = 0
-// A probe that counts how many times the body content actually renders by
-// wrapping the memoized Message; we detect bail-out by rendering Message with a
-// spy callback that increments on each real render via a child sentinel.
+// Message consumes query context (the lazy Mark/Unmark state read), so every
+// render tree is wrapped in a provider. A single shared client keeps the
+// wrapper element type stable across `.update()` so the memo behavior under
+// test isn't disturbed. Retries off + no network — the query stays idle
+// (`enabled` only flips true once a menu opens, which these trees don't do).
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
 function makeTree(props: Parameters<typeof Message>[0]) {
-  return React.createElement(Message, props)
+  return React.createElement(
+    QueryClientProvider,
+    { client: queryClient },
+    React.createElement(Message, props),
+  )
 }
 
 beforeEach(() => {

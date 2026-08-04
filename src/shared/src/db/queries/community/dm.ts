@@ -106,6 +106,34 @@ export async function createOrGetDM(
   return channel;
 }
 
+// The ids of every DM channel the user has access to (type='dm' channels where
+// they hold a relation='access' member row). DMs carry `server_id = NULL`, so
+// they are structurally absent from `listVisibleChannelIdsForUser` (which walks
+// the user's server memberships). A caller that needs DM messages in scope —
+// e.g. the Marked inbox tab, which spans DMs as well as server channels — unions
+// these ids in. Access-membership IS the DM visibility gate, so a mark in a DM
+// the user isn't a member of never surfaces.
+export async function listDmChannelIdsForUser(
+  db: Database,
+  userId: string
+): Promise<string[]> {
+  const rows = await db
+    .select({ channelId: communityChannelMember.channelId })
+    .from(communityChannelMember)
+    .innerJoin(
+      communityChannel,
+      eq(communityChannel.id, communityChannelMember.channelId)
+    )
+    .where(
+      and(
+        eq(communityChannelMember.userId, userId),
+        eq(communityChannelMember.relation, "access"),
+        eq(communityChannel.type, "dm")
+      )
+    );
+  return rows.map((r) => r.channelId);
+}
+
 export async function listDMs(db: Database, userId: string) {
   // DM channels the user holds an access row on, joined to the OTHER access
   // member → user for display. Order by last_message_at DESC.

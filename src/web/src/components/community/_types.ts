@@ -298,6 +298,27 @@ export type Mention = {
   m: Msg
 }
 
+// A single per-user saved ("marked") message, as returned by
+// `/api/community/inbox/marked`. Cross-channel newest-first — each row carries
+// the serverId + channelId + seq needed to deep-link back to the message
+// (unlike a Mention, which only opens the channel, a Marked row jumps to the
+// exact message via the `?msg=<id>` deep-link). `id` is the mark row's own id,
+// used to unmark from the list.
+export type Marked = {
+  id: string // the mark row id (for DELETE / list removal)
+  // A DM has no server: `serverId` is null and `server` may be the peer's name
+  // or empty. The null serverId is the discriminator the jump uses — server
+  // rows deep-link via `?msg=`, DM rows navigate to `/c/me/<channelId>` and
+  // open the context sheet.
+  server: string
+  serverId: string | null
+  channel: string
+  // For a server message this is the channel id; for a DM it's the DM channel
+  // id, which is also the frontend `/c/me/<id>` route param.
+  channelId: string
+  m: Msg
+}
+
 // A single unread thread / forum-post nested under its parent channel.
 type UnreadChild = {
   channelId: string
