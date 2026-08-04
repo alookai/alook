@@ -585,8 +585,19 @@ export {
   ROLES,
   ASSIGNABLE_ROLES,
   CHANNEL_TYPES,
+  CHANNEL_TRAITS,
 } from "./utils/community-roles";
-export type { CommunityRole, ChannelType, StoredChannelType, AssignableRole } from "./utils/community-roles";
+export type {
+  CommunityRole,
+  ChannelType,
+  StoredChannelType,
+  AssignableRole,
+  AddressingTrait,
+  VisibilityTrait,
+  ReachTrait,
+  CreationTrait,
+  ChannelTraits,
+} from "./utils/community-roles";
 export {
   isAccepted,
   isPending,

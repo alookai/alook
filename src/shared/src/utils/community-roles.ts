@@ -78,3 +78,116 @@ export function isDm(t: string | null | undefined): boolean {
 export function isMessageBearingSurface(t: string | null | undefined): boolean {
   return t === "text" || t === "forum_post" || t === "thread" || t === "dm"
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Channel-type TRAIT model (plan: unify-forum-forumpost-channel-thread B0).
+//
+// A channel `type` is not one fact but a COMBINATION of orthogonal behavioral
+// traits (Aigneis's decomposition, thread /Alook/discuss/#462): three read/
+// routing axes — how you ADDRESS it, who can SEE it, who it REACHES — plus one
+// write axis, how it's CREATED. Historically each axis was hand-branched on the
+// `type` literal in four separate places (resolver / write-guard / inbox /
+// permissions), so the SAME per-type fact lived in N copies and drifted (the
+// agent thread-inbox deadlock was one axis — participation — written twice and
+// diverging). This table makes each type = one row of trait VALUES, and every
+// consuming face dispatches on the trait, not the type literal. Adding a type is
+// picking existing values from closed enums; adding a value forces (via an
+// exhaustive `switch` with a `never` check) every face to handle it or fail to
+// compile — so a red-line (single addressing identity / existence
+// non-disclosure / never-drop reach) holds BY CONSTRUCTION, not by prose.
+//
+// Each axis is a CLOSED enum, deliberately NOT an open config object: that is
+// what forbids "configure this type to skip the block check / leak existence".
+// The miss/collision semantics are welded to the enum VALUE, not tunable per
+// type. Do NOT widen these to free-form options.
+//
+// Rollout is staged (B0 = this table, pure add, nothing reads it yet; B1 =
+// addressing; B2 = reach incl. enroll; B3 = visibility/access; B4 = creation).
+// So today NO face consumes CHANNEL_TRAITS — it is behavior-inert until B1+.
+
+// How a channel is located from a CLI ref (read axis). Consumed by the resolver
+// (parse → id) and the single canonical-ref emitter (id → ref), which must read
+// the SAME value so a type can never have two addressing paths (red-line ①).
+//   by-server-name  — `/server/<name>`; top-level, name unique per server.
+//   by-child-name   — `/server/<forum>/<post>`; slug unique within parent forum.
+//   by-root-seq     — `/server/<channel>/#<rootSeq>`; anchored on root msg seq.
+//   by-peer-identity— `/.dm/<peer#0042>`; the OTHER access member's handle.
+export type AddressingTrait = "by-server-name" | "by-child-name" | "by-root-seq" | "by-peer-identity"
+
+// Who can SEE the channel (read axis). The miss semantics (no access → 404, the
+// existence-non-disclosure red-line ②) are welded to the value, not per-type.
+//   own-roster      — its own server-membership / private-category roster.
+//   inherit-parent  — climbs `parentChannelId` to the parent forum/channel's
+//                     roster + privacy (a post/thread is not its own unit).
+//   dm-participant  — the two `relation='access'` DM members; the sole surviving
+//                     403 (block of a known participant) lives inside this value.
+export type VisibilityTrait = "own-roster" | "inherit-parent" | "dm-participant"
+
+// Who a message REACHES / gets notified (read+write axis). One value drives BOTH
+// halves from a single source (red-line ③): the read predicate (fanout + inbox
+// "is this deliverable" agree) AND the write-side enroll (who gets a notify row
+// on send). Splitting them is exactly the thread-deadlock drift.
+//   server-or-roster— the whole server (public) or private-category roster.
+//   participant-set — the notify set: author + spoke + @-mentioned enroll rows.
+//   dm-pair         — the two DM participants.
+export type ReachTrait = "server-or-roster" | "participant-set" | "dm-pair"
+
+// How a channel is CREATED (write axis) — what a name/anchor COLLISION means.
+// Consumed by the create path (B4). Misusing it is a silent-success illusion
+// (a pure-create wrongly merged returns 200 for a post that was never made),
+// which is why it is a first-class trait, not handler-buried logic. Each value
+// names EXACTLY ONE observable collision contract, so it carries exactly one
+// definition-level existence-oracle (Aigneis's B0 criterion, #45) — a value that
+// spanned two contracts (e.g. 409-reject AND bump) would have two end states and
+// no single assertable oracle, collapsing the by-construction win back to
+// per-type hand-verification.
+//   pure-create        — a slug collision BUMPS a new slug (`ideas`→`ideas-2`)
+//                        and retries the insert → N distinct rows, never merged
+//                        (forum_post). Contract: collision → bump → N distinct.
+//   get-or-create      — the anchor identifies ONE unit; a collision re-selects
+//                        and returns the existing winner (idempotent open — DM,
+//                        thread). Contract: collision → fetch winner, 1 unit.
+//   reject-on-collision— a same-name create is REFUSED (409, 0 rows) by the
+//                        `idx_channel_server_name` unique index; the caller must
+//                        rename (top-level text/forum, human-admin-created). NOT
+//                        a singleton (many channels may exist, just not same-name)
+//                        and NOT "no create" (it is a real create path with a real
+//                        409 contract). Contract: collision → 0 rows + 409.
+export type CreationTrait = "pure-create" | "get-or-create" | "reject-on-collision"
+
+export type ChannelTraits = {
+  addressing: AddressingTrait
+  visibility: VisibilityTrait
+  reach: ReachTrait
+  creation: CreationTrait
+}
+
+// The single source of truth mapping each stored channel type to its trait
+// values. Extracted from today's hand-branched behavior — B0 is behavior-
+// invariant (see the axis docs above for where each value comes from).
+//
+// `text`/`forum` creation = `reject-on-collision`: a top-level channel create is
+// human-admin-only and a same-name create is REFUSED (409, 0 rows) by the
+// `idx_channel_server_name` unique index — a DIFFERENT observable contract from
+// forum_post's `pure-create` (collision → bump → N distinct rows). The two must
+// not share a value (Aigneis #45 / Ingaborg #46 / Blondie #49 — each verified in
+// code): one value = one collision contract = one oracle. `forum_post` is the
+// sole `pure-create` today (the bot content-create path this round).
+export const CHANNEL_TRAITS: Record<StoredChannelType, ChannelTraits> = {
+  text: { addressing: "by-server-name", visibility: "own-roster", reach: "server-or-roster", creation: "reject-on-collision" },
+  forum: { addressing: "by-server-name", visibility: "own-roster", reach: "server-or-roster", creation: "reject-on-collision" },
+  forum_post: { addressing: "by-child-name", visibility: "inherit-parent", reach: "participant-set", creation: "pure-create" },
+  thread: { addressing: "by-root-seq", visibility: "inherit-parent", reach: "participant-set", creation: "get-or-create" },
+  dm: { addressing: "by-peer-identity", visibility: "dm-participant", reach: "dm-pair", creation: "get-or-create" },
+}
+
+// ── NOT a trait axis: display / human-readable title ──────────────────────────
+// A forum post's `display_title` (its pre-slugify original title) is DELIBERATELY
+// absent from this table. It is ZERO-behavior — no face (resolver / write-guard /
+// inbox / permissions) reads it; it is pure presentation. Addressing always
+// resolves via the key the `addressing` trait names (`name` = the slug), NEVER a
+// human title. Do NOT "add display to a trait axis" when introducing a type
+// (the tempting misread: "names address, so display belongs in addressing") —
+// that would re-merge the slug (machine address) and the readable title (human
+// display), the exact split this model keeps apart. Readable identity lives in a
+// display-only column and never becomes a second addressable path.
