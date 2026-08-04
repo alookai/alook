@@ -20,6 +20,7 @@ vi.mock("@/hooks/community/use-bots", () => ({
   useBots: () => useBotsMock(),
   useDeleteBot: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useResetBotSession: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useResetMachineAgents: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }))
 vi.mock("@/hooks/community/mutations", () => ({
   useCreateOrGetDm: () => ({ mutateAsync: vi.fn() }),

@@ -134,6 +134,22 @@ export function useResetBotSession() {
   })
 }
 
+// Batch reset every agent bound to a machine, in one control-plane command
+// (not a fan-out of single resets). v1 is dispatch-level: the response reports
+// how many agents the reset was dispatched to — it does NOT track per-agent
+// success (Gus's call). A machine with no live daemon → 409.
+export type ResetMachineAgentsResult = { dispatched: number }
+
+export function useResetMachineAgents() {
+  return useMutation({
+    mutationFn: (machineId: string) =>
+      apiFetch<ResetMachineAgentsResult>(
+        `/api/community/machines/${machineId}/reset-agents`,
+        { method: "POST" },
+      ),
+  })
+}
+
 export type UploadBotAvatarArgs = { botId: string; file: File }
 export type UploadBotAvatarResult = { url: string }
 

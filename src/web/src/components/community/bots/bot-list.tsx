@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { ChevronLeft, Monitor, MoreVertical, HelpCircle } from "lucide-react"
+import { ChevronLeft, Monitor, MoreVertical, HelpCircle, RotateCcw } from "lucide-react"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
 import { isPresenceOnline, formatModelLabel } from "@alook/shared"
@@ -30,7 +30,7 @@ import { ProviderLogo } from "@/components/provider-logo"
 import { formatAwakeDuration } from "@/components/community/format-time"
 import { BotActivityHeatmap } from "./bot-activity-heatmap"
 import { useMachines } from "@/hooks/community/use-machines"
-import { useBots, useDeleteBot, useResetBotSession, type BotSummary } from "@/hooks/community/use-bots"
+import { useBots, useDeleteBot, useResetBotSession, useResetMachineAgents, type BotSummary } from "@/hooks/community/use-bots"
 import { useCreateOrGetDm } from "@/hooks/community/mutations"
 import { useOnlineUserIds } from "@/stores/community/ws"
 import { CreateBotSheet } from "./create-bot-sheet"
@@ -70,9 +70,13 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
   const [activityOpen, setActivityOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<BotSummary | null>(null)
   const [confirmReset, setConfirmReset] = useState<BotSummary | null>(null)
+  // Batch "reset all agents on this machine" confirm — keyed by machineId so the
+  // dialog knows which group it's acting on (and can name it).
+  const [confirmResetMachine, setConfirmResetMachine] = useState<string | null>(null)
   const [helpOpen, setHelpOpen] = useState(false)
   const del = useDeleteBot()
   const resetSession = useResetBotSession()
+  const resetMachineAgents = useResetMachineAgents()
   const createOrGetDm = useCreateOrGetDm()
 
   const chatWithBot = async (bot: BotSummary) => {
@@ -233,6 +237,17 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                       machineOnline ? "bg-status-online" : "bg-muted-foreground",
                     ].join(" ")}
                   />
+                  {/* Reset every agent bound to this machine in one command
+                      (Gus #811). Idle bots get cold-started too (② semantics). */}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="ml-auto h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    onClick={() => setConfirmResetMachine(machineId)}
+                  >
+                    <RotateCcw className="size-3.5" />
+                    Reset all
+                  </Button>
                 </div>
                 <div className="flex flex-col gap-3">
                   {machineBots.map((bot) => {
@@ -478,6 +493,50 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
               }}
             >
               Reset
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
+        open={!!confirmResetMachine}
+        onOpenChange={(open) => !open && setConfirmResetMachine(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Reset all agents on {confirmResetMachine ? machineName(confirmResetMachine) : "this machine"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Every agent on this machine will start a fresh session. Any that
+              aren&apos;t currently running will be woken too.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="machine-reset-all-confirm"
+              onClick={async () => {
+                if (!confirmResetMachine) return
+                const name = machineName(confirmResetMachine)
+                try {
+                  const { dispatched } = await resetMachineAgents.mutateAsync(confirmResetMachine)
+                  toast.success(
+                    `Dispatched reset to ${dispatched} agent${dispatched === 1 ? "" : "s"} on ${name}.`,
+                  )
+                } catch (e) {
+                  const status = (e as { status?: number } | undefined)?.status
+                  const message = (e as { message?: string } | undefined)?.message ?? ""
+                  if (status === 409 && message.toLowerCase().includes("offline")) {
+                    toast.error(`${name} is offline — bring it online before resetting.`)
+                  } else {
+                    toastApiError(e, "Couldn't reset the machine's agents")
+                  }
+                } finally {
+                  setConfirmResetMachine(null)
+                }
+              }}
+            >
+              Reset all
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
