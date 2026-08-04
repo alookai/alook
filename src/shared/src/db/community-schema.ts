@@ -17,16 +17,33 @@ import { user } from "./schema";
 // ---------------------------------------------------------------------------
 
 // 1. community_server
-export const communityServer = sqliteTable("community_server", {
-  id: text("id").primaryKey().$defaultFn(() => nanoid()),
-  name: text("name").notNull(),
-  description: text("description").default(""),
-  icon: text("icon"),
-  ownerId: text("owner_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "restrict" }),
-  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
-});
+export const communityServer = sqliteTable(
+  "community_server",
+  {
+    id: text("id").primaryKey().$defaultFn(() => nanoid()),
+    name: text("name").notNull(),
+    discriminator: text("discriminator").notNull().default("0000"),
+    description: text("description").default(""),
+    icon: text("icon"),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    // Unique server handle `name#discriminator` — the server-segment address
+    // anchor, so a ref `/name#disc/...` resolves to exactly one server. Mirrors
+    // the user `(name, discriminator)` handle. Source of truth:
+    // migration 0079_community_server_discriminator.sql. NOCASE on `name` there
+    // so the DB ruler folds identically to resolveServerByNameForMember's
+    // `COLLATE NOCASE` lookup (the index/resolver alignment migration 0075
+    // established for top-level channel names). Plain `.on()` here can't express
+    // COLLATE — the migration is authoritative. No `deletedAt` clause: servers
+    // are not soft-deleted (community_server has no deletedAt column), unlike the
+    // user index's partial `WHERE deletedAt IS NULL` (0055).
+    uniqueIndex("idx_community_server_name_discriminator").on(t.name, t.discriminator),
+  ]
+);
 
 // 2. community_category
 export const communityCategory = sqliteTable(

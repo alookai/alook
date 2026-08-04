@@ -204,6 +204,24 @@ describe("createServer", () => {
 
     expect(insertCalls[0].values).toMatchObject({ description: "" });
   });
+
+  it("writes a 4-digit discriminator + an up-front id on the server insert (name#disc handle)", async () => {
+    const { db, insertCalls } = createDbMock({
+      insertReturns: [[serverRow], [categoryRow], [], [memberRow]],
+      selectReturns: [[{ name: "Alice" }]],
+    });
+
+    await serverQueries.createServer(db, { name: "My Server", ownerId });
+
+    // The server insert now carries an id (minted up-front so the discriminator
+    // can hash on it, like createUser) and a computed 4-digit decimal disc. The
+    // (name, discriminator) uniqueness + salt-retry come from
+    // withUniqueDiscriminator (unit-tested in user.test.ts) + the real index
+    // (community-server-discriminator-unique.test.ts).
+    expect(insertCalls[0].table).toBe(communityServer);
+    expect(insertCalls[0].values.id).toEqual(expect.any(String));
+    expect(insertCalls[0].values.discriminator).toMatch(/^\d{4}$/);
+  });
 });
 
 // ────────────────────────────────────────────────────────────────────────────

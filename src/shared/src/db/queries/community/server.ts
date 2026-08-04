@@ -9,8 +9,10 @@ import {
 } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
+import { nanoid } from "nanoid";
 import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 import { MENTION_KIND } from "../../../constants/community";
+import { withUniqueDiscriminator } from "../user";
 
 export async function createServer(
   db: Database,
@@ -26,26 +28,44 @@ export async function createServer(
     userDiscriminator: string;
   };
 }> {
-  const [server] = await db
-    .insert(communityServer)
-    .values({
-      name: data.name,
-      description: data.description ?? "",
-      ownerId: data.ownerId,
-    })
-    .returning();
+  // Mint the id up-front so the discriminator (an FNV-1a hash of the id) is
+  // written in the same INSERT — same pattern as createUser/createBot. Only the
+  // server row carries the discriminator, so wrap just that insert (not the
+  // whole batch): category/channel/member rows don't touch the (name,
+  // discriminator) unique index, so they run after the server row wins its
+  // discriminator. A collision against idx_community_server_name_discriminator
+  // salt-retries the server insert; throw-at-cap on exhaustion (loud, never a
+  // silent duplicate).
+  const id = nanoid();
+  const server = await withUniqueDiscriminator(
+    db,
+    { id, name: data.name },
+    async (discriminator) => {
+      const [row] = await db
+        .insert(communityServer)
+        .values({
+          id,
+          name: data.name,
+          discriminator,
+          description: data.description ?? "",
+          ownerId: data.ownerId,
+        })
+        .returning();
+      return row!;
+    }
+  );
 
   const [category] = await db
     .insert(communityCategory)
     .values({
-      serverId: server!.id,
+      serverId: server.id,
       name: "All",
       position: 0,
     })
     .returning();
 
   await db.insert(communityChannel).values({
-    serverId: server!.id,
+    serverId: server.id,
     categoryId: category!.id,
     name: "general",
     type: "text",
@@ -55,7 +75,7 @@ export async function createServer(
   const [memberRow] = await db
     .insert(communityServerMember)
     .values({
-      serverId: server!.id,
+      serverId: server.id,
       userId: data.ownerId,
       role: "owner",
       railOrder: 0,
@@ -76,7 +96,7 @@ export async function createServer(
     .where(eq(user.id, data.ownerId));
 
   return {
-    server: server!,
+    server,
     ownerMember: {
       id: memberRow!.id,
       userId: memberRow!.userId,

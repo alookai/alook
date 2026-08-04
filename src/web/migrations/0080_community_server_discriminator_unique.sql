@@ -1,0 +1,24 @@
+-- The `(name, discriminator)` pair is now load-bearing for server addressing:
+-- a server ref `/name#0042/channel` resolves a handle to exactly one server, so
+-- it must be unique. `name COLLATE NOCASE` matches the case-insensitive
+-- `LIKE`-based lookups in resolveServerByNameForMember (queries/community/
+-- server.ts) — the same index/resolver fold alignment migration 0075
+-- established for top-level channel names. Without NOCASE, "Alook#0042" and
+-- "alook#0042" could both exist as live rows and a case-insensitive handle
+-- lookup would match two rows nondeterministically.
+--
+-- NO partial `WHERE deletedAt IS NULL` clause (unlike the user index in 0055):
+-- community_server has no soft-delete column — servers are hard-deleted — so a
+-- plain unique index is correct.
+--
+-- APPLY PREREQUISITE: zero duplicate (name COLLATE NOCASE, discriminator) among
+-- servers after the 0079 random seed. The seed can draw the same tag for two
+-- same-name servers, so re-scan before applying to ANY environment with
+-- existing servers (local dev is empty after db:reset, so it builds directly):
+--   SELECT name COLLATE NOCASE AS n, discriminator, COUNT(*) c
+--   FROM community_server GROUP BY n, discriminator HAVING c > 1;
+-- and resolve any collision by re-drawing the loser's discriminator (an UPDATE
+-- to a free tag for that name — never delete a server, it owns channels +
+-- messages) before this index will build.
+CREATE UNIQUE INDEX idx_community_server_name_discriminator
+  ON community_server(name COLLATE NOCASE, discriminator);
