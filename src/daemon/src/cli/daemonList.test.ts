@@ -181,3 +181,46 @@ describe("daemonList — C0 per-daemon subdir layout + multi-daemon isolation", 
     expect(list.find((d) => d.id === "newnewnewnew")?.agents).toBe(2); // only subdir daemons
   });
 });
+
+describe("daemonList — C0.1 machineId anchor (cmt_ rotation doesn't drift)", () => {
+  let baseDir: string;
+  beforeEach(() => { baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "alook-c01-")); });
+  afterEach(() => { fs.rmSync(baseDir, { recursive: true, force: true }); });
+
+  // Simulate a daemon whose dir is anchored on machineId; the pidfile's `key`
+  // breadcrumb is whatever token that generation dialed with (a one-time cmt_).
+  const writeGeneration = (machineId: string, cmtKey: string) => {
+    const dir = path.join(baseDir, "daemons", machineId);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "daemon.pid"), JSON.stringify({ pid: process.pid, key: cmtKey }));
+    fs.writeFileSync(path.join(dir, "status.json"), JSON.stringify({
+      writtenAt: Date.now(),
+      agents: [{ agentId: "a", status: "running", derivedActivity: "running", turnActive: true, inbox: 0, sinceProgressMs: 1, stoppingSince: null }],
+    }));
+  };
+
+  it("two reconnect generations (different cmt_, same machineId) → ONE dir, ONE row (the C0.1 regression)", () => {
+    const MACHINE_ID = "mach_stable01";
+    // First pairing: cmt_ token A.
+    writeGeneration(MACHINE_ID, "cmt_tokenAAAA");
+    // Reconnect mints a fresh cmt_ (token B) bound to the SAME machineId — the
+    // dir is keyed on machineId, so it's the SAME dir, not a new one. Pre-C0.1
+    // this drifted to a second keyHash(cmt_) subdir + orphaned the first.
+    writeGeneration(MACHINE_ID, "cmt_tokenBBBB");
+
+    const list = daemonList({ baseDir });
+    const rows = list.filter((d) => d.id === MACHINE_ID);
+    expect(rows).toHaveLength(1); // no drift: still one daemon dir
+    // Only one subdir exists on disk (not two hash dirs).
+    expect(fs.readdirSync(path.join(baseDir, "daemons")).filter((f) => f.startsWith("mach_"))).toEqual([MACHINE_ID]);
+  });
+
+  it("the list id IS the machineId (stable, long-term stop-able) — not a per-token hash", () => {
+    writeGeneration("mach_stable01", "cmt_whatever");
+    const row = daemonList({ baseDir }).find((d) => d.id === "mach_stable01");
+    expect(row).toBeTruthy();
+    expect(row!.id).toBe("mach_stable01"); // the subdir name = machineId
+    // A pidfile `key` breadcrumb (the volatile token) never leaks into the id/output.
+    expect(JSON.stringify(row)).not.toContain("cmt_");
+  });
+});

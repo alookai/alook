@@ -55,30 +55,41 @@ function daemonsDir(baseDir: string): string {
 }
 
 /**
- * Per-daemon subdirectory (batch C0): each daemon's own on-disk files
- * (daemon.pid + status.json + fsm-trace.jsonl + daemon.log) live under
- * `daemons/<keyHash>/`, so multiple daemons sharing a baseDir never clobber a
- * shared file. `<keyHash>` is the daemon's addressing id (what `daemon list`
- * shows and `daemon stop <id>` takes). Mirrors the pre-C0 per-key pidfile
- * naming — this just collects the per-daemon set into one directory.
+ * Per-daemon subdirectory. Each daemon's own on-disk files (daemon.pid +
+ * status.json + fsm-trace.jsonl + daemon.log) live under `daemons/<id>/`, so
+ * multiple daemons sharing a baseDir never clobber a shared file.
+ *
+ * `<id>` is the daemon's STABLE identity — the server-issued **machineId**
+ * (batch C0.1). It was `sha256(opts.machineKey)` (C0), but the reconnect flow
+ * mints a fresh one-time `cmt_` every reconnect (all bound to the same
+ * machineId), so hashing the CLI key drifted the directory on every reconnect —
+ * orphan subdirs + a double-start guard that never fired. machineId is stable
+ * across reconnects (activate reuses the same machine row) and is what
+ * `daemon list` shows / `daemon stop <id>` takes. See
+ * plans/daemon-c01-machineid-anchor.md.
  */
-function daemonDir(baseDir: string, machineKey: string): string {
-  return path.join(daemonsDir(baseDir), keyHash(machineKey));
-}
 function daemonDirById(baseDir: string, id: string): string {
   return path.join(daemonsDir(baseDir), id);
 }
 
-function pidfilePath(baseDir: string, machineKey: string): string {
-  return path.join(daemonDir(baseDir, machineKey), "daemon.pid");
+function pidfilePathById(baseDir: string, id: string): string {
+  return path.join(daemonDirById(baseDir, id), "daemon.pid");
 }
 
-/** Per-daemon status snapshot (C0): `daemons/<keyHash>/status.json`. */
-function statusFilePathForKey(baseDir: string, machineKey: string): string {
-  return path.join(daemonDir(baseDir, machineKey), "status.json");
-}
+/** Per-daemon status snapshot: `daemons/<id>/status.json` (id = machineId). */
 function statusFilePathById(baseDir: string, id: string): string {
   return path.join(daemonDirById(baseDir, id), "status.json");
+}
+
+/**
+ * A `cmk_` paste with no persisted credential file has no machineId to anchor
+ * on yet. It's a STABLE key (unlike a one-time `cmt_`), so hashing it is a
+ * safe fallback id that won't drift across reconnects — the drift bug was
+ * `cmt_`-only. Once the server confirms identity and a credential file lands,
+ * subsequent starts resolve the real machineId.
+ */
+function fallbackIdForStableKey(machineKey: string): string {
+  return keyHash(machineKey);
 }
 
 function isProcessAlive(pid: number): boolean {
@@ -104,14 +115,19 @@ function writePidFile(filePath: string, pid: number, machineKey: string): void {
   fs.writeFileSync(filePath, JSON.stringify({ pid, key: machineKey }));
 }
 
-function acquireLock(baseDir: string, machineKey: string): string {
-  const pf = pidfilePath(baseDir, machineKey);
+/**
+ * Acquire the FINAL per-daemon lock, keyed on the stable id (machineId). Rejects
+ * a double-start if a live process already holds this id's pidfile. `key` is
+ * stored in the pidfile only as a human breadcrumb; the LOCK identity is the id.
+ */
+function acquireLock(baseDir: string, id: string, key: string): string {
+  const pf = pidfilePathById(baseDir, id);
   const existing = readPidFile(pf);
   if (existing && isProcessAlive(existing.pid)) {
-    log.error(`daemon for this machine key already running (pid ${existing.pid}). Stop it first or remove ${pf}`);
+    log.error(`daemon '${id}' already running (pid ${existing.pid}). Stop it first or remove ${pf}`);
     process.exit(1);
   }
-  writePidFile(pf, process.pid, machineKey);
+  writePidFile(pf, process.pid, key);
   return pf;
 }
 
@@ -122,6 +138,27 @@ function releaseLock(pf: string): void {
       fs.unlinkSync(pf);
     }
   } catch { /* best effort */ }
+}
+
+/**
+ * COARSE start-lock for the `cmt_` path (C0.1): the machineId isn't known until
+ * after async `/activate`, so this baseDir-level lock blocks a concurrent local
+ * start during the activate window (when a human is most likely to fire `start`
+ * twice). Handed off to the final machineId lock — acquire-final-THEN-release-
+ * coarse, never a naked gap (Claudette 架构#499). `.start.lock` holds the pid.
+ */
+function coarseStartLockPath(baseDir: string): string {
+  return path.join(daemonsDir(baseDir), ".start.lock");
+}
+function acquireCoarseLock(baseDir: string): string {
+  const lf = coarseStartLockPath(baseDir);
+  const existing = readPidFile(lf);
+  if (existing && isProcessAlive(existing.pid)) {
+    log.error(`another daemon start is in progress on this machine (pid ${existing.pid}). Wait for it, or remove ${lf}`);
+    process.exit(1);
+  }
+  writePidFile(lf, process.pid, "coarse-start-lock");
+  return lf;
 }
 
 /* ------------------------------------------------------------------ */
@@ -465,7 +502,19 @@ export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
   }
 
   const baseDir = opts.baseDir || process.env.ALOOK_DATA_DIR || DEFAULT_BASE_DIR;
-  const pf = acquireLock(baseDir, opts.machineKey);
+
+  // Two-stage locking (C0.1): the daemon dir/pidfile anchor on the stable
+  // machineId, which for a `cmt_` start isn't known until after async
+  // /activate. So a `cmt_` start takes a COARSE baseDir lock now (blocks a
+  // concurrent local start during the activate window), then hands off to the
+  // FINAL machineId lock once activate returns — acquire-final-THEN-release-
+  // coarse, so there's never an unlocked instant (Claudette 架构#499). A `cmk_`
+  // start can resolve machineId up front (credential-file lookup) → one-step
+  // final lock, no coarse stage. `coarsePf`/`pf` track which locks are held so
+  // any early-exit path releases them.
+  const isPairingStart = opts.machineKey.startsWith("cmt_");
+  const coarsePf = isPairingStart ? acquireCoarseLock(baseDir) : null;
+  let pf: string | null = null;
 
   const agentCliPath = resolveAlookCliPathWithFallback() ?? process.argv[1];
 
@@ -505,6 +554,8 @@ export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
   //      identity on the next boot.
   //   3. else → exit(2) "invalid machine key format".
   let dialingCredential: string;
+  // The stable per-daemon id (machineId when known) that anchors the dir/lock.
+  let daemonIdentity: string;
   if (opts.machineKey.startsWith("cmt_")) {
     log.info("activating pairing token…");
     try {
@@ -524,27 +575,42 @@ export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
         dialingCredential,
         activated.machineId
       );
+      // Now the stable machineId is known → acquire the FINAL lock, THEN drop
+      // the coarse lock (overlap, no unlocked instant — C0.1 invariant). The
+      // machineId lock is the real double-start backstop: two different cmt_
+      // for the same machine both resolve here to the same machineId, so the
+      // second start is rejected regardless of which token it used.
+      daemonIdentity = activated.machineId;
+      pf = acquireLock(baseDir, daemonIdentity, dialingCredential);
+      if (coarsePf) releaseLock(coarsePf);
       log.info("pairing token activated — credential persisted");
     } catch (err) {
       log.error(`activation failed: ${err instanceof Error ? err.message : String(err)}`);
-      releaseLock(pf);
+      if (coarsePf) releaseLock(coarsePf);
       process.exit(1);
     }
   } else if (opts.machineKey.startsWith("cmk_")) {
     const match = findExistingCredentialForBearer(baseDir, opts.machineKey);
     if (match) {
       dialingCredential = match.credential;
+      // Persisted credential → stable machineId is known up front. One-step
+      // final lock, no coarse stage needed.
+      daemonIdentity = match.machineId;
       log.info("using persisted daemon credential");
     } else {
       // No file → dial with the pasted credential; if it works the server
       // owns identity anyway. We don't persist since we can't derive the
-      // filename without machineId.
+      // filename without machineId. `cmk_` is a STABLE key (not a one-time
+      // token), so hashing it is a non-drifting fallback id until a credential
+      // file lands and a later start resolves the real machineId.
       dialingCredential = opts.machineKey;
+      daemonIdentity = fallbackIdForStableKey(opts.machineKey);
       log.info("dialing with provided cmk_ (no on-disk record)");
     }
+    pf = acquireLock(baseDir, daemonIdentity, dialingCredential);
   } else {
     log.error("invalid machine key format — expected `cmt_` (pairing token) or `cmk_` (credential)");
-    releaseLock(pf);
+    if (coarsePf) releaseLock(coarsePf);
     process.exit(2);
   }
 
@@ -585,8 +651,8 @@ export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
     // traces or clobber each other's status.json, and each daemon's trace gets
     // its OWN rotation budget (restoring T4's ≥12h-per-daemon retention). The
     // ALOOK_FSM_TRACE env override (createDaemon) still wins for deep dives.
-    fsmTraceDir: daemonDir(baseDir, opts.machineKey),
-    statusFilePath: statusFilePathForKey(baseDir, opts.machineKey),
+    fsmTraceDir: daemonDirById(baseDir, daemonIdentity),
+    statusFilePath: statusFilePathById(baseDir, daemonIdentity),
     hostname: os.hostname(),
     platform: process.platform,
     arch: process.arch,
@@ -595,7 +661,7 @@ export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
     logger: log,
     onAuthRejected: () => {
       log.error("machine key rejected by server — is it correct / has it expired?");
-      releaseLock(pf);
+      if (pf) releaseLock(pf);
       process.exit(1);
     },
   });
@@ -609,7 +675,7 @@ export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
 
   const shutdown = async () => {
     log.info("shutting down…");
-    releaseLock(pf);
+    if (pf) releaseLock(pf);
     await daemon.stop();
     process.exit(0);
   };
