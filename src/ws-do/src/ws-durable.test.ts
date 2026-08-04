@@ -247,10 +247,18 @@ vi.mock("@alook/shared", () => {
     },
     createDb: (d1: unknown) => mockCreateDb(d1),
     createLogger: () => noopLogger,
-    // Real type-guard impls — fanOutTyping branches on these to route a
-    // thread/forum_post to the participant set vs the access audience.
-    isThread: (t: unknown) => t === "thread",
-    isForumPost: (t: unknown) => t === "forum_post",
+    // Real reach-trait impls — fanOutTyping's recipient split dispatches on
+    // channelReach (B2 reach axis single source) to route a thread/forum_post to
+    // the participant set, a dm to its members, else the access audience. Mirror
+    // the real CHANNEL_TRAITS reach values + the stored-type guard.
+    channelReach: (t: string) =>
+      t === "forum_post" || t === "thread"
+        ? "participant-set"
+        : t === "dm"
+          ? "dm-pair"
+          : "server-or-roster",
+    isStoredChannelType: (t: unknown) =>
+      t === "text" || t === "forum" || t === "forum_post" || t === "thread" || t === "dm",
     // Minimal `readOrStale` shim — bypasses the classifier so tests can
     // inject arbitrary Error shapes at the query-fn boundary and observe
     // fail-closed semantics. Real production behavior (retry then fallback)

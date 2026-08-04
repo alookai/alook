@@ -15,8 +15,8 @@ import {
   pickBotActivityPreset,
   RUNNING_PRESETS,
   isBotActivityStatus,
-  isThread,
-  isForumPost,
+  channelReach,
+  isStoredChannelType,
   WS_EVENTS,
 } from "@alook/shared"
 import type { CommunityMachineRuntime, CommunityMachineSummary } from "@alook/shared"
@@ -1268,6 +1268,32 @@ export class WebSocketDurableObject extends DurableObject<Env> {
    * branches fold the check into the same query that already resolves the
    * fan-out target, so this adds no extra DB round-trip versus before.
    */
+  /**
+   * The typing-broadcast recipient set for a channel — the SAME reach
+   * recipient-split as the message fan-out (`fanout.ts` getChannelRecipientUserIds).
+   * Both dispatch on the channel type's reach trait (`channelReach`) so typing
+   * reaches exactly whom a message would; they can't drift (B2 reach axis single
+   * source — this was previously a hand-copied `isThread||isForumPost` split in
+   * BOTH fanOutTyping and fanOutTypingStop, the reach rule's 7th/8th copies).
+   * Does not exclude the sender — the callers filter that.
+   */
+  private async typingRecipientUserIds(db: ReturnType<typeof createDb>, channelId: string): Promise<string[]> {
+    const channelType = await queries.communityChannel.getChannelType(db, channelId)
+    const reach = isStoredChannelType(channelType) ? channelReach(channelType) : "server-or-roster"
+    switch (reach) {
+      case "participant-set":
+        return queries.communityThread.listThreadParticipantUserIds(db, channelId)
+      case "dm-pair":
+        return queries.communityChannel.listChannelMemberUserIds(db, channelId)
+      case "server-or-roster":
+        return queries.communityMembersResolver.resolveScopeMemberUserIds(db, { scope: "channel", scopeId: channelId })
+      default: {
+        const _never: never = reach
+        return _never
+      }
+    }
+  }
+
   private async fanOutTyping(
     senderUserId: string,
     channelId?: string,
@@ -1286,24 +1312,9 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       log.warn("fanOutTyping: sender not a channel member", { senderUserId, channelId })
       return
     }
-    // Recipient set — same split as the message fan-out (fanout.ts):
-    //   - DM → the two relation='access' members.
-    //   - THREAD / FORUM_POST → the participant NOTIFY set. Typing reaches
-    //     only its participants, not the whole parent channel/server.
-    //   - channel / forum → the access audience (public/private split).
-    const channelType = await queries.communityChannel.getChannelType(db, channelId)
-    if (channelType === "dm") {
-      recipientUserIds = await queries.communityChannel.listChannelMemberUserIds(db, channelId)
-    } else if (isThread(channelType) || isForumPost(channelType)) {
-      recipientUserIds = await queries.communityThread.listThreadParticipantUserIds(db, channelId)
-    } else {
-      recipientUserIds = await queries.communityMembersResolver.resolveScopeMemberUserIds(db, {
-        scope: "channel",
-        scopeId: channelId,
-      })
-    }
-
-    // Exclude the sender
+    // Recipient set — the shared reach recipient-split (same as message
+    // fan-out), then exclude the sender.
+    recipientUserIds = await this.typingRecipientUserIds(db, channelId)
     recipientUserIds = recipientUserIds.filter((id) => id !== senderUserId)
     if (recipientUserIds.length === 0) return
 
@@ -1339,18 +1350,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       log.warn("fanOutTypingStop: sender not a channel member", { senderUserId, channelId })
       return
     }
-    const channelType = await queries.communityChannel.getChannelType(db, channelId)
-    let recipientUserIds: string[]
-    if (channelType === "dm") {
-      recipientUserIds = await queries.communityChannel.listChannelMemberUserIds(db, channelId)
-    } else if (isThread(channelType) || isForumPost(channelType)) {
-      recipientUserIds = await queries.communityThread.listThreadParticipantUserIds(db, channelId)
-    } else {
-      recipientUserIds = await queries.communityMembersResolver.resolveScopeMemberUserIds(db, {
-        scope: "channel",
-        scopeId: channelId,
-      })
-    }
+    let recipientUserIds = await this.typingRecipientUserIds(db, channelId)
     recipientUserIds = recipientUserIds.filter((id) => id !== senderUserId)
     if (recipientUserIds.length === 0) return
     const body = JSON.stringify({
