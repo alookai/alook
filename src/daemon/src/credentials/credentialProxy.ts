@@ -239,7 +239,10 @@ export const DEFAULT_CAPABILITY_RESOLVER: CapabilityResolver = (_method, pathnam
   // attach-only without granting `send`/`read`.
   if (pathname.includes("/attachment")) return "attach";
   if (pathname.includes("/friendRequest") || pathname.includes("/listFriends")) return "friend";
-  if (pathname.includes("/send") || pathname.includes("/reactAdd")) return "send";
+  // `/createPost` is a create/write (a new forum post + its first message), same
+  // write class as `/send`/`/reactAdd` — it needs the `send` capability so a
+  // read-only or attach-only voucher can't create content.
+  if (pathname.includes("/send") || pathname.includes("/reactAdd") || pathname.includes("/createPost")) return "send";
   if (pathname.includes("/history") || pathname.includes("/search") || pathname.includes("/inbox"))
     return "read";
   if (pathname.includes("/server") || pathname.includes("/channel")) return "server";

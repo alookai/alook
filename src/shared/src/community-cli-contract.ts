@@ -378,6 +378,35 @@ export interface CommunityAgentReactAddResponse {
   duplicate?: boolean;
 }
 
+/**
+ * Create a new forum post (`alook message post`). `forum` is a forum REF
+ * (`/server/forum`), resolved server-side (bots hold refs, not ids — same reason
+ * `send` takes a ref). `title` is the raw human title; its slug becomes the
+ * post's addressing name. Content follows the forum-post opener contract: text
+ * OR at least one attachment. `attachments` are pending ids the bot uploaded
+ * bound to the FORUM (the post channel doesn't exist at upload time).
+ */
+export interface CreatePostRequest {
+  agentId: AgentId;
+  forum: ChannelRef;
+  title: string;
+  content: MessageContent;
+  attachments?: string[];
+  /** Idempotency key — reused across retries, server dedupes (same as `send`). */
+  nonce?: string;
+}
+
+/**
+ * The created post's canonical address. `ref` is the round-trippable
+ * `/server/forum/<real-slug>` (the slug after create-time dedupe/bump) — the bot
+ * hands it straight back as a target. `seq` is the body (first-message) seq.
+ */
+export interface CreatePostResponse {
+  ref: ChannelRef;
+  name: string;
+  seq: Seq;
+}
+
 export interface ReadRequest {
   agentId: AgentId;
   channel: ChannelRef;
@@ -532,6 +561,9 @@ export interface ServerApi {
 
   /** Send a message to a channel ref. May be held by the freshness guard. */
   send(req: SendRequest): Promise<SendResponse>;
+
+  /** Create a new forum post in a forum ref, with its body as the first message. */
+  createPost(req: CreatePostRequest): Promise<CreatePostResponse>;
 
   /** Read history for a channel with seq-anchored pagination. */
   read(req: ReadRequest): Promise<Page<Message>>;

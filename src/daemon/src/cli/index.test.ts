@@ -27,6 +27,7 @@ function stubApi(over: Partial<ServerApi> = {}): ServerApi {
     inboxSnapshot: async () => ({ rows: [], pendingChannels: 0, pendingMessages: 0 }),
     ack: async () => undefined,
     send: async () => ({ state: "sent", message: { seq: "#1", channel: "/s/c", sender: "@a", content: { text: "" }, time: "" } }),
+    createPost: async () => ({ ref: "/s/c/post", name: "post", seq: 1 }),
     read: async () => ({ items: [], hasMore: false }),
     resolve: async () => null,
     listMembers: async () => ({ members: [] }),
@@ -354,6 +355,74 @@ describe("message send — idempotent retry (mutation-idempotency ②)", () => {
     const env = parseEnvelope(cap.lines());
     expect(env.error).toContain("reply target");
     expect(sendSpy).toHaveBeenCalledTimes(1); // deterministic business error — not retried
+  });
+});
+
+describe("message post", () => {
+  const okRes = { ref: "/s/ideas/my-post", name: "my-post", seq: 1 };
+
+  it("forwards forum ref + title + body, returns the canonical post ref", async () => {
+    const postSpy = vi.fn(async () => okRes);
+    setApiForTesting(stubApi({ createPost: postSpy }));
+    await main(["message", "post", "--target", "/s/ideas", "--title", "My Post", "--text", "hello"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env.success.posted).toBe("/s/ideas/my-post");
+    expect(postSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ forum: "/s/ideas", title: "My Post", content: { text: "hello" } }),
+    );
+  });
+
+  it("requires --target (forum ref), never calling createPost", async () => {
+    const postSpy = vi.fn(async () => okRes);
+    setApiForTesting(stubApi({ createPost: postSpy }));
+    await main(["message", "post", "--title", "My Post", "--text", "hi"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env.error).toContain("--target");
+    expect(postSpy).not.toHaveBeenCalled();
+  });
+
+  it("requires --title, never calling createPost", async () => {
+    const postSpy = vi.fn(async () => okRes);
+    setApiForTesting(stubApi({ createPost: postSpy }));
+    await main(["message", "post", "--target", "/s/ideas", "--text", "hi"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env.error).toContain("--title");
+    expect(postSpy).not.toHaveBeenCalled();
+  });
+
+  it("requires text OR an attachment (empty opener → error, never calls createPost)", async () => {
+    const postSpy = vi.fn(async () => okRes);
+    setApiForTesting(stubApi({ createPost: postSpy }));
+    await main(["message", "post", "--target", "/s/ideas", "--title", "My Post"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env.error).toContain("--text");
+    expect(postSpy).not.toHaveBeenCalled();
+  });
+
+  it("allows an attachment-only post (no --text)", async () => {
+    const postSpy = vi.fn(async () => okRes);
+    setApiForTesting(stubApi({ createPost: postSpy }));
+    await main(["message", "post", "--target", "/s/ideas", "--title", "My Post", "--attachment", "att_1"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env.success.posted).toBe("/s/ideas/my-post");
+    expect(postSpy).toHaveBeenCalledWith(expect.objectContaining({ attachments: ["att_1"] }));
+  });
+
+  it("attaches a nonce and reuses it across a transient-5xx retry (no duplicate post)", async () => {
+    let calls = 0;
+    const nonces: (string | undefined)[] = [];
+    const postSpy = vi.fn(async (req: { nonce?: string }) => {
+      nonces.push(req.nonce);
+      calls++;
+      if (calls === 1) throw new Error("upstream returned 502 with non-JSON body from /api/createPost");
+      return okRes;
+    });
+    setApiForTesting(stubApi({ createPost: postSpy }));
+    await main(["message", "post", "--target", "/s/ideas", "--title", "My Post", "--text", "hi"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env.success.posted).toBe("/s/ideas/my-post");
+    expect(calls).toBe(2);
+    expect(nonces[0]).toBe(nonces[1]); // same nonce → server dedupes, no second post
   });
 });
 
