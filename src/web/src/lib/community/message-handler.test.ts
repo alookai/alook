@@ -792,6 +792,42 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
       kind: "mention",
     })
   })
+
+  it("suppressBroadcast (migration-backfill mode): STRUCTURAL core runs (enroll + mention rows), real-time delivery shell is fully dropped", async () => {
+    // route/disc trunk step 1: the forum carrier-swap migration entry needs a
+    // create that persists the message + enrolls participants + writes mention
+    // rows but fires ZERO real-time WS (no ping / no M×N frames on historical
+    // backfill). This proves the shell-OFF capability keeps the structural core
+    // — unlike skipMentions, which would ALSO drop enroll (the 213-218 class bug
+    // this whole knob-split guards against).
+    mockGetPrivateChannelAudienceUserIds.mockResolvedValue(["author_1", "cara_1"])
+    mockGetMessage.mockResolvedValue(messageRow({ content: "welcome @Cara#0002", channelId: "p1" }))
+
+    const result = await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "forum_post", channelId: "p1", parentChannelId: "forum_1", serverId: "srv_1" },
+      body: { content: "welcome @Cara#0002" },
+      suppressBroadcast: true,
+    })
+
+    // Structural core KEPT: participant enroll (reach-axis write) still runs...
+    expect(mockAddThreadParticipants).toHaveBeenCalledWith({}, "p1", [
+      { userId: "author_1", source: "spoke" },
+      { userId: "cara_1", source: "mention" },
+    ])
+    // ...and mention ROW persistence still runs (rows are not a broadcast).
+    expect(mockCreateMentions).toHaveBeenCalledWith({}, {
+      messageId: "msg_1",
+      userIds: ["cara_1"],
+      kind: "mention",
+    })
+    // Real-time delivery shell FULLY dropped: no WS fan-out of any kind.
+    expect(mockFanOutToChannel).not.toHaveBeenCalled()
+    // ...and no deferred thunk handed back either (unlike deferBroadcast).
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.broadcast).toBeUndefined()
+  })
 })
 
 describe("createCommunityMessage — attachment reservation-first flow (agent path)", () => {

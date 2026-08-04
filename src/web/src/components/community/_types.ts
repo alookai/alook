@@ -253,8 +253,10 @@ export type Profile = {
   // resolution and self-detection (never match by non-unique display name).
   // Optional so mock/older Profile-constructing sites keep type-checking.
   userId?: string
-  // 4-digit discriminator hash of user.id (`"0042"`) — undefined while the
-  // profile fetch is in flight. See computeDiscriminator in @alook/shared.
+  // Variable-width (≥4-digit) decimal discriminator derived from user.id
+  // (`"0042"`, widens on collision) — undefined while the profile fetch is in
+  // flight. Shown at its true width, never re-padded. See computeDiscriminator
+  // in @alook/shared.
   discriminator?: string
   avatar: string
   role: string

@@ -209,6 +209,28 @@ export async function createCommunityMessage(params: {
    */
   deferBroadcast?: boolean
   /**
+   * Migration-backfill mode: DROP every WS side effect entirely (MESSAGE_CREATE
+   * fan-out, notify push, bot wake, CHILD_CHANNEL_UPDATE) — historical backfill
+   * must not ping anyone or push M×N real-time frames. UNLIKE `deferBroadcast`,
+   * which hands the caller a thunk to fire later, this simply never runs the
+   * broadcast at all.
+   *
+   * CRITICAL (Aigneis #133 / Melly #135 / message-handler decouple at
+   * `skipChildChannelUpdate`): this closes ONLY the real-time DELIVERY shell.
+   * The STRUCTURAL core — the message row, thread open, and the notify-set
+   * ENROLL (`addThreadParticipants`, the reach-axis participant write) + mention
+   * ROW writes — all run inline ABOVE the broadcast block and are NOT gated by
+   * this flag. Do NOT reach for `skipMentions` to silence a backfill: that flag
+   * ALSO closes enroll + mention rows (`!skipMentions` at the enroll gate), which
+   * would silently drop the migrated thread's participant set. Keep this flag
+   * about DELIVERY only, so a migrated post's participants (opener + each reply's
+   * author/mention) are identical to the new-build path.
+   *
+   * Built for the forum carrier-swap migration entry (route/disc trunk); no
+   * real-time caller passes it, so real-time create behavior is unchanged.
+   */
+  suppressBroadcast?: boolean
+  /**
    * Suppress ONLY the parent `CHILD_CHANNEL_UPDATE` WS emission — participant
    * enroll (the notify-set write) still runs per `kind`. The forum-post CREATE
    * path opts in: it routes the post's first message as `kind:"forum_post"` so
@@ -247,6 +269,7 @@ export async function createCommunityMessage(params: {
     skipWake,
     includeAuthorInFanout,
     deferBroadcast,
+    suppressBroadcast,
     attachmentIds,
     skipChildChannelUpdate,
     clientNonce,
@@ -847,6 +870,12 @@ export async function createCommunityMessage(params: {
     }
   }
 
+  // Migration-backfill mode drops the real-time delivery shell entirely — the
+  // structural core (row + thread + enroll + mention rows) already committed
+  // inline above; `doBroadcast` is never run and no thunk is handed back.
+  if (suppressBroadcast) {
+    return { ok: true, row, attachments }
+  }
   if (deferBroadcast) {
     return { ok: true, row, attachments, broadcast: doBroadcast }
   }
