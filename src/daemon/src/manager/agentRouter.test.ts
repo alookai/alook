@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { AgentRouter, UnknownRuntimeError } from "./agentRouter";
+import { AgentRouter, UnknownRuntimeError, UnknownBotError } from "./agentRouter";
 import type { AgentProcessManager } from "./managerRuntime";
 import type { HostControlChannel, HostCommand, SessionErrorFrame } from "../server/contract";
 import type { Logger } from "../logger";
@@ -295,6 +295,81 @@ describe("AgentRouter — agent:reset", () => {
       payload: { requested: "gemini", available: ["claude", "codex"] },
     });
     expect(router.buildReady().runningAgents).not.toContain("a1");
+  });
+});
+
+describe("AgentRouter — machine:reset_all (batch reset)", () => {
+  const CFG = { version: 1 as const, runtime: "mock", model: { kind: "default" as const }, mode: { kind: "default" as const } };
+
+  it("loops resetSession over every entry in the resets array (all agents reset, in order)", async () => {
+    const { mgr, resets, order } = fakeManager();
+    const { ch, fire } = fakeChannel();
+    const before: string[] = [];
+    const router = new AgentRouter({
+      manager: mgr, channel: ch, runtimeReport: [{ id: "mock" }],
+      onBeforeAgent: async (id) => { before.push(id); },
+    });
+    await router.start();
+
+    await fire({ type: "machine:reset_all", resets: [
+      { agentId: "a1", config: CFG, launchId: "l1" },
+      { agentId: "a2", config: CFG, launchId: "l2" },
+      { agentId: "a3", config: CFG, launchId: "l3" },
+    ] });
+
+    // Every entry reset, once each; onBeforeAgent ran for each (gate inherited).
+    expect(resets.map((r) => r.agentId)).toEqual(["a1", "a2", "a3"]);
+    expect(before).toEqual(["a1", "a2", "a3"]);
+    // Each agent's before precedes its reset (same orchestration as single reset).
+    expect(order.indexOf("reset:a2")).toBeGreaterThan(order.indexOf("reset:a1"));
+    expect(router.buildReady().runningAgents).toEqual(expect.arrayContaining(["a1", "a2", "a3"]));
+  });
+
+  it("a foreign/unknown agentId (onBeforeAgent throws) is NOT reset, but the batch continues (per-entry independence + inherited ownership gate)", async () => {
+    const { mgr, resets } = fakeManager();
+    const { ch, wakeAcks, fire } = fakeChannel();
+    const logger = stubLogger();
+    const router = new AgentRouter({
+      manager: mgr, channel: ch, runtimeReport: [{ id: "mock" }], logger,
+      // Mirror createDaemon's onBeforeAgent botsById gate: a2 is not bound here.
+      onBeforeAgent: async (id) => { if (id === "a2") throw new UnknownBotError(id); },
+    });
+    await router.start();
+
+    await fire({ type: "machine:reset_all", resets: [
+      { agentId: "a1", config: CFG, launchId: "l1" },
+      { agentId: "a2", config: CFG, launchId: "l2" }, // foreign → gated
+      { agentId: "a3", config: CFG, launchId: "l3" },
+    ] });
+
+    // a2 gated out (never reset); a1 + a3 reset — one bad entry doesn't abort batch.
+    expect(resets.map((r) => r.agentId)).toEqual(["a1", "a3"]);
+    // a2 gets a negative ack (bot_unknown), not silent.
+    expect(wakeAcks).toContainEqual(expect.objectContaining({ agentId: "a2", status: "error" }));
+    expect(router.buildReady().runningAgents).not.toContain("a2");
+  });
+
+  it("one entry's resetSession throwing doesn't abort the rest (per-entry try/catch)", async () => {
+    const resets: string[] = [];
+    const mgr = {
+      resetSession: async (agentId: string) => {
+        if (agentId === "a2") throw new Error("boom");
+        resets.push(agentId);
+      },
+      liveSessionReports: () => [],
+    } as unknown as AgentProcessManager;
+    const { ch, wakeAcks, fire } = fakeChannel();
+    const router = new AgentRouter({ manager: mgr, channel: ch, runtimeReport: [{ id: "mock" }], logger: stubLogger() });
+    await router.start();
+
+    await fire({ type: "machine:reset_all", resets: [
+      { agentId: "a1", config: CFG, launchId: "l1" },
+      { agentId: "a2", config: CFG, launchId: "l2" }, // throws
+      { agentId: "a3", config: CFG, launchId: "l3" },
+    ] });
+
+    expect(resets).toEqual(["a1", "a3"]); // a2 failed, a1 + a3 still ran
+    expect(wakeAcks).toContainEqual(expect.objectContaining({ agentId: "a2", status: "error" }));
   });
 });
 
