@@ -3,7 +3,7 @@ import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
-import { requireChannelMember } from "@/lib/community/permissions"
+import { requireMessageSurfaceAccess } from "@/lib/community/permissions"
 
 /**
  * PUT /api/community/channels/:id/read
@@ -33,13 +33,12 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
 
   const db = getDb(ctx.env.DB)
 
-  // Two-step check preserves the 404-vs-403 contract that sibling channel
-  // routes (pins, threads, PATCH/DELETE) also honor: unknown channel → 404,
-  // known channel + non-member → 403. `requireChannelMember` alone collapses
-  // both into 403 because the JOIN can't tell the difference.
-  const channel = await queries.communityChannel.getChannel(db, channelId)
-  if (!channel) return writeError("channel not found", 404)
-  const auth = await requireChannelMember(db, channelId, ctx.userId)
+  // Unified id-in-path access gate: preserves the 404-vs-403 human split
+  // (unknown → 404, known non-member → 403) AND, for a DM id, runs the DM block
+  // gate — closing the incidental P0 where a blocked-but-still-DM-member could
+  // mark a DM read through this bare-channel route (the old path ran only the
+  // access-member check, never the block).
+  const auth = await requireMessageSurfaceAccess(db, channelId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 
   // Parse the body — best-effort. An empty body is legal (mass mark-read).

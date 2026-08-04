@@ -2,14 +2,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
 const mockRunAttachmentUpload = vi.fn()
-const mockRequireChannelMember = vi.fn()
+const mockRequireMessageSurfaceAccess = vi.fn()
 
 vi.mock("@/lib/community/upload", () => ({
   runAttachmentUpload: (...a: unknown[]) => mockRunAttachmentUpload(...a),
 }))
 
 vi.mock("@/lib/community/permissions", () => ({
-  requireChannelMember: (...a: unknown[]) => mockRequireChannelMember(...a),
+  requireMessageSurfaceAccess: (...a: unknown[]) => mockRequireMessageSurfaceAccess(...a),
 }))
 
 vi.mock("@/lib/middleware/auth", () => ({
@@ -37,11 +37,14 @@ describe("POST /api/community/channels/[id]/upload", () => {
     )
   })
 
-  it("delegates to runAttachmentUpload with kind='channel' + requireChannelMember", async () => {
+  it("delegates to runAttachmentUpload with kind='channel' + requireMessageSurfaceAccess", async () => {
     // The route file is intentionally a one-liner over the shared helper.
     // Its only job is to bind the right (kind, permissionCheck) pair — lock
     // that binding in so accidental swaps between the three upload routes
-    // (channel / dm / thread) are caught.
+    // (channel / dm / thread) are caught. The channel-upload gate is now the
+    // unified surface dispatch (not bare requireChannelMember): for a DM id it
+    // runs the DM block check, closing the P0 where a blocked-but-still-DM-member
+    // could upload to a DM through this channel route.
     const req = postReq()
     await POST(req, ctx)
     expect(mockRunAttachmentUpload).toHaveBeenCalledOnce()
@@ -52,10 +55,10 @@ describe("POST /api/community/channels/[id]/upload", () => {
     expect(kind).toBe("channel")
     // The permissionCheck reference is the module export — invoke it and
     // observe that the underlying mock fires, which pins the binding to
-    // `requireChannelMember` (a swap to a different permission helper
+    // `requireMessageSurfaceAccess` (a swap to a different permission helper
     // would hit a different mock).
     await (permCheck as (...a: unknown[]) => unknown)("db", "c1", "u1")
-    expect(mockRequireChannelMember).toHaveBeenCalledWith("db", "c1", "u1")
+    expect(mockRequireMessageSurfaceAccess).toHaveBeenCalledWith("db", "c1", "u1")
   })
 
   it("returns whatever runAttachmentUpload returns unchanged", async () => {

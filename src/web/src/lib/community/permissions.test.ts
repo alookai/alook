@@ -342,12 +342,14 @@ describe("requireMessageSurfaceAccess — id-in-path trunk dispatch (surface axi
     expect(res).toEqual({ ok: false, status: 403, error: "blocked" })
   })
 
-  it("DM id, non-participant → 404 (masks DM existence — NOT a channel 403)", async () => {
+  it("DM id, non-participant → 404 with OPAQUE body (masks DM existence — same text as unknown-id 404, not 'dm not found')", async () => {
     getChannel.mockResolvedValue({ id: "d1", type: "dm" })
     getDM.mockResolvedValue({ id: "d1", lastMessageAt: null, createdAt: "2026-06-30" })
     getDMPeer.mockResolvedValue(null)
     const res = await requireMessageSurfaceAccess(db, "d1", "u1")
-    expect(res).toEqual({ ok: false, status: 404, error: "dm not found" })
+    // ④ (Aigneis #157): byte-identical to the unknown-id 404 body — a stranger
+    // must not read "dm not found" and learn the id IS a DM.
+    expect(res).toEqual({ ok: false, status: 404, error: "not found" })
   })
 
   it("channel id, known but non-member → 403 (the unknown case already 404'd above, so 403 = real non-member)", async () => {

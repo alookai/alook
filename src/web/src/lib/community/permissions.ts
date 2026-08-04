@@ -1,4 +1,10 @@
-import { queries, canManageServer, canSeePrivateChannel, withD1Retry } from "@alook/shared"
+import {
+  queries,
+  canManageServer,
+  canSeePrivateChannel,
+  visibilityIsDmParticipant,
+  withD1Retry,
+} from "@alook/shared"
 import type { Database } from "@alook/shared"
 
 type PermissionError =
@@ -199,9 +205,25 @@ export async function requireMessageSurfaceAccess(
   const channel = await queries.communityChannel.getChannel(db, channelId)
   if (!channel) return err(404, "not found")
 
-  if (channel.type === "dm") {
+  // Dispatch on the VISIBILITY trait, not a bare `type === "dm"` literal — the
+  // DM-participant visibility rule lives once in the trait table
+  // (visibilityIsDmParticipant, B3 "instead of each re-testing type==='dm'"),
+  // and this gate consumes it. Keeps who-is-a-dm / how-it-gates single-source
+  // (route dispatch consumes CHANNEL_TRAITS, never re-derives a parallel
+  // type→route judgement) and avoids seeding a literal type-switch the later
+  // forum/thread arms would copy into a parallel type tree.
+  if (visibilityIsDmParticipant(channel.type)) {
     const dm = await requireDMAccess(db, channelId, userId)
-    if (!dm.ok) return dm
+    if (!dm.ok) {
+      // ④ opaque 404 (Aigneis #157): a 404 here and the top-level unknown-id
+      // 404 must be byte-identical in body, not just status — else a stranger
+      // holding a real DM's id reads "dm not found" and learns the id IS a DM.
+      // The whole point of this gate is a UNIFIED no-access contract, so don't
+      // leak the surface word through the 404 text. A 403 (blocked) is a
+      // legitimate known-participant state and stays distinguishable.
+      if (dm.status === 404) return err(404, "not found")
+      return dm
+    }
     return ok({ surface: "dm", dm: dm.value })
   }
 

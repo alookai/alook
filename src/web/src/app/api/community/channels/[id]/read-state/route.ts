@@ -3,7 +3,7 @@ import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries, withD1Retry } from "@alook/shared"
-import { requireChannelMember } from "@/lib/community/permissions"
+import { requireMessageSurfaceAccess } from "@/lib/community/permissions"
 
 /**
  * GET /api/community/channels/:id/read-state
@@ -14,10 +14,12 @@ import { requireChannelMember } from "@/lib/community/permissions"
  * channel — the caller treats that as "everything is new, but no divider
  * (start at the bottom)", matching common chat-app first-visit UX.
  *
- * Contract mirrors the sibling `read` route: 404 for unknown channels, 403
- * for non-members. The two-step check preserves that ordering (unknown →
- * 404, known-but-not-a-member → 403); `requireChannelMember` alone collapses
- * both into 403.
+ * Access via the unified id-in-path gate: 404 for unknown, 403 for non-members
+ * (the human split, preserved) — and, when the id is a DM, the DM block gate
+ * runs too. That block check is why this route moved off the bare
+ * `requireChannelMember`: a blocked-but-still-DM-member could otherwise read a
+ * DM's read-state through this channel route (the incidental P0 the trunk
+ * closes; the old path only ran the access-member check, never the block).
  */
 export const GET = withAuth(async (_req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
@@ -25,9 +27,7 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
 
   const db = getDb(ctx.env.DB)
 
-  const channel = await queries.communityChannel.getChannel(db, channelId)
-  if (!channel) return writeError("channel not found", 404)
-  const auth = await requireChannelMember(db, channelId, ctx.userId)
+  const auth = await requireMessageSurfaceAccess(db, channelId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 
   // Wrap in `withD1Retry` on the server so the client can keep `retry: 1`
