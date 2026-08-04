@@ -106,44 +106,27 @@ describe("POST /api/community/nap", () => {
     expect(mockTouchBotRefreshContext).not.toHaveBeenCalled()
   })
 
-  it("daemon online (sent:1) → 200, writes one nap audit row and stamps lastRefreshContextAt once with the audit row's OWN createdAt", async () => {
+  it("daemon online (sent:1) → 200 dispatch-only; nap audit + awake stamp re-homed to daemon completion, NOT written here", async () => {
     mockGetBotWakeContext.mockResolvedValue(READY_CTX)
     mockPushAgentNapToMachine.mockResolvedValue({ sent: 1 })
-    mockInsertBotAuditNap.mockResolvedValue({
-      id: "evt_1",
-      createdAt: "2026-07-30T09:00:00.000Z",
-    })
 
     const res = await POST(req())
     expect(res.status).toBe(200)
     const body = (await res.json()) as { napped: boolean }
     expect(body.napped).toBe(true)
 
-    expect(mockInsertBotAuditNap).toHaveBeenCalledTimes(1)
-    expect(mockInsertBotAuditNap).toHaveBeenCalledWith(expect.anything(), { botId: "b1" })
+    expect(mockPushAgentNapToMachine).toHaveBeenCalledTimes(1)
+    const [, machineId, args] = mockPushAgentNapToMachine.mock.calls[0]!
+    expect(machineId).toBe("mac_1")
+    expect(args).toMatchObject({ agentId: "b1", handoff: "note to future self" })
+    expect(typeof args.launchId).toBe("string")
+    expect(args.launchId.length).toBeGreaterThan(0)
 
-    // Single-source invariant (mirror of reset-session): lastRefreshContextAt is
-    // stamped exactly once, in lockstep with the nap audit row, reusing that
-    // row's OWN createdAt — so the my-bots "last refreshed" indicator can never
-    // drift from the nap audit event. (Ported onto the moved /community/nap route
-    // during the rebase — the /agent/nap this feature originally patched is gone.)
-    expect(mockTouchBotRefreshContext).toHaveBeenCalledTimes(1)
-    expect(mockTouchBotRefreshContext).toHaveBeenCalledWith(
-      expect.anything(),
-      "b1",
-      "2026-07-30T09:00:00.000Z",
-    )
-  })
-
-  it("audit insert returns null (not inserted) → does NOT stamp lastRefreshContextAt", async () => {
-    mockGetBotWakeContext.mockResolvedValue(READY_CTX)
-    mockPushAgentNapToMachine.mockResolvedValue({ sent: 1 })
-    mockInsertBotAuditNap.mockResolvedValue(null)
-
-    const res = await POST(req())
-    expect(res.status).toBe(200)
-    // inserted guard: no audit row landed → no stamp (touch rides the audit row).
-    expect(mockInsertBotAuditNap).toHaveBeenCalledTimes(1)
+    // The `nap` audit row + lastRefreshContextAt stamp are re-homed to the daemon
+    // completion signal (agent_session frame at reborn-ready), so the record
+    // reflects "the nap actually completed," not "the command was dispatched."
+    // The route must NOT write either. See plans/reset-nap-completion-rehome.md.
+    expect(mockInsertBotAuditNap).not.toHaveBeenCalled()
     expect(mockTouchBotRefreshContext).not.toHaveBeenCalled()
   })
 })

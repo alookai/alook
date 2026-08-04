@@ -93,6 +93,9 @@ const mockIsBotOnline = vi.fn<(db: unknown, botUserId: string) => Promise<boolea
 const mockGetBotBinding = vi.fn<(db: unknown, botId: string) => Promise<{ machineId: string; runtime: string } | null>>().mockResolvedValue(null)
 const mockGetBotBindingWithOwner = vi.fn<(db: unknown, botId: string) => Promise<{ machineId: string; runtime: string; ownerUserId: string; name: string; discriminator: string } | null>>().mockResolvedValue(null)
 const mockInsertBotActivityEventAndPrune = vi.fn<(db: unknown, data: unknown) => Promise<{ id: string; createdAt: string } | null>>().mockResolvedValue(null)
+const mockInsertBotAuditSessionReset = vi.fn<(db: unknown, data: unknown) => Promise<{ id: string; createdAt: string } | null>>().mockResolvedValue(null)
+const mockInsertBotAuditNap = vi.fn<(db: unknown, data: unknown) => Promise<{ id: string; createdAt: string } | null>>().mockResolvedValue(null)
+const mockTouchBotRefreshContext = vi.fn<(db: unknown, botId: string, now: string) => Promise<void>>().mockResolvedValue(undefined)
 const mockUpdateProfile = vi
   .fn<(db: unknown, userId: string, data: { statusEmoji?: string | null; statusText?: string | null }) => Promise<unknown>>()
   .mockResolvedValue({})
@@ -134,7 +137,7 @@ vi.mock("@alook/shared", () => {
   // without pulling in zod (which isn't a direct dep of @alook/ws-do).
   const SessionErrorFrameSchema = {
     safeParse(v: unknown) {
-      const m = v as { type?: unknown; code?: unknown; agentId?: unknown; payload?: unknown }
+      const m = v as { type?: unknown; code?: unknown; agentId?: unknown; launchId?: unknown; payload?: unknown }
       if (m?.type !== "session.error" || m?.code !== "runtime_not_available") {
         return { success: false } as const
       }
@@ -144,6 +147,9 @@ vi.mock("@alook/shared", () => {
           type: "session.error" as const,
           code: "runtime_not_available" as const,
           agentId: typeof m.agentId === "string" ? (m.agentId as string) : undefined,
+          // launchId rides the frame now (Melisa's source half) — the DO uses
+          // it to evict pending reset/nap attribution on cold-start branch A.
+          launchId: typeof m.launchId === "string" ? (m.launchId as string) : undefined,
           payload: (m.payload as Record<string, unknown> | undefined) ?? undefined,
         },
       }
@@ -201,6 +207,24 @@ vi.mock("@alook/shared", () => {
       return {
         success: true as const,
         data: { type: "agent_typing_stop" as const, agentId: m.agentId, channelId: m.channelId },
+      }
+    },
+  }
+  const AgentSessionMessageSchema = {
+    safeParse(v: unknown) {
+      const m = v as { type?: unknown; agentId?: unknown; sessionId?: unknown; launchId?: unknown }
+      if (m?.type !== "agent_session") return { success: false } as const
+      if (typeof m.agentId !== "string" || m.agentId.length === 0) return { success: false } as const
+      if (typeof m.sessionId !== "string" || m.sessionId.length === 0) return { success: false } as const
+      if (typeof m.launchId !== "string" || m.launchId.length === 0) return { success: false } as const
+      return {
+        success: true as const,
+        data: {
+          type: "agent_session" as const,
+          agentId: m.agentId,
+          sessionId: m.sessionId,
+          launchId: m.launchId,
+        },
       }
     },
   }
@@ -270,6 +294,7 @@ vi.mock("@alook/shared", () => {
     AgentActivityMessageSchema,
     AgentTypingMessageSchema,
     AgentTypingStopMessageSchema,
+    AgentSessionMessageSchema,
     HostBotAuditEventFrameSchema,
     // Deterministic preset picker so the assertion can pin exact
     // `statusEmoji`/`statusText` values regardless of the injected `seed`.
@@ -360,9 +385,12 @@ vi.mock("@alook/shared", () => {
         listBotsForMachine: (...a: [unknown, string]) => mockListBotsForMachine(...a),
         getBotBinding: (...a: [unknown, string]) => mockGetBotBinding(...a),
         getBotBindingWithOwner: (...a: [unknown, string]) => mockGetBotBindingWithOwner(...a),
+        touchBotRefreshContext: (...a: [unknown, string, string]) => mockTouchBotRefreshContext(...a),
       },
       communityBotAuditLog: {
         insertBotActivityEventAndPrune: (...a: any[]) => mockInsertBotActivityEventAndPrune(...a),
+        insertBotAuditSessionReset: (...a: any[]) => mockInsertBotAuditSessionReset(...a),
+        insertBotAuditNap: (...a: any[]) => mockInsertBotAuditNap(...a),
       },
       user: {
         getUserInternal: (...a: [unknown, string]) => mockGetUserInternal(...a),
@@ -1906,6 +1934,206 @@ describe("WebSocketDurableObject", () => {
 
       expect(mockStubFetch).not.toHaveBeenCalled()
       expect(ws.close as ReturnType<typeof vi.fn>).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("community-machine — reset/nap completion re-home (agent_session landing)", () => {
+    beforeEach(() => {
+      mockInsertBotAuditSessionReset.mockReset()
+      mockInsertBotAuditNap.mockReset()
+      mockTouchBotRefreshContext.mockReset()
+      mockGetBotBindingWithOwner.mockReset()
+      mockStubFetch.mockClear()
+      mockInsertBotAuditSessionReset.mockResolvedValue({ id: "bae_reset", createdAt: "2025-06-01T10:00:00.000Z" })
+      mockInsertBotAuditNap.mockResolvedValue({ id: "bae_nap", createdAt: "2025-06-01T11:00:00.000Z" })
+      mockTouchBotRefreshContext.mockResolvedValue(undefined)
+      mockGetBotBindingWithOwner.mockResolvedValue({
+        machineId: "cm_1",
+        runtime: "codex",
+        ownerUserId: "owner_1",
+        name: "Bot",
+        discriminator: "0007",
+      })
+    })
+
+    function machineWs() {
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "community-machine", machineId: "cm_1", userId: "u_1", authenticated: true })
+      return ws
+    }
+
+    function seedIdentity(store: Map<string, unknown>) {
+      store.set("community-machine-identity", { userId: "u_1", machineId: "cm_1", credentialHash: "0".repeat(64) })
+    }
+
+    // Helper: push a frame through /push (records pending attribution), matching
+    // how the index worker forwards reset/nap frames to this DO.
+    async function pushFrame(durable: any, body: unknown) {
+      await durable.fetch(
+        new (globalThis.Request as any)("http://internal/push", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      )
+    }
+
+    function auditBroadcast() {
+      return mockStubFetch.mock.calls
+        .map((c: any[]) => c[0] as Request)
+        .find((r: Request) => r.url.endsWith("/broadcast"))
+    }
+
+    it("single reset: agent_session writes session_reset audit + stamps awake in lockstep + broadcasts", async () => {
+      const { durable, store } = createDO()
+      seedIdentity(store)
+      // Dispatch: an agent:reset frame is forwarded → records launchId→single.
+      await pushFrame(durable, { type: "agent:reset", agentId: "bot_1", config: {}, launchId: "l_reset" })
+      // Completion: the reborn agent's agent_session lands.
+      await durable.webSocketMessage(
+        machineWs() as any,
+        JSON.stringify({ type: "agent_session", agentId: "bot_1", sessionId: "s_new", launchId: "l_reset" }),
+      )
+
+      // Audit written server-side with the trigger derived from the endpoint.
+      expect(mockInsertBotAuditSessionReset).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ botId: "bot_1", launchId: "l_reset", trigger: "single" }),
+      )
+      expect(mockInsertBotAuditNap).not.toHaveBeenCalled()
+      // LOCKSTEP invariant: touch uses the audit row's own createdAt, not another clock.
+      expect(mockTouchBotRefreshContext).toHaveBeenCalledWith(expect.anything(), "bot_1", "2025-06-01T10:00:00.000Z")
+      // Broadcast to the owner carries the session_reset event.
+      const call = auditBroadcast()
+      expect(call).toBeDefined()
+      const body = JSON.parse(await (call!).clone().text()) as Record<string, unknown>
+      expect(body).toEqual({
+        type: "community:bot.audit_event",
+        botId: "bot_1",
+        id: "bae_reset",
+        kind: "session_reset",
+        payload: { trigger: "single" },
+        sessionId: null,
+        launchId: "l_reset",
+        createdAt: "2025-06-01T10:00:00.000Z",
+      })
+    })
+
+    it("batch reset: each agent's agent_session writes session_reset with trigger reset_all", async () => {
+      const { durable, store } = createDO()
+      seedIdentity(store)
+      // Dispatch: ONE machine:reset_all frame carrying two launches.
+      await pushFrame(durable, {
+        type: "machine:reset_all",
+        resets: [
+          { agentId: "bot_1", config: {}, launchId: "l_a" },
+          { agentId: "bot_2", config: {}, launchId: "l_b" },
+        ],
+      })
+      // Both agents reborn — two agent_session frames.
+      await durable.webSocketMessage(
+        machineWs() as any,
+        JSON.stringify({ type: "agent_session", agentId: "bot_1", sessionId: "s_a", launchId: "l_a" }),
+      )
+      await durable.webSocketMessage(
+        machineWs() as any,
+        JSON.stringify({ type: "agent_session", agentId: "bot_2", sessionId: "s_b", launchId: "l_b" }),
+      )
+
+      expect(mockInsertBotAuditSessionReset).toHaveBeenCalledTimes(2)
+      expect(mockInsertBotAuditSessionReset).toHaveBeenNthCalledWith(
+        1,
+        expect.anything(),
+        expect.objectContaining({ botId: "bot_1", launchId: "l_a", trigger: "reset_all" }),
+      )
+      expect(mockInsertBotAuditSessionReset).toHaveBeenNthCalledWith(
+        2,
+        expect.anything(),
+        expect.objectContaining({ botId: "bot_2", launchId: "l_b", trigger: "reset_all" }),
+      )
+      expect(mockTouchBotRefreshContext).toHaveBeenCalledTimes(2)
+    })
+
+    it("nap: agent_session writes nap audit (trigger nap) + stamps awake in lockstep + broadcasts", async () => {
+      const { durable, store } = createDO()
+      seedIdentity(store)
+      await pushFrame(durable, { type: "agent:nap", agentId: "bot_1", config: {}, launchId: "l_nap", handoff: "note" })
+      await durable.webSocketMessage(
+        machineWs() as any,
+        JSON.stringify({ type: "agent_session", agentId: "bot_1", sessionId: "s_new", launchId: "l_nap" }),
+      )
+
+      expect(mockInsertBotAuditNap).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ botId: "bot_1", launchId: "l_nap" }),
+      )
+      expect(mockInsertBotAuditSessionReset).not.toHaveBeenCalled()
+      expect(mockTouchBotRefreshContext).toHaveBeenCalledWith(expect.anything(), "bot_1", "2025-06-01T11:00:00.000Z")
+      const body = JSON.parse(await (auditBroadcast()!).clone().text()) as Record<string, unknown>
+      expect(body).toMatchObject({ kind: "nap", payload: { trigger: "nap" }, launchId: "l_nap" })
+    })
+
+    it("fire-once: a replayed agent_session for the same launch writes nothing the second time", async () => {
+      const { durable, store } = createDO()
+      seedIdentity(store)
+      await pushFrame(durable, { type: "agent:reset", agentId: "bot_1", config: {}, launchId: "l_reset" })
+      const frame = JSON.stringify({ type: "agent_session", agentId: "bot_1", sessionId: "s_new", launchId: "l_reset" })
+      await durable.webSocketMessage(machineWs() as any, frame)
+      await durable.webSocketMessage(machineWs() as any, frame) // replay
+
+      // Exactly one write despite two agent_session frames — the pending entry
+      // was consumed (deleted) on the first.
+      expect(mockInsertBotAuditSessionReset).toHaveBeenCalledTimes(1)
+      expect(mockTouchBotRefreshContext).toHaveBeenCalledTimes(1)
+    })
+
+    it("no pending launch: an ordinary agent_session (never a reset/nap) writes nothing", async () => {
+      const { durable, store } = createDO()
+      seedIdentity(store)
+      // No /push recorded this launch — a plain wake session.
+      await durable.webSocketMessage(
+        machineWs() as any,
+        JSON.stringify({ type: "agent_session", agentId: "bot_1", sessionId: "s_new", launchId: "l_plain" }),
+      )
+      expect(mockInsertBotAuditSessionReset).not.toHaveBeenCalled()
+      expect(mockInsertBotAuditNap).not.toHaveBeenCalled()
+      expect(mockTouchBotRefreshContext).not.toHaveBeenCalled()
+    })
+
+    it("cold-start fail branch B (agent_wake_ack error): evicts pending, no audit/awake, and a later replayed agent_session stays silent", async () => {
+      const { durable, store } = createDO()
+      seedIdentity(store)
+      await pushFrame(durable, { type: "agent:reset", agentId: "bot_1", config: {}, launchId: "l_reset" })
+      // Enroll fail / spawn threw → wake_ack error for this launch.
+      await durable.webSocketMessage(
+        machineWs() as any,
+        JSON.stringify({ type: "agent_wake_ack", agentId: "bot_1", launchId: "l_reset", status: "error", error: { code: "spawn_threw", message: "boom" } }),
+      )
+      // If (impossibly) an agent_session arrives later, the entry is already gone
+      // → nothing written. This is the red-line-② positive proof.
+      await durable.webSocketMessage(
+        machineWs() as any,
+        JSON.stringify({ type: "agent_session", agentId: "bot_1", sessionId: "s_new", launchId: "l_reset" }),
+      )
+      expect(mockInsertBotAuditSessionReset).not.toHaveBeenCalled()
+      expect(mockTouchBotRefreshContext).not.toHaveBeenCalled()
+    })
+
+    it("cold-start fail branch A (session.error runtime_not_available): evicts pending, no audit/awake", async () => {
+      const { durable, store } = createDO()
+      seedIdentity(store)
+      await pushFrame(durable, { type: "agent:reset", agentId: "bot_1", config: {}, launchId: "l_reset" })
+      // Runtime not installed → session.error carrying the launchId (Melisa's source half).
+      await durable.webSocketMessage(
+        machineWs() as any,
+        JSON.stringify({ type: "session.error", code: "runtime_not_available", agentId: "bot_1", launchId: "l_reset", payload: { requested: "codex", available: [] } }),
+      )
+      await durable.webSocketMessage(
+        machineWs() as any,
+        JSON.stringify({ type: "agent_session", agentId: "bot_1", sessionId: "s_new", launchId: "l_reset" }),
+      )
+      expect(mockInsertBotAuditSessionReset).not.toHaveBeenCalled()
+      expect(mockTouchBotRefreshContext).not.toHaveBeenCalled()
     })
   })
 

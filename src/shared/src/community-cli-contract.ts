@@ -782,7 +782,14 @@ export type BotAuditEventPayload =
         message: string;
         model: string | null;
       };
-    };
+    }
+  // Reset/nap completion events, emitted upward by the DO when the reborn
+  // agent's `agent_session` frame lands (not at dispatch). `trigger`
+  // distinguishes the entry-point so my-bots can read "was reset" vs "slept";
+  // `actorId` never travels — it is the bot owner, resolved server-side at the
+  // landing (reset is owner-only). See plans/reset-nap-completion-rehome.md.
+  | { kind: "session_reset"; payload: { trigger: "single" | "reset_all" } }
+  | { kind: "nap"; payload: { trigger: "nap" } };
 
 export interface HostBotAuditEventFrame {
   type: "bot_audit_event";
@@ -800,6 +807,7 @@ export interface SessionErrorFrame {
   type: "session.error";
   code: "runtime_not_available";
   agentId?: AgentId;
+  launchId?: string;
   payload?: Record<string, unknown>;
 }
 

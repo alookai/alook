@@ -130,14 +130,9 @@ describe("POST /api/community/bots/[id]/reset-session", () => {
     expect(mockBroadcastToUser).not.toHaveBeenCalled()
   })
 
-  it("owner + bound + daemon online (sent:1) → 200 with exactly one audit row + one broadcast", async () => {
+  it("owner + bound + daemon online (sent:1) → 200 dispatch-only; audit/awake/broadcast re-homed to daemon completion, NOT written here", async () => {
     seedOwnedAndBound()
     mockPushAgentResetToMachine.mockResolvedValue({ sent: 1 })
-    mockInsertBotAuditSessionReset.mockResolvedValue({
-      id: "evt_1",
-      createdAt: "2026-07-24T09:00:00.000Z",
-    })
-    mockBroadcastToUser.mockResolvedValue(undefined)
 
     const res = await POST(req(), ctx)
     expect(res.status).toBe(200)
@@ -152,36 +147,19 @@ describe("POST /api/community/bots/[id]/reset-session", () => {
     expect(args.launchId.length).toBeGreaterThan(0)
     expect(args.config).toBeDefined()
 
-    expect(mockInsertBotAuditSessionReset).toHaveBeenCalledTimes(1)
-    expect(mockInsertBotAuditSessionReset).toHaveBeenCalledWith(expect.anything(), {
-      botId: "b1",
-      actorId: "owner_1",
-    })
-    // Single-source invariant: lastRefreshContextAt is stamped exactly once, in
-    // lockstep with the audit row, reusing that row's OWN createdAt — so the
-    // my-bots "last refreshed" timestamp can never drift from the audit event.
-    expect(mockTouchBotRefreshContext).toHaveBeenCalledTimes(1)
-    expect(mockTouchBotRefreshContext).toHaveBeenCalledWith(
-      expect.anything(),
-      "b1",
-      "2026-07-24T09:00:00.000Z",
-    )
-    expect(mockBroadcastToUser).toHaveBeenCalledTimes(1)
-    expect(mockBroadcastToUser).toHaveBeenCalledWith(
-      "owner_1",
-      expect.objectContaining({
-        type: "community:bot.audit_event",
-        kind: "session_reset",
-        botId: "b1",
-      }),
-    )
+    // The `session_reset` audit row + lastRefreshContextAt stamp + broadcast are
+    // re-homed to the daemon completion signal (agent_session frame at
+    // reborn-ready), so the record reflects "the reset actually completed," not
+    // "the command was dispatched." The route must NOT write any of them.
+    // See plans/reset-nap-completion-rehome.md.
+    expect(mockInsertBotAuditSessionReset).not.toHaveBeenCalled()
+    expect(mockTouchBotRefreshContext).not.toHaveBeenCalled()
+    expect(mockBroadcastToUser).not.toHaveBeenCalled()
   })
 
   it("regression: reset sends the bot's configured model in config.model (not default)", async () => {
     seedOwnedAndBound()
     mockPushAgentResetToMachine.mockResolvedValue({ sent: 1 })
-    mockInsertBotAuditSessionReset.mockResolvedValue({ id: "evt_1", createdAt: "2026-07-26T00:00:00.000Z" })
-    mockBroadcastToUser.mockResolvedValue(undefined)
 
     const res = await POST(req(), ctx)
     expect(res.status).toBe(200)

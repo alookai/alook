@@ -57,6 +57,7 @@ function kindMeta(kind: AuditKind): { label: string; tone: string } {
   if (kind === "tool_call") return { label: "tool", tone: "text-muted-foreground" }
   if (kind === "wake_trigger") return { label: "wake", tone: "text-foreground/70" }
   if (kind === "session_reset") return { label: "reset", tone: "text-foreground/70" }
+  if (kind === "nap") return { label: "nap", tone: "text-foreground/70" }
   if (kind === "model_changed") return { label: "model", tone: "text-foreground/70" }
   if (kind === "error") return { label: "err", tone: "text-destructive" }
   return { label: "think", tone: "text-muted-foreground/70" }
@@ -108,6 +109,19 @@ function RowBody({
         <span>Session reset requested</span>{" "}
         <span className="text-muted-foreground">
           — the bot will start a fresh session on its next message.
+        </span>
+      </div>
+    )
+  }
+  if (event.kind === "nap") {
+    return (
+      <div
+        data-testid="bot-activity-event-nap"
+        className="truncate font-mono text-[13px] text-foreground"
+      >
+        <span>Reset its own session</span>{" "}
+        <span className="text-muted-foreground">
+          — the bot napped and will start fresh on its next message.
         </span>
       </div>
     )

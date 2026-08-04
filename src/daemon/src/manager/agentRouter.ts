@@ -345,6 +345,7 @@ export class AgentRouter {
           type: "session.error",
           code: "runtime_not_available",
           agentId,
+          launchId,
           payload: { requested: err.requested ?? null, available: err.available },
         };
         await this.opts.channel.reportSessionError?.(frame);
@@ -453,6 +454,7 @@ export class AgentRouter {
               type: "session.error",
               code: "runtime_not_available",
               agentId: cmd.agentId,
+              launchId: cmd.launchId,
               payload: {
                 requested: err.requested ?? null,
                 available: err.available,

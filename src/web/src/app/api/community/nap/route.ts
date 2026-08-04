@@ -75,16 +75,10 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
     )
   }
 
-  // Audit on delivery only (mirrors reset/model-switch). No notification.
-  // Stamp lastRefreshContextAt at the SAME chokepoint (single write point),
-  // reusing the audit row's own createdAt so the my-bots "last refreshed"
-  // indicator can never drift from the nap audit event. (Ported from the
-  // incoming my-bots refresh feature onto this moved /community/nap route
-  // during the rebase — the /agent/nap it originally patched was deleted here.)
-  const inserted = await queries.communityBotAuditLog.insertBotAuditNap(db, { botId: botUserId })
-  if (inserted) {
-    await queries.communityBot.touchBotRefreshContext(db, botUserId, inserted.createdAt)
-  }
+  // The `nap` audit row + awake-time stamp are NOT written here: they are
+  // re-homed to the daemon completion signal (the `agent_session` frame at
+  // reborn-ready), so the record reflects "the nap actually completed" rather
+  // than "the command was dispatched." See plans/reset-nap-completion-rehome.md.
 
   return NextResponse.json({ napped: true })
 })

@@ -55,8 +55,31 @@ describe("parseAuditLogPayload", () => {
       to: "claude-opus-4-6",
     })
   })
-  it("parses an empty session_reset payload", () => {
-    expect(parseAuditLogPayload("session_reset", JSON.stringify({}))).toEqual({})
+  it("parses a well-shaped session_reset payload (single/reset_all trigger)", () => {
+    expect(parseAuditLogPayload("session_reset", JSON.stringify({ trigger: "single" }))).toEqual({
+      trigger: "single",
+    })
+    expect(parseAuditLogPayload("session_reset", JSON.stringify({ trigger: "reset_all" }))).toEqual({
+      trigger: "reset_all",
+    })
+  })
+  it("degrades a legacy empty session_reset payload to null (written before trigger existed)", () => {
+    // Rows written by the old dispatch-time route carried `{}` — after the
+    // schema tightened to require `trigger`, they parse to null rather than
+    // throwing, and RowBody renders the static reset text (never a blank row).
+    expect(parseAuditLogPayload("session_reset", JSON.stringify({}))).toBe(null)
+  })
+  it("rejects a session_reset payload with an out-of-domain trigger", () => {
+    expect(parseAuditLogPayload("session_reset", JSON.stringify({ trigger: "nap" }))).toBe(null)
+  })
+  it("parses a well-shaped nap payload (trigger literal)", () => {
+    expect(parseAuditLogPayload("nap", JSON.stringify({ trigger: "nap" }))).toEqual({ trigger: "nap" })
+  })
+  it("degrades a legacy empty nap payload to null", () => {
+    expect(parseAuditLogPayload("nap", JSON.stringify({}))).toBe(null)
+  })
+  it("rejects a nap payload with an out-of-domain trigger (no cross-kind smuggle)", () => {
+    expect(parseAuditLogPayload("nap", JSON.stringify({ trigger: "single" }))).toBe(null)
   })
   it("parses a well-shaped error payload (so history rows keep their message, not the fallback)", () => {
     const payload = {

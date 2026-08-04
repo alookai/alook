@@ -10,7 +10,7 @@ import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { useBotAuditEventsForBot } from "@/stores/community/ws"
 
-export type AuditKind = "cli_invocation" | "tool_call" | "thinking" | "wake_trigger" | "session_reset" | "model_changed" | "error"
+export type AuditKind = "cli_invocation" | "tool_call" | "thinking" | "wake_trigger" | "session_reset" | "nap" | "model_changed" | "error"
 
 export type AuditEvent = {
   id: string
