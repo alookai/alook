@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { ChevronLeft, Monitor, MoreVertical, HelpCircle, RotateCcw } from "lucide-react"
+import { ChevronLeft, Monitor, MoreVertical, HelpCircle, RotateCcw, Activity } from "lucide-react"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
 import { isPresenceOnline, formatModelLabel } from "@alook/shared"
 import { machineName as resolveMachineName } from "@/lib/community/machine-name"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -47,6 +48,24 @@ import { AgentHelpGallery } from "@/components/community/onboarding-tiles/agent-
  * status pill, meta line, and a kebab menu. Empty state matches the machine
  * empty state so users don't learn two idioms.
  */
+// Loading placeholder shaped like a real bot Card (40px avatar + name row +
+// meta line + trailing kebab slot) so the list doesn't reflow when data lands
+// — replaces the old structureless muted box.
+function BotCardSkeleton() {
+  return (
+    <Card className="flex flex-col gap-3 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <Skeleton className="size-10 shrink-0 rounded-full" />
+        <div className="flex min-w-0 flex-1 flex-col gap-2 py-0.5">
+          <Skeleton className="h-3.5 w-28 rounded" />
+          <Skeleton className="h-3 w-48 rounded" />
+        </div>
+        <Skeleton className="size-8 shrink-0 rounded-md" />
+      </div>
+    </Card>
+  )
+}
+
 export function BotList({ onBack }: { onBack?: () => void } = {}) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -152,9 +171,9 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
       <div className="flex min-h-0 flex-1 flex-col">
         {backBar}
         <div className="flex flex-col gap-3 p-6">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-21 animate-pulse rounded-lg border bg-muted/30" />
-          ))}
+          <BotCardSkeleton />
+          <BotCardSkeleton />
+          <BotCardSkeleton />
         </div>
       </div>
     )
@@ -370,9 +389,14 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                                 </button>
                               }
                             />
-                            <DropdownMenuContent align="end">
+                            {/* Nav-icon pattern from message-menu (uiux #14,
+                                Gus "less is more"): icon ONLY on the high-freq
+                                actions (View activity, Reset) as scan anchors;
+                                the rest render an icon-width placeholder so
+                                every label shares one left edge. */}
+                            <DropdownMenuContent align="end" className="w-auto min-w-36 max-w-56">
                               <DropdownMenuItem onClick={() => chatWithBot(bot)}>
-                                Chat
+                                <span className="size-4" aria-hidden /> Chat
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 onClick={() => {
@@ -380,7 +404,7 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                                   setActivityOpen(true)
                                 }}
                               >
-                                View activity
+                                <Activity className="size-4" /> View activity
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 onClick={() => {
@@ -388,19 +412,19 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                                   setEditOpen(true)
                                 }}
                               >
-                                Edit
+                                <span className="size-4" aria-hidden /> Edit
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 data-testid={`bot-reset-session-item`}
                                 onClick={() => setConfirmReset(bot)}
                               >
-                                Reset
+                                <RotateCcw className="size-4" /> Reset
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 variant="destructive"
                                 onClick={() => setConfirmDelete(bot)}
                               >
-                                Delete
+                                <span className="size-4" aria-hidden /> Delete
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>

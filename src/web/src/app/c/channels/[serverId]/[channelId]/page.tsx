@@ -929,10 +929,11 @@ function ChannelView() {
     // toast source).
     onKickMember: (memberId: string) =>
       kickMemberMut.mutateAsync({ serverId, memberId }).then(() => toast("Member kicked")),
-    onJumpToMessage: (id: string) => {
-      setScrollToMessageId(id)
-      setTimeout(() => setScrollToMessageId(null), 100)
-    },
+    // Pinned-message click routes through the same message-ref jump flow
+    // (scroll-in-place if the message is loaded, else open the context sheet),
+    // so clicking a pin always gives feedback — even an old, out-of-window one
+    // that the scroll-only path used to silently no-op on.
+    onJumpToMessage: (seq: number) => jumpToSeq(seq),
   }
 
   // Add-members dialog (shared), mounted when the drawer's Add button fires.

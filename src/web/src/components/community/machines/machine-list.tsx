@@ -8,6 +8,8 @@ import { useQueryClient } from "@tanstack/react-query"
 import type { CommunityMachineSummary } from "@alook/shared"
 import { isPresenceOnline } from "@alook/shared"
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   AlertDialog,
   AlertDialogContent,
@@ -26,6 +28,27 @@ import { useMachines, type MachinesResponse } from "@/hooks/community/use-machin
 import { useBots } from "@/hooks/community/use-bots"
 import { useCommunityStore, usePendingMachineTokenId } from "@/stores/community"
 import { communityKeys } from "@/lib/query-keys"
+
+// Loading placeholder shaped like a real MachineCard (size-10 rounded-xl icon +
+// name row + meta lines + trailing kebab slot) so the list doesn't reflow when
+// data lands — replaces the old structureless muted box.
+function MachineCardSkeleton() {
+  return (
+    <Card className="flex flex-col gap-3 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <Skeleton className="size-10 shrink-0 rounded-xl" />
+          <div className="flex flex-col gap-2 py-0.5">
+            <Skeleton className="h-3.5 w-32 rounded" />
+            <Skeleton className="h-3 w-44 rounded" />
+            <Skeleton className="h-3 w-24 rounded" />
+          </div>
+        </div>
+        <Skeleton className="size-8 shrink-0 rounded-md" />
+      </div>
+    </Card>
+  )
+}
 
 export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   const router = useRouter()
@@ -153,9 +176,9 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
       <div className="flex min-h-0 flex-1 flex-col">
         {backBar}
         <div className="flex flex-col gap-3 p-6">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-22 animate-pulse rounded-lg border bg-muted/30" />
-          ))}
+          <MachineCardSkeleton />
+          <MachineCardSkeleton />
+          <MachineCardSkeleton />
         </div>
       </div>
     )

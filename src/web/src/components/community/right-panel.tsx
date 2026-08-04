@@ -4,8 +4,8 @@ import { useState } from "react"
 import { Users, Pin, Search, MessagesSquare } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { onEnterSubmit } from "@/lib/ime"
-import { avatarInitial } from "@/lib/community/avatar"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Avatar } from "./avatar"
 import { PanelShell } from "./panel-shell"
 import { MemberList } from "./member-list"
 import { Message } from "./message"
@@ -44,7 +44,10 @@ export function RightPanelContent({
   onSetRole?: (name: string, role: Role) => void
   onKickMember?: (memberId: string) => Promise<unknown> | void
   myRole?: Role
-  onJumpToMessage?: (id: string) => void
+  // Jump to a pinned message by its per-channel seq — routes through the same
+  // message-ref jump flow (scroll-in-place if loaded, else open the context
+  // sheet), so a click always gives feedback even for an out-of-window pin.
+  onJumpToMessage?: (seq: number) => void
   onSearch?: (query: string) => void
 }) {
   if (kind === "members")
@@ -77,12 +80,13 @@ export function RightPanelContent({
           pinned.map((m) => (
             <button
               key={m.id}
-              onClick={() => onJumpToMessage?.(m.id)}
-              className="flex w-full gap-2 rounded-md px-2 py-2 text-left hover:bg-accent"
+              onClick={() => m.seq != null && onJumpToMessage?.(m.seq)}
+              className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left hover:bg-accent"
             >
-              <div className="size-6 shrink-0 rounded-full bg-muted grid place-items-center text-xs font-medium">
-                {m.authorAvatar ?? avatarInitial(m.authorName ?? "")}
-              </div>
+              <span className="shrink-0">
+                <Avatar label={m.authorAvatar ?? "?"} seed={m.authorId} size={24} />
+              </span>
+
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2">
                   <span className="text-sm font-medium">{m.authorName}</span>
@@ -104,14 +108,14 @@ export function RightPanelContent({
       ) : (
         <>
       <div className="mb-2 text-xs text-muted-foreground">{threads.length} threads</div>
-      <div className="space-y-2">
+      <div className="space-y-1">
         {threads.map((t) => (
           <button
             key={t.id}
             onClick={() => onOpenThread(t.id)}
-            className="flex w-full items-start gap-3 rounded-md border border-border bg-card p-3 text-left hover:bg-accent"
+            className="flex w-full items-start gap-3 rounded-md px-2 py-2 text-left hover:bg-accent"
           >
-            <MessagesSquare className="mt-1 size-4 shrink-0 text-muted-foreground" />
+            <MessagesSquare className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-medium">{t.name}</div>
               <div className="truncate text-xs text-muted-foreground">
@@ -151,10 +155,10 @@ function PinnedListSkeleton() {
 
 function ThreadListSkeleton() {
   return (
-    <div className="space-y-2">
+    <div className="space-y-1">
       {Array.from({ length: 3 }).map((_, i) => (
-        <div key={i} className="flex items-start gap-3 rounded-md border border-border bg-card p-3">
-          <Skeleton className="mt-1 size-4 shrink-0 rounded" />
+        <div key={i} className="flex items-start gap-3 rounded-md px-2 py-2">
+          <Skeleton className="mt-0.5 size-4 shrink-0 rounded" />
           <div className="flex min-w-0 flex-1 flex-col gap-2">
             <Skeleton className="h-3.5 w-3/5 rounded" />
             <Skeleton className="h-3 w-11/12 rounded" />

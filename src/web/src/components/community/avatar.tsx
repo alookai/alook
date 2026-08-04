@@ -65,7 +65,14 @@ export function Avatar({ label, seed, src, size = 40, dim = false, presence, rin
         </>
       ) : beamSeed ? (
         <span className="size-full rounded-full overflow-hidden">
-          <BoringAvatar seed={beamSeed} size={size} className="size-full" />
+          {/* rounded-full must live on BoringAvatar's OWN wrapper (which carries
+              overflow-hidden), not only on this outer span: the beam SVG has a
+              `<g transform>`, and WebKit/Safari does not clip a transformed
+              descendant to an ancestor's border-radius — so an outer-only
+              radius leaks the beam's square background as a rounded-square
+              (the pinned-panel "clipped avatar" bug, WebKit-only). Every other
+              BoringAvatar caller co-locates the radius on it for this reason. */}
+          <BoringAvatar seed={beamSeed} size={size} className="size-full rounded-full" />
         </span>
       ) : (
         <AvatarFallback className="font-medium" style={{ fontSize: size * 0.4 }}>
