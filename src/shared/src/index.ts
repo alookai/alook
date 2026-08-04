@@ -590,6 +590,8 @@ export {
   channelReach,
   reachIsParticipantSet,
   isStoredChannelType,
+  channelVisibility,
+  visibilityIsDmParticipant,
 } from "./utils/community-roles";
 export type {
   CommunityRole,

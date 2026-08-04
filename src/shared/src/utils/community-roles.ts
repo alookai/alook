@@ -218,6 +218,36 @@ export function isStoredChannelType(t: string | null | undefined): t is StoredCh
   return t === "text" || t === "forum" || t === "forum_post" || t === "thread" || t === "dm"
 }
 
+// ── visibility axis (B3) — how the ACCESS CHECK runs (NOT the miss status) ─────
+// The visibility trait names HOW a channel resolves access, the one classification
+// the access functions branch on. Deliberately does NOT cover the miss STATUS
+// (no-access → 403 vs 404): that translation is surface-partitioned (human →
+// 403 in requireChannelMember; agent → 404 via the existence-mask collapse), an
+// axis ORTHOGONAL to type — welding it here would compress the surface dimension
+// into the type dimension (a false convergence). So a null (not visible) is still
+// returned by the access functions and translated by the caller per surface;
+// this trait only picks the resolution STRATEGY.
+//   dm-participant → the `relation='access'` member check, no server walk, no
+//                    parent inheritance (a DM is its own access unit).
+//   own-roster / inherit-parent → the server-membership + private-category path,
+//                    with the anchor climb (`parentChannelId ?? id`) that makes a
+//                    thread/forum_post inherit its parent's roster. That climb is
+//                    already a single uniform idiom, so these two values share the
+//                    same code path today; the value records the intent.
+export function channelVisibility(t: StoredChannelType): VisibilityTrait {
+  return CHANNEL_TRAITS[t].visibility
+}
+
+// The DM access rule: resolve access via the `relation='access'` member row with
+// no server walk / no inheritance. True iff visibility is `dm-participant`. This
+// is the single predicate the two access functions (`getChannelForMember`,
+// `resolveChannelAccessContext`) share for their DM special-case, instead of each
+// re-testing `type === 'dm'` (B3 — the DM access rule's 2→1). Does NOT decide the
+// miss status (403/404) — that stays in the caller's surface-partitioned layer.
+export function visibilityIsDmParticipant(t: string | null | undefined): boolean {
+  return isStoredChannelType(t) && channelVisibility(t) === "dm-participant"
+}
+
 // ── NOT a trait axis: display / human-readable title ──────────────────────────
 // A forum post's `display_title` (its pre-slugify original title) is DELIBERATELY
 // absent from this table. It is ZERO-behavior — no face (resolver / write-guard /

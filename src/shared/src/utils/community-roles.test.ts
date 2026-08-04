@@ -6,6 +6,8 @@ import {
   channelReach,
   reachIsParticipantSet,
   isStoredChannelType,
+  channelVisibility,
+  visibilityIsDmParticipant,
   type StoredChannelType,
 } from "./community-roles"
 
@@ -110,5 +112,31 @@ describe("reach axis helpers", () => {
     for (const t of ["text", "forum", "forum_post", "thread", "dm"]) expect(isStoredChannelType(t)).toBe(true)
     expect(isStoredChannelType(null)).toBe(false)
     expect(isStoredChannelType("channel")).toBe(false)
+  })
+})
+
+// B3 visibility axis — how the access check resolves (NOT the miss status, which
+// is surface-partitioned and stays in the caller's translation layer).
+describe("visibility axis helpers", () => {
+  it("channelVisibility reads the visibility value straight from the trait table", () => {
+    expect(channelVisibility("text")).toBe("own-roster")
+    expect(channelVisibility("forum")).toBe("own-roster")
+    expect(channelVisibility("forum_post")).toBe("inherit-parent")
+    expect(channelVisibility("thread")).toBe("inherit-parent")
+    expect(channelVisibility("dm")).toBe("dm-participant")
+  })
+
+  it("visibilityIsDmParticipant is true for exactly dm (the shared DM access-rule predicate)", () => {
+    expect(visibilityIsDmParticipant("dm")).toBe(true)
+    expect(visibilityIsDmParticipant("text")).toBe(false)
+    expect(visibilityIsDmParticipant("forum")).toBe(false)
+    expect(visibilityIsDmParticipant("forum_post")).toBe(false)
+    expect(visibilityIsDmParticipant("thread")).toBe(false)
+  })
+
+  it("visibilityIsDmParticipant tolerates the loose null/unknown types from the query layer", () => {
+    expect(visibilityIsDmParticipant(null)).toBe(false)
+    expect(visibilityIsDmParticipant(undefined)).toBe(false)
+    expect(visibilityIsDmParticipant("bogus")).toBe(false)
   })
 })
