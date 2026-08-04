@@ -9,7 +9,7 @@ import {
 import type { Database } from "../../index";
 import { PARTICIPANT_SOURCE } from "../../../constants/community";
 import { createLogger } from "../../../logger";
-import { canManageServer, canSeePrivateChannel } from "../../../utils/community-roles";
+import { canManageServer, canSeePrivateChannel, visibilityIsDmParticipant } from "../../../utils/community-roles";
 import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 
 // Module-level logger — one tag per shared query module.
@@ -72,6 +72,9 @@ export async function createChannel(
     parentChannelId?: string | null;
     creatorId?: string | null;
     parentMessageId?: string | null;
+    // Display-only pre-slugify original title (forum_post CREATE only). Absent
+    // for every other create path — leaves the column null.
+    displayTitle?: string | null;
   }
 ) {
   const rows = await db
@@ -85,6 +88,7 @@ export async function createChannel(
       parentChannelId: data.parentChannelId ?? null,
       creatorId: data.creatorId ?? null,
       parentMessageId: data.parentMessageId ?? null,
+      displayTitle: data.displayTitle ?? null,
     })
     .returning();
   return rows[0]!;
@@ -126,16 +130,23 @@ export async function getChannelType(
  * predicate is in SQL, not a post-fetch check.
  */
 export async function getChannelForMember(db: Database, channelId: string, userId: string) {
-  // DM (type=dm, server_id NULL) — Access resolution step 1: readable iff the
-  // user has a relation='access' member row. No server walk, no inheritance.
+  // Fetch the channel row once, then dispatch on its VISIBILITY trait (B3): the
+  // DM access rule (member-row check, no server walk, no inheritance) is keyed on
+  // `visibilityIsDmParticipant`, the single source shared with
+  // `resolveChannelAccessContext` — not a re-tested `type === 'dm'`. A missing
+  // row → null (its 403/404 translation is the caller's surface-partitioned job,
+  // untouched here).
   const dmRows = await db
     .select(CHANNEL_COLUMNS)
     .from(communityChannel)
-    .where(and(eq(communityChannel.id, channelId), eq(communityChannel.type, "dm")))
+    .where(eq(communityChannel.id, channelId))
     .limit(1);
-  if (dmRows[0]) {
+  const dmRow = dmRows[0];
+  if (dmRow && visibilityIsDmParticipant(dmRow.type)) {
+    // DM (type=dm, server_id NULL) — readable iff the user has a
+    // relation='access' member row.
     const isMember = await isChannelMember(db, channelId, userId, "access");
-    return isMember ? mapChannelRow(dmRows[0]) : null;
+    return isMember ? mapChannelRow(dmRow) : null;
   }
 
   const rows = await db
@@ -940,9 +951,11 @@ export async function resolveChannelAccessContext(
   const channel = mapChannelRow(target[0]!);
   const anchorId = channel.parentChannelId ?? channel.id;
 
-  // DM (type=dm, server_id NULL) — Access resolution step 1: access iff the
-  // user has a relation='access' member row. No server walk.
-  if (channel.type === "dm") {
+  // DM (type=dm, server_id NULL) — access iff the user has a relation='access'
+  // member row, no server walk. Keyed on the VISIBILITY trait (B3), the SAME
+  // `visibilityIsDmParticipant` source `getChannelForMember` uses for its DM
+  // path — the DM access rule now lives in one place, not re-tested per function.
+  if (visibilityIsDmParticipant(channel.type)) {
     const isMember = await isChannelMember(db, channel.id, userId, "access");
     if (!isMember) return null;
     return {

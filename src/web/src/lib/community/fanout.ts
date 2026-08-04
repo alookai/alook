@@ -13,7 +13,7 @@
  */
 
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { queries, createLogger, WS_EVENTS, isThread, isForumPost, isDm, withD1Retry } from "@alook/shared"
+import { queries, createLogger, WS_EVENTS, channelReach, isStoredChannelType, withD1Retry } from "@alook/shared"
 import type { CommunityWsEvent, Database } from "@alook/shared"
 import { getDb } from "../db"
 import { broadcastToUser } from "../broadcast"
@@ -59,26 +59,43 @@ async function getServerMemberUserIds(db: Database, serverId: string): Promise<s
  * The split lives here so fan-out and bot-wake use the same recipient set.
  */
 async function getChannelRecipientUserIds(db: Database, channelId: string): Promise<string[]> {
-  const rows = await withD1Retry(
+  const type = await withD1Retry(
     () => queries.communityChannel.getChannelType(db, channelId),
     { route: "fanout:channel-type" },
   )
-  if (isThread(rows) || isForumPost(rows)) {
-    return withD1Retry(
-      () => queries.communityThread.listThreadParticipantUserIds(db, channelId),
-      { route: "fanout:thread-participants" },
-    )
+  // Dispatch on the reach TRAIT, not a re-derived `isThread || isForumPost` /
+  // `isDm` classification (B2 — the reach axis's single source). An unknown/null
+  // type falls to `server-or-roster` (the historical default arm). The read side
+  // here (who-receives) keys on the SAME reach value the send-path enroll keys on
+  // (who-enrolls), so a participant-set channel's fan-out and its enroll can't
+  // drift (red-line ③).
+  const reach = isStoredChannelType(type) ? channelReach(type) : "server-or-roster"
+  switch (reach) {
+    case "participant-set":
+      // Thread / forum_post: the unit's notify (participant) rows — the same set
+      // the send-path enroll writes into.
+      return withD1Retry(
+        () => queries.communityThread.listThreadParticipantUserIds(db, channelId),
+        { route: "fanout:thread-participants" },
+      )
+    case "dm-pair":
+      // DM: its two relation='access' members (server_id is NULL, so it must not
+      // fall through to the server-scoped resolver).
+      return withD1Retry(
+        () => queries.communityChannel.listChannelMemberUserIds(db, channelId),
+        { route: "fanout:dm-members" },
+      )
+    case "server-or-roster":
+      // Channel / forum: the access audience (public/private split).
+      return withD1Retry(
+        () => queries.communityMembersResolver.resolveScopeMemberUserIds(db, { scope: "channel", scopeId: channelId }),
+        { route: "fanout:scope-members" },
+      )
+    default: {
+      const _never: never = reach
+      return _never
+    }
   }
-  if (isDm(rows)) {
-    return withD1Retry(
-      () => queries.communityChannel.listChannelMemberUserIds(db, channelId),
-      { route: "fanout:dm-members" },
-    )
-  }
-  return withD1Retry(
-    () => queries.communityMembersResolver.resolveScopeMemberUserIds(db, { scope: "channel", scopeId: channelId }),
-    { route: "fanout:scope-members" },
-  )
 }
 
 /**

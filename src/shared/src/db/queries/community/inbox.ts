@@ -11,7 +11,7 @@ import {
 import { user } from "../../schema";
 import type { Database } from "../../index";
 import { listParticipatingThreadIds } from "./thread";
-import { isThread, isForumPost } from "../../../utils/community-roles";
+import { reachIsParticipantSet } from "../../../utils/community-roles";
 
 export interface UnreadChannelRow {
   channelId: string;
@@ -157,7 +157,7 @@ export async function listUnreadChannels(
   // table (keyed by channel id), so one `listParticipatingThreadIds` covers
   // both. Top-level channels flow through the visibility path above unchanged.
   const notifyScopedIds = unread
-    .filter((r) => isThread(r.type) || isForumPost(r.type))
+    .filter((r) => reachIsParticipantSet(r.type))
     .map((r) => r.channelId);
   const participatingIds =
     notifyScopedIds.length > 0
@@ -167,7 +167,7 @@ export async function listUnreadChannels(
   return unread
     .filter(
       (r) =>
-        (!isThread(r.type) && !isForumPost(r.type)) ||
+        !reachIsParticipantSet(r.type) ||
         participatingIds.has(r.channelId),
     )
     .map((r) => ({

@@ -311,6 +311,81 @@ async function cmdMessageSend(opts: Record<string, unknown>): Promise<unknown> {
   return { sent: `${res.message.channel}${res.message.seq}` };
 }
 
+/**
+ * createPost with the SAME bounded same-nonce transient retry as `sendWithRetry`
+ * — createPost also carries a `nonce` the server dedupes on, so a
+ * committed-but-response-lost create is absorbed here (server returns the
+ * canonical post) instead of surfacing as an error the agent would re-run into a
+ * second post. Only transient transport errors retry; a thrown 4xx (bad forum /
+ * unauthorized / empty) passes straight through.
+ */
+async function createPostWithRetry(
+  api: ServerApi,
+  req: Parameters<ServerApi["createPost"]>[0],
+): Promise<Awaited<ReturnType<ServerApi["createPost"]>>> {
+  const MAX_ATTEMPTS = 4;
+  const BASE_DELAY_MS = 150;
+  const MAX_DELAY_MS = 2000;
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    try {
+      return await api.createPost(req);
+    } catch (err) {
+      lastErr = err;
+      if (!isTransientSendError(err) || attempt === MAX_ATTEMPTS - 1) throw err;
+      const cap = Math.min(MAX_DELAY_MS, BASE_DELAY_MS * 2 ** attempt);
+      await new Promise((r) => setTimeout(r, cap));
+    }
+  }
+  throw lastErr;
+}
+
+async function cmdMessagePost(opts: Record<string, unknown>): Promise<unknown> {
+  const api = getApi();
+  const agent = agentId(opts);
+  const forum = opts.target as string;
+  if (!forum) throw new CliError("message post: --target <forum-ref> is required (e.g. /demo/ideas)");
+  const title = opts.title as string | undefined;
+  if (!title || title.trim().length === 0) throw new CliError("message post: --title <name> is required");
+
+  // Body: same --text/--file handling as `message send` (file = literal bytes,
+  // never escape-decode; --text decodes shell escapes).
+  let text: string | undefined;
+  const fileFlag = opts.file as string | undefined;
+  const textFlag = opts.text as string | undefined;
+  if (fileFlag) {
+    const fs = await import("fs");
+    if (!fs.existsSync(fileFlag)) throw new CliError(`message post: file not found: ${fileFlag}`);
+    text = fs.readFileSync(fileFlag, "utf8").trim();
+  } else if (typeof textFlag === "string") {
+    text = decodeTextEscapes(textFlag);
+  }
+
+  const attachmentIds = Array.isArray(opts.attachment) ? (opts.attachment as string[]) : [];
+  const hasText = typeof text === "string" && text.trim().length > 0;
+  // Opener contract: a post needs text OR at least one attachment (attachment-
+  // only is a legitimate post — same as a forum post's first message).
+  if (!hasText && attachmentIds.length === 0) {
+    throw new CliError("message post: --text <text>, --file <path>, or --attachment <id> is required");
+  }
+
+  // One idempotency nonce per logical create, reused across sendWithRetry's
+  // internal attempts (server dedupes on author+nonce) — same duplicate-guard
+  // rationale as `message send`.
+  const nonce = randomUUID();
+  const res = await createPostWithRetry(api, {
+    agentId: agent,
+    forum,
+    title: title.trim(),
+    content: { text: text ?? "" },
+    attachments: attachmentIds.length > 0 ? attachmentIds : undefined,
+    nonce,
+  });
+  // Surface the canonical /server/forum/<real-slug> ref — the bot's handle for
+  // the just-created post, usable directly as a `--target`.
+  return { posted: res.ref };
+}
+
 async function cmdMessageEmoji(opts: Record<string, unknown>): Promise<unknown> {
   const api = getApi();
   const target = opts.target as string;
@@ -588,6 +663,28 @@ function buildProgram(): Command {
       const localOpts = this.opts();
       const globalOpts = program.opts();
       const result = await cmdMessageSend({ ...globalOpts, ...localOpts });
+      printEnvelope({ success: result });
+    });
+
+  message
+    .command("post")
+    .description("create a new forum post in a forum")
+    .option("--target <forum-ref>", "the forum to post in (path-style ref, e.g. /demo/ideas)")
+    .option("--title <name>", "the post title (its slug becomes the post's address)")
+    .option("--text <text>", "inline post body (short)")
+    .option("--file <path>", "read post body from a file (long)")
+    .option(
+      "-a, --attachment <id>",
+      "attach an uploaded file by id (repeatable — order = body order)",
+      (v, prev: string[] = []) => [...prev, v],
+      [] as string[],
+    )
+    .exitOverride()
+    .configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      const localOpts = this.opts();
+      const globalOpts = program.opts();
+      const result = await cmdMessagePost({ ...globalOpts, ...localOpts });
       printEnvelope({ success: result });
     });
 

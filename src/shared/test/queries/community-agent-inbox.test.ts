@@ -158,6 +158,33 @@ describe("toAgentMessages", () => {
     expect(msg!.channel).toBe("/unknown/ch_gone");
   });
 
+  // B1.1 degraded-path (Ingaborg's assertion): a thread channel row EXISTS but
+  // its parent/root didn't hydrate (parentChannels + parentMessages come back
+  // empty — a dangling parent ref). The by-root-seq emitter can't build a ref
+  // without the root seq, so it returns null and resolveScopeRefs sets no map
+  // entry → the caller's `?? "/unknown/<id>"` sentinel takes over. Before B1.1
+  // this row got a hand-built top-level `/studio/thread-x` ref that LOOKS
+  // addressable but 404s on resolve; now it's an explicit unresolvable sentinel.
+  // The message ROW still surfaces (never-drop) — only its channel is /unknown/.
+  it("degraded thread (parent/root not hydrated) → /unknown/ sentinel, not a bogus top-level ref, row kept", async () => {
+    // Call order: 1. channels (the thread row itself), 2. author names,
+    // 3. parentChannels (EMPTY — parent didn't resolve), 4. servers,
+    // 5. parentMessages (EMPTY — root seq didn't resolve).
+    const db = createSequentialDb([
+      [{ id: "thread_1", name: "thread-x", type: "thread", serverId: "srv_1", parentChannelId: "ch_gone_parent", parentMessageId: "m_gone_root" }],
+      [{ id: "u_1", name: "Alice" }],
+      [], // parentChannels: parent didn't hydrate
+      [{ id: "srv_1", name: "studio" }],
+      [], // parentMessages: root seq didn't hydrate
+    ]);
+    const [msg] = await agentInbox.toAgentMessages(db, [rawMsg({ channelId: "thread_1" })], "viewer_1");
+    // Row survives (never-drop) and the channel is the explicit sentinel — NOT
+    // a fabricated `/studio/thread-x` top-level ref.
+    expect(msg).toBeDefined();
+    expect(msg!.channel).toBe("/unknown/thread_1");
+    expect(msg!.channel).not.toBe(formatRef({ server: "studio", channel: "thread-x" }));
+  });
+
   it("falls back to the raw authorId as sender when the user row is missing", async () => {
     const db = createSequentialDb([
       [{ id: "ch_1", name: "general", serverId: "srv_1", parentChannelId: null, parentMessageId: null }],

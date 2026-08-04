@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server"
-import { queries, parseRef, DM_SERVER, parseNameAndTag } from "@alook/shared"
+import { queries, parseRef, DM_SERVER, parseNameAndTag, channelCreation } from "@alook/shared"
 import type { Database } from "@alook/shared"
-import { isUniqueConstraintError } from "@alook/shared"
 import { guardDmOpen } from "./dm-guard"
+import { createWithCollisionPolicy } from "./create-collision"
 
 export type TargetResolution =
   | { kind: "channel"; channelId: string }
@@ -171,17 +171,25 @@ export async function resolveTargetForMember(
     return { error: 404, message: "thread not found" }
   }
 
-  try {
-    const created = await queries.communityChannel.createThreadChannel(db, channel.id, rootMessage.id, userId)
-    return { kind: "channel", channelId: created.id }
-  } catch (err) {
-    if (isUniqueConstraintError(err)) {
-      // Lost the race to a concurrent thread-create — re-select the winner.
-      const winner = await queries.communityChannel.getThreadChannelByParentMessage(db, channel.id, rootMessage.id)
-      if (winner) return { kind: "channel", channelId: winner.id }
-    }
-    throw err
-  }
+  // Thread create via the shared trait-keyed collision policy (B4): thread's
+  // creation trait is get-or-create — a concurrent create that loses the race on
+  // the parent_message_id anchor (unique index, migration 0052) re-selects the
+  // winner rather than making a second thread. This is the SAME dispatch
+  // forum_post (pure-create) and top-level channels (reject-on-collision) use;
+  // only these callbacks (the thread channel-shape + its anchor refetch) are
+  // thread-specific. Anchor-collision (parent_message_id) and name-collision are
+  // both "a structure anchor was taken → fetch the winner" — one get-or-create
+  // value covers both; DM's identity-collision is a different key space and is
+  // NOT wired here.
+  const threadResult = await createWithCollisionPolicy(channelCreation("thread"), {
+    attempt: () => queries.communityChannel.createThreadChannel(db, channel.id, rootMessage.id, userId),
+    refetchWinner: () => queries.communityChannel.getThreadChannelByParentMessage(db, channel.id, rootMessage.id),
+  })
+  // get-or-create never returns a structured failure (it creates or re-selects
+  // the winner, else throws) — a `!ok` here is unreachable for this policy;
+  // map it to a 404 rather than widen TargetResolution's error union to 409.
+  if (!threadResult.ok) return { error: 404, message: "thread not found" }
+  return { kind: "channel", channelId: threadResult.value.id }
 }
 
 /**

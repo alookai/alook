@@ -278,6 +278,7 @@ export {
   CommunityAgentReadRequestSchema,
   CommunityAgentResolveRequestSchema,
   CommunityAgentListChannelsRequestSchema,
+  CommunityAgentCreatePostRequestSchema,
   CommunityAgentListMembersRequestSchema,
   CommunityAgentChannelMemberRequestSchema,
   CommunityAgentJoinServerRequestSchema,
@@ -438,7 +439,8 @@ export type {
   HostBotAuditEventFrame,
   BotAuditEventPayload,
 } from "./community-cli-contract";
-export { DM_SERVER, parseRef, formatRef, parseSeq, formatSeq } from "./community-cli-contract";
+export { DM_SERVER, parseRef, formatRef, formatCanonicalRef, parseSeq, formatSeq } from "./community-cli-contract";
+export type { CanonicalRefScope } from "./community-cli-contract";
 
 export type {
   ReasoningEffort,
@@ -590,8 +592,25 @@ export {
   ROLES,
   ASSIGNABLE_ROLES,
   CHANNEL_TYPES,
+  CHANNEL_TRAITS,
+  channelReach,
+  reachIsParticipantSet,
+  isStoredChannelType,
+  channelVisibility,
+  visibilityIsDmParticipant,
+  channelCreation,
 } from "./utils/community-roles";
-export type { CommunityRole, ChannelType, StoredChannelType, AssignableRole } from "./utils/community-roles";
+export type {
+  CommunityRole,
+  ChannelType,
+  StoredChannelType,
+  AssignableRole,
+  AddressingTrait,
+  VisibilityTrait,
+  ReachTrait,
+  CreationTrait,
+  ChannelTraits,
+} from "./utils/community-roles";
 export {
   isAccepted,
   isPending,

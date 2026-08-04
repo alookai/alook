@@ -54,6 +54,12 @@ afterEach(() => {
 
 describe("ChildProcessRuntimeSession — real subprocess exit fills the physical fact (T1 red-line-5b)", () => {
   it("a real SIGKILLed subprocess emits exit with signal=SIGKILL, null code, reason=runtime_exit", async () => {
+    // POSIX-only: Windows has no real signals — `process.kill(pid, "SIGKILL")`
+    // terminates the child but Node reports `code=1, signal=null`, so the
+    // `signal === "SIGKILL"` contract this asserts can't hold there. Skip on
+    // win32 (same platform-guard as killTree.test.ts). The clean-exit sibling
+    // below (code=0/signal=null) is cross-platform and still runs.
+    if (process.platform === "win32") return;
     const session = new ChildProcessRuntimeSession(realSpawnDriver(), minimalCtx());
     const exitInfo = await new Promise<{ code: number | null; signal: string | null; reason?: string }>(
       (resolve) => {
