@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { queries, CommunityAgentListChannelsRequestSchema, formatRef, formatCanonicalRef, type StoredChannelType } from "@alook/shared"
+import { queries, CommunityAgentListChannelsRequestSchema, formatCanonicalRef, type StoredChannelType } from "@alook/shared"
 import type {
   CommunityCliChannelGroup as ChannelGroup,
   ChannelListItem,
@@ -85,13 +85,18 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
         // channel type's addressing trait, same emitter the agent inbox uses,
         // so listChannels can't drift from how send/read/ack resolve the ref.
         // These are top-level channels (`listChannelsForMember` filters
-        // parent_channel_id IS NULL) → `by-server-name`; the emitter returns a
-        // ref for that arm given server+name. Fall back to the direct top-level
-        // shape only if a field is somehow absent (never for a top-level row).
+        // parent_channel_id IS NULL) → the `by-server-name` arm, which given
+        // server+name never returns null; the non-null assertion documents that
+        // (B1.1: the old `?? formatRef(...)` fallback was dead code — a second
+        // hand-built top-level shape outside the emitter — and is removed so the
+        // ref shape lives ONLY in formatCanonicalRef).
+        const ref = formatCanonicalRef({
+          type: (c.type ?? "text") as StoredChannelType,
+          serverName: server.name,
+          name: c.name,
+        })
         const item: ChannelListItem = {
-          ref:
-            formatCanonicalRef({ type: (c.type ?? "text") as StoredChannelType, serverName: server.name, name: c.name }) ??
-            formatRef({ server: server.name, channel: c.name }),
+          ref: ref!,
           name: c.name,
           type: c.type,
           visibility: isPrivate ? "private" : "public",

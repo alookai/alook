@@ -22,7 +22,6 @@ import {
 import { user } from "../../schema";
 import type { Database } from "../../index";
 import {
-  formatRef,
   formatCanonicalRef,
   formatSeq,
   type AgentAttachmentRef,
@@ -213,12 +212,20 @@ async function resolveScopeRefs(
       rootSeq,
       peerSegment,
     });
+    // Degraded channel (emitter null — a required addressing field didn't
+    // hydrate, e.g. a thread missing its parent/root): skip its ENTRY in this
+    // channelId→ScopeInfo map. This is safe for never-drop: the map is looked
+    // up per message row by the two callers as `scope?.ref ?? "/unknown/<id>"`,
+    // which already keep the row and emit the explicit "/unknown/" sentinel when
+    // the scope is absent. So a missing entry funnels into that existing
+    // unresolvable path — the message row survives (nothing is dropped from the
+    // page) and its channel reads as an explicit "unresolvable" sentinel, NOT a
+    // hand-built top-level ref that looks addressable but 404s. This removes the
+    // second place the top-level ref shape was built (B1.1): the shape now lives
+    // ONLY in the emitter.
+    if (ref === null) continue;
     out.set(ch.id, {
-      // Null only when a required addressing field didn't resolve (e.g. a thread
-      // whose parent/root couldn't be hydrated) — keep the prior top-level
-      // fallback so a degraded row still gets a (non-round-tripping) ref rather
-      // than crashing, exactly as before.
-      ref: ref ?? formatRef({ server: serverName, channel: ch.name }),
+      ref,
       isThread: emitType === "thread",
       isDm,
     });
