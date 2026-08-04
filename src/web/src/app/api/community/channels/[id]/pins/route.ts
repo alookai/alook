@@ -20,6 +20,12 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
   const rows = await queries.communityPin.listPins(db, channelId)
   const pins = rows.map((r) => ({
     id: r.message.id,
+    // seq is the per-channel sequence the client needs to JUMP to a pinned
+    // message (jumpToSeq: scroll+highlight if in the loaded window, else open
+    // the context sheet). A pin is usually an OLD message outside the window,
+    // so a scroll-only path silently no-ops without seq. listPins selects the
+    // whole message row, so seq is already here.
+    seq: r.message.seq,
     // authorId lets the client derive a stable beam avatar when the author
     // has no uploaded image — same shape mapMessageForApi feeds the message
     // list. Omitting it (and pre-flattening authorAvatar to an initial) is

@@ -184,7 +184,7 @@ describe("GET /api/community/channels/[id]/pins", () => {
     mockListPins.mockResolvedValue([
       {
         pin: { channelId: "c1", messageId: "m1" },
-        message: { id: "m1", content: "hi", createdAt: "2026-08-04T00:00:00Z" },
+        message: { id: "m1", seq: 42, content: "hi", createdAt: "2026-08-04T00:00:00Z" },
         author: { id: "u42", name: "Ada", image: null },
       },
     ]);
@@ -192,11 +192,14 @@ describe("GET /api/community/channels/[id]/pins", () => {
     const res = await GET(getReq(), ctx);
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { pins: Array<{ id: string; authorId: string; authorName: string }> };
+    const body = (await res.json()) as { pins: Array<{ id: string; seq: number; authorId: string; authorName: string }> };
     expect(body.pins).toHaveLength(1);
     expect(body.pins[0].authorId).toBe("u42");
     expect(body.pins[0].id).toBe("m1");
     expect(body.pins[0].authorName).toBe("Ada");
+    // seq lets the client jumpToSeq to the pinned message (scroll+highlight, or
+    // open the context sheet if it's outside the loaded window).
+    expect(body.pins[0].seq).toBe(42);
   });
 
   it("returns 403 when the caller can't see the channel", async () => {
