@@ -367,7 +367,13 @@ export async function getBotWakeContext(db: Database, botUserId: string): Promis
   };
 }
 
-/** Bots bound to this machine — daemon cold-start warmup uses this. */
+/**
+ * Bots bound to this machine — daemon cold-start warmup uses this, AND batch
+ * reset (`machine:reset_all`) enumerates the same binding set. `runtime` +
+ * `modelName` come off the binding row (the runtime pairing) so a caller can
+ * build a per-agent RuntimeConfig without a second query (batch reset needs
+ * them; warmup ignores the extra fields).
+ */
 export async function listBotsForMachine(
   db: Database,
   machineId: string
@@ -379,6 +385,8 @@ export async function listBotsForMachine(
     description: string;
     ownerName: string;
     ownerDiscriminator: string;
+    runtime: string;
+    modelName: string | null;
   }>
 > {
   // Guard against orphaned bots: if a future flow soft-deletes an owner user
@@ -392,6 +400,8 @@ export async function listBotsForMachine(
       description: communityUserProfile.aboutMe,
       ownerName: owner.name,
       ownerDiscriminator: owner.discriminator,
+      runtime: communityBotBinding.runtime,
+      modelName: communityBotBinding.modelName,
     })
     .from(user)
     .innerJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
@@ -415,6 +425,8 @@ export async function listBotsForMachine(
     description: r.description ?? "",
     ownerName: r.ownerName,
     ownerDiscriminator: r.ownerDiscriminator,
+    runtime: r.runtime,
+    modelName: r.modelName ?? null,
   }));
 }
 

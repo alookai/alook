@@ -211,6 +211,8 @@ describe("listBotsForMachine", () => {
         description: "does things",
         ownerName: "gustavo",
         ownerDiscriminator: "5678",
+        runtime: "claude",
+        modelName: "claude-opus-4-6",
       },
     ])
     const result = await q.listBotsForMachine(chain, "machine_1")
@@ -222,8 +224,28 @@ describe("listBotsForMachine", () => {
         description: "does things",
         ownerName: "gustavo",
         ownerDiscriminator: "5678",
+        runtime: "claude",
+        modelName: "claude-opus-4-6",
       },
     ])
+  })
+
+  it("defaults modelName to null when the binding has none", async () => {
+    const chain = makeJoinChain([
+      {
+        id: "bot_1",
+        name: "helper",
+        discriminator: "1234",
+        description: "does things",
+        ownerName: "gustavo",
+        ownerDiscriminator: "5678",
+        runtime: "claude",
+        modelName: null,
+      },
+    ])
+    const result = await q.listBotsForMachine(chain, "machine_1")
+    expect(result[0]?.runtime).toBe("claude")
+    expect(result[0]?.modelName).toBeNull()
   })
 
   it("defaults description to empty string when the profile row is missing", async () => {

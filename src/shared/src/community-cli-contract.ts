@@ -663,6 +663,23 @@ export type HostCommand =
    * new model, never wrong about it. See `AgentProcessManager.switchModel`.
    */
   | { type: "agent:model_switch"; agentId: AgentId; config: RuntimeConfig; launchId: string }
+  /**
+   * Owner-triggered BATCH reset — reset every agent bound to this machine in a
+   * SINGLE command (not N fanned-out `agent:reset` frames). The server
+   * enumerates the machine's full binding set and packs one `resets` entry per
+   * agent (each the payload of a normal `agent:reset`: agentId + config +
+   * launchId). The daemon loops `AgentProcessManager.resetSession` over the
+   * array, reusing the exact per-agent reset path — so a bound-but-idle agent
+   * cold-starts (register + fresh session), same as a single reset on an idle
+   * bot. Each per-agent reset is independent (a failure is a per-agent error
+   * ack, not a batch abort). The daemon MUST gate each `agentId` on its own
+   * `botsById` (bound) set — an agentId it doesn't own is a no-op+warn (defends
+   * the reconnect transient + closes the pre-existing "register+spawn any
+   * agentId" hole). Routed by machineId to the single daemon that owns it (one
+   * live credential per machineId). See the `machine:reset_all` case in
+   * `agentRouter` and plans/daemon-batch-reset.md.
+   */
+  | { type: "machine:reset_all"; resets: Array<{ agentId: AgentId; config: RuntimeConfig; launchId: string }> }
   // ─── Bot lifecycle events (server → daemon) ────────────────────────────
   // Colon-namespaced to match the agent:* naming convention. Delivered to
   // the specific machine's daemon connection via the WS DO. On the daemon,
@@ -1244,6 +1261,16 @@ export const HostCommandSchema = z.discriminatedUnion("type", [
     agentId: z.string().min(1),
     config: z.unknown(),
     launchId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("machine:reset_all"),
+    resets: z.array(
+      z.object({
+        agentId: z.string().min(1),
+        config: z.unknown(),
+        launchId: z.string().min(1),
+      }),
+    ),
   }),
   // The `bot:*` arms are NOT what #6 targets — the daemon acts on `agent:*`;
   // `bot:*` merely mutate/evict the `botsById` cache at the createDaemon layer.

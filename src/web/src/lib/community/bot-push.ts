@@ -105,6 +105,57 @@ export async function pushAgentResetToMachine(
 }
 
 /**
+ * Push an owner-triggered BATCH reset (`machine:reset_all`) to a machine's
+ * daemon over WS — one frame carrying every agent's reset payload, NOT N
+ * fanned-out `agent:reset` calls.
+ *
+ * Narrowly typed (only the reset array) so no caller can smuggle another
+ * command shape. Returns `{ sent }` — `sent === 0` means the daemon isn't
+ * connected; the caller translates that into a 409.
+ */
+export async function pushBatchResetToMachine(
+  env: Env,
+  machineId: string,
+  resets: Array<{ agentId: string; config: RuntimeConfig; launchId: string }>,
+): Promise<{ sent: number }> {
+  const path = `/community-machine/by-id/${encodeURIComponent(machineId)}/forward-batch-reset`
+  const body = JSON.stringify({
+    resets: resets.map((r) => ({
+      agentId: r.agentId,
+      config: r.config,
+      launchId: r.launchId,
+    })),
+  })
+  try {
+    const res = await wsDoFetch(
+      env,
+      path,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      },
+      { label: machineId, type: "machine:reset_all" },
+    )
+    if (!res.ok) {
+      log.warn("machine:reset_all push non-ok", {
+        machineId,
+        status: res.status,
+      })
+      return { sent: 0 }
+    }
+    const data = (await res.json()) as { sent?: number }
+    return { sent: data.sent ?? 0 }
+  } catch (err) {
+    log.warn("machine:reset_all push threw", {
+      machineId,
+      err: String(err),
+    })
+    return { sent: 0 }
+  }
+}
+
+/**
  * Push an agent-self-initiated `agent:nap` to the bot's OWN machine over WS.
  *
  * Twin of `pushAgentResetToMachine` — same narrow allowlist plus the mandatory
