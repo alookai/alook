@@ -598,3 +598,34 @@ export const communityBotDailyActivity = sqliteTable(
   (t) => [primaryKey({ columns: [t.botId, t.day] })]
 );
 
+// 23. community_message_mark
+// Per-user private bookmark ("mark") on a message. Unlike community_pin (15),
+// which is channel-shared (everyone sees the same set), a mark is keyed by the
+// marking USER and visible only to them. Powers the Marked inbox tab. Like
+// pins, no denormalized seq: the marked-list read joins communityMessage for
+// the jump key (communityMessage.seq). channelId is stored for the cascade and
+// the phase-2 per-channel markedIds read (inline glyph, cut from phase-1 per
+// Gus /Gus/working #992); the INDEX(userId, channelId) that read needs is
+// deferred with it. UNIQUE(userId, messageId) makes the toggle idempotent
+// (messageId is globally unique, so channelId is not needed for uniqueness).
+export const communityMessageMark = sqliteTable(
+  "community_message_mark",
+  {
+    id: text("id").primaryKey().$defaultFn(() => nanoid()),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    channelId: text("channel_id")
+      .notNull()
+      .references(() => communityChannel.id, { onDelete: "cascade" }),
+    messageId: text("message_id")
+      .notNull()
+      .references(() => communityMessage.id, { onDelete: "cascade" }),
+    createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    unique("uq_mark_user_message").on(t.userId, t.messageId),
+    index("idx_mark_user_created").on(t.userId, t.createdAt),
+  ]
+);
+
