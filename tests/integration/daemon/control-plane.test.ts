@@ -37,6 +37,17 @@ import { nanoid, seedPairedBot, cleanupPairedBot, type DaemonItFixture } from ".
 const APP_URL = process.env.APP_URL ?? "http://localhost:3000"
 const WS_DO_URL = process.env.WS_DO_URL ?? "ws://localhost:8789"
 
+// Assert a response is ok, but on failure surface the STATUS + body — a bare
+// `expect(res.ok).toBe(true)` only tells you "false", which is undiagnosable in
+// CI (is it a 401 key-timing? a 500 handler throw? a transport timeout?). This
+// turns the opaque failure into an actionable signature.
+async function assertResOk(res: Response, label: string): Promise<void> {
+  if (res.ok) return
+  let body = ""
+  try { body = (await res.text()).slice(0, 500) } catch { body = "<unreadable body>" }
+  throw new Error(`${label}: expected ok, got HTTP ${res.status} ${res.statusText} — body: ${body}`)
+}
+
 async function waitFor<T>(check: () => T | undefined, timeoutMs = 15_000, intervalMs = 200): Promise<T> {
   const deadline = Date.now() + timeoutMs
   for (; ;) {
@@ -164,7 +175,7 @@ describe("daemon control plane — real ws-do wake round-trip", () => {
       headers: { Authorization: `Bearer ${runnerKey}`, "content-type": "application/json" },
       body: JSON.stringify({}),
     })
-    expect(pullRes.ok).toBe(true)
+    await assertResOk(pullRes, "inboxPull (:167 enroll→pull hop)")
     // Wire `seq` is formatted `"#N"` (see `formatSeq`/`toAgentMessages`) —
     // the ack cursor schema wants the bare number back (`parseSeq`).
     const pulled = (await pullRes.json()) as { messages: Array<{ seq: string; channel: string }> }
@@ -276,7 +287,7 @@ describe("daemon control plane — real ws-do wake round-trip", () => {
           headers: { Authorization: `Bearer ${runnerKey}`, "content-type": "application/json" },
           body: JSON.stringify({}),
         })
-        expect(pullRes.ok).toBe(true)
+        await assertResOk(pullRes, "inboxPull (:279 multi-bot enroll→pull)")
         const pulled = (await pullRes.json()) as { messages: Array<{ seq: string; channel: string }> }
         expect(pulled.messages.length).toBeGreaterThan(0)
         const lastPulled = pulled.messages[pulled.messages.length - 1]!
