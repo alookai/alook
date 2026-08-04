@@ -1,7 +1,16 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { queries, CommunityAgentListMembersRequestSchema, formatHandle } from "@alook/shared"
+import {
+  queries,
+  CommunityAgentListMembersRequestSchema,
+  formatHandle,
+  DEFAULT_MEMBERS_PAGE_SIZE,
+  MAX_MEMBERS_PAGE_SIZE,
+} from "@alook/shared"
+import type { CommunityCliServerMemberListResult as ServerMemberListResult } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withCommunityActor, requireBot } from "@/lib/middleware/community-actor"
+import { parseMemberCursor } from "@/lib/community/messages"
+import { fetchOnlineUserIds, toMemberStatus } from "@/lib/community/member-presence"
 
 /**
  * POST /api/community/listMembers — moved from /api/community/agent/listMembers
@@ -47,11 +56,37 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   }
   const serverId = servers[0]!.id
 
-  const rows = await queries.communityMember.listMembers(db, serverId)
-  const members = rows.map((r) => ({
+  // Forward-paginated roster (opaque `joinedAt|id` cursor). The server roster is
+  // the whole-server audience — potentially unbounded — so unlike private
+  // channel/thread rosters it must page. limit is clamped to DEFAULT/MAX.
+  const limit = Math.min(
+    Math.max(parsed.data.limit ?? DEFAULT_MEMBERS_PAGE_SIZE, 1),
+    MAX_MEMBERS_PAGE_SIZE,
+  )
+  const cursor = parseMemberCursor(parsed.data.cursor ?? null)
+  const page = await queries.communityMember.listMembersPaginated(db, serverId, { cursor, limit })
+
+  // Bulk presence for THIS page's user ids only (bounded) — never per-member.
+  const onlineSet = await fetchOnlineUserIds(
+    ctx.env,
+    page.members.map((r) => r.userId),
+    serverId,
+  )
+
+  const members = page.members.map((r) => ({
     handle: formatHandle(r.userName ?? "", r.discriminator ?? "0000"),
     role: r.role ?? "member",
+    online: onlineSet.has(r.userId),
+    status: toMemberStatus(r),
   }))
 
-  return NextResponse.json({ members })
+  // listMembersPaginated already computed the next-page keyset (present iff
+  // hasMore); serialize it to the opaque `joinedAt|id` wire cursor.
+  const cursorOut = page.cursor ? `${page.cursor.joinedAt}|${page.cursor.id}` : undefined
+
+  return NextResponse.json<ServerMemberListResult>({
+    members,
+    hasMore: page.hasMore,
+    cursor: cursorOut,
+  })
 })

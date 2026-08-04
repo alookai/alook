@@ -15,6 +15,7 @@ import { getDb } from "@/lib/db"
 import { withCommunityActor, requireBot } from "@/lib/middleware/community-actor"
 import { resolveTargetForMember, resolveErrorResponse } from "@/lib/community/resolve-ref"
 import { requireChannelAccess } from "@/lib/community/permissions"
+import { fetchOnlineUserIds, toMemberStatus } from "@/lib/community/member-presence"
 
 /**
  * POST /api/community/channelMember — `alook channel member --channel <ref>`.
@@ -97,8 +98,11 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   // so this handler only sees `thread` or top-level channel rows here.
   if (isThread(channel.type)) {
     const userIds = await queries.communityThread.listThreadParticipantUserIds(db, channelId)
-    const members = await hydrateMembers(db, channel.serverId, userIds)
-    return NextResponse.json<ChannelMemberResult>({ visibility: "private", members })
+    const members = await hydrateMembers(db, ctx.env, channel.serverId, userIds)
+    // hasMore: false — a thread participant roster is membership-bounded and
+    // returned whole; the field keeps the wire shape uniform with `server
+    // member` (pagination is a pure back-end add later if ever needed).
+    return NextResponse.json<ChannelMemberResult>({ visibility: "private", members, hasMore: false })
   }
 
   if (!isPrivate) {
@@ -110,26 +114,34 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
 
   const scoped = await queries.communityMembersResolver.resolveScopeMembers(db, { scope: "channel", scopeId: channelId })
   const userIds = scoped.map((s) => s.userId)
-  const members = await hydrateMembers(db, channel.serverId, userIds)
-  return NextResponse.json<ChannelMemberResult>({ visibility: "private", members })
+  const members = await hydrateMembers(db, ctx.env, channel.serverId, userIds)
+  // hasMore: false — a private channel roster is membership-bounded (see thread
+  // branch note); returned whole, wire shape kept uniform with `server member`.
+  return NextResponse.json<ChannelMemberResult>({ visibility: "private", members, hasMore: false })
 })
 
 /**
  * Hydrate a user id list into `ServerMember[]` — mirrors `listMembers`'s
- * mapping (formatHandle, default role "member", nickname iff set). Users
+ * mapping (formatHandle, default role "member", online snapshot, status). Users
  * whose account is soft-deleted drop out via `getMembersByUserIds`'s inner
  * join on `user`. Users missing a `community_server_member` row (shouldn't
  * happen in normal flow) also drop out; they never surface as a stub row.
+ * Presence is one bulk read over the resolved (bounded) roster — never
+ * per-member.
  */
 async function hydrateMembers(
   db: ReturnType<typeof getDb>,
+  env: Env,
   serverId: string,
   userIds: string[],
 ): Promise<ServerMember[]> {
   if (userIds.length === 0) return []
   const rows = await queries.communityMember.getMembersByUserIds(db, serverId, userIds)
+  const onlineSet = await fetchOnlineUserIds(env, rows.map((r) => r.userId), serverId)
   return rows.map((r) => ({
     handle: formatHandle(r.userName ?? "", r.discriminator ?? "0000"),
     role: r.role ?? "member",
+    online: onlineSet.has(r.userId),
+    status: toMemberStatus(r),
   }))
 }

@@ -544,8 +544,21 @@ async function cmdServerMember(opts: Record<string, unknown>): Promise<unknown> 
   const agent = agentId(opts);
   const server = opts.server as string;
   if (!server) throw new CliError("server member: --server <name> is required");
-  const { members } = await api.listMembers({ agentId: agent, server });
-  return { members };
+  let limit: number | undefined;
+  if (opts.limit !== undefined) {
+    limit = Number(opts.limit);
+    if (!Number.isInteger(limit) || limit < 1) {
+      throw new CliError("server member: --limit must be a positive integer");
+    }
+  }
+  const cursor = opts.cursor as string | undefined;
+  const { members, cursor: nextCursor, hasMore } = await api.listMembers({
+    agentId: agent,
+    server,
+    limit,
+    cursor,
+  });
+  return { members, cursor: nextCursor, hasMore };
 }
 
 async function cmdServerJoin(opts: Record<string, unknown>): Promise<unknown> {
@@ -767,8 +780,10 @@ function buildProgram(): Command {
 
   server
     .command("member")
-    .description("list members of a server")
+    .description("list members of a server (paginated; each member carries online + status)")
     .option("--server <id-or-name>", "server id or name (from `server list`)")
+    .option("--limit <n>", "max members per page")
+    .option("--cursor <cursor>", "opaque cursor from a prior page's response (omit for the first page)")
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })
     .action(async function (this: Command) {

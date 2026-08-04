@@ -54,6 +54,8 @@ export type {
   ChannelGroup,
   ChannelMemberResult,
   ServerMember,
+  ServerMemberListResult,
+  MemberStatus,
   ServerApi,
   FriendRequestResult,
   FriendCard,

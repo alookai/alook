@@ -424,6 +424,8 @@ export type {
   ChannelGroup as CommunityCliChannelGroup,
   ChannelMemberResult as CommunityCliChannelMemberResult,
   ServerMember as CommunityCliServerMember,
+  MemberStatus as CommunityCliMemberStatus,
+  ServerMemberListResult as CommunityCliServerMemberListResult,
   ServerApi as CommunityCliServerApi,
   FriendRequestResult,
   FriendCard,

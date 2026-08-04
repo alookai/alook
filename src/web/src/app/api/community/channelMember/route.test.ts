@@ -87,6 +87,19 @@ vi.mock("@alook/shared", async () => {
   }
 })
 
+const mockFetchOnlineUserIds = vi.fn()
+// Presence is a bulk ws-do fan-out — mock the helper so the route test stays
+// unit-scoped; the set it returns drives each member's `online` boolean.
+vi.mock("@/lib/community/member-presence", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/community/member-presence")>(
+    "@/lib/community/member-presence",
+  )
+  return {
+    ...actual,
+    fetchOnlineUserIds: (...a: unknown[]) => mockFetchOnlineUserIds(...a),
+  }
+})
+
 import { POST } from "./route"
 
 function req(body: unknown, headers: Record<string, string> = {}): NextRequest {
@@ -103,6 +116,7 @@ describe("POST /api/community/agent/channelMember", () => {
     mockFindActiveAgentRunnerKeyByBearer.mockResolvedValue({ userId: "owner_1", machineId: "m_1", agentId: "bot_1" })
     mockGetUserInternal.mockResolvedValue({ isBot: true, deletedAt: null })
     mockGetBotBinding.mockResolvedValue({ machineId: "m_1", runtime: "claude" })
+    mockFetchOnlineUserIds.mockResolvedValue(new Set<string>())
     // Default: bot has channel access (server member, public channel).
     mockResolveChannelAccessContext.mockResolvedValue({
       channel: { id: "ch_1", serverId: "srv_1", type: "text", parentChannelId: null, creatorId: "owner_1", categoryId: null },
@@ -176,19 +190,23 @@ describe("POST /api/community/agent/channelMember", () => {
       { userId: "u_alice", role: "member", source: "explicit" },
     ])
     mockGetMembersByUserIds.mockResolvedValue([
-      { userName: "gustavo", discriminator: "4821", role: "owner" },
-      { userName: "alice", discriminator: "0193", role: "member" },
+      { userId: "u_owner", userName: "gustavo", discriminator: "4821", role: "owner", statusEmoji: "🎧", statusText: "vibing" },
+      { userId: "u_alice", userName: "alice", discriminator: "0193", role: "member", statusEmoji: null, statusText: null },
     ])
+    mockFetchOnlineUserIds.mockResolvedValue(new Set(["u_owner"]))
     const res = await POST(req({ channel: "/demo/leadership" }, { Authorization: "Bearer crk_abc" }))
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body).toEqual({
       visibility: "private",
+      hasMore: false,
       members: [
-        { handle: "gustavo#4821", role: "owner" },
-        { handle: "alice#0193", role: "member" },
+        { handle: "gustavo#4821", role: "owner", online: true, status: { emoji: "🎧", text: "vibing" } },
+        { handle: "alice#0193", role: "member", online: false, status: { emoji: null, text: "" } },
       ],
     })
+    // presence batched over the resolved (bounded) roster — never per-member.
+    expect(mockFetchOnlineUserIds).toHaveBeenCalledWith(expect.anything(), ["u_owner", "u_alice"], "srv_1")
   })
 
   it("thread ref → always private on the wire; roster is the thread-participant set", async () => {
@@ -207,17 +225,19 @@ describe("POST /api/community/agent/channelMember", () => {
     })
     mockListThreadParticipantUserIds.mockResolvedValue(["u_owner", "u_bot"])
     mockGetMembersByUserIds.mockResolvedValue([
-      { userName: "gustavo", discriminator: "4821", role: "owner", nickname: null },
-      { userName: "otter", discriminator: "5522", role: "member", nickname: null },
+      { userId: "u_owner", userName: "gustavo", discriminator: "4821", role: "owner", nickname: null, statusEmoji: null, statusText: null },
+      { userId: "u_bot", userName: "otter", discriminator: "5522", role: "member", nickname: null, statusEmoji: "🌀", statusText: "running" },
     ])
+    mockFetchOnlineUserIds.mockResolvedValue(new Set(["u_bot"]))
 
     const res = await POST(req({ channel: "/demo/general/#12" }, { Authorization: "Bearer crk_abc" }))
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.visibility).toBe("private")
+    expect(body.hasMore).toBe(false)
     expect(body.members).toEqual([
-      { handle: "gustavo#4821", role: "owner" },
-      { handle: "otter#5522", role: "member" },
+      { handle: "gustavo#4821", role: "owner", online: false, status: { emoji: null, text: "" } },
+      { handle: "otter#5522", role: "member", online: true, status: { emoji: "🌀", text: "running" } },
     ])
     expect(mockListThreadParticipantUserIds).toHaveBeenCalledWith(expect.anything(), "th_1")
   })

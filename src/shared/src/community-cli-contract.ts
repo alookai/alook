@@ -472,11 +472,28 @@ export interface ChannelGroup {
  * `alook channel member` result — a public channel/forum returns a hint
  * pointing at `alook server member` (no roster enumeration); everything else
  * (private channel, private forum, forum post, thread) returns the concrete
- * roster.
+ * roster. The private roster carries the same `cursor?`/`hasMore` shape as
+ * `server member` for a uniform agent mental model, but is NOT paginated this
+ * round — a channel/thread roster is membership-bounded (small by construction)
+ * so it always returns whole (`hasMore: false`, `cursor` omitted). If a very
+ * large private channel ever needs it, the pagination is a pure back-end add
+ * (the wire shape is already here).
  */
 export type ChannelMemberResult =
   | { visibility: "public"; hint: string }
-  | { visibility: "private"; members: ServerMember[] };
+  | { visibility: "private"; members: ServerMember[]; cursor?: string; hasMore: boolean };
+
+/**
+ * A member's current status — activity pill or custom text — sourced from
+ * `community_user_profile`. Structured (not a joined string) so the reader
+ * decides how to render. Humans set it manually; bots get it written by the
+ * daemon's activity frames (🌀 running / 💤 Idle). `emoji` is null when unset;
+ * `text` is "" when unset.
+ */
+export interface MemberStatus {
+  emoji: string | null;
+  text: string;
+}
 
 /** One server member, as surfaced to the agent CLI (`server member`). */
 export interface ServerMember {
@@ -485,6 +502,26 @@ export interface ServerMember {
   /** "owner" | "admin" | "member" — never null on the wire (defaults to "member"). */
   role: string;
   nickname?: string;
+  /**
+   * A point-in-time presence snapshot at fetch time (human = live WS socket;
+   * bot = bound-machine status), NOT a live-updating signal — an agent reads
+   * the roster once. Never a hardcoded placeholder: it reflects a real bulk
+   * presence read (batched over the returned page's user ids).
+   */
+  online: boolean;
+  /** Current status ({emoji, text}) — see MemberStatus. */
+  status: MemberStatus;
+}
+
+/**
+ * `alook server member` result — the server roster, forward-paginated with an
+ * opaque cursor. `cursor` is present iff `hasMore` — the agent echoes it back
+ * verbatim (never parses it) to fetch the next page; omitted on the last page.
+ */
+export interface ServerMemberListResult {
+  members: ServerMember[];
+  cursor?: string;
+  hasMore: boolean;
 }
 
 /* ------------------------------------------------------------------ */
@@ -571,8 +608,17 @@ export interface ServerApi {
   /** Look up a single message by channel + seq. */
   resolve(req: ResolveRequest): Promise<{ message: Message }>;
 
-  /** Members of a server, resolved by id-or-name (never id-only, never name-only). */
-  listMembers(req: { agentId: AgentId; server: string }): Promise<{ members: ServerMember[] }>;
+  /**
+   * Members of a server, resolved by id-or-name (never id-only, never
+   * name-only). Forward-paginated: pass `limit` and an opaque `cursor` (from a
+   * prior page's response) to page through; omit both for the first page.
+   */
+  listMembers(req: {
+    agentId: AgentId;
+    server: string;
+    limit?: number;
+    cursor?: string;
+  }): Promise<ServerMemberListResult>;
 
   /** Join a server via an invite link/token. Throws on any rejection — see plan's I/O contract. */
   joinServer(req: { agentId: AgentId; invite: string }): Promise<{ server: Server }>;

@@ -40,7 +40,7 @@ import type {
   ChannelMemberResult,
   ChannelRef,
   CommunityAgentReactAddResponse,
-  ServerMember,
+  ServerMemberListResult,
   Page,
   Message,
   Seq,
@@ -250,7 +250,8 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     createPost: (r: CreatePostRequest) => call<CreatePostResponse>("createPost", r),
     read: (r: ReadRequest) => call<Page<Message>>("read", r),
     resolve: (r: ResolveRequest) => call<{ message: Message }>("resolve", r),
-    listMembers: (r: { agentId: AgentId; server: string }) => call<{ members: ServerMember[] }>("listMembers", r),
+    listMembers: (r: { agentId: AgentId; server: string; limit?: number; cursor?: string }) =>
+      call<ServerMemberListResult>("listMembers", r),
     attachmentUpload: callUpload,
     attachmentDownload: callDownload,
     reactAdd: (r: { channel: ChannelRef; seq: Seq; emoji: string }) =>

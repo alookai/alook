@@ -30,7 +30,7 @@ function stubApi(over: Partial<ServerApi> = {}): ServerApi {
     createPost: async () => ({ ref: "/s/c/post", name: "post", seq: 1 }),
     read: async () => ({ items: [], hasMore: false }),
     resolve: async () => null,
-    listMembers: async () => ({ members: [] }),
+    listMembers: async () => ({ members: [], hasMore: false }),
     joinServer: async () => ({ server: { id: "s", name: "s" } }),
     reactAdd: async () => ({ ok: true, duplicate: false }),
     friendRequest: async () => ({ friendshipId: "fr_1", status: "pending", hint: "Your owner needs to approve this request in DM." }),
@@ -445,21 +445,39 @@ describe("server list", () => {
 });
 
 describe("server member", () => {
-  it("prints {success:{members:[...]}} from a stubbed listMembers", async () => {
+  it("prints {success:{members, cursor, hasMore}} from a stubbed listMembers", async () => {
     const listMembersSpy = vi.fn(async () => ({
-      members: [{ handle: "gustavo#4821", role: "owner" }],
+      members: [{ handle: "gustavo#4821", role: "owner", online: true, status: { emoji: "🍜", text: "lunch" } }],
+      cursor: "2026-01-01T00:00:00Z|sm_1",
+      hasMore: true,
     }));
     setApiForTesting(stubApi({ listMembers: listMembersSpy }));
-    await main(["server", "member", "--server", "Design Studio"]);
+    await main(["server", "member", "--server", "Design Studio", "--limit", "1", "--cursor", "c0"]);
     const env = parseEnvelope(cap.lines());
-    expect(env).toEqual({ success: { members: [{ handle: "gustavo#4821", role: "owner" }] } });
+    expect(env).toEqual({
+      success: {
+        members: [{ handle: "gustavo#4821", role: "owner", online: true, status: { emoji: "🍜", text: "lunch" } }],
+        cursor: "2026-01-01T00:00:00Z|sm_1",
+        hasMore: true,
+      },
+    });
+    // limit coerced to a number; opaque cursor round-tripped verbatim.
     expect(listMembersSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ server: "Design Studio" }),
+      expect.objectContaining({ server: "Design Studio", limit: 1, cursor: "c0" }),
     );
   });
 
+  it("rejects a non-positive-integer --limit with a clear error, listMembers never called", async () => {
+    const listMembersSpy = vi.fn(async () => ({ members: [], hasMore: false }));
+    setApiForTesting(stubApi({ listMembers: listMembersSpy }));
+    await main(["server", "member", "--server", "Design Studio", "--limit", "abc"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env).toEqual({ error: "server member: --limit must be a positive integer" });
+    expect(listMembersSpy).not.toHaveBeenCalled();
+  });
+
   it("missing --server → error, listMembers never called", async () => {
-    const listMembersSpy = vi.fn(async () => ({ members: [] }));
+    const listMembersSpy = vi.fn(async () => ({ members: [], hasMore: false }));
     setApiForTesting(stubApi({ listMembers: listMembersSpy }));
     await main(["server", "member"]);
     const env = parseEnvelope(cap.lines());

@@ -1256,6 +1256,8 @@ export type CommunityAgentCreatePostRequest = z.infer<typeof CommunityAgentCreat
 
 export const CommunityAgentListMembersRequestSchema = z.object({
   server: z.string().min(1),
+  limit: z.number().int().positive().optional(),
+  cursor: z.string().min(1).optional(),
 });
 export type CommunityAgentListMembersRequest = z.infer<
   typeof CommunityAgentListMembersRequestSchema
