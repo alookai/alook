@@ -1196,6 +1196,30 @@ export type CommunityAgentListChannelsRequest = z.infer<
   typeof CommunityAgentListChannelsRequestSchema
 >;
 
+// Body for POST /api/community/createPost (`alook message post`). `forum` is a
+// forum REF (`/server/forum`), resolved server-side like `send`'s `channel`.
+// `title` is the raw human title — its slug becomes the post's addressing name,
+// the original is captured into display_title (B4b). Content follows the same
+// opener contract as a forum post: text OR at least one attachment (an
+// attachment-only post is legitimate). `attachments` are pending ids the bot
+// uploaded bound to the FORUM (the post channel doesn't exist at upload time).
+export const CommunityAgentCreatePostRequestSchema = z
+  .object({
+    forum: z.string().min(1),
+    title: z.string().min(1),
+    content: CommunityAgentMessageContentSchema,
+    attachments: z
+      .array(z.string().min(1))
+      .max(MAX_ATTACHMENTS_PER_MESSAGE)
+      .default([]),
+    nonce: z.string().min(1).max(128).optional(),
+  })
+  .refine(
+    (d) => d.content.text.trim().length > 0 || d.attachments.length > 0,
+    { message: "post must have text or attachments" }
+  );
+export type CommunityAgentCreatePostRequest = z.infer<typeof CommunityAgentCreatePostRequestSchema>;
+
 export const CommunityAgentListMembersRequestSchema = z.object({
   server: z.string().min(1),
 });
