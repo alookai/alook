@@ -159,8 +159,11 @@ describe("daemon control plane — real ws-do wake round-trip", () => {
     expect(wake.agentId).toBe(fixture.bot.botUserId)
 
     // Acting as the "agent" (no CLI spawned): mint the runner key, then
-    // pull the backlog, ack it, and send a reply — all real HTTP against
-    // /api/community/agent/*, exactly what a real agent's CLI would do.
+    // pull the backlog, ack it, and send a reply — all real HTTP against the
+    // flat /api/community/* bot verbs, exactly what a real agent's CLI would do.
+    // (The `agent/*` path layer was removed when the bot verbs moved flat; this
+    // test still hard-coded the stale `agent/*` paths → 404 HTML → the red on
+    // main + here until this fix. enroll-agent stays under daemon/, unchanged.)
     const enrollRes = await fetchWithRetry(`${APP_URL}/api/community/daemon/enroll-agent`, {
       method: "POST",
       headers: { Authorization: `Bearer ${fixture.paired.credential}`, "content-type": "application/json" },
@@ -170,7 +173,7 @@ describe("daemon control plane — real ws-do wake round-trip", () => {
     const { runnerKey } = (await enrollRes.json()) as { runnerKey: string; expiresAt: string | null }
     expect(runnerKey.startsWith("crk_")).toBe(true)
 
-    const pullRes = await fetchWithRetry(`${APP_URL}/api/community/agent/inboxPull`, {
+    const pullRes = await fetchWithRetry(`${APP_URL}/api/community/inboxPull`, {
       method: "POST",
       headers: { Authorization: `Bearer ${runnerKey}`, "content-type": "application/json" },
       body: JSON.stringify({}),
@@ -182,7 +185,7 @@ describe("daemon control plane — real ws-do wake round-trip", () => {
     expect(pulled.messages.length).toBeGreaterThan(0)
     const lastPulled = pulled.messages[pulled.messages.length - 1]!
 
-    const ackRes = await fetchWithRetry(`${APP_URL}/api/community/agent/ack`, {
+    const ackRes = await fetchWithRetry(`${APP_URL}/api/community/ack`, {
       method: "POST",
       headers: { Authorization: `Bearer ${runnerKey}`, "content-type": "application/json" },
       body: JSON.stringify({ cursors: [{ channel: lastPulled.channel, seq: parseSeq(lastPulled.seq) }] }),
@@ -190,7 +193,7 @@ describe("daemon control plane — real ws-do wake round-trip", () => {
     expect(ackRes.ok).toBe(true)
 
     const replyText = `reply from the real credential chain ${nanoid()}`
-    const sendRes = await fetchWithRetry(`${APP_URL}/api/community/agent/send`, {
+    const sendRes = await fetchWithRetry(`${APP_URL}/api/community/send`, {
       method: "POST",
       headers: { Authorization: `Bearer ${runnerKey}`, "content-type": "application/json" },
       body: JSON.stringify({ channel: `/${fixture.serverId}/${fixture.channelName}`, content: { text: replyText } }),
@@ -282,7 +285,7 @@ describe("daemon control plane — real ws-do wake round-trip", () => {
         expect(enrollRes.ok).toBe(true)
         const { runnerKey } = (await enrollRes.json()) as { runnerKey: string }
 
-        const pullRes = await fetchWithRetry(`${APP_URL}/api/community/agent/inboxPull`, {
+        const pullRes = await fetchWithRetry(`${APP_URL}/api/community/inboxPull`, {
           method: "POST",
           headers: { Authorization: `Bearer ${runnerKey}`, "content-type": "application/json" },
           body: JSON.stringify({}),
@@ -292,14 +295,14 @@ describe("daemon control plane — real ws-do wake round-trip", () => {
         expect(pulled.messages.length).toBeGreaterThan(0)
         const lastPulled = pulled.messages[pulled.messages.length - 1]!
 
-        await fetchWithRetry(`${APP_URL}/api/community/agent/ack`, {
+        await fetchWithRetry(`${APP_URL}/api/community/ack`, {
           method: "POST",
           headers: { Authorization: `Bearer ${runnerKey}`, "content-type": "application/json" },
           body: JSON.stringify({ cursors: [{ channel: lastPulled.channel, seq: parseSeq(lastPulled.seq) }] }),
         })
 
         const replyText = `reply from ${bot.botUserId} ${nanoid()}`
-        const sendRes = await fetchWithRetry(`${APP_URL}/api/community/agent/send`, {
+        const sendRes = await fetchWithRetry(`${APP_URL}/api/community/send`, {
           method: "POST",
           headers: { Authorization: `Bearer ${runnerKey}`, "content-type": "application/json" },
           body: JSON.stringify({ channel: `/${fixture.serverId}/${fixture.channelName}`, content: { text: replyText } }),
