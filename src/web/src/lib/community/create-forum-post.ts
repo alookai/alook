@@ -119,11 +119,11 @@ export async function createForumPost(input: CreateForumPostInput): Promise<Crea
         name: candidateSlug,
         type: "forum_post",
         creatorId: authorId,
-        // NOTE: `display_title` capture (the pre-slugify original title, B0
-        // decision) needs a schema column + migration — that belongs with B4b's
-        // migration (census-gated), NOT B4a. The raw title is validated and
-        // slugified here; the original is not yet persisted. B4b adds the column
-        // and this call passes `displayTitle: trimmedTitle` (already computed).
+        // Display-only original title, captured BEFORE slugify (B0 decision, now
+        // persisted in B4b's display_title column). `trimmedTitle` is the raw
+        // human input ("Q3 planning / roadmap"), NOT the lossy slug — the point
+        // is preserving what slugify destroys. Never an addressing axis.
+        displayTitle: trimmedTitle,
       })
     },
   })

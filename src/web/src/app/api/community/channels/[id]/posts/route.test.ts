@@ -157,9 +157,12 @@ describe("POST /api/community/channels/[id]/posts — name normalization", () =>
 
     const res = await POST(postReq({ name: "My thoughts on this!", content: "hello" }), ctx)
     expect(res.status).toBe(201)
+    // The addressing name is the slug; display_title captures the PRE-slugify
+    // original verbatim (B4b) — the two MUST differ here, proving capture happens
+    // before slugify (a slugified display_title would be worthless).
     expect(mockCreateChannel).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ name: "My-thoughts-on-this!" }),
+      expect.objectContaining({ name: "My-thoughts-on-this!", displayTitle: "My thoughts on this!" }),
     )
   })
 
