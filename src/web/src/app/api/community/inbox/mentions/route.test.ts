@@ -70,7 +70,7 @@ describe("GET /api/community/inbox/mentions", () => {
       {
         mention: { id: "mn1", kind: "mention" },
         message: { id: "m1", channelId: "c1", content: "@u1 hi", createdAt: "2026-06-25T10:00:00Z" },
-        author: { name: "Alice", email: "alice@t.com", image: null },
+        author: { id: "u-alice", name: "Alice", email: "alice@t.com", image: null },
       },
     ])
     mockGetChannelsByIds.mockResolvedValue([{ id: "c1", name: "general", serverId: "s1" }])
@@ -86,7 +86,10 @@ describe("GET /api/community/inbox/mentions", () => {
       serverId: "s1",
       channel: "general",
       channelId: "c1",
-      m: { id: "m1", authorName: "Alice", content: "@u1 hi" },
+      // authorId is the beam-avatar seed the inbox popover renders from
+      // (<Avatar seed={mn.m.authorId}>) — omitting it blanked image-less
+      // authors' avatars, same bug the pins route had.
+      m: { id: "m1", authorId: "u-alice", authorName: "Alice", content: "@u1 hi" },
     })
   })
 

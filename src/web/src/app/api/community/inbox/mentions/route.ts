@@ -70,6 +70,10 @@ export const GET = withAuth(async (req, ctx) => {
       channelId: row.message.channelId,
       m: {
         id: row.message.id,
+        // authorId is the beam-avatar seed the popover renders from
+        // (<Avatar seed={authorId}>); omitting it left image-less authors with
+        // a blank avatar — same fix as the pins route.
+        authorId: row.author.id,
         authorName: row.author.name,
         authorAvatar: row.author.image ?? avatarInitial(row.author.name),
         content: row.message.content,

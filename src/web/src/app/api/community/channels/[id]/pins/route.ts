@@ -20,6 +20,11 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
   const rows = await queries.communityPin.listPins(db, channelId)
   const pins = rows.map((r) => ({
     id: r.message.id,
+    // authorId lets the client derive a stable beam avatar when the author
+    // has no uploaded image — same shape mapMessageForApi feeds the message
+    // list. Omitting it (and pre-flattening authorAvatar to an initial) is
+    // why the pinned panel showed no avatar for image-less authors.
+    authorId: r.author.id,
     authorName: r.author.name,
     authorAvatar: r.author.image ?? avatarInitial(r.author.name),
     content: r.message.content,
