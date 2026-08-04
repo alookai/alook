@@ -1,0 +1,100 @@
+import { isUniqueConstraintError, type CreationTrait } from "@alook/shared"
+
+/**
+ * The single collision-handling strategy for CREATING a channel, dispatched on
+ * the channel type's `creation` trait (B4 convergence正题). Before this, "what a
+ * name/anchor collision means" was hand-rolled in three places with three shapes:
+ *   - forum_post: dedupe-bump the slug and retry the insert (pure-create)
+ *   - thread: catch the unique-conflict and re-SELECT the winner (get-or-create)
+ *   - top-level text/forum: let the unique index 409 (reject-on-collision)
+ * They collide on DIFFERENT keys (name / parent_message_id / server-name), so the
+ * per-type CHANNEL-SHAPE construction stays with each caller — only the COLLISION
+ * POLICY converges here, parameterized by callbacks the caller supplies. (DM is
+ * NOT wired in this round: its collision is identity-collision on a user-pair, a
+ * different key space — folding it would compress two collision-key axes into one
+ * value, a false convergence. Its `creation: get-or-create` trait value stays in
+ * the table describing the contract; its create entry `createOrGetDM` is untouched.)
+ *
+ * The caller provides:
+ *   - `attempt()`: try to create the row; may throw a unique-constraint error on
+ *     a concurrent collision.
+ *   - `refetchWinner()`: (get-or-create only) re-select the existing row that won
+ *     the race. Returns null if it somehow can't be found.
+ *   - `onReject()`: (reject-on-collision only) the structured error to return when
+ *     the create is refused.
+ *   - `maxAttempts`: (pure-create only) bump-retry cap.
+ *
+ * ⚠ pure-create's race-safety REQUIRES the partial-unique index that makes
+ * `attempt()` throw on a concurrent duplicate (migration, B4b). Without it a race
+ * silently double-inserts — this dispatch is only correct once that index exists.
+ */
+
+export type CollisionOutcome<T> =
+  | { ok: true; value: T }
+  | { ok: false; status: 400 | 409; error: string }
+
+export async function createWithCollisionPolicy<T>(
+  creation: CreationTrait,
+  handlers: {
+    attempt: () => Promise<T>
+    refetchWinner?: () => Promise<T | null>
+    onReject?: () => { status: 400 | 409; error: string }
+    maxAttempts?: number
+  },
+): Promise<CollisionOutcome<T>> {
+  switch (creation) {
+    case "get-or-create": {
+      // Anchor identifies ONE unit (thread on its parent_message_id). A concurrent
+      // create that lost the race → re-select the winner and return it. NEVER
+      // create a second unit.
+      try {
+        return { ok: true, value: await handlers.attempt() }
+      } catch (err) {
+        if (isUniqueConstraintError(err) && handlers.refetchWinner) {
+          const winner = await handlers.refetchWinner()
+          if (winner !== null) return { ok: true, value: winner }
+        }
+        throw err
+      }
+    }
+    case "pure-create": {
+      // Each create is a distinct unit; a collision means "this name is taken" →
+      // the caller re-derives a bumped name inside `attempt()` on the next pass
+      // and retries. NEVER re-select the winner (that's get-or-create — it would
+      // silently hand this caller someone else's unit). The cap stops an unbounded
+      // loop if the index is missing (a mis-shipped B4a without B4b) or contention
+      // is pathological.
+      const max = handlers.maxAttempts ?? 8
+      let attempts = 0
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        try {
+          return { ok: true, value: await handlers.attempt() }
+        } catch (err) {
+          attempts++
+          if (isUniqueConstraintError(err) && attempts < max) continue
+          if (isUniqueConstraintError(err)) {
+            return { ok: false, status: 409, error: "could not allocate a unique name after repeated collisions" }
+          }
+          throw err
+        }
+      }
+    }
+    case "reject-on-collision": {
+      // A same-name create is refused (the unique index 409s). Surface the
+      // caller's structured rejection rather than merging or bumping.
+      try {
+        return { ok: true, value: await handlers.attempt() }
+      } catch (err) {
+        if (isUniqueConstraintError(err)) {
+          return { ok: false, ...(handlers.onReject?.() ?? { status: 409, error: "a channel with this name already exists" }) }
+        }
+        throw err
+      }
+    }
+    default: {
+      const _never: never = creation
+      return _never
+    }
+  }
+}

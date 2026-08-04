@@ -4,16 +4,13 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
   queries,
-  MAX_CHANNEL_NAME_LENGTH,
-  MAX_MESSAGE_CONTENT_LENGTH,
   MESSAGE_PREVIEW_LENGTH,
   WS_EVENTS,
-  slugify,
 } from "@alook/shared"
 import { fanOutToChannel } from "@/lib/community/fanout"
 import { requireChannelMember, requireChannelAccess } from "@/lib/community/permissions"
 import { avatarInitial } from "@/lib/community/avatar"
-import { createCommunityMessage } from "@/lib/community/message-handler"
+import { createForumPost } from "@/lib/community/create-forum-post"
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
@@ -119,70 +116,31 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError("invalid request body", 400)
   }
 
-  if (!body.name || typeof body.name !== "string" || body.name.trim().length === 0) {
+  if (!body.name || typeof body.name !== "string") {
     return writeError("name is required", 400)
   }
-  const trimmedName = body.name.trim()
-  if (trimmedName.length > MAX_CHANNEL_NAME_LENGTH) {
-    return writeError(`name must be 1-${MAX_CHANNEL_NAME_LENGTH} characters`, 400)
-  }
-  const name = slugify(trimmedName)
-  if (!name) {
-    return writeError("name is required", 400)
-  }
-
   const content = typeof body.content === "string" ? body.content : ""
-  const hasContent = content.trim().length > 0
-  const hasAttachments = Array.isArray(body.attachments) && body.attachments.length > 0
-  if (!hasContent && !hasAttachments) {
-    return writeError("post is empty", 400)
-  }
-  if (hasContent && content.length > MAX_MESSAGE_CONTENT_LENGTH) {
-    return writeError(`content must be ≤ ${MAX_MESSAGE_CONTENT_LENGTH} characters`, 400)
-  }
 
-  // Dedupe the slug within this forum so the post's name anchor
-  // (`/server/forum/<post>`) is a unique, resolvable address. Post names are
-  // NOT covered by the per-server unique index (top-level channels only), so
-  // uniqueness is enforced here, mirroring top-level channel naming: `ideas`
-  // → `ideas-2` → `ideas-3`. `name` is already slugified (no `/`/`#`/space),
-  // so the anchor round-trips cleanly through parseRef/formatRef.
-  const uniqueName = await queries.communityChannel.dedupeChildChannelSlug(db, channelId, name)
-
-  // Create child channel for the forum post. Tags are NOT set at creation —
-  // they're added afterward from the post card's tag dialog.
-  const postChannel = await queries.communityChannel.createChannel(db, {
-    serverId: channel.serverId,
-    parentChannelId: channelId,
-    name: uniqueName,
-    type: "forum_post",
-    creatorId: ctx.userId,
-  })
-
-  // Create the first message in the post through the unified pipeline. Route as
-  // `kind:"forum_post"` (NOT `kind:"channel"`) so the notify-set enroll runs
-  // exactly like a thread: the creator joins as "spoke" AND anyone the post
-  // body @-mentions joins as "mention" — so a person @-ed while creating the
-  // post lands in the members panel, matching reply behavior. `mentionType`
-  // still flows through for @everyone. `skipChildChannelUpdate` suppresses ONLY
-  // the parent CHILD_CHANNEL_UPDATE WS tick (enroll is unaffected) — this route
-  // already emits its own CHILD_CHANNEL_CREATE for the new post below, and the
-  // two would collide. The emitted MESSAGE_CREATE is deduped by id on the
-  // client against that CHILD_CHANNEL_CREATE.
-  const created = await createCommunityMessage({
+  // Create via the shared core (B4 creation-axis convergence): slug dedupe +
+  // forum_post child create + first-message-as-body, with the collision
+  // contract dispatched on the forum_post `creation` trait (pure-create:
+  // bump-and-retry, never merge). The bot verb (`createPost` / `alook message
+  // post`) calls the SAME `createForumPost`, so the two can't drift on how a
+  // post is created. This route keeps its own response projection + the human
+  // CHILD_CHANNEL_CREATE fan-out below.
+  const result = await createForumPost({
     db,
+    forumChannelId: channelId,
+    serverId: channel.serverId!,
     authorId: ctx.userId,
-    target: {
-      kind: "forum_post",
-      channelId: postChannel.id,
-      parentChannelId: channelId,
-      serverId: channel.serverId,
-    },
-    body: { content, attachments: body.attachments, mentionType: body.mentionType },
-    skipChildChannelUpdate: true,
+    rawTitle: body.name,
+    content,
+    attachments: body.attachments,
+    mentionType: body.mentionType,
   })
-  if (!created.ok) return writeError(created.error, created.status)
-  const message = created.row
+  if (!result.ok) return writeError(result.error, result.status)
+  const postChannel = result.postChannel
+  const message = result.messageRow
 
   // Resolve author info for response
   const creator = await queries.user.getUserSelf(db, ctx.userId)

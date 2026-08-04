@@ -248,6 +248,25 @@ export function visibilityIsDmParticipant(t: string | null | undefined): boolean
   return isStoredChannelType(t) && channelVisibility(t) === "dm-participant"
 }
 
+// ── creation axis (B4) — what a name/anchor COLLISION means ───────────────────
+// The creation trait names the collision contract of a channel type, read by the
+// create path so "what happens when the name/anchor already exists" is chosen
+// from one place, not hand-branched per type. Each value = exactly one observable
+// contract = exactly one existence-oracle (Aigneis's B0 criterion):
+//   pure-create        → bump a new slug and retry the insert → N distinct rows,
+//                        never merged (forum_post). ⚠ its race-safety REQUIRES
+//                        the partial-unique index (migration, B4b) to catch a
+//                        concurrent collision — without it a race silent-double-
+//                        inserts. So a pure-create create path is only complete
+//                        with that index in place.
+//   get-or-create      → the anchor is ONE unit; a collision re-selects the
+//                        existing winner (idempotent open — DM, thread).
+//   reject-on-collision→ a same-name create is refused (409, 0 rows) by a unique
+//                        index (top-level text/forum).
+export function channelCreation(t: StoredChannelType): CreationTrait {
+  return CHANNEL_TRAITS[t].creation
+}
+
 // ── NOT a trait axis: display / human-readable title ──────────────────────────
 // A forum post's `display_title` (its pre-slugify original title) is DELIBERATELY
 // absent from this table. It is ZERO-behavior — no face (resolver / write-guard /

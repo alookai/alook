@@ -592,6 +592,7 @@ export {
   isStoredChannelType,
   channelVisibility,
   visibilityIsDmParticipant,
+  channelCreation,
 } from "./utils/community-roles";
 export type {
   CommunityRole,

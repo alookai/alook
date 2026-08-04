@@ -6,14 +6,16 @@ import {
   queries,
   canManageServer,
   isChannelType,
-  isUniqueConstraintError,
+  channelCreation,
   MAX_CHANNEL_NAME_LENGTH,
   MAX_CHANNEL_TOPIC_LENGTH,
   WS_EVENTS,
   slugify,
   type ChannelType,
+  type StoredChannelType,
 } from "@alook/shared"
 import { fanOutToServerMembers, fanOutToChannel } from "@/lib/community/fanout"
+import { createWithCollisionPolicy } from "@/lib/community/create-collision"
 import { logAudit } from "@/lib/community/audit"
 import { requireServerMember } from "@/lib/community/permissions"
 
@@ -70,22 +72,31 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError("admin permission required", 403)
   }
 
-  let row
-  try {
-    row = await queries.communityChannel.createChannel(db, {
+  // Collision handling via the shared trait-keyed policy (B4 convergence): a
+  // top-level channel's creation trait is reject-on-collision — a duplicate name
+  // (idx_channel_server_name) is REFUSED with 409, never bumped or merged. Same
+  // createWithCollisionPolicy dispatch that runs forum_post's pure-create
+  // (bump-retry) and thread's get-or-create (fetch-winner); only the attempt
+  // callback + the reject message are top-level-specific. Behavior is unchanged
+  // — still 409 "already exists", still the admin/private gate above; only the
+  // dispatch mechanism is shared now.
+  // Effective stored type — validated to text/forum above; undefined defaults to
+  // "text" (same default createChannel applies). Both top-level types are
+  // reject-on-collision, so channelCreation resolves the same policy either way.
+  const effectiveType: StoredChannelType = body.type === "forum" ? "forum" : "text"
+  const createResult = await createWithCollisionPolicy(channelCreation(effectiveType), {
+    attempt: () => queries.communityChannel.createChannel(db, {
       serverId,
       categoryId: body.categoryId || null,
       name,
       type: body.type,
       topic: body.topic,
       creatorId: ctx.userId,
-    })
-  } catch (err) {
-    if (isUniqueConstraintError(err)) {
-      return writeError("a channel with this name already exists", 409)
-    }
-    throw err
-  }
+    }),
+    onReject: () => ({ status: 409, error: "a channel with this name already exists" }),
+  })
+  if (!createResult.ok) return writeError(createResult.error, createResult.status)
+  const row = createResult.value
 
   // Private-category channels track an explicit roster; seed the creator so
   // audience resolution + the manage-members list are single queries.
