@@ -1189,7 +1189,7 @@ export function parseRef(ref: ChannelRef): ParsedRef {
     if (lastHash < 0) return { server, channel: chSeg };
     const firstHash = chSeg.indexOf("#");
     const tail = chSeg.slice(lastHash + 1);
-    const isBareHandle = firstHash === lastHash && /^\d{4}$/.test(tail);
+    const isBareHandle = firstHash === lastHash && /^\d{4,}$/.test(tail);
     if (isBareHandle) return { server, channel: chSeg };
     // A non-numeric tail after the last `#` isn't a valid seq — rather
     // than throwing (which crashes every caller not wrapped in

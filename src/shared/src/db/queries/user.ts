@@ -6,8 +6,18 @@ import { escapeLikePattern } from "../../utils/sql-like";
 import { computeDiscriminator } from "../../lib/discriminator";
 import { isUniqueConstraintError } from "../../utils/db-errors";
 
-/** Bounded retry ceiling for `withUniqueDiscriminator`/`probeAvailableDiscriminator` salting. */
+/** Per-width salt-retry budget before widening the discriminator by one digit. */
 const MAX_DISCRIMINATOR_ATTEMPTS = 5;
+/** Default (narrowest) discriminator width — the pre-widening `name#0042` size. */
+const MIN_DISCRIMINATOR_WIDTH = 4;
+/**
+ * Absurd-width deadloop catcher. A width this large means 10^18 same-name
+ * entities, which is physically impossible — so reaching it is a bug, not real
+ * contention. We throw LOUDLY there (never a silent cap): "never-cap" means no
+ * ceiling under REAL contention, and 4→5 digits alone already needs 10^4
+ * same-name rows. Also keeps 10**width inside JS safe-integer range.
+ */
+const MAX_DISCRIMINATOR_WIDTH = 18;
 
 // ─── Column projections ──────────────────────────────────────────────────────
 //
@@ -216,69 +226,86 @@ export async function getUserByNameAndDiscriminator(
 }
 
 /**
- * Wrap an insert that writes `computeDiscriminator(id)` so a collision
- * against the partial unique index (`idx_user_name_discriminator`, migration
- * 0055) self-heals instead of failing the caller's whole request. Calls
- * `insertFn(discriminator)`; on `isUniqueConstraintError` retries with
- * `computeDiscriminator(id + ":" + attempt)` and a FRESH `insertFn` call
- * (the caller's `insertFn` closure re-reads the salted discriminator each
- * time — see `createUser`/`createBot`), bounded to
- * `MAX_DISCRIMINATOR_ATTEMPTS`. Throws past the bound rather than looping
- * forever — a persistent failure past a handful of attempts is almost
- * certainly not actually a discriminator collision.
+ * Wrap an insert that writes `computeDiscriminator(id)` so a collision against
+ * the partial unique index (`idx_user_name_discriminator`, 0055 /
+ * `idx_community_server_name_discriminator`, 0080) self-heals instead of
+ * failing the caller's whole request. Calls `insertFn(discriminator)`; on
+ * `isUniqueConstraintError` re-salts with `computeDiscriminator(id:width:attempt)`
+ * and a FRESH `insertFn` call (the caller's closure re-reads the salted
+ * discriminator each time — see `createUser`/`createBot`/`createServer`).
+ *
+ * NEVER caps: each width gets `MAX_DISCRIMINATOR_ATTEMPTS` salt tries, then the
+ * discriminator WIDENS by one digit and keeps going. width=4/attempt=0 uses the
+ * bare id (byte-identical to the pre-widening value, so existing rows never
+ * rotate). Loud throughout — a non-unique error rethrows immediately, and the
+ * final salted value is never handed back unchecked: the winning value is the
+ * one whose `insertFn` actually committed. The only throw is the absurd-width
+ * deadloop catcher (`MAX_DISCRIMINATOR_WIDTH`), which is loud, not a silent cap.
  */
 export async function withUniqueDiscriminator<T>(
   _db: Database,
   input: { id: string; name: string },
   insertFn: (discriminator: string) => Promise<T>
 ): Promise<T> {
-  let lastErr: unknown;
-  for (let attempt = 0; attempt < MAX_DISCRIMINATOR_ATTEMPTS; attempt++) {
-    const discriminator =
-      attempt === 0
-        ? computeDiscriminator(input.id)
-        : computeDiscriminator(`${input.id}:${attempt}`);
-    try {
-      return await insertFn(discriminator);
-    } catch (err) {
-      if (!isUniqueConstraintError(err)) throw err;
-      lastErr = err;
+  for (let width = MIN_DISCRIMINATOR_WIDTH; width <= MAX_DISCRIMINATOR_WIDTH; width++) {
+    for (let attempt = 0; attempt < MAX_DISCRIMINATOR_ATTEMPTS; attempt++) {
+      const discriminator =
+        width === MIN_DISCRIMINATOR_WIDTH && attempt === 0
+          ? computeDiscriminator(input.id)
+          : computeDiscriminator(`${input.id}:${width}:${attempt}`, width);
+      try {
+        return await insertFn(discriminator);
+      } catch (err) {
+        if (!isUniqueConstraintError(err)) throw err;
+      }
     }
   }
-  throw lastErr;
+  // Reached only at 10^MAX_DISCRIMINATOR_WIDTH same-name entities = impossible =
+  // bug. Loud, never a silent cap.
+  throw new Error(
+    `discriminator allocation exceeded width ${MAX_DISCRIMINATOR_WIDTH} for name "${input.name}" — not a real collision`
+  );
 }
 
 /**
  * Best-effort SELECT-based pre-check for callers that can't wrap their own
- * insert (Better Auth's `user.create.before` hook — the adapter inserts
- * AFTER the hook returns, so there's no insert call here to retry). Returns
- * an available discriminator, salting past a live `(name, discriminator)`
- * collision the same way `withUniqueDiscriminator` does. This is weaker than
- * `withUniqueDiscriminator`: a concurrent signup of the exact same name at
- * the exact same instant can still race past this check. The partial unique
- * index is the actual backstop for that residual window — a double-loss
- * fails Better Auth's insert, the signup surfaces a generic error, and the
- * user's retry mints a fresh id/discriminator pair. Self-healing, not
- * silently broken; not full parity with the insert-wrapped paths.
+ * insert (Better Auth's `user.create.before` hook — the adapter inserts AFTER
+ * the hook returns, so there's no insert call here to retry). Returns an
+ * available discriminator, WIDENING the probe space exactly like
+ * `withUniqueDiscriminator` widens its insert space: each width gets
+ * `MAX_DISCRIMINATOR_ATTEMPTS` salt probes, then the discriminator widens by a
+ * digit and keeps going — so email signup NEVER caps at 4 digits (the
+ * insert-wrapped and probe exits both honour "never-cap"; only the mechanism
+ * differs, since probe can't wrap its own insert).
+ *
+ * This is weaker than `withUniqueDiscriminator`: a concurrent signup of the
+ * same name at the same instant can still race past the SELECT. The loud
+ * backstop for probe is NOT here (this function never throws on collision) —
+ * it is DOWNSTREAM at Better Auth's insert, which hits the partial unique index
+ * and self-heals (the signup surfaces a generic error and the user's retry
+ * mints a fresh id). Loud on collision, never a silent duplicate handle — just
+ * with the loud terminal one hop downstream. The absurd-width catcher below is
+ * the only throw here, matching `withUniqueDiscriminator`.
  */
 export async function probeAvailableDiscriminator(
   db: Database,
   input: { id: string; name: string }
 ): Promise<string> {
-  for (let attempt = 0; attempt < MAX_DISCRIMINATOR_ATTEMPTS; attempt++) {
-    const discriminator =
-      attempt === 0
-        ? computeDiscriminator(input.id)
-        : computeDiscriminator(`${input.id}:${attempt}`);
-    const existing = await getUserByNameAndDiscriminator(db, input.name, discriminator);
-    if (!existing) return discriminator;
+  for (let width = MIN_DISCRIMINATOR_WIDTH; width <= MAX_DISCRIMINATOR_WIDTH; width++) {
+    for (let attempt = 0; attempt < MAX_DISCRIMINATOR_ATTEMPTS; attempt++) {
+      const discriminator =
+        width === MIN_DISCRIMINATOR_WIDTH && attempt === 0
+          ? computeDiscriminator(input.id)
+          : computeDiscriminator(`${input.id}:${width}:${attempt}`, width);
+      const existing = await getUserByNameAndDiscriminator(db, input.name, discriminator);
+      if (!existing) return discriminator;
+    }
   }
-  // Ceiling exhausted — hand back a salt PAST the ones the loop just
-  // probed, not the last-tried value. `id:${MAX-1}` would be guaranteed
-  // to collide (the loop just saw it taken); `id:${MAX}` has NOT been
-  // probed, so the caller's INSERT still has a chance. The partial unique
-  // index is the real backstop for a true concurrent double-collision.
-  return computeDiscriminator(`${input.id}:${MAX_DISCRIMINATOR_ATTEMPTS}`);
+  // Reached only at 10^MAX_DISCRIMINATOR_WIDTH same-name entities = impossible =
+  // bug. Loud, never a silent cap (mirrors withUniqueDiscriminator).
+  throw new Error(
+    `discriminator probe exceeded width ${MAX_DISCRIMINATOR_WIDTH} for name "${input.name}" — not a real collision`
+  );
 }
 
 export async function createUser(

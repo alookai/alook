@@ -14,6 +14,15 @@ import { sqlRun, sqlQuery } from "@alook/test-utils"
  * NULL`) — a soft-deleted user's handle can be reissued; (2) NOCASE folding, so
  * a handle lookup can't match two live rows nondeterministically. Direct local
  * D1, same as forum-post-slug-unique.test.ts.
+ *
+ * ★ Probe-path coverage (Aigneis #91 / Ingaborg #93): the Better-Auth email
+ * signup exit (`probeAvailableDiscriminator`) can't wrap its own insert, so its
+ * LOUD terminal is DOWNSTREAM at Better-Auth's insert hitting THIS index. That
+ * index-fires-on-duplicate is exactly what test 1 below proves; the probe's
+ * WIDEN behaviour (never caps at 4, returns a wider disc when width-4 is
+ * saturated) is proven in the mocked unit test (user.test.ts) — together they
+ * cover "probe widens + its downstream insert is loud, never a silent dup",
+ * without a brittle Drizzle shim to run probe end-to-end here.
  */
 
 const ids = [

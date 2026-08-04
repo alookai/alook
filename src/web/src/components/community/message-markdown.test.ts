@@ -21,8 +21,10 @@ describe("mentionNameFromText", () => {
     expect(mentionNameFromText("@Gus#0042")).toBe("Gus")
   })
 
-  it("leaves a 5+ digit trailing run alone (not a valid discriminator)", () => {
-    expect(mentionNameFromText("@Gus#00423")).toBe("Gus#00423")
+  it("strips a widened 5+ digit discriminator (variable-width disc)", () => {
+    // Variable-width disc (A): a 5-digit tag is valid, so it strips off the
+    // display name just like a 4-digit one.
+    expect(mentionNameFromText("@Gus#00423")).toBe("Gus")
   })
 
   it("leaves @everyone as-is (no discriminator to strip)", () => {

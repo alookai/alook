@@ -132,7 +132,8 @@ describe("createBot", () => {
     const firstAttemptDiscriminator = userValues[0]!.discriminator
     const secondAttemptDiscriminator = userValues[3]!.discriminator
     expect(firstAttemptDiscriminator).toBe(computeDiscriminator(botId))
-    expect(secondAttemptDiscriminator).toBe(computeDiscriminator(`${botId}:1`))
+    // Salt scheme is now `id:width:attempt`; the first retry stays at width 4.
+    expect(secondAttemptDiscriminator).toBe(computeDiscriminator(`${botId}:4:1`, 4))
     expect(secondAttemptDiscriminator).not.toBe(firstAttemptDiscriminator)
 
     // The winning (second) attempt's discriminator is what's returned.

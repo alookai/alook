@@ -430,7 +430,8 @@ describe("createAuth databaseHooks — user.create.before", () => {
     const result = await beforeHook({ id: "u_collide", name: "dana", email: "dana@example.com" })
 
     expect(result.data.discriminator).not.toBe(unsalted)
-    expect(result.data.discriminator).toBe(computeDiscriminator("u_collide:1"))
+    // Salt scheme is now `id:width:attempt`; the first retry stays at width 4.
+    expect(result.data.discriminator).toBe(computeDiscriminator("u_collide:4:1", 4))
     expect(result.data.discriminator).toMatch(/^\d{4}$/)
   })
 })

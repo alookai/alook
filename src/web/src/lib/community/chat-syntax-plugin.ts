@@ -118,11 +118,12 @@ const SERVER_REF_RE = new RegExp(`(?<=^|\\s)/${REF_SEG}(?=\\s|$|[${REF_TERM}])`,
 //     name-run may safely include spaces/unicode: `[^@#\n\r]*[^@#\n\r\s]`. The
 //     final class forces the name-run to END in a non-whitespace char, so
 //     ordinary prose like `@bob check issue #0042` is NOT swallowed into one
-//     pill (the only `#` there is space-preceded). `(?!\d)` after `#dddd` stops
-//     a 5+-digit run from matching a 4-digit tag (`@Gus#00423`). A hand-typed
-//     bare `@Alice` (no tag) is intentionally NOT a mention — it stays text.
+//     pill (the only `#` there is space-preceded). The tag is `#dddd` with 4+
+//     digits (variable-width disc); the digit run is greedy so a widened 5+-digit
+//     tag matches in full. A hand-typed bare `@Alice` (no tag) is intentionally
+//     NOT a mention — it stays text.
 const MENTION_RE =
-  /@everyone(?![\p{L}\p{N}_-])|@[^@#\n\r]*[^@#\n\r\s]#\d{4}(?!\d)/gu
+  /@everyone(?![\p{L}\p{N}_-])|@[^@#\n\r]*[^@#\n\r\s]#\d{4,}/gu
 
 /** mdast node produced by `@name`/`@name#0042`/`@everyone`. */
 export interface MentionNode {
@@ -130,7 +131,7 @@ export interface MentionNode {
   /** Display name — `#dddd` discriminator, if present, is stripped from here (matches the old `<mention>` tag's content). */
   value: string
   everyone: boolean
-  /** The 4-digit discriminator, if the mention carried one (never set for `@everyone`). */
+  /** The discriminator (4+ decimal digits), if the mention carried one (never set for `@everyone`). */
   discriminator?: string
 }
 
@@ -170,8 +171,8 @@ const IGNORE_NODE_TYPES = ["code", "inlineCode", "link", "linkReference"]
 function mentionReplacer(value: string): MentionNode {
   const everyone = value === "@everyone"
   if (everyone) return { type: "mention", value, everyone: true }
-  const tag = /#(\d{4})$/.exec(value)
-  const bare = value.replace(/#\d{4}$/, "")
+  const tag = /#(\d{4,})$/.exec(value)
+  const bare = value.replace(/#\d{4,}$/, "")
   return tag ? { type: "mention", value: bare, everyone: false, discriminator: tag[1] } : { type: "mention", value: bare, everyone: false }
 }
 

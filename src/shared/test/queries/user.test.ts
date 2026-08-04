@@ -250,22 +250,52 @@ describe("withUniqueDiscriminator", () => {
 
     expect(insertFn).toHaveBeenCalledTimes(2);
     expect(insertFn).toHaveBeenNthCalledWith(1, computeDiscriminator("u_collide"));
-    expect(insertFn).toHaveBeenNthCalledWith(2, computeDiscriminator("u_collide:1"));
-    expect(result).toEqual({ discriminator: computeDiscriminator("u_collide:1") });
+    // Salt scheme is now `id:width:attempt`; first retry stays at width 4, attempt 1.
+    expect(insertFn).toHaveBeenNthCalledWith(2, computeDiscriminator("u_collide:4:1", 4));
+    expect(result).toEqual({ discriminator: computeDiscriminator("u_collide:4:1", 4) });
   });
 
-  it("throws past the bounded attempt ceiling instead of looping forever", async () => {
+  it("WIDENS by a digit after the per-width salt budget, never caps (A: variable-width)", async () => {
+    // Every insert at width 4 collides; the allocator must exhaust the 5-try
+    // width-4 budget then WIDEN to width 5 and keep going — the (A)-vs-(B)
+    // behavior reversal (B threw at the cap; A never caps under real contention).
     const uniqueErr = Object.assign(new Error("UNIQUE constraint failed"), { code: "SQLITE_CONSTRAINT_UNIQUE" });
+    const seen: string[] = [];
+    const insertFn = vi.fn(async (discriminator: string) => {
+      seen.push(discriminator);
+      // Fail every width-4 (4-digit) attempt; succeed once a wider disc arrives.
+      if (discriminator.length <= 4) throw uniqueErr;
+      return { discriminator };
+    });
+
+    const result = await userQueries.withUniqueDiscriminator(
+      {} as any,
+      { id: "u_saturated", name: "Alice" },
+      insertFn,
+    );
+
+    // All width-4 tries happened (bare + 4 salted), then a width-5 disc won.
+    const width4 = seen.filter((d) => d.length === 4);
+    const width5 = seen.filter((d) => d.length === 5);
+    expect(width4.length).toBe(5); // MAX_DISCRIMINATOR_ATTEMPTS at width 4
+    expect(width5.length).toBeGreaterThanOrEqual(1);
+    expect(result.discriminator.length).toBe(5); // widened, not capped/thrown
+  });
+
+  it("stays loud — a widened insert failure still surfaces, never a silent dup", async () => {
+    // A non-unique error mid-widen must rethrow immediately (loud), not be
+    // swallowed as if it were a collision to retry past.
+    const uniqueErr = Object.assign(new Error("UNIQUE constraint failed"), { code: "SQLITE_CONSTRAINT_UNIQUE" });
+    const fatalErr = new Error("D1_ERROR: disk full");
+    let n = 0;
     const insertFn = vi.fn(async () => {
-      throw uniqueErr;
+      n += 1;
+      throw n === 1 ? uniqueErr : fatalErr; // collide once, then a real fault
     });
 
     await expect(
-      userQueries.withUniqueDiscriminator({} as any, { id: "u_always_collides", name: "Alice" }, insertFn),
-    ).rejects.toBe(uniqueErr);
-    // Bounded — doesn't retry forever.
-    expect(insertFn.mock.calls.length).toBeGreaterThan(0);
-    expect(insertFn.mock.calls.length).toBeLessThan(20);
+      userQueries.withUniqueDiscriminator({} as any, { id: "u_loud", name: "Alice" }, insertFn),
+    ).rejects.toBe(fatalErr);
   });
 
   it("rethrows immediately on a non-unique-constraint error (no retry)", async () => {
@@ -282,57 +312,51 @@ describe("withUniqueDiscriminator", () => {
 });
 
 describe("probeAvailableDiscriminator", () => {
-  it("returns a NON-collision fallback when all salted probes come back taken", async () => {
-    // Every SELECT resolves to a non-null row → the loop sees every salt
-    // (`id`, `id:1`, `id:2`, `id:3`, `id:4`) taken. The final returned
-    // discriminator MUST correspond to a salt the loop did NOT probe —
-    // otherwise Better Auth's INSERT is guaranteed to collide the very
-    // same instant.
-    const chain: any = {};
-    chain.select = vi.fn(() => chain);
-    chain.from = vi.fn(() => chain);
-    chain.where = vi.fn(() => chain);
-    // Every probe returns a "taken" row.
-    chain.limit = vi.fn(() => Promise.resolve([{ id: "u_other" }]));
+  it("WIDENS the probe space instead of capping at 4 digits when width-4 is saturated", async () => {
+    // The first 5 probes (the width-4 salt budget: bare id + :4:1..:4:4) come
+    // back taken → the probe must WIDEN to 5 digits and return a wider disc,
+    // NOT hand back a capped 4-digit salt. This is the ★ catch: the email-signup
+    // probe path must never cap at 4 either.
+    let probeIdx = 0;
+    const stub: any = {
+      select: () => stub,
+      from: () => stub,
+      where: () => stub,
+      limit: () => {
+        const taken = probeIdx < 5; // 5 width-4 probes taken, then free
+        probeIdx += 1;
+        return Promise.resolve(taken ? [{ id: "u_other" }] : []);
+      },
+    };
 
-    const returned = await userQueries.probeAvailableDiscriminator(chain, {
+    const returned = await userQueries.probeAvailableDiscriminator(stub, {
       id: "u_collide",
       name: "Alice",
     });
 
-    // Collect the salts the loop probed — computeDiscriminator("u_collide"),
-    // "u_collide:1", …, "u_collide:4". The returned value must not equal
-    // any of them; specifically, it should match the "one salt past the
-    // ceiling" (`:5`).
-    const probed = [
-      computeDiscriminator("u_collide"),
-      computeDiscriminator("u_collide:1"),
-      computeDiscriminator("u_collide:2"),
-      computeDiscriminator("u_collide:3"),
-      computeDiscriminator("u_collide:4"),
-    ];
-    expect(probed).not.toContain(returned);
-    expect(returned).toBe(computeDiscriminator("u_collide:5"));
+    // 5 width-4 probes were taken, so the winner is the first width-5 disc.
+    expect(returned.length).toBe(5);
+    expect(returned).toBe(computeDiscriminator("u_collide:5:0", 5));
   });
 
-  it("returns the first free salt on the happy path", async () => {
-    // First probe returns "taken", second probe returns "free" → the
-    // second salt's discriminator is what the caller gets.
-    const chain: any = {};
-    chain.select = vi.fn(() => chain);
-    chain.from = vi.fn(() => chain);
-    chain.where = vi.fn(() => chain);
+  it("returns the first free salt on the happy path (still width 4)", async () => {
+    // First probe (bare id) taken, second (id:4:1) free → second salt returned.
+    const stub: any = {
+      select: () => stub,
+      from: () => stub,
+      where: () => stub,
+    };
     let calls = 0;
-    chain.limit = vi.fn(() => {
+    stub.limit = () => {
       calls += 1;
       return Promise.resolve(calls === 1 ? [{ id: "u_other" }] : []);
-    });
+    };
 
-    const returned = await userQueries.probeAvailableDiscriminator(chain, {
+    const returned = await userQueries.probeAvailableDiscriminator(stub, {
       id: "u_ok",
       name: "Alice",
     });
-    expect(returned).toBe(computeDiscriminator("u_ok:1"));
+    expect(returned).toBe(computeDiscriminator("u_ok:4:1", 4));
   });
 });
 

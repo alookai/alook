@@ -51,14 +51,14 @@ describe("chatSyntaxPlugin — mention", () => {
     expect(mentions.map((m) => `${m.value}#${m.discriminator}`)).toEqual(["@Alice#0001", "@Bob#0002"])
   })
 
-  it("does not truncate a 5+ digit run into a false-positive discriminator (still not a mention)", () => {
-    // "#00423" is not a 4-digit tag, so "@Gus#00423" is NOT a mention. A bare
-    // `#N` is no longer a message ref (message-ref-upgrade.md), so the run stays
-    // plain text. The key guarantee this test protects is unchanged: it is NOT
-    // parsed as a mention with a truncated discriminator.
+  it("treats a 5+ digit run as a widened discriminator (variable-width disc), never truncated", () => {
+    // Variable-width disc (A): "#00423" is now a valid 5-digit tag, so
+    // "@Gus#00423" IS a mention carrying the FULL 5-digit disc — never
+    // truncated to a 4-digit "0042". Prose like "issue #12345" is still safe:
+    // no "@" prefix + the "#" is space-preceded, so it isn't swallowed.
     const children = paragraphChildren(parse("hi @Gus#00423"))
-    expect(children.some((c) => c.type === "mention")).toBe(false)
-    expect(children.every((c) => c.type === "text")).toBe(true)
+    const mention = children.find((c) => c.type === "mention")
+    expect(mention).toMatchObject({ type: "mention", value: "@Gus", discriminator: "00423" })
   })
 
   it("flags @everyone", () => {

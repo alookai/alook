@@ -59,7 +59,7 @@ export const MD_LITERAL_TAGS = ["mention", "channelref", "serverref"]
 // `Member.name`/`Msg.authorName` for the profile-card lookup in
 // shell-frame.tsx's `openProfile`. Exported for tests.
 export function mentionNameFromText(text: string): string {
-  return text.replace(/^@/, "").replace(/#\d{4}$/, "")
+  return text.replace(/^@/, "").replace(/#\d{4,}$/, "")
 }
 
 export const MD_COMPONENTS = {
