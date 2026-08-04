@@ -23,8 +23,8 @@ import { user } from "../../schema";
 import type { Database } from "../../index";
 import {
   formatRef,
+  formatCanonicalRef,
   formatSeq,
-  DM_SERVER,
   type AgentAttachmentRef,
   type Message,
   type MessageContent,
@@ -36,7 +36,7 @@ import { formatHandle } from "../../../lib/discriminator";
 import { listVisibleChannelIdsForUser } from "./channel";
 import { listParticipatingThreadIds } from "./thread";
 import { getMessagesByIdsInScope, type MessageScope } from "./message";
-import { isThread, isForumPost } from "../../../utils/community-roles";
+import { isThread, isForumPost, type StoredChannelType } from "../../../utils/community-roles";
 import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 
 type RawAgentMessage = {
@@ -179,47 +179,49 @@ async function resolveScopeRefs(
 
   const out = new Map<string, ScopeInfo>();
   for (const ch of channels) {
-    if (ch.type === "dm") {
+    // Ref SHAPE is chosen by the single canonical-ref emitter, keyed on the
+    // channel type's addressing trait (B1, red-line ①) — this loop only gathers
+    // the resolved context each addressing value may need (server/parent names,
+    // DM peer segment, thread root seq). The `isThread`/`isDm` flags are a
+    // separate presentation concern (inbox-row flags) and stay type-derived.
+    const storedType = (ch.type ?? "text") as StoredChannelType;
+    const isDm = storedType === "dm";
+    let peerSegment: string | undefined;
+    if (isDm) {
       const peerId = peerByDmChannel.get(ch.id);
       const peer = peerId ? dmPeerById.get(peerId) : undefined;
-      const peerSegment = peer ? formatHandle(peer.name, peer.discriminator) : peerId || "unknown";
-      out.set(ch.id, {
-        ref: formatRef({ server: DM_SERVER, channel: peerSegment }),
-        isThread: false,
-        isDm: true,
-      });
-      continue;
+      peerSegment = peer ? formatHandle(peer.name, peer.discriminator) : peerId || "unknown";
     }
     const serverName = ch.serverId ? (serverNameById.get(ch.serverId) ?? ch.serverId) : "unknown";
-    if (ch.parentChannelId && ch.parentMessageId) {
-      const parent = parentChannelById.get(ch.parentChannelId);
-      const rootSeq = parentSeqById.get(ch.parentMessageId);
-      if (parent && rootSeq !== undefined) {
-        out.set(ch.id, {
-          ref: formatRef({ server: serverName, channel: parent.name, threadRootSeq: rootSeq }),
-          isThread: true,
-          isDm: false,
-        });
-        continue;
-      }
-    }
-    // Forum post: a `forum_post` child channel has a parent forum but NO
-    // parentMessageId (unlike a thread), so it's anchored by its own name under
-    // the forum: `/server/<forum>/<post>`. Without this it fell through to the
-    // top-level fallback below (`/server/<post-name>`), which the name resolver
-    // — top-level only — can never parse back, 404ing send/read/ack on the post.
-    if (ch.type === "forum_post" && ch.parentChannelId) {
-      const parent = parentChannelById.get(ch.parentChannelId);
-      if (parent) {
-        out.set(ch.id, {
-          ref: formatRef({ server: serverName, channel: parent.name, childChannelName: ch.name }),
-          isThread: false,
-          isDm: false,
-        });
-        continue;
-      }
-    }
-    out.set(ch.id, { ref: formatRef({ server: serverName, channel: ch.name }), isThread: false, isDm: false });
+    const parent = ch.parentChannelId ? parentChannelById.get(ch.parentChannelId) : undefined;
+    const rootSeq = ch.parentMessageId ? parentSeqById.get(ch.parentMessageId) : undefined;
+    // A thread and a forum_post are both `parent`-anchored children, but only a
+    // thread carries a `parentMessageId` (→ root seq). Distinguish by whether a
+    // root seq resolved so we hand the emitter the right addressing type: a
+    // child WITH a root seq is a thread, WITHOUT is a forum_post.
+    const emitType: StoredChannelType =
+      ch.parentChannelId && ch.parentMessageId && parent && rootSeq !== undefined
+        ? "thread"
+        : ch.parentChannelId && storedType === "forum_post" && parent
+          ? "forum_post"
+          : storedType;
+    const ref = formatCanonicalRef({
+      type: emitType,
+      serverName,
+      name: ch.name,
+      parentName: parent?.name,
+      rootSeq,
+      peerSegment,
+    });
+    out.set(ch.id, {
+      // Null only when a required addressing field didn't resolve (e.g. a thread
+      // whose parent/root couldn't be hydrated) — keep the prior top-level
+      // fallback so a degraded row still gets a (non-round-tripping) ref rather
+      // than crashing, exactly as before.
+      ref: ref ?? formatRef({ server: serverName, channel: ch.name }),
+      isThread: emitType === "thread",
+      isDm,
+    });
   }
   return out;
 }
@@ -360,8 +362,17 @@ export async function resolveUnreadNoticeChannel(
   const ch = rows[0];
   if (!ch) return null;
 
+  // Same single canonical-ref emitter as `resolveScopeRefs` (B1): this function
+  // does the I/O to gather the addressing context (DM peer, thread parent+root,
+  // forum parent, server name), then hands it to `formatCanonicalRef` to pick
+  // the ref SHAPE from the addressing trait. Its stricter no-placeholder
+  // contract (see doc comment: a missing field is `notice_channel_unresolvable`,
+  // never a bogus ref) matches the emitter's `null`-on-missing-field return —
+  // so any unresolved piece below returns null exactly as before.
+  const storedType = (ch.type ?? "text") as StoredChannelType;
+
   // DM channel — the notice ref is `/.dm/<peer#0042>`, the OTHER access member.
-  if (ch.type === "dm") {
+  if (storedType === "dm") {
     const peerRows = await db
       .select({ name: user.name, discriminator: user.discriminator })
       .from(communityChannelMember)
@@ -375,11 +386,8 @@ export async function resolveUnreadNoticeChannel(
       )
       .limit(1);
     const peer = peerRows[0];
-    // A wake command's notice channel must NEVER be a placeholder (see this
-    // function's doc comment) — a peer that no longer resolves is
-    // `notice_channel_unresolvable`, not a bare-peerId ref.
     if (!peer) return null;
-    return formatRef({ server: DM_SERVER, channel: formatHandle(peer.name, peer.discriminator) });
+    return formatCanonicalRef({ type: "dm", peerSegment: formatHandle(peer.name, peer.discriminator) });
   }
 
   if (ch.parentChannelId && ch.parentMessageId) {
@@ -400,14 +408,14 @@ export async function resolveUnreadNoticeChannel(
     if (!parent || !root || !parent.serverId) return null;
     const serverName = await getServerName(db, parent.serverId);
     if (!serverName) return null;
-    return formatRef({ server: serverName, channel: parent.name, threadRootSeq: root.seq });
+    return formatCanonicalRef({ type: "thread", serverName, parentName: parent.name, rootSeq: root.seq });
   }
 
   // Forum post: parent forum but no parentMessageId — anchor by the post's own
   // name under the forum (`/server/<forum>/<post>`). A missing/serverless parent
   // resolves to null (notice_channel_unresolvable) rather than a bogus ref, per
   // this function's no-placeholder contract.
-  if (ch.type === "forum_post" && ch.parentChannelId) {
+  if (storedType === "forum_post" && ch.parentChannelId) {
     const parentRows = await db
       .select({ name: communityChannel.name, serverId: communityChannel.serverId })
       .from(communityChannel)
@@ -417,13 +425,13 @@ export async function resolveUnreadNoticeChannel(
     if (!parent || !parent.serverId) return null;
     const serverName = await getServerName(db, parent.serverId);
     if (!serverName) return null;
-    return formatRef({ server: serverName, channel: parent.name, childChannelName: ch.name });
+    return formatCanonicalRef({ type: "forum_post", serverName, parentName: parent.name, name: ch.name });
   }
 
   if (!ch.serverId) return null;
   const serverName = await getServerName(db, ch.serverId);
   if (!serverName) return null;
-  return formatRef({ server: serverName, channel: ch.name });
+  return formatCanonicalRef({ type: storedType, serverName, name: ch.name ?? undefined });
 }
 
 async function getServerName(db: Database, serverId: string): Promise<string | null> {

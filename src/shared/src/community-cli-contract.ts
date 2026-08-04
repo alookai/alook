@@ -24,7 +24,8 @@
 
 import { z } from "zod";
 import type { RuntimeConfig } from "./runtime-config";
-import type { ChannelType } from "./utils/community-roles";
+import type { ChannelType, StoredChannelType } from "./utils/community-roles";
+import { CHANNEL_TRAITS } from "./utils/community-roles";
 
 /* ------------------------------------------------------------------ */
 /* Identifiers                                                         */
@@ -1168,6 +1169,72 @@ export function formatRef(p: {
   if (p.threadRootSeq === undefined) return base;
   if (p.seq === undefined) return `${base}/#${p.threadRootSeq}`;
   return `${base}/#${p.threadRootSeq}#${p.seq}`;
+}
+
+/**
+ * The single canonical-ref EMITTER (trait model B1, red-line ①). Every place
+ * that turns a stored channel into its addressable `ChannelRef` — the agent
+ * inbox's `resolveScopeRefs` (per-message + per-scope refs), the wake notice's
+ * `resolveUnreadNoticeChannel`, `listChannels` — used to hand-pick the
+ * `formatRef` shape by re-branching on the channel's type, so the SAME
+ * type→shape mapping lived in multiple copies and could drift (a post emitted
+ * one way here, another way there → a ref that won't round-trip). This funnels
+ * all of them through ONE dispatch keyed on `CHANNEL_TRAITS[type].addressing`,
+ * so a channel type has exactly one addressing identity by construction.
+ *
+ * `scope` is the already-resolved context each caller gathers (server/parent
+ * names, the DM peer segment, the thread root seq) — this function does no I/O,
+ * it only selects the ref SHAPE from the addressing trait. A caller that can't
+ * supply the field an addressing value needs (e.g. a thread with no resolvable
+ * root seq) passes it `undefined` and gets `null` back, so the caller keeps its
+ * existing "unresolvable → fallback/skip" handling rather than emitting a bogus
+ * ref. The exhaustive `switch` (with the `never` tail) forces every new
+ * addressing value to be handled here or the build fails.
+ */
+export type CanonicalRefScope = {
+  type: StoredChannelType;
+  /** Server display name (channel arm). Absent/irrelevant for a DM. */
+  serverName?: string;
+  /** The channel's own stored name — the top-level channel or the post slug. */
+  name?: string;
+  /** Parent forum/channel display name — for by-child-name / by-root-seq. */
+  parentName?: string;
+  /** Thread root message seq — for by-root-seq. */
+  rootSeq?: Seq;
+  /** DM peer handle segment (`name#0042`) — for by-peer-identity. */
+  peerSegment?: string;
+};
+
+export function formatCanonicalRef(scope: CanonicalRefScope): ChannelRef | null {
+  const addressing = CHANNEL_TRAITS[scope.type].addressing;
+  switch (addressing) {
+    case "by-server-name": {
+      // Top-level channel/forum: `/server/<name>`.
+      if (scope.serverName === undefined || scope.name === undefined) return null;
+      return formatRef({ server: scope.serverName, channel: scope.name });
+    }
+    case "by-child-name": {
+      // Forum post: `/server/<forum>/<post-slug>` — anchored on its own name
+      // under the parent forum.
+      if (scope.serverName === undefined || scope.parentName === undefined || scope.name === undefined) return null;
+      return formatRef({ server: scope.serverName, channel: scope.parentName, childChannelName: scope.name });
+    }
+    case "by-root-seq": {
+      // Thread: `/server/<parent-channel>/#<rootSeq>`.
+      if (scope.serverName === undefined || scope.parentName === undefined || scope.rootSeq === undefined) return null;
+      return formatRef({ server: scope.serverName, channel: scope.parentName, threadRootSeq: scope.rootSeq });
+    }
+    case "by-peer-identity": {
+      // DM: `/.dm/<peer#0042>`.
+      if (scope.peerSegment === undefined) return null;
+      return formatRef({ server: DM_SERVER, channel: scope.peerSegment });
+    }
+    default: {
+      // Exhaustiveness: a new AddressingTrait value must add a case above.
+      const _never: never = addressing;
+      return _never;
+    }
+  }
 }
 
 /** "#12" → 12 ; "12" → 12. */

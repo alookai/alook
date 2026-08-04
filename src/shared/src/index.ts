@@ -433,7 +433,8 @@ export type {
   HostBotAuditEventFrame,
   BotAuditEventPayload,
 } from "./community-cli-contract";
-export { DM_SERVER, parseRef, formatRef, parseSeq, formatSeq } from "./community-cli-contract";
+export { DM_SERVER, parseRef, formatRef, formatCanonicalRef, parseSeq, formatSeq } from "./community-cli-contract";
+export type { CanonicalRefScope } from "./community-cli-contract";
 
 export type {
   ReasoningEffort,

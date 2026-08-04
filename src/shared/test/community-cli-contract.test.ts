@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseRef, formatRef, formatSeq, parseSeq, DM_SERVER } from "../src/community-cli-contract";
+import { parseRef, formatRef, formatCanonicalRef, formatSeq, parseSeq, DM_SERVER } from "../src/community-cli-contract";
 
 describe("parseRef", () => {
   it('parses "/studio/general" as a plain channel ref', () => {
@@ -260,5 +260,64 @@ describe("formatSeq / parseSeq", () => {
 
   it("parseSeq throws on a non-numeric value", () => {
     expect(() => parseSeq("#abc")).toThrow();
+  });
+});
+
+// The single canonical-ref emitter (B1 trait model, red-line ①). Dispatches the
+// ref SHAPE off the channel type's addressing trait so every emit site (agent
+// inbox, wake notice, listChannels) produces one addressing identity per type.
+describe("formatCanonicalRef", () => {
+  it("by-server-name (text): /server/name", () => {
+    expect(formatCanonicalRef({ type: "text", serverName: "studio", name: "general" })).toBe("/studio/general");
+  });
+
+  it("by-server-name (forum): /server/name", () => {
+    expect(formatCanonicalRef({ type: "forum", serverName: "studio", name: "ideas" })).toBe("/studio/ideas");
+  });
+
+  it("by-child-name (forum_post): /server/forum/post", () => {
+    expect(
+      formatCanonicalRef({ type: "forum_post", serverName: "studio", parentName: "ideas", name: "my-post" }),
+    ).toBe("/studio/ideas/my-post");
+  });
+
+  it("by-root-seq (thread): /server/channel/#rootSeq", () => {
+    expect(
+      formatCanonicalRef({ type: "thread", serverName: "studio", parentName: "general", rootSeq: 42 }),
+    ).toBe("/studio/general/#42");
+  });
+
+  it("by-peer-identity (dm): /.dm/peer", () => {
+    expect(formatCanonicalRef({ type: "dm", peerSegment: "gusye#1231" })).toBe("/.dm/gusye#1231");
+  });
+
+  // Round-trip: every emitted canonical ref must parse back to a ref that
+  // resolves the same scope — the emitter and parser share the addressing model
+  // so a ref a bot receives is one it can send/read/ack against (red-line ①).
+  it("round-trips through parseRef for every addressing trait", () => {
+    expect(parseRef(formatCanonicalRef({ type: "text", serverName: "studio", name: "general" })!)).toEqual({
+      server: "studio",
+      channel: "general",
+    });
+    expect(
+      parseRef(formatCanonicalRef({ type: "forum_post", serverName: "studio", parentName: "ideas", name: "notes" })!),
+    ).toEqual({ server: "studio", channel: "ideas", childChannelName: "notes" });
+    expect(
+      parseRef(formatCanonicalRef({ type: "thread", serverName: "studio", parentName: "general", rootSeq: 7 })!),
+    ).toEqual({ server: "studio", channel: "general", threadRootSeq: 7 });
+    expect(parseRef(formatCanonicalRef({ type: "dm", peerSegment: "gusye#1231" })!)).toEqual({
+      server: DM_SERVER,
+      channel: "gusye#1231",
+    });
+  });
+
+  // Missing-field → null (not a bogus ref): a caller that can't resolve the
+  // context an addressing value needs keeps its own fallback/skip handling
+  // rather than emitting a ref that won't round-trip.
+  it("returns null when a required addressing field is absent", () => {
+    expect(formatCanonicalRef({ type: "text", serverName: "studio" })).toBeNull(); // no name
+    expect(formatCanonicalRef({ type: "forum_post", serverName: "studio", name: "p" })).toBeNull(); // no parentName
+    expect(formatCanonicalRef({ type: "thread", serverName: "studio", parentName: "g" })).toBeNull(); // no rootSeq
+    expect(formatCanonicalRef({ type: "dm" })).toBeNull(); // no peerSegment
   });
 });
