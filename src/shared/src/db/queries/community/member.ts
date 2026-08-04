@@ -7,7 +7,7 @@ import {
   MAX_MEMBERS_PAGE_SIZE,
 } from "../../../constants/community";
 import { escapeLikePattern } from "../../../utils/sql-like";
-import { canSeePrivateChannel, isThread, isForumPost } from "../../../utils/community-roles";
+import { canSeePrivateChannel, reachIsParticipantSet } from "../../../utils/community-roles";
 import { resolveChannelAccessContext } from "./channel";
 import { isThreadParticipant } from "./thread";
 
@@ -458,7 +458,7 @@ export async function canBotReadWakeScope(
   // their participants (mirrors the human inbox's post-visibility filter).
   // Bots are just users; notify rows are added the same way (spoke /
   // mention / added), so the same predicate applies verbatim.
-  if (isThread(ctx.channel.type) || isForumPost(ctx.channel.type)) {
+  if (reachIsParticipantSet(ctx.channel.type)) {
     return isThreadParticipant(db, scope.channelId, botUserId);
   }
   return true;

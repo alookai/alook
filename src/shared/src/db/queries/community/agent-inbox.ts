@@ -35,7 +35,7 @@ import { formatHandle } from "../../../lib/discriminator";
 import { listVisibleChannelIdsForUser } from "./channel";
 import { listParticipatingThreadIds } from "./thread";
 import { getMessagesByIdsInScope, type MessageScope } from "./message";
-import { isThread, isForumPost, type StoredChannelType } from "../../../utils/community-roles";
+import { reachIsParticipantSet, type StoredChannelType } from "../../../utils/community-roles";
 import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 
 type RawAgentMessage = {
@@ -518,8 +518,12 @@ async function listAgentAllowedChannelIds(db: Database, botUserId: string): Prom
       )
     )
   ).flat();
+  // Participation-narrowed types = reach `participant-set` (B2 single source),
+  // not a re-derived `isThread || isForumPost`. A participant-set channel is
+  // deliverable to the bot only if it holds a notify row — the SAME reach value
+  // the fan-out recipient set and the send-path enroll key on.
   const narrowIds = typeRows
-    .filter((r) => isThread(r.type) || isForumPost(r.type))
+    .filter((r) => reachIsParticipantSet(r.type))
     .map((r) => r.id);
   const participating =
     narrowIds.length > 0
@@ -681,7 +685,12 @@ export async function hasDeliverableUnreadForAgentScope(
     .where(eq(communityChannel.id, channelId))
     .limit(1);
   const type = typeRows[0]?.type;
-  if (isThread(type) || isForumPost(type)) {
+  // Same reach `participant-set` narrowing as `listAgentAllowedChannelIds` — via
+  // the SAME reachIsParticipantSet source (B2). This gate and the pull's allowed
+  // set MUST agree on which channels need a notify row to be deliverable, or the
+  // gate counts backlog the pull never delivers (the send-alignment deadlock).
+  // Reading one shared reach value is what makes that agreement structural.
+  if (reachIsParticipantSet(type)) {
     const participating = await listParticipatingThreadIds(db, [channelId], botUserId);
     if (participating.length === 0) return false;
   }

@@ -181,6 +181,43 @@ export const CHANNEL_TRAITS: Record<StoredChannelType, ChannelTraits> = {
   dm: { addressing: "by-peer-identity", visibility: "dm-participant", reach: "dm-pair", creation: "get-or-create" },
 }
 
+// ── reach axis (B2) — the SINGLE source for "who does a message here reach" ────
+// The reach model of a channel type used to be re-derived as `isThread(t) ||
+// isForumPost(t)` (→ participant set) vs `isDm(t)` (→ DM pair) vs else (→ server)
+// in THREE places: fan-out recipients (who-receives), the agent-inbox
+// deliverable-unread narrowing (which channels need participation), and the
+// send-path enroll (who-enrolls into the notify set). Three copies of one
+// classification = drift (the agent thread-inbox deadlock was two of them
+// diverging). Now all three read the reach VALUE from CHANNEL_TRAITS via the
+// helpers below, so the classification lives in exactly one place. Critically,
+// the read side (who's-participant) and the write side (who-enrolls) key on the
+// SAME value (`participant-set`) — a message enrolls participants iff its reach
+// is participant-set, and the deliverable/fan-out predicate reads that same set,
+// so enroll and read can never drift (red-line ③).
+
+// The reach model for a stored channel type — the one classification the three
+// reach faces branch on. A plain lookup so it's impossible to have a second
+// copy of "which types are participant-set".
+export function channelReach(t: StoredChannelType): ReachTrait {
+  return CHANNEL_TRAITS[t].reach
+}
+
+// A message in a channel of this type ENROLLS participants on send (author +
+// @-mentioned/replied) AND its recipients/deliverable set are read from that
+// same participant set. True iff the reach value is `participant-set` (thread,
+// forum_post today). This is the single predicate the enroll write-side and the
+// participation-narrowing read-side share — they are two ends of one reach
+// value, never separately maintained (red-line ③).
+export function reachIsParticipantSet(t: string | null | undefined): boolean {
+  return isStoredChannelType(t) && channelReach(t) === "participant-set"
+}
+
+// A narrow type guard so the reach helpers can accept the loosely-typed
+// `type` columns/params (string | null) that flow through the query layer.
+export function isStoredChannelType(t: string | null | undefined): t is StoredChannelType {
+  return t === "text" || t === "forum" || t === "forum_post" || t === "thread" || t === "dm"
+}
+
 // ── NOT a trait axis: display / human-readable title ──────────────────────────
 // A forum post's `display_title` (its pre-slugify original title) is DELIBERATELY
 // absent from this table. It is ZERO-behavior — no face (resolver / write-guard /

@@ -587,6 +587,9 @@ export {
   ASSIGNABLE_ROLES,
   CHANNEL_TYPES,
   CHANNEL_TRAITS,
+  channelReach,
+  reachIsParticipantSet,
+  isStoredChannelType,
 } from "./utils/community-roles";
 export type {
   CommunityRole,

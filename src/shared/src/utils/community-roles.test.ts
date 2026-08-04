@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest"
-import { isMessageBearingSurface, isChannelType, CHANNEL_TRAITS, type StoredChannelType } from "./community-roles"
+import {
+  isMessageBearingSurface,
+  isChannelType,
+  CHANNEL_TRAITS,
+  channelReach,
+  reachIsParticipantSet,
+  isStoredChannelType,
+  type StoredChannelType,
+} from "./community-roles"
 
 describe("isMessageBearingSurface", () => {
   it("is true for surfaces that bear messages: text, forum_post, thread, dm", () => {
@@ -70,5 +78,37 @@ describe("CHANNEL_TRAITS (B0 trait model)", () => {
     // shared value would collapse the resolver's two branches, the exact
     // do-not-fold the resolver comment warns about).
     expect(CHANNEL_TRAITS.forum_post.addressing).not.toBe(CHANNEL_TRAITS.thread.addressing)
+  })
+})
+
+// B2 reach axis — the single-source classification the three reach faces (fanout
+// recipients / inbox deliverable-narrowing / send-path enroll) share.
+describe("reach axis helpers", () => {
+  it("channelReach reads the reach value straight from the trait table", () => {
+    expect(channelReach("text")).toBe("server-or-roster")
+    expect(channelReach("forum")).toBe("server-or-roster")
+    expect(channelReach("forum_post")).toBe("participant-set")
+    expect(channelReach("thread")).toBe("participant-set")
+    expect(channelReach("dm")).toBe("dm-pair")
+  })
+
+  it("reachIsParticipantSet is true for exactly thread + forum_post (the enroll ⟷ read shared predicate)", () => {
+    expect(reachIsParticipantSet("thread")).toBe(true)
+    expect(reachIsParticipantSet("forum_post")).toBe(true)
+    expect(reachIsParticipantSet("text")).toBe(false)
+    expect(reachIsParticipantSet("forum")).toBe(false)
+    expect(reachIsParticipantSet("dm")).toBe(false)
+  })
+
+  it("reachIsParticipantSet tolerates the loose null/unknown types from the query layer", () => {
+    expect(reachIsParticipantSet(null)).toBe(false)
+    expect(reachIsParticipantSet(undefined)).toBe(false)
+    expect(reachIsParticipantSet("bogus")).toBe(false)
+  })
+
+  it("isStoredChannelType guards the five stored types", () => {
+    for (const t of ["text", "forum", "forum_post", "thread", "dm"]) expect(isStoredChannelType(t)).toBe(true)
+    expect(isStoredChannelType(null)).toBe(false)
+    expect(isStoredChannelType("channel")).toBe(false)
   })
 })

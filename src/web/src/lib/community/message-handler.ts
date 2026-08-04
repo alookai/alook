@@ -10,6 +10,7 @@ import {
   createLogger,
   isUniqueConstraintError,
   withD1Retry,
+  reachIsParticipantSet,
 } from "@alook/shared"
 import type { MentionType } from "@alook/shared"
 import type { Database } from "@alook/shared"
@@ -682,7 +683,18 @@ export async function createCommunityMessage(params: {
   // Admins are NOT auto-added — only real participation joins the set. System /
   // card messages (`skipMentions`) don't add the author. A forum post is
   // enrolled exactly like a thread so it notifies only its participants.
-  if (hasParentChannel(target) && !skipMentions) {
+  // Enroll gate = the REACH axis (B2): a message enrolls participants iff its
+  // channel's reach is `participant-set`. This is the WRITE side of red-line ③ —
+  // it keys on the SAME reach value that the fan-out recipient set and the
+  // agent-inbox deliverable narrowing (the READ side, who's-participant) key on,
+  // so who-enrolls and who's-read can never drift (the class of bug the agent
+  // thread-inbox deadlock was). `target.kind` is the channel's stored type here
+  // (channel/thread/forum_post/dm). NOT folded with `hasParentChannel` below:
+  // that is a distinct STRUCTURAL fact ("has a parent channel" → railChannelId /
+  // parent CHILD_CHANNEL_UPDATE tick), which merely coincides with participant-set
+  // for today's types — a future type could have a parent but server reach, or
+  // participant reach without a parent, so the two rules stay separate.
+  if (reachIsParticipantSet(target.kind) && !skipMentions) {
     const rows: { userId: string; source: typeof PARTICIPANT_SOURCE.SPOKE | typeof PARTICIPANT_SOURCE.MENTION }[] = [
       { userId: authorId, source: PARTICIPANT_SOURCE.SPOKE },
     ]
