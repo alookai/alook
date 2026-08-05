@@ -33,6 +33,8 @@ const mockListMessagesBySeq = vi.fn()
 const mockToAgentMessages = vi.fn()
 const mockResolveServerByNameForMember = vi.fn()
 const mockResolveChannelByNameForMember = vi.fn()
+const mockGetUserByNameAndDiscriminator = vi.fn()
+const mockGetDMBetween = vi.fn()
 
 const mockFanOutToChannel = vi.fn()
 const mockResolveChannelRecipients = vi.fn(async () => [] as string[])
@@ -89,11 +91,13 @@ vi.mock("@alook/shared", async () => {
       },
       user: {
         getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a),
+        getUserByNameAndDiscriminator: (...a: unknown[]) => mockGetUserByNameAndDiscriminator(...a),
       },
       // The door's DM arm (requireDMAccess) uses these when a DM id is dispatched.
       communityDm: {
         getDM: (...a: unknown[]) => mockGetDM(...a),
         getDMPeer: (...a: unknown[]) => mockGetDMPeer(...a),
+        getDMBetween: (...a: unknown[]) => mockGetDMBetween(...a),
       },
       communityFriendship: {
         isBlocked: (...a: unknown[]) => mockIsBlocked(...a),
@@ -716,6 +720,31 @@ describe("GET /api/community/channels/[id]/messages", () => {
       expect(body.messages).toBeUndefined() // bot arm = {items}, never {messages}
       // Read went through the shared seq query, scoped to the resolved channel.
       expect(mockListMessagesBySeq).toHaveBeenCalledWith({}, { channelId: "c1" }, expect.objectContaining({ after: 0 }))
+    })
+
+    it("decodes an encoded ref carrying / and # (DM handle round-trip: %2F.dm%2Fgusye%231231 → /.dm/gusye#1231)", async () => {
+      // Gener #263 / Melly #264: a DM ref has `/` AND `#` (fragment char) — the
+      // CLI encodeURIComponent's it into the query; NextRequest.searchParams.get
+      // auto-decodes, so resolveTargetForMember sees the real ref. This asserts
+      // the door gets the DECODED ref (not truncated at #, not left percent-escaped).
+      const peer = { id: "peer_1", discriminator: "1231" }
+      mockGetUserByNameAndDiscriminator.mockResolvedValue(peer)
+      mockGetDMBetween.mockResolvedValue({ id: "dm1" })
+      mockGetChannel.mockResolvedValue({ id: "dm1", serverId: null, type: "dm", parentChannelId: null })
+      mockGetDM.mockResolvedValue({ id: "dm1", lastMessageAt: null, createdAt: "t" })
+      mockGetDMPeer.mockResolvedValue({ otherUserId: "peer_1" })
+      mockIsBlocked.mockResolvedValue(false)
+      mockListMessagesBySeq.mockResolvedValue({ items: [{ id: "m1", seq: 1 }], hasMore: false, latestSeq: 1 })
+      mockToAgentMessages.mockResolvedValue([{ seq: 1, text: "dm hi" }])
+
+      const encoded = encodeURIComponent("/.dm/gusye#1231")
+      const res = await GET(botGetReq(`?ref=${encoded}`), botCtx)
+      expect(res.status).toBe(200)
+      // The DM handle's #1231 was NOT lost as a URL fragment — the peer lookup
+      // received the decoded name#disc, proving the round-trip.
+      expect(mockGetUserByNameAndDiscriminator).toHaveBeenCalledWith({}, "gusye", "1231")
+      const body = await res.json() as { items?: unknown[] }
+      expect(body.items).toEqual([{ seq: 1, text: "dm hi" }])
     })
 
     it("bot read of a ref to a nonexistent target → 404, NO create (read-create=false ⑤)", async () => {
