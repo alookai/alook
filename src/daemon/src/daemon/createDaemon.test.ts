@@ -732,6 +732,12 @@ describe("deriveAuditLogSubcommand", () => {
     expect(deriveAuditLogSubcommand("/api/community/messages/m1/threads", "POST")).toBe("threads");
     // seq→id lookup (folded resolve).
     expect(deriveAuditLogSubcommand("/api/community/channels/resolve/messages/seq/42", "GET")).toBe("resolve");
+    // single-message hydrate door GET messages/{id} = the folded `resolve` verb.
+    expect(deriveAuditLogSubcommand("/api/community/messages/resolve?ref=%2Fs%2Fg&seq=42", "GET")).toBe("resolve");
+    expect(deriveAuditLogSubcommand("/api/community/messages/m1", "GET")).toBe("resolve");
+    // hydrate door must not shadow the write sub-paths.
+    expect(deriveAuditLogSubcommand("/api/community/messages/m1/reactions/x", "PUT")).toBe("reactAdd");
+    expect(deriveAuditLogSubcommand("/api/community/messages/m1/threads", "POST")).toBe("threads");
   });
 });
 

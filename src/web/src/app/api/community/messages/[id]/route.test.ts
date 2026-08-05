@@ -14,8 +14,15 @@ const mockGetDMPeer = vi.fn()
 const mockIsBlocked = vi.fn()
 const mockListByMessageIds = vi.fn()
 const mockListReactionsByMessageIds = vi.fn()
+const mockGetMessageByChannelAndSeq = vi.fn()
+const mockToAgentMessage = vi.fn()
+const mockResolveTargetForMember = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
+
+vi.mock("@/lib/community/resolve-ref", () => ({
+  resolveTargetForMember: (...a: unknown[]) => mockResolveTargetForMember(...a),
+}))
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -29,6 +36,10 @@ vi.mock("@alook/shared", async () => {
       communityMessage: {
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
         getMessagesByIdsInScope: (...a: unknown[]) => mockGetMessagesByIdsInScope(...a),
+        getMessageByChannelAndSeq: (...a: unknown[]) => mockGetMessageByChannelAndSeq(...a),
+      },
+      communityAgentInbox: {
+        toAgentMessage: (...a: unknown[]) => mockToAgentMessage(...a),
       },
       communityAttachment: {
         listByMessageIds: (...a: unknown[]) => mockListByMessageIds(...a),
@@ -47,11 +58,17 @@ vi.mock("@alook/shared", async () => {
   }
 })
 
-vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
+// Dual-actor: crk_ bearer → bot (folded resolve), else human. Human arm carries
+// messageId in the path; bot arm carries ref+seq on the query.
+vi.mock("@/lib/middleware/community-actor", () => ({
+  withCommunityActor: (handler: any) => async (req: any, ctx?: any) => {
     const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: { DB: {} }, userId: "u1", email: "u@t.com", params })
-  }),
+    const authz = req?.headers?.get?.("Authorization") ?? ""
+    const actor = authz.startsWith("Bearer crk_")
+      ? { kind: "bot", userId: "bot_1", ownerUserId: "o_1", machineId: "m_1" }
+      : { kind: "human", userId: "u1", email: "u@t.com" }
+    return handler(req, { env: { DB: {} }, actor, params })
+  },
 }))
 
 vi.mock("@/lib/middleware/helpers", () => {
@@ -263,5 +280,71 @@ describe("GET /api/community/messages/[id]", () => {
     const res = await GET(req(), { params: {} } as any)
     expect(res.status).toBe(400)
     expect(mockGetMessage).not.toHaveBeenCalled()
+  })
+
+  // ── bot arm (folded `resolve` verb): ref+seq → member-scoped 404, {message}
+  //    agent-shape projection. ──
+
+  function botReq(ref?: string, seq?: string) {
+    const q = new URLSearchParams()
+    if (ref !== undefined) q.set("ref", ref)
+    if (seq !== undefined) q.set("seq", seq)
+    return new NextRequest(`http://localhost/api/community/messages/resolve?${q.toString()}`, {
+      method: "GET",
+      headers: { Authorization: "Bearer crk_abc" },
+    })
+  }
+  const ctxResolve = { params: { id: "resolve" } } as any
+
+  it("bot resolves ref+seq via resolveTargetForMember → {message} agent shape", async () => {
+    mockResolveTargetForMember.mockResolvedValue({ kind: "channel", channelId: "c1" })
+    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "text" })
+    mockGetMessageByChannelAndSeq.mockResolvedValue({ id: "m42", channelId: "c1" })
+    mockListByMessageIds.mockResolvedValue([])
+    mockToAgentMessage.mockResolvedValue({ seq: "#42", channel: "/s/general", sender: "@a", content: { text: "hi" }, time: "" })
+    const res = await GET(botReq("/s/general", "42"), ctxResolve)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ message: expect.objectContaining({ seq: "#42" }) })
+    expect(mockResolveTargetForMember).toHaveBeenCalledWith({}, "bot_1", "/s/general", {
+      createDmIfMissing: false,
+      createThreadIfMissing: false,
+      callerKind: "bot",
+    })
+    expect(mockGetMessageByChannelAndSeq).toHaveBeenCalledWith({}, { channelId: "c1" }, 42)
+  })
+
+  it("①-C: bot ref to an UNREACHABLE channel → 404 (member-scoped resolve, not a 403 leak)", async () => {
+    mockResolveTargetForMember.mockResolvedValue({ error: 404, message: "channel not found: general" })
+    const res = await GET(botReq("/s/general", "42"), ctxResolve)
+    expect(res.status).toBe(404)
+    // never reaches the seq lookup or the message hydrate.
+    expect(mockGetMessageByChannelAndSeq).not.toHaveBeenCalled()
+    expect(mockGetMessage).not.toHaveBeenCalled()
+  })
+
+  it("bot ref resolves but seq absent in the channel → 404", async () => {
+    mockResolveTargetForMember.mockResolvedValue({ kind: "channel", channelId: "c1" })
+    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "text" })
+    mockGetMessageByChannelAndSeq.mockResolvedValue(null)
+    const res = await GET(botReq("/s/general", "999"), ctxResolve)
+    expect(res.status).toBe(404)
+  })
+
+  it("bot seq 0 → 404 (legacy pre-migration sentinel, never a real message)", async () => {
+    const res = await GET(botReq("/s/general", "0"), ctxResolve)
+    expect(res.status).toBe(404)
+    expect(mockResolveTargetForMember).not.toHaveBeenCalled()
+  })
+
+  it("bot missing ref → 400", async () => {
+    const res = await GET(botReq(undefined, "42"), ctxResolve)
+    expect(res.status).toBe(400)
+    expect(mockResolveTargetForMember).not.toHaveBeenCalled()
+  })
+
+  it("bot non-integer seq → 400", async () => {
+    const res = await GET(botReq("/s/general", "abc"), ctxResolve)
+    expect(res.status).toBe(400)
+    expect(mockResolveTargetForMember).not.toHaveBeenCalled()
   })
 })

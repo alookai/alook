@@ -182,6 +182,28 @@ describe("createProxyServerApi — send (retargeted to the canonical messages do
   });
 });
 
+describe("createProxyServerApi — resolve (retargeted to the canonical hydrate door)", () => {
+  it("GETs messages/{id} with ref+seq on the query; returns the {message} shape", async () => {
+    const seen: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
+      seen.push({ url, init });
+      return jsonBody(
+        JSON.stringify({ message: { seq: "#42", channel: "/demo/general", sender: "@a", content: { text: "hi" }, time: "" } }),
+        { status: 200 },
+      );
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const res = await api.resolve({ agentId: "a1", channel: "/demo/general", seq: 42 });
+    expect(res.message.seq).toBe("#42");
+    const u = new URL(seen[0].url);
+    // resolve is its OWN door (GET messages/{id} hydrate) — NOT the seq→id lookup.
+    expect(u.pathname).toBe("/api/community/messages/resolve");
+    expect(u.searchParams.get("ref")).toBe("/demo/general");
+    expect(u.searchParams.get("seq")).toBe("42");
+    expect(seen[0].init?.method).toBe("GET");
+  });
+});
+
 describe("createProxyServerApi — read (retargeted to the canonical messages door GET)", () => {
   it("GETs the canonical door with ?ref= (encoded) + seq anchors on the query", async () => {
     const seen: Array<{ url: string; init?: RequestInit }> = [];

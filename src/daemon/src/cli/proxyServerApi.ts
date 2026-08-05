@@ -201,6 +201,26 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     return parseJsonResponse<Page<Message>>(res, "read");
   }
 
+  async function callResolve(req: ResolveRequest): Promise<{ message: Message }> {
+    // Canonical hydrate door: GET messages/{id}. The bot holds a ref+seq (not a
+    // messageId), so it uses the `resolve` placeholder id and carries ref+seq on
+    // the query; the door resolves ref+seq → message server-side (member-scoped
+    // → 404, ①-C) and returns the `{ message }` agent shape. Encode the ref (it
+    // carries `/`, and `#`/`@` in DM handles). resolve is locate∘hydrate — a
+    // SEPARATE door from the seq→id lookup (which returns `{ id }`), NOT folded.
+    const q = new URLSearchParams()
+    q.set("ref", req.channel)
+    q.set("seq", String(req.seq))
+    const res = await fetchImpl(
+      `${base}/api/community/messages/${REF_PLACEHOLDER_ID}?${q.toString()}`,
+      {
+        method: "GET",
+        headers: { authorization: `Bearer ${config.voucher}` },
+      },
+    );
+    return parseJsonResponse<{ message: Message }>(res, "resolve");
+  }
+
   async function callReactAdd(
     req: { channel: ChannelRef; seq: Seq; emoji: string },
   ): Promise<CommunityAgentReactAddResponse> {
@@ -325,7 +345,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     send: callSend,
     createPost: (r: CreatePostRequest) => call<CreatePostResponse>("createPost", r),
     read: callRead,
-    resolve: (r: ResolveRequest) => call<{ message: Message }>("resolve", r),
+    resolve: callResolve,
     listMembers: (r: { agentId: AgentId; server: string; limit?: number; cursor?: string }) =>
       call<ServerMemberListResult>("listMembers", r),
     attachmentUpload: callUpload,

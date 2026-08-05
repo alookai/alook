@@ -88,6 +88,14 @@ describe("DEFAULT_CAPABILITY_RESOLVER", () => {
     expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/channels/resolve/messages/seq/42")).toBe("read");
   });
 
+  it("maps the single-message hydrate door GET messages/{id} to `read` (folds `resolve`)", () => {
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/messages/resolve?ref=%2Fs%2Fg&seq=42")).toBe("read");
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/messages/m1")).toBe("read");
+    // must NOT shadow the more specific write sub-paths.
+    expect(DEFAULT_CAPABILITY_RESOLVER("PUT", "/api/community/messages/m1/reactions/x")).toBe("send");
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/messages/m1/threads")).toBe("send");
+  });
+
   it("still maps the canonical posts door (createPost's home) to `send`", () => {
     expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/channels/abc123/posts")).toBe("send");
   });

@@ -258,6 +258,10 @@ export const DEFAULT_CAPABILITY_RESOLVER: CapabilityResolver = (method, pathname
   if (/\/messages\/[^/]+\/reactions\//.test(pathname)) return "send";
   if (/\/messages\/[^/]+\/threads(\/|$|\?)/.test(pathname)) return "send";
   if (/\/channels\/[^/]+\/posts(\/|$|\?)/.test(pathname)) return "send";
+  // Single-message hydrate door GET messages/{id} (folds the `resolve` verb — a
+  // read). Matched AFTER the message-keyed write doors above so their more
+  // specific `/reactions|/threads` sub-paths win first.
+  if (method === "GET" && /\/messages\/[^/]+(\?|$)/.test(pathname)) return "read";
 
   // ── Flat verbs (transition period — retired as callers move to the door). ──
   // `/createPost` is a create/write (a new forum post + its first message), same
