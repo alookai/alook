@@ -253,7 +253,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
             </DropdownMenu>
           ) : (
             <span className="flex min-w-0 max-w-full items-center gap-2 px-2">
-              <span className="min-w-0 truncate font-brand text-[1.75rem] leading-none font-bold">{serverName || "\u00a0"}</span>
+              <span className="min-w-0 truncate pr-1 font-brand text-[1.75rem] leading-none font-bold">{serverName || "\u00a0"}</span>
             </span>
           )}
           {serverId && onInvitePopoverOpenChange && (
