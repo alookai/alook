@@ -222,10 +222,20 @@ export async function createThreadForUser(
     return { ok: false, status: 400, error: `name must be 1-${MAX_CHANNEL_NAME_LENGTH} characters` }
   }
 
-  // Get-or-create by the root-message anchor: a concurrent create that lost the
-  // race re-selects the winner, and re-creating on a message that already has a
-  // thread returns that thread (idempotent) rather than 409. Same trait dispatch
-  // the send-path createThreadIfMissing uses (resolve-ref) → one thread semantics.
+  // Get-or-create by the root-message anchor, matching the send-path exactly
+  // (resolve-ref createThreadIfMissing) — ONE thread semantics on BOTH axes,
+  // result AND side effects. Probe for the existing thread first and early-return
+  // it with ZERO seed/fan-out (Ingaborg #478): the participant seed + the
+  // CHILD_CHANNEL_CREATE broadcast are FRESH-CREATE side effects. Running them on
+  // a re-select would emit a spurious "new child channel" broadcast every time a
+  // message that already has a thread is re-created (the former 409 route errored
+  // before any side effect; the send-path early-returns). The createWithCollisionPolicy
+  // below still guards the concurrent-create race (two creators past this probe
+  // at once → the loser hits the unique index → refetchWinner), and that rare
+  // re-select is side-effect-free for the same reason.
+  const existingThread = await queries.communityChannel.getThreadChannelByParentMessage(db, message.channelId, messageId)
+  if (existingThread) return { ok: true, value: existingThread }
+
   const threadResult = await createWithCollisionPolicy(channelCreation("thread"), {
     attempt: () => queries.communityChannel.createChannel(db, {
       serverId: channel.serverId,
@@ -241,35 +251,40 @@ export async function createThreadForUser(
   // this policy (it creates or re-selects, else throws); map to 404 defensively.
   if (!threadResult.ok) return { ok: false, status: 404, error: "thread not found" }
   const childChannel = threadResult.value
+  // Fresh-create vs concurrent-race re-select (rare — both creators passed the
+  // probe above before either inserted, so the loser's attempt() threw and
+  // refetchWinner returned the OTHER creator's row). Only the winner whose row
+  // this actor created (creatorId === actorUserId) is a fresh create; a
+  // re-selected row was created by someone else who already ran these side
+  // effects. Keeps re-select side-effect-free on the race path too.
+  const isFreshCreate = childChannel.creatorId === actorUserId
 
-  // A re-selected winner (thread already existed) already has its participant set
-  // seeded; only seed on a fresh create. `parentMessageId === messageId` and a
-  // fresh row are the same here — a get-or-create winner is the existing row, so
-  // re-seeding would be a no-op insert, but skipping it is cleaner. We detect a
-  // fresh create by whether the returned row's creatorId is this actor AND it had
-  // no prior participants; simplest correct signal: seed unconditionally — the
-  // participant insert is idempotent per (channel,user). Preserve legacy seeding.
-  const seedRows: { userId: string; source: typeof PARTICIPANT_SOURCE.SPOKE | typeof PARTICIPANT_SOURCE.ADDED }[] = [
-    { userId: actorUserId, source: PARTICIPANT_SOURCE.SPOKE },
-  ]
-  if (message.authorId !== actorUserId) {
-    const authorStillMember = await requireChannelMember(db, message.channelId, message.authorId)
-    if (authorStillMember.ok) seedRows.push({ userId: message.authorId, source: PARTICIPANT_SOURCE.ADDED })
+  // Seed the NOTIFY set on a fresh create only: creator (spoke) + original author
+  // (added, if still a member — else a private channel's thread could leak to
+  // someone who lost access). Idempotent per (channel,user) via onConflictDoNothing.
+  if (isFreshCreate) {
+    const seedRows: { userId: string; source: typeof PARTICIPANT_SOURCE.SPOKE | typeof PARTICIPANT_SOURCE.ADDED }[] = [
+      { userId: actorUserId, source: PARTICIPANT_SOURCE.SPOKE },
+    ]
+    if (message.authorId !== actorUserId) {
+      const authorStillMember = await requireChannelMember(db, message.channelId, message.authorId)
+      if (authorStillMember.ok) seedRows.push({ userId: message.authorId, source: PARTICIPANT_SOURCE.ADDED })
+    }
+    await queries.communityThread.addThreadParticipants(db, childChannel.id, seedRows)
+
+    fanOutToChannel(message.channelId, {
+      type: WS_EVENTS.CHILD_CHANNEL_CREATE,
+      parentChannelId: message.channelId,
+      channel: {
+        id: childChannel.id,
+        name: childChannel.name,
+        type: "thread" as const,
+        creatorId: actorUserId,
+        createdAt: childChannel.createdAt,
+      },
+      parentMessageId: messageId,
+    }, { excludeUserId: actorUserId })
   }
-  await queries.communityThread.addThreadParticipants(db, childChannel.id, seedRows)
-
-  fanOutToChannel(message.channelId, {
-    type: WS_EVENTS.CHILD_CHANNEL_CREATE,
-    parentChannelId: message.channelId,
-    channel: {
-      id: childChannel.id,
-      name: childChannel.name,
-      type: "thread" as const,
-      creatorId: actorUserId,
-      createdAt: childChannel.createdAt,
-    },
-    parentMessageId: messageId,
-  }, { excludeUserId: actorUserId })
 
   return { ok: true, value: childChannel }
 }

@@ -93,6 +93,9 @@ describe("POST /api/community/messages/[id]/threads", () => {
       type: "text",
     })
     mockListChildChannels.mockResolvedValue([])
+    // No existing thread by default → the probe misses and the fresh-create path
+    // runs. The existing-thread test overrides this to exercise the early return.
+    mockGetThreadChannelByParentMessage.mockResolvedValue(null)
     mockCreateChannel.mockResolvedValue({
       id: "t-new",
       name: "my thread",
@@ -158,17 +161,16 @@ describe("POST /api/community/messages/[id]/threads", () => {
     expect(messageCreateCall).toBeUndefined()
   })
 
-  it("returns the existing thread when the message already has one (get-or-create, not 409)", async () => {
+  it("returns the existing thread when the message already has one (get-or-create) — side-effect-free re-select", async () => {
     // Behavior change (route/disc create-door, Melly #471 / Ingaborg #472): thread
-    // is get-or-create by the root-message anchor — the concurrent create hits the
-    // uq_community_channel_parent_message unique index and throws, then the winner
-    // is re-selected and returned (idempotent). The former 409 "already has a
+    // is get-or-create by the root-message anchor. The former 409 "already has a
     // thread" was never a consumed signal, so returning the existing thread is
-    // strictly more useful than a failure.
-    const uniqueErr = Object.assign(new Error("UNIQUE constraint failed"), {
-      code: "SQLITE_CONSTRAINT_UNIQUE",
-    })
-    mockCreateChannel.mockRejectedValue(uniqueErr)
+    // strictly more useful. Melly #479: the unification must hold on the
+    // SIDE-EFFECT axis too — matching the send-path (resolve-ref.ts:168 early
+    // return), a re-select probes the existing thread FIRST and returns it with
+    // NO participant re-seed and NO CHILD_CHANNEL_CREATE re-broadcast (those are
+    // fresh-create side effects; re-emitting them on every re-create is the
+    // spurious-broadcast regression Ingaborg #478 caught).
     mockGetThreadChannelByParentMessage.mockResolvedValue({
       id: "t-existing",
       name: "first thread",
@@ -184,7 +186,13 @@ describe("POST /api/community/messages/[id]/threads", () => {
     expect(res.status).toBe(201)
     const body = await res.json()
     expect(body.id).toBe("t-existing")
-    // No opener message is cloned on the get-or-create winner either.
+    // The winner is returned WITHOUT re-running fresh-create side effects: no new
+    // thread row, no participant re-seed, no CHILD_CHANNEL_CREATE re-broadcast, no
+    // opener message clone. This is what makes it truly one semantics with the
+    // send-path (not just "returns existing" but "silent like send-path").
+    expect(mockCreateChannel).not.toHaveBeenCalled()
+    expect(mockAddThreadParticipants).not.toHaveBeenCalled()
+    expect(mockFanOutToChannel).not.toHaveBeenCalled()
     expect(mockCreateMessage).not.toHaveBeenCalled()
   })
 
