@@ -29,6 +29,14 @@ vi.mock("@alook/shared", async () => {
   }
 })
 
+// runAttachmentUpload now owns access + surface dispatch via
+// requireMessageSurfaceAccess (kind is DERIVED from its returned surface +
+// channel.type, no separate getChannelType re-query). Mock it to drive each arm.
+const mockRequireMessageSurfaceAccess = vi.fn()
+vi.mock("./permissions", () => ({
+  requireMessageSurfaceAccess: (...a: unknown[]) => mockRequireMessageSurfaceAccess(...a),
+}))
+
 import {
   handleAttachmentUpload,
   handleServerIconUpload,
@@ -360,7 +368,6 @@ describe("handleBotAvatarUpload", () => {
 describe("runAttachmentUpload", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockGetChannelType.mockResolvedValue("text")
   })
 
   function ctxWith(env: Env, params: Record<string, string> | undefined) {
@@ -372,32 +379,38 @@ describe("runAttachmentUpload", () => {
     }
   }
 
+  // Drive the surface dispatch: `surface="dm"` or `surface="channel"` with a
+  // channel row carrying `.type`. kind is DERIVED from these (no getChannelType).
+  function surfaceChannel(type: string) {
+    mockRequireMessageSurfaceAccess.mockResolvedValue({
+      ok: true,
+      value: { surface: "channel", channel: { id: "c1", type } },
+    })
+  }
+  function surfaceDm() {
+    mockRequireMessageSurfaceAccess.mockResolvedValue({
+      ok: true,
+      value: { surface: "dm", dm: { id: "d1" } },
+    })
+  }
+
   it("returns 400 when the route id param is missing", async () => {
     const put = vi.fn()
-    const perm = vi.fn()
     const res = await runAttachmentUpload(
       reqWithFile(fakeFile("hi.png", "image/png", 10)),
       ctxWith(envWithR2(put), undefined),
-      "channel",
-      perm as never,
     )
     expect(res.status).toBe(400)
-    expect(perm).not.toHaveBeenCalled()
+    expect(mockRequireMessageSurfaceAccess).not.toHaveBeenCalled()
     expect(put).not.toHaveBeenCalled()
   })
 
-  it("forwards permission-check failures with the reported status + error", async () => {
+  it("forwards surface-access failures with the reported status + error", async () => {
     const put = vi.fn()
-    const perm = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 403,
-      error: "forbidden",
-    })
+    mockRequireMessageSurfaceAccess.mockResolvedValue({ ok: false, status: 403, error: "forbidden" })
     const res = await runAttachmentUpload(
       reqWithFile(fakeFile("hi.png", "image/png", 10)),
       ctxWith(envWithR2(put), { id: "c1" }),
-      "channel",
-      perm as never,
     )
     expect(res.status).toBe(403)
     const body = (await res.json()) as { error: string }
@@ -405,16 +418,15 @@ describe("runAttachmentUpload", () => {
     expect(put).not.toHaveBeenCalled()
   })
 
-  it("hands off to handleAttachmentUpload with the resolved kind + id, returns the URL", async () => {
-    // Happy path — permission passes, streaming upload succeeds, response
-    // shape mirrors what the three route files used to build inline.
+  it("channel (text) surface → kind 'channel', channel/ R2 prefix, returns the URL", async () => {
+    // Happy path — access passes, streaming upload succeeds, response shape
+    // mirrors what the three route files used to build inline. A text channel
+    // derives kind="channel" (== what the old channels/[id]/upload passed).
+    surfaceChannel("text")
     const put = vi.fn().mockResolvedValue(undefined)
-    const perm = vi.fn().mockResolvedValue({ ok: true, value: { id: "c1" } })
     const res = await runAttachmentUpload(
       reqWithFile(fakeFile("hi.png", "image/png", 10)),
       ctxWith(envWithR2(put), { id: "c1" }),
-      "channel",
-      perm as never,
     )
     expect(res.status).toBe(200)
     const body = (await res.json()) as {
@@ -437,71 +449,59 @@ describe("runAttachmentUpload", () => {
     expect(streamed).not.toBeInstanceOf(ArrayBuffer)
   })
 
-  it("routes 'dm' kind through the dm/ R2 prefix", async () => {
+  it("dm surface → kind 'dm', dm/ R2 prefix (== old dm/[id]/upload's kind, buildMediaKey parity)", async () => {
+    surfaceDm()
     const put = vi.fn().mockResolvedValue(undefined)
-    const perm = vi.fn().mockResolvedValue({ ok: true, value: { id: "d1" } })
     const res = await runAttachmentUpload(
       reqWithFile(fakeFile("hi.png", "image/png", 10)),
       ctxWith(envWithR2(put), { id: "d1" }),
-      "dm",
-      perm as never,
     )
     expect(res.status).toBe(200)
     const [key] = put.mock.calls[0]
     expect(key).toMatch(/^dm\/d1\//)
   })
 
-  it("routes 'thread' kind through the thread/ R2 prefix", async () => {
-    mockGetChannelType.mockResolvedValue("thread")
+  it("channel surface + type 'thread' → kind 'thread', thread/ R2 prefix (== old threads/[id]/upload's kind)", async () => {
+    surfaceChannel("thread")
     const put = vi.fn().mockResolvedValue(undefined)
-    const perm = vi.fn().mockResolvedValue({ ok: true, value: { id: "t1" } })
     const res = await runAttachmentUpload(
       reqWithFile(fakeFile("hi.png", "image/png", 10)),
-      ctxWith(envWithR2(put), { id: "t1" }),
-      "thread",
-      perm as never,
+      ctxWith(envWithR2(put), { id: "c1" }),
     )
     expect(res.status).toBe(200)
     const [key] = put.mock.calls[0]
-    expect(key).toMatch(/^thread\/t1\//)
+    expect(key).toMatch(/^thread\/c1\//)
   })
 
-  it("rejects a 'channel' upload targeted at a forum top-level with 400", async () => {
-    mockGetChannelType.mockResolvedValue("forum")
-    const put = vi.fn()
-    const perm = vi.fn().mockResolvedValue({ ok: true, value: { id: "c1" } })
+  it("channel surface + type 'forum_post' → kind 'thread' (child surface, same as thread)", async () => {
+    surfaceChannel("forum_post")
+    const put = vi.fn().mockResolvedValue(undefined)
     const res = await runAttachmentUpload(
       reqWithFile(fakeFile("hi.png", "image/png", 10)),
       ctxWith(envWithR2(put), { id: "c1" }),
-      "channel",
-      perm as never,
     )
-    expect(res.status).toBe(400)
-    expect(put).not.toHaveBeenCalled()
+    expect(res.status).toBe(200)
+    const [key] = put.mock.calls[0]
+    expect(key).toMatch(/^thread\/c1\//)
   })
 
-  it("rejects a 'channel' upload targeted at a DM channel id with 400 (block-bypass guard)", async () => {
-    mockGetChannelType.mockResolvedValue("dm")
+  it("channel surface + forum top-level → 400 (non-message-bearing, no put)", async () => {
+    surfaceChannel("forum")
     const put = vi.fn()
-    const perm = vi.fn().mockResolvedValue({ ok: true, value: { id: "c1" } })
     const res = await runAttachmentUpload(
       reqWithFile(fakeFile("hi.png", "image/png", 10)),
       ctxWith(envWithR2(put), { id: "c1" }),
-      "channel",
-      perm as never,
     )
     expect(res.status).toBe(400)
     expect(put).not.toHaveBeenCalled()
   })
 
   it("forwards handleAttachmentUpload errors (e.g. oversize) unchanged", async () => {
+    surfaceChannel("text")
     const put = vi.fn()
-    const perm = vi.fn().mockResolvedValue({ ok: true, value: { id: "c1" } })
     const res = await runAttachmentUpload(
       reqWithFile(fakeFile("big.png", "image/png", MAX_ATTACHMENT_SIZE_BYTES + 1)),
       ctxWith(envWithR2(put), { id: "c1" }),
-      "channel",
-      perm as never,
     )
     expect(res.status).toBe(413)
     expect(put).not.toHaveBeenCalled()

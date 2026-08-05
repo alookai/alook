@@ -7,6 +7,8 @@ import {
 } from "@alook/shared"
 import { requireMessageBearingSurface, requireChildSurface } from "./channel-write-guard"
 import type { Database } from "@alook/shared"
+import { isThread, isForumPost } from "@alook/shared"
+import { requireMessageSurfaceAccess } from "./permissions"
 import { writeError, writeJSON } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import type { AuthContext } from "@/lib/middleware/auth"
@@ -245,37 +247,57 @@ export function handleBotAvatarUpload(
 }
 
 /**
- * Route body shared by the three attachment-upload endpoints
- * (`channels/[id]/upload`, `dm/[id]/upload`, `threads/[id]/upload`). Parses
- * the `id` param, runs the caller-supplied permission check, then hands off
- * to `handleAttachmentUpload`. Keeping the three route files thin also keeps
- * their URLs distinct — we deliberately did not collapse to a single route.
+ * Shared body for the unified attachment-upload trunk. One `id`, dispatched by
+ * the channel's surface — the three old per-type routes
+ * (`channels/[id]/upload`, `dm/[id]/upload`, `threads/[id]/upload`) collapse to
+ * this, with the DM/thread routes kept as thin shims that re-export the channel
+ * handler.
+ *
+ * Access + surface come from `requireMessageSurfaceAccess` (the same dispatch
+ * the read/read-state routes use), so a DM id runs `requireDMAccess` (block
+ * gate) — closing the incidental P0 the trunk covers.
+ *
+ * `kind` (which feeds `buildMediaKey` → the R2 key path, so its VALUE is
+ * load-bearing, not just its guard) is DERIVED from `(surface, channel.type)`
+ * consumed from the dispatch's return — NOT re-queried via a second
+ * `getChannelType` (that would be a mini re-derive + extra hop; the dispatch
+ * already fetched the row). `surface` alone is lossy (thread and text both
+ * present as `surface="channel"`), so the channel arm splits on `channel.type`:
+ *   - dm                                  → kind "dm"      (a DM is a legitimate
+ *                                            attachment target — no bearing guard)
+ *   - channel + thread/forum_post         → kind "thread"  (requireChildSurface)
+ *   - channel + text/forum(-top)          → kind "channel" (requireMessageBearingSurface)
+ * These map byte-for-byte to what the three routes passed before, so new
+ * uploads land under the same R2 key prefix (existing attachments read from the
+ * stored `r2_key` column and are unaffected — the derivation is write-only).
  */
 export async function runAttachmentUpload(
   req: NextRequest,
   ctx: AuthContext & { params?: Record<string, string> },
-  kind: AttachmentKind,
-  permissionCheck: (db: Database, id: string, userId: string) => Promise<Result<unknown>>,
 ): Promise<NextResponse> {
   const id = ctx.params?.id
-  if (!id) {
-    const label =
-      isChannelTarget(kind) ? "channel id" : isDmTarget(kind) ? "dm id" : "id"
-    return writeError(`missing ${label}`, 400)
-  }
+  if (!id) return writeError("missing channel id", 400)
 
   const db = getDb(ctx.env.DB)
-  const auth = await permissionCheck(db, id, ctx.userId)
+  const auth = await requireMessageSurfaceAccess(db, id, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 
-  if (kind === "channel") {
-    const channelType = await queries.communityChannel.getChannelType(db, id)
-    const surface = requireMessageBearingSurface(channelType)
-    if (!surface.ok) return writeError(surface.error, surface.status)
-  } else if (kind === "thread") {
-    const channelType = await queries.communityChannel.getChannelType(db, id)
-    const child = requireChildSurface(channelType)
-    if (!child.ok) return writeError(child.error, child.status)
+  // Derive kind + apply the per-surface guard from the dispatch's return — no
+  // re-query. The DM arm needs no surface guard (a DM is a valid target).
+  let kind: AttachmentKind
+  if (auth.value.surface === "dm") {
+    kind = "dm"
+  } else {
+    const channelType = auth.value.channel.type
+    if (isThread(channelType) || isForumPost(channelType)) {
+      const child = requireChildSurface(channelType)
+      if (!child.ok) return writeError(child.error, child.status)
+      kind = "thread"
+    } else {
+      const surface = requireMessageBearingSurface(channelType)
+      if (!surface.ok) return writeError(surface.error, surface.status)
+      kind = "channel"
+    }
   }
 
   const result = await handleAttachmentUpload(req, ctx.env, kind, id, {
