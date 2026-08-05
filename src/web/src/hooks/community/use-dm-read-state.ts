@@ -7,7 +7,9 @@ import { communityKeys } from "@/lib/query-keys"
 
 /**
  * The DM read-state snapshot returned by
- * `GET /api/community/dm/:id/read-state`. Fields default to `null` / `0`
+ * `GET /api/community/channels/:id/read-state` (a DM is a channel row; the
+ * whole DM surface reads through the one canonical door). Fields default to
+ * `null` / `0`
  * when the viewer has never opened this DM.
  */
 export type DmReadStateSnapshot = {
