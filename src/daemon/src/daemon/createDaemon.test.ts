@@ -160,6 +160,61 @@ describe("createDaemon — logging", () => {
     global.fetch = originalFetch;
   });
 
+  it("asks a woken agent to read unread messages without requiring a reply", async () => {
+    global.fetch = vi.fn(async (url: string | URL) => {
+      const href = String(url);
+      if (href.includes("/enroll-agent")) {
+        return new Response(JSON.stringify({ runnerKey: "rk_1" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ bots: [] }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    let spawnedPrompt = "";
+    const driver: Driver = {
+      ...fullFakeDriver("codex"),
+      spawn: async (ctx) => {
+        spawnedPrompt = ctx.prompt;
+        const proc = new EventEmitter() as unknown as { kill: () => void };
+        proc.kill = () => { };
+        return { process: proc as never };
+      },
+    } as unknown as Driver;
+
+    const sockets: FakeSocket[] = [];
+    const daemon = await createDaemon({
+      machineKey: "cmk_wake_prompt",
+      serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as any,
+      runtimeReport: [{ id: "codex" }],
+      driverFor: () => driver,
+      capabilities: [],
+    });
+    sockets[0].emit("open");
+    await new Promise((r) => setTimeout(r, 20));
+
+    sockets[0].emit(
+      "message",
+      JSON.stringify({ type: "bot:added", botId: "bot_1", name: "Bot One", discriminator: "4821" }),
+    );
+    sockets[0].emit(
+      "message",
+      JSON.stringify({
+        type: "agent:wake",
+        agentId: "bot_1",
+        config: { version: 1, runtime: "codex", model: { kind: "default" }, mode: { kind: "default" } },
+        launchId: "l1",
+        unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 1 },
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(spawnedPrompt).toContain("Use `alook inbox pull` to read your messages.");
+    expect(spawnedPrompt).not.toContain("message send");
+
+    await daemon.stop();
+  });
+
   it("threads the shared logger into WsControlChannel/AgentRouter/AgentProcessManager, and logs bot:removed + a successful wake through the manager", async () => {
     global.fetch = vi.fn(async (url: string | URL) => {
       const href = String(url);

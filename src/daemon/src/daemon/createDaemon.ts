@@ -667,7 +667,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     // SDK, no child process) — this is only ever consulted for that case.
     sdkDriverDepsFor: (ctx) => createPiSdkDriverDeps(ctx),
     timeline,
-    wakePromptFooter: "Use `alook inbox pull` to read your messages, then reply with `alook message send`.",
+    wakePromptFooter: "Use `alook inbox pull` to read your messages.",
     stampWakePromptTime: true,
     logger: log.child("manager"),
   });
