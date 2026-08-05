@@ -748,6 +748,10 @@ describe("deriveAuditLogSubcommand", () => {
     expect(deriveAuditLogSubcommand("/api/community/servers/resolve/channels?server=studio", "GET")).toBe("listChannels");
     expect(deriveAuditLogSubcommand("/api/community/servers/srv_1/channels", "GET")).toBe("listChannels");
     expect(deriveAuditLogSubcommand("/api/community/servers/channels", "GET")).toBe("listChannels");
+    // friends bucket doors (轴3 fold): accepted + pending map back to listFriends
+    // (the bot's `alook friend list` fans out to both). blocked is bot-403 → not mapped.
+    expect(deriveAuditLogSubcommand("/api/community/friends/accepted", "GET")).toBe("listFriends");
+    expect(deriveAuditLogSubcommand("/api/community/friends/pending", "GET")).toBe("listFriends");
   });
 });
 

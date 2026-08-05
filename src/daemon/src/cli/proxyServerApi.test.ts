@@ -434,27 +434,48 @@ describe("createProxyServerApi — friendRequest / listFriends", () => {
     }
   });
 
-  it("listFriends POSTs to /api/listFriends and decodes the three buckets verbatim", async () => {
-    const seen: Array<{ url: string }> = [];
-    const fetchImpl: FetchLike = vi.fn(async (url: string) => {
-      seen.push({ url });
+  it("listFriends fans out to friends/accepted + friends/pending (GET, no target-user) and composes 3 buckets", async () => {
+    const seen: Array<{ url: string; method?: string }> = [];
+    const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
+      seen.push({ url, method: init?.method });
+      if (url.endsWith("/friends/accepted")) {
+        return jsonBody(JSON.stringify({ accepted: [{ userId: "u1", handle: "A#1" }] }), { status: 200 });
+      }
+      // /friends/pending
       return jsonBody(
-        JSON.stringify({ accepted: [{ userId: "u1", handle: "A#1" }], pendingOutgoing: [], pendingIncoming: [] }),
+        JSON.stringify({ pendingIncoming: [{ userId: "u2", handle: "B#2" }], pendingOutgoing: [] }),
         { status: 200 },
       );
     });
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
     const res = await api.listFriends({ agentId: "a1" as never });
-    expect(res).toEqual({ accepted: [{ userId: "u1", handle: "A#1" }], pendingOutgoing: [], pendingIncoming: [] });
-    expect(seen[0].url).toBe("http://proxy.test/api/listFriends");
+    // Composed the flat 3-bucket shape `alook friend list` renders — CLI unchanged.
+    expect(res).toEqual({
+      accepted: [{ userId: "u1", handle: "A#1" }],
+      pendingIncoming: [{ userId: "u2", handle: "B#2" }],
+      pendingOutgoing: [],
+    });
+    const urls = seen.map((s) => s.url).sort();
+    expect(urls).toEqual([
+      "http://proxy.test/api/community/friends/accepted",
+      "http://proxy.test/api/community/friends/pending",
+    ]);
+    // Bucket reads are GETs and NEVER hit friends/blocked (owner-only, bot-403).
+    expect(seen.every((s) => s.method === "GET")).toBe(true);
+    expect(seen.some((s) => s.url.includes("/friends/blocked"))).toBe(false);
   });
 
-  it("both throw the 'non-JSON body' pattern on an empty 500", async () => {
+  it("friendRequest throws the 'non-JSON body' pattern on an empty 500", async () => {
     const fetchImpl: FetchLike = vi.fn(async () => jsonBody("", { status: 500 }));
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
     await expect(api.friendRequest({ agentId: "a1" as never, username: "A#0001" })).rejects.toThrow(
       /upstream returned 500 with non-JSON body from \/api\/friendRequest/,
     );
+  });
+
+  it("listFriends throws the 'non-JSON body' pattern when a bucket endpoint 500s", async () => {
+    const fetchImpl: FetchLike = vi.fn(async () => jsonBody("", { status: 500 }));
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
     await expect(api.listFriends({ agentId: "a1" as never })).rejects.toThrow(
       /upstream returned 500 with non-JSON body from \/api\/listFriends/,
     );

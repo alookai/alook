@@ -165,6 +165,11 @@ export function deriveAuditLogSubcommand(pathname: string, method?: string): str
   if (/^\/api\/community\/servers\/[^/]+\/members(\/|$)/.test(canonical)) return "listMembers";
   if (/^\/api\/community\/servers\/[^/]+\/channels(\/|$)/.test(canonical)) return "listChannels";
   if (/^\/api\/community\/servers\/channels(\/|$)/.test(canonical)) return "listChannels";
+  // Friends bucket doors (轴3 fold): the bot's `listFriends` fans out to
+  // GET friends/accepted + GET friends/pending. Map both back to the logical
+  // verb so the audit row stays `listFriends`, not the `friends` segment.
+  // (/friends/blocked is bot-403 → never reached by a bot, so it needs no map.)
+  if (/^\/api\/community\/friends\/(accepted|pending)(\/|$|\?)/.test(canonical)) return "listFriends";
 
   // Normalize both the pre-rewrite client path (`/api/<verb>`) and the
   // post-rewrite upstream path (`/api/community/<verb>`, plans/22 §9 — the old

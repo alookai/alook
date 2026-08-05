@@ -305,6 +305,37 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     return parseJsonResponse<{ groups: ChannelGroup[] }>(res, "listChannels");
   }
 
+  async function callListFriends(): Promise<{
+    accepted: FriendCard[];
+    pendingOutgoing: FriendCard[];
+    pendingIncoming: FriendCard[];
+  }> {
+    // RETARGETED off the flat `listFriends` verb onto the per-bucket friends
+    // sub-resource endpoints (route/disc 轴3): accepted from GET friends/accepted,
+    // pending from GET friends/pending. The bot NEVER calls friends/blocked
+    // (owner-only, bot-403). Compose the 3-bucket shape `alook friend list`
+    // renders — CLI output unchanged. Both endpoints are self-scoped to the
+    // voucher's bot (no target-user param), so no addressing goes on the wire.
+    const get = async (path: string) => {
+      const res = await fetchImpl(`${base}/api/community/friends/${path}`, {
+        method: "GET",
+        headers: { authorization: `Bearer ${config.voucher}` },
+      });
+      return res;
+    };
+    const [acceptedRes, pendingRes] = await Promise.all([get("accepted"), get("pending")]);
+    const acceptedBody = await parseJsonResponse<{ accepted: FriendCard[] }>(acceptedRes, "listFriends");
+    const pendingBody = await parseJsonResponse<{
+      pendingIncoming: FriendCard[];
+      pendingOutgoing: FriendCard[];
+    }>(pendingRes, "listFriends");
+    return {
+      accepted: acceptedBody.accepted ?? [],
+      pendingIncoming: pendingBody.pendingIncoming ?? [],
+      pendingOutgoing: pendingBody.pendingOutgoing ?? [],
+    };
+  }
+
   async function callDownload(req: AttachmentDownloadRequest): Promise<AgentAttachmentDownloadResult> {
     const res = await fetchImpl(`${base}/api/attachmentDownload`, {
       method: "POST",
@@ -408,11 +439,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     reactAdd: callReactAdd,
     friendRequest: (r: { agentId: AgentId; username: string }) =>
       call<FriendRequestResult>("friendRequest", r),
-    listFriends: (r: { agentId: AgentId }) =>
-      call<{ accepted: FriendCard[]; pendingOutgoing: FriendCard[]; pendingIncoming: FriendCard[] }>(
-        "listFriends",
-        r,
-      ),
+    listFriends: (_r: { agentId: AgentId }) => callListFriends(),
     nap: (r: { handoff: string }) => call<{ napped: boolean }>("nap", r),
   };
 }

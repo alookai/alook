@@ -238,7 +238,16 @@ export const DEFAULT_CAPABILITY_RESOLVER: CapabilityResolver = (method, pathname
   // endpoints share the `"attach"` capability so a voucher can be scoped to
   // attach-only without granting `send`/`read`.
   if (pathname.includes("/attachment")) return "attach";
-  if (pathname.includes("/friendRequest") || pathname.includes("/listFriends")) return "friend";
+  // Friend surfaces: the flat verbs (/friendRequest, /listFriends) AND the
+  // per-bucket sub-resource endpoints they fold into (/friends, /friends/accepted,
+  // /friends/pending). /friends/blocked is bot-403 at the route (owner-only) so a
+  // bot voucher never reaches it regardless of cap.
+  if (
+    pathname.includes("/friendRequest") ||
+    pathname.includes("/listFriends") ||
+    /\/friends(\/|$|\?)/.test(pathname)
+  )
+    return "friend";
 
   // ── Canonical id-in-path message door (route/disc trunk). Matched by METHOD +
   //    path SHAPE, before the flat-verb substring rules below, because the

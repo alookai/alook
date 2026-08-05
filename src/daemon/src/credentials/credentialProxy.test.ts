@@ -60,6 +60,15 @@ describe("DEFAULT_CAPABILITY_RESOLVER", () => {
     expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/listFriends")).toBe("friend");
   });
 
+  it("maps the friends bucket sub-resource endpoints (listFriends fold) to `friend`", () => {
+    // The bot's listFriends fans out to these; friends/blocked is bot-403 at the
+    // route so a bot never reaches it, but the cap mapping is uniform.
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/friends/accepted")).toBe("friend");
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/friends/pending")).toBe("friend");
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/friends/blocked")).toBe("friend");
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/friends/request")).toBe("friend");
+  });
+
   // ── Canonical id-in-path message door (route/disc retarget). The SHAPE is
   //    matched by method, BEFORE the legacy `/channel → server` substring rule,
   //    which would otherwise grab `/channels/{id}/…` first and mis-scope a bot

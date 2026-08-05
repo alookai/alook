@@ -38,19 +38,22 @@ vi.mock("@alook/shared", async () => {
   }
 })
 
-import { POST } from "./route"
+import { GET } from "./route"
 
 const BOT = "bot_zoe"
 
+// Bot arm of GET /api/community/friends/accepted (folds the flat listFriends
+// verb's accepted bucket). Bot addresses with no target-user param (self-scope,
+// users/me/* family invariant); a no-crk_ request falls to the human withAuth
+// arm → 401 via the mocked no-session auth.
 function req(headers: Record<string, string> = { Authorization: "Bearer crk_abc" }): NextRequest {
-  return new NextRequest("http://localhost/api/community/agent/listFriends", {
-    method: "POST",
-    headers: { "content-type": "application/json", ...headers },
-    body: "{}",
+  return new NextRequest("http://localhost/api/community/friends/accepted", {
+    method: "GET",
+    headers: { ...headers },
   })
 }
 
-describe("POST /api/community/agent/listFriends", () => {
+describe("GET /api/community/friends/accepted — bot arm (folds listFriends accepted bucket)", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockFindActiveAgentRunnerKeyByBearer.mockResolvedValue({ userId: "owner_1", machineId: "m_1", agentId: BOT })
@@ -60,7 +63,7 @@ describe("POST /api/community/agent/listFriends", () => {
   })
 
   it("401 without Authorization", async () => {
-    const res = await POST(req({}))
+    const res = await GET(req({}))
     expect(res.status).toBe(401)
   })
 
@@ -81,7 +84,7 @@ describe("POST /api/community/agent/listFriends", () => {
       pendingOutgoing: [],
       pendingIncoming: [],
     })
-    const res = await POST(req())
+    const res = await GET(req())
     expect(res.status).toBe(200)
     const raw = await res.text()
     expect(raw).not.toContain("\"isBot\"")
@@ -106,16 +109,16 @@ describe("POST /api/community/agent/listFriends", () => {
       pendingOutgoing: [],
       pendingIncoming: [],
     })
-    const res = await POST(req())
+    const res = await GET(req())
     const body = await res.json()
     expect(body.accepted[0].presence).toBe("offline")
   })
 
-  it("returns empty arrays (not null) for a bot with no friends; presence is not queried", async () => {
+  it("returns { accepted: [] } (not null) for a bot with no accepted friends; presence not queried", async () => {
     mockListAgentFriends.mockResolvedValue({ accepted: [], pendingOutgoing: [], pendingIncoming: [] })
-    const res = await POST(req())
+    const res = await GET(req())
     const body = await res.json()
-    expect(body).toEqual({ accepted: [], pendingOutgoing: [], pendingIncoming: [] })
+    expect(body).toEqual({ accepted: [] })
     expect(mockWsDoFetch).not.toHaveBeenCalled()
   })
 })
