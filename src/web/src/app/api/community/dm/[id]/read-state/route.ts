@@ -1,49 +1,17 @@
-import { NextRequest } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
-import { writeJSON, writeError } from "@/lib/middleware/helpers"
-import { getDb } from "@/lib/db"
-import { queries, withD1Retry } from "@alook/shared"
-import { requireDMAccess } from "@/lib/community/permissions"
-
 /**
- * GET /api/community/dm/:id/read-state
+ * GET /api/community/dm/:id/read-state — thin shim over the unified channel trunk.
  *
- * DM twin of `GET /channels/:id/read-state`. Snapshot of the viewer's read
- * pointer for a single DM. Consumed once per DM mount to compute the "New"
- * divider anchor and initial scroll position. Returns `{ null, null, 0 }`
- * when the viewer has never opened the DM — the caller treats that as
- * "everything is new, but no divider (start at the bottom)", matching common
- * chat-app first-visit UX.
+ * DMs are `type=dm` rows in the same channel id-space, and the trunk's
+ * `channels/[id]/read-state` handler routes a DM id through
+ * `requireMessageSurfaceAccess` → `requireDMAccess`, then reads the same
+ * `getReadState` snapshot with the same response shape. Identical behavior —
+ * this route just forwards, to be retired once callers move to
+ * `channels/[id]/read-state`.
  *
- * `requireDMAccess` handles both unknown-DM and non-participant cases (the DM
- * permission helper collapses them, unlike the channel route which surfaces a
- * 404 for unknown ids).
+ * Access-contract note (convergence + P0): the old DM route used
+ * `requireDMAccess` directly, which collapses unknown-DM and non-participant
+ * both to 404. The trunk's dispatch keeps that (DM arm → requireDMAccess, its
+ * 404 rewritten to the opaque "not found" so it can't be told apart from an
+ * unknown id) AND adds the block gate the old channel path lacked.
  */
-export const GET = withAuth(async (_req: NextRequest, ctx) => {
-  const dmId = ctx.params?.id
-  if (!dmId) return writeError("missing dm id", 400)
-
-  const db = getDb(ctx.env.DB)
-  const auth = await requireDMAccess(db, dmId, ctx.userId)
-  if (!auth.ok) return writeError(auth.error, auth.status)
-
-  // Server-side retry stack. See channel twin for the invariant.
-  const row = await withD1Retry(
-    () => queries.communityReadState.getReadState(db, {
-      userId: ctx.userId,
-      channelId: dmId,
-    }),
-    { route: "community/dm/read-state" },
-  )
-
-  return writeJSON({
-    lastReadMessageId: row?.lastReadMessageId ?? null,
-    lastReadAt: row?.lastReadAt ?? null,
-    // Seq is the numeric equivalent of the (createdAt, id) pointer — used
-    // client-side to compute the `↓ N` unread count without walking the
-    // loaded rows (`latestSeq - lastReadSeq`). Falls back to 0 when the
-    // viewer has never visited: `latestSeq - 0` = all-messages-are-new,
-    // matching what the divider anchor implies.
-    lastReadSeq: row?.lastReadSeq ?? 0,
-  })
-})
+export { GET } from "../../../channels/[id]/read-state/route"
