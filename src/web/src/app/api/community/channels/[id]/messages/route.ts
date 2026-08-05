@@ -15,7 +15,6 @@ import { enrichMessages } from "@/lib/community/enrich-messages"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { createCommunityMessage } from "@/lib/community/message-handler"
 import {
-  parseTargetDescriptor,
   resolveMessageTarget,
   type MessageTargetDescriptor,
 } from "@/lib/community/message-door"

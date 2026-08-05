@@ -232,13 +232,34 @@ function parseBearer(authHeader: string | undefined): string | null {
  */
 export type CapabilityResolver = (method: string, pathname: string) => Capability | undefined;
 
-export const DEFAULT_CAPABILITY_RESOLVER: CapabilityResolver = (_method, pathname) => {
+export const DEFAULT_CAPABILITY_RESOLVER: CapabilityResolver = (method, pathname) => {
   // Match `/attachmentUpload` and `/attachmentDownload` (pre-rewrite pathname
   // — the credential proxy inspects the client's `/api/...` path here). Both
   // endpoints share the `"attach"` capability so a voucher can be scoped to
   // attach-only without granting `send`/`read`.
   if (pathname.includes("/attachment")) return "attach";
   if (pathname.includes("/friendRequest") || pathname.includes("/listFriends")) return "friend";
+
+  // ── Canonical id-in-path message door (route/disc trunk). Matched by METHOD +
+  //    path SHAPE, before the flat-verb substring rules below, because the
+  //    substring rules can't tell a canonical shape apart: `/channels/{id}/…`
+  //    contains the literal `channel`, which the legacy `/server|/channel →
+  //    "server"` rule (kept at the bottom) would grab FIRST — mis-scoping a
+  //    bot send/read to the `server` capability. Shape+method disambiguates:
+  //    the same `channels/{id}/messages` path is `read` on GET, `send` on POST.
+  //      - GET  channels/{id}/messages           → read  (list, folds `read`)
+  //      - POST channels/{id}/messages           → send  (create, folds `send`)
+  //      - GET  channels/{id}/messages/seq/{seq}  → read  (folds `resolve`'s seq→id)
+  //      - PUT/DELETE messages/{id}/reactions/…   → send  (write, folds `reactAdd`)
+  //      - POST messages/{id}/threads             → send  (create, folds build-thread)
+  //      - POST channels/{id}/posts               → send  (create, folds `createPost`)
+  const isMessagesDoor = /\/channels\/[^/]+\/messages(\/|$|\?)/.test(pathname)
+  if (isMessagesDoor) return method === "GET" ? "read" : "send";
+  if (/\/messages\/[^/]+\/reactions\//.test(pathname)) return "send";
+  if (/\/messages\/[^/]+\/threads(\/|$|\?)/.test(pathname)) return "send";
+  if (/\/channels\/[^/]+\/posts(\/|$|\?)/.test(pathname)) return "send";
+
+  // ── Flat verbs (transition period — retired as callers move to the door). ──
   // `/createPost` is a create/write (a new forum post + its first message), same
   // write class as `/send`/`/reactAdd` — it needs the `send` capability so a
   // read-only or attach-only voucher can't create content.

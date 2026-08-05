@@ -43,11 +43,17 @@ vi.mock("@/lib/community/fanout", () => ({
   fanOutToChannel: (...a: unknown[]) => mockFanOutToChannel(...a),
 }))
 
-vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
+// Dual-actor: crk_ bearer → bot, else human. threads has NO bot create-thread
+// verb, so the bot arm is a defensive 404 — the human path is the live one.
+vi.mock("@/lib/middleware/community-actor", () => ({
+  withCommunityActor: (handler: any) => async (req: any, ctx?: any) => {
     const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: { DB: {} }, userId: "u1", email: "u@t.com", params })
-  }),
+    const authz = req?.headers?.get?.("Authorization") ?? ""
+    const actor = authz.startsWith("Bearer crk_")
+      ? { kind: "bot", userId: "bot_1", ownerUserId: "o_1", machineId: "m_1" }
+      : { kind: "human", userId: "u1", email: "u@t.com" }
+    return handler(req, { env: { DB: {} }, actor, params })
+  },
 }))
 
 vi.mock("@/lib/middleware/helpers", () => {
@@ -263,5 +269,19 @@ describe("POST /api/community/messages/[id]/threads", () => {
       { userId: string; source: string }[],
     ]
     expect(rows).toEqual([{ userId: "u1", source: "spoke" }])
+  })
+
+  it("bot arm → defensive 404 (no bot thread-create verb; ①-C, never the bare-requireChannelMember 403 leak)", async () => {
+    const botReq = new NextRequest("http://localhost/api/community/messages/msg-p/threads", {
+      method: "POST",
+      headers: { Authorization: "Bearer crk_abc", "content-type": "application/json" },
+      body: JSON.stringify({ name: "my thread" }),
+    })
+    const res = await POST(botReq, ctx)
+    expect(res.status).toBe(404)
+    // opaque — the bot arm never resolves the message or touches its channel.
+    expect(mockGetMessage).not.toHaveBeenCalled()
+    expect(mockGetChannelForMember).not.toHaveBeenCalled()
+    expect(mockCreateChannel).not.toHaveBeenCalled()
   })
 })

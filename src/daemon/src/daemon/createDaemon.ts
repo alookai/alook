@@ -138,7 +138,23 @@ export function createRuntimeRawLineTap(args: {
  * `null` too — the proxy is generic and could carry non-audit traffic in the
  * future.
  */
-export function deriveAuditLogSubcommand(pathname: string): string | null {
+export function deriveAuditLogSubcommand(pathname: string, method?: string): string | null {
+  // Route/disc retarget: several flat verbs now hit the canonical id-in-path
+  // door (`channels/{id}/messages`, `messages/{id}/reactions/…`) instead of
+  // `/api/<verb>`. Slicing the first segment of those would log the DOOR name
+  // (`channels`/`messages`) instead of the logical verb the bot invoked, so the
+  // `cli_invocation` audit row would lose which action ran. Map the canonical
+  // SHAPES back to their verb FIRST, on the post-rewrite `/api/community/…`
+  // shape. The messages door is dual-verb — GET is `read`, POST is `send` — so
+  // it needs the method; the others are single-verb.
+  const canonical = pathname.split("?")[0] ?? pathname;
+  if (/^\/api\/community\/messages\/[^/]+\/reactions\//.test(canonical)) return "reactAdd";
+  if (/^\/api\/community\/messages\/[^/]+\/threads(\/|$)/.test(canonical)) return "threads";
+  if (/^\/api\/community\/channels\/[^/]+\/messages\/seq\//.test(canonical)) return "resolve";
+  if (/^\/api\/community\/channels\/[^/]+\/messages(\/|$)/.test(canonical)) {
+    return method === "GET" ? "read" : "send";
+  }
+
   // Normalize both the pre-rewrite client path (`/api/<verb>`) and the
   // post-rewrite upstream path (`/api/community/<verb>`, plans/22 §9 — the old
   // `/api/community/agent/` tree is gone) down to `/api/<verb>` before slicing.
@@ -335,8 +351,8 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     onInboxPullResponse: (agentId, messages) => timeline.appendEntryForAgent(agentId, messages),
     // Bot audit log — Producer B (authoritative for `alook <sub>`). Fires
     // ONLY on `verdict.ok === true`, before the upstream request is written.
-    onProxyRequest: (agentId, _method, pathname) => {
-      const subcommand = deriveAuditLogSubcommand(pathname);
+    onProxyRequest: (agentId, method, pathname) => {
+      const subcommand = deriveAuditLogSubcommand(pathname, method);
       if (!subcommand) return;
       // Producer B: read the same audit context Producer A does so
       // cli_invocation rows carry launchId (and sessionId once the runtime

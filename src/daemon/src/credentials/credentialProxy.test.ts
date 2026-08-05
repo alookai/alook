@@ -58,6 +58,45 @@ describe("DEFAULT_CAPABILITY_RESOLVER", () => {
     expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/friendRequest")).toBe("friend");
     expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/listFriends")).toBe("friend");
   });
+
+  // ── Canonical id-in-path message door (route/disc retarget). The SHAPE is
+  //    matched by method, BEFORE the legacy `/channel → server` substring rule,
+  //    which would otherwise grab `/channels/{id}/…` first and mis-scope a bot
+  //    send/read to the `server` capability. ──
+  it("maps the canonical messages door by METHOD: POST→send, GET→read", () => {
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/channels/resolve/messages")).toBe("send");
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/channels/resolve/messages")).toBe("read");
+    // real channelId in the path (human/web shape) resolves the same way.
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/channels/abc123/messages")).toBe("send");
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/channels/abc123/messages")).toBe("read");
+    // with a query string (read's ?ref=&before=…).
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/channels/resolve/messages?ref=%2Fs%2Fg&before=5")).toBe("read");
+  });
+
+  it("does NOT let the canonical `/channels/…` path fall through to the `server` capability (the miscap this rewrite fixes)", () => {
+    // Pre-rewrite this path contains `channel`, which the legacy rule maps to
+    // `server`; the shape rule must intercept POST/GET first.
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/channels/resolve/messages")).not.toBe("server");
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/channels/resolve/messages")).not.toBe("server");
+  });
+
+  it("maps the message-keyed write doors to `send` (reactions PUT/DELETE, threads POST, seq GET→read)", () => {
+    expect(DEFAULT_CAPABILITY_RESOLVER("PUT", "/api/community/messages/resolve/reactions/%F0%9F%91%8D")).toBe("send");
+    expect(DEFAULT_CAPABILITY_RESOLVER("DELETE", "/api/community/messages/m1/reactions/%F0%9F%91%8D")).toBe("send");
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/messages/m1/threads")).toBe("send");
+    // the seq→id lookup is a read.
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/channels/resolve/messages/seq/42")).toBe("read");
+  });
+
+  it("still maps the canonical posts door (createPost's home) to `send`", () => {
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/channels/abc123/posts")).toBe("send");
+  });
+
+  it("keeps the flat verbs mapping during the transition (send/reactAdd/read pre- and post-rewrite)", () => {
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/send")).toBe("send");
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/send")).toBe("send");
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/inboxPull")).toBe("read");
+  });
 });
 
 describe("CredentialBroker", () => {

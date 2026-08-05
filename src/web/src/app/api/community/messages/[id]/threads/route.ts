@@ -16,6 +16,18 @@ import { requireMessageBearingSurface } from "@/lib/community/channel-write-guar
  * on a top-level channel message (no DM/child), so no DM arm here.
  */
 export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
+  // Defensive bot→404 (①-C): there is NO bot thread-create verb in the ServerApi
+  // contract (send/read/reactAdd/resolve/… carry no thread-create), so no bot
+  // caller reaches this route today and the retarget wires none (double
+  // unreachable — Aigneis #320). 5c opened bot credentials on the route;
+  // collapse the bot arm to an opaque 404 rather than let a future thread-create
+  // verb slip through to the bare `requireChannelMember` below (whose 403 for a
+  // known-but-non-member channel would leak the message/channel exists to a
+  // bot). Human path unchanged. If a bot thread-create verb is ever added, it
+  // must route through resolveTargetForMember (member-scoped → 404) like
+  // reactions/seq — this guard is the reminder, not the feature.
+  if (ctx.actor.kind === "bot") return writeError("not found", 404)
+
   const messageId = ctx.params?.id
   if (!messageId) return writeError("missing message id", 400)
 

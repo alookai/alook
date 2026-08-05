@@ -122,29 +122,45 @@ describe("createProxyServerApi — parseJsonResponse via call<T>", () => {
   });
 });
 
-describe("createProxyServerApi — reactAdd", () => {
-  it("POSTs to /api/reactAdd with Bearer voucher and JSON body (no agentId)", async () => {
+describe("createProxyServerApi — reactAdd (retargeted to the canonical reaction door)", () => {
+  it("PUTs the canonical reaction door with emoji-in-path + {channel,seq} body (no agentId)", async () => {
     const seen: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
       seen.push({ url, init });
-      return jsonBody(JSON.stringify({ ok: true, duplicate: false }), { status: 200 });
+      // Canonical route returns the reaction ROW on a fresh add.
+      return jsonBody(JSON.stringify({ messageId: "m1", userId: "bot_1", emoji: "👍" }), { status: 200 });
     });
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
     const res = await api.reactAdd({ channel: "/demo/general", seq: 42, emoji: "👍" });
-    expect(res).toEqual({ ok: true, duplicate: false });
+    // Lean contract projection at the proxy boundary: a fresh add → { ok: true }.
+    expect(res).toEqual({ ok: true });
     expect(seen).toHaveLength(1);
-    expect(seen[0].url).toBe("http://proxy.test/api/reactAdd");
-    expect(seen[0].init?.method).toBe("POST");
+    // messageId is the `resolve` placeholder (bot holds ref+seq, not an id);
+    // emoji is the URL-encoded path segment.
+    expect(seen[0].url).toBe(
+      `http://proxy.test/api/community/messages/resolve/reactions/${encodeURIComponent("👍")}`,
+    );
+    expect(seen[0].init?.method).toBe("PUT");
     const headers = seen[0].init?.headers as Record<string, string>;
     expect(headers.authorization).toBe("Bearer vch_test");
     const body = JSON.parse(String(seen[0].init?.body ?? "{}"));
-    expect(body).toEqual({ channel: "/demo/general", seq: 42, emoji: "👍" });
+    // Only channel+seq travel in the body; emoji is the path segment.
+    expect(body).toEqual({ channel: "/demo/general", seq: 42 });
     expect(body.agentId).toBeUndefined();
+  });
+
+  it("maps a duplicate reaction (route → { duplicate: true }) through to the lean contract", async () => {
+    const fetchImpl: FetchLike = vi.fn(async () =>
+      jsonBody(JSON.stringify({ ok: true, duplicate: true }), { status: 200 }),
+    );
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const res = await api.reactAdd({ channel: "/demo/general", seq: 42, emoji: "👍" });
+    expect(res).toEqual({ ok: true, duplicate: true });
   });
 });
 
-describe("createProxyServerApi — send forwards replyToSeq", () => {
-  it("POSTs replyToSeq in the body (agentId stripped, replyToSeq retained)", async () => {
+describe("createProxyServerApi — send (retargeted to the canonical messages door)", () => {
+  it("POSTs the canonical door with ref-in-body; replyToSeq retained, agentId stripped", async () => {
     const seen: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
       seen.push({ url, init });
@@ -155,10 +171,33 @@ describe("createProxyServerApi — send forwards replyToSeq", () => {
     });
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
     await api.send({ agentId: "a1", channel: "/demo/general", content: { text: "on it" }, replyToSeq: 37 });
-    expect(seen[0].url).toBe("http://proxy.test/api/send");
+    // Canonical messages door; the `resolve` placeholder id (bot holds a ref).
+    expect(seen[0].url).toBe("http://proxy.test/api/community/channels/resolve/messages");
+    expect(seen[0].init?.method).toBe("POST");
     const body = JSON.parse(String(seen[0].init?.body ?? "{}"));
+    // The channel REF stays in the body (resolved server-side); replyToSeq kept.
+    expect(body.channel).toBe("/demo/general");
     expect(body.replyToSeq).toBe(37);
     expect(body.agentId).toBeUndefined();
+  });
+});
+
+describe("createProxyServerApi — read (retargeted to the canonical messages door GET)", () => {
+  it("GETs the canonical door with ?ref= (encoded) + seq anchors on the query", async () => {
+    const seen: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
+      seen.push({ url, init });
+      return jsonBody(JSON.stringify({ items: [], hasMore: false }), { status: 200 });
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    await api.read({ agentId: "a1", channel: "/demo/general", before: 50, limit: 20 });
+    const u = new URL(seen[0].url);
+    expect(u.pathname).toBe("/api/community/channels/resolve/messages");
+    // ref is URL-encoded on the query (carries `/`).
+    expect(u.searchParams.get("ref")).toBe("/demo/general");
+    expect(u.searchParams.get("before")).toBe("50");
+    expect(u.searchParams.get("limit")).toBe("20");
+    expect(seen[0].init?.method).toBe("GET");
   });
 });
 

@@ -718,6 +718,21 @@ describe("deriveAuditLogSubcommand", () => {
     expect(deriveAuditLogSubcommand("/health")).toBe(null);
     expect(deriveAuditLogSubcommand("/")).toBe(null);
   });
+
+  it("maps the canonical id-in-path door shapes back to the logical verb (route/disc retarget)", () => {
+    // Without this, slicing the first segment would log the DOOR (`channels` /
+    // `messages`), losing which action the bot invoked in the cli_invocation row.
+    // Messages door is dual-verb — method disambiguates read vs send.
+    expect(deriveAuditLogSubcommand("/api/community/channels/resolve/messages", "POST")).toBe("send");
+    expect(deriveAuditLogSubcommand("/api/community/channels/abc123/messages", "POST")).toBe("send");
+    expect(deriveAuditLogSubcommand("/api/community/channels/resolve/messages", "GET")).toBe("read");
+    expect(deriveAuditLogSubcommand("/api/community/channels/resolve/messages?ref=%2Fs%2Fg", "GET")).toBe("read");
+    // message-keyed write doors.
+    expect(deriveAuditLogSubcommand("/api/community/messages/resolve/reactions/%F0%9F%91%8D", "PUT")).toBe("reactAdd");
+    expect(deriveAuditLogSubcommand("/api/community/messages/m1/threads", "POST")).toBe("threads");
+    // seq→id lookup (folded resolve).
+    expect(deriveAuditLogSubcommand("/api/community/channels/resolve/messages/seq/42", "GET")).toBe("resolve");
+  });
 });
 
 describe("emitImplicitTypingStopOnSend", () => {

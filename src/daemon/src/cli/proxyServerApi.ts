@@ -152,6 +152,82 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     return parseJsonResponse<AgentAttachmentUploadResult>(res, "attachmentUpload");
   }
 
+  // --- Canonical id-in-path message door (route/disc trunk) -----------------
+  // send/read RETARGETED off the flat verbs (`/api/send`, `/api/read`) onto the
+  // one canonical door `channels/{id}/messages`. The bot holds a REF, not an id,
+  // and a ref carries `/` so it can't sit in a path segment — so the bot uses
+  // the `resolve` placeholder id and passes the ref as body (POST) / query
+  // (GET), which the door resolves server-side (resolveMessageTarget). Same wire
+  // BODY as before (the door's bot arm parses the identical send/read schema);
+  // only the PATH + verb-shape change. Mirrors callUpload/callListServers'
+  // bespoke real-path pattern; `rewriteAgentPath` is idempotent on
+  // `/api/community/...` so these pass through un-prefixed.
+  const REF_PLACEHOLDER_ID = "resolve";
+
+  async function callSend(req: SendRequest): Promise<SendResponse> {
+    // agentId stripped like `call()` does — identity rides the voucher only.
+    // Route through `unknown` first: SendRequest is a typed shape with no index
+    // signature, so a direct `as Record<string, unknown>` is rejected (call()
+    // gets this for free because its param is already `unknown`).
+    const { agentId: _omit, ...wire } = (req ?? {}) as unknown as Record<string, unknown>;
+    const res = await fetchImpl(`${base}/api/community/channels/${REF_PLACEHOLDER_ID}/messages`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${config.voucher}`,
+      },
+      body: JSON.stringify(wire),
+    });
+    return parseJsonResponse<SendResponse>(res, "send");
+  }
+
+  async function callRead(req: ReadRequest): Promise<Page<Message>> {
+    // The ref + seq anchors go on the query string (a GET has no body). Encode
+    // the ref — it carries `/` and can carry `#`/`@` in DM handles. Precedent:
+    // callUpload's `?target=${encodeURIComponent(...)}`.
+    const q = new URLSearchParams()
+    q.set("ref", req.channel)
+    if (req.before !== undefined) q.set("before", String(req.before))
+    if (req.after !== undefined) q.set("after", String(req.after))
+    if (req.around !== undefined) q.set("around", String(req.around))
+    if (req.limit !== undefined) q.set("limit", String(req.limit))
+    const res = await fetchImpl(
+      `${base}/api/community/channels/${REF_PLACEHOLDER_ID}/messages?${q.toString()}`,
+      {
+        method: "GET",
+        headers: { authorization: `Bearer ${config.voucher}` },
+      },
+    );
+    return parseJsonResponse<Page<Message>>(res, "read");
+  }
+
+  async function callReactAdd(
+    req: { channel: ChannelRef; seq: Seq; emoji: string },
+  ): Promise<CommunityAgentReactAddResponse> {
+    // Canonical reaction door: PUT messages/{id}/reactions/{emoji}. The bot
+    // holds a ref+seq (not a messageId), so it uses the `resolve` placeholder id
+    // and carries `{ channel, seq }` in the body; the door resolves ref+seq →
+    // messageId server-side (member-scoped → 404, ①-C). The emoji is a PATH
+    // segment (URL-encoded) — reactions are keyed by (message, emoji).
+    const res = await fetchImpl(
+      `${base}/api/community/messages/${REF_PLACEHOLDER_ID}/reactions/${encodeURIComponent(req.emoji)}`,
+      {
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${config.voucher}`,
+        },
+        body: JSON.stringify({ channel: req.channel, seq: req.seq }),
+      },
+    );
+    // Response projection (Fork C, at the single proxy boundary): the canonical
+    // route returns the reaction ROW (or `{ ok, duplicate }` on a dup); the lean
+    // agent contract is `{ ok: true, duplicate? }`. A 200 with a `duplicate`
+    // flag maps straight through; any other 200 is a fresh add → `{ ok: true }`.
+    const body = await parseJsonResponse<{ duplicate?: boolean }>(res, "reactAdd");
+    return body?.duplicate ? { ok: true, duplicate: true } : { ok: true };
+  }
+
   async function callDownload(req: AttachmentDownloadRequest): Promise<AgentAttachmentDownloadResult> {
     const res = await fetchImpl(`${base}/api/attachmentDownload`, {
       method: "POST",
@@ -246,16 +322,15 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     inboxPull: (r: InboxPullRequest) => call<InboxPullResponse>("inboxPull", r),
     inboxSnapshot: (r: { agentId: AgentId }) => call<InboxSnapshot>("inboxSnapshot", r),
     ack: (r: AckRequest) => call<void>("ack", r),
-    send: (r: SendRequest) => call<SendResponse>("send", r),
+    send: callSend,
     createPost: (r: CreatePostRequest) => call<CreatePostResponse>("createPost", r),
-    read: (r: ReadRequest) => call<Page<Message>>("read", r),
+    read: callRead,
     resolve: (r: ResolveRequest) => call<{ message: Message }>("resolve", r),
     listMembers: (r: { agentId: AgentId; server: string; limit?: number; cursor?: string }) =>
       call<ServerMemberListResult>("listMembers", r),
     attachmentUpload: callUpload,
     attachmentDownload: callDownload,
-    reactAdd: (r: { channel: ChannelRef; seq: Seq; emoji: string }) =>
-      call<CommunityAgentReactAddResponse>("reactAdd", r),
+    reactAdd: callReactAdd,
     friendRequest: (r: { agentId: AgentId; username: string }) =>
       call<FriendRequestResult>("friendRequest", r),
     listFriends: (r: { agentId: AgentId }) =>
