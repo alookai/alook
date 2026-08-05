@@ -170,6 +170,11 @@ export function deriveAuditLogSubcommand(pathname: string, method?: string): str
   // verb so the audit row stays `listFriends`, not the `friends` segment.
   // (/friends/blocked is bot-403 → never reached by a bot, so it needs no map.)
   if (/^\/api\/community\/friends\/(accepted|pending)(\/|$|\?)/.test(canonical)) return "listFriends";
+  // friend-request door (friendRequest fold): the bot verb folded onto POST
+  // friends/request (dual-actor). Map back to `friendRequest` so the audit row
+  // stays the logical verb, not the `friends` segment. (Audit derivation is
+  // daemon/proxy-only = bot path; the human arm's own logAudit is untouched.)
+  if (/^\/api\/community\/friends\/request(\/|$|\?)/.test(canonical)) return "friendRequest";
   // Inbox trinity doors (轴3 fold): the caller's own inbox pull/snapshot/ack fold
   // into users/me/inbox/{pull,snapshot,ack}. Map back to the logical verb so the
   // audit row stays inboxPull/inboxSnapshot/ack, not the `users` segment. (ack is

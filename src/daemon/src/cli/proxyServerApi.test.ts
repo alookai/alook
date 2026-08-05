@@ -464,7 +464,7 @@ describe("createProxyServerApi — callDownload", () => {
 });
 
 describe("createProxyServerApi — friendRequest / listFriends", () => {
-  it("friendRequest POSTs to /api/friendRequest, strips agentId, decodes the envelope", async () => {
+  it("friendRequest POSTs to /api/community/friends/request (retargeted), strips agentId, decodes the envelope", async () => {
     const seen: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
       seen.push({ url, init });
@@ -476,7 +476,7 @@ describe("createProxyServerApi — friendRequest / listFriends", () => {
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
     const res = await api.friendRequest({ agentId: "a1" as never, username: "Alice#0042" });
     expect(res).toEqual({ friendshipId: "fr_1", status: "pending", hint: "ask your owner" });
-    expect(seen[0].url).toBe("http://proxy.test/api/friendRequest");
+    expect(seen[0].url).toBe("http://proxy.test/api/community/friends/request");
     expect(seen[0].init?.method).toBe("POST");
     const body = JSON.parse(String(seen[0].init?.body ?? "{}"));
     expect(body).toEqual({ username: "Alice#0042" });

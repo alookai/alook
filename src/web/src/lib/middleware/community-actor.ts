@@ -27,6 +27,15 @@ export type CommunityActor =
       email: string
       /** Present on the `al_`/session human path; absent for a bot. */
       workspaceId?: string
+      /**
+       * The session user's `isBot` flag, carried through from withAuth's
+       * AuthContext. Always false in production (a bot session is rejected at
+       * 401 before the handler runs) — this is the belt-and-suspenders signal
+       * friend-graph write routes assert as a last-line backstop against a
+       * future auth regression (see friends/request). Preserved here so the
+       * dual-actor fold doesn't drop the guard withAuth's context exposed.
+       */
+      isBot?: boolean
     }
   | {
       kind: "bot"
@@ -118,6 +127,7 @@ export function withCommunityActor(handler: CommunityActorHandler) {
           userId: humanCtx.userId,
           email: humanCtx.email,
           workspaceId: humanCtx.workspaceId,
+          isBot: humanCtx.user?.isBot,
         },
         params: humanCtx.params,
       })

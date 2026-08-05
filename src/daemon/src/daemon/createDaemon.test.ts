@@ -752,6 +752,9 @@ describe("deriveAuditLogSubcommand", () => {
     // (the bot's `alook friend list` fans out to both). blocked is bot-403 → not mapped.
     expect(deriveAuditLogSubcommand("/api/community/friends/accepted", "GET")).toBe("listFriends");
     expect(deriveAuditLogSubcommand("/api/community/friends/pending", "GET")).toBe("listFriends");
+    // friend-request door (friendRequest fold): POST friends/request maps back to
+    // `friendRequest`, not the `friends` segment (audit is daemon/proxy = bot path).
+    expect(deriveAuditLogSubcommand("/api/community/friends/request", "POST")).toBe("friendRequest");
     // inbox bucket doors (轴3 fold): users/me/inbox/{pull,snapshot} map back to
     // the logical verb, not the `users` segment.
     expect(deriveAuditLogSubcommand("/api/community/users/me/inbox/pull", "POST")).toBe("inboxPull");

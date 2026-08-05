@@ -4,9 +4,12 @@ import { NextRequest } from "next/server"
 const getUserInternal = vi.fn()
 const getUserByNameAndDiscriminator = vi.fn()
 const getUserByNameCaseInsensitive = vi.fn()
+const getUserPublic = vi.fn()
 const isBlocked = vi.fn()
 const sendRequest = vi.fn()
+const ensureSiblingBotFriendship = vi.fn()
 const broadcastToUser = vi.fn()
+const mockLogAudit = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
@@ -19,20 +22,33 @@ vi.mock("@alook/shared", async () => {
         getUserInternal: (...a: unknown[]) => getUserInternal(...a),
         getUserByNameAndDiscriminator: (...a: unknown[]) => getUserByNameAndDiscriminator(...a),
         getUserByNameCaseInsensitive: (...a: unknown[]) => getUserByNameCaseInsensitive(...a),
+        getUserPublic: (...a: unknown[]) => getUserPublic(...a),
       },
       communityFriendship: {
         sendRequest: (...a: unknown[]) => sendRequest(...a),
         isBlocked: (...a: unknown[]) => isBlocked(...a),
+        ensureSiblingBotFriendship: (...a: unknown[]) => ensureSiblingBotFriendship(...a),
       },
     },
   }
 })
 
-vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
+// Dual-actor: crk_ bearer → bot arm, else human. The route dispatches by
+// actor.kind to two independent handlers.
+vi.mock("@/lib/middleware/community-actor", () => ({
+  withCommunityActor: (handler: any) => async (req: any, ctx?: any) => {
     const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: {}, userId: "u1", email: "u@t.com", user: { isBot: false }, params })
-  }),
+    // A test may inject a specific actor via ctx.actor (used to drive the
+    // isBot→403 backstop); otherwise derive it from the Authorization header
+    // (crk_ → bot arm, else human).
+    const authz = req?.headers?.get?.("Authorization") ?? ""
+    const actor =
+      ctx?.actor ??
+      (authz.startsWith("Bearer crk_")
+        ? { kind: "bot", userId: "bot_1", ownerUserId: "o_1", machineId: "m_1" }
+        : { kind: "human", userId: "u1", email: "u@t.com", isBot: false })
+    return handler(req, { env: {}, actor, params })
+  },
 }))
 
 vi.mock("@/lib/middleware/helpers", async () => {
@@ -46,6 +62,11 @@ vi.mock("@/lib/middleware/helpers", async () => {
 vi.mock("@/lib/broadcast", () => ({
   broadcastToUser: (...a: unknown[]) => broadcastToUser(...a),
 }))
+
+vi.mock("@/lib/community/audit", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/community/audit")>("@/lib/community/audit")
+  return { ...actual, logAudit: (...a: unknown[]) => mockLogAudit(...a) }
+})
 
 import { POST } from "./route"
 
@@ -207,5 +228,66 @@ describe("POST /api/community/friends/request", () => {
       expect(res.status).toBe(404)
       expect(sendRequest).not.toHaveBeenCalled()
     })
+  })
+
+  // The dual-actor fold added a bot arm — dispatched by a crk_ bearer. The flat
+  // /friendRequest test covers the bot flow's full detail; here we lock the
+  // DISPATCH (crk_ → the bot handler, its distinct owner-gated/lean semantics)
+  // and the isBot→403 backstop on the human arm (Aigneis #541).
+  describe("dual-actor dispatch (crk_ bearer → bot arm)", () => {
+    function botReq(body: unknown) {
+      return new NextRequest("http://localhost/api/community/friends/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer crk_test" },
+        body: JSON.stringify(body),
+      })
+    }
+
+    it("routes a bot to the owner-gated pending flow with the lean {friendshipId,status,hint} shape", async () => {
+      // Non-sibling target → the always-owner-gated pending branch.
+      getUserByNameAndDiscriminator.mockResolvedValue({ id: "u2", name: "Alex", discriminator: "0002" })
+      getUserInternal.mockResolvedValue({ id: "u2", isBot: false, ownerUserId: null, deletedAt: null })
+      isBlocked.mockResolvedValue(false)
+      sendRequest.mockResolvedValue({ friendship: { id: "fr_1" }, supersededIds: [], broadcasts: [] })
+      getUserPublic.mockResolvedValue({ name: "Owner Ann" })
+
+      const res = await POST(botReq({ username: "Alex#0002" }), {} as never)
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as { friendshipId: string; status: string; hint: string }
+      // Lean bot shape — NOT the human full-friendship shape.
+      expect(body.friendshipId).toBe("fr_1")
+      expect(body.status).toBe("pending")
+      expect(body.hint).toContain("Owner Ann")
+      // Self-scope: the bot's own credential id is the requester, never a body field.
+      expect(sendRequest).toHaveBeenCalledWith({}, { requesterId: "bot_1", addresseeId: "u2" })
+    })
+
+    it("auto-accepts a sibling bot (same owner) with status accepted, no owner gate", async () => {
+      getUserByNameAndDiscriminator.mockResolvedValue({ id: "sib", name: "Sib", discriminator: "0003" })
+      getUserInternal.mockResolvedValue({ id: "sib", isBot: true, ownerUserId: "o_1", deletedAt: null })
+      isBlocked.mockResolvedValue(false)
+      ensureSiblingBotFriendship.mockResolvedValue({ friendshipId: "fr_sib", blocked: false })
+
+      const res = await POST(botReq({ username: "Sib#0003" }), {} as never)
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as { status: string }
+      expect(body.status).toBe("accepted")
+      expect(ensureSiblingBotFriendship).toHaveBeenCalledWith({}, { botA: "bot_1", botB: "sib" })
+      // The sibling branch never touches the pending sendRequest path.
+      expect(sendRequest).not.toHaveBeenCalled()
+    })
+  })
+
+  // Backstop (Aigneis #541): the human arm auto-accepts with no owner gate, so a
+  // bot must NEVER reach it. Dispatch is the main door; isBot→403 is the last
+  // line if a future auth regression puts isBot=true on a human actor. The mock
+  // honors ctx.actor so we can inject the crafted (production-impossible) case.
+  it("human arm rejects an isBot=true human actor with 403 (backstop survives the fold)", async () => {
+    const res = await POST(postReq({ username: "alex" }), {
+      actor: { kind: "human", userId: "u1", email: "u@t.com", isBot: true },
+    } as never)
+    expect(res.status).toBe(403)
+    // Never reaches the friend-graph write.
+    expect(sendRequest).not.toHaveBeenCalled()
   })
 })

@@ -380,6 +380,27 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     return parseJsonResponse<void>(res, "ack");
   }
 
+  async function callFriendRequest(req: { agentId: AgentId; username: string }): Promise<FriendRequestResult> {
+    // RETARGETED off the flat `friendRequest` verb onto POST friends/request
+    // (route/disc 接口树统一, Melly #540) — the friend-request door is dual-actor
+    // (human/bot on one URL, dispatched to independent handlers). The bot arm
+    // keeps its distinct semantics (sibling-auto-accept, always-owner-gated, lean
+    // {friendshipId,status,hint}). Self-scoped: the wire carries only `username`,
+    // never a requesterId (that's the credential's botUserId server-side). Body
+    // byte-identical to the flat verb. The flat /friendRequest route stays alive
+    // through deploy (daemon non-hot-reload) → flat-delete step.
+    const { agentId: _omit, ...wire } = (req ?? {}) as unknown as Record<string, unknown>;
+    const res = await fetchImpl(`${base}/api/community/friends/request`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${config.voucher}`,
+      },
+      body: JSON.stringify(wire),
+    });
+    return parseJsonResponse<FriendRequestResult>(res, "friendRequest");
+  }
+
   async function callNap(req: { handoff: string }): Promise<{ napped: boolean }> {
     // RETARGETED off the flat `nap` verb onto POST bots/me/nap (route/disc
     // 接口树统一, Gener #215 乙; Blondie #527). nap is a bot-qua-bot self
@@ -516,8 +537,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     attachmentUpload: callUpload,
     attachmentDownload: callDownload,
     reactAdd: callReactAdd,
-    friendRequest: (r: { agentId: AgentId; username: string }) =>
-      call<FriendRequestResult>("friendRequest", r),
+    friendRequest: callFriendRequest,
     listFriends: (_r: { agentId: AgentId }) => callListFriends(),
     nap: callNap,
   };

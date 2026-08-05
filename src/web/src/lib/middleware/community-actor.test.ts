@@ -79,7 +79,7 @@ describe("withCommunityActor", () => {
     const res = await wrapped(new NextRequest("http://localhost/x"))
     expect(res.status).toBe(200)
     const body = (await res.json()) as { actor: CommunityActor }
-    expect(body.actor).toEqual({ kind: "human", userId: "human_1", email: "h@t.com", workspaceId: "ws_1" })
+    expect(body.actor).toEqual({ kind: "human", userId: "human_1", email: "h@t.com", workspaceId: "ws_1", isBot: false })
     // Bot resolution must not have been attempted for a non-crk_ request.
     expect(mockResolveBotActor).not.toHaveBeenCalled()
   })
