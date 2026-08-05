@@ -21,6 +21,24 @@ export interface AuthContext {
 }
 
 /**
+ * Context for a `withOptionalAuth` handler: identical to `AuthContext` but
+ * `userId`/`email` are OPTIONAL — absent when the caller is anonymous (no
+ * session, an errored session lookup, or a bot/deleted session degraded to
+ * anonymous). A distinct interface so `AuthContext.userId` stays required and
+ * no existing `withAuth` handler is disturbed.
+ *
+ * Not exported: handlers infer this shape from `OptionalAuthHandler`, so no
+ * caller imports it by name yet. Export it once a handler needs the type
+ * standalone (as `AuthContext` is, because withAuth handlers import it).
+ */
+interface OptionalAuthContext {
+  env: Env
+  userId?: string
+  email?: string
+  user?: { isBot: boolean }
+}
+
+/**
  * Merged machine-token cache entry. One KV read per authenticated request
  * yields BOTH the token-validation result (`row`) and the last-used bump
  * throttle (`luAt`, the epoch ms of the last `last_used_at` D1 write),
@@ -73,6 +91,103 @@ export type AuthenticatedHandler = (
   req: NextRequest,
   ctx: AuthContext & { params?: Record<string, string> }
 ) => Promise<NextResponse | Response>
+
+export type OptionalAuthHandler = (
+  req: NextRequest,
+  ctx: OptionalAuthContext & { params?: Record<string, string> }
+) => Promise<NextResponse | Response>
+
+/**
+ * Outcome of resolving a Better-Auth cookie session. Shared by `withAuth`
+ * (which turns everything but `ok` into a 401/503) and `withOptionalAuth`
+ * (which turns everything but `ok` into anonymous). Keeping the resolution in
+ * ONE place means the two wrappers can never drift on session semantics — only
+ * on what they DO with a non-`ok` outcome.
+ *
+ * - `ok`        — a valid, non-bot, non-deleted session; `user` is populated.
+ * - `error`     — getSession threw on both attempts (transient infra failure).
+ * - `none`      — no session cookie / no session.
+ * - `invalid`   — a session for a bot or soft-deleted user; `signOut` was
+ *                 attempted best-effort and the caller should clear cookies.
+ */
+type SessionResolution =
+  | {
+      kind: "ok"
+      user: { id: string; email: string; isBot: boolean }
+      setCookies: string[]
+    }
+  | { kind: "error" }
+  | { kind: "none" }
+  | { kind: "invalid" }
+
+async function resolveSession(
+  req: NextRequest,
+  cloudflareEnv: Env,
+): Promise<SessionResolution> {
+  const auth = createAuth(cloudflareEnv)
+  let sessionResult: { headers: Headers; response: Awaited<ReturnType<typeof auth.api.getSession>> } | null = null
+  let lastErr: unknown
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      sessionResult = await auth.api.getSession({
+        headers: req.headers,
+        returnHeaders: true,
+      }) as { headers: Headers; response: Awaited<ReturnType<typeof auth.api.getSession>> }
+      lastErr = undefined
+      break
+    } catch (err) {
+      lastErr = err
+    }
+  }
+
+  if (lastErr) return { kind: "error" }
+  if (!sessionResult?.response) return { kind: "none" }
+
+  // Session guard — Better-Auth's Drizzle adapter reads user rows via
+  // .select() directly, so a session cookie may carry stale state after a
+  // user is soft-deleted or if some future flow ever mints a session for a
+  // bot user row. Enforce at request-time:
+  //   - deletedAt != null → session invalid
+  //   - isBot === true    → session invalid (bots must never sign in)
+  // Belt-and-braces with the databaseHooks.session.create.before hook.
+  // isBot/deletedAt ride the session user via better-auth `additionalFields`
+  // (see auth.ts) — no dedicated per-request `getUserInternal` D1 read. Their
+  // freshness = the session cookie-cache period (prod 5min); revocation
+  // latency is therefore bounded by that window and is NOT loosened beyond
+  // today's getSession cookie cache. (Bots never mint a session — the
+  // session.create hook blocks them — so the isBot check is belt-and-braces;
+  // deletedAt is the one with a real, ≤cookie-period latency.)
+  const guardUser = sessionResult.response.user as { isBot?: boolean | null; deletedAt?: string | null }
+  const sessionUserIsBot = guardUser.isBot === true
+  if (sessionUserIsBot || (guardUser.deletedAt ?? null) !== null) {
+    // Best-effort server-side invalidation. The caller clears cookies on its
+    // response; Better-Auth will see the missing session next request.
+    try {
+      await auth.api.signOut({ headers: req.headers })
+    } catch {
+      // ignore — signOut best-effort
+    }
+    return { kind: "invalid" }
+  }
+
+  return {
+    kind: "ok",
+    user: {
+      id: sessionResult.response.user.id,
+      email: sessionResult.response.user.email,
+      isBot: sessionUserIsBot,
+    },
+    setCookies: sessionResult.headers.getSetCookie(),
+  }
+}
+
+// Clear known Better-Auth cookie names on a response to prevent replay of a
+// session that the request-time guard rejected.
+function clearAuthCookies(res: NextResponse): void {
+  res.cookies.set("better-auth.session_token", "", { maxAge: 0, path: "/" })
+  res.cookies.set("better-auth.session_data", "", { maxAge: 0, path: "/" })
+}
 
 export function withAuth(handler: AuthenticatedHandler) {
   return async (
@@ -172,78 +287,104 @@ export function withAuth(handler: AuthenticatedHandler) {
     }
 
     // Fall back to Better Auth session (with returnHeaders to propagate cookie cache refresh)
-    const auth = createAuth(cloudflareEnv)
-    let sessionResult: { headers: Headers; response: Awaited<ReturnType<typeof auth.api.getSession>> } | null = null
-    let lastErr: unknown
+    const session = await resolveSession(req, cloudflareEnv)
 
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        sessionResult = await auth.api.getSession({
-          headers: req.headers,
-          returnHeaders: true,
-        }) as { headers: Headers; response: Awaited<ReturnType<typeof auth.api.getSession>> }
-        lastErr = undefined
-        break
-      } catch (err) {
-        lastErr = err
-      }
-    }
-
-    if (lastErr) {
+    if (session.kind === "error") {
       return NextResponse.json({ error: "session validation failed" }, { status: 503 })
     }
-    if (!sessionResult?.response) {
+    if (session.kind === "none") {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 })
     }
-
-    // Session guard — Better-Auth's Drizzle adapter reads user rows via
-    // .select() directly, so a session cookie may carry stale state after a
-    // user is soft-deleted or if some future flow ever mints a session for a
-    // bot user row. Enforce at request-time:
-    //   - deletedAt != null → session invalid
-    //   - isBot === true    → session invalid (bots must never sign in)
-    // Belt-and-braces with the databaseHooks.session.create.before hook.
-    // isBot/deletedAt ride the session user via better-auth `additionalFields`
-    // (see auth.ts) — no dedicated per-request `getUserInternal` D1 read. Their
-    // freshness = the session cookie-cache period (prod 5min); revocation
-    // latency is therefore bounded by that window and is NOT loosened beyond
-    // today's getSession cookie cache. (Bots never mint a session — the
-    // session.create hook blocks them — so the isBot check is belt-and-braces;
-    // deletedAt is the one with a real, ≤cookie-period latency.)
-    const guardUser = sessionResult.response.user as { isBot?: boolean | null; deletedAt?: string | null }
-    const sessionUserIsBot = guardUser.isBot === true
-    if (sessionUserIsBot || (guardUser.deletedAt ?? null) !== null) {
-      // Best-effort server-side invalidation. Cookie clear happens via the
-      // 401 response below; Better-Auth will see the missing session next
-      // request.
-      try {
-        await auth.api.signOut({ headers: req.headers })
-      } catch {
-        // ignore — signOut best-effort
-      }
+    if (session.kind === "invalid") {
       const invalid = NextResponse.json(
         { error: "session no longer valid" },
         { status: 401 },
       )
-      // Clear known Better-Auth cookie names to prevent replay.
-      invalid.cookies.set("better-auth.session_token", "", { maxAge: 0, path: "/" })
-      invalid.cookies.set("better-auth.session_data", "", { maxAge: 0, path: "/" })
+      clearAuthCookies(invalid)
       return invalid
     }
 
     const authCtx: AuthContext = {
       env: cloudflareEnv,
-      userId: sessionResult.response.user.id,
-      email: sessionResult.response.user.email,
-      user: { isBot: sessionUserIsBot },
+      userId: session.user.id,
+      email: session.user.email,
+      user: { isBot: session.user.isBot },
     }
     const res = await handler(req, { ...authCtx, params: resolvedParams })
 
     // Forward Set-Cookie headers from Better Auth to refresh session_data cookie cache
-    const setCookies = sessionResult.headers.getSetCookie()
-    if (setCookies.length > 0) {
+    if (session.setCookies.length > 0) {
       const mutableRes = new NextResponse(res.body, res)
-      for (const cookie of setCookies) {
+      for (const cookie of session.setCookies) {
+        mutableRes.headers.append("Set-Cookie", cookie)
+      }
+      return mutableRes
+    }
+
+    return res
+  }
+}
+
+/**
+ * Session-optional wrapper for pages that render the SAME content whether or
+ * not the visitor is logged in (e.g. the invite landing page). Unlike
+ * `withAuth`, it NEVER 401s on a missing session — the handler always runs.
+ *
+ * Red lines (Cecilia, /Gus/working #1131 #1 / #1147):
+ * 1. Single-purpose: resolves the Better-Auth cookie session ONLY. It does NOT
+ *    read the machine-token / bot `al_...` bearer path — that is `withAuth`'s
+ *    private concern; a daemon/bot is not a use case for an optional-login page.
+ * 2. Never 401 for auth reasons. Missing session → anonymous. A bot/deleted
+ *    session degrades to anonymous (cookies cleared best-effort) rather than
+ *    blocking. A transient getSession failure also degrades to anonymous — the
+ *    page is public-readable, so failing open is correct here.
+ * 3. It only answers "who are you (or anonymous)". What data a route exposes is
+ *    the route's decision; this wrapper carries no disclosure logic, so it is
+ *    reusable by any future login-optional page.
+ */
+export function withOptionalAuth(handler: OptionalAuthHandler) {
+  return async (
+    req: NextRequest,
+    context?: { params?: Promise<Record<string, string>> | Record<string, string> }
+  ) => {
+    const resolvedParams = context?.params
+      ? context.params instanceof Promise
+        ? await context.params
+        : context.params
+      : undefined
+
+    const { env } = await getCloudflareContext({ async: true })
+    const cloudflareEnv = env as Env
+    bindCacheKV(cloudflareEnv.CACHE_KV ?? null)
+
+    const session = await resolveSession(req, cloudflareEnv)
+
+    // Anonymous context for every non-`ok` outcome — the defining difference
+    // from withAuth. `invalid` (bot/deleted session) additionally clears the
+    // stale cookies on the way out so the bad session doesn't linger.
+    if (session.kind !== "ok") {
+      const anonCtx: OptionalAuthContext = { env: cloudflareEnv }
+      const res = await handler(req, { ...anonCtx, params: resolvedParams })
+      if (session.kind === "invalid") {
+        const mutableRes = new NextResponse(res.body, res)
+        clearAuthCookies(mutableRes)
+        return mutableRes
+      }
+      return res
+    }
+
+    const authCtx: OptionalAuthContext = {
+      env: cloudflareEnv,
+      userId: session.user.id,
+      email: session.user.email,
+      user: { isBot: session.user.isBot },
+    }
+    const res = await handler(req, { ...authCtx, params: resolvedParams })
+
+    // Forward Set-Cookie headers from Better Auth to refresh session_data cookie cache
+    if (session.setCookies.length > 0) {
+      const mutableRes = new NextResponse(res.body, res)
+      for (const cookie of session.setCookies) {
         mutableRes.headers.append("Set-Cookie", cookie)
       }
       return mutableRes

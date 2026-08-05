@@ -83,6 +83,24 @@ describe("middleware", () => {
       expect(res.headers.get("location")).toBeNull();
       expect(mockGetSession).not.toHaveBeenCalled();
     });
+
+    it("serves /c/invite/<token> anonymously (preview-first, no login wall)", async () => {
+      // The invite landing page is public even though it's under /c/ — a
+      // logged-out visitor must SEE the invite and only hit login on Join.
+      const req = makeReq("https://app.com/c/invite/tok_1", { "x-forwarded-proto": "https" });
+      const res = await middleware(req);
+      expect(res.headers.get("location")).toBeNull();
+      expect(mockGetSession).not.toHaveBeenCalled();
+    });
+
+    it("still gates the rest of /c/ (the public exemption is scoped to /c/invite/)", async () => {
+      mockGetSession.mockResolvedValue({ headers: new Headers(), response: null });
+      const req = makeReq("https://app.com/c/channels/s1", { "x-forwarded-proto": "https" });
+      const res = await middleware(req);
+      const loc = new URL(res.headers.get("location")!);
+      expect(loc.pathname).toBe("/sign-in");
+      expect(loc.searchParams.get("redirect")).toBe("/c/channels/s1");
+    });
   });
 
   describe("sign-in redirect when already authenticated (isSafeRedirect guard)", () => {
@@ -102,25 +120,25 @@ describe("middleware", () => {
       expect(loc.pathname).toBe("/w/foo");
     });
 
-    it("rejects protocol-relative //evil.com → falls back to /workspaces", async () => {
+    it("rejects protocol-relative //evil.com → falls back to /c/me", async () => {
       const loc = await signInWith("//evil.com");
-      expect(loc.pathname).toBe("/workspaces");
+      expect(loc.pathname).toBe("/c/me");
       expect(loc.host).toBe("app.com");
     });
 
-    it("rejects absolute https://evil.com → falls back to /workspaces", async () => {
+    it("rejects absolute https://evil.com → falls back to /c/me", async () => {
       const loc = await signInWith("https://evil.com");
-      expect(loc.pathname).toBe("/workspaces");
+      expect(loc.pathname).toBe("/c/me");
       expect(loc.host).toBe("app.com");
     });
 
     // Regression guard for the open-redirect bug fixed 2026-05-30 (planner approved + applied):
     // a backslash-prefixed path "/\evil.com" used to pass isSafeRedirect() (starts with "/",
     // not "//"), and the WHATWG URL parser treats "\" as "/", so it resolved to https://evil.com.
-    // The guard now rejects any path whose 2nd char is "/" or "\", falling back to /workspaces.
-    it("rejects backslash /\\evil.com → falls back to /workspaces (open-redirect guard)", async () => {
+    // The guard now rejects any path whose 2nd char is "/" or "\", falling back to the default.
+    it("rejects backslash /\\evil.com → falls back to /c/me (open-redirect guard)", async () => {
       const loc = await signInWith("/\\evil.com");
-      expect(loc.pathname).toBe("/workspaces");
+      expect(loc.pathname).toBe("/c/me");
       expect(loc.host).toBe("app.com");
     });
 

@@ -1,10 +1,20 @@
 "use client"
 
 import { useEffect } from "react"
-import { useRouter } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { useSession } from "@/lib/auth-client"
 import { CommunityShell } from "./community-shell"
 import { avatarInitial } from "@/lib/community/avatar"
+
+// The invite landing page is preview-first: a logged-out visitor must be able
+// to see it (and only hit the login wall on Join). It's a standalone
+// full-screen page that doesn't use CommunityShell (which requires a
+// logged-in user), so it's exempt from this layout's session gate AND the
+// shell — its own middleware exemption keeps the server side public. Mirrors
+// the `PUBLIC_PREFIXES` guard in `middleware.ts`; both gates must agree.
+function isPublicCommunityPath(pathname: string): boolean {
+  return pathname.startsWith("/c/invite/")
+}
 
 export default function CommunityLayout({
   children,
@@ -12,13 +22,19 @@ export default function CommunityLayout({
   children: React.ReactNode
 }) {
   const router = useRouter()
+  const pathname = usePathname()
+  const isPublic = isPublicCommunityPath(pathname)
   const { data: session, isPending } = useSession()
 
   useEffect(() => {
-    if (!isPending && !session) {
+    if (!isPublic && !isPending && !session) {
       router.replace("/sign-in")
     }
-  }, [isPending, session, router])
+  }, [isPublic, isPending, session, router])
+
+  // Public community pages (invite landing) render standalone — no session
+  // gate, no CommunityShell (a logged-out visitor has no currentUser).
+  if (isPublic) return <>{children}</>
 
   if (isPending || !session) return null
 

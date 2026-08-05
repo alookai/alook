@@ -25,7 +25,7 @@ vi.mock("@/lib/auth", () => ({
   })),
 }));
 
-import { withAuth, warmMachineTokenCache } from "./auth";
+import { withAuth, withOptionalAuth, warmMachineTokenCache } from "./auth";
 import { queries } from "@alook/shared";
 
 const mockGetMachineTokenByHash = queries.machineToken
@@ -349,6 +349,111 @@ describe("withAuth middleware", () => {
 
     expect(res.status).toBe(200);
     expect(body.ctx.params).toEqual({ id: "x" });
+  });
+});
+
+describe("withOptionalAuth middleware", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetCloudflareContext.mockResolvedValue({ env: { DB: {} } });
+  });
+
+  const wrapped = withOptionalAuth(testHandler);
+
+  it("runs the handler anonymously (userId undefined, NOT 401) when there is no session", async () => {
+    mockGetSession.mockResolvedValue({ headers: new Headers(), response: null });
+
+    const req = new NextRequest("http://localhost/api/test");
+    const res = await wrapped(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.ctx.userId).toBeUndefined();
+    expect(testHandler).toHaveBeenCalledOnce();
+  });
+
+  it("passes userId/email when a valid session is present", async () => {
+    mockGetSession.mockResolvedValue({
+      headers: new Headers(),
+      response: { user: { id: "user-1", email: "user@example.com" } },
+    });
+
+    const req = new NextRequest("http://localhost/api/test");
+    const res = await wrapped(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.ctx.userId).toBe("user-1");
+    expect(body.ctx.email).toBe("user@example.com");
+  });
+
+  it("degrades a soft-deleted session to anonymous (NOT 401) and still runs the handler", async () => {
+    mockGetSession.mockResolvedValue({
+      headers: new Headers(),
+      response: { user: { id: "user-x", email: "x@example.com", isBot: false, deletedAt: "2026-07-29T00:00:00.000Z" } },
+    });
+
+    const req = new NextRequest("http://localhost/api/test");
+    const res = await wrapped(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.ctx.userId).toBeUndefined();
+    expect(testHandler).toHaveBeenCalledOnce();
+  });
+
+  it("degrades a bot session to anonymous (NOT 401)", async () => {
+    mockGetSession.mockResolvedValue({
+      headers: new Headers(),
+      response: { user: { id: "bot-1", email: "bot@x.ai", isBot: true, deletedAt: null } },
+    });
+
+    const req = new NextRequest("http://localhost/api/test");
+    const res = await wrapped(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.ctx.userId).toBeUndefined();
+    expect(testHandler).toHaveBeenCalledOnce();
+  });
+
+  it("degrades to anonymous (NOT 503) when getSession throws on both attempts — page is public-readable, fail open", async () => {
+    mockGetSession.mockRejectedValue(new Error("better-auth down"));
+
+    const req = new NextRequest("http://localhost/api/test");
+    const res = await wrapped(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.ctx.userId).toBeUndefined();
+    expect(testHandler).toHaveBeenCalledOnce();
+  });
+
+  it("does NOT consult the machine-token path — an al_ bearer is ignored, session resolves anonymous", async () => {
+    mockGetSession.mockResolvedValue({ headers: new Headers(), response: null });
+
+    const req = new NextRequest("http://localhost/api/test", {
+      headers: { Authorization: "Bearer al_secret_token" },
+    });
+    const res = await wrapped(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.ctx.userId).toBeUndefined();
+    // The optional wrapper never touches the machine-token D1 lookup.
+    expect(mockGetMachineTokenByHash).not.toHaveBeenCalled();
+  });
+
+  it("resolves dynamic params from context", async () => {
+    mockGetSession.mockResolvedValue({ headers: new Headers(), response: null });
+
+    const req = new NextRequest("http://localhost/api/test");
+    const res = await wrapped(req, { params: Promise.resolve({ token: "t1" }) });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.ctx.params).toEqual({ token: "t1" });
   });
 });
 

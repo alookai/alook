@@ -25,7 +25,10 @@ import { GradientBackground } from "@/components/gradient-background"
 import { Logo } from "@/components/logo"
 import { DEV_PASSWORD } from "@alook/shared"
 
-const DEFAULT_POST_LOGIN = "/workspaces?auto"
+// Default post-login landing when no explicit `?redirect=` is present. Points
+// at the community home (/c/me); the old `/workspaces` target was the legacy
+// (v0) workspace surface being retired.
+const DEFAULT_POST_LOGIN = "/c/me"
 
 function safeRedirectUrl(redirect: string | null): string {
   if (redirect && redirect.startsWith("/") && !redirect.startsWith("//")) {

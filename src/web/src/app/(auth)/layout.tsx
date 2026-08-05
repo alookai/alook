@@ -16,7 +16,9 @@ export default async function AuthLayout({
   children: React.ReactNode;
 }) {
   const session = await getSession();
-  if (session) redirect("/workspaces?auto");
+  // Already signed in → community home. `/workspaces` was the retired legacy
+  // (v0) surface.
+  if (session) redirect("/c/me");
 
   return <>{children}</>;
 }
