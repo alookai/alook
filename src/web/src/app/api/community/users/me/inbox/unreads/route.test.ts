@@ -68,7 +68,7 @@ function row(overrides: Partial<{ channelId: string; channelName: string; server
   }
 }
 
-describe("GET /api/community/inbox/unreads", () => {
+describe("GET /api/community/users/me/inbox/unreads", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockGetSettings.mockResolvedValue([])
@@ -85,7 +85,7 @@ describe("GET /api/community/inbox/unreads", () => {
       row({ serverId: "s2", serverName: "Other", channelId: "c3", channelName: "lounge", lastMessageAt: "2026-06-25T11:00:00Z" }),
     ])
 
-    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))
     const body = await res.json()
 
     expect(res.status).toBe(200)
@@ -104,7 +104,7 @@ describe("GET /api/community/inbox/unreads", () => {
     ])
     mockGetSettings.mockResolvedValue([{ serverId: "s1", channelId: null, level: "nothing" }])
 
-    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))
     const body = await res.json()
 
     expect(body.servers.map((s: { serverId: string }) => s.serverId)).toEqual(["s2"])
@@ -117,7 +117,7 @@ describe("GET /api/community/inbox/unreads", () => {
     ])
     mockGetSettings.mockResolvedValue([{ serverId: null, channelId: "c2", level: "nothing" }])
 
-    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))
     const body = await res.json()
 
     expect(body.servers[0].channels.map((c: { channelId: string }) => c.channelId)).toEqual(["c1"])
@@ -130,7 +130,7 @@ describe("GET /api/community/inbox/unreads", () => {
       { message: { channelId: "c1" } },
       { message: { channelId: "c-other" } },
     ])
-    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))
     const body = await res.json()
     expect(body.servers[0].channels[0].mentionCount).toBe(2)
   })
@@ -143,7 +143,7 @@ describe("GET /api/community/inbox/unreads", () => {
       row({ serverId: "s1", channelId: "c3", lastMessageAt: "2026-06-25T10:00:00Z" }),
     ])
 
-    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads?limit=2"))
+    const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads?limit=2"))
     const body = await res.json()
 
     expect(body.limit).toBe(2)
@@ -153,7 +153,7 @@ describe("GET /api/community/inbox/unreads", () => {
 
   it("reports truncated=false when total channel count fits the limit", async () => {
     mockListUnreadChannels.mockResolvedValue([row({ channelId: "c1" })])
-    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads?limit=10"))
+    const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads?limit=10"))
     const body = await res.json()
     expect(body.truncated).toBe(false)
   })
@@ -165,7 +165,7 @@ describe("GET /api/community/inbox/unreads", () => {
       { channelId: "dm_2", otherUserId: "u3", otherUserName: "Bob", otherUserImage: "https://cdn/b.png", lastMessageAt: "2026-06-25T11:00:00Z" },
     ])
 
-    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))
     const body = await res.json()
 
     expect(res.status).toBe(200)
@@ -180,7 +180,7 @@ describe("GET /api/community/inbox/unreads", () => {
   it("returns empty dms array when only channels are unread", async () => {
     mockListUnreadChannels.mockResolvedValue([row({ channelId: "c1" })])
     mockListUnreadDms.mockResolvedValue([])
-    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))
     const body = await res.json()
     expect(body.dms).toEqual([])
     expect(body.servers).toHaveLength(1)
@@ -191,7 +191,7 @@ describe("GET /api/community/inbox/unreads", () => {
     mockListUnreadDms.mockResolvedValue([
       { channelId: "dm_1", otherUserId: "u2", otherUserName: "Alice", otherUserImage: null, lastMessageAt: "2026-06-25T12:00:00Z" },
     ])
-    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))
     const body = await res.json()
     expect(body.servers).toHaveLength(1)
     expect(body.dms).toHaveLength(1)
@@ -207,7 +207,7 @@ describe("GET /api/community/inbox/unreads", () => {
     ])
     mockGetChannelsByIds.mockResolvedValue([{ id: "c1", name: "general", serverId: "s1" }])
 
-    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))
     const body = await res.json()
 
     expect(res.status).toBe(200)
@@ -225,7 +225,7 @@ describe("GET /api/community/inbox/unreads", () => {
       row({ channelId: "c1", channelName: "general", lastMessageAt: "2026-06-25T10:00:00Z" }),
       row({ channelId: "t1", channelName: "budget-2026", parentChannelId: "c1", lastMessageAt: "2026-06-25T11:00:00Z" }),
     ])
-    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))
     const body = await res.json()
     // Parent was already present → no getChannelsByIds resolve needed.
     expect(mockGetChannelsByIds).not.toHaveBeenCalled()
@@ -243,7 +243,7 @@ describe("GET /api/community/inbox/unreads", () => {
       { message: { channelId: "t1" } },
       { message: { channelId: "t1" } },
     ])
-    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))
     const body = await res.json()
     expect(body.servers[0].channels[0].children[0].mentionCount).toBe(2)
   })
@@ -255,7 +255,7 @@ describe("GET /api/community/inbox/unreads", () => {
     mockGetChannelsByIds.mockResolvedValue([{ id: "c1", name: "general", serverId: "s1" }])
     // Parent c1 muted → the whole subtree is suppressed.
     mockGetSettings.mockResolvedValue([{ serverId: null, channelId: "c1", level: "nothing" }])
-    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))
     const body = await res.json()
     expect(body.servers).toHaveLength(0)
   })
@@ -268,7 +268,7 @@ describe("GET /api/community/inbox/unreads", () => {
       row({ channelId: "t1", channelName: "thread-1", parentChannelId: "c1", lastMessageAt: "2026-06-25T11:00:00Z" }),
       row({ channelId: "t2", channelName: "thread-2", parentChannelId: "c1", lastMessageAt: "2026-06-25T10:00:00Z" }),
     ])
-    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads?limit=2"))
+    const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads?limit=2"))
     const body = await res.json()
     expect(body.truncated).toBe(true)
     const parent = body.servers[0].channels[0]
@@ -279,7 +279,7 @@ describe("GET /api/community/inbox/unreads", () => {
 
   it("top-level channels carry an empty children array", async () => {
     mockListUnreadChannels.mockResolvedValue([row({ channelId: "c1" })])
-    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))
     const body = await res.json()
     expect(body.servers[0].channels[0].children).toEqual([])
   })
@@ -291,7 +291,7 @@ describe("GET /api/community/inbox/unreads", () => {
       row({ channelId: "c1", channelName: "general", type: "text" }),
       row({ channelId: "c2", channelName: "help-forum", type: "forum", lastMessageAt: "2026-06-25T09:00:00Z" }),
     ])
-    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))
     const body = await res.json()
     const byId = Object.fromEntries(
       body.servers[0].channels.map((c: { channelId: string; type?: string }) => [c.channelId, c.type]),
@@ -304,7 +304,7 @@ describe("GET /api/community/inbox/unreads", () => {
       row({ channelId: "c1", channelName: "general", type: "text" }),
       row({ channelId: "t1", channelName: "budget", type: "thread", parentChannelId: "c1", lastMessageAt: "2026-06-25T11:00:00Z" }),
     ])
-    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))
     const body = await res.json()
     const parent = body.servers[0].channels[0]
     expect(parent.type).toBe("text")
@@ -316,7 +316,7 @@ describe("GET /api/community/inbox/unreads", () => {
       row({ channelId: "t1", channelName: "budget", type: "thread", parentChannelId: "c1" }),
     ])
     mockGetChannelsByIds.mockResolvedValue([{ id: "c1", name: "help-forum", serverId: "s1", type: "forum" }])
-    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))
     const body = await res.json()
     expect(body.servers[0].channels[0].type).toBe("forum")
   })

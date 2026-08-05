@@ -35,12 +35,12 @@ vi.mock("@/lib/middleware/helpers", () => {
 
 import { POST } from "./route"
 
-describe("POST /api/community/inbox/mentions/read-all", () => {
+describe("POST /api/community/users/me/inbox/mentions/read-all", () => {
   beforeEach(() => vi.clearAllMocks())
 
   it("marks all mentions read for the current user", async () => {
     mockMarkAllMentionsRead.mockResolvedValue(undefined)
-    const res = await POST(new NextRequest("http://localhost/api/community/inbox/mentions/read-all", { method: "POST" }))
+    const res = await POST(new NextRequest("http://localhost/api/community/users/me/inbox/mentions/read-all", { method: "POST" }))
     expect(res.status).toBe(200)
     expect(mockMarkAllMentionsRead).toHaveBeenCalledWith({}, "u1")
   })

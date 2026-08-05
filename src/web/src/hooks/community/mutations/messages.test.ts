@@ -1052,9 +1052,9 @@ describe("useMarkAllInboxRead", () => {
     expect(posts).toHaveLength(3)
     const paths = posts.map((c) => c[0] as string).sort()
     expect(paths).toEqual([
-      "/api/community/inbox/dms/read-all",
-      "/api/community/inbox/mentions/read-all",
-      "/api/community/inbox/unreads/read-all",
+      "/api/community/users/me/inbox/dms/read-all",
+      "/api/community/users/me/inbox/mentions/read-all",
+      "/api/community/users/me/inbox/unreads/read-all",
     ])
   })
 

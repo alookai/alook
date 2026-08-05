@@ -48,7 +48,7 @@ vi.mock("@/lib/middleware/helpers", () => {
 
 import { GET } from "./route"
 
-describe("GET /api/community/inbox/mentions", () => {
+describe("GET /api/community/users/me/inbox/mentions", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockGetChannelsByIds.mockResolvedValue([])
@@ -58,7 +58,7 @@ describe("GET /api/community/inbox/mentions", () => {
 
   it("queries BOTH mention + reply kinds (no kind filter) scoped to visible channels", async () => {
     mockListUnreadMentions.mockResolvedValue([])
-    await GET(new NextRequest("http://localhost/api/community/inbox/mentions"))
+    await GET(new NextRequest("http://localhost/api/community/users/me/inbox/mentions"))
     // No `kind` narrowing — both @-mentions and reply notifications surface.
     const opts = mockListUnreadMentions.mock.calls[0][2]
     expect(opts.kind).toBeUndefined()
@@ -76,7 +76,7 @@ describe("GET /api/community/inbox/mentions", () => {
     mockGetChannelsByIds.mockResolvedValue([{ id: "c1", name: "general", serverId: "s1" }])
     mockGetServersByIds.mockResolvedValue([{ id: "s1", name: "Server 1" }])
 
-    const res = await GET(new NextRequest("http://localhost/api/community/inbox/mentions"))
+    const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/mentions"))
     const body = await res.json()
     expect(body.mentions).toHaveLength(1)
     expect(body.mentions[0]).toMatchObject({
@@ -103,21 +103,21 @@ describe("GET /api/community/inbox/mentions", () => {
     ])
     mockGetChannelsByIds.mockResolvedValue([{ id: "c1", name: "general", serverId: "s1" }])
     mockGetServersByIds.mockResolvedValue([{ id: "s1", name: "Server 1" }])
-    const res = await GET(new NextRequest("http://localhost/api/community/inbox/mentions"))
+    const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/mentions"))
     const body = await res.json()
     expect(body.mentions[0].kind).toBe("reply")
   })
 
   it("returns empty mentions array when none", async () => {
     mockListUnreadMentions.mockResolvedValue([])
-    const res = await GET(new NextRequest("http://localhost/api/community/inbox/mentions"))
+    const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/mentions"))
     const body = await res.json()
     expect(body.mentions).toEqual([])
   })
 
   it("clamps over-cap limit and forwards it to the query", async () => {
     mockListUnreadMentions.mockResolvedValue([])
-    const res = await GET(new NextRequest("http://localhost/api/community/inbox/mentions?limit=99999"))
+    const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/mentions?limit=99999"))
     const body = await res.json()
     expect(body.limit).toBe(200) // MAX_INBOX_PAGE_SIZE
     expect(mockListUnreadMentions).toHaveBeenCalledWith({}, "u1", { limit: 200, visibleChannelIds: ["c1"] })

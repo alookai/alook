@@ -921,9 +921,9 @@ export function useMarkAllInboxRead() {
   return useMutation<void, Error, void>({
     mutationFn: async () => {
       await Promise.all([
-        apiFetch("/api/community/inbox/mentions/read-all", { method: "POST" }),
-        apiFetch("/api/community/inbox/unreads/read-all", { method: "POST" }),
-        apiFetch("/api/community/inbox/dms/read-all", { method: "POST" }),
+        apiFetch("/api/community/users/me/inbox/mentions/read-all", { method: "POST" }),
+        apiFetch("/api/community/users/me/inbox/unreads/read-all", { method: "POST" }),
+        apiFetch("/api/community/users/me/inbox/dms/read-all", { method: "POST" }),
       ])
     },
     onMutate: async () => {
@@ -955,7 +955,7 @@ export function useDeleteMention() {
   const queryClient = useQueryClient()
   return useMutation<void, Error, DeleteMentionArgs, { snapshot: unknown }>({
     mutationFn: async ({ mentionId }) => {
-      await apiFetch(`/api/community/inbox/mentions/${mentionId}`, { method: "DELETE" })
+      await apiFetch(`/api/community/users/me/inbox/mentions/${mentionId}`, { method: "DELETE" })
     },
     onMutate: async (args) => {
       const key = communityKeys.inboxMentions()

@@ -52,7 +52,7 @@ vi.mock("@/lib/middleware/helpers", () => {
 
 import { GET } from "./route"
 
-describe("GET /api/community/inbox/marked", () => {
+describe("GET /api/community/users/me/inbox/marked", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockGetChannelsByIds.mockResolvedValue([])
@@ -63,7 +63,7 @@ describe("GET /api/community/inbox/marked", () => {
 
   it("scopes the query to the viewer's visible channels (no leak of left private channels)", async () => {
     mockListMarksForUser.mockResolvedValue([])
-    await GET(new NextRequest("http://localhost/api/community/inbox/marked"))
+    await GET(new NextRequest("http://localhost/api/community/users/me/inbox/marked"))
     const opts = mockListMarksForUser.mock.calls[0][2]
     expect(opts.visibleChannelIds).toEqual(["c1"])
   })
@@ -75,7 +75,7 @@ describe("GET /api/community/inbox/marked", () => {
     mockListVisibleChannelIds.mockResolvedValue(["c1"])
     mockListDmChannelIds.mockResolvedValue(["dm1"])
     mockListMarksForUser.mockResolvedValue([])
-    await GET(new NextRequest("http://localhost/api/community/inbox/marked"))
+    await GET(new NextRequest("http://localhost/api/community/users/me/inbox/marked"))
     const opts = mockListMarksForUser.mock.calls[0][2]
     expect(opts.visibleChannelIds).toEqual(["c1", "dm1"])
   })
@@ -91,7 +91,7 @@ describe("GET /api/community/inbox/marked", () => {
     mockGetChannelsByIds.mockResolvedValue([{ id: "c1", name: "general", serverId: "s1" }])
     mockGetServersByIds.mockResolvedValue([{ id: "s1", name: "Server 1" }])
 
-    const res = await GET(new NextRequest("http://localhost/api/community/inbox/marked"))
+    const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/marked"))
     const body = await res.json()
     expect(body.marked).toHaveLength(1)
     expect(body.marked[0]).toMatchObject({
@@ -109,13 +109,13 @@ describe("GET /api/community/inbox/marked", () => {
 
   it("returns empty marked array when none", async () => {
     mockListMarksForUser.mockResolvedValue([])
-    const res = await GET(new NextRequest("http://localhost/api/community/inbox/marked"))
+    const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/marked"))
     expect((await res.json()).marked).toEqual([])
   })
 
   it("clamps over-cap limit and forwards it to the query", async () => {
     mockListMarksForUser.mockResolvedValue([])
-    const res = await GET(new NextRequest("http://localhost/api/community/inbox/marked?limit=99999"))
+    const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/marked?limit=99999"))
     const body = await res.json()
     expect(body.limit).toBe(200) // MAX_INBOX_PAGE_SIZE
     expect(mockListMarksForUser).toHaveBeenCalledWith({}, "u1", { limit: 200, visibleChannelIds: ["c1"] })

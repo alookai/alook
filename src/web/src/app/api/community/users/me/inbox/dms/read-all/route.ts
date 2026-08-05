@@ -4,7 +4,7 @@ import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON } from "@/lib/middleware/helpers"
 
 /**
- * POST /api/community/inbox/dms/read-all
+ * POST /api/community/users/me/inbox/dms/read-all
  *
  * Mark every DM the viewer participates in read at its latest message. Kept a
  * DISTINCT route from `/inbox/unreads/read-all` (channels) so the inbox

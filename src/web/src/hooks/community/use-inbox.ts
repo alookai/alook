@@ -35,7 +35,7 @@ const EMPTY_MARKED: readonly Marked[] = Object.freeze([])
 export type UnreadsResponse = { servers: UnreadServer[]; dms: UnreadDm[] }
 
 export const inboxUnreadsQueryFn = () =>
-  apiFetch<UnreadsResponse & { stale?: boolean }>("/api/community/inbox/unreads").then(throwIfStale)
+  apiFetch<UnreadsResponse & { stale?: boolean }>("/api/community/users/me/inbox/unreads").then(throwIfStale)
 
 export function useInboxUnreads(): UseQueryResult<UnreadsResponse> & {
   servers: UnreadServer[]
@@ -56,7 +56,7 @@ export function useInboxUnreads(): UseQueryResult<UnreadsResponse> & {
 export type MentionsResponse = { mentions: Mention[] }
 
 export const inboxMentionsQueryFn = () =>
-  apiFetch<MentionsResponse & { stale?: boolean }>("/api/community/inbox/mentions").then(throwIfStale)
+  apiFetch<MentionsResponse & { stale?: boolean }>("/api/community/users/me/inbox/mentions").then(throwIfStale)
 
 export function useInboxMentions(): UseQueryResult<MentionsResponse> & {
   mentions: Mention[]
@@ -75,7 +75,7 @@ export function useInboxMentions(): UseQueryResult<MentionsResponse> & {
 export type MarkedResponse = { marked: Marked[] }
 
 const inboxMarkedQueryFn = () =>
-  apiFetch<MarkedResponse & { stale?: boolean }>("/api/community/inbox/marked").then(throwIfStale)
+  apiFetch<MarkedResponse & { stale?: boolean }>("/api/community/users/me/inbox/marked").then(throwIfStale)
 
 /**
  * The Marked feed is lazy — unlike unreads/mentions (which the shell reads
