@@ -17,6 +17,13 @@ const mockBroadcastToUserSafe = vi.fn()
 const mockLogAudit = vi.fn()
 const mockAddThreadParticipants = vi.fn()
 const mockListThreadParticipants = vi.fn()
+const mockListThreadParticipantUserIds = vi.fn()
+const mockResolveTargetForMember = vi.fn()
+const mockGetServer = vi.fn()
+
+vi.mock("@/lib/community/resolve-ref", () => ({
+  resolveTargetForMember: (...a: unknown[]) => mockResolveTargetForMember(...a),
+}))
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
@@ -41,7 +48,9 @@ vi.mock("@alook/shared", async () => {
       communityThread: {
         addThreadParticipants: (...a: unknown[]) => mockAddThreadParticipants(...a),
         listThreadParticipants: (...a: unknown[]) => mockListThreadParticipants(...a),
+        listThreadParticipantUserIds: (...a: unknown[]) => mockListThreadParticipantUserIds(...a),
       },
+      communityServer: { getServer: (...a: unknown[]) => mockGetServer(...a) },
       user: { getUsersByIds: (...a: unknown[]) => mockGetUsersByIds(...a) },
     },
   }
@@ -55,11 +64,22 @@ vi.mock("@/lib/community/audit", async () => {
   return { ...actual, logAudit: (...a: unknown[]) => mockLogAudit(...a) }
 })
 
-vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
+// Dual-actor: crk_ bearer → bot (folded channelMember), else human.
+vi.mock("@/lib/middleware/community-actor", () => ({
+  withCommunityActor: (handler: any) => async (req: any, ctx?: any) => {
     const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: { DB: {} }, userId: "u1", email: "u@t.com", params })
-  }),
+    const authz = req?.headers?.get?.("Authorization") ?? ""
+    const actor = authz.startsWith("Bearer crk_")
+      ? { kind: "bot", userId: "bot_1", ownerUserId: "o_1", machineId: "m_1" }
+      : { kind: "human", userId: "u1", email: "u@t.com" }
+    return handler(req, { env: { DB: {} }, actor, params })
+  },
+  rejectBot: (actor: { kind: string }) => {
+    const { NextResponse } = require("next/server")
+    return actor.kind === "bot"
+      ? NextResponse.json({ error: "forbidden: not available to bots" }, { status: 403 })
+      : null
+  },
 }))
 
 vi.mock("@/lib/middleware/helpers", () => {
@@ -261,6 +281,80 @@ describe("POST /channels/[id]/members", () => {
     expect(res.status).toBe(400)
     // A post inherits its forum's access — no access rows. Add participants via
     // the participants route instead.
+    expect(mockCreateChannelMember).not.toHaveBeenCalled()
+  })
+
+  // ── bot arm (folded `channelMember` verb): ref-in-query → member-scoped 404,
+  //    lean ChannelMemberResult. ──
+
+  function botGetReq(ref?: string) {
+    const q = ref !== undefined ? `?ref=${encodeURIComponent(ref)}` : ""
+    return new NextRequest(`http://localhost/api/community/channels/resolve/members${q}`, {
+      method: "GET",
+      headers: { Authorization: "Bearer crk_abc" },
+    })
+  }
+  const ctxResolve = { params: { id: "resolve" } } as any
+
+  it("bot: private channel → { visibility: private, members } (lean handle+role)", async () => {
+    mockResolveTargetForMember.mockResolvedValue({ kind: "channel", channelId: "c1" })
+    mockResolveChannelAccessContext.mockResolvedValue(managerCtx())
+    mockResolveScopeMembers.mockResolvedValue([{ userId: "u1", source: "explicit" }])
+    mockGetMembersByUserIds.mockResolvedValue([{ userId: "u1", userName: "alice", discriminator: "0001", role: "member" }])
+    const res = await GET(botGetReq("/s/general"), ctxResolve)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ visibility: "private", members: [{ handle: "alice#0001", role: "member" }] })
+    expect(mockResolveTargetForMember).toHaveBeenCalledWith({}, "bot_1", "/s/general", {
+      createDmIfMissing: false,
+      createThreadIfMissing: false,
+      callerKind: "bot",
+    })
+  })
+
+  it("bot: public channel → { visibility: public, hint } (no enumeration)", async () => {
+    mockResolveTargetForMember.mockResolvedValue({ kind: "channel", channelId: "c1" })
+    mockResolveChannelAccessContext.mockResolvedValue({
+      channel: { id: "c1", serverId: "s1", type: "text", parentChannelId: null, parentMessageId: null, creatorId: "u9" },
+      anchor: { id: "c1", serverId: "s1", parentChannelId: null, creatorId: "u9" },
+      role: "member", isPrivate: false, isChannelMember: false, isCreator: false,
+    })
+    mockGetServer.mockResolvedValue({ id: "s1", name: "demo" })
+    const res = await GET(botGetReq("/demo/general"), ctxResolve)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.visibility).toBe("public")
+    expect(body.hint).toContain("alook server member --server demo")
+    expect(mockResolveScopeMembers).not.toHaveBeenCalled()
+  })
+
+  it("①-C: bot ref to an UNREACHABLE channel → 404, never enumerates", async () => {
+    mockResolveTargetForMember.mockResolvedValue({ error: 404, message: "channel not found: general" })
+    const res = await GET(botGetReq("/s/general"), ctxResolve)
+    expect(res.status).toBe(404)
+    expect(mockResolveChannelAccessContext).not.toHaveBeenCalled()
+    expect(mockResolveScopeMembers).not.toHaveBeenCalled()
+  })
+
+  it("bot: DM ref → 400 (channel-scoped, rejected up front before resolve)", async () => {
+    const res = await GET(botGetReq("/.dm/alice#0001"), ctxResolve)
+    expect(res.status).toBe(400)
+    expect(mockResolveTargetForMember).not.toHaveBeenCalled()
+  })
+
+  it("bot: missing ref → 400", async () => {
+    const res = await GET(botGetReq(), ctxResolve)
+    expect(res.status).toBe(400)
+    expect(mockResolveTargetForMember).not.toHaveBeenCalled()
+  })
+
+  it("bot POST (add-member) → 403 (no bot verb, capability boundary not 404)", async () => {
+    const botPost = new NextRequest("http://localhost/api/community/channels/resolve/members", {
+      method: "POST",
+      headers: { Authorization: "Bearer crk_abc", "content-type": "application/json" },
+      body: JSON.stringify({ userId: "u2" }),
+    })
+    const res = await POST(botPost, ctxResolve)
+    expect(res.status).toBe(403)
     expect(mockCreateChannelMember).not.toHaveBeenCalled()
   })
 })

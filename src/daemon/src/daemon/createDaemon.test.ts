@@ -738,6 +738,9 @@ describe("deriveAuditLogSubcommand", () => {
     // hydrate door must not shadow the write sub-paths.
     expect(deriveAuditLogSubcommand("/api/community/messages/m1/reactions/x", "PUT")).toBe("reactAdd");
     expect(deriveAuditLogSubcommand("/api/community/messages/m1/threads", "POST")).toBe("threads");
+    // members door (folded channelMember).
+    expect(deriveAuditLogSubcommand("/api/community/channels/resolve/members?ref=%2Fs%2Fg", "GET")).toBe("channelMember");
+    expect(deriveAuditLogSubcommand("/api/community/channels/c1/members", "GET")).toBe("channelMember");
   });
 });
 

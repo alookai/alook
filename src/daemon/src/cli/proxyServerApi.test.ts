@@ -182,6 +182,23 @@ describe("createProxyServerApi — send (retargeted to the canonical messages do
   });
 });
 
+describe("createProxyServerApi — channelMember (retargeted to the canonical members door)", () => {
+  it("GETs channels/{id}/members with ?ref= (encoded); returns the ChannelMemberResult", async () => {
+    const seen: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
+      seen.push({ url, init });
+      return jsonBody(JSON.stringify({ visibility: "private", members: [{ handle: "a#0001", role: "member" }] }), { status: 200 });
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const res = await api.channelMember({ channel: "/demo/general" });
+    expect(res).toEqual({ visibility: "private", members: [{ handle: "a#0001", role: "member" }] });
+    const u = new URL(seen[0].url);
+    expect(u.pathname).toBe("/api/community/channels/resolve/members");
+    expect(u.searchParams.get("ref")).toBe("/demo/general");
+    expect(seen[0].init?.method).toBe("GET");
+  });
+});
+
 describe("createProxyServerApi — resolve (retargeted to the canonical hydrate door)", () => {
   it("GETs messages/{id} with ref+seq on the query; returns the {message} shape", async () => {
     const seen: Array<{ url: string; init?: RequestInit }> = [];

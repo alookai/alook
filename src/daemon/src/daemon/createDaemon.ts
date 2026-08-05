@@ -154,6 +154,7 @@ export function deriveAuditLogSubcommand(pathname: string, method?: string): str
   if (/^\/api\/community\/channels\/[^/]+\/messages(\/|$)/.test(canonical)) {
     return method === "GET" ? "read" : "send";
   }
+  if (/^\/api\/community\/channels\/[^/]+\/members(\/|$)/.test(canonical)) return "channelMember";
   // Single-message hydrate door GET messages/{id} = the folded `resolve` verb.
   // AFTER the /reactions & /threads patterns so those specific sub-paths win.
   if (/^\/api\/community\/messages\/[^/]+$/.test(canonical)) return "resolve";

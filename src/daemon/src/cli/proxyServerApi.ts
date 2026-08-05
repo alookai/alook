@@ -201,6 +201,23 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     return parseJsonResponse<Page<Message>>(res, "read");
   }
 
+  async function callChannelMember(
+    req: { agentId?: AgentId; channel: ChannelRef },
+  ): Promise<ChannelMemberResult> {
+    // Canonical members door: GET channels/{id}/members. The bot holds a ref
+    // (not an id), so it uses the `resolve` placeholder id and carries the ref on
+    // the query; the door resolves it server-side (member-scoped → 404, ①-C) and
+    // returns the lean `ChannelMemberResult` (visibility + members/hint).
+    const res = await fetchImpl(
+      `${base}/api/community/channels/${REF_PLACEHOLDER_ID}/members?ref=${encodeURIComponent(req.channel)}`,
+      {
+        method: "GET",
+        headers: { authorization: `Bearer ${config.voucher}` },
+      },
+    );
+    return parseJsonResponse<ChannelMemberResult>(res, "channelMember");
+  }
+
   async function callResolve(req: ResolveRequest): Promise<{ message: Message }> {
     // Canonical hydrate door: GET messages/{id}. The bot holds a ref+seq (not a
     // messageId), so it uses the `resolve` placeholder id and carries ref+seq on
@@ -337,8 +354,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     listServers: (_r: { agentId: AgentId }) => callListServers(),
     joinServer: callJoinServer,
     listChannels: (r: ListChannelsRequest) => call<{ groups: ChannelGroup[] }>("listChannels", r),
-    channelMember: (r: { agentId?: AgentId; channel: ChannelRef }) =>
-      call<ChannelMemberResult>("channelMember", r),
+    channelMember: callChannelMember,
     inboxPull: (r: InboxPullRequest) => call<InboxPullResponse>("inboxPull", r),
     inboxSnapshot: (r: { agentId: AgentId }) => call<InboxSnapshot>("inboxSnapshot", r),
     ack: (r: AckRequest) => call<void>("ack", r),
