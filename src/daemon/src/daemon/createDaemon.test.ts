@@ -756,6 +756,11 @@ describe("deriveAuditLogSubcommand", () => {
     // the logical verb, not the `users` segment.
     expect(deriveAuditLogSubcommand("/api/community/users/me/inbox/pull", "POST")).toBe("inboxPull");
     expect(deriveAuditLogSubcommand("/api/community/users/me/inbox/snapshot", "GET")).toBe("inboxSnapshot");
+    // ack is the advance op of the trinity but writes NO audit row here (re-homed
+    // to the daemon reborn-ready signal) — null, same as flat /ack, NOT `users`.
+    expect(deriveAuditLogSubcommand("/api/community/users/me/inbox/ack", "POST")).toBe(null);
+    // bot-self lifecycle door (bots/me/*): nap maps back to `nap`, not `bots`.
+    expect(deriveAuditLogSubcommand("/api/community/bots/me/nap", "POST")).toBe("nap");
   });
 });
 

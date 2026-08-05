@@ -380,6 +380,29 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     return parseJsonResponse<void>(res, "ack");
   }
 
+  async function callNap(req: { handoff: string }): Promise<{ napped: boolean }> {
+    // RETARGETED off the flat `nap` verb onto POST bots/me/nap (route/disc
+    // 接口树统一, Gener #215 乙; Blondie #527). nap is a bot-qua-bot self
+    // lifecycle action — the agent resets its OWN session — so it lives under
+    // bots/me/* (self-scope, "me" = the credential-authenticated bot, no target
+    // id). Self-scoped to the voucher's bot: the wire carries only the handoff,
+    // never a target-bot param (bots/me/* family invariant, same as users/me).
+    // Body byte-identical to the flat verb (MOVE-FLAT, only the URL moved). The
+    // flat /nap route stays alive through deploy (daemon non-hot-reload) —
+    // deletion deferred to the flat-delete step, after the daemon is on the new
+    // target.
+    const { agentId: _omit, ...wire } = (req ?? {}) as unknown as Record<string, unknown>;
+    const res = await fetchImpl(`${base}/api/community/bots/me/nap`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${config.voucher}`,
+      },
+      body: JSON.stringify(wire),
+    });
+    return parseJsonResponse<{ napped: boolean }>(res, "nap");
+  }
+
   async function callInboxSnapshot(): Promise<InboxSnapshot> {
     // RETARGETED off the flat `inboxSnapshot` verb onto GET users/me/inbox/snapshot
     // (route/disc 轴3). A GET — snapshot is a pure peek (never advances the read
@@ -496,6 +519,6 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     friendRequest: (r: { agentId: AgentId; username: string }) =>
       call<FriendRequestResult>("friendRequest", r),
     listFriends: (_r: { agentId: AgentId }) => callListFriends(),
-    nap: (r: { handoff: string }) => call<{ napped: boolean }>("nap", r),
+    nap: callNap,
   };
 }
