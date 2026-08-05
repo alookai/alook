@@ -199,6 +199,54 @@ describe("createProxyServerApi — channelMember (retargeted to the canonical me
   });
 });
 
+describe("createProxyServerApi — listMembers (retargeted to servers/{id}/members)", () => {
+  it("GETs servers/{id}/members with ?server= (encoded); returns { members }", async () => {
+    const seen: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
+      seen.push({ url, init });
+      return jsonBody(JSON.stringify({ members: [{ handle: "a#0001", role: "owner" }] }), { status: 200 });
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const res = await api.listMembers({ agentId: "a1", server: "Design Studio" });
+    expect(res).toEqual({ members: [{ handle: "a#0001", role: "owner" }] });
+    const u = new URL(seen[0].url);
+    // servers collection door with the `resolve` placeholder id (bot holds a ref).
+    expect(u.pathname).toBe("/api/community/servers/resolve/members");
+    expect(u.searchParams.get("server")).toBe("Design Studio");
+    expect(seen[0].init?.method).toBe("GET");
+  });
+});
+
+describe("createProxyServerApi — listChannels (retargeted to servers/{id}/channels + servers/channels)", () => {
+  it("single server: GETs servers/{id}/channels with ?server=", async () => {
+    const seen: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
+      seen.push({ url, init });
+      return jsonBody(JSON.stringify({ groups: [] }), { status: 200 });
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    await api.listChannels({ agentId: "a1", server: "studio" });
+    const u = new URL(seen[0].url);
+    expect(u.pathname).toBe("/api/community/servers/resolve/channels");
+    expect(u.searchParams.get("server")).toBe("studio");
+    expect(seen[0].init?.method).toBe("GET");
+  });
+
+  it("all servers (server omitted): GETs the servers/channels collection, no query", async () => {
+    const seen: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
+      seen.push({ url, init });
+      return jsonBody(JSON.stringify({ groups: [] }), { status: 200 });
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    await api.listChannels({ agentId: "a1" });
+    const u = new URL(seen[0].url);
+    expect(u.pathname).toBe("/api/community/servers/channels");
+    expect(u.searchParams.get("server")).toBe(null);
+    expect(seen[0].init?.method).toBe("GET");
+  });
+});
+
 describe("createProxyServerApi — resolve (retargeted to the canonical hydrate door)", () => {
   it("GETs messages/{id} with ref+seq on the query; returns the {message} shape", async () => {
     const seen: Array<{ url: string; init?: RequestInit }> = [];

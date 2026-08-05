@@ -741,6 +741,13 @@ describe("deriveAuditLogSubcommand", () => {
     // members door (folded channelMember).
     expect(deriveAuditLogSubcommand("/api/community/channels/resolve/members?ref=%2Fs%2Fg", "GET")).toBe("channelMember");
     expect(deriveAuditLogSubcommand("/api/community/channels/c1/members", "GET")).toBe("channelMember");
+    // server-scoped list doors (轴3 fold): servers/{id}/members = listMembers;
+    // servers/{id}/channels + servers/channels (all-servers collection) = listChannels.
+    expect(deriveAuditLogSubcommand("/api/community/servers/resolve/members?server=studio", "GET")).toBe("listMembers");
+    expect(deriveAuditLogSubcommand("/api/community/servers/srv_1/members", "GET")).toBe("listMembers");
+    expect(deriveAuditLogSubcommand("/api/community/servers/resolve/channels?server=studio", "GET")).toBe("listChannels");
+    expect(deriveAuditLogSubcommand("/api/community/servers/srv_1/channels", "GET")).toBe("listChannels");
+    expect(deriveAuditLogSubcommand("/api/community/servers/channels", "GET")).toBe("listChannels");
   });
 });
 

@@ -42,17 +42,22 @@ vi.mock("@alook/shared", async () => {
   }
 })
 
-import { POST } from "./route"
+import { GET } from "./route"
 
-function req(body: unknown, headers: Record<string, string> = {}): NextRequest {
-  return new NextRequest("http://localhost/api/community/agent/listChannels", {
-    method: "POST",
-    headers: { "content-type": "application/json", ...headers },
-    body: JSON.stringify(body),
-  })
+// Bot arm of the dual-actor GET servers/[id]/channels (single-server, folds the
+// flat `listChannels` verb's `--server` mode). The bot addresses by
+// `?server=<ref>`; the `[id]` path segment is the `resolve` placeholder the
+// daemon sends. The all-servers mode (bot omits `server`) lives at the
+// collection route `servers/channels` (separate test). `listUserServers` is
+// mocked here only to assert this single-server route never calls it.
+function req(server: string | undefined, headers: Record<string, string> = {}): NextRequest {
+  const url = new URL("http://localhost/api/community/servers/resolve/channels")
+  if (server !== undefined) url.searchParams.set("server", server)
+  return new NextRequest(url, { method: "GET", headers: { ...headers } })
 }
+const ctx = { params: { id: "resolve" } } as unknown as { params: { id: string } }
 
-describe("POST /api/community/agent/listChannels", () => {
+describe("GET /api/community/servers/[id]/channels — bot arm (folds listChannels --server)", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockFindActiveAgentRunnerKeyByBearer.mockResolvedValue({ userId: "owner_1", machineId: "m_1", agentId: "bot_1" })
@@ -62,53 +67,20 @@ describe("POST /api/community/agent/listChannels", () => {
   })
 
   it("401 without Authorization", async () => {
-    const res = await POST(
-      new NextRequest("http://localhost/api/community/agent/listChannels", { method: "POST", body: "{}" })
-    )
+    const res = await GET(req("studio"), ctx as never)
     expect(res.status).toBe(401)
   })
 
-  it("400 on a payload that fails schema validation", async () => {
-    const res = await POST(req({ server: "" }, { Authorization: "Bearer crk_abc" }))
+  it("400 when the server query param is missing", async () => {
+    const res = await GET(req(undefined, { Authorization: "Bearer crk_abc" }), ctx as never)
     expect(res.status).toBe(400)
-  })
-
-  it("empty body defaults to {} — concatenates groups across every server the bot is in", async () => {
-    mockListUserServers.mockResolvedValue([{ id: "srv_1", name: "studio" }, { id: "srv_2", name: "lounge" }])
-    mockListChannelsForMember.mockImplementation((_db: unknown, serverId: string) =>
-      Promise.resolve(
-        serverId === "srv_1"
-          ? [{ id: "ch_1", serverId: "srv_1", name: "general", type: "text", categoryId: null }]
-          : [{ id: "ch_2", serverId: "srv_2", name: "random", type: "text", categoryId: null }]
-      )
-    )
-    const res = await POST(
-      new NextRequest("http://localhost/api/community/agent/listChannels", {
-        method: "POST",
-        headers: { Authorization: "Bearer crk_abc" },
-      })
-    )
-    expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({
-      groups: [
-        {
-          category: null,
-          channels: [{ ref: "/studio/general", name: "general", type: "text", visibility: "public" }],
-        },
-        {
-          category: null,
-          channels: [{ ref: "/lounge/random", name: "random", type: "text", visibility: "public" }],
-        },
-      ],
-    })
-    expect(mockListUserServers).toHaveBeenCalledTimes(1)
     expect(mockResolveServerByNameForMember).not.toHaveBeenCalled()
   })
 
   it("--server <id>: resolves server-side and scopes to that one server", async () => {
     mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1", name: "studio" }])
     mockListChannelsForMember.mockResolvedValue([{ id: "ch_1", serverId: "srv_1", name: "general", type: "text", categoryId: null }])
-    const res = await POST(req({ server: "srv_1" }, { Authorization: "Bearer crk_abc" }))
+    const res = await GET(req("srv_1", { Authorization: "Bearer crk_abc" }), ctx as never)
     expect(res.status).toBe(200)
     expect(mockListUserServers).not.toHaveBeenCalled()
     expect(mockResolveServerByNameForMember).toHaveBeenCalledWith(expect.anything(), "bot_1", "srv_1")
@@ -135,7 +107,7 @@ describe("POST /api/community/agent/listChannels", () => {
       { id: "cat_founders", name: "Founders", position: 1, private: 1 },
       { id: "cat_empty", name: "Empty", position: 2, private: 0 },
     ])
-    const res = await POST(req({ server: "srv_1" }, { Authorization: "Bearer crk_abc" }))
+    const res = await GET(req("srv_1", { Authorization: "Bearer crk_abc" }), ctx as never)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
       groups: [
@@ -161,7 +133,7 @@ describe("POST /api/community/agent/listChannels", () => {
       { id: "ch_1", serverId: "srv_1", name: "general", type: "text", categoryId: null },
       { id: "ch_2", serverId: "srv_1", name: "help", type: "forum", categoryId: null },
     ])
-    const res = await POST(req({ server: "srv_1" }, { Authorization: "Bearer crk_abc" }))
+    const res = await GET(req("srv_1", { Authorization: "Bearer crk_abc" }), ctx as never)
     expect(await res.json()).toEqual({
       groups: [
         {
@@ -177,7 +149,7 @@ describe("POST /api/community/agent/listChannels", () => {
 
   it("--server matching no server → 404, listChannelsForMember never called", async () => {
     mockResolveServerByNameForMember.mockResolvedValue([])
-    const res = await POST(req({ server: "Nope" }, { Authorization: "Bearer crk_abc" }))
+    const res = await GET(req("Nope", { Authorization: "Bearer crk_abc" }), ctx as never)
     expect(res.status).toBe(404)
     expect(mockListChannelsForMember).not.toHaveBeenCalled()
   })
@@ -187,7 +159,7 @@ describe("POST /api/community/agent/listChannels", () => {
       { id: "srv_1", name: "Design Studio" },
       { id: "srv_2", name: "Design Studio" },
     ])
-    const res = await POST(req({ server: "Design Studio" }, { Authorization: "Bearer crk_abc" }))
+    const res = await GET(req("Design Studio", { Authorization: "Bearer crk_abc" }), ctx as never)
     expect(res.status).toBe(400)
     const body = await res.json()
     expect(body.error).toContain("srv_1")
@@ -198,7 +170,7 @@ describe("POST /api/community/agent/listChannels", () => {
   it("empty channel list → { groups: [] }, not an error", async () => {
     mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1", name: "studio" }])
     mockListChannelsForMember.mockResolvedValue([])
-    const res = await POST(req({ server: "srv_1" }, { Authorization: "Bearer crk_abc" }))
+    const res = await GET(req("srv_1", { Authorization: "Bearer crk_abc" }), ctx as never)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ groups: [] })
   })

@@ -265,6 +265,46 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     return body?.duplicate ? { ok: true, duplicate: true } : { ok: true };
   }
 
+  async function callListMembers(
+    req: { agentId?: AgentId; server: string; limit?: number; cursor?: string },
+  ): Promise<ServerMemberListResult> {
+    // Canonical server-member door: GET servers/{id}/members. RETARGETED off the
+    // flat `listMembers` verb. The bot addresses by server ref/name (not id), so
+    // it uses the `resolve` placeholder id and carries the ref on `?server=`
+    // (plus optional `limit`/`cursor` for the paginated roster); the door
+    // resolves it member-scoped (→ 404, ①-C) and returns the lean
+    // `{ members: [{handle, role, online, status}], hasMore, cursor? }` shape.
+    // Encode the ref (server names can carry `#`/spaces).
+    const q = new URLSearchParams()
+    q.set("server", req.server)
+    if (req.limit !== undefined) q.set("limit", String(req.limit))
+    if (req.cursor !== undefined) q.set("cursor", req.cursor)
+    const res = await fetchImpl(
+      `${base}/api/community/servers/${REF_PLACEHOLDER_ID}/members?${q.toString()}`,
+      {
+        method: "GET",
+        headers: { authorization: `Bearer ${config.voucher}` },
+      },
+    );
+    return parseJsonResponse<ServerMemberListResult>(res, "listMembers");
+  }
+
+  async function callListChannels(req: ListChannelsRequest): Promise<{ groups: ChannelGroup[] }> {
+    // Canonical channel-list doors: single server → GET servers/{id}/channels
+    // (ref on `?server=`, `resolve` placeholder id, member-scoped → 404 ①-C);
+    // all servers (server omitted) → GET servers/channels (collection-level
+    // aggregate, no id). RETARGETED off the flat `listChannels` verb. Both return
+    // the same `{ groups: ChannelGroup[] }`.
+    const url = req.server
+      ? `${base}/api/community/servers/${REF_PLACEHOLDER_ID}/channels?server=${encodeURIComponent(req.server)}`
+      : `${base}/api/community/servers/channels`;
+    const res = await fetchImpl(url, {
+      method: "GET",
+      headers: { authorization: `Bearer ${config.voucher}` },
+    });
+    return parseJsonResponse<{ groups: ChannelGroup[] }>(res, "listChannels");
+  }
+
   async function callDownload(req: AttachmentDownloadRequest): Promise<AgentAttachmentDownloadResult> {
     const res = await fetchImpl(`${base}/api/attachmentDownload`, {
       method: "POST",
@@ -353,7 +393,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
   return {
     listServers: (_r: { agentId: AgentId }) => callListServers(),
     joinServer: callJoinServer,
-    listChannels: (r: ListChannelsRequest) => call<{ groups: ChannelGroup[] }>("listChannels", r),
+    listChannels: callListChannels,
     channelMember: callChannelMember,
     inboxPull: (r: InboxPullRequest) => call<InboxPullResponse>("inboxPull", r),
     inboxSnapshot: (r: { agentId: AgentId }) => call<InboxSnapshot>("inboxSnapshot", r),
@@ -362,8 +402,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     createPost: (r: CreatePostRequest) => call<CreatePostResponse>("createPost", r),
     read: callRead,
     resolve: callResolve,
-    listMembers: (r: { agentId: AgentId; server: string; limit?: number; cursor?: string }) =>
-      call<ServerMemberListResult>("listMembers", r),
+    listMembers: callListMembers,
     attachmentUpload: callUpload,
     attachmentDownload: callDownload,
     reactAdd: callReactAdd,

@@ -49,17 +49,28 @@ vi.mock("@/lib/community/member-presence", async () => {
   }
 })
 
-import { POST } from "./route"
+import { GET } from "./route"
 
-function req(body: unknown, headers: Record<string, string> = {}): NextRequest {
-  return new NextRequest("http://localhost/api/community/agent/listMembers", {
-    method: "POST",
-    headers: { "content-type": "application/json", ...headers },
-    body: typeof body === "string" ? body : JSON.stringify(body),
+// Bot arm of the dual-actor GET servers/[id]/members (folds the flat
+// `listMembers` verb). The bot addresses by `?server=<ref>` (+ optional
+// `limit`/`cursor`); the `[id]` path segment is the `resolve` placeholder the
+// daemon sends. A no-crk_ request falls through to the human withAuth arm
+// (401 here via the mocked no-session auth).
+function req(
+  params: { server?: string; limit?: number; cursor?: string },
+  headers: Record<string, string> = {},
+): NextRequest {
+  const url = new URL("http://localhost/api/community/servers/resolve/members")
+  if (params.server !== undefined) url.searchParams.set("server", params.server)
+  if (params.limit !== undefined) url.searchParams.set("limit", String(params.limit))
+  if (params.cursor !== undefined) url.searchParams.set("cursor", params.cursor)
+  return new NextRequest(url, {
+    method: "GET",
+    headers: { ...headers },
   })
 }
 
-describe("POST /api/community/agent/listMembers", () => {
+describe("GET /api/community/servers/[id]/members — bot arm (folds listMembers)", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockFindActiveAgentRunnerKeyByBearer.mockResolvedValue({ userId: "owner_1", machineId: "m_1", agentId: "bot_1" })
@@ -69,14 +80,14 @@ describe("POST /api/community/agent/listMembers", () => {
   })
 
   it("401 without Authorization", async () => {
-    const res = await POST(req({ server: "Design Studio" }))
+    const res = await GET(req({ server: "Design Studio" }), { params: { id: "resolve" } } as any)
     expect(res.status).toBe(401)
     expect(mockResolveServerByNameForMember).not.toHaveBeenCalled()
   })
 
   it("404 when the server name/id doesn't resolve for this bot", async () => {
     mockResolveServerByNameForMember.mockResolvedValue([])
-    const res = await POST(req({ server: "Nope" }, { Authorization: "Bearer crk_abc" }))
+    const res = await GET(req({ server: "Nope" }, { Authorization: "Bearer crk_abc" }), { params: { id: "resolve" } } as any)
     expect(res.status).toBe(404)
     expect(mockListMembersPaginated).not.toHaveBeenCalled()
   })
@@ -86,7 +97,7 @@ describe("POST /api/community/agent/listMembers", () => {
       { id: "srv_1", name: "Design Studio" },
       { id: "srv_2", name: "Design Studio" },
     ])
-    const res = await POST(req({ server: "Design Studio" }, { Authorization: "Bearer crk_abc" }))
+    const res = await GET(req({ server: "Design Studio" }, { Authorization: "Bearer crk_abc" }), { params: { id: "resolve" } } as any)
     expect(res.status).toBe(400)
     const body = await res.json()
     expect(body.error).toContain("srv_1")
@@ -107,7 +118,7 @@ describe("POST /api/community/agent/listMembers", () => {
     })
     // u_gus online, u_ally offline — proves the per-page bulk presence stamps each row.
     mockFetchOnlineUserIds.mockResolvedValue(new Set(["u_gus"]))
-    const res = await POST(req({ server: "Design Studio" }, { Authorization: "Bearer crk_abc" }))
+    const res = await GET(req({ server: "Design Studio" }, { Authorization: "Bearer crk_abc" }), { params: { id: "resolve" } } as any)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
       members: [
@@ -127,8 +138,9 @@ describe("POST /api/community/agent/listMembers", () => {
       hasMore: true,
       cursor: { joinedAt: "2026-03-01T00:00:00Z", id: "sm_9" },
     })
-    const res = await POST(
+    const res = await GET(
       req({ server: "srv_1", limit: 1, cursor: "2026-02-01T00:00:00Z|sm_5" }, { Authorization: "Bearer crk_abc" }),
+      { params: { id: "resolve" } } as any,
     )
     expect(res.status).toBe(200)
     // limit passed through; cursor string parsed into {joinedAt, id}.

@@ -158,6 +158,13 @@ export function deriveAuditLogSubcommand(pathname: string, method?: string): str
   // Single-message hydrate door GET messages/{id} = the folded `resolve` verb.
   // AFTER the /reactions & /threads patterns so those specific sub-paths win.
   if (/^\/api\/community\/messages\/[^/]+$/.test(canonical)) return "resolve";
+  // Server-scoped list doors (轴3 fold): GET servers/{id}/members = the folded
+  // `listMembers` verb; GET servers/{id}/channels and GET servers/channels (the
+  // all-servers collection read) = the folded `listChannels` verb. Map back so
+  // the audit row keeps the logical verb, not the `servers` door segment.
+  if (/^\/api\/community\/servers\/[^/]+\/members(\/|$)/.test(canonical)) return "listMembers";
+  if (/^\/api\/community\/servers\/[^/]+\/channels(\/|$)/.test(canonical)) return "listChannels";
+  if (/^\/api\/community\/servers\/channels(\/|$)/.test(canonical)) return "listChannels";
 
   // Normalize both the pre-rewrite client path (`/api/<verb>`) and the
   // post-rewrite upstream path (`/api/community/<verb>`, plans/22 §9 — the old
