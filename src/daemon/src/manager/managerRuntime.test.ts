@@ -2081,6 +2081,65 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
     }
   });
 
+  it("force_exit clears the killed_stalled marker so it does NOT leak onto the next reborn turn's turn_end", async () => {
+    // Regression: terminate_stalled sets nonCleanEndMarker=killed_stalled. If the
+    // kill's stop() produces no exit, stoppingStuck escalates force_exit — whose
+    // teardown must clear the marker. Otherwise the leaked marker is consumed by
+    // the NEXT (healthy, reborn) turn's turn_end and mislabels it killed_stalled
+    // (a forensic lie that corrupted our codex-wedge trace read).
+    vi.useFakeTimers();
+    try {
+      let now = 0;
+      const recs: Record<string, unknown>[] = [];
+      // stop() never drives an exit → the terminate_stalled kill wedges in
+      // `stopping` → stoppingStuck escalates force_exit (the path that leaks).
+      const stopSpy = vi.fn();
+      const session = fakeSession();
+      session.stop = stopSpy;
+      const mgr = new AgentProcessManager({
+        driverFor: () => fakeDriver("codex"), // per_turn — same stall setup as the killed_stalled test above
+        baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
+        sessionFactory: () => session,
+        now: () => now,
+        tickIntervalMs: 5,
+        staleThresholdMs: 100,
+        stoppingStuckThresholdMs: 100,
+        onFsmTransition: ((r: Record<string, unknown>) => recs.push(r)) as never,
+      });
+      mgr.start();
+      mgr.register("a1");
+      mgr.deliver("a1", { seq: 1, text: "hi" });
+      session.startResolver?.();
+      await Promise.resolve();
+      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      // Turn is in flight (turnActive) and makes NO progress → terminate_stalled
+      // sets killed_stalled marker. (Same trigger as the killed_stalled test.)
+      now = 200;
+      await vi.advanceTimersByTimeAsync(10);
+      expect(recs.find((r) => Array.isArray(r.effects) && (r.effects as string[]).includes("terminate_stalled"))).toBeTruthy();
+      // stop() produced no exit → sit in stopping past stoppingStuck → force_exit.
+      now = 500;
+      await vi.advanceTimersByTimeAsync(10);
+      expect(recs.find((r) => Array.isArray(r.effects) && (r.effects as string[]).includes("force_exit"))).toBeTruthy();
+
+      // force_exit dispatched a synthetic exit → respawn. The reborn turn runs
+      // and ends CLEANLY. Its turn_end must NOT inherit the leaked marker.
+      session.startResolver?.();
+      await Promise.resolve();
+      recs.length = 0;
+      session.fire("runtime_event", { kind: "session_init", sessionId: "s2" });
+      session.fire("runtime_event", { kind: "turn_end" });
+      const turnEnd = recs.find((r) => r.event === "turn_end" && r.agentId === "a1");
+      expect(turnEnd).toBeTruthy();
+      // The whole point: marker was cleared at force_exit, so this healthy turn
+      // is a CLEAN end — no leaked killed_stalled.
+      expect(turnEnd!.terminationCause).toBeUndefined();
+      expect(turnEnd!.endReason).not.toBe("errored");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("a VOLUNTARY idle-timeout stop (which also flips status→stopping) does NOT produce a tagged turn_end (red line 2 — cause, not bare status)", async () => {
     // Cecilia's "don't treat 'not seen' as 'won't happen'": idle-hibernation's
     // `stop(idle_timeout)` flips status→stopping too, but it is a CLEAN end. We

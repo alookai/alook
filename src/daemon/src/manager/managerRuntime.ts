@@ -1312,6 +1312,15 @@ export class AgentProcessManager {
         if (this.sessions.get(effect.agentId) === session) this.sessions.delete(effect.agentId);
         this.liveSessions.delete(effect.agentId);
         if (this.activeSpawnState.get(effect.agentId) === state) this.activeSpawnState.delete(effect.agentId);
+        // Clear the killed_stalled marker set at (1249) — this force_exit IS its
+        // trailing terminal event. The `session.on("exit")` clear (~:1569) can't
+        // do it on this path: force_exit set `torndown` (the late real exit
+        // bails at the torndown early-return) AND deleted activeSpawnState (its
+        // `=== state` guard then fails). Without this, the leaked marker gets
+        // consumed by the NEXT healthy reborn turn's turn_end (~:1842) and
+        // mislabels that turn `killed_stalled` in the trace/audit — a forensic
+        // lie, not a behavior bug, but it corrupts post-force_exit trace reads.
+        this.nonCleanEndMarker.delete(effect.agentId);
         this.opts.onAgentLocallyStopped?.({ agentId: effect.agentId, reason: "terminate_stalled" });
         // (3) Synthetic `exit` → the normal onExit recovery (drain-respawn or
         //     settle idle; enterStable clears stoppingSince). Universal backstop:
