@@ -273,6 +273,61 @@ describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for ME
     })
   })
 
+  it("starts wake enqueue before a slow recipient broadcast settles", async () => {
+    let releaseBroadcast!: () => void
+    mockBroadcastToUser.mockImplementation(
+      () => new Promise<void>((resolve) => {
+        releaseBroadcast = resolve
+      }),
+    )
+
+    const pending = fanOutToChannel(
+      "c1",
+      { type: WS_EVENTS.MESSAGE_CREATE, channelId: "c1", message: {} as never } as never,
+      {
+        excludeUserId: "u1",
+        recipients: ["u1", "u2"],
+        wakeMessageRow,
+      },
+    )
+
+    expect(mockEnqueueBotWakes).toHaveBeenCalledTimes(1)
+    releaseBroadcast()
+    await pending
+  })
+
+  it("fire-and-forget fanOut registers its waitUntil before recipient resolution settles", async () => {
+    const waitUntil = vi.fn()
+    mockGetCloudflareContext.mockImplementation(() => ({
+      env: { DB: {} },
+      ctx: { waitUntil },
+    }))
+    let releaseChannelType!: (type: string) => void
+    mockGetChannelType.mockImplementationOnce(
+      () => new Promise<string>((resolve) => {
+        releaseChannelType = resolve
+      }),
+    )
+    mockResolveScopeMemberUserIds.mockResolvedValue(["u1", "u2"])
+
+    const floatingFanout = fanOutToChannel(
+      "c1",
+      { type: WS_EVENTS.MESSAGE_CREATE, channelId: "c1", message: {} as never } as never,
+      {
+        excludeUserId: "u1",
+        wakeMessageRow,
+      },
+    )
+
+    expect(waitUntil).toHaveBeenCalledTimes(1)
+    expect(mockEnqueueBotWakes).not.toHaveBeenCalled()
+
+    releaseChannelType("text")
+    await waitUntil.mock.calls[0]![0]
+    expect(mockEnqueueBotWakes).toHaveBeenCalledTimes(1)
+    await floatingFanout
+  })
+
   it("fanOutToDM enqueues wakes with channelId scope via listChannelMemberUserIds", async () => {
     mockGetDM.mockResolvedValue({ id: "dm1" })
     mockListChannelMemberUserIds.mockResolvedValue(["u1", "u2"])

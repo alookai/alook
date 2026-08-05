@@ -112,26 +112,44 @@ export async function resolveChannelRecipients(db: Database, channelId: string):
 /**
  * Fan out an event to all members of the server that owns a channel.
  */
-export async function fanOutToChannel(
+export function fanOutToChannel(
   channelId: string,
   event: BroadcastableEvent,
   opts?: { excludeUserId?: string; recipients?: string[] } & WakeOpts
 ): Promise<void> {
   try {
-    const { env } = getCloudflareContext()
+    const { env, ctx } = getCloudflareContext()
     const db = getDb((env as Env).DB)
-    // Reuse a pre-resolved recipient set when the caller already resolved it
-    // (message-handler shares one set between fan-out and the notify pipeline),
-    // else resolve here.
-    const userIds = opts?.recipients ?? await getChannelRecipientUserIds(db, channelId)
-    await broadcastToRecipients(userIds, event, opts?.excludeUserId)
-    maybeEnqueueWakes(event, userIds, { channelId }, opts)
+    const work = (async () => {
+      try {
+        // Reuse a pre-resolved recipient set when the caller already resolved it
+        // (message-handler shares one set between fan-out and the notify pipeline),
+        // else resolve here.
+        const userIds = opts?.recipients ?? await getChannelRecipientUserIds(db, channelId)
+        // Register the wake's waitUntil before any human-WS broadcast can stall.
+        // A slow best-effort UI fan-out must never delay or drop the bot wake.
+        maybeEnqueueWakes(event, userIds, { channelId }, opts)
+        await broadcastToRecipients(userIds, event, opts?.excludeUserId)
+      } catch (err) {
+        log.warn("fanout_to_channel_failed", {
+          eventType: event.type,
+          targetId: channelId,
+          err: String(err),
+        })
+      }
+    })()
+    // Callers deliberately fire-and-forget this helper. Keep the whole setup
+    // alive from the first tick, including recipient resolution before the
+    // leaf wake/broadcast operations register their own waitUntil promises.
+    try { ctx.waitUntil(work) } catch { /* non-CF test/runtime context */ }
+    return work
   } catch (err) {
     log.warn("fanout_to_channel_failed", {
       eventType: event.type,
       targetId: channelId,
       err: String(err),
     })
+    return Promise.resolve()
   }
 }
 
@@ -140,28 +158,42 @@ export async function fanOutToChannel(
  * channels now — kept as a thin named wrapper for the DM call sites; the
  * recipient set is the channel's relation='access' members.
  */
-export async function fanOutToDM(
+export function fanOutToDM(
   channelId: string,
   event: BroadcastableEvent,
   opts?: { excludeUserId?: string } & WakeOpts
 ): Promise<void> {
   try {
-    const { env } = getCloudflareContext()
+    const { env, ctx } = getCloudflareContext()
     const db = getDb((env as Env).DB)
-    const dm = await queries.communityDm.getDM(db, channelId)
-    if (!dm) {
-      log.warn("fanOutToDM: DM channel not found", { channelId })
-      return
-    }
-    const userIds = await queries.communityChannel.listChannelMemberUserIds(db, channelId)
-    await broadcastToRecipients(userIds, event, opts?.excludeUserId)
-    maybeEnqueueWakes(event, userIds, { channelId }, opts)
+    const work = (async () => {
+      try {
+        const dm = await queries.communityDm.getDM(db, channelId)
+        if (!dm) {
+          log.warn("fanOutToDM: DM channel not found", { channelId })
+          return
+        }
+        const userIds = await queries.communityChannel.listChannelMemberUserIds(db, channelId)
+        // Keep wake delivery independent from the best-effort UI broadcast.
+        maybeEnqueueWakes(event, userIds, { channelId }, opts)
+        await broadcastToRecipients(userIds, event, opts?.excludeUserId)
+      } catch (err) {
+        log.warn("fanout_to_dm_failed", {
+          eventType: event.type,
+          targetId: channelId,
+          err: String(err),
+        })
+      }
+    })()
+    try { ctx.waitUntil(work) } catch { /* non-CF test/runtime context */ }
+    return work
   } catch (err) {
     log.warn("fanout_to_dm_failed", {
       eventType: event.type,
       targetId: channelId,
       err: String(err),
     })
+    return Promise.resolve()
   }
 }
 
