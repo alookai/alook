@@ -29,6 +29,10 @@ const mockGetUserInternal = vi.fn()
 const mockGetDM = vi.fn()
 const mockGetDMPeer = vi.fn()
 const mockIsBlocked = vi.fn()
+const mockListMessagesBySeq = vi.fn()
+const mockToAgentMessages = vi.fn()
+const mockResolveServerByNameForMember = vi.fn()
+const mockResolveChannelByNameForMember = vi.fn()
 
 const mockFanOutToChannel = vi.fn()
 const mockResolveChannelRecipients = vi.fn(async () => [] as string[])
@@ -50,6 +54,7 @@ vi.mock("@alook/shared", async () => {
       communityChannel: {
         getChannelForMember: (...a: unknown[]) => mockGetChannelForMember(...a),
         getChannel: (...a: unknown[]) => mockGetChannel(...a),
+        resolveChannelByNameForMember: (...a: unknown[]) => mockResolveChannelByNameForMember(...a),
         listChildChannels: (...a: unknown[]) => mockListChildChannels(...a),
         isChannelPrivate: (...a: unknown[]) => mockIsChannelPrivate(...a),
         getPrivateChannelAudienceUserIds: (...a: unknown[]) => mockGetPrivateChannelAudienceUserIds(...a),
@@ -93,6 +98,16 @@ vi.mock("@alook/shared", async () => {
       communityFriendship: {
         isBlocked: (...a: unknown[]) => mockIsBlocked(...a),
       },
+      // Bot read arm (GET dual-actor): seq-window + agent-message projection.
+      communityAgentInbox: {
+        listMessagesBySeq: (...a: unknown[]) => mockListMessagesBySeq(...a),
+        toAgentMessages: (...a: unknown[]) => mockToAgentMessages(...a),
+      },
+      // resolveTargetForMember (real, for the bot ref-via-query arm) resolves
+      // the server then channel by name, both member-scoped.
+      communityServer: {
+        resolveServerByNameForMember: (...a: unknown[]) => mockResolveServerByNameForMember(...a),
+      },
     },
   }
 })
@@ -121,9 +136,15 @@ vi.mock("@/lib/middleware/auth", () => ({
 // exercise the HUMAN arm — mock the wrapper to yield a human actor + the real
 // channelId from the path. The bot arm is covered in the send-fold tests.
 vi.mock("@/lib/middleware/community-actor", () => ({
+  // Credential-based actor dispatch (mirrors the real wrapper): a crk_ bearer →
+  // bot actor, else → human. Lets the bot-read arm be exercised via header.
   withCommunityActor: vi.fn((handler: any) => async (req: any, ctx?: any) => {
     const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: { DB: {} }, actor: { kind: "human", userId: "u1", email: "u@t.com" }, params })
+    const authz = req?.headers?.get?.("Authorization") ?? ""
+    const actor = authz.startsWith("Bearer crk_")
+      ? { kind: "bot", userId: "bot_1", ownerUserId: "owner_1", machineId: "m_1" }
+      : { kind: "human", userId: "u1", email: "u@t.com" }
+    return handler(req, { env: { DB: {} }, actor, params })
   }),
 }))
 
@@ -434,7 +455,9 @@ describe("POST /api/community/channels/[id]/messages", () => {
 describe("GET /api/community/channels/[id]/messages", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "text" })
+    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "text", parentChannelId: null })
+    // The door's single mask probes getChannel first (dual-actor GET dispatch).
+    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1", type: "text", parentChannelId: null })
     mockListChildChannels.mockResolvedValue([])
     mockListByMessageIds.mockResolvedValue([])
     mockListReactionsByMessageIds.mockResolvedValue([])
@@ -662,6 +685,48 @@ describe("GET /api/community/channels/[id]/messages", () => {
       // Anchor-mode paths must not fire.
       expect(mockGetMessageInScope).not.toHaveBeenCalled()
       expect(mockListMessagesAround).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("bot arm (GET/read convergence — seq window + {items}, ref-via-query, no create)", () => {
+    function botGetReq(query = "") {
+      return new NextRequest(`http://localhost/api/community/channels/resolve/messages${query}`, {
+        method: "GET",
+        headers: { Authorization: "Bearer crk_abc" },
+      })
+    }
+    const botCtx = { params: { id: "resolve" } } as any
+
+    it("bot reads via ?ref= → seq window → {items} (agent-message projection), NOT {messages}", async () => {
+      // ref resolves to a channel; the door's single mask passes it (bot scope),
+      // then the bot arm pages by seq and projects to agent-message {items}.
+      // ref /studio/general resolves server→channel (both member-scoped), then
+      // the door's mask probes getChannel.
+      mockResolveServerByNameForMember.mockResolvedValue([{ id: "s1" }])
+      mockResolveChannelByNameForMember.mockResolvedValue([{ id: "c1" }])
+      mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1", type: "text", parentChannelId: null })
+      mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "text", parentChannelId: null })
+      mockListMessagesBySeq.mockResolvedValue({ items: [{ id: "m1", seq: 1 }], hasMore: false, latestSeq: 1 })
+      mockToAgentMessages.mockResolvedValue([{ seq: 1, text: "hi" }])
+
+      const res = await GET(botGetReq("?ref=%2Fstudio%2Fgeneral&after=0"), botCtx)
+      expect(res.status).toBe(200)
+      const body = await res.json() as { items?: unknown[]; messages?: unknown[] }
+      expect(body.items).toEqual([{ seq: 1, text: "hi" }])
+      expect(body.messages).toBeUndefined() // bot arm = {items}, never {messages}
+      // Read went through the shared seq query, scoped to the resolved channel.
+      expect(mockListMessagesBySeq).toHaveBeenCalledWith({}, { channelId: "c1" }, expect.objectContaining({ after: 0 }))
+    })
+
+    it("bot read of a ref to a nonexistent target → 404, NO create (read-create=false ⑤)", async () => {
+      // resolveTargetForMember (real, through the mocked queries) returns
+      // not-found for an unknown ref; the door surfaces 404 and never creates.
+      mockResolveServerByNameForMember.mockResolvedValue([]) // server not found → resolve 404
+      const res = await GET(botGetReq("?ref=%2Fnope%2Fmissing"), botCtx)
+      expect(res.status).toBe(404)
+      // No create query fired — read is pure addressing (structurally the GET
+      // descriptor carries no create-if-missing).
+      expect(mockCreateMessage).not.toHaveBeenCalled()
     })
   })
 })

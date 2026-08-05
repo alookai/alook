@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
@@ -13,7 +12,6 @@ import {
   buildSinceResponse,
 } from "@/lib/community/messages"
 import { enrichMessages } from "@/lib/community/enrich-messages"
-import { requireChannelMember } from "@/lib/community/permissions"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { createCommunityMessage } from "@/lib/community/message-handler"
 import {
@@ -28,24 +26,88 @@ import {
 // one door's single addressing input — id (path) xor ref (body), Gener #752.
 const REF_PLACEHOLDER_ID = "resolve"
 
-export const GET = withAuth(async (req: NextRequest, ctx) => {
-  const channelId = ctx.params?.id
-  if (!channelId) return writeError("missing channel id", 400)
+// Parse a non-negative integer query param (bot read's seq anchors/limit).
+// Returns undefined for absent/invalid so downstream defaults apply.
+function parseIntParam(raw: string | null): number | undefined {
+  if (raw === null) return undefined
+  const n = Number(raw)
+  return Number.isInteger(n) && n >= 0 ? n : undefined
+}
 
+/**
+ * GET /api/community/channels/{id}/messages — the canonical read door (GET/read
+ * convergence, (A) ruled Melly #237). Dual-actor: human/web pages by createdAt
+ * → enrich → {messages}; bot/CLI pages by seq → agent-message → {items} (the
+ * former flat `read` verb, daemon contract). Both arms:
+ *   - go through the SINGLE authorization entry (resolveMessageTarget →
+ *     requireMessageSurfaceAccess) — no standalone requireChannelMember (§3);
+ *     a bot passes the SAME mask (①-C read side, never skipped);
+ *   - query the SAME channel-scoped set (same channelId + actor scope) — the
+ *     response-form branch is a projection/pagination difference ONLY, never a
+ *     visibility/set difference (Ingaborg ★ / Aigneis ④);
+ * The branch key is the CREDENTIAL actor.kind, never a field (Aigneis ②); auth
+ * failures (404/403) happen at the mask BEFORE the branch, opaque for both arms
+ * (Aigneis ③). Read NEVER creates: the descriptor built here carries no
+ * create-if-missing (structurally, not just create=false — Aigneis #246 ⑤); a
+ * ref to a nonexistent target is a 404, not a read-then-create.
+ */
+export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
-
-  const auth = await requireChannelMember(db, channelId, ctx.userId)
-  if (!auth.ok) return writeError(auth.error, auth.status)
-
   const params = req.nextUrl.searchParams
+
+  // Single authorization entry, shared by both arms. Human: id from the path.
+  // Bot: ref from the query (?ref=), a ref carrying `/` can't sit in the path
+  // segment. NO create-if-missing on either — read is pure addressing.
+  const refParam = params.get("ref")
+  const descriptor = ctx.actor.kind === "bot" && refParam
+    ? { ref: refParam }
+    : { id: ctx.params?.id === REF_PLACEHOLDER_ID ? "" : (ctx.params?.id ?? "") }
+  if (descriptor.id !== undefined && !descriptor.id) {
+    return NextResponse.json({ error: "missing channel id" }, { status: 400 })
+  }
+
+  const resolved = await resolveMessageTarget(db, ctx.actor.userId, descriptor, ctx.actor.kind)
+  if (!resolved.ok) {
+    return NextResponse.json(
+      { error: resolved.error, ...(resolved.hint ? { hint: resolved.hint } : {}) },
+      { status: resolved.status },
+    )
+  }
+  const channelId = resolved.value.target.channelId
+
+  // TODO(route-disc): unify the two response projections.
+  // Auth/pagination-scope already single-source (one mask, one channel-scoped set);
+  // the remaining fork is PROJECTION ONLY — human: enrichMessages→{messages},
+  // bot: toAgentMessages→{items}. Kept split today because {items}+agent-message
+  // is the daemon/CLI contract (inboxPull-shape reserved). Converge when the
+  // agent-message form and enrich can share one projection (or CLI contract lifts).
+  // Invariant to preserve on merge: both arms hit the SAME channel-scoped row-set
+  // (set-equality) — only pagination-window + projection differ, no arm adds a where.
+
+  // ── bot arm: seq-anchored window → agent-message projection → {items} ──
+  if (ctx.actor.kind === "bot") {
+    const readParams = {
+      before: parseIntParam(params.get("before")),
+      after: parseIntParam(params.get("after")),
+      around: parseIntParam(params.get("around")),
+      limit: parseIntParam(params.get("limit")),
+    }
+    const { items, hasMore, latestSeq } = await queries.communityAgentInbox.listMessagesBySeq(
+      db,
+      { channelId },
+      readParams,
+    )
+    const messages = await queries.communityAgentInbox.toAgentMessages(db, items, ctx.actor.userId)
+    return NextResponse.json({ items: messages, hasMore, ...(latestSeq !== undefined ? { latestSeq } : {}) })
+  }
+
+  // ── human arm: createdAt-anchored window → enrich → {messages} ──
+  const userId = ctx.actor.userId
   const anchorId = parseAnchor(params.get("anchor"))
   const since = parseCursor(params.get("since"))
   const cursor = parseCursor(params.get("cursor"))
   const pageSize = parsePageSize(params.get("limit"))
 
-  // Anchor branch: resolve the target message inside the channel scope first
-  // (a scope-first lookup — see AGENTS.md "scope the queries before"), then
-  // fetch the centered window and enrich.
   if (anchorId) {
     const anchor = await queries.communityMessage.getMessageInScope(db, anchorId, { channelId })
     if (!anchor) return writeError("anchor not found", 404)
@@ -62,12 +124,10 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       { hasMoreOlder: around.hasMoreOlder, hasMoreNewer: around.hasMoreNewer },
     )
 
-    const { messages, latestSeq } = await enrichMessages(db, ctx.userId, { channelId }, items)
+    const { messages, latestSeq } = await enrichMessages(db, userId, { channelId }, items)
     return writeJSON({ messages, hasMoreOlder, hasMoreNewer, olderCursor, newerCursor, latestSeq })
   }
 
-  // Since branch: strictly-newer diff for cache hydration & WS-reconnect
-  // catch-up. Rows arrive ASC directly from the query; no reverse pass here.
   if (since) {
     const rows = await queries.communityMessage.listMessagesSince(db, {
       channelId,
@@ -75,12 +135,10 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       limit: pageSize,
     })
     const { items, hasMoreNewer, newerCursor, hasMoreOlder, olderCursor } = buildSinceResponse(rows, pageSize)
-    const { messages, latestSeq } = await enrichMessages(db, ctx.userId, { channelId }, items)
+    const { messages, latestSeq } = await enrichMessages(db, userId, { channelId }, items)
     return writeJSON({ messages, hasMoreNewer, newerCursor, hasMoreOlder, olderCursor, latestSeq })
   }
 
-  // Legacy branch (unchanged behavior beyond `latestSeq` addition): newest page
-  // via DESC + one-extra-row probe, response items reversed to ASC.
   const rows = await queries.communityMessage.listMessages(db, {
     channelId,
     cursor,
@@ -88,7 +146,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   })
 
   const { items, hasMore, cursor: nextCursor } = buildPaginatedResponse(rows, pageSize)
-  const { messages, latestSeq } = await enrichMessages(db, ctx.userId, { channelId }, items.slice().reverse())
+  const { messages, latestSeq } = await enrichMessages(db, userId, { channelId }, items.slice().reverse())
   return writeJSON({ messages, hasMore, cursor: nextCursor, latestSeq })
 })
 
