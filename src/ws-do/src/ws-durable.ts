@@ -72,17 +72,26 @@ interface CommunityMachineHandle {
 const IDENTITY_KEY = "community-machine-identity"
 const HANDLE_KEY = "community-machine-handle"
 const RUNTIME_ERROR_KEY = "community-machine-runtime-error"
-// Per-launch pending reset/nap attribution. Written when a reset/nap frame is
-// forwarded to this machine's daemon (dispatch), read + deleted when the
-// reborn agent's `agent_session` lands (completion). ctx.storage, NOT an
+// Per-launch restart attribution. Written only when a reset, nap, model switch,
+// or provider switch reaches this machine's daemon; read + deleted when the
+// resulting `agent_session` lands. ctx.storage, NOT an
 // in-memory Map: the DO can hibernate between dispatch and agent_session, and
 // a dropped entry would make a real reset silently write nothing (fire-once
 // reads it as "never dispatched"). See plans/reset-nap-completion-rehome.md §6.
-const RESET_PENDING_PREFIX = "reset-pending:"
-const resetPendingKey = (launchId: string) => RESET_PENDING_PREFIX + launchId
+const RESTART_PENDING_PREFIX = "reset-pending:"
+const restartPendingKey = (launchId: string) => RESTART_PENDING_PREFIX + launchId
 
-/** Trigger for a pending reset/nap launch — the entry-point that dispatched it. */
 type ResetTrigger = "single" | "reset_all" | "nap"
+type RestartAttribution =
+  | { kind: "session_reset"; trigger: "single" | "reset_all" }
+  | { kind: "nap" }
+  | { kind: "model_switch"; from: string | null; to: string | null }
+  | { kind: "provider_switch"; from: string; to: string }
+
+function normalizeRestartAttribution(value: ResetTrigger | RestartAttribution): RestartAttribution {
+  if (typeof value !== "string") return value
+  return value === "nap" ? { kind: "nap" } : { kind: "session_reset", trigger: value }
+}
 
 export class WebSocketDurableObject extends DurableObject<Env> {
   /**
@@ -186,15 +195,60 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       // daemon. Best-effort — if the daemon isn't connected, drops silently.
       // Cold-start warmup on reconnect re-syncs authoritative state.
       const body = await request.text()
-      // Reset/nap/reset_all frames pass through here on their way to the
-      // daemon — the moment we know both the launchId(s) AND which entry-point
-      // dispatched them. Record the pending attribution NOW (first-write, never
-      // later than the reborn `agent_session` could arrive — §6.2) so the
-      // completion landing can look it up. Trigger is derived from the frame
-      // type, so it structurally cannot disagree with the endpoint (§ Cecilia
-      // #933). Done before the forward so a fast cold-start can't beat the write.
-      await this.recordPendingResets(body)
+      // Reset/nap/reset_all frames pass through here on their way to the daemon.
+      // Persist attribution only when at least one daemon socket received them.
+      // Starting the storage write before yielding keeps a fast completion
+      // behind the Durable Object input gate.
       const sent = this.forwardToCommunityMachine(body)
+      if (sent > 0) await this.recordPendingRestarts(body)
+      return new Response(JSON.stringify({ sent }), {
+        headers: { "Content-Type": "application/json" },
+      })
+    }
+
+    if (
+      request.method === "POST" &&
+      (url.pathname === "/push-model-switch" || url.pathname === "/push-provider-switch")
+    ) {
+      let payload: unknown
+      try {
+        payload = await request.json()
+      } catch {
+        return new Response(JSON.stringify({ sent: 0 }), { status: 400 })
+      }
+      if (!payload || typeof payload !== "object") {
+        return new Response(JSON.stringify({ sent: 0 }), { status: 400 })
+      }
+      const raw = payload as Record<string, unknown>
+      const { agentId, config, launchId, from, to } = raw
+      if (
+        typeof agentId !== "string" || agentId.length === 0 ||
+        typeof launchId !== "string" || launchId.length === 0 ||
+        !config || typeof config !== "object"
+      ) {
+        return new Response(JSON.stringify({ sent: 0 }), { status: 400 })
+      }
+      const providerSwitch = url.pathname === "/push-provider-switch"
+      if (
+        providerSwitch
+          ? typeof from !== "string" || from.length === 0 || typeof to !== "string" || to.length === 0
+          : (from !== null && typeof from !== "string") || (to !== null && typeof to !== "string")
+      ) {
+        return new Response(JSON.stringify({ sent: 0 }), { status: 400 })
+      }
+      const frame = JSON.stringify({
+        type: providerSwitch ? "agent:reset" : "agent:model_switch",
+        agentId,
+        config,
+        launchId,
+      })
+      const sent = this.forwardToCommunityMachine(frame)
+      if (sent > 0) {
+        const attribution: RestartAttribution = providerSwitch
+          ? { kind: "provider_switch", from: from as string, to: to as string }
+          : { kind: "model_switch", from: from as string | null, to: to as string | null }
+        await this.ctx.storage.put<RestartAttribution>(restartPendingKey(launchId), attribution)
+      }
       return new Response(JSON.stringify({ sent }), {
         headers: { "Content-Type": "application/json" },
       })
@@ -931,8 +985,8 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       return
     }
 
-    // `agent_session` — the reborn agent is really up and has a session. This
-    // is the completion signal for a reset/nap: if this launch has pending
+    // `agent_session` — the restarted agent is really up and has a session. This
+    // is the completion signal for a reset, nap, model switch, or provider switch: if this launch has pending
     // attribution (recorded at dispatch in `/push`), write its audit + awake
     // stamp + broadcast NOW (not at dispatch), then consume the entry so a
     // replayed `agent_session` for the same launch can't double-write
@@ -951,8 +1005,9 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       // object's single-threaded turn: the second frame reads null and returns.
       // (normalizer dedup removes the double-frame SOURCE; this makes the
       // consume race-proof for any future double-frame, cross-runtime.)
-      const trigger = await this.ctx.storage.get<ResetTrigger>(resetPendingKey(launchId))
-      if (!trigger) return // not a reset/nap launch, or already consumed
+      const stored = await this.ctx.storage.get<ResetTrigger | RestartAttribution>(restartPendingKey(launchId))
+      if (!stored) return
+      const attribution = normalizeRestartAttribution(stored)
       await this.evictPendingReset(launchId)
       const db = createDb(this.env.DB)
       await this.handleFrameForBoundBot({
@@ -967,28 +1022,48 @@ export class WebSocketDurableObject extends DurableObject<Env> {
           // "slept" vs "was reset" (red line ④). actorId never travels: reset
           // is owner-only, so the actor IS the bot owner, resolved right here
           // from the binding (red line ⑥ — attribution stays server-side).
-          const inserted =
-            trigger === "nap"
-              ? await queries.communityBotAuditLog.insertBotAuditNap(db, {
+          const inserted = attribution.kind === "nap"
+            ? await queries.communityBotAuditLog.insertBotAuditNap(db, { botId: agentId, launchId })
+            : attribution.kind === "session_reset"
+              ? await queries.communityBotAuditLog.insertBotAuditSessionReset(db, {
                   botId: agentId,
                   launchId,
+                  trigger: attribution.trigger,
                 })
-              : await queries.communityBotAuditLog.insertBotAuditSessionReset(db, {
-                  botId: agentId,
-                  launchId,
-                  trigger,
-                })
+              : attribution.kind === "model_switch"
+                ? await queries.communityBotAuditLog.insertBotAuditModelChanged(db, {
+                    botId: agentId,
+                    launchId,
+                    from: attribution.from,
+                    to: attribution.to,
+                  })
+                : await queries.communityBotAuditLog.insertBotAuditProviderChanged(db, {
+                    botId: agentId,
+                    launchId,
+                    from: attribution.from,
+                    to: attribution.to,
+                  })
           if (!inserted) return
           // Stamp awake (lastRefreshContextAt) in lockstep with the audit row,
           // using the row's createdAt so the my-bots "Awake Nh" indicator can
           // never drift from the audit event.
-          await queries.communityBot.touchBotRefreshContext(db, agentId, inserted.createdAt)
-          const payload = trigger === "nap" ? { trigger: "nap" } : { trigger }
+          if (attribution.kind !== "model_switch") {
+            await queries.communityBot.touchBotRefreshContext(db, agentId, inserted.createdAt)
+          }
+          const payload = attribution.kind === "nap"
+            ? { trigger: "nap" }
+            : attribution.kind === "session_reset"
+              ? { trigger: attribution.trigger }
+              : { from: attribution.from, to: attribution.to }
           await this.notifyUserDO(binding.ownerUserId, {
             type: WS_EVENTS.BOT_AUDIT_EVENT,
             botId: agentId,
             id: inserted.id,
-            kind: trigger === "nap" ? "nap" : "session_reset",
+            kind: attribution.kind === "provider_switch"
+              ? "provider_changed"
+              : attribution.kind === "model_switch"
+                ? "model_changed"
+                : attribution.kind,
             payload,
             sessionId: null,
             launchId,
@@ -1215,7 +1290,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
    * (`agent_wake_ack` error / `session.error`). Best-effort parse — a malformed
    * frame just records nothing and forwards as before.
    */
-  private async recordPendingResets(body: string): Promise<void> {
+  private async recordPendingRestarts(body: string): Promise<void> {
     let frame: unknown
     try {
       frame = JSON.parse(body)
@@ -1224,27 +1299,29 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     }
     if (!frame || typeof frame !== "object") return
     const f = frame as { type?: unknown }
-    const put = async (launchId: unknown, trigger: ResetTrigger) => {
+    const put = async (launchId: unknown, attribution: RestartAttribution) => {
       if (typeof launchId !== "string" || launchId.length === 0) return
-      await this.ctx.storage.put<ResetTrigger>(resetPendingKey(launchId), trigger)
+      await this.ctx.storage.put<RestartAttribution>(restartPendingKey(launchId), attribution)
     }
     if (f.type === "agent:reset") {
-      await put((f as { launchId?: unknown }).launchId, "single")
+      await put((f as { launchId?: unknown }).launchId, { kind: "session_reset", trigger: "single" })
     } else if (f.type === "agent:nap") {
-      await put((f as { launchId?: unknown }).launchId, "nap")
+      await put((f as { launchId?: unknown }).launchId, { kind: "nap" })
     } else if (f.type === "machine:reset_all") {
       const resets = (f as { resets?: unknown }).resets
       if (Array.isArray(resets)) {
         for (const r of resets) {
-          if (r && typeof r === "object") await put((r as { launchId?: unknown }).launchId, "reset_all")
+          if (r && typeof r === "object") {
+            await put((r as { launchId?: unknown }).launchId, { kind: "session_reset", trigger: "reset_all" })
+          }
         }
       }
     }
   }
 
-  /** Drop a pending reset/nap entry (consumed on completion, or evicted on failure). */
+  /** Drop a pending restart entry (consumed on completion, or evicted on failure). */
   private async evictPendingReset(launchId: string): Promise<void> {
-    await this.ctx.storage.delete(resetPendingKey(launchId))
+    await this.ctx.storage.delete(restartPendingKey(launchId))
   }
 
   /** Optimistic overlay clear — no-op when nothing is stashed. */

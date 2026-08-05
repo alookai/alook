@@ -61,6 +61,26 @@ describe("BotActivityRow — model_changed", () => {
   })
 })
 
+describe("BotActivityRow — provider_changed", () => {
+  function providerRowText(renderer: TestRenderer.ReactTestRenderer): string {
+    return rowText(renderer, "bot-activity-event-provider_changed")
+  }
+
+  it("renders runtime ids from → to", () => {
+    const renderer = render({
+      id: "e5",
+      kind: "provider_changed",
+      payload: { from: "claude", to: "codex" },
+      sessionId: null,
+      launchId: null,
+      createdAt: "2026-07-26T00:00:00.000Z",
+    })
+    expect(providerRowText(renderer)).toContain("claude")
+    expect(providerRowText(renderer)).toContain("→")
+    expect(providerRowText(renderer)).toContain("codex")
+  })
+})
+
 describe("BotActivityRow — error", () => {
   it("renders the failure message plus the code · model detail", () => {
     const renderer = render({

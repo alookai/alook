@@ -58,7 +58,12 @@ const NAMED_CFG: RuntimeConfig = {
   mode: { kind: "default" },
 };
 
-function makeManager(opts: { logger?: Logger } = {}) {
+function makeManager(
+  opts: {
+    logger?: Logger;
+    onAgentSession?: (info: { agentId: string; sessionId: string; launchId: string }) => void;
+  } = {},
+) {
   const spawns: Array<{ ctx: LaunchContext; prompt: string }> = [];
   let session = fakeSession();
   const sessions: FakeSession[] = [];
@@ -226,6 +231,49 @@ describe("AgentProcessManager.switchModel", () => {
     session.fire("exit");
     // forgetSession — the writer of the reset_session barrier — must never run.
     expect(timelineCalls.some((c) => c.startsWith("forget:"))).toBe(false);
+  });
+
+  // #910 verify-by-test (Cecilia FINAL LOCK §7 / bot-provider-switch plan):
+  // model_changed re-home to agent_session only works if a forgetSession:false
+  // respawn still emits session_init AND threads the switch's launchId into
+  // onAgentSession. Driver-side: resume already yields session_init
+  // (codex.test "delivers the prompt on resume too"; cursor system/init;
+  // SdkRuntimeSession.emitEvents first-event). This pins the manager half.
+  it("after switchModel respawn, session_init emits onAgentSession with the switch launchId (not the prior wake's)", async () => {
+    const sessionsSeen: Array<{ agentId: string; sessionId: string; launchId: string }> = [];
+    const { mgr, getSession } = makeManager({
+      onAgentSession: (info) => sessionsSeen.push(info),
+    });
+    mgr.register("a1", { launchId: "wake-l1" });
+    mgr.deliver("a1", { seq: 1, text: "hi" });
+    getSession().fire("runtime_event", { kind: "session_init", sessionId: "sess-123" });
+    expect(sessionsSeen).toEqual([
+      { agentId: "a1", sessionId: "sess-123", launchId: "wake-l1" },
+    ]);
+
+    await mgr.switchModel("a1", { runtimeConfig: NAMED_CFG, launchId: "switch-l2", rewakePrompt: REWAKE });
+    getSession().fire("exit");
+    // Respawn is live; driver resume path emits session_init again (same or new id).
+    getSession().fire("runtime_event", { kind: "session_init", sessionId: "sess-123" });
+
+    expect(sessionsSeen).toHaveLength(2);
+    expect(sessionsSeen[1]).toEqual({
+      agentId: "a1",
+      sessionId: "sess-123",
+      launchId: "switch-l2",
+    });
+  });
+
+  it("idle switchModel cold-start: session_init emits onAgentSession with the switch launchId", async () => {
+    const sessionsSeen: Array<{ agentId: string; sessionId: string; launchId: string }> = [];
+    const { mgr, getSession } = makeManager({
+      onAgentSession: (info) => sessionsSeen.push(info),
+    });
+    await mgr.switchModel("a1", { runtimeConfig: NAMED_CFG, launchId: "switch-l1", rewakePrompt: REWAKE });
+    getSession().fire("runtime_event", { kind: "session_init", sessionId: "sess-new" });
+    expect(sessionsSeen).toEqual([
+      { agentId: "a1", sessionId: "sess-new", launchId: "switch-l1" },
+    ]);
   });
 
   // Convergence contract (B1): resetSession and switchModel now both route

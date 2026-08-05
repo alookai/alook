@@ -9,14 +9,20 @@ import {
   resolveModelConfig,
   runtimeSupportsModel,
   formatHandle,
+  createLogger,
 } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers"
 import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "@/lib/community/audit"
-import { pushBotEventToMachine, pushAgentModelSwitchToMachine } from "@/lib/community/bot-push"
-import { broadcastToUser } from "@/lib/broadcast"
+import {
+  pushBotEventToMachine,
+  pushAgentModelSwitchToMachine,
+  pushAgentProviderSwitchToMachine,
+} from "@/lib/community/bot-push"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
+
+const log = createLogger({ service: "community-bot-update" })
 
 export const GET = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
@@ -38,16 +44,33 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   const nameChanged = body.name !== undefined && body.name !== before.name
   const descriptionChanged =
     body.description !== undefined && body.description !== before.description
-  // `model` alone is a valid patch. Storage/wire/UI all speak `string | null`,
-  // so "did it change?" is a plain string comparison — no ModelConfig here.
-  const nextModel = body.model === undefined ? undefined : (body.model ?? null)
+  const runtimeChanged = body.runtime !== undefined && body.runtime !== before.runtime
+  const targetRuntime = body.runtime ?? before.runtime
+  const nextModel = body.model !== undefined
+    ? (body.model ?? null)
+    : runtimeChanged
+      ? null
+      : undefined
   const modelChanged = nextModel !== undefined && nextModel !== (before.modelName ?? null)
+  const restartChanged = runtimeChanged || modelChanged
 
-  // antigravity ignores the model at launch; reject a non-null model on it (and
-  // on any runtime that doesn't support one). `before.runtime === null`
-  // (unknown runtime) is allowed — only antigravity is excluded.
-  if (nextModel !== null && nextModel !== undefined && !runtimeSupportsModel(before.runtime)) {
-    return writeError(`runtime ${before.runtime} does not support a model selection`, 400)
+  if (restartChanged) {
+    if (!before.machineId || !targetRuntime || !before.runtime) {
+      return writeError("bot has no active runtime binding", 409)
+    }
+    if (!(await queries.communityMachine.isBotOnline(db, id))) {
+      return writeError("bot is offline — bring it online before changing provider or model", 409)
+    }
+    const machine = await queries.communityBot.getMachineForOwner(db, before.machineId, ctx.userId)
+    if (!machine) return writeError("machine not found", 404)
+    const runtime = machine.availableRuntimes.find((item) => item.id === targetRuntime)
+    if (!runtime) return writeError(`runtime ${targetRuntime} not available on this machine`, 400)
+    if (runtime.status === "unhealthy") {
+      return writeError(`runtime ${targetRuntime} is currently unavailable on this machine`, 400)
+    }
+    if (nextModel !== null && nextModel !== undefined && !runtimeSupportsModel(targetRuntime)) {
+      return writeError(`runtime ${targetRuntime} does not support a model selection`, 400)
+    }
   }
   // Will we push bot:updated to the daemon? (Iff name/description changed —
   // image-only is display-only and doesn't affect the system prompt.) If so,
@@ -81,63 +104,56 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     })
   }
 
-  // Model switch. D1 is authoritative — write the column regardless of daemon
-  // reachability, then EXPEDITE via a push. NEVER 409: name/description writes
-  // (and this one) must land even when the bot is offline. The audit row is
-  // written only on confirmed delivery (`sent > 0`), so an offline/undelivered
-  // switch persists silently and the next wake applies it.
   let applied = false
   let deliveryError = false
-  if (modelChanged) {
-    // A bot with no binding row (unbound / never paired) passes the
-    // `getBotOwnedBy` 404 check above but has nothing to write the model onto.
-    // Reject rather than echo a model the response would claim was saved while
-    // a later GET reads the old value (UI/D1 divergence).
-    const wrote = await queries.communityBot.updateBotModel(db, id, ctx.userId, nextModel!)
-    if (!wrote) {
-      return writeError("bot has no runtime binding — pair it to a machine before setting a model", 409)
+  if (restartChanged && before.machineId && before.runtime && targetRuntime) {
+    const storedModel = nextModel !== undefined ? nextModel : (before.modelName ?? null)
+    const config = makeRuntimeConfig({
+      runtime: targetRuntime,
+      model: resolveModelConfig(targetRuntime, storedModel),
+      agentName: updated.name,
+      agentHandle: `@${formatHandle(updated.name, updated.discriminator)}`,
+    })
+    const launchId = nanoid()
+    const result = runtimeChanged
+      ? await pushAgentProviderSwitchToMachine(ctx.env, before.machineId, {
+          agentId: id,
+          config,
+          launchId,
+          from: before.runtime,
+          to: targetRuntime,
+        })
+      : await pushAgentModelSwitchToMachine(ctx.env, before.machineId, {
+          agentId: id,
+          config,
+          launchId,
+          from: before.modelName ?? null,
+          to: storedModel,
+        })
+    deliveryError = result.deliveryError
+    applied = result.sent > 0
+    if (!applied) {
+      return deliveryError
+        ? writeError("failed to reach the bot daemon", 503)
+        : writeError("bot is offline — bring it online before changing provider or model", 409)
     }
 
-    const wakeCtx = await queries.communityBot.getBotWakeContext(db, id)
-    if (wakeCtx.state === "ready") {
-      const config = makeRuntimeConfig({
-        runtime: wakeCtx.runtime,
-        model: resolveModelConfig(wakeCtx.runtime, nextModel!),
-        agentName: wakeCtx.name,
-        agentHandle: `@${formatHandle(wakeCtx.name, wakeCtx.discriminator)}`,
+    try {
+      const wrote = runtimeChanged
+        ? await queries.communityBot.updateBotRuntime(db, id, ctx.userId, targetRuntime, storedModel)
+        : await queries.communityBot.updateBotModel(db, id, ctx.userId, storedModel)
+      if (!wrote) throw new Error("runtime binding disappeared before persistence")
+    } catch (persistErr) {
+      log.error("bot_runtime_switch_persist_failed", {
+        botId: id,
+        machineId: before.machineId,
+        runtimeFrom: before.runtime,
+        runtimeTo: targetRuntime,
+        modelFrom: before.modelName ?? null,
+        modelTo: storedModel,
+        persistErr: String(persistErr),
       })
-      const result = await pushAgentModelSwitchToMachine(ctx.env, wakeCtx.machineId, {
-        agentId: id,
-        config,
-        launchId: nanoid(),
-      })
-      deliveryError = result.deliveryError
-      applied = result.sent > 0
-
-      if (applied) {
-        const inserted = await queries.communityBotAuditLog.insertBotAuditModelChanged(db, {
-          botId: id,
-          actorId: ctx.userId,
-          from: before.modelName ?? null,
-          to: nextModel!,
-        })
-        if (inserted) {
-          try {
-            await broadcastToUser(ctx.userId, {
-              type: WS_EVENTS.BOT_AUDIT_EVENT,
-              botId: id,
-              id: inserted.id,
-              kind: "model_changed",
-              payload: { from: before.modelName ?? null, to: nextModel! },
-              sessionId: null,
-              launchId: null,
-              createdAt: inserted.createdAt,
-            })
-          } catch {
-            // Best-effort — D1 row is authoritative.
-          }
-        }
-      }
+      return writeError("bot switched, but its runtime binding failed to persist", 500)
     }
   }
 
@@ -145,6 +161,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   if (body.name !== undefined) changedFields.push("name")
   if (body.description !== undefined) changedFields.push("description")
   if (body.image !== undefined) changedFields.push("image")
+  if (runtimeChanged) changedFields.push("runtime")
   if (modelChanged) changedFields.push("model")
   logAudit(db, {
     serverId: null,
@@ -161,6 +178,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
       name: updated.name,
       description: updated.description,
       image: updated.image,
+      runtime: targetRuntime,
       modelName: nextModel !== undefined ? nextModel : (before.modelName ?? null),
     },
     applied,

@@ -5,7 +5,11 @@ vi.mock("@/lib/broadcast", () => ({
   wsDoFetch: (...a: unknown[]) => wsDoFetch(...a),
 }))
 
-import { pushAgentResetToMachine, pushAgentModelSwitchToMachine } from "./bot-push"
+import {
+  pushAgentResetToMachine,
+  pushAgentModelSwitchToMachine,
+  pushAgentProviderSwitchToMachine,
+} from "./bot-push"
 
 const FAKE_ENV = { WS_DO_WORKER: {}, DEV_WS_DO_URL: undefined } as unknown as Env
 
@@ -76,38 +80,116 @@ describe("pushAgentModelSwitchToMachine", () => {
     mode: { kind: "default" as const },
   }
 
-  it("POSTs to /forward-agent-model-switch with the narrow body and returns { sent, deliveryError:false }", async () => {
+  it("POSTs to /forward-agent-model-switch with from/to and returns { sent, deliveryError:false }", async () => {
     wsDoFetch.mockResolvedValue(new Response(JSON.stringify({ sent: 1 }), { status: 200 }))
     const result = await pushAgentModelSwitchToMachine(FAKE_ENV, "machine-1", {
       agentId: "bot-1",
       config: CFG,
       launchId: "l-1",
+      from: null,
+      to: "claude-sonnet-4-6",
     })
     expect(result).toEqual({ sent: 1, deliveryError: false })
     const [, path, init] = wsDoFetch.mock.calls[0]!
     expect(path).toBe("/community-machine/by-id/machine-1/forward-agent-model-switch")
     const body = JSON.parse(init.body as string)
-    expect(body).toEqual({ agentId: "bot-1", config: CFG, launchId: "l-1" })
+    expect(body).toEqual({
+      agentId: "bot-1",
+      config: CFG,
+      launchId: "l-1",
+      from: null,
+      to: "claude-sonnet-4-6",
+    })
     expect(body.type).toBeUndefined()
   })
 
   it("distinguishes offline (sent:0, deliveryError:false) from a transport error (deliveryError:true)", async () => {
+    const args = {
+      agentId: "b",
+      config: CFG,
+      launchId: "l",
+      from: "a" as string | null,
+      to: "b" as string | null,
+    }
     // 200 with sent:0 → daemon just offline.
     wsDoFetch.mockResolvedValue(new Response(JSON.stringify({ sent: 0 }), { status: 200 }))
-    expect(
-      await pushAgentModelSwitchToMachine(FAKE_ENV, "m", { agentId: "b", config: CFG, launchId: "l" }),
-    ).toEqual({ sent: 0, deliveryError: false })
+    expect(await pushAgentModelSwitchToMachine(FAKE_ENV, "m", args)).toEqual({
+      sent: 0,
+      deliveryError: false,
+    })
 
     // non-ok → transport error.
     wsDoFetch.mockResolvedValue(new Response("boom", { status: 503 }))
-    expect(
-      await pushAgentModelSwitchToMachine(FAKE_ENV, "m", { agentId: "b", config: CFG, launchId: "l" }),
-    ).toEqual({ sent: 0, deliveryError: true })
+    expect(await pushAgentModelSwitchToMachine(FAKE_ENV, "m", args)).toEqual({
+      sent: 0,
+      deliveryError: true,
+    })
 
     // thrown fetch → transport error.
     wsDoFetch.mockRejectedValue(new Error("network"))
-    expect(
-      await pushAgentModelSwitchToMachine(FAKE_ENV, "m", { agentId: "b", config: CFG, launchId: "l" }),
-    ).toEqual({ sent: 0, deliveryError: true })
+    expect(await pushAgentModelSwitchToMachine(FAKE_ENV, "m", args)).toEqual({
+      sent: 0,
+      deliveryError: true,
+    })
+  })
+})
+
+describe("pushAgentProviderSwitchToMachine", () => {
+  beforeEach(() => {
+    wsDoFetch.mockReset()
+  })
+
+  const CFG = {
+    version: 1 as const,
+    runtime: "codex",
+    model: { kind: "default" as const },
+    mode: { kind: "default" as const },
+  }
+
+  it("POSTs to /forward-agent-provider-switch with from/to attribution", async () => {
+    wsDoFetch.mockResolvedValue(new Response(JSON.stringify({ sent: 1 }), { status: 200 }))
+    const result = await pushAgentProviderSwitchToMachine(FAKE_ENV, "machine-1", {
+      agentId: "bot-1",
+      config: CFG,
+      launchId: "l-1",
+      from: "claude",
+      to: "codex",
+    })
+    expect(result).toEqual({ sent: 1, deliveryError: false })
+    const [, path, init] = wsDoFetch.mock.calls[0]!
+    expect(path).toBe("/community-machine/by-id/machine-1/forward-agent-provider-switch")
+    const body = JSON.parse(init.body as string)
+    expect(body).toEqual({
+      agentId: "bot-1",
+      config: CFG,
+      launchId: "l-1",
+      from: "claude",
+      to: "codex",
+    })
+  })
+
+  it("returns deliveryError on non-ok / thrown fetch; sent:0 offline is not an error", async () => {
+    const args = {
+      agentId: "b",
+      config: CFG,
+      launchId: "l",
+      from: "claude",
+      to: "codex",
+    }
+    wsDoFetch.mockResolvedValue(new Response(JSON.stringify({ sent: 0 }), { status: 200 }))
+    expect(await pushAgentProviderSwitchToMachine(FAKE_ENV, "m", args)).toEqual({
+      sent: 0,
+      deliveryError: false,
+    })
+    wsDoFetch.mockResolvedValue(new Response("boom", { status: 503 }))
+    expect(await pushAgentProviderSwitchToMachine(FAKE_ENV, "m", args)).toEqual({
+      sent: 0,
+      deliveryError: true,
+    })
+    wsDoFetch.mockRejectedValue(new Error("network"))
+    expect(await pushAgentProviderSwitchToMachine(FAKE_ENV, "m", args)).toEqual({
+      sent: 0,
+      deliveryError: true,
+    })
   })
 })

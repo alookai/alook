@@ -671,14 +671,40 @@ export async function updateBotModel(
   return rows.length > 0;
 }
 
+export async function updateBotRuntime(
+  db: Database,
+  botId: string,
+  ownerId: string,
+  runtime: string,
+  modelName: string | null
+): Promise<boolean> {
+  const ownerScopedIds = db
+    .select({ id: user.id })
+    .from(user)
+    .where(
+      and(
+        eq(user.id, botId),
+        eq(user.ownerUserId, ownerId),
+        eq(user.isBot, true),
+        isNull(user.deletedAt)
+      )
+    );
+  const rows = await db
+    .update(communityBotBinding)
+    .set({ runtime, modelName })
+    .where(inArray(communityBotBinding.userId, ownerScopedIds))
+    .returning({ userId: communityBotBinding.userId });
+  return rows.length > 0;
+}
+
 /**
  * Record a context refresh on a bot: stamp `lastRefreshContextAt`. Called at —
- * and ONLY at — the two audit chokepoints that record a refresh: `nap`
- * (self-initiated) and `session_reset` (owner). Keeping this the single write
+ * and ONLY at — the audit chokepoints that record a context refresh: `nap`,
+ * `session_reset`, and `provider_changed`. Keeping this the single write
  * point is what makes the field a monotonic historical fact that never drifts
  * from the audit log or the live FSM. Scoped to `isBot=true` and not
  * soft-deleted; the caller has already authorized the action (runner-key for
- * nap, owner for reset), so no ownerUserId predicate here. `now` is injected so
+ * nap, owner for reset/switch), so no ownerUserId predicate here. `now` is injected so
  * callers pass the same instant they wrote the audit row.
  */
 export async function touchBotRefreshContext(

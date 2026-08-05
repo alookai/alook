@@ -4,13 +4,15 @@ import { NextRequest } from "next/server"
 const mockGetBotOwnedBy = vi.fn()
 const mockUpdateBot = vi.fn()
 const mockUpdateBotModel = vi.fn()
-const mockGetBotWakeContext = vi.fn()
-const mockInsertBotAuditModelChanged = vi.fn()
+const mockUpdateBotRuntime = vi.fn()
+const mockGetMachineForOwner = vi.fn()
+const mockIsBotOnline = vi.fn()
 const mockGetUserPublic = vi.fn()
 const mockPushBotEventToMachine = vi.fn()
 const mockPushAgentModelSwitchToMachine = vi.fn()
-const mockBroadcastToUser = vi.fn()
+const mockPushAgentProviderSwitchToMachine = vi.fn()
 const mockLogAudit = vi.fn()
+const mockLogError = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -22,15 +24,22 @@ vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
   return {
     ...actual,
+    createLogger: () => ({
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: (...a: unknown[]) => mockLogError(...a),
+      debug: vi.fn(),
+    }),
     queries: {
       communityBot: {
         getBotOwnedBy: (...a: unknown[]) => mockGetBotOwnedBy(...a),
         updateBot: (...a: unknown[]) => mockUpdateBot(...a),
         updateBotModel: (...a: unknown[]) => mockUpdateBotModel(...a),
-        getBotWakeContext: (...a: unknown[]) => mockGetBotWakeContext(...a),
+        updateBotRuntime: (...a: unknown[]) => mockUpdateBotRuntime(...a),
+        getMachineForOwner: (...a: unknown[]) => mockGetMachineForOwner(...a),
       },
-      communityBotAuditLog: {
-        insertBotAuditModelChanged: (...a: unknown[]) => mockInsertBotAuditModelChanged(...a),
+      communityMachine: {
+        isBotOnline: (...a: unknown[]) => mockIsBotOnline(...a),
       },
       user: {
         getUserPublic: (...a: unknown[]) => mockGetUserPublic(...a),
@@ -42,9 +51,10 @@ vi.mock("@alook/shared", async () => {
 vi.mock("@/lib/community/bot-push", () => ({
   pushBotEventToMachine: (...a: unknown[]) => mockPushBotEventToMachine(...a),
   pushAgentModelSwitchToMachine: (...a: unknown[]) => mockPushAgentModelSwitchToMachine(...a),
+  pushAgentProviderSwitchToMachine: (...a: unknown[]) => mockPushAgentProviderSwitchToMachine(...a),
 }))
 vi.mock("@/lib/broadcast", () => ({
-  broadcastToUser: (...a: unknown[]) => mockBroadcastToUser(...a),
+  broadcastToUser: vi.fn(),
 }))
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToServerMembers: vi.fn(),
@@ -92,14 +102,18 @@ describe("PATCH /api/community/bots/[id]", () => {
       id: "b1", name: "New", discriminator: "0001", description: "new desc", image: null,
     })
     mockGetUserPublic.mockResolvedValue({ id: "u1", name: "Owner", discriminator: "9999" })
-    mockGetBotWakeContext.mockResolvedValue({
-      state: "ready", botUserId: "b1", name: "Old", discriminator: "0001",
-      machineId: "mac1", runtime: "claude", modelName: null, ownerUserId: "u1",
+    mockIsBotOnline.mockResolvedValue(true)
+    mockGetMachineForOwner.mockResolvedValue({
+      id: "mac1",
+      availableRuntimes: [
+        { id: "claude", status: "healthy" },
+        { id: "codex", status: "healthy" },
+      ],
     })
     mockPushAgentModelSwitchToMachine.mockResolvedValue({ sent: 1, deliveryError: false })
-    mockInsertBotAuditModelChanged.mockResolvedValue({ id: "evt_1", createdAt: "2026-07-26T00:00:00.000Z" })
-    // A bound bot's model write matches its binding row by default.
+    mockPushAgentProviderSwitchToMachine.mockResolvedValue({ sent: 1, deliveryError: false })
     mockUpdateBotModel.mockResolvedValue(true)
+    mockUpdateBotRuntime.mockResolvedValue(true)
   })
 
   it("updates and pushes bot:updated to the daemon when the name changed", async () => {
@@ -117,8 +131,6 @@ describe("PATCH /api/community/bots/[id]", () => {
     mockGetUserPublic.mockResolvedValue(null)
     const res = await PATCH(patchReq({ name: "New" }), ctx)
     expect(res.status).toBe(500)
-    // The row must NOT have been mutated — otherwise a retry sees no diff and
-    // never pushes, leaving the daemon prompt permanently stale.
     expect(mockUpdateBot).not.toHaveBeenCalled()
     expect(mockPushBotEventToMachine).not.toHaveBeenCalled()
   })
@@ -132,82 +144,149 @@ describe("PATCH /api/community/bots/[id]", () => {
     expect(mockUpdateBot).toHaveBeenCalled()
   })
 
-  it("changed model on a wake-ready bot: writes column, pushes new model, applied:true, one audit row", async () => {
+  // Melisa #1294 push-first: push then D1 write; offline/sent===0 never touch D1 runtime columns.
+  it("changed model online: push-first then writes column; from/to on push; no dispatch-time audit", async () => {
     const res = await PATCH(patchReq({ model: "claude-sonnet-4-6" }), ctx)
     expect(res.status).toBe(200)
     const body = (await res.json()) as { applied: boolean; deliveryError: boolean; bot: { modelName: string } }
     expect(body.applied).toBe(true)
     expect(body.deliveryError).toBe(false)
     expect(body.bot.modelName).toBe("claude-sonnet-4-6")
-    expect(mockUpdateBotModel).toHaveBeenCalledWith(expect.anything(), "b1", "u1", "claude-sonnet-4-6")
     expect(mockPushAgentModelSwitchToMachine).toHaveBeenCalledWith(
       expect.anything(),
       "mac1",
       expect.objectContaining({
         agentId: "b1",
+        from: null,
+        to: "claude-sonnet-4-6",
         config: expect.objectContaining({ model: { kind: "named", name: "claude-sonnet-4-6" } }),
       }),
     )
-    expect(mockInsertBotAuditModelChanged).toHaveBeenCalledTimes(1)
-    expect(mockInsertBotAuditModelChanged).toHaveBeenCalledWith(
+    expect(mockUpdateBotModel).toHaveBeenCalledWith(expect.anything(), "b1", "u1", "claude-sonnet-4-6")
+    expect(mockPushAgentModelSwitchToMachine.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockUpdateBotModel.mock.invocationCallOrder[0]!,
+    )
+    expect(mockPushAgentProviderSwitchToMachine).not.toHaveBeenCalled()
+  })
+
+  it("changed provider online: push provider_switch first, then updateBotRuntime (clears model)", async () => {
+    mockUpdateBot.mockResolvedValue({
+      id: "b1", name: "Old", discriminator: "0001", description: "old desc", image: null,
+    })
+    const res = await PATCH(patchReq({ runtime: "codex" }), ctx)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { applied: boolean; bot: { runtime: string; modelName: string | null } }
+    expect(body.applied).toBe(true)
+    expect(body.bot.runtime).toBe("codex")
+    expect(body.bot.modelName).toBe(null)
+    expect(mockPushAgentProviderSwitchToMachine).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ botId: "b1", from: null, to: "claude-sonnet-4-6" }),
+      "mac1",
+      expect.objectContaining({
+        agentId: "b1",
+        from: "claude",
+        to: "codex",
+        config: expect.objectContaining({ runtime: "codex" }),
+      }),
+    )
+    expect(mockUpdateBotRuntime).toHaveBeenCalledWith(expect.anything(), "b1", "u1", "codex", null)
+    expect(mockPushAgentProviderSwitchToMachine.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockUpdateBotRuntime.mock.invocationCallOrder[0]!,
+    )
+    expect(mockPushAgentModelSwitchToMachine).not.toHaveBeenCalled()
+  })
+
+  it("changed model, daemon offline (isBotOnline false): 409, no column write, no push", async () => {
+    mockIsBotOnline.mockResolvedValue(false)
+    const res = await PATCH(patchReq({ model: "claude-sonnet-4-6" }), ctx)
+    expect(res.status).toBe(409)
+    expect(mockUpdateBotModel).not.toHaveBeenCalled()
+    expect(mockUpdateBotRuntime).not.toHaveBeenCalled()
+    expect(mockPushAgentModelSwitchToMachine).not.toHaveBeenCalled()
+  })
+
+  it("changed provider, daemon offline: 409, zero D1 write, no push", async () => {
+    mockIsBotOnline.mockResolvedValue(false)
+    const res = await PATCH(patchReq({ runtime: "codex" }), ctx)
+    expect(res.status).toBe(409)
+    expect(mockUpdateBotRuntime).not.toHaveBeenCalled()
+    expect(mockPushAgentProviderSwitchToMachine).not.toHaveBeenCalled()
+  })
+
+  it("changed model, push sent===0: 409, zero D1 runtime write (no soft-save, no rollback)", async () => {
+    mockGetBotOwnedBy.mockResolvedValue({
+      id: "b1", name: "Old", description: "d", machineId: "mac1", ownerUserId: "u1",
+      runtime: "claude", modelName: "claude-opus-4-6",
+    })
+    mockPushAgentModelSwitchToMachine.mockResolvedValue({ sent: 0, deliveryError: false })
+    const res = await PATCH(patchReq({ model: "claude-sonnet-4-6" }), ctx)
+    expect(res.status).toBe(409)
+    expect(mockUpdateBotModel).not.toHaveBeenCalled()
+  })
+
+  it("changed provider, push sent===0: 409, zero D1 runtime write", async () => {
+    mockGetBotOwnedBy.mockResolvedValue({
+      id: "b1", name: "Old", description: "d", machineId: "mac1", ownerUserId: "u1",
+      runtime: "claude", modelName: "claude-opus-4-6",
+    })
+    mockPushAgentProviderSwitchToMachine.mockResolvedValue({ sent: 0, deliveryError: false })
+    const res = await PATCH(patchReq({ runtime: "codex" }), ctx)
+    expect(res.status).toBe(409)
+    expect(mockUpdateBotRuntime).not.toHaveBeenCalled()
+  })
+
+  it("changed model, push transport error: 503, zero D1 runtime write", async () => {
+    mockGetBotOwnedBy.mockResolvedValue({
+      id: "b1", name: "Old", description: "d", machineId: "mac1", ownerUserId: "u1",
+      runtime: "claude", modelName: "claude-opus-4-6",
+    })
+    mockPushAgentModelSwitchToMachine.mockResolvedValue({ sent: 0, deliveryError: true })
+    const res = await PATCH(patchReq({ model: "claude-sonnet-4-6" }), ctx)
+    expect(res.status).toBe(503)
+    expect(mockUpdateBotModel).not.toHaveBeenCalled()
+  })
+
+  // Melisa #1294 / Cecilia #1295: push succeeded but D1 persist failed → explicit
+  // log.error + 5xx (no silent divergence, UI must not toast success).
+  it("changed model, sent>0 but D1 write throws: log.error(bot_runtime_switch_persist_failed) + 500", async () => {
+    mockUpdateBotModel.mockRejectedValue(new Error("d1 down"))
+    const res = await PATCH(patchReq({ model: "claude-sonnet-4-6" }), ctx)
+    expect(res.status).toBe(500)
+    expect(mockPushAgentModelSwitchToMachine).toHaveBeenCalled()
+    expect(mockLogError).toHaveBeenCalledWith(
+      "bot_runtime_switch_persist_failed",
+      expect.objectContaining({ botId: "b1", persistErr: expect.stringContaining("d1 down") }),
     )
   })
 
-  it("changed model, daemon disconnected (sent 0): 200, applied:false, deliveryError:false, no audit", async () => {
-    mockPushAgentModelSwitchToMachine.mockResolvedValue({ sent: 0, deliveryError: false })
-    const res = await PATCH(patchReq({ model: "claude-sonnet-4-6" }), ctx)
-    const body = (await res.json()) as { applied: boolean; deliveryError: boolean }
-    expect(res.status).toBe(200)
-    expect(body.applied).toBe(false)
-    expect(body.deliveryError).toBe(false)
-    expect(mockUpdateBotModel).toHaveBeenCalled()
-    expect(mockInsertBotAuditModelChanged).not.toHaveBeenCalled()
+  it("changed provider, sent>0 but D1 write throws: log.error(bot_runtime_switch_persist_failed) + 500", async () => {
+    mockUpdateBotRuntime.mockRejectedValue(new Error("d1 down"))
+    const res = await PATCH(patchReq({ runtime: "codex" }), ctx)
+    expect(res.status).toBe(500)
+    expect(mockPushAgentProviderSwitchToMachine).toHaveBeenCalled()
+    expect(mockLogError).toHaveBeenCalledWith(
+      "bot_runtime_switch_persist_failed",
+      expect.objectContaining({ botId: "b1" }),
+    )
   })
 
-  it("changed model, push transport error: 200, applied:false, deliveryError:true, no audit", async () => {
-    mockPushAgentModelSwitchToMachine.mockResolvedValue({ sent: 0, deliveryError: true })
-    const res = await PATCH(patchReq({ model: "claude-sonnet-4-6" }), ctx)
-    const body = (await res.json()) as { applied: boolean; deliveryError: boolean }
-    expect(res.status).toBe(200)
-    expect(body.applied).toBe(false)
-    expect(body.deliveryError).toBe(true)
-    expect(mockInsertBotAuditModelChanged).not.toHaveBeenCalled()
-  })
-
-  it("changed model but wake ctx not ready: no push, applied:false, column still written, never 409", async () => {
-    mockGetBotWakeContext.mockResolvedValue({ state: "bot_unbound" })
-    const res = await PATCH(patchReq({ model: "claude-sonnet-4-6" }), ctx)
-    expect(res.status).toBe(200)
-    const body = (await res.json()) as { applied: boolean }
-    expect(body.applied).toBe(false)
-    expect(mockUpdateBotModel).toHaveBeenCalled()
-    expect(mockPushAgentModelSwitchToMachine).not.toHaveBeenCalled()
-    expect(mockInsertBotAuditModelChanged).not.toHaveBeenCalled()
-  })
-
-  it("model PATCH on a bot with no binding row → 409, does NOT claim the model was saved", async () => {
-    // getBotOwnedBy passes (the bot exists + is owned) but the binding row is
-    // absent, so updateBotModel matches zero rows.
+  it("model PATCH on a bot with no binding row after successful push → 500 + persist_failed log", async () => {
     mockUpdateBotModel.mockResolvedValue(false)
     const res = await PATCH(patchReq({ model: "claude-sonnet-4-6" }), ctx)
-    expect(res.status).toBe(409)
-    const body = (await res.json()) as { error?: string; bot?: { modelName: string } }
-    // Must not echo the model as saved — it wasn't.
-    expect(body.bot).toBeUndefined()
-    expect(mockPushAgentModelSwitchToMachine).not.toHaveBeenCalled()
-    expect(mockInsertBotAuditModelChanged).not.toHaveBeenCalled()
+    expect(res.status).toBe(500)
+    expect(mockPushAgentModelSwitchToMachine).toHaveBeenCalled()
+    expect(mockLogError).toHaveBeenCalledWith(
+      "bot_runtime_switch_persist_failed",
+      expect.objectContaining({ botId: "b1" }),
+    )
   })
 
-  it("same model / omitted model: no push, no audit, column untouched", async () => {
-    // same: before.modelName is null, body sends null
+  it("same model / omitted model: no push, column untouched", async () => {
     let res = await PATCH(patchReq({ model: null }), ctx)
     expect(res.status).toBe(200)
     expect(mockUpdateBotModel).not.toHaveBeenCalled()
     expect(mockPushAgentModelSwitchToMachine).not.toHaveBeenCalled()
 
-    // omitted: name-only patch
     vi.clearAllMocks()
     mockGetBotOwnedBy.mockResolvedValue({ id: "b1", name: "Old", description: "d", machineId: "mac1", ownerUserId: "u1", runtime: "claude", modelName: null })
     mockUpdateBot.mockResolvedValue({ id: "b1", name: "New", discriminator: "0001", description: "d", image: null })
@@ -217,24 +296,24 @@ describe("PATCH /api/community/bots/[id]", () => {
     expect(mockUpdateBotModel).not.toHaveBeenCalled()
   })
 
-  it("model:null on a bot that had one: clears column, pushes default, audits {from, to:null}", async () => {
+  it("model:null on a bot that had one: push default with from/to, then clear column", async () => {
     mockGetBotOwnedBy.mockResolvedValue({ id: "b1", name: "Old", description: "d", machineId: "mac1", ownerUserId: "u1", runtime: "claude", modelName: "claude-opus-4-6" })
-    mockGetBotWakeContext.mockResolvedValue({ state: "ready", botUserId: "b1", name: "Old", discriminator: "0001", machineId: "mac1", runtime: "claude", modelName: "claude-opus-4-6", ownerUserId: "u1" })
+    mockUpdateBot.mockResolvedValue({ id: "b1", name: "Old", discriminator: "0001", description: "d", image: null })
     const res = await PATCH(patchReq({ model: null }), ctx)
     expect(res.status).toBe(200)
-    expect(mockUpdateBotModel).toHaveBeenCalledWith(expect.anything(), "b1", "u1", null)
     expect(mockPushAgentModelSwitchToMachine).toHaveBeenCalledWith(
       expect.anything(),
       "mac1",
-      expect.objectContaining({ config: expect.objectContaining({ model: { kind: "default" } }) }),
+      expect.objectContaining({
+        from: "claude-opus-4-6",
+        to: null,
+        config: expect.objectContaining({ model: { kind: "default" } }),
+      }),
     )
-    expect(mockInsertBotAuditModelChanged).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ from: "claude-opus-4-6", to: null }),
-    )
+    expect(mockUpdateBotModel).toHaveBeenCalledWith(expect.anything(), "b1", "u1", null)
   })
 
-  it("name AND model changed: both bot:updated and agent:model_switch pushed; audit changedFields includes both", async () => {
+  it("name AND model changed: both bot:updated and model_switch pushed; fields include both", async () => {
     const res = await PATCH(patchReq({ name: "New", model: "claude-sonnet-4-6" }), ctx)
     expect(res.status).toBe(200)
     expect(mockPushBotEventToMachine).toHaveBeenCalledWith(expect.anything(), "mac1", expect.objectContaining({ type: "bot:updated" }))
@@ -245,20 +324,17 @@ describe("PATCH /api/community/bots/[id]", () => {
     expect(fields).toContain("model")
   })
 
-  it("model on an antigravity bot → 400; runtime null → allowed", async () => {
+  it("model on an antigravity bot → 400", async () => {
     mockGetBotOwnedBy.mockResolvedValue({ id: "b1", name: "Old", description: "d", machineId: "mac1", ownerUserId: "u1", runtime: "antigravity", modelName: null })
-    let res = await PATCH(patchReq({ model: "whatever" }), ctx)
+    const res = await PATCH(patchReq({ model: "whatever" }), ctx)
     expect(res.status).toBe(400)
     expect(mockUpdateBotModel).not.toHaveBeenCalled()
+  })
 
-    vi.clearAllMocks()
-    mockGetBotOwnedBy.mockResolvedValue({ id: "b1", name: "Old", description: "d", machineId: "mac1", ownerUserId: "u1", runtime: null, modelName: null })
-    mockGetBotWakeContext.mockResolvedValue({ state: "ready", botUserId: "b1", name: "Old", discriminator: "0001", machineId: "mac1", runtime: "claude", modelName: null, ownerUserId: "u1" })
-    mockUpdateBot.mockResolvedValue({ id: "b1", name: "Old", discriminator: "0001", description: "d", image: null })
-    mockPushAgentModelSwitchToMachine.mockResolvedValue({ sent: 1, deliveryError: false })
-    mockInsertBotAuditModelChanged.mockResolvedValue({ id: "e", createdAt: "t" })
-    res = await PATCH(patchReq({ model: "some-model" }), ctx)
-    expect(res.status).toBe(200)
-    expect(mockUpdateBotModel).toHaveBeenCalled()
+  it("runtime not on machine → 400", async () => {
+    const res = await PATCH(patchReq({ runtime: "gemini" }), ctx)
+    expect(res.status).toBe(400)
+    expect(mockUpdateBotRuntime).not.toHaveBeenCalled()
+    expect(mockPushAgentProviderSwitchToMachine).not.toHaveBeenCalled()
   })
 })

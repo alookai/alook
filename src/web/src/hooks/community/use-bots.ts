@@ -14,7 +14,7 @@ export type BotSummary = {
   runtime: string
   modelName: string | null
   // Context lifecycle (my-bots #516): when the agent last refreshed its context
-  // (nap OR session reset), ISO string, null if it never has. Rendered as the
+  // (nap, session reset, or provider switch), ISO string, null if it never has. Rendered as the
   // awake-duration "Awake 17h" (Gus #672/#674 — how long the agent has been
   // awake since that refresh, not "X ago"); null (never refreshed) omits it.
   lastRefreshContextAt: string | null
@@ -82,9 +82,10 @@ export type UpdateBotInput = {
   image?: string | null
   // Explicit `null` clears a set model; `undefined` leaves it untouched.
   model?: string | null
+  runtime?: string
 }
 export type UpdateBotResponse = {
-  bot: BotSummary
+  bot: Pick<BotSummary, "id" | "name" | "description" | "image" | "runtime" | "modelName">
   applied?: boolean
   deliveryError?: boolean
 }
@@ -103,6 +104,7 @@ export function useUpdateBot() {
           // Omit `model` entirely when undefined so the PATCH doesn't send an
           // explicit key the server would read as "clear to default".
           ...("model" in input ? { model: input.model } : {}),
+          ...("runtime" in input ? { runtime: input.runtime } : {}),
         }),
       }),
     onSuccess: (data) => invalidateBotSurfaces(qc, data.bot.id),

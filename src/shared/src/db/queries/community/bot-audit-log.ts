@@ -30,7 +30,7 @@ export type BotActivityEventInput = {
   botId: string;
   sessionId?: string | null;
   launchId?: string | null;
-  kind: "cli_invocation" | "tool_call" | "thinking" | "wake_trigger" | "session_reset" | "nap" | "model_changed" | "error";
+  kind: "cli_invocation" | "tool_call" | "thinking" | "wake_trigger" | "session_reset" | "nap" | "model_changed" | "provider_changed" | "error";
   payload: string;
 };
 
@@ -265,21 +265,32 @@ export async function insertBotAuditNap(
 
 /**
  * Model-changed audit write — the owner switched a bot's LLM model in
- * `/c/me/bots`. Actor is the owner (owner-scoped by construction on the API
- * route). Payload carries the full stored ids (`null` = the runtime's
- * default). Written ONLY after the daemon confirmed delivery of the
- * `agent:model_switch` frame (see plan decision #7) — an undelivered switch
- * (offline bot, transport error) leaves D1 authoritative but writes no row.
+ * `/c/me/bots`. Payload carries the full stored ids (`null` = the runtime's
+ * default). Written when the switched launch's `agent_session` lands; an
+ * undelivered or failed launch writes no row.
  */
 export async function insertBotAuditModelChanged(
   db: Database,
-  data: { botId: string; actorId: string; from: string | null; to: string | null }
+  data: { botId: string; launchId: string; from: string | null; to: string | null }
 ): Promise<{ id: string; createdAt: string } | null> {
   return insertBotActivityEventAndPrune(db, {
     botId: data.botId,
     sessionId: null,
-    launchId: null,
+    launchId: data.launchId,
     kind: "model_changed",
+    payload: JSON.stringify({ from: data.from, to: data.to }),
+  });
+}
+
+export async function insertBotAuditProviderChanged(
+  db: Database,
+  data: { botId: string; launchId: string; from: string; to: string }
+): Promise<{ id: string; createdAt: string } | null> {
+  return insertBotActivityEventAndPrune(db, {
+    botId: data.botId,
+    sessionId: null,
+    launchId: data.launchId,
+    kind: "provider_changed",
     payload: JSON.stringify({ from: data.from, to: data.to }),
   });
 }

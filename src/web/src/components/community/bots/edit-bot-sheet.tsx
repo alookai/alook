@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
 import {
@@ -13,16 +13,31 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import {
   type AvatarDraft,
   isPhotoAvatarUrl,
 } from "@/components/avatar"
 import { serializeBeamSeed, parseBeamSeed } from "@/lib/avatar/seed-url"
+import { ProviderLogo } from "@/components/provider-logo"
 import { useUpdateBot, useUploadBotAvatar, type BotSummary } from "@/hooks/community/use-bots"
+import { useMachines } from "@/hooks/community/use-machines"
 import { BotFormFields } from "./bot-form-fields"
 import { ModelField } from "./model-field"
 import { validateBotModel } from "./bot-form-validation"
 import { uniqueNamesGenerator, names } from "unique-names-generator"
+import { normalizeRuntimes } from "./create-bot-sheet"
+import { cn } from "@/lib/utils"
 
 function draftFromBot(bot: BotSummary): AvatarDraft {
   if (isPhotoAvatarUrl(bot.image)) return { kind: "photo", file: null, previewUrl: bot.image! }
@@ -48,12 +63,23 @@ export function EditBotSheet({
   const [name, setName] = useState(bot?.name ?? "")
   const [description, setDescription] = useState(bot?.description ?? "")
   const [model, setModel] = useState<string | null>(bot?.modelName ?? null)
+  const [runtime, setRuntime] = useState(bot?.runtime ?? "")
+  const [confirmProviderSwitch, setConfirmProviderSwitch] = useState(false)
   const [nameError, setNameError] = useState<string | undefined>(undefined)
   const [avatarDraft, setAvatarDraft] = useState<AvatarDraft>(() =>
     bot ? draftFromBot(bot) : { kind: "procedural", image: serializeBeamSeed("initial") },
   )
   const update = useUpdateBot()
   const uploadBotAvatar = useUploadBotAvatar()
+  const { machines } = useMachines()
+  const selectedMachine = machines.find((machine) => machine.id === bot?.machineId)
+  const runtimeOptions = useMemo(() => {
+    const options = normalizeRuntimes(selectedMachine)
+    if (runtime && !options.some((option) => option.id === runtime)) {
+      options.push({ id: runtime, unhealthy: true })
+    }
+    return options
+  }, [selectedMachine, runtime])
 
   // Re-sync the form fields from `bot` each time a *new* edit target opens
   // (keyed by id, not by every `bot` reference change — the parent's
@@ -67,8 +93,10 @@ export function EditBotSheet({
     setName(bot.name)
     setDescription(bot.description ?? "")
     setModel(bot.modelName ?? null)
+    setRuntime(bot.runtime)
     setAvatarDraft(draftFromBot(bot))
     setNameError(undefined)
+    setConfirmProviderSwitch(false)
   }, [open, bot])
 
   function updateName(value: string) {
@@ -81,7 +109,13 @@ export function EditBotSheet({
     setNameError(undefined)
   }
 
-  async function submit() {
+  function selectRuntime(next: string) {
+    if (next === runtime) return
+    setRuntime(next)
+    setModel(null)
+  }
+
+  async function performSubmit() {
     if (!bot) return
     if (!name.trim()) {
       setNameError("Name is required")
@@ -93,11 +127,12 @@ export function EditBotSheet({
       return
     }
     const modelChanged = model !== (bot.modelName ?? null)
+    const runtimeChanged = runtime !== bot.runtime
     try {
       // Sequence matters — only attempt the avatar upload AFTER the
       // name/description update resolves, inside the same try block, so a
       // failed field update never triggers an upload.
-      const res = await update.mutateAsync({
+      await update.mutateAsync({
         id: bot.id,
         name: name.trim(),
         description: description.trim() || undefined,
@@ -105,6 +140,7 @@ export function EditBotSheet({
         // Only send `model` when it actually changed, so an unrelated edit
         // never triggers a stop-and-rewake.
         ...(modelChanged ? { model } : {}),
+        ...(runtimeChanged ? { runtime } : {}),
       })
       let avatarFailed = false
       if (avatarDraft.kind === "photo" && avatarDraft.file) {
@@ -116,15 +152,11 @@ export function EditBotSheet({
         }
       }
       if (!avatarFailed) {
-        if (modelChanged) {
+        if (runtimeChanged) {
+          toast.success(`Provider switch to ${runtime} dispatched`)
+        } else if (modelChanged) {
           const label = model ?? "the runtime default"
-          if (res.applied) {
-            toast.success(`Model switched to ${label}`)
-          } else if (res.deliveryError) {
-            toast.success("Model saved — couldn't reach the bot just now; it'll apply on the next wake")
-          } else {
-            toast.success("Model saved — applies when the bot comes online")
-          }
+          toast.success(`Model switch to ${label} dispatched`)
         } else {
           toast.success("Bot updated")
         }
@@ -133,6 +165,19 @@ export function EditBotSheet({
     } catch (e) {
       toastApiError(e, "Update failed")
     }
+  }
+
+  function submit() {
+    if (!bot) return
+    if (!name.trim()) {
+      setNameError("Name is required")
+      return
+    }
+    if (runtime !== bot.runtime) {
+      setConfirmProviderSwitch(true)
+      return
+    }
+    void performSubmit()
   }
 
   return (
@@ -145,7 +190,7 @@ export function EditBotSheet({
         <SheetHeader>
           <SheetTitle>Edit {bot?.name ?? "bot"}</SheetTitle>
           <SheetDescription>
-            Name and description edits take effect on the bot&apos;s next wake trigger. A model change applies right away if the bot is online.
+            Name and description edits take effect on the next wake. Provider and model switches require the bot to be online.
           </SheetDescription>
         </SheetHeader>
 
@@ -161,7 +206,54 @@ export function EditBotSheet({
             nameError={nameError}
           />
           {bot && (
-            <ModelField runtime={bot.runtime} value={model} onChange={setModel} />
+            <>
+              <div className="flex flex-col gap-2">
+                <Label className="text-xs text-muted-foreground">Runtime</Label>
+                {runtimeOptions.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    This machine has no runtimes installed.
+                  </p>
+                ) : (
+                  <div
+                    className="flex flex-col gap-2"
+                    role="radiogroup"
+                    aria-label="Runtime"
+                    data-testid="bot-provider-picker"
+                  >
+                    {runtimeOptions.map((option) => {
+                      const selected = runtime === option.id
+                      const disabled = option.unhealthy && !selected
+                      return (
+                        <label
+                          key={option.id}
+                          className={cn(
+                            "flex items-center gap-2 rounded-lg border p-2 cursor-pointer transition-colors",
+                            selected ? "border-primary bg-primary/5" : "border-border/50 hover:border-foreground/20",
+                            disabled && "opacity-40 pointer-events-none",
+                          )}
+                        >
+                          <input
+                            type="radio"
+                            name="edit-bot-runtime"
+                            value={option.id}
+                            checked={selected}
+                            disabled={disabled}
+                            onChange={() => selectRuntime(option.id)}
+                            className="accent-primary size-3.5"
+                          />
+                          <ProviderLogo provider={option.id} className="size-4 shrink-0" />
+                          <span className="text-sm">{option.id}</span>
+                          {option.unhealthy && (
+                            <span className="ml-auto text-xs text-muted-foreground">unavailable</span>
+                          )}
+                        </label>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+              <ModelField runtime={runtime} value={model} onChange={setModel} />
+            </>
           )}
         </SheetBody>
 
@@ -174,6 +266,27 @@ export function EditBotSheet({
           </Button>
         </SheetFooter>
       </SheetContent>
+      <AlertDialog open={confirmProviderSwitch} onOpenChange={setConfirmProviderSwitch}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Switch provider and reset this session?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Switching from {bot?.runtime} to {runtime} starts a fresh session. The bot cannot resume its current provider session.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmProviderSwitch(false)
+                void performSubmit()
+              }}
+            >
+              Switch provider
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Sheet>
   )
 }

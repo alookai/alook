@@ -1108,12 +1108,14 @@ export const CommunityBotPatchRequestSchema = z
     // Full launchable model id, or null for the runtime's default. Explicit
     // `null` clears a set model; `undefined` leaves it untouched.
     model: z.string().trim().min(1).max(100).nullable().optional(),
+    runtime: z.string().trim().min(1).max(COMMUNITY_RUNTIME_ID_MAX).optional(),
   })
   .refine(
     (v) =>
       v.name !== undefined ||
       v.description !== undefined ||
       v.image !== undefined ||
+      v.runtime !== undefined ||
       // `model` alone is a valid patch. An explicit `null` must count as
       // present — hence the `in` form, not a truthiness check.
       "model" in v,
@@ -1426,6 +1428,12 @@ export const AuditLogModelChangedPayloadSchema = z.object({
 });
 export type AuditLogModelChangedPayload = z.infer<typeof AuditLogModelChangedPayloadSchema>;
 
+export const AuditLogProviderChangedPayloadSchema = z.object({
+  from: z.string().min(1),
+  to: z.string().min(1),
+});
+export type AuditLogProviderChangedPayload = z.infer<typeof AuditLogProviderChangedPayloadSchema>;
+
 /**
  * `error` payload — a launch/runtime failure the owner should see. Emitted by
  * the daemon (never written server-side, unlike `model_changed`), so a bot
@@ -1455,6 +1463,7 @@ export const BotAuditEventSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("session_reset"), payload: AuditLogSessionResetPayloadSchema }),
   z.object({ kind: z.literal("nap"), payload: AuditLogNapPayloadSchema }),
   z.object({ kind: z.literal("model_changed"), payload: AuditLogModelChangedPayloadSchema }),
+  z.object({ kind: z.literal("provider_changed"), payload: AuditLogProviderChangedPayloadSchema }),
   z.object({ kind: z.literal("error"), payload: AuditLogErrorPayloadSchema }),
 ]);
 export type BotAuditEvent = z.infer<typeof BotAuditEventSchema>;
@@ -1467,6 +1476,7 @@ export const BotAuditEventKindSchema = z.enum([
   "session_reset",
   "nap",
   "model_changed",
+  "provider_changed",
   "error",
 ]);
 export type BotAuditEventKind = z.infer<typeof BotAuditEventKindSchema>;
@@ -1484,4 +1494,3 @@ export const HostBotAuditEventFrameSchema = z.object({
   event: BotAuditEventSchema,
 });
 export type HostBotAuditEventFrame = z.infer<typeof HostBotAuditEventFrameSchema>;
-

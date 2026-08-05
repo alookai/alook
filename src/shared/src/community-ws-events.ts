@@ -529,7 +529,7 @@ export type CommunityBotAuditEvent = {
   type: "community:bot.audit_event"
   botId: string
   id: string
-  kind: "cli_invocation" | "tool_call" | "thinking" | "wake_trigger" | "session_reset" | "nap" | "model_changed" | "error"
+  kind: "cli_invocation" | "tool_call" | "thinking" | "wake_trigger" | "session_reset" | "nap" | "model_changed" | "provider_changed" | "error"
   payload: unknown
   sessionId?: string | null
   launchId?: string | null

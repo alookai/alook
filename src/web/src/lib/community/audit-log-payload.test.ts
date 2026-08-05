@@ -55,6 +55,14 @@ describe("parseAuditLogPayload", () => {
       to: "claude-opus-4-6",
     })
   })
+  it("parses a well-shaped provider_changed payload (required from/to runtimes)", () => {
+    expect(
+      parseAuditLogPayload("provider_changed", JSON.stringify({ from: "claude", to: "codex" })),
+    ).toEqual({ from: "claude", to: "codex" })
+  })
+  it("rejects a provider_changed payload missing from/to", () => {
+    expect(parseAuditLogPayload("provider_changed", JSON.stringify({ from: "claude" }))).toBe(null)
+  })
   it("parses a well-shaped session_reset payload (single/reset_all trigger)", () => {
     expect(parseAuditLogPayload("session_reset", JSON.stringify({ trigger: "single" }))).toEqual({
       trigger: "single",

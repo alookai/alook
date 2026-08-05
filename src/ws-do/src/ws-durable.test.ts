@@ -95,6 +95,8 @@ const mockGetBotBindingWithOwner = vi.fn<(db: unknown, botId: string) => Promise
 const mockInsertBotActivityEventAndPrune = vi.fn<(db: unknown, data: unknown) => Promise<{ id: string; createdAt: string } | null>>().mockResolvedValue(null)
 const mockInsertBotAuditSessionReset = vi.fn<(db: unknown, data: unknown) => Promise<{ id: string; createdAt: string } | null>>().mockResolvedValue(null)
 const mockInsertBotAuditNap = vi.fn<(db: unknown, data: unknown) => Promise<{ id: string; createdAt: string } | null>>().mockResolvedValue(null)
+const mockInsertBotAuditModelChanged = vi.fn<(db: unknown, data: unknown) => Promise<{ id: string; createdAt: string } | null>>().mockResolvedValue(null)
+const mockInsertBotAuditProviderChanged = vi.fn<(db: unknown, data: unknown) => Promise<{ id: string; createdAt: string } | null>>().mockResolvedValue(null)
 const mockTouchBotRefreshContext = vi.fn<(db: unknown, botId: string, now: string) => Promise<void>>().mockResolvedValue(undefined)
 const mockUpdateProfile = vi
   .fn<(db: unknown, userId: string, data: { statusEmoji?: string | null; statusText?: string | null }) => Promise<unknown>>()
@@ -399,6 +401,8 @@ vi.mock("@alook/shared", () => {
         insertBotActivityEventAndPrune: (...a: any[]) => mockInsertBotActivityEventAndPrune(...a),
         insertBotAuditSessionReset: (...a: any[]) => mockInsertBotAuditSessionReset(...a),
         insertBotAuditNap: (...a: any[]) => mockInsertBotAuditNap(...a),
+        insertBotAuditModelChanged: (...a: any[]) => mockInsertBotAuditModelChanged(...a),
+        insertBotAuditProviderChanged: (...a: any[]) => mockInsertBotAuditProviderChanged(...a),
       },
       user: {
         getUserInternal: (...a: [unknown, string]) => mockGetUserInternal(...a),
@@ -1949,11 +1953,15 @@ describe("WebSocketDurableObject", () => {
     beforeEach(() => {
       mockInsertBotAuditSessionReset.mockReset()
       mockInsertBotAuditNap.mockReset()
+      mockInsertBotAuditModelChanged.mockReset()
+      mockInsertBotAuditProviderChanged.mockReset()
       mockTouchBotRefreshContext.mockReset()
       mockGetBotBindingWithOwner.mockReset()
       mockStubFetch.mockClear()
       mockInsertBotAuditSessionReset.mockResolvedValue({ id: "bae_reset", createdAt: "2025-06-01T10:00:00.000Z" })
       mockInsertBotAuditNap.mockResolvedValue({ id: "bae_nap", createdAt: "2025-06-01T11:00:00.000Z" })
+      mockInsertBotAuditModelChanged.mockResolvedValue({ id: "bae_model", createdAt: "2025-06-01T12:00:00.000Z" })
+      mockInsertBotAuditProviderChanged.mockResolvedValue({ id: "bae_provider", createdAt: "2025-06-01T13:00:00.000Z" })
       mockTouchBotRefreshContext.mockResolvedValue(undefined)
       mockGetBotBindingWithOwner.mockResolvedValue({
         machineId: "cm_1",
@@ -1974,11 +1982,32 @@ describe("WebSocketDurableObject", () => {
       store.set("community-machine-identity", { userId: "u_1", machineId: "cm_1", credentialHash: "0".repeat(64) })
     }
 
+    // record-iff-sent>0: pending is only written when a live community-machine
+    // socket accepts the forward. Seed one so /push and /push-*-switch tests
+    // exercise the completion landing (offline → sent=0 → no pending).
+    function onlineDaemon() {
+      const { durable, store, getWebSockets } = createDO()
+      seedIdentity(store)
+      const daemon = machineWs()
+      getWebSockets.mockReturnValue([daemon])
+      return { durable, store, daemon }
+    }
+
     // Helper: push a frame through /push (records pending attribution), matching
     // how the index worker forwards reset/nap frames to this DO.
     async function pushFrame(durable: any, body: unknown) {
       await durable.fetch(
         new (globalThis.Request as any)("http://internal/push", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      )
+    }
+
+    async function pushSwitch(durable: any, kind: "provider" | "model", body: Record<string, unknown>) {
+      await durable.fetch(
+        new (globalThis.Request as any)(`http://internal/push-${kind}-switch`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(body),
@@ -1993,8 +2022,7 @@ describe("WebSocketDurableObject", () => {
     }
 
     it("single reset: agent_session writes session_reset audit + stamps awake in lockstep + broadcasts", async () => {
-      const { durable, store } = createDO()
-      seedIdentity(store)
+      const { durable } = onlineDaemon()
       // Dispatch: an agent:reset frame is forwarded → records launchId→single.
       await pushFrame(durable, { type: "agent:reset", agentId: "bot_1", config: {}, launchId: "l_reset" })
       // Completion: the reborn agent's agent_session lands.
@@ -2028,8 +2056,7 @@ describe("WebSocketDurableObject", () => {
     })
 
     it("two agent_session frames for the same launch write the reset audit ONCE (claim-first evict, no double record)", async () => {
-      const { durable, store } = createDO()
-      seedIdentity(store)
+      const { durable } = onlineDaemon()
       await pushFrame(durable, { type: "agent:reset", agentId: "bot_1", config: {}, launchId: "l_reset" })
       // Two agent_session frames arrive back-to-back for the SAME launch (e.g. a
       // runtime that announces its session twice). The pending trigger must be
@@ -2042,8 +2069,7 @@ describe("WebSocketDurableObject", () => {
     })
 
     it("batch reset: each agent's agent_session writes session_reset with trigger reset_all", async () => {
-      const { durable, store } = createDO()
-      seedIdentity(store)
+      const { durable } = onlineDaemon()
       // Dispatch: ONE machine:reset_all frame carrying two launches.
       await pushFrame(durable, {
         type: "machine:reset_all",
@@ -2077,8 +2103,7 @@ describe("WebSocketDurableObject", () => {
     })
 
     it("nap: agent_session writes nap audit (trigger nap) + stamps awake in lockstep + broadcasts", async () => {
-      const { durable, store } = createDO()
-      seedIdentity(store)
+      const { durable } = onlineDaemon()
       await pushFrame(durable, { type: "agent:nap", agentId: "bot_1", config: {}, launchId: "l_nap", handoff: "note" })
       await durable.webSocketMessage(
         machineWs() as any,
@@ -2096,8 +2121,7 @@ describe("WebSocketDurableObject", () => {
     })
 
     it("fire-once: a replayed agent_session for the same launch writes nothing the second time", async () => {
-      const { durable, store } = createDO()
-      seedIdentity(store)
+      const { durable } = onlineDaemon()
       await pushFrame(durable, { type: "agent:reset", agentId: "bot_1", config: {}, launchId: "l_reset" })
       const frame = JSON.stringify({ type: "agent_session", agentId: "bot_1", sessionId: "s_new", launchId: "l_reset" })
       await durable.webSocketMessage(machineWs() as any, frame)
@@ -2122,9 +2146,123 @@ describe("WebSocketDurableObject", () => {
       expect(mockTouchBotRefreshContext).not.toHaveBeenCalled()
     })
 
-    it("cold-start fail branch B (agent_wake_ack error): evicts pending, no audit/awake, and a later replayed agent_session stays silent", async () => {
-      const { durable, store } = createDO()
+    it("offline push (sent===0): records no pending — later agent_session writes nothing", async () => {
+      const { durable, store, getWebSockets } = createDO()
       seedIdentity(store)
+      getWebSockets.mockReturnValue([])
+      await pushFrame(durable, { type: "agent:reset", agentId: "bot_1", config: {}, launchId: "l_offline" })
+      await durable.webSocketMessage(
+        machineWs() as any,
+        JSON.stringify({ type: "agent_session", agentId: "bot_1", sessionId: "s_new", launchId: "l_offline" }),
+      )
+      expect(mockInsertBotAuditSessionReset).not.toHaveBeenCalled()
+      expect(mockTouchBotRefreshContext).not.toHaveBeenCalled()
+    })
+
+    // Cecilia #1270: landing must dispatch by pending.kind — provider stamps
+    // awake; model does not; payloads stay in their namespaces.
+    it("provider_switch: agent_session writes provider_changed {from,to} + stamps awake (not model_changed)", async () => {
+      const { durable } = onlineDaemon()
+      await pushSwitch(durable, "provider", {
+        agentId: "bot_1",
+        config: { runtime: "codex" },
+        launchId: "l_prov",
+        from: "claude",
+        to: "codex",
+      })
+      await durable.webSocketMessage(
+        machineWs() as any,
+        JSON.stringify({ type: "agent_session", agentId: "bot_1", sessionId: "s_new", launchId: "l_prov" }),
+      )
+
+      expect(mockInsertBotAuditProviderChanged).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ botId: "bot_1", launchId: "l_prov", from: "claude", to: "codex" }),
+      )
+      expect(mockInsertBotAuditModelChanged).not.toHaveBeenCalled()
+      expect(mockInsertBotAuditSessionReset).not.toHaveBeenCalled()
+      expect(mockTouchBotRefreshContext).toHaveBeenCalledWith(expect.anything(), "bot_1", "2025-06-01T13:00:00.000Z")
+      const body = JSON.parse(await (auditBroadcast()!).clone().text()) as Record<string, unknown>
+      expect(body).toMatchObject({
+        kind: "provider_changed",
+        payload: { from: "claude", to: "codex" },
+        launchId: "l_prov",
+      })
+    })
+
+    // Cecilia #1279: provider PATCH clears model as a binding side-effect, but
+    // landing must emit exactly one provider_changed — never a sibling model_changed.
+    it("provider_switch with cleared model in config → exactly one provider_changed, zero model_changed", async () => {
+      const { durable } = onlineDaemon()
+      await pushSwitch(durable, "provider", {
+        agentId: "bot_1",
+        // Mirrors route after provider switch: runtime flipped + model null→default.
+        config: { runtime: "codex", model: { kind: "default" } },
+        launchId: "l_prov_clear_model",
+        from: "claude",
+        to: "codex",
+      })
+      await durable.webSocketMessage(
+        machineWs() as any,
+        JSON.stringify({
+          type: "agent_session",
+          agentId: "bot_1",
+          sessionId: "s_new",
+          launchId: "l_prov_clear_model",
+        }),
+      )
+
+      expect(mockInsertBotAuditProviderChanged).toHaveBeenCalledTimes(1)
+      expect(mockInsertBotAuditProviderChanged).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          botId: "bot_1",
+          launchId: "l_prov_clear_model",
+          from: "claude",
+          to: "codex",
+        }),
+      )
+      expect(mockInsertBotAuditModelChanged).not.toHaveBeenCalled()
+      expect(mockInsertBotAuditSessionReset).not.toHaveBeenCalled()
+      const broadcasts = mockStubFetch.mock.calls
+        .map((c: any[]) => c[0] as Request)
+        .filter((r: Request) => r.url.endsWith("/broadcast"))
+      expect(broadcasts).toHaveLength(1)
+      const body = JSON.parse(await broadcasts[0]!.clone().text()) as Record<string, unknown>
+      expect(body.kind).toBe("provider_changed")
+      expect(body.kind).not.toBe("model_changed")
+    })
+
+    it("model_switch: agent_session writes model_changed {from,to} and does NOT stamp awake", async () => {
+      const { durable } = onlineDaemon()
+      await pushSwitch(durable, "model", {
+        agentId: "bot_1",
+        config: { model: { kind: "named", name: "opus" } },
+        launchId: "l_model",
+        from: null,
+        to: "opus",
+      })
+      await durable.webSocketMessage(
+        machineWs() as any,
+        JSON.stringify({ type: "agent_session", agentId: "bot_1", sessionId: "s_new", launchId: "l_model" }),
+      )
+
+      expect(mockInsertBotAuditModelChanged).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ botId: "bot_1", launchId: "l_model", from: null, to: "opus" }),
+      )
+      expect(mockInsertBotAuditProviderChanged).not.toHaveBeenCalled()
+      expect(mockTouchBotRefreshContext).not.toHaveBeenCalled()
+      const body = JSON.parse(await (auditBroadcast()!).clone().text()) as Record<string, unknown>
+      expect(body).toMatchObject({
+        kind: "model_changed",
+        payload: { from: null, to: "opus" },
+        launchId: "l_model",
+      })
+    })
+
+    it("cold-start fail branch B (agent_wake_ack error): evicts pending, no audit/awake, and a later replayed agent_session stays silent", async () => {
+      const { durable } = onlineDaemon()
       await pushFrame(durable, { type: "agent:reset", agentId: "bot_1", config: {}, launchId: "l_reset" })
       // Enroll fail / spawn threw → wake_ack error for this launch.
       await durable.webSocketMessage(
@@ -2142,8 +2280,7 @@ describe("WebSocketDurableObject", () => {
     })
 
     it("cold-start fail branch A (session.error runtime_not_available): evicts pending, no audit/awake", async () => {
-      const { durable, store } = createDO()
-      seedIdentity(store)
+      const { durable } = onlineDaemon()
       await pushFrame(durable, { type: "agent:reset", agentId: "bot_1", config: {}, launchId: "l_reset" })
       // Runtime not installed → session.error carrying the launchId (Melisa's source half).
       await durable.webSocketMessage(

@@ -4,6 +4,7 @@ import {
   AuditLogThinkingPayloadSchema,
   AuditLogWakeTriggerPayloadSchema,
   AuditLogModelChangedPayloadSchema,
+  AuditLogProviderChangedPayloadSchema,
   AuditLogSessionResetPayloadSchema,
   AuditLogNapPayloadSchema,
   AuditLogErrorPayloadSchema,
@@ -44,6 +45,10 @@ export function parseAuditLogPayload(
     }
     case "model_changed": {
       const r = AuditLogModelChangedPayloadSchema.safeParse(json)
+      return r.success ? r.data : null
+    }
+    case "provider_changed": {
+      const r = AuditLogProviderChangedPayloadSchema.safeParse(json)
       return r.success ? r.data : null
     }
     case "session_reset": {
