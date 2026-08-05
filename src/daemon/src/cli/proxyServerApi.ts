@@ -356,6 +356,30 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     return parseJsonResponse<InboxPullResponse>(res, "inboxPull");
   }
 
+  async function callAck(req: AckRequest): Promise<void> {
+    // RETARGETED off the flat `ack` verb onto POST users/me/inbox/ack (route/disc
+    // 接口树统一, Gener #215 乙) — ack is the ADVANCE operation of the inbox
+    // fetch↔advance trinity (snapshot=peek / pull=fetch / ack=advance, Aigneis
+    // #41). Self-scoped to the voucher's bot — the wire carries only the cursors,
+    // no target-user param (users/me/* family). Body byte-identical to the flat
+    // verb (the endpoint is a MOVE-FLAT, same seq-native/failed[]-batch/no-create
+    // shape — only the URL moved). The flat /ack route stays alive through deploy
+    // (daemon is non-hot-reload; deleting it same-commit would 404 the fleet
+    // during the restart window) — deletion deferred to the flat-delete step,
+    // after the daemon is confirmed on this new target. Returns void (the daemon
+    // fire-and-forgets the {ok,applied,failed} body, same as the flat verb).
+    const { agentId: _omit, ...wire } = (req ?? {}) as unknown as Record<string, unknown>;
+    const res = await fetchImpl(`${base}/api/community/users/me/inbox/ack`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${config.voucher}`,
+      },
+      body: JSON.stringify(wire),
+    });
+    return parseJsonResponse<void>(res, "ack");
+  }
+
   async function callInboxSnapshot(): Promise<InboxSnapshot> {
     // RETARGETED off the flat `inboxSnapshot` verb onto GET users/me/inbox/snapshot
     // (route/disc 轴3). A GET — snapshot is a pure peek (never advances the read
@@ -460,7 +484,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     channelMember: callChannelMember,
     inboxPull: callInboxPull,
     inboxSnapshot: (_r: { agentId: AgentId }) => callInboxSnapshot(),
-    ack: (r: AckRequest) => call<void>("ack", r),
+    ack: callAck,
     send: callSend,
     createPost: (r: CreatePostRequest) => call<CreatePostResponse>("createPost", r),
     read: callRead,

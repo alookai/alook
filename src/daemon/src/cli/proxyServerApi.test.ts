@@ -247,7 +247,23 @@ describe("createProxyServerApi — listChannels (retargeted to servers/{id}/chan
   });
 });
 
-describe("createProxyServerApi — inboxPull/inboxSnapshot (retargeted to users/me/inbox)", () => {
+describe("createProxyServerApi — inbox trinity pull/snapshot/ack (retargeted to users/me/inbox)", () => {
+  it("ack POSTs users/me/inbox/ack with cursors, agentId stripped (advance verb)", async () => {
+    const seen: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
+      seen.push({ url, init });
+      return jsonBody(JSON.stringify({ ok: true, applied: [], failed: [] }), { status: 200 });
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    await api.ack({ agentId: "a1", cursors: [{ channel: "/s/c", seq: 5 }] } as never);
+    expect(seen[0].url).toBe("http://proxy.test/api/community/users/me/inbox/ack");
+    expect(seen[0].init?.method).toBe("POST");
+    const body = JSON.parse(String(seen[0].init?.body ?? "{}"));
+    expect(body.cursors).toEqual([{ channel: "/s/c", seq: 5 }]);
+    expect(body.agentId).toBeUndefined();
+  });
+
+
   it("inboxPull POSTs users/me/inbox/pull with {max} in body, agentId stripped", async () => {
     const seen: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
