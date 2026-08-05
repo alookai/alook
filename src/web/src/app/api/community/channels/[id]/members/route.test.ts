@@ -20,10 +20,23 @@ const mockListThreadParticipants = vi.fn()
 const mockListThreadParticipantUserIds = vi.fn()
 const mockResolveTargetForMember = vi.fn()
 const mockGetServer = vi.fn()
+const mockFetchOnlineUserIds = vi.fn()
 
 vi.mock("@/lib/community/resolve-ref", () => ({
   resolveTargetForMember: (...a: unknown[]) => mockResolveTargetForMember(...a),
 }))
+
+// Presence is a bulk ws-do fan-out — mock the helper so the route test stays
+// unit-scoped; the set it returns drives each member's `online` boolean.
+vi.mock("@/lib/community/member-presence", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/community/member-presence")>(
+    "@/lib/community/member-presence",
+  )
+  return {
+    ...actual,
+    fetchOnlineUserIds: (...a: unknown[]) => mockFetchOnlineUserIds(...a),
+  }
+})
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
@@ -206,6 +219,7 @@ describe("POST /channels/[id]/members", () => {
     mockResolveChannelAccessContext.mockResolvedValue(managerCtx())
     mockGetMember.mockResolvedValue({ id: "m2", userId: "u2", role: "member" })
     mockGetPrivateChannelAudienceUserIds.mockResolvedValue(["u1"])
+    mockFetchOnlineUserIds.mockResolvedValue(new Set<string>())
   })
 
   it("adds an existing server member", async () => {
@@ -296,19 +310,53 @@ describe("POST /channels/[id]/members", () => {
   }
   const ctxResolve = { params: { id: "resolve" } } as any
 
-  it("bot: private channel → { visibility: private, members } (lean handle+role)", async () => {
+  it("bot: private channel → { visibility: private, members, hasMore:false } (lean handle+role+online+status)", async () => {
     mockResolveTargetForMember.mockResolvedValue({ kind: "channel", channelId: "c1" })
     mockResolveChannelAccessContext.mockResolvedValue(managerCtx())
     mockResolveScopeMembers.mockResolvedValue([{ userId: "u1", source: "explicit" }])
-    mockGetMembersByUserIds.mockResolvedValue([{ userId: "u1", userName: "alice", discriminator: "0001", role: "member" }])
+    mockGetMembersByUserIds.mockResolvedValue([
+      { userId: "u1", userName: "alice", discriminator: "0001", role: "member", statusEmoji: "🎧", statusText: "vibing" },
+    ])
+    mockFetchOnlineUserIds.mockResolvedValue(new Set(["u1"]))
     const res = await GET(botGetReq("/s/general"), ctxResolve)
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ visibility: "private", members: [{ handle: "alice#0001", role: "member" }] })
+    expect(await res.json()).toEqual({
+      visibility: "private",
+      hasMore: false,
+      members: [{ handle: "alice#0001", role: "member", online: true, status: { emoji: "🎧", text: "vibing" } }],
+    })
     expect(mockResolveTargetForMember).toHaveBeenCalledWith({}, "bot_1", "/s/general", {
       createDmIfMissing: false,
       createThreadIfMissing: false,
       callerKind: "bot",
     })
+    // presence batched over the resolved (bounded) roster — never per-member.
+    expect(mockFetchOnlineUserIds).toHaveBeenCalledWith(expect.anything(), ["u1"], "s1")
+  })
+
+  it("bot: thread ref → always private on the wire; roster is the thread-participant set", async () => {
+    mockResolveTargetForMember.mockResolvedValue({ kind: "channel", channelId: "t1" })
+    mockResolveChannelAccessContext.mockResolvedValue({
+      channel: { id: "t1", serverId: "s1", type: "thread", parentChannelId: "c1", parentMessageId: "m1", creatorId: "u1" },
+      anchor: { id: "c1", serverId: "s1", parentChannelId: null, creatorId: "u1" },
+      role: "member", isPrivate: false, isChannelMember: false, isCreator: false,
+    })
+    mockListThreadParticipantUserIds.mockResolvedValue(["u1", "u2"])
+    mockGetMembersByUserIds.mockResolvedValue([
+      { userId: "u1", userName: "alice", discriminator: "0001", role: "owner", statusEmoji: null, statusText: null },
+      { userId: "u2", userName: "bob", discriminator: "0002", role: "member", statusEmoji: "🌀", statusText: "running" },
+    ])
+    mockFetchOnlineUserIds.mockResolvedValue(new Set(["u2"]))
+    const res = await GET(botGetReq("/s/general/#12"), ctxResolve)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.visibility).toBe("private")
+    expect(body.hasMore).toBe(false)
+    expect(body.members).toEqual([
+      { handle: "alice#0001", role: "owner", online: false, status: { emoji: null, text: "" } },
+      { handle: "bob#0002", role: "member", online: true, status: { emoji: "🌀", text: "running" } },
+    ])
+    expect(mockListThreadParticipantUserIds).toHaveBeenCalledWith({}, "t1")
   })
 
   it("bot: public channel → { visibility: public, hint } (no enumeration)", async () => {

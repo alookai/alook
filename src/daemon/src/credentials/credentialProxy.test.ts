@@ -47,9 +47,10 @@ async function post(url: string, voucher: string, path: string) {
 }
 
 describe("DEFAULT_CAPABILITY_RESOLVER", () => {
-  it("maps /api/reactAdd to the `send` capability (a read-only voucher must not react)", () => {
-    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/reactAdd")).toBe("send");
-    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/reactAdd")).toBe("send");
+  it("maps a reaction (canonical door PUT messages/{id}/reactions) to `send` (a read-only voucher must not react)", () => {
+    // Flat /api/reactAdd is DELETED (folded into the canonical reaction door).
+    // The write capability now attaches to the door shape.
+    expect(DEFAULT_CAPABILITY_RESOLVER("PUT", "/api/community/messages/resolve/reactions/%F0%9F%91%8D")).toBe("send");
   });
 
   it("maps friendRequest / listFriends to the `friend` capability, both pre- and post-rewrite", () => {
@@ -100,10 +101,17 @@ describe("DEFAULT_CAPABILITY_RESOLVER", () => {
     expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/channels/abc123/posts")).toBe("send");
   });
 
-  it("keeps the flat verbs mapping during the transition (send/reactAdd/read pre- and post-rewrite)", () => {
-    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/send")).toBe("send");
-    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/send")).toBe("send");
+  it("maps the surviving flat verbs (createPost→send, inboxPull→read); deleted flat send/reactAdd no longer map", () => {
+    // Kept-class flat verbs (no id-in-path door folds them yet).
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/createPost")).toBe("send");
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/createPost")).toBe("send");
     expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/inboxPull")).toBe("read");
+    // The flat send/reactAdd/read/resolve/channelMember routes are DELETED — their
+    // bare `/api/<verb>` paths no longer carry a capability rule (they only
+    // reached upstream via the flat routes, which are gone). `/api/send` still
+    // matches nothing else, so it's undefined now, not `send`.
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/send")).toBeUndefined();
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/reactAdd")).toBeUndefined();
   });
 });
 
@@ -228,7 +236,8 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     proxy = await startCredentialProxy(broker);
     const reg = broker.mint("a", "l", ["read"], REAL_KEY); // no "send"
 
-    const r = await post(proxy.url, reg.voucher, "/send");
+    // The canonical send door (POST channels/{id}/messages) requires `send`.
+    const r = await post(proxy.url, reg.voucher, "/api/community/channels/resolve/messages");
     expect(r.status).toBe(403);
     expect(upstream.seen.length).toBe(0);
   });
@@ -310,9 +319,10 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     const bogus = await post(proxy.url, "vch_bogus", "/api/send");
     expect(bogus.status).toBe(401);
 
-    // Capability denied → 403 (still not fired).
+    // Capability denied → 403 (still not fired). Use the canonical send door
+    // (POST channels/{id}/messages → send) since the flat /api/send is deleted.
     const scoped = broker.mint("agent-1", "l", ["read"], REAL_KEY);
-    const denied = await post(proxy.url, scoped.voucher, "/api/send");
+    const denied = await post(proxy.url, scoped.voucher, "/api/community/channels/resolve/messages");
     expect(denied.status).toBe(403);
 
     expect(sightings).toEqual([]);
@@ -344,7 +354,8 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     proxy = await startCredentialProxy(broker);
     const reg = broker.mint("agent-1", "l", ["attach"], REAL_KEY);
 
-    const r = await post(proxy.url, reg.voucher, "/api/send");
+    // Canonical send door requires `send`; an attach-only voucher is denied.
+    const r = await post(proxy.url, reg.voucher, "/api/community/channels/resolve/messages");
     expect(r.status).toBe(403);
   });
 

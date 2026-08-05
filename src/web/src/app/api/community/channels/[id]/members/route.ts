@@ -21,6 +21,7 @@ import { logAudit } from "@/lib/community/audit"
 import { requireChannelAccess } from "@/lib/community/permissions"
 import { resolveTargetForMember } from "@/lib/community/resolve-ref"
 import { mapMemberForApi } from "@/lib/community/member-payload"
+import { fetchOnlineUserIds, toMemberStatus } from "@/lib/community/member-presence"
 
 // A bot addresses by ref-in-query (`?ref=`, the folded `channelMember` verb);
 // the path `[id]` is then the `resolve` placeholder (a ref carries `/`). A
@@ -45,7 +46,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
 
   if (ctx.actor.kind === "bot") {
-    return handleBotChannelMember(db, ctx.actor.userId, req)
+    return handleBotChannelMember(db, ctx.env, ctx.actor.userId, req)
   }
 
   const channelId = ctx.params?.id
@@ -199,10 +200,14 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
  * participant roster (always private on the wire); a public top-level channel/
  * forum returns a `{ visibility: "public", hint }` (no enumeration — point the
  * agent at `server member`); a private one returns `{ visibility: "private",
- * members }` from the same audience the fan-out uses.
+ * members }` from the same audience the fan-out uses. Members carry `online` +
+ * `status` (bulk presence read, never per-member); `hasMore: false` — a
+ * channel/thread roster is membership-bounded and returned whole, wire shape
+ * kept uniform with `server member`'s pagination.
  */
 async function handleBotChannelMember(
   db: ReturnType<typeof getDb>,
+  env: Env,
   botUserId: string,
   req: NextRequest,
 ) {
@@ -242,8 +247,8 @@ async function handleBotChannelMember(
   // on the wire regardless of the parent's public/private state.
   if (isThread(channel.type)) {
     const userIds = await queries.communityThread.listThreadParticipantUserIds(db, channelId)
-    const members = await hydrateBotMembers(db, channel.serverId, userIds)
-    return writeJSON({ visibility: "private", members })
+    const members = await hydrateBotMembers(db, env, channel.serverId, userIds)
+    return writeJSON({ visibility: "private", members, hasMore: false })
   }
 
   if (!isPrivate) {
@@ -254,24 +259,30 @@ async function handleBotChannelMember(
   }
 
   const scoped = await queries.communityMembersResolver.resolveScopeMembers(db, { scope: "channel", scopeId: channelId })
-  const members = await hydrateBotMembers(db, channel.serverId, scoped.map((s) => s.userId))
-  return writeJSON({ visibility: "private", members })
+  const members = await hydrateBotMembers(db, env, channel.serverId, scoped.map((s) => s.userId))
+  return writeJSON({ visibility: "private", members, hasMore: false })
 }
 
 /**
  * Hydrate a user id list into the lean `ServerMember[]` the bot contract uses
- * (handle + role) — mirrors the flat channelMember route's `hydrateMembers`.
- * Soft-deleted / missing-member-row users drop out via the inner join.
+ * (handle + role + online + status) — mirrors the flat channelMember route's
+ * `hydrateMembers`. Soft-deleted / missing-member-row users drop out via the
+ * inner join. Presence is one bulk read over the resolved (bounded) roster —
+ * never per-member.
  */
 async function hydrateBotMembers(
   db: ReturnType<typeof getDb>,
+  env: Env,
   serverId: string,
   userIds: string[],
 ): Promise<ServerMember[]> {
   if (userIds.length === 0) return []
   const rows = await queries.communityMember.getMembersByUserIds(db, serverId, userIds)
+  const onlineSet = await fetchOnlineUserIds(env, rows.map((r) => r.userId), serverId)
   return rows.map((r) => ({
     handle: formatHandle(r.userName ?? "", r.discriminator ?? "0000"),
     role: r.role ?? "member",
+    online: onlineSet.has(r.userId),
+    status: toMemberStatus(r),
   }))
 }

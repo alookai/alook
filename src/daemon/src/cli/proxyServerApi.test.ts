@@ -240,6 +240,66 @@ describe("createProxyServerApi — read (retargeted to the canonical messages do
   });
 });
 
+describe("caller-side ref-encode `/#` round-trip (carry — Ingaborg #267)", () => {
+  // A thread ref (`/server/channel/#42`) and a DM-message ref carry `/` AND `#`;
+  // the `#` MUST be percent-encoded on the query or the server sees it as a URL
+  // fragment and drops it (silently reading the wrong channel). Assert every
+  // ref-in-query builder (read / resolve / channelMember) round-trips a `/#` ref
+  // intact: the raw URL contains `%23` (not a bare `#`), and decoding the `ref`
+  // param yields the original string byte-for-byte.
+  const THREAD_REF = "/demo/general/#42"
+
+  function capture() {
+    const seen: Array<{ url: string }> = []
+    const fetchImpl: FetchLike = vi.fn(async (url: string) => {
+      seen.push({ url })
+      return jsonBody(JSON.stringify({ items: [], hasMore: false, message: {}, visibility: "public", hint: "x" }), { status: 200 })
+    })
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch })
+    return { seen, api }
+  }
+
+  function assertRoundTrip(rawUrl: string) {
+    // `#` is encoded, not a bare fragment delimiter.
+    expect(rawUrl).toContain("%23")
+    expect(rawUrl).not.toContain("/#42")
+    // decoding the ref param recovers the exact ref.
+    const u = new URL(rawUrl)
+    expect(u.searchParams.get("ref")).toBe(THREAD_REF)
+  }
+
+  it("read round-trips a `/#` thread ref", async () => {
+    const { seen, api } = capture()
+    await api.read({ agentId: "a1", channel: THREAD_REF })
+    assertRoundTrip(seen[0].url)
+  })
+
+  it("resolve round-trips a `/#` thread ref", async () => {
+    const { seen, api } = capture()
+    await api.resolve({ agentId: "a1", channel: THREAD_REF, seq: 42 })
+    assertRoundTrip(seen[0].url)
+  })
+
+  it("channelMember round-trips a `/#` thread ref", async () => {
+    const { seen, api } = capture()
+    await api.channelMember({ channel: THREAD_REF })
+    assertRoundTrip(seen[0].url)
+  })
+
+  it("send carries the `/#` ref in the JSON body (POST — no query encoding needed)", async () => {
+    const seen: Array<{ init?: RequestInit }> = []
+    const fetchImpl: FetchLike = vi.fn(async (_url: string, init?: RequestInit) => {
+      seen.push({ init })
+      return jsonBody(JSON.stringify({ state: "sent", message: {} }), { status: 200 })
+    })
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch })
+    await api.send({ agentId: "a1", channel: THREAD_REF, content: { text: "hi" } })
+    const body = JSON.parse(String(seen[0].init?.body ?? "{}"))
+    // In a JSON body the ref is a plain string value — no URL encoding, intact.
+    expect(body.channel).toBe(THREAD_REF)
+  })
+})
+
 describe("createProxyServerApi — callUpload via parseJsonResponse", () => {
   it("throws 'non-JSON body' on empty 500", async () => {
     const fetchImpl: FetchLike = vi.fn(async () => jsonBody("", { status: 500 }));
