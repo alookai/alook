@@ -247,6 +247,36 @@ describe("createProxyServerApi — listChannels (retargeted to servers/{id}/chan
   });
 });
 
+describe("createProxyServerApi — inboxPull/inboxSnapshot (retargeted to users/me/inbox)", () => {
+  it("inboxPull POSTs users/me/inbox/pull with {max} in body, agentId stripped", async () => {
+    const seen: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
+      seen.push({ url, init });
+      return jsonBody(JSON.stringify({ messages: [], hasMore: false }), { status: 200 });
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    await api.inboxPull({ agentId: "a1" as never, max: 10 });
+    expect(seen[0].url).toBe("http://proxy.test/api/community/users/me/inbox/pull");
+    expect(seen[0].init?.method).toBe("POST");
+    const body = JSON.parse(String(seen[0].init?.body ?? "{}"));
+    expect(body.max).toBe(10);
+    expect(body.agentId).toBeUndefined();
+  });
+
+  it("inboxSnapshot GETs users/me/inbox/snapshot (pure peek, no body)", async () => {
+    const seen: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
+      seen.push({ url, init });
+      return jsonBody(JSON.stringify({ rows: [], pendingChannels: 0, pendingMessages: 0 }), { status: 200 });
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    await api.inboxSnapshot({ agentId: "a1" as never });
+    expect(seen[0].url).toBe("http://proxy.test/api/community/users/me/inbox/snapshot");
+    expect(seen[0].init?.method).toBe("GET");
+    expect(seen[0].init?.body).toBeUndefined();
+  });
+});
+
 describe("createProxyServerApi — resolve (retargeted to the canonical hydrate door)", () => {
   it("GETs messages/{id} with ref+seq on the query; returns the {message} shape", async () => {
     const seen: Array<{ url: string; init?: RequestInit }> = [];

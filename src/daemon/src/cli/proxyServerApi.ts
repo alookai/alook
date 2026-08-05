@@ -336,6 +336,38 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     };
   }
 
+  async function callInboxPull(req: InboxPullRequest): Promise<InboxPullResponse> {
+    // RETARGETED off the flat `inboxPull` verb onto the caller's own inbox
+    // resource POST users/me/inbox/pull (route/disc 轴3). Self-scoped to the
+    // voucher's bot — no target-user param on the wire (users/me/* family). The
+    // flat /inboxPull route stays alive through deploy (daemon is non-hot-reload;
+    // deleting it same-commit would 404 the whole fleet during the restart
+    // window) — its deletion is deferred to the flat-delete step, after daemon
+    // is confirmed on this new target. Same optional `{max?}` body.
+    const { agentId: _omit, ...wire } = (req ?? {}) as unknown as Record<string, unknown>;
+    const res = await fetchImpl(`${base}/api/community/users/me/inbox/pull`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${config.voucher}`,
+      },
+      body: JSON.stringify(wire),
+    });
+    return parseJsonResponse<InboxPullResponse>(res, "inboxPull");
+  }
+
+  async function callInboxSnapshot(): Promise<InboxSnapshot> {
+    // RETARGETED off the flat `inboxSnapshot` verb onto GET users/me/inbox/snapshot
+    // (route/disc 轴3). A GET — snapshot is a pure peek (never advances the read
+    // waterline, unlike pull), so the fetch↔advance decoupling is explicit in the
+    // verb. Self-scoped, no target-user param. Flat route stays through deploy.
+    const res = await fetchImpl(`${base}/api/community/users/me/inbox/snapshot`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${config.voucher}` },
+    });
+    return parseJsonResponse<InboxSnapshot>(res, "inboxSnapshot");
+  }
+
   async function callDownload(req: AttachmentDownloadRequest): Promise<AgentAttachmentDownloadResult> {
     const res = await fetchImpl(`${base}/api/attachmentDownload`, {
       method: "POST",
@@ -426,8 +458,8 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     joinServer: callJoinServer,
     listChannels: callListChannels,
     channelMember: callChannelMember,
-    inboxPull: (r: InboxPullRequest) => call<InboxPullResponse>("inboxPull", r),
-    inboxSnapshot: (r: { agentId: AgentId }) => call<InboxSnapshot>("inboxSnapshot", r),
+    inboxPull: callInboxPull,
+    inboxSnapshot: (_r: { agentId: AgentId }) => callInboxSnapshot(),
     ack: (r: AckRequest) => call<void>("ack", r),
     send: callSend,
     createPost: (r: CreatePostRequest) => call<CreatePostResponse>("createPost", r),

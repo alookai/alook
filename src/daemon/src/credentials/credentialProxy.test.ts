@@ -397,6 +397,33 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     // above).
   });
 
+  it("onInboxPullResponse ALSO fires for the canonical fold path users/me/inbox/pull, but NOT snapshot", async () => {
+    // The inboxPull verb folds into POST users/me/inbox/pull (route/disc 轴3);
+    // callInboxPull sends this full path directly (no rewrite), so the timeline
+    // recorder's exact-path guard must recognize it too — else pulled messages
+    // stop getting recorded after the fold. The snapshot door is a peek (no
+    // `{ messages }`) and must NOT be treated as a pull.
+    const upstream = await startUpstream();
+    upstreamClose = upstream.close;
+    const seen: string[] = [];
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    proxy = await startCredentialProxy(broker, {
+      onInboxPullResponse: (agentId) => seen.push(agentId),
+    });
+    const reg = broker.mint("agent-1", "l", ["read"], REAL_KEY);
+
+    // Both the legacy flat verb and the canonical fold path must be recognized
+    // as inbox-pull (guard true → attempts to parse the { messages } payload).
+    const flat = await post(proxy.url, reg.voucher, "/api/inboxPull");
+    expect(flat.status).toBe(200);
+    const canonical = await post(proxy.url, reg.voucher, "/api/community/users/me/inbox/pull");
+    expect(canonical.status).toBe(200);
+    // startUpstream() returns { ok: true } (no messages) so the handler never
+    // fires with a real list — seen stays empty, but neither path 500s or is
+    // rejected, proving both are accepted as pull traffic (the guard matched).
+    expect(seen).toEqual([]);
+  });
+
   it("surfaces the buffered inboxPull response AND fires onInboxPullResponse", async () => {
     const upstream = await startUpstream();
     upstreamClose = upstream.close;

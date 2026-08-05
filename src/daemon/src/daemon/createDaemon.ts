@@ -170,6 +170,12 @@ export function deriveAuditLogSubcommand(pathname: string, method?: string): str
   // verb so the audit row stays `listFriends`, not the `friends` segment.
   // (/friends/blocked is bot-403 → never reached by a bot, so it needs no map.)
   if (/^\/api\/community\/friends\/(accepted|pending)(\/|$|\?)/.test(canonical)) return "listFriends";
+  // Inbox bucket doors (轴3 fold): the caller's own inbox pull/snapshot fold into
+  // users/me/inbox/{pull,snapshot}. Map back to the logical verb so the audit row
+  // stays inboxPull/inboxSnapshot, not the `users` segment. (`ack` — the read-state
+  // mutator — is NOT folded here; it goes to channels/{id}/read, mapped elsewhere.)
+  if (/^\/api\/community\/users\/me\/inbox\/pull(\/|$|\?)/.test(canonical)) return "inboxPull";
+  if (/^\/api\/community\/users\/me\/inbox\/snapshot(\/|$|\?)/.test(canonical)) return "inboxSnapshot";
 
   // Normalize both the pre-rewrite client path (`/api/<verb>`) and the
   // post-rewrite upstream path (`/api/community/<verb>`, plans/22 §9 — the old

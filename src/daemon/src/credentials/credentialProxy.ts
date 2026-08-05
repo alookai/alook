@@ -365,10 +365,17 @@ export async function startCredentialProxy(
     const reg = verdict.reg;
     // Tightened from `.endsWith("/inboxPull")` — the attachment-download
     // endpoint returns raw binary, and a loose match here would try to JSON-
-    // parse it as an inbox response. Only the exact `/api/inboxPull` path
-    // (pre-rewrite; matches the daemon's CLI callers, see `rewriteAgentPath`)
-    // should trigger the timeline recorder callback.
-    const isInboxPull = onPull && pathname === "/api/inboxPull";
+    // parse it as an inbox response. Exact-path match the two inbox-pull doors
+    // that return the `{ messages }` shape the timeline recorder consumes:
+    //   - `/api/inboxPull` — the legacy flat verb (kept alive through the deploy
+    //     window; the CLI's `call()` sends this pre-rewrite path).
+    //   - `/api/community/users/me/inbox/pull` — the canonical fold (route/disc
+    //     轴3; `callInboxPull` sends this full path directly, no rewrite).
+    // inboxSnapshot is deliberately EXCLUDED (peek, no `{ messages }` to record).
+    const isInboxPull =
+      onPull &&
+      (pathname === "/api/inboxPull" ||
+        pathname === "/api/community/users/me/inbox/pull");
 
     if (onProxyRequest) {
       try {
