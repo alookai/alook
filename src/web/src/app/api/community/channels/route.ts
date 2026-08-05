@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
+import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
@@ -20,16 +20,36 @@ import {
  * create-channels.ts and stay alive transitionally (deleted at the flat-delete
  * step after the deploy window closes).
  *
- * This is the HUMAN arm (`withAuth`). The bot arm is a separate carve-out commit:
- * the door dispatches 4 types, but bot CAPABILITY is minimal and orthogonal to
- * dispatch — bot may create thread/DM only (already implicit via send today,
- * ①-C existence-mask), while text/forum channel-create stays human-only (bot →
- * 403 capability-reject, reject-before-resolve). Not wired here.
+ * Dual-actor (`withCommunityActor`), but bot CAPABILITY is minimal and ORTHOGONAL
+ * to the 4-type dispatch — supporting a type ≠ opening it to bots. The bot arm is
+ * two DIFFERENT rejections, kept distinct on purpose (Melly #486 / Aigneis #475):
  *
- * Descriptor is discriminated on `type`; the parent is addressed by the id each
- * kind needs (serverId / peer userId / root messageId).
+ *   (1) text/forum channel-create → 403 capability-reject, PERMANENT. This is a
+ *       fixed capability boundary, NOT a deferred half: a bot creating a
+ *       top-level channel changes server structure, a sensitive capability bots
+ *       have never had. Granting it is an explicit capability EXPANSION (its own
+ *       review), and it will NEVER open as a side effect of any future verb. The
+ *       reject fires BEFORE resolving/touching any target → the 403 is
+ *       channel-independent (zero existence leak, capability axis not existence
+ *       axis, same form as members-POST #347).
+ *
+ *   (2) dm / thread → defensive reject, DEFERRED half. There is no bot
+ *       create-DM/thread verb today (bots get DM/thread only as a get-or-create
+ *       side effect of `send`, via resolve-ref — not this door), and no bot-ref
+ *       descriptor shape is defined. So the bot arm here is defensive (reject
+ *       BEFORE any target probe, never a bare requireChannelMember fallback whose
+ *       known-non-member 403 would leak existence). When a real bot
+ *       create-DM/thread verb lands, THAT commit builds the ①-C ref arm here —
+ *       switch to resolveTargetForMember (ref → member-scoped → 404-before-mask,
+ *       resolve≠create) with the descriptor's ref shape defined alongside the
+ *       verb — and MUST verify it then (Ingaborg #485 tripwire: openable anytime,
+ *       opening MUST test; never inherit "defensive passed" as verified).
+ *
+ * Human path is unchanged from the human-arm commit. Descriptor is discriminated
+ * on `type`; the parent is addressed by the id each kind needs (serverId / peer
+ * userId / root messageId).
  */
-export const POST = withAuth(async (req: NextRequest, ctx) => {
+export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
 
   let body: {
@@ -47,6 +67,15 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError("invalid request body", 400)
   }
 
+  // Bot capability boundary — rejected BEFORE resolving/probing any target, so
+  // every bot rejection is target-independent (zero existence leak). See the two
+  // segments in the route doc: (1) channel-create is a permanent capability
+  // reject; (2) dm/thread is a defensive reject (no bot verb today).
+  if (ctx.actor.kind === "bot") {
+    return writeError("forbidden: creating channels is not available to bots", 403)
+  }
+  const actorUserId = ctx.actor.userId
+
   switch (body.type) {
     case "text":
     case "forum":
@@ -58,7 +87,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       }
       const result = await createServerChannelForUser(db, {
         serverId: body.serverId,
-        actorUserId: ctx.userId,
+        actorUserId,
         name: body.name,
         type: body.type,
         categoryId: body.categoryId,
@@ -68,7 +97,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       return writeJSON({ channel: result.value }, 201)
     }
     case "dm": {
-      const result = await createDmForUser(db, { actorUserId: ctx.userId, peerUserId: body.userId })
+      const result = await createDmForUser(db, { actorUserId, peerUserId: body.userId })
       if (!result.ok) return writeError(result.error, result.status)
       return writeJSON({ conversation: result.value }, 201)
     }
@@ -78,7 +107,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       }
       const result = await createThreadForUser(db, {
         messageId: body.messageId,
-        actorUserId: ctx.userId,
+        actorUserId,
         name: body.name,
       })
       if (!result.ok) return writeError(result.error, result.status)

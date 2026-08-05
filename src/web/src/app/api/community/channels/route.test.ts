@@ -11,11 +11,18 @@ const mockCreateThread = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
-// Human arm: withAuth delegates to the session; the door's bot arm is a separate
-// carve-out commit (bot may create thread/DM only, channel → 403), not wired here.
-vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: (handler: any) => async (req: any) =>
-    handler(req, { env: { DB: {} }, userId: "u1", email: "u@t.com" }),
+// Dual-actor: crk_ bearer → bot, else human. The bot arm is a capability
+// boundary — creating channels is not a bot capability (channel-create permanent
+// reject; dm/thread defensive, no bot verb today) → bot → 403 before any target
+// touch. The human arm dispatches to the creation cores.
+vi.mock("@/lib/middleware/community-actor", () => ({
+  withCommunityActor: (handler: any) => async (req: any) => {
+    const authz = req?.headers?.get?.("Authorization") ?? ""
+    const actor = authz.startsWith("Bearer crk_")
+      ? { kind: "bot", userId: "bot_1", ownerUserId: "o_1", machineId: "m_1" }
+      : { kind: "human", userId: "u1", email: "u@t.com" }
+    return handler(req, { env: { DB: {} }, actor })
+  },
 }))
 
 vi.mock("@/lib/middleware/helpers", () => {
@@ -37,6 +44,14 @@ import { POST } from "./route"
 function req(body: unknown) {
   return new NextRequest("http://localhost/api/community/channels", {
     method: "POST",
+    body: JSON.stringify(body),
+  })
+}
+
+function botReq(body: unknown) {
+  return new NextRequest("http://localhost/api/community/channels", {
+    method: "POST",
+    headers: { Authorization: "Bearer crk_test" },
     body: JSON.stringify(body),
   })
 }
@@ -134,5 +149,43 @@ describe("POST /api/community/channels (create door — human arm)", () => {
     expect(res.status).toBe(409)
     const body = await res.json()
     expect(body.error).toBe("a channel with this name already exists")
+  })
+
+  describe("bot capability boundary (403 before any target touch)", () => {
+    // (1) channel-create is a PERMANENT capability reject for bots — reject fires
+    // before resolving any target, so the 403 is channel-independent (zero
+    // existence leak). It does NOT open with any future verb.
+    it("403s a bot creating a text channel, before touching the core (permanent capability boundary)", async () => {
+      const res = await POST(botReq({ type: "text", serverId: "s1", name: "general" }))
+      expect(res.status).toBe(403)
+      expect(mockCreateServerChannel).not.toHaveBeenCalled()
+    })
+
+    it("403s a bot creating a forum channel", async () => {
+      const res = await POST(botReq({ type: "forum", serverId: "s1", name: "ideas" }))
+      expect(res.status).toBe(403)
+      expect(mockCreateServerChannel).not.toHaveBeenCalled()
+    })
+
+    // (2) dm / thread → defensive reject (no bot create-DM/thread verb today; the
+    // real ①-C ref arm lands with a future verb + MUST be verified then). The
+    // reject is target-independent: it fires before any resolve/probe, so a bot
+    // can't use it to probe DM/message existence.
+    it("403s a bot creating a DM, before touching the core (defensive — no bot verb today)", async () => {
+      const res = await POST(botReq({ type: "dm", userId: "u2" }))
+      expect(res.status).toBe(403)
+      expect(mockCreateDm).not.toHaveBeenCalled()
+    })
+
+    it("403s a bot creating a thread, before touching the core (defensive)", async () => {
+      const res = await POST(botReq({ type: "thread", messageId: "msg-p", name: "x" }))
+      expect(res.status).toBe(403)
+      expect(mockCreateThread).not.toHaveBeenCalled()
+    })
+
+    it("403s a bot with an unknown type too (reject precedes type dispatch — no info leak)", async () => {
+      const res = await POST(botReq({ type: "forum_post", serverId: "s1", name: "x" }))
+      expect(res.status).toBe(403)
+    })
   })
 })
