@@ -11,7 +11,7 @@ export function rejectDmOnGenericChannelRoute(channelType: string | null | undef
   return {
     ok: false,
     status: 400,
-    error: "this is a direct message — use the DM endpoints (/api/community/dm/[id]/*), which enforce block checks.",
+    error: "this is a direct message — address it through the canonical channel door (/api/community/channels/[id]/*), which dispatches DM block checks by surface trait.",
   }
 }
 

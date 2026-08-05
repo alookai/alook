@@ -938,7 +938,7 @@ describe("useAdvanceChannelWatermark", () => {
 
 // ── useAdvanceDmWatermark — DM sibling of the channel wrapper ───────────
 describe("useAdvanceDmWatermark", () => {
-  it("returns a callable that PUTs { lastReadMessageId } to the DM read route", async () => {
+  it("returns a callable that PUTs { lastReadMessageId } to the canonical channels read route", async () => {
     vi.useFakeTimers()
     try {
       apiFetchMock.mockResolvedValue(undefined)
@@ -951,7 +951,7 @@ describe("useAdvanceDmWatermark", () => {
         (c) => (c[1] as { method?: string })?.method === "PUT",
       )
       expect(put).toBeDefined()
-      expect(put![0] as string).toBe("/api/community/dm/dm_1/read")
+      expect(put![0] as string).toBe("/api/community/channels/dm_1/read")
       expect((put![1] as RequestInit).body).toBe(
         JSON.stringify({ lastReadMessageId: "m_42" }),
       )
@@ -979,19 +979,17 @@ describe("useAdvanceDmWatermark", () => {
       const puts = apiFetchMock.mock.calls.filter(
         (c) => (c[1] as { method?: string })?.method === "PUT",
       )
+      // DM and channel now share the canonical /channels/{id}/read URL, so the
+      // two schedules are distinguished by BODY, not path — the point is the
+      // shared debounce map (keyed `dm:x` vs the channel's own key) does NOT
+      // alias them into one PUT.
       expect(puts).toHaveLength(2)
-      const dmPut = puts.find((c) => (c[0] as string).startsWith("/api/community/dm/"))
-      const chPut = puts.find((c) =>
-        (c[0] as string).startsWith("/api/community/channels/"),
-      )
-      expect(dmPut).toBeDefined()
-      expect(chPut).toBeDefined()
-      expect((dmPut![1] as RequestInit).body).toBe(
-        JSON.stringify({ lastReadMessageId: "m_dm" }),
-      )
-      expect((chPut![1] as RequestInit).body).toBe(
-        JSON.stringify({ lastReadMessageId: "m_ch" }),
-      )
+      const bodies = puts.map((c) => (c[1] as RequestInit).body)
+      expect(bodies).toContain(JSON.stringify({ lastReadMessageId: "m_dm" }))
+      expect(bodies).toContain(JSON.stringify({ lastReadMessageId: "m_ch" }))
+      for (const c of puts) {
+        expect(c[0] as string).toBe("/api/community/channels/x/read")
+      }
     } finally {
       vi.useRealTimers()
     }

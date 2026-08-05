@@ -52,10 +52,10 @@ export function zipUploadResultsWithDimensions(
 }
 
 function uploadPath(target: UploadTarget): string | null {
-  if (target.threadId) return `/api/community/threads/${target.threadId}/upload`
-  if (target.dmId) return `/api/community/dm/${target.dmId}/upload`
-  if (target.channelId) return `/api/community/channels/${target.channelId}/upload`
-  return null
+  // Thread / DM / channel are all channel rows in one id-space → one upload
+  // door. Whichever id the target carries, it's a channelId to channels/{id}.
+  const id = target.threadId ?? target.dmId ?? target.channelId
+  return id ? `/api/community/channels/${id}/upload` : null
 }
 
 export function useUploadFile() {

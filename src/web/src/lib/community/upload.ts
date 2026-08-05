@@ -249,9 +249,9 @@ export function handleBotAvatarUpload(
 /**
  * Shared body for the unified attachment-upload trunk. One `id`, dispatched by
  * the channel's surface — the three old per-type routes
- * (`channels/[id]/upload`, `dm/[id]/upload`, `threads/[id]/upload`) collapse to
- * this, with the DM/thread routes kept as thin shims that re-export the channel
- * handler.
+ * (`channels/[id]/upload`, `dm/[id]/upload`, `threads/[id]/upload`) have
+ * collapsed onto this one; the DM/thread routes are now deleted and the web
+ * client uploads through `channels/[id]/upload` for every surface.
  *
  * Access + surface come from `requireMessageSurfaceAccess` (the same dispatch
  * the read/read-state routes use), so a DM id runs `requireDMAccess` (block

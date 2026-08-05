@@ -16,11 +16,9 @@ import { join } from "path"
  * excluded — it DEFINES createCommunityMessage, it doesn't call it.
  */
 const ALLOWLIST = [
-  // The canonical id-in-path message door (human + bot, folds flat `send`).
+  // The canonical id-in-path message door (human + bot, folds flat `send` and
+  // the former dm/[id]/messages route — DM now flows through this one tree).
   "src/app/api/community/channels/[id]/messages/route.ts",
-  // The DM message door (human web client; a future step folds it into the
-  // canonical channels/{id} tree, but it is a LIVE human route today).
-  "src/app/api/community/dm/[id]/messages/route.ts",
   // Bot enrollment welcome message (server owner adds a bot → greeting).
   "src/app/api/community/servers/[id]/bots/route.ts",
   // Forum post creation (its first message); folds into send-with-title at the

@@ -473,7 +473,7 @@ function ChannelView() {
     communityWsSubscribe({ channelId })
     // Child channel — fetch meta so the breadcrumb shows the new parent name
     if (isChildChannel) {
-      apiFetch<{ id: string; name: string; parentChannelId: string | null; parentMessageId: string | null; creatorId: string | null }>(`/api/community/threads/${channelId}`)
+      apiFetch<{ id: string; name: string; parentChannelId: string | null; parentMessageId: string | null; creatorId: string | null }>(`/api/community/channels/${channelId}`)
         .then((data) =>
           useCommunityStore
             .getState()

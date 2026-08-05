@@ -30,16 +30,15 @@ const CONTEXT_LIMIT = 11
 
 type ScopeType = "channel" | "dm"
 
-function seqLookupUrl(type: ScopeType, id: string, seq: number): string {
-  return type === "dm"
-    ? `/api/community/dm/${id}/messages/seq/${seq}`
-    : `/api/community/channels/${id}/messages/seq/${seq}`
+// A DM (type=dm) and a thread are channel rows in the same id-space, so both
+// resolve through the one canonical door — no per-type URL fork. `type` is kept
+// in the signatures for call-site clarity but no longer branches the path.
+function seqLookupUrl(_type: ScopeType, id: string, seq: number): string {
+  return `/api/community/channels/${id}/messages/seq/${seq}`
 }
 
-function anchorFetchUrl(type: ScopeType, id: string, anchor: string, limit: number): string {
-  const base = type === "dm"
-    ? `/api/community/dm/${id}/messages`
-    : `/api/community/channels/${id}/messages`
+function anchorFetchUrl(_type: ScopeType, id: string, anchor: string, limit: number): string {
+  const base = `/api/community/channels/${id}/messages`
   return `${base}?anchor=${encodeURIComponent(anchor)}&limit=${limit}`
 }
 

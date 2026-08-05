@@ -63,8 +63,8 @@ export default function MeLayout({ children }: { children: ReactNode }) {
 
   // Mirror channel sidebar-click behavior (channels/layout.tsx:226-236): do
   // NOT eagerly mark the DM read on click. That fires a bodyless
-  // `PUT /dm/:id/read` which the server aligns to the DM's tail (see
-  // api/community/dm/[id]/read/route.ts) — the read-state snapshot then
+  // `PUT /channels/:id/read` which the server aligns to the DM's tail (see
+  // api/community/channels/[id]/read/route.ts) — the read-state snapshot then
   // resolves at the tail on mount and `newDividerBefore` computes to
   // `undefined`, so unread DMs open at the bottom with no NEW divider.
   //

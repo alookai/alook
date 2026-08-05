@@ -13,7 +13,34 @@ import {
 } from "@alook/shared"
 import { fanOutToServerMembers, fanOutToChannel, broadcastToUserSafe } from "@/lib/community/fanout"
 import { logAudit } from "@/lib/community/audit"
-import { requireChannelAccess } from "@/lib/community/permissions"
+import { requireChannelAccess, requireChannelMember } from "@/lib/community/permissions"
+
+/**
+ * GET /api/community/channels/[id] — single channel metadata (the
+ * `getChannelForMember` row: id, name, type, parentChannelId, parentMessageId,
+ * creatorId, …). The canonical home for reading ANY channel's meta — a
+ * top-level channel, a thread, or a forum post (a DM's meta is not read this
+ * way; DMs surface through the DM list). Folds the old `threads/[id]` GET, which
+ * only ever served thread/forum-post meta but was really channel-meta by another
+ * name (a thread IS a channel row). The thread-view opener + child-channel
+ * bootstrap read it.
+ *
+ * Two-step check preserves the 404-vs-403 contract sibling channel routes honor:
+ * unknown channel → 404, known channel + non-member → 403 (`requireChannelMember`
+ * alone collapses both to 403 because the membership JOIN can't tell them apart).
+ */
+export const GET = withAuth(async (_req: NextRequest, ctx) => {
+  const channelId = ctx.params?.id
+  if (!channelId) return writeError("missing channel id", 400)
+
+  const db = getDb(ctx.env.DB)
+  const channel = await queries.communityChannel.getChannel(db, channelId)
+  if (!channel) return writeError("channel not found", 404)
+  const auth = await requireChannelMember(db, channelId, ctx.userId)
+  if (!auth.ok) return writeError(auth.error, auth.status)
+
+  return writeJSON(auth.value)
+})
 
 export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id

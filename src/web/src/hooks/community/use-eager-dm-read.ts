@@ -39,7 +39,7 @@ export function useEagerDmRead({
       prev ? { ...prev, dms: prev.dms.filter((d) => d.channelId !== dmId) } : prev,
     )
 
-    void apiFetch(`/api/community/dm/${dmId}/read`, { method: "PUT" })
+    void apiFetch(`/api/community/channels/${dmId}/read`, { method: "PUT" })
       .then(() => {
         void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
         void queryClient.invalidateQueries({ queryKey: communityKeys.dms() })

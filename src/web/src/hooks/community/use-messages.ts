@@ -94,7 +94,7 @@ export const dmMessagesQueryFn =
   (dmId: string) =>
   async ({ pageParam }: { pageParam: MessagesPageParam }): Promise<MessagesPage> => {
     return apiFetch<MessagesPage>(
-      buildMessagesUrl(`/api/community/dm/${dmId}/messages`, pageParam),
+      buildMessagesUrl(`/api/community/channels/${dmId}/messages`, pageParam),
     )
   }
 

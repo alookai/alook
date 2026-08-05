@@ -6,6 +6,8 @@ vi.mock("@opennextjs/cloudflare", () => ({
 }))
 
 const mockResolveChannelAccessContext = vi.fn()
+const mockGetChannel = vi.fn()
+const mockGetChannelForMember = vi.fn()
 const mockIsChannelPrivate = vi.fn(() => false)
 const mockGetCategory = vi.fn()
 const mockUpdateChannel = vi.fn()
@@ -25,6 +27,8 @@ vi.mock("@alook/shared", async () => {
     queries: {
       communityChannel: {
         resolveChannelAccessContext: (...a: unknown[]) => mockResolveChannelAccessContext(...a),
+        getChannel: (...a: unknown[]) => mockGetChannel(...a),
+        getChannelForMember: (...a: unknown[]) => mockGetChannelForMember(...a),
         isChannelPrivate: (...a: unknown[]) => mockIsChannelPrivate(...a),
         updateChannel: (...a: unknown[]) => mockUpdateChannel(...a),
         deleteChannel: (...a: unknown[]) => mockDeleteChannel(...a),
@@ -60,7 +64,7 @@ vi.mock("@/lib/middleware/helpers", () => {
   }
 })
 
-import { PATCH, DELETE } from "./route"
+import { GET, PATCH, DELETE } from "./route"
 
 const ctx = { params: { id: "c1" } } as any
 function patchReq(body: unknown) {
@@ -117,6 +121,49 @@ function accessCtx(over: Partial<{
     isCreator: creatorId === "u1",
   }
 }
+
+function getReq() {
+  return new NextRequest("http://localhost/api/community/channels/c1", { method: "GET" })
+}
+
+// GET is the canonical channel-meta reader (folds the old threads/[id] GET —
+// the thread-view opener + child-channel bootstrap that page.tsx:473 read).
+// Two-step probe: unknown channel → 404, known channel + non-member → 403.
+describe("GET /channels/[id] — channel meta", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("returns the channel row when the caller is a member", async () => {
+    const channel = { id: "c1", serverId: "s1", type: "thread", parentChannelId: "p1", parentMessageId: "m1", creatorId: "u1" }
+    mockGetChannel.mockResolvedValue(channel)
+    mockGetChannelForMember.mockResolvedValue(channel)
+    const res = await GET(getReq(), { params: { id: "c1" } } as any)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual(channel)
+  })
+
+  it("returns 400 when the id is missing", async () => {
+    const res = await GET(getReq(), { params: {} } as any)
+    expect(res.status).toBe(400)
+    expect(mockGetChannel).not.toHaveBeenCalled()
+    expect(mockGetChannelForMember).not.toHaveBeenCalled()
+  })
+
+  it("returns 404 when the channel does not exist (existence-mask 404 before the membership check)", async () => {
+    mockGetChannel.mockResolvedValue(null)
+    const res = await GET(getReq(), { params: { id: "c1" } } as any)
+    expect(res.status).toBe(404)
+    expect(mockGetChannelForMember).not.toHaveBeenCalled()
+  })
+
+  it("returns 403 when the channel exists but the caller is not a member", async () => {
+    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1", type: "text" })
+    mockGetChannelForMember.mockResolvedValue(null)
+    const res = await GET(getReq(), { params: { id: "c1" } } as any)
+    expect(res.status).toBe(403)
+  })
+})
 
 describe("PATCH /channels/[id] — permission gate", () => {
   beforeEach(() => {

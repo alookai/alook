@@ -110,7 +110,7 @@ export async function seedDm(from: UserKey, targetUserId: string): Promise<strin
 // Post a DM message via API so the conversation shows in both sidebars with a
 // preview. Returns the message id.
 export async function seedDmMessage(author: UserKey, dmId: string, content: string): Promise<string> {
-  const res = await post(author, `/api/community/dm/${dmId}/messages`, { content })
+  const res = await post(author, `/api/community/channels/${dmId}/messages`, { content })
   const data = (await res.json()) as { message: { id: string } }
   return data.message.id
 }

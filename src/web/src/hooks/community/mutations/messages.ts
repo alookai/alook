@@ -178,7 +178,7 @@ export function useSendDmMessage() {
   >({
     mutationFn: async ({ dmId, content, replyToId, attachments, nonce }) => {
       return apiFetch<SendMessageResult>(
-        `/api/community/dm/${dmId}/messages`,
+        `/api/community/channels/${dmId}/messages`,
         {
           method: "POST",
           body: JSON.stringify({ content, replyToId, attachments, nonce }),
@@ -704,11 +704,11 @@ export type ScheduleMarkReadOpts = {
  * unique strings without a discriminated-union tag on `PendingRead`.
  */
 function resolveReadEndpoint(key: string): string {
-  if (key.startsWith("dm:")) {
-    const dmId = key.slice(3)
-    return `/api/community/dm/${dmId}/read`
-  }
-  return `/api/community/channels/${key}/read`
+  // DM and channel both resolve through the one canonical read door (a DM is a
+  // channel row in the same id-space); the `dm:` key prefix only strips to the
+  // channelId, no per-type URL fork.
+  const channelId = key.startsWith("dm:") ? key.slice(3) : key
+  return `/api/community/channels/${channelId}/read`
 }
 
 /**
@@ -861,7 +861,8 @@ export function useAdvanceChannelWatermark(): (
 
 /**
  * DM sibling of `useAdvanceChannelWatermark` — a thin wrapper that PUTs
- * `{ lastReadMessageId }` to `/api/community/dm/:id/read`. Same debounce
+ * `{ lastReadMessageId }` to `/api/community/channels/:id/read` (DM and
+ * channel share the one canonical read door). Same debounce
  * primitive underneath (`scheduleMarkRead`), keyed by `"dm:<dmId>"` so
  * DM and channel schedules never alias each other in the shared pending
  * map.
@@ -895,7 +896,7 @@ export function useMarkDmRead() {
   const queryClient = useQueryClient()
   return useMutation<void, Error, MarkDmReadArgs, { snapshot: unknown } | undefined>({
     mutationFn: async ({ dmId }) => {
-      await apiFetch(`/api/community/dm/${dmId}/read`, { method: "PUT" })
+      await apiFetch(`/api/community/channels/${dmId}/read`, { method: "PUT" })
     },
     onMutate: async (args) => {
       const key = communityKeys.dms()

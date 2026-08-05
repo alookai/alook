@@ -22,7 +22,7 @@ import type { OpenProfile } from "./_types"
 //
 // The parent lives in the OUTER channel — since server membership grants
 // channel access, any thread viewer can fetch it via the shared endpoint.
-// Fetching client-side (rather than embedding in the /threads/[id] response)
+// Fetching client-side (rather than embedding in the channels/[id] response)
 // keeps the parent live: an edit or reaction on the source message would
 // reflect here without a page reload once the mutation invalidates this key.
 export function ThreadOpener({

@@ -107,7 +107,7 @@ describe("dmMessagesQueryFn", () => {
     const { dmMessagesQueryFn } = await loadHook()
     apiFetchMock.mockResolvedValueOnce({ messages: [], hasMore: false, latestSeq: 0 })
     await dmMessagesQueryFn("dm_1")({ pageParam: { mode: "newest" } })
-    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/community/dm/dm_1/messages")
+    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/community/channels/dm_1/messages")
   })
 
   it("older cursor → ?cursor", async () => {
@@ -117,7 +117,7 @@ describe("dmMessagesQueryFn", () => {
       pageParam: { mode: "older", cursor: "cur_1" },
     })
     expect(apiFetchMock).toHaveBeenLastCalledWith(
-      "/api/community/dm/dm_1/messages?cursor=cur_1",
+      "/api/community/channels/dm_1/messages?cursor=cur_1",
     )
   })
 

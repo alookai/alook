@@ -41,7 +41,7 @@ export function useDmReadStateSnapshot(dmId: string | null | undefined): {
       : ["community", "dm", "__none__", "read-state-snapshot"],
     queryFn: async () => {
       return apiFetch<DmReadStateSnapshot>(
-        `/api/community/dm/${dmId}/read-state`,
+        `/api/community/channels/${dmId}/read-state`,
       )
     },
     enabled: !!dmId,
