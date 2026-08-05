@@ -188,6 +188,16 @@ export interface LaunchContext {
   prompt: string;
   /** Path to the injected Alook CLI wrapper (host-supplied; see cliTransport). */
   agentCliPath?: string;
+  /**
+   * Positive opt-in for a launch that has NO host CLI on purpose (test / mock
+   * harness): `prepareCliTransport` then skips the agent-CLI shim silently
+   * instead of failing loud. Real launches MUST NOT set this — a real launch
+   * with no resolvable CLI path is a hard fault (the agent's `alook` would fall
+   * through to the host CLI, which lacks the agent subcommands). The flag, not
+   * "agentCliPath is empty", is the mock signal: an empty path is exactly the
+   * bug shape we want to catch, so it can't also mean "mock".
+   */
+  mockCliTransport?: boolean;
   daemonApiKey?: string;
   cliTransportTraceDir?: string;
   /**

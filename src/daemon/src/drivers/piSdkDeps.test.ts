@@ -31,6 +31,7 @@ function baseCtx(overrides: Partial<LaunchContext> = {}): LaunchContext {
       capabilities: ["send", "read"],
     },
     config: {},
+    mockCliTransport: true,
     ...overrides,
   };
 }

@@ -1,9 +1,17 @@
 /**
  * Cursor driver — per-turn, stream-json, no steering.
  *
- * `cursor-agent --print --output-format stream-json --yolo --approve-mcps
- * --trust <prompt>` is launched per wake. Emits Anthropic-style stream-json
- * (system/assistant/result envelopes) and exits.
+ * `cursor-agent --print --output-format stream-json --force <prompt>` is
+ * launched per wake. Emits Anthropic-style stream-json (system/assistant/result
+ * envelopes) and exits.
+ *
+ * Flag note: the older `--yolo --approve-mcps --trust` trio was removed when the
+ * cursor-agent CLI changed — passing them now fails arg-parse ("unknown option
+ * '--yolo'"), so the process exits before the handshake (pre_handshake_exit).
+ * The auto-approve execution posture is now `--force` ("allow commands unless
+ * explicitly denied") on top of `--print` (which already grants full tool
+ * access, write+bash). MCP approval moved out of the CLI into config
+ * (`.cursor/mcp.json` + `cursor-agent mcp login`), so it has no launch flag.
  */
 import type { Driver, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
 import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTransport.js";
@@ -45,7 +53,7 @@ export class CursorDriver implements Driver {
     this.sessionId = ctx.config.sessionId ?? null;
     const { spawnEnv } = await prepareCliTransport(ctx);
     const f = resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig);
-    const args = ["--print", "--output-format", "stream-json", "--yolo", "--approve-mcps", "--trust"];
+    const args = ["--print", "--output-format", "stream-json", "--force"];
     if (f.model) args.push("--model", f.model);
     if (ctx.config.sessionId) args.push("--resume", ctx.config.sessionId);
     args.push(ctx.prompt);
@@ -57,6 +65,10 @@ export class CursorDriver implements Driver {
       cwd: ctx.workingDirectory,
       env: spawnEnv,
       shell: spec.shell,
+      // cursor-agent blocks waiting on a piped stdin even with the prompt in a
+      // positional arg — it emits nothing and the daemon times out. It never
+      // reads stdin (per-turn, encodeStdinMessage returns null), so ignore it.
+      stdin: "ignore",
     });
     return { process: proc };
   }

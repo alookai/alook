@@ -4,7 +4,13 @@
  */
 import type { LaunchConfig } from "../types.js";
 
-const CLI = "alook";
+// The agent invokes the CLI via the `$ALOOK_CLI` env var, NOT a bare `alook`.
+// `$ALOOK_CLI` is an ABSOLUTE path the daemon injects (see spawnEnv
+// `<PREFIX>_CLI` / cliTransport), so it always resolves to the daemon-injected
+// agent CLI — never the host's own `alook` on PATH (a different package we don't
+// control, and PATH order a re-sourced shell rc can reorder). The `$`-form
+// expands in the agent's shell; the daemon exports the var into the process env.
+const CLI = "$ALOOK_CLI";
 
 /* ------------------------------------------------------------------ */
 /* Section builders                                                     */

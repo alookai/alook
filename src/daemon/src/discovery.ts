@@ -10,6 +10,17 @@ import { fileURLToPath } from "url";
 import { getDriver, listRuntimeIds, type RuntimeId } from "./drivers/index.js";
 import type { ProbeResult } from "./types.js";
 
+/**
+ * Runtimes offered for NEW bot creation. A registered driver NOT in this set
+ * stays fully functional (getDriver resolves it, existing bots keep running) —
+ * it's just not advertised, so it can't be picked in the create-bot UI/API.
+ * This is a POLICY (what's open to selection), deliberately kept separate from
+ * the driver registry (what exists) in drivers/index.ts. Filtering happens at
+ * the single advertise point, `detectRuntimes`.
+ * Hidden 2026-08-05 (Gus): antigravity/copilot/gemini/kimi unverified.
+ */
+const SELECTABLE_RUNTIMES: ReadonlySet<RuntimeId> = new Set(["claude", "codex", "opencode", "pi", "cursor"]);
+
 /* ------------------------------------------------------------------ */
 /* Agent CLI path resolution                                           */
 /* ------------------------------------------------------------------ */
@@ -110,7 +121,10 @@ export interface RuntimeInfo {
  * plans/community-machine-presence-fix.md.
  */
 export async function detectRuntimes(): Promise<RuntimeInfo[]> {
-  const ids = listRuntimeIds();
+  // Advertise only the selectable subset (SELECTABLE_RUNTIMES). Hidden runtimes
+  // stay registered (getDriver resolves them for existing bots on resume) but
+  // are never advertised, so the create-bot UI + API won't offer/accept them.
+  const ids = listRuntimeIds().filter((id) => SELECTABLE_RUNTIMES.has(id));
   const results: RuntimeInfo[] = [];
   const nowIso = new Date().toISOString();
 

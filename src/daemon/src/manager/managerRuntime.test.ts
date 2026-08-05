@@ -1707,10 +1707,18 @@ describe("isAlookShellInvocation", () => {
     expect(isAlookShellInvocation("alook inbox pull")).toBe(true);
     expect(isAlookShellInvocation("  alook message send")).toBe(true);
   });
+  it("matches the `$ALOOK_CLI` env-var form the system prompt now teaches", () => {
+    expect(isAlookShellInvocation("$ALOOK_CLI inbox pull")).toBe(true);
+    expect(isAlookShellInvocation("${ALOOK_CLI} message send")).toBe(true);
+    expect(isAlookShellInvocation("$ALOOK_CLI")).toBe(true);
+    expect(isAlookShellInvocation("  $ALOOK_CLI nap")).toBe(true);
+  });
   it("does NOT match commands that merely mention alook", () => {
     expect(isAlookShellInvocation("rm alook.log")).toBe(false);
     expect(isAlookShellInvocation("echo alook")).toBe(false);
     expect(isAlookShellInvocation("alookalike")).toBe(false);
+    // A different env var that merely starts with the same prefix must not match.
+    expect(isAlookShellInvocation("$ALOOK_CLIENT foo")).toBe(false);
   });
   it("returns false for missing input", () => {
     expect(isAlookShellInvocation(undefined)).toBe(false);

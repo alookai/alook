@@ -2027,6 +2027,20 @@ describe("WebSocketDurableObject", () => {
       })
     })
 
+    it("two agent_session frames for the same launch write the reset audit ONCE (claim-first evict, no double record)", async () => {
+      const { durable, store } = createDO()
+      seedIdentity(store)
+      await pushFrame(durable, { type: "agent:reset", agentId: "bot_1", config: {}, launchId: "l_reset" })
+      // Two agent_session frames arrive back-to-back for the SAME launch (e.g. a
+      // runtime that announces its session twice). The pending trigger must be
+      // consumed by the first → the second finds nothing → only ONE audit row.
+      const frame = JSON.stringify({ type: "agent_session", agentId: "bot_1", sessionId: "s_new", launchId: "l_reset" })
+      await durable.webSocketMessage(machineWs() as any, frame)
+      await durable.webSocketMessage(machineWs() as any, frame)
+
+      expect(mockInsertBotAuditSessionReset).toHaveBeenCalledTimes(1)
+    })
+
     it("batch reset: each agent's agent_session writes session_reset with trigger reset_all", async () => {
       const { durable, store } = createDO()
       seedIdentity(store)

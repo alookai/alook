@@ -13,7 +13,7 @@ import { homedir } from "os";
 import { WebSocket } from "ws";
 import { createDaemon } from "../daemon/createDaemon.js";
 import type { DaemonStatusSnapshot } from "../util/statusFile.js";
-import { getDriver } from "../drivers/index.js";
+import { getDriver, listRuntimeIds } from "../drivers/index.js";
 import { resolveAlookCliPathWithFallback, detectRuntimes, type RuntimeInfo } from "../discovery.js";
 import { createLogger } from "../logger.js";
 import { UnknownRuntimeError } from "../manager/agentRouter.js";
@@ -633,13 +633,18 @@ export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
     // and surface as bot_runtime_missing + runtime_not_available.
     driverFor: (_agentId, runtimeConfig) => {
       const requested = runtimeConfig?.runtime;
-      const known: string[] = runtimeReport.map((r) => r.id);
+      // Validate against the FULL registry, NOT the advertised subset:
+      // `runtimeReport`/`detectRuntimes` now advertises only SELECTABLE_RUNTIMES
+      // (what a user may pick when creating a bot), but a bot created BEFORE a
+      // runtime was hidden must still resolve its driver on wake (hide, not
+      // delete). "Can this run" (registry) and "can a user select it"
+      // (advertised) are different questions — this gate is the former.
+      const known: string[] = listRuntimeIds();
       if (!requested || !known.includes(requested)) {
         throw new UnknownRuntimeError(requested, healthyRuntimeIds);
       }
-      // `known` is derived from listRuntimeIds() via detectRuntimes(), so
-      // `requested` (checked to be in `known` above) is guaranteed to be a
-      // valid RuntimeId — cast to satisfy the typed factory map.
+      // `requested` was just checked to be in the registry, so it's a valid
+      // RuntimeId — cast to satisfy the typed factory map.
       return getDriver(requested as Parameters<typeof getDriver>[0]);
     },
     capabilities: CAPABILITIES,

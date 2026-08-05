@@ -72,6 +72,17 @@ export interface PlatformEnvFields {
   stateHome: string;
   agentId: string;
   cliName: string;
+  /**
+   * ABSOLUTE path to the injected agent-CLI link. `<PREFIX>_CLI` is set to this
+   * (not the bare `cliName`) so the agent invokes the CLI by a path that PATH
+   * resolution can't shadow — the host may have its OWN `<cliName>` binary
+   * earlier in PATH (a different package, possibly a third party's), and a
+   * re-sourced shell rc can reorder PATH out from under us. An absolute path
+   * doesn't go through PATH at all, so it always hits the daemon-injected CLI
+   * regardless of the host. Undefined only on a mock launch (no shim) — then
+   * `<PREFIX>_CLI` falls back to the bare name.
+   */
+  cliPath?: string;
   serverUrl?: string;
   capabilities: string[];
   launchId?: string;
@@ -83,7 +94,7 @@ export function platformEnv(prefix: string, f: PlatformEnvFields): Record<string
   return {
     [`${E}_HOME`]: f.stateHome,
     [`${E}_ID`]: f.agentId,
-    [`${E}_CLI`]: f.cliName,
+    [`${E}_CLI`]: f.cliPath ?? f.cliName,
     [`${E}_SERVER_URL`]: f.serverUrl,
     [`${E}_ACTIVE_CAPABILITIES`]: f.capabilities.join(","),
     [`${E}_LAUNCH_ID`]: f.launchId,

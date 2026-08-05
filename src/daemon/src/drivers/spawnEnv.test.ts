@@ -74,11 +74,25 @@ describe("platformEnv", () => {
     });
     expect(v.ALOOK_HOME).toBe("/home/.alook");
     expect(v.ALOOK_ID).toBe("agent_1");
+    // No cliPath → <PREFIX>_CLI falls back to the bare name.
     expect(v.ALOOK_CLI).toBe("alook");
     expect(v.ALOOK_SERVER_URL).toBe("ws://x");
     expect(v.ALOOK_ACTIVE_CAPABILITIES).toBe("send,read");
     expect(v.ALOOK_LAUNCH_ID).toBe("launch_1");
     expect(v.ALOOK_CLI_TRANSPORT_TRACE_DIR).toBe("/trace");
+  });
+
+  it("sets <PREFIX>_CLI to the ABSOLUTE cliPath when given (agent invokes by path, not bare name)", () => {
+    const v = platformEnv("ALOOK", {
+      stateHome: "/home/.alook",
+      agentId: "agent_1",
+      cliName: "alook",
+      cliPath: "/work/.alook/bin/alook",
+      capabilities: [],
+    });
+    // The whole point: ALOOK_CLI is the absolute shim path, so `$ALOOK_CLI …`
+    // dodges PATH and always hits the injected CLI (never a host `alook`).
+    expect(v.ALOOK_CLI).toBe("/work/.alook/bin/alook");
   });
 
   it("swaps the prefix", () => {

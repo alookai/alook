@@ -69,6 +69,29 @@ export class CodexDriver implements Driver {
   private requestId = 0;
   /** Resolved Codex home root (CODEX_HOME or ~/.codex); set on spawn. */
   private codexHomeRoot: string | null = null;
+  /**
+   * The spawned process, retained so the initial-prompt `turn/start` can be
+   * written once the thread id is adopted (see `parseLine`). Null until spawn.
+   */
+  private proc: SpawnResult["process"] | null = null;
+  /**
+   * The initial user message drained into `ctx.prompt` at spawn, held until the
+   * first `session_init` (thread adopted) lets us submit it as a `turn/start`.
+   * Codex can't deliver it in the spawn handshake like Claude does: `turn/start`
+   * needs a threadId, which only arrives in the `thread/start`|`thread/resume`
+   * RESPONSE. Cleared after the one-time submit (submit-once latch). Null when
+   * there is no prompt (a bare wake) — we don't start an empty turn.
+   */
+  private pendingInitialPrompt: string | null = null;
+  /**
+   * When spawn issued a `thread/resume`, the `thread/start` params to fall back
+   * to if that resume fails with "no rollout found" (the prior thread's rollout
+   * is gone). Null once we're not resuming, or once the fallback has fired. This
+   * powers the missing-rollout recovery in `parseLine`: re-issue a FRESH
+   * `thread/start` (no threadId) on the same live process, keeping
+   * `pendingInitialPrompt` so the fresh thread's `session_init` still delivers it.
+   */
+  private pendingResumeFallbackParams: Record<string, unknown> | null = null;
   private nextRequestId(): number {
     return ++this.requestId;
   }
@@ -99,8 +122,18 @@ export class CodexDriver implements Driver {
       env: spawnEnv,
       shell: spec.shell,
     });
+    this.proc = proc;
+    // Hold the initial user message until the thread id is adopted; `parseLine`
+    // submits it as a `turn/start` on the first `session_init`. Empty/whitespace
+    // (a bare wake with no message) → no pending prompt, so no empty turn.
+    const initialPrompt = ctx.prompt?.trim() ? ctx.prompt : null;
+    this.pendingInitialPrompt = initialPrompt;
 
-    // Async handshake: initialize, then thread/start|resume with the prompt.
+    // Async handshake: initialize, then thread/start|resume. This ONLY sets up
+    // the thread — the user prompt is delivered later (see `parseLine`), because
+    // `turn/start` needs the threadId that arrives in this call's response. (The
+    // standing/system prompt is separate: it reaches Codex via the AGENTS.md
+    // that prepareCliTransport writes into the workdir, auto-read from cwd.)
     queueMicrotask(() => {
       proc.stdin?.write(
         jsonRpcRequest(
@@ -112,44 +145,116 @@ export class CodexDriver implements Driver {
 
       const f = resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig);
       const resuming = Boolean(ctx.config.sessionId);
-      // The standing prompt reaches Codex via the AGENTS.md that
-      // prepareCliTransport writes into the workdir (unified packing) —
-      // Codex auto-reads it from cwd, no developerInstructions param needed.
-      const params: Record<string, unknown> = {
+      // Fresh-thread params (no threadId) — used directly for a fresh spawn, and
+      // stashed as the resume fallback so a "no rollout found" resume can retry
+      // as a fresh thread (see parseLine).
+      const freshParams: Record<string, unknown> = {
         cwd: ctx.workingDirectory,
         approvalPolicy: "never",
         sandbox: "danger-full-access",
         sandbox_mode: "danger-full-access",
         experimentalRawEvents: true,
       };
-      if (resuming) params.threadId = ctx.config.sessionId;
-      if (f.model) params.model = f.model;
-      if (f.reasoningEffort) params.config = { model_reasoning_effort: f.reasoningEffort };
-      if (f.fastMode) params.serviceTier = "fast";
+      if (f.model) freshParams.model = f.model;
+      if (f.reasoningEffort) freshParams.config = { model_reasoning_effort: f.reasoningEffort };
+      if (f.fastMode) freshParams.serviceTier = "fast";
 
-      proc.stdin?.write(
-        jsonRpcRequest(resuming ? "thread/resume" : "thread/start", params, this.nextRequestId()) + "\n",
-      );
+      if (resuming) {
+        this.pendingResumeFallbackParams = freshParams;
+        proc.stdin?.write(
+          jsonRpcRequest("thread/resume", { ...freshParams, threadId: ctx.config.sessionId }, this.nextRequestId()) + "\n",
+        );
+      } else {
+        proc.stdin?.write(jsonRpcRequest("thread/start", freshParams, this.nextRequestId()) + "\n");
+      }
     });
 
     return { process: proc };
   }
 
+  /**
+   * Parse a stdout line AND, as a one-time side-effect, deliver the initial
+   * prompt. This is NOT a pure parser: on the FIRST `session_init` (the thread
+   * id is now known) it writes the held `pendingInitialPrompt` as a `turn/start`
+   * to stdin, then clears it (submit-once latch). This is where the initial user
+   * message actually reaches Codex — the spawn handshake only starts the thread.
+   *
+   * The latch also makes the double `session_init` harmless: `thread/start`
+   * emits one from its result and one from the `thread/started` notification, so
+   * without the latch we'd submit the prompt twice. Resume takes the same path
+   * (thread/resume's result also yields `session_init`), so no separate branch.
+   *
+   * SECOND side-effect — missing-rollout recovery: if a `thread/resume` fails
+   * with "no rollout found" (the prior thread's rollout is gone), Codex emits an
+   * `error` event and NO `session_init`. We re-issue a FRESH `thread/start` on
+   * the same live process and swallow the error so the manager doesn't fault the
+   * turn. `pendingInitialPrompt` is deliberately kept, so the fresh thread's
+   * `session_init` delivers it via the latch above. Without this, a stale
+   * sessionId wedges the bot: resume errors out, no turn ever runs.
+   */
   parseLine(line: string): ParsedEvent[] {
-    return this.eventNormalizer.normalizeLine(line);
+    const events = this.eventNormalizer.normalizeLine(line);
+
+    // Missing-rollout resume recovery — before any session_init is adopted.
+    if (this.pendingResumeFallbackParams && this.proc?.stdin && !this.proc.stdin.destroyed) {
+      const rolloutErr = events.find(
+        (e) => e.kind === "error" && isCodexMissingRolloutError(e.message),
+      );
+      if (rolloutErr) {
+        const fallback = this.pendingResumeFallbackParams;
+        this.pendingResumeFallbackParams = null;
+        // Fresh thread/start (no threadId). Keep pendingInitialPrompt so the new
+        // thread's session_init delivers it. Swallow the resume error so it's
+        // not surfaced as a runtime_error fault.
+        this.proc.stdin.write(jsonRpcRequest("thread/start", fallback, this.nextRequestId()) + "\n");
+        return events.filter((e) => e !== rolloutErr);
+      }
+    }
+
+    if (this.pendingInitialPrompt !== null && events.some((e) => e.kind === "session_init")) {
+      const threadId = this.eventNormalizer.currentSessionId;
+      // Defensive: the process is normally alive when its own stdout is being
+      // parsed, but guard the write so a mid-teardown line can't throw.
+      if (threadId && this.proc?.stdin && !this.proc.stdin.destroyed) {
+        this.proc.stdin.write(this.buildTurnStart(threadId, this.pendingInitialPrompt) + "\n");
+        this.pendingInitialPrompt = null;
+      }
+    }
+
+    // A successful thread adoption means resume didn't fail — drop the fallback.
+    if (events.some((e) => e.kind === "session_init")) {
+      this.pendingResumeFallbackParams = null;
+    }
+
+    return events;
   }
 
   get currentSessionId(): string | null {
     return this.eventNormalizer.currentSessionId;
   }
 
+  /** A `turn/start` RPC — the sole encoder for starting a fresh Codex turn. */
+  private buildTurnStart(threadId: string, text: string): string {
+    return jsonRpcRequest("turn/start", { threadId, input: [{ type: "text", text }] }, this.nextRequestId());
+  }
+
   /** busy → `turn/steer` against the active turn; idle → fresh `turn/start`. */
   encodeStdinMessage(text: string, sessionId: string | null, opts?: EncodeOpts): string | null {
     const threadId = sessionId ?? this.eventNormalizer.currentSessionId;
     if (!threadId) return null;
-    const input = [{ type: "text", text }];
-    const method = opts?.mode === "idle" ? "turn/start" : "turn/steer";
-    return jsonRpcRequest(method, { threadId, input }, this.nextRequestId());
+    if (opts?.mode === "idle") return this.buildTurnStart(threadId, text);
+    // Steer the in-flight turn. Codex requires `expectedTurnId` = the active
+    // turn's id (from turn/started's params.turn.id); without it it rejects the
+    // steer with "missing field expectedTurnId". If we somehow have no live turn
+    // id (raced past turn/completed), fall back to a fresh turn/start rather than
+    // send an invalid steer.
+    const turnId = this.eventNormalizer.currentTurnId;
+    if (!turnId) return this.buildTurnStart(threadId, text);
+    return jsonRpcRequest(
+      "turn/steer",
+      { threadId, expectedTurnId: turnId, input: [{ type: "text", text }] },
+      this.nextRequestId(),
+    );
   }
 
   buildSystemPrompt(config: LaunchConfig): string {

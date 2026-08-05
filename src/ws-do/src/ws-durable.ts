@@ -941,8 +941,19 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     const sessionParse = AgentSessionMessageSchema.safeParse(parsed)
     if (sessionParse.success) {
       const { agentId, launchId } = sessionParse.data
+      // CLAIM-then-write: read the pending trigger AND consume it up front, in
+      // one turn before any `await` on the write path. Two `agent_session`
+      // frames for the same launch can arrive back-to-back (e.g. codex used to
+      // announce a thread twice → two frames); the OLD order (get → await
+      // write → evict) let both read a non-null trigger before either evicted →
+      // both wrote the reset audit (the "two identical reset records" bug).
+      // Deleting immediately after the get makes the claim atomic within this
+      // object's single-threaded turn: the second frame reads null and returns.
+      // (normalizer dedup removes the double-frame SOURCE; this makes the
+      // consume race-proof for any future double-frame, cross-runtime.)
       const trigger = await this.ctx.storage.get<ResetTrigger>(resetPendingKey(launchId))
       if (!trigger) return // not a reset/nap launch, or already consumed
+      await this.evictPendingReset(launchId)
       const db = createDb(this.env.DB)
       await this.handleFrameForBoundBot({
         frameType: "agent_session",
@@ -985,11 +996,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
           }).catch(() => { })
         },
       })
-      // Consume the pending entry regardless of the write's fate: a replayed
-      // agent_session must never re-write, and the audit row (if it landed) is
-      // the durable record. A failed write (binding gone) also clears — the
-      // launch is done either way.
-      await this.evictPendingReset(launchId)
+      // (pending entry already consumed above, before the write — claim-first.)
       return
     }
 

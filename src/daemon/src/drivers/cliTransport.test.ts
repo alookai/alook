@@ -46,6 +46,10 @@ function baseCtx(workingDirectory: string, overrides: Partial<LaunchContext> = {
     prompt: "",
     credentialProxy: { broker: broker(), proxyUrl: "http://127.0.0.1:9/proxy", runnerKey: "sk_agent_test", capabilities: ["send", "read"] },
     config: {},
+    // These transport tests aren't exercising the agent-CLI shim (no
+    // agentCliPath), so opt into the mock path — otherwise prepareCliTransport
+    // now fails loud on a real launch with no resolvable host CLI.
+    mockCliTransport: true,
     ...overrides,
   };
 }
@@ -208,6 +212,44 @@ describe("prepareCliTransport — layered spawn env", () => {
     const { stateDir } = await prepareCliTransport(baseCtx(wd), {}, cli, "linux");
     const link = path.join(stateDir, "bin", "alook");
     expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
+  });
+
+  it("defaults hostCliPath from ctx.agentCliPath — the shim works with the default cli config (no per-driver plumbing)", async () => {
+    const wd = mkTmp();
+    const host = path.join(wd, "agent-cli.js");
+    fs.writeFileSync(host, "#!/usr/bin/env node\n", { mode: 0o755 });
+    // No explicit cli.hostCliPath; agentCliPath on the ctx is the only source —
+    // this is the path codex/cursor/opencode/etc. now get for free.
+    const { stateDir } = await prepareCliTransport(
+      baseCtx(wd, { agentCliPath: host, mockCliTransport: false }),
+      {},
+      undefined,
+      "linux",
+    );
+    const link = path.join(stateDir, "bin", "alook");
+    expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
+    expect(fs.realpathSync(link)).toBe(fs.realpathSync(host));
+  });
+
+  it("FAILS LOUD on a real launch with no resolvable host CLI (not a silent empty bin)", async () => {
+    // The bug shape: a real launch (not mock) whose agentCliPath didn't resolve.
+    // Must throw, not silently leave an empty bin that PATH-falls-through to the
+    // host `alook` (which lacks the agent subcommands).
+    await expect(
+      prepareCliTransport(baseCtx(mkTmp(), { agentCliPath: undefined, mockCliTransport: false }), {}, undefined, "linux"),
+    ).rejects.toThrow(/no host CLI path/);
+  });
+
+  it("mock launch (mockCliTransport) stays silent — bin dir, no link, no throw", async () => {
+    const { stateDir } = await prepareCliTransport(
+      baseCtx(mkTmp(), { agentCliPath: undefined, mockCliTransport: true }),
+      {},
+      undefined,
+      "linux",
+    );
+    const binDir = path.join(stateDir, "bin");
+    expect(fs.existsSync(binDir)).toBe(true);
+    expect(fs.existsSync(path.join(binDir, "alook"))).toBe(false);
   });
 
   it("revokes the agent's previous voucher before minting a new one on respawn", async () => {

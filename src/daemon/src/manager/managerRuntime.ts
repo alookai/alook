@@ -471,7 +471,17 @@ function pickFallthroughTarget(input: unknown): string | undefined {
  * echo, `bash -lc "alook …"` — the outer shell is real work) is user
  * intent and must surface.
  */
-const ALOOK_SHELL_INVOCATION_RE = new RegExp(`^${DEFAULT_CLI_CONFIG.cliName}(\\s|$)`);
+// The agent invokes the CLI two ways, both authoritative-`cli_invocation`
+// sources the tool_call must suppress:
+//   - the injected env var: `$ALOOK_CLI …` / `${ALOOK_CLI} …` (the form the
+//     system prompt now teaches — an absolute path that dodges PATH; see
+//     spawnEnv `<PREFIX>_CLI` / systemPrompt), and
+//   - the bare name `alook …` (legacy / any agent that still types it).
+// `<PREFIX>_CLI` is `${DEFAULT_CLI_CONFIG.envPrefix}_CLI` = `ALOOK_CLI`.
+const ALOOK_CLI_ENV_VAR = `${DEFAULT_CLI_CONFIG.envPrefix}_CLI`;
+const ALOOK_SHELL_INVOCATION_RE = new RegExp(
+  `^(?:${DEFAULT_CLI_CONFIG.cliName}|\\$\\{?${ALOOK_CLI_ENV_VAR}\\}?)(\\s|$)`,
+);
 
 export function isAlookShellInvocation(command: string | undefined): boolean {
   if (!command) return false;

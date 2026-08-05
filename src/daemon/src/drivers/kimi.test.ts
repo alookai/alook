@@ -39,6 +39,7 @@ function baseCtx(): LaunchContext {
       capabilities: ["send", "read"],
     },
     config: {},
+    mockCliTransport: true,
   };
 }
 

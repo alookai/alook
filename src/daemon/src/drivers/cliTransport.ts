@@ -141,9 +141,33 @@ export async function prepareCliTransport(
   // it from cwd picks it up, with no driver-specific plumbing required.
   if (ctx.standingPrompt) writeAgentFile(ctx.workingDirectory, ctx.standingPrompt);
 
+  // Resolve the host CLI the agent-facing `cliName` links to. A caller may set
+  // `cli.hostCliPath` explicitly (claude/pi do); otherwise default it from
+  // `ctx.agentCliPath` — the daemon threads the resolved agent-CLI path there
+  // for EVERY launch, so this one fallback gives all child-process drivers the
+  // shim without each repeating claude's construction (the omission that left
+  // codex/cursor/opencode/… invoking the HOST `alook`, which lacks the agent
+  // subcommands). Explicit `cli.hostCliPath` still wins.
+  const hostCliPath = cli.hostCliPath ?? ctx.agentCliPath;
+
+  // Fail loud when a REAL launch can't resolve a host CLI. Silently leaving an
+  // empty bin dir lets the agent's `alook` fall through to the host CLI on
+  // PATH — the agent looks like it runs but uses the wrong binary, which is
+  // very hard to trace. Only an explicit `mockCliTransport` opt-in may skip the
+  // shim (test harnesses); the ABSENCE of a path is the bug shape, so it can't
+  // double as the mock signal.
+  if (!hostCliPath && !ctx.mockCliTransport) {
+    throw new Error(
+      "prepareCliTransport: no host CLI path — set ctx.agentCliPath (or cli.hostCliPath) " +
+      "so the agent's `alook` resolves to the injected agent CLI, not the host binary. " +
+      "For an intentional no-CLI test launch, set ctx.mockCliTransport = true.",
+    );
+  }
+
   // Decouple the agent-facing `cliName` from the host binary via a filesystem
   // link in a PATH-prepended bin dir (symlink on POSIX, .cmd shim on Windows).
-  const binDir = writeCliLink(stateDir, cli.cliName, cli.hostCliPath, platform);
+  // With no hostCliPath (mock launch) writeCliLink creates only the bin dir.
+  const binDir = writeCliLink(stateDir, cli.cliName, hostCliPath, platform);
 
   // Zero-trust credential handoff (no plaintext fallback). The broker mints a
   // per-launch voucher (writing the 0600 voucher file and keeping the real key);
@@ -226,6 +250,11 @@ export async function prepareCliTransport(
           stateHome,
           agentId: ctx.agentId,
           cliName: cli.cliName,
+          // Absolute path to the injected shim (present iff we wrote a link, i.e.
+          // hostCliPath resolved). `<PREFIX>_CLI` points here so the agent calls
+          // the CLI by absolute path, never a bare name PATH could resolve to a
+          // host binary. On a mock launch (no shim) it stays undefined → bare name.
+          cliPath: hostCliPath ? path.join(binDir, cli.cliName) : undefined,
           serverUrl: ctx.config.serverUrl,
           capabilities,
           launchId: ctx.launchId,

@@ -10,6 +10,11 @@ import {
   detectRuntimes,
   getAvailableRuntimes,
 } from "./discovery";
+import { listRuntimeIds, getDriver } from "./drivers/index";
+
+// The advertised (selectable) set — kept as a policy in discovery.ts, so assert
+// against the literal expectation here rather than importing a private const.
+const EXPECTED_SELECTABLE = ["claude", "codex", "opencode", "pi", "cursor"];
 
 const tmpDirs: string[] = [];
 function mkTmp(): string {
@@ -168,6 +173,31 @@ describe("detectRuntimes", () => {
         // ISO-8601 sanity.
         expect(() => new Date(r.lastErrorAt!).toISOString()).not.toThrow();
       }
+    }
+  });
+
+  it("advertises ONLY the selectable runtimes — hidden ones are not offered", () => {
+    const advertised = runtimes.map((r) => r.id).sort();
+    expect(advertised).toEqual([...EXPECTED_SELECTABLE].sort());
+    // The hidden drivers exist in the registry but must not be advertised.
+    for (const hidden of ["antigravity", "copilot", "gemini", "kimi"]) {
+      expect(advertised).not.toContain(hidden);
+    }
+  });
+});
+
+describe("driver allowlist (hide, not delete)", () => {
+  it("the advertised set is a strict subset of the full registry", () => {
+    const all = listRuntimeIds();
+    for (const id of EXPECTED_SELECTABLE) expect(all).toContain(id);
+    expect(EXPECTED_SELECTABLE.length).toBeLessThan(all.length);
+  });
+
+  it("getDriver STILL resolves a hidden runtime — existing bots on it keep working on resume", () => {
+    // The whole point of hide-not-delete: a bot created on gemini/kimi/etc.
+    // before the shrink must still get a driver when it wakes.
+    for (const hidden of ["antigravity", "copilot", "gemini", "kimi"]) {
+      expect(() => getDriver(hidden)).not.toThrow();
     }
   });
 });

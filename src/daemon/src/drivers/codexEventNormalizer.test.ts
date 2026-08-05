@@ -67,3 +67,55 @@ describe("CodexEventNormalizer — tool_call/tool_output symmetry", () => {
     expect((n as unknown as { turnState?: unknown }).turnState).toBeUndefined();
   });
 });
+
+describe("CodexEventNormalizer — turn id tracking (for turn/steer expectedTurnId)", () => {
+  it("captures params.turn.id on turn/started and exposes it via currentTurnId", () => {
+    const n = new CodexEventNormalizer();
+    expect(n.currentTurnId).toBeNull();
+    n.normalizeLine(notify("turn/started", { threadId: "th_1", turn: { id: "turn_abc", status: "inProgress" } }));
+    expect(n.currentTurnId).toBe("turn_abc");
+  });
+
+  it("clears the turn id on turn/completed (no live turn to steer after)", () => {
+    const n = new CodexEventNormalizer();
+    n.normalizeLine(notify("turn/started", { threadId: "th_1", turn: { id: "turn_abc" } }));
+    expect(n.currentTurnId).toBe("turn_abc");
+    n.normalizeLine(notify("turn/completed", { status: "completed" }));
+    expect(n.currentTurnId).toBeNull();
+  });
+
+  it("clears the turn id on an interrupted/failed turn too", () => {
+    const n = new CodexEventNormalizer();
+    n.normalizeLine(notify("turn/started", { threadId: "th_1", turn: { id: "turn_x" } }));
+    n.normalizeLine(notify("turn/completed", { status: "failed" }));
+    expect(n.currentTurnId).toBeNull();
+  });
+});
+
+describe("CodexEventNormalizer — session_init dedup (result + thread/started notification)", () => {
+  function result(id: string): string {
+    return JSON.stringify({ jsonrpc: "2.0", id: 2, result: { thread: { id } } });
+  }
+  it("emits session_init ONCE for a thread announced twice (result then notification)", () => {
+    const n = new CodexEventNormalizer();
+    const a = n.normalizeLine(result("th_1"));
+    const b = n.normalizeLine(notify("thread/started", { thread: { id: "th_1" } }));
+    expect(a.filter((e) => e.kind === "session_init")).toHaveLength(1);
+    expect(b.filter((e) => e.kind === "session_init")).toHaveLength(0); // deduped
+    // but the id is still adopted regardless of which arrived.
+    expect(n.currentSessionId).toBe("th_1");
+  });
+  it("emits session_init again for a DIFFERENT thread (fresh-thread fallback)", () => {
+    const n = new CodexEventNormalizer();
+    n.normalizeLine(result("th_1"));
+    const fresh = n.normalizeLine(result("th_2")); // e.g. missing-rollout fallback fresh thread
+    expect(fresh.filter((e) => e.kind === "session_init")).toHaveLength(1);
+    expect(n.currentSessionId).toBe("th_2");
+  });
+  it("adopts the id from the notification even when the result never emitted it (notification first)", () => {
+    const n = new CodexEventNormalizer();
+    const b = n.normalizeLine(notify("thread/started", { thread: { id: "th_x" } }));
+    expect(b.filter((e) => e.kind === "session_init")).toHaveLength(1);
+    expect(n.currentSessionId).toBe("th_x");
+  });
+});
