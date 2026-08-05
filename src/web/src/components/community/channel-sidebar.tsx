@@ -240,7 +240,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
           {serverName && onOpenSettings ? (
             <DropdownMenu>
               <DropdownMenuTrigger className="flex min-w-0 max-w-full items-center gap-2 rounded-md px-2 py-1 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
-                <span className="min-w-0 truncate pr-1 font-brand text-2xl font-bold">{serverName}</span>
+                <span className="min-w-0 truncate pr-1 font-brand text-[1.75rem] leading-none font-bold">{serverName}</span>
                 <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-48">
@@ -253,7 +253,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
             </DropdownMenu>
           ) : (
             <span className="flex min-w-0 max-w-full items-center gap-2 px-2">
-              <span className="min-w-0 truncate font-brand text-2xl font-bold">{serverName || "\u00a0"}</span>
+              <span className="min-w-0 truncate font-brand text-[1.75rem] leading-none font-bold">{serverName || "\u00a0"}</span>
             </span>
           )}
           {serverId && onInvitePopoverOpenChange && (
