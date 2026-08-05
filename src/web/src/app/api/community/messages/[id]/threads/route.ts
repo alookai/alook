@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
+import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries, MAX_CHANNEL_NAME_LENGTH, WS_EVENTS, PARTICIPANT_SOURCE } from "@alook/shared"
@@ -7,17 +7,26 @@ import { fanOutToChannel } from "@/lib/community/fanout"
 import { requireChannelMember } from "@/lib/community/permissions"
 import { requireMessageBearingSurface } from "@/lib/community/channel-write-guard"
 
-export const POST = withAuth(async (req: NextRequest, ctx) => {
+/**
+ * Message-keyed thread-create door (route/disc trunk — message-keyed faces
+ * dual-actor). withCommunityActor: human (session) + bot (crk_, the folded
+ * build-thread verb) hit one route. Authorization is credential-scoped —
+ * requireChannelMember on the message's channel keyed on `ctx.actor.userId`, so
+ * a bot creating a thread runs the SAME gate a human does. A thread only roots
+ * on a top-level channel message (no DM/child), so no DM arm here.
+ */
+export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   const messageId = ctx.params?.id
   if (!messageId) return writeError("missing message id", 400)
 
+  const userId = ctx.actor.userId
   const db = getDb(ctx.env.DB)
 
   const message = await queries.communityMessage.getMessage(db, messageId)
   if (!message) return writeError("message not found", 404)
   if (!message.channelId) return writeError("message is not in a channel", 400)
 
-  const auth = await requireChannelMember(db, message.channelId, ctx.userId)
+  const auth = await requireChannelMember(db, message.channelId, userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
   const channel = auth.value
 
@@ -64,7 +73,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     parentMessageId: messageId,
     name,
     type: "thread",
-    creatorId: ctx.userId,
+    creatorId: userId,
   })
 
   // Seed the default NOTIFY set: the thread creator (source "spoke", matching
@@ -76,11 +85,11 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   // unconditionally could push a private channel's thread to someone who lost
   // access (the leak `removeParticipantFromChildChannels` exists to prevent).
   const seedRows: { userId: string; source: typeof PARTICIPANT_SOURCE.SPOKE | typeof PARTICIPANT_SOURCE.ADDED }[] = [
-    { userId: ctx.userId, source: PARTICIPANT_SOURCE.SPOKE },
+    { userId: userId, source: PARTICIPANT_SOURCE.SPOKE },
   ]
   // De-dupe: when the creator threads their own message the author is the same
   // user, and the creator's "spoke" row already covers them.
-  if (message.authorId !== ctx.userId) {
+  if (message.authorId !== userId) {
     const authorStillMember = await requireChannelMember(db, message.channelId, message.authorId)
     if (authorStillMember.ok) seedRows.push({ userId: message.authorId, source: PARTICIPANT_SOURCE.ADDED })
   }
@@ -101,11 +110,11 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       id: childChannel.id,
       name: childChannel.name,
       type: "thread" as const,
-      creatorId: ctx.userId,
+      creatorId: userId,
       createdAt: childChannel.createdAt,
     },
     parentMessageId: messageId,
-  }, { excludeUserId: ctx.userId })
+  }, { excludeUserId: userId })
 
   return writeJSON(childChannel, 201)
 })

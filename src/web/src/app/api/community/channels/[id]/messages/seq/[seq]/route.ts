@@ -1,20 +1,27 @@
 import { NextRequest } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
+import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
-import { requireChannelMember } from "@/lib/community/permissions"
+import { requireMessageSurfaceAccess } from "@/lib/community/permissions"
 
 /**
  * GET /api/community/channels/:id/messages/seq/:seq
  *
  * Resolve a seq number to its message ID within a channel. Used for message
  * ref jumping: when the user clicks #123 and that message isn't loaded, we
- * need its ID to trigger an anchor fetch.
+ * need its ID to trigger an anchor fetch. Also the folded `resolve` bot verb's
+ * seq→id lookup.
+ *
+ * Dual-actor door (route/disc trunk — message-keyed faces): withCommunityActor
+ * serves human (session) + bot (crk_). Authorization goes through the SINGLE
+ * requireMessageSurfaceAccess entry (no standalone requireChannelMember) keyed
+ * on `ctx.actor.userId`, so a DM's seq is gated by requireDMAccess (incl block)
+ * and a bot passes the same mask — same §3/①-C as the messages door.
  *
  * Returns: { id: string } | { error: "not_found" }
  */
-export const GET = withAuth(async (req: NextRequest, ctx) => {
+export const GET = withCommunityActor(async (_req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
   const seqStr = ctx.params?.seq
   if (typeof channelId !== "string" || typeof seqStr !== "string") {
@@ -28,9 +35,11 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
   const db = getDb(ctx.env.DB)
 
-  // Permission check: user must have access to this channel
-  const auth = await requireChannelMember(db, channelId, ctx.userId)
-  if (!auth.ok) return writeError(auth.error, auth.status)
+  // Single authorization entry (dispatch by surface, DM block incl); no
+  // standalone requireChannelMember (§3). A nonexistent/unreachable channel
+  // opaque-404s here before the seq lookup.
+  const access = await requireMessageSurfaceAccess(db, channelId, ctx.actor.userId)
+  if (!access.ok) return writeError(access.error, access.status)
 
   const message = await queries.communityMessage.getMessageByChannelAndSeq(db, { channelId }, seq)
   if (!message) {

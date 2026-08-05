@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
+import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
@@ -46,7 +46,17 @@ async function authorizeReaction(
   return { ok: true, channelId: message.channelId, isDm: false }
 }
 
-export const PUT = withAuth(async (_req: NextRequest, ctx) => {
+/**
+ * Message-keyed reaction door (route/disc trunk — message-keyed faces dual-actor).
+ * withCommunityActor: both human (session) and bot (crk_, the folded `reactAdd`
+ * verb) hit this one route. Authorization is credential-scoped — `authorizeReaction`
+ * resolves the message → its channel → the per-surface gate (requireDMAccess for a
+ * DM incl block, requireChannelMember otherwise) keyed on `ctx.actor.userId`, so a
+ * bot reaction runs the SAME mask a human does (no bot bypass). The bot's ref+seq→
+ * messageId resolution happens upstream at the flat-verb→door retarget (proxy); this
+ * route is message-keyed (messageId in path) for both actors.
+ */
+export const PUT = withCommunityActor(async (_req: NextRequest, ctx) => {
   const messageId = ctx.params?.id
   const rawEmoji = ctx.params?.emoji
   if (!messageId || !rawEmoji) return writeError("missing params", 400)
@@ -56,15 +66,16 @@ export const PUT = withAuth(async (_req: NextRequest, ctx) => {
     return writeError("emoji too long", 400)
   }
 
+  const userId = ctx.actor.userId
   const db = getDb(ctx.env.DB)
-  const access = await authorizeReaction(db, messageId, ctx.userId)
+  const access = await authorizeReaction(db, messageId, userId)
   if (!access.ok) return writeError(access.error, access.status)
 
   let reaction
   try {
     reaction = await queries.communityReaction.addReaction(db, {
       messageId,
-      userId: ctx.userId,
+      userId,
       emoji,
     })
   } catch (e) {
@@ -75,49 +86,50 @@ export const PUT = withAuth(async (_req: NextRequest, ctx) => {
   const event = {
     type: WS_EVENTS.REACTION_ADD as typeof WS_EVENTS.REACTION_ADD,
     messageId,
-    userId: ctx.userId,
+    userId,
     emoji,
     channelId: access.channelId,
   }
 
   if (access.isDm) {
-    fanOutToDM(access.channelId, event, { excludeUserId: ctx.userId })
+    fanOutToDM(access.channelId, event, { excludeUserId: userId })
   } else {
-    fanOutToChannel(access.channelId, event, { excludeUserId: ctx.userId })
+    fanOutToChannel(access.channelId, event, { excludeUserId: userId })
   }
 
   return writeJSON(reaction)
 })
 
-export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
+export const DELETE = withCommunityActor(async (_req: NextRequest, ctx) => {
   const messageId = ctx.params?.id
   const rawEmoji = ctx.params?.emoji
   if (!messageId || !rawEmoji) return writeError("missing params", 400)
 
   const emoji = decodeURIComponent(rawEmoji)
 
+  const userId = ctx.actor.userId
   const db = getDb(ctx.env.DB)
-  const access = await authorizeReaction(db, messageId, ctx.userId)
+  const access = await authorizeReaction(db, messageId, userId)
   if (!access.ok) return writeError(access.error, access.status)
 
   await queries.communityReaction.removeReaction(db, {
     messageId,
-    userId: ctx.userId,
+    userId,
     emoji,
   })
 
   const event = {
     type: WS_EVENTS.REACTION_REMOVE as typeof WS_EVENTS.REACTION_REMOVE,
     messageId,
-    userId: ctx.userId,
+    userId,
     emoji,
     channelId: access.channelId,
   }
 
   if (access.isDm) {
-    fanOutToDM(access.channelId, event, { excludeUserId: ctx.userId })
+    fanOutToDM(access.channelId, event, { excludeUserId: userId })
   } else {
-    fanOutToChannel(access.channelId, event, { excludeUserId: ctx.userId })
+    fanOutToChannel(access.channelId, event, { excludeUserId: userId })
   }
 
   return new Response(null, { status: 204 })
