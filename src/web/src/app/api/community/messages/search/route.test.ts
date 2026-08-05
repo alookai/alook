@@ -40,7 +40,7 @@ vi.mock("@/lib/middleware/helpers", () => {
 
 import { GET } from "./route"
 
-describe("GET /api/community/search — server scope", () => {
+describe("GET /api/community/messages/search — server scope", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockGetMember.mockResolvedValue({ id: "m1", role: "member" })
@@ -50,7 +50,7 @@ describe("GET /api/community/search — server scope", () => {
 
   it("scopes the server search to the viewer's visible channel ids", async () => {
     const res = await GET(
-      new NextRequest("http://localhost/api/community/search?q=hello&serverId=s1"),
+      new NextRequest("http://localhost/api/community/messages/search?q=hello&serverId=s1"),
       { params: {} } as any,
     )
     expect(res.status).toBe(200)
@@ -70,7 +70,7 @@ describe("GET /api/community/search — server scope", () => {
   it("admin gets the same member-scoped visibility (no isAdmin flag)", async () => {
     mockGetMember.mockResolvedValue({ id: "m1", role: "owner" })
     await GET(
-      new NextRequest("http://localhost/api/community/search?q=hello&serverId=s1"),
+      new NextRequest("http://localhost/api/community/messages/search?q=hello&serverId=s1"),
       { params: {} } as any,
     )
     expect(mockListVisibleChannelIds).toHaveBeenCalledWith(

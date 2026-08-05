@@ -75,7 +75,7 @@ export function useInboxMentions(): UseQueryResult<MentionsResponse> & {
 export type MarkedResponse = { marked: Marked[] }
 
 const inboxMarkedQueryFn = () =>
-  apiFetch<MarkedResponse & { stale?: boolean }>("/api/community/users/me/inbox/marked").then(throwIfStale)
+  apiFetch<MarkedResponse & { stale?: boolean }>("/api/community/users/me/marks").then(throwIfStale)
 
 /**
  * The Marked feed is lazy — unlike unreads/mentions (which the shell reads
@@ -103,7 +103,7 @@ export type MessageMarkedResponse = { marked: boolean }
 
 const messageMarkedQueryFn = (messageId: string) => () =>
   apiFetch<MessageMarkedResponse & { stale?: boolean }>(
-    `/api/community/marks/${messageId}`,
+    `/api/community/messages/${messageId}/marks`,
   ).then(throwIfStale)
 
 /**

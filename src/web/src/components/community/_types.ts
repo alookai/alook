@@ -301,7 +301,7 @@ export type Mention = {
 }
 
 // A single per-user saved ("marked") message, as returned by
-// `/api/community/users/me/inbox/marked`. Cross-channel newest-first — each row carries
+// `/api/community/users/me/marks`. Cross-channel newest-first — each row carries
 // the serverId + channelId + seq needed to deep-link back to the message
 // (unlike a Mention, which only opens the channel, a Marked row jumps to the
 // exact message via the `?msg=<id>` deep-link). `id` is the mark row's own id,

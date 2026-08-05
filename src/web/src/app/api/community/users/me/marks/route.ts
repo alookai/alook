@@ -56,7 +56,7 @@ export const GET = withAuth(async (req, ctx) => {
       return { rows, channels, servers }
     },
     { rows: [], channels: [], servers: [] },
-    { route: "community/inbox/marked" },
+    { route: "community/marks" },
   )
   if (stale) {
     return writeJSON({ marked: [], limit, stale: true })

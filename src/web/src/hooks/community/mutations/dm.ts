@@ -16,9 +16,11 @@ export function useCreateOrGetDm() {
   const queryClient = useQueryClient()
   return useMutation<CreateOrGetDmResult, Error, CreateOrGetDmArgs>({
     mutationFn: async ({ userId }) => {
-      return apiFetch<CreateOrGetDmResult>("/api/community/dm", {
+      // Unified create door (route/disc create-door step): POST /channels with
+      // {type:"dm", userId} → get-or-create DM by peer identity.
+      return apiFetch<CreateOrGetDmResult>("/api/community/channels", {
         method: "POST",
-        body: JSON.stringify({ userId }),
+        body: JSON.stringify({ type: "dm", userId }),
       })
     },
     onSuccess: () => {

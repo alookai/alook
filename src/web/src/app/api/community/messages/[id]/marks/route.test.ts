@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
 const mockMarkMessage = vi.fn()
+const mockUnmarkMessage = vi.fn()
+const mockIsMessageMarked = vi.fn()
 const mockGetMessage = vi.fn()
 const mockRequireChannelMember = vi.fn()
 
@@ -18,6 +20,8 @@ vi.mock("@alook/shared", async () => {
     queries: {
       communityMessageMark: {
         markMessage: (...args: unknown[]) => mockMarkMessage(...args),
+        unmarkMessage: (...args: unknown[]) => mockUnmarkMessage(...args),
+        isMessageMarked: (...args: unknown[]) => mockIsMessageMarked(...args),
       },
       communityMessage: {
         getMessage: (...args: unknown[]) => mockGetMessage(...args),
@@ -45,16 +49,21 @@ vi.mock("@/lib/middleware/helpers", () => {
   }
 })
 
-import { POST } from "./route"
+import { PUT, DELETE, GET } from "./route"
 
-function postReq(body: unknown) {
-  return new NextRequest("http://localhost/api/community/marks", {
-    method: "POST",
+const ctx = { params: { id: "m1" } }
+
+function putReq(body: unknown) {
+  return new NextRequest("http://localhost/api/community/messages/m1/marks", {
+    method: "PUT",
     body: JSON.stringify(body),
   })
 }
 
-describe("POST /api/community/marks", () => {
+// PUT = toggle-on. messageId in the path, channelId in the body (the
+// membership + belongs-to-channel gate). Byte-identical to the former flat
+// POST /marks except the message id moved flat→path.
+describe("PUT /api/community/messages/[id]/marks", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockRequireChannelMember.mockResolvedValue({ ok: true, value: { id: "c1" } })
@@ -63,7 +72,7 @@ describe("POST /api/community/marks", () => {
   })
 
   it("marks a visible message for the current user, self-scoped to ctx.userId", async () => {
-    const res = await POST(postReq({ channelId: "c1", messageId: "m1" }))
+    const res = await PUT(putReq({ channelId: "c1" }), ctx)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ ok: true })
     expect(mockMarkMessage).toHaveBeenCalledWith({}, {
@@ -74,38 +83,72 @@ describe("POST /api/community/marks", () => {
   })
 
   it("is idempotent — a re-mark still returns ok (markMessage no-ops on conflict)", async () => {
-    // markMessage uses onConflictDoNothing, so the route does not 409; the
-    // second call is a plain ok, unlike pins which 409 on duplicate.
-    await POST(postReq({ channelId: "c1", messageId: "m1" }))
-    const res = await POST(postReq({ channelId: "c1", messageId: "m1" }))
+    await PUT(putReq({ channelId: "c1" }), ctx)
+    const res = await PUT(putReq({ channelId: "c1" }), ctx)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ ok: true })
   })
 
   it("404s when the message does not belong to the claimed channel", async () => {
     mockGetMessage.mockResolvedValue({ id: "m1", channelId: "other" })
-    const res = await POST(postReq({ channelId: "c1", messageId: "m1" }))
+    const res = await PUT(putReq({ channelId: "c1" }), ctx)
     expect(res.status).toBe(404)
     expect(mockMarkMessage).not.toHaveBeenCalled()
   })
 
   it("404s when the message does not exist", async () => {
     mockGetMessage.mockResolvedValue(null)
-    const res = await POST(postReq({ channelId: "c1", messageId: "m1" }))
+    const res = await PUT(putReq({ channelId: "c1" }), ctx)
     expect(res.status).toBe(404)
     expect(mockMarkMessage).not.toHaveBeenCalled()
   })
 
   it("forwards the channel-membership gate — a non-member cannot mark", async () => {
     mockRequireChannelMember.mockResolvedValue({ ok: false, error: "forbidden", status: 403 })
-    const res = await POST(postReq({ channelId: "c1", messageId: "m1" }))
+    const res = await PUT(putReq({ channelId: "c1" }), ctx)
     expect(res.status).toBe(403)
     expect(mockGetMessage).not.toHaveBeenCalled()
     expect(mockMarkMessage).not.toHaveBeenCalled()
   })
 
-  it("400s on missing messageId or channelId", async () => {
-    expect((await POST(postReq({ channelId: "c1" }))).status).toBe(400)
-    expect((await POST(postReq({ messageId: "m1" }))).status).toBe(400)
+  it("400s on missing channelId", async () => {
+    expect((await PUT(putReq({}), ctx)).status).toBe(400)
+  })
+})
+
+describe("DELETE /api/community/messages/[id]/marks", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("unmarks self-scoped to ctx.userId and returns ok", async () => {
+    mockUnmarkMessage.mockResolvedValue({ id: "mk1" })
+    const res = await DELETE(new NextRequest("http://localhost/api/community/messages/m1/marks", { method: "DELETE" }), ctx)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+    expect(mockUnmarkMessage).toHaveBeenCalledWith({}, { userId: "u1", messageId: "m1" })
+  })
+
+  it("returns ok even when nothing was deleted (another user's mark = 0-row no-op)", async () => {
+    mockUnmarkMessage.mockResolvedValue(null)
+    const res = await DELETE(new NextRequest("http://localhost/api/community/messages/m1/marks", { method: "DELETE" }), ctx)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+  })
+})
+
+describe("GET /api/community/messages/[id]/marks", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("returns {marked:true} when the current user marked the message", async () => {
+    mockIsMessageMarked.mockResolvedValue(true)
+    const res = await GET(new NextRequest("http://localhost/api/community/messages/m1/marks"), ctx)
+    expect(await res.json()).toEqual({ marked: true })
+    // self-scoped: the query is asked "did u1 mark m1", never "did anyone".
+    expect(mockIsMessageMarked).toHaveBeenCalledWith({}, "u1", "m1")
+  })
+
+  it("returns {marked:false} when the current user has not marked it", async () => {
+    mockIsMessageMarked.mockResolvedValue(false)
+    const res = await GET(new NextRequest("http://localhost/api/community/messages/m1/marks"), ctx)
+    expect(await res.json()).toEqual({ marked: false })
   })
 })

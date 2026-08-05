@@ -578,7 +578,7 @@ function ChannelView() {
     try {
       const params = new URLSearchParams({ q })
       if (params) params.set("channelId", channelId)
-      const data = await apiFetch<{ results: Array<{ message: { id: string; content: string; authorId: string; createdAt: string }; author: { name: string; image: string | null } }> }>(`/api/community/search?${params}`)
+      const data = await apiFetch<{ results: Array<{ message: { id: string; content: string; authorId: string; createdAt: string }; author: { name: string; image: string | null } }> }>(`/api/community/messages/search?${params}`)
       setSearchResults(data.results.map((r) => ({
         id: r.message.id,
         type: "chat" as const,

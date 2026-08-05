@@ -469,7 +469,7 @@ export function useUnpinMessage() {
 //
 // mark ≠ pin: a pin is channel-scoped and shared; a mark is the viewer's own
 // private saved-messages set. So these hit a distinct per-user route
-// (`/api/community/marks`, self-scoped by ctx.userId server-side), never the
+// (`/api/community/messages/{id}/marks`, self-scoped by ctx.userId server-side), never the
 // pins route. The ⋯ menu's Mark/Unmark label is driven by `useMessageMarked`
 // (a lazy single-row read on menu-open); these mutations flip that per-message
 // cache optimistically so the label updates instantly, and prune the Marked
@@ -481,9 +481,11 @@ export function useMarkMessage() {
   const queryClient = useQueryClient()
   return useMutation<void, Error, MarkMessageArgs, { prev: MessageMarkedResponse | undefined }>({
     mutationFn: async ({ channelId, messageId }) => {
-      await apiFetch(`/api/community/marks`, {
-        method: "POST",
-        body: JSON.stringify({ channelId, messageId }),
+      // Message-keyed mark door (route/disc marks relocation): messageId in path,
+      // channelId in body (the membership + belongs-to-channel gate). PUT = mark.
+      await apiFetch(`/api/community/messages/${messageId}/marks`, {
+        method: "PUT",
+        body: JSON.stringify({ channelId }),
       })
     },
     onMutate: async ({ messageId }) => {
@@ -515,7 +517,7 @@ export function useUnmarkMessage() {
     prevList: MarkedResponse | undefined
   }>({
     mutationFn: async ({ messageId }) => {
-      await apiFetch(`/api/community/marks/${messageId}`, { method: "DELETE" })
+      await apiFetch(`/api/community/messages/${messageId}/marks`, { method: "DELETE" })
     },
     onMutate: async ({ messageId }) => {
       const markedKey = communityKeys.messageMarked(messageId)
@@ -581,9 +583,11 @@ export function useCreateThread() {
   const queryClient = useQueryClient()
   return useMutation<CreateThreadResult, Error, CreateThreadArgs>({
     mutationFn: async ({ messageId, name }) => {
+      // Unified create door (route/disc create-door step): POST /channels with
+      // {type:"thread", messageId, name} → get-or-create thread by root message.
       return apiFetch<CreateThreadResult>(
-        `/api/community/messages/${messageId}/threads`,
-        { method: "POST", body: JSON.stringify({ name }) },
+        `/api/community/channels`,
+        { method: "POST", body: JSON.stringify({ type: "thread", messageId, name }) },
       )
     },
     onSuccess: (data, args) => {
