@@ -2,24 +2,10 @@ import { NextResponse, NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import {
-  queries,
-  canManageServer,
-  isChannelType,
-  channelCreation,
-  MAX_CHANNEL_NAME_LENGTH,
-  MAX_CHANNEL_TOPIC_LENGTH,
-  WS_EVENTS,
-  slugify,
-  type ChannelType,
-  type StoredChannelType,
-} from "@alook/shared"
-import { fanOutToServerMembers, fanOutToChannel } from "@/lib/community/fanout"
-import { createWithCollisionPolicy } from "@/lib/community/create-collision"
-import { logAudit } from "@/lib/community/audit"
-import { requireServerMember } from "@/lib/community/permissions"
+import { queries } from "@alook/shared"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { buildServerChannelGroups } from "@/lib/community/list-channels"
+import { createServerChannelForUser } from "@/lib/community/create-channels"
 
 /**
  * GET /api/community/servers/[id]/channels — single-server channel list, bot
@@ -69,9 +55,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (!serverId) return writeError("missing server id", 400)
 
   const db = getDb(ctx.env.DB)
-  const auth = await requireServerMember(db, serverId, ctx.userId)
-  if (!auth.ok) return writeError(auth.error, auth.status)
-  const member = auth.value!
 
   let body: { name?: string; type?: string; categoryId?: string; topic?: string }
   try {
@@ -80,113 +63,20 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError("invalid request body", 400)
   }
 
-  if (!body.name || typeof body.name !== "string") {
-    return writeError("name is required", 400)
-  }
-  const trimmed = body.name.trim()
-  if (!trimmed || trimmed.length > MAX_CHANNEL_NAME_LENGTH) {
-    return writeError(`name must be 1-${MAX_CHANNEL_NAME_LENGTH} characters`, 400)
-  }
-  const name = slugify(trimmed)
-  if (!name) {
-    return writeError("name is required", 400)
-  }
-  if (body.type !== undefined && !isChannelType(body.type)) {
-    return writeError("type must be 'text' or 'forum'", 400)
-  }
-  if (body.topic !== undefined) {
-    if (typeof body.topic !== "string") return writeError("topic must be a string", 400)
-    if (body.topic.length > MAX_CHANNEL_TOPIC_LENGTH) {
-      return writeError(`topic must be ≤ ${MAX_CHANNEL_TOPIC_LENGTH} characters`, 400)
-    }
-  }
-
-  // Who may create depends on the target location:
-  //   - uncategorized OR public category → admin/owner only
-  //   - private category → any server member (they own the channel + its roster)
-  const isAdmin = canManageServer(member.role)
-  let isPrivateCategory = false
-  if (body.categoryId) {
-    const category = await queries.communityCategory.getCategory(db, body.categoryId)
-    if (!category || category.serverId !== serverId) {
-      return writeError("category not found", 404)
-    }
-    isPrivateCategory = !!category.private
-  }
-  if (!isPrivateCategory && !isAdmin) {
-    return writeError("admin permission required", 403)
-  }
-
-  // Collision handling via the shared trait-keyed policy (B4 convergence): a
-  // top-level channel's creation trait is reject-on-collision — a duplicate name
-  // (idx_channel_server_name) is REFUSED with 409, never bumped or merged. Same
-  // createWithCollisionPolicy dispatch that runs forum_post's pure-create
-  // (bump-retry) and thread's get-or-create (fetch-winner); only the attempt
-  // callback + the reject message are top-level-specific. Behavior is unchanged
-  // — still 409 "already exists", still the admin/private gate above; only the
-  // dispatch mechanism is shared now.
-  // Effective stored type — validated to text/forum above; undefined defaults to
-  // "text" (same default createChannel applies). Both top-level types are
-  // reject-on-collision, so channelCreation resolves the same policy either way.
-  const effectiveType: StoredChannelType = body.type === "forum" ? "forum" : "text"
-  const createResult = await createWithCollisionPolicy(channelCreation(effectiveType), {
-    attempt: () => queries.communityChannel.createChannel(db, {
-      serverId,
-      categoryId: body.categoryId || null,
-      name,
-      type: body.type,
-      topic: body.topic,
-      creatorId: ctx.userId,
-    }),
-    onReject: () => ({ status: 409, error: "a channel with this name already exists" }),
-  })
-  if (!createResult.ok) return writeError(createResult.error, createResult.status)
-  const row = createResult.value
-
-  // Private-category channels track an explicit roster; seed the creator so
-  // audience resolution + the manage-members list are single queries.
-  if (isPrivateCategory) {
-    await queries.communityChannel.createChannelMember(db, {
-      channelId: row.id,
-      userId: ctx.userId,
-      addedBy: ctx.userId,
-    })
-  }
-
-  const channel = {
-    id: row.id,
-    name: row.name,
-    type: row.type as ChannelType,
-    categoryId: row.categoryId,
-    topic: row.topic ?? undefined,
-    position: row.position ?? 0,
-    createdAt: row.createdAt,
-  }
-
-  // A private channel's creation must NOT fan out to the whole server (that
-  // would leak its existence). Route it through the channel audience (creator
-  // + admins); public/uncategorized channels stay server-wide.
-  if (isPrivateCategory) {
-    await fanOutToChannel(row.id, {
-      type: WS_EVENTS.CHANNEL_CREATE,
-      serverId,
-      channel,
-    })
-  } else {
-    await fanOutToServerMembers(serverId, {
-      type: WS_EVENTS.CHANNEL_CREATE,
-      serverId,
-      channel,
-    })
-  }
-
-  logAudit(db, {
+  // Single-source creation core (route/disc create-door step): the POST body now
+  // calls the same createServerChannelForUser the `POST /channels` door dispatches
+  // to, so this legacy route and the door share ONE code path (kept alive through
+  // deploy; deleted at the flat-delete step). Validation, admin/private gate,
+  // collision policy, roster seed, fan-out, and audit all live in the helper.
+  const result = await createServerChannelForUser(db, {
     serverId,
-    actorId: ctx.userId,
-    action: "channel_create",
-    targetType: "channel",
-    targetId: channel.id,
+    actorUserId: ctx.userId,
+    name: body.name,
+    type: body.type,
+    categoryId: body.categoryId,
+    topic: body.topic,
   })
+  if (!result.ok) return writeError(result.error, result.status)
 
-  return writeJSON({ channel }, 201)
+  return writeJSON({ channel: result.value }, 201)
 })

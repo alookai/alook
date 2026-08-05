@@ -2,10 +2,7 @@ import { NextRequest } from "next/server"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, MAX_CHANNEL_NAME_LENGTH, WS_EVENTS, PARTICIPANT_SOURCE } from "@alook/shared"
-import { fanOutToChannel } from "@/lib/community/fanout"
-import { requireChannelMember } from "@/lib/community/permissions"
-import { requireMessageBearingSurface } from "@/lib/community/channel-write-guard"
+import { createThreadForUser } from "@/lib/community/create-channels"
 
 /**
  * Message-keyed thread-create door (route/disc trunk — message-keyed faces
@@ -31,33 +28,7 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   const messageId = ctx.params?.id
   if (!messageId) return writeError("missing message id", 400)
 
-  const userId = ctx.actor.userId
   const db = getDb(ctx.env.DB)
-
-  const message = await queries.communityMessage.getMessage(db, messageId)
-  if (!message) return writeError("message not found", 404)
-  if (!message.channelId) return writeError("message is not in a channel", 400)
-
-  const auth = await requireChannelMember(db, message.channelId, userId)
-  if (!auth.ok) return writeError(auth.error, auth.status)
-  const channel = auth.value
-
-  // Threads may only root on a TOP-LEVEL channel's message. Rooting on a child
-  // channel (a forum post, or another thread) would make the new thread a
-  // grandchild whose privacy the single-level anchor climb can't resolve — it
-  // would read the child's own `categoryId` (always NULL) as public and leak a
-  // private forum's thread server-wide. The UI already forbids this (child
-  // views pass no create-thread action); enforce it on the API too.
-  if (channel.parentChannelId) {
-    return writeError("can't start a thread on a message in a thread or forum post", 400)
-  }
-
-  // A thread roots on a real message, so the anchor's channel must be a
-  // message-bearing surface. A `forum` top-level is a post index, not a
-  // message surface — any bare message there is illegitimate (see the
-  // channel-type write guard), so no thread may root on it.
-  const bearing = requireMessageBearingSurface(channel.type)
-  if (!bearing.ok) return writeError(bearing.error, bearing.status)
 
   let body: { name?: string }
   try {
@@ -65,68 +36,18 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   } catch {
     return writeError("invalid request body", 400)
   }
-  if (!body.name || typeof body.name !== "string") return writeError("name is required", 400)
-  const name = body.name.trim()
-  if (!name || name.length > MAX_CHANNEL_NAME_LENGTH) {
-    return writeError(`name must be 1-${MAX_CHANNEL_NAME_LENGTH} characters`, 400)
-  }
 
-  // One thread per message.
-  const existing = await queries.communityChannel.listChildChannels(db, message.channelId, {
-    type: "thread",
-  })
-  if (existing.some((c) => c.parentMessageId === messageId)) {
-    return writeError("message already has a thread", 409)
-  }
+  // Single-source creation core (route/disc create-door step): shares the same
+  // createThreadForUser the `POST /channels` door dispatches for the thread type.
+  // ⚠ BEHAVIOR CHANGE (Melly #471, Ingaborg #472): the former inline 409
+  // "already has a thread" pre-check is retired — thread is get-or-create by the
+  // root-message anchor, so re-creating on a message that already has a thread
+  // returns that thread (idempotent), unifying with the send-path
+  // createThreadIfMissing. The 409 was never a consumed signal (no caller
+  // branched on it). Top-level/bearing guards + participant seeding are in the
+  // helper. Kept alive through deploy; deleted at the flat-delete step.
+  const result = await createThreadForUser(db, { messageId, actorUserId: ctx.actor.userId, name: body.name })
+  if (!result.ok) return writeError(result.error, result.status)
 
-  const childChannel = await queries.communityChannel.createChannel(db, {
-    serverId: channel.serverId,
-    parentChannelId: message.channelId,
-    parentMessageId: messageId,
-    name,
-    type: "thread",
-    creatorId: userId,
-  })
-
-  // Seed the default NOTIFY set: the thread creator (source "spoke", matching
-  // the forum-post creation flow and what the message-handler would write once
-  // they post), plus the original message's author (source "added" — they were
-  // pulled in by someone else, like the manual add-participant flow). The
-  // author is only enrolled if they are STILL a member of the parent channel —
-  // `requireChannelMember` above only gated the creator, so seeding the author
-  // unconditionally could push a private channel's thread to someone who lost
-  // access (the leak `removeParticipantFromChildChannels` exists to prevent).
-  const seedRows: { userId: string; source: typeof PARTICIPANT_SOURCE.SPOKE | typeof PARTICIPANT_SOURCE.ADDED }[] = [
-    { userId: userId, source: PARTICIPANT_SOURCE.SPOKE },
-  ]
-  // De-dupe: when the creator threads their own message the author is the same
-  // user, and the creator's "spoke" row already covers them.
-  if (message.authorId !== userId) {
-    const authorStillMember = await requireChannelMember(db, message.channelId, message.authorId)
-    if (authorStillMember.ok) seedRows.push({ userId: message.authorId, source: PARTICIPANT_SOURCE.ADDED })
-  }
-  await queries.communityThread.addThreadParticipants(db, childChannel.id, seedRows)
-
-  // Note: we intentionally do NOT clone the parent message into the new thread
-  // channel. The `parentMessageId` pointer above is the single source of truth
-  // for the opener — the thread page fetches the parent live via
-  // GET /api/community/messages/[id] and renders it as a pinned block at the
-  // top of the message list. Cloning would drift the moment the original is
-  // edited, and it never carried attachments / reactions / mentions in the
-  // first place.
-
-  fanOutToChannel(message.channelId, {
-    type: WS_EVENTS.CHILD_CHANNEL_CREATE,
-    parentChannelId: message.channelId,
-    channel: {
-      id: childChannel.id,
-      name: childChannel.name,
-      type: "thread" as const,
-      creatorId: userId,
-      createdAt: childChannel.createdAt,
-    },
-    parentMessageId: messageId,
-  }, { excludeUserId: userId })
-
-  return writeJSON(childChannel, 201)
+  return writeJSON(result.value, 201)
 })

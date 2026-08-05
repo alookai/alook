@@ -3,8 +3,8 @@ import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
-import { guardDmOpen } from "@/lib/community/dm-guard"
 import { avatarInitial } from "@/lib/community/avatar"
+import { createDmForUser } from "@/lib/community/create-channels"
 
 export const GET = withAuth(async (_req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
@@ -31,17 +31,13 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError("invalid request body", 400)
   }
 
-  if (!body.userId) return writeError("userId is required", 400)
+  // Single-source creation core (route/disc create-door step): shares the same
+  // createDmForUser the `POST /channels` door dispatches for the DM type. DM is
+  // get-or-create by peer identity (createOrGetDM), a different key space than the
+  // by-name collision policy — the helper keeps that boundary. Kept alive through
+  // deploy; deleted at the flat-delete step.
+  const result = await createDmForUser(db, { actorUserId: ctx.userId, peerUserId: body.userId })
+  if (!result.ok) return writeError(result.error, result.status)
 
-  // Default callerKind ("human") — 404-on-friend-failure / pass-as-human
-  // preserved exactly as this route's pre-extraction behavior.
-  const guard = await guardDmOpen(db, ctx.userId, body.userId)
-  if (!guard.ok) return writeError(guard.error, guard.status)
-
-  const dm = await queries.communityDm.createOrGetDM(db, {
-    userId1: ctx.userId,
-    userId2: body.userId,
-  })
-
-  return writeJSON({ conversation: dm })
+  return writeJSON({ conversation: result.value })
 })

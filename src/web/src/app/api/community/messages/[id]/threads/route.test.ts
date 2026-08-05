@@ -9,6 +9,7 @@ const mockGetMessage = vi.fn()
 const mockGetChannelForMember = vi.fn()
 const mockListChildChannels = vi.fn()
 const mockCreateChannel = vi.fn()
+const mockGetThreadChannelByParentMessage = vi.fn()
 const mockCreateMessage = vi.fn()
 const mockListMessages = vi.fn()
 const mockAddThreadParticipants = vi.fn()
@@ -26,6 +27,7 @@ vi.mock("@alook/shared", async () => {
         getChannelForMember: (...a: unknown[]) => mockGetChannelForMember(...a),
         listChildChannels: (...a: unknown[]) => mockListChildChannels(...a),
         createChannel: (...a: unknown[]) => mockCreateChannel(...a),
+        getThreadChannelByParentMessage: (...a: unknown[]) => mockGetThreadChannelByParentMessage(...a),
       },
       communityMessage: {
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
@@ -156,13 +158,33 @@ describe("POST /api/community/messages/[id]/threads", () => {
     expect(messageCreateCall).toBeUndefined()
   })
 
-  it("rejects a second thread on the same parent message", async () => {
-    mockListChildChannels.mockResolvedValue([
-      { id: "t-existing", parentMessageId: "msg-p", type: "thread" },
-    ])
+  it("returns the existing thread when the message already has one (get-or-create, not 409)", async () => {
+    // Behavior change (route/disc create-door, Melly #471 / Ingaborg #472): thread
+    // is get-or-create by the root-message anchor — the concurrent create hits the
+    // uq_community_channel_parent_message unique index and throws, then the winner
+    // is re-selected and returned (idempotent). The former 409 "already has a
+    // thread" was never a consumed signal, so returning the existing thread is
+    // strictly more useful than a failure.
+    const uniqueErr = Object.assign(new Error("UNIQUE constraint failed"), {
+      code: "SQLITE_CONSTRAINT_UNIQUE",
+    })
+    mockCreateChannel.mockRejectedValue(uniqueErr)
+    mockGetThreadChannelByParentMessage.mockResolvedValue({
+      id: "t-existing",
+      name: "first thread",
+      serverId: "s1",
+      parentChannelId: "c-parent",
+      parentMessageId: "msg-p",
+      type: "thread",
+      creatorId: "u1",
+      messageCount: 0,
+      createdAt: "2026-07-03T00:00:00.000Z",
+    })
     const res = await POST(req({ name: "second thread" }), ctx)
-    expect(res.status).toBe(409)
-    expect(mockCreateChannel).not.toHaveBeenCalled()
+    expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body.id).toBe("t-existing")
+    // No opener message is cloned on the get-or-create winner either.
     expect(mockCreateMessage).not.toHaveBeenCalled()
   })
 
