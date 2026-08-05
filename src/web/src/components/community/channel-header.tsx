@@ -85,10 +85,10 @@ export function ChannelHeader({
         <>
           <button onClick={breadcrumb.onNavigateBack} className={`flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors ${server ? "" : "ml-1"}`}>
             <EntityIcon kind={entityKind} className="size-4 shrink-0" />
-            <span className="truncate text-base font-medium">{channel}</span>
+            <span className="truncate text-lg font-medium">{channel}</span>
           </button>
-          <ChannelIcon className="shrink-0 text-base text-muted-foreground/60" />
-          <span className="min-w-0 truncate text-base font-medium" title={breadcrumb.label}>{breadcrumb.label}</span>
+          <ChannelIcon className="shrink-0 text-lg text-muted-foreground/60" />
+          <span className="min-w-0 truncate text-lg font-medium" title={breadcrumb.label}>{breadcrumb.label}</span>
           {breadcrumb.onRename && (
             <BreadcrumbRename label={breadcrumb.label} onRename={breadcrumb.onRename} />
           )}
@@ -98,7 +98,7 @@ export function ChannelHeader({
           <div className={`grid size-6 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground ${server ? "" : "ml-1"}`}>
             <EntityIcon kind={entityKind} className="size-4" />
           </div>
-          <span className="truncate text-base font-semibold">{channel}</span>
+          <span className="truncate text-lg font-semibold">{channel}</span>
         </>
       )}
       <div className="ml-auto flex items-center text-muted-foreground">
