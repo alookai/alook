@@ -1,69 +1,19 @@
-import { NextRequest } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
-import { writeJSON, writeError } from "@/lib/middleware/helpers"
-import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
-import { requireChannelMember } from "@/lib/community/permissions"
-import { requireChildSurface } from "@/lib/community/channel-write-guard"
-
 /**
- * PUT /api/community/threads/:id/read
+ * PUT /api/community/threads/:id/read — thin shim over the unified channel trunk.
  *
- * Same two-shape contract as `PUT /channels/:id/read` (a thread is a channel):
- * - Body `{ lastReadMessageId }` present → scope-check + align to that
- *   message.
- * - Body absent / empty → align to the thread's latest message. Empty thread
- *   → no-op (invariant forbids `lastReadMessageId = null` rows).
+ * A thread IS a channel, so thread read is identical to channels/[id]/read (same
+ * mass-mark + batched mention-clear, same 404/403 split via
+ * requireMessageSurfaceAccess). This route just re-exports the channel handler,
+ * to be retired once callers move to channels/[id]/read.
+ *
+ * The old dedicated handler additionally ran requireChildSurface (reject a
+ * top-level id sent to the /threads/ URL). That guard was a ROUTE-IDENTITY
+ * artifact — a formal "/threads/ only accepts children" constraint — NOT a
+ * security gate; the unified trunk accepts any channel type by surface, so it's
+ * redundant post-merge and dropped (Blondie #28: no per-type re-derive the trunk
+ * already makes moot). The only behavioral delta — a top-level id sent to
+ * /threads/read now succeeds (was 400) — is confined to this deprecated URL,
+ * which has no live caller reaching it (use-eager-channel-read routes top-level
+ * ids to /channels/read) and is on the delete list.
  */
-export const PUT = withAuth(async (req: NextRequest, ctx) => {
-  const channelId = ctx.params?.id
-  if (!channelId) return writeError("missing id", 400)
-
-  const db = getDb(ctx.env.DB)
-
-  // Two-step check preserves the 404-vs-403 contract that sibling channel
-  // routes (pins, threads, PATCH/DELETE) also honor: unknown channel → 404,
-  // known channel + non-member → 403. `requireChannelMember` alone collapses
-  // both into 403 because the JOIN can't tell the difference.
-  const channel = await queries.communityChannel.getChannel(db, channelId)
-  if (!channel) return writeError("channel not found", 404)
-  const child = requireChildSurface(channel.type)
-  if (!child.ok) return writeError(child.error, child.status)
-  const auth = await requireChannelMember(db, channelId, ctx.userId)
-  if (!auth.ok) return writeError(auth.error, auth.status)
-
-  let body: { lastReadMessageId?: string } = {}
-  try {
-    body = await req.json()
-  } catch {
-    // Body is optional
-  }
-
-  let target: { id: string; createdAt: string; seq: number } | null
-  if (body.lastReadMessageId) {
-    const msg = await queries.communityMessage.getMessage(db, body.lastReadMessageId)
-    if (!msg) return writeError("message not found", 404)
-    if (msg.channelId !== channelId) {
-      return writeError("message not in channel", 400)
-    }
-    target = { id: msg.id, createdAt: msg.createdAt, seq: msg.seq }
-  } else {
-    target = await queries.communityMessage.getLatestMessage(db, { channelId })
-    if (!target) return writeJSON({ ok: true })
-  }
-
-  // A thread IS a channel — mirror the channel read route: advance the read
-  // watermark AND clear the thread's own mentions in one D1 batch (keyed on the
-  // thread's channelId). Without the mention clear, opening a thread wouldn't
-  // dismiss its mentions (plan gap #4).
-  await db.batch([
-    queries.communityReadState.markReadToMessageBuilder(db, {
-      userId: ctx.userId,
-      channelId,
-      message: target,
-    }),
-    queries.communityMention.markChannelMentionsReadBuilder(db, ctx.userId, channelId),
-  ])
-
-  return writeJSON({ ok: true })
-})
+export { PUT } from "../../../channels/[id]/read/route"

@@ -27,9 +27,11 @@ import type { ServersResponse } from "@/hooks/community/use-servers"
  * `lastReadAt < message.createdAt` rule, can never be regressed by a later
  * older watermark PUT.
  *
- * `isChildChannel` picks the endpoint — threads/forum-posts read through
- * `/threads/:id/read`, top-level channels through `/channels/:id/read`. Both
- * accept an empty body as mass mark-read and both batch the mention clear.
+ * All channel kinds (top-level, thread, forum-post) mark read through the one
+ * `/channels/:id/read` trunk — a thread IS a channel, and the unified handler
+ * dispatches by surface (DM ids run the block gate). The old per-type
+ * `/threads/:id/read` split is retired. Empty body = mass mark-read + batched
+ * mention clear.
  *
  * Note: `lastReadSeq` (the numeric bot-wake cursor) is intentionally NOT
  * touched here — human read routes don't bump it; that divergence is a
@@ -56,10 +58,7 @@ export function useEagerChannelRead({
     if (firedForRef.current === channelId) return
     firedForRef.current = channelId
 
-    const endpoint = isChildChannel
-      ? `/api/community/threads/${channelId}/read`
-      : `/api/community/channels/${channelId}/read`
-    void apiFetch(endpoint, { method: "PUT" })
+    void apiFetch(`/api/community/channels/${channelId}/read`, { method: "PUT" })
       .then(() => {
         // Always refresh the inbox feeds — the mass mark-read cleared them.
         void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })

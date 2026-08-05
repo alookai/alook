@@ -106,7 +106,10 @@ describe("useEagerChannelRead — rail-badge fan-out gate", () => {
     })
   })
 
-  it("uses the thread endpoint for a child channel", async () => {
+  it("uses the unified channels/[id]/read trunk for a child channel too (a thread IS a channel)", async () => {
+    // The per-type /threads/:id/read split is retired — all kinds mark read via
+    // channels/[id]/read, which dispatches by surface. isChildChannel no longer
+    // picks the endpoint.
     const useHook = await loadHook()
     useHook({
       channelId: "th_9",
@@ -116,7 +119,7 @@ describe("useEagerChannelRead — rail-badge fan-out gate", () => {
     })
     flushEffects()
     await settle()
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/threads/th_9/read", {
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/th_9/read", {
       method: "PUT",
     })
   })
