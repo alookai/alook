@@ -1,8 +1,9 @@
-import { NextRequest } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
+import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, withD1Retry, CommunityAgentSendRequestSchema, utcDayKey } from "@alook/shared"
 import {
   parseCursor,
   parseAnchor,
@@ -13,9 +14,19 @@ import {
 } from "@/lib/community/messages"
 import { enrichMessages } from "@/lib/community/enrich-messages"
 import { requireChannelMember } from "@/lib/community/permissions"
-import { requireMessageBearingSurface } from "@/lib/community/channel-write-guard"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { createCommunityMessage } from "@/lib/community/message-handler"
+import {
+  parseTargetDescriptor,
+  resolveMessageTarget,
+  type MessageTargetDescriptor,
+} from "@/lib/community/message-door"
+
+// A bot addresses by ref-in-body; the path `[id]` is then a placeholder
+// (`channels/resolve/messages`) since a ref carries `/` and can't sit in a path
+// segment. A human/web caller puts the real channelId in the path. This is the
+// one door's single addressing input — id (path) xor ref (body), Gener #752.
+const REF_PLACEHOLDER_ID = "resolve"
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
@@ -81,74 +92,179 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   return writeJSON({ messages, hasMore, cursor: nextCursor, latestSeq })
 })
 
-export const POST = withAuth(async (req: NextRequest, ctx) => {
-  const channelId = ctx.params?.id
-  if (!channelId) return writeError("missing channel id", 400)
-
+/**
+ * POST /api/community/channels/{id}/messages — the CANONICAL message door
+ * (route/disc corrected direction, Melly #210): one id-in-path route serving
+ * BOTH callers, the flat `send` verb folds in here (§3 replacement, Ingaborg
+ * #219). Addressing is id-xor-ref, one door:
+ *   - human/web: real channelId in the path.
+ *   - bot/CLI: ref-in-body; the path `[id]` is the `resolve` placeholder (a ref
+ *     carries `/`, can't sit in a path segment).
+ *
+ * Authorization is credential-defined, addressing is body/path only. First
+ * segment = `withCommunityActor` credential dispatch (crk_ → bot arm; session →
+ * human arm) BEFORE any field is read, so a body field can't flip the actor arm.
+ *
+ * §3 (Ingaborg #219): the former standalone `requireChannelMember` is REPLACED
+ * by `requireMessageSurfaceAccess` (via resolveMessageTarget) — the dispatch
+ * subsumes the member check AND returns the channel, so there is EXACTLY ONE
+ * authorization entry (no standalone member/DM gate remains — a second gate
+ * would be a bypass of the single mask). A bot hitting this id route passes the
+ * SAME mask (never skipped because machine-token — ASSERT 1 ①-C).
+ */
+export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
 
-  const auth = await requireChannelMember(db, channelId, ctx.userId)
-  if (!auth.ok) return writeError(auth.error, auth.status)
-  const channel = auth.value
-
-  const bearing = requireMessageBearingSurface(channel.type)
-  if (!bearing.ok) return writeError(bearing.error, bearing.status)
-
-  const rateLimit = await checkRateLimit(ctx.env, "community:msgSend", ctx.userId)
-  if (!rateLimit.allowed) {
-    return writeError("rate limited", 429, { "Retry-After": String(rateLimit.retryAfterSec) })
-  }
-
-  let body: unknown
+  let raw: unknown
   try {
-    body = await req.json()
+    raw = await req.json()
   } catch {
-    return writeError("invalid request body", 400)
+    return NextResponse.json({ error: "invalid request body" }, { status: 400 })
   }
 
-  // Child channels (those with a parentChannelId — threads AND forum posts)
-  // fire CHILD_CHANNEL_UPDATE on the parent so its indicator ticks, and both
-  // scope their notify set to participants. They're distinguished by
-  // `channel.type`: a forum_post uses the `forum_post` target kind so it can't
-  // silently ride the thread branch. Detected server-side from the channel row
-  // — clients always POST here, never to a separate endpoint, which avoided a
-  // UI race where a fast user could type before a client-side meta fetch
-  // resolved.
-  const target = channel.parentChannelId
-    ? {
-        kind: channel.type === "forum_post" ? ("forum_post" as const) : ("thread" as const),
-        channelId,
-        parentChannelId: channel.parentChannelId,
-        serverId: channel.serverId,
-      }
-    : {
-        kind: "channel" as const,
-        channelId,
-        serverId: channel.serverId,
-      }
+  if (ctx.actor.kind === "bot") {
+    return handleBotSend(db, ctx.actor.userId, raw)
+  }
+  return handleHumanSend(db, ctx.actor.userId, ctx.env, ctx.params?.id, raw)
+})
 
-  // Idempotency nonce (mutation-idempotency plan): the human web client mirrors
-  // the agent send route — it generates a random nonce per logical send and
-  // reuses it across retry-pill clicks, so a 500-after-commit resend dedupes
-  // server-side instead of double-posting. Extracted defensively (this route
-  // hands the raw body to the handler, no zod pass); the handler ignores an
-  // absent nonce and falls back to today's behavior.
-  const clientNonce =
-    typeof (body as { nonce?: unknown })?.nonce === "string"
-      ? (body as { nonce: string }).nonce
-      : undefined
+/**
+ * Human/web arm — real channelId in the path (id descriptor). Rate-limit +
+ * nonce + 201 shape preserved from the pre-fold channels POST; the raw body is
+ * now schema-tightened via the door-core descriptor + createCommunityMessage's
+ * own validation (the direction Ingaborg #196 flagged).
+ */
+async function handleHumanSend(
+  db: ReturnType<typeof getDb>,
+  userId: string,
+  env: Env,
+  pathId: string | undefined,
+  raw: unknown,
+): Promise<NextResponse> {
+  if (!pathId || pathId === REF_PLACEHOLDER_ID) {
+    return NextResponse.json({ error: "missing channel id" }, { status: 400 })
+  }
+
+  const descriptor: MessageTargetDescriptor = { id: pathId }
+
+  const rateLimit = await checkRateLimit(env, "community:msgSend", userId)
+  if (!rateLimit.allowed) {
+    return NextResponse.json({ error: "rate limited" }, { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } })
+  }
+
+  // SINGLE authorization entry — resolveMessageTarget → requireMessageSurfaceAccess
+  // subsumes member/DM + returns the target (no standalone requireChannelMember).
+  const resolved = await resolveMessageTarget(db, userId, descriptor, "human")
+  if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: resolved.status })
+
+  const body = raw as { nonce?: unknown }
+  const clientNonce = typeof body?.nonce === "string" ? body.nonce : undefined
 
   const result = await createCommunityMessage({
     db,
-    authorId: ctx.userId,
-    target,
-    body: body as Record<string, unknown>,
+    authorId: userId,
+    target: resolved.value.target,
+    body: raw as Record<string, unknown>,
+    source: "web",
     clientNonce,
   })
-  if (!result.ok) return writeError(result.error, result.status)
+  if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
+  return NextResponse.json({ message: result.row, deduped: result.deduped }, { status: 201 })
+}
 
-  // Surface `deduped` so the client reconciles a retry-pill resend that matched
-  // an already-committed message (align the optimistic row to the canonical
-  // seq/id, clear the failed pill) instead of treating it as a fresh insert.
-  return writeJSON({ message: result.row, deduped: result.deduped }, 201)
-})
+/**
+ * Bot arm — ref-in-body (`channel`), the former `send` verb's behavior verbatim:
+ * single resolve WITH create-if-missing, channel-alignment gate, CAS via
+ * `expectedSeq`, SENT-heatmap bump, agent-message response. Target resolution +
+ * per-surface auth flow through the shared door-core (single mask entry).
+ */
+async function handleBotSend(
+  db: ReturnType<typeof getDb>,
+  botUserId: string,
+  raw: unknown,
+): Promise<NextResponse> {
+  const parsed = CommunityAgentSendRequestSchema.safeParse(raw)
+  if (!parsed.success) {
+    return NextResponse.json({ error: "invalid payload", details: parsed.error.flatten() }, { status: 400 })
+  }
+  const body = parsed.data
+
+  const descriptor: MessageTargetDescriptor = {
+    ref: body.channel,
+    createDmIfMissing: true,
+    createThreadIfMissing: true,
+  }
+  const resolved = await resolveMessageTarget(db, botUserId, descriptor, "bot")
+  if (!resolved.ok) {
+    return NextResponse.json(
+      { error: resolved.error, ...(resolved.hint ? { hint: resolved.hint } : {}) },
+      { status: resolved.status },
+    )
+  }
+  const target = resolved.value.target
+  const channelId = target.channelId
+
+  const scopeTarget = { channelId }
+  const [latestSeq, readState] = await Promise.all([
+    withD1Retry(() => queries.communityAgentInbox.getLatestSeqForScope(db, channelId), { route: "community/messages:latest-seq" }),
+    withD1Retry(() => queries.communityReadState.getReadState(db, { userId: botUserId, ...scopeTarget }), { route: "community/messages:read-state" }),
+  ])
+  const seen = body.seenUpToSeq ?? readState?.lastReadSeq ?? 0
+  const hasUnread = await withD1Retry(
+    () => queries.communityAgentInbox.hasDeliverableUnreadForAgentScope(db, botUserId, channelId, seen),
+    { route: "community/messages:has-unread" },
+  )
+  if (hasUnread) {
+    return NextResponse.json({ state: "blocked", reason: "unaligned", unreadCount: Math.max(0, latestSeq - seen), latestSeq })
+  }
+
+  if (body.attachments.length > 0) {
+    const rows = await withD1Retry(
+      () => queries.communityAttachment.findPendingAttachmentsForBot(db, { ids: body.attachments, uploaderId: botUserId, targetId: channelId }),
+      { route: "community/messages:attachments" },
+    )
+    if (rows.length !== body.attachments.length) {
+      return NextResponse.json({ error: "attachment not found or not attachable to this target" }, { status: 400 })
+    }
+  }
+
+  let replyToId: string | undefined
+  if (body.replyToSeq !== undefined) {
+    const replyTarget = await withD1Retry(
+      () => queries.communityMessage.getMessageByChannelAndSeq(db, scopeTarget, body.replyToSeq!),
+      { route: "community/messages:reply-lookup" },
+    )
+    if (!replyTarget) {
+      return NextResponse.json({ error: `reply target #${body.replyToSeq} not found in ${body.channel}` }, { status: 400 })
+    }
+    replyToId = replyTarget.id
+  }
+
+  const result = await createCommunityMessage({
+    db,
+    authorId: botUserId,
+    target,
+    body: { content: body.content.text, replyToId },
+    source: "cli",
+    expectedSeq: latestSeq,
+    attachmentIds: body.attachments.length > 0 ? body.attachments : undefined,
+    clientNonce: body.nonce,
+    extraStatements: [
+      queries.communityBot.bumpBotDailyActivityStatement(db, botUserId, utcDayKey(new Date()), "sent"),
+    ],
+  })
+  if (!result.ok) {
+    if (result.status === 409) {
+      const freshLatestSeq = await withD1Retry(
+        () => queries.communityAgentInbox.getLatestSeqForScope(db, channelId),
+        { route: "community/messages:fresh-latest-seq" },
+      )
+      return NextResponse.json({ state: "blocked", reason: "unaligned", unreadCount: Math.max(0, freshLatestSeq - seen), latestSeq: freshLatestSeq })
+    }
+    return NextResponse.json({ error: result.error }, { status: result.status })
+  }
+
+  const orderedAttachments = (result.attachments ?? []).map((a) => ({ id: a.id, filename: a.filename, contentType: a.contentType, size: a.size }))
+  const message = await queries.communityAgentInbox.toAgentMessage(db, result.row, botUserId, orderedAttachments)
+  return NextResponse.json({ state: "sent", message, deduped: result.deduped })
+}

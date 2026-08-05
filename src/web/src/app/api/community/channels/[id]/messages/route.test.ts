@@ -26,6 +26,9 @@ const mockGetLatestMessageSeq = vi.fn()
 const mockListByMessageIds = vi.fn()
 const mockListReactionsByMessageIds = vi.fn()
 const mockGetUserInternal = vi.fn()
+const mockGetDM = vi.fn()
+const mockGetDMPeer = vi.fn()
+const mockIsBlocked = vi.fn()
 
 const mockFanOutToChannel = vi.fn()
 const mockResolveChannelRecipients = vi.fn(async () => [] as string[])
@@ -82,6 +85,14 @@ vi.mock("@alook/shared", async () => {
       user: {
         getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a),
       },
+      // The door's DM arm (requireDMAccess) uses these when a DM id is dispatched.
+      communityDm: {
+        getDM: (...a: unknown[]) => mockGetDM(...a),
+        getDMPeer: (...a: unknown[]) => mockGetDMPeer(...a),
+      },
+      communityFriendship: {
+        isBlocked: (...a: unknown[]) => mockIsBlocked(...a),
+      },
     },
   }
 })
@@ -103,6 +114,16 @@ vi.mock("@/lib/middleware/auth", () => ({
   withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
     const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
     return handler(req, { env: { DB: {} }, userId: "u1", email: "u@t.com", params })
+  }),
+}))
+
+// POST is now the dual-actor door (withCommunityActor). These POST tests
+// exercise the HUMAN arm — mock the wrapper to yield a human actor + the real
+// channelId from the path. The bot arm is covered in the send-fold tests.
+vi.mock("@/lib/middleware/community-actor", () => ({
+  withCommunityActor: vi.fn((handler: any) => async (req: any, ctx?: any) => {
+    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
+    return handler(req, { env: { DB: {} }, actor: { kind: "human", userId: "u1", email: "u@t.com" }, params })
   }),
 }))
 
@@ -135,7 +156,10 @@ const ctx = { params: { id: "c1" } } as any
 describe("POST /api/community/channels/[id]/messages", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "text" })
+    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "text", parentChannelId: null })
+    // The door's single mask (requireMessageSurfaceAccess) probes getChannel
+    // first to dispatch by surface; default = the same text channel.
+    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1", type: "text", parentChannelId: null })
     mockCreateMessage.mockResolvedValue({ id: "m1" })
     // Human author by default — `createCommunityMessage`'s bot-authored audit
     // (plan §10) only fires when `isBot === true`, which none of these tests exercise.
@@ -169,16 +193,25 @@ describe("POST /api/community/channels/[id]/messages", () => {
   })
 
   it("rejects a bare message to a forum top-level with 400 (not a message-bearing surface)", async () => {
-    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "forum" })
+    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "forum", parentChannelId: null })
+    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1", type: "forum", parentChannelId: null })
     const res = await POST(postReq({ content: "bare into forum index" }), ctx)
     expect(res.status).toBe(400)
     expect(mockCreateMessage).not.toHaveBeenCalled()
   })
 
-  it("rejects a message to a DM channel id via the generic channel route with 400 (block-bypass guard)", async () => {
-    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: null, type: "dm" })
+  it("a DM id via the door routes to the DM arm — the block gate runs (blocked peer → 403, not a silent channel-route bypass)", async () => {
+    // Corrected direction (one door): a DM id is a valid target here, dispatched
+    // to requireDMAccess (which runs the block check) — NOT the old two-door
+    // "reject DM on channel route with 400". The P0 the old test guarded (block
+    // bypass) is now closed by the dm arm running requireDMAccess, proven here:
+    // a blocked peer is refused 403, and createCommunityMessage never fires.
+    mockGetChannel.mockResolvedValue({ id: "c1", serverId: null, type: "dm", parentChannelId: null })
+    mockGetDM.mockResolvedValue({ id: "c1", lastMessageAt: null, createdAt: "t" })
+    mockGetDMPeer.mockResolvedValue({ otherUserId: "u2" })
+    mockIsBlocked.mockResolvedValue(true)
     const res = await POST(postReq({ content: "sneaking past block" }), ctx)
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(403)
     expect(mockCreateMessage).not.toHaveBeenCalled()
   })
 
@@ -380,9 +413,10 @@ describe("POST /api/community/channels/[id]/messages", () => {
       (c) => c[1]?.type === WS_EVENTS.CHILD_CHANNEL_UPDATE,
     )
     expect(childUpdateCall).toBeUndefined()
-    // getChannel is only invoked in the thread branch to read messageCount /
-    // lastMessageAt for the CHILD_CHANNEL_UPDATE payload — must not fire here.
-    expect(mockGetChannel).not.toHaveBeenCalled()
+    // (Under the door, getChannel IS called by the dispatch mask
+    // (requireMessageSurfaceAccess) for every send — the old "getChannel only in
+    // the thread branch" check no longer holds; the real regression guard is the
+    // no-CHILD_CHANNEL_UPDATE assertion above.)
   })
 
   // ── Idempotency nonce (mutation-idempotency plan, ③) ──────────────────────
