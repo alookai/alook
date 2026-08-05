@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
 const listFriends = vi.fn()
-const listBlocked = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
@@ -13,12 +12,14 @@ vi.mock("@alook/shared", async () => {
     queries: {
       communityFriendship: {
         listFriends: (...a: unknown[]) => listFriends(...a),
-        listBlocked: (...a: unknown[]) => listBlocked(...a),
       },
     },
   }
 })
 
+// Human arm delegates through the real withCommunityActor → withAuth; mock
+// withAuth to inject a human ctx (this route's accepted human arm is the
+// inheritor of the retired aggregate GET /friends' friends[] projection).
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
     const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
@@ -26,21 +27,13 @@ vi.mock("@/lib/middleware/auth", () => ({
   }),
 }))
 
-vi.mock("@/lib/middleware/helpers", () => {
-  const { NextResponse } = require("next/server")
-  return {
-    writeJSON: (data: unknown, status = 200) => NextResponse.json(data, { status }),
-  }
-})
-
 import { GET } from "./route"
 
-const req = new NextRequest("http://localhost/api/community/friends")
+const req = new NextRequest("http://localhost/api/community/friends/accepted")
 
-describe("GET /api/community/friends", () => {
+describe("GET /api/community/friends/accepted — human arm (inherits legacy GET /friends friends[])", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    listBlocked.mockResolvedValue([])
   })
 
   it("includes statusEmoji/statusText sourced from the joined profile row", async () => {

@@ -123,7 +123,7 @@ export async function seedBlock(blocker: UserKey, targetUserId: string): Promise
 // user, from the requester's friends list. Used to recover idempotently when a
 // re-run (Playwright retry) finds the pair already friends.
 async function findFriendshipId(requester: UserKey, targetUserId: string): Promise<string | undefined> {
-  const res = await fetch(`${WEB_URL}/api/community/friends`, {
+  const res = await fetch(`${WEB_URL}/api/community/friends/accepted`, {
     headers: { Cookie: sessionCookie(requester), Origin: WEB_URL },
   })
   if (!res.ok) return undefined
