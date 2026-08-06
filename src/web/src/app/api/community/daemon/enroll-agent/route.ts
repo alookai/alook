@@ -15,7 +15,8 @@ import { withCommunityDaemonAuth } from "@/lib/middleware/community-daemon-auth"
  * runner key (`crk_...`) scoped to (userId, machineId, agentId). The daemon's
  * `CredentialBroker` swaps this runner key in for the agent's per-launch
  * voucher at its local credential proxy, so subprocess CLIs never see it
- * directly — they only reach `/api/community/agent/*` through that proxy.
+ * directly — they only reach canonical `/api/community/*` REST doors through
+ * that proxy.
  */
 export const POST = withCommunityDaemonAuth(async (req, ctx) => {
   let raw: unknown

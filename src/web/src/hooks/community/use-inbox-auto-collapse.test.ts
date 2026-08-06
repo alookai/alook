@@ -67,7 +67,7 @@ describe("inboxItemPresent", () => {
     expect(inboxItemPresent(lists, "channel:c2")).toBe(false)
   })
 
-  it("finds a channel:<id> that is a nested child (thread / forum-post)", () => {
+  it("finds a channel:<id> that is a nested child thread", () => {
     const lists: InboxLists = { ...EMPTY, unreads: [server("s1", [{ id: "c1", children: ["t1"] }])] }
     expect(inboxItemPresent(lists, "channel:t1")).toBe(true)
   })

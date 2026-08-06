@@ -441,7 +441,7 @@ export type CommunityUnreadBump = {
   serverId?: string
   /**
    * The sidebar-locatable channel row = `parentChannelId ?? channelId`, computed
-   * server-side. A thread/forum-post message has no independent sidebar row, so
+   * server-side. A child-thread message has no independent sidebar row, so
    * its dot must light the PARENT channel's row; a plain channel is its own row.
    * Absent → client falls back to `channelId`.
    */

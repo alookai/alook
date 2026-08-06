@@ -1,6 +1,6 @@
 /**
- * Seq-based queries powering the `/api/community/agent/*` CLI bridge routes
- * (plans/community-agent-cli-bridge.md §7) plus `toAgentMessages`, the
+ * Seq-based queries powering the canonical community REST agent doors plus
+ * `toAgentMessages`, the
  * DB-row → wire-`Message` projector every route that returns message bodies
  * uses.
  *

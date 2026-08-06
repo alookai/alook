@@ -1133,8 +1133,8 @@ export type CommunityBotAddToServerRequest = z.infer<
 >;
 
 // ---------------------------------------------------------------------------
-// Community agent CLI bridge — `withAgentRunnerAuth`-mounted `/api/community/agent/*`
-// request/response validators. Mirror the lifted `@alook/shared/community-cli-contract`
+// Community REST agent-door request/response validators. Mirror the lifted
+// `@alook/shared/community-cli-contract`
 // wire types verbatim (see `community-cli-contract.ts`). `agentId` is deliberately
 // OMITTED from every request schema below — identity comes from the `crk_` bearer
 // via `withAgentRunnerAuth`, never a client-supplied field (see plan §2/§7).
@@ -1180,7 +1180,7 @@ export const CommunityAgentSendRequestSchema = z
   );
 export type CommunityAgentSendRequest = z.infer<typeof CommunityAgentSendRequestSchema>;
 
-// Response body for POST /api/community/agent/attachmentUpload. Bots see
+// Response body for POST /api/community/channels/{id}/attachments. Bots see
 // filename+contentType+size and nothing else — no url, no r2 key, no path.
 export const CommunityAgentAttachmentUploadResponseSchema = z.object({
   id: z.string(),
@@ -1301,7 +1301,7 @@ export type CommunityAgentReactAddRequest = z.infer<
   typeof CommunityAgentReactAddRequestSchema
 >;
 
-// POST /api/community/agent/friendRequest — body `{ username: "name#0042" }`.
+// POST /api/community/friends/request — body `{ username: "name#0042" }`.
 // Only the human `name#discriminator` handle is accepted (parsed + resolved
 // server-side); a raw userId is intentionally NOT accepted so the agent surface
 // mirrors the human handle format.
@@ -1312,8 +1312,7 @@ export type CommunityAgentFriendRequest = z.infer<
   typeof CommunityAgentFriendRequestSchema
 >;
 
-// POST /api/community/agent/listFriends — empty body, kept for POST uniformity
-// with the rest of `/api/community/agent/*`.
+// Empty body retained for the shared list-friends request contract.
 export const CommunityAgentListFriendsSchema = z.object({});
 export type CommunityAgentListFriends = z.infer<
   typeof CommunityAgentListFriendsSchema
