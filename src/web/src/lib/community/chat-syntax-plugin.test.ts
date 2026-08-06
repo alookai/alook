@@ -3,6 +3,7 @@ import { unified } from "unified"
 import remarkParse from "remark-parse"
 import type { Root, PhrasingContent } from "mdast"
 import { chatSyntaxPlugin } from "./chat-syntax-plugin"
+import { buildCliSystemPrompt } from "../../../../daemon/src/drivers/systemPrompt"
 import type { MentionNode, ChannelRefNode, ServerRefNode } from "./chat-syntax-plugin"
 
 function parse(md: string): Root {
@@ -15,6 +16,28 @@ function paragraphChildren(tree: Root): PhrasingContent[] {
   if (para?.type !== "paragraph") throw new Error("expected a paragraph")
   return para.children
 }
+
+describe("CLI prompt ref examples — tokenizer contract", () => {
+  it("turns every emitted copyable example into the intended ref pill", () => {
+    const prompt = buildCliSystemPrompt({
+      agentId: "agent_1",
+      workspacePath: "/tmp/workspace",
+    } as Parameters<typeof buildCliSystemPrompt>[0])
+    const examples = prompt.split("\n").filter((line) =>
+      line.startsWith("/Alook#1234") || line.startsWith("/.dm/alice#0042"),
+    )
+
+    expect(examples).toHaveLength(6)
+    for (const example of examples) {
+      const children = paragraphChildren(parse(example))
+      expect(children).toHaveLength(1)
+      expect(children[0]).toMatchObject({
+        type: example === "/Alook#1234" ? "serverRef" : "channelRef",
+        value: example,
+      })
+    }
+  })
+})
 
 describe("chatSyntaxPlugin — mention", () => {
   it("a hand-typed bare @name (no #dddd) is NOT a mention — stays plain text", () => {

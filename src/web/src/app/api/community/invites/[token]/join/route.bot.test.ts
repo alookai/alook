@@ -130,14 +130,14 @@ describe("POST /api/community/invites/[token]/join — bot path", () => {
       invite: { id: "inv_1", serverId: "srv_1" },
       member: { id: "mem_1", userId: "bot_1", role: "member", nickname: null, userName: "bot", userImage: null, discriminator: "1234", joinedAt: "2026-01-01" },
     })
-    mockGetServer.mockResolvedValue({ id: "srv_1", name: "Design Studio" })
+    mockGetServer.mockResolvedValue({ id: "srv_1", name: "Design Studio", discriminator: "0042" })
 
     const res = await POST(req(TOKEN, { Authorization: "Bearer crk_abc" }), params(TOKEN))
     expect(res.status).toBe(200)
     // Superset response (Fork C): the bot's daemon projects `server` down to
     // the old lean {server:{id,name}} shape; serverId/member ride along.
     const body = await res.json()
-    expect(body.server).toEqual({ id: "srv_1", name: "Design Studio" })
+    expect(body.server).toEqual({ id: "srv_1", name: "Design Studio", discriminator: "0042" })
     expect(body.serverId).toBe("srv_1")
 
     expect(mockFanOutToServerMembers).toHaveBeenCalledWith(

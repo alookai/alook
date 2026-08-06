@@ -19,8 +19,8 @@ export interface ResolveTargetOpts {
 }
 
 /**
- * Resolve a CLI path ref (`ChannelRef`, e.g. `/studio/general`,
- * `/studio/general/#42`, `/.dm/gusye#1231`) to a concrete channel/DM id,
+ * Resolve a CLI path ref (`ChannelRef`, e.g. `/studio#0042/general`,
+ * `/studio#0042/general/#42`, `/.dm/gusye#1231`) to a concrete channel/DM id,
  * scoped to `userId`'s memberships. Threads flatten to `{ kind: "channel",
  * channelId: <thread's own id> }` (debt #10 — threads ARE channels); the
  * caller (the `send` route) is responsible for reconstructing the full
@@ -32,9 +32,8 @@ export interface ResolveTargetOpts {
  * 0057's partial-unique index `idx_channel_server_name`) — the resolver
  * enforces the same invariant by matching only where `parentChannelId IS
  * NULL`. A thread is unreachable from this helper by name or id; use the
- * canonical `#seq` grammar to descend into one. Server
- * Real-server refs require a unique name#discriminator handle. Bare server
- * names are rejected; internal server ids remain accepted by the scoped query.
+ * canonical `#seq` grammar to descend into one. Real-server refs require a
+ * unique name#discriminator handle; bare names and internal ids are rejected.
  * `createDmIfMissing`/`createThreadIfMissing` are both `true` for `send`
  * only — every other route passes `false` so a stale ref never materializes
  * a DM/thread row as a side effect of a read.
@@ -52,7 +51,7 @@ export async function resolveTargetForMember(
     return { error: 400, message: "malformed channel ref" }
   }
 
-  // Message-pin form (`/server/channel#N`) has no use in this API surface —
+  // Message-pin form (`/server#disc/channel#N`) has no use in this API surface —
   // every endpoint that needs to pin a message takes a separate `seq` field
   // (`resolve`, `read`). Reject rather than silently ignoring the `#N`.
   if (parsed.seq !== undefined) {
@@ -120,7 +119,7 @@ export async function resolveTargetForMember(
     return { error: 400, message: "can't start a thread inside a thread or forum post" }
   }
 
-  // Thread form (`/server/channel/#N`) — translate the root seq to the
+  // Thread form (`/server#disc/channel/#N`) — translate the root seq to the
   // parent message's id, then find (or create) the thread's own channel row.
   const rootMessage = await withD1Retry(
     () => queries.communityMessage.getMessageByChannelAndSeq(

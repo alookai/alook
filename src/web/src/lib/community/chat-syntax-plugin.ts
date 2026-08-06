@@ -6,8 +6,8 @@ import type { Plugin } from "unified"
 import { spoilerSyntax, spoilerFromMarkdown } from "./spoiler-syntax"
 import type { SpoilerNode } from "./spoiler-syntax"
 
-// Chat-only syntax (`||spoiler||`, `@mention`, `/server/channel` and bare
-// `/server` refs), parsed as real markdown AST nodes rather than
+// Chat-only syntax (`||spoiler||`, `@mention`, `/server#disc/channel` and bare
+// `/server#disc` refs), parsed as real markdown AST nodes rather than
 // string-spliced HTML tags fed through `rehype-raw`. `channelRef`/`serverRef`
 // content is a nanoid charset (`[A-Za-z0-9_-]`); a member `mention` is
 // `@<name>#dddd` where the name may contain spaces but never a markdown
@@ -19,26 +19,25 @@ import type { SpoilerNode } from "./spoiler-syntax"
 // comment for why find-and-replace cannot handle spoilers containing nested
 // formatting.
 
-// Mirrors `CHANNEL_REF_REGEX`'s old doc comment: matches a `/server/channel`,
-// `/server/channel/#N` (thread), or `/server/channel/#N#M` (thread reply,
+// Matches a `/server#disc/channel`, `/server#disc/channel/#N` (thread), or
+// `/server#disc/channel/#N#M` (thread reply,
 // see plans/agent-thread-emoji-react.md) ref — the CLI's path grammar
 // (`parseRef`/`formatRef` in `community-cli-contract.ts`). Segment charset
 // `[^\s/#.,;:!?)\]]+` = "any char slugify can emit, minus the terminator
-// punctuation": server/channel names travel on the wire as their SLUGIFIED
-// DISPLAY NAME, not an id (see the round-trip contract in
-// `channel-ref-extension.ts`'s `renderText` doc + `slugify.ts`), and slugify
-// preserves Unicode — it strips only `/` and `#` and collapses whitespace. So
+// punctuation": server names travel with their required discriminator and
+// channel names remain wire names rather than ids. Name segments preserve
+// Unicode; normalization strips only `/` and `#` and collapses whitespace. So
 // the base of the class is the inverse of what slugify removes (everything
 // except whitespace, `/`, `#`), which is what lets non-ASCII names
-// (`/Gus/架构`, `/总部-🎉/general`, `/studio/café`) render as pills like their
+// (`/Gus#0042/架构`, `/总部-🎉#0042/general`, `/studio#0042/café`) render as pills like their
 // ASCII kin — matching the `\p{L}` + `u` treatment `MENTION_RE` already uses
 // for `@names`. We ALSO exclude the trailing-boundary punctuation (`REF_TERM`
 // below) from the segment class: the old ASCII class `[A-Za-z0-9_-]` happened
 // to be disjoint from the terminator set, and that disjointness is
 // load-bearing — the segment class `[^\s/#…]+` is GREEDY, so without excluding
 // a terminator char from the segment it gets eaten BEFORE the lookahead can
-// fire (a greedy segment swallows the sentence period in `/studio/general.`;
-// same for the full-width `。` in `看 /Gus/架构。`). So a terminator must live
+// fire (a greedy segment swallows the sentence period in `/studio#0042/general.`;
+// same for the full-width `。` in `看 /Gus#0042/架构。`). So a terminator must live
 // in BOTH places: excluded from the segment (so the match stops there) AND
 // present in the lookahead (so stopping there is legal). slugify never emits a
 // leading/trailing terminator anyway, and a mid-name terminator is a rare
@@ -49,8 +48,8 @@ import type { SpoilerNode } from "./spoiler-syntax"
 // as the segment-class exclusion (`REF_SEG`) and the trailing lookahead, so
 // the two can't drift out of the disjointness the boundary relies on. It
 // covers ASCII `.,;:!?)]` AND the common FULL-WIDTH CJK sentence punctuation
-// `。！？；：、）】`: a Chinese sentence ends in `。`, so `看 /Gus/架构。` must
-// yield pill `/Gus/架构` + literal `。`, not swallow the period — full-width
+// `。！？；：、）】`: a Chinese sentence ends in `。`, so `看 /Gus#0042/架构。` must
+// yield pill `/Gus#0042/架构` + literal `。`, not swallow the period — full-width
 // terminators matter MORE here since this fix targets CJK names (Blair's QA
 // flag). Kept as a string spliced into `new RegExp(...)` so the shared set is
 // declared once.
@@ -69,13 +68,13 @@ import type { SpoilerNode } from "./spoiler-syntax"
 const REF_TERM = ".,;:!?)\\]\\u3002\\uFF01\\uFF1F\\uFF1B\\uFF1A\\u3001\\uFF09\\u3011"
 const REF_SEG = `[^\\s/#${REF_TERM}]+`
 const HANDLE_SEG = `${REF_SEG}#\\d{4,}`
-// `/server/channel` plus an optional message/thread suffix. The suffix has two
+// `/server#disc/channel` plus an optional message/thread suffix. The suffix has two
 // branches (message-ref-upgrade.md):
 //   `#\d+`            — a channel-MESSAGE ref, seq glued straight to the channel
-//                       (`/server/channel#N`). Single seq ONLY — `#N#M` without a
+//                       (`/server#disc/channel#N`). Single seq ONLY — `#N#M` without a
 //                       slash is not a valid form (Cecilia #295, load-bearing).
-//   `/#\d+(?:#\d+)?`  — a THREAD (`/server/channel/#N`) or thread-message
-//                       (`/server/channel/#N#M`) ref; the inner `#M` lives only
+//   `/#\d+(?:#\d+)?`  — a THREAD (`/server#disc/channel/#N`) or thread-message
+//                       (`/server#disc/channel/#N#M`) ref; the inner `#M` lives only
 //                       on this slash branch.
 // `REF_SEG` excludes `#`, so the 2nd segment stops at the `#` and the seq falls
 // cleanly into the suffix group. The leading `(?<=^|\s)` prefix-anchor means this
@@ -86,7 +85,7 @@ const CHANNEL_REF_RE = new RegExp(`(?<=^|\\s)(?:/${HANDLE_SEG}/${REF_SEG}|/\\.dm
 // A bare `/server` ref — one segment, no channel. Same boundary lookaround as
 // `CHANNEL_REF_RE` (leading `(?<=^|\s)`, trailing `REF_TERM`), which already
 // excludes being followed by another `/segment` — so this never double-matches
-// the first segment of a genuine `/server/channel` ref (that trailing boundary
+// the first segment of a genuine `/server#disc/channel` ref (that trailing boundary
 // fails when the next char is `/`, and the segment class backtracking can't
 // produce a shorter match that satisfies it either, since every character up
 // to the next `/` is in the segment charset). Same `REF_SEG`/`REF_TERM` +
@@ -97,7 +96,7 @@ const CHANNEL_REF_RE = new RegExp(`(?<=^|\\s)(?:/${HANDLE_SEG}/${REF_SEG}|/\\.dm
 const SERVER_REF_RE = new RegExp(`(?<=^|\\s)/${HANDLE_SEG}(?=\\s|$|[${REF_TERM}])`, "gu")
 
 // (The old bare-`#N` MESSAGE_REF_RE was removed in message-ref-upgrade.md — a
-// message ref is now always the full path `/server/channel#N`, matched by
+// message ref is now always the full path `/server#disc/channel#N`, matched by
 // CHANNEL_REF_RE's suffix group above. A bare `#N` now renders as plain text.
 // This kills the fragile "works only because it's the last consumption pass"
 // disambiguation: the prefix-anchored full-path form can't collide with a bare
@@ -136,7 +135,7 @@ export interface MentionNode {
   discriminator?: string
 }
 
-/** mdast node produced by a `/server/channel` or `/server/channel/#N` ref. */
+/** mdast node produced by a `/server#disc/channel` or `/server#disc/channel/#N` ref. */
 export interface ChannelRefNode {
   type: "channelRef"
   value: string
@@ -163,7 +162,7 @@ declare module "mdast" {
 
 // `ignore` list mirrors mdast-util-find-and-replace's own default protection
 // for GFM autolinks/definitions, plus `code`/`inlineCode` so `@fake-mention`,
-// `#0042`, `/server/channel`, and `||spoiler||` all stay literal inside a
+// `#0042`, `/server#disc/channel`, and `||spoiler||` all stay literal inside a
 // code span or fenced code block — replacing the old `preprocessMarkdown`'s
 // manual stash/unstash sentinel dance, which existed only because that
 // implementation operated on a raw string before markdown parsing.
@@ -207,7 +206,7 @@ export const chatSyntaxPlugin: Plugin<[], Root> = function chatSyntaxPlugin(this
         [MENTION_RE, mentionReplacer as unknown as (value: string, ...rest: unknown[]) => PhrasingContent | string | false],
         [CHANNEL_REF_RE, channelRefReplacer as unknown as (value: string) => PhrasingContent],
         // Runs as its own pass AFTER the channelRef pass above — by then every
-        // `/server/channel` span is already a `channelRef` element (no longer
+        // `/server#disc/channel` span is already a `channelRef` element (no longer
         // a `text` node `findAndReplace` visits), so this pass only ever sees
         // genuine bare `/server` refs among the remaining text.
         [SERVER_REF_RE, serverRefReplacer as unknown as (value: string) => PhrasingContent],

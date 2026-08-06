@@ -96,7 +96,7 @@ describe("createProxyServerApi — parseJsonResponse via call<T>", () => {
     }
   });
 
-  it("GETs /api/community/servers and projects the SUPERSET row down to lean {id,name} (Fork C)", async () => {
+  it("GETs /api/community/servers and projects the superset row down to a lean handle", async () => {
     const seen: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
       seen.push({ url, init });
@@ -114,11 +114,30 @@ describe("createProxyServerApi — parseJsonResponse via call<T>", () => {
     });
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
     const out = await api.listServers({ agentId: "a1" as never });
-    // Single projection point: only {id,name} survives — no icon/ownerId/description.
+    // Single projection point: only the handle survives — no id/name fields or metadata.
     expect(out).toEqual({ servers: [{ handle: "Studio#0042" }, { handle: "Lab#12345" }] });
     // Folded verb hits the real REST path (GET), not a flat POST /api/listServers.
     expect(seen.at(-1)!.url).toBe("http://proxy.test/api/community/servers");
     expect(seen.at(-1)!.init?.method).toBe("GET");
+  });
+});
+
+describe("createProxyServerApi — joinServer projection", () => {
+  it("projects the unified join route superset to one valid handle without identity leakage", async () => {
+    const fetchImpl: FetchLike = vi.fn(async () => jsonBody(JSON.stringify({
+      member: { id: "mem_1", userId: "bot_1" },
+      serverId: "srv_1",
+      server: { id: "srv_1", name: "Design Studio", discriminator: "0042" },
+    })));
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const out = await api.joinServer({ agentId: "a1" as never, invite: "tok_abc" });
+
+    expect(out).toEqual({ server: { handle: "Design Studio#0042" } });
+    expect(Object.keys(out.server)).toEqual(["handle"]);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://proxy.test/api/community/invites/tok_abc/join",
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 });
 
