@@ -57,7 +57,6 @@ import {
   useToggleMark,
   useCreateThread,
   useCreateForumPost,
-  useUpdatePostTags,
   useDeleteForumPost,
   useSetMemberRole,
   useKickMember,
@@ -452,7 +451,6 @@ function ChannelView() {
   const toggleMark = useToggleMark()
   const { mutateAsync: createThreadAsync } = useCreateThread()
   const createForumPostMut = useCreateForumPost()
-  const updatePostTagsMut = useUpdatePostTags()
   const deleteForumPostMut = useDeleteForumPost()
   const setMemberRoleMut = useSetMemberRole()
   const kickMemberMut = useKickMember()
@@ -1263,14 +1261,15 @@ function ChannelView() {
             loading={forumPostsLoading}
             onOpenPost={enterThread}
             onCreatePost={createForumPost}
-            canEditPostTags={(post) => canManage || post.authorId === currentUser.id}
-            savingTagsFor={updatePostTagsMut.isPending ? updatePostTagsMut.variables?.postId ?? null : null}
-            onEditPostTags={(postId, tags) => {
-              updatePostTagsMut.mutate(
-                { forumChannelId: channelId, postId, tags },
-                { onError: (e) => toastApiError(e, "Failed to save tags") },
-              )
-            }}
+            // Tag editing has no write endpoint yet (phase2 forum≡thread:
+            // tags moved to message_tags, but the add/remove-tag route was
+            // never built — the old PATCH channels/[id] {forumTags} carve-out
+            // was deleted, not migrated). Omitting onEditPostTags hides the
+            // trigger entirely (ForumView's canEdit gates on its presence) —
+            // a hidden control, not a disabled one, since "unsupported this
+            // round" is a different signal than "conditions not met yet".
+            // The write endpoint + message-content editing (same actor as
+            // delete) land together as a follow-up commit.
             canDeletePost={(post) => canManage || post.authorId === currentUser.id}
             deletingPost={deleteForumPostMut.isPending ? deleteForumPostMut.variables?.postId ?? null : null}
             onDeletePost={(post) => {
