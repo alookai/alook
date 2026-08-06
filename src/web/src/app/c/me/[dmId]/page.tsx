@@ -44,6 +44,10 @@ import {
   communityWsSendTyping,
   communityWsResetTypingThrottle,
 } from "@/hooks/community/use-community-ws"
+import {
+  advanceCommunityOnboarding,
+  readCommunityOnboardingState,
+} from "@/lib/community-onboarding"
 
 // Thin re-mount wrapper — same reason as the server-side channel view: the
 // dynamic segment reuses the same component instance across DM switches, so
@@ -254,6 +258,13 @@ function DmView() {
     }
   }, [friends, currentUser.id, currentUser.name, dm])
 
+  const advanceOnboardingAfterSend = useCallback(() => {
+    const state = readCommunityOnboardingState()
+    if (state?.status === "active" && state.stage === "dm" && state.dmId === dmId) {
+      advanceCommunityOnboarding("dm", "server")
+    }
+  }, [dmId])
+
   const messageActions = useMemo(() => ({
     onToggleReaction: (id: string, emoji: string) =>
       toggleReaction({ dmId, messageId: id, emoji, userId: currentUser.id }),
@@ -272,19 +283,22 @@ function DmView() {
     onRetry: (id: string) => {
       const m = messages.find((x) => x.id === id)
       if (m?.content) {
-        sendDmMessage.mutate({
-          dmId,
-          content: m.content,
-          replyToId: m.replyTo?.id,
-          // Reuse the failed row's nonce so the resend dedupes server-side if
-          // the original committed (`onMutate` drops the stale row first).
-          nonce: m.clientNonce,
-          author: {
-            id: currentUser.id,
-            name: currentUser.name,
-            avatar: currentUser.avatar,
+        sendDmMessage.mutate(
+          {
+            dmId,
+            content: m.content,
+            replyToId: m.replyTo?.id,
+            // Reuse the failed row's nonce so the resend dedupes server-side if
+            // the original committed (`onMutate` drops the stale row first).
+            nonce: m.clientNonce,
+            author: {
+              id: currentUser.id,
+              name: currentUser.name,
+              avatar: currentUser.avatar,
+            },
           },
-        })
+          { onSuccess: advanceOnboardingAfterSend },
+        )
       }
     },
     onPreviewImage: (url: string) => {
@@ -296,7 +310,7 @@ function DmView() {
       a.download = url.split("/").pop() ?? "file"
       a.click()
     },
-  }), [toggleReaction, toggleMark, dmId, currentUser.id, currentUser.name, currentUser.avatar, messages, sendDmMessage, uiHandlers])
+  }), [toggleReaction, toggleMark, dmId, currentUser.id, currentUser.name, currentUser.avatar, messages, sendDmMessage, uiHandlers, advanceOnboardingAfterSend])
 
   // DM endpoint ignores mentionType. Replies are supported — the backend
   // persists replyToId for DMs too.
@@ -315,20 +329,21 @@ function DmView() {
       )
       uploadedAttachments = zipUploadResultsWithDimensions(results, attachments)
     }
-    sendDmMessage.mutate({
-      dmId,
-      content: markdown || "",
-      replyToId: replyTo?.id,
-      attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
-      // Fresh send mints an idempotency nonce; a retry reuses the failed row's
-      // (see `onRetry`) so a 500-after-commit resend dedupes server-side.
-      nonce: sendNonce(),
-      author: {
-        id: currentUser.id,
-        name: currentUser.name,
-        avatar: currentUser.avatar,
+    sendDmMessage.mutate(
+      {
+        dmId,
+        content: markdown || "",
+        replyToId: replyTo?.id,
+        attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
+        nonce: sendNonce(),
+        author: {
+          id: currentUser.id,
+          name: currentUser.name,
+          avatar: currentUser.avatar,
+        },
       },
-    })
+    )
+    advanceOnboardingAfterSend()
     communityWsResetTypingThrottle({ channelId: dmId })
     setReplyTo(null)
   }
@@ -420,9 +435,10 @@ function DmView() {
             You have blocked this user. Unblock to send messages.
           </div>
         ) : (
-          <Composer
-            channel={dm.name}
-            context="dm"
+          <div data-onboarding-target="dm-composer" data-onboarding-name={dm.name} className="shrink-0">
+            <Composer
+              channel={dm.name}
+              context="dm"
             // DM context short-circuits `rankMentionItems` to `[]` — no popup,
             // no candidate pool needed. Passing [] keeps the Member[] typing
             // honest without shimming friends into a member shape.
@@ -433,8 +449,9 @@ function DmView() {
             replyingTo={replyTo?.authorName}
             onCancelReply={() => setReplyTo(null)}
             autoFocus={bp !== "mobile"}
-            draftKey={`dm/${dmId}`}
-          />
+              draftKey={`dm/${dmId}`}
+            />
+          </div>
         )}
       </main>
       <MessageContextSheet

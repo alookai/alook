@@ -84,7 +84,7 @@ export function MarketingNav({ isLoggedIn }: { isLoggedIn: boolean }) {
           </a>
           {isLoggedIn ? (
             <Link
-              href="/workspaces?auto"
+              href="/c/me"
               className="inline-flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70"
               style={{
                 fontFamily: "var(--font-mono)",

@@ -12,21 +12,27 @@ vi.mock("react", () => ({
 describe("SignupTracker", () => {
   let cookieValue = ""
   let cookieSetValue = ""
+  const replace = vi.fn()
 
   beforeEach(() => {
     vi.clearAllMocks()
     cookieValue = ""
     cookieSetValue = ""
+    replace.mockReset()
     // @ts-expect-error stub global document
     globalThis.document = {
       get cookie() { return cookieValue },
       set cookie(val: string) { cookieSetValue = val },
     }
+    // @ts-expect-error stub global window
+    globalThis.window = { location: { replace } }
   })
 
   afterEach(() => {
     // @ts-expect-error cleanup
     delete globalThis.document
+    // @ts-expect-error cleanup
+    delete globalThis.window
   })
 
   it("fires sign_up event and clears cookie when is_new_signup is present", async () => {
@@ -55,5 +61,15 @@ describe("SignupTracker", () => {
     SignupTracker()
 
     expect(mockSendGTMEvent).toHaveBeenCalledWith({ event: "sign_up", method: "github" })
+  })
+
+  it("redirects a new signup when the host surface provides a landing", async () => {
+    cookieValue = "is_new_signup=email"
+    vi.resetModules()
+    const { SignupTracker } = await import("./signup-tracker")
+    SignupTracker({ redirectTo: "/c/me/machines" })
+
+    expect(replace).toHaveBeenCalledWith("/c/me/machines")
+    expect(cookieSetValue).toBe("is_new_signup=; max-age=0; path=/")
   })
 })

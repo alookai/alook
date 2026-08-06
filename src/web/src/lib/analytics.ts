@@ -125,6 +125,28 @@ export function trackRuntimeConnected(params: {
   sendGTMEvent({ event: "runtime_connected", ...params });
 }
 
+export type CommunityOnboardingStage = "machine" | "bot" | "dm" | "server";
+
+export function trackCommunityOnboardingStarted() {
+  sendGTMEvent({ event: "community_onboarding_started" });
+}
+
+export function trackCommunityOnboardingStageCompleted(
+  stage: CommunityOnboardingStage,
+) {
+  sendGTMEvent({ event: "community_onboarding_stage_completed", stage });
+}
+
+export function trackCommunityOnboardingCompleted() {
+  sendGTMEvent({ event: "community_onboarding_completed" });
+}
+
+export function trackCommunityOnboardingSkipped(
+  stage: CommunityOnboardingStage | "complete",
+) {
+  sendGTMEvent({ event: "community_onboarding_skipped", stage });
+}
+
 // ─── P3 — Page-Level Behavior ───────────────────────────────────────────────
 
 export function trackLandingCtaClicked(params: { cta_name: string }) {

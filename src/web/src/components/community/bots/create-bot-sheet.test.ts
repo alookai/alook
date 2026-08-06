@@ -130,8 +130,12 @@ vi.mock("@/components/ui/sheet", () => {
   }
 })
 
+const botFormFieldsRenders: Array<{ avatarDraft: { image?: string } }> = []
 vi.mock("./bot-form-fields", () => ({
-  BotFormFields: () => React.createElement("div", { "data-mock": "form-fields" }),
+  BotFormFields: ({ avatarDraft }: { avatarDraft: { image?: string } }) => {
+    botFormFieldsRenders.push({ avatarDraft })
+    return React.createElement("div", { "data-mock": "form-fields" })
+  },
 }))
 
 // Capture ModelField's incoming `value` so we can assert the create sheet
@@ -162,11 +166,11 @@ function checkedValue(renderer: TestRenderer.ReactTestRenderer, name: string): s
   return radios(renderer, name).find((r) => r.checked)?.value ?? null
 }
 
-function render(): TestRenderer.ReactTestRenderer {
+function render(props: { avatarSeed?: string } = {}): TestRenderer.ReactTestRenderer {
   let renderer!: TestRenderer.ReactTestRenderer
   act(() => {
     renderer = TestRenderer.create(
-      React.createElement(CreateBotSheet, { open: true, onOpenChange: vi.fn() }),
+      React.createElement(CreateBotSheet, { open: true, onOpenChange: vi.fn(), ...props }),
     )
   })
   return renderer
@@ -175,6 +179,14 @@ function render(): TestRenderer.ReactTestRenderer {
 describe("CreateBotSheet — auto-select defaults", () => {
   beforeEach(() => {
     useMachinesMock.mockReset()
+    botFormFieldsRenders.length = 0
+  })
+
+  it("uses the guide companion seed for a guided bot avatar", () => {
+    useMachinesMock.mockReturnValue({ machines: [] })
+    render({ avatarSeed: "guide-face-7" })
+
+    expect(botFormFieldsRenders.at(-1)?.avatarDraft.image).toBe("avatar:beam:guide-face-7")
   })
 
   it("pre-checks the machine and runtime with one online machine + one healthy runtime", () => {

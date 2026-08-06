@@ -10,6 +10,7 @@ import { isPresenceOnline } from "@alook/shared"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
+import { BoringAvatar } from "@/components/avatar"
 import {
   AlertDialog,
   AlertDialogContent,
@@ -28,6 +29,13 @@ import { useMachines, type MachinesResponse } from "@/hooks/community/use-machin
 import { useBots } from "@/hooks/community/use-bots"
 import { useCommunityStore, usePendingMachineTokenId } from "@/stores/community"
 import { communityKeys } from "@/lib/query-keys"
+import {
+  advanceCommunityOnboarding,
+  readCommunityOnboardingState,
+  startCommunityOnboarding,
+  updateCommunityOnboardingResources,
+  useCommunityOnboarding,
+} from "@/lib/community-onboarding"
 
 // Loading placeholder shaped like a real MachineCard (size-10 rounded-xl icon +
 // name row + meta lines + trailing kebab slot) so the list doesn't reflow when
@@ -62,6 +70,12 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   const [pendingTokenId, setPendingTokenId] = useState<string | null>(null)
   const [connectedHostname, setConnectedHostname] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<CommunityMachineSummary | null>(null)
+  const [guideAvatarSeed, setGuideAvatarSeed] = useState("alook-guide")
+  const onboardingState = useCommunityOnboarding()
+
+  useEffect(() => {
+    setGuideAvatarSeed(`alook-guide-${crypto.randomUUID()}`)
+  }, [])
 
   // When the WS layer announces a machine for our pending token, flip the sheet.
   useEffect(() => {
@@ -74,8 +88,22 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     )
     if (justConnected && !connectedHostname) {
       setConnectedHostname(justConnected.hostname || "machine")
+      const onboarding = readCommunityOnboardingState()
+      let continueOnboarding = false
+      if (onboarding?.status === "active" && onboarding.stage === "machine") {
+        advanceCommunityOnboarding("machine", "bot")
+        continueOnboarding = true
+      } else if (
+        onboarding?.status === "active" &&
+        onboarding.stage === "bot" &&
+        onboarding.machineRecovery
+      ) {
+        updateCommunityOnboardingResources({ machineRecovery: false })
+        continueOnboarding = true
+      }
+      if (continueOnboarding) router.push("/c/me/bots")
     }
-  }, [machines, pendingMachineTokenId, pendingTokenId, connectedHostname])
+  }, [machines, pendingMachineTokenId, pendingTokenId, connectedHostname, router])
 
   const openPair = useCallback(() => {
     setPairMode({ kind: "pair" })
@@ -201,7 +229,30 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
               your phone or anywhere, wherever you sign in.
             </p>
           </div>
-          <Button onClick={openPair}>Connect a machine</Button>
+          <div className="flex items-center gap-2">
+            <Button data-onboarding-target="connect-machine" onClick={openPair}>
+              Connect a machine
+            </Button>
+            <span className="community-guide-me">
+              {onboardingState === null ? (
+                <span className="community-guide-me-orbit" aria-hidden="true">
+                  <span className="community-guide-me-avatar">
+                    <BoringAvatar
+                      seed={guideAvatarSeed}
+                      size={24}
+                      className="rounded-full ring-2 ring-background shadow-sm"
+                    />
+                  </span>
+                </span>
+              ) : null}
+              <Button
+                variant="ghost"
+                onClick={() => startCommunityOnboarding({ guideAvatarSeed })}
+              >
+                Guide me
+              </Button>
+            </span>
+          </div>
         </div>
         <PairMachineSheet
           open={pairOpen}
@@ -226,7 +277,9 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
               Your computers running the alook daemon.
             </p>
           </div>
-          <Button onClick={openPair}>Connect a machine</Button>
+          <div data-onboarding-target="connect-machine" className="w-fit">
+            <Button onClick={openPair}>Connect a machine</Button>
+          </div>
         </header>
         <div className="flex flex-col gap-3">
           {machines.map((m) => (

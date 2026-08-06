@@ -18,7 +18,8 @@
     "lsof"
   ],
   "ignore": [
-    "src/components/ui/**"
+    "src/components/ui/**",
+    "src/app/(app)/workspaces/client.tsx"
   ],
   "vitest": {
     "entry": ["src/**/*.test.{ts,tsx}", "src/test/**/*.{ts,tsx}"]

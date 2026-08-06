@@ -12,12 +12,13 @@ import { previewSlug } from "@/lib/community/slug-preview"
 import { validateIconSourceFile } from "@/lib/community/image-crop"
 
 // Create / join server dialog.
-export function CreateServerDialog({ onClose, onCreateServer, onJoinServer }: {
+export function CreateServerDialog({ onClose, onCreateServer, onJoinServer, initialStep = "choose" }: {
   onClose: () => void
   onCreateServer?: (name: string, icon?: File) => void
   onJoinServer?: (invite: string) => void
+  initialStep?: "choose" | "create" | "join"
 }) {
-  const [step, setStep] = useState<"choose" | "create" | "join">("choose")
+  const [step, setStep] = useState<"choose" | "create" | "join">(initialStep)
   const [name, setName] = useState("")
   const [invite, setInvite] = useState("")
   const [iconFile, setIconFile] = useState<File | null>(null)

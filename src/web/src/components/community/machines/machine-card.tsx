@@ -5,6 +5,7 @@ import { Monitor, MoreVertical } from "lucide-react"
 import type { CommunityMachineSummary } from "@alook/shared"
 import { isPresenceOnline } from "@alook/shared"
 import { Card } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import {
   DropdownMenu,
@@ -110,6 +111,19 @@ export function MachineCard({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      {!isOnline && (
+        <div className="flex justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            data-onboarding-target="reconnect-machine"
+            data-onboarding-id={machine.id}
+            onClick={onReconnect}
+          >
+            Reconnect
+          </Button>
+        </div>
+      )}
     </Card>
   )
 }

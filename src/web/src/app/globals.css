@@ -2,6 +2,7 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "katex/dist/katex.min.css";
+@import "driver.js/dist/driver.css";
 @source "../node_modules/streamdown/dist/*.js";
 @source "../node_modules/@streamdown/mermaid/dist/*.js";
 @source "../node_modules/@streamdown/cjk/dist/*.js";
@@ -60,8 +61,276 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+.driver-popover.community-onboarding-popover {
+  width: min(300px, calc(100vw - 24px));
+  max-width: 300px;
+  padding: 0;
+  overflow: visible;
+  color: var(--foreground);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.driver-popover.community-onboarding-popover .driver-popover-description {
+  margin: 0;
+  color: inherit;
+}
+
+.driver-popover.community-onboarding-popover .driver-popover-arrow {
+  display: none;
+}
+
+.community-guide-me {
+  position: relative;
+  display: inline-flex;
+  isolation: isolate;
+}
+
+.community-guide-me-orbit {
+  position: absolute;
+  inset: -17px -22px;
+  z-index: 1;
+  pointer-events: none;
+  animation: community-guide-me-orbit 4.8s linear infinite;
+}
+
+.community-guide-me-avatar {
+  position: absolute;
+  top: -3px;
+  left: 50%;
+  display: inline-flex;
+  transform: translateX(-50%);
+  animation: community-guide-me-counter-orbit 4.8s linear infinite;
+}
+
+.community-guide-me > button {
+  position: relative;
+  z-index: 0;
+}
+
+@keyframes community-guide-me-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes community-guide-me-counter-orbit {
+  to {
+    transform: translateX(-50%) rotate(-360deg);
+  }
+}
+
+.driver-popover.community-onboarding-popover .driver-popover-arrow-side-left {
+  border-left-color: var(--card);
+}
+
+.driver-popover.community-onboarding-popover .driver-popover-arrow-side-right {
+  border-right-color: var(--card);
+}
+
+.driver-popover.community-onboarding-popover .driver-popover-arrow-side-top {
+  border-top-color: var(--card);
+}
+
+.driver-popover.community-onboarding-popover .driver-popover-arrow-side-bottom {
+  border-bottom-color: var(--card);
+}
+
+.community-onboarding-card {
+  position: relative;
+  isolation: isolate;
+  padding: 12px 14px;
+  background: color-mix(in oklab, var(--card) 72%, transparent);
+  border: 1px solid color-mix(in oklab, var(--border) 38%, transparent);
+  border-radius: 12px;
+  box-shadow: 0 10px 28px color-mix(in oklab, var(--foreground) 9%, transparent);
+  backdrop-filter: blur(8px);
+  animation: community-onboarding-float 2.8s ease-in-out infinite;
+}
+
+.community-onboarding-focus-avatar {
+  position: fixed;
+  z-index: 10003;
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  pointer-events: none;
+  animation: community-onboarding-companion 2.4s ease-in-out infinite;
+}
+
+.community-onboarding-content {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+}
+
+.community-onboarding-card::before {
+  position: absolute;
+  inset: -10px -12px;
+  z-index: -1;
+  border-radius: 18px;
+  background: radial-gradient(
+    ellipse at center,
+    color-mix(in oklab, var(--primary) 18%, transparent),
+    transparent 72%
+  );
+  filter: blur(7px);
+  content: "";
+  pointer-events: none;
+  animation: community-onboarding-breathe 2.8s ease-in-out infinite;
+}
+
+.driver-active .driver-active-element {
+  position: relative;
+  z-index: 10001;
+}
+
+.dark .driver-active .driver-active-element {
+  outline: 2px solid color-mix(in oklab, var(--primary) 72%, white) !important;
+  outline-offset: 3px !important;
+  box-shadow:
+    0 0 0 6px color-mix(in oklab, var(--primary) 24%, transparent),
+    0 0 24px color-mix(in oklab, var(--primary) 42%, transparent) !important;
+}
+
+body.community-onboarding-active.driver-active :is(
+  a[href],
+  button:not([disabled]),
+  [role="button"],
+  [contenteditable="true"]
+),
+body.community-onboarding-active.driver-active :is(
+  a[href],
+  button:not([disabled]),
+  [role="button"],
+  [contenteditable="true"]
+) * {
+  pointer-events: auto;
+}
+
+.community-onboarding-eyebrow {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.community-onboarding-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.community-onboarding-skip {
+  min-height: 0 !important;
+  height: auto !important;
+  padding: 0 !important;
+  color: var(--muted-foreground) !important;
+  font-size: 11px !important;
+  line-height: 1 !important;
+}
+
+.community-onboarding-skip:hover {
+  color: var(--foreground) !important;
+  background: transparent !important;
+}
+
+.community-onboarding-card h2 {
+  margin: 0;
+  max-width: 28ch;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+}
+
+@keyframes community-onboarding-breathe {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.98);
+  }
+
+  50% {
+    opacity: 0.72;
+    transform: scale(1.035);
+  }
+}
+
+@keyframes community-onboarding-float {
+  0%,
+  100% {
+    transform: translateY(1px);
+  }
+
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes community-onboarding-companion {
+  0%,
+  100% {
+    transform: translateY(1px);
+  }
+
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+@media (max-width: 639px) {
+  .community-onboarding-card {
+    padding: 11px 12px;
+  }
+}
+
+@media (max-height: 520px) {
+  .community-onboarding-card {
+    padding: 8px 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .community-guide-me-orbit,
+  .community-guide-me-avatar {
+    animation: none;
+  }
+
+  .community-guide-me-orbit {
+    inset: -10px -8px;
+  }
+
+  .community-guide-me-avatar {
+    top: -3px;
+    right: 0;
+    left: auto;
+    transform: none;
+  }
+
+  .community-onboarding-card {
+    animation: none;
+  }
+
+  .community-onboarding-focus-avatar {
+    animation: none;
+  }
+
+  .community-onboarding-card::before {
+    opacity: 0.45;
+    animation: none;
+  }
+}
+
 :root {
   --app-bg: oklch(0.955 0.008 80);
+  --community-onboarding-overlay: oklch(0.18 0.03 230);
   --background: oklch(1 0 0);
   --foreground: oklch(0.18 0.03 230);
   --card: oklch(1 0.003 80);
@@ -110,6 +379,7 @@
 
 .dark {
   --app-bg: transparent;
+  --community-onboarding-overlay: oklch(0.08 0.02 230);
   --background: oklch(0.16 0.008 60);
   --foreground: oklch(0.93 0.006 80);
   --card: oklch(0.21 0.008 60);

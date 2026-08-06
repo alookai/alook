@@ -38,6 +38,7 @@ import { useFriends } from "@/hooks/community/use-friends"
 import { useServerMembers } from "@/hooks/community/use-server-members"
 import { useInboxUnreads, useInboxMentions, useInboxMarked } from "@/hooks/community/use-inbox"
 import { useInboxAutoCollapse } from "@/hooks/community/use-inbox-auto-collapse"
+import { useCommunityOnboarding } from "@/lib/community-onboarding"
 import {
   useCreateServer,
   useJoinServer,
@@ -96,6 +97,13 @@ export function ShellFrame({
   const currentUser = useCurrentUser()
   const setCurrentUser = useSetCurrentUser()
   const onlineUserIds = useOnlineUserIds()
+  const onboardingState = useCommunityOnboarding()
+
+  useEffect(() => {
+    if (onboardingState?.status === "active") {
+      setMobileZone(onboardingState.stage === "server" ? "nav" : "messages")
+    }
+  }, [onboardingState, setMobileZone])
 
   // Server list + folders drive the rail. Members + friends feed the profile
   // popover's mutual-server count when the user opens a member card.
@@ -182,9 +190,6 @@ export function ShellFrame({
     (id: string) => { markSwitch("server", id); router.push(`/c/channels/${id}`) },
     [router],
   )
-  // A genuinely-empty user starts by connecting a machine, not creating a
-  // server — route there instead of auto-popping the create-server dialog.
-  const onRailEmptyState = useCallback(() => { router.push("/c/me/machines") }, [router])
   const onRailCreateServer = useCallback(
     async (name: string, icon?: File) => {
       try {
@@ -304,16 +309,10 @@ export function ShellFrame({
     folders,
     activeServerId,
     serversLoading: serversQuery.isLoading,
-    // `serversReady` gates the ServerRail auto-open — true only after the
-    // very first fetch settles AND the query isn't refetching. Using
-    // `isLoading` alone would let post-invalidate races (WS member.leave,
-    // reconnect) with `servers=[]` re-fire the "Create a Server" dialog.
-    serversReady: serversQuery.isFetched && !serversQuery.isFetching,
     setMobileZone,
     view,
     onHome: goHome,
     onServer: goServer,
-    onEmptyState: onRailEmptyState,
     onServerNavigate: onRailServerNavigate,
     onCreateServer: onRailCreateServer,
     onJoinServer: onRailJoinServer,

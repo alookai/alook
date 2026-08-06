@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation"
 import { useSession } from "@/lib/auth-client"
 import { CommunityShell } from "./community-shell"
 import { avatarInitial } from "@/lib/community/avatar"
+import { SignupTracker } from "@/components/signup-tracker"
 
 // The invite landing page is preview-first: a logged-out visitor must be able
 // to see it (and only hit the login wall on Join). It's a standalone
@@ -34,7 +35,7 @@ export default function CommunityLayout({
 
   // Public community pages (invite landing) render standalone — no session
   // gate, no CommunityShell (a logged-out visitor has no currentUser).
-  if (isPublic) return <>{children}</>
+  if (isPublic) return <><SignupTracker />{children}</>
 
   if (isPending || !session) return null
 
@@ -45,5 +46,10 @@ export default function CommunityLayout({
     avatar: session.user.image || avatarInitial(session.user.name),
   }
 
-  return <CommunityShell currentUser={currentUser}>{children}</CommunityShell>
+  return (
+    <>
+      <SignupTracker redirectTo="/c/me/machines" />
+      <CommunityShell currentUser={currentUser}>{children}</CommunityShell>
+    </>
+  )
 }

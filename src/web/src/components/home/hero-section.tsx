@@ -278,8 +278,8 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
             OPEN SOURCE
           </a> */}
           {isLoggedIn ? (
-            <a
-              href="/workspaces?auto"
+            <Link
+              href="/c/me"
               onClick={() => trackLandingCtaClicked({ cta_name: "open_app" })}
               className="inline-flex items-center gap-2 px-6 py-2 text-sm transition-all duration-200 hover:opacity-80"
               style={{
@@ -295,7 +295,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
                 <line x1="15" y1="12" x2="3" y2="12" />
               </svg>
               OPEN APP
-            </a>
+            </Link>
           ) : (
             <a
               href="/sign-in"

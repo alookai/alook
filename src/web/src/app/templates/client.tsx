@@ -57,7 +57,7 @@ export function TemplatesClient({
           </Link>
           {isLoggedIn ? (
             <Link
-              href="/workspaces?auto"
+              href="/c/me"
               className="inline-flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-widest font-mono border border-current transition-opacity hover:opacity-70"
             >
               App

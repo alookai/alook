@@ -13,7 +13,6 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,15 +28,13 @@ import {
   isPhotoAvatarUrl,
 } from "@/components/avatar"
 import { serializeBeamSeed, parseBeamSeed } from "@/lib/avatar/seed-url"
-import { ProviderLogo } from "@/components/provider-logo"
 import { useUpdateBot, useUploadBotAvatar, type BotSummary } from "@/hooks/community/use-bots"
 import { useMachines } from "@/hooks/community/use-machines"
 import { BotFormFields } from "./bot-form-fields"
-import { ModelField } from "./model-field"
+import { BotRuntimeFields } from "./bot-runtime-fields"
 import { validateBotModel } from "./bot-form-validation"
 import { uniqueNamesGenerator, names } from "unique-names-generator"
 import { normalizeRuntimes } from "./create-bot-sheet"
-import { cn } from "@/lib/utils"
 
 function draftFromBot(bot: BotSummary): AvatarDraft {
   if (isPhotoAvatarUrl(bot.image)) return { kind: "photo", file: null, previewUrl: bot.image! }
@@ -107,12 +104,6 @@ export function EditBotSheet({
   function shuffleName() {
     setName(uniqueNamesGenerator({ dictionaries: [names], length: 1, style: "capital" }))
     setNameError(undefined)
-  }
-
-  function selectRuntime(next: string) {
-    if (next === runtime) return
-    setRuntime(next)
-    setModel(null)
   }
 
   async function performSubmit() {
@@ -206,54 +197,13 @@ export function EditBotSheet({
             nameError={nameError}
           />
           {bot && (
-            <>
-              <div className="flex flex-col gap-2">
-                <Label className="text-xs text-muted-foreground">Runtime</Label>
-                {runtimeOptions.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">
-                    This machine has no runtimes installed.
-                  </p>
-                ) : (
-                  <div
-                    className="flex flex-col gap-2"
-                    role="radiogroup"
-                    aria-label="Runtime"
-                    data-testid="bot-provider-picker"
-                  >
-                    {runtimeOptions.map((option) => {
-                      const selected = runtime === option.id
-                      const disabled = option.unhealthy && !selected
-                      return (
-                        <label
-                          key={option.id}
-                          className={cn(
-                            "flex items-center gap-2 rounded-lg border p-2 cursor-pointer transition-colors",
-                            selected ? "border-primary bg-primary/5" : "border-border/50 hover:border-foreground/20",
-                            disabled && "opacity-40 pointer-events-none",
-                          )}
-                        >
-                          <input
-                            type="radio"
-                            name="edit-bot-runtime"
-                            value={option.id}
-                            checked={selected}
-                            disabled={disabled}
-                            onChange={() => selectRuntime(option.id)}
-                            className="accent-primary size-3.5"
-                          />
-                          <ProviderLogo provider={option.id} className="size-4 shrink-0" />
-                          <span className="text-sm">{option.id}</span>
-                          {option.unhealthy && (
-                            <span className="ml-auto text-xs text-muted-foreground">unavailable</span>
-                          )}
-                        </label>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-              <ModelField runtime={runtime} value={model} onChange={setModel} />
-            </>
+            <BotRuntimeFields
+              options={runtimeOptions}
+              runtime={runtime}
+              model={model}
+              onRuntimeChange={setRuntime}
+              onModelChange={setModel}
+            />
           )}
         </SheetBody>
 

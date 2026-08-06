@@ -39,6 +39,13 @@ import { EditBotSheet } from "./edit-bot-sheet"
 import { BotActivityModal } from "./bot-activity-modal"
 import { CreateTile } from "@/components/community/onboarding-tiles/create-tile"
 import { AgentHelpGallery } from "@/components/community/onboarding-tiles/agent-help-gallery"
+import {
+  advanceCommunityOnboarding,
+  readCommunityOnboardingState,
+  recoverCommunityOnboardingMachine,
+  updateCommunityOnboardingResources,
+  useCommunityOnboarding,
+} from "@/lib/community-onboarding"
 
 /**
  * BotList — the /c/me/bots surface.
@@ -70,7 +77,7 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { bots, isLoading } = useBots()
-  const { machines } = useMachines()
+  const { machines, isLoading: machinesLoading } = useMachines()
   // Presence read: single API for humans + bots, server-pushed identically
   // (see plans/community-account-debt-fixes.md Fix 3 — the owner is always
   // part of its own bots' presence audience, even for a bot not yet in any
@@ -97,6 +104,13 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
   const resetSession = useResetBotSession()
   const resetMachineAgents = useResetMachineAgents()
   const createOrGetDm = useCreateOrGetDm()
+  const onboardingState = useCommunityOnboarding()
+  const guidedActive = onboardingState?.status === "active" && onboardingState.stage === "bot"
+  const guidedPendingBotId =
+    guidedActive ? onboardingState.botId : undefined
+  const guidedNeedsMachine =
+    guidedActive &&
+    !machines.some((machine) => isPresenceOnline(machine.status))
 
   const chatWithBot = async (bot: BotSummary) => {
     try {
@@ -106,6 +120,47 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
       toastApiError(e, "Failed to open chat")
     }
   }
+
+  const openGuidedBotDm = async (botId: string) => {
+    try {
+      const data = await createOrGetDm.mutateAsync({ userId: botId })
+      advanceCommunityOnboarding("bot", "dm", {
+        botId,
+        dmId: data.conversation.id,
+      })
+      router.push(`/c/me/${data.conversation.id}`)
+    } catch (e) {
+      toastApiError(e, "Bot created, but the chat couldn't open")
+    }
+  }
+
+  const onBotCreated = async (bot: BotSummary) => {
+    const state = readCommunityOnboardingState()
+    if (state?.status !== "active" || state.stage !== "bot") return
+    updateCommunityOnboardingResources({ botId: bot.id })
+    await openGuidedBotDm(bot.id)
+  }
+
+  const openGuidedCreate = () => {
+    const state = readCommunityOnboardingState()
+    const hasUsableMachine = machines.some((machine) => isPresenceOnline(machine.status))
+    if (state?.status === "active" && state.stage === "bot" && !hasUsableMachine) {
+      recoverCommunityOnboardingMachine()
+      router.push("/c/me/machines")
+      return
+    }
+    if (state?.status === "active" && state.stage === "bot" && state.botId) {
+      void openGuidedBotDm(state.botId)
+      return
+    }
+    setCreateOpen(true)
+  }
+
+  const guidedCreateLabel = guidedNeedsMachine
+    ? "Connect a machine"
+    : guidedPendingBotId
+      ? "Open bot chat"
+      : "Create a bot"
 
   const machineName = (id: string): string => {
     const m = machines.find((x) => x.id === id)
@@ -166,7 +221,7 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
     </header>
   ) : null
 
-  if (isLoading && bots.length === 0) {
+  if ((isLoading || machinesLoading) && bots.length === 0) {
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         {backBar}
@@ -180,6 +235,7 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
   }
 
   if (bots.length === 0) {
+    const needsMachine = machines.length === 0
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         {backBar}
@@ -190,18 +246,33 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
             </div>
           </div>
           <div className="flex flex-col gap-1">
-            <h2 className="text-lg font-medium text-foreground">No bots yet</h2>
+            <h2 className="text-lg font-medium text-foreground">
+              {needsMachine ? "Connect a machine first" : "No bots yet"}
+            </h2>
             <p className="max-w-md text-sm text-muted-foreground">
-              Create a bot and chat with it from anywhere — spin up servers and
-              share it with family and friends.
+              {needsMachine
+                ? "Bots need a connected machine to run. Connect one first, then come back to create your bot."
+                : "Create a bot and chat with it from anywhere — spin up servers and share it with family and friends."}
             </p>
           </div>
           {/* No help ? in the empty state (Gus): the gallery is about mechanics
               a user only needs AFTER they own a bot — it lives in the populated
               header instead. */}
-          <Button onClick={() => setCreateOpen(true)}>Create a bot</Button>
+          <div data-onboarding-target="create-bot" className="w-fit">
+            <Button
+              onClick={needsMachine ? () => router.push("/c/me/machines") : openGuidedCreate}
+            >
+              {needsMachine ? "Connect a machine" : guidedCreateLabel}
+            </Button>
+          </div>
         </div>
-        <CreateBotSheet open={createOpen} onOpenChange={setCreateOpen} />
+        <CreateBotSheet
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          onCreated={onBotCreated}
+          guided={guidedActive}
+          avatarSeed={guidedActive ? onboardingState.guideAvatarSeed : undefined}
+        />
       </div>
     )
   }
@@ -227,7 +298,9 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
             >
               <HelpCircle className="size-5" />
             </Button>
-            <Button onClick={() => setCreateOpen(true)}>Create a bot</Button>
+            <div data-onboarding-target="create-bot" className="w-fit">
+              <Button onClick={openGuidedCreate}>{guidedCreateLabel}</Button>
+            </div>
           </div>
         </header>
 
@@ -439,7 +512,13 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
         </div>
       </div>
 
-      <CreateBotSheet open={createOpen} onOpenChange={setCreateOpen} />
+      <CreateBotSheet
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onCreated={onBotCreated}
+        guided={guidedActive}
+        avatarSeed={guidedActive ? onboardingState.guideAvatarSeed : undefined}
+      />
       <AgentHelpGallery open={helpOpen} onOpenChange={setHelpOpen} />
       <EditBotSheet bot={editingBot} open={editOpen} onOpenChange={setEditOpen} />
       <BotActivityModal

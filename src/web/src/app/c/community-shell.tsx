@@ -12,6 +12,7 @@ import {
 import { useCommunityWs } from "@/hooks/community/use-community-ws"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { PerfTraceBootstrap } from "@/components/perf/perf-trace-bootstrap"
+import { CommunityOnboardingGuide } from "@/components/community/onboarding/community-onboarding-guide"
 
 /**
  * Client wrapper that provides the QueryClient, CurrentUser, and the
@@ -87,6 +88,7 @@ function CommunityBootstrap({ children }: { children: ReactNode }) {
   return (
     <>
       <PerfTraceBootstrap />
+      <CommunityOnboardingGuide />
       {children}
     </>
   )

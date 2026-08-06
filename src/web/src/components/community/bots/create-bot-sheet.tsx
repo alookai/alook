@@ -21,7 +21,7 @@ import { ProviderLogo } from "@/components/provider-logo"
 import { useMachines } from "@/hooks/community/use-machines"
 import { useCreateBot, useUploadBotAvatar } from "@/hooks/community/use-bots"
 import { BotFormFields } from "./bot-form-fields"
-import { ModelField } from "./model-field"
+import { BotRuntimeFields } from "./bot-runtime-fields"
 import {
   type BotCreateFieldErrors,
   hasBotCreateFieldErrors,
@@ -29,6 +29,7 @@ import {
 } from "./bot-form-validation"
 import { uniqueNamesGenerator, names } from "unique-names-generator"
 import { cn } from "@/lib/utils"
+import type { BotSummary } from "@/hooks/community/use-bots"
 
 // Stable initial seed avoids hydration mismatch (real seed is rerolled on mount).
 const INITIAL_AVATAR = serializeBeamSeed("initial")
@@ -72,9 +73,15 @@ export function firstOnlineMachineId(machines: CommunityMachineSummary[]): strin
 export function CreateBotSheet({
   open,
   onOpenChange,
+  onCreated,
+  guided = false,
+  avatarSeed,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  onCreated?: (bot: BotSummary) => void | Promise<void>
+  guided?: boolean
+  avatarSeed?: string
 }) {
   const { machines } = useMachines()
   const create = useCreateBot()
@@ -85,6 +92,7 @@ export function CreateBotSheet({
   const [runtime, setRuntime] = useState<string>("")
   const [model, setModel] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<BotCreateFieldErrors>({})
+  const [technicalExpanded, setTechnicalExpanded] = useState(false)
   const [avatarDraft, setAvatarDraft] = useState<AvatarDraft>({
     kind: "procedural",
     image: INITIAL_AVATAR,
@@ -92,6 +100,11 @@ export function CreateBotSheet({
 
   const selectedMachine = machines.find((m) => m.id === machineId)
   const runtimeOptions = useMemo(() => normalizeRuntimes(selectedMachine), [selectedMachine])
+  const singleTechnicalDefault =
+    guided &&
+    Boolean(selectedMachine && runtime) &&
+    machines.filter((machine) => isPresenceOnline(machine.status)).length === 1 &&
+    runtimeOptions.filter((option) => !option.unhealthy).length === 1
 
   // Randomize name + avatar on client mount (not during SSR — Math.random would
   // hydration-mismatch). Fires once per sheet open.
@@ -104,13 +117,17 @@ export function CreateBotSheet({
     if (initializedFor.current) return
     initializedFor.current = true
     setName(randomBotName())
-    setAvatarDraft({ kind: "procedural", image: serializeBeamSeed(crypto.randomUUID()) })
+    setAvatarDraft({
+      kind: "procedural",
+      image: serializeBeamSeed(avatarSeed ?? crypto.randomUUID()),
+    })
     setDescription("")
     setMachineId("")
     setRuntime("")
     setModel(null)
     setFieldErrors({})
-  }, [open])
+    setTechnicalExpanded(false)
+  }, [open, avatarSeed])
 
   // Auto-select sensible defaults once machine data arrives. useMachines()
   // loads async, so `machines` is often [] on the open transition and
@@ -153,9 +170,6 @@ export function CreateBotSheet({
 
   function selectRuntime(id: string) {
     setRuntime(id)
-    // Reset the model to Default — carrying (e.g.) gpt-5.4 across to claude
-    // would be nonsense.
-    setModel(null)
     setFieldErrors((prev) => ({ ...prev, runtime: undefined }))
   }
 
@@ -188,6 +202,7 @@ export function CreateBotSheet({
       }
       if (!avatarFailed) toast.success(`Created ${name.trim()}`)
       onOpenChange(false)
+      await onCreated?.(data.bot)
     } catch (e) {
       toastApiError(e, "Couldn't create the bot")
     }
@@ -216,6 +231,17 @@ export function CreateBotSheet({
             nameError={fieldErrors.name}
           />
 
+          {singleTechnicalDefault && !technicalExpanded ? (
+            <div className="flex items-center gap-3 rounded-lg bg-muted/60 px-3 py-2.5">
+              <ProviderLogo provider={runtime} className="size-5 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">Ready on {selectedMachine ? machineName(selectedMachine) : "your machine"}</p>
+                <p className="text-xs text-muted-foreground">{runtime} · Default model</p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setTechnicalExpanded(true)}>Change</Button>
+            </div>
+          ) : (
+          <>
           <div className="flex flex-col gap-2">
             <Label className="text-xs text-muted-foreground">Machine</Label>
             {machines.length === 0 ? (
@@ -272,50 +298,19 @@ export function CreateBotSheet({
 
           {selectedMachine && (
             <div className="flex flex-col gap-2">
-              <Label className="text-xs text-muted-foreground">Runtime</Label>
-              {runtimeOptions.length === 0 ? (
-                <p className="text-xs text-muted-foreground">
-                  This machine has no runtimes installed.
-                </p>
-              ) : (
-                <div className="flex flex-col gap-2" role="radiogroup" aria-label="Runtime">
-                  {runtimeOptions.map((r) => {
-                    const selected = runtime === r.id
-                    return (
-                      <label
-                        key={r.id}
-                        className={cn(
-                          "flex items-center gap-2 rounded-lg border p-2 cursor-pointer transition-colors",
-                          selected ? "border-primary bg-primary/5" : "border-border/50 hover:border-foreground/20",
-                          r.unhealthy && "opacity-40 pointer-events-none",
-                        )}
-                      >
-                        <input
-                          type="radio"
-                          name="bot-runtime"
-                          value={r.id}
-                          checked={selected}
-                          disabled={r.unhealthy}
-                          onChange={() => selectRuntime(r.id)}
-                          className="accent-primary size-3.5"
-                        />
-                        <ProviderLogo provider={r.id} className="size-4 shrink-0" />
-                        <span className="text-sm">{r.id}</span>
-                        {r.unhealthy && (
-                          <span className="ml-auto text-xs text-muted-foreground">unavailable</span>
-                        )}
-                      </label>
-                    )
-                  })}
-                </div>
-              )}
-              {fieldErrors.runtime && (
-                <p className="text-xs text-destructive">{fieldErrors.runtime}</p>
-              )}
-              {runtime && (
-                <ModelField runtime={runtime} value={model} onChange={setModel} />
-              )}
+              <BotRuntimeFields
+                options={runtimeOptions}
+                runtime={runtime}
+                model={model}
+                onRuntimeChange={selectRuntime}
+                onModelChange={setModel}
+                radioName="bot-runtime"
+                runtimeError={fieldErrors.runtime}
+                disableUnhealthyOptions
+              />
             </div>
+          )}
+          </>
           )}
         </SheetBody>
 

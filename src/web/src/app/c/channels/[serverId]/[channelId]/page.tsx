@@ -1123,9 +1123,10 @@ function ChannelView() {
             unreadCount={unreadCount}
             onOpenContextSheet={openContextSeq}
           />
-          <Composer
-            channel={channelName}
-            context="thread"
+          <div data-onboarding-target="channel-composer" className="shrink-0">
+            <Composer
+              channel={channelName}
+              context="thread"
             members={composerMembers}
             onSearchMembers={membersHook.searchMembers}
             channelRefCandidates={channelRefCandidates}
@@ -1134,8 +1135,9 @@ function ChannelView() {
             replyingTo={replyTo?.authorName}
             onCancelReply={() => setReplyTo(null)}
             autoFocus={bp !== "mobile"}
-            draftKey={`${serverId}/${channelId}`}
-          />
+              draftKey={`${serverId}/${channelId}`}
+            />
+          </div>
         </main>
 
         {rightPanel && (
@@ -1271,9 +1273,10 @@ function ChannelView() {
           unreadCount={unreadCount}
           onOpenContextSheet={openContextSeq}
         />
-        <Composer
-          channel={channelName}
-          context="channel"
+        <div data-onboarding-target="channel-composer" className="shrink-0">
+          <Composer
+            channel={channelName}
+            context="channel"
           members={composerMembers}
           onSearchMembers={membersHook.searchMembers}
           channelRefCandidates={channelRefCandidates}
@@ -1282,8 +1285,9 @@ function ChannelView() {
           replyingTo={replyTo?.authorName}
           onCancelReply={() => setReplyTo(null)}
           autoFocus={bp !== "mobile"}
-          draftKey={`${serverId}/${channelId}`}
-        />
+            draftKey={`${serverId}/${channelId}`}
+          />
+        </div>
       </main>
 
       {rightPanel && (

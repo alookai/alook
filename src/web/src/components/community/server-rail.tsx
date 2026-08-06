@@ -17,32 +17,25 @@ import { CreateServerDialog } from "./create-server-dialog"
 import { useRailOrder, isFolderKey, extractFolderId } from "./use-rail-order"
 import { MarbleBackground } from "@/components/avatar"
 import type { Server, CommunityFolder, MobileZone, View } from "./_types"
+import {
+  completeCommunityOnboarding,
+  isCommunityOnboardingStage,
+} from "@/lib/community-onboarding"
 
 export const ServerRail = memo(function ServerRail({
-  servers, folders, activeServerId: activeServerIdProp, serversLoading, serversReady, setMobileZone, view, bottomInset,
-  onHome, onServer, onEmptyState, onServerNavigate, onCreateServer, onJoinServer, onLeaveServer,
+  servers, folders, activeServerId: activeServerIdProp, serversLoading, setMobileZone, view, bottomInset,
+  onHome, onServer, onServerNavigate, onCreateServer, onJoinServer, onLeaveServer,
   onOpenSettings, onOpenInvitePopover, onUngroupFolder, onReorderRail, onReorderFolders, onFolderItemsChange, onDragCreateFolder,
 }: {
   servers: Server[]
   folders: CommunityFolder[]
   activeServerId?: string
   serversLoading?: boolean
-  // Auto-open the "Create a Server" dialog when the user genuinely has no
-  // servers — gated on `serversReady` (query has completed at least one
-  // fetch AND isn't refetching) instead of `!serversLoading`. TanStack v5
-  // `isLoading` is only true on the very first fetch, so any subsequent
-  // invalidate (WS `member.leave`, reconnect) briefly flips servers=[] with
-  // `isLoading=false`, which would re-trigger the dialog mid-session.
-  serversReady?: boolean
   setMobileZone?: (z: MobileZone) => void
   view: View
   bottomInset?: number
   onHome: () => void
   onServer: () => void
-  // Fired once when a genuinely-empty user (no servers/folders) first settles —
-  // routes them to the machines page (the real starting point) instead of
-  // popping the create-server dialog. The manual "+" affordance still opens it.
-  onEmptyState?: () => void
   onServerNavigate?: (id: string) => void
   onCreateServer?: (name: string, icon?: File) => void
   onJoinServer?: (invite: string) => void
@@ -79,21 +72,7 @@ export const ServerRail = memo(function ServerRail({
   useEffect(() => { if (activeFromProps) setActiveId(activeFromProps) }, [activeFromProps])
 
   const [createOpen, setCreateOpen] = useState(false)
-  const [didAutoOpen, setDidAutoOpen] = useState(false)
-  useEffect(() => {
-    // Only fire when the servers query has genuinely settled (fetched at
-    // least once AND not currently refetching). `serversLoading` (from
-    // TanStack `isLoading`) is only true on the very first fetch, so it
-    // false-triggers on any subsequent cache invalidate where the servers
-    // list is transiently empty. `serversReady` is `isFetched && !isFetching`.
-    if (!didAutoOpen && serversReady && servers.length === 0 && folders.length === 0) {
-      setDidAutoOpen(true)
-      // A brand-new user's starting point is connecting a machine, not making a
-      // server (Gus): route to machines instead of auto-popping create-server.
-      // The manual "+" below still opens the dialog on demand.
-      onEmptyState?.()
-    }
-  }, [servers.length, folders.length, serversReady, didAutoOpen, onEmptyState])
+  const [guidedCreate, setGuidedCreate] = useState(false)
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
   const pickServer = (id: string) => { setActiveId(id); onServer(); onServerNavigate?.(id); setMobileZone?.("nav") }
@@ -259,11 +238,25 @@ export const ServerRail = memo(function ServerRail({
         </DragOverlay>
       </DndContext>
       )}
-      <RailIcon label={<Plus className="size-6" />} round accent tooltip="Add a Server" testId={tid.serverAdd} onClick={() => setCreateOpen(true)} />
+      <RailIcon
+        label={<Plus className="size-6" />}
+        round
+        accent
+        tooltip="Add a Server"
+        testId={tid.serverAdd}
+        onboardingTarget="add-server"
+        onClick={() => {
+          const guided = isCommunityOnboardingStage("server")
+          setGuidedCreate(guided)
+          setCreateOpen(true)
+          if (guided) completeCommunityOnboarding()
+        }}
+      />
 
       {createOpen && (
         <CreateServerDialog
           onClose={() => setCreateOpen(false)}
+          initialStep={guidedCreate ? "create" : "choose"}
           onCreateServer={(name, icon) => { onCreateServer?.(name, icon) }}
           onJoinServer={(invite) => { onJoinServer?.(invite) }}
         />
