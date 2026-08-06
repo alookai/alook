@@ -51,7 +51,7 @@ export async function seedChannel(
   type?: "text" | "forum",
   categoryId?: string,
 ): Promise<string> {
-  const res = await post(owner, `/api/community/servers/${serverId}/channels`, { name, type, categoryId })
+  const res = await post(owner, "/api/community/channels", { serverId, name, type, categoryId })
   const data = (await res.json()) as { channel: { id: string } }
   return data.channel.id
 }
@@ -191,7 +191,7 @@ export async function seedForumThread(
 // child-channel id. A thread has NO roster of its own — its @-mention scope is
 // the PARENT channel's audience — which is exactly what the scope spec probes.
 export async function seedThread(author: UserKey, messageId: string, name: string): Promise<string> {
-  const res = await post(author, `/api/community/messages/${messageId}/threads`, { name })
+  const res = await post(author, "/api/community/channels", { type: "thread", messageId, name })
   const data = (await res.json()) as { id: string }
   return data.id
 }

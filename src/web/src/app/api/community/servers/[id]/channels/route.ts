@@ -1,11 +1,8 @@
 import { NextResponse, NextRequest } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
-import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { buildServerChannelGroups } from "@/lib/community/list-channels"
-import { createServerChannelForUser } from "@/lib/community/create-channels"
 
 /**
  * GET /api/community/servers/[id]/channels — single-server channel list, bot
@@ -48,35 +45,4 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
 
   const groups = await buildServerChannelGroups(db, servers[0]!, botUserId)
   return NextResponse.json({ groups })
-})
-
-export const POST = withAuth(async (req: NextRequest, ctx) => {
-  const serverId = ctx.params?.id
-  if (!serverId) return writeError("missing server id", 400)
-
-  const db = getDb(ctx.env.DB)
-
-  let body: { name?: string; type?: string; categoryId?: string; topic?: string }
-  try {
-    body = await req.json()
-  } catch {
-    return writeError("invalid request body", 400)
-  }
-
-  // Single-source creation core (route/disc create-door step): the POST body now
-  // calls the same createServerChannelForUser the `POST /channels` door dispatches
-  // to, so this legacy route and the door share ONE code path (kept alive through
-  // deploy; deleted at the flat-delete step). Validation, admin/private gate,
-  // collision policy, roster seed, fan-out, and audit all live in the helper.
-  const result = await createServerChannelForUser(db, {
-    serverId,
-    actorUserId: ctx.userId,
-    name: body.name,
-    type: body.type,
-    categoryId: body.categoryId,
-    topic: body.topic,
-  })
-  if (!result.ok) return writeError(result.error, result.status)
-
-  return writeJSON({ channel: result.value }, 201)
 })

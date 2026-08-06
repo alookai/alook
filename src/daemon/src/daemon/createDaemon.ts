@@ -149,7 +149,6 @@ export function deriveAuditLogSubcommand(pathname: string, method?: string): str
   // it needs the method; the others are single-verb.
   const canonical = pathname.split("?")[0] ?? pathname;
   if (/^\/api\/community\/messages\/[^/]+\/reactions\//.test(canonical)) return "reactAdd";
-  if (/^\/api\/community\/messages\/[^/]+\/threads(\/|$)/.test(canonical)) return "threads";
   if (/^\/api\/community\/channels\/[^/]+\/messages\/seq\//.test(canonical)) return "resolve";
   if (/^\/api\/community\/channels\/[^/]+\/messages(\/|$)/.test(canonical)) {
     return method === "GET" ? "read" : "send";
@@ -164,7 +163,7 @@ export function deriveAuditLogSubcommand(pathname: string, method?: string): str
   if (/^\/api\/community\/channels\/[^/]+\/attachments\/[^/]+/.test(canonical)) return "attachmentDownload";
   if (/^\/api\/community\/channels\/[^/]+\/attachments(\/|$)/.test(canonical)) return "attachmentUpload";
   // Single-message hydrate door GET messages/{id} = the folded `resolve` verb.
-  // AFTER the /reactions & /threads patterns so those specific sub-paths win.
+  // AFTER the reactions pattern so that specific sub-path wins.
   if (/^\/api\/community\/messages\/[^/]+$/.test(canonical)) return "resolve";
   // Server-scoped list doors (轴3 fold): GET servers/{id}/members = the folded
   // `listMembers` verb; GET servers/{id}/channels and GET servers/channels (the

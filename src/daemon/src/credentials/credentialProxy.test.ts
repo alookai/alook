@@ -101,7 +101,6 @@ describe("DEFAULT_CAPABILITY_RESOLVER", () => {
   it("maps the message-keyed write doors to `send` (reactions PUT/DELETE, threads POST, seq GET→read)", () => {
     expect(DEFAULT_CAPABILITY_RESOLVER("PUT", "/api/community/messages/resolve/reactions/%F0%9F%91%8D")).toBe("send");
     expect(DEFAULT_CAPABILITY_RESOLVER("DELETE", "/api/community/messages/m1/reactions/%F0%9F%91%8D")).toBe("send");
-    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/messages/m1/threads")).toBe("send");
     // the seq→id lookup is a read.
     expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/channels/resolve/messages/seq/42")).toBe("read");
   });
@@ -111,7 +110,6 @@ describe("DEFAULT_CAPABILITY_RESOLVER", () => {
     expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/messages/m1")).toBe("read");
     // must NOT shadow the more specific write sub-paths.
     expect(DEFAULT_CAPABILITY_RESOLVER("PUT", "/api/community/messages/m1/reactions/x")).toBe("send");
-    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/messages/m1/threads")).toBe("send");
   });
 
   it("does not map deleted flat write verbs; inboxPull still matches the generic /inbox read family", () => {
