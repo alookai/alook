@@ -734,7 +734,7 @@ function ChannelView() {
           uploadedAttachments = projected.map((attachment, index) => {
             const local = payload.localUploads[index]
             return {
-              url: attachment.url,
+              id: attachment.url.slice(attachment.url.lastIndexOf("/") + 1),
               filename: local.file.name,
               contentType: local.file.type,
               size: local.file.size,
@@ -747,7 +747,12 @@ function ChannelView() {
       if (payload.localUploads.length > 0 && !uploadedAttachments) {
         const results = await Promise.all(
           payload.localUploads.map((upload) =>
-            uploadFileAsync({ target: { channelId }, file: upload.file }).catch((error) => {
+            uploadFileAsync({
+              target: { channelId },
+              file: upload.file,
+              width: upload.width,
+              height: upload.height,
+            }).catch((error) => {
               toastApiError(error, "Failed to attach file")
               return null
             }),
@@ -761,7 +766,8 @@ function ChannelView() {
         streamStore.dispatch(messageScope, {
           type: "uploadSettled",
           nonce,
-          attachments: uploadedAttachments.map(toAttachmentVm),
+          attachments: uploadedAttachments.map((attachment) =>
+            toAttachmentVm(channelId, attachment)),
         })
       }
       try {

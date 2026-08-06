@@ -220,8 +220,31 @@ async function handleHumanSend(
   const resolved = await resolveMessageTarget(db, userId, descriptor, "human")
   if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: resolved.status })
 
-  const body = raw as { nonce?: unknown }
+  const body = raw as { nonce?: unknown; attachments?: unknown }
   const clientNonce = typeof body?.nonce === "string" ? body.nonce : undefined
+
+  // Reserve-by-id (route/disc step 2b): the composer uploads first (creating a
+  // pending row) and sends the attachment IDS, mirroring the bot flow. Validate
+  // each id against (uploader = this user, target = this channel) BEFORE the
+  // message insert — the SAME `findPendingAttachmentsForSender` scope the bot arm
+  // uses (the query is keyed on the `uploaderId` param, so it is actor-agnostic:
+  // a stolen id owned by another user, or one pending against a different
+  // target, fails the count check and rejects with a generic 400 that never
+  // leaks which id). This is the human-side dual of the download door's
+  // authorize-from-row confused-deputy guard.
+  const attachmentIds = Array.isArray(body.attachments)
+    ? (body.attachments as unknown[]).filter((x): x is string => typeof x === "string")
+    : []
+  if (attachmentIds.length > 0) {
+    const channelId = resolved.value.target.channelId
+    const rows = await withD1Retry(
+      () => queries.communityAttachment.findPendingAttachmentsForSender(db, { ids: attachmentIds, uploaderId: userId, targetId: channelId }),
+      { route: "community/messages:human-attachments" },
+    )
+    if (rows.length !== attachmentIds.length) {
+      return NextResponse.json({ error: "attachment not found or not attachable to this target" }, { status: 400 })
+    }
+  }
 
   const result = await createCommunityMessage({
     db,
@@ -230,6 +253,7 @@ async function handleHumanSend(
     body: raw as Record<string, unknown>,
     source: "web",
     clientNonce,
+    attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
   })
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
   return NextResponse.json({ message: result.row, deduped: result.deduped }, { status: 201 })
@@ -283,7 +307,7 @@ async function handleBotSend(
 
   if (body.attachments.length > 0) {
     const rows = await withD1Retry(
-      () => queries.communityAttachment.findPendingAttachmentsForBot(db, { ids: body.attachments, uploaderId: botUserId, targetId: channelId }),
+      () => queries.communityAttachment.findPendingAttachmentsForSender(db, { ids: body.attachments, uploaderId: botUserId, targetId: channelId }),
       { route: "community/messages:attachments" },
     )
     if (rows.length !== body.attachments.length) {

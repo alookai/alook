@@ -4,6 +4,7 @@ import {
   MAX_SERVER_ICON_SIZE_BYTES,
   ALLOWED_ICON_MIME_TYPES,
   queries,
+  createLogger,
 } from "@alook/shared"
 import { requireMessageBearingSurface, requireChildSurface } from "./channel-write-guard"
 import type { Database } from "@alook/shared"
@@ -18,11 +19,12 @@ import {
   buildServerIconKey,
   buildUserAvatarKey,
   buildBotAvatarKey,
-  mediaUrlFromKey,
   userAvatarUrl,
   botAvatarUrl,
 } from "./storage"
 import { isChannelTarget, isDmTarget } from "./message-handler"
+
+const log = createLogger({ service: "community-attachment-upload" })
 
 type UploadOk = {
   ok: true
@@ -49,6 +51,11 @@ type AttachmentUploadOk = {
   filename: string
   contentType: string
   size: number
+  // Client-computed image dimensions carried on the upload body (thumbnail at
+  // file-pick). undefined for non-images and bot uploads. Written onto the
+  // pending row at upload — the single source of an attachment's dimensions.
+  width?: number
+  height?: number
 }
 export type AttachmentUploadResult = AttachmentUploadOk | UploadErr
 
@@ -71,7 +78,24 @@ function mimeAllowed(contentType: string, allowed: readonly string[]): boolean {
   )
 }
 
-async function readFile(req: NextRequest): Promise<File | UploadErr> {
+/**
+ * Parsed upload form: the `file` plus optional client-computed image
+ * dimensions. `width`/`height` are computed browser-side (thumbnail) at
+ * file-pick time and ride the SAME multipart body as the file — a `FormData`
+ * body can only be read once, so they're extracted here alongside the file.
+ * Absent/non-numeric → undefined (a bot upload never sends them; a non-image
+ * has none). This is the SINGLE source of an attachment's dimensions: they are
+ * written onto the pending row at upload time and never re-supplied on send.
+ */
+type ParsedUpload = { file: File; width?: number; height?: number }
+
+function parseDimension(raw: FormDataEntryValue | null): number | undefined {
+  if (typeof raw !== "string") return undefined
+  const n = Number(raw)
+  return Number.isInteger(n) && n >= 0 ? n : undefined
+}
+
+async function readFile(req: NextRequest): Promise<ParsedUpload | UploadErr> {
   let formData: FormData
   try {
     formData = await req.formData()
@@ -80,7 +104,11 @@ async function readFile(req: NextRequest): Promise<File | UploadErr> {
   }
   const file = formData.get("file") as File | null
   if (!file) return { ok: false, response: writeError("no file provided", 400) }
-  return file
+  return {
+    file,
+    width: parseDimension(formData.get("width")),
+    height: parseDimension(formData.get("height")),
+  }
 }
 
 /**
@@ -102,9 +130,9 @@ export async function handleAttachmentUpload(
   targetId: string,
   uploaderTag: UploaderTag,
 ): Promise<AttachmentUploadResult> {
-  const fileOrErr = await readFile(req)
-  if ("ok" in fileOrErr && fileOrErr.ok === false) return fileOrErr
-  const file = fileOrErr as File
+  const parsed = await readFile(req)
+  if ("ok" in parsed && parsed.ok === false) return parsed
+  const { file, width, height } = parsed as ParsedUpload
 
   if (file.size > MAX_ATTACHMENT_SIZE_BYTES) {
     return {
@@ -134,6 +162,8 @@ export async function handleAttachmentUpload(
     filename: file.name,
     contentType,
     size: file.size,
+    width,
+    height,
   }
 }
 
@@ -146,9 +176,9 @@ export async function handleServerIconUpload(
   env: Env,
   serverId: string,
 ): Promise<UploadResult> {
-  const fileOrErr = await readFile(req)
-  if ("ok" in fileOrErr && fileOrErr.ok === false) return fileOrErr
-  const file = fileOrErr as File
+  const parsed = await readFile(req)
+  if ("ok" in parsed && parsed.ok === false) return parsed
+  const { file } = parsed as ParsedUpload
 
   if (file.size > MAX_SERVER_ICON_SIZE_BYTES) {
     return {
@@ -195,9 +225,9 @@ async function handleAvatarUpload(
   key: string,
   url: string,
 ): Promise<UploadResult> {
-  const fileOrErr = await readFile(req)
-  if ("ok" in fileOrErr && fileOrErr.ok === false) return fileOrErr
-  const file = fileOrErr as File
+  const parsed = await readFile(req)
+  if ("ok" in parsed && parsed.ok === false) return parsed
+  const { file } = parsed as ParsedUpload
 
   if (file.size > MAX_SERVER_ICON_SIZE_BYTES) {
     return {
@@ -300,19 +330,63 @@ export async function runAttachmentUpload(
     }
   }
 
-  const result = await handleAttachmentUpload(req, ctx.env, kind, id, {
-    uploader: "user",
-    uploaderUserId: ctx.userId,
-  })
-  if (!result.ok) return result.response
+  // Track any R2 blob written before the D1 insert throws so the catch can
+  // best-effort delete it (mirrors the bot upload route's orphan-cleanup).
+  let r2KeyToCleanUp: string | null = null
+  try {
+    const result = await handleAttachmentUpload(req, ctx.env, kind, id, {
+      uploader: "user",
+      uploaderUserId: ctx.userId,
+    })
+    if (!result.ok) return result.response
+    r2KeyToCleanUp = result.r2Key
 
-  // Human web client tracks attachments in-memory until send, so no id is
-  // returned here — parity with the pre-refactor shape. `url` is derived
-  // from the stored key via the shared helper.
-  return writeJSON({
-    url: mediaUrlFromKey(result.r2Key),
-    filename: result.filename,
-    contentType: result.contentType,
-    size: result.size,
-  })
+    // Reserve-by-id (route/disc step 2b): the human composer now mirrors the
+    // bot flow — the upload creates a PENDING row (messageId = NULL) and returns
+    // its stable id. The composer holds the id in-memory and passes it to `send`,
+    // where `reserveAttachmentsForMessage` links it. `uploaderId` is the
+    // credential user (self-scope, never from the body); `send` re-verifies the
+    // id against (uploader, target) before reserving, so a stolen id can't be
+    // attached to another user's message. Image dimensions are written HERE (the
+    // single source — they never ride the send body) so the pending row is a
+    // self-contained, complete entity at upload time; `reserve` only links it.
+    const row = await queries.communityAttachment.createPendingAttachment(db, {
+      uploaderId: ctx.userId,
+      targetId: id,
+      r2Key: result.r2Key,
+      filename: result.filename,
+      contentType: result.contentType,
+      size: result.size,
+      width: result.width,
+      height: result.height,
+    })
+
+    return writeJSON({
+      id: row.id,
+      filename: row.filename,
+      contentType: result.contentType,
+      size: result.size,
+      ...(result.width !== undefined ? { width: result.width } : {}),
+      ...(result.height !== undefined ? { height: result.height } : {}),
+    })
+  } catch (err) {
+    if (r2KeyToCleanUp !== null) {
+      try {
+        await ctx.env.COMMUNITY_MEDIA.delete(r2KeyToCleanUp)
+      } catch (cleanupErr) {
+        log.error("attachment_upload_r2_cleanup_failed", {
+          route: "channels/[id]/attachments",
+          userId: ctx.userId,
+          r2Key: r2KeyToCleanUp,
+          cleanupErr: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+        })
+      }
+    }
+    log.error("attachment_upload_failure", {
+      route: "channels/[id]/attachments",
+      userId: ctx.userId,
+      cause: err instanceof Error ? err.stack ?? err.message : String(err),
+    })
+    return writeError("internal error", 500)
+  }
 }

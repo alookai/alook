@@ -93,6 +93,8 @@ export function CreateForumPost({
             const res = await uploadFile.mutateAsync({
               target: { channelId: forumChannelId },
               file: att.file,
+              width: att.width,
+              height: att.height,
             })
             uploadedCacheRef.current.set(att.file, res)
             return res

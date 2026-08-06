@@ -106,13 +106,15 @@ describe("useCreateForumPost", () => {
     expect(body.mentionType).toBeUndefined()
   })
 
-  it("threads attachments + mentionType through to the request body", async () => {
+  it("threads attachment IDS + mentionType through to the request body (reserve-by-id)", async () => {
     const { useCreateForumPost } = await load()
     useCreateForumPost()
     apiFetchMock.mockResolvedValueOnce({ post: makePost("p_new") })
 
+    // Reserve-by-id: the client holds full upload descriptors but sends only
+    // the pending-row ids; dimensions already rode the upload (single source).
     const attachments = [{
-      url: "/api/community/media/abc.png",
+      id: "att_1",
       filename: "abc.png",
       contentType: "image/png",
       size: 100,
@@ -129,7 +131,7 @@ describe("useCreateForumPost", () => {
 
     const [, init] = apiFetchMock.mock.calls[0]
     const body = JSON.parse((init as { body: string }).body)
-    expect(body.attachments).toEqual(attachments)
+    expect(body.attachments).toEqual(["att_1"])
     expect(body.mentionType).toBe("everyone")
   })
 

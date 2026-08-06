@@ -70,7 +70,7 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   // mismatch → generic 400, no leak of which id failed.
   if (body.attachments.length > 0) {
     const rows = await withD1Retry(
-      () => queries.communityAttachment.findPendingAttachmentsForBot(db, {
+      () => queries.communityAttachment.findPendingAttachmentsForSender(db, {
         ids: body.attachments,
         uploaderId: botUserId,
         targetId: resolved.channelId,

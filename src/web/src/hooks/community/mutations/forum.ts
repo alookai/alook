@@ -12,9 +12,10 @@ export type CreateForumPostArgs = {
   channelId: string
   name: string
   content: string
-  // Pre-uploaded R2 URLs (not raw files) — the client uploads via
-  // `useUploadFile` before firing this mutation, and the server persists them
-  // as `community_message_attachment` rows on the post's first message.
+  // Pre-uploaded pending attachments — the client uploads via `useUploadFile`
+  // (creating pending rows) before firing this mutation and passes the
+  // descriptors here; only their `id`s reach the server (reserve-by-id,
+  // route/disc step 2b), which links them onto the post's first message.
   attachments?: UploadedAttachment[]
   // Propagated to the first message so `@everyone` audience broadcast
   // fires end-to-end.
@@ -26,11 +27,14 @@ export function useCreateForumPost() {
   const queryClient = useQueryClient()
   return useMutation<CreateForumPostResult, Error, CreateForumPostArgs>({
     mutationFn: async ({ channelId, name, content, attachments, mentionType }) => {
+      // Server receives only the attachment IDS (reserve-by-id); dimensions
+      // already rode the upload, so they are not re-sent.
+      const attachmentIds = attachments?.map((a) => a.id)
       return apiFetch<CreateForumPostResult>(
         `/api/community/channels/${channelId}/posts`,
         {
           method: "POST",
-          body: JSON.stringify({ name, content, attachments, mentionType }),
+          body: JSON.stringify({ name, content, attachments: attachmentIds, mentionType }),
         },
       )
     },

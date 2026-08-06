@@ -5,7 +5,6 @@ const mockGetMessage = vi.fn()
 const mockGetMessageInScope = vi.fn()
 const mockHardDeleteMessage = vi.fn()
 const mockGetUserInternal = vi.fn()
-const mockCreateAttachment = vi.fn()
 const mockReserveAttachmentsForMessage = vi.fn()
 const mockUnreserveAttachments = vi.fn()
 const mockListByMessageIds = vi.fn()
@@ -38,7 +37,6 @@ vi.mock("@alook/shared", async () => {
         hardDeleteMessage: (...a: unknown[]) => mockHardDeleteMessage(...a),
       },
       communityAttachment: {
-        createAttachment: (...a: unknown[]) => mockCreateAttachment(...a),
         reserveAttachmentsForMessage: (...a: unknown[]) => mockReserveAttachmentsForMessage(...a),
         unreserveAttachments: (...a: unknown[]) => mockUnreserveAttachments(...a),
         listByMessageIds: (...a: unknown[]) => mockListByMessageIds(...a),
@@ -400,7 +398,6 @@ describe("createCommunityMessage — CAS race (plans/fix-agent-send-race-conditi
     expect(result).toEqual({ ok: false, status: 409, error: "seq_conflict" })
     // Lost the race — none of the downstream pipeline steps should fire.
     expect(mockGetMessage).not.toHaveBeenCalled()
-    expect(mockCreateAttachment).not.toHaveBeenCalled()
     expect(mockCreateMentions).not.toHaveBeenCalled()
     expect(mockFanOutToChannel).not.toHaveBeenCalled()
     expect(mockFanOutToDM).not.toHaveBeenCalled()
@@ -453,32 +450,37 @@ describe("createCommunityMessage — attachment width/height reach the live WS b
     mockBroadcastToUser.mockResolvedValue(undefined)
   })
 
-  it("includes width/height on an image attachment in the MESSAGE_CREATE broadcast payload", async () => {
+  it("includes width/height on an image attachment in the MESSAGE_CREATE broadcast payload (reserve-by-id)", async () => {
+    // Reserve-by-id (route/disc step 2b): dimensions are written onto the
+    // pending row at UPLOAD (single source) and reach the broadcast when the
+    // reserved rows are re-read via listByMessageIds after the reserve. There is
+    // no url-carried body path anymore — the caller passes attachmentIds.
     mockCreateMessage.mockResolvedValue({ id: "msg_1" })
-    mockCreateAttachment.mockResolvedValue({
-      id: "att_1",
-      filename: "photo.png",
-      r2Key: "channel/c1/uuid/photo.png",
-      contentType: "image/png",
-      size: 1000,
-      width: 1920,
-      height: 1080,
-    })
+    mockReserveAttachmentsForMessage.mockResolvedValue(["att_1"])
+    mockListByMessageIds.mockResolvedValue([
+      {
+        id: "att_1",
+        messageId: "msg_1",
+        targetId: "c1",
+        filename: "photo.png",
+        r2Key: "channel/c1/uuid/photo.png",
+        contentType: "image/png",
+        size: 1000,
+        width: 1920,
+        height: 1080,
+        position: 0,
+      },
+    ])
     mockGetMessage.mockResolvedValue(messageRow())
 
     await createCommunityMessage({
       db: {} as never,
       authorId: "author_1",
       target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
-      body: {
-        content: "hello",
-        attachments: [
-          { url: "/api/community/media/channel/c1/uuid/photo.png", filename: "photo.png", contentType: "image/png", size: 1000, width: 1920, height: 1080 },
-        ],
-      },
+      body: { content: "hello" },
+      attachmentIds: ["att_1"],
     })
 
-    expect(mockCreateAttachment).toHaveBeenCalledWith({}, expect.objectContaining({ width: 1920, height: 1080, r2Key: "channel/c1/uuid/photo.png" }))
     expect(mockFanOutToChannel).toHaveBeenCalledTimes(1)
     const [, event] = mockFanOutToChannel.mock.calls[0]!
     expect(event.message.attachments).toEqual([

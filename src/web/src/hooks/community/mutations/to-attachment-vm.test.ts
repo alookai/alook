@@ -1,42 +1,61 @@
 import { describe, it, expect } from "vitest"
 import { toAttachmentVm } from "./messages"
 
-// `toAttachmentVm` materializes the optimistic-send attachment view model
-// from the uploaded-attachment shape. Its image branch must carry
-// width/height through — this is one of the silent-drop sites flagged in
-// plans/attachment-image-dimensions.md's plan review (an object literal
-// omitting an optional field produces no typecheck error).
+// `toAttachmentVm` materializes the optimistic-send attachment view model from
+// the uploaded-attachment shape. Reserve-by-id (route/disc step 2b): the input
+// carries the pending-row `id` (no server url), and the display url is derived
+// CLIENT-side from (channelId, id) — matching the id-addressed
+// `channels/{id}/attachments/{attachmentId}` door the server read path emits.
+// The image branch must carry width/height through — a silent-drop site flagged
+// in plans/attachment-image-dimensions.md's plan review.
 describe("toAttachmentVm", () => {
-  it("carries width/height through on an image attachment", () => {
-    const result = toAttachmentVm({
-      url: "/media/a.png",
+  it("carries width/height through on an image attachment + derives the id-addressed url", () => {
+    const result = toAttachmentVm("c1", {
+      id: "att_1",
       filename: "a.png",
       contentType: "image/png",
       size: 1000,
       width: 1920,
       height: 1080,
     })
-    expect(result).toEqual({ kind: "image", name: "a.png", url: "/media/a.png", width: 1920, height: 1080 })
+    expect(result).toEqual({
+      kind: "image",
+      name: "a.png",
+      url: "/api/community/channels/c1/attachments/att_1",
+      width: 1920,
+      height: 1080,
+    })
   })
 
   it("leaves width/height undefined for an image attachment with no dimensions on file", () => {
-    const result = toAttachmentVm({
-      url: "/media/a.png",
+    const result = toAttachmentVm("c1", {
+      id: "att_1",
       filename: "a.png",
       contentType: "image/png",
       size: 1000,
     })
-    expect(result).toEqual({ kind: "image", name: "a.png", url: "/media/a.png", width: undefined, height: undefined })
+    expect(result).toEqual({
+      kind: "image",
+      name: "a.png",
+      url: "/api/community/channels/c1/attachments/att_1",
+      width: undefined,
+      height: undefined,
+    })
   })
 
   it("never adds width/height to a file-kind attachment", () => {
-    const result = toAttachmentVm({
-      url: "/media/a.pdf",
+    const result = toAttachmentVm("c1", {
+      id: "att_2",
       filename: "a.pdf",
       contentType: "application/pdf",
       size: 2048,
     })
-    expect(result).toEqual({ kind: "file", name: "a.pdf", url: "/media/a.pdf", size: "2 KB" })
+    expect(result).toEqual({
+      kind: "file",
+      name: "a.pdf",
+      url: "/api/community/channels/c1/attachments/att_2",
+      size: "2 KB",
+    })
   })
 
   it.each(["image/svg+xml", "image/x-forged"])(

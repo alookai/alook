@@ -65,34 +65,10 @@ function hasParentChannel(
   return target.kind === "thread" || target.kind === "forum_post"
 }
 
-type IncomingAttachment = {
-  /**
-   * Full routable URL as returned by the human upload response
-   * (`/api/community/media/<key>`). The handler strips the `MEDIA_URL_PREFIX`
-   * to derive the stored `r2Key`. Kept on the wire (rather than switching
-   * clients to a raw key) so the human-composer POST shape stays unchanged.
-   */
-  url: string
-  filename: string
-  contentType: string
-  size: number
-  width?: number
-  height?: number
-}
-
-const MEDIA_URL_PREFIX = "/api/community/media/"
-
-function r2KeyFromUrl(url: string): string | null {
-  if (!url.startsWith(MEDIA_URL_PREFIX)) return null
-  const rest = url.slice(MEDIA_URL_PREFIX.length)
-  return rest.length > 0 ? rest : null
-}
-
 export type IncomingMessageBody = {
   content?: unknown
   replyToId?: unknown
   mentionType?: unknown
-  attachments?: unknown
 }
 
 type CreatedAttachment = {
@@ -103,10 +79,6 @@ type CreatedAttachment = {
   size: number | null
   width?: number | null
   height?: number | null
-}
-
-function attachmentTargetId(target: MessageTarget): string {
-  return target.channelId
 }
 
 type FullMessageRow = NonNullable<
@@ -191,13 +163,12 @@ export async function createCommunityMessage(params: {
    */
   includeAuthorInFanout?: boolean
   /**
-   * Agent-attachment path: pending attachment ids the caller has already
-   * validated against (uploader, kind, target). When present, the handler
-   * pre-mints the message id, reserves the pending rows in a single
-   * atomic UPDATE, then inserts the message — compensating unreserves on
-   * every failure path so no message row is ever committed with a partial
-   * attachment set. Mutually exclusive with `body.attachments`, which is the
-   * human-composer path.
+   * Reserve-by-id attachment path (the ONLY attachment path — human web and bot
+   * both use it, route/disc step 2b). Pending attachment ids the caller has
+   * already validated against (uploader, target). When present, the handler
+   * pre-mints the message id, reserves the pending rows in a single atomic
+   * UPDATE, then inserts the message — compensating unreserves on every failure
+   * path so no message row is ever committed with a partial attachment set.
    */
   attachmentIds?: string[]
   /**
@@ -285,13 +256,13 @@ export async function createCommunityMessage(params: {
     }
   }
 
-  const incomingAttachments = Array.isArray(body.attachments)
-    ? (body.attachments as IncomingAttachment[])
-    : undefined
-  if (
-    incomingAttachments &&
-    incomingAttachments.length > MAX_ATTACHMENTS_PER_MESSAGE
-  ) {
+  // Reserve-by-id is the SINGLE attachment path (route/disc step 2b unified the
+  // human composer onto the bot flow): every caller — human web AND bot — passes
+  // pre-uploaded pending-row ids via `attachmentIds`; the route already validated
+  // them against (uploader, target). There is no longer a url-carried inline
+  // attachment path.
+  const attachmentIdCount = Array.isArray(attachmentIds) ? attachmentIds.length : 0
+  if (attachmentIdCount > MAX_ATTACHMENTS_PER_MESSAGE) {
     return {
       ok: false,
       status: 400,
@@ -302,12 +273,8 @@ export async function createCommunityMessage(params: {
   // A message needs either text content OR at least one attachment. Empty
   // both means the client wired something wrong — but a bare
   // attachments-only send is a legitimate flow (drop an image, hit Enter).
-  // Agent-attachment path uses `attachmentIds` (pending rows reserved by
-  // reservation-first flow), NOT `body.attachments`; both count as
-  // "attachment present" for this guard.
-  const hasAgentAttachments = Array.isArray(attachmentIds) && attachmentIds.length > 0
-  const hasHumanAttachments = !!incomingAttachments && incomingAttachments.length > 0
-  if (content.trim().length === 0 && !hasHumanAttachments && !hasAgentAttachments) {
+  const hasAttachments = attachmentIdCount > 0
+  if (content.trim().length === 0 && !hasAttachments) {
     return { ok: false, status: 400, error: "content or attachments required" }
   }
 
@@ -497,9 +464,11 @@ export async function createCommunityMessage(params: {
     }
   }
 
-  // Human-composer path: insert attachment rows now that the message exists.
-  // Agent path: rows were already reserved and pointed at `created.id` via
-  // the pre-minted id, so no additional INSERT is needed here.
+  // Reserve-by-id path (human web AND bot): the pending rows were reserved and
+  // pointed at `created.id` above via `reserveAttachmentsForMessage`, so no
+  // INSERT is needed here — just project the linked rows for the response. The
+  // row already carries its dimensions (written at upload time, the single
+  // source), so the display URL is derived id-addressed via `attachmentUrl`.
   let attachments: CreatedAttachment[] = []
   if (reserveIds) {
     const rows = await queries.communityAttachment.listByMessageIds(db, [created.id])
@@ -512,37 +481,6 @@ export async function createCommunityMessage(params: {
       width: r.width,
       height: r.height,
     }))
-  } else if (incomingAttachments?.length) {
-    const targetId = attachmentTargetId(target)
-    attachments = await Promise.all(
-      incomingAttachments.map(async (att, idx) => {
-        const r2Key = r2KeyFromUrl(att.url)
-        if (!r2Key) {
-          throw new Error(`attachment url outside /api/community/media/: ${att.url}`)
-        }
-        const row = await queries.communityAttachment.createAttachment(db, {
-          messageId: created.id,
-          uploaderId: authorId,
-          targetId,
-          r2Key,
-          filename: att.filename,
-          position: idx,
-          contentType: att.contentType,
-          size: att.size,
-          width: att.width,
-          height: att.height,
-        })
-        return {
-          id: row.id,
-          filename: row.filename,
-          url: attachmentUrl(row.targetId, row.id),
-          contentType: row.contentType,
-          size: row.size,
-          width: row.width,
-          height: row.height,
-        }
-      }),
-    )
   }
 
   const row = await withD1Retry(

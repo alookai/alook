@@ -53,14 +53,22 @@ type PageCache = InfiniteData<MessagesPage>
  * Exported for direct unit testing — see `to-attachment-vm.test.ts`.
  */
 export function toAttachmentVm(
-  a: { url: string; filename: string; contentType: string; size: number; width?: number; height?: number },
+  channelId: string,
+  a: { id: string; filename: string; contentType: string; size: number; width?: number; height?: number },
 ): Attachment {
+  // Reserve-by-id (route/disc step 2b): the server no longer returns a `url` for
+  // a fresh upload — it returns the attachment `id`. The display URL is
+  // id-addressed (the canonical `channels/{id}/attachments/{attachmentId}` door)
+  // and derived HERE client-side, matching what the server's read path emits via
+  // `attachmentUrl`. This keeps the optimistic row's image src identical to the
+  // reconciled row that arrives over WS.
+  const url = `/api/community/channels/${channelId}/attachments/${a.id}`
   const isImage = isInlineAttachmentContentType(a.contentType)
-  if (isImage) return { kind: "image", name: a.filename, url: a.url, width: a.width, height: a.height }
+  if (isImage) return { kind: "image", name: a.filename, url, width: a.width, height: a.height }
   return {
     kind: "file",
     name: a.filename,
-    url: a.url,
+    url,
     size: a.size ? `${Math.round(a.size / 1024)} KB` : "",
   }
 }
@@ -90,7 +98,11 @@ export type SendMessageArgs = {
   content: string
   replyToId?: string
   mentionType?: MentionType
-  attachments?: { url: string; filename: string; contentType: string; size: number; width?: number; height?: number }[]
+  // Reserve-by-id: pre-uploaded pending-attachment descriptors. Only `id` is
+  // sent to the server (in an id array); the rest drive the optimistic VM
+  // (whose url is derived client-side from `id`). No `url` field — the upload
+  // no longer returns one.
+  attachments?: { id: string; filename: string; contentType: string; size: number; width?: number; height?: number }[]
   author: { id: string; name: string; avatar: string }
   // Idempotency nonce. Omitted on a fresh send (the hook mints one); the
   // retry-pill caller passes the failed row's nonce back so the resend reuses
@@ -116,11 +128,15 @@ export function useSendMessage() {
     SendMessageArgs
   >({
     mutationFn: async ({ channelId, content, replyToId, mentionType, attachments, nonce }) => {
+      // Server receives only the attachment IDS (reserve-by-id); the rest of the
+      // descriptor is client-only (optimistic VM). Dimensions already rode the
+      // upload, so they are NOT re-sent here (single-source guard).
+      const attachmentIds = attachments?.map((a) => a.id)
       return apiFetch<SendMessageResult>(
         `/api/community/channels/${channelId}/messages`,
         {
           method: "POST",
-          body: JSON.stringify({ content, replyToId, mentionType, attachments, nonce }),
+          body: JSON.stringify({ content, replyToId, mentionType, attachments: attachmentIds, nonce }),
         },
       )
     },
@@ -166,7 +182,9 @@ export type SendDmMessageArgs = {
   dmId: string
   content: string
   replyToId?: string
-  attachments?: { url: string; filename: string; contentType: string; size: number; width?: number; height?: number }[]
+  // Reserve-by-id (see SendMessageArgs.attachments): id-bearing descriptors;
+  // only `id` reaches the server.
+  attachments?: { id: string; filename: string; contentType: string; size: number; width?: number; height?: number }[]
   nonce: string
 }
 
@@ -177,11 +195,12 @@ export function useSendDmMessage() {
     SendDmMessageArgs
   >({
     mutationFn: async ({ dmId, content, replyToId, attachments, nonce }) => {
+      const attachmentIds = attachments?.map((a) => a.id)
       return apiFetch<SendMessageResult>(
         `/api/community/channels/${dmId}/messages`,
         {
           method: "POST",
-          body: JSON.stringify({ content, replyToId, attachments, nonce }),
+          body: JSON.stringify({ content, replyToId, attachments: attachmentIds, nonce }),
         },
       )
     },

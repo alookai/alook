@@ -38,7 +38,7 @@ vi.mock("@alook/shared", async () => {
         getChannelForMember: (...a: unknown[]) => mockGetChannelForMember(...a),
       },
       communityAttachment: {
-        findPendingAttachmentsForBot: (...a: unknown[]) => mockFindPendingAttachmentsForBot(...a),
+        findPendingAttachmentsForSender: (...a: unknown[]) => mockFindPendingAttachmentsForBot(...a),
       },
     },
   }
@@ -122,7 +122,7 @@ describe("POST /api/community/createPost", () => {
   })
 
   it("(5b) attachment widen: a pending id NOT bound to this forum → 400, no cross-forum reuse", async () => {
-    // Bound to forum A but this create targets forum_1 → findPendingAttachmentsForBot
+    // Bound to forum A but this create targets forum_1 → findPendingAttachmentsForSender
     // (queried with targetId=forum_1) returns fewer rows than requested → 400.
     mockFindPendingAttachmentsForBot.mockResolvedValue([]) // 0 found for 1 requested
     const res = await POST(

@@ -15,6 +15,7 @@ const mockGetDb = vi.fn(() => ({ __db: true }))
 vi.mock("@/lib/db", () => ({ getDb: (...a: unknown[]) => mockGetDb(...a) }))
 
 const mockGetChannelType = vi.fn()
+const mockCreatePendingAttachment = vi.fn()
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
   return {
@@ -24,6 +25,10 @@ vi.mock("@alook/shared", async () => {
       communityChannel: {
         ...actual.queries.communityChannel,
         getChannelType: (...a: unknown[]) => mockGetChannelType(...a),
+      },
+      communityAttachment: {
+        ...actual.queries.communityAttachment,
+        createPendingAttachment: (...a: unknown[]) => mockCreatePendingAttachment(...a),
       },
     },
   }
@@ -368,6 +373,9 @@ describe("handleBotAvatarUpload", () => {
 describe("runAttachmentUpload", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Reserve-by-id: the human arm now creates a pending row at upload and
+    // returns its id. Default the query to echo a stable id.
+    mockCreatePendingAttachment.mockResolvedValue({ id: "att_1", filename: "hi.png" })
   })
 
   function ctxWith(env: Env, params: Record<string, string> | undefined) {
@@ -418,10 +426,12 @@ describe("runAttachmentUpload", () => {
     expect(put).not.toHaveBeenCalled()
   })
 
-  it("channel (text) surface → kind 'channel', channel/ R2 prefix, returns the URL", async () => {
-    // Happy path — access passes, streaming upload succeeds, response shape
-    // mirrors what the three route files used to build inline. A text channel
-    // derives kind="channel" (== what the old channels/[id]/upload passed).
+  it("channel (text) surface → kind 'channel', channel/ R2 prefix, creates a pending row + returns its id (reserve-by-id)", async () => {
+    // Happy path — access passes, streaming upload succeeds, a PENDING row is
+    // created and its id returned (reserve-by-id, route/disc step 2b). A text
+    // channel derives kind="channel" (== what the old channels/[id]/upload
+    // passed). NO `url` in the response anymore — the display url is id-addressed
+    // and derived client-side.
     surfaceChannel("text")
     const put = vi.fn().mockResolvedValue(undefined)
     const res = await runAttachmentUpload(
@@ -430,15 +440,23 @@ describe("runAttachmentUpload", () => {
     )
     expect(res.status).toBe(200)
     const body = (await res.json()) as {
-      url: string
+      id: string
+      url?: string
       filename: string
       contentType: string
       size: number
     }
+    expect(body.id).toBe("att_1")
     expect(body.filename).toBe("hi.png")
     expect(body.contentType).toBe("image/png")
     expect(body.size).toBe(10)
-    expect(body.url).toMatch(/^\/api\/community\/media\/channel\/c1\/[0-9a-f-]+\/hi\.png$/)
+    // Single-source: the upload response carries NO url (client derives it).
+    expect(body.url).toBeUndefined()
+    // Pending row created with the credential uploaderId + resolved target.
+    expect(mockCreatePendingAttachment).toHaveBeenCalledWith(
+      { __db: true },
+      expect.objectContaining({ uploaderId: "u1", targetId: "c1" }),
+    )
     expect(put).toHaveBeenCalledOnce()
     // Known-length R2 body rule applies here too — the shared helper must not
     // hand R2 an unknown-length ReadableStream or buffer into ArrayBuffer.
@@ -447,6 +465,37 @@ describe("runAttachmentUpload", () => {
     expect(streamed).toMatchObject({ size: 10, type: "image/png" })
     expect(streamed).not.toBeInstanceOf(ReadableStream)
     expect(streamed).not.toBeInstanceOf(ArrayBuffer)
+  })
+
+  it("threads client-supplied image dimensions onto the pending row (single source = upload)", async () => {
+    surfaceChannel("text")
+    const put = vi.fn().mockResolvedValue(undefined)
+    // reqWithFile only stubs `get('file')`; extend it to also return w/h so the
+    // form-dimension parse in readFile sees them.
+    const req = reqWithFile(fakeFile("hi.png", "image/png", 10))
+    req.formData = (async () => {
+      const real = new FormData()
+      Object.defineProperty(real, "get", {
+        value: (key: string) =>
+          key === "file"
+            ? fakeFile("hi.png", "image/png", 10)
+            : key === "width"
+              ? "1920"
+              : key === "height"
+                ? "1080"
+                : null,
+      })
+      return real
+    }) as typeof req.formData
+    const res = await runAttachmentUpload(req, ctxWith(envWithR2(put), { id: "c1" }))
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { width?: number; height?: number }
+    expect(body.width).toBe(1920)
+    expect(body.height).toBe(1080)
+    expect(mockCreatePendingAttachment).toHaveBeenCalledWith(
+      { __db: true },
+      expect.objectContaining({ width: 1920, height: 1080 }),
+    )
   })
 
   it("dm surface → kind 'dm', dm/ R2 prefix (== old dm/[id]/upload's kind, buildMediaKey parity)", async () => {

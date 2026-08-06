@@ -45,10 +45,13 @@ export type CreateForumPostInput = {
   rawTitle: string
   /** Post body text (may be empty when attachments carry the content). */
   content: string
-  /** Attachment payloads (human route) — pending-id reservation is the bot route's concern. */
-  attachments?: unknown
   mentionType?: unknown
-  /** Bot-reserved attachment ids, validated by the caller (bot route). */
+  /**
+   * Pending attachment ids, validated by the caller against (uploader, target).
+   * Reserve-by-id is the single attachment path for BOTH callers (human forum
+   * route + bot createPost), route/disc step 2b — there is no url-carried
+   * attachment payload anymore.
+   */
   attachmentIds?: string[]
   clientNonce?: string
 }
@@ -88,9 +91,7 @@ export async function createForumPost(input: CreateForumPostInput): Promise<Crea
   if (!baseSlug) return { ok: false, status: 400, error: "title must contain at least one addressable character" }
 
   const hasContent = content.trim().length > 0
-  const hasAttachments =
-    (Array.isArray(input.attachments) && input.attachments.length > 0) ||
-    (Array.isArray(input.attachmentIds) && input.attachmentIds.length > 0)
+  const hasAttachments = Array.isArray(input.attachmentIds) && input.attachmentIds.length > 0
   // opener-body contract (thread consensus): a post needs text OR an attachment
   // — an attachment-only post is legitimate (the attachment is its body).
   if (!hasContent && !hasAttachments) return { ok: false, status: 400, error: "post is empty" }
@@ -137,7 +138,7 @@ export async function createForumPost(input: CreateForumPostInput): Promise<Crea
     db,
     authorId,
     target: { kind: "forum_post", channelId: postChannel.id, parentChannelId: forumChannelId, serverId },
-    body: { content, attachments: input.attachments, mentionType: input.mentionType },
+    body: { content, mentionType: input.mentionType },
     attachmentIds: input.attachmentIds,
     clientNonce: input.clientNonce,
     skipChildChannelUpdate: true,

@@ -15,7 +15,6 @@ const mockGetMessagesByIdsInScope = vi.fn()
 const mockListMembers = vi.fn()
 const mockListMemberUserIds = vi.fn()
 const mockCreateMentions = vi.fn()
-const mockCreateAttachment = vi.fn()
 const mockListChildChannels = vi.fn()
 const mockIsChannelPrivate = vi.fn(() => false)
 const mockGetPrivateChannelAudienceUserIds = vi.fn(() => [] as string[])
@@ -24,6 +23,8 @@ const mockListMessagesAround = vi.fn()
 const mockListMessagesSince = vi.fn()
 const mockGetLatestMessageSeq = vi.fn()
 const mockListByMessageIds = vi.fn()
+const mockFindPendingAttachmentsForSender = vi.fn()
+const mockReserveAttachmentsForMessage = vi.fn()
 const mockListReactionsByMessageIds = vi.fn()
 const mockGetUserInternal = vi.fn()
 const mockGetDM = vi.fn()
@@ -83,8 +84,9 @@ vi.mock("@alook/shared", async () => {
         addThreadParticipants: vi.fn(async () => undefined),
       },
       communityAttachment: {
-        createAttachment: (...a: unknown[]) => mockCreateAttachment(...a),
         listByMessageIds: (...a: unknown[]) => mockListByMessageIds(...a),
+        findPendingAttachmentsForSender: (...a: unknown[]) => mockFindPendingAttachmentsForSender(...a),
+        reserveAttachmentsForMessage: (...a: unknown[]) => mockReserveAttachmentsForMessage(...a),
       },
       communityReaction: {
         listReactionsByMessageIds: (...a: unknown[]) => mockListReactionsByMessageIds(...a),
@@ -208,10 +210,6 @@ describe("POST /api/community/channels/[id]/messages", () => {
     mockListMemberUserIds.mockResolvedValue([])
     mockGetMessagesByIdsInScope.mockResolvedValue([])
     mockCreateMentions.mockResolvedValue(undefined)
-    mockCreateAttachment.mockImplementation(async (_db: unknown, input: any) => ({
-      id: "a1",
-      ...input,
-    }))
     mockFanOutToChannel.mockResolvedValue(undefined)
     mockBroadcastToUser.mockResolvedValue(undefined)
     mockCheckMessageRateLimit.mockResolvedValue({ allowed: true })
@@ -307,13 +305,40 @@ describe("POST /api/community/channels/[id]/messages", () => {
   })
 
   it("rejects more than MAX_ATTACHMENTS_PER_MESSAGE attachments with 400", async () => {
-    const attachments = Array.from({ length: MAX_ATTACHMENTS_PER_MESSAGE + 1 }, (_, i) => ({
-      url: `r2://x/${i}`,
-      filename: `f${i}.png`,
-      contentType: "image/png",
-      size: 1,
-    }))
-    const res = await POST(postReq({ content: "ok", attachments }), ctx)
+    // Reserve-by-id: the human arm sends pending-row IDS. All ids validate as
+    // owned/attachable (findPending echoes them), so the over-cap rejection is
+    // the message handler's own MAX_ATTACHMENTS_PER_MESSAGE guard, not a
+    // validation miss.
+    const attachmentIds = Array.from({ length: MAX_ATTACHMENTS_PER_MESSAGE + 1 }, (_, i) => `att_${i}`)
+    mockFindPendingAttachmentsForSender.mockResolvedValue(attachmentIds.map((id) => ({ id })))
+    const res = await POST(postReq({ content: "ok", attachments: attachmentIds }), ctx)
+    expect(res.status).toBe(400)
+    expect(mockCreateMessage).not.toHaveBeenCalled()
+  })
+
+  it("reserve-by-id: validates the pending ids (uploader+target) then passes attachmentIds to the handler", async () => {
+    mockFindPendingAttachmentsForSender.mockResolvedValue([{ id: "att_1" }, { id: "att_2" }])
+    mockCreateMessage.mockResolvedValue({ id: "m_new" })
+    mockReserveAttachmentsForMessage.mockResolvedValue(["att_1", "att_2"])
+    mockListByMessageIds.mockResolvedValue([])
+    const res = await POST(postReq({ content: "pics", attachments: ["att_1", "att_2"] }), ctx)
+    expect(res.status).toBe(201)
+    // The validation query is scoped to THIS user + THIS channel (self-scope /
+    // confused-deputy-safe — the human dual of the download authorize-from-row).
+    expect(mockFindPendingAttachmentsForSender).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({ ids: ["att_1", "att_2"], uploaderId: "u1" }),
+    )
+  })
+
+  it("reserve-by-id confused-deputy guard: a foreign/stolen pending id (count mismatch) → 400, no message", async () => {
+    // The composer sends 2 ids but only 1 is owned by this user in this target
+    // (the other belongs to someone else / a different channel). The
+    // uploader+target-scoped query returns fewer rows than requested → reject
+    // with a generic 400 that never says which id failed, and NO message row is
+    // created. This is the send-side confused-deputy guard.
+    mockFindPendingAttachmentsForSender.mockResolvedValue([{ id: "att_mine" }])
+    const res = await POST(postReq({ content: "steal", attachments: ["att_mine", "att_theirs"] }), ctx)
     expect(res.status).toBe(400)
     expect(mockCreateMessage).not.toHaveBeenCalled()
   })

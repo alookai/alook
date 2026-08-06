@@ -121,6 +121,26 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   }
   const content = typeof body.content === "string" ? body.content : ""
 
+  // Reserve-by-id (route/disc step 2b): the composer uploads to the FORUM
+  // channel (the post child doesn't exist yet at upload time), so pending rows
+  // carry `targetId = forum channelId`. Validate each id against (uploader =
+  // this user, target = this forum) before creating the post — the same
+  // uploader-scoped guard the message send arm uses. The reserve inside
+  // createForumPost re-links them to the new post's first message.
+  const attachmentIds = Array.isArray(body.attachments)
+    ? (body.attachments as unknown[]).filter((x): x is string => typeof x === "string")
+    : []
+  if (attachmentIds.length > 0) {
+    const rows = await queries.communityAttachment.findPendingAttachmentsForSender(db, {
+      ids: attachmentIds,
+      uploaderId: ctx.userId,
+      targetId: channelId,
+    })
+    if (rows.length !== attachmentIds.length) {
+      return writeError("attachment not found or not attachable to this target", 400)
+    }
+  }
+
   // Create via the shared core (B4 creation-axis convergence): slug dedupe +
   // forum_post child create + first-message-as-body, with the collision
   // contract dispatched on the forum_post `creation` trait (pure-create:
@@ -135,7 +155,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     authorId: ctx.userId,
     rawTitle: body.name,
     content,
-    attachments: body.attachments,
+    attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
     mentionType: body.mentionType,
   })
   if (!result.ok) return writeError(result.error, result.status)

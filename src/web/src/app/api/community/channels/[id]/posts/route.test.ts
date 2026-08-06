@@ -5,6 +5,8 @@ const mockGetChannelForMember = vi.fn()
 const mockResolveChannelAccessContext = vi.fn()
 const mockCreateChannel = vi.fn()
 const mockDedupeChildChannelSlug = vi.fn(async (_db: unknown, _parent: unknown, slug: string) => slug)
+const mockFindPendingAttachmentsForSender = vi.fn(async () => [])
+const mockReserveAttachmentsForMessage = vi.fn(async () => [])
 const mockCreateMessage = vi.fn()
 const mockGetMessage = vi.fn()
 const mockGetUserSelf = vi.fn()
@@ -50,15 +52,10 @@ vi.mock("@alook/shared", async () => {
         createMentions: vi.fn(async () => []),
       },
       communityAttachment: {
-        createAttachment: vi.fn(async (_db: unknown, args: Record<string, unknown>) => ({
-          id: "att_1",
-          filename: args.filename,
-          r2Key: args.r2Key,
-          contentType: args.contentType,
-          size: args.size,
-          width: args.width,
-          height: args.height,
-        })),
+        // Reserve-by-id: the post route validates pending ids via findPending,
+        // then createForumPost reserves them onto the first message.
+        findPendingAttachmentsForSender: (...a: unknown[]) => mockFindPendingAttachmentsForSender(...a),
+        reserveAttachmentsForMessage: (...a: unknown[]) => mockReserveAttachmentsForMessage(...a),
         listByMessageIds: vi.fn(async () => []),
         unreserveAttachments: vi.fn(async () => {}),
       },
@@ -245,13 +242,15 @@ describe("POST /api/community/channels/[id]/posts — content + attachments cont
   })
 
   it("empty content + one valid attachment creates the post (attachments-only path)", async () => {
-    const attachments = [
-      { url: "/api/community/media/abc.png", filename: "abc.png", contentType: "image/png", size: 100, width: 10, height: 10 },
-    ]
-    const res = await POST(postReq({ name: "img", content: "", attachments }), ctx)
+    // Reserve-by-id: the client sends pending-row IDS; the route validates them
+    // (findPending echoes → count matches) then createForumPost reserves them.
+    mockFindPendingAttachmentsForSender.mockResolvedValueOnce([{ id: "att_1" }])
+    mockReserveAttachmentsForMessage.mockResolvedValueOnce(["att_1"])
+    const res = await POST(postReq({ name: "img", content: "", attachments: ["att_1"] }), ctx)
     expect(res.status).toBe(201)
-    // Route passes attachments through to createCommunityMessage.
+    // Route passes attachment ids through to createForumPost → reserve.
     expect(mockCreateChannel).toHaveBeenCalled()
+    expect(mockReserveAttachmentsForMessage).toHaveBeenCalled()
   })
 
   it("threads mentionType through to createCommunityMessage / first message", async () => {
