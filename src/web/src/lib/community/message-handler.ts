@@ -37,6 +37,16 @@ export type MessageTarget =
     serverId: string
   }
   | { kind: "dm"; channelId: string; otherUserId: string }
+  // A top-level `forum`-type channel (parentChannelId is null — it's still
+  // the addressed channel itself, not a child under it; peer to "channel",
+  // not to "thread"/"forum_post" which both carry a parent). Split out from
+  // the generic "channel" kind so the SEND layer can dispatch "does this
+  // send open a thread" off the target's own structural kind — the same
+  // channel.type the door already resolved — instead of an ad-hoc body
+  // field. A body field's presence is a client choice, decoupled from the
+  // channel's actual type; branching on the target's own kind here means
+  // there is only ever one axis deciding this, not two that can drift apart.
+  | { kind: "forum"; channelId: string; serverId: string }
 
 export function isDmTarget<T extends { kind: string }>(target: T): target is Extract<T, { kind: "dm" }>
 export function isDmTarget(kind: string): boolean

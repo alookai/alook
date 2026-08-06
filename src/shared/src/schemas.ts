@@ -1169,6 +1169,27 @@ export const CommunityAgentSendRequestSchema = z
     // retries; server dedupes on (author, nonce). Bounded length so a client
     // can't stuff arbitrary data. Absent = no dedup (legacy behavior).
     nonce: z.string().min(1).max(128).optional(),
+    // send-into-forum (phase2 forum≡thread, folds the flat createPost verb):
+    // NOT a "this is a post" flag — there is no such concept at this layer.
+    // `content` above is always the message landing in the addressed
+    // channel/forum (the "opener"); `replyContent`, when present, is a SECOND
+    // message sent into the thread the server auto-opens on that opener —
+    // exactly the same "send a message, then reply in its thread" sequence a
+    // human clicking through two separate actions would produce, just
+    // completed atomically in one request via createMessageWithThread's
+    // existing compensation chain — two client-driven HTTP calls instead
+    // would reopen the non-atomicity gap that primitive exists to close (an
+    // opener that lands with no reply is a half-built post, unrecoverable
+    // once the first call has already committed and broadcast). Whether the
+    // TARGET requires `replyContent` (a forum top-level does — a forum is a
+    // browsable topic list, so its messages need a human-scannable opener)
+    // is decided server-side by the resolved target's channel.type, NOT by
+    // this field's presence — see resolveMessageTarget's forum-kind
+    // dispatch. A CLI/UI may call this "title" as a friendly label; the wire
+    // and data model never use that word — it's message content, following
+    // MAX_MESSAGE_CONTENT_LENGTH like any other content, not a channel-naming
+    // constant (title is no longer a channel name at all).
+    replyContent: z.string().min(1).max(MAX_MESSAGE_CONTENT_LENGTH).optional(),
   })
   .refine(
     (d) => d.content.text.trim().length > 0 || d.attachments.length > 0,

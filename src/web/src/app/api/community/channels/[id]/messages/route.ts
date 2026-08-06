@@ -14,6 +14,7 @@ import {
 import { enrichMessages } from "@/lib/community/enrich-messages"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { createCommunityMessage } from "@/lib/community/message-handler"
+import { createMessageWithThread } from "@/lib/community/create-channels"
 import {
   resolveMessageTarget,
   type MessageTargetDescriptor,
@@ -290,6 +291,54 @@ async function handleBotSend(
   }
   const target = resolved.value.target
   const channelId = target.channelId
+
+  // Sending into a forum's top level always opens a thread on the opener
+  // message — a forum is a browsable topic list, so every message landing
+  // there needs its own thread the same way a post always did. This branches
+  // on the TARGET's resolved kind (set by resolveMessageTarget from the
+  // channel's own stored type), never on a body field's presence — a forum
+  // message always gets this treatment regardless of what fields the client
+  // happened to send, and a plain channel/thread/DM never does regardless of
+  // what fields it sends either. `replyContent` is required here because a
+  // forum entry needs a human-scannable opener distinct from its body; a
+  // thread can't nest another thread and a DM has no thread axis, which is
+  // exactly why this path is only reachable when the target's kind is
+  // "forum". No alignment/hasUnread gate on this branch — opening a
+  // brand-new thread is a fresh scope with no seq contention to align
+  // against.
+  if (target.kind === "forum") {
+    if (body.replyContent === undefined) {
+      return NextResponse.json({ error: "replyContent is required when sending into a forum" }, { status: 400 })
+    }
+    if (body.attachments.length > 0) {
+      const rows = await withD1Retry(
+        () => queries.communityAttachment.findPendingAttachmentsForSender(db, { ids: body.attachments, uploaderId: botUserId, targetId: channelId }),
+        { route: "community/messages:post-attachments" },
+      )
+      if (rows.length !== body.attachments.length) {
+        return NextResponse.json({ error: "attachment not found or not attachable to this target" }, { status: 400 })
+      }
+    }
+    const created = await createMessageWithThread({
+      db,
+      authorId: botUserId,
+      parentChannelId: channelId,
+      serverId: target.serverId,
+      body: { content: body.content.text },
+      replyBody: { content: body.replyContent },
+      attachmentIds: undefined,
+      replyAttachmentIds: body.attachments.length > 0 ? body.attachments : undefined,
+      clientNonce: body.nonce,
+      source: "cli",
+    })
+    if (!created.ok) return NextResponse.json({ error: created.error }, { status: created.status })
+    const orderedAttachments = created.replyAttachments.map((a) => ({ id: a.id, filename: a.filename, contentType: a.contentType, size: a.size }))
+    const message = await queries.communityAgentInbox.toAgentMessage(db, created.message, botUserId)
+    const reply = created.reply
+      ? await queries.communityAgentInbox.toAgentMessage(db, created.reply, botUserId, orderedAttachments)
+      : null
+    return NextResponse.json({ state: "sent", message, reply, threadId: created.thread.id })
+  }
 
   const scopeTarget = { channelId }
   const [latestSeq, readState] = await Promise.all([

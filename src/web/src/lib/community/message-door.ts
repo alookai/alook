@@ -141,6 +141,10 @@ export async function resolveMessageTarget(
   const bearing = requireMessageBearingSurface(channel.type)
   if (!bearing.ok) return err(bearing.status, bearing.error)
 
+  // A top-level `forum` channel gets its OWN kind (not the generic
+  // "channel") so the send layer can dispatch "does this open a thread" off
+  // the target's structural kind — the same channel.type this function
+  // already resolved — instead of a body-field trigger.
   const target: MessageTarget = channel.parentChannelId
     ? {
         kind: channel.type === "forum_post" ? "forum_post" : "thread",
@@ -148,7 +152,9 @@ export async function resolveMessageTarget(
         parentChannelId: channel.parentChannelId,
         serverId: channel.serverId,
       }
-    : { kind: "channel", channelId, serverId: channel.serverId }
+    : channel.type === "forum"
+      ? { kind: "forum", channelId, serverId: channel.serverId }
+      : { kind: "channel", channelId, serverId: channel.serverId }
 
   return ok({ target, isDm: false })
 }

@@ -94,6 +94,24 @@ describe("createMessageWithThread (phase2 forum≡thread — atomic-by-compensat
     }
   })
 
+  it("threadName is ALWAYS truncated to MAX_CHANNEL_NAME_LENGTH (100), even when explicitly passed a longer string — the thread's `name` column is a channel-naming field, bounded like any other channel name, regardless of how long a post's title (up to MAX_MESSAGE_CONTENT_LENGTH=4000) happens to be", async () => {
+    mockCreateCommunityMessage.mockResolvedValue({ ok: true, row: { id: "msg_1", content: "short", channelId: "forum_1" }, attachments: [] })
+    mockCreateChannel.mockResolvedValue({ id: "th_1", creatorId: "u1", createdAt: "t0", name: "x" })
+    const longTitle = "x".repeat(4000)
+
+    await createMessageWithThread({
+      db: {} as any,
+      authorId: "u1",
+      parentChannelId: "forum_1",
+      serverId: "s1",
+      body: { content: "short" },
+      threadName: longTitle,
+    })
+
+    const [, createChannelArgs] = mockCreateChannel.mock.calls[0]
+    expect(createChannelArgs.name.length).toBe(100)
+  })
+
   it("fresh-create seeds the author as a SPOKE participant and fires CHILD_CHANNEL_CREATE by default", async () => {
     mockCreateCommunityMessage.mockResolvedValue({ ok: true, row: { id: "msg_1", content: "hi", channelId: "forum_1" }, attachments: [] })
     mockCreateChannel.mockResolvedValue({ id: "th_1", creatorId: "u1", createdAt: "t0", name: "hi" })
@@ -210,6 +228,53 @@ describe("createMessageWithThread (phase2 forum≡thread — atomic-by-compensat
       }),
     )
     if (res.ok) expect(res.reply?.id).toBe("msg_2")
+  })
+
+  it("replyAttachmentIds attach to the REPLY (body) message, not the opener (title) — matches the old create-forum-post.ts model where attachments rode the content message, now the reply", async () => {
+    mockCreateCommunityMessage
+      .mockResolvedValueOnce({ ok: true, row: { id: "msg_1", content: "My Post Title", channelId: "forum_1" }, attachments: [] })
+      .mockResolvedValueOnce({ ok: true, row: { id: "msg_2", content: "body text", channelId: "th_1" }, attachments: [{ id: "att_1" }] })
+    mockCreateChannel.mockResolvedValue({ id: "th_1", creatorId: "u1", createdAt: "t0", name: "My Post Title" })
+
+    await createMessageWithThread({
+      db: {} as any,
+      authorId: "u1",
+      parentChannelId: "forum_1",
+      serverId: "s1",
+      body: { content: "My Post Title" },
+      replyBody: { content: "body text" },
+      replyAttachmentIds: ["att_1"],
+    })
+
+    // Opener call carries NO attachmentIds (undefined, per its own attachmentIds param).
+    expect(mockCreateCommunityMessage).toHaveBeenNthCalledWith(1,
+      expect.objectContaining({ attachmentIds: undefined }),
+    )
+    // Reply call carries replyAttachmentIds under createCommunityMessage's attachmentIds field.
+    expect(mockCreateCommunityMessage).toHaveBeenNthCalledWith(2,
+      expect.objectContaining({ attachmentIds: ["att_1"] }),
+    )
+  })
+
+  it("when the reply's attachment reserve fails inside createCommunityMessage (which self-cleans its own message), the outer compensation STILL deletes the thread + opener — the two compensation layers compose, not conflict", async () => {
+    mockCreateCommunityMessage
+      .mockResolvedValueOnce({ ok: true, row: { id: "msg_1", content: "Title", channelId: "forum_1" }, attachments: [] })
+      .mockResolvedValueOnce({ ok: false, status: 400, error: "attachment not found or not attachable to this target" })
+    mockCreateChannel.mockResolvedValue({ id: "th_1", creatorId: "u1", createdAt: "t0", name: "Title" })
+
+    const res = await createMessageWithThread({
+      db: {} as any,
+      authorId: "u1",
+      parentChannelId: "forum_1",
+      serverId: "s1",
+      body: { content: "Title" },
+      replyBody: { content: "body" },
+      replyAttachmentIds: ["stolen_att"],
+    })
+
+    expect(res).toEqual({ ok: false, status: 400, error: "attachment not found or not attachable to this target" })
+    expect(mockDeleteChannel).toHaveBeenCalledWith(expect.anything(), "th_1")
+    expect(mockHardDeleteMessage).toHaveBeenCalledWith(expect.anything(), "msg_1")
   })
 
   it("without replyBody, reply is null and only ONE createCommunityMessage call happens (the migration M=0 orphan path — opener + empty thread is a normal state)", async () => {

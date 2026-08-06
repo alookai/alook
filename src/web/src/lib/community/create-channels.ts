@@ -296,7 +296,14 @@ export async function createThreadForUser(
 type CreateMessageSuccess = Extract<Awaited<ReturnType<typeof createCommunityMessage>>, { ok: true }>
 
 export type CreateMessageWithThreadResult =
-  | { ok: true; message: CreateMessageSuccess["row"]; attachments: CreateMessageSuccess["attachments"]; thread: Awaited<ReturnType<typeof queries.communityChannel.createChannel>>; reply: CreateMessageSuccess["row"] | null }
+  | {
+    ok: true
+    message: CreateMessageSuccess["row"]
+    attachments: CreateMessageSuccess["attachments"]
+    thread: Awaited<ReturnType<typeof queries.communityChannel.createChannel>>
+    reply: CreateMessageSuccess["row"] | null
+    replyAttachments: CreateMessageSuccess["attachments"]
+  }
   | { ok: false; status: number; error: string }
 
 /**
@@ -370,7 +377,12 @@ export async function createMessageWithThread(params: {
   threadName?: string
   suppressBroadcast?: boolean
   suppressThreadFanout?: boolean
+  /** Attachment ids for the OPENER (title) message. See `replyAttachmentIds`
+   *  for the reply/body message's attachments — the old create-forum-post.ts
+   *  model attached ids to the (single) content message, i.e. what is now
+   *  the reply, not the title; keep that semantics, don't drop it. */
   attachmentIds?: string[]
+  replyAttachmentIds?: string[]
   clientNonce?: string
   source?: "cli" | "daemon-http" | "web"
 }): Promise<CreateMessageWithThreadResult> {
@@ -389,7 +401,13 @@ export async function createMessageWithThread(params: {
   if (!created.ok) return { ok: false, status: created.status, error: created.error }
   const messageId = created.row.id
 
-  const threadName = params.threadName?.trim() || created.row.content?.slice(0, MAX_CHANNEL_NAME_LENGTH) || "thread"
+  // Always truncated to MAX_CHANNEL_NAME_LENGTH — the thread's `name` column
+  // is a channel-naming field (display-only, but still bounded like every
+  // other channel name), regardless of how long the caller-supplied
+  // threadName or the opener's own content happens to be (e.g. a post's
+  // title can be up to MAX_MESSAGE_CONTENT_LENGTH — do not let that length
+  // leak into this field uncapped).
+  const threadName = (params.threadName?.trim() || created.row.content?.trim() || "thread").slice(0, MAX_CHANNEL_NAME_LENGTH)
 
   let threadResult: Awaited<ReturnType<typeof createWithCollisionPolicy<Awaited<ReturnType<typeof queries.communityChannel.createChannel>>>>>
   try {
@@ -461,7 +479,7 @@ export async function createMessageWithThread(params: {
   }
 
   if (!params.replyBody) {
-    return { ok: true, message: created.row, attachments: created.attachments, thread: childChannel, reply: null }
+    return { ok: true, message: created.row, attachments: created.attachments, thread: childChannel, reply: null, replyAttachments: [] }
   }
 
   // Reply step (opener+title's paired body text). Same target shape ANY reply
@@ -475,6 +493,7 @@ export async function createMessageWithThread(params: {
     target: { kind: "thread", channelId: childChannel.id, parentChannelId, serverId },
     body: params.replyBody,
     source: params.source,
+    attachmentIds: params.replyAttachmentIds,
     suppressBroadcast: params.suppressBroadcast,
   })
   if (!reply.ok) {
@@ -507,5 +526,5 @@ export async function createMessageWithThread(params: {
     return { ok: false, status: reply.status, error: reply.error }
   }
 
-  return { ok: true, message: created.row, attachments: created.attachments, thread: childChannel, reply: reply.row }
+  return { ok: true, message: created.row, attachments: created.attachments, thread: childChannel, reply: reply.row, replyAttachments: reply.attachments }
 }
