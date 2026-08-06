@@ -143,7 +143,12 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
         ? new Blob([new Uint8Array(req.file.data)], { type: blobType })
         : req.file.data;
     form.append("file", bytes as Blob, req.file.filename);
-    const url = `${base}/api/attachmentUpload?target=${encodeURIComponent(req.target)}`;
+    // Canonical attachments door: POST channels/{id}/attachments. The bot holds
+    // a REF (not an id), so it uses the `resolve` placeholder id and carries the
+    // ref on `?target=` (kept — Gener #68); the door's bot arm resolves it
+    // member-scoped → 404 (①-C). Same multipart BODY + `?target=` query as the
+    // old flat `attachmentUpload`; only the PATH changes.
+    const url = `${base}/api/community/channels/${REF_PLACEHOLDER_ID}/attachments?target=${encodeURIComponent(req.target)}`;
     const res = await fetchImpl(url, {
       method: "POST",
       headers: { authorization: `Bearer ${config.voucher}` },
@@ -437,14 +442,21 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
   }
 
   async function callDownload(req: AttachmentDownloadRequest): Promise<AgentAttachmentDownloadResult> {
-    const res = await fetchImpl(`${base}/api/attachmentDownload`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${config.voucher}`,
+    // Canonical attachments door: GET channels/{id}/attachments/{attachmentId}.
+    // The attachment id is authoritative (the door authorizes from the row's own
+    // channel, never the path), so the id moves from the old POST body into the
+    // path and the `resolve` placeholder fills the channel segment. The response
+    // is still a raw binary body + `X-Alook-Filename`; success streaming +
+    // error-as-JSON handling below is unchanged.
+    const res = await fetchImpl(
+      `${base}/api/community/channels/${REF_PLACEHOLDER_ID}/attachments/${encodeURIComponent(req.id)}`,
+      {
+        method: "GET",
+        headers: {
+          authorization: `Bearer ${config.voucher}`,
+        },
       },
-      body: JSON.stringify({ id: req.id }),
-    });
+    );
     if (!res.ok) {
       // Error responses ARE JSON. Streaming success responses are binary.
       // Route through the shared helper so empty/HTML-502/read-fail all

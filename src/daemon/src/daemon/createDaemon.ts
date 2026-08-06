@@ -155,6 +155,14 @@ export function deriveAuditLogSubcommand(pathname: string, method?: string): str
     return method === "GET" ? "read" : "send";
   }
   if (/^\/api\/community\/channels\/[^/]+\/members(\/|$)/.test(canonical)) return "channelMember";
+  // Attachments door (attachments fold): the flat `attachmentUpload` /
+  // `attachmentDownload` verbs fold onto channels/{id}/attachments (POST upload)
+  // + channels/{id}/attachments/{attachmentId} (GET download). Map both back so
+  // the audit row keeps the logical verb, not the `channels` door segment. The
+  // download shape (has the `{attachmentId}` sub-segment) is tested FIRST so the
+  // bare-upload shape doesn't swallow it.
+  if (/^\/api\/community\/channels\/[^/]+\/attachments\/[^/]+/.test(canonical)) return "attachmentDownload";
+  if (/^\/api\/community\/channels\/[^/]+\/attachments(\/|$)/.test(canonical)) return "attachmentUpload";
   // Single-message hydrate door GET messages/{id} = the folded `resolve` verb.
   // AFTER the /reactions & /threads patterns so those specific sub-paths win.
   if (/^\/api\/community\/messages\/[^/]+$/.test(canonical)) return "resolve";

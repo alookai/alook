@@ -4,6 +4,7 @@ import {
   buildUserAvatarKey,
   buildBotAvatarKey,
   mediaUrlFromKey,
+  attachmentUrl,
   sanitizeAttachmentFilename,
   userAvatarUrl,
   botAvatarUrl,
@@ -86,5 +87,11 @@ describe("buildMediaKey", () => {
 describe("mediaUrlFromKey", () => {
   it("prepends the media route prefix without adding a slash", () => {
     expect(mediaUrlFromKey("channel/c1/uuid/a.png")).toBe("/api/community/media/channel/c1/uuid/a.png")
+  })
+})
+
+describe("attachmentUrl", () => {
+  it("builds the id-addressed canonical attachments-door URL from targetId + attachmentId", () => {
+    expect(attachmentUrl("c1", "att_1")).toBe("/api/community/channels/c1/attachments/att_1")
   })
 })

@@ -16,13 +16,36 @@ export function sanitizeAttachmentFilename(input: string): string {
 }
 
 /**
- * Derive the routable media URL from a stored R2 key. Every read-side call
- * site (`groupAttachments`, `mapMessageForApi`, `mapMessageForWs`) goes
- * through this helper so the `/api/community/media/` prefix lives in one
- * place.
+ * Derive the routable media URL from a stored R2 key.
+ *
+ * This is the HUMAN UPLOAD→SEND CARRIER: the human upload route hands the
+ * client this `/media/<key>` URL, the client echoes it back on `send`, and
+ * `r2KeyFromUrl` strips the prefix to recover the stored key (there is no
+ * attachment id at upload time, so a key-bearing URL is the only round-trip
+ * anchor available until the composer switches to reserve-by-id). Keep it
+ * pointed at the media route until that composer switch lands.
+ *
+ * NOT the read/render URL anymore — persisted attachment rows render through
+ * `attachmentUrl` (id-addressed, served by the canonical
+ * `channels/{id}/attachments/{attachmentId}` door).
  */
 export function mediaUrlFromKey(r2Key: string): string {
   return `/api/community/media/${r2Key}`
+}
+
+/**
+ * Read/render URL for a persisted attachment, served by the canonical
+ * `GET /api/community/channels/{targetId}/attachments/{attachmentId}` door.
+ * Every read-side call site (`groupAttachments`, the reserve/incoming arms of
+ * the message-create handler) builds display URLs through this helper so the
+ * id-addressed attachment scheme lives in one place.
+ *
+ * The `{targetId}` path segment is a routing anchor only — the download door
+ * authorizes from the attachment ROW's own channel, never from the path — so a
+ * stale/forged targetId can't reach another row's bytes.
+ */
+export function attachmentUrl(targetId: string, attachmentId: string): string {
+  return `/api/community/channels/${targetId}/attachments/${attachmentId}`
 }
 
 // R2 storage key builders

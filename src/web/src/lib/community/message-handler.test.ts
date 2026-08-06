@@ -1026,6 +1026,7 @@ describe("createCommunityMessage — attachment reservation-first flow (agent pa
       {
         id: "att_1",
         filename: "photo.png",
+        targetId: "c1",
         r2Key: "channel/c1/uuid/photo.png",
         contentType: "image/png",
         size: 100,
@@ -1050,7 +1051,9 @@ describe("createCommunityMessage — attachment reservation-first flow (agent pa
       expect.objectContaining({
         id: "att_1",
         filename: "photo.png",
-        url: "/api/community/media/channel/c1/uuid/photo.png",
+        // id-addressed render URL (attachments fold) — served by the canonical
+        // channels/{targetId}/attachments/{attachmentId} door.
+        url: "/api/community/channels/c1/attachments/att_1",
       }),
     ])
     expect(mockUnreserveAttachments).not.toHaveBeenCalled()

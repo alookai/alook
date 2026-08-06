@@ -424,6 +424,25 @@ describe("createProxyServerApi — callUpload via parseJsonResponse", () => {
       } as never),
     ).rejects.toThrow(/upstream returned 500 with non-JSON body from \/api\/attachmentUpload/);
   });
+
+  it("POSTs the canonical attachments door with the ref on ?target= (retargeted, `resolve` placeholder id)", async () => {
+    const seen: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
+      seen.push({ url, init });
+      return jsonBody(JSON.stringify({ id: "att_1", filename: "x.png", contentType: "image/png", size: 3 }), { status: 200 });
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const out = await api.attachmentUpload({
+      agentId: "a1",
+      target: "/demo/general",
+      file: { data: new Uint8Array([1, 2, 3]), filename: "x.png", contentType: "image/png" },
+    } as never);
+    expect(out).toEqual({ id: "att_1", filename: "x.png", contentType: "image/png", size: 3 });
+    const u = new URL(seen[0].url);
+    expect(u.pathname).toBe("/api/community/channels/resolve/attachments");
+    expect(u.searchParams.get("target")).toBe("/demo/general");
+    expect(seen[0].init?.method).toBe("POST");
+  });
 });
 
 describe("createProxyServerApi — callDownload", () => {
@@ -445,14 +464,16 @@ describe("createProxyServerApi — callDownload", () => {
 
   it("happy path writes the binary body to destPath", async () => {
     const bytes = new Uint8Array([1, 2, 3, 4]);
-    const fetchImpl: FetchLike = vi.fn(async () =>
-      bufferResponse(bytes, {
+    const seen: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchWithCapture: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
+      seen.push({ url, init });
+      return bufferResponse(bytes, {
         "content-type": "image/png",
         "content-length": String(bytes.length),
         "x-alook-filename": encodeURIComponent("hi.png"),
-      }),
-    );
-    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+      });
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchWithCapture as typeof fetch });
     const dest = path.join(tmp, "out.png");
     const out = await api.attachmentDownload({ agentId: "a1", id: "att_1", destPath: dest } as never);
     expect(out.path).toBe(dest);
@@ -460,6 +481,11 @@ describe("createProxyServerApi — callDownload", () => {
     expect(out.contentType).toBe("image/png");
     expect(out.size).toBe(bytes.length);
     expect(fs.readFileSync(dest)).toEqual(Buffer.from(bytes));
+    // Retargeted: GET the canonical attachments door with the id in the PATH
+    // (`resolve` placeholder channel segment), not the old POST-body flat verb.
+    const u = new URL(seen[0].url);
+    expect(u.pathname).toBe("/api/community/channels/resolve/attachments/att_1");
+    expect(seen[0].init?.method).toBe("GET");
   });
 });
 

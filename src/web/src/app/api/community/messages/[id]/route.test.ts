@@ -112,7 +112,7 @@ describe("GET /api/community/messages/[id]", () => {
     })
     mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
     mockListByMessageIds.mockResolvedValue([
-      { messageId: "m1", filename: "photo.png", r2Key: "channel/c1/uuid/photo.png", contentType: "image/png", size: 12345 },
+      { id: "att_1", messageId: "m1", targetId: "c1", filename: "photo.png", r2Key: "channel/c1/uuid/photo.png", contentType: "image/png", size: 12345 },
     ])
     mockListReactionsByMessageIds.mockResolvedValue([
       { messageId: "m1", emoji: "👍", userId: "u1" },
@@ -124,10 +124,11 @@ describe("GET /api/community/messages/[id]", () => {
     expect(body.id).toBe("m1")
     expect(body.content).toBe("hello")
     expect(body.authorName).toBe("Alice")
-    // Attachments came through the mapper (grouped shape) — url is now
-    // derived from r2Key via the shared helper.
+    // Attachments came through the mapper (grouped shape) — url is now the
+    // id-addressed render URL (attachments fold), served by the canonical
+    // channels/{targetId}/attachments/{attachmentId} door.
     expect(body.attachments).toEqual([
-      { kind: "image", name: "photo.png", url: "/api/community/media/channel/c1/uuid/photo.png" },
+      { kind: "image", name: "photo.png", url: "/api/community/channels/c1/attachments/att_1" },
     ])
     // Reactions came through with `me: true` since userId matches.
     expect(body.reactions).toEqual([

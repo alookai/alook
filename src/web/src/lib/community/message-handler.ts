@@ -17,7 +17,7 @@ import type { Database } from "@alook/shared"
 import { fanOutToChannel, resolveChannelRecipients } from "./fanout"
 import { dispatchMessageNotify } from "./notify"
 import { mapMessageForWs } from "./message-payload"
-import { mediaUrlFromKey } from "./storage"
+import { attachmentUrl } from "./storage"
 import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "./audit"
 
 const log = createLogger({ service: "community-message-handler" })
@@ -506,7 +506,7 @@ export async function createCommunityMessage(params: {
     attachments = rows.map((r) => ({
       id: r.id,
       filename: r.filename,
-      url: mediaUrlFromKey(r.r2Key),
+      url: attachmentUrl(r.targetId, r.id),
       contentType: r.contentType,
       size: r.size,
       width: r.width,
@@ -535,7 +535,7 @@ export async function createCommunityMessage(params: {
         return {
           id: row.id,
           filename: row.filename,
-          url: mediaUrlFromKey(row.r2Key),
+          url: attachmentUrl(row.targetId, row.id),
           contentType: row.contentType,
           size: row.size,
           width: row.width,

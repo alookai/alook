@@ -54,8 +54,12 @@ export function zipUploadResultsWithDimensions(
 function uploadPath(target: UploadTarget): string | null {
   // Thread / DM / channel are all channel rows in one id-space → one upload
   // door. Whichever id the target carries, it's a channelId to channels/{id}.
+  // Canonical attachments door (route/disc trunk): POST channels/{id}/attachments
+  // (re-pointed off the old channels/{id}/upload, which stays alive through the
+  // deploy window and is deleted at the flat-delete step). Response shape is
+  // unchanged — the human arm still returns the `{ url, filename, ... }` carrier.
   const id = target.threadId ?? target.dmId ?? target.channelId
-  return id ? `/api/community/channels/${id}/upload` : null
+  return id ? `/api/community/channels/${id}/attachments` : null
 }
 
 export function useUploadFile() {

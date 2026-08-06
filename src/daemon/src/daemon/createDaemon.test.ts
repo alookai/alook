@@ -764,6 +764,15 @@ describe("deriveAuditLogSubcommand", () => {
     expect(deriveAuditLogSubcommand("/api/community/users/me/inbox/ack", "POST")).toBe(null);
     // bot-self lifecycle door (bots/me/*): nap maps back to `nap`, not `bots`.
     expect(deriveAuditLogSubcommand("/api/community/bots/me/nap", "POST")).toBe("nap");
+    // attachments door (attachments fold): channels/{id}/attachments = upload,
+    // channels/{id}/attachments/{attachmentId} = download. Map back to the
+    // logical verb, not the `channels` door segment. Download shape (has the
+    // sub-segment) must win over the bare-upload shape.
+    expect(deriveAuditLogSubcommand("/api/community/channels/resolve/attachments", "POST")).toBe("attachmentUpload");
+    expect(deriveAuditLogSubcommand("/api/community/channels/c1/attachments", "POST")).toBe("attachmentUpload");
+    expect(deriveAuditLogSubcommand("/api/community/channels/resolve/attachments?target=%2Fs%2Fg", "POST")).toBe("attachmentUpload");
+    expect(deriveAuditLogSubcommand("/api/community/channels/resolve/attachments/att_1", "GET")).toBe("attachmentDownload");
+    expect(deriveAuditLogSubcommand("/api/community/channels/c1/attachments/att_1", "GET")).toBe("attachmentDownload");
   });
 });
 

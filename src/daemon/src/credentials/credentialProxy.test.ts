@@ -90,6 +90,21 @@ describe("DEFAULT_CAPABILITY_RESOLVER", () => {
     expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/channels/resolve/messages")).not.toBe("server");
   });
 
+  it("maps the canonical attachments door (attachments fold) to `attach`, NOT `server` — no new rule needed", () => {
+    // The upload/download verbs folded onto channels/{id}/attachments. The
+    // existing `.includes("/attachment")` rule fires FIRST (before the shape
+    // rules and before the legacy `/channel → server` fallback), so the nested
+    // path keeps the `attach` capability with no resolver change (Aigneis #554).
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/channels/resolve/attachments")).toBe("attach");
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/channels/c1/attachments?target=%2Fs%2Fg")).toBe("attach");
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/channels/resolve/attachments/att_1")).toBe("attach");
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/channels/c1/attachments/att_1")).toBe("attach");
+    // The `/channels/` substring must NOT drag it to the `server` fallback.
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/channels/c1/attachments/att_1")).not.toBe("server");
+    // …and must NOT be mistaken for the messages door (send/read).
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/channels/resolve/attachments")).not.toBe("send");
+  });
+
   it("maps the message-keyed write doors to `send` (reactions PUT/DELETE, threads POST, seq GET→read)", () => {
     expect(DEFAULT_CAPABILITY_RESOLVER("PUT", "/api/community/messages/resolve/reactions/%F0%9F%91%8D")).toBe("send");
     expect(DEFAULT_CAPABILITY_RESOLVER("DELETE", "/api/community/messages/m1/reactions/%F0%9F%91%8D")).toBe("send");
