@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { QueryClient } from "@tanstack/react-query"
+import { communityKeys } from "@/lib/query-keys"
 
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => apiFetchMock(...args) }))
@@ -41,5 +43,21 @@ describe("membership facade composition", () => {
       throw new Error(`unexpected ${url}`)
     })
     await expect(invitableFriendsQueryFn("s1")).rejects.toThrow("stale D1 read")
+  })
+
+  it("keeps last-good candidates when a QueryClient refetch gets a stale response", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const key = communityKeys.invitableFriends("s1")
+    const lastGood = { friends: [{ ...bob, id: "friend_2" }] }
+    client.setQueryData(key, lastGood)
+    apiFetchMock.mockImplementation(async (url: string) => {
+      if (url === "/api/community/friends/accepted") return { friends: [], stale: true }
+      if (url.includes("/api/community/servers/s1/members?")) return { members: [], hasMore: false }
+      throw new Error(`unexpected ${url}`)
+    })
+
+    await expect(client.fetchQuery({ queryKey: key, queryFn: () => invitableFriendsQueryFn("s1") })).rejects.toThrow("stale D1 read")
+    expect(client.getQueryData(key)).toEqual(lastGood)
+    client.clear()
   })
 })
