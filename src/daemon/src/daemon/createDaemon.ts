@@ -58,8 +58,73 @@ const WARMUP_CEILING_MS = 30_000;
  * unsampled (full-fidelity deep dives).
  */
 const FSM_TRACE_MAX_BYTES = 8 * 1024 * 1024;
+const RUNTIME_RAW_TRACE_MAX_BYTES = 8 * 1024 * 1024;
+export const RUNTIME_RAW_TRACE_AGENT_IDS_ENV = "ALOOK_RUNTIME_RAW_TRACE_AGENT_IDS";
 /** How often the daemon rewrites the `daemon status` snapshot file (batch E2). */
 const STATUS_WRITE_INTERVAL_MS = 5_000;
+
+export function parseRuntimeRawTraceAgentIds(value: string | undefined): ReadonlySet<string> {
+  return new Set(
+    (value ?? "")
+      .split(",")
+      .map((agentId) => agentId.trim())
+      .filter((agentId) => agentId.length > 0 && agentId !== "*"),
+  );
+}
+
+export function createRuntimeRawLineTap(args: {
+  traceDir?: string;
+  enabledAgentIds: ReadonlySet<string>;
+  logger: Pick<Logger, "warn">;
+  maxBytes?: number;
+}): ((agentId: string, line: string) => void) | undefined {
+  if (!args.traceDir || args.enabledAgentIds.size === 0) return undefined;
+  const traceDir = args.traceDir;
+  const maxBytes = args.maxBytes ?? RUNTIME_RAW_TRACE_MAX_BYTES;
+  const sinks = new Map<string, ReturnType<typeof createRotatingFileSink>>();
+  const warned = new Set<string>();
+  const warnOnce = (agentId: string, path: string, operation: string, error: unknown): void => {
+    if (warned.has(agentId)) return;
+    warned.add(agentId);
+    args.logger.warn("runtime raw trace sink failed", {
+      agentId,
+      path,
+      operation,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  };
+
+  return (agentId, line) => {
+    if (!args.enabledAgentIds.has(agentId)) return;
+    const encodedAgentId = encodeURIComponent(agentId).replace(/\./g, "%2E");
+    const path = `${traceDir}/runtime-raw-events-${encodedAgentId}.jsonl`;
+    const serializedBytes = Buffer.byteLength(line, "utf8") + 1;
+    if (serializedBytes > maxBytes) {
+      warnOnce(
+        agentId,
+        path,
+        "oversize",
+        new Error(`raw line is ${serializedBytes} bytes; max is ${maxBytes}`),
+      );
+      return;
+    }
+    let sink = sinks.get(agentId);
+    if (!sink) {
+      try {
+        mkdirSync(traceDir, { recursive: true });
+      } catch (error) {
+        warnOnce(agentId, path, "mkdir", error);
+      }
+      sink = createRotatingFileSink(path, maxBytes, {
+        mode: 0o600,
+        hardMaxBytes: true,
+        onError: ({ operation, error }) => warnOnce(agentId, path, operation, error),
+      });
+      sinks.set(agentId, sink);
+    }
+    sink.write(line);
+  };
+}
 
 /**
  * Derive the audit-log `cli_invocation` subcommand from a proxy request
@@ -217,6 +282,11 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
 
   // Self-healing: resolve CLI path with fallback if primary is missing
   const resolvedCliPath = resolveAlookCliPathWithFallback(opts.agentCliPath);
+  const onRuntimeRawLine = createRuntimeRawLineTap({
+    traceDir: opts.fsmTraceDir,
+    enabledAgentIds: parseRuntimeRawTraceAgentIds(process.env[RUNTIME_RAW_TRACE_AGENT_IDS_ENV]),
+    logger: log,
+  });
 
   const timeline = createTimelineRecorder({
     timelineDirFor: (agentId) => `${workdirFor(agentId)}/.context_timeline`,
@@ -618,6 +688,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     // `ready` frame's `runningAgents` reflects what's actually live and the
     // server's reconciler safety net can flip stale pills to idle.
     onAgentLocallyStopped: (info) => router?.markLocallyStopped(info.agentId),
+    onRuntimeRawLine,
     // FSM transition trace → file. One JSON line per reduce so a wedge that
     // logs nothing else is reconstructable from its FSM history (the "no log
     // when it breaks" fix, plans/daemon-fsm-desync.md). Two modes:

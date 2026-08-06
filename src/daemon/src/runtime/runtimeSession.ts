@@ -71,6 +71,11 @@ export interface SendInput {
   mode?: StdinMode;
 }
 
+export interface ChildProcessRuntimeSessionOptions {
+  /** Observability-only tap for each complete non-empty stdout line, before parsing. */
+  onRawStdoutLine?: (line: string) => void;
+}
+
 export class ChildProcessRuntimeSession {
   readonly descriptor: RuntimeSessionDescriptor;
   private readonly events = new EventEmitter();
@@ -82,6 +87,7 @@ export class ChildProcessRuntimeSession {
   constructor(
     private readonly driver: Driver,
     private readonly ctx: LaunchContext,
+    private readonly opts: ChildProcessRuntimeSessionOptions = {},
   ) {
     this.descriptor = descriptorFromDriver(driver);
   }
@@ -155,6 +161,11 @@ export class ChildProcessRuntimeSession {
       this.stdoutBuffer = lines.pop() || "";
       for (const line of lines) {
         if (!line.trim()) continue;
+        try {
+          this.opts.onRawStdoutLine?.(line);
+        } catch {
+          /* an observability tap cannot alter runtime parsing */
+        }
         for (const event of this.driver.parseLine(line)) {
           this.events.emit("runtime_event", event);
         }
@@ -174,6 +185,10 @@ export class ChildProcessRuntimeSession {
   }
 }
 
-export function createChildProcessRuntimeSession(driver: Driver, ctx: LaunchContext): ChildProcessRuntimeSession {
-  return new ChildProcessRuntimeSession(driver, ctx);
+export function createChildProcessRuntimeSession(
+  driver: Driver,
+  ctx: LaunchContext,
+  opts?: ChildProcessRuntimeSessionOptions,
+): ChildProcessRuntimeSession {
+  return new ChildProcessRuntimeSession(driver, ctx, opts);
 }

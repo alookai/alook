@@ -158,6 +158,12 @@ export interface ManagerRuntimeOpts {
    */
   onAgentLocallyStopped?: (info: { agentId: string; reason: "stop" | "terminate_stalled" }) => void;
   /**
+   * Observability-only tap for complete child-process stdout lines. The host
+   * owns persistence; the manager only adds agent identity before the shared
+   * runtime session parses the line. SDK sessions do not emit through it.
+   */
+  onRuntimeRawLine?: (agentId: string, line: string) => void;
+  /**
    * Pure-observability FSM transition trace. Called once per `dispatch` reduce
    * (for events carrying an agentId) with the post-reduce key fields + the
    * effect kinds produced. Wired in `createDaemon` to append to a file when
@@ -680,6 +686,7 @@ export class AgentProcessManager {
       | "onAgentActivity"
       | "onBotAuditEvent"
       | "onAgentLocallyStopped"
+      | "onRuntimeRawLine"
       | "onFsmTransition"
       | "timeline"
       | "wakePromptFooter"
@@ -698,6 +705,7 @@ export class AgentProcessManager {
       | "onAgentActivity"
       | "onBotAuditEvent"
       | "onAgentLocallyStopped"
+      | "onRuntimeRawLine"
       | "onFsmTransition"
       | "timeline"
       | "wakePromptFooter"
@@ -1408,6 +1416,7 @@ export class AgentProcessManager {
       );
     }
 
+    const rawLineSink = this.opts.onRuntimeRawLine;
     const session: ManagedSession = this.opts.sessionFactory
       ? this.opts.sessionFactory({ agentId, driver, ctx })
       : driver.createSession
@@ -1416,7 +1425,11 @@ export class AgentProcessManager {
           ctx,
           this.opts.sdkDriverDepsFor!(ctx),
         )
-        : (createChildProcessRuntimeSession(driver, ctx) as ChildProcessRuntimeSession);
+        : (createChildProcessRuntimeSession(
+          driver,
+          ctx,
+          rawLineSink ? { onRawStdoutLine: (line) => rawLineSink(agentId, line) } : undefined,
+        ) as ChildProcessRuntimeSession);
 
     this.sessions.set(agentId, session);
 

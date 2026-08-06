@@ -1,5 +1,7 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import { EventEmitter } from "events";
 import { spawn, type ChildProcess } from "child_process";
+import { PassThrough } from "stream";
 import { ChildProcessRuntimeSession } from "./runtimeSession.js";
 import type { Driver, LaunchContext } from "../types.js";
 
@@ -44,6 +46,30 @@ function minimalCtx(): LaunchContext {
     config: {} as LaunchContext["config"],
     credentialProxy: {} as LaunchContext["credentialProxy"],
   } as LaunchContext;
+}
+
+function controllableDriver(parseLine: Driver["parseLine"]): {
+  driver: Driver;
+  stdout: PassThrough;
+} {
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  const stdin = new PassThrough();
+  const proc = Object.assign(new EventEmitter(), {
+    stdout,
+    stderr,
+    stdin,
+    pid: undefined,
+    exitCode: null,
+    signalCode: null,
+    kill: () => true,
+  }) as unknown as ChildProcess;
+  const driver = {
+    ...realSpawnDriver(),
+    spawn: async () => ({ process: proc }),
+    parseLine,
+  } as Driver;
+  return { driver, stdout };
 }
 
 afterEach(() => {
@@ -96,5 +122,47 @@ describe("ChildProcessRuntimeSession — real subprocess exit fills the physical
     );
     expect(exitInfo.code).toBe(0);
     expect(exitInfo.signal).toBeNull();
+  });
+});
+
+describe("ChildProcessRuntimeSession — raw stdout tap (P0-1)", () => {
+  it("taps each complete non-empty line before parseLine and preserves the original text", async () => {
+    const order: string[] = [];
+    const parseLine = vi.fn((line: string) => {
+      order.push(`parse:${line}`);
+      return [];
+    });
+    const { driver, stdout } = controllableDriver(parseLine);
+    const session = new ChildProcessRuntimeSession(driver, minimalCtx(), {
+      onRawStdoutLine: (line) => order.push(`raw:${line}`),
+    });
+    await session.start({ text: "go" });
+
+    stdout.write(" {\"jsonrpc\":\"2.0\"}");
+    stdout.write(" \n\npartial");
+
+    expect(order).toEqual([
+      'raw: {"jsonrpc":"2.0"} ',
+      'parse: {"jsonrpc":"2.0"} ',
+    ]);
+    expect(parseLine).toHaveBeenCalledTimes(1);
+  });
+
+  it("continues through parseLine and runtime_event when the tap throws", async () => {
+    const parsedEvent = { kind: "text", text: "ok" } as const;
+    const parseLine = vi.fn(() => [parsedEvent]);
+    const { driver, stdout } = controllableDriver(parseLine);
+    const session = new ChildProcessRuntimeSession(driver, minimalCtx(), {
+      onRawStdoutLine: () => {
+        throw new Error("sink failed");
+      },
+    });
+    const events: unknown[] = [];
+    session.on("runtime_event", (event) => events.push(event));
+    await session.start({ text: "go" });
+
+    expect(() => stdout.write('{"type":"message"}\n')).not.toThrow();
+    expect(parseLine).toHaveBeenCalledWith('{"type":"message"}');
+    expect(events).toEqual([parsedEvent]);
   });
 });

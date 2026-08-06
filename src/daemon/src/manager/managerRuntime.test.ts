@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { EventEmitter } from "events";
+import type { ChildProcess } from "child_process";
+import { PassThrough } from "stream";
 import {
   AgentProcessManager,
   truncateThinking,
@@ -47,6 +50,27 @@ function fakeDriver(id: string): Driver {
     encodeStdinMessage: () => null,
     buildSystemPrompt: () => "",
   } as unknown as Driver;
+}
+
+function controllableChildDriver(id: string): { driver: Driver; stdout: PassThrough; parseLine: ReturnType<typeof vi.fn> } {
+  const stdout = new PassThrough();
+  const proc = Object.assign(new EventEmitter(), {
+    stdout,
+    stderr: new PassThrough(),
+    stdin: new PassThrough(),
+    pid: undefined,
+    exitCode: null,
+    signalCode: null,
+    kill: () => true,
+  }) as unknown as ChildProcess;
+  const parseLine = vi.fn(() => []);
+  const driver = {
+    ...fakeDriver(id),
+    lifecycle: { kind: "persistent", start: "immediate", exit: "natural", inFlightWake: "queue" },
+    spawn: async () => ({ process: proc }),
+    parseLine,
+  } as unknown as Driver;
+  return { driver, stdout, parseLine };
 }
 
 // Fake session with manual EE that we can emit into from tests.
@@ -164,6 +188,55 @@ describe("AgentProcessManager — runtime health callbacks", () => {
 
     // Called on every event — router idempotence collapses to one wire frame.
     expect(onRuntimeSessionEstablished).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("AgentProcessManager — raw runtime line tap (P0-1)", () => {
+  it("adds agent identity before the default child-process session parses the line", async () => {
+    const { driver, stdout, parseLine } = controllableChildDriver("codex");
+    const onRuntimeRawLine = vi.fn();
+    const mgr = new AgentProcessManager({
+      driverFor: () => driver,
+      baseContextFor: () => ({
+        workingDirectory: "/tmp",
+        agentId: "agent_a",
+        standingPrompt: "",
+        config: {} as LaunchContext["config"],
+        credentialProxy: {} as LaunchContext["credentialProxy"],
+      }),
+      onRuntimeRawLine,
+    });
+    mgr.register("agent_a");
+    mgr.deliver("agent_a", { seq: 1, text: "hello" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    stdout.write('{"vendor":"field"}\n');
+
+    expect(onRuntimeRawLine).toHaveBeenCalledWith("agent_a", '{"vendor":"field"}');
+    expect(parseLine).toHaveBeenCalledWith('{"vendor":"field"}');
+  });
+
+  it("does not attach the child stdout tap to a custom session factory", () => {
+    const session = fakeSession();
+    const sessionFactory = vi.fn(() => session);
+    const onRuntimeRawLine = vi.fn();
+    const mgr = new AgentProcessManager({
+      driverFor: () => fakeDriver("custom"),
+      baseContextFor: () => ({
+        workingDirectory: "/tmp",
+        agentId: "agent_a",
+        standingPrompt: "",
+        config: {} as LaunchContext["config"],
+        credentialProxy: {} as LaunchContext["credentialProxy"],
+      }),
+      sessionFactory,
+      onRuntimeRawLine,
+    });
+    mgr.register("agent_a");
+    mgr.deliver("agent_a", { seq: 1, text: "hello" });
+
+    expect(sessionFactory).toHaveBeenCalledTimes(1);
+    expect(onRuntimeRawLine).not.toHaveBeenCalled();
   });
 });
 
@@ -918,6 +991,7 @@ describe("AgentProcessManager — in-process SDK driver dispatch (Driver.createS
   it("dispatches through SdkManagedSession (not a child process) when sdkDriverDepsFor is configured, and streams runtime_events normally", async () => {
     const { driver, createSession } = fakeSdkDriver("pi");
     const onRuntimeSessionEstablished = vi.fn();
+    const onRuntimeRawLine = vi.fn();
     const sdkDeps: SdkDriverDeps = {
       buildSpawnEnv: vi.fn().mockResolvedValue({}),
       createAgentSession: vi.fn(),
@@ -932,6 +1006,7 @@ describe("AgentProcessManager — in-process SDK driver dispatch (Driver.createS
       }),
       sdkDriverDepsFor: () => sdkDeps,
       onRuntimeSessionEstablished,
+      onRuntimeRawLine,
     });
     mgr.register("a1");
     mgr.deliver("a1", { seq: 1, text: "hello" });
@@ -940,6 +1015,7 @@ describe("AgentProcessManager — in-process SDK driver dispatch (Driver.createS
 
     expect(createSession).toHaveBeenCalledTimes(1);
     expect(onRuntimeSessionEstablished).toHaveBeenCalledWith("pi");
+    expect(onRuntimeRawLine).not.toHaveBeenCalled();
   });
 
   it("does NOT require a credentialProxy for an in-process SDK driver (that guard is child-process-only)", () => {

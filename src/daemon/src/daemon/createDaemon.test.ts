@@ -1,6 +1,15 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { EventEmitter } from "events";
-import { createDaemon, deriveAuditLogSubcommand, emitImplicitTypingStopOnSend } from "./createDaemon";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  createDaemon,
+  createRuntimeRawLineTap,
+  deriveAuditLogSubcommand,
+  emitImplicitTypingStopOnSend,
+  parseRuntimeRawTraceAgentIds,
+} from "./createDaemon";
 import type { Driver } from "../types";
 import type { Logger } from "../logger";
 
@@ -151,6 +160,111 @@ describe("createDaemon", () => {
     });
     expect(daemon.proxyUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+/);
     await daemon.stop();
+  });
+});
+
+describe("createDaemon — opt-in raw runtime trace (P0-1)", () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("parses only explicit comma-separated agent ids and rejects the all-agents wildcard", () => {
+    expect([...parseRuntimeRawTraceAgentIds(" agent_a,agent_b,agent_a,*, ")]).toEqual([
+      "agent_a",
+      "agent_b",
+    ]);
+    expect(parseRuntimeRawTraceAgentIds(undefined).size).toBe(0);
+  });
+
+  it("stays disabled without both a trace directory and an explicit agent", () => {
+    const logger = stubLogger();
+    expect(createRuntimeRawLineTap({ traceDir: "/tmp/no-create", enabledAgentIds: new Set(), logger })).toBeUndefined();
+    expect(createRuntimeRawLineTap({ enabledAgentIds: new Set(["a1"]), logger })).toBeUndefined();
+  });
+
+  it("writes only selected agents, preserves raw lines, and encodes the agent filename", () => {
+    const dir = mkdtempSync(join(tmpdir(), "runtime-raw-trace-"));
+    dirs.push(dir);
+    const selectedAgent = "../agent_a";
+    const tap = createRuntimeRawLineTap({
+      traceDir: dir,
+      enabledAgentIds: new Set([selectedAgent]),
+      logger: stubLogger(),
+    });
+    expect(tap).toBeDefined();
+
+    tap?.("agent_b", '{"ignored":true}');
+    tap?.(selectedAgent, '{"jsonrpc":"2.0","vendor":"kept"}');
+
+    const path = join(dir, "runtime-raw-events-%2E%2E%2Fagent_a.jsonl");
+    expect(readFileSync(path, "utf8")).toBe('{"jsonrpc":"2.0","vendor":"kept"}\n');
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+    expect(existsSync(join(dir, "runtime-raw-events-agent_b.jsonl"))).toBe(false);
+  });
+
+  it("rotates each selected agent independently and keeps both generations at 0600", () => {
+    const dir = mkdtempSync(join(tmpdir(), "runtime-raw-trace-"));
+    dirs.push(dir);
+    const tap = createRuntimeRawLineTap({
+      traceDir: dir,
+      enabledAgentIds: new Set(["a1", "a2"]),
+      logger: stubLogger(),
+      maxBytes: 20,
+    });
+    tap?.("a1", "x".repeat(19));
+    tap?.("a1", "latest-a1");
+    tap?.("a2", "only-a2");
+
+    const a1 = join(dir, "runtime-raw-events-a1.jsonl");
+    const a2 = join(dir, "runtime-raw-events-a2.jsonl");
+    expect(readFileSync(a1, "utf8")).toBe("latest-a1\n");
+    expect(existsSync(`${a1}.1`)).toBe(true);
+    expect(readFileSync(a2, "utf8")).toBe("only-a2\n");
+    for (const path of [a1, `${a1}.1`, a2]) {
+      expect(statSync(path).mode & 0o777).toBe(0o600);
+      expect(statSync(path).size).toBeLessThanOrEqual(20);
+    }
+  });
+
+  it("drops an oversized multibyte line, warns once, and keeps the file hard-capped", () => {
+    const dir = mkdtempSync(join(tmpdir(), "runtime-raw-trace-"));
+    dirs.push(dir);
+    const logger = stubLogger();
+    const tap = createRuntimeRawLineTap({
+      traceDir: dir,
+      enabledAgentIds: new Set(["a1"]),
+      logger,
+      maxBytes: 6,
+    });
+
+    tap?.("a1", "ééé");
+    tap?.("a1", "ééé");
+    tap?.("a1", "ok");
+
+    const path = join(dir, "runtime-raw-events-a1.jsonl");
+    expect(readFileSync(path, "utf8")).toBe("ok\n");
+    expect(statSync(path).size).toBeLessThanOrEqual(6);
+    expect(logger.calls.warn.filter(([, message]) => message === "runtime raw trace sink failed")).toHaveLength(1);
+  });
+
+  it("warns once per agent when the sink is unwritable and never throws", () => {
+    const dir = mkdtempSync(join(tmpdir(), "runtime-raw-trace-"));
+    dirs.push(dir);
+    const blocker = join(dir, "not-a-directory");
+    writeFileSync(blocker, "x");
+    const logger = stubLogger();
+    const tap = createRuntimeRawLineTap({
+      traceDir: blocker,
+      enabledAgentIds: new Set(["a1"]),
+      logger,
+    });
+
+    expect(() => {
+      tap?.("a1", "one");
+      tap?.("a1", "two");
+    }).not.toThrow();
+    expect(logger.calls.warn.filter(([, message]) => message === "runtime raw trace sink failed")).toHaveLength(1);
   });
 });
 
