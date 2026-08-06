@@ -8,6 +8,7 @@ import {
   WS_EVENTS,
   slugify,
   PARTICIPANT_SOURCE,
+  createLogger,
   type ChannelType,
   type StoredChannelType,
   type Database,
@@ -19,6 +20,8 @@ import { requireServerMember, requireChannelMember } from "@/lib/community/permi
 import { requireMessageBearingSurface } from "@/lib/community/channel-write-guard"
 import { guardDmOpen } from "@/lib/community/dm-guard"
 import { createCommunityMessage, type IncomingMessageBody } from "@/lib/community/message-handler"
+
+const log = createLogger({ service: "community-create-channels" })
 
 /**
  * Single-source creation cores for the `POST /channels` create door (route/disc
@@ -371,11 +374,33 @@ export async function createMessageWithThread(params: {
   } catch (err) {
     // Compensate: the message was inserted but its thread never opened — no
     // caller may see a message that's supposed to have a thread but doesn't.
-    await queries.communityMessage.hardDeleteMessage(db, messageId)
+    // If the compensating hardDelete ALSO throws (same D1 outage the
+    // thread-open was recovering from), log BOTH and re-throw the ORIGINAL
+    // thread-open error — it's the one the caller cares about; matches
+    // message-handler.ts's attachment-reserve rollback shape exactly (never
+    // let a secondary rollback failure mask the real cause, and never fail
+    // silently — Aigneis #670/#680).
+    try {
+      await queries.communityMessage.hardDeleteMessage(db, messageId)
+    } catch (rollbackErr) {
+      log.error("thread_open_rollback_failed", {
+        messageId,
+        threadOpenErr: err instanceof Error ? err.message : String(err),
+        rollbackErr: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+      })
+    }
     throw err
   }
   if (!threadResult.ok) {
-    await queries.communityMessage.hardDeleteMessage(db, messageId)
+    try {
+      await queries.communityMessage.hardDeleteMessage(db, messageId)
+    } catch (rollbackErr) {
+      log.error("thread_open_rollback_failed", {
+        messageId,
+        threadOpenErr: threadResult.error,
+        rollbackErr: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+      })
+    }
     return { ok: false, status: 404, error: "thread not found" }
   }
   const childChannel = threadResult.value

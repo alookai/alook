@@ -161,4 +161,18 @@ describe("createMessageWithThread (phase2 forum≡thread — atomic-by-compensat
 
     expect(mockHardDeleteMessage).toHaveBeenCalledWith(expect.anything(), "msg_1")
   })
+
+  it("when the compensating hardDelete ALSO fails, logs both errors but re-throws the ORIGINAL thread-open error (never masks the real cause, never fails silently)", async () => {
+    mockCreateCommunityMessage.mockResolvedValue({ ok: true, row: { id: "msg_1", content: "hi", channelId: "forum_1" }, attachments: [] })
+    mockCreateChannel.mockRejectedValue(new Error("D1 outage"))
+    mockHardDeleteMessage.mockRejectedValue(new Error("rollback also down"))
+
+    await expect(
+      createMessageWithThread({
+        db: {} as any, authorId: "u1", parentChannelId: "forum_1", serverId: "s1", body: { content: "hi" },
+      }),
+    ).rejects.toThrow("D1 outage")
+
+    expect(mockHardDeleteMessage).toHaveBeenCalledWith(expect.anything(), "msg_1")
+  })
 })
