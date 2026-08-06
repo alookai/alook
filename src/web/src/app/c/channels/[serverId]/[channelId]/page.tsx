@@ -132,9 +132,9 @@ function ChannelView() {
       }),
     [membersHook.members, onlineUserIds, currentUser.id, userStatuses],
   )
-  // Type-gate the forum-posts fetch: only forum channels have a valid
-  // /posts endpoint; text channels return 400. Compute the flag BEFORE the
-  // hook call so `useForumThreads` can stay disabled for non-forum channels.
+  // Type-gate the forum-thread resource fetch: only forum channels render the
+  // forum summary. Compute the flag BEFORE the hook call so `useForumThreads`
+  // can stay disabled for non-forum channels.
   const channelInServer = useMemo(() => {
     const allChannels = currentServer?.categories?.flatMap((c) => c.channels) ?? []
     return allChannels.find((ch) => ch.id === channelId) ?? null
@@ -181,8 +181,8 @@ function ChannelView() {
   const removeThreadParticipantMut = useRemoveThreadParticipant(channelId)
   const addThreadParticipantMut = useAddThreadParticipant(channelId)
   // Top-level channel/forum add-picker source + mutations (add: any member).
-  // W-LAZY (necessity plan): the addable-members list feeds ONLY the "add
-  // members" dialog, so fetch it only while that dialog is open — not eagerly
+  // W-LAZY (necessity plan): the composed candidate pool feeds ONLY the "add
+  // members" dialog, so build it only while that dialog is open — not eagerly
   // on channel open. `manageMembersOpen` gates both the dialog's render and
   // this fetch, so opening the dialog triggers the fetch and a plain channel
   // switch never does.

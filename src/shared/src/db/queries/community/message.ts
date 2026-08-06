@@ -118,9 +118,9 @@ export type CreateMessageData = {
 /**
  * `createMessage` overloads (plans/fix-agent-send-race-condition.md design §2):
  * callers that never pass `expectedSeq` keep today's non-nullable return
- * type — no pointless null-checks forced onto the three direct callers
- * (`channels/[id]/posts/route.ts`, `servers/[id]/bots/route.ts`,
- * `friends/request/route.ts`) that never opt into the CAS guard. Only
+ * type — no pointless null-checks forced onto direct callers such as message
+ * send, bot provisioning, and friend request, which never opt into the CAS
+ * guard. Only
  * callers that explicitly pass a numeric `expectedSeq` (the agent-send race
  * fix) see the nullable return — `null` means "lost the race, no row was
  * written, treat as a complete no-op".
