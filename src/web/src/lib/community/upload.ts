@@ -19,10 +19,10 @@ import {
   buildServerIconKey,
   buildUserAvatarKey,
   buildBotAvatarKey,
+  serverIconUrl,
   userAvatarUrl,
   botAvatarUrl,
 } from "./storage"
-import { isChannelTarget, isDmTarget } from "./message-handler"
 
 const log = createLogger({ service: "community-attachment-upload" })
 
@@ -204,7 +204,12 @@ export async function handleServerIconUpload(
     ok: true,
     id: fileId,
     key,
-    url: `/api/community/media/${key}`,
+    // Canonical icon serve route (the media/[...key] catch-all is deleted in the
+    // route/disc media-delete step). The icon POST route reads `.key` and builds
+    // its own `serverIconUrl` for the response, so this `url` isn't consumed
+    // today — but keep it pointed at the real route so no future caller picks up
+    // a dead `/media/` path.
+    url: serverIconUrl({ id: serverId, icon: key }) ?? "",
     filename: file.name,
     contentType: file.type,
     size: file.size,

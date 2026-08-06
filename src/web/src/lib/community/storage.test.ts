@@ -3,7 +3,6 @@ import {
   buildMediaKey,
   buildUserAvatarKey,
   buildBotAvatarKey,
-  mediaUrlFromKey,
   attachmentUrl,
   sanitizeAttachmentFilename,
   userAvatarUrl,
@@ -81,12 +80,6 @@ describe("buildMediaKey", () => {
     const key = buildMediaKey("channel", "c1", "uuid", "../evil.png")
     expect(key.startsWith("/")).toBe(false)
     expect(key).toBe("channel/c1/uuid/__evil.png")
-  })
-})
-
-describe("mediaUrlFromKey", () => {
-  it("prepends the media route prefix without adding a slash", () => {
-    expect(mediaUrlFromKey("channel/c1/uuid/a.png")).toBe("/api/community/media/channel/c1/uuid/a.png")
   })
 })
 

@@ -16,24 +16,6 @@ export function sanitizeAttachmentFilename(input: string): string {
 }
 
 /**
- * Derive the routable media URL from a stored R2 key.
- *
- * This is the HUMAN UPLOAD→SEND CARRIER: the human upload route hands the
- * client this `/media/<key>` URL, the client echoes it back on `send`, and
- * `r2KeyFromUrl` strips the prefix to recover the stored key (there is no
- * attachment id at upload time, so a key-bearing URL is the only round-trip
- * anchor available until the composer switches to reserve-by-id). Keep it
- * pointed at the media route until that composer switch lands.
- *
- * NOT the read/render URL anymore — persisted attachment rows render through
- * `attachmentUrl` (id-addressed, served by the canonical
- * `channels/{id}/attachments/{attachmentId}` door).
- */
-export function mediaUrlFromKey(r2Key: string): string {
-  return `/api/community/media/${r2Key}`
-}
-
-/**
  * Read/render URL for a persisted attachment, served by the canonical
  * `GET /api/community/channels/{targetId}/attachments/{attachmentId}` door.
  * Every read-side call site (`groupAttachments`, the reserve/incoming arms of
