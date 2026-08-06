@@ -20,9 +20,13 @@ import {
   FieldSeparator,
 } from "@/components/ui/field"
 import { SiGithub, SiGoogle } from "@icons-pack/react-simple-icons"
-import Image from "next/image"
 import { GradientBackground } from "@/components/gradient-background"
 import { Logo } from "@/components/logo"
+import { LandingShellMotion } from "@/components/home/landing-shell-motion"
+import {
+  sceneDurationMs,
+  type LandingScene,
+} from "@/components/home/landing-shell-motion-timeline"
 import { DEV_PASSWORD } from "@alook/shared"
 
 // Default post-login landing when no explicit `?redirect=` is present. Points
@@ -279,64 +283,102 @@ function SignInForm({ postLoginUrl, isProd }: { postLoginUrl: string; isProd: bo
   )
 }
 
-const galleryImages = [
-  { src: "/gallery/collaboration.png", label: "Collaboration" },
-  { src: "/gallery/email.png", label: "Email Inbox" },
-  { src: "/gallery/issues.png", label: "Kanban Board" },
-  { src: "/gallery/calendar.png", label: "Calendar" },
-  { src: "/gallery/local-agent.png", label: "Local Agent" },
+const galleryScenes: { scene: LandingScene; label: string; description: string }[] = [
+  {
+    scene: "server",
+    label: "The best room for agents and humans",
+    description: "Bring your people and agents together in one shared home.",
+  },
+  {
+    scene: "machine",
+    label: "Bring your own workspaces",
+    description: "Use your own computer and existing agent subscriptions.",
+  },
+  {
+    scene: "provider",
+    label: "Persistent identity and memory",
+    description: "Your agents stay themselves, independent of provider.",
+  },
 ]
 
 function ProductGallery() {
   const [active, setActive] = useState(0)
+  const [enabled, setEnabled] = useState(false)
+  const [autoAdvance, setAutoAdvance] = useState(true)
+  const activeScene = galleryScenes[active]
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setActive((i) => (i + 1) % galleryImages.length)
-    }, 3500)
-    return () => clearInterval(interval)
+    const viewport = window.matchMedia("(min-width: 640px)")
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)")
+    const sync = () => {
+      setEnabled(viewport.matches)
+      setAutoAdvance(!reducedMotion.matches)
+    }
+    sync()
+    viewport.addEventListener("change", sync)
+    reducedMotion.addEventListener("change", sync)
+    return () => {
+      viewport.removeEventListener("change", sync)
+      reducedMotion.removeEventListener("change", sync)
+    }
   }, [])
 
+  useEffect(() => {
+    if (!enabled || !autoAdvance) return
+    const timeout = window.setTimeout(() => {
+      setActive((index) => (index + 1) % galleryScenes.length)
+    }, sceneDurationMs(activeScene.scene))
+    return () => window.clearTimeout(timeout)
+  }, [activeScene.scene, autoAdvance, enabled])
+
+  if (!enabled) return null
+
   return (
-    <div className="flex h-full flex-col items-center justify-center p-6">
-      <div className="relative w-full rounded-lg overflow-hidden shadow-lg">
-        {galleryImages.map((img, i) => (
-          <Image
-            key={img.src}
-            src={img.src}
-            alt={img.label}
-            width={600}
-            height={450}
-            className="w-full h-auto transition-opacity duration-500"
-            style={{
-              opacity: i === active ? 1 : 0,
-              position: i === 0 ? "relative" : "absolute",
-              top: 0,
-              left: 0,
-            }}
-            priority={i === 0}
-          />
-        ))}
+    <div className="flex h-full min-h-0 flex-col items-center justify-center p-5 lg:p-7">
+      <div
+        className="w-full overflow-hidden rounded-sm bg-background ring-1 ring-border/60 shadow-lg"
+        role="img"
+        aria-label={activeScene.label}
+      >
+        <LandingShellMotion
+          key={activeScene.scene}
+          scene={activeScene.scene}
+        />
       </div>
-      <p className="mt-3 text-xs text-muted-foreground font-medium tracking-wide">
-        {galleryImages[active].label}
-      </p>
-      <div className="mt-2 flex gap-2">
-        {galleryImages.map((_, i) => (
-          <button
-            key={i}
-            onClick={() => setActive(i)}
-            className="h-1.5 rounded-full transition-all duration-300"
-            style={{
-              width: i === active ? 16 : 6,
-              backgroundColor: i === active
-                ? "var(--foreground)"
-                : "var(--muted-foreground)",
-              opacity: i === active ? 1 : 0.3,
-            }}
-            aria-label={`Show ${galleryImages[i].label}`}
-          />
-        ))}
+      <div className="mt-4 flex w-full items-center justify-between gap-4">
+        <div aria-live="polite">
+          <p className="font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+            {String(active + 1).padStart(2, "0")} / {String(galleryScenes.length).padStart(2, "0")}
+          </p>
+          <p className="mt-1 text-sm font-medium text-foreground">
+            {activeScene.label}
+          </p>
+          <p className="mt-0.5 max-w-lg text-xs leading-relaxed text-muted-foreground">
+            {activeScene.description}
+          </p>
+        </div>
+        <div className="flex" aria-label="Product stories">
+          {galleryScenes.map((item, i) => (
+            <button
+              key={item.scene}
+              onClick={() => setActive(i)}
+              className="grid size-8 place-items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label={`Show ${item.label}`}
+              aria-pressed={i === active}
+            >
+              <span
+                className="h-1.5 rounded-full transition-all duration-300"
+                style={{
+                  width: i === active ? 16 : 6,
+                  backgroundColor: i === active
+                    ? "var(--foreground)"
+                    : "var(--muted-foreground)",
+                  opacity: i === active ? 1 : 0.3,
+                }}
+              />
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   )
@@ -349,17 +391,17 @@ export default function SignInPageClient({ isProd }: { isProd: boolean }) {
   return (
     <div className="relative flex min-h-svh flex-col items-center justify-center p-6 sm:p-10">
       <GradientBackground />
-      <div className="w-full max-w-sm sm:max-w-4xl">
+      <div className="w-full max-w-sm sm:max-w-6xl">
         <div className="flex flex-col gap-6">
           <div className="flex justify-center mb-2">
             <Logo size="lg" />
           </div>
           <Card className="overflow-hidden p-0">
-            <CardContent className="grid p-0 sm:grid-cols-2">
-              <div className="p-6 sm:p-8 sm:min-h-105 flex flex-col justify-center">
+            <CardContent className="grid p-0 sm:grid-cols-[minmax(320px,0.82fr)_minmax(0,1.35fr)]">
+              <div className="flex flex-col justify-center p-6 sm:min-h-120 sm:p-8">
                 <SignInForm postLoginUrl={postLoginUrl} isProd={isProd} />
               </div>
-              <div className="hidden bg-muted sm:block relative overflow-hidden min-h-105">
+              <div className="relative hidden min-h-120 overflow-hidden bg-muted sm:block">
                 <ProductGallery />
               </div>
             </CardContent>

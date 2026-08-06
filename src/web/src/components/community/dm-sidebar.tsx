@@ -23,7 +23,6 @@ export const DmSidebar = memo(function DmSidebar({
   machinesActive?: boolean
   botsActive?: boolean
 }) {
-  if (loading && dms.length === 0) return <DmSidebarSkeleton />
   const isFriendsActive = friendsActive ?? (activeDm === null && !machinesActive && !botsActive)
   return (
     <aside className="flex min-w-0 flex-1 flex-col">
@@ -63,9 +62,11 @@ export const DmSidebar = memo(function DmSidebar({
         <div className="mb-2 px-2 text-xs font-semibold text-muted-foreground">
           Direct Messages
         </div>
-        {dms.length === 0 && (
+        {loading && dms.length === 0 ? (
+          <DmRowsSkeleton />
+        ) : dms.length === 0 ? (
           <p className="px-2 py-4 text-center text-xs text-muted-foreground">Your direct messages will appear here.</p>
-        )}
+        ) : null}
         {dms.map((d) => {
           const active = d.id === activeDm
           const isBlocked = blockedUserIds?.has(d.userId)
@@ -96,25 +97,18 @@ export const DmSidebar = memo(function DmSidebar({
 
 // Loading placeholder for the DM sidebar — mirrors the Friends button + DM
 // row footprint so the column doesn't reflow when conversations arrive.
-function DmSidebarSkeleton() {
+function DmRowsSkeleton() {
   return (
-    <aside className="flex min-w-0 flex-1 flex-col">
-      <div className="flex-1 overflow-hidden px-2 py-4">
-        <Skeleton className="mb-2 h-9 w-full rounded-md" />
-        <div className="my-2 h-px bg-border" />
-        <div className="mb-2 px-2">
-          <Skeleton className="h-3 w-32 rounded" />
-        </div>
-        {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="flex items-center gap-3 rounded-md px-2 py-2">
-            <Skeleton className="size-8 shrink-0 rounded-full" />
-            <div className="flex min-w-0 flex-1 flex-col gap-2">
-              <Skeleton className="h-3.5 w-3/5 rounded" />
-              <Skeleton className="h-3 w-4/5 rounded" />
-            </div>
+    <>
+      {Array.from({ length: 5 }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3 rounded-md px-2 py-2">
+          <Skeleton className="size-8 shrink-0 rounded-full" />
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
+            <Skeleton className="h-3.5 w-3/5 rounded" />
+            <Skeleton className="h-3 w-4/5 rounded" />
           </div>
-        ))}
-      </div>
-    </aside>
+        </div>
+      ))}
+    </>
   )
 }

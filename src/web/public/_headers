@@ -12,9 +12,6 @@
 /images/*
   Cache-Control: public, max-age=2592000
 
-/gallery/*
-  Cache-Control: public, max-age=2592000
-
 # Homepage - cache for 15 minutes
 /
   Cache-Control: public, max-age=900, s-maxage=900, stale-while-revalidate=3600

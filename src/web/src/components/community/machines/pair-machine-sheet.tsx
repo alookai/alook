@@ -125,18 +125,49 @@ export function PairMachineSheet({
           </SheetDescription>
         </SheetHeader>
         <SheetBody className="flex flex-col gap-6">
-          <Step1
+          <PairMachineSteps
             command={command}
             generating={generating || !command}
             onCopy={copyCommand}
+            connectedHostname={connectedHostname}
           />
-          <Step2 ready={!!command} connectedHostname={connectedHostname} />
         </SheetBody>
         <SheetFooter>
           <SheetClose render={<Button variant="secondary">Done</Button>} />
         </SheetFooter>
       </SheetContent>
     </Sheet>
+  )
+}
+
+export function PairMachineSteps({
+  command,
+  generating,
+  onCopy,
+  connectedHostname,
+  step1MotionTarget,
+  step2MotionTarget,
+  step1ClassName,
+  step2ClassName,
+}: {
+  command: string
+  generating: boolean
+  onCopy: () => void
+  connectedHostname: string | null
+  step1MotionTarget?: string
+  step2MotionTarget?: string
+  step1ClassName?: string
+  step2ClassName?: string
+}) {
+  return (
+    <>
+      <div data-motion-target={step1MotionTarget} className={step1ClassName}>
+        <Step1 command={command} generating={generating} onCopy={onCopy} />
+      </div>
+      <div data-motion-target={step2MotionTarget} className={step2ClassName}>
+        <Step2 ready={Boolean(command)} connectedHostname={connectedHostname} />
+      </div>
+    </>
   )
 }
 

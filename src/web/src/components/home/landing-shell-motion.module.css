@@ -1,0 +1,277 @@
+.root {
+  width: 100%;
+}
+
+.stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1120 / 660;
+  overflow: hidden;
+  pointer-events: none;
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+  contain: layout paint;
+  isolation: isolate;
+}
+
+.canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1120px;
+  height: 660px;
+  transform: scale(var(--stage-scale));
+  transform-origin: top left;
+}
+
+.camera {
+  position: absolute;
+  inset: 0;
+  width: 1120px;
+  height: 660px;
+  transform: scale(var(--camera-scale));
+  transform-origin: var(--camera-origin-x) var(--camera-origin-y);
+  transition:
+    transform 980ms cubic-bezier(0.4, 0, 0.2, 1),
+    transform-origin 980ms cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;
+}
+
+.sceneEnter {
+  animation: scene-enter 440ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.cursor {
+  position: absolute;
+  z-index: 80;
+  width: 22px;
+  height: 22px;
+  pointer-events: none;
+  color: var(--foreground);
+  filter: drop-shadow(0 1px 1px color-mix(in oklch, var(--background), transparent 20%));
+  transform: translate(-3px, -3px);
+  transition:
+    left 760ms cubic-bezier(0.4, 0, 0.2, 1),
+    top 760ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 240ms ease-out;
+}
+
+.sheetSurface {
+  position: absolute;
+  z-index: 50;
+  top: 8px;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  width: 448px;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--background);
+  box-shadow: 0 25px 50px -12px rgb(0 0 0 / 25%);
+  outline: none;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateX(32px);
+  transition:
+    transform 680ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 420ms cubic-bezier(0.4, 0, 0.2, 1),
+    visibility 0s linear 680ms;
+}
+
+.sheetSurface[data-open="true"] {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateX(0);
+  transition:
+    transform 680ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 420ms cubic-bezier(0.4, 0, 0.2, 1),
+    visibility 0s;
+}
+
+.motionTarget {
+  transform: scale(1);
+  transform-origin: center;
+  transition:
+    transform 900ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 720ms cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform, opacity;
+}
+
+.focus {
+  position: relative;
+  z-index: 4;
+  isolation: isolate;
+  transform: scale(1.02);
+}
+
+.recede {
+  opacity: 0.72;
+  transform: scale(0.992);
+}
+
+.messageSlot {
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(10px);
+  transition:
+    transform 560ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 420ms cubic-bezier(0.4, 0, 0.2, 1),
+    visibility 0s linear 560ms;
+}
+
+.messageSlot[data-visible="true"] {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition:
+    transform 560ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 420ms cubic-bezier(0.4, 0, 0.2, 1),
+    visibility 0s;
+}
+
+.composerLayer {
+  grid-area: 1 / 1;
+  opacity: 0;
+  transition: opacity 240ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.composerLayer[data-visible="true"] {
+  opacity: 1;
+}
+
+.composerLayer:first-child {
+  display: block;
+}
+
+.composerLayer:nth-child(2) {
+  position: absolute;
+  inset: 12px 48px;
+}
+
+.typingText {
+  display: inline-block;
+  overflow: hidden;
+  max-width: 0;
+  white-space: nowrap;
+  vertical-align: bottom;
+  animation: typing 620ms steps(11, end) forwards;
+}
+
+.stateStack {
+  display: grid;
+}
+
+.stateLayer {
+  grid-area: 1 / 1;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(10px);
+  transition:
+    transform 620ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 440ms cubic-bezier(0.4, 0, 0.2, 1),
+    visibility 0s linear 620ms;
+}
+
+.stateLayer[data-visible="true"] {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition:
+    transform 620ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 440ms cubic-bezier(0.4, 0, 0.2, 1),
+    visibility 0s;
+}
+
+.resultReveal {
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(12px) scale(0.98);
+  transition:
+    transform 680ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 460ms cubic-bezier(0.4, 0, 0.2, 1),
+    visibility 0s linear 680ms;
+}
+
+.resultReveal[data-visible="true"] {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0) scale(1);
+  transition:
+    transform 680ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 460ms cubic-bezier(0.4, 0, 0.2, 1),
+    visibility 0s;
+}
+
+.botMenu {
+  position: absolute;
+  z-index: 20;
+  top: 52px;
+  right: 16px;
+  width: max-content;
+  min-width: 144px;
+  padding: 8px;
+  border-radius: var(--radius-lg);
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: var(--shadow-md);
+  outline: 1px solid color-mix(in oklch, var(--foreground), transparent 90%);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-6px) scale(0.96);
+  transform-origin: top right;
+  transition:
+    transform 280ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 220ms ease-out,
+    visibility 0s linear 280ms;
+}
+
+.botMenu[data-visible="true"] {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0) scale(1);
+  transition:
+    transform 280ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 220ms ease-out,
+    visibility 0s;
+}
+
+@keyframes scene-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@keyframes typing {
+  to {
+    max-width: 11ch;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cursor {
+    display: none;
+  }
+
+  .motionTarget,
+  .messageSlot,
+  .composerLayer,
+  .typingText,
+  .stateLayer,
+  .resultReveal,
+  .botMenu,
+  .sheetSurface,
+  .camera,
+  .sceneEnter {
+    transition: none;
+    animation: none;
+  }
+
+  .typingText {
+    max-width: 11ch;
+  }
+}
