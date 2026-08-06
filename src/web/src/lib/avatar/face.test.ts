@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
-import { renderFaceSvg, ink } from "./face"
+import { FACE_HAT_LINE, FACE_SHAPE_PATHS, FACE_VOCABULARY, renderFaceSvg, ink } from "./face"
+import { PALETTES } from "./boring-palettes"
 
 const PALETTE = ["#00686c", "#32c2b9", "#edecb3", "#fad928", "#ff9915"]
 
@@ -76,13 +77,12 @@ describe("renderFaceSvg", () => {
 
   it("keeps the tilt gentle (upright, human) — never a full spin", () => {
     // Faces ride the shape rotation; a big spin flips them upside-down ("not a
-    // face anymore"). Rotation must stay within ±8° (rot = i%17 − 8). A wider
-    // tilt would also eat the crown-reserve budget (radial shapes are rotation-
-    // invariant in max radius, but the closed-form bound assumes this cap).
+    // face anymore"). Rotation must stay within ±20° (rot = i%41 − 20). A wider
+    // tilt would also eat the crown-reserve budget of the grounded paths.
     for (let n = 0; n < 80; n++) {
       const svg = renderFaceSvg(`r-${n}`, PALETTE)
       const rot = parseFloat((svg.match(/rotate\((-?\d+(?:\.\d+)?)/) ?? ["", "0"])[1])
-      expect(Math.abs(rot)).toBeLessThanOrEqual(8)
+      expect(Math.abs(rot)).toBeLessThanOrEqual(20)
     }
   })
 
@@ -123,13 +123,7 @@ describe("renderFaceSvg", () => {
     }
   })
 
-  it("reserves the top ~20% (y<7.2) for a hat — the crown never pokes into the band", () => {
-    // The head is placed low (center y23.5) and sized (R14.45) so the top of the
-    // canvas stays clear for a future hat ("头的最高点不能超过帽子"). Recompute the
-    // transformed topmost point of the wrapper path for many seeds and assert it
-    // stays >= HAT_LINE. This mirrors the closed-form bound (worst crown ~8.76);
-    // if a shape/geometry change lowered the crown into the band, this fails.
-    const HAT_LINE = 7.2
+  it("keeps the slim future hat band clear without changing approved shapes", () => {
     const CX = 18
     const CYh = 23.5
     for (let n = 0; n < 400; n++) {
@@ -154,24 +148,52 @@ describe("renderFaceSvg", () => {
         crown = Math.min(crown, y)
       }
       void tx
-      expect(crown).toBeGreaterThanOrEqual(HAT_LINE)
+      expect(crown).toBeGreaterThanOrEqual(FACE_HAT_LINE)
     }
   })
 
-  it("picks shape, eye, and mouth independently and near-uniformly (no digit%6 clustering)", () => {
+  it("keeps every approved shape control point below the slim hat line at every ±20° angle", () => {
+    const CX = 18
+    const CYh = 23.5
+    const scale = 1.02
+    for (const d of FACE_SHAPE_PATHS) {
+      const points = [...d.matchAll(/(-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?)/g)].map((match) => [
+        parseFloat(match[1]),
+        parseFloat(match[2]),
+      ])
+      for (let rotation = -20; rotation <= 20; rotation++) {
+        const rad = (rotation * Math.PI) / 180
+        for (const [px, py] of points) {
+          const dx = (px - CX) * scale
+          const dy = (py - CYh) * scale
+          const y = CYh + dx * Math.sin(rad) + dy * Math.cos(rad)
+          expect(y).toBeGreaterThanOrEqual(FACE_HAT_LINE)
+        }
+      }
+    }
+  })
+
+  it("ships the approved 11 × 21 × 22 vocabulary", () => {
+    expect(FACE_VOCABULARY).toEqual({
+      shapes: 11,
+      eyes: 21,
+      mouths: 22,
+      combinations: 5082,
+    })
+  })
+
+  it("picks shape, eye, and mouth independently (no shared-digit clustering)", () => {
     // The old code coupled features to a shared 0–9 digit %6, making idx 4/5 only
-    // ~10% and collapsing the combination space. Radix slicing (i%8, (i/8)%6,
-    // (i/48)%6) gives each feature its own uniform, decorrelated index. Count how
-    // many distinct shapes/eyes/mouths appear across many seeds — all should show.
+    // ~10% and collapsed the combination space. Radix slicing gives each feature
+    // its own uniform, decorrelated index. Count distinct wrapper paths and whole
+    // outputs across many seeds to catch accidental vocabulary collapse.
     const shapes = new Set<string>()
     const svgs: string[] = []
     for (let n = 0; n < 4000; n++) svgs.push(renderFaceSvg(`d-${n}`, PALETTE))
-    // Distinct wrapper paths ≈ distinct shapes (8 shapes → the path d differs).
-    for (const svg of svgs) shapes.add(svg.match(/<path d="([^"]+)"/)![1].slice(0, 24))
-    // All 8 shapes should appear; if features collapsed, far fewer distinct heads.
-    expect(shapes.size).toBeGreaterThanOrEqual(8)
+    for (const svg of svgs) shapes.add(svg.match(/<path d="([^"]+)"/)![1])
+    expect(shapes.size).toBe(11)
     // The full head (shape+eye+mouth) space is large: expect many distinct faces.
-    expect(new Set(svgs).size).toBeGreaterThan(100)
+    expect(new Set(svgs).size).toBeGreaterThan(500)
   })
 
   it("keeps face wrapper and background readably apart on every palette (no low-contrast melt)", () => {
@@ -183,14 +205,15 @@ describe("renderFaceSvg", () => {
       const h = hex.replace("#", "")
       return (parseInt(h.slice(0, 2), 16) * 299 + parseInt(h.slice(2, 4), 16) * 587 + parseInt(h.slice(4, 6), 16) * 114) / 1000
     }
-    const seeds = Array.from({ length: 40 }, (_, n) => `seed-${n}`)
-    // A single-hue palette genuinely can't separate — use the real 5-color set.
-    for (const seed of seeds) {
-      const svg = renderFaceSvg(seed, PALETTE)
-      // first two rects are bg then wrapper; pull their fills in document order
-      const fills = [...svg.matchAll(/fill="(#[0-9a-fA-F]{6})"/g)].map((m) => m[1])
-      const [bg, wrapper] = fills
-      expect(Math.abs(lum(bg) - lum(wrapper))).toBeGreaterThan(15)
+    const seeds = Array.from({ length: 400 }, (_, n) => `seed-${n}`)
+    for (const palette of PALETTES) {
+      for (const seed of seeds) {
+        const svg = renderFaceSvg(seed, palette)
+        // first two fills are bg then wrapper; pull them in document order
+        const fills = [...svg.matchAll(/fill="(#[0-9a-fA-F]{6})"/g)].map((m) => m[1])
+        const [bg, wrapper] = fills
+        expect(Math.abs(lum(bg) - lum(wrapper))).toBeGreaterThan(40)
+      }
     }
   })
 })

@@ -1,12 +1,13 @@
 /**
  * Color palettes for boring-avatars, chosen deterministically per seed.
  *
- * Set 0 is the official boringavatars.com sample palette; the rest are the
- * opening entries of Matt DesLauriers' Nice Color Palettes (the same source
- * boringavatars.com's own playground samples from). Three template entries
- * (idx 3, 6, 7) were replaced with lively, curated sets — the originals were
- * muddy/dark or had clashing hues (the template-residue bug DESIGN.md calls
- * out). No global desaturation: it dropped contrast, so the vibrant hues stand.
+ * Set 0 is the official boringavatars.com sample palette. Sets 1–12 began from
+ * opening entries of Matt DesLauriers' Nice Color Palettes (the same source the
+ * boringavatars.com playground samples from), with three muddy/clashing entries
+ * replaced by curated sets. Sets 13–24 are Alook's approved expansion: each has
+ * a deliberate dark anchor, bright body hues, and a light relief color so every
+ * generated wrapper can find a readable background. No global desaturation: it
+ * dropped contrast, so the vibrant hues stand.
  *
  * Selection reuses the same hash + mulberry32 PRNG as `gradient-from-seed.ts`
  * so the "looks random, never flickers" behavior matches the rest of the app.
@@ -26,6 +27,18 @@ export const PALETTES: readonly (readonly string[])[] = [
   ["#e94e77", "#d68189", "#c6a49a", "#c6e5d9", "#f4ead5"],
   ["#3fb8af", "#7fc7af", "#dad8a7", "#ff9e9d", "#ff3d7f"],
   ["#00a8c6", "#40c0cb", "#f9f2e7", "#aee239", "#8fbe00"],
+  ["#23352f", "#7bc95a", "#dce95c", "#ffd65a", "#fff1b8"],
+  ["#17394a", "#35aeb4", "#77d9d5", "#b9eff0", "#f3d978"],
+  ["#3e233d", "#8b4771", "#dc6b9d", "#ff9fb3", "#ffe1dd"],
+  ["#4a2e25", "#d6664c", "#f58c64", "#ffc173", "#ffe2ad"],
+  ["#24372e", "#55744f", "#90aa62", "#c8d685", "#f0efc0"],
+  ["#25294f", "#4d5c9a", "#7587d6", "#a9b6ff", "#ebe9ff"],
+  ["#493044", "#eb7c8b", "#ffb46d", "#ffe08b", "#c8ecdc"],
+  ["#3c302b", "#8d5d4d", "#c27f65", "#e7ae85", "#f3dfc7"],
+  ["#16202a", "#32d48e", "#c4f342", "#ffdf3f", "#ff7597"],
+  ["#17192e", "#3f477f", "#7457a8", "#c47edb", "#f3c8ef"],
+  ["#362a52", "#7d60a9", "#b699dc", "#dfc7f0", "#fff0d9"],
+  ["#432526", "#c6403f", "#f0654b", "#ffab62", "#ffe0a6"],
 ] as const
 
 function hashStr(s: string): number {

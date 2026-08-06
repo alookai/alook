@@ -21,4 +21,9 @@ describe("paletteFromSeed", () => {
   it("first palette is the official boringavatars.com sample", () => {
     expect(PALETTES[0]).toEqual(["#00686c", "#32c2b9", "#edecb3", "#fad928", "#ff9915"])
   })
+
+  it("ships the approved 25 color worlds", () => {
+    expect(PALETTES).toHaveLength(25)
+    for (const palette of PALETTES) expect(palette).toHaveLength(5)
+  })
 })
