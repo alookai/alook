@@ -1,4 +1,4 @@
-import { parseRef } from "@alook/shared"
+import { parseNameAndTag, parseRef } from "@alook/shared"
 
 /**
  * Client-side "directory" of every channel-ref-resolvable server + channel —
@@ -15,6 +15,7 @@ type ChannelRefDirectoryChannel = { id: string; name: string }
 export type ChannelRefDirectoryServer = {
   id: string
   name: string
+  discriminator: string
   channels: ChannelRefDirectoryChannel[]
 }
 export type ChannelRefDirectory = ChannelRefDirectoryServer[]
@@ -29,19 +30,15 @@ export type ResolvedChannelRef = {
 /**
  * Resolve a raw `/server/channel` (or `/server/channel/#N`) ref string
  * against an already-fetched client-side directory. UI-only: tries id
- * first, then exact name — the id fallback exists here because pill links
+ * first, then unique handle or unambiguous name — the id fallback exists here because pill links
  * and in-window navigation store raw channel ids. Purely in-memory (no
- * network call) and no ambiguity error. The agent-facing resolver is
- * strictly name-only; this helper must not be used on agent code paths.
+ * network call) and no ambiguity error. The agent-facing resolver accepts
+ * ids, handles, and names through its member-scoped database path; this
+ * in-memory helper must not be used on agent code paths.
  *
- * Ambiguity tie-break (deliberately simpler than the backend): server/channel
- * names aren't unique in the schema, and the backend surfaces 2+ name matches
- * as a `hint`-carrying 400 the caller must resolve. This function does NOT
- * replicate that — it takes the FIRST match in `directory`/`channels` array
- * order (plain `Array.prototype.find` semantics) and stops. A duplicate-name
- * collision is rare, and the consequence here is just "click navigates to the
- * other same-named channel" — not data loss — so this is an accepted,
- * documented simplification, not a bug.
+ * Server names aren't unique, so a duplicate bare name is unresolved rather
+ * than silently selecting the first server. A `name#discriminator` handle is
+ * exact and case-insensitive on name, matching the database unique index.
  *
  * Returns `null` on any miss (unknown server, unknown channel, or malformed
  * ref) — this is the false-positive guard the caller (`describeChannelRefPillView`)
@@ -58,9 +55,7 @@ export function resolveChannelRefBase(
     return null
   }
 
-  const server =
-    directory.find((s) => s.id === parsed.server) ??
-    directory.find((s) => s.name === parsed.server)
+  const server = resolveDirectoryServer(directory, parsed.server)
   if (!server) return null
 
   const channel =
@@ -79,9 +74,8 @@ export function resolveChannelRefBase(
 /**
  * Resolve a bare `/server` ref (one segment, no channel — `parseRef` throws
  * on this shape since it requires `/<server>/<channel>`) against the
- * already-fetched directory. UI-only: id-then-exact-name lookup with the
- * same duplicate-name simplification as `resolveChannelRefBase` — see that
- * function's doc comment. Not for agent code paths.
+ * already-fetched directory. UI-only: id, unique handle, then unambiguous
+ * case-insensitive name. Not for agent code paths.
  */
 export function resolveServerRefBase(
   directory: ChannelRefDirectory,
@@ -91,9 +85,29 @@ export function resolveServerRefBase(
   const body = ref.slice(1)
   if (!body || body.includes("/")) return null
 
-  return (
-    directory.find((s) => s.id === body) ??
-    directory.find((s) => s.name === body) ??
-    null
-  )
+  return resolveDirectoryServer(directory, body)
+}
+
+function resolveDirectoryServer(
+  directory: ChannelRefDirectory,
+  segment: string,
+): ChannelRefDirectoryServer | null {
+  const byId = directory.find((server) => server.id === segment)
+  if (byId) return byId
+
+  const handle = parseNameAndTag(segment)
+  if (handle) {
+    return directory.find((server) =>
+      asciiNoCase(server.name) === asciiNoCase(handle.name)
+      && server.discriminator === handle.discriminator
+    ) ?? null
+  }
+
+  const foldedSegment = asciiNoCase(segment)
+  const byName = directory.filter((server) => asciiNoCase(server.name) === foldedSegment)
+  return byName.length === 1 ? byName[0]! : null
+}
+
+function asciiNoCase(value: string): string {
+  return value.replace(/[A-Z]/g, (char) => char.toLowerCase())
 }

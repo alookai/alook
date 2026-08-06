@@ -430,3 +430,62 @@ describe("listUserServers — filter predicates (source-level pin)", () => {
     expect(src).toMatch(/communityChannel/);
   });
 });
+
+function createResolveServerMock(selectReturns: unknown[][]) {
+  const selectCalls: Array<{ fields: Record<string, unknown>; where?: unknown }> = [];
+  let index = 0;
+  const db: any = {
+    select(fields: Record<string, unknown>) {
+      const call: { fields: Record<string, unknown>; where?: unknown } = { fields };
+      selectCalls.push(call);
+      const rows = selectReturns[index++] ?? [];
+      const chain: any = {
+        from: () => chain,
+        innerJoin: () => chain,
+        where(condition: unknown) {
+          call.where = condition;
+          return Promise.resolve(rows);
+        },
+      };
+      return chain;
+    },
+  };
+  return { db, selectCalls };
+}
+
+describe("resolveServerByNameForMember — id / handle / bare-name entry", () => {
+  it("returns an id match without probing handle or name fallbacks", async () => {
+    const row = { id: "srv_1", name: "Studio", discriminator: "0042" };
+    const { db, selectCalls } = createResolveServerMock([[row]]);
+    await expect(serverQueries.resolveServerByNameForMember(db, "u_1", "srv_1")).resolves.toEqual([row]);
+    expect(selectCalls).toHaveLength(1);
+    expect(selectCalls[0]!.fields).toHaveProperty("discriminator");
+  });
+
+  it("recognizes four-digit and expanded name#discriminator handles", async () => {
+    for (const handle of ["Studio#0042", "Studio#12345"]) {
+      const row = { id: "srv_1", name: "Studio", discriminator: handle.split("#")[1] };
+      const { db, selectCalls } = createResolveServerMock([[], [row]]);
+      await expect(serverQueries.resolveServerByNameForMember(db, "u_1", handle)).resolves.toEqual([row]);
+      expect(selectCalls).toHaveLength(2);
+    }
+  });
+
+  it("preserves multiple bare-name rows so the caller can report ambiguity", async () => {
+    const matches = [
+      { id: "srv_1", name: "Studio", discriminator: "0042" },
+      { id: "srv_2", name: "Studio", discriminator: "12345" },
+    ];
+    const { db, selectCalls } = createResolveServerMock([[], matches]);
+    await expect(serverQueries.resolveServerByNameForMember(db, "u_1", "Studio")).resolves.toEqual(matches);
+    expect(selectCalls).toHaveLength(2);
+  });
+
+  it("pins member scoping, discriminator parsing, and index-aligned NOCASE lookup in the query source", () => {
+    const source = serverQueries.resolveServerByNameForMember.toString();
+    expect(source).toMatch(/communityServerMember\.userId/);
+    expect(source).toMatch(/parseNameAndTag/);
+    expect(source).toMatch(/COLLATE NOCASE/);
+    expect(source).toMatch(/communityServer\.discriminator/);
+  });
+});

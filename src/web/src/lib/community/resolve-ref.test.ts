@@ -125,7 +125,7 @@ describe("resolveTargetForMember", () => {
     it("404 server not found", async () => {
       mockResolveServerByNameForMember.mockResolvedValue([])
       const res = await resolveTargetForMember(db, "u_1", "/studio/general")
-      expect(res).toEqual({ error: 404, message: "server not found: studio" })
+      expect(res).toEqual({ error: 404, message: "server not found" })
     })
 
     it("400 ambiguous server name returns hint list", async () => {

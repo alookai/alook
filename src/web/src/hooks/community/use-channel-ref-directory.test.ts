@@ -3,8 +3,8 @@ import { buildChannelRefDirectory } from "./use-channel-ref-directory"
 import type { Server, Category } from "@/components/community/_types"
 import type { ServerDetail } from "./use-servers"
 
-function server(id: string, name: string): Server {
-  return { id, name, initial: name[0], active: false, mentions: 0 }
+function server(id: string, name: string, discriminator = "0001"): Server {
+  return { id, name, discriminator, initial: name[0], active: false, mentions: 0 }
 }
 
 function detail(id: string, name: string, categories: Category[]): ServerDetail {
@@ -33,6 +33,7 @@ describe("buildChannelRefDirectory", () => {
       {
         id: "s1",
         name: "Studio",
+        discriminator: "0001",
         channels: [
           { id: "c1", name: "general" },
           { id: "c2", name: "random" },
@@ -47,8 +48,8 @@ describe("buildChannelRefDirectory", () => {
     const detailsById = { s1: detail("s1", "Studio", [category("cat1", [{ id: "c1", name: "general" }])]) }
     const directory = buildChannelRefDirectory(servers, detailsById)
     expect(directory).toEqual([
-      { id: "s1", name: "Studio", channels: [{ id: "c1", name: "general" }] },
-      { id: "s2", name: "Other", channels: [] },
+      { id: "s1", name: "Studio", discriminator: "0001", channels: [{ id: "c1", name: "general" }] },
+      { id: "s2", name: "Other", discriminator: "0001", channels: [] },
     ])
   })
 

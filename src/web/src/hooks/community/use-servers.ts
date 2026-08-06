@@ -19,6 +19,7 @@ import type { Server, Category } from "@/components/community/_types"
 type RawServerRow = {
   id: string
   name: string
+  discriminator: string
   icon: string | null
   role?: string
   mentions?: number
@@ -36,6 +37,7 @@ export const serversQueryFn = async (): Promise<ServersResponse> => {
   const servers: Server[] = data.servers.map((s) => ({
     id: s.id,
     name: s.name,
+    discriminator: s.discriminator,
     initial: avatarInitial(s.name),
     active: false,
     // Defensive fallback: the API always projects `mentions` now, but during

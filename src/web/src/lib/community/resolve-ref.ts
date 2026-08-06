@@ -91,7 +91,7 @@ export async function resolveTargetForMember(
 
   // Channel form: resolve server, then channel, both scoped to membership.
   const servers = await queries.communityServer.resolveServerByNameForMember(db, userId, parsed.server)
-  if (servers.length === 0) return { error: 404, message: `server not found: ${parsed.server}` }
+  if (servers.length === 0) return { error: 404, message: "server not found" }
   if (servers.length > 1) {
     return {
       error: 400,

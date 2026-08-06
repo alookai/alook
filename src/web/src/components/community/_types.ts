@@ -31,6 +31,7 @@ export type SettingsSection =
 export type Server = {
   id: string // nanoid
   name: string
+  discriminator?: string
   initial: string
   active: boolean
   mentions: number

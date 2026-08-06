@@ -15,8 +15,8 @@ describe("useServers / serversQueryFn", () => {
   it("materialises raw server rows into render-ready Server shape", async () => {
     apiFetchMock.mockResolvedValueOnce({
       servers: [
-        { id: "srv_1", name: "Alook", icon: null, role: "owner", mentions: 3 },
-        { id: "srv_2", name: "Beta", icon: null, role: "member" },
+        { id: "srv_1", name: "Alook", discriminator: "0042", icon: null, role: "owner", mentions: 3 },
+        { id: "srv_2", name: "Beta", discriminator: "12345", icon: null, role: "member" },
       ],
     })
     const { serversQueryFn } = await import("./use-servers")
@@ -26,6 +26,7 @@ describe("useServers / serversQueryFn", () => {
     expect(data.servers[0].isOwner).toBe(true)
     expect(data.servers[0].mentions).toBe(3)
     expect(data.servers[0].active).toBe(false)
+    expect(data.servers[0].discriminator).toBe("0042")
     // `unread` has been removed from the Server type — the mapper must not
     // project it. Pin the invariant so a future revival gets caught.
     expect((data.servers[0] as { unread?: boolean }).unread).toBeUndefined()
@@ -37,8 +38,8 @@ describe("useServers / serversQueryFn", () => {
   it("preserves mentions when provided; defaults to 0 when omitted", async () => {
     apiFetchMock.mockResolvedValueOnce({
       servers: [
-        { id: "srv_1", name: "A", icon: null, mentions: 7 },
-        { id: "srv_2", name: "B", icon: null }, // no mentions key
+        { id: "srv_1", name: "A", discriminator: "0001", icon: null, mentions: 7 },
+        { id: "srv_2", name: "B", discriminator: "0002", icon: null }, // no mentions key
       ],
     })
     const { serversQueryFn } = await import("./use-servers")

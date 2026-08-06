@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { sqlRun, sqlQuery } from "@alook/test-utils"
-import { computeDiscriminator, queries } from "@alook/shared"
+import { computeDiscriminator, createDb, queries } from "@alook/shared"
+import { resolveTargetForMember } from "../../lib/community/resolve-ref"
 
 /**
  * Real-DB existence oracle for the community-server discriminator unique index
@@ -27,6 +28,26 @@ const ids = [
   "e2e_srvdisc_s5",
 ]
 const TS = "2026-08-04T00:00:00.000Z"
+
+function createRealQueryDb() {
+  const binding = {
+    prepare(query: string) {
+      return {
+        bind(...params: unknown[]) {
+          return {
+            async all() {
+              return { results: sqlQuery(query, ...params) }
+            },
+            async raw() {
+              return sqlQuery<Record<string, unknown>>(query, ...params).map(Object.values)
+            },
+          }
+        },
+      }
+    },
+  }
+  return createDb(binding as never)
+}
 
 function insertServer(id: string, name: string, disc: string): void {
   sqlRun(
@@ -87,6 +108,95 @@ describe("idx_community_server_name_discriminator — server handle uniqueness (
       "e2e_srvdisc_cased", "0007",
     )
     expect(rows).toHaveLength(1) // the case-variant twin was refused
+  })
+})
+
+const resolveOwner = "e2e_srvresolve_owner"
+const resolveMember = "e2e_srvresolve_member"
+const resolveOutsider = "e2e_srvresolve_outsider"
+const resolveServer4 = "e2e_srvresolve_s4"
+const resolveServer5 = "e2e_srvresolve_s5"
+const resolveChannel4 = "e2e_srvresolve_c4"
+const resolveChannel5 = "e2e_srvresolve_c5"
+
+function resolveCleanup(): void {
+  sqlRun(
+    `DELETE FROM community_server WHERE id IN (?, ?)`,
+    resolveServer4, resolveServer5,
+  )
+  sqlRun(
+    `DELETE FROM user WHERE id IN (?, ?, ?)`,
+    resolveOwner, resolveMember, resolveOutsider,
+  )
+}
+
+describe("resolveServerByNameForMember — real D1 handle and membership behavior", () => {
+  beforeAll(() => {
+    resolveCleanup()
+    for (const id of [resolveOwner, resolveMember, resolveOutsider]) {
+      sqlRun(
+        `INSERT INTO user (id, email, name) VALUES (?, ?, ?)`,
+        id, `${id}@example.com`, id,
+      )
+    }
+    sqlRun(
+      `INSERT INTO community_server (id, name, discriminator, description, owner_id, created_at)
+       VALUES (?, ?, ?, '', ?, ?), (?, ?, ?, '', ?, ?)`,
+      resolveServer4, "E2E_Resolve_Studio", "0042", resolveOwner, TS,
+      resolveServer5, "e2e_resolve_studio", "12345", resolveOwner, TS,
+    )
+    sqlRun(
+      `INSERT INTO community_server_member (id, server_id, user_id, role, joined_at)
+       VALUES (?, ?, ?, 'member', ?), (?, ?, ?, 'member', ?)`,
+      "e2e_srvresolve_m4", resolveServer4, resolveMember, TS,
+      "e2e_srvresolve_m5", resolveServer5, resolveMember, TS,
+    )
+    sqlRun(
+      `INSERT INTO community_channel (id, server_id, name, type, created_at)
+       VALUES (?, ?, 'general', 'text', ?), (?, ?, 'general', 'text', ?)`,
+      resolveChannel4, resolveServer4, TS,
+      resolveChannel5, resolveServer5, TS,
+    )
+  })
+  afterAll(resolveCleanup)
+
+  it("resolves same-name 4-digit and expanded handles uniquely with NOCASE names", async () => {
+    const db = createRealQueryDb()
+    await expect(
+      queries.communityServer.resolveServerByNameForMember(
+        db, resolveMember, "e2e_resolve_studio#0042",
+      ),
+    ).resolves.toEqual([
+      { id: resolveServer4, name: "E2E_Resolve_Studio", discriminator: "0042" },
+    ])
+    await expect(
+      queries.communityServer.resolveServerByNameForMember(
+        db, resolveMember, "E2E_RESOLVE_STUDIO#12345",
+      ),
+    ).resolves.toEqual([
+      { id: resolveServer5, name: "e2e_resolve_studio", discriminator: "12345" },
+    ])
+  })
+
+  it("keeps a duplicate bare name ambiguous", async () => {
+    const rows = await queries.communityServer.resolveServerByNameForMember(
+      createRealQueryDb(), resolveMember, "E2E_RESOLVE_STUDIO",
+    )
+    expect(rows.map((row) => row.id).sort()).toEqual(
+      [resolveServer4, resolveServer5].sort(),
+    )
+  })
+
+  it("masks a non-member real handle exactly like a nonexistent handle", async () => {
+    const db = createRealQueryDb()
+    const real = await resolveTargetForMember(
+      db, resolveOutsider, "/E2E_Resolve_Studio#0042/general",
+    )
+    const missing = await resolveTargetForMember(
+      db, resolveOutsider, "/E2E_Resolve_Studio#99999/general",
+    )
+    expect(real).toEqual({ error: 404, message: "server not found" })
+    expect(missing).toEqual(real)
   })
 })
 

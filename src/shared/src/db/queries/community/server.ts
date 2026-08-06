@@ -13,6 +13,7 @@ import { nanoid } from "nanoid";
 import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 import { MENTION_KIND } from "../../../constants/community";
 import { withUniqueDiscriminator } from "../user";
+import { parseNameAndTag } from "../../../lib/discriminator";
 
 export async function createServer(
   db: Database,
@@ -168,6 +169,7 @@ export async function listUserServers(db: Database, userId: string) {
     .select({
       id: communityServer.id,
       name: communityServer.name,
+      discriminator: communityServer.discriminator,
       description: communityServer.description,
       icon: communityServer.icon,
       ownerId: communityServer.ownerId,
@@ -193,7 +195,8 @@ export async function listUserServers(db: Database, userId: string) {
 }
 
 /**
- * Resolve a server by ID or NAME, scoped to servers `userId` is a member of.
+ * Resolve a server by ID, unique handle, or bare name, scoped to servers
+ * `userId` is a member of.
  * Returns an ARRAY — the caller decides what "ambiguous" means (0 = not
  * found/not a member, 1 = resolved, 2+ = ambiguous name — ids are always
  * unique so only the name-match branch can return >1). Used by
@@ -209,6 +212,7 @@ export async function resolveServerByNameForMember(
     .select({
       id: communityServer.id,
       name: communityServer.name,
+      discriminator: communityServer.discriminator,
     })
     .from(communityServer)
     .innerJoin(
@@ -221,10 +225,35 @@ export async function resolveServerByNameForMember(
     .where(eq(communityServer.id, nameOrId));
   if (rows.length > 0) return rows;
 
+  const handle = parseNameAndTag(nameOrId);
+  if (handle) {
+    return db
+      .select({
+        id: communityServer.id,
+        name: communityServer.name,
+        discriminator: communityServer.discriminator,
+      })
+      .from(communityServer)
+      .innerJoin(
+        communityServerMember,
+        and(
+          eq(communityServerMember.serverId, communityServer.id),
+          eq(communityServerMember.userId, userId)
+        )
+      )
+      .where(
+        and(
+          sql`${communityServer.name} COLLATE NOCASE = ${handle.name}`,
+          eq(communityServer.discriminator, handle.discriminator)
+        )
+      );
+  }
+
   return db
     .select({
       id: communityServer.id,
       name: communityServer.name,
+      discriminator: communityServer.discriminator,
     })
     .from(communityServer)
     .innerJoin(
@@ -234,7 +263,7 @@ export async function resolveServerByNameForMember(
         eq(communityServerMember.userId, userId)
       )
     )
-    .where(eq(communityServer.name, nameOrId));
+    .where(sql`${communityServer.name} COLLATE NOCASE = ${nameOrId}`);
 }
 
 export async function getServersByIds(db: Database, serverIds: string[]) {
