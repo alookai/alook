@@ -114,9 +114,11 @@ async function readFile(req: NextRequest): Promise<ParsedUpload | UploadErr> {
 /**
  * Validate + upload an attachment for a channel / DM / thread.
  *
- * Enforces `MAX_ATTACHMENT_SIZE_BYTES`.
- * Returns the R2 key + a `/api/community/media/<key>` URL that the auth-gated
- * media route can serve.
+ * Enforces `MAX_ATTACHMENT_SIZE_BYTES` and `ALLOWED_ATTACHMENT_MIME_PREFIXES`.
+ * Returns the stored R2 key + parsed metadata (filename, content-type, size,
+ * and any client-supplied image dimensions). The caller persists a pending
+ * attachment row keyed by that r2Key; reads then serve it through the canonical
+ * `channels/{id}/attachments/{attachmentId}` door (there is no `/media/` route).
  *
  * R2 requires stream bodies to have a known length. Passing the `File` itself
  * preserves that length for the Workers runtime while avoiding an explicit
