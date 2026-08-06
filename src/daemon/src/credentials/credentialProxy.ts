@@ -350,6 +350,17 @@ export async function startCredentialProxy(
       return;
     }
 
+    // Bot traffic has one canonical REST namespace. The deleted flat
+    // `/api/<verb>` surface must fail at this boundary rather than reaching an
+    // upstream that might accidentally grow a matching route later.
+    const canonicalCommunityDoor = /^\/api\/community\/(channels|messages|servers|invites|friends|users|bots)(\/|$)/.test(pathname);
+    if (pathname === "/api" || (pathname.startsWith("/api/") && !canonicalCommunityDoor)) {
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "unknown API route", code: "not_found" }));
+      req.resume();
+      return;
+    }
+
     const reg = verdict.reg;
     // Tightened from `.endsWith("/inboxPull")` — the attachment-download
     // endpoint returns raw binary, and a loose match here would try to JSON-
@@ -398,7 +409,7 @@ export async function startCredentialProxy(
         hostname: upstream.hostname,
         port: upstream.port || (upstream.protocol === "https:" ? 443 : 80),
         method: req.method,
-        path: joinPath(upstream.pathname, rewriteAgentPath(req.url ?? "/")),
+        path: joinPath(upstream.pathname, req.url ?? "/"),
         headers: outHeaders,
       },
       (res_) => {
@@ -507,29 +518,4 @@ function joinPath(basePath: string, reqUrl: string): string {
   const base = basePath.replace(/\/+$/, "");
   const reqPath = reqUrl.startsWith("/") ? reqUrl : `/${reqUrl}`;
   return (base + reqPath) || "/";
-}
-
-/**
- * Rewrite the CLI's bare `/api/*` ops (`/api/send`, `/api/inboxPull`, …) onto
- * the real unified-actor server surface at `/api/community/*` (plans/22 §9 — the
- * `/api/community/agent/*` tree was deleted; every bot verb now lives flat under
- * `/api/community/`). This is a bot-only API — no back-compat to preserve — so
- * the rewrite is unconditional for anything under `/api/`.
- *
- * IDEMPOTENT: a path already under `/api/community/` passes through untouched.
- * The two FOLDED verbs (listServers → GET `/api/community/servers`, joinServer →
- * POST `/api/community/invites/<token>/join`) are addressed with their real REST
- * paths client-side in `proxyServerApi` (mirroring `callUpload`/`callDownload`);
- * this guard lets those flow through without being double-prefixed into a
- * non-existent `/api/community/community/...`.
- */
-function rewriteAgentPath(reqUrl: string): string {
-  const url = new URL(reqUrl, "http://placeholder");
-  if (url.pathname.startsWith("/api/community/")) {
-    return url.pathname + url.search;
-  }
-  if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
-    url.pathname = `/api/community${url.pathname.slice("/api".length)}`;
-  }
-  return url.pathname + url.search;
 }

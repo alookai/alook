@@ -149,8 +149,8 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
   // (GET), which the door resolves server-side (resolveMessageTarget). Same wire
   // BODY as before (the door's bot arm parses the identical send/read schema);
   // only the PATH + verb-shape change. Mirrors callUpload/callListServers'
-  // bespoke real-path pattern; `rewriteAgentPath` is idempotent on
-  // `/api/community/...` so these pass through un-prefixed.
+  // bespoke real-path pattern; the credential proxy preserves this canonical
+  // REST path unchanged.
   const REF_PLACEHOLDER_ID = "resolve";
 
   async function callSend(req: SendRequest): Promise<SendResponse> {
@@ -520,8 +520,8 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
   // POST /invites/<token>/join). The unified route returns a SUPERSET; the lean
   // contract projection (Fork C — Aigneis condition 1) happens HERE, at the
   // single proxy response boundary, NOT per CLI command. These hit
-  // `/api/community/...` directly; `rewriteAgentPath` is idempotent so the path
-  // passes through unprefixed. Mirrors the existing callUpload/callDownload
+  // `/api/community/...` directly and the credential proxy preserves the path
+  // unchanged. Mirrors the existing callUpload/callDownload
   // custom-path pattern.
 
   /** Project a server row to its sole agent-facing identity: name#discriminator. */

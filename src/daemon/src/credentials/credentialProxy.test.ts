@@ -260,23 +260,28 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     expect(upstream.seen.length).toBe(0);
   });
 
-  it("rewrites flat /api/* verbs to /api/community/* (plans/22 §9); is idempotent for already-namespaced paths", async () => {
+  it("passes canonical REST paths through and rejects deleted flat inputs", async () => {
     const upstream = await startUpstream();
     upstreamClose = upstream.close;
     const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
     proxy = await startCredentialProxy(broker);
-    const reg = broker.mint("agent-1", "l", ["send", "read", "server"], REAL_KEY);
+    const reg = broker.mint("agent-1", "l", ["send", "read", "server", "attach"], REAL_KEY);
 
-    await post(proxy.url, reg.voucher, "/api/send");
-    expect(upstream.seen.at(-1)!.path).toBe("/api/community/send");
+    for (const legacyPath of [
+      "/api/send",
+      "/api/attachmentUpload?target=/x/y",
+      "/api/community/send",
+      "/api/community/agent/send",
+      "/api",
+    ]) {
+      expect((await post(proxy.url, reg.voucher, legacyPath)).status).toBe(404);
+    }
+    expect(upstream.seen).toHaveLength(0);
 
-    await post(proxy.url, reg.voucher, "/api");
-    expect(upstream.seen.at(-1)!.path).toBe("/api/community");
-
-    // Idempotent: a folded verb's real REST path (already under /api/community/)
-    // passes through unprefixed — NOT doubled into /api/community/community/...
+    // A folded verb's real REST path passes through unchanged.
     await post(proxy.url, reg.voucher, "/api/community/servers");
-    expect(upstream.seen.at(-1)!.path).toBe("/api/community/servers");
+    expect(upstream.seen).toHaveLength(1);
+    expect(upstream.seen[0]!.path).toBe("/api/community/servers");
   });
 
   it("leaves non-/api paths untouched", async () => {
@@ -312,9 +317,9 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     });
     const reg = broker.mint("agent-1", "l", ["send"], REAL_KEY);
 
-    const r = await post(proxy.url, reg.voucher, "/api/send");
+    const r = await post(proxy.url, reg.voucher, "/api/community/channels/resolve/messages");
     expect(r.status).toBe(200);
-    expect(sightings).toEqual([{ agentId: "agent-1", method: "POST", pathname: "/api/send" }]);
+    expect(sightings).toEqual([{ agentId: "agent-1", method: "POST", pathname: "/api/community/channels/resolve/messages" }]);
   });
 
   it("does NOT fire onProxyRequest on a rejected voucher (401/403)", async () => {
@@ -351,14 +356,14 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     const scoped = broker.mint("agent-1", "l", ["send", "read"], REAL_KEY); // no "attach"
     const withAttach = broker.mint("agent-2", "l2", ["attach"], REAL_KEY);
 
-    const upDenied = await post(proxy.url, scoped.voucher, "/api/attachmentUpload?target=/x/y");
+    const upDenied = await post(proxy.url, scoped.voucher, "/api/community/channels/resolve/attachments?target=/x/y");
     expect(upDenied.status).toBe(403);
-    const dlDenied = await post(proxy.url, scoped.voucher, "/api/attachmentDownload");
+    const dlDenied = await post(proxy.url, scoped.voucher, "/api/community/channels/resolve/attachments/att_1");
     expect(dlDenied.status).toBe(403);
 
-    const upOk = await post(proxy.url, withAttach.voucher, "/api/attachmentUpload?target=/x/y");
+    const upOk = await post(proxy.url, withAttach.voucher, "/api/community/channels/resolve/attachments?target=/x/y");
     expect(upOk.status).toBe(200);
-    const dlOk = await post(proxy.url, withAttach.voucher, "/api/attachmentDownload");
+    const dlOk = await post(proxy.url, withAttach.voucher, "/api/community/channels/resolve/attachments/att_1");
     expect(dlOk.status).toBe(200);
   });
 
@@ -374,7 +379,7 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     expect(r.status).toBe(403);
   });
 
-  it("onInboxPullResponse is NOT triggered by /attachmentDownload (tightened guard)", async () => {
+  it("onInboxPullResponse is NOT triggered by canonical attachment download (tightened guard)", async () => {
     const upstream = await startUpstream();
     upstreamClose = upstream.close;
     let called = 0;
@@ -389,7 +394,7 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     // Path that used to (loosely) match `.endsWith("/inboxPull")` — the
     // exact-path guard must not fire for attachment traffic, which returns
     // raw binary.
-    const r = await post(proxy.url, reg.voucher, "/api/attachmentDownload");
+    const r = await post(proxy.url, reg.voucher, "/api/community/channels/resolve/attachments/att_1");
     expect(r.status).toBe(200);
     expect(called).toBe(0);
 

@@ -17,7 +17,7 @@
  *      `/api/{inboxPull,ack,send,read,resolve,listServers,listChannels,
  *      listMembers,channelMember,joinServer,reactAdd,attachmentUpload,
  *      attachmentDownload,friendRequest,listFriends}` (rewritten to
- *      `/api/community/agent/*` — see `rewriteAgentPath` in credentialProxy.ts).
+ *      canonical `/api/community/*` REST doors).
  *
  * It is agnostic on both axes:
  *   - whether the server is a real Alook server or a local `wrangler dev`
@@ -128,10 +128,8 @@ export function createRuntimeRawLineTap(args: {
 
 /**
  * Derive the audit-log `cli_invocation` subcommand from a proxy request
- * pathname. The credential proxy rewrites the CLI's bare `/api/*` calls onto
- * `/api/community/agent/*` (see `rewriteAgentPath` in credentialProxy.ts) —
- * but the sighting fires BEFORE that rewrite runs (against the inbound
- * pathname), so we may see either shape here.
+ * pathname. The CLI calls canonical `/api/community/*` REST doors directly;
+ * the proxy preserves that pathname unchanged.
  *
  * `/api/ack` is a paired sibling of `inboxPull` with no user intent, so it's
  * dropped (returns `null`). Anything else outside the `/api/*` prefix returns
@@ -197,17 +195,7 @@ export function deriveAuditLogSubcommand(pathname: string, method?: string): str
   // `nap`, not the `bots` segment.
   if (/^\/api\/community\/bots\/me\/nap(\/|$|\?)/.test(canonical)) return "nap";
 
-  // Normalize both the pre-rewrite client path (`/api/<verb>`) and the
-  // post-rewrite upstream path (`/api/community/<verb>`, plans/22 §9 — the old
-  // `/api/community/agent/` tree is gone) down to `/api/<verb>` before slicing.
-  const stripped = pathname
-    .replace(/^\/api\/community\/agent\//, "/api/")
-    .replace(/^\/api\/community\//, "/api/");
-  if (!stripped.startsWith("/api/")) return null;
-  const sub = stripped.slice("/api/".length).split("/")[0]?.split("?")[0] ?? "";
-  if (!sub) return null;
-  if (sub === "ack") return null;
-  return sub;
+  return null;
 }
 
 /**

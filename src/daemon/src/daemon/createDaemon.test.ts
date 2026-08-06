@@ -727,32 +727,11 @@ describe("createDaemon — level-triggered activity heartbeat (2b: live-connecti
 });
 
 describe("deriveAuditLogSubcommand", () => {
-  it("maps the CLI's bare /api/* pathnames to their subcommand suffix", () => {
-    expect(deriveAuditLogSubcommand("/api/send")).toBe("send");
-    expect(deriveAuditLogSubcommand("/api/read")).toBe("read");
-    expect(deriveAuditLogSubcommand("/api/inboxPull")).toBe("inboxPull");
-    expect(deriveAuditLogSubcommand("/api/inboxSnapshot")).toBe("inboxSnapshot");
-    expect(deriveAuditLogSubcommand("/api/listChannels")).toBe("listChannels");
-    expect(deriveAuditLogSubcommand("/api/listServers")).toBe("listServers");
-    expect(deriveAuditLogSubcommand("/api/listMembers")).toBe("listMembers");
-    expect(deriveAuditLogSubcommand("/api/joinServer")).toBe("joinServer");
-    expect(deriveAuditLogSubcommand("/api/resolve")).toBe("resolve");
-    expect(deriveAuditLogSubcommand("/api/reactAdd")).toBe("reactAdd");
-  });
-
-  it("maps the rewritten /api/community/* pathnames identically", () => {
-    // The proxy's rewriteAgentPath fires AFTER onProxyRequest, so the sighting
-    // may carry either shape depending on how the CLI called in. Both the flat
-    // client path and the post-rewrite /api/community/* path must derive to the
-    // same subcommand string. (The legacy /api/community/agent/* form is still
-    // normalized too, for any in-flight path.)
-    expect(deriveAuditLogSubcommand("/api/community/send")).toBe("send");
-    expect(deriveAuditLogSubcommand("/api/community/inboxPull")).toBe("inboxPull");
-    expect(deriveAuditLogSubcommand("/api/community/reactAdd")).toBe("reactAdd");
-    expect(deriveAuditLogSubcommand("/api/community/agent/send")).toBe("send");
-  });
-
-  it("returns null for `ack` (dropped — paired with inboxPull, no user intent)", () => {
+  it("does not normalize deleted flat or legacy-agent inputs", () => {
+    expect(deriveAuditLogSubcommand("/api/send")).toBe(null);
+    expect(deriveAuditLogSubcommand("/api/attachmentUpload?target=/x/y")).toBe(null);
+    expect(deriveAuditLogSubcommand("/api/community/send")).toBe(null);
+    expect(deriveAuditLogSubcommand("/api/community/agent/send")).toBe(null);
     expect(deriveAuditLogSubcommand("/api/ack")).toBe(null);
     expect(deriveAuditLogSubcommand("/api/community/agent/ack")).toBe(null);
   });
