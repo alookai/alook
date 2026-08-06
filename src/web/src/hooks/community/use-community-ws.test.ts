@@ -10,6 +10,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import type {
   CommunityMessageCreate,
+  CommunityMessageEdited,
   CommunityReactionAdd,
   CommunityMemberJoin,
   CommunityMemberUpdate,
@@ -1625,6 +1626,31 @@ describe("useCommunityWs — channel.delete refreshes the parent forum feed", ()
 
     const removedKeys = removeSpy.mock.calls.map((c) => JSON.stringify(c[0]?.queryKey))
     expect(removedKeys).toContain(JSON.stringify(communityKeys.forumThreads("post_1")))
+  })
+})
+
+describe("useCommunityWs — message edit refreshes forum opener summary", () => {
+  it("invalidates the parent thread list for an opener edit, but not for an ordinary reply", async () => {
+    await mountHook()
+    const invalidateSpy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+    const opener: CommunityMessageEdited = {
+      type: "community:message.edited",
+      channelId: "post_1",
+      messageId: "opener_1",
+      content: "new title",
+      parentChannelId: "forum_1",
+    }
+    capturedOnMessage!(opener)
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: communityKeys.threads("forum_1") })
+
+    invalidateSpy.mockClear()
+    capturedOnMessage!({
+      type: "community:message.edited",
+      channelId: "post_1",
+      messageId: "reply_1",
+      content: "edited reply",
+    } satisfies CommunityMessageEdited)
+    expect(invalidateSpy).not.toHaveBeenCalled()
   })
 })
 

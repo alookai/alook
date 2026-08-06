@@ -87,11 +87,18 @@ export const PATCH = withCommunityActor(async (req: NextRequest, ctx) => {
     content,
   })
   if (!updated) return writeError("message not found", 404)
+  const parentChannelId = channelType !== "dm"
+    && access.ok
+    && "parentMessageId" in access.value
+    && access.value.parentMessageId === messageId
+    ? access.value.parentChannelId ?? undefined
+    : undefined
   await fanOutToChannel(message.channelId, {
     type: WS_EVENTS.MESSAGE_EDITED,
     channelId: message.channelId,
     messageId,
     content,
+    ...(parentChannelId ? { parentChannelId } : {}),
   })
   return writeJSON({ message: updated })
 })

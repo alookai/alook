@@ -79,6 +79,9 @@ export type CommunityMessageEdited = {
   channelId: string
   messageId: string
   content: string
+  // Present only when this message is the child channel's opener. Consumers
+  // use it to refresh the parent forum/thread summary; ordinary replies omit it.
+  parentChannelId?: string
 }
 
 export type CommunityReactionAdd = {

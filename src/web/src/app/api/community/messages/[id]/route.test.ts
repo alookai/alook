@@ -392,6 +392,26 @@ describe("PATCH /api/community/messages/[id]", () => {
     expect(mockUpdateOwnMessageContent).not.toHaveBeenCalled()
   })
 
+  it("includes the parent only when editing the child channel opener", async () => {
+    mockGetChannelForMember.mockResolvedValue({
+      id: "post_1", serverId: "s1", parentChannelId: "forum_1", parentMessageId: "m1",
+    })
+    const res = await PATCH(editReq("new"), { params: { id: "m1" } } as any)
+    expect(res.status).toBe(200)
+    expect(mockFanOutToChannel).toHaveBeenCalledWith("c1", expect.objectContaining({ parentChannelId: "forum_1" }))
+
+    mockFanOutToChannel.mockClear()
+    mockGetMessage.mockResolvedValue({ id: "reply_1", channelId: "c1", authorId: "u1", content: "old" })
+    mockUpdateOwnMessageContent.mockResolvedValue({ id: "reply_1", channelId: "c1", content: "new" })
+    await PATCH(
+      new NextRequest("http://localhost/api/community/messages/reply_1", {
+        method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ content: "new" }),
+      }),
+      { params: { id: "reply_1" } } as any,
+    )
+    expect(mockFanOutToChannel.mock.calls[0]?.[1]).not.toHaveProperty("parentChannelId")
+  })
+
   it("rejects bot credentials and empty content", async () => {
     expect((await PATCH(editReq("new", true), { params: { id: "m1" } } as any)).status).toBe(401)
     expect((await PATCH(editReq("  "), { params: { id: "m1" } } as any)).status).toBe(400)
