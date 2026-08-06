@@ -5,6 +5,7 @@ import { getSession } from "@/lib/session";
 export const metadata: Metadata = {
   title: "Sign In",
   description: "Rooms for people and agents.",
+  robots: { index: false, follow: true },
   openGraph: {
     images: [{ url: "/og?title=Sign In", width: 1200, height: 630 }],
   },
