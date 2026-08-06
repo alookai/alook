@@ -447,7 +447,7 @@ function ChannelView() {
   const { mutate: pinMessageMutate } = usePinMessage()
   const { mutate: unpinMessageMutate } = useUnpinMessage()
   const toggleMark = useToggleMark()
-  const { mutate: editMessage } = useEditMessage()
+  const { mutate: editMessage, mutateAsync: editMessageAsync } = useEditMessage()
   const { mutateAsync: createThreadAsync } = useCreateThread()
   const createForumThreadMut = useCreateForumThread()
   const updatePostTagsMut = useUpdatePostTags()
@@ -1120,7 +1120,8 @@ function ChannelView() {
     const allChannels = currentServer?.categories?.flatMap((c) => c.channels) ?? []
     const parentChannel = parentId ? allChannels.find((ch) => ch.id === parentId) : null
     const parentName = parentChannel?.name ?? "channel"
-    const opener = parentMessageId ? (
+    const parentIsForum = isForumType(parentChannel?.type)
+    const opener = parentMessageId && !parentIsForum ? (
       <ThreadOpener
         parentMessageId={parentMessageId}
         onOpenProfile={openProfile}
@@ -1145,7 +1146,7 @@ function ChannelView() {
       <>
         <ChannelHeader
           channel={parentName}
-          forum={isForumType(parentChannel?.type)}
+          forum={parentIsForum}
           rightPanel={rightPanel}
           onToggle={togglePanel}
           notifLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
@@ -1158,14 +1159,33 @@ function ChannelView() {
           breadcrumb={{
             label: channelName,
             onNavigateBack: () => { if (parentId) router.push(`/c/channels/${params.serverId}/${parentId}`); else router.back() },
-            onRename: canManageServer(myRole) ? async (name) => {
+            onRename: parentIsForum && parentId && parentMessageId && currentChannelMeta?.creatorId === currentUser.id
+              ? async (name) => {
+                try {
+                  await editMessageAsync({
+                    serverId,
+                    channelId: parentId,
+                    messageId: parentMessageId,
+                    content: name,
+                    forumChannelId: parentId,
+                  })
+                  setLocalName(name)
+                } catch (e) {
+                  toastApiError(e, "Failed to edit post")
+                  throw e
+                }
+              }
+              : !parentIsForum && canManageServer(myRole) ? async (name) => {
               try {
                 await apiFetch(`/api/community/channels/${channelId}`, {
                   method: "PATCH",
                   body: JSON.stringify({ name }),
                 })
                 setLocalName(name)
-              } catch (e) { toastApiError(e, "Failed to rename") }
+              } catch (e) {
+                toastApiError(e, "Failed to rename")
+                throw e
+              }
             } : undefined,
           }}
         />
@@ -1273,15 +1293,6 @@ function ChannelView() {
             onTagChange={setForumTag}
             onOpenPost={enterThread}
             onCreatePost={createForumThread}
-            canEditPost={(post) => post.authorId === currentUser.id}
-            onEditPost={(post) => {
-              const content = window.prompt("Edit post", post.name)
-              if (!content || content === post.name) return
-              editMessage(
-                { serverId, channelId, messageId: post.openerMessageId, content, forumChannelId: channelId },
-                { onError: (e) => toastApiError(e, "Failed to edit post") },
-              )
-            }}
             canEditPostTags={(post) => canManage || post.authorId === currentUser.id}
             savingTagsFor={updatePostTagsMut.isPending ? updatePostTagsMut.variables?.threadId ?? null : null}
             onEditPostTags={(threadId, tags) => {

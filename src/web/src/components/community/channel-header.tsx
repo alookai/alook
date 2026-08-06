@@ -55,7 +55,7 @@ export function ChannelHeader({
   onSetNotifLevel?: (l: ChannelNotifLevel) => void
   onBack?: () => void
   forum?: boolean
-  breadcrumb?: { label: string; onRename?: (name: string) => void; onNavigateBack?: () => void }
+  breadcrumb?: { label: string; onRename?: (name: string) => void | Promise<void>; onNavigateBack?: () => void }
   server?: { id: string; name: string; icon: string | null }
   tools?: { threads?: boolean; pinned?: boolean; members?: boolean }
 }) {
@@ -224,9 +224,10 @@ function ChannelNotifDropdown({ level, onSetLevel }: {
   )
 }
 
-function BreadcrumbRename({ label, onRename }: { label: string; onRename: (name: string) => void }) {
+function BreadcrumbRename({ label, onRename }: { label: string; onRename: (name: string) => void | Promise<void> }) {
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState(label)
+  const [saving, setSaving] = useState(false)
   // Keep the draft mirror in sync with the upstream label whenever the dialog
   // is closed — covers WS-driven renames and channel switches (the parent
   // component is reused across channelId changes).
@@ -234,10 +235,22 @@ function BreadcrumbRename({ label, onRename }: { label: string; onRename: (name:
     if (!open) setDraft(label)
   }, [label, open])
   const draftPreview = previewSlug(draft)
-  const save = () => {
+  const save = async () => {
     const trimmed = draft.trim()
-    if (draftPreview.slug && trimmed !== label) onRename(trimmed)
-    setOpen(false)
+    if (!draftPreview.slug || trimmed === label) {
+      setOpen(false)
+      return
+    }
+    setSaving(true)
+    try {
+      await onRename(trimmed)
+      setOpen(false)
+    } catch {
+      // The owner surfaces the API error. Keep the dialog and draft open so
+      // the user can correct or retry the same title.
+    } finally {
+      setSaving(false)
+    }
   }
   return (
     <>
@@ -265,8 +278,8 @@ function BreadcrumbRename({ label, onRename }: { label: string; onRename: (name:
               </label>
             </div>
             <DialogFooter className="mx-0 mb-0 flex-row items-center justify-end gap-2 rounded-b-xl border-t border-border bg-card px-4 py-3">
-              <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>Cancel</Button>
-              <Button size="sm" onClick={save} disabled={!draftPreview.slug}>Save</Button>
+              <Button variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={saving}>Cancel</Button>
+              <Button size="sm" onClick={() => void save()} disabled={!draftPreview.slug || saving}>Save</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

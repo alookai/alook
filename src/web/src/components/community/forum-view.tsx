@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { MessagesSquare, ListChevronsUpDown, Pencil, Plus, Tag, Trash2 } from "lucide-react"
+import { MessagesSquare, ListChevronsUpDown, Plus, Tag, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { formatRelativeTime } from "./format-time"
 import { Badge } from "@/components/ui/badge"
@@ -28,7 +28,7 @@ export function ForumView({
   forumChannelId,
   members,
   onSearchMembers,
-  posts, loading, tag, onTagChange, onOpenPost, onCreatePost, onEditPost, canEditPost, onEditPostTags, canEditPostTags, savingTagsFor,
+  posts, loading, tag, onTagChange, onOpenPost, onCreatePost, onEditPostTags, canEditPostTags, savingTagsFor,
   onDeletePost, canDeletePost, deletingPost,
 }: {
   forumChannelId: string
@@ -43,8 +43,6 @@ export function ForumView({
   // resolves or rejects. `CreateForumThread` catches rejection to toast and
   // preserve composer state for retry.
   onCreatePost?: (post: NewForumThread) => Promise<void>
-  onEditPost?: (post: ForumThread) => void
-  canEditPost?: (post: ForumThread) => boolean
   // Save handler for a single post's tags. Absent → tag editing disabled.
   onEditPostTags?: (threadId: string, tags: string[]) => void
   // Whether the current user may edit a given post's tags (creator or manager).
@@ -129,7 +127,6 @@ export function ForumView({
           <div className="flex flex-col gap-3">
             {posts.map((p) => {
               const canEdit = !!onEditPostTags && (canEditPostTags?.(p) ?? false)
-              const canEditContent = !!onEditPost && (canEditPost?.(p) ?? false)
               const canDelete = !!onDeletePost && (canDeletePost?.(p) ?? false)
               const others = p.participants.filter((m) => m.id !== p.authorId)
               const shown = others.slice(0, MAX_AVATARS)
@@ -170,23 +167,13 @@ export function ForumView({
                         <Tag className="size-4" />
                       </button>
                     )}
-                    {canEditContent && (
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); onEditPost?.(p) }}
-                        className={`${canEdit ? "" : "ml-auto "}grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/card:opacity-100`}
-                        aria-label="Edit post"
-                      >
-                        <Pencil className="size-4" />
-                      </button>
-                    )}
                     {canDelete && (
                       <button
                         type="button"
                         data-testid={tid.forumThreadDeleteBtn(p.id)}
                         disabled={deletingPost === p.id}
                         onClick={(e) => { e.stopPropagation(); setDeletingFor(p) }}
-                        className={`${canEdit || canEditContent ? "" : "ml-auto "}grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-destructive focus-visible:opacity-100 group-hover/card:opacity-100 disabled:cursor-not-allowed disabled:opacity-50`}
+                        className={`${canEdit ? "" : "ml-auto "}grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-destructive focus-visible:opacity-100 group-hover/card:opacity-100 disabled:cursor-not-allowed disabled:opacity-50`}
                         aria-label="Delete post"
                       >
                         <Trash2 className="size-4" />
