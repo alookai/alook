@@ -194,7 +194,8 @@ async function resolveScopeRefs(
     if (isDm) {
       const peerId = peerByDmChannel.get(ch.id);
       const peer = peerId ? dmPeerById.get(peerId) : undefined;
-      peerSegment = peer ? formatHandle(peer.name, peer.discriminator) : peerId || "unknown";
+      if (!peer) throw new Error("DM peer identity unavailable");
+      peerSegment = formatHandle(peer.name, peer.discriminator);
     }
     const serverHandle = ch.serverId ? serverHandleById.get(ch.serverId) : undefined;
     const parent = ch.parentChannelId ? parentChannelById.get(ch.parentChannelId) : undefined;
@@ -215,18 +216,11 @@ async function resolveScopeRefs(
       rootSeq,
       peerSegment,
     });
-    // Degraded channel (emitter null — a required addressing field didn't
-    // hydrate, e.g. a thread missing its parent/root): skip its ENTRY in this
-    // channelId→ScopeInfo map. This is safe for never-drop: the map is looked
-    // up per message row by the two callers as `scope?.ref ?? "/unknown/<id>"`,
-    // which already keep the row and emit the explicit "/unknown/" sentinel when
-    // the scope is absent. So a missing entry funnels into that existing
-    // unresolvable path — the message row survives (nothing is dropped from the
-    // page) and its channel reads as an explicit "unresolvable" sentinel, NOT a
-    // hand-built top-level ref that looks addressable but 404s. This removes the
-    // second place the top-level ref shape was built (B1.1): the shape now lives
-    // ONLY in the emitter.
-    if (ref === null) continue;
+    // Scope identity is required for delivery. A fabricated sentinel would look
+    // like a route to downstream tokenizers while leaking an internal id, and a
+    // skipped row would violate never-drop. Fail the whole batch so its cursor
+    // is not advanced and the owed message can be retried after data repair.
+    if (ref === null) throw new Error("Channel identity unavailable");
     out.set(ch.id, {
       ref,
       isThread: emitType === "thread",
@@ -275,9 +269,10 @@ export async function toAgentMessages(
 
   return rows.map((r) => {
     const scope = refs.get(scopeRefKey(r));
-    const channel = scope?.ref ?? `/unknown/${scopeRefKey(r)}`;
+    if (!scope) throw new Error("Channel identity unavailable");
+    const channel = scope.ref;
     const author = userById.get(r.authorId);
-    const sender = author ? formatHandle(author.name, author.discriminator) : r.authorId;
+    const sender = author ? `@${formatHandle(author.name, author.discriminator)}` : "Unknown user";
     // Absent (not empty array) when a message has no attachments — smaller
     // wire payload; documented invariant in the plan.
     const atts = attachmentsByMessageId?.get(r.id);
@@ -288,7 +283,7 @@ export async function toAgentMessages(
     return {
       seq: formatSeq(r.seq),
       channel,
-      sender: `@${sender}`,
+      sender,
       content,
       time: r.createdAt,
     };
@@ -344,10 +339,9 @@ async function resolveReplyRefs(
 
 /**
  * Strict single-scope ref resolver for `UnreadNotice.channel`
- * (`buildUnreadWakeCommand`, minimal-wake-queue-unread-notice plan §4). Unlike
- * `resolveScopeRefs` (used for message/inbox hydration, where an `/unknown/…`
- * fallback is tolerable UI degradation), a wake command's notice channel must
- * NEVER be a placeholder — a missing channel, missing DM, missing parent
+ * (`buildUnreadWakeCommand`, minimal-wake-queue-unread-notice plan §4).
+ * A wake command's notice channel must NEVER be a placeholder — a missing
+ * channel, missing DM, missing parent
  * channel, or missing parent message for a thread all resolve to `null` so
  * the caller treats it as `notice_channel_unresolvable` (ack/skip) rather
  * than waking an agent with a bogus ref it can't `inboxPull` against.
@@ -828,7 +822,7 @@ export async function getInboxSnapshotForAgent(db: Database, botUserId: string):
       pendingCount: r.pendingCount,
       firstPendingSeq: r.firstPendingSeq,
       latestSeq: r.latestSeq,
-      latestSender: `@${sender ? formatHandle(sender.name, sender.discriminator) : r.latestSenderId}`,
+      latestSender: sender ? `@${formatHandle(sender.name, sender.discriminator)}` : "Unknown user",
       hasMention: r.mentionCount > 0,
     };
   });
@@ -857,12 +851,13 @@ export async function toInboxRows(
   const refs = await resolveScopeRefs(db, rows, viewerId);
   return rows.map((r) => {
     const scope = refs.get(scopeRefKey(r));
+    if (!scope) throw new Error("Channel identity unavailable");
     const flags: Array<"dm" | "thread" | "mention"> = [];
     if (scope?.isDm) flags.push("dm");
     if (scope?.isThread) flags.push("thread");
     if (r.hasMention) flags.push("mention");
     return {
-      channel: scope?.ref ?? `/unknown/${scopeRefKey(r)}`,
+      channel: scope.ref,
       pendingCount: r.pendingCount,
       firstPendingSeq: r.firstPendingSeq,
       latestSeq: r.latestSeq,

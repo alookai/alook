@@ -126,25 +126,31 @@ describe("toAgentMessages", () => {
     expect(msg!.channel).toBe(formatRef({ server: DM_SERVER, channel: "Bob#9999" }));
   });
 
-  it("falls back to /unknown/<key> when the scope can't be resolved (e.g. deleted channel)", async () => {
+  it("fails the whole delivery without leaking an id when the scope can't be resolved", async () => {
     const db = createSequentialDb([
       [], // channels query returns nothing for a stale/deleted channelId
       [{ id: "u_1", name: "Alice" }],
       [], // serverIds ends up empty since no channel row was found
     ]);
-    const [msg] = await agentInbox.toAgentMessages(db, [rawMsg({ channelId: "ch_gone" })], "viewer_1");
-    expect(msg!.channel).toBe("/unknown/ch_gone");
+    await expect(agentInbox.toAgentMessages(db, [rawMsg({ channelId: "ch_gone" })], "viewer_1"))
+      .rejects.toThrow("Channel identity unavailable");
   });
 
-  // B1.1 degraded-path (Ingaborg's assertion): a thread channel row EXISTS but
-  // its parent/root didn't hydrate (parentChannels + parentMessages come back
-  // empty — a dangling parent ref). The by-root-seq emitter can't build a ref
-  // without the root seq, so it returns null and resolveScopeRefs sets no map
-  // entry → the caller's `?? "/unknown/<id>"` sentinel takes over. Before B1.1
-  // this row got a hand-built top-level `/studio#0042/thread-x` ref that LOOKS
-  // addressable but 404s on resolve; now it's an explicit unresolvable sentinel.
-  // The message ROW still surfaces (never-drop) — only its channel is /unknown/.
-  it("degraded thread (parent/root not hydrated) → /unknown/ sentinel, not a bogus top-level ref, row kept", async () => {
+  it("fails the whole batch when a DM peer identity cannot hydrate", async () => {
+    const db = createSequentialDb([
+      [{ id: "dm_ch_1", name: null, type: "dm", serverId: null, parentChannelId: null, parentMessageId: null }],
+      [{ id: "u_1", name: "Alice", discriminator: "1234" }],
+      [{ channelId: "dm_ch_1", userId: "peer_internal_1" }],
+      [], // peer user lookup misses
+    ]);
+    const delivery = agentInbox.toAgentMessages(db, [rawMsg({ channelId: "dm_ch_1" })], "viewer_1");
+    await expect(delivery).rejects.toThrow("DM peer identity unavailable");
+    await expect(delivery).rejects.not.toThrow(/peer_internal_1|dm_ch_1/);
+  });
+
+  // A thread channel row exists but its parent/root no longer hydrates. The
+  // entire delivery must fail so the cursor stays put until data repair.
+  it("degraded thread fails the whole delivery instead of emitting a bogus ref", async () => {
     // Call order: 1. channels (the thread row itself), 2. author names,
     // 3. parentChannels (EMPTY — parent didn't resolve), 4. servers,
     // 5. parentMessages (EMPTY — root seq didn't resolve).
@@ -155,22 +161,19 @@ describe("toAgentMessages", () => {
       [{ id: "srv_1", name: "studio", discriminator: "0042" }],
       [], // parentMessages: root seq didn't hydrate
     ]);
-    const [msg] = await agentInbox.toAgentMessages(db, [rawMsg({ channelId: "thread_1" })], "viewer_1");
-    // Row survives (never-drop) and the channel is the explicit sentinel — NOT
-    // a fabricated `/studio#0042/thread-x` top-level ref.
-    expect(msg).toBeDefined();
-    expect(msg!.channel).toBe("/unknown/thread_1");
-    expect(msg!.channel).not.toBe(formatRef({ server: "studio#0042", channel: "thread-x" }));
+    await expect(agentInbox.toAgentMessages(db, [rawMsg({ channelId: "thread_1" })], "viewer_1"))
+      .rejects.toThrow("Channel identity unavailable");
   });
 
-  it("falls back to the raw authorId as sender when the user row is missing", async () => {
+  it("uses a non-routable sentinel when the author identity is missing", async () => {
     const db = createSequentialDb([
       [{ id: "ch_1", name: "general", serverId: "srv_1", parentChannelId: null, parentMessageId: null }],
       [], // author lookup misses
       [{ id: "srv_1", name: "studio", discriminator: "0042" }],
     ]);
     const [msg] = await agentInbox.toAgentMessages(db, [rawMsg({ authorId: "u_ghost" })], "viewer_1");
-    expect(msg!.sender).toBe("@u_ghost");
+    expect(msg!.sender).toBe("Unknown user");
+    expect(JSON.stringify(msg)).not.toContain("u_ghost");
   });
 
   it("read/resolvable: a channel reply gets content.replyTo = { seq, sender } from the in-scope target", async () => {
@@ -628,7 +631,6 @@ describe("getInboxSnapshotForAgent", () => {
       ],
       [
         { id: "u_1", name: "Alice", discriminator: "1234" },
-        { id: "u_2", name: "Bob", discriminator: "5678" },
       ],
     ]);
     const result = await agentInbox.getInboxSnapshotForAgent(db, "bot_1");
@@ -646,7 +648,7 @@ describe("getInboxSnapshotForAgent", () => {
         pendingCount: 1,
         firstPendingSeq: 9,
         latestSeq: 9,
-        latestSender: "@Bob#5678",
+        latestSender: "Unknown user",
         hasMention: false,
       },
     ]);
