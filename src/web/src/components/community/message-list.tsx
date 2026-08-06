@@ -250,12 +250,40 @@ export function MessageList({
   // genuine scroll-in transition.
   const topSentinelRef = useRef<HTMLDivElement>(null)
   const loadOlderStateRef = useRef({ onLoadOlder, hasMore, isFetchingOlder })
+  const topIntersectingRef = useRef(false)
+  const pendingOlderDemandRef = useRef(false)
+  const wasFetchingOlderRef = useRef(isFetchingOlder)
   // Sync the latest guards into the ref after each commit — the observer
   // callback (which reads it) only fires asynchronously, so a post-render
   // write is behavior-identical while keeping the ref untouched during render.
   useEffect(() => {
     loadOlderStateRef.current = { onLoadOlder, hasMore, isFetchingOlder }
   })
+  // A true-entry (or continued upward intent near the top) can arrive while a
+  // previous page is still in flight. IntersectionObserver will not emit
+  // again merely because that fetch settled while the sentinel stayed
+  // visible, so retain at most one demand and replay it clear-first. The
+  // clear-first ordering prevents the replayed load's state ticks from
+  // draining every older page without another user intent.
+  useEffect(() => {
+    const wasFetching = wasFetchingOlderRef.current
+    wasFetchingOlderRef.current = isFetchingOlder
+    if (!hasMore) {
+      pendingOlderDemandRef.current = false
+      topIntersectingRef.current = false
+      return
+    }
+    if (
+      wasFetching &&
+      !isFetchingOlder &&
+      pendingOlderDemandRef.current &&
+      topIntersectingRef.current &&
+      onLoadOlder
+    ) {
+      pendingOlderDemandRef.current = false
+      onLoadOlder()
+    }
+  }, [hasMore, isFetchingOlder, onLoadOlder])
   useEffect(() => {
     const el = topSentinelRef.current
     const root = scrollRef.current
@@ -263,18 +291,44 @@ export function MessageList({
     const observer = new IntersectionObserver(
       (entries) => {
         const { onLoadOlder, hasMore, isFetchingOlder } = loadOlderStateRef.current
-        if (!onLoadOlder || !hasMore || isFetchingOlder) return
         for (const entry of entries) {
-          if (entry.isIntersecting) {
+          topIntersectingRef.current = entry.isIntersecting
+          if (!entry.isIntersecting) continue
+          if (!onLoadOlder || !hasMore) continue
+          if (isFetchingOlder) {
+            pendingOlderDemandRef.current = true
+          } else {
             onLoadOlder()
-            break
           }
+          break
         }
       },
       { root, rootMargin: "200px" },
     )
+    let lastScrollTop = root.scrollTop
+    const onScroll = () => {
+      const nextScrollTop = root.scrollTop
+      const movingUp = nextScrollTop < lastScrollTop
+      lastScrollTop = nextScrollTop
+      const state = loadOlderStateRef.current
+      if (
+        movingUp &&
+        nextScrollTop <= 200 &&
+        topIntersectingRef.current &&
+        state.hasMore &&
+        state.isFetchingOlder
+      ) {
+        pendingOlderDemandRef.current = true
+      }
+    }
     observer.observe(el)
-    return () => observer.disconnect()
+    root.addEventListener("scroll", onScroll, { passive: true })
+    return () => {
+      pendingOlderDemandRef.current = false
+      topIntersectingRef.current = false
+      root.removeEventListener("scroll", onScroll)
+      observer.disconnect()
+    }
     // Re-observe only when the sentinel node mounts/unmounts (it's absent
     // while `hasMore` is false) or the scroll container changes — never on a
     // fetch-state tick. `hasMore` gates whether the sentinel node renders at

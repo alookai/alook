@@ -12,9 +12,10 @@ import { MessageList } from "./message-list"
 // observer, which would re-fire against the still-visible sentinel and trigger
 // the next fetch — draining every older page in one go.
 //
-// This drives the real observer callback: intersect once, flip
-// `isFetchingOlder` true→false across re-renders (what a real fetch does), and
-// assert `onLoadOlder` fires exactly ONCE, not once per re-render.
+// This drives the real observer callback, including the user-visible failure:
+// a second intersection arrives while the previous page is still fetching and
+// the sentinel stays visible after settle. That busy demand must replay once
+// without needing a synthetic third intersection or cascading through history.
 describe("MessageList — older-load sentinel does not cascade", () => {
   it("fires onLoadOlder once per intersection, not on every fetch-state re-render", () => {
     // Capture the observer callback so the test can drive intersections itself.
@@ -95,23 +96,48 @@ describe("MessageList — older-load sentinel does not cascade", () => {
       })
       expect(onLoadOlder).toHaveBeenCalledTimes(1)
 
-      // While a fetch is in flight, a genuine intersection must be ignored
-      // (guarded by isFetchingOlder read from the ref).
+      // While a fetch is in flight, repeated genuine intersections coalesce
+      // into one pending demand and do not load immediately.
+      act(() => {
+        renderer!.update(render(true))
+      })
+      act(() => {
+        ioCallback!([{ isIntersecting: true }])
+        ioCallback!([{ isIntersecting: true }])
+      })
+      expect(onLoadOlder).toHaveBeenCalledTimes(1)
+
+      // Once the fetch settles, replay exactly once WITHOUT another IO event.
+      act(() => {
+        renderer!.update(render(false))
+      })
+      expect(onLoadOlder).toHaveBeenCalledTimes(2)
+
+      // Continued re-renders while the sentinel remains visible do not drain
+      // more history: replay clears pending before calling the loader.
+      act(() => {
+        renderer!.update(render(false))
+        renderer!.update(render(false))
+      })
+      expect(onLoadOlder).toHaveBeenCalledTimes(2)
+
+      // A queued busy demand is discarded when history ends.
       act(() => {
         renderer!.update(render(true))
       })
       act(() => {
         ioCallback!([{ isIntersecting: true }])
       })
-      expect(onLoadOlder).toHaveBeenCalledTimes(1)
+      act(() => {
+        renderer!.update(React.createElement(MessageList, {
+          channel: "general", messages, loading: false, hasMore: false,
+          onLoadOlder, isFetchingOlder: false, onOpenThread: vi.fn(),
+        }))
+      })
+      expect(onLoadOlder).toHaveBeenCalledTimes(2)
 
-      // Once the fetch settles, the next real intersection loads the next page.
-      act(() => {
-        renderer!.update(render(false))
-      })
-      act(() => {
-        ioCallback!([{ isIntersecting: true }])
-      })
+      // Unmounting with pending work must not replay it later.
+      act(() => renderer!.unmount())
       expect(onLoadOlder).toHaveBeenCalledTimes(2)
     } finally {
       g.ResizeObserver = prevRO
