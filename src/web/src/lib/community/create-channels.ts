@@ -478,11 +478,26 @@ export async function createMessageWithThread(params: {
     suppressBroadcast: params.suppressBroadcast,
   })
   if (!reply.ok) {
+    // Two INDEPENDENT compensating deletes, each in its OWN try/catch — a
+    // shared try block would let a deleteChannel throw abort the whole block
+    // BEFORE hardDeleteMessage ever runs, leaving the opener message an
+    // untried orphan on top of the reply failure (Blondie #723: a strictly
+    // worse three-way half-built state than the gap this was fixing). Neither
+    // compensation's success/failure gates the other's attempt.
     try {
       await queries.communityChannel.deleteChannel(db, childChannel.id)
+    } catch (rollbackErr) {
+      log.error("reply_body_thread_rollback_failed", {
+        messageId,
+        threadId: childChannel.id,
+        replyErr: reply.error,
+        rollbackErr: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+      })
+    }
+    try {
       await queries.communityMessage.hardDeleteMessage(db, messageId)
     } catch (rollbackErr) {
-      log.error("reply_body_rollback_failed", {
+      log.error("reply_body_message_rollback_failed", {
         messageId,
         threadId: childChannel.id,
         replyErr: reply.error,

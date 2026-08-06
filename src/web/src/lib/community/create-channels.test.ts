@@ -46,6 +46,13 @@ import { createMessageWithThread } from "./create-channels"
 describe("createMessageWithThread (phase2 forum≡thread — atomic-by-compensation primitive)", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // vi.clearAllMocks() only clears call history, NOT a prior test's
+    // mockRejectedValue/mockResolvedValue implementation — reset the two
+    // compensating-delete mocks to a resolved default every test so a
+    // rejection set by one failure-path test can never silently leak into
+    // the next; any test exercising a rollback failure overrides explicitly.
+    mockDeleteChannel.mockResolvedValue(undefined)
+    mockHardDeleteMessage.mockResolvedValue(undefined)
   })
 
   it("inserts the opener message into the PARENT channel, then opens a fresh thread rooted on it", async () => {
@@ -238,7 +245,7 @@ describe("createMessageWithThread (phase2 forum≡thread — atomic-by-compensat
     expect(mockHardDeleteMessage).toHaveBeenCalledWith(expect.anything(), "msg_1")
   })
 
-  it("when the reply-failure rollback ALSO fails, logs both errors but still returns the ORIGINAL reply error (never masks the real cause)", async () => {
+  it("when deleteChannel (thread rollback) throws, hardDeleteMessage (opener rollback) is STILL attempted — one compensation's failure must never block the other's attempt (Blondie #723)", async () => {
     mockCreateCommunityMessage
       .mockResolvedValueOnce({ ok: true, row: { id: "msg_1", content: "Title", channelId: "forum_1" }, attachments: [] })
       .mockResolvedValueOnce({ ok: false, status: 500, error: "d1 outage" })
@@ -255,5 +262,30 @@ describe("createMessageWithThread (phase2 forum≡thread — atomic-by-compensat
     })
 
     expect(res).toEqual({ ok: false, status: 500, error: "d1 outage" })
+    expect(mockDeleteChannel).toHaveBeenCalledWith(expect.anything(), "th_1")
+    // The critical assertion: hardDeleteMessage was attempted DESPITE
+    // deleteChannel throwing — a shared try block would have skipped this.
+    expect(mockHardDeleteMessage).toHaveBeenCalledWith(expect.anything(), "msg_1")
+  })
+
+  it("symmetrically, when hardDeleteMessage (opener rollback) throws, deleteChannel (thread rollback) was still attempted first and independently", async () => {
+    mockCreateCommunityMessage
+      .mockResolvedValueOnce({ ok: true, row: { id: "msg_1", content: "Title", channelId: "forum_1" }, attachments: [] })
+      .mockResolvedValueOnce({ ok: false, status: 500, error: "d1 outage" })
+    mockCreateChannel.mockResolvedValue({ id: "th_1", creatorId: "u1", createdAt: "t0", name: "Title" })
+    mockHardDeleteMessage.mockRejectedValue(new Error("rollback also down"))
+
+    const res = await createMessageWithThread({
+      db: {} as any,
+      authorId: "u1",
+      parentChannelId: "forum_1",
+      serverId: "s1",
+      body: { content: "Title" },
+      replyBody: { content: "body" },
+    })
+
+    expect(res).toEqual({ ok: false, status: 500, error: "d1 outage" })
+    expect(mockDeleteChannel).toHaveBeenCalledWith(expect.anything(), "th_1")
+    expect(mockHardDeleteMessage).toHaveBeenCalledWith(expect.anything(), "msg_1")
   })
 })
