@@ -57,19 +57,7 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
   const mayEdit = message.authorId === ctx.userId || canManageServer(access.value.member.role)
   if (!mayEdit) return writeError("forbidden", 403)
 
-  const current = await queries.communityMessageTag.listTagsForMessage(db, messageId)
-  const wanted = new Set(tags)
-  const existing = new Set(current)
-  for (const tag of current) {
-    if (!wanted.has(tag)) {
-      await queries.communityMessageTag.removeMessageTag(db, { messageId, tag })
-    }
-  }
-  for (const tag of tags) {
-    if (!existing.has(tag)) {
-      await queries.communityMessageTag.addMessageTag(db, { messageId, tag })
-    }
-  }
+  await queries.communityMessageTag.replaceMessageTags(db, { messageId, tags })
 
   return writeJSON({ tags })
 })

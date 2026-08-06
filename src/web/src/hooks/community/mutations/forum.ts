@@ -65,7 +65,7 @@ export type UpdatePostTagsArgs = {
 /**
  * Edit a single forum post's tags. PUTs the opener-message tag resource (author or manager
  * gated server-side), then patches the post's row in the forum's cached list so
- * the card + the derived tag filter bar update without a refetch.
+ * the card + the derived tag filter bar update on success without a refetch.
  */
 export function useUpdatePostTags() {
   const queryClient = useQueryClient()

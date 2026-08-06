@@ -5,9 +5,45 @@ describe("community/message-tag exports", () => {
   it("exports the tag CRUD + filter", () => {
     expect(typeof tagQueries.addMessageTag).toBe("function");
     expect(typeof tagQueries.removeMessageTag).toBe("function");
+    expect(typeof tagQueries.replaceMessageTags).toBe("function");
     expect(typeof tagQueries.listTagsForMessage).toBe("function");
     expect(typeof tagQueries.listTagsForMessages).toBe("function");
     expect(typeof tagQueries.filterMessageIdsByTag).toBe("function");
+  });
+});
+
+describe("replaceMessageTags", () => {
+  function batchMock() {
+    const deleteStatement = { kind: "delete" };
+    const deleteChain = { where: vi.fn(() => deleteStatement) };
+    const inserts: Array<{ kind: "insert"; data: unknown }> = [];
+    const db: any = {
+      delete: vi.fn(() => deleteChain),
+      insert: vi.fn(() => ({ values: vi.fn((data) => {
+        const statement = { kind: "insert", data };
+        inserts.push(statement);
+        return statement;
+      }) })),
+      batch: vi.fn(() => Promise.resolve()),
+    };
+    return { db, deleteStatement, inserts };
+  }
+
+  it("batches only the unconditional delete for an empty replacement", async () => {
+    const { db, deleteStatement } = batchMock();
+    await tagQueries.replaceMessageTags(db, { messageId: "m1", tags: [] });
+    expect(db.batch).toHaveBeenCalledWith([deleteStatement]);
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it("batches delete plus every wanted insert in one atomic call", async () => {
+    const { db, deleteStatement, inserts } = batchMock();
+    await tagQueries.replaceMessageTags(db, { messageId: "m1", tags: ["bug", "p0"] });
+    expect(inserts.map((statement) => statement.data)).toEqual([
+      { messageId: "m1", tag: "bug" },
+      { messageId: "m1", tag: "p0" },
+    ]);
+    expect(db.batch).toHaveBeenCalledWith([deleteStatement, ...inserts]);
   });
 });
 

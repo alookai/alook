@@ -3,9 +3,7 @@ import { NextRequest } from "next/server"
 
 const mockGetMessage = vi.fn()
 const mockGetThread = vi.fn()
-const mockListTags = vi.fn()
-const mockAddTag = vi.fn()
-const mockRemoveTag = vi.fn()
+const mockReplaceTags = vi.fn()
 const mockRequireChannelAccess = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
@@ -19,9 +17,7 @@ vi.mock("@alook/shared", async () => {
       communityChannel: { ...actual.queries.communityChannel, getThreadChannelByParentMessage: (...args: unknown[]) => mockGetThread(...args) },
       communityMessageTag: {
         ...actual.queries.communityMessageTag,
-        listTagsForMessage: (...args: unknown[]) => mockListTags(...args),
-        addMessageTag: (...args: unknown[]) => mockAddTag(...args),
-        removeMessageTag: (...args: unknown[]) => mockRemoveTag(...args),
+        replaceMessageTags: (...args: unknown[]) => mockReplaceTags(...args),
       },
     },
   }
@@ -65,7 +61,6 @@ describe("PUT /api/community/messages/[id]/tags", () => {
       value: { channel: { id: "forum1", type: "forum" }, member: { role: "member" } },
     })
     mockGetThread.mockResolvedValue({ id: "thread1", type: "thread", parentMessageId: "m1" })
-    mockListTags.mockResolvedValue(["old", "keep"])
   })
 
   it("lets the opener author replace the normalized tag set", async () => {
@@ -73,8 +68,7 @@ describe("PUT /api/community/messages/[id]/tags", () => {
 
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ tags: ["keep", "new"] })
-    expect(mockRemoveTag).toHaveBeenCalledWith(expect.anything(), { messageId: "m1", tag: "old" })
-    expect(mockAddTag).toHaveBeenCalledWith(expect.anything(), { messageId: "m1", tag: "new" })
+    expect(mockReplaceTags).toHaveBeenCalledWith(expect.anything(), { messageId: "m1", tags: ["keep", "new"] })
   })
 
   it("lets a server admin edit another author's opener tags", async () => {
@@ -86,7 +80,7 @@ describe("PUT /api/community/messages/[id]/tags", () => {
 
     const res = await PUT(request(["triage"]), ctx)
     expect(res.status).toBe(200)
-    expect(mockAddTag).toHaveBeenCalledWith(expect.anything(), { messageId: "m1", tag: "triage" })
+    expect(mockReplaceTags).toHaveBeenCalledWith(expect.anything(), { messageId: "m1", tags: ["triage"] })
   })
 
   it("rejects a non-author member", async () => {
@@ -94,7 +88,7 @@ describe("PUT /api/community/messages/[id]/tags", () => {
 
     const res = await PUT(request(["nope"]), ctx)
     expect(res.status).toBe(403)
-    expect(mockListTags).not.toHaveBeenCalled()
+    expect(mockReplaceTags).not.toHaveBeenCalled()
   })
 
   it("rejects a normal forum message that did not open a thread", async () => {

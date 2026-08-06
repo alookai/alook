@@ -34,6 +34,22 @@ export async function removeMessageTag(
   return deleted ?? null;
 }
 
+/** Atomically replace one message's complete tag set. The unconditional
+ * delete and every wanted insert share one D1 batch, giving concurrent PUTs
+ * last-writer-wins set semantics and preventing half-replaced rows. */
+export async function replaceMessageTags(
+  db: Database,
+  data: { messageId: string; tags: string[] }
+) {
+  const statements = [
+    db.delete(communityMessageTag).where(eq(communityMessageTag.messageId, data.messageId)),
+    ...data.tags.map((tag) =>
+      db.insert(communityMessageTag).values({ messageId: data.messageId, tag })
+    ),
+  ];
+  await db.batch(statements as any);
+}
+
 // This message's own tag set, unordered (callers sort if they need a
 // display order — no natural order on a tag set).
 export async function listTagsForMessage(
