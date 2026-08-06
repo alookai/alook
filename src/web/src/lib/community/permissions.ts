@@ -1,4 +1,4 @@
-import { queries, canManageServer, canSeePrivateChannel } from "@alook/shared"
+import { queries, canManageServer, canSeePrivateChannel, withD1Retry } from "@alook/shared"
 import type { Database } from "@alook/shared"
 
 type PermissionError =
@@ -49,7 +49,10 @@ export async function requireChannelMember(
   channelId: string,
   userId: string,
 ): Promise<Result<NonNullable<Awaited<ReturnType<typeof queries.communityChannel.getChannelForMember>>>>> {
-  const channel = await queries.communityChannel.getChannelForMember(db, channelId, userId)
+  const channel = await withD1Retry(
+    () => queries.communityChannel.getChannelForMember(db, channelId, userId),
+    { route: "community/permissions:channel-member" },
+  )
   if (!channel) return err(403, "forbidden")
   return ok(channel)
 }

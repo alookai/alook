@@ -19,6 +19,7 @@ import {
   channelReach,
   isStoredChannelType,
   WS_EVENTS,
+  withD1Retry,
 } from "@alook/shared"
 import type { CommunityMachineRuntime, CommunityMachineSummary } from "@alook/shared"
 
@@ -892,7 +893,10 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         resolveBinding: () => queries.communityBot.getBotBinding(db, agentId),
         isMatch: (binding) => binding.machineId === identity.machineId,
         write: async () => {
-          const prior = await queries.communityUserProfile.getProfile(db, agentId)
+          const prior = await withD1Retry(
+            () => queries.communityUserProfile.getProfile(db, agentId),
+            { route: "ws-do:agent-activity-profile-read" },
+          )
           const priorEmoji = prior?.statusEmoji ?? null
           // `status_text` defaults to "" (schema), so an unset status reads back
           // as (null, "") not (null, null). Normalize "" → null so "no status"
@@ -920,10 +924,13 @@ export class WebSocketDurableObject extends DurableObject<Env> {
               ? { emoji: priorEmoji as string, text: priorText as string }
               : pickBotActivityPreset(state, Math.random())
           if (preset.emoji === priorEmoji && preset.text === priorText) return
-          await queries.communityUserProfile.updateProfile(db, agentId, {
-            statusEmoji: preset.emoji,
-            statusText: preset.text,
-          })
+          await withD1Retry(
+            () => queries.communityUserProfile.updateProfile(db, agentId, {
+              statusEmoji: preset.emoji,
+              statusText: preset.text,
+            }),
+            { route: "ws-do:agent-activity-profile" },
+          )
           await this.broadcastToAudience(agentId, {
             type: WS_EVENTS.STATUS_UPDATE,
             userId: agentId,
@@ -950,7 +957,10 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         frameType: "agent_typing",
         agentId,
         machineId: identity.machineId,
-        resolveBinding: () => queries.communityBot.getBotBindingWithOwner(db, agentId),
+        resolveBinding: () => withD1Retry(
+          () => queries.communityBot.getBotBindingWithOwner(db, agentId),
+          { route: "ws-do:agent-typing-binding" },
+        ),
         isMatch: (binding) => binding.machineId === identity.machineId,
         write: async (binding) => {
           // Channel membership is enforced inside `fanOutTyping` — no need to
@@ -977,7 +987,10 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         frameType: "agent_typing_stop",
         agentId,
         machineId: identity.machineId,
-        resolveBinding: () => queries.communityBot.getBotBindingWithOwner(db, agentId),
+        resolveBinding: () => withD1Retry(
+          () => queries.communityBot.getBotBindingWithOwner(db, agentId),
+          { route: "ws-do:agent-typing-stop-binding" },
+        ),
         isMatch: (binding) => binding.machineId === identity.machineId,
         // Channel membership enforced inside `fanOutTypingStop`.
         write: () => this.fanOutTypingStop(agentId, channelId),
@@ -1015,7 +1028,10 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         agentId,
         machineId: identity.machineId,
         writeCategory: "ws_frame_dropped_write",
-        resolveBinding: () => queries.communityBot.getBotBindingWithOwner(db, agentId),
+        resolveBinding: () => withD1Retry(
+          () => queries.communityBot.getBotBindingWithOwner(db, agentId),
+          { route: "ws-do:agent-session-binding" },
+        ),
         isMatch: (binding) => binding.machineId === identity.machineId,
         write: async (binding) => {
           // Per-kind audit — nap and reset stay distinct kinds so my-bots reads
@@ -1112,7 +1128,10 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         // failures stay on the plain `ws_frame_dropped` category via the
         // helper's default.
         writeCategory: "ws_frame_dropped_write",
-        resolveBinding: () => queries.communityBot.getBotBindingWithOwner(db, frame.agentId),
+        resolveBinding: () => withD1Retry(
+          () => queries.communityBot.getBotBindingWithOwner(db, frame.agentId),
+          { route: "ws-do:bot-audit-binding" },
+        ),
         isMatch: (binding) => binding.machineId === identity.machineId,
         write: async (binding) => {
           const inserted = await queries.communityBotAuditLog.insertBotActivityEventAndPrune(db, {
@@ -1536,14 +1555,20 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     // channel — same authz the HTTP layer enforces via requireChannelMember
     // (src/web/src/lib/community/permissions.ts). For a DM (type=dm) it
     // resolves via the sender's relation='access' member row.
-    const membership = await queries.communityChannel.getChannelForMember(db, channelId, senderUserId)
+    const membership = await withD1Retry(
+      () => queries.communityChannel.getChannelForMember(db, channelId, senderUserId),
+      { route: "ws-do:agent-typing-membership" },
+    )
     if (!membership) {
       log.warn("fanOutTyping: sender not a channel member", { senderUserId, channelId })
       return
     }
     // Recipient set — the shared reach recipient-split (same as message
     // fan-out), then exclude the sender.
-    recipientUserIds = await this.typingRecipientUserIds(db, channelId)
+    recipientUserIds = await withD1Retry(
+      () => this.typingRecipientUserIds(db, channelId),
+      { route: "ws-do:agent-typing-recipients" },
+    )
     recipientUserIds = recipientUserIds.filter((id) => id !== senderUserId)
     if (recipientUserIds.length === 0) return
 
@@ -1574,12 +1599,18 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     channelId: string,
   ): Promise<void> {
     const db = createDb(this.env.DB)
-    const membership = await queries.communityChannel.getChannelForMember(db, channelId, senderUserId)
+    const membership = await withD1Retry(
+      () => queries.communityChannel.getChannelForMember(db, channelId, senderUserId),
+      { route: "ws-do:agent-typing-stop-membership" },
+    )
     if (!membership) {
       log.warn("fanOutTypingStop: sender not a channel member", { senderUserId, channelId })
       return
     }
-    let recipientUserIds = await this.typingRecipientUserIds(db, channelId)
+    let recipientUserIds = await withD1Retry(
+      () => this.typingRecipientUserIds(db, channelId),
+      { route: "ws-do:agent-typing-stop-recipients" },
+    )
     recipientUserIds = recipientUserIds.filter((id) => id !== senderUserId)
     if (recipientUserIds.length === 0) return
     const body = JSON.stringify({

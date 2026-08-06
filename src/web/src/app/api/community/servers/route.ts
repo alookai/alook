@@ -8,6 +8,7 @@ import {
   ROLES,
   WS_EVENTS,
   slugify,
+  withD1Retry,
 } from "@alook/shared"
 import { withCommunityActor, rejectBot } from "@/lib/middleware/community-actor"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
@@ -23,7 +24,10 @@ import { serverIconUrl } from "@/lib/community/storage"
  */
 export const GET = withCommunityActor(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
-  const rows = await queries.communityServer.listUserServers(db, ctx.actor.userId)
+  const rows = await withD1Retry(
+    () => queries.communityServer.listUserServers(db, ctx.actor.userId),
+    { route: "community/servers:list" },
+  )
   const servers = rows.map((row) => ({ ...row, icon: serverIconUrl(row) }))
   return writeJSON({ servers })
 })

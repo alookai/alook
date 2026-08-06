@@ -273,6 +273,7 @@ vi.mock("@alook/shared", () => {
     },
     createDb: (d1: unknown) => mockCreateDb(d1),
     createLogger: () => noopLogger,
+    withD1Retry: async <T>(fn: () => Promise<T>): Promise<T> => fn(),
     // Real reach-trait impls — fanOutTyping's recipient split dispatches on
     // channelReach (B2 reach axis single source) to route a thread/forum_post to
     // the participant set, a dm to its members, else the access audience. Mirror

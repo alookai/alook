@@ -10,6 +10,7 @@ import {
   UNCATEGORIZED_CATEGORY_ID,
   WS_EVENTS,
   slugify,
+  withD1Retry,
 } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 import { logAudit } from "@/lib/community/audit"
@@ -24,9 +25,10 @@ export const GET = withAuth(async (_req, ctx) => {
   const auth = await requireServerMember(db, serverId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 
-  const visibleChannelIds = await queries.communityChannel.listVisibleChannelIdsForUser(db, ctx.userId)
-  const [server, rawChannels, categories, unreadRows] = await Promise.all([
-    queries.communityServer.getServer(db, serverId),
+  const [server, rawChannels, categories, unreadRows] = await withD1Retry(async () => {
+    const visibleChannelIds = await queries.communityChannel.listVisibleChannelIdsForUser(db, ctx.userId)
+    return Promise.all([
+      queries.communityServer.getServer(db, serverId),
     // Viewer-scoped: private-category channels are only returned if the viewer
     // is the channel creator or an added member (admins get NO special
     // visibility). Private category HEADERS still appear (below) so members can
@@ -36,8 +38,9 @@ export const GET = withAuth(async (_req, ctx) => {
       where: (t, { eq }) => eq(t.serverId, serverId),
       orderBy: (t, { asc }) => [asc(t.position)],
     }),
-    queries.communityInbox.listUnreadChannels(db, ctx.userId, visibleChannelIds),
-  ])
+      queries.communityInbox.listUnreadChannels(db, ctx.userId, visibleChannelIds),
+    ])
+  }, { route: "community/servers/detail" })
 
   if (!server) return writeError("server not found", 404)
 

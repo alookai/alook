@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { queries, dispatchOneUnreadWake } from "@alook/shared"
+import { queries, dispatchOneUnreadWake, withD1Retry } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withCommunityDaemonAuth } from "@/lib/middleware/community-daemon-auth"
 
@@ -24,11 +24,17 @@ import { withCommunityDaemonAuth } from "@/lib/middleware/community-daemon-auth"
  */
 export const POST = withCommunityDaemonAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
-  const bots = await queries.communityBot.listBotsForMachine(db, ctx.machineId)
+  const bots = await withD1Retry(
+    () => queries.communityBot.listBotsForMachine(db, ctx.machineId),
+    { route: "community/daemon/resync-wakes:list-bots" },
+  )
 
   let woken = 0
   for (const bot of bots) {
-    const latest = await queries.communityAgentInbox.getLatestUnreadMessageForAgent(db, bot.id)
+    const latest = await withD1Retry(
+      () => queries.communityAgentInbox.getLatestUnreadMessageForAgent(db, bot.id),
+      { route: "community/daemon/resync-wakes:latest-unread" },
+    )
     if (!latest) continue
     const result = await dispatchOneUnreadWake(db, ctx.env, { messageId: latest.messageId, botUserId: bot.id })
     if (result.outcome === "sent") woken++
