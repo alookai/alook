@@ -80,4 +80,14 @@ describe("GET /api/community/users/me/inbox/snapshot — bot arm (folds inboxSna
     // self-scope: the snapshot query is called with the caller's own bot userId.
     expect(mockGetInboxSnapshotForAgent).toHaveBeenCalledWith(expect.anything(), "bot_1")
   })
+
+  it("loudly rejects an orphan scope without leaking internal ids", async () => {
+    mockGetInboxSnapshotForAgent.mockResolvedValue([
+      { channelId: "dm_channel_internal", latestSenderId: "peer_internal" },
+    ])
+    mockToInboxRows.mockRejectedValue(new Error("DM peer identity unavailable"))
+    const request = GET(req({ Authorization: "Bearer crk_abc" }))
+    await expect(request).rejects.toThrow("DM peer identity unavailable")
+    await expect(request).rejects.not.toThrow(/dm_channel_internal|peer_internal/)
+  })
 })

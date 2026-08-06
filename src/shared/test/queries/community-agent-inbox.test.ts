@@ -148,6 +148,22 @@ describe("toAgentMessages", () => {
     await expect(delivery).rejects.not.toThrow(/peer_internal_1|dm_ch_1/);
   });
 
+  it("fails a mixed valid+orphan DM batch atomically", async () => {
+    const rows = [rawMsg({ id: "m_valid", channelId: "ch_valid" }), rawMsg({ id: "m_orphan", channelId: "dm_orphan", seq: 2 })];
+    const db = createSequentialDb([
+      [
+        { id: "ch_valid", name: "general", type: "text", serverId: "srv_1", parentChannelId: null, parentMessageId: null },
+        { id: "dm_orphan", name: null, type: "dm", serverId: null, parentChannelId: null, parentMessageId: null },
+      ],
+      [{ id: "u_1", name: "Alice", discriminator: "1234" }],
+      [{ channelId: "dm_orphan", userId: "peer_internal_1" }],
+      [], // orphan peer hydration
+      [{ id: "srv_1", name: "studio", discriminator: "0042" }],
+    ]);
+    await expect(agentInbox.toAgentMessages(db, rows, "viewer_1"))
+      .rejects.toThrow("DM peer identity unavailable");
+  });
+
   // A thread channel row exists but its parent/root no longer hydrates. The
   // entire delivery must fail so the cursor stays put until data repair.
   it("degraded thread fails the whole delivery instead of emitting a bogus ref", async () => {

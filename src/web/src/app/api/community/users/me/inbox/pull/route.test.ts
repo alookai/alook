@@ -97,4 +97,24 @@ describe("POST /api/community/users/me/inbox/pull — bot arm (folds inboxPull)"
     expect(res.status).toBe(200)
     expect(mockListUnreadMessagesForAgent).toHaveBeenCalledTimes(2)
   })
+
+  it("keeps an orphan-DM message owed after a loud hydration failure and redelivers it after repair", async () => {
+    const owed = { id: "owed_message_internal", channelId: "dm_channel_internal", seq: 7 }
+    mockListUnreadMessagesForAgent.mockResolvedValue([owed])
+    mockToAgentMessages
+      .mockRejectedValueOnce(new Error("DM peer identity unavailable"))
+      .mockResolvedValueOnce([{ seq: "#7", channel: "/.dm/Bob#0042", sender: "@Alice#1234", content: { text: "still owed" } }])
+
+    const first = POST(req(JSON.stringify({ max: 5 }), { Authorization: "Bearer crk_abc" }))
+    await expect(first).rejects.toThrow("DM peer identity unavailable")
+    await expect(first).rejects.not.toThrow(/owed_message_internal|dm_channel_internal/)
+
+    const repaired = await POST(req(JSON.stringify({ max: 5 }), { Authorization: "Bearer crk_abc" }))
+    expect(repaired.status).toBe(200)
+    expect(await repaired.json()).toMatchObject({
+      messages: [{ seq: "#7", channel: "/.dm/Bob#0042", content: { text: "still owed" } }],
+    })
+    expect(mockListUnreadMessagesForAgent).toHaveBeenCalledTimes(2)
+    expect(mockListUnreadMessagesForAgent.mock.results.map((r) => r.value)).toHaveLength(2)
+  })
 })
