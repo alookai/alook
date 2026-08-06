@@ -4,7 +4,7 @@ import { useQuery, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { avatarInitial } from "@/lib/community/avatar"
-import { isServerOwner, MAX_INBOX_PAGE_SIZE, UNCATEGORIZED_CATEGORY_ID } from "@alook/shared"
+import { isServerOwner, UNCATEGORIZED_CATEGORY_ID } from "@alook/shared"
 import type { Server, Category, Channel } from "@/components/community/_types"
 
 /**
@@ -90,8 +90,7 @@ export type ServerDetail = {
 type RawChannel = Channel & { categoryId: string | null }
 type UnreadResponse = {
   stale?: boolean
-  truncated?: boolean
-  servers: Array<{ serverId: string; channels: Array<{ channelId: string; hasDirectUnread: boolean; children: Array<{ channelId: string }> }> }>
+  channelIds: string[]
 }
 
 export const serverQueryFn = (serverId: string) => async (): Promise<ServerDetail> => {
@@ -99,17 +98,12 @@ export const serverQueryFn = (serverId: string) => async (): Promise<ServerDetai
     apiFetch<{ servers: RawServerRow[] }>("/api/community/servers"),
     apiFetch<{ categories: Array<Omit<Category, "channels"> & { serverId?: string }> }>(`/api/community/servers/${serverId}/categories`),
     apiFetch<{ channels: RawChannel[] }>(`/api/community/servers/${serverId}/channels`),
-    apiFetch<UnreadResponse>(`/api/community/users/me/inbox/unreads?limit=${MAX_INBOX_PAGE_SIZE}`),
+    apiFetch<UnreadResponse>(`/api/community/servers/${serverId}/unreads`),
   ])
   if (unreadData.stale) throw new Error("stale D1 read")
-  if (unreadData.truncated) throw new Error("truncated unread read")
   const server = serverData.servers.find((row) => row.id === serverId)
   if (!server) throw new Error("server not found")
-  const unreadServer = unreadData.servers.find((row) => row.serverId === serverId)
-  const unreadIds = new Set(unreadServer?.channels.flatMap((channel) => [
-    ...(channel.hasDirectUnread ? [channel.channelId] : []),
-    ...channel.children.map((child) => child.channelId),
-  ]) ?? [])
+  const unreadIds = new Set(unreadData.channelIds)
   const channels = channelData.channels.map((channel) => ({ ...channel, active: false, unread: unreadIds.has(channel.id) }))
   const categories: Category[] = categoryData.categories.map((category) => ({
     ...category,

@@ -68,9 +68,7 @@ describe("useServer / serverQueryFn", () => {
         { id: "ch_1", name: "general", categoryId: "cat_1" },
         { id: "ch_2", name: "loose", categoryId: null },
       ] }
-      if (url.includes("/inbox/unreads")) return { servers: [{ serverId: "srv_1", channels: [
-        { channelId: "ch_1", hasDirectUnread: true, children: [] },
-      ] }] }
+      if (url.endsWith("/unreads")) return { channelIds: ["ch_1"] }
       throw new Error(`unexpected ${url}`)
     })
     const { serverQueryFn } = await import("./use-servers")
@@ -78,6 +76,7 @@ describe("useServer / serverQueryFn", () => {
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers")
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/srv_1/categories")
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/srv_1/channels")
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/srv_1/unreads")
     expect(data).toEqual({ ...detail, categories: [
       { id: "cat_1", name: "Main", private: 0, channels: [{ id: "ch_1", name: "general", categoryId: "cat_1", active: false, unread: true }] },
       { id: "__uncategorized__", name: "", private: 0, channels: [{ id: "ch_2", name: "loose", categoryId: null, active: false, unread: false }] },
@@ -90,7 +89,7 @@ describe("useServer / serverQueryFn", () => {
       if (url === "/api/community/servers") return { servers: [{ ...detail, discriminator: "0001" }] }
       if (url.endsWith("/categories")) return { categories: [] }
       if (url.endsWith("/channels")) return { channels: [] }
-      if (url.includes("/inbox/unreads")) return { servers: [] }
+      if (url.endsWith("/unreads")) return { channelIds: [] }
       throw new Error(`unexpected ${url}`)
     })
     const { serverQueryFn } = await import("./use-servers")
@@ -101,5 +100,18 @@ describe("useServer / serverQueryFn", () => {
     // Invalidating the servers() prefix invalidates the detail entry too.
     await qc.invalidateQueries({ queryKey: communityKeys.servers() })
     expect(qc.getQueryState(key)?.isInvalidated).toBe(true)
+  })
+
+  it("rejects a stale raw unread read instead of caching false read badges", async () => {
+    apiFetchMock.mockImplementation(async (url: string) => {
+      if (url === "/api/community/servers") return { servers: [{ id: "srv_1", name: "Alook", discriminator: "0001", icon: null, ownerId: "u_1" }] }
+      if (url.endsWith("/categories")) return { categories: [] }
+      if (url.endsWith("/channels")) return { channels: [{ id: "ch_1", name: "general", categoryId: null }] }
+      if (url.endsWith("/unreads")) return { channelIds: [], stale: true }
+      throw new Error(`unexpected ${url}`)
+    })
+
+    const { serverQueryFn } = await import("./use-servers")
+    await expect(serverQueryFn("srv_1")()).rejects.toThrow("stale D1 read")
   })
 })
