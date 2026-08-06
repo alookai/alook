@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { queries, parseRef, DM_SERVER, parseNameAndTag, channelCreation } from "@alook/shared"
+import { queries, parseRef, DM_SERVER, parseNameAndTag, channelCreation, withD1Retry } from "@alook/shared"
 import type { Database } from "@alook/shared"
 import { guardDmOpen } from "./dm-guard"
 import { createWithCollisionPolicy } from "./create-collision"
@@ -90,7 +90,10 @@ export async function resolveTargetForMember(
   }
 
   // Channel form: resolve server, then channel, both scoped to membership.
-  const servers = await queries.communityServer.resolveServerByNameForMember(db, userId, parsed.server)
+  const servers = await withD1Retry(
+    () => queries.communityServer.resolveServerByNameForMember(db, userId, parsed.server),
+    { route: "community/resolve-ref:server" }
+  )
   if (servers.length === 0) return { error: 404, message: "server not found" }
   if (servers.length > 1) {
     return {
@@ -101,7 +104,10 @@ export async function resolveTargetForMember(
   }
   const serverId = servers[0]!.id
 
-  const matches = await queries.communityChannel.resolveChannelByNameForMember(db, serverId, userId, parsed.channel)
+  const matches = await withD1Retry(
+    () => queries.communityChannel.resolveChannelByNameForMember(db, serverId, userId, parsed.channel),
+    { route: "community/resolve-ref:channel" }
+  )
   if (matches.length === 0) return { error: 404, message: `channel not found: ${parsed.channel}` }
   const channel = matches[0]!
 
@@ -123,19 +129,21 @@ export async function resolveTargetForMember(
 
   // Thread form (`/server/channel/#N`) — translate the root seq to the
   // parent message's id, then find (or create) the thread's own channel row.
-  const rootMessage = await queries.communityMessage.getMessageByChannelAndSeq(
-    db,
-    { channelId: channel.id },
-    parsed.threadRootSeq
+  const rootMessage = await withD1Retry(
+    () => queries.communityMessage.getMessageByChannelAndSeq(
+      db,
+      { channelId: channel.id },
+      parsed.threadRootSeq!
+    ),
+    { route: "community/resolve-ref:root-message" }
   )
   if (!rootMessage || parsed.threadRootSeq === 0) {
     return { error: 404, message: `no message with seq #${parsed.threadRootSeq} in this channel` }
   }
 
-  const existingThread = await queries.communityChannel.getThreadChannelByParentMessage(
-    db,
-    channel.id,
-    rootMessage.id
+  const existingThread = await withD1Retry(
+    () => queries.communityChannel.getThreadChannelByParentMessage(db, channel.id, rootMessage.id),
+    { route: "community/resolve-ref:thread" }
   )
   if (existingThread) return { kind: "channel", channelId: existingThread.id }
 

@@ -539,6 +539,49 @@ describe("createDaemon — logging", () => {
     await daemon.stop();
   });
 
+  it("preserves status and bounded text when enroll-agent returns a non-JSON error", async () => {
+    global.fetch = vi.fn(async (url: string | URL) => {
+      if (String(url).includes("/enroll-agent")) {
+        return new Response("upstream overloaded", { status: 503 });
+      }
+      return new Response(JSON.stringify({ bots: [] }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const sockets: FakeSocket[] = [];
+    const logger = stubLogger();
+    const daemon = await createDaemon({
+      machineKey: "cmk_enroll_text_error",
+      serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as any,
+      runtimeReport: [{ id: "codex" }],
+      driverFor: () => fullFakeDriver("codex"),
+      capabilities: [],
+      logger,
+    });
+    sockets[0].emit("open");
+    sockets[0].emit("message", JSON.stringify({ type: "bot:added", botId: "bot_text", name: "Bot Text" }));
+    sockets[0].emit(
+      "message",
+      JSON.stringify({
+        type: "agent:wake",
+        agentId: "bot_text",
+        config: { version: 1, runtime: "codex", model: { kind: "default" }, mode: { kind: "default" } },
+        launchId: "l_text",
+        unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 1 },
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(
+      logger.calls.warn.some(([, m, d]) => {
+        const err = String((d[0] as any).err);
+        return m === "agent enroll failed" && err.includes("503") && err.includes("upstream overloaded");
+      }),
+    ).toBe(true);
+    await daemon.stop();
+  });
+
   it("calls resync-wakes with the machine key bearer on open and logs the woken count", async () => {
     global.fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
       const href = String(url);

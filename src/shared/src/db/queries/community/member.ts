@@ -425,7 +425,7 @@ export async function removeOwnerBotsFromServer(
  *
  * The gate applies BOTH visibility AND notification-set semantics: a public
  * child thread is technically READABLE by any server member, but wakes only
- * fire for its `community_thread_participant` set — same rule the human
+ * fire for its `community_channel_member(relation='notify')` set — same rule the human
  * inbox uses (`listUnreadChannels`, `inbox.ts:123-143`). Without the
  * participation gate a bogus source query could still leak a wake for a
  * public-forum message the bot never touched (Mellicent's exact bug).

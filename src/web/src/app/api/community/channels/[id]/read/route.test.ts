@@ -140,6 +140,34 @@ describe("PUT /api/community/channels/[id]/read", () => {
     expect(mockBatch).toHaveBeenCalledTimes(1)
   })
 
+  it("retries a transient BUSY from the atomic batch with the same monotonic target", async () => {
+    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1" })
+    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
+    mockGetLatestMessage.mockResolvedValue({
+      id: "m_latest",
+      createdAt: "2026-07-05T10:00:00.000Z",
+      seq: 42,
+    })
+    mockBatch
+      .mockRejectedValueOnce(new Error("SQLITE_BUSY: database is locked"))
+      .mockResolvedValueOnce(undefined)
+
+    const res = await PUT(putReq(), { params: { id: "c1" } } as any)
+
+    expect(res.status).toBe(200)
+    expect(mockBatch).toHaveBeenCalledTimes(2)
+    expect(mockMarkReadToMessageBuilder).toHaveBeenNthCalledWith(1, expect.anything(), {
+      userId: "u1",
+      channelId: "c1",
+      message: { id: "m_latest", createdAt: "2026-07-05T10:00:00.000Z", seq: 42 },
+    })
+    expect(mockMarkReadToMessageBuilder).toHaveBeenNthCalledWith(2, expect.anything(), {
+      userId: "u1",
+      channelId: "c1",
+      message: { id: "m_latest", createdAt: "2026-07-05T10:00:00.000Z", seq: 42 },
+    })
+  })
+
   it("returns 400 when the channel id is missing", async () => {
     const res = await PUT(putReq(), { params: {} } as any)
     expect(res.status).toBe(400)

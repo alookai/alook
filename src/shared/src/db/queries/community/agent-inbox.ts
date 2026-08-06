@@ -37,6 +37,7 @@ import { listParticipatingThreadIds } from "./thread";
 import { getMessagesByIdsInScope, type MessageScope } from "./message";
 import { reachIsParticipantSet, type StoredChannelType } from "../../../utils/community-roles";
 import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
+import { withD1Retry } from "../../resilience";
 
 type RawAgentMessage = {
   id: string;
@@ -82,7 +83,7 @@ async function resolveScopeRefs(
   const channels = (
     await Promise.all(
       chunk(channelIds, D1_MAX_IN_PARAMS).map((ids) =>
-        db
+        withD1Retry(() => db
           .select({
             id: communityChannel.id,
             name: communityChannel.name,
@@ -92,7 +93,7 @@ async function resolveScopeRefs(
             parentMessageId: communityChannel.parentMessageId,
           })
           .from(communityChannel)
-          .where(inArray(communityChannel.id, ids))
+          .where(inArray(communityChannel.id, ids)), { route: "community/agent-inbox:scope-channels" })
       )
     )
   ).flat();
@@ -103,7 +104,7 @@ async function resolveScopeRefs(
     ? (
         await Promise.all(
           chunk(dmChannelIds, D1_MAX_IN_PARAMS).map((ids) =>
-            db
+            withD1Retry(() => db
               .select({
                 channelId: communityChannelMember.channelId,
                 userId: communityChannelMember.userId,
@@ -115,7 +116,7 @@ async function resolveScopeRefs(
                   eq(communityChannelMember.relation, "access"),
                   ne(communityChannelMember.userId, viewerId)
                 )
-              )
+              ), { route: "community/agent-inbox:dm-members" })
           )
         )
       ).flat()
@@ -129,10 +130,10 @@ async function resolveScopeRefs(
     ? (
         await Promise.all(
           chunk(dmPeerIds, D1_MAX_IN_PARAMS).map((ids) =>
-            db
+            withD1Retry(() => db
               .select({ id: user.id, name: user.name, discriminator: user.discriminator })
               .from(user)
-              .where(inArray(user.id, ids))
+              .where(inArray(user.id, ids)), { route: "community/agent-inbox:dm-peers" })
           )
         )
       ).flat()
@@ -154,7 +155,11 @@ async function resolveScopeRefs(
     run: (batch: string[]) => Promise<T[]>
   ): Promise<T[]> =>
     ids.length
-      ? Promise.all(chunk(ids, D1_MAX_IN_PARAMS).map(run)).then((r) => r.flat())
+      ? Promise.all(
+          chunk(ids, D1_MAX_IN_PARAMS).map((batch) =>
+            withD1Retry(() => run(batch), { route: "community/agent-inbox:scope-context" })
+          )
+        ).then((r) => r.flat())
       : Promise.resolve([]);
 
   const [parentChannels, servers, parentMessages] = await Promise.all([
@@ -544,7 +549,7 @@ const channelJoinBaselineGuard = sql`${communityMessage.createdAt} > COALESCE(${
  * (1) channel messages restricted to `listVisibleChannelIdsForUser(botUserId)`
  * (respects private-category rosters), and
  * (2) child threads additionally require a
- * `community_thread_participant` row for the bot. Both dimensions are folded
+ * `community_channel_member(relation='notify')` row for the bot. Both dimensions are folded
  * into ONE `inArray` predicate up front so `.limit(max)` operates on
  * already-visible rows — post-filtering after `limit` (the earlier shape)
  * could silently collapse a page to `[]` and break `hasMore`.
@@ -724,7 +729,7 @@ export type InboxSnapshotRow = {
  * Visibility rule mirrors `listUnreadMessagesForAgent`: (1) channel scopes
  * restricted to `listVisibleChannelIdsForUser(botUserId)`, and (2) scopes of
  * child threads additionally require a
- * `community_thread_participant` row for the bot (post-filter). Because the
+ * `community_channel_member(relation='notify')` row for the bot (post-filter). Because the
  * outer `WHERE` is `inArray(channelId, visibleChannelIds)` and non-participated
  * thread rows are dropped in the post-filter, `hasMention` (a correlated
  * sub-select keyed on the surviving row's `channel_id`) can never inherit a
@@ -876,7 +881,7 @@ export async function toInboxRows(
  *
  * Visibility rule identical to `listUnreadMessagesForAgent`: the bot must be
  * able to see the channel (`listVisibleChannelIdsForUser`) AND, for child
- * threads, hold a `community_thread_participant` row. Both
+ * threads, hold a `community_channel_member(relation='notify')` row. Both
  * dimensions are folded into the SQL WHERE via `listAgentAllowedChannelIds`
  * so `LIMIT 1` returns the newest allowed row directly — an earlier shape
  * used a bounded post-filter window that could return `null` when older

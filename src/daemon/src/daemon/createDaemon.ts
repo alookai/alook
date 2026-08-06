@@ -589,14 +589,22 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
         headers: { "content-type": "application/json", authorization: `Bearer ${opts.machineKey}` },
         body: JSON.stringify({ agentId }),
       });
-      const json = (await res.json()) as { runnerKey?: string; error?: string };
+      const text = await res.text();
+      let json: { runnerKey?: string; error?: string } = {};
+      if (text) {
+        try {
+          json = JSON.parse(text) as { runnerKey?: string; error?: string };
+        } catch {
+          json = {};
+        }
+      }
       if (!res.ok || !json.runnerKey) {
         if (res.status === 404) {
           throw new UnknownBotError(agentId);
         }
         throw new BotEnrollFailedError(
           agentId,
-          new Error(json.error ?? `enroll failed (${res.status})`),
+          new Error(json.error ?? `enroll failed (${res.status})${text ? `: ${text.slice(0, 512)}` : ""}`),
         );
       }
       enrolledKeys.set(agentId, json.runnerKey);

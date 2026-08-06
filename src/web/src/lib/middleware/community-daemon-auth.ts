@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { queries } from "@alook/shared"
+import { queries, withD1Retry } from "@alook/shared"
 import { getDb } from "@/lib/db"
 
 interface CommunityDaemonAuthContext {
@@ -48,7 +48,10 @@ export function withCommunityDaemonAuth(handler: CommunityDaemonAuthenticatedHan
     const cloudflareEnv = env as Env
     const db = getDb(cloudflareEnv.DB)
 
-    const active = await queries.communityMachine.findActiveCredentialByBearer(db, raw)
+    const active = await withD1Retry(
+      () => queries.communityMachine.findActiveCredentialByBearer(db, raw),
+      { route: "community/daemon-auth:credential" }
+    )
     if (!active) {
       return NextResponse.json({ error: "credential revoked or unknown" }, { status: 401 })
     }
