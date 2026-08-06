@@ -462,14 +462,14 @@ export async function getLatestSeqForScope(db: Database, channelId: string): Pro
 }
 
 /**
- * Effective allowed channel-id set for a bot: visible channels MINUS
- * child threads the bot isn't a participant of. Pushes the
- * thread-participation narrowing into a pre-computed set so it can join the
+ * Effective allowed channel-id set for a bot: visible channels MINUS child
+ * threads where it holds no `community_channel_member(relation='notify')`
+ * row. Pushes the notification-set narrowing into a pre-computed set so it can join the
  * message SQL as a single `inArray` predicate — the old shape did the
  * narrowing as a JS post-filter AFTER `.limit(max)`, which silently
- * collapsed a page of non-participating rows to `[]` (breaking `hasMore` in
+ * collapsed a page of non-notified rows to `[]` (breaking `hasMore` in
  * `inboxPull`) and could return `null` from `getLatestUnreadMessageForAgent`
- * when older participating unread existed outside the top-N-by-createdAt
+ * when older notified unread existed outside the top-N-by-createdAt
  * candidate window.
  */
 async function listAgentAllowedChannelIds(db: Database, botUserId: string): Promise<string[]> {
@@ -511,12 +511,12 @@ async function listAgentAllowedChannelIds(db: Database, botUserId: string): Prom
   const narrowIds = typeRows
     .filter((r) => reachIsParticipantSet(r.type))
     .map((r) => r.id);
-  const participating =
+  const notifiedChannelIds =
     narrowIds.length > 0
       ? new Set(await listParticipatingThreadIds(db, narrowIds, botUserId))
       : new Set<string>();
   const narrowSet = new Set(narrowIds);
-  const serverAllowed = visibleChannelIds.filter((id) => !narrowSet.has(id) || participating.has(id));
+  const serverAllowed = visibleChannelIds.filter((id) => !narrowSet.has(id) || notifiedChannelIds.has(id));
   return [...serverAllowed, ...dmChannelIds];
 }
 
@@ -644,12 +644,13 @@ export async function listUnreadMessagesForAgent(
  * for already-stuck bots: the gate stops counting messages the pull never hands
  * over.
  *
- * Child-thread participation narrowing: the pull's allowed set
+ * Child-thread notification-set narrowing: the pull's allowed set
  * (`listAgentAllowedChannelIds`) additionally drops child threads
  * the bot holds no `relation='notify'` row on — those are never delivered. The
  * gate MUST mirror that same narrowing (via the SAME `listParticipatingThreadIds`
- * predicate, not a re-derived one) or it counts backlog in a non-participated
- * thread that the pull will never hand over — the exact "not aligned: N unread"
+ * predicate, not a re-derived one) or it counts backlog in a scope where the
+ * bot holds no `community_channel_member(relation='notify')` row, which the
+ * pull will never hand over — the exact "not aligned: N unread"
  * deadlock a bot hit trying to post into a thread it hadn't engaged. This drops
  * ONLY true spectators: a bot @mentioned into a thread gets a `notify` row on the
  * send hot path (`addThreadParticipants`, source=mention), so its owed mention
@@ -661,8 +662,8 @@ export async function hasDeliverableUnreadForAgentScope(
   channelId: string,
   seen: number
 ): Promise<boolean> {
-  // Participation narrowing, single-channel form of `listAgentAllowedChannelIds`'s
-  // set-wide step: a child thread the bot doesn't participate in is never
+  // Notification-set narrowing, single-channel form of `listAgentAllowedChannelIds`'s
+  // set-wide step: a child thread without a notify row for the bot is never
   // deliverable, so its backlog must not register as unread here. Short-circuits
   // before the deliverable scan — cheaper for the common spectator case too.
   const typeRows = await db
@@ -730,10 +731,11 @@ export type InboxSnapshotRow = {
  * restricted to `listVisibleChannelIdsForUser(botUserId)`, and (2) scopes of
  * child threads additionally require a
  * `community_channel_member(relation='notify')` row for the bot (post-filter). Because the
- * outer `WHERE` is `inArray(channelId, visibleChannelIds)` and non-participated
+ * outer `WHERE` is `inArray(channelId, visibleChannelIds)` and scopes lacking
+ * the bot's `community_channel_member(relation='notify')` row
  * thread rows are dropped in the post-filter, `hasMention` (a correlated
  * sub-select keyed on the surviving row's `channel_id`) can never inherit a
- * mention from an invisible or non-participated thread — do NOT try to
+ * mention from an invisible or non-notified thread — do NOT try to
  * sub-select mentions independently or the leak reopens on this axis.
  */
 export async function getInboxSnapshotForAgent(db: Database, botUserId: string): Promise<InboxSnapshotRow[]> {
