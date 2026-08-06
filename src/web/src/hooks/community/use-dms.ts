@@ -19,7 +19,7 @@ export type DmsResponse = { conversations: DM[] }
 const EMPTY_DMS: readonly DM[] = Object.freeze([])
 
 export const dmsQueryFn = () =>
-  apiFetch<DmsResponse>("/api/community/dm")
+  apiFetch<DmsResponse>("/api/community/users/me/dms")
 
 export function useDms(): UseQueryResult<DmsResponse> & { dms: DM[] } {
   const query = useQuery({

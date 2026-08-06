@@ -12,14 +12,14 @@ beforeEach(() => {
 })
 
 describe("useDms / dmsQueryFn", () => {
-  it("returns the DM conversations from GET /api/community/dm", async () => {
+  it("returns the DM conversations from GET /api/community/users/me/dms", async () => {
     const conversations = [
       { id: "dm_1", userId: "u_1", name: "Alice", discriminator: "0000", avatar: "A", status: "offline", preview: "" },
     ]
     apiFetchMock.mockResolvedValueOnce({ conversations })
     const { dmsQueryFn } = await import("./use-dms")
     const data = await dmsQueryFn()
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/dm")
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/users/me/dms")
     expect(data.conversations).toEqual(conversations)
   })
 

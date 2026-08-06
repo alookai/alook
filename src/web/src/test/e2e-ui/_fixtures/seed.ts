@@ -102,7 +102,7 @@ export async function seedChannelMember(owner: UserKey, channelId: string, userI
 }
 
 export async function seedDm(from: UserKey, targetUserId: string): Promise<string> {
-  const res = await post(from, "/api/community/dm", { userId: targetUserId })
+  const res = await post(from, "/api/community/channels", { type: "dm", userId: targetUserId })
   const data = (await res.json()) as { conversation: { id: string } }
   return data.conversation.id
 }

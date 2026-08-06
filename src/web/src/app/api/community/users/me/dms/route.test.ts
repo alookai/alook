@@ -49,10 +49,10 @@ vi.mock("@/lib/middleware/helpers", () => {
 import { GET } from "./route"
 
 function getReq() {
-  return new NextRequest("http://localhost/api/community/dm", { method: "GET" })
+  return new NextRequest("http://localhost/api/community/users/me/dms", { method: "GET" })
 }
 
-describe("GET /api/community/dm — name projection", () => {
+describe("GET /api/community/users/me/dms — name projection", () => {
   beforeEach(() => vi.clearAllMocks())
 
   it("returns the counterpart's user.name verbatim (no email fallback)", async () => {
