@@ -24,10 +24,10 @@ import { requireChannelMember, requireDMAccess } from "@/lib/community/permissio
  * NOT clear mentions (the human PUT does), (3) ref-resolve with create DISABLED
  * (resolve≠create). Bot-only; a human actor → 403 via requireBot (Gener #116).
  *
- * ⚠ The flat /api/community/ack route STAYS ALIVE through deploy (daemon is
- * non-hot-reload; at deploy web serves this new door BEFORE the daemon restarts
- * onto the new proxy target — same window as inboxPull). Deleted at the
- * flat-delete step once the daemon is on the new target.
+ * The flat /api/community/ack route is deleted (flat-delete step) — this door
+ * is the sole canonical entry; the deploy-orchestration verify-list gates
+ * deleting it (and inboxPull's flat verb) on the daemon being confirmed on
+ * this new target.
  *
  * Best-effort per cursor, NOT fail-fast: every good cursor is applied and its
  * waterline advanced regardless of any sibling cursor failing. A single

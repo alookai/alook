@@ -29,8 +29,8 @@ import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "@/lib/community/audit"
  *   - bot → handleBotFriendRequest: {username} (name#tag only), sibling-bot
  *     auto-accept, ALWAYS owner-gated (needsOwnerApproval, never dropped), lean
  *     {friendshipId,status,hint} response, audit BOT_FRIEND_REQUESTED/
- *     SUPERSEDED. Folds the flat /friendRequest bot verb (kept alive through
- *     deploy → flat-delete step). Self-scoped: requesterId = the credential's
+ *     SUPERSEDED. Folds the flat /friendRequest bot verb (flat verb deleted at
+ *     the flat-delete step). Self-scoped: requesterId = the credential's
  *     botUserId, never a body field.
  */
 export const POST = withCommunityActor(async (req: NextRequest, ctx) => {

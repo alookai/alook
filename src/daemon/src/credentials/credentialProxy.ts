@@ -238,16 +238,12 @@ export const DEFAULT_CAPABILITY_RESOLVER: CapabilityResolver = (method, pathname
   // endpoints share the `"attach"` capability so a voucher can be scoped to
   // attach-only without granting `send`/`read`.
   if (pathname.includes("/attachment")) return "attach";
-  // Friend surfaces: the flat verbs (/friendRequest, /listFriends) AND the
-  // per-bucket sub-resource endpoints they fold into (/friends, /friends/accepted,
-  // /friends/pending). /friends/blocked is bot-403 at the route (owner-only) so a
-  // bot voucher never reaches it regardless of cap.
-  if (
-    pathname.includes("/friendRequest") ||
-    pathname.includes("/listFriends") ||
-    /\/friends(\/|$|\?)/.test(pathname)
-  )
-    return "friend";
+  // Friend surfaces: the per-bucket sub-resource endpoints (/friends,
+  // /friends/accepted, /friends/pending, /friends/request). /friends/blocked is
+  // bot-403 at the route (owner-only) so a bot voucher never reaches it
+  // regardless of cap. The flat /friendRequest and /listFriends verbs are
+  // deleted (flat-delete step) — no substring rule for them anymore.
+  if (/\/friends(\/|$|\?)/.test(pathname)) return "friend";
 
   // ── Canonical id-in-path message door (route/disc trunk). Matched by METHOD +
   //    path SHAPE, before the flat-verb substring rules below, because the
@@ -365,17 +361,13 @@ export async function startCredentialProxy(
     const reg = verdict.reg;
     // Tightened from `.endsWith("/inboxPull")` — the attachment-download
     // endpoint returns raw binary, and a loose match here would try to JSON-
-    // parse it as an inbox response. Exact-path match the two inbox-pull doors
-    // that return the `{ messages }` shape the timeline recorder consumes:
-    //   - `/api/inboxPull` — the legacy flat verb (kept alive through the deploy
-    //     window; the CLI's `call()` sends this pre-rewrite path).
-    //   - `/api/community/users/me/inbox/pull` — the canonical fold (route/disc
-    //     轴3; `callInboxPull` sends this full path directly, no rewrite).
-    // inboxSnapshot is deliberately EXCLUDED (peek, no `{ messages }` to record).
-    const isInboxPull =
-      onPull &&
-      (pathname === "/api/inboxPull" ||
-        pathname === "/api/community/users/me/inbox/pull");
+    // parse it as an inbox response. Exact-path match the canonical inbox-pull
+    // door that returns the `{ messages }` shape the timeline recorder
+    // consumes: `/api/community/users/me/inbox/pull` (route/disc 轴3;
+    // `callInboxPull` sends this full path directly, no rewrite). The flat
+    // `/api/inboxPull` verb is deleted (flat-delete step). inboxSnapshot is
+    // deliberately EXCLUDED (peek, no `{ messages }` to record).
+    const isInboxPull = onPull && pathname === "/api/community/users/me/inbox/pull";
 
     if (onProxyRequest) {
       try {

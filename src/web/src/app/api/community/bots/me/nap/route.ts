@@ -32,10 +32,9 @@ import { pushAgentNapToMachine } from "@/lib/community/bot-push"
  * field, so an agent can only nap ITSELF — a single self-reset, not a batch and
  * not a nap of any other bot.
  *
- * ⚠ The flat /api/community/nap route STAYS ALIVE through deploy (daemon is
- * non-hot-reload; at deploy web serves this door BEFORE the daemon restarts onto
- * the new proxy target). Deleted at the flat-delete step, gated on the daemon
- * being on the new target (deploy verify-list).
+ * The flat /api/community/nap route is deleted (flat-delete step) — this door
+ * is the sole canonical entry; the deploy-orchestration verify-list gates
+ * deleting it on the daemon being confirmed on this new target.
  *
  * Agent-self-initiated session reset. The self-serve twin of the owner
  * `bots/{id}/reset-session` route: build the bot's RuntimeConfig → push
