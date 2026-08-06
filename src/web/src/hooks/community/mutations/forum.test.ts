@@ -79,6 +79,7 @@ function makePost(id: string): ForumPost {
     parent: { authorName: "Alice", text: "root" },
     authorId: "usr_alice",
     authorAvatar: "A",
+    openerMessageId: `m_${id}`,
     tags: [],
     preview: "preview",
     participants: [{ id: "usr_alice", name: "Alice", avatar: "A" }],
@@ -148,6 +149,31 @@ describe("useCreateForumPost", () => {
 
     const cache = capturedQc.getQueryData<ForumPostsResponse>(communityKeys.forumPosts("forum_1"))
     expect(cache?.posts.map((p) => p.id)).toEqual(["p_new", "p_old"])
+  })
+})
+
+describe("useUpdatePostTags", () => {
+  it("PUTs normalized tags on the opener message and patches the post cache", async () => {
+    const { useUpdatePostTags } = await load()
+    useUpdatePostTags()
+    capturedQc.setQueryData<ForumPostsResponse>(communityKeys.forumPosts("forum_1"), {
+      posts: [makePost("p1"), makePost("p2")],
+    })
+    apiFetchMock.mockResolvedValueOnce({ tags: ["bug", "p0"] })
+
+    await runMutation({
+      forumChannelId: "forum_1",
+      postId: "p2",
+      openerMessageId: "m_p2",
+      tags: [" Bug ", "P0", "bug"],
+    })
+
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/messages/m_p2/tags", {
+      method: "PUT",
+      body: JSON.stringify({ tags: ["bug", "p0"] }),
+    })
+    const cache = capturedQc.getQueryData<ForumPostsResponse>(communityKeys.forumPosts("forum_1"))
+    expect(cache?.posts.find((post) => post.id === "p2")?.tags).toEqual(["bug", "p0"])
   })
 })
 

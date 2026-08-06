@@ -163,6 +163,7 @@ export type Thread = {
 export type ForumPost = Thread & {
   authorId: string
   authorAvatar: string
+  openerMessageId: string
   tags: string[]
   preview: string
   // The post's participant (notify) set — creator first, then whoever

@@ -130,6 +130,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       parent: { authorName, text: preview },
       authorId: t.creatorId ?? "",
       authorAvatar,
+      openerMessageId: opener?.id ?? t.parentMessageId ?? "",
       tags,
       preview,
       participants: participantsByPost.get(t.id) ?? [],
@@ -247,6 +248,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       parent: { authorName, text: content.slice(0, MESSAGE_PREVIEW_LENGTH) },
       authorId: ctx.userId,
       authorAvatar,
+      openerMessageId: result.message.id,
       tags: [],
       preview: content.slice(0, MESSAGE_PREVIEW_LENGTH),
       // A fresh post's only participant is its creator (just enrolled by

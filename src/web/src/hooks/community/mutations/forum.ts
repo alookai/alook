@@ -55,24 +55,26 @@ export function useCreateForumPost() {
 export type UpdatePostTagsArgs = {
   // The parent forum channel — the cache key the post list lives under.
   forumChannelId: string
-  // The post channel whose tags are being edited.
+  // The post/thread card being patched in cache.
   postId: string
+  // Tags are a resource of the forum opener message, never of the child thread.
+  openerMessageId: string
   tags: string[]
 }
 
 /**
- * Edit a single forum post's tags. PATCHes the post channel (creator or manager
+ * Edit a single forum post's tags. PUTs the opener-message tag resource (author or manager
  * gated server-side), then patches the post's row in the forum's cached list so
  * the card + the derived tag filter bar update without a refetch.
  */
 export function useUpdatePostTags() {
   const queryClient = useQueryClient()
   return useMutation<{ tags: string[] }, Error, UpdatePostTagsArgs>({
-    mutationFn: async ({ postId, tags }) => {
+    mutationFn: async ({ openerMessageId, tags }) => {
       const normalized = [...new Set(tags.map((t) => t.trim().toLowerCase()).filter(Boolean))]
-      await apiFetch(`/api/community/channels/${postId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ forumTags: JSON.stringify(normalized) }),
+      await apiFetch(`/api/community/messages/${openerMessageId}/tags`, {
+        method: "PUT",
+        body: JSON.stringify({ tags: normalized }),
       })
       return { tags: normalized }
     },
