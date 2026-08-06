@@ -424,8 +424,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     // keeps its distinct semantics (sibling-auto-accept, always-owner-gated, lean
     // {friendshipId,status,hint}). Self-scoped: the wire carries only `username`,
     // never a requesterId (that's the credential's botUserId server-side). Body
-    // byte-identical to the flat verb. The flat /friendRequest route stays alive
-    // through deploy (daemon non-hot-reload) → flat-delete step.
+    // byte-identical to the former flat verb; that legacy route is deleted.
     const { agentId: _omit, ...wire } = (req ?? {}) as unknown as Record<string, unknown>;
     const res = await fetchImpl(`${base}/api/community/friends/request`, {
       method: "POST",
@@ -445,10 +444,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     // bots/me/* (self-scope, "me" = the credential-authenticated bot, no target
     // id). Self-scoped to the voucher's bot: the wire carries only the handoff,
     // never a target-bot param (bots/me/* family invariant, same as users/me).
-    // Body byte-identical to the flat verb (MOVE-FLAT, only the URL moved). The
-    // flat /nap route stays alive through deploy (daemon non-hot-reload) —
-    // deletion deferred to the flat-delete step, after the daemon is on the new
-    // target.
+    // Body byte-identical to the former flat verb; that legacy route is deleted.
     const { agentId: _omit, ...wire } = (req ?? {}) as unknown as Record<string, unknown>;
     const res = await fetchImpl(`${base}/api/community/bots/me/nap`, {
       method: "POST",
@@ -465,7 +461,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     // RETARGETED off the flat `inboxSnapshot` verb onto GET users/me/inbox/snapshot
     // (route/disc 轴3). A GET — snapshot is a pure peek (never advances the read
     // waterline, unlike pull), so the fetch↔advance decoupling is explicit in the
-    // verb. Self-scoped, no target-user param. Flat route stays through deploy.
+    // verb. Self-scoped, no target-user param; the legacy flat route is deleted.
     const res = await fetchImpl(`${base}/api/community/users/me/inbox/snapshot`, {
       method: "GET",
       headers: { authorization: `Bearer ${config.voucher}` },
