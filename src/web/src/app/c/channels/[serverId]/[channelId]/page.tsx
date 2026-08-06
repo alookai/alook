@@ -54,6 +54,7 @@ import {
   usePinMessage,
   useUnpinMessage,
   useToggleMark,
+  useEditMessage,
   useCreateThread,
   useCreateForumThread,
   useUpdatePostTags,
@@ -441,6 +442,7 @@ function ChannelView() {
   const { mutate: pinMessageMutate } = usePinMessage()
   const { mutate: unpinMessageMutate } = useUnpinMessage()
   const toggleMark = useToggleMark()
+  const { mutate: editMessage } = useEditMessage()
   const { mutateAsync: createThreadAsync } = useCreateThread()
   const createForumThreadMut = useCreateForumThread()
   const updatePostTagsMut = useUpdatePostTags()
@@ -839,6 +841,15 @@ function ChannelView() {
       const m = actionsCtxRef.current.messages.find((x) => x.id === id)
       if (m?.content) { navigator.clipboard?.writeText(m.content); toast("Copied to clipboard") }
     },
+    onEdit: (id: string) => {
+      const m = actionsCtxRef.current.messages.find((x) => x.id === id)
+      if (!m?.content || m.authorId !== currentUser.id || m.seq === undefined) return
+      const content = window.prompt("Edit message", m.content)
+      if (!content || content === m.content) return
+      editMessage({ serverId, channelId, messageId: id, content }, {
+        onError: (e) => toastApiError(e, "Failed to edit message"),
+      })
+    },
     onRetry: (id: string) => {
       const m = actionsCtxRef.current.messages.find((x) => x.id === id)
       if (!m?.clientNonce) return
@@ -869,7 +880,7 @@ function ChannelView() {
     // reads go through actionsCtxRef. This stability is load-bearing: an unstable
     // messageActions busts MessageRow/Message's memo and re-renders every visible
     // row on every commit (see message.tsx messagePropsEqual).
-  }), [serverId, channelId, currentUser.id, toggleReactionApi, unpinMessageMutate, pinMessageMutate, toggleMark, createThreadAsync, messageScope, runAcceptedIntent, router, params.serverId])
+  }), [serverId, channelId, currentUser.id, toggleReactionApi, unpinMessageMutate, pinMessageMutate, toggleMark, createThreadAsync, editMessage, messageScope, runAcceptedIntent, router, params.serverId])
 
   const threadActions = useMemo(
     () => ({ ...messageActions, onCreateThread: undefined }),
@@ -1255,6 +1266,15 @@ function ChannelView() {
             loading={forumThreadsLoading}
             onOpenPost={enterThread}
             onCreatePost={createForumThread}
+            canEditPost={(post) => post.authorId === currentUser.id}
+            onEditPost={(post) => {
+              const content = window.prompt("Edit post", post.name)
+              if (!content || content === post.name) return
+              editMessage(
+                { serverId, channelId, messageId: post.openerMessageId, content, forumChannelId: channelId },
+                { onError: (e) => toastApiError(e, "Failed to edit post") },
+              )
+            }}
             canEditPostTags={(post) => canManage || post.authorId === currentUser.id}
             savingTagsFor={updatePostTagsMut.isPending ? updatePostTagsMut.variables?.threadId ?? null : null}
             onEditPostTags={(threadId, tags) => {

@@ -16,6 +16,22 @@ describe("community/message exports", () => {
   });
 });
 
+describe("updateOwnMessageContent", () => {
+  it("guards the UPDATE by both message id and author id", async () => {
+    const chain: any = {};
+    chain.update = vi.fn(() => chain);
+    chain.set = vi.fn(() => chain);
+    chain.where = vi.fn(() => chain);
+    chain.returning = vi.fn(() => Promise.resolve([{ id: "m1", channelId: "c1", content: "new" }]));
+    const result = await messageQueries.updateOwnMessageContent(chain, {
+      messageId: "m1", authorId: "u1", content: "new",
+    });
+    expect(chain.set).toHaveBeenCalledWith({ content: "new" });
+    expect(chain.where).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ id: "m1", channelId: "c1", content: "new" });
+  });
+});
+
 function messageRow(id: string) {
   return {
     id,

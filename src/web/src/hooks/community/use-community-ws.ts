@@ -176,6 +176,20 @@ function patchApprovalInCache(
   return { ...cache, pages }
 }
 
+function patchMessageContentInCache(cache: PageCache | undefined, messageId: string, content: string): PageCache | undefined {
+  if (!cache) return cache
+  let touched = false
+  const pages = cache.pages.map((page) => ({
+    ...page,
+    messages: page.messages.map((message) => {
+      if (message.id !== messageId) return message
+      touched = true
+      return { ...message, content }
+    }),
+  }))
+  return touched ? { ...cache, pages } : cache
+}
+
 function applyReactionToCache(
   cache: PageCache | undefined,
   event: CommunityReactionAdd | CommunityReactionRemove,
@@ -999,6 +1013,28 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           if (event.approval.status !== "pending" || event.approval.waitingOn !== "you") {
             void queryClient.invalidateQueries({ queryKey: communityKeys.friends() })
           }
+          return
+        }
+
+        case "community:message.edited": {
+          queryClient.setQueryData<PageCache>(
+            communityKeys.channelMessages(event.channelId),
+            (cache) => patchMessageContentInCache(cache, event.messageId, event.content),
+          )
+          queryClient.setQueryData<PageCache>(
+            communityKeys.dmMessages(event.channelId),
+            (cache) => patchMessageContentInCache(cache, event.messageId, event.content),
+          )
+          const streamStore = useMessageStreamStore.getState()
+          for (const entry of streamStore.entries.values()) {
+            if (entry.scope.id !== event.channelId) continue
+            streamStore.dispatch(entry.scope, {
+              type: "messageEdited",
+              messageId: event.messageId,
+              content: event.content,
+            })
+          }
+          void queryClient.invalidateQueries({ queryKey: communityKeys.threads(event.channelId) })
           return
         }
 

@@ -6,6 +6,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 }))
 
 const mockGetMessage = vi.fn()
+const mockUpdateOwnMessageContent = vi.fn()
 const mockGetMessagesByIdsInScope = vi.fn()
 const mockGetChannelForMember = vi.fn()
 const mockGetChannelType = vi.fn()
@@ -17,11 +18,15 @@ const mockListReactionsByMessageIds = vi.fn()
 const mockGetMessageByChannelAndSeq = vi.fn()
 const mockToAgentMessage = vi.fn()
 const mockResolveTargetForMember = vi.fn()
+const mockFanOutToChannel = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
 vi.mock("@/lib/community/resolve-ref", () => ({
   resolveTargetForMember: (...a: unknown[]) => mockResolveTargetForMember(...a),
+}))
+vi.mock("@/lib/community/fanout", () => ({
+  fanOutToChannel: (...a: unknown[]) => mockFanOutToChannel(...a),
 }))
 
 vi.mock("@alook/shared", async () => {
@@ -37,6 +42,7 @@ vi.mock("@alook/shared", async () => {
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
         getMessagesByIdsInScope: (...a: unknown[]) => mockGetMessagesByIdsInScope(...a),
         getMessageByChannelAndSeq: (...a: unknown[]) => mockGetMessageByChannelAndSeq(...a),
+        updateOwnMessageContent: (...a: unknown[]) => mockUpdateOwnMessageContent(...a),
       },
       communityAgentInbox: {
         toAgentMessage: (...a: unknown[]) => mockToAgentMessage(...a),
@@ -79,7 +85,7 @@ vi.mock("@/lib/middleware/helpers", () => {
   }
 })
 
-import { GET } from "./route"
+import { GET, PATCH } from "./route"
 
 function req() {
   return new NextRequest("http://localhost/api/community/messages/m1", { method: "GET" })
@@ -347,5 +353,47 @@ describe("GET /api/community/messages/[id]", () => {
     const res = await GET(botReq("/s/general", "abc"), ctxResolve)
     expect(res.status).toBe(400)
     expect(mockResolveTargetForMember).not.toHaveBeenCalled()
+  })
+})
+
+describe("PATCH /api/community/messages/[id]", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetChannelType.mockResolvedValue("text")
+    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
+    mockGetMessage.mockResolvedValue({ id: "m1", channelId: "c1", authorId: "u1", content: "old" })
+    mockUpdateOwnMessageContent.mockResolvedValue({ id: "m1", channelId: "c1", content: "new" })
+    mockFanOutToChannel.mockResolvedValue(undefined)
+  })
+
+  function editReq(content: unknown, bot = false) {
+    return new NextRequest("http://localhost/api/community/messages/m1", {
+      method: "PATCH",
+      headers: { "content-type": "application/json", ...(bot ? { Authorization: "Bearer crk_x" } : {}) },
+      body: JSON.stringify({ content }),
+    })
+  }
+
+  it("updates the author's own content", async () => {
+    const res = await PATCH(editReq("new"), { params: { id: "m1" } } as any)
+    expect(res.status).toBe(200)
+    expect(mockUpdateOwnMessageContent).toHaveBeenCalledWith(expect.anything(), {
+      messageId: "m1", authorId: "u1", content: "new",
+    })
+    expect(mockFanOutToChannel).toHaveBeenCalledWith("c1", {
+      type: "community:message.edited", channelId: "c1", messageId: "m1", content: "new",
+    })
+  })
+
+  it("does not let an admin or other member edit someone else's message", async () => {
+    mockGetMessage.mockResolvedValue({ id: "m1", channelId: "c1", authorId: "u2", content: "old" })
+    const res = await PATCH(editReq("hijack"), { params: { id: "m1" } } as any)
+    expect(res.status).toBe(403)
+    expect(mockUpdateOwnMessageContent).not.toHaveBeenCalled()
+  })
+
+  it("rejects bot credentials and empty content", async () => {
+    expect((await PATCH(editReq("new", true), { params: { id: "m1" } } as any)).status).toBe(401)
+    expect((await PATCH(editReq("  "), { params: { id: "m1" } } as any)).status).toBe(400)
   })
 })

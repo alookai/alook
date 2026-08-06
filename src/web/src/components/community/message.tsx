@@ -48,7 +48,7 @@ export function messageCanShare(m: RenderMsg, compact?: boolean): boolean {
 
 function MessageImpl({
   m, compact, pinned, onOpenThread, onOpenProfile, onJumpReply,
-  onToggleReaction, onReact, onReply, onPin, onMark, onCreateThread, onCopy, onRetry, onDismiss,
+  onToggleReaction, onReact, onReply, onPin, onMark, onCreateThread, onCopy, onEdit, onRetry, onDismiss,
   onPreviewImage, onDownloadFile, highlighted, resolveUserName, onImageLoad,
   selectMode, selected, onToggleSelect, onEnterSelect, onShareSingle,
 }: {
@@ -68,6 +68,7 @@ function MessageImpl({
   onMark?: () => void
   onCreateThread?: () => void
   onCopy?: () => void
+  onEdit?: () => void
   onRetry?: () => void
   onDismiss?: () => void
   onPreviewImage?: (name: string) => void
@@ -130,7 +131,7 @@ function MessageImpl({
     onReply, onPin, pinned,
     onMark, marked: markedData?.marked ?? false,
     onCreateThread: m.thread ? undefined : onCreateThread,
-    onCopy,
+    onCopy, onEdit,
     // Share: enter multi-select (main list) if wired, else direct single-share
     // (context-sheet). Undefined only when the surface wired NEITHER.
     onShare: canShare ? (onEnterSelect ?? onShareSingle) : undefined,
@@ -499,6 +500,7 @@ function messagePropsEqual(prev: MessageProps, next: MessageProps): boolean {
     prev.onMark === next.onMark &&
     prev.onCreateThread === next.onCreateThread &&
     prev.onCopy === next.onCopy &&
+    prev.onEdit === next.onEdit &&
     prev.onRetry === next.onRetry &&
     prev.onDismiss === next.onDismiss &&
     prev.onPreviewImage === next.onPreviewImage &&

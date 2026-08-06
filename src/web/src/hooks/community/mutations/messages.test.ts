@@ -97,7 +97,7 @@ async function loadMod() {
   return await import("./messages")
 }
 
-function makeCache(msgs: { id: string; failed?: boolean; reactions?: unknown[] }[] = []) {
+function makeCache(msgs: { id: string; content?: string; failed?: boolean; reactions?: unknown[] }[] = []) {
   return {
     pages: [{ messages: msgs, hasMore: false }],
     pageParams: [null],
@@ -113,6 +113,26 @@ beforeEach(() => {
   refCounter = 0
   callbackMemo = new Map()
   callbackCounter = 0
+})
+
+describe("useEditMessage", () => {
+  it("optimistically patches content and rolls back when PATCH fails", async () => {
+    const key = communityKeys.channelMessages("ch_1")
+    capturedQc.setQueryData(key, makeCache([{ id: "m1", content: "old" }]))
+    apiFetchMock.mockRejectedValueOnce(new Error("boom"))
+    const mod = await loadMod()
+    mod.useEditMessage()
+
+    await runMutation({ serverId: "s1", channelId: "ch_1", messageId: "m1", content: "new" }).catch(() => {})
+
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/messages/m1", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: "new" }),
+    })
+    const cache = capturedQc.getQueryData<{ pages: { messages: { content?: string }[] }[] }>(key)
+    expect(cache?.pages[0].messages[0]?.content).toBe("old")
+  })
 })
 
 // ── useSendMessage ────────────────────────────────────────────────────────

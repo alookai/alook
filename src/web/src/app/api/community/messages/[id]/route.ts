@@ -2,10 +2,11 @@ import { NextRequest } from "next/server"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, MAX_MESSAGE_CONTENT_LENGTH, WS_EVENTS } from "@alook/shared"
 import { requireChannelMember, requireDMAccess } from "@/lib/community/permissions"
 import { resolveTargetForMember } from "@/lib/community/resolve-ref"
 import { isDmTarget } from "@/lib/community/message-handler"
+import { fanOutToChannel } from "@/lib/community/fanout"
 import { groupAttachments, groupReactions } from "@/lib/community/messages"
 import { mapMessageForApi } from "@/lib/community/message-payload"
 
@@ -45,6 +46,54 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
     return handleBotResolve(db, ctx.actor.userId, req)
   }
   return handleHumanGet(db, ctx.actor.userId, ctx.params?.id)
+})
+
+/** PATCH /api/community/messages/[id] — edit only the caller's own text.
+ * Admin status never grants edit-as-author; attachments are intentionally not
+ * part of this contract. */
+export const PATCH = withCommunityActor(async (req: NextRequest, ctx) => {
+  if (ctx.actor.kind !== "human") return writeError("human session required", 401)
+  const messageId = ctx.params?.id
+  if (!messageId || messageId === REF_PLACEHOLDER_ID) return writeError("missing message id", 400)
+
+  let raw: unknown
+  try {
+    raw = await req.json()
+  } catch {
+    return writeError("invalid request body", 400)
+  }
+  const content = raw && typeof raw === "object" ? (raw as { content?: unknown }).content : undefined
+  if (typeof content !== "string" || content.trim().length === 0) {
+    return writeError("content is required", 400)
+  }
+  if (content.length > MAX_MESSAGE_CONTENT_LENGTH) {
+    return writeError(`content must be ≤ ${MAX_MESSAGE_CONTENT_LENGTH} characters`, 400)
+  }
+
+  const db = getDb(ctx.env.DB)
+  const message = await queries.communityMessage.getMessage(db, messageId)
+  if (!message) return writeError("message not found", 404)
+
+  const channelType = await queries.communityChannel.getChannelType(db, message.channelId)
+  const access = channelType === "dm"
+    ? await requireDMAccess(db, message.channelId, ctx.actor.userId)
+    : await requireChannelMember(db, message.channelId, ctx.actor.userId)
+  if (!access.ok) return writeError(access.error, access.status)
+  if (message.authorId !== ctx.actor.userId) return writeError("only the message author may edit it", 403)
+
+  const updated = await queries.communityMessage.updateOwnMessageContent(db, {
+    messageId,
+    authorId: ctx.actor.userId,
+    content,
+  })
+  if (!updated) return writeError("message not found", 404)
+  await fanOutToChannel(message.channelId, {
+    type: WS_EVENTS.MESSAGE_EDITED,
+    channelId: message.channelId,
+    messageId,
+    content,
+  })
+  return writeJSON({ message: updated })
 })
 
 /**

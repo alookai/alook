@@ -74,6 +74,13 @@ export type CommunityMessageUpdated = {
   approval: FriendApprovalPayload
 }
 
+export type CommunityMessageEdited = {
+  type: "community:message.edited"
+  channelId: string
+  messageId: string
+  content: string
+}
+
 export type CommunityReactionAdd = {
   type: "community:reaction.add"
   channelId: string
@@ -577,6 +584,7 @@ export type CommunityBotHostFrame = BotAddedFrame | BotUpdatedFrame | BotRemoved
 export type CommunityWsEvent =
   | CommunityMessageCreate
   | CommunityMessageUpdated
+  | CommunityMessageEdited
   | CommunityReactionAdd
   | CommunityReactionRemove
   | CommunityPinAdd
@@ -625,6 +633,7 @@ export function isCommunityEvent(msg: { type: string }): msg is CommunityWsEvent
 export const WS_EVENTS = {
   MESSAGE_CREATE: "community:message.create",
   MESSAGE_UPDATED: "community:message.updated",
+  MESSAGE_EDITED: "community:message.edited",
   REACTION_ADD: "community:reaction.add",
   REACTION_REMOVE: "community:reaction.remove",
   PIN_ADD: "community:pin.add",

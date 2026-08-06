@@ -834,6 +834,20 @@ export async function getMessageByAuthorAndNonce(
   return { ...row, embeds: safeParseEmbeds(row.embeds, row.id) };
 }
 
+/** Update only the author's own message content. The author predicate lives in
+ * the write itself so a stale permission check cannot edit another row. */
+export async function updateOwnMessageContent(
+  db: Database,
+  data: { messageId: string; authorId: string; content: string }
+) {
+  const [updated] = await db
+    .update(communityMessage)
+    .set({ content: data.content })
+    .where(and(eq(communityMessage.id, data.messageId), eq(communityMessage.authorId, data.authorId)))
+    .returning({ id: communityMessage.id, channelId: communityMessage.channelId, content: communityMessage.content });
+  return updated ?? null;
+}
+
 // No ordering guarantee — callers build a Map<id, row> and hydrate by id.
 // Unknown ids silently drop out via the natural WHERE id IN (...) semantics.
 //

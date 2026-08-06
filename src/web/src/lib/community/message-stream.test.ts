@@ -295,6 +295,26 @@ describe("message stream monotonic visibility", () => {
     expect(state.outboxByNonce.has("n2")).toBe(true)
   })
 
+  it("patches edited content across live and acknowledged outbox rows", () => {
+    let state = submit(emptyMessageOverlay(), intent("n1", 1))
+    state = apply(state, {
+      type: "postAck",
+      nonce: "n1",
+      serverMessageId: "m1",
+      serverSeq: 11,
+    }).state
+    state = apply(state, {
+      type: "wsMessage",
+      message: canonical("m2", 12, "n2", { content: "before" }),
+    }).state
+
+    state = apply(state, { type: "messageEdited", messageId: "m1", content: "outbox edit" }).state
+    state = apply(state, { type: "messageEdited", messageId: "m2", content: "live edit" }).state
+
+    expect(state.outboxByNonce.get("n1")?.message.content).toBe("outbox edit")
+    expect(state.liveById.get("m2")?.content).toBe("live edit")
+  })
+
   it("bounds canonical live deltas to the existing 500-row live-tail scale", () => {
     let state = emptyMessageOverlay()
     for (let seq = 1; seq <= MAX_LIVE_MESSAGE_DELTAS + 2; seq++) {

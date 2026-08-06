@@ -47,6 +47,76 @@ import { isBlocked } from "@alook/shared"
 
 type PageCache = InfiniteData<MessagesPage>
 
+function patchContentById(cache: PageCache | undefined, id: string, content: string): PageCache | undefined {
+  if (!cache) return cache
+  let touched = false
+  const pages = cache.pages.map((page) => ({
+    ...page,
+    messages: page.messages.map((message) => {
+      if (message.id !== id) return message
+      touched = true
+      return { ...message, content }
+    }),
+  }))
+  return touched ? { ...cache, pages } : cache
+}
+
+type EditMessageArgs = {
+  serverId: string
+  channelId: string
+  messageId: string
+  content: string
+  forumChannelId?: string
+}
+
+type EditMessageContext = {
+  previous: PageCache | undefined
+  previousContent: string | undefined
+  key: readonly unknown[]
+  scope: MessageScope
+}
+
+export function useEditMessage() {
+  const queryClient = useQueryClient()
+  return useMutation<void, Error, EditMessageArgs, EditMessageContext>({
+    mutationFn: async ({ messageId, content }) => {
+      await apiFetch(`/api/community/messages/${messageId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ content }),
+      })
+    },
+    onMutate: async ({ serverId, channelId, messageId, content }) => {
+      const key = communityKeys.channelMessages(channelId)
+      const scope: MessageScope = { kind: "channel", id: channelId, serverId }
+      await queryClient.cancelQueries({ queryKey: key })
+      const previous = queryClient.getQueryData<PageCache>(key)
+      const previousContent = currentMaterializedMessage(previous, scope, messageId)?.content
+      queryClient.setQueryData<PageCache>(key, (cache) => patchContentById(cache, messageId, content))
+      useMessageStreamStore.getState().dispatch(scope, {
+        type: "messageEdited",
+        messageId,
+        content,
+      })
+      return { previous, previousContent, key, scope }
+    },
+    onError: (_error, _variables, context) => {
+      if (!context) return
+      queryClient.setQueryData(context.key, context.previous)
+      if (context.previousContent !== undefined) {
+        useMessageStreamStore.getState().dispatch(context.scope, {
+          type: "messageEdited",
+          messageId: _variables.messageId,
+          content: context.previousContent,
+        })
+      }
+    },
+    onSuccess: (_data, variables) => {
+      if (variables.forumChannelId) void queryClient.invalidateQueries({ queryKey: communityKeys.threads(variables.forumChannelId) })
+    },
+  })
+}
+
 /**
  * Materialize the attachment view-model from the API attachment shape.
  * Mirrors the old context's conversion at `postWithOptimisticInsert`.

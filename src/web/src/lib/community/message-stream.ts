@@ -69,6 +69,7 @@ export type MessageOverlayEvent =
   | { type: "retry"; nonce: string }
   | { type: "wsMessage"; message: CanonicalMessage }
   | { type: "liveRefreshed"; message: CanonicalMessage }
+  | { type: "messageEdited"; messageId: string; content: string }
   | { type: "baseChanged"; messages: CanonicalMessage[]; latestSeq?: number }
   | { type: "dismissFailed"; nonce: string }
   | { type: "clear" }
@@ -373,6 +374,28 @@ export function reduceMessageOverlay(
       upsertLiveCanonical(liveById, event.message)
       trimLiveDeltas(liveById)
       return { state: { ...state, liveById }, effects: [] }
+    }
+
+    case "messageEdited": {
+      let changed = false
+      const liveById = new Map(state.liveById)
+      const live = liveById.get(event.messageId)
+      if (live) {
+        liveById.set(event.messageId, { ...live, content: event.content })
+        changed = true
+      }
+      const outboxByNonce = new Map(state.outboxByNonce)
+      for (const [nonce, intent] of outboxByNonce) {
+        if ((intent.serverMessageId ?? intent.tempId) !== event.messageId) continue
+        outboxByNonce.set(nonce, {
+          ...intent,
+          message: { ...intent.message, content: event.content },
+        })
+        changed = true
+      }
+      return changed
+        ? { state: { ...state, liveById, outboxByNonce }, effects: [] }
+        : unchanged(state)
     }
 
     case "baseChanged": {
