@@ -42,7 +42,7 @@ describe("createThreadChannel", () => {
       selectResponses: [
         [{ serverId: "srv_1" }], // parent channel lookup
         [{ content: longContent }], // parent message lookup
-        [{ id: "thread_1", serverId: "srv_1", name: "x".repeat(40), type: "thread", forumTags: null }], // getChannel re-fetch
+        [{ id: "thread_1", serverId: "srv_1", name: "x".repeat(40), type: "thread" }], // getChannel re-fetch
       ],
       insertedId: "thread_1",
     });
@@ -57,7 +57,7 @@ describe("createThreadChannel", () => {
       selectResponses: [
         [{ serverId: "srv_1" }],
         [{ content: "   " }], // whitespace-only → trims to empty
-        [{ id: "thread_1", serverId: "srv_1", name: "Thread", type: "thread", forumTags: null }],
+        [{ id: "thread_1", serverId: "srv_1", name: "Thread", type: "thread" }],
       ],
       insertedId: "thread_1",
     });
@@ -70,7 +70,7 @@ describe("createThreadChannel", () => {
       selectResponses: [
         [{ serverId: "srv_1" }],
         [{ content: "hello" }],
-        [{ id: "thread_1", serverId: "srv_1", name: "hello", type: "thread", forumTags: null }],
+        [{ id: "thread_1", serverId: "srv_1", name: "hello", type: "thread" }],
       ],
       insertedId: "thread_1",
     });
@@ -83,7 +83,7 @@ describe("createThreadChannel", () => {
       selectResponses: [
         [{ serverId: "srv_1" }],
         [{ content: "hello" }],
-        [{ id: "thread_1", serverId: "srv_1", name: "hello", type: "thread", forumTags: null }],
+        [{ id: "thread_1", serverId: "srv_1", name: "hello", type: "thread" }],
       ],
       insertedId: "thread_1",
     });

@@ -16,7 +16,6 @@ function channelRow(over: Record<string, unknown> = {}) {
     type: "text",
     topic: "",
     position: 0,
-    forumTags: null,
     parentChannelId: null,
     creatorId: "creator",
     messageCount: 0,
@@ -152,6 +151,5 @@ describe("getChannelForMember — private visibility", () => {
     ]);
     const res = await channelQueries.getChannelForMember(db, "c1", "u1");
     expect(res).not.toHaveProperty("memberRole");
-    expect(res).toHaveProperty("tags");
   });
 });

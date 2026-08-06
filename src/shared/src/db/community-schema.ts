@@ -62,8 +62,8 @@ export const communityCategory = sqliteTable(
 );
 
 // 3. community_channel
-// `type`: text | forum | forum_post | thread | dm. DMs have server_id + name
-// NULL (no server, no name); their two participants are relation='access'
+// `type`: text | forum | thread | dm. DMs have server_id + name NULL (no
+// server, no name); their two participants are relation='access'
 // community_channel_member rows.
 export const communityChannel: SQLiteTableWithColumns<any> = sqliteTable(
   "community_channel",
@@ -78,18 +78,7 @@ export const communityChannel: SQLiteTableWithColumns<any> = sqliteTable(
     name: text("name"),
     type: text("type").notNull().default("text"),
     topic: text("topic").default(""),
-    // Display-only original title of a forum post, captured verbatim BEFORE
-    // `slugify` lossily derives `name` (the addressing slug). `name` stays the
-    // single addressing identity; `display_title` only preserves the
-    // human-readable original ("Q3 planning / roadmap", not
-    // "q3-planning-roadmap") so a future "title as body-heading" render can use
-    // it. NEVER an addressing axis: no resolve-by-name reads it, no unique index,
-    // duplicates are legal, and it does NOT participate in slug dedupe/bump.
-    // Nullable — only forum_post CREATE writes it; threads / top-level channels /
-    // legacy rows leave it null.
-    displayTitle: text("display_title"),
     position: integer("position").default(0),
-    forumTags: text("forum_tags"), // JSON
     parentChannelId: text("parent_channel_id").references(() => communityChannel.id, {
       onDelete: "cascade",
     }),
@@ -105,26 +94,11 @@ export const communityChannel: SQLiteTableWithColumns<any> = sqliteTable(
     index("idx_channel_server_last_message").on(t.serverId, t.lastMessageAt),
     index("idx_channel_parent").on(t.parentChannelId),
     // Partial unique — top-level channel names are unique per server.
-    // Source of truth: migration 0057_channel_unique_name.sql. Threads and
-    // forum posts (parent_channel_id NOT NULL) are exempt by design.
+    // Source of truth: migration 0057_channel_unique_name.sql. Threads
+    // (parent_channel_id NOT NULL) are exempt by design.
     uniqueIndex("idx_channel_server_name")
       .on(t.serverId, t.name)
       .where(sql`parent_channel_id IS NULL`),
-    // Partial unique — a forum post's slug (`name`) is its addressing anchor
-    // (`/server/forum/<slug>`), so it must be unique WITHIN its parent forum or
-    // resolve-by-name goes ambiguous and read/send/ack on the post break. Scoped
-    // to `type='forum_post'` ONLY (NOT all children): a thread's name is derived
-    // from its root message and is display-only — threads address by
-    // `parent_message_id` (uq_community_channel_parent_message, 0052), so
-    // duplicate thread names are legal. Source of truth:
-    // migration 0078_forum_post_unique_name.sql. Case-sensitive (plain `name`) to
-    // match the forum-post resolver + dedupe (getChildChannelByName /
-    // dedupeChildChannelSlug use plain `eq`), so the DB ruler folds identically
-    // to resolution (the index/resolver alignment migration 0075 established for
-    // top-level names). This is what makes pure-create's bump-retry race-safe.
-    uniqueIndex("idx_forum_post_parent_name")
-      .on(t.parentChannelId, t.name)
-      .where(sql`type = 'forum_post'`),
   ]
 );
 
@@ -678,9 +652,9 @@ export const communityMessageMark = sqliteTable(
 // be opened by any message, so a channel/thread-level column would leak a
 // tagging capability onto every thread, not just posts — this field's mere
 // presence on a message row IS the "is this a tagged post" signal, no extra
-// branch needed). Supersedes `communityChannel.forumTags` (JSON), which stays
-// readable until the existing-data migration backfills here and verifies
-// zero loss (new-door∥old-door — see that column's own doc comment).
+// branch needed). Supersedes the old `communityChannel.forumTags` (JSON)
+// column, backfilled here by migration 0082 and dropped by 0083 once that
+// backfill was verified zero-loss.
 export const communityMessageTag = sqliteTable(
   "community_message_tag",
   {

@@ -200,7 +200,6 @@ export type CommunityChannelUpdate = {
     topic?: string
     categoryId?: string | null
     type?: ChannelType
-    forumTags?: string | null
   }
 }
 

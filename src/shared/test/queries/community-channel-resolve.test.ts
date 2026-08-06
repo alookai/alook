@@ -135,7 +135,6 @@ describe("resolveChannelByNameForMember — SQL invariants", () => {
       type: "text",
       topic: "",
       position: 0,
-      forumTags: null,
       parentChannelId: null,
       creatorId: "u_1",
       messageCount: 0,
@@ -154,7 +153,5 @@ describe("resolveChannelByNameForMember — SQL invariants", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]!.id).toBe("ch_top");
     expect(rows[0]!.parentChannelId).toBeNull();
-    // forumTags is projected as `tags: string[]` (safeParseForumTags).
-    expect(rows[0]!.tags).toEqual([]);
   });
 });

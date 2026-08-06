@@ -8,43 +8,18 @@ import {
 } from "../../community-schema";
 import type { Database } from "../../index";
 import { PARTICIPANT_SOURCE } from "../../../constants/community";
-import { createLogger } from "../../../logger";
 import { canManageServer, canSeePrivateChannel, visibilityIsDmParticipant } from "../../../utils/community-roles";
 import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 
-// Module-level logger — one tag per shared query module.
-const log = createLogger({ service: "community-queries" });
-
-// TEXT column at rest → string[] at the boundary. Null/empty is a clean read
-// (empty tag set); a parse throw or non-array shape signals bit-rot.
-function safeParseForumTags(raw: string | null, channelId: string): string[] {
-  if (!raw) return [];
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err) {
-    log.warn("forum_tags_parse_failed", { channelId, err });
-    return [];
-  }
-  if (!Array.isArray(parsed)) {
-    log.warn("forum_tags_not_array", { channelId });
-    return [];
-  }
-  return parsed as string[];
-}
-
-// Column selection shared by every read query — keeps `forumTags` off the wire
-// (renamed to `tags`) and hands each caller the same row shape.
+// Column selection shared by every read query.
 const CHANNEL_COLUMNS = {
   id: communityChannel.id,
   serverId: communityChannel.serverId,
   categoryId: communityChannel.categoryId,
   name: communityChannel.name,
-  displayTitle: communityChannel.displayTitle,
   type: communityChannel.type,
   topic: communityChannel.topic,
   position: communityChannel.position,
-  forumTags: communityChannel.forumTags,
   parentChannelId: communityChannel.parentChannelId,
   creatorId: communityChannel.creatorId,
   messageCount: communityChannel.messageCount,
@@ -53,13 +28,6 @@ const CHANNEL_COLUMNS = {
   lastMessageAt: communityChannel.lastMessageAt,
   createdAt: communityChannel.createdAt,
 } as const;
-
-function mapChannelRow<
-  T extends { id: string; forumTags: string | null },
->(row: T): Omit<T, "forumTags"> & { tags: string[] } {
-  const { forumTags, ...rest } = row;
-  return { ...rest, tags: safeParseForumTags(forumTags, row.id) };
-}
 
 
 export async function createChannel(
@@ -97,12 +65,12 @@ export async function getChannel(db: Database, channelId: string) {
     .from(communityChannel)
     .where(eq(communityChannel.id, channelId));
   const row = rows[0];
-  return row ? mapChannelRow(row) : null;
+  return row ? row : null;
 }
 
-// Just the `type` of a channel ("text" | "forum" | "forum_post" | "thread" |
-// null). A one-column probe for hot paths that only need to branch by type
-// (e.g. fan-out routing a thread to its participant set). Returns null when the
+// Just the `type` of a channel ("text" | "forum" | "thread" | "dm" | null). A
+// one-column probe for hot paths that only need to branch by type (e.g.
+// fan-out routing a thread to its participant set). Returns null when the
 // channel doesn't exist.
 export async function getChannelType(
   db: Database,
@@ -143,7 +111,7 @@ export async function getChannelForMember(db: Database, channelId: string, userI
     // DM (type=dm, server_id NULL) — readable iff the user has a
     // relation='access' member row.
     const isMember = await isChannelMember(db, channelId, userId, "access");
-    return isMember ? mapChannelRow(dmRow) : null;
+    return isMember ? dmRow : null;
   }
 
   const rows = await db
@@ -195,7 +163,7 @@ export async function getChannelForMember(db: Database, channelId: string, userI
     }
   }
 
-  return mapChannelRow(channelRow);
+  return channelRow;
 }
 
 export async function updateChannel(
@@ -205,7 +173,6 @@ export async function updateChannel(
     name?: string;
     topic?: string;
     categoryId?: string | null;
-    forumTags?: string | null;
     archived?: number;
     lastMessageAt?: string;
     messageCount?: number;
@@ -233,7 +200,7 @@ export async function listServerChannels(db: Database, serverId: string) {
     .from(communityChannel)
     .where(and(eq(communityChannel.serverId, serverId), isNull(communityChannel.parentChannelId)))
     .orderBy(asc(communityChannel.position));
-  return rows.map(mapChannelRow);
+  return rows;
 }
 
 /**
@@ -276,7 +243,7 @@ export async function resolveChannelByNameForMember(
         isNull(communityChannel.parentChannelId)
       )
     );
-  return rows.map(mapChannelRow);
+  return rows;
 }
 
 /**
@@ -325,7 +292,7 @@ export async function getThreadChannelByParentMessage(
       )
     );
   const row = rows[0];
-  return row ? mapChannelRow(row) : null;
+  return row ? row : null;
 }
 
 
@@ -418,7 +385,7 @@ export async function listChildChannels(
     .from(communityChannel)
     .where(and(...conditions))
     .orderBy(desc(communityChannel.lastMessageAt));
-  return rows.map(mapChannelRow);
+  return rows;
 }
 
 export async function reorderChannels(
@@ -468,7 +435,7 @@ export async function getChannelsByIds(db: Database, channelIds: string[]) {
       )
     )
   ).flat();
-  return rows.map(mapChannelRow);
+  return rows;
 }
 
 // ---------------------------------------------------------------------------
@@ -724,7 +691,7 @@ export async function listServerChannelsForViewer(
       .orderBy(asc(communityChannel.position)),
     resolveVisibleChannelIdSet(db, userId, { serverIds: [serverId] }),
   ]);
-  return rows.filter((r) => visibleSet.has(r.id)).map(mapChannelRow);
+  return rows.filter((r) => visibleSet.has(r.id));
 }
 
 // Shared visibility computation for the nested-membership model. Assembles the
@@ -883,7 +850,7 @@ export async function resolveChannelAccessContext(
     .where(eq(communityChannel.id, channelId))
     .limit(1);
   if (target.length === 0) return null;
-  const channel = mapChannelRow(target[0]!);
+  const channel = target[0]!;
   const anchorId = channel.parentChannelId ?? channel.id;
 
   // DM (type=dm, server_id NULL) — access iff the user has a relation='access'
@@ -925,7 +892,7 @@ export async function resolveChannelAccessContext(
           .where(eq(communityChannel.id, anchorId))
           .limit(1);
   if (anchorRows.length === 0) return null;
-  const anchor = mapChannelRow(anchorRows[0]!);
+  const anchor = anchorRows[0]!;
 
   // Unified model — privacy anchor == roster anchor == `parentChannelId ?? id`.
   // A forum_post/thread climbs to its parent (forum/channel) for BOTH the
