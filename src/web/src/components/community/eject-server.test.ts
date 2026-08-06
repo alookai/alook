@@ -1,10 +1,13 @@
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, vi } from "vitest"
 import {
   markVoluntaryLeave,
   consumeVoluntaryLeave,
   pickPostEjectDestination,
+  runAuthoritativeServerEject,
+  isDefinitiveChildMetaFailure,
 } from "./eject-server"
 import type { Server } from "./_types"
+import { ApiError } from "@/lib/errors"
 
 function makeServer(id: string): Server {
   return {
@@ -30,6 +33,67 @@ describe("voluntary-leave marker", () => {
     expect(consumeVoluntaryLeave("srv_other")).toBe(false)
     // srv_b still marked — clean it up to keep test isolation
     expect(consumeVoluntaryLeave("srv_b")).toBe(true)
+  })
+})
+
+describe("runAuthoritativeServerEject", () => {
+  const target = { id: "srv_target" } as Server
+  const callbacks = () => ({
+    consumeVoluntaryLeave: vi.fn(() => false),
+    clearLastChannel: vi.fn(),
+    toast: vi.fn(),
+    replace: vi.fn(),
+  })
+
+  it("keeps the URL and last-channel through first 500, then accepts a success containing the target", () => {
+    const sideEffects = callbacks()
+    expect(runAuthoritativeServerEject({
+      serverId: target.id, servers: [], isSuccess: false, isFetching: false, ...sideEffects,
+    })).toBe(false)
+    expect(runAuthoritativeServerEject({
+      serverId: target.id, servers: [target], isSuccess: true, isFetching: false, ...sideEffects,
+    })).toBe(false)
+    expect(sideEffects.replace).not.toHaveBeenCalled()
+    expect(sideEffects.toast).not.toHaveBeenCalled()
+    expect(sideEffects.clearLastChannel).not.toHaveBeenCalled()
+  })
+
+  it("does not eject from last-good data when a refetch errors", () => {
+    const sideEffects = callbacks()
+    expect(runAuthoritativeServerEject({
+      serverId: target.id, servers: [target], isSuccess: false, isFetching: false, ...sideEffects,
+    })).toBe(false)
+    expect(sideEffects.replace).not.toHaveBeenCalled()
+    expect(sideEffects.toast).not.toHaveBeenCalled()
+    expect(sideEffects.clearLastChannel).not.toHaveBeenCalled()
+  })
+
+  it("does not decide absence while a successful snapshot is still fetching", () => {
+    const sideEffects = callbacks()
+    expect(runAuthoritativeServerEject({
+      serverId: target.id, servers: [], isSuccess: true, isFetching: true, ...sideEffects,
+    })).toBe(false)
+    expect(sideEffects.replace).not.toHaveBeenCalled()
+  })
+
+  it("ejects, clears memory, and toasts only when settled success explicitly lacks the target", () => {
+    const sideEffects = callbacks()
+    const remaining = { id: "srv_remaining" } as Server
+    expect(runAuthoritativeServerEject({
+      serverId: target.id, servers: [remaining], isSuccess: true, isFetching: false, ...sideEffects,
+    })).toBe(true)
+    expect(sideEffects.clearLastChannel).toHaveBeenCalledWith(target.id)
+    expect(sideEffects.toast).toHaveBeenCalledWith("You're no longer in this server")
+    expect(sideEffects.replace).toHaveBeenCalledWith("/c/channels/srv_remaining")
+  })
+})
+
+describe("isDefinitiveChildMetaFailure", () => {
+  it("keeps the existing 403/404 bounce boundary without treating 5xx as absence", () => {
+    expect(isDefinitiveChildMetaFailure(new ApiError("forbidden", 403))).toBe(true)
+    expect(isDefinitiveChildMetaFailure(new ApiError("missing", 404))).toBe(true)
+    expect(isDefinitiveChildMetaFailure(new ApiError("transient", 500))).toBe(false)
+    expect(isDefinitiveChildMetaFailure(new Error("network"))).toBe(false)
   })
 })
 

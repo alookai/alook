@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { apiFetch, toastApiError } from "@/lib/api/client"
-import { ApiError } from "@/lib/errors"
+import { isDefinitiveChildMetaFailure } from "@/components/community/eject-server"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { ChannelHeader, ChannelHeaderSkeleton, type ChannelNotifLevel } from "@/components/community/channel-header"
 import { MessageList } from "@/components/community/message-list"
@@ -493,7 +493,7 @@ function ChannelView() {
           // This is also what makes last-channel restore safe for a remembered
           // child-thread id (per-server memory trusts the id; validity is settled
           // here): a remembered post that was deleted/hidden degrades to default.
-          if (e instanceof ApiError && (e.status === 404 || e.status === 403)) {
+          if (isDefinitiveChildMetaFailure(e)) {
             // BREAK THE REDIRECT LOOP: if this dead id is the server's remembered
             // last channel, forget it FIRST — otherwise server-root re-reads it,
             // re-navigates here, bounces again… forever (this exact id was just
