@@ -24,6 +24,10 @@ const ALLOWLIST = [
   // Forum post creation (its first message); folds into send-with-title at the
   // forum≡thread step.
   "src/lib/community/create-forum-post.ts",
+  // phase2 forum≡thread step 1: the atomic-by-compensation "message+thread"
+  // primitive — shared by the send-fold (step 4) and the existing-data
+  // migration (step 5) to open a message with its own auto-created thread.
+  "src/lib/community/create-channels.ts",
 ].sort()
 
 function walk(dir: string, acc: string[] = []): string[] {

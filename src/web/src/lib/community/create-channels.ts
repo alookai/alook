@@ -18,6 +18,7 @@ import { logAudit } from "@/lib/community/audit"
 import { requireServerMember, requireChannelMember } from "@/lib/community/permissions"
 import { requireMessageBearingSurface } from "@/lib/community/channel-write-guard"
 import { guardDmOpen } from "@/lib/community/dm-guard"
+import { createCommunityMessage, type IncomingMessageBody } from "@/lib/community/message-handler"
 
 /**
  * Single-source creation cores for the `POST /channels` create door (route/disc
@@ -287,4 +288,119 @@ export async function createThreadForUser(
   }
 
   return { ok: true, value: childChannel }
+}
+
+export type CreateMessageWithThreadResult =
+  | { ok: true; message: Extract<Awaited<ReturnType<typeof createCommunityMessage>>, { ok: true }>["row"]; attachments: Extract<Awaited<ReturnType<typeof createCommunityMessage>>, { ok: true }>["attachments"]; thread: Awaited<ReturnType<typeof queries.communityChannel.createChannel>> }
+  | { ok: false; status: number; error: string }
+
+/**
+ * Atomic-by-compensation "message + thread" primitive (phase2 forum≡thread,
+ * step 1). D1's `batch()` can't feed one statement's `.returning()` into a
+ * later statement's `.values()` in the SAME batch (the same limitation
+ * `createMessage`'s seq-claim comment documents) — the thread's
+ * `parentMessageId` needs the just-inserted message's id, so a true single-
+ * batch fusion isn't possible. All-or-nothing is enforced by SYNCHRONOUS
+ * compensating rollback instead (the same precedent `createCommunityMessage`
+ * already uses for a failed attachment reserve: insert message → try the
+ * dependent step → on failure, `hardDeleteMessage` the message so no
+ * message-without-its-thread is ever left committed).
+ *
+ * The opener message lands in the PARENT channel (not the thread itself) —
+ * same model `createThreadForUser` uses today. The thread is opened
+ * get-or-create on that message's id, reusing the identical
+ * `createWithCollisionPolicy(channelCreation("thread"))` + fresh-create-only
+ * participant-seed logic as `createThreadForUser`, so a post's thread and an
+ * explicit reply-thread converge on one code path.
+ *
+ * Two independent WS suppress switches, because they gate two UNRELATED
+ * broadcasts: `suppressBroadcast` passes straight through to
+ * `createCommunityMessage` (silences the message's own MESSAGE_CREATE/notify/
+ * wake/CHILD_CHANNEL_UPDATE); `suppressThreadFanout` silences ONLY this
+ * function's own unconditional `CHILD_CHANNEL_CREATE` for the newly-opened
+ * thread channel (a message-side suppress does NOT reach it — they are two
+ * different fan-out calls). Neither switch touches `addThreadParticipants`
+ * (enroll) — the structural core always runs, only delivery is gated
+ * (enroll-vs-WS split, same principle as `suppressBroadcast`'s own doc).
+ * Real-time callers (the send-fold) pass neither; migration backfill passes
+ * both `true`.
+ */
+export async function createMessageWithThread(params: {
+  db: Database
+  authorId: string
+  parentChannelId: string
+  serverId: string
+  body: IncomingMessageBody
+  threadName?: string
+  suppressBroadcast?: boolean
+  suppressThreadFanout?: boolean
+  attachmentIds?: string[]
+  clientNonce?: string
+  source?: "cli" | "daemon-http" | "web"
+}): Promise<CreateMessageWithThreadResult> {
+  const { db, authorId, parentChannelId, serverId } = params
+
+  const created = await createCommunityMessage({
+    db,
+    authorId,
+    target: { kind: "channel", channelId: parentChannelId, serverId },
+    body: params.body,
+    source: params.source,
+    attachmentIds: params.attachmentIds,
+    clientNonce: params.clientNonce,
+    suppressBroadcast: params.suppressBroadcast,
+  })
+  if (!created.ok) return { ok: false, status: created.status, error: created.error }
+  const messageId = created.row.id
+
+  const threadName = params.threadName?.trim() || created.row.content?.slice(0, MAX_CHANNEL_NAME_LENGTH) || "thread"
+
+  let threadResult: Awaited<ReturnType<typeof createWithCollisionPolicy<Awaited<ReturnType<typeof queries.communityChannel.createChannel>>>>>
+  try {
+    threadResult = await createWithCollisionPolicy(channelCreation("thread"), {
+      attempt: () => queries.communityChannel.createChannel(db, {
+        serverId,
+        parentChannelId,
+        parentMessageId: messageId,
+        name: threadName,
+        type: "thread",
+        creatorId: authorId,
+      }),
+      refetchWinner: () => queries.communityChannel.getThreadChannelByParentMessage(db, parentChannelId, messageId),
+    })
+  } catch (err) {
+    // Compensate: the message was inserted but its thread never opened — no
+    // caller may see a message that's supposed to have a thread but doesn't.
+    await queries.communityMessage.hardDeleteMessage(db, messageId)
+    throw err
+  }
+  if (!threadResult.ok) {
+    await queries.communityMessage.hardDeleteMessage(db, messageId)
+    return { ok: false, status: 404, error: "thread not found" }
+  }
+  const childChannel = threadResult.value
+  const isFreshCreate = childChannel.creatorId === authorId
+
+  if (isFreshCreate) {
+    await queries.communityThread.addThreadParticipants(db, childChannel.id, [
+      { userId: authorId, source: PARTICIPANT_SOURCE.SPOKE },
+    ])
+
+    if (!params.suppressThreadFanout) {
+      fanOutToChannel(parentChannelId, {
+        type: WS_EVENTS.CHILD_CHANNEL_CREATE,
+        parentChannelId,
+        channel: {
+          id: childChannel.id,
+          name: childChannel.name,
+          type: "thread" as const,
+          creatorId: authorId,
+          createdAt: childChannel.createdAt,
+        },
+        parentMessageId: messageId,
+      }, { excludeUserId: authorId })
+    }
+  }
+
+  return { ok: true, message: created.row, attachments: created.attachments, thread: childChannel }
 }
