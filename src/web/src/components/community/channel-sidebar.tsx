@@ -329,6 +329,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
       )}
       {dialog?.kind === "manage-members" && serverId && (
         <ChannelAddMembersDialog
+          serverId={serverId}
           channelId={dialog.channelId}
           channelName={dialog.channelName}
           onClose={() => setDialog(null)}

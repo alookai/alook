@@ -187,6 +187,7 @@ function ChannelView() {
   // this fetch, so opening the dialog triggers the fetch and a plain channel
   // switch never does.
   const addableChannelMembers = useAddableMembers(
+    serverId,
     channelId,
     manageMembersOpen && currentChannelPrivate && !isNotifyUnit,
   )
