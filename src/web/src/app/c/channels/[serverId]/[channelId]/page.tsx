@@ -38,7 +38,6 @@ import { useChannelMembers, useAddableMembers, useAddChannelMember, useRemoveCha
 import { useAddThreadParticipant, useRemoveThreadParticipant } from "@/hooks/community/use-thread-participants"
 import { useMessages } from "@/hooks/community/use-messages"
 import { useChannelReadStateSnapshot } from "@/hooks/community/use-channel-read-state"
-import { useChannelBootstrap } from "@/hooks/community/use-channel-bootstrap"
 import { useChannelWatermark } from "@/hooks/community/use-channel-watermark"
 import { useEagerChannelRead } from "@/hooks/community/use-eager-channel-read"
 import {
@@ -309,34 +308,25 @@ function ChannelView() {
       serverName: currentServer?.name ?? "",
     }))
   }, [currentServer, serverId])
-  // A jump-open (?msg=) must anchor on the jump target, not the read pointer,
-  // so it keeps the legacy read-state → ?anchor=jump path. Otherwise use the
-  // combined bootstrap: ONE request resolves the read pointer AND seeds the
-  // initial message window, collapsing the old serial read-state → messages
-  // chain (see plans/community-switch-perf-optimization.md WS2).
-  const useBootstrap = !jumpTargetId
-  const bootstrap = useChannelBootstrap(channelId, { enabled: useBootstrap })
-  const legacySnapshot = useChannelReadStateSnapshot(useBootstrap ? null : channelId)
+  const readStateSnapshot = useChannelReadStateSnapshot(channelId)
 
   // Frozen-once snapshot of the viewer's read pointer for this channel — the
   // anchor for the "New" divider AND the mount-time initial scroll target.
   // The value NEVER changes during the mount even as the watermark advances.
-  const readSnapshot = useBootstrap ? bootstrap.readState : legacySnapshot.snapshot
-  const readSnapshotFetching = useBootstrap ? bootstrap.isFetching : legacySnapshot.isFetching
+  const readSnapshot = readStateSnapshot.snapshot
+  const readSnapshotFetching = readStateSnapshot.isFetching
 
   // Anchor the initial page on the read pointer so an unread-heavy channel
   // opens with a centered window instead of the newest 50. Pass `undefined`
   // while the pointer is still resolving — the hook stays disabled until
   // the value settles (a bare `null` would fall back to newest-mode too
-  // early). On the bootstrap path the initial page is pre-seeded, so trust it
-  // and don't refetch page 0 on mount.
+  // early).
   const messagesQuery = useMessages(channelId, {
     serverId,
     lastReadMessageId: readSnapshotFetching
       ? undefined
       : (readSnapshot?.lastReadMessageId ?? null),
     anchorMessageId: jumpTargetId,
-    trustSeededInitialPage: useBootstrap && bootstrap.isReady,
   })
   const {
     messages,
