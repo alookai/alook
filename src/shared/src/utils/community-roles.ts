@@ -75,19 +75,22 @@ export function isDm(t: string | null | undefined): boolean {
   return t === "dm"
 }
 
-// Derived (excludes, not enumerates) — phase2 forum≡thread write-guard reversal.
-// `forum` used to be the ONLY excluded stored type (a post index, not directly
-// sendable); as forum_post is deleted (step 6), every remaining stored type
-// becomes message-bearing, at which point this whole guard retires. Written as
-// "every valid type EXCEPT forum_post" rather than an enumerated allowlist so
-// the exclusion set shrinks to empty (not silently drifts) as types are removed.
-// `isStoredChannelType(t)` gates first: negating a bare `=== "forum_post"` check
-// would flip null/undefined/garbage from false (deny) to true (allow) — a
-// fail-open regression on a write guard (Blondie #765). Gating on membership in
-// the closed StoredChannelType set FIRST keeps the fail-closed default for any
-// value that isn't one of the five legitimate types.
+// phase2 forum≡thread write-guard reversal. Today's intent is "old allowlist
+// (text/forum_post/thread/dm) UNION forum" — `forum` used to be the ONLY
+// excluded stored type (a post index, not directly sendable) and gains
+// message-bearing status here; `forum_post` is UNCHANGED (still bearing) —
+// it stays live and addressable (existing posts continue to accept replies/
+// reactions/pins) until forum_post is deleted entirely at a later step, NOT
+// excluded prematurely by this guard (Ingaborg #782-790 caught: an earlier
+// "exclude forum_post" derivation coincidentally matches the eventual
+// post-deletion state, but activates that exclusion NOW, while forum_post
+// rows are still live — a real regression, not a no-op). So today all FIVE
+// stored types are message-bearing — this is exactly isStoredChannelType(t),
+// no exclusion needed. Once forum_post is deleted, this function's meaning is
+// unchanged (still "is this a legitimate stored type") but the type union
+// itself shrinks to four — the guard narrows for free, with no code change.
 export function isMessageBearingSurface(t: string | null | undefined): boolean {
-  return isStoredChannelType(t) && !isForumPost(t)
+  return isStoredChannelType(t)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

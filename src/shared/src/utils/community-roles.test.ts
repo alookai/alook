@@ -12,18 +12,15 @@ import {
 } from "./community-roles"
 
 describe("isMessageBearingSurface", () => {
-  it("is true for every stored type EXCEPT forum_post (phase2 forum≡thread write-guard reversal — forum is now directly sendable)", () => {
+  it("is true for all 5 stored types — text/forum/forum_post/thread/dm (phase2 forum≡thread write-guard reversal: forum GAINS message-bearing status, forum_post KEEPS it — existing posts stay live and addressable until forum_post is deleted entirely at a later step, Ingaborg #782-790 caught an earlier draft that regressed this)", () => {
     expect(isMessageBearingSurface("text")).toBe(true)
     expect(isMessageBearingSurface("forum")).toBe(true)
+    expect(isMessageBearingSurface("forum_post")).toBe(true)
     expect(isMessageBearingSurface("thread")).toBe(true)
     expect(isMessageBearingSurface("dm")).toBe(true)
   })
 
-  it("is false for forum_post (the sole remaining exclusion, until it's deleted entirely at step 6)", () => {
-    expect(isMessageBearingSurface("forum_post")).toBe(false)
-  })
-
-  it("is false for null/undefined/unknown — a negated bare `=== 'forum_post'` check would wrongly flip these to true (fail-open regression); isStoredChannelType(t) gates first to keep the fail-closed default", () => {
+  it("is false for null/undefined/unknown — equivalent to isStoredChannelType(t), so anything outside the closed 5-value set is denied", () => {
     expect(isMessageBearingSurface(null)).toBe(false)
     expect(isMessageBearingSurface(undefined)).toBe(false)
     expect(isMessageBearingSurface("bogus")).toBe(false)

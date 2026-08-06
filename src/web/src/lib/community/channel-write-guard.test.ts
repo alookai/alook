@@ -8,16 +8,10 @@ import {
 } from "./channel-write-guard"
 
 describe("requireMessageBearingSurface", () => {
-  it("accepts text/forum/thread — forum is now directly sendable (phase2 forum≡thread write-guard reversal)", () => {
-    for (const t of ["text", "forum", "thread"]) {
+  it("accepts text/forum/forum_post/thread — forum GAINS message-bearing status, forum_post KEEPS it (phase2 forum≡thread write-guard reversal)", () => {
+    for (const t of ["text", "forum", "forum_post", "thread"]) {
       expect(requireMessageBearingSurface(t).ok).toBe(true)
     }
-  })
-
-  it("rejects forum_post (the sole remaining exclusion, until it's deleted entirely at step 6) with 400", () => {
-    const r = requireMessageBearingSurface("forum_post")
-    expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.status).toBe(400)
   })
 
   it("rejects a DM hitting a generic channel route with 400 (block-bypass guard)", () => {
@@ -43,28 +37,22 @@ describe("rejectDmOnGenericChannelRoute", () => {
 })
 
 describe("requireReactableSurface", () => {
-  it("accepts every message-bearing surface incl. dm and forum (reacting in a DM is legit; forum is now directly sendable)", () => {
-    for (const t of ["text", "forum", "thread", "dm"]) {
+  it("accepts every message-bearing surface incl. dm, forum, and forum_post (reacting in a DM is legit; forum GAINS message-bearing status, forum_post KEEPS it)", () => {
+    for (const t of ["text", "forum", "forum_post", "thread", "dm"]) {
       expect(requireReactableSurface(t).ok).toBe(true)
     }
-  })
-
-  it("rejects forum_post (the sole remaining exclusion) with 400", () => {
-    const r = requireReactableSurface("forum_post")
-    expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.status).toBe(400)
   })
 })
 
 describe("requirePinnableSurface", () => {
-  it("accepts text/thread/forum (forum is now directly sendable)", () => {
-    for (const t of ["text", "forum", "thread"]) {
+  it("accepts text/thread/forum/forum_post (forum GAINS message-bearing status, forum_post KEEPS it)", () => {
+    for (const t of ["text", "forum", "forum_post", "thread"]) {
       expect(requirePinnableSurface(t).ok).toBe(true)
     }
   })
 
-  it("rejects dm (governance model does not fit) and forum_post with 400", () => {
-    for (const t of ["dm", "forum_post", null, undefined]) {
+  it("rejects dm (governance model does not fit) with 400", () => {
+    for (const t of ["dm", null, undefined]) {
       const r = requirePinnableSurface(t)
       expect(r.ok).toBe(false)
       if (!r.ok) expect(r.status).toBe(400)
