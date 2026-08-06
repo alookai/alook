@@ -7,6 +7,7 @@ import { createAuth } from "@/lib/auth"
 import { bindCacheKV } from "@/lib/cache"
 import { requireChannelMember, requireDMAccess } from "@/lib/community/permissions"
 import { isChannelTarget, isThreadTarget, isDmTarget } from "@/lib/community/message-handler"
+import { isInlineAttachmentContentType } from "@/lib/community/attachment-content-type"
 
 // Reject any segment that could smuggle traversal or escape the bucket.
 function isSafeSegment(s: string): boolean {
@@ -67,13 +68,14 @@ export const GET = async (
   if (!obj) return writeError("not found", 404)
 
   const contentType = obj.httpMetadata?.contentType ?? "application/octet-stream"
-  const isImage = contentType.startsWith("image/")
+  const isInline = isInlineAttachmentContentType(contentType)
   const lastSegment = key[key.length - 1] ?? "file"
 
   return new Response(obj.body, {
     headers: {
       "Content-Type": contentType,
-      "Content-Disposition": isImage ? "inline" : `attachment; filename="${lastSegment}"`,
+      "Content-Disposition": isInline ? "inline" : `attachment; filename="${lastSegment}"`,
+      "X-Content-Type-Options": "nosniff",
       "Cache-Control": CACHE_IMMUTABLE,
     },
   })

@@ -6,6 +6,7 @@ import { useUserWs } from "@/lib/use-user-ws"
 import { useCommunityStore } from "@/stores/community"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { communityKeys } from "@/lib/query-keys"
+import { isInlineAttachmentContentType } from "@/lib/community/attachment-content-type"
 import {
   patchCacheJoin,
   patchCacheLeave,
@@ -176,7 +177,7 @@ export function insertMessageIntoCache(
     }
   }
   const attachments: Attachment[] | undefined = msg.attachments?.map((a) => {
-    const isImage = a.contentType?.startsWith("image/")
+    const isImage = isInlineAttachmentContentType(a.contentType)
     return isImage
       ? { kind: "image", name: a.filename, url: a.url, width: a.width ?? undefined, height: a.height ?? undefined }
       : {
@@ -1319,4 +1320,3 @@ function removeTypingUser(
   else nextByScope.set(scopeKey, nextMap)
   return { typingByScope: nextByScope, typingTimers: nextTimers }
 }
-

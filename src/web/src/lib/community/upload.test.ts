@@ -93,7 +93,7 @@ describe("handleAttachmentUpload", () => {
 
   const USER_TAG = { uploader: "user" as const, uploaderUserId: "u1" }
 
-  it("uploads an in-allowlist file under the size cap", async () => {
+  it("uploads a file under the size cap", async () => {
     const put = vi.fn().mockResolvedValue(undefined)
     const file = fakeFile("hi.png", "image/png", 10)
     const res = await handleAttachmentUpload(reqWithFile(file), envWithR2(put), "channel", "c1", USER_TAG)
@@ -150,14 +150,25 @@ describe("handleAttachmentUpload", () => {
     expect(put).not.toHaveBeenCalled()
   })
 
-  it("rejects disallowed MIME types with 400", async () => {
-    const put = vi.fn()
+  it("accepts arbitrary MIME types", async () => {
+    const put = vi.fn().mockResolvedValue(undefined)
     const file = fakeFile("evil.exe", "application/x-msdownload", 2)
     const res = await handleAttachmentUpload(reqWithFile(file), envWithR2(put), "channel", "c1", USER_TAG)
-    expect(res.ok).toBe(false)
-    if (res.ok) return
-    expect(res.response.status).toBe(400)
-    expect(put).not.toHaveBeenCalled()
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+    expect(res.contentType).toBe("application/x-msdownload")
+    expect(put).toHaveBeenCalledOnce()
+    expect(put.mock.calls[0]?.[2]?.httpMetadata).toEqual({ contentType: "application/x-msdownload" })
+  })
+
+  it("normalizes an empty browser MIME to application/octet-stream", async () => {
+    const put = vi.fn().mockResolvedValue(undefined)
+    const file = fakeFile("unknown.blend", "", 2)
+    const res = await handleAttachmentUpload(reqWithFile(file), envWithR2(put), "channel", "c1", USER_TAG)
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+    expect(res.contentType).toBe("application/octet-stream")
+    expect(put.mock.calls[0]?.[2]?.httpMetadata).toEqual({ contentType: "application/octet-stream" })
   })
 
   it("accepts video, audio, pdf and text MIME types", async () => {

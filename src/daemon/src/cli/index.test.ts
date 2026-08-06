@@ -956,6 +956,63 @@ describe("message emoji", () => {
   });
 });
 
+describe("message attachment upload", () => {
+  it.each([
+    { extension: "html", contentType: "text/html" },
+    { extension: "htm", contentType: "text/html" },
+    { extension: "blend", contentType: "application/octet-stream" },
+  ])("uploads .$extension files as $contentType", async ({ extension, contentType }) => {
+    const fs = await import("node:fs");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "alook-attachment-upload-"));
+    const file = path.join(dir, `prototype.${extension}`);
+    const body = "<!doctype html><title>Motion prototype</title>";
+    fs.writeFileSync(file, body);
+
+    const uploadSpy = vi.fn(async (req: Parameters<ServerApi["attachmentUpload"]>[0]) => ({
+      id: "att_file",
+      filename: req.file.filename,
+      contentType: req.file.contentType ?? "application/octet-stream",
+      size: req.file.data instanceof Uint8Array ? req.file.data.byteLength : req.file.data.size,
+    }));
+    setApiForTesting(stubApi({ attachmentUpload: uploadSpy }));
+
+    try {
+      await main([
+        "message",
+        "attachment",
+        "upload",
+        "--target",
+        "/demo/general",
+        "--file",
+        file,
+      ]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+
+    expect(uploadSpy).toHaveBeenCalledTimes(1);
+    expect(uploadSpy).toHaveBeenCalledWith({
+      agentId: "agent_test",
+      target: "/demo/general",
+      file: {
+        data: new Uint8Array(Buffer.from(body)),
+        filename: `prototype.${extension}`,
+        contentType,
+      },
+    });
+    expect(parseEnvelope(cap.lines())).toEqual({
+      success: {
+        id: "att_file",
+        filename: `prototype.${extension}`,
+        contentType,
+        size: Buffer.byteLength(body),
+      },
+    });
+  });
+});
+
 describe("channel subscribe removed", () => {
   it("`channel subscribe ...` is no longer a recognized command", async () => {
     setApiForTesting(stubApi());

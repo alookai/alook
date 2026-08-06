@@ -81,6 +81,18 @@ describe("groupAttachments", () => {
     ])
   })
 
+  it.each(["image/svg+xml", "image/x-forged"])(
+    "materializes unsafe %s attachments as file-kind",
+    (contentType) => {
+      const result = groupAttachments([
+        { messageId: "m1", filename: "unsafe.img", r2Key: "channel/c1/uuid/unsafe.img", contentType, size: 2048, width: 1920, height: 1080 },
+      ])
+      expect(result.m1).toEqual([
+        { kind: "file", name: "unsafe.img", url: "/api/community/media/channel/c1/uuid/unsafe.img", size: "2.0 KB" },
+      ])
+    },
+  )
+
   it("skips pending rows (messageId=null) so agent-uploaded pending attachments never surface", () => {
     const result = groupAttachments([
       { messageId: null, filename: "pending.png", r2Key: "channel/c1/uuid/pending.png", contentType: "image/png", size: 100, width: null, height: null },

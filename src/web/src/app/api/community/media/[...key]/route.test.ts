@@ -105,6 +105,7 @@ describe("GET /api/community/media/[...key]", () => {
     expect(res.status).toBe(200)
     expect(res.headers.get("Content-Type")).toBe("image/png")
     expect(res.headers.get("Content-Disposition")).toBe("inline")
+    expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff")
     expect(r2Get).toHaveBeenCalledWith("channel/c1/f1/x.png")
   })
 
@@ -158,13 +159,30 @@ describe("GET /api/community/media/[...key]", () => {
     expect(r2Get).not.toHaveBeenCalled()
   })
 
-  it("sets attachment Content-Disposition for non-image content types", async () => {
+  it.each(["image/png", "image/jpeg", "image/webp", "image/gif"])(
+    "serves the safe raster type %s inline",
+    async (contentType) => {
+      getChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
+      r2Get.mockResolvedValue({ body: new ReadableStream(), httpMetadata: { contentType } })
+      const res = await call(["channel", "c1", "f1", "safe-image"])
+      expect(res.headers.get("Content-Disposition")).toBe("inline")
+      expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff")
+    },
+  )
+
+  it.each([
+    ["image/svg+xml", "vector.svg"],
+    ["image/x-custom", "forged.img"],
+    ["text/html", "prototype.html"],
+    ["application/octet-stream", "unknown.blend"],
+  ])("forces %s downloads and disables sniffing", async (contentType, filename) => {
     getChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
     r2Get.mockResolvedValue({
       body: new ReadableStream(),
-      httpMetadata: { contentType: "application/pdf" },
+      httpMetadata: { contentType },
     })
-    const res = await call(["channel", "c1", "f1", "spec.pdf"])
-    expect(res.headers.get("Content-Disposition")).toBe('attachment; filename="spec.pdf"')
+    const res = await call(["channel", "c1", "f1", filename])
+    expect(res.headers.get("Content-Disposition")).toBe(`attachment; filename="${filename}"`)
+    expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff")
   })
 })

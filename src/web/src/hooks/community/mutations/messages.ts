@@ -10,6 +10,7 @@ import { toast } from "sonner"
 import { apiFetch, toastApiError } from "@/lib/api/client"
 import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
+import { isInlineAttachmentContentType } from "@/lib/community/attachment-content-type"
 import { useCommunityStore } from "@/stores/community"
 import type { Msg, Attachment } from "@/components/community/_types"
 import type { MessagesPage } from "@/hooks/community/use-messages"
@@ -163,7 +164,7 @@ function markFailedById(
 export function toAttachmentVm(
   a: { url: string; filename: string; contentType: string; size: number; width?: number; height?: number },
 ): Attachment {
-  const isImage = a.contentType.startsWith("image/")
+  const isImage = isInlineAttachmentContentType(a.contentType)
   if (isImage) return { kind: "image", name: a.filename, url: a.url, width: a.width, height: a.height }
   return {
     kind: "file",

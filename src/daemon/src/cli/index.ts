@@ -137,28 +137,11 @@ export function decodeTextEscapes(s: string): string {
 /* ------------------------------------------------------------------ */
 
 const CLIENT_MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
-const CLIENT_ALLOWED_MIME_PREFIXES: readonly string[] = [
-  "image/",
-  "video/",
-  "audio/",
-  "text/",
-  "application/pdf",
-  "application/json",
-  "application/zip",
-  "application/octet-stream",
-];
-
-function mimeAllowed(contentType: string): boolean {
-  if (!contentType) return false;
-  return CLIENT_ALLOWED_MIME_PREFIXES.some((entry) =>
-    entry.endsWith("/") ? contentType.startsWith(entry) : contentType === entry,
-  );
-}
 
 /**
  * Guess a content-type from a filename extension. Kept trivial — the server
- * re-validates with its own MIME allowlist. Falls back to
- * `application/octet-stream` so an unknown extension still uploads.
+ * stores MIME as descriptive metadata. Falls back to `application/octet-stream`
+ * for unknown extensions.
  */
 function contentTypeFromFilename(filename: string): string {
   const ext = filename.slice(filename.lastIndexOf(".") + 1).toLowerCase();
@@ -169,6 +152,7 @@ function contentTypeFromFilename(filename: string): string {
     case "webp": return "image/webp";
     case "svg": return "image/svg+xml";
     case "pdf": return "application/pdf";
+    case "html": case "htm": return "text/html";
     case "txt": case "md": case "log": return "text/plain";
     case "json": return "application/json";
     case "zip": return "application/zip";
@@ -448,9 +432,6 @@ async function cmdAttachmentUpload(opts: Record<string, unknown>): Promise<unkno
   const pathMod = await import("path");
   const filename = pathMod.basename(filePath);
   const contentType = contentTypeFromFilename(filename);
-  if (!mimeAllowed(contentType)) {
-    throw new CliError(`message attachment upload: content type not allowed: ${contentType}`);
-  }
 
   const result = await api.attachmentUpload({
     agentId: agent,

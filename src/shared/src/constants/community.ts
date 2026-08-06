@@ -29,13 +29,6 @@ export const MAX_EMOJI_BYTES = 32
 export const MAX_ATTACHMENTS_PER_MESSAGE = 10
 export const MAX_ATTACHMENT_SIZE_BYTES = 25 * 1024 * 1024 // 25 MB
 export const MAX_SERVER_ICON_SIZE_BYTES = 5 * 1024 * 1024 // 5 MB
-export const ALLOWED_ATTACHMENT_MIME_PREFIXES = [
-  "image/",
-  "video/",
-  "audio/",
-  "application/pdf",
-  "text/",
-] as const
 export const ALLOWED_ICON_MIME_TYPES = [
   "image/png",
   "image/jpeg",

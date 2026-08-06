@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server"
 import {
   MAX_ATTACHMENT_SIZE_BYTES,
   MAX_SERVER_ICON_SIZE_BYTES,
-  ALLOWED_ATTACHMENT_MIME_PREFIXES,
   ALLOWED_ICON_MIME_TYPES,
   queries,
 } from "@alook/shared"
@@ -85,14 +84,14 @@ async function readFile(req: NextRequest): Promise<File | UploadErr> {
 /**
  * Validate + upload an attachment for a channel / DM / thread.
  *
- * Enforces `MAX_ATTACHMENT_SIZE_BYTES` and `ALLOWED_ATTACHMENT_MIME_PREFIXES`.
+ * Enforces `MAX_ATTACHMENT_SIZE_BYTES`.
  * Returns the R2 key + a `/api/community/media/<key>` URL that the auth-gated
  * media route can serve.
  *
  * R2 requires stream bodies to have a known length. Passing the `File` itself
  * preserves that length for the Workers runtime while avoiding an explicit
  * `arrayBuffer()` copy in application code. Size and content-type are
- * validated against the `File` object before the put.
+ * read from the `File` object before the put.
  */
 export async function handleAttachmentUpload(
   req: NextRequest,
@@ -114,15 +113,13 @@ export async function handleAttachmentUpload(
       ),
     }
   }
-  if (!mimeAllowed(file.type, ALLOWED_ATTACHMENT_MIME_PREFIXES as readonly string[])) {
-    return { ok: false, response: writeError("file type not allowed", 400) }
-  }
+  const contentType = file.type || "application/octet-stream"
 
   const fileId = crypto.randomUUID()
   const key = buildMediaKey(kind, targetId, fileId, file.name)
 
   await env.COMMUNITY_MEDIA.put(key, file, {
-    httpMetadata: { contentType: file.type },
+    httpMetadata: { contentType },
     customMetadata: {
       uploader: uploaderTag.uploader,
       bot_user_id: uploaderTag.uploader === "bot" ? uploaderTag.uploaderUserId : "",
@@ -133,7 +130,7 @@ export async function handleAttachmentUpload(
     ok: true,
     r2Key: key,
     filename: file.name,
-    contentType: file.type,
+    contentType,
     size: file.size,
   }
 }

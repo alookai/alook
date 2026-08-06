@@ -60,6 +60,22 @@ describe("insertMessageIntoCache — attachment width/height", () => {
       { kind: "file", name: "a.pdf", url: "/a.pdf", size: "2 KB" },
     ])
   })
+
+  it.each(["image/svg+xml", "image/x-forged"])(
+    "materializes unsafe %s attachments as file-kind",
+    (contentType) => {
+      const msg = baseMessage({
+        attachments: [
+          { id: "a1", filename: "unsafe.img", url: "/unsafe.img", contentType, size: 2048, width: 1920, height: 1080 },
+        ],
+      })
+      const result = insertMessageIntoCache(emptyCache as never, msg)
+      const inserted = result?.pages[0].messages[0]
+      expect(inserted?.attachments).toEqual([
+        { kind: "file", name: "unsafe.img", url: "/unsafe.img", size: "2 KB" },
+      ])
+    },
+  )
 })
 
 // reply-disappear root-cause fix (step 2): a message.create echo of the

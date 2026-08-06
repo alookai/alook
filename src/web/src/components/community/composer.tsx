@@ -13,7 +13,7 @@ import { readComposerDraft, writeComposerDraft, clearComposerDraft } from "@/lib
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useFileAttachments, type PendingFile } from "@/hooks/use-file-attachments"
-import { ALLOWED_ATTACHMENT_MIME_PREFIXES, MAX_ATTACHMENT_SIZE_BYTES } from "@alook/shared"
+import { MAX_ATTACHMENT_SIZE_BYTES } from "@alook/shared"
 import { tid } from "@/lib/community/testids"
 import { Avatar } from "./avatar"
 import { ChannelIcon } from "./channel-icon"
@@ -165,11 +165,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     handleDragOver,
     handleDrop: handleDropRaw,
   } = useFileAttachments({
-    // Community server enforces both. Passing them here rejects oversized /
-    // wrong-mime files at the drag-drop OR file-picker boundary so users
-    // see a scoped toast instead of a generic 400 on send.
     maxFileSize: MAX_ATTACHMENT_SIZE_BYTES,
-    allowedMimePrefixes: ALLOWED_ATTACHMENT_MIME_PREFIXES,
   })
   const typingTimer = useRef<NodeJS.Timeout | null>(null)
 
@@ -547,13 +543,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           ref={fileInputRef}
           type="file"
           multiple
-          // Mirror `ALLOWED_ATTACHMENT_MIME_PREFIXES` — the server-side
-          // allowlist. Keep this list a superset of what the server takes:
-          // browsers filter aggressively by extension, so `text/*` alone
-          // won't offer `.md`/`.log`/`.json` in the picker. The MIME check
-          // in `useFileAttachments` is authoritative; `accept` just biases
-          // the picker.
-          accept="image/*,video/*,audio/*,application/pdf,text/*,.md,.log,.json,.csv,.yaml,.yml,.ts,.tsx,.js,.jsx"
           onChange={handleFileSelect}
           className="hidden"
         />

@@ -38,4 +38,19 @@ describe("toAttachmentVm", () => {
     })
     expect(result).toEqual({ kind: "file", name: "a.pdf", url: "/media/a.pdf", size: "2 KB" })
   })
+
+  it.each(["image/svg+xml", "image/x-forged"])(
+    "materializes unsafe %s attachments as file-kind",
+    (contentType) => {
+      const result = toAttachmentVm({
+        url: "/media/unsafe.img",
+        filename: "unsafe.img",
+        contentType,
+        size: 2048,
+        width: 1920,
+        height: 1080,
+      })
+      expect(result).toEqual({ kind: "file", name: "unsafe.img", url: "/media/unsafe.img", size: "2 KB" })
+    },
+  )
 })

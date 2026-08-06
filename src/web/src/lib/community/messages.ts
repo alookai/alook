@@ -1,5 +1,6 @@
 import { DEFAULT_MESSAGE_PAGE_SIZE, MAX_MESSAGE_PAGE_SIZE } from "@alook/shared"
 import { mediaUrlFromKey } from "./storage"
+import { isInlineAttachmentContentType } from "./attachment-content-type"
 
 // Format file sizes for display
 function formatBytes(bytes: number): string {
@@ -157,7 +158,7 @@ export function groupAttachments(
   const map: Record<string, Array<{ kind: "image" | "file"; name: string; url: string; size?: string; width?: number; height?: number }>> = {}
   for (const a of attachments) {
     if (!a.messageId) continue
-    const kind = a.contentType?.startsWith("image/") ? "image" : "file"
+    const kind = isInlineAttachmentContentType(a.contentType) ? "image" : "file"
     const entry = {
       kind,
       name: a.filename,
