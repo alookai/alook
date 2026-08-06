@@ -20,14 +20,20 @@ describe("MessageList — older-load sentinel does not cascade", () => {
   it("fires onLoadOlder once per intersection, not on every fetch-state re-render", () => {
     // Capture the observer callback so the test can drive intersections itself.
     let ioCallback: ((entries: Array<{ isIntersecting: boolean }>) => void) | null = null
+    let scrollListener: (() => void) | null = null
+    const removeScrollListener = vi.fn()
     const mockScrollEl = {
       scrollHeight: 1000,
-      scrollTop: 0,
+      scrollTop: 500,
       clientHeight: 500,
       firstElementChild: null,
       scrollTo: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
+      addEventListener: (event: string, listener: () => void) => {
+        if (event === "scroll") scrollListener = listener
+      },
+      removeEventListener: (event: string, listener: () => void) => {
+        if (event === "scroll") removeScrollListener(listener)
+      },
       getBoundingClientRect: () => ({ top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 }),
       querySelector: () => null,
       querySelectorAll: () => [],
@@ -76,6 +82,7 @@ describe("MessageList — older-load sentinel does not cascade", () => {
       })
 
       expect(ioCallback).not.toBeNull()
+      expect(scrollListener).not.toBeNull()
 
       // Sentinel scrolls into view → the first (and only) legitimate load.
       act(() => {
@@ -96,21 +103,38 @@ describe("MessageList — older-load sentinel does not cascade", () => {
       })
       expect(onLoadOlder).toHaveBeenCalledTimes(1)
 
-      // While a fetch is in flight, repeated genuine intersections coalesce
-      // into one pending demand and do not load immediately.
+      // Busy upward movement that remains outside the near-top boundary does
+      // not queue a demand.
       act(() => {
         renderer!.update(render(true))
       })
       act(() => {
-        ioCallback!([{ isIntersecting: true }])
-        ioCallback!([{ isIntersecting: true }])
+        mockScrollEl.scrollTop = 250
+        scrollListener!()
+      })
+      expect(onLoadOlder).toHaveBeenCalledTimes(1)
+      act(() => renderer!.update(render(false)))
+      expect(onLoadOlder).toHaveBeenCalledTimes(1)
+
+      // The user now flings from far away to scrollTop=0 while fetching. The
+      // sentinel was already intersecting, so there is NO second IO callback;
+      // the captured scroll fallback must queue one demand. Repeated busy
+      // upward scrolls coalesce into that same one slot.
+      act(() => {
+        renderer!.update(render(true))
+      })
+      act(() => {
+        mockScrollEl.scrollTop = 0
+        scrollListener!()
+        mockScrollEl.scrollTop = 150
+        scrollListener!()
+        mockScrollEl.scrollTop = 0
+        scrollListener!()
       })
       expect(onLoadOlder).toHaveBeenCalledTimes(1)
 
-      // Once the fetch settles, replay exactly once WITHOUT another IO event.
-      act(() => {
-        renderer!.update(render(false))
-      })
+      // Settle replays exactly once without a fabricated IO callback.
+      act(() => renderer!.update(render(false)))
       expect(onLoadOlder).toHaveBeenCalledTimes(2)
 
       // Continued re-renders while the sentinel remains visible do not drain
@@ -136,8 +160,21 @@ describe("MessageList — older-load sentinel does not cascade", () => {
       })
       expect(onLoadOlder).toHaveBeenCalledTimes(2)
 
-      // Unmounting with pending work must not replay it later.
+      // Re-mount, queue real pending work, then unmount before settle. Cleanup
+      // removes the listener and the abandoned demand can never replay.
       act(() => renderer!.unmount())
+      ioCallback = null
+      scrollListener = null
+      mockScrollEl.scrollTop = 500
+      act(() => {
+        renderer = TestRenderer.create(render(true), {
+          createNodeMock: (node) => (node.type === "div" ? mockScrollEl : genericMock),
+        })
+      })
+      act(() => ioCallback!([{ isIntersecting: true }]))
+      expect(onLoadOlder).toHaveBeenCalledTimes(2)
+      act(() => renderer!.unmount())
+      expect(removeScrollListener).toHaveBeenCalled()
       expect(onLoadOlder).toHaveBeenCalledTimes(2)
     } finally {
       g.ResizeObserver = prevRO

@@ -5,7 +5,7 @@ import { NextRequest } from "next/server"
 // GET /servers, plan §4/§9 phase 4-5). A `crk_` bearer drives
 // withCommunityActor's bot path; GET lists via listUserServers(actor.userId).
 // The route returns the SUPERSET (full rows + icon) — the daemon/CLI projects
-// each row down to the lean {id,name} shape (Fork C). That daemon-side lean
+// each row down to the lean {handle} shape. That daemon-side lean
 // projection is asserted by the daemon projection test, NOT here; here we lock
 // the ROUTE contract: bot auth works, scoping is by the bot's own membership,
 // and the full rows (incl. id+name) are returned.

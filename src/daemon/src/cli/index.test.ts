@@ -563,7 +563,7 @@ describe("server join", () => {
     });
   });
 
-  it("success prints {success:{server:{id,name}}} (no `joined` key)", async () => {
+  it("success prints {success:{server:{handle}}} (no `joined` key)", async () => {
     setApiForTesting(
       stubApi({ joinServer: async () => ({ server: { handle: "Design Studio#0042" } }) }),
     );
