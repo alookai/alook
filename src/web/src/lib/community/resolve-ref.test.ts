@@ -61,7 +61,7 @@ describe("resolveTargetForMember", () => {
   })
 
   it("400 rejects a ref carrying a pinned #N message seq", async () => {
-    const res = await resolveTargetForMember(db, "u_1", "/studio/general#5")
+    const res = await resolveTargetForMember(db, "u_1", "/studio#0042/general#5")
     expect(res).toMatchObject({ error: 400 })
     expect((res as { message: string }).message).toMatch(/must not pin/)
   })
@@ -124,34 +124,27 @@ describe("resolveTargetForMember", () => {
   describe("channel refs (/server/channel)", () => {
     it("404 server not found", async () => {
       mockResolveServerByNameForMember.mockResolvedValue([])
-      const res = await resolveTargetForMember(db, "u_1", "/studio/general")
+      const res = await resolveTargetForMember(db, "u_1", "/studio#0042/general")
       expect(res).toEqual({ error: 404, message: "server not found" })
     })
 
-    it("400 ambiguous server name returns hint list", async () => {
-      mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1" }, { id: "srv_2" }])
+    it("400 rejects a bare server name before any lookup", async () => {
       const res = await resolveTargetForMember(db, "u_1", "/studio/general")
-      expect(res).toEqual({
-        error: 400,
-        message: "ambiguous server name",
-        hint: [
-          { id: "srv_1", path: "/srv_1/general" },
-          { id: "srv_2", path: "/srv_2/general" },
-        ],
-      })
+      expect(res).toEqual({ error: 400, message: "malformed channel ref" })
+      expect(mockResolveServerByNameForMember).not.toHaveBeenCalled()
     })
 
     it("404 channel not found", async () => {
       mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1" }])
       mockResolveChannelByNameForMember.mockResolvedValue([])
-      const res = await resolveTargetForMember(db, "u_1", "/studio/general")
+      const res = await resolveTargetForMember(db, "u_1", "/studio#0042/general")
       expect(res).toEqual({ error: 404, message: "channel not found: general" })
     })
 
     it("resolves a plain channel ref to { kind: channel, channelId }", async () => {
       mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1" }])
       mockResolveChannelByNameForMember.mockResolvedValue([{ id: "ch_1" }])
-      const res = await resolveTargetForMember(db, "u_1", "/studio/general")
+      const res = await resolveTargetForMember(db, "u_1", "/studio#0042/general")
       expect(res).toEqual({ kind: "channel", channelId: "ch_1" })
     })
 
@@ -161,7 +154,7 @@ describe("resolveTargetForMember", () => {
       // unreachable via the name path.
       mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1" }])
       mockResolveChannelByNameForMember.mockResolvedValue([{ id: "ch_top" }])
-      const res = await resolveTargetForMember(db, "u_1", "/studio/general")
+      const res = await resolveTargetForMember(db, "u_1", "/studio#0042/general")
       expect(res).toEqual({ kind: "channel", channelId: "ch_top" })
       expect(mockResolveChannelByNameForMember).toHaveBeenCalledWith(db, "srv_1", "u_1", "general")
     })
@@ -171,14 +164,14 @@ describe("resolveTargetForMember", () => {
       // Name-only resolver returns [] when the segment is an id — the DB
       // lookup misses because the row's `name` column doesn't match the id.
       mockResolveChannelByNameForMember.mockResolvedValue([])
-      const res = await resolveTargetForMember(db, "u_1", "/studio/mFUplbfFL7PIzeiaP3Ysg")
+      const res = await resolveTargetForMember(db, "u_1", "/studio#0042/mFUplbfFL7PIzeiaP3Ysg")
       expect(res).toEqual({ error: 404, message: "channel not found: mFUplbfFL7PIzeiaP3Ysg" })
     })
 
     it("404 channel not found when caller passes a raw thread id (id refs rejected)", async () => {
       mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1" }])
       mockResolveChannelByNameForMember.mockResolvedValue([])
-      const res = await resolveTargetForMember(db, "u_1", "/studio/WyHlYFioUV_V9oRZXlSir")
+      const res = await resolveTargetForMember(db, "u_1", "/studio#0042/WyHlYFioUV_V9oRZXlSir")
       expect(res).toEqual({ error: 404, message: "channel not found: WyHlYFioUV_V9oRZXlSir" })
     })
   })
@@ -191,14 +184,14 @@ describe("resolveTargetForMember", () => {
 
     it("404 when the root message (seq #N) doesn't exist", async () => {
       mockGetMessageByChannelAndSeq.mockResolvedValue(null)
-      const res = await resolveTargetForMember(db, "u_1", "/studio/general/#7")
+      const res = await resolveTargetForMember(db, "u_1", "/studio#0042/general/#7")
       expect(res).toEqual({ error: 404, message: "no message with seq #7 in this channel" })
     })
 
     it("resolves to the existing thread channel when one already exists", async () => {
       mockGetMessageByChannelAndSeq.mockResolvedValue({ id: "msg_1" })
       mockGetThreadChannelByParentMessage.mockResolvedValue({ id: "thread_1" })
-      const res = await resolveTargetForMember(db, "u_1", "/studio/general/#7")
+      const res = await resolveTargetForMember(db, "u_1", "/studio#0042/general/#7")
       expect(res).toEqual({ kind: "channel", channelId: "thread_1" })
       expect(mockCreateThreadChannel).not.toHaveBeenCalled()
     })
@@ -206,7 +199,7 @@ describe("resolveTargetForMember", () => {
     it("404 thread not found when missing and createThreadIfMissing is false", async () => {
       mockGetMessageByChannelAndSeq.mockResolvedValue({ id: "msg_1" })
       mockGetThreadChannelByParentMessage.mockResolvedValue(null)
-      const res = await resolveTargetForMember(db, "u_1", "/studio/general/#7")
+      const res = await resolveTargetForMember(db, "u_1", "/studio#0042/general/#7")
       expect(res).toEqual({ error: 404, message: "thread not found" })
     })
 
@@ -214,7 +207,7 @@ describe("resolveTargetForMember", () => {
       mockGetMessageByChannelAndSeq.mockResolvedValue({ id: "msg_1" })
       mockGetThreadChannelByParentMessage.mockResolvedValue(null)
       mockCreateThreadChannel.mockResolvedValue({ id: "thread_new" })
-      const res = await resolveTargetForMember(db, "u_1", "/studio/general/#7", { createThreadIfMissing: true })
+      const res = await resolveTargetForMember(db, "u_1", "/studio#0042/general/#7", { createThreadIfMissing: true })
       expect(res).toEqual({ kind: "channel", channelId: "thread_new" })
       expect(mockCreateThreadChannel).toHaveBeenCalledWith(db, "ch_1", "msg_1", "u_1")
     })
@@ -226,7 +219,7 @@ describe("resolveTargetForMember", () => {
         .mockResolvedValueOnce({ id: "thread_winner" })
       mockCreateThreadChannel.mockRejectedValue(new Error("unique constraint failed"))
       mockIsUniqueConstraintError.mockReturnValue(true)
-      const res = await resolveTargetForMember(db, "u_1", "/studio/general/#7", { createThreadIfMissing: true })
+      const res = await resolveTargetForMember(db, "u_1", "/studio#0042/general/#7", { createThreadIfMissing: true })
       expect(res).toEqual({ kind: "channel", channelId: "thread_winner" })
     })
 
@@ -236,7 +229,7 @@ describe("resolveTargetForMember", () => {
       mockCreateThreadChannel.mockRejectedValue(new Error("boom"))
       mockIsUniqueConstraintError.mockReturnValue(false)
       await expect(
-        resolveTargetForMember(db, "u_1", "/studio/general/#7", { createThreadIfMissing: true })
+        resolveTargetForMember(db, "u_1", "/studio#0042/general/#7", { createThreadIfMissing: true })
       ).rejects.toThrow("boom")
     })
   })
@@ -246,7 +239,7 @@ describe("resolveTargetForMember", () => {
       // A post is now addressed like any other thread (by-root-seq); the old
       // 3-segment-no-hash form no longer parses at all, so resolution never
       // even reaches the server/channel lookups.
-      const res = await resolveTargetForMember(db, "u_1", "/studio/ideas/my-post")
+      const res = await resolveTargetForMember(db, "u_1", "/studio#0042/ideas/my-post")
       expect(res).toEqual({ error: 400, message: "malformed channel ref" })
       expect(mockResolveServerByNameForMember).not.toHaveBeenCalled()
     })

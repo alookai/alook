@@ -68,6 +68,7 @@ import type { SpoilerNode } from "./spoiler-syntax"
 // group did. `u` flag for correct astral/emoji handling.
 const REF_TERM = ".,;:!?)\\]\\u3002\\uFF01\\uFF1F\\uFF1B\\uFF1A\\u3001\\uFF09\\u3011"
 const REF_SEG = `[^\\s/#${REF_TERM}]+`
+const HANDLE_SEG = `${REF_SEG}#\\d{4,}`
 // `/server/channel` plus an optional message/thread suffix. The suffix has two
 // branches (message-ref-upgrade.md):
 //   `#\d+`            — a channel-MESSAGE ref, seq glued straight to the channel
@@ -80,7 +81,7 @@ const REF_SEG = `[^\\s/#${REF_TERM}]+`
 // cleanly into the suffix group. The leading `(?<=^|\s)` prefix-anchor means this
 // only ever matches a full path — never a bare `#` — which is what lets us drop
 // the old bare-`#N` MESSAGE_REF pass and root-solve the disambiguation Gus flagged.
-const CHANNEL_REF_RE = new RegExp(`(?<=^|\\s)/${REF_SEG}/${REF_SEG}(?:#\\d+|/#\\d+(?:#\\d+)?)?(?=\\s|$|[${REF_TERM}])`, "gu")
+const CHANNEL_REF_RE = new RegExp(`(?<=^|\\s)(?:/${HANDLE_SEG}/${REF_SEG}|/\\.dm/${HANDLE_SEG})(?:#\\d+|/#\\d+(?:#\\d+)?)?(?=\\s|$|[${REF_TERM}])`, "gu")
 
 // A bare `/server` ref — one segment, no channel. Same boundary lookaround as
 // `CHANNEL_REF_RE` (leading `(?<=^|\s)`, trailing `REF_TERM`), which already
@@ -93,7 +94,7 @@ const CHANNEL_REF_RE = new RegExp(`(?<=^|\\s)/${REF_SEG}/${REF_SEG}(?:#\\d+|/#\\
 // terminators). Registered after `CHANNEL_REF_RE` in `chatSyntaxPlugin`'s
 // pairs list purely for readability (server-only is the "smaller" grammar);
 // the boundary already makes the ordering non-load-bearing for correctness.
-const SERVER_REF_RE = new RegExp(`(?<=^|\\s)/${REF_SEG}(?=\\s|$|[${REF_TERM}])`, "gu")
+const SERVER_REF_RE = new RegExp(`(?<=^|\\s)/${HANDLE_SEG}(?=\\s|$|[${REF_TERM}])`, "gu")
 
 // (The old bare-`#N` MESSAGE_REF_RE was removed in message-ref-upgrade.md — a
 // message ref is now always the full path `/server/channel#N`, matched by

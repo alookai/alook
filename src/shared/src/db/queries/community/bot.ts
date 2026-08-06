@@ -27,8 +27,6 @@ import {
 import {
   communityBotApprovalRequest,
   communityServerMember,
-  communityMessage,
-  communityFriendship,
   communityUserProfile,
   communityReadState,
   communityBotDailyActivity,

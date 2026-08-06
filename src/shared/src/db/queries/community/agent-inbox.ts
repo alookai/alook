@@ -170,7 +170,7 @@ async function resolveScopeRefs(
         .where(inArray(communityChannel.id, ids))
     ),
     chunkedIn(serverIds, (ids) =>
-      db.select({ id: communityServer.id, name: communityServer.name }).from(communityServer).where(inArray(communityServer.id, ids))
+      db.select({ id: communityServer.id, name: communityServer.name, discriminator: communityServer.discriminator }).from(communityServer).where(inArray(communityServer.id, ids))
     ),
     chunkedIn(parentMessageIds, (ids) =>
       db.select({ id: communityMessage.id, seq: communityMessage.seq }).from(communityMessage).where(inArray(communityMessage.id, ids))
@@ -178,7 +178,7 @@ async function resolveScopeRefs(
   ]);
 
   const parentChannelById = new Map(parentChannels.map((c) => [c.id, c]));
-  const serverNameById = new Map(servers.map((s) => [s.id, s.name]));
+  const serverHandleById = new Map(servers.map((s) => [s.id, formatHandle(s.name, s.discriminator)]));
   const parentSeqById = new Map(parentMessages.map((m) => [m.id, m.seq]));
 
   const out = new Map<string, ScopeInfo>();
@@ -196,7 +196,7 @@ async function resolveScopeRefs(
       const peer = peerId ? dmPeerById.get(peerId) : undefined;
       peerSegment = peer ? formatHandle(peer.name, peer.discriminator) : peerId || "unknown";
     }
-    const serverName = ch.serverId ? (serverNameById.get(ch.serverId) ?? ch.serverId) : "unknown";
+    const serverHandle = ch.serverId ? serverHandleById.get(ch.serverId) : undefined;
     const parent = ch.parentChannelId ? parentChannelById.get(ch.parentChannelId) : undefined;
     const rootSeq = ch.parentMessageId ? parentSeqById.get(ch.parentMessageId) : undefined;
     // A thread is a `parent`-anchored child carrying a `parentMessageId` (→
@@ -209,7 +209,7 @@ async function resolveScopeRefs(
         : storedType;
     const ref = formatCanonicalRef({
       type: emitType,
-      serverName,
+      serverHandle,
       name: ch.name,
       parentName: parent?.name,
       rootSeq,
@@ -416,24 +416,24 @@ export async function resolveUnreadNoticeChannel(
     const parent = parentRows[0];
     const root = rootRows[0];
     if (!parent || !root || !parent.serverId) return null;
-    const serverName = await getServerName(db, parent.serverId);
-    if (!serverName) return null;
-    return formatCanonicalRef({ type: "thread", serverName, parentName: parent.name, rootSeq: root.seq });
+    const serverHandle = await getServerHandle(db, parent.serverId);
+    if (!serverHandle) return null;
+    return formatCanonicalRef({ type: "thread", serverHandle, parentName: parent.name, rootSeq: root.seq });
   }
 
   if (!ch.serverId) return null;
-  const serverName = await getServerName(db, ch.serverId);
-  if (!serverName) return null;
-  return formatCanonicalRef({ type: storedType, serverName, name: ch.name ?? undefined });
+  const serverHandle = await getServerHandle(db, ch.serverId);
+  if (!serverHandle) return null;
+  return formatCanonicalRef({ type: storedType, serverHandle, name: ch.name ?? undefined });
 }
 
-async function getServerName(db: Database, serverId: string): Promise<string | null> {
+async function getServerHandle(db: Database, serverId: string): Promise<string | null> {
   const rows = await db
-    .select({ name: communityServer.name })
+    .select({ name: communityServer.name, discriminator: communityServer.discriminator })
     .from(communityServer)
     .where(eq(communityServer.id, serverId))
     .limit(1);
-  return rows[0]?.name ?? null;
+  return rows[0] ? formatHandle(rows[0].name, rows[0].discriminator) : null;
 }
 
 /** Single-row convenience wrapper around `toAgentMessages`. */

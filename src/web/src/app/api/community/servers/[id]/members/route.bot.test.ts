@@ -80,29 +80,15 @@ describe("GET /api/community/servers/[id]/members — bot arm (folds listMembers
   })
 
   it("401 without Authorization", async () => {
-    const res = await GET(req({ server: "Design Studio" }), { params: { id: "resolve" } } as any)
+    const res = await GET(req({ server: "Design Studio#0042" }), { params: { id: "resolve" } } as any)
     expect(res.status).toBe(401)
     expect(mockResolveServerByNameForMember).not.toHaveBeenCalled()
   })
 
   it("404 when the server name/id doesn't resolve for this bot", async () => {
     mockResolveServerByNameForMember.mockResolvedValue([])
-    const res = await GET(req({ server: "Nope" }, { Authorization: "Bearer crk_abc" }), { params: { id: "resolve" } } as any)
+    const res = await GET(req({ server: "Nope#0042" }, { Authorization: "Bearer crk_abc" }), { params: { id: "resolve" } } as any)
     expect(res.status).toBe(404)
-    expect(mockListMembersPaginated).not.toHaveBeenCalled()
-  })
-
-  it("400 with candidate server ids/names baked into the error STRING (not a hint field) when ambiguous", async () => {
-    mockResolveServerByNameForMember.mockResolvedValue([
-      { id: "srv_1", name: "Design Studio" },
-      { id: "srv_2", name: "Design Studio" },
-    ])
-    const res = await GET(req({ server: "Design Studio" }, { Authorization: "Bearer crk_abc" }), { params: { id: "resolve" } } as any)
-    expect(res.status).toBe(400)
-    const body = await res.json()
-    expect(body.error).toContain("srv_1")
-    expect(body.error).toContain("srv_2")
-    expect("hint" in body).toBe(false)
     expect(mockListMembersPaginated).not.toHaveBeenCalled()
   })
 
@@ -118,7 +104,7 @@ describe("GET /api/community/servers/[id]/members — bot arm (folds listMembers
     })
     // u_gus online, u_ally offline — proves the per-page bulk presence stamps each row.
     mockFetchOnlineUserIds.mockResolvedValue(new Set(["u_gus"]))
-    const res = await GET(req({ server: "Design Studio" }, { Authorization: "Bearer crk_abc" }), { params: { id: "resolve" } } as any)
+    const res = await GET(req({ server: "Design Studio#0042" }, { Authorization: "Bearer crk_abc" }), { params: { id: "resolve" } } as any)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
       members: [
@@ -139,7 +125,7 @@ describe("GET /api/community/servers/[id]/members — bot arm (folds listMembers
       cursor: { joinedAt: "2026-03-01T00:00:00Z", id: "sm_9" },
     })
     const res = await GET(
-      req({ server: "srv_1", limit: 1, cursor: "2026-02-01T00:00:00Z|sm_5" }, { Authorization: "Bearer crk_abc" }),
+      req({ server: "Design Studio#0042", limit: 1, cursor: "2026-02-01T00:00:00Z|sm_5" }, { Authorization: "Bearer crk_abc" }),
       { params: { id: "resolve" } } as any,
     )
     expect(res.status).toBe(200)

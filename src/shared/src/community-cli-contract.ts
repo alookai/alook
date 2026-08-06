@@ -26,6 +26,7 @@ import { z } from "zod";
 import type { RuntimeConfig } from "./runtime-config";
 import type { ChannelType, StoredChannelType } from "./utils/community-roles";
 import { CHANNEL_TRAITS } from "./utils/community-roles";
+import { parseNameAndTag } from "./lib/discriminator";
 
 /* ------------------------------------------------------------------ */
 /* Identifiers                                                         */
@@ -64,8 +65,7 @@ export interface Agent {
 
 /** A server == a workspace. An agent participates in many of these. */
 export interface Server {
-  id: ServerId;
-  name: string;
+  handle: string;
 }
 
 export type ChannelKind = "channel" | "dm";
@@ -154,7 +154,7 @@ export type Target =
  * The flat, agent-facing message. This is exactly what the agent sees (one JSON
  * object per line, JSONL). Deliberately minimal:
  *   - `seq`     — "#N", the per-channel sequence (locate via channel + seq).
- *   - `channel` — the path ref, e.g. "/demo-workspace/general" or "/.dm/gustavo#4821".
+ *   - `channel` — the path ref, e.g. "/demo-workspace#1234/general" or "/.dm/gustavo#4821".
  *   - `sender`  — "@handle" (`name#0042`, no id, no human/agent/system type).
  *   - `content` — `{ text }` today; an object (not a bare string) so future
  *                 content kinds (attachments, embeds, …) can be added without
@@ -1101,7 +1101,7 @@ export interface ServerApiError {
 
 /** A parsed channel ref: the channel location + an optional message seq (`#N`). */
 export interface ParsedRef {
-  /** Server segment (a real server id/name, or `.dm`). */
+  /** Server segment (a real server id/handle, or `.dm`). */
   server: string;
   /** Channel name (or DM peer when `server === DM_SERVER`). */
   channel: string;
@@ -1138,6 +1138,9 @@ export function parseRef(ref: ChannelRef): ParsedRef {
   const parts = body.split("/");
   if (parts.length < 2) throw new Error(`ref needs /<server>/<channel>: ${ref}`);
   const server = parts[0];
+  if (server !== DM_SERVER && !parseNameAndTag(server)) {
+    throw new Error(`server ref must use a name#discriminator handle: ${ref}`);
+  }
   // Trailing "#N" on the last segment pins a message seq.
   let seq: Seq | undefined;
 
@@ -1266,8 +1269,8 @@ export function formatRef(p: {
  */
 export type CanonicalRefScope = {
   type: StoredChannelType;
-  /** Server display name (channel arm). Absent/irrelevant for a DM. */
-  serverName?: string;
+  /** Server handle (channel arm). Absent/irrelevant for a DM. */
+  serverHandle?: string;
   /** The channel's own stored name — the top-level channel's name. */
   name?: string;
   /** Parent channel display name — for by-root-seq. */
@@ -1283,13 +1286,13 @@ export function formatCanonicalRef(scope: CanonicalRefScope): ChannelRef | null 
   switch (addressing) {
     case "by-server-name": {
       // Top-level channel/forum: `/server/<name>`.
-      if (scope.serverName === undefined || scope.name === undefined) return null;
-      return formatRef({ server: scope.serverName, channel: scope.name });
+      if (scope.serverHandle === undefined || scope.name === undefined) return null;
+      return formatRef({ server: scope.serverHandle, channel: scope.name });
     }
     case "by-root-seq": {
       // Thread: `/server/<parent-channel>/#<rootSeq>`.
-      if (scope.serverName === undefined || scope.parentName === undefined || scope.rootSeq === undefined) return null;
-      return formatRef({ server: scope.serverName, channel: scope.parentName, threadRootSeq: scope.rootSeq });
+      if (scope.serverHandle === undefined || scope.parentName === undefined || scope.rootSeq === undefined) return null;
+      return formatRef({ server: scope.serverHandle, channel: scope.parentName, threadRootSeq: scope.rootSeq });
     }
     case "by-peer-identity": {
       // DM: `/.dm/<peer#0042>`.

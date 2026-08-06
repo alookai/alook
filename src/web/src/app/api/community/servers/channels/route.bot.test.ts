@@ -66,7 +66,7 @@ describe("GET /api/community/servers/channels — bot arm (folds listChannels al
   })
 
   it("concatenates groups across every server the bot is in", async () => {
-    mockListUserServers.mockResolvedValue([{ id: "srv_1", name: "studio" }, { id: "srv_2", name: "lounge" }])
+    mockListUserServers.mockResolvedValue([{ id: "srv_1", name: "studio", discriminator: "0042" }, { id: "srv_2", name: "lounge", discriminator: "0042" }])
     mockListChannelsForMember.mockImplementation((_db: unknown, serverId: string) =>
       Promise.resolve(
         serverId === "srv_1"
@@ -80,11 +80,11 @@ describe("GET /api/community/servers/channels — bot arm (folds listChannels al
       groups: [
         {
           category: null,
-          channels: [{ ref: "/studio/general", name: "general", type: "text", visibility: "public" }],
+          channels: [{ ref: "/studio#0042/general", name: "general", type: "text", visibility: "public" }],
         },
         {
           category: null,
-          channels: [{ ref: "/lounge/random", name: "random", type: "text", visibility: "public" }],
+          channels: [{ ref: "/lounge#0042/random", name: "random", type: "text", visibility: "public" }],
         },
       ],
     })

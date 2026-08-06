@@ -49,6 +49,7 @@ import type {
   FriendRequestResult,
   FriendCard,
 } from "../server/contract.js";
+import { formatHandle } from "@alook/shared";
 
 export interface ProxyServerApiConfig {
   /** The credential proxy base URL (from `<PREFIX>_PROXY_URL`). */
@@ -523,9 +524,9 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
   // passes through unprefixed. Mirrors the existing callUpload/callDownload
   // custom-path pattern.
 
-  /** Project a superset server row down to the lean `Server` ({id,name}). */
-  function projectServer(row: { id: string; name: string }): Server {
-    return { id: row.id, name: row.name };
+  /** Project a server row to its sole agent-facing identity: name#discriminator. */
+  function projectServer(row: { name: string; discriminator: string }): Server {
+    return { handle: formatHandle(row.name, row.discriminator) };
   }
 
   async function callListServers(): Promise<{ servers: Server[] }> {
@@ -533,11 +534,11 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
       method: "GET",
       headers: { authorization: `Bearer ${config.voucher}` },
     });
-    const body = await parseJsonResponse<{ servers: Array<{ id: string; name: string }> }>(
+    const body = await parseJsonResponse<{ servers: Array<{ name: string; discriminator: string }> }>(
       res,
       "listServers",
     );
-    // Superset in → lean out: drop icon/ownerId/etc., emit only {id,name}.
+    // Superset in → lean out: emit only the canonical handle.
     return { servers: body.servers.map(projectServer) };
   }
 
@@ -556,8 +557,8 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
         body: "{}",
       },
     );
-    const body = await parseJsonResponse<{ server?: { id: string; name: string } }>(res, "joinServer");
-    // Superset {member,serverId,server} in → lean {server:{id,name}} out.
+    const body = await parseJsonResponse<{ server?: { name: string; discriminator: string } }>(res, "joinServer");
+    // Superset {member,serverId,server} in → canonical agent-facing handle.
     if (!body.server) {
       throw new Error("joinServer: upstream response missing server");
     }

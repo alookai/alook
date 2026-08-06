@@ -1,6 +1,7 @@
 import {
   queries,
   formatCanonicalRef,
+  formatHandle,
   type StoredChannelType,
 } from "@alook/shared"
 import type {
@@ -26,7 +27,7 @@ import type { getDb } from "@/lib/db"
  */
 export async function buildServerChannelGroups(
   db: ReturnType<typeof getDb>,
-  server: { id: string; name: string },
+  server: { id: string; name: string; discriminator: string },
   memberUserId: string,
 ): Promise<ChannelGroup[]> {
   const [rows, categories] = await Promise.all([
@@ -48,7 +49,7 @@ export async function buildServerChannelGroups(
     const isPrivate = !!(cat && (cat.private ?? 0) === 1)
     const ref = formatCanonicalRef({
       type: (c.type ?? "text") as StoredChannelType,
-      serverName: server.name,
+      serverHandle: formatHandle(server.name, server.discriminator),
       name: c.name,
     })
     const item: ChannelListItem = {

@@ -33,8 +33,8 @@ export interface ResolveTargetOpts {
  * enforces the same invariant by matching only where `parentChannelId IS
  * NULL`. A thread is unreachable from this helper by name or id; use the
  * canonical `#seq` grammar to descend into one. Server
- * NAME ambiguity is still possible (server names are non-unique) and still
- * returns `{ error: 400, hint: [...] }` so the agent can pick.
+ * Real-server refs require a unique name#discriminator handle. Bare server
+ * names are rejected; internal server ids remain accepted by the scoped query.
  * `createDmIfMissing`/`createThreadIfMissing` are both `true` for `send`
  * only — every other route passes `false` so a stale ref never materializes
  * a DM/thread row as a side effect of a read.
@@ -95,13 +95,6 @@ export async function resolveTargetForMember(
     { route: "community/resolve-ref:server" }
   )
   if (servers.length === 0) return { error: 404, message: "server not found" }
-  if (servers.length > 1) {
-    return {
-      error: 400,
-      message: "ambiguous server name",
-      hint: servers.map((s) => ({ id: s.id, path: `/${s.id}/${parsed.channel}` })),
-    }
-  }
   const serverId = servers[0]!.id
 
   const matches = await withD1Retry(

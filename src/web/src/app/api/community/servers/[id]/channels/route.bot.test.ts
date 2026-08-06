@@ -78,25 +78,25 @@ describe("GET /api/community/servers/[id]/channels — bot arm (folds listChanne
   })
 
   it("--server <id>: resolves server-side and scopes to that one server", async () => {
-    mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1", name: "studio" }])
+    mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1", name: "studio", discriminator: "0042" }])
     mockListChannelsForMember.mockResolvedValue([{ id: "ch_1", serverId: "srv_1", name: "general", type: "text", categoryId: null }])
-    const res = await GET(req("srv_1", { Authorization: "Bearer crk_abc" }), ctx as never)
+    const res = await GET(req("studio#0042", { Authorization: "Bearer crk_abc" }), ctx as never)
     expect(res.status).toBe(200)
     expect(mockListUserServers).not.toHaveBeenCalled()
-    expect(mockResolveServerByNameForMember).toHaveBeenCalledWith(expect.anything(), "bot_1", "srv_1")
+    expect(mockResolveServerByNameForMember).toHaveBeenCalledWith(expect.anything(), "bot_1", "studio#0042")
     expect(mockListChannelsForMember).toHaveBeenCalledWith(expect.anything(), "srv_1", "bot_1")
     expect(await res.json()).toEqual({
       groups: [
         {
           category: null,
-          channels: [{ ref: "/studio/general", name: "general", type: "text", visibility: "public" }],
+          channels: [{ ref: "/studio#0042/general", name: "general", type: "text", visibility: "public" }],
         },
       ],
     })
   })
 
   it("channels bucketed into their category groups; null-category emitted first; empty groups dropped", async () => {
-    mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1", name: "demo" }])
+    mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1", name: "demo", discriminator: "0042" }])
     mockListChannelsForMember.mockResolvedValue([
       { id: "ch_1", serverId: "srv_1", name: "announcements", type: "text", categoryId: null, position: 0 },
       { id: "ch_2", serverId: "srv_1", name: "general", type: "text", categoryId: "cat_ops", position: 1 },
@@ -107,40 +107,40 @@ describe("GET /api/community/servers/[id]/channels — bot arm (folds listChanne
       { id: "cat_founders", name: "Founders", position: 1, private: 1 },
       { id: "cat_empty", name: "Empty", position: 2, private: 0 },
     ])
-    const res = await GET(req("srv_1", { Authorization: "Bearer crk_abc" }), ctx as never)
+    const res = await GET(req("studio#0042", { Authorization: "Bearer crk_abc" }), ctx as never)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
       groups: [
         {
           category: null,
-          channels: [{ ref: "/demo/announcements", name: "announcements", type: "text", visibility: "public" }],
+          channels: [{ ref: "/demo#0042/announcements", name: "announcements", type: "text", visibility: "public" }],
         },
         {
           category: { name: "Ops", private: false },
-          channels: [{ ref: "/demo/general", name: "general", type: "text", visibility: "public" }],
+          channels: [{ ref: "/demo#0042/general", name: "general", type: "text", visibility: "public" }],
         },
         {
           category: { name: "Founders", private: true },
-          channels: [{ ref: "/demo/leadership", name: "leadership", type: "text", visibility: "private" }],
+          channels: [{ ref: "/demo#0042/leadership", name: "leadership", type: "text", visibility: "private" }],
         },
       ],
     })
   })
 
   it("a forum-type channel is reported with type:'forum'; a plain channel with type:'text'", async () => {
-    mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1", name: "studio" }])
+    mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1", name: "studio", discriminator: "0042" }])
     mockListChannelsForMember.mockResolvedValue([
       { id: "ch_1", serverId: "srv_1", name: "general", type: "text", categoryId: null },
       { id: "ch_2", serverId: "srv_1", name: "help", type: "forum", categoryId: null },
     ])
-    const res = await GET(req("srv_1", { Authorization: "Bearer crk_abc" }), ctx as never)
+    const res = await GET(req("studio#0042", { Authorization: "Bearer crk_abc" }), ctx as never)
     expect(await res.json()).toEqual({
       groups: [
         {
           category: null,
           channels: [
-            { ref: "/studio/general", name: "general", type: "text", visibility: "public" },
-            { ref: "/studio/help", name: "help", type: "forum", visibility: "public" },
+            { ref: "/studio#0042/general", name: "general", type: "text", visibility: "public" },
+            { ref: "/studio#0042/help", name: "help", type: "forum", visibility: "public" },
           ],
         },
       ],
@@ -149,28 +149,15 @@ describe("GET /api/community/servers/[id]/channels — bot arm (folds listChanne
 
   it("--server matching no server → 404, listChannelsForMember never called", async () => {
     mockResolveServerByNameForMember.mockResolvedValue([])
-    const res = await GET(req("Nope", { Authorization: "Bearer crk_abc" }), ctx as never)
+    const res = await GET(req("Nope#0042", { Authorization: "Bearer crk_abc" }), ctx as never)
     expect(res.status).toBe(404)
     expect(mockListChannelsForMember).not.toHaveBeenCalled()
   })
 
-  it("--server matching 2+ servers → 400 ambiguous, listing candidate ids/names", async () => {
-    mockResolveServerByNameForMember.mockResolvedValue([
-      { id: "srv_1", name: "Design Studio" },
-      { id: "srv_2", name: "Design Studio" },
-    ])
-    const res = await GET(req("Design Studio", { Authorization: "Bearer crk_abc" }), ctx as never)
-    expect(res.status).toBe(400)
-    const body = await res.json()
-    expect(body.error).toContain("srv_1")
-    expect(body.error).toContain("srv_2")
-    expect(mockListChannelsForMember).not.toHaveBeenCalled()
-  })
-
   it("empty channel list → { groups: [] }, not an error", async () => {
-    mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1", name: "studio" }])
+    mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1", name: "studio", discriminator: "0042" }])
     mockListChannelsForMember.mockResolvedValue([])
-    const res = await GET(req("srv_1", { Authorization: "Bearer crk_abc" }), ctx as never)
+    const res = await GET(req("studio#0042", { Authorization: "Bearer crk_abc" }), ctx as never)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ groups: [] })
   })

@@ -2,17 +2,17 @@ import { describe, it, expect } from "vitest";
 import { parseRef, formatRef, formatCanonicalRef, formatSeq, parseSeq, DM_SERVER } from "../src/community-cli-contract";
 
 describe("parseRef", () => {
-  it('parses "/studio/general" as a plain channel ref', () => {
-    expect(parseRef("/studio/general")).toEqual({ server: "studio", channel: "general" });
+  it('parses "/studio#0042/general" as a plain channel ref', () => {
+    expect(parseRef("/studio#0042/general")).toEqual({ server: "studio#0042", channel: "general" });
   });
 
-  it('parses "/studio/general#42" as a pinned-message ref (seq)', () => {
-    expect(parseRef("/studio/general#42")).toEqual({ server: "studio", channel: "general", seq: 42 });
+  it('parses "/studio#0042/general#42" as a pinned-message ref (seq)', () => {
+    expect(parseRef("/studio#0042/general#42")).toEqual({ server: "studio#0042", channel: "general", seq: 42 });
   });
 
-  it('parses "/studio/general/#42" as a thread ref (threadRootSeq)', () => {
-    expect(parseRef("/studio/general/#42")).toEqual({
-      server: "studio",
+  it('parses "/studio#0042/general/#42" as a thread ref (threadRootSeq)', () => {
+    expect(parseRef("/studio#0042/general/#42")).toEqual({
+      server: "studio#0042",
       channel: "general",
       threadRootSeq: 42,
     });
@@ -56,7 +56,7 @@ describe("parseRef", () => {
   });
 
   it("throws when the ref has fewer than 2 segments", () => {
-    expect(() => parseRef("/studio")).toThrow();
+    expect(() => parseRef("/studio#0042")).toThrow();
   });
 
   it('falls back to a plain-channel result for a DM ref with a non-numeric tail after "#" — does NOT throw', () => {
@@ -69,62 +69,62 @@ describe("parseRef", () => {
     expect(parseRef("/.dm/foo#bar")).toEqual({ server: DM_SERVER, channel: "foo#bar" });
   });
 
-  it('parses "/demo/general/#5#42" as a thread-reply message ref', () => {
-    expect(parseRef("/demo/general/#5#42")).toEqual({
-      server: "demo",
+  it('parses "/demo#0042/general/#5#42" as a thread-reply message ref', () => {
+    expect(parseRef("/demo#0042/general/#5#42")).toEqual({
+      server: "demo#0042",
       channel: "general",
       threadRootSeq: 5,
       seq: 42,
     });
   });
 
-  it('parses "/demo/general/#5" unchanged (regression)', () => {
-    expect(parseRef("/demo/general/#5")).toEqual({
-      server: "demo",
+  it('parses "/demo#0042/general/#5" unchanged (regression)', () => {
+    expect(parseRef("/demo#0042/general/#5")).toEqual({
+      server: "demo#0042",
       channel: "general",
       threadRootSeq: 5,
     });
   });
 
-  it('throws on "/demo/general/#5#" — empty seq tail (Number("") === 0 trap)', () => {
-    expect(() => parseRef("/demo/general/#5#")).toThrow();
+  it('throws on "/demo#0042/general/#5#" — empty seq tail (Number("") === 0 trap)', () => {
+    expect(() => parseRef("/demo#0042/general/#5#")).toThrow();
   });
 
-  it('throws on "/demo/general/##5" — empty root', () => {
-    expect(() => parseRef("/demo/general/##5")).toThrow();
+  it('throws on "/demo#0042/general/##5" — empty root', () => {
+    expect(() => parseRef("/demo#0042/general/##5")).toThrow();
   });
 
-  it('throws on "/demo/general/#5#abc" — non-numeric seq', () => {
-    expect(() => parseRef("/demo/general/#5#abc")).toThrow();
+  it('throws on "/demo#0042/general/#5#abc" — non-numeric seq', () => {
+    expect(() => parseRef("/demo#0042/general/#5#abc")).toThrow();
   });
 
-  it('throws on "/demo/general/#5#42#7" — three tails, not two', () => {
-    expect(() => parseRef("/demo/general/#5#42#7")).toThrow();
+  it('throws on "/demo#0042/general/#5#42#7" — three tails, not two', () => {
+    expect(() => parseRef("/demo#0042/general/#5#42#7")).toThrow();
   });
 
-  it('parses "/demo/general/#0#5" — parser stays permissive (server rejects root 0)', () => {
-    expect(parseRef("/demo/general/#0#5")).toEqual({
-      server: "demo",
+  it('parses "/demo#0042/general/#0#5" — parser stays permissive (server rejects root 0)', () => {
+    expect(parseRef("/demo#0042/general/#0#5")).toEqual({
+      server: "demo#0042",
       channel: "general",
       threadRootSeq: 0,
       seq: 5,
     });
   });
 
-  it('parses "/demo/general/#5#0" — parser stays permissive (server rejects seq 0)', () => {
-    expect(parseRef("/demo/general/#5#0")).toEqual({
-      server: "demo",
+  it('parses "/demo#0042/general/#5#0" — parser stays permissive (server rejects seq 0)', () => {
+    expect(parseRef("/demo#0042/general/#5#0")).toEqual({
+      server: "demo#0042",
       channel: "general",
       threadRootSeq: 5,
       seq: 0,
     });
   });
 
-  it('throws on "/demo/general#5#42" — slashless form must NOT accept a trailing #M', () => {
+  it('throws on "/demo#0042/general#5#42" — slashless form must NOT accept a trailing #M', () => {
     // The thread form requires the explicit `/#` separator. This shape is
     // ambiguous with the message form `/server/channel#N` and must be
     // rejected so callers can't sneak past the grammar.
-    expect(() => parseRef("/demo/general#5#42")).toThrow();
+    expect(() => parseRef("/demo#0042/general#5#42")).toThrow();
   });
 
   it('parses "/.dm/gusye#1231/#5#42" — parser is DM-agnostic on thread form', () => {
@@ -138,65 +138,65 @@ describe("parseRef", () => {
     });
   });
 
-  it('the old forum-post ref shape "/studio/ideas/my-post" no longer parses (no-compat, phase2 forum≡thread)', () => {
+  it('the old forum-post ref shape "/studio#0042/ideas/my-post" no longer parses (no-compat, phase2 forum≡thread)', () => {
     // A post is now addressed like any other thread (by-root-seq), never by
     // its own child-name — the old 3-segment-no-hash form is GONE, not just
     // unsupported. A ref-render layer that fails to parse this degrades to
     // plain literal text (never a misresolved-to-wrong-target pill).
-    expect(() => parseRef("/studio/ideas/my-post")).toThrow();
+    expect(() => parseRef("/studio#0042/ideas/my-post")).toThrow();
   });
 
   it("still parses the thread form (3rd segment starts with #) unaffected by the forum-post removal", () => {
-    expect(parseRef("/studio/ideas/#5")).toEqual({ server: "studio", channel: "ideas", threadRootSeq: 5 });
+    expect(parseRef("/studio#0042/ideas/#5")).toEqual({ server: "studio#0042", channel: "ideas", threadRootSeq: 5 });
   });
 
   it("throws on any 3+ segment ref whose last segment doesn't start with # (the old forum-post ref's territory)", () => {
-    expect(() => parseRef("/studio/ideas/notes")).toThrow();
-    expect(() => parseRef("/studio/ideas/post/extra")).toThrow();
-    expect(() => parseRef("/studio/ideas/post#3")).toThrow();
+    expect(() => parseRef("/studio#0042/ideas/notes")).toThrow();
+    expect(() => parseRef("/studio#0042/ideas/post/extra")).toThrow();
+    expect(() => parseRef("/studio#0042/ideas/post#3")).toThrow();
   });
 });
 
 describe("formatRef", () => {
   it("formats a plain channel", () => {
-    expect(formatRef({ server: "studio", channel: "general" })).toBe("/studio/general");
+    expect(formatRef({ server: "studio#0042", channel: "general" })).toBe("/studio#0042/general");
   });
 
   it("formats a thread ref with threadRootSeq", () => {
-    expect(formatRef({ server: "studio", channel: "general", threadRootSeq: 42 })).toBe(
-      "/studio/general/#42"
+    expect(formatRef({ server: "studio#0042", channel: "general", threadRootSeq: 42 })).toBe(
+      "/studio#0042/general/#42"
     );
   });
 
   it("round-trips through parseRef for the thread form", () => {
-    const ref = formatRef({ server: "studio", channel: "general", threadRootSeq: 7 });
-    expect(parseRef(ref)).toEqual({ server: "studio", channel: "general", threadRootSeq: 7 });
+    const ref = formatRef({ server: "studio#0042", channel: "general", threadRootSeq: 7 });
+    expect(parseRef(ref)).toEqual({ server: "studio#0042", channel: "general", threadRootSeq: 7 });
   });
 
   it("formats a thread-reply message ref (threadRootSeq + seq)", () => {
     expect(
-      formatRef({ server: "studio", channel: "general", threadRootSeq: 5, seq: 42 }),
-    ).toBe("/studio/general/#5#42");
+      formatRef({ server: "studio#0042", channel: "general", threadRootSeq: 5, seq: 42 }),
+    ).toBe("/studio#0042/general/#5#42");
   });
 
   it("round-trips through parseRef for the thread-reply form", () => {
-    const input = { server: "studio", channel: "general", threadRootSeq: 5, seq: 42 };
+    const input = { server: "studio#0042", channel: "general", threadRootSeq: 5, seq: 42 };
     expect(parseRef(formatRef(input))).toEqual(input);
   });
 
   it("throws when seq is provided without threadRootSeq", () => {
     expect(() =>
-      formatRef({ server: "studio", channel: "general", seq: 42 }),
+      formatRef({ server: "studio#0042", channel: "general", seq: 42 }),
     ).toThrow();
   });
 
   it("formats a plain channel ref unchanged (regression)", () => {
-    expect(formatRef({ server: "studio", channel: "general" })).toBe("/studio/general");
+    expect(formatRef({ server: "studio#0042", channel: "general" })).toBe("/studio#0042/general");
   });
 
   it("formats a plain thread ref unchanged (regression)", () => {
-    expect(formatRef({ server: "studio", channel: "general", threadRootSeq: 5 })).toBe(
-      "/studio/general/#5",
+    expect(formatRef({ server: "studio#0042", channel: "general", threadRootSeq: 5 })).toBe(
+      "/studio#0042/general/#5",
     );
   });
 
@@ -226,17 +226,17 @@ describe("formatSeq / parseSeq", () => {
 // inbox, wake notice, listChannels) produces one addressing identity per type.
 describe("formatCanonicalRef", () => {
   it("by-server-name (text): /server/name", () => {
-    expect(formatCanonicalRef({ type: "text", serverName: "studio", name: "general" })).toBe("/studio/general");
+    expect(formatCanonicalRef({ type: "text", serverHandle: "studio#0042", name: "general" })).toBe("/studio#0042/general");
   });
 
   it("by-server-name (forum): /server/name", () => {
-    expect(formatCanonicalRef({ type: "forum", serverName: "studio", name: "ideas" })).toBe("/studio/ideas");
+    expect(formatCanonicalRef({ type: "forum", serverHandle: "studio#0042", name: "ideas" })).toBe("/studio#0042/ideas");
   });
 
   it("by-root-seq (thread): /server/channel/#rootSeq", () => {
     expect(
-      formatCanonicalRef({ type: "thread", serverName: "studio", parentName: "general", rootSeq: 42 }),
-    ).toBe("/studio/general/#42");
+      formatCanonicalRef({ type: "thread", serverHandle: "studio#0042", parentName: "general", rootSeq: 42 }),
+    ).toBe("/studio#0042/general/#42");
   });
 
   it("by-peer-identity (dm): /.dm/peer", () => {
@@ -247,13 +247,13 @@ describe("formatCanonicalRef", () => {
   // resolves the same scope — the emitter and parser share the addressing model
   // so a ref a bot receives is one it can send/read/ack against (red-line ①).
   it("round-trips through parseRef for every addressing trait", () => {
-    expect(parseRef(formatCanonicalRef({ type: "text", serverName: "studio", name: "general" })!)).toEqual({
-      server: "studio",
+    expect(parseRef(formatCanonicalRef({ type: "text", serverHandle: "studio#0042", name: "general" })!)).toEqual({
+      server: "studio#0042",
       channel: "general",
     });
     expect(
-      parseRef(formatCanonicalRef({ type: "thread", serverName: "studio", parentName: "general", rootSeq: 7 })!),
-    ).toEqual({ server: "studio", channel: "general", threadRootSeq: 7 });
+      parseRef(formatCanonicalRef({ type: "thread", serverHandle: "studio#0042", parentName: "general", rootSeq: 7 })!),
+    ).toEqual({ server: "studio#0042", channel: "general", threadRootSeq: 7 });
     expect(parseRef(formatCanonicalRef({ type: "dm", peerSegment: "gusye#1231" })!)).toEqual({
       server: DM_SERVER,
       channel: "gusye#1231",
@@ -264,8 +264,8 @@ describe("formatCanonicalRef", () => {
   // context an addressing value needs keeps its own fallback/skip handling
   // rather than emitting a ref that won't round-trip.
   it("returns null when a required addressing field is absent", () => {
-    expect(formatCanonicalRef({ type: "text", serverName: "studio" })).toBeNull(); // no name
-    expect(formatCanonicalRef({ type: "thread", serverName: "studio", parentName: "g" })).toBeNull(); // no rootSeq
+    expect(formatCanonicalRef({ type: "text", serverHandle: "studio#0042" })).toBeNull(); // no name
+    expect(formatCanonicalRef({ type: "thread", serverHandle: "studio#0042", parentName: "g" })).toBeNull(); // no rootSeq
     expect(formatCanonicalRef({ type: "dm" })).toBeNull(); // no peerSegment
   });
 });

@@ -323,7 +323,7 @@ describe("createDaemon — logging", () => {
         agentId: "bot_1",
         config: { version: 1, runtime: "codex", model: { kind: "default" }, mode: { kind: "default" } },
         launchId: "l1",
-        unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 1 },
+        unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 1 },
       }),
     );
     await new Promise((r) => setTimeout(r, 20));
@@ -374,7 +374,7 @@ describe("createDaemon — logging", () => {
         agentId: "bot_1",
         config: { version: 1, runtime: "codex", model: { kind: "default" }, mode: { kind: "default" } },
         launchId: "l1",
-        unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 1 },
+        unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 1 },
       }),
     );
     await new Promise((r) => setTimeout(r, 20));
@@ -435,7 +435,7 @@ describe("createDaemon — logging", () => {
         agentId: "bot_1",
         config: { version: 1, runtime: "codex", model: { kind: "default" }, mode: { kind: "default" } },
         launchId: "l1",
-        unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 1 },
+        unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 1 },
       }),
     );
     await new Promise((r) => setTimeout(r, 20));
@@ -462,7 +462,7 @@ describe("createDaemon — logging", () => {
         agentId: "bot_2",
         config: { version: 1, runtime: "codex", model: { kind: "default" }, mode: { kind: "default" } },
         launchId: "l2",
-        unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 2 },
+        unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 2 },
       }),
     );
     await new Promise((r) => setTimeout(r, 20));
@@ -528,7 +528,7 @@ describe("createDaemon — logging", () => {
         agentId: "bot_1",
         config: { version: 1, runtime: "codex", model: { kind: "default" }, mode: { kind: "default" } },
         launchId: "l1",
-        unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 1 },
+        unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 1 },
       }),
     );
     await new Promise((r) => setTimeout(r, 20));
@@ -568,7 +568,7 @@ describe("createDaemon — logging", () => {
         agentId: "bot_text",
         config: { version: 1, runtime: "codex", model: { kind: "default" }, mode: { kind: "default" } },
         launchId: "l_text",
-        unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 1 },
+        unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 1 },
       }),
     );
     await new Promise((r) => setTimeout(r, 20));
@@ -700,7 +700,7 @@ describe("createDaemon — level-triggered activity heartbeat (2b: live-connecti
         agentId: "bot_1",
         config: { version: 1, runtime: "codex", model: { kind: "default" }, mode: { kind: "default" } },
         launchId: "l1",
-        unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 1 },
+        unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 1 },
       }),
     );
     // Let enroll + spawn resolve, then land the runtime handshake so the FSM

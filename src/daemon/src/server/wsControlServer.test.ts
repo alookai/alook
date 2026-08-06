@@ -38,7 +38,7 @@ const sampleWakeCommand: HostCommand = {
   agentId: "agent1",
   config: { version: 1, runtime: "mock", model: { kind: "default" }, mode: { kind: "default" } },
   launchId: "launch1",
-  unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 1 },
+  unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 1 },
 };
 
 describe("WsControlServer — machine-key auth on connect", () => {

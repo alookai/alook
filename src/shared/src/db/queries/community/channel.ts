@@ -8,7 +8,7 @@ import {
 } from "../../community-schema";
 import type { Database } from "../../index";
 import { PARTICIPANT_SOURCE } from "../../../constants/community";
-import { canManageServer, canSeePrivateChannel, visibilityIsDmParticipant } from "../../../utils/community-roles";
+import { canSeePrivateChannel, visibilityIsDmParticipant } from "../../../utils/community-roles";
 import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 
 // Column selection shared by every read query.
@@ -390,7 +390,7 @@ export async function listChildChannels(
 
 export async function reorderChannels(
   db: Database,
-  serverId: string,
+  _serverId: string,
   channelIds: string[]
 ) {
   const statements = channelIds.map((id, index) =>

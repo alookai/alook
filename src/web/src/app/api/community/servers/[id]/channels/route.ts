@@ -1,6 +1,6 @@
 import { NextResponse, NextRequest } from "next/server"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { parseNameAndTag, queries } from "@alook/shared"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { buildServerChannelGroups } from "@/lib/community/list-channels"
 import { requireServerMember } from "@/lib/community/permissions"
@@ -8,7 +8,7 @@ import { requireServerMember } from "@/lib/community/permissions"
 /**
  * GET /api/community/servers/[id]/channels — single-server channel list, bot
  * arm of the folded `listChannels` verb (route/disc trunk, 接口树统一 轴3). The
- * bot addresses by `?server=<ref>` (id OR display name); the all-servers mode
+ * bot addresses by `?server=<name#discriminator>`; the all-servers mode
  * (bot omitting `server`) lives at the servers-collection route `GET
  * servers/channels` instead — a cross-server aggregate has no single-`[id]`
  * home. Human web reads the channel tree via the server bootstrap, so this GET
@@ -38,19 +38,14 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
   if (!serverRef) {
     return NextResponse.json({ error: "missing server query param" }, { status: 400 })
   }
+  if (!parseNameAndTag(serverRef)) {
+    return NextResponse.json({ error: "invalid server handle, expected name#0042" }, { status: 400 })
+  }
 
   const servers = await queries.communityServer.resolveServerByNameForMember(db, botUserId, serverRef)
   if (servers.length === 0) {
     return NextResponse.json({ error: `server not found: ${serverRef}` }, { status: 404 })
   }
-  if (servers.length > 1) {
-    const candidates = servers.map((s) => `${s.id} ("${s.name}")`).join(", ")
-    return NextResponse.json(
-      { error: `ambiguous server name "${serverRef}" — matches ${servers.length} servers: ${candidates}` },
-      { status: 400 },
-    )
-  }
-
   const groups = await buildServerChannelGroups(db, servers[0]!, botUserId)
   return NextResponse.json({ groups })
 })

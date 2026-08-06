@@ -5,6 +5,7 @@ import { getDb } from "@/lib/db"
 import {
   queries,
   formatHandle,
+  parseNameAndTag,
   DEFAULT_MEMBERS_PAGE_SIZE,
   MAX_MEMBERS_PAGE_SIZE,
 } from "@alook/shared"
@@ -52,17 +53,13 @@ async function handleBotList(
   if (!serverRef) {
     return NextResponse.json({ error: "missing server query param" }, { status: 400 })
   }
+  if (!parseNameAndTag(serverRef)) {
+    return NextResponse.json({ error: "invalid server handle, expected name#0042" }, { status: 400 })
+  }
 
   const servers = await queries.communityServer.resolveServerByNameForMember(db, botUserId, serverRef)
   if (servers.length === 0) {
     return NextResponse.json({ error: `server not found: ${serverRef}` }, { status: 404 })
-  }
-  if (servers.length > 1) {
-    const candidates = servers.map((s) => `${s.id} ("${s.name}")`).join(", ")
-    return NextResponse.json(
-      { error: `ambiguous server name "${serverRef}" — matches ${servers.length} servers: ${candidates}` },
-      { status: 400 },
-    )
   }
   const serverId = servers[0]!.id
 

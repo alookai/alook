@@ -1,5 +1,4 @@
 import { and, eq, gt, desc, isNull, inArray, sql } from "drizzle-orm";
-import type { SQL } from "drizzle-orm";
 import {
   communityMachineToken,
   communityMachine,

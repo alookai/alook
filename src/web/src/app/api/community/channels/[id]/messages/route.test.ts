@@ -546,7 +546,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(row)
 
-    const body = { channel: "/demo/text", content: { text: "reply" }, attachments: ["a1"], nonce: "cmd:reply" }
+    const body = { channel: "/demo#0042/text", content: { text: "reply" }, attachments: ["a1"], nonce: "cmd:reply" }
     const first = await POST(botPostReq(body), ctx)
     const replay = await POST(botPostReq(body), ctx)
 
@@ -807,7 +807,7 @@ describe("GET /api/community/channels/[id]/messages", () => {
     it("bot reads via ?ref= → seq window → {items} (agent-message projection), NOT {messages}", async () => {
       // ref resolves to a channel; the door's single mask passes it (bot scope),
       // then the bot arm pages by seq and projects to agent-message {items}.
-      // ref /studio/general resolves server→channel (both member-scoped), then
+      // ref /studio#0042/general resolves server→channel (both member-scoped), then
       // the door's mask probes getChannel.
       mockResolveServerByNameForMember.mockResolvedValue([{ id: "s1" }])
       mockResolveChannelByNameForMember.mockResolvedValue([{ id: "c1" }])
@@ -816,7 +816,7 @@ describe("GET /api/community/channels/[id]/messages", () => {
       mockListMessagesBySeq.mockResolvedValue({ items: [{ id: "m1", seq: 1 }], hasMore: false, latestSeq: 1 })
       mockToAgentMessages.mockResolvedValue([{ seq: 1, text: "hi" }])
 
-      const res = await GET(botGetReq("?ref=%2Fstudio%2Fgeneral&after=0"), botCtx)
+      const res = await GET(botGetReq("?ref=%2Fstudio%230042%2Fgeneral&after=0"), botCtx)
       expect(res.status).toBe(200)
       const body = await res.json() as { items?: unknown[]; messages?: unknown[] }
       expect(body.items).toEqual([{ seq: 1, text: "hi" }])
@@ -854,7 +854,7 @@ describe("GET /api/community/channels/[id]/messages", () => {
       // resolveTargetForMember (real, through the mocked queries) returns
       // not-found for an unknown ref; the door surfaces 404 and never creates.
       mockResolveServerByNameForMember.mockResolvedValue([]) // server not found → resolve 404
-      const res = await GET(botGetReq("?ref=%2Fnope%2Fmissing"), botCtx)
+      const res = await GET(botGetReq("?ref=%2Fnope%230042%2Fmissing"), botCtx)
       expect(res.status).toBe(404)
       // No create query fired — read is pure addressing (structurally the GET
       // descriptor carries no create-if-missing).

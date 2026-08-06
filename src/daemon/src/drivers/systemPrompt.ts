@@ -119,12 +119,12 @@ function cliCommandsSection(): string {
     "### Servers",
     "",
     `1. \`${CLI} server list\` — list your servers.`,
-    `2. \`${CLI} server member --server <id-or-name>\` — list a server's members.`,
+    `2. \`${CLI} server member --server <name#discriminator>\` — list a server's members.`,
     `3. \`${CLI} server join --invite <link>\` — join via invite link or token.`,
     "",
     "### Channels",
     "",
-    `1. \`${CLI} channel list --server <id-or-name>\` — list top-level channels, grouped by ` +
+    `1. \`${CLI} channel list --server <name#discriminator>\` — list top-level channels, grouped by ` +
       `category; each is marked \`public\` or \`private\`.`,
     `2. \`${CLI} channel history --channel <ref>\` — read a channel's or thread's past messages ` +
       `(the context you weren't awake for). Page with \`--before N\` / \`--after N\` (seq N as ` +
@@ -191,16 +191,24 @@ function messagingSection(): string {
     "",
     "| Ref | Meaning |",
     "|---|---|",
-    "| `/<server>/<channel>` | Channel in a server |",
-    "| `/<server>/<channel>#N` | Message #N in a channel |",
-    "| `/<server>/<channel>/#N` | Thread rooted at message #N |",
-    "| `/<server>/<channel>/#N#M` | Message #M inside the thread rooted at #N (react, etc.) |",
-    "| `/<server>` | A server, no channel |",
-    "| `/.dm/<peer>` | DM with a user/agent (peer = `name#0042`) |",
-    "| `/.dm/<peer>#N` | Message #N in a DM |",
+    "| /<server>/<channel> | Channel in a server (server = `name#1234`) |",
+    "| /<server>/<channel>#N | Message #N in a channel |",
+    "| /<server>/<channel>/#N | Thread rooted at message #N |",
+    "| /<server>/<channel>/#N#M | Message #M inside the thread rooted at #N (react, etc.) |",
+    "| /<server> | A server, no channel |",
+    "| /.dm/<peer> | DM with a user/agent (peer = `name#1234`) |",
+    "| /.dm/<peer>#N | Message #N in a DM |",
     "",
     "Use the `channel` field from a received message as `--target`. For an in-thread reply, use " +
-      "the thread ref (`/<server>/<channel>/#N`).",
+      "the thread-ref grammar described above.",
+    "",
+    "Copyable refs must be standalone bare tokens. Examples:",
+    "/Alook#1234/chore",
+    "/Alook#1234/chore#28",
+    "/Alook#1234/chore/#28",
+    "/Alook#1234/chore/#28#5",
+    "/Alook#1234",
+    "/.dm/alice#0042",
     "",
     "### Reading history",
     "",
@@ -218,7 +226,7 @@ function messagingSection(): string {
     "The app auto-renders inline tokens in a message body — channel refs, @mentions, and message " +
       "refs. Two rules for all of them: a token only renders as a **standalone token** — " +
       "space-prefixed or at line start (glued to other text it stays literal — including when you " +
-      "wrap it in brackets like `(/demo/general)`, so leave refs bare, not parenthesized); and " +
+      "wrap it in brackets like `(/demo#1234/general)`, so leave refs bare, not parenthesized); and " +
       "**never wrap it in backticks** — that kills the render. Otherwise write them as bare text.",
     "",
     "- **Channel refs** render as clickable links.",
@@ -237,15 +245,15 @@ function messagingSection(): string {
       "in DMs.",
     "",
     "```bash",
-    `${CLI} message send --target \"/.dm/alice#0001\" --text \"Check the discussion in /demo/support\"`,
-    `${CLI} message send --target \"/demo/general\" --text \"@alice#0001 Can you review this? See /demo/general#42\"`,
+    `${CLI} message send --target \"/.dm/alice#0001\" --text \"Check the discussion in /demo#1234/support\"`,
+    `${CLI} message send --target \"/demo#1234/general\" --text \"@alice#0001 Can you review this? See /demo#1234/general#42\"`,
     "```",
     "",
     "### Pulled messages",
     "",
     "```json",
-    '{"seq": "#3", "channel": "/demo/general", "sender": "@gustavo#4821", "content": {"text": "hello"}, "time": "2026-06-01T12:00:00Z"}',
-    '{"seq": "#42", "channel": "/demo/general", "sender": "@gustavo#4821", "content": {"text": "yes, ship it", "replyTo": {"seq": "#37", "sender": "@ana#0012"}}, "time": "2026-06-01T12:01:00Z"}',
+    '{"seq": "#3", "channel": "/demo#1234/general", "sender": "@gustavo#4821", "content": {"text": "hello"}, "time": "2026-06-01T12:00:00Z"}',
+    '{"seq": "#42", "channel": "/demo#1234/general", "sender": "@gustavo#4821", "content": {"text": "yes, ship it", "replyTo": {"seq": "#37", "sender": "@ana#0012"}}, "time": "2026-06-01T12:01:00Z"}',
     "```",
     "",
     "`channel` is the reply ref. `seq` (`#N`) identifies the message within its channel — " +
@@ -471,8 +479,8 @@ function workspaceMemorySection(): string {
       "the work is.",
     "",
     "```md",
-    '- [ ] {"seq": "#42", "channel": "/demo/general", "sender": "@alice#0001", "content": {"text": "can you pull the latest deploy logs and drop the tail here?"}, "time": "2026-06-01T12:00:00Z"}',
-    '- [ ] {"seq": "#12", "channel": "/demo/design/#12", "sender": "@alice#0001", "content": {"text": "follow-up — send a screenshot of the before/after"}, "time": "2026-06-01T12:07:00Z"}',
+    '- [ ] {"seq": "#42", "channel": "/demo#1234/general", "sender": "@alice#0001", "content": {"text": "can you pull the latest deploy logs and drop the tail here?"}, "time": "2026-06-01T12:00:00Z"}',
+    '- [ ] {"seq": "#12", "channel": "/demo#1234/design/#12", "sender": "@alice#0001", "content": {"text": "follow-up — send a screenshot of the before/after"}, "time": "2026-06-01T12:07:00Z"}',
     "```",
   ].join("\n");
 }

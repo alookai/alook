@@ -105,8 +105,8 @@ describe("createProxyServerApi — parseJsonResponse via call<T>", () => {
       return jsonBody(
         JSON.stringify({
           servers: [
-            { id: "srv_1", name: "Studio", icon: "https://cdn/x.png", ownerId: "u_owner", description: "secret" },
-            { id: "srv_2", name: "Lab", icon: null, ownerId: "u_owner" },
+            { id: "srv_1", name: "Studio", discriminator: "0042", icon: "https://cdn/x.png", ownerId: "u_owner", description: "secret" },
+            { id: "srv_2", name: "Lab", discriminator: "12345", icon: null, ownerId: "u_owner" },
           ],
         }),
         { status: 200 },
@@ -115,7 +115,7 @@ describe("createProxyServerApi — parseJsonResponse via call<T>", () => {
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
     const out = await api.listServers({ agentId: "a1" as never });
     // Single projection point: only {id,name} survives — no icon/ownerId/description.
-    expect(out).toEqual({ servers: [{ id: "srv_1", name: "Studio" }, { id: "srv_2", name: "Lab" }] });
+    expect(out).toEqual({ servers: [{ handle: "Studio#0042" }, { handle: "Lab#12345" }] });
     // Folded verb hits the real REST path (GET), not a flat POST /api/listServers.
     expect(seen.at(-1)!.url).toBe("http://proxy.test/api/community/servers");
     expect(seen.at(-1)!.init?.method).toBe("GET");
@@ -131,7 +131,7 @@ describe("createProxyServerApi — reactAdd (retargeted to the canonical reactio
       return jsonBody(JSON.stringify({ messageId: "m1", userId: "bot_1", emoji: "👍" }), { status: 200 });
     });
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
-    const res = await api.reactAdd({ channel: "/demo/general", seq: 42, emoji: "👍" });
+    const res = await api.reactAdd({ channel: "/demo#1234/general", seq: 42, emoji: "👍" });
     // Lean contract projection at the proxy boundary: a fresh add → { ok: true }.
     expect(res).toEqual({ ok: true });
     expect(seen).toHaveLength(1);
@@ -145,7 +145,7 @@ describe("createProxyServerApi — reactAdd (retargeted to the canonical reactio
     expect(headers.authorization).toBe("Bearer vch_test");
     const body = JSON.parse(String(seen[0].init?.body ?? "{}"));
     // Only channel+seq travel in the body; emoji is the path segment.
-    expect(body).toEqual({ channel: "/demo/general", seq: 42 });
+    expect(body).toEqual({ channel: "/demo#1234/general", seq: 42 });
     expect(body.agentId).toBeUndefined();
   });
 
@@ -154,7 +154,7 @@ describe("createProxyServerApi — reactAdd (retargeted to the canonical reactio
       jsonBody(JSON.stringify({ ok: true, duplicate: true }), { status: 200 }),
     );
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
-    const res = await api.reactAdd({ channel: "/demo/general", seq: 42, emoji: "👍" });
+    const res = await api.reactAdd({ channel: "/demo#1234/general", seq: 42, emoji: "👍" });
     expect(res).toEqual({ ok: true, duplicate: true });
   });
 });
@@ -165,18 +165,18 @@ describe("createProxyServerApi — send (retargeted to the canonical messages do
     const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
       seen.push({ url, init });
       return jsonBody(
-        JSON.stringify({ state: "sent", message: { seq: "#8", channel: "/demo/general", sender: "@a", content: { text: "on it" }, time: "" } }),
+        JSON.stringify({ state: "sent", message: { seq: "#8", channel: "/demo#1234/general", sender: "@a", content: { text: "on it" }, time: "" } }),
         { status: 200 },
       );
     });
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
-    await api.send({ agentId: "a1", channel: "/demo/general", content: { text: "on it" }, replyToSeq: 37 });
+    await api.send({ agentId: "a1", channel: "/demo#1234/general", content: { text: "on it" }, replyToSeq: 37 });
     // Canonical messages door; the `resolve` placeholder id (bot holds a ref).
     expect(seen[0].url).toBe("http://proxy.test/api/community/channels/resolve/messages");
     expect(seen[0].init?.method).toBe("POST");
     const body = JSON.parse(String(seen[0].init?.body ?? "{}"));
     // The channel REF stays in the body (resolved server-side); replyToSeq kept.
-    expect(body.channel).toBe("/demo/general");
+    expect(body.channel).toBe("/demo#1234/general");
     expect(body.replyToSeq).toBe(37);
     expect(body.agentId).toBeUndefined();
   });
@@ -190,18 +190,18 @@ describe("createProxyServerApi — createPost (folded into the canonical message
       return seen.length === 1
         ? jsonBody(JSON.stringify({
             state: "sent",
-            message: { seq: "#12", channel: "/demo/forum", content: { text: "Title" } },
+            message: { seq: "#12", channel: "/demo#1234/forum", content: { text: "Title" } },
             threadId: "thread_1",
           }))
         : jsonBody(JSON.stringify({
             state: "sent",
-            message: { seq: "#1", channel: "/demo/forum/#12", content: { text: "Body" } },
+            message: { seq: "#1", channel: "/demo#1234/forum/#12", content: { text: "Body" } },
           }));
     });
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
     const out = await api.createPost({
       agentId: "a1",
-      forum: "/demo/forum",
+      forum: "/demo#1234/forum",
       title: "Title",
       content: { text: "Body" },
       attachments: ["att_1"],
@@ -211,18 +211,18 @@ describe("createProxyServerApi — createPost (folded into the canonical message
     expect(seen[0].url).toBe("http://proxy.test/api/community/channels/resolve/messages");
     expect(seen[0].init?.method).toBe("POST");
     expect(JSON.parse(String(seen[0].init?.body))).toEqual({
-      channel: "/demo/forum",
+      channel: "/demo#1234/forum",
       content: { text: "Title" },
       attachments: ["att_1"],
       nonce: "nonce_1:opener",
     });
     expect(JSON.parse(String(seen[1].init?.body))).toEqual({
-      channel: "/demo/forum/#12",
+      channel: "/demo#1234/forum/#12",
       content: { text: "Body" },
       attachments: ["att_1"],
       nonce: "nonce_1:reply",
     });
-    expect(out).toEqual({ ref: "/demo/forum/#12", name: "Title", seq: 1 });
+    expect(out).toEqual({ ref: "/demo#1234/forum/#12", name: "Title", seq: 1 });
   });
 });
 
@@ -234,11 +234,11 @@ describe("createProxyServerApi — channelMember (retargeted to the canonical me
       return jsonBody(JSON.stringify({ visibility: "private", members: [{ handle: "a#0001", role: "member" }] }), { status: 200 });
     });
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
-    const res = await api.channelMember({ channel: "/demo/general" });
+    const res = await api.channelMember({ channel: "/demo#1234/general" });
     expect(res).toEqual({ visibility: "private", members: [{ handle: "a#0001", role: "member" }] });
     const u = new URL(seen[0].url);
     expect(u.pathname).toBe("/api/community/channels/resolve/members");
-    expect(u.searchParams.get("ref")).toBe("/demo/general");
+    expect(u.searchParams.get("ref")).toBe("/demo#1234/general");
     expect(seen[0].init?.method).toBe("GET");
   });
 });
@@ -361,17 +361,17 @@ describe("createProxyServerApi — resolve (retargeted to the canonical hydrate 
     const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
       seen.push({ url, init });
       return jsonBody(
-        JSON.stringify({ message: { seq: "#42", channel: "/demo/general", sender: "@a", content: { text: "hi" }, time: "" } }),
+        JSON.stringify({ message: { seq: "#42", channel: "/demo#1234/general", sender: "@a", content: { text: "hi" }, time: "" } }),
         { status: 200 },
       );
     });
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
-    const res = await api.resolve({ agentId: "a1", channel: "/demo/general", seq: 42 });
+    const res = await api.resolve({ agentId: "a1", channel: "/demo#1234/general", seq: 42 });
     expect(res.message.seq).toBe("#42");
     const u = new URL(seen[0].url);
     // resolve is its OWN door (GET messages/{id} hydrate) — NOT the seq→id lookup.
     expect(u.pathname).toBe("/api/community/messages/resolve");
-    expect(u.searchParams.get("ref")).toBe("/demo/general");
+    expect(u.searchParams.get("ref")).toBe("/demo#1234/general");
     expect(u.searchParams.get("seq")).toBe("42");
     expect(seen[0].init?.method).toBe("GET");
   });
@@ -385,11 +385,11 @@ describe("createProxyServerApi — read (retargeted to the canonical messages do
       return jsonBody(JSON.stringify({ items: [], hasMore: false }), { status: 200 });
     });
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
-    await api.read({ agentId: "a1", channel: "/demo/general", before: 50, limit: 20 });
+    await api.read({ agentId: "a1", channel: "/demo#1234/general", before: 50, limit: 20 });
     const u = new URL(seen[0].url);
     expect(u.pathname).toBe("/api/community/channels/resolve/messages");
     // ref is URL-encoded on the query (carries `/`).
-    expect(u.searchParams.get("ref")).toBe("/demo/general");
+    expect(u.searchParams.get("ref")).toBe("/demo#1234/general");
     expect(u.searchParams.get("before")).toBe("50");
     expect(u.searchParams.get("limit")).toBe("20");
     expect(seen[0].init?.method).toBe("GET");
@@ -403,7 +403,7 @@ describe("caller-side ref-encode `/#` round-trip (carry — Ingaborg #267)", () 
   // ref-in-query builder (read / resolve / channelMember) round-trips a `/#` ref
   // intact: the raw URL contains `%23` (not a bare `#`), and decoding the `ref`
   // param yields the original string byte-for-byte.
-  const THREAD_REF = "/demo/general/#42"
+  const THREAD_REF = "/demo#1234/general/#42"
 
   function capture() {
     const seen: Array<{ url: string }> = []
@@ -478,13 +478,13 @@ describe("createProxyServerApi — callUpload via parseJsonResponse", () => {
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
     const out = await api.attachmentUpload({
       agentId: "a1",
-      target: "/demo/general",
+      target: "/demo#1234/general",
       file: { data: new Uint8Array([1, 2, 3]), filename: "x.png", contentType: "image/png" },
     } as never);
     expect(out).toEqual({ id: "att_1", filename: "x.png", contentType: "image/png", size: 3 });
     const u = new URL(seen[0].url);
     expect(u.pathname).toBe("/api/community/channels/resolve/attachments");
-    expect(u.searchParams.get("target")).toBe("/demo/general");
+    expect(u.searchParams.get("target")).toBe("/demo#1234/general");
     expect(seen[0].init?.method).toBe("POST");
   });
 });

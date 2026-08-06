@@ -20,32 +20,29 @@ const directory: ChannelRefDirectory = [
 ]
 
 describe("resolveChannelRefBase", () => {
-  it("resolves a bare /server/channel by id for both segments", () => {
-    const resolved = resolveChannelRefBase(directory, "/srv_studio/chn_general")
+  it("resolves a channel id under a handled server", () => {
+    const resolved = resolveChannelRefBase(directory, "/studio#0042/chn_general")
     expect(resolved?.server.id).toBe("srv_studio")
     expect(resolved?.channel.id).toBe("chn_general")
     expect(resolved?.threadRootSeq).toBeUndefined()
   })
 
-  it("resolves by exact display name for both segments", () => {
-    const resolved = resolveChannelRefBase(directory, "/studio/general")
+  it("resolves by exact server handle and channel name", () => {
+    const resolved = resolveChannelRefBase(directory, "/studio#0042/general")
     expect(resolved?.server.id).toBe("srv_studio")
     expect(resolved?.channel.id).toBe("chn_general")
   })
 
-  it("resolves a bare server name with index-aligned ASCII case folding", () => {
-    expect(resolveChannelRefBase(directory, "/STUDIO/general")?.server.id).toBe("srv_studio")
+  it("resolves a handled server with index-aligned ASCII case folding", () => {
+    expect(resolveChannelRefBase(directory, "/STUDIO#0042/general")?.server.id).toBe("srv_studio")
   })
 
-  it("id match takes precedence over a colliding name match", () => {
-    // A server literally named "srv_studio" would collide with the id lookup
-    // for the first directory entry — id-first precedence must win.
+  it("rejects a raw server id even when it matches a directory row", () => {
     const collidingDirectory: ChannelRefDirectory = [
       { id: "srv_studio", name: "studio", discriminator: "0042", channels: [{ id: "chn_general", name: "general" }] },
       { id: "srv_named_like_id", name: "srv_studio", discriminator: "0002", channels: [{ id: "chn_other", name: "other" }] },
     ]
-    const resolved = resolveChannelRefBase(collidingDirectory, "/srv_studio/chn_general")
-    expect(resolved?.server.id).toBe("srv_studio")
+    expect(resolveChannelRefBase(collidingDirectory, "/srv_studio/chn_general")).toBeNull()
   })
 
   it("two same-named servers require a discriminator instead of selecting the first", () => {
@@ -70,26 +67,26 @@ describe("resolveChannelRefBase", () => {
         ],
       },
     ]
-    const resolved = resolveChannelRefBase(dupChannels, "/studio/dup")
+    const resolved = resolveChannelRefBase(dupChannels, "/studio#0042/dup")
     expect(resolved?.channel.id).toBe("chn_first")
   })
 
   it("returns null when the server isn't in the directory", () => {
-    expect(resolveChannelRefBase(directory, "/nope/general")).toBeNull()
+    expect(resolveChannelRefBase(directory, "/nope#0042/general")).toBeNull()
   })
 
   it("returns null when the channel isn't in the resolved server", () => {
-    expect(resolveChannelRefBase(directory, "/studio/nope")).toBeNull()
+    expect(resolveChannelRefBase(directory, "/studio#0042/nope")).toBeNull()
   })
 
   it("resolves the thread form /server/channel/#42 and surfaces threadRootSeq: 42", () => {
-    const resolved = resolveChannelRefBase(directory, "/studio/general/#42")
+    const resolved = resolveChannelRefBase(directory, "/studio#0042/general/#42")
     expect(resolved?.channel.id).toBe("chn_general")
     expect(resolved?.threadRootSeq).toBe(42)
   })
 
   it("resolves the thread-reply form /server/channel/#5#42 and surfaces both threadRootSeq and seq", () => {
-    const resolved = resolveChannelRefBase(directory, "/studio/general/#5#42")
+    const resolved = resolveChannelRefBase(directory, "/studio#0042/general/#5#42")
     expect(resolved?.channel.id).toBe("chn_general")
     expect(resolved?.threadRootSeq).toBe(5)
     expect(resolved?.seq).toBe(42)
@@ -102,24 +99,24 @@ describe("resolveChannelRefBase", () => {
 })
 
 describe("resolveServerRefBase", () => {
-  it("resolves a bare /server by id", () => {
-    expect(resolveServerRefBase(directory, "/srv_studio")?.id).toBe("srv_studio")
+  it("rejects a raw server id", () => {
+    expect(resolveServerRefBase(directory, "/srv_studio")).toBeNull()
   })
 
-  it("resolves a bare /server by exact display name", () => {
-    expect(resolveServerRefBase(directory, "/studio")?.id).toBe("srv_studio")
+  it("rejects a bare server display name", () => {
+    expect(resolveServerRefBase(directory, "/studio")).toBeNull()
   })
 
-  it("id match takes precedence over a colliding name match", () => {
+  it("does not treat an id-shaped segment as a server identity", () => {
     const collidingDirectory: ChannelRefDirectory = [
       { id: "srv_studio", name: "studio", discriminator: "0042", channels: [] },
       { id: "srv_named_like_id", name: "srv_studio", discriminator: "0002", channels: [] },
     ]
-    expect(resolveServerRefBase(collidingDirectory, "/srv_studio")?.id).toBe("srv_studio")
+    expect(resolveServerRefBase(collidingDirectory, "/srv_studio")).toBeNull()
   })
 
   it("returns null when the server isn't in the directory", () => {
-    expect(resolveServerRefBase(directory, "/nope")).toBeNull()
+    expect(resolveServerRefBase(directory, "/nope#0042")).toBeNull()
   })
 
   it("resolves four-digit and expanded handles case-insensitively", () => {
@@ -128,7 +125,7 @@ describe("resolveServerRefBase", () => {
   })
 
   it("returns null for a multi-segment ref — that's channelRef's job, not serverRef's", () => {
-    expect(resolveServerRefBase(directory, "/studio/general")).toBeNull()
+    expect(resolveServerRefBase(directory, "/studio#0042/general")).toBeNull()
   })
 
   it("returns null for malformed input", () => {

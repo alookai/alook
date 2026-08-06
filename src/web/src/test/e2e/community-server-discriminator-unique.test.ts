@@ -178,13 +178,11 @@ describe("resolveServerByNameForMember — real D1 handle and membership behavio
     ])
   })
 
-  it("keeps a duplicate bare name ambiguous", async () => {
+  it("rejects a bare name even when it matches member servers", async () => {
     const rows = await queries.communityServer.resolveServerByNameForMember(
       createRealQueryDb(), resolveMember, "E2E_RESOLVE_STUDIO",
     )
-    expect(rows.map((row) => row.id).sort()).toEqual(
-      [resolveServer4, resolveServer5].sort(),
-    )
+    expect(rows).toEqual([])
   })
 
   it("masks a non-member real handle exactly like a nonexistent handle", async () => {

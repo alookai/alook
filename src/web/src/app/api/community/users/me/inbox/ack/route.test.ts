@@ -78,7 +78,7 @@ describe("POST /api/community/users/me/inbox/ack", () => {
   })
 
   it("401 without Authorization", async () => {
-    const res = await POST(req({ cursors: [{ channel: "/studio/general", seq: 3 }] }))
+    const res = await POST(req({ cursors: [{ channel: "/studio#0042/general", seq: 3 }] }))
     expect(res.status).toBe(401)
   })
 
@@ -89,7 +89,7 @@ describe("POST /api/community/users/me/inbox/ack", () => {
 
   it("400 when a cursor uses seq 0 sentinel", async () => {
     const res = await POST(
-      req({ cursors: [{ channel: "/studio/general", seq: 0 }] }, { Authorization: "Bearer crk_abc" })
+      req({ cursors: [{ channel: "/studio#0042/general", seq: 0 }] }, { Authorization: "Bearer crk_abc" })
     )
     expect(res.status).toBe(400)
     expect(mockBumpReadCursor).not.toHaveBeenCalled()
@@ -98,7 +98,7 @@ describe("POST /api/community/users/me/inbox/ack", () => {
   it("never auto-creates a DM/thread as a side effect — resolves with createDmIfMissing/createThreadIfMissing false", async () => {
     mockResolveServerByNameForMember.mockResolvedValue([])
     const res = await POST(
-      req({ cursors: [{ channel: "/studio/general", seq: 3 }] }, { Authorization: "Bearer crk_abc" })
+      req({ cursors: [{ channel: "/studio#0042/general", seq: 3 }] }, { Authorization: "Bearer crk_abc" })
     )
     // Best-effort: an unresolvable cursor is reported in `failed`, not a
     // request-level error. Still never bumps (nothing resolved).
@@ -107,7 +107,7 @@ describe("POST /api/community/users/me/inbox/ack", () => {
     expect(body.ok).toBe(false)
     expect(body.applied).toEqual([])
     expect(body.failed).toEqual([
-      { channel: "/studio/general", seq: 3, code: "unresolvable", error: expect.any(String) },
+      { channel: "/studio#0042/general", seq: 3, code: "unresolvable", error: expect.any(String) },
     ])
     expect(mockBumpReadCursor).not.toHaveBeenCalled()
   })
@@ -115,13 +115,13 @@ describe("POST /api/community/users/me/inbox/ack", () => {
   it("reports no_such_seq in failed[] (not a request error) when bumpReadCursor can't find that seq", async () => {
     mockBumpReadCursor.mockResolvedValue(null)
     const res = await POST(
-      req({ cursors: [{ channel: "/studio/general", seq: 99 }] }, { Authorization: "Bearer crk_abc" })
+      req({ cursors: [{ channel: "/studio#0042/general", seq: 99 }] }, { Authorization: "Bearer crk_abc" })
     )
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.ok).toBe(false)
     expect(body.applied).toEqual([])
-    expect(body.failed[0]).toMatchObject({ channel: "/studio/general", seq: 99, code: "no_such_seq" })
+    expect(body.failed[0]).toMatchObject({ channel: "/studio#0042/general", seq: 99, code: "no_such_seq" })
     expect(body.failed[0].error).toMatch(/no message with seq #99/)
   })
 
@@ -131,8 +131,8 @@ describe("POST /api/community/users/me/inbox/ack", () => {
     // good DM. Under the old fail-fast this returned 404 and the DM after the
     // poison cursor never bumped — the exact mechanism that muted the bot.
     mockResolveChannelByNameForMember
-      .mockResolvedValueOnce([{ id: "ch_1" }]) // /studio/general → ok
-      .mockResolvedValueOnce([]) // /studio/badpost → unresolvable
+      .mockResolvedValueOnce([{ id: "ch_1" }]) // /studio#0042/general → ok
+      .mockResolvedValueOnce([]) // /studio#0042/badpost → unresolvable
     mockGetUserByNameAndDiscriminator.mockResolvedValue({ id: "peer_1", discriminator: "0001" })
     mockGetUserInternal.mockImplementation((_db: unknown, id: string) =>
       Promise.resolve(id === "peer_1" ? { id: "peer_1", isBot: false, deletedAt: null } : { isBot: true, deletedAt: null })
@@ -146,8 +146,8 @@ describe("POST /api/community/users/me/inbox/ack", () => {
       req(
         {
           cursors: [
-            { channel: "/studio/general", seq: 3 },
-            { channel: "/studio/badpost", seq: 5 },
+            { channel: "/studio#0042/general", seq: 3 },
+            { channel: "/studio#0042/badpost", seq: 5 },
             { channel: "/.dm/peer#0001", seq: 1 },
           ],
         },
@@ -159,11 +159,11 @@ describe("POST /api/community/users/me/inbox/ack", () => {
     expect(body.ok).toBe(false)
     // Both good cursors applied AND bumped — despite the poison cursor between them.
     expect(body.applied).toEqual([
-      { channel: "/studio/general", seq: 3 },
+      { channel: "/studio#0042/general", seq: 3 },
       { channel: "/.dm/peer#0001", seq: 1 },
     ])
     expect(body.failed).toEqual([
-      { channel: "/studio/badpost", seq: 5, code: "unresolvable", error: expect.any(String) },
+      { channel: "/studio#0042/badpost", seq: 5, code: "unresolvable", error: expect.any(String) },
     ])
     expect(mockBumpReadCursor).toHaveBeenCalledTimes(2)
     expect(mockBumpReadCursor).toHaveBeenNthCalledWith(1, expect.anything(), "bot_1", { channelId: "ch_1" }, 3)
@@ -183,8 +183,8 @@ describe("POST /api/community/users/me/inbox/ack", () => {
       req(
         {
           cursors: [
-            { channel: "/studio/secret", seq: 7 },
-            { channel: "/studio/general", seq: 2 },
+            { channel: "/studio#0042/secret", seq: 7 },
+            { channel: "/studio#0042/general", seq: 2 },
           ],
         },
         { Authorization: "Bearer crk_abc" }
@@ -193,15 +193,15 @@ describe("POST /api/community/users/me/inbox/ack", () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.ok).toBe(false)
-    expect(body.applied).toEqual([{ channel: "/studio/general", seq: 2 }])
-    expect(body.failed[0]).toMatchObject({ channel: "/studio/secret", seq: 7, code: "forbidden" })
+    expect(body.applied).toEqual([{ channel: "/studio#0042/general", seq: 2 }])
+    expect(body.failed[0]).toMatchObject({ channel: "/studio#0042/secret", seq: 7, code: "forbidden" })
     expect(mockBumpReadCursor).toHaveBeenCalledTimes(1)
   })
 
   it("propagates a genuine D1 exception as a 500 (never swallowed into failed[])", async () => {
     mockBumpReadCursor.mockRejectedValue(new Error("D1_ERROR: something non-retryable"))
     await expect(
-      POST(req({ cursors: [{ channel: "/studio/general", seq: 3 }] }, { Authorization: "Bearer crk_abc" }))
+      POST(req({ cursors: [{ channel: "/studio#0042/general", seq: 3 }] }, { Authorization: "Bearer crk_abc" }))
     ).rejects.toThrow()
   })
 
@@ -219,7 +219,7 @@ describe("POST /api/community/users/me/inbox/ack", () => {
       req(
         {
           cursors: [
-            { channel: "/studio/general", seq: 3 },
+            { channel: "/studio#0042/general", seq: 3 },
             { channel: "/.dm/peer#0001", seq: 1 },
           ],
         },
@@ -230,7 +230,7 @@ describe("POST /api/community/users/me/inbox/ack", () => {
     expect(await res.json()).toEqual({
       ok: true,
       applied: [
-        { channel: "/studio/general", seq: 3 },
+        { channel: "/studio#0042/general", seq: 3 },
         { channel: "/.dm/peer#0001", seq: 1 },
       ],
       failed: [],

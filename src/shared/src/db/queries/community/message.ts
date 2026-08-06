@@ -1,4 +1,4 @@
-import { eq, and, asc, desc, gt, lt, or, sql, inArray, isNotNull } from "drizzle-orm";
+import { eq, and, asc, desc, gt, lt, or, sql, inArray } from "drizzle-orm";
 import {
   communityMessage,
   communityChannel,

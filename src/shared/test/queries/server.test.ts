@@ -453,32 +453,26 @@ function createResolveServerMock(selectReturns: unknown[][]) {
   return { db, selectCalls };
 }
 
-describe("resolveServerByNameForMember — id / handle / bare-name entry", () => {
-  it("returns an id match without probing handle or name fallbacks", async () => {
-    const row = { id: "srv_1", name: "Studio", discriminator: "0042" };
-    const { db, selectCalls } = createResolveServerMock([[row]]);
-    await expect(serverQueries.resolveServerByNameForMember(db, "u_1", "srv_1")).resolves.toEqual([row]);
-    expect(selectCalls).toHaveLength(1);
-    expect(selectCalls[0]!.fields).toHaveProperty("discriminator");
+describe("resolveServerByNameForMember — handle-only entry", () => {
+  it("rejects a raw server id without querying", async () => {
+    const { db, selectCalls } = createResolveServerMock([]);
+    await expect(serverQueries.resolveServerByNameForMember(db, "u_1", "srv_1")).resolves.toEqual([]);
+    expect(selectCalls).toHaveLength(0);
   });
 
   it("recognizes four-digit and expanded name#discriminator handles", async () => {
     for (const handle of ["Studio#0042", "Studio#12345"]) {
       const row = { id: "srv_1", name: "Studio", discriminator: handle.split("#")[1] };
-      const { db, selectCalls } = createResolveServerMock([[], [row]]);
+      const { db, selectCalls } = createResolveServerMock([[row]]);
       await expect(serverQueries.resolveServerByNameForMember(db, "u_1", handle)).resolves.toEqual([row]);
-      expect(selectCalls).toHaveLength(2);
+      expect(selectCalls).toHaveLength(1);
     }
   });
 
-  it("preserves multiple bare-name rows so the caller can report ambiguity", async () => {
-    const matches = [
-      { id: "srv_1", name: "Studio", discriminator: "0042" },
-      { id: "srv_2", name: "Studio", discriminator: "12345" },
-    ];
-    const { db, selectCalls } = createResolveServerMock([[], matches]);
-    await expect(serverQueries.resolveServerByNameForMember(db, "u_1", "Studio")).resolves.toEqual(matches);
-    expect(selectCalls).toHaveLength(2);
+  it("rejects a bare name without probing a name fallback", async () => {
+    const { db, selectCalls } = createResolveServerMock([]);
+    await expect(serverQueries.resolveServerByNameForMember(db, "u_1", "Studio")).resolves.toEqual([]);
+    expect(selectCalls).toHaveLength(0);
   });
 
   it("pins member scoping, discriminator parsing, and index-aligned NOCASE lookup in the query source", () => {

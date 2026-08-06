@@ -95,7 +95,7 @@ describe("POST /api/community/channels/[id]/attachments — bot arm (folds attac
   })
 
   it("401 without Authorization", async () => {
-    const res = await POST(botReq("/studio/general"), botCtx)
+    const res = await POST(botReq("/studio#0042/general"), botCtx)
     expect(res.status).toBe(401)
   })
 
@@ -111,7 +111,7 @@ describe("POST /api/community/channels/[id]/attachments — bot arm (folds attac
     ])
     mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "srv_1", parentChannelId: null })
 
-    const res = await POST(botReq("/studio/general", { Authorization: "Bearer crk_abc" }), botCtx)
+    const res = await POST(botReq("/studio#0042/general", { Authorization: "Bearer crk_abc" }), botCtx)
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body).toEqual({
@@ -147,7 +147,7 @@ describe("POST /api/community/channels/[id]/attachments — bot arm (folds attac
     mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "srv_1", parentChannelId: null })
     mockCreatePendingAttachment.mockRejectedValueOnce(new Error("d1_transient"))
 
-    const res = await POST(botReq("/studio/general", { Authorization: "Bearer crk_abc" }), botCtx)
+    const res = await POST(botReq("/studio#0042/general", { Authorization: "Bearer crk_abc" }), botCtx)
     expect(res.status).toBe(500)
     expect(await res.json()).toEqual({ error: "internal error", code: "internal" })
     expect(mockR2Delete).toHaveBeenCalledWith("channel/c1/uuid/hi.png")
@@ -155,7 +155,7 @@ describe("POST /api/community/channels/[id]/attachments — bot arm (folds attac
 
   it("pre-R2 throw (resolveTargetForMember errors) → 500 JSON, R2 delete NOT called", async () => {
     mockResolveServerByNameForMember.mockRejectedValueOnce(new Error("d1_outage"))
-    const res = await POST(botReq("/studio/general", { Authorization: "Bearer crk_abc" }), botCtx)
+    const res = await POST(botReq("/studio#0042/general", { Authorization: "Bearer crk_abc" }), botCtx)
     expect(res.status).toBe(500)
     expect(await res.json()).toEqual({ error: "internal error", code: "internal" })
     expect(mockR2Delete).not.toHaveBeenCalled()
@@ -172,7 +172,7 @@ describe("POST /api/community/channels/[id]/attachments — bot arm (folds attac
       response: new Response(JSON.stringify({ error: "file too large" }), { status: 413 }),
     })
 
-    const res = await POST(botReq("/studio/general", { Authorization: "Bearer crk_abc" }), botCtx)
+    const res = await POST(botReq("/studio#0042/general", { Authorization: "Bearer crk_abc" }), botCtx)
     expect(res.status).toBe(413)
     expect(mockCreatePendingAttachment).not.toHaveBeenCalled()
   })

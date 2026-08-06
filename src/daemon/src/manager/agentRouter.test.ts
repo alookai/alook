@@ -114,11 +114,11 @@ describe("AgentRouter — agent:wake", () => {
       agentId: "a1",
       config: { version: 1, runtime: "mock", model: { kind: "default" }, mode: { kind: "default" } },
       launchId: "l1",
-      unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 7 },
+      unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 7 },
     });
 
     expect(registers).toEqual([{ agentId: "a1", sessionId: undefined, launchId: "l1" }]);
-    expect(delivers).toEqual([{ agentId: "a1", text: "You have unread messages in channel /demo/general.", seq: 7 }]);
+    expect(delivers).toEqual([{ agentId: "a1", text: "You have unread messages in channel /demo#1234/general.", seq: 7 }]);
     expect(wakeAcks).toEqual([{ agentId: "a1", launchId: "l1", status: "ok" }]);
   });
 
@@ -138,10 +138,10 @@ describe("AgentRouter — agent:wake", () => {
       agentId: "a1",
       config: { version: 1, runtime: "mock", model: { kind: "default" }, mode: { kind: "default" } },
       launchId: "l1",
-      unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 7 },
+      unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 7 },
     });
 
-    expect(delivers).toEqual([{ agentId: "a1", text: "custom: /demo/general#7", seq: 7 }]);
+    expect(delivers).toEqual([{ agentId: "a1", text: "custom: /demo#1234/general#7", seq: 7 }]);
   });
 
   it("repeated agent:wake commands for the same agent each register + deliver again (no dedup — no deliveryId anymore)", async () => {
@@ -155,7 +155,7 @@ describe("AgentRouter — agent:wake", () => {
       agentId: "a1",
       config: { version: 1, runtime: "mock", model: { kind: "default" }, mode: { kind: "default" } },
       launchId: "l1",
-      unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 7 },
+      unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 7 },
     };
     await fire(wake);
     await fire(wake);
@@ -178,7 +178,7 @@ describe("AgentRouter — agent:wake", () => {
       agentId: "a1",
       config: { version: 1, runtime: "mock", model: { kind: "default" }, mode: { kind: "default" } },
       launchId: "l1",
-      unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 7 },
+      unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 7 },
     });
 
     // Diagnostic surfaced (batch B), but the wire ack is still ok — reachability
@@ -199,7 +199,7 @@ describe("AgentRouter — agent:wake", () => {
       agentId: "a1",
       config: { version: 1, runtime: "mock", model: { kind: "default" }, mode: { kind: "default" } },
       launchId: "l1",
-      unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 7 },
+      unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 7 },
     });
 
     expect(logger.calls.info.some(([m]) => m === NO_EFFECT_DIAG)).toBe(false);
@@ -220,7 +220,7 @@ describe("AgentRouter — agent:wake", () => {
       agentId: "a1",
       config: { version: 1, runtime: "mock", model: { kind: "default" }, mode: { kind: "default" } },
       launchId: "l1",
-      unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 7 },
+      unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 7 },
     });
 
     expect(logger.calls.info.some(([m]) => m === NO_EFFECT_DIAG)).toBe(false);
@@ -528,7 +528,7 @@ describe("AgentRouter — unknown runtime → session.error", () => {
       agentId: "a1",
       config: { version: 1, runtime: "gemini", model: { kind: "default" }, mode: { kind: "default" } },
       launchId: "l1",
-      unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 1 },
+      unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 1 },
     });
 
     expect(sessionErrors.length).toBe(1);
@@ -728,12 +728,12 @@ describe("AgentRouter — logging", () => {
       agentId: "a1",
       config: { version: 1, runtime: "mock", model: { kind: "default" }, mode: { kind: "default" } },
       launchId: "l1",
-      unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 7 },
+      unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 7 },
     });
 
     expect(
       logger.calls.info.some(
-        ([m, d]) => m === "agent:wake received" && (d[0] as any).agentId === "a1" && (d[0] as any).channel === "/demo/general",
+        ([m, d]) => m === "agent:wake received" && (d[0] as any).agentId === "a1" && (d[0] as any).channel === "/demo#1234/general",
       ),
     ).toBe(true);
     expect(logger.calls.info.some(([m, d]) => m === "agent:wake ack" && (d[0] as any).status === "ok")).toBe(true);
@@ -759,7 +759,7 @@ describe("AgentRouter — logging", () => {
       agentId: "a1",
       config: { version: 1, runtime: "gemini", model: { kind: "default" }, mode: { kind: "default" } },
       launchId: "l1",
-      unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 1 },
+      unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 1 },
     });
 
     expect(logger.calls.info.some(([m, d]) => m === "agent:wake ack" && (d[0] as any).status === "error")).toBe(

@@ -195,37 +195,17 @@ export async function listUserServers(db: Database, userId: string) {
 }
 
 /**
- * Resolve a server by ID, unique handle, or bare name, scoped to servers
+ * Resolve a server by unique handle, scoped to servers
  * `userId` is a member of.
  * Returns an ARRAY — the caller decides what "ambiguous" means (0 = not
- * found/not a member, 1 = resolved, 2+ = ambiguous name — ids are always
- * unique so only the name-match branch can return >1). Used by
- * `resolveTargetForMember` (debt #5 — ambiguity is not a hard error, the
- * agent picks from a hint list).
+ * found/not a member, 1 = resolved). Bare names are not an address.
  */
 export async function resolveServerByNameForMember(
   db: Database,
   userId: string,
-  nameOrId: string
+  handleRef: string
 ) {
-  const rows = await db
-    .select({
-      id: communityServer.id,
-      name: communityServer.name,
-      discriminator: communityServer.discriminator,
-    })
-    .from(communityServer)
-    .innerJoin(
-      communityServerMember,
-      and(
-        eq(communityServerMember.serverId, communityServer.id),
-        eq(communityServerMember.userId, userId)
-      )
-    )
-    .where(eq(communityServer.id, nameOrId));
-  if (rows.length > 0) return rows;
-
-  const handle = parseNameAndTag(nameOrId);
+  const handle = parseNameAndTag(handleRef);
   if (handle) {
     return db
       .select({
@@ -249,21 +229,7 @@ export async function resolveServerByNameForMember(
       );
   }
 
-  return db
-    .select({
-      id: communityServer.id,
-      name: communityServer.name,
-      discriminator: communityServer.discriminator,
-    })
-    .from(communityServer)
-    .innerJoin(
-      communityServerMember,
-      and(
-        eq(communityServerMember.serverId, communityServer.id),
-        eq(communityServerMember.userId, userId)
-      )
-    )
-    .where(sql`${communityServer.name} COLLATE NOCASE = ${nameOrId}`);
+  return [];
 }
 
 export async function getServersByIds(db: Database, serverIds: string[]) {

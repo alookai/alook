@@ -6,10 +6,8 @@ import { parseNameAndTag, parseRef } from "@alook/shared"
  * a fresh fetch per ref. Scoped to whatever servers/channels the client
  * already has loaded.
  *
- * This file is used by `/c` UI only and MAY accept raw ids (message-ref
- * pill rendering, in-window navigation both round-trip channel ids). The
- * agent-facing resolver (`resolveChannelByNameForMember`) does NOT accept
- * ids — do not use this helper on agent code paths.
+ * This file is used by `/c` UI only. Real-server segments still obey the
+ * public ref contract and require a name#discriminator handle.
  */
 type ChannelRefDirectoryChannel = { id: string; name: string }
 export type ChannelRefDirectoryServer = {
@@ -29,16 +27,10 @@ export type ResolvedChannelRef = {
 
 /**
  * Resolve a raw `/server/channel` (or `/server/channel/#N`) ref string
- * against an already-fetched client-side directory. UI-only: tries id
- * first, then unique handle or unambiguous name — the id fallback exists here because pill links
- * and in-window navigation store raw channel ids. Purely in-memory (no
- * network call) and no ambiguity error. The agent-facing resolver accepts
- * ids, handles, and names through its member-scoped database path; this
- * in-memory helper must not be used on agent code paths.
- *
- * Server names aren't unique, so a duplicate bare name is unresolved rather
- * than silently selecting the first server. A `name#discriminator` handle is
- * exact and case-insensitive on name, matching the database unique index.
+ * against an already-fetched client-side directory. Server identity is an
+ * exact name#discriminator handle, case-insensitive on name, matching the
+ * database unique index. Channel ids remain accepted inside that resolved
+ * server for UI-internal navigation.
  *
  * Returns `null` on any miss (unknown server, unknown channel, or malformed
  * ref) — this is the false-positive guard the caller (`describeChannelRefPillView`)
@@ -74,8 +66,7 @@ export function resolveChannelRefBase(
 /**
  * Resolve a bare `/server` ref (one segment, no channel — `parseRef` throws
  * on this shape since it requires `/<server>/<channel>`) against the
- * already-fetched directory. UI-only: id, unique handle, then unambiguous
- * case-insensitive name. Not for agent code paths.
+ * already-fetched directory. Only a name#discriminator handle resolves.
  */
 export function resolveServerRefBase(
   directory: ChannelRefDirectory,
@@ -92,20 +83,12 @@ function resolveDirectoryServer(
   directory: ChannelRefDirectory,
   segment: string,
 ): ChannelRefDirectoryServer | null {
-  const byId = directory.find((server) => server.id === segment)
-  if (byId) return byId
-
   const handle = parseNameAndTag(segment)
-  if (handle) {
-    return directory.find((server) =>
-      asciiNoCase(server.name) === asciiNoCase(handle.name)
-      && server.discriminator === handle.discriminator
-    ) ?? null
-  }
-
-  const foldedSegment = asciiNoCase(segment)
-  const byName = directory.filter((server) => asciiNoCase(server.name) === foldedSegment)
-  return byName.length === 1 ? byName[0]! : null
+  if (!handle) return null
+  return directory.find((server) =>
+    asciiNoCase(server.name) === asciiNoCase(handle.name)
+    && server.discriminator === handle.discriminator
+  ) ?? null
 }
 
 function asciiNoCase(value: string): string {
