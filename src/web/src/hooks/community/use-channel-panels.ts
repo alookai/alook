@@ -43,8 +43,9 @@ type BatchMessage = {
 }
 type ParticipantRow = { channelId: string; userId: string; userName: string | null; userImage: string | null; addedAt: string }
 
-async function loadThreadResources(channelId: string) {
-  const { threads } = await apiFetch<{ threads: RawThread[] }>(`/api/community/channels/${channelId}/threads`)
+async function loadThreadResources(channelId: string, tag?: string | null) {
+  const query = tag ? `?tag=${encodeURIComponent(tag)}` : ""
+  const { threads } = await apiFetch<{ threads: RawThread[] }>(`/api/community/channels/${channelId}/threads${query}`)
   const openerIds = threads.map((thread) => thread.parentMessageId).filter((id): id is string => !!id)
   const threadIds = threads.map((thread) => thread.id)
   const [messageBatch, tagBatch, participantBatch] = await Promise.all([
@@ -105,8 +106,8 @@ export function useThreads(channelId: string | null): UseQueryResult<ThreadsResp
  */
 export type ForumThreadsResponse = { threads: ForumThread[] }
 
-export const forumThreadsQueryFn = (channelId: string) => async (): Promise<ForumThreadsResponse> => {
-  const data = await loadThreadResources(channelId)
+export const forumThreadsQueryFn = (channelId: string, tag?: string | null) => async (): Promise<ForumThreadsResponse> => {
+  const data = await loadThreadResources(channelId, tag)
   const openerMap = new Map(data.messages.map((message) => [message.id, message]))
   const firstMap = new Map(data.firstMessages.map((message) => [message.channelId, message]))
   const tagsByMessage = new Map<string, string[]>()
@@ -150,12 +151,13 @@ export const forumThreadsQueryFn = (channelId: string) => async (): Promise<Foru
 export function useForumThreads(
   channelId: string | null,
   isForum: boolean = true,
+  tag?: string | null,
 ): UseQueryResult<ForumThreadsResponse> & { threads: ForumThread[] } {
   const enabled = !!channelId && isForum
   const query = useQuery({
-    queryKey: enabled ? communityKeys.forumThreads(channelId!) : communityKeys.forumThreads("__none__"),
+    queryKey: enabled ? communityKeys.forumThreads(channelId!, tag) : communityKeys.forumThreads("__none__"),
     queryFn: enabled
-      ? forumThreadsQueryFn(channelId!)
+      ? forumThreadsQueryFn(channelId!, tag)
       : (() => Promise.reject(new Error("disabled"))),
     enabled,
   })

@@ -29,6 +29,8 @@ function render(posts: ForumThread[]): string {
       forumChannelId: "cha_forum",
       members: [],
       posts,
+      tag: "All",
+      onTagChange: () => {},
       onOpenPost: () => {},
     })
   )
@@ -45,6 +47,8 @@ function renderWithDelete(
       forumChannelId: "cha_forum",
       members: [],
       posts,
+      tag: "All",
+      onTagChange: () => {},
       onOpenPost: () => {},
       onDeletePost: () => {},
       canDeletePost: opts.canDeletePost ?? (() => true),
@@ -142,6 +146,12 @@ describe("ForumView filter bar / composer swap", () => {
     expect(html).toContain("New Post")
     // The composer's aria-label region only exists in composing mode.
     expect(html).not.toContain('aria-label="Create post"')
+  })
+
+  it("renders the server-query tag controls from the unfiltered result", () => {
+    const html = render([makePost({ tags: ["bug", "help"] })])
+    expect(html).toContain("#bug")
+    expect(html).toContain("#help")
   })
 })
 

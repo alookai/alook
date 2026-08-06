@@ -425,7 +425,12 @@ function ChannelView() {
   }, [latestSeq, readSnapshot])
 
   const { threads, isLoading: threadsLoading } = useThreads(channelId)
-  const { threads: forumThreads, isLoading: forumThreadsLoading } = useForumThreads(channelId, isForum)
+  const [forumTag, setForumTag] = useState("All")
+  const { threads: forumThreads, isLoading: forumThreadsLoading } = useForumThreads(
+    channelId,
+    isForum,
+    forumTag === "All" ? null : forumTag,
+  )
   const { pins: pinned, isLoading: pinnedLoading } = usePins(channelId)
   const notifs = useNotificationSettings()
   const channelNotif = notifs.channel
@@ -1264,6 +1269,8 @@ function ChannelView() {
             onSearchMembers={membersHook.searchMembers}
             posts={forumThreads}
             loading={forumThreadsLoading}
+            tag={forumTag}
+            onTagChange={setForumTag}
             onOpenPost={enterThread}
             onCreatePost={createForumThread}
             canEditPost={(post) => post.authorId === currentUser.id}

@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, MAX_FORUM_TAG_LENGTH } from "@alook/shared"
 import { requireChannelAccess } from "@/lib/community/permissions"
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
@@ -20,10 +20,20 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const archivedParam = req.nextUrl.searchParams.get("archived")
   const archived = archivedParam === "true" ? true : archivedParam === "false" ? false : undefined
 
-  const childChannels = await queries.communityChannel.listChildChannels(db, channelId, {
+  let childChannels = await queries.communityChannel.listChildChannels(db, channelId, {
     archived,
     type: "thread",
   })
+
+  const rawTag = req.nextUrl.searchParams.get("tag")
+  if (rawTag !== null) {
+    const tag = rawTag.trim().toLowerCase()
+    if (!tag) return writeError("tag is required", 400)
+    if (tag.length > MAX_FORUM_TAG_LENGTH) return writeError(`tag must be ≤ ${MAX_FORUM_TAG_LENGTH} characters`, 400)
+    const openerIds = childChannels.map((child) => child.parentMessageId).filter((id): id is string => !!id)
+    const matching = new Set(await queries.communityMessageTag.filterMessageIdsByTag(db, openerIds, tag))
+    childChannels = childChannels.filter((child) => !!child.parentMessageId && matching.has(child.parentMessageId))
+  }
 
   // Plain nested collection representation. View-specific parent previews,
   // first messages, tags, participants, and creator presentation are composed

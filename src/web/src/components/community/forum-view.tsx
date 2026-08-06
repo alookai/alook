@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { MessagesSquare, ListChevronsUpDown, Pencil, Plus, Tag, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { formatRelativeTime } from "./format-time"
@@ -28,7 +28,7 @@ export function ForumView({
   forumChannelId,
   members,
   onSearchMembers,
-  posts, loading, onOpenPost, onCreatePost, onEditPost, canEditPost, onEditPostTags, canEditPostTags, savingTagsFor,
+  posts, loading, tag, onTagChange, onOpenPost, onCreatePost, onEditPost, canEditPost, onEditPostTags, canEditPostTags, savingTagsFor,
   onDeletePost, canDeletePost, deletingPost,
 }: {
   forumChannelId: string
@@ -36,6 +36,8 @@ export function ForumView({
   onSearchMembers?: (query: string) => void
   posts: ForumThread[]
   loading?: boolean
+  tag: string
+  onTagChange: (tag: string) => void
   onOpenPost: (id: string) => void
   // Async — page owns the mutation + `enterThread` navigation and either
   // resolves or rejects. `CreateForumThread` catches rejection to toast and
@@ -56,7 +58,6 @@ export function ForumView({
   // The post id whose delete is in flight, if any.
   deletingPost?: string | null
 }) {
-  const [tag, setTag] = useState("All")
   const [composing, setComposing] = useState(false)
   const [editingTagsFor, setEditingTagsFor] = useState<ForumThread | null>(null)
   const [deletingFor, setDeletingFor] = useState<ForumThread | null>(null)
@@ -64,9 +65,10 @@ export function ForumView({
 
   // Deduped union of every post's tags — the forum's tag list is derived, not
   // stored. Only rendered when non-empty.
-  const allTags = [...new Set(posts.flatMap((p) => p.tags))].sort()
-
-  const filtered = tag === "All" ? posts : posts.filter((p) => p.tags.includes(tag))
+  const [allTags, setAllTags] = useState<string[]>(() => [...new Set(posts.flatMap((p) => p.tags))].sort())
+  useEffect(() => {
+    if (tag === "All") setAllTags([...new Set(posts.flatMap((p) => p.tags))].sort())
+  }, [posts, tag])
 
   const closeCompose = () => {
     setComposing(false)
@@ -97,14 +99,14 @@ export function ForumView({
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
             {allTags.length > 0 && (
               <>
-                <Badge variant={tag === "All" ? "default" : "secondary"} className="shrink-0 cursor-pointer" render={<button onClick={() => setTag("All")} />}>All</Badge>
+                <Badge variant={tag === "All" ? "default" : "secondary"} className="shrink-0 cursor-pointer" render={<button onClick={() => onTagChange("All")} />}>All</Badge>
                 {allTags.map((t) => (
                   <Badge
                     key={t}
                     variant={tag === t ? "default" : "secondary"}
                     className="shrink-0 cursor-pointer"
                     data-testid={tid.forumTagChip(t)}
-                    render={<button onClick={() => setTag(t)} />}
+                    render={<button onClick={() => onTagChange(t)} />}
                   >
                     {`#${t}`}
                   </Badge>
@@ -121,11 +123,11 @@ export function ForumView({
       <main className="flex-1 overflow-y-auto thin-scrollbar p-4">
         {loading && posts.length === 0 ? (
           <ForumListSkeleton />
-        ) : filtered.length === 0 ? (
+        ) : posts.length === 0 ? (
           <EmptyState icon={ListChevronsUpDown} label="No posts with this tag yet. Start one with New Post." />
         ) : (
           <div className="flex flex-col gap-3">
-            {filtered.map((p) => {
+            {posts.map((p) => {
               const canEdit = !!onEditPostTags && (canEditPostTags?.(p) ?? false)
               const canEditContent = !!onEditPost && (canEditPost?.(p) ?? false)
               const canDelete = !!onDeletePost && (canDeletePost?.(p) ?? false)

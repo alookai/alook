@@ -63,6 +63,19 @@ describe("useForumThreads / forumThreadsQueryFn", () => {
     await qc.fetchQuery({ queryKey: key, queryFn: forumThreadsQueryFn("ch_1") })
     expect(qc.getQueryData(key)).toEqual({ threads: [] })
   })
+
+  it("sends tag filtering to the server and isolates the filtered cache key", async () => {
+    apiFetchMock.mockResolvedValueOnce({ threads: [] })
+      .mockResolvedValueOnce({ messages: [], firstMessages: [] })
+      .mockResolvedValueOnce({ tags: [] })
+      .mockResolvedValueOnce({ participants: [] })
+    const { forumThreadsQueryFn } = await import("./use-channel-panels")
+    const qc = new QueryClient()
+    const key = communityKeys.forumThreads("ch_1", "bug")
+    await qc.fetchQuery({ queryKey: key, queryFn: forumThreadsQueryFn("ch_1", "bug") })
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/ch_1/threads?tag=bug")
+    expect(qc.getQueryData(key)).toEqual({ threads: [] })
+  })
 })
 
 describe("usePins / pinsQueryFn", () => {

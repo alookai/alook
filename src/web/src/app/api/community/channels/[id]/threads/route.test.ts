@@ -15,6 +15,7 @@ const mockGetFirstMessageByChannelIds = vi.fn()
 const mockGetMessage = vi.fn()
 const mockGetUser = vi.fn()
 const mockListMessages = vi.fn()
+const mockFilterMessageIdsByTag = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
@@ -36,6 +37,9 @@ vi.mock("@alook/shared", async () => {
         getMessagesByIds: (...a: unknown[]) => mockGetMessagesByIds(...a),
         getFirstMessageByChannelIds: (...a: unknown[]) => mockGetFirstMessageByChannelIds(...a),
         listMessages: (...a: unknown[]) => mockListMessages(...a),
+      },
+      communityMessageTag: {
+        filterMessageIdsByTag: (...a: unknown[]) => mockFilterMessageIdsByTag(...a),
       },
       user: {
         getUser: (...a: unknown[]) => mockGetUser(...a),
@@ -138,5 +142,26 @@ describe("GET /api/community/channels/[id]/threads", () => {
     expect(mockGetMessage).not.toHaveBeenCalled()
     expect(mockGetUser).not.toHaveBeenCalled()
     expect(mockListMessages).not.toHaveBeenCalled()
+  })
+
+  it("filters only the scoped child opener candidates for a normalized tag", async () => {
+    mockListChildChannels.mockResolvedValue([
+      { id: "post_1", parentMessageId: "opener_1" },
+      { id: "post_2", parentMessageId: "opener_2" },
+      { id: "plain_thread", parentMessageId: null },
+    ])
+    mockFilterMessageIdsByTag.mockResolvedValue(["opener_2"])
+
+    const res = await GET(req("http://localhost/api/community/channels/c1/threads?tag=%20BUG%20"), ctx)
+    expect(res.status).toBe(200)
+    expect(mockFilterMessageIdsByTag).toHaveBeenCalledWith(expect.anything(), ["opener_1", "opener_2"], "bug")
+    expect((await res.json()).threads).toEqual([{ id: "post_2", parentMessageId: "opener_2" }])
+  })
+
+  it("rejects an empty tag before querying message_tags", async () => {
+    mockListChildChannels.mockResolvedValue([])
+    const res = await GET(req("http://localhost/api/community/channels/c1/threads?tag=%20%20"), ctx)
+    expect(res.status).toBe(400)
+    expect(mockFilterMessageIdsByTag).not.toHaveBeenCalled()
   })
 })

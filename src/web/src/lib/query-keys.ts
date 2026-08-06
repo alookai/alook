@@ -67,8 +67,8 @@ export const communityKeys = {
     [...communityKeys.all, "channel", channelId, "pins"] as const,
   threads: (channelId: string) =>
     [...communityKeys.all, "channel", channelId, "threads"] as const,
-  forumThreads: (channelId: string) =>
-    [...communityKeys.all, "channel", channelId, "forum-threads"] as const,
+  forumThreads: (channelId: string, tag?: string | null) =>
+    [...communityKeys.all, "channel", channelId, "forum-threads", ...(tag ? [tag] : [])] as const,
   // #3: the viewer's `communityReadState` row for a single channel, fetched
   // once per channel mount and frozen thereafter so the "New" divider stays
   // anchored while the watermark advances.

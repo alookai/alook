@@ -66,6 +66,13 @@ describe("communityKeys", () => {
       "c1",
       "forum-threads",
     ])
+    expect(communityKeys.forumThreads("c1", "bug")).toEqual([
+      "community",
+      "channel",
+      "c1",
+      "forum-threads",
+      "bug",
+    ])
   })
 
   it("nests DM-scoped keys under a stable DM prefix", () => {
