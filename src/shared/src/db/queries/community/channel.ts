@@ -40,6 +40,7 @@ const CHANNEL_COLUMNS = {
   serverId: communityChannel.serverId,
   categoryId: communityChannel.categoryId,
   name: communityChannel.name,
+  displayTitle: communityChannel.displayTitle,
   type: communityChannel.type,
   topic: communityChannel.topic,
   position: communityChannel.position,

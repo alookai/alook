@@ -293,40 +293,72 @@ export async function createThreadForUser(
   return { ok: true, value: childChannel }
 }
 
+type CreateMessageSuccess = Extract<Awaited<ReturnType<typeof createCommunityMessage>>, { ok: true }>
+
 export type CreateMessageWithThreadResult =
-  | { ok: true; message: Extract<Awaited<ReturnType<typeof createCommunityMessage>>, { ok: true }>["row"]; attachments: Extract<Awaited<ReturnType<typeof createCommunityMessage>>, { ok: true }>["attachments"]; thread: Awaited<ReturnType<typeof queries.communityChannel.createChannel>> }
+  | { ok: true; message: CreateMessageSuccess["row"]; attachments: CreateMessageSuccess["attachments"]; thread: Awaited<ReturnType<typeof queries.communityChannel.createChannel>>; reply: CreateMessageSuccess["row"] | null }
   | { ok: false; status: number; error: string }
 
 /**
- * Atomic-by-compensation "message + thread" primitive (phase2 forum≡thread,
- * step 1). D1's `batch()` can't feed one statement's `.returning()` into a
- * later statement's `.values()` in the SAME batch (the same limitation
- * `createMessage`'s seq-claim comment documents) — the thread's
- * `parentMessageId` needs the just-inserted message's id, so a true single-
- * batch fusion isn't possible. All-or-nothing is enforced by SYNCHRONOUS
- * compensating rollback instead (the same precedent `createCommunityMessage`
- * already uses for a failed attachment reserve: insert message → try the
- * dependent step → on failure, `hardDeleteMessage` the message so no
- * message-without-its-thread is ever left committed).
+ * Atomic-by-compensation "message + thread [+ reply]" primitive (phase2
+ * forum≡thread, step 1). D1's `batch()` can't feed one statement's
+ * `.returning()` into a later statement's `.values()` in the SAME batch (the
+ * same limitation `createMessage`'s seq-claim comment documents) — the
+ * thread's `parentMessageId` needs the just-inserted message's id, so a true
+ * single-batch fusion isn't possible. All-or-nothing is enforced by
+ * SYNCHRONOUS compensating rollback instead (the same precedent
+ * `createCommunityMessage` already uses for a failed attachment reserve:
+ * insert, try the dependent step, and on failure clean up so no
+ * partially-built structure is ever left committed).
  *
+ * A "post" is NOT a distinct concept from a "thread" (forum≡thread, Gener
+ * #711: "the only difference is a thread under a forum used to be a post,
+ * and it has zero difference from any other thread"). So there is no
+ * title/body split at the schema level — the opener message's `body.content`
+ * IS the unit's addressable content, exactly like opening a thread on any
+ * other message. The optional `replyBody` param exists ONLY because a forum
+ * post's create FORM collects two pieces of text (title + body) in one
+ * submission — when present, this function's SECOND step sends it as the
+ * thread's first reply via the exact same `createCommunityMessage` path any
+ * later reply uses (`target: {kind:"thread", ...}` — zero new send logic).
  * The opener message lands in the PARENT channel (not the thread itself) —
- * same model `createThreadForUser` uses today. The thread is opened
- * get-or-create on that message's id, reusing the identical
- * `createWithCollisionPolicy(channelCreation("thread"))` + fresh-create-only
- * participant-seed logic as `createThreadForUser`, so a post's thread and an
- * explicit reply-thread converge on one code path.
+ * same model `createThreadForUser` uses today.
+ *
+ * ⚠ The reply step is INSIDE this function's compensation chain, not left to
+ * the caller — leaving it to the caller re-opens exactly the non-atomicity
+ * gap this primitive exists to close (opener+thread succeed, reply fails =
+ * a half-built post, the same class of bug `create-forum-post.ts`'s own
+ * "orphan-avoidance tracked hardening follow-up" comment already confesses,
+ * just moved from "channel with no message" to "thread with no reply" —
+ * Simone #716 / Melly #718 red-line: a half-built post is never acceptable,
+ * full stop). If the reply fails, the ENTIRE structure unwinds: `deleteChannel`
+ * on the thread (FK-cascades away any reply that DID land) + `hardDeleteMessage`
+ * on the opener — never leave a thread-with-no-reply OR an opener-with-no-
+ * thread standing.
+ *
+ * The thread opens get-or-create on the opener message's id, reusing the
+ * identical `createWithCollisionPolicy(channelCreation("thread"))` +
+ * fresh-create-only participant-seed logic as `createThreadForUser`, so a
+ * post's thread and an explicit reply-thread converge on one code path.
  *
  * Two independent WS suppress switches, because they gate two UNRELATED
- * broadcasts: `suppressBroadcast` passes straight through to
- * `createCommunityMessage` (silences the message's own MESSAGE_CREATE/notify/
- * wake/CHILD_CHANNEL_UPDATE); `suppressThreadFanout` silences ONLY this
- * function's own unconditional `CHILD_CHANNEL_CREATE` for the newly-opened
- * thread channel (a message-side suppress does NOT reach it — they are two
- * different fan-out calls). Neither switch touches `addThreadParticipants`
- * (enroll) — the structural core always runs, only delivery is gated
- * (enroll-vs-WS split, same principle as `suppressBroadcast`'s own doc).
- * Real-time callers (the send-fold) pass neither; migration backfill passes
- * both `true`.
+ * broadcasts: `suppressBroadcast` passes straight through to BOTH
+ * `createCommunityMessage` calls (opener AND reply — silences each one's own
+ * MESSAGE_CREATE/notify/wake/CHILD_CHANNEL_UPDATE); `suppressThreadFanout`
+ * silences ONLY this function's own unconditional `CHILD_CHANNEL_CREATE` for
+ * the newly-opened thread channel (a message-side suppress does NOT reach it
+ * — they are different fan-out calls). Neither switch touches
+ * `addThreadParticipants` (enroll) — the structural core always runs, only
+ * delivery is gated (enroll-vs-WS split, same principle as
+ * `suppressBroadcast`'s own doc). Real-time callers (the send-fold) pass
+ * neither; migration backfill passes both `true`.
+ *
+ * `replyBody` is OPTIONAL — the existing-data migration's M=0 orphan case
+ * (a historical forum_post channel with zero messages) omits it: the
+ * migration produces exactly ONE message (the opener, carrying the old
+ * `display_title` as its content) + an empty thread, which is a completely
+ * ordinary state (any message can open a thread nobody's replied to yet) —
+ * no synthesized-placeholder special case needed.
  */
 export async function createMessageWithThread(params: {
   db: Database
@@ -334,6 +366,7 @@ export async function createMessageWithThread(params: {
   parentChannelId: string
   serverId: string
   body: IncomingMessageBody
+  replyBody?: IncomingMessageBody
   threadName?: string
   suppressBroadcast?: boolean
   suppressThreadFanout?: boolean
@@ -427,5 +460,37 @@ export async function createMessageWithThread(params: {
     }
   }
 
-  return { ok: true, message: created.row, attachments: created.attachments, thread: childChannel }
+  if (!params.replyBody) {
+    return { ok: true, message: created.row, attachments: created.attachments, thread: childChannel, reply: null }
+  }
+
+  // Reply step (opener+title's paired body text). Same target shape ANY reply
+  // into this thread would use — zero new send logic. On failure, unwind the
+  // WHOLE structure: delete the thread (FK-cascades away a partially-inserted
+  // reply, if any) + hard-delete the opener — never leave a thread-with-no-
+  // reply OR an opener-with-no-thread standing (Simone #716 / Melly #718).
+  const reply = await createCommunityMessage({
+    db,
+    authorId,
+    target: { kind: "thread", channelId: childChannel.id, parentChannelId, serverId },
+    body: params.replyBody,
+    source: params.source,
+    suppressBroadcast: params.suppressBroadcast,
+  })
+  if (!reply.ok) {
+    try {
+      await queries.communityChannel.deleteChannel(db, childChannel.id)
+      await queries.communityMessage.hardDeleteMessage(db, messageId)
+    } catch (rollbackErr) {
+      log.error("reply_body_rollback_failed", {
+        messageId,
+        threadId: childChannel.id,
+        replyErr: reply.error,
+        rollbackErr: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+      })
+    }
+    return { ok: false, status: reply.status, error: reply.error }
+  }
+
+  return { ok: true, message: created.row, attachments: created.attachments, thread: childChannel, reply: reply.row }
 }
