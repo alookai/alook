@@ -19,8 +19,6 @@ import { tid } from "./testids"
 export async function createServer(page: Page, name: string, opts?: { autoDialog?: boolean }): Promise<string> {
   if (!opts?.autoDialog) {
     await page.getByTestId(tid.serverAdd).click()
-    // Choose "Create a server" in the choose step.
-    await page.getByRole("button", { name: "Create a server" }).click()
   }
   await page.getByLabel("Server name").fill(name)
   await page.getByTestId(tid.createServerSubmit).click()

@@ -24,7 +24,7 @@ import {
 
 export const ServerRail = memo(function ServerRail({
   servers, folders, activeServerId: activeServerIdProp, serversLoading, setMobileZone, view, bottomInset,
-  onHome, onServer, onServerNavigate, onCreateServer, onJoinServer, onLeaveServer,
+  onHome, onServer, onServerNavigate, onCreateServer, onLeaveServer,
   onOpenSettings, onOpenInvitePopover, onUngroupFolder, onReorderRail, onReorderFolders, onFolderItemsChange, onDragCreateFolder,
 }: {
   servers: Server[]
@@ -38,7 +38,6 @@ export const ServerRail = memo(function ServerRail({
   onServer: () => void
   onServerNavigate?: (id: string) => void
   onCreateServer?: (name: string, icon?: File) => void
-  onJoinServer?: (invite: string) => void
   onLeaveServer?: (id: string) => void
   onOpenSettings?: (serverId: string) => void
   onOpenInvitePopover?: (serverId: string) => void
@@ -72,7 +71,6 @@ export const ServerRail = memo(function ServerRail({
   useEffect(() => { if (activeFromProps) setActiveId(activeFromProps) }, [activeFromProps])
 
   const [createOpen, setCreateOpen] = useState(false)
-  const [guidedCreate, setGuidedCreate] = useState(false)
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
   const pickServer = (id: string) => { setActiveId(id); onServer(); onServerNavigate?.(id); setMobileZone?.("nav") }
@@ -247,7 +245,6 @@ export const ServerRail = memo(function ServerRail({
         onboardingTarget="add-server"
         onClick={() => {
           const guided = isCommunityOnboardingStage("server")
-          setGuidedCreate(guided)
           setCreateOpen(true)
           if (guided) completeCommunityOnboarding()
         }}
@@ -256,9 +253,7 @@ export const ServerRail = memo(function ServerRail({
       {createOpen && (
         <CreateServerDialog
           onClose={() => setCreateOpen(false)}
-          initialStep={guidedCreate ? "create" : "choose"}
           onCreateServer={(name, icon) => { onCreateServer?.(name, icon) }}
-          onJoinServer={(invite) => { onJoinServer?.(invite) }}
         />
       )}
     </nav>

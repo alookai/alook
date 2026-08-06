@@ -41,7 +41,6 @@ import { useInboxAutoCollapse } from "@/hooks/community/use-inbox-auto-collapse"
 import { useCommunityOnboarding } from "@/lib/community-onboarding"
 import {
   useCreateServer,
-  useJoinServer,
   useLeaveServer,
   useUploadServerIcon,
   useDeleteServerFolder,
@@ -142,7 +141,6 @@ export function ShellFrame({
   // re-rendering the whole shell (children included) on any shell re-render.
   // Mirrors the message-side fix (see page.tsx messageActions deps note).
   const { mutateAsync: createServerAsync } = useCreateServer()
-  const { mutateAsync: joinServerAsync } = useJoinServer()
   const { mutate: leaveServerMutate } = useLeaveServer()
   const { mutate: uploadServerIconMutate } = useUploadServerIcon()
   const { mutate: deleteFolderMutate } = useDeleteServerFolder()
@@ -208,18 +206,6 @@ export function ShellFrame({
       }
     },
     [createServerAsync, uploadServerIconMutate, router],
-  )
-  const onRailJoinServer = useCallback(
-    async (invite: string) => {
-      try {
-        const data = await joinServerAsync({ inviteCode: invite })
-        toast("Joined server")
-        router.push(`/c/channels/${data.serverId}`)
-      } catch (e) {
-        toastApiError(e, "Failed to join server")
-      }
-    },
-    [joinServerAsync, router],
   )
   const onRailLeaveServer = useCallback(
     (id: string) => {
@@ -315,7 +301,6 @@ export function ShellFrame({
     onServer: goServer,
     onServerNavigate: onRailServerNavigate,
     onCreateServer: onRailCreateServer,
-    onJoinServer: onRailJoinServer,
     onLeaveServer: onRailLeaveServer,
     onOpenSettings: onRailOpenSettings,
     onOpenInvitePopover: onRailOpenInvitePopover,

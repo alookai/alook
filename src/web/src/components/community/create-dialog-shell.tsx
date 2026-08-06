@@ -11,10 +11,8 @@ import { cn } from "@/lib/utils"
 // breadcrumb header, and the floating (borderless) footer. Body + footer
 // content are passed in; the shell only owns the frame.
 //
-// `title` is usually the quiet breadcrumb ("New channel in DEV"); pass
-// `mutedTitle={false}` for a full-weight heading (create-server's "choose"
-// step). `footerClassName` lets create-server switch to `justify-between`
-// (Back + action) instead of the default right-aligned actions.
+// `title` is usually the quiet breadcrumb ("New channel in DEV"). Callers can
+// opt into a full-weight heading or a different footer alignment when needed.
 export function CreateDialogShell({
   open = true,
   onClose,
@@ -28,7 +26,7 @@ export function CreateDialogShell({
   onClose: () => void
   title: React.ReactNode
   mutedTitle?: boolean
-  // Omit for a footerless dialog (e.g. create-server's "choose" step).
+  // Omit for a footerless dialog.
   footer?: React.ReactNode
   footerClassName?: string
   children: React.ReactNode
