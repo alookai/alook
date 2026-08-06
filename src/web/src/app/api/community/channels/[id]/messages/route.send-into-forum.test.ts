@@ -7,6 +7,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 
 const mockCreateMessageWithThread = vi.fn()
 const mockFindPendingAttachmentsForSender = vi.fn()
+const mockGetMessageByAuthorAndNonce = vi.fn()
 const mockResolveTargetForMember = vi.fn()
 const mockRequireMessageSurfaceAccess = vi.fn()
 
@@ -25,6 +26,10 @@ vi.mock("@alook/shared", async () => {
       communityAgentInbox: {
         ...actual.queries.communityAgentInbox,
         toAgentMessage: vi.fn(async (_db, row) => ({ id: row.id, content: row.content, seq: row.seq ?? 1 })),
+      },
+      communityMessage: {
+        ...actual.queries.communityMessage,
+        getMessageByAuthorAndNonce: (...a: unknown[]) => mockGetMessageByAuthorAndNonce(...a),
       },
     },
   }
@@ -83,6 +88,7 @@ function botReq(body: unknown) {
 describe("POST /api/community/channels/[id]/messages — send into a forum opens a thread (phase2 forum≡thread, folds createPost)", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetMessageByAuthorAndNonce.mockResolvedValue(null)
   })
 
   function mockForumTarget() {
@@ -231,6 +237,48 @@ describe("POST /api/community/channels/[id]/messages — send into a forum opens
 
     expect(res.status).toBe(400)
     expect(mockCreateMessageWithThread).not.toHaveBeenCalled()
+  })
+
+  it("same-nonce attachment replay skips the consumed-pending check and returns the original reply", async () => {
+    mockForumTarget()
+    mockGetMessageByAuthorAndNonce
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: "msg_1", channelId: "c1" })
+    mockFindPendingAttachmentsForSender
+      .mockResolvedValueOnce([{ id: "att_1" }])
+      .mockResolvedValueOnce([])
+    mockCreateMessageWithThread
+      .mockResolvedValueOnce({
+        ok: true,
+        message: { id: "msg_1", content: "Title", seq: 5 },
+        attachments: [],
+        thread: { id: "th_1" },
+        reply: { id: "msg_2", content: "Body", seq: 1 },
+        replyAttachments: [{ id: "att_1", filename: "x.png", contentType: "image/png", size: 10 }],
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        deduped: true,
+        message: { id: "msg_1", content: "Title", seq: 5 },
+        attachments: [],
+        thread: { id: "th_1" },
+        reply: { id: "msg_2", content: "Body", seq: 1 },
+        replyAttachments: [{ id: "att_1", filename: "x.png", contentType: "image/png", size: 10 }],
+      })
+
+    const body = { channel: "/demo/forum1", content: { text: "Title" }, replyContent: "Body", attachments: ["att_1"], nonce: "n1" }
+    const first = await POST(botReq(body), ctxResolve)
+    const replay = await POST(botReq(body), ctxResolve)
+
+    expect(first.status).toBe(200)
+    expect(replay.status).toBe(200)
+    expect(await replay.json()).toEqual(expect.objectContaining({
+      deduped: true,
+      threadId: "th_1",
+      reply: expect.objectContaining({ id: "msg_2", seq: 1 }),
+    }))
+    expect(mockFindPendingAttachmentsForSender).toHaveBeenCalledTimes(1)
+    expect(mockCreateMessageWithThread).toHaveBeenCalledTimes(2)
   })
 
   it("does NOT run the alignment/hasUnread gate — a fresh thread-open is a new scope with no seq contention", async () => {

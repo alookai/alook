@@ -7,7 +7,8 @@ const mockHardDeleteMessage = vi.fn()
 const mockAddThreadParticipants = vi.fn()
 const mockFanOutToChannel = vi.fn()
 const mockDeleteChannel = vi.fn()
-const mockListMessages = vi.fn()
+const mockGetMessageByChannelAndSeq = vi.fn()
+const mockGetMessage = vi.fn()
 const mockListMessageAttachments = vi.fn()
 
 vi.mock("@/lib/community/message-handler", () => ({
@@ -34,7 +35,8 @@ vi.mock("@alook/shared", async () => {
       communityMessage: {
         ...actual.queries.communityMessage,
         hardDeleteMessage: (...a: unknown[]) => mockHardDeleteMessage(...a),
-        listMessages: (...a: unknown[]) => mockListMessages(...a),
+        getMessageByChannelAndSeq: (...a: unknown[]) => mockGetMessageByChannelAndSeq(...a),
+        getMessage: (...a: unknown[]) => mockGetMessage(...a),
       },
       communityAttachment: {
         ...actual.queries.communityAttachment,
@@ -182,9 +184,12 @@ describe("createMessageWithThread (phase2 forum≡thread — atomic-by-compensat
     mockGetThreadChannelByParentMessage.mockResolvedValue({
       id: "th_1", creatorId: "u1", createdAt: "t0", name: "Title",
     })
-    mockListMessages.mockResolvedValue([
+    mockGetMessageByChannelAndSeq.mockResolvedValue(
       { id: "msg_2", content: "Body", channelId: "th_1", seq: 1 },
-    ])
+    )
+    mockGetMessage.mockResolvedValue(
+      { id: "msg_2", content: "Body", channelId: "th_1", seq: 1 },
+    )
     mockListMessageAttachments.mockResolvedValue([])
 
     const res = await createMessageWithThread({
@@ -207,6 +212,12 @@ describe("createMessageWithThread (phase2 forum≡thread — atomic-by-compensat
     expect(mockCreateChannel).not.toHaveBeenCalled()
     expect(mockAddThreadParticipants).not.toHaveBeenCalled()
     expect(mockFanOutToChannel).not.toHaveBeenCalled()
+    expect(mockGetMessageByChannelAndSeq).toHaveBeenCalledWith(
+      expect.anything(),
+      { channelId: "th_1" },
+      1,
+    )
+    expect(mockGetMessage).toHaveBeenCalledWith(expect.anything(), "msg_2")
   })
 
   it("returns the message-handler's error verbatim without touching the thread path at all", async () => {

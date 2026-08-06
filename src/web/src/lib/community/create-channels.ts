@@ -410,11 +410,11 @@ export async function createMessageWithThread(params: {
       messageId,
     )
     if (!thread) throw new Error("deduped forum opener is missing its thread")
-    const reply = params.replyBody
-      ? (await queries.communityMessage.listMessages(db, {
-          channelId: thread.id,
-          limit: 1,
-        }))[0] ?? null
+    const replyAtSeqOne = params.replyBody
+      ? await queries.communityMessage.getMessageByChannelAndSeq(db, { channelId: thread.id }, 1)
+      : null
+    const reply = replyAtSeqOne
+      ? await queries.communityMessage.getMessage(db, replyAtSeqOne.id)
       : null
     if (params.replyBody && !reply) {
       throw new Error("deduped forum opener is missing its first reply")

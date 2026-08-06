@@ -313,7 +313,20 @@ async function handleBotSend(
     ) {
       return NextResponse.json({ error: "replyContent is required when sending into a forum" }, { status: 400 })
     }
-    if (body.attachments.length > 0) {
+    // A same-nonce replay must reach createMessageWithThread's dedupe hydrate
+    // even after the first send consumed its pending attachments. Scope the
+    // probe to this resolved forum so a nonce used elsewhere cannot bypass
+    // the confused-deputy attachment check below.
+    const forumNonce = body.nonce
+    const existingForumOpener = forumNonce
+      ? await withD1Retry(
+          () => queries.communityMessage.getMessageByAuthorAndNonce(db, botUserId, forumNonce),
+          { route: "community/messages:post-nonce-precheck" },
+        )
+      : null
+    const isForumReplay = existingForumOpener?.channelId === channelId
+
+    if (!isForumReplay && body.attachments.length > 0) {
       const rows = await withD1Retry(
         () => queries.communityAttachment.findPendingAttachmentsForSender(db, { ids: body.attachments, uploaderId: botUserId, targetId: channelId }),
         { route: "community/messages:post-attachments" },
