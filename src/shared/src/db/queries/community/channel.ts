@@ -73,9 +73,6 @@ export async function createChannel(
     parentChannelId?: string | null;
     creatorId?: string | null;
     parentMessageId?: string | null;
-    // Display-only pre-slugify original title (forum_post CREATE only). Absent
-    // for every other create path — leaves the column null.
-    displayTitle?: string | null;
   }
 ) {
   const rows = await db
@@ -89,7 +86,6 @@ export async function createChannel(
       parentChannelId: data.parentChannelId ?? null,
       creatorId: data.creatorId ?? null,
       parentMessageId: data.parentMessageId ?? null,
-      displayTitle: data.displayTitle ?? null,
     })
     .returning();
   return rows[0]!;
