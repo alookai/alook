@@ -187,12 +187,16 @@ describe("createProxyServerApi — createPost (folded into the canonical message
     const seen: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
       seen.push({ url, init });
-      return jsonBody(JSON.stringify({
-        state: "sent",
-        message: { seq: "#12", channel: "/demo/forum", content: { text: "Title" } },
-        reply: { seq: "#1", channel: "/demo/forum/#12", content: { text: "Body" } },
-        threadId: "thread_1",
-      }));
+      return seen.length === 1
+        ? jsonBody(JSON.stringify({
+            state: "sent",
+            message: { seq: "#12", channel: "/demo/forum", content: { text: "Title" } },
+            threadId: "thread_1",
+          }))
+        : jsonBody(JSON.stringify({
+            state: "sent",
+            message: { seq: "#1", channel: "/demo/forum/#12", content: { text: "Body" } },
+          }));
     });
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
     const out = await api.createPost({
@@ -209,9 +213,14 @@ describe("createProxyServerApi — createPost (folded into the canonical message
     expect(JSON.parse(String(seen[0].init?.body))).toEqual({
       channel: "/demo/forum",
       content: { text: "Title" },
-      replyContent: "Body",
       attachments: ["att_1"],
-      nonce: "nonce_1",
+      nonce: "nonce_1:opener",
+    });
+    expect(JSON.parse(String(seen[1].init?.body))).toEqual({
+      channel: "/demo/forum/#12",
+      content: { text: "Body" },
+      attachments: ["att_1"],
+      nonce: "nonce_1:reply",
     });
     expect(out).toEqual({ ref: "/demo/forum/#12", name: "Title", seq: 1 });
   });

@@ -1140,7 +1140,7 @@ describe("useCommunityWs — machines", () => {
 })
 
 describe("useCommunityWs — child channel events", () => {
-  it("child_create invalidates threads + forumPosts", async () => {
+  it("child_create invalidates threads + forumThreads", async () => {
     await mountHook()
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     const event: CommunityChildChannelCreate = {
@@ -1156,7 +1156,7 @@ describe("useCommunityWs — child channel events", () => {
     capturedOnMessage!(event)
     const keys = spy.mock.calls.map((c) => c[0]?.queryKey as unknown[])
     expect(keys.some((k) => k?.includes("threads"))).toBe(true)
-    expect(keys.some((k) => k?.includes("posts"))).toBe(true)
+    expect(keys.some((k) => k?.includes("forum-threads"))).toBe(true)
   })
 })
 
@@ -1275,7 +1275,7 @@ describe("useCommunityWs — non-community events bail", () => {
 
 // ── Regression #3 — channel.delete evicts channel-scoped caches ─────────
 describe("useCommunityWs — channel.delete evicts channel-scoped caches", () => {
-  it("removes channelMessages, pins, threads, and forumPosts for the deleted channel", async () => {
+  it("removes channelMessages, pins, threads, and forumThreads for the deleted channel", async () => {
     await mountHook()
     // Seed all four caches for the target channel so we can observe eviction.
     capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_dead"), {
@@ -1284,7 +1284,7 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
     })
     capturedQueryClient.setQueryData(communityKeys.pins("ch_dead"), { pins: [{ id: "p" }] })
     capturedQueryClient.setQueryData(communityKeys.threads("ch_dead"), { threads: [{ id: "t" }] })
-    capturedQueryClient.setQueryData(communityKeys.forumPosts("ch_dead"), { posts: [{ id: "fp" }] })
+    capturedQueryClient.setQueryData(communityKeys.forumThreads("ch_dead"), { threads: [{ id: "fp" }] })
 
     const event: CommunityChannelDelete = {
       type: "community:channel.delete",
@@ -1296,7 +1296,7 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
     expect(capturedQueryClient.getQueryData(communityKeys.channelMessages("ch_dead"))).toBeUndefined()
     expect(capturedQueryClient.getQueryData(communityKeys.pins("ch_dead"))).toBeUndefined()
     expect(capturedQueryClient.getQueryData(communityKeys.threads("ch_dead"))).toBeUndefined()
-    expect(capturedQueryClient.getQueryData(communityKeys.forumPosts("ch_dead"))).toBeUndefined()
+    expect(capturedQueryClient.getQueryData(communityKeys.forumThreads("ch_dead"))).toBeUndefined()
   })
 })
 
@@ -1593,7 +1593,7 @@ describe("useCommunityWs — typing state is scoped per conversation", () => {
 
 // ── channel.delete invalidates the parent forum list (post deletion) ────────
 describe("useCommunityWs — channel.delete refreshes the parent forum feed", () => {
-  it("invalidates the parent's forumPosts + threads lists when parentChannelId is present", async () => {
+  it("invalidates the parent's forumThreads + threads lists when parentChannelId is present", async () => {
     await mountHook()
     const invalidateSpy = vi.spyOn(capturedQueryClient, "invalidateQueries")
 
@@ -1606,14 +1606,14 @@ describe("useCommunityWs — channel.delete refreshes the parent forum feed", ()
     capturedOnMessage!(event)
 
     const invalidatedKeys = invalidateSpy.mock.calls.map((c) => JSON.stringify(c[0]?.queryKey))
-    expect(invalidatedKeys).toContain(JSON.stringify(communityKeys.forumPosts("forum_1")))
+    expect(invalidatedKeys).toContain(JSON.stringify(communityKeys.forumThreads("forum_1")))
     expect(invalidatedKeys).toContain(JSON.stringify(communityKeys.threads("forum_1")))
   })
 
   it("does not throw and still evicts own caches when parentChannelId is absent (legacy event)", async () => {
     await mountHook()
     // Seed the deleted channel's own caches so we can assert eviction.
-    capturedQueryClient.setQueryData(communityKeys.forumPosts("post_1"), { posts: [] })
+    capturedQueryClient.setQueryData(communityKeys.forumThreads("post_1"), { threads: [] })
     const removeSpy = vi.spyOn(capturedQueryClient, "removeQueries")
 
     const event: CommunityChannelDelete = {
@@ -1624,7 +1624,7 @@ describe("useCommunityWs — channel.delete refreshes the parent forum feed", ()
     expect(() => capturedOnMessage!(event)).not.toThrow()
 
     const removedKeys = removeSpy.mock.calls.map((c) => JSON.stringify(c[0]?.queryKey))
-    expect(removedKeys).toContain(JSON.stringify(communityKeys.forumPosts("post_1")))
+    expect(removedKeys).toContain(JSON.stringify(communityKeys.forumThreads("post_1")))
   })
 })
 

@@ -84,7 +84,7 @@ describe("GET /api/community/channels/[id]/threads", () => {
     })
   })
 
-  it("resolves parent/creator/first-message via three batched calls (never per-item)", async () => {
+  it("returns plain child-thread rows without a view-specific hydration facade", async () => {
     // Fixture: 3 threads.
     //   thread-A: parent message (parentMessageId set)
     //   thread-B: creator only, has a first message
@@ -121,41 +121,18 @@ describe("GET /api/community/channels/[id]/threads", () => {
         creatorId: "u-c",
       },
     ])
-    mockGetMessagesByIds.mockResolvedValue([
-      {
-        id: "msg-p",
-        content: "parent-content",
-        authorName: "Alice",
-        authorEmail: "a@t.com",
-        seq: 7,
-      },
-    ])
-    mockGetUsersByIds.mockResolvedValue([
-      { id: "u-b", name: "Bob" },
-      { id: "u-c", name: "Carol" },
-    ])
-    mockGetFirstMessageByChannelIds.mockResolvedValue([
-      { channelId: "t-B", content: "first-in-B" },
-    ])
-
     const res = await GET(req(), ctx)
     expect(res.status).toBe(200)
-    const body = await res.json() as { threads: Array<{ id: string; parent: { authorName: string; text: string }; parentSeq?: number }> }
+    const body = await res.json() as { threads: Array<{ id: string; parentMessageId: string | null }> }
 
     expect(body.threads).toEqual([
-      { id: "t-A", name: "A", kind: "thread", messageCount: 3, lastMessageAt: "2026-06-30T01:00:00.000Z", parent: { authorName: "Alice", text: "parent-content" }, parentSeq: 7 },
-      { id: "t-B", name: "B", kind: "thread", messageCount: 2, lastMessageAt: "2026-06-30T00:00:00.000Z", parent: { authorName: "Bob", text: "first-in-B" } },
-      { id: "t-C", name: "C", kind: "thread", messageCount: 1, lastMessageAt: "2026-06-30T00:00:00.000Z", parent: { authorName: "Carol", text: "" } },
+      { id: "t-A", name: "A", type: "thread", messageCount: 3, lastMessageAt: "2026-06-30T01:00:00.000Z", createdAt: "2026-06-30T00:00:00.000Z", parentMessageId: "msg-p", creatorId: null },
+      { id: "t-B", name: "B", type: "thread", messageCount: 2, lastMessageAt: null, createdAt: "2026-06-30T00:00:00.000Z", parentMessageId: null, creatorId: "u-b" },
+      { id: "t-C", name: "C", type: "thread", messageCount: 1, lastMessageAt: null, createdAt: "2026-06-30T00:00:00.000Z", parentMessageId: null, creatorId: "u-c" },
     ])
-    // t-B/t-C were created from a creator (no parent message) — parentSeq
-    // must be omitted, not `undefined`-valued, so a naive `"parentSeq" in
-    // thread` check on the client can't be fooled by an explicit undefined.
-    expect(Object.keys(body.threads[1])).not.toContain("parentSeq")
-    expect(Object.keys(body.threads[2])).not.toContain("parentSeq")
-
-    expect(mockGetMessagesByIds).toHaveBeenCalledTimes(1)
-    expect(mockGetUsersByIds).toHaveBeenCalledTimes(1)
-    expect(mockGetFirstMessageByChannelIds).toHaveBeenCalledTimes(1)
+    expect(mockGetMessagesByIds).not.toHaveBeenCalled()
+    expect(mockGetUsersByIds).not.toHaveBeenCalled()
+    expect(mockGetFirstMessageByChannelIds).not.toHaveBeenCalled()
 
     // Ensure the deprecated per-item fetches never fire.
     expect(mockGetMessage).not.toHaveBeenCalled()

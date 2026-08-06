@@ -49,7 +49,7 @@ describe("shouldPersistQueryKey", () => {
   it("does NOT persist pins/threads/forum posts (message-related but ephemeral)", () => {
     expect(shouldPersistQueryKey(communityKeys.pins("ch_1"))).toBe(false)
     expect(shouldPersistQueryKey(communityKeys.threads("ch_1"))).toBe(false)
-    expect(shouldPersistQueryKey(communityKeys.forumPosts("ch_1"))).toBe(false)
+    expect(shouldPersistQueryKey(communityKeys.forumThreads("ch_1"))).toBe(false)
   })
 
   it("returns false for keys outside the community namespace", () => {

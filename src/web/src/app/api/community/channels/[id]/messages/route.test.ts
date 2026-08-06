@@ -36,6 +36,11 @@ const mockResolveServerByNameForMember = vi.fn()
 const mockResolveChannelByNameForMember = vi.fn()
 const mockGetUserByNameAndDiscriminator = vi.fn()
 const mockGetDMBetween = vi.fn()
+const mockCreateChannel = vi.fn()
+const mockGetThreadChannelByParentMessage = vi.fn()
+const mockDeleteChannel = vi.fn()
+const mockHardDeleteMessage = vi.fn()
+const mockRebindPendingAttachmentsToChild = vi.fn()
 
 const mockFanOutToChannel = vi.fn()
 const mockResolveChannelRecipients = vi.fn(async () => [] as string[])
@@ -61,6 +66,9 @@ vi.mock("@alook/shared", async () => {
         listChildChannels: (...a: unknown[]) => mockListChildChannels(...a),
         isChannelPrivate: (...a: unknown[]) => mockIsChannelPrivate(...a),
         getPrivateChannelAudienceUserIds: (...a: unknown[]) => mockGetPrivateChannelAudienceUserIds(...a),
+        createChannel: (...a: unknown[]) => mockCreateChannel(...a),
+        getThreadChannelByParentMessage: (...a: unknown[]) => mockGetThreadChannelByParentMessage(...a),
+        deleteChannel: (...a: unknown[]) => mockDeleteChannel(...a),
       },
       communityMessage: {
         createMessage: (...a: unknown[]) => mockCreateMessage(...a),
@@ -72,6 +80,7 @@ vi.mock("@alook/shared", async () => {
         listMessagesAround: (...a: unknown[]) => mockListMessagesAround(...a),
         listMessagesSince: (...a: unknown[]) => mockListMessagesSince(...a),
         getLatestMessageSeq: (...a: unknown[]) => mockGetLatestMessageSeq(...a),
+        hardDeleteMessage: (...a: unknown[]) => mockHardDeleteMessage(...a),
       },
       communityMember: {
         listMembers: (...a: unknown[]) => mockListMembers(...a),
@@ -87,6 +96,7 @@ vi.mock("@alook/shared", async () => {
         listByMessageIds: (...a: unknown[]) => mockListByMessageIds(...a),
         findPendingAttachmentsForSender: (...a: unknown[]) => mockFindPendingAttachmentsForSender(...a),
         reserveAttachmentsForMessage: (...a: unknown[]) => mockReserveAttachmentsForMessage(...a),
+        rebindPendingAttachmentsToChild: (...a: unknown[]) => mockRebindPendingAttachmentsToChild(...a),
       },
       communityReaction: {
         listReactionsByMessageIds: (...a: unknown[]) => mockListReactionsByMessageIds(...a),
@@ -213,6 +223,8 @@ describe("POST /api/community/channels/[id]/messages", () => {
     mockFanOutToChannel.mockResolvedValue(undefined)
     mockBroadcastToUser.mockResolvedValue(undefined)
     mockCheckMessageRateLimit.mockResolvedValue({ allowed: true })
+    mockCreateChannel.mockResolvedValue({ id: "thread_1", creatorId: "u1", createdAt: "t0", name: "thread" })
+    mockRebindPendingAttachmentsToChild.mockResolvedValue(true)
   })
 
   it("accepts a bare message to a forum top-level (phase2 forum≡thread write-guard reversal — forum is now directly sendable)", async () => {

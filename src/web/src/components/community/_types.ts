@@ -160,7 +160,7 @@ export type Thread = {
   parentSeq?: number
 }
 
-export type ForumPost = Thread & {
+export type ForumThread = Thread & {
   authorId: string
   authorAvatar: string
   openerMessageId: string

@@ -86,10 +86,10 @@ describe("groupAttachments", () => {
     "materializes unsafe %s attachments as file-kind",
     (contentType) => {
       const result = groupAttachments([
-        { messageId: "m1", filename: "unsafe.img", r2Key: "channel/c1/uuid/unsafe.img", contentType, size: 2048, width: 1920, height: 1080 },
+        { id: "att_unsafe", messageId: "m1", targetId: "c1", filename: "unsafe.img", r2Key: "channel/c1/uuid/unsafe.img", contentType, size: 2048, width: 1920, height: 1080 },
       ])
       expect(result.m1).toEqual([
-        { kind: "file", name: "unsafe.img", url: "/api/community/media/channel/c1/uuid/unsafe.img", size: "2.0 KB" },
+        { kind: "file", name: "unsafe.img", url: "/api/community/channels/c1/attachments/att_unsafe", size: "2.0 KB" },
       ])
     },
   )

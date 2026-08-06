@@ -302,89 +302,21 @@ export type CreateMessageWithThreadResult =
     message: CreateMessageSuccess["row"]
     attachments: CreateMessageSuccess["attachments"]
     thread: Awaited<ReturnType<typeof queries.communityChannel.createChannel>>
-    reply: CreateMessageSuccess["row"] | null
-    replyAttachments: CreateMessageSuccess["attachments"]
     deduped?: boolean
   }
   | { ok: false; status: number; error: string }
 
-/**
- * Atomic-by-compensation "message + thread [+ reply]" primitive (phase2
- * forum≡thread, step 1). D1's `batch()` can't feed one statement's
- * `.returning()` into a later statement's `.values()` in the SAME batch (the
- * same limitation `createMessage`'s seq-claim comment documents) — the
- * thread's `parentMessageId` needs the just-inserted message's id, so a true
- * single-batch fusion isn't possible. All-or-nothing is enforced by
- * SYNCHRONOUS compensating rollback instead (the same precedent
- * `createCommunityMessage` already uses for a failed attachment reserve:
- * insert, try the dependent step, and on failure clean up so no
- * partially-built structure is ever left committed).
- *
- * A "post" is NOT a distinct concept from a "thread" (forum≡thread, Gener
- * #711: "the only difference is a thread under a forum used to be a post,
- * and it has zero difference from any other thread"). So there is no
- * title/body split at the schema level — the opener message's `body.content`
- * IS the unit's addressable content, exactly like opening a thread on any
- * other message. The optional `replyBody` param exists ONLY because a forum
- * post's create FORM collects two pieces of text (title + body) in one
- * submission — when present, this function's SECOND step sends it as the
- * thread's first reply via the exact same `createCommunityMessage` path any
- * later reply uses (`target: {kind:"thread", ...}` — zero new send logic).
- * The opener message lands in the PARENT channel (not the thread itself) —
- * same model `createThreadForUser` uses today.
- *
- * ⚠ The reply step is INSIDE this function's compensation chain, not left to
- * the caller — leaving it to the caller re-opens exactly the non-atomicity
- * gap this primitive exists to close (opener+thread succeed, reply fails =
- * a half-built post, the same class of bug `create-forum-post.ts`'s own
- * "orphan-avoidance tracked hardening follow-up" comment already confesses,
- * just moved from "channel with no message" to "thread with no reply" —
- * Simone #716 / Melly #718 red-line: a half-built post is never acceptable,
- * full stop). If the reply fails, the ENTIRE structure unwinds: `deleteChannel`
- * on the thread (FK-cascades away any reply that DID land) + `hardDeleteMessage`
- * on the opener — never leave a thread-with-no-reply OR an opener-with-no-
- * thread standing.
- *
- * The thread opens get-or-create on the opener message's id, reusing the
- * identical `createWithCollisionPolicy(channelCreation("thread"))` +
- * fresh-create-only participant-seed logic as `createThreadForUser`, so a
- * post's thread and an explicit reply-thread converge on one code path.
- *
- * Two independent WS suppress switches, because they gate two UNRELATED
- * broadcasts: `suppressBroadcast` passes straight through to BOTH
- * `createCommunityMessage` calls (opener AND reply — silences each one's own
- * MESSAGE_CREATE/notify/wake/CHILD_CHANNEL_UPDATE); `suppressThreadFanout`
- * silences ONLY this function's own unconditional `CHILD_CHANNEL_CREATE` for
- * the newly-opened thread channel (a message-side suppress does NOT reach it
- * — they are different fan-out calls). Neither switch touches
- * `addThreadParticipants` (enroll) — the structural core always runs, only
- * delivery is gated (enroll-vs-WS split, same principle as
- * `suppressBroadcast`'s own doc). Real-time callers (the send-fold) pass
- * neither; migration backfill passes both `true`.
- *
- * `replyBody` is OPTIONAL — the existing-data migration's M=0 orphan case
- * (a historical forum_post channel with zero messages) omits it: the
- * migration produces exactly ONE message (the opener, carrying the old
- * `display_title` as its content) + an empty thread, which is a completely
- * ordinary state (any message can open a thread nobody's replied to yet) —
- * no synthesized-placeholder special case needed.
- */
 export async function createMessageWithThread(params: {
   db: Database
   authorId: string
   parentChannelId: string
   serverId: string
   body: IncomingMessageBody
-  replyBody?: IncomingMessageBody
   threadName?: string
   suppressBroadcast?: boolean
   suppressThreadFanout?: boolean
-  /** Attachment ids for the OPENER (title) message. See `replyAttachmentIds`
-   *  for the reply/body message's attachments — the old create-forum-post.ts
-   *  model attached ids to the (single) content message, i.e. what is now
-   *  the reply, not the title; keep that semantics, don't drop it. */
   attachmentIds?: string[]
-  replyAttachmentIds?: string[]
+  pendingAttachmentIdsToRebind?: string[]
   clientNonce?: string
   source?: "cli" | "daemon-http" | "web"
 }): Promise<CreateMessageWithThreadResult> {
@@ -410,21 +342,10 @@ export async function createMessageWithThread(params: {
       messageId,
     )
     if (!thread) throw new Error("deduped forum opener is missing its thread")
-    const replyAtSeqOne = params.replyBody
-      ? await queries.communityMessage.getMessageByChannelAndSeq(db, { channelId: thread.id }, 1)
-      : null
-    const reply = replyAtSeqOne
-      ? await queries.communityMessage.getMessage(db, replyAtSeqOne.id)
-      : null
-    if (params.replyBody && !reply) {
-      throw new Error("deduped forum opener is missing its first reply")
-    }
-    const [storedAttachments, storedReplyAttachments] = await Promise.all([
-      queries.communityAttachment.listMessageAttachments(db, messageId),
-      reply
-        ? queries.communityAttachment.listMessageAttachments(db, reply.id)
-        : Promise.resolve([]),
-    ])
+    // Structure replay is already complete. Do not touch attachment rows here:
+    // they may be pending on this thread (reply previously failed) or already
+    // bound to the deduped reply (whole command previously succeeded).
+    const storedAttachments = await queries.communityAttachment.listMessageAttachments(db, messageId)
     const toCreatedAttachment = (row: (typeof storedAttachments)[number]) => ({
       ...row,
       url: attachmentUrl(row.targetId, row.id),
@@ -434,8 +355,6 @@ export async function createMessageWithThread(params: {
       message: created.row,
       attachments: storedAttachments.map(toCreatedAttachment),
       thread,
-      reply,
-      replyAttachments: storedReplyAttachments.map(toCreatedAttachment),
       deduped: true,
     }
   }
@@ -496,6 +415,20 @@ export async function createMessageWithThread(params: {
   const childChannel = threadResult.value
   const isFreshCreate = childChannel.creatorId === authorId
 
+  const rebound = await queries.communityAttachment.rebindPendingAttachmentsToChild(db, {
+    ids: params.pendingAttachmentIdsToRebind ?? [],
+    uploaderId: authorId,
+    parentTargetId: parentChannelId,
+    childTargetId: childChannel.id,
+  })
+  if (!rebound) {
+    if (isFreshCreate) {
+      await queries.communityChannel.deleteChannel(db, childChannel.id)
+      await queries.communityMessage.hardDeleteMessage(db, messageId)
+    }
+    return { ok: false, status: 400, error: "attachment not found or not attachable to this thread" }
+  }
+
   if (isFreshCreate) {
     await queries.communityThread.addThreadParticipants(db, childChannel.id, [
       { userId: authorId, source: PARTICIPANT_SOURCE.SPOKE },
@@ -517,53 +450,5 @@ export async function createMessageWithThread(params: {
     }
   }
 
-  if (!params.replyBody) {
-    return { ok: true, message: created.row, attachments: created.attachments, thread: childChannel, reply: null, replyAttachments: [] }
-  }
-
-  // Reply step (opener+title's paired body text). Same target shape ANY reply
-  // into this thread would use — zero new send logic. On failure, unwind the
-  // WHOLE structure: delete the thread (FK-cascades away a partially-inserted
-  // reply, if any) + hard-delete the opener — never leave a thread-with-no-
-  // reply OR an opener-with-no-thread standing (Simone #716 / Melly #718).
-  const reply = await createCommunityMessage({
-    db,
-    authorId,
-    target: { kind: "thread", channelId: childChannel.id, parentChannelId, serverId },
-    body: params.replyBody,
-    source: params.source,
-    attachmentIds: params.replyAttachmentIds,
-    suppressBroadcast: params.suppressBroadcast,
-  })
-  if (!reply.ok) {
-    // Two INDEPENDENT compensating deletes, each in its OWN try/catch — a
-    // shared try block would let a deleteChannel throw abort the whole block
-    // BEFORE hardDeleteMessage ever runs, leaving the opener message an
-    // untried orphan on top of the reply failure (Blondie #723: a strictly
-    // worse three-way half-built state than the gap this was fixing). Neither
-    // compensation's success/failure gates the other's attempt.
-    try {
-      await queries.communityChannel.deleteChannel(db, childChannel.id)
-    } catch (rollbackErr) {
-      log.error("reply_body_thread_rollback_failed", {
-        messageId,
-        threadId: childChannel.id,
-        replyErr: reply.error,
-        rollbackErr: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
-      })
-    }
-    try {
-      await queries.communityMessage.hardDeleteMessage(db, messageId)
-    } catch (rollbackErr) {
-      log.error("reply_body_message_rollback_failed", {
-        messageId,
-        threadId: childChannel.id,
-        replyErr: reply.error,
-        rollbackErr: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
-      })
-    }
-    return { ok: false, status: reply.status, error: reply.error }
-  }
-
-  return { ok: true, message: created.row, attachments: created.attachments, thread: childChannel, reply: reply.row, replyAttachments: reply.attachments }
+  return { ok: true, message: created.row, attachments: created.attachments, thread: childChannel }
 }

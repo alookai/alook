@@ -170,7 +170,10 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
   }
 
   async function callCreatePost(req: CreatePostRequest): Promise<CreatePostResponse> {
-    const res = await fetchImpl(`${base}/api/community/channels/${REF_PLACEHOLDER_ID}/messages`, {
+    const endpoint = `${base}/api/community/channels/${REF_PLACEHOLDER_ID}/messages`;
+    const openerNonce = req.nonce !== undefined ? `${req.nonce}:opener` : undefined;
+    const replyNonce = req.nonce !== undefined ? `${req.nonce}:reply` : undefined;
+    const openerRes = await fetchImpl(endpoint, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -179,22 +182,38 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
       body: JSON.stringify({
         channel: req.forum,
         content: { text: req.title },
-        replyContent: req.content.text,
         attachments: req.attachments ?? [],
-        ...(req.nonce !== undefined ? { nonce: req.nonce } : {}),
+        ...(openerNonce !== undefined ? { nonce: openerNonce } : {}),
       }),
     });
-    const body = await parseJsonResponse<{
+    const opener = await parseJsonResponse<{
       state: "sent";
-      reply: Message | null;
-    }>(res, "createPost");
-    if (body.state !== "sent" || !body.reply) {
-      throw new Error("createPost: upstream response missing thread reply");
+      message: Message;
+      threadId: string;
+    }>(openerRes, "createPost opener");
+    if (opener.state !== "sent" || !opener.message || !opener.threadId) {
+      throw new Error("createPost: upstream response missing opener thread");
     }
+    const threadRef = `${req.forum}/#${opener.message.seq.replace(/^#/, "")}`;
+    const replyRes = await fetchImpl(endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${config.voucher}`,
+      },
+      body: JSON.stringify({
+        channel: threadRef,
+        content: req.content,
+        attachments: req.attachments ?? [],
+        ...(replyNonce !== undefined ? { nonce: replyNonce } : {}),
+      }),
+    });
+    const reply = await parseJsonResponse<{ state: "sent"; message: Message }>(replyRes, "createPost reply");
+    if (reply.state !== "sent" || !reply.message) throw new Error("createPost: upstream response missing reply");
     return {
-      ref: body.reply.channel,
+      ref: reply.message.channel,
       name: req.title,
-      seq: Number(body.reply.seq.replace(/^#/, "")),
+      seq: Number(reply.message.seq.replace(/^#/, "")),
     };
   }
 

@@ -60,11 +60,11 @@ describe("communityKeys", () => {
       "c1",
       "threads",
     ])
-    expect(communityKeys.forumPosts("c1")).toEqual([
+    expect(communityKeys.forumThreads("c1")).toEqual([
       "community",
       "channel",
       "c1",
-      "posts",
+      "forum-threads",
     ])
   })
 

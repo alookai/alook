@@ -9,11 +9,11 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "./avatar"
 import { AvatarGroup, AvatarGroupCount } from "@/components/ui/avatar"
 import { EmptyState } from "./empty-state"
-import { CreateForumPost, type NewForumPost } from "./create-forum-post"
+import { CreateForumThread, type NewForumThread } from "./create-forum-thread"
 import { PostTagDialog } from "./post-tag-dialog"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { tid } from "@/lib/community/testids"
-import type { ForumPost, Member } from "./_types"
+import type { ForumThread, Member } from "./_types"
 
 // Max member avatars shown in a post card's AvatarGroup before collapsing to a
 // "+N" bubble. Creator is always first.
@@ -34,30 +34,30 @@ export function ForumView({
   forumChannelId: string
   members: Member[]
   onSearchMembers?: (query: string) => void
-  posts: ForumPost[]
+  posts: ForumThread[]
   loading?: boolean
   onOpenPost: (id: string) => void
   // Async — page owns the mutation + `enterThread` navigation and either
-  // resolves or rejects. `CreateForumPost` catches rejection to toast and
+  // resolves or rejects. `CreateForumThread` catches rejection to toast and
   // preserve composer state for retry.
-  onCreatePost?: (post: NewForumPost) => Promise<void>
+  onCreatePost?: (post: NewForumThread) => Promise<void>
   // Save handler for a single post's tags. Absent → tag editing disabled.
-  onEditPostTags?: (postId: string, tags: string[]) => void
+  onEditPostTags?: (threadId: string, tags: string[]) => void
   // Whether the current user may edit a given post's tags (creator or manager).
-  canEditPostTags?: (post: ForumPost) => boolean
+  canEditPostTags?: (post: ForumThread) => boolean
   // The post id whose tag save is in flight, if any.
   savingTagsFor?: string | null
   // Delete handler for a single post. Absent → delete disabled.
-  onDeletePost?: (post: ForumPost) => void
+  onDeletePost?: (post: ForumThread) => void
   // Whether the current user may delete a given post (creator or manager).
-  canDeletePost?: (post: ForumPost) => boolean
+  canDeletePost?: (post: ForumThread) => boolean
   // The post id whose delete is in flight, if any.
   deletingPost?: string | null
 }) {
   const [tag, setTag] = useState("All")
   const [composing, setComposing] = useState(false)
-  const [editingTagsFor, setEditingTagsFor] = useState<ForumPost | null>(null)
-  const [deletingFor, setDeletingFor] = useState<ForumPost | null>(null)
+  const [editingTagsFor, setEditingTagsFor] = useState<ForumThread | null>(null)
+  const [deletingFor, setDeletingFor] = useState<ForumThread | null>(null)
   const newPostTriggerRef = useRef<HTMLButtonElement>(null)
 
   // Deduped union of every post's tags — the forum's tag list is derived, not
@@ -79,7 +79,7 @@ export function ForumView({
       {/* Composer OR filter bar in the same slot — swapping (not stacking)
           keeps the post list below anchored. */}
       {composing ? (
-        <CreateForumPost
+        <CreateForumThread
           forumChannelId={forumChannelId}
           members={members}
           onSearchMembers={onSearchMembers}
@@ -134,7 +134,7 @@ export function ForumView({
                   key={p.id}
                   role="button"
                   tabIndex={0}
-                  data-testid={tid.forumPostCard(p.id)}
+                  data-testid={tid.forumThreadCard(p.id)}
                   onClick={() => onOpenPost(p.id)}
                   onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpenPost(p.id) } }}
                   className="group/card flex cursor-pointer flex-col gap-2 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:border-primary/40 hover:bg-accent/40"
@@ -146,7 +146,7 @@ export function ForumView({
                     {others.length > 0 && (
                       <>
                         <span className="h-4 w-px shrink-0 bg-border" aria-hidden />
-                        <AvatarGroup data-testid={tid.forumPostAvatars(p.id)}>
+                        <AvatarGroup data-testid={tid.forumThreadAvatars(p.id)}>
                           {shown.map((m) => (
                             <Avatar key={m.id} label={m.avatar} seed={m.id} size={24} ringColor="var(--card)" />
                           ))}
@@ -157,7 +157,7 @@ export function ForumView({
                     {canEdit && (
                       <button
                         type="button"
-                        data-testid={tid.forumPostTagBtn(p.id)}
+                        data-testid={tid.forumThreadTagBtn(p.id)}
                         onClick={(e) => { e.stopPropagation(); setEditingTagsFor(p) }}
                         className="ml-auto grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/card:opacity-100"
                         aria-label="Edit tags"
@@ -168,7 +168,7 @@ export function ForumView({
                     {canDelete && (
                       <button
                         type="button"
-                        data-testid={tid.forumPostDeleteBtn(p.id)}
+                        data-testid={tid.forumThreadDeleteBtn(p.id)}
                         disabled={deletingPost === p.id}
                         onClick={(e) => { e.stopPropagation(); setDeletingFor(p) }}
                         className={`${canEdit ? "" : "ml-auto "}grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-destructive focus-visible:opacity-100 group-hover/card:opacity-100 disabled:cursor-not-allowed disabled:opacity-50`}

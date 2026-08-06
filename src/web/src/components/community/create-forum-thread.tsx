@@ -24,14 +24,15 @@ import {
 // A forum post's body IS the first message in its thread — content plus any
 // attachments and the audience-broadcast `mentionType` extracted from the body
 // text. Tags are added AFTER creation from the post card's tag dialog, not here.
-export type NewForumPost = {
+export type NewForumThread = {
+  nonce: string
   name: string
   content: string
   attachments?: UploadedAttachment[]
   mentionType?: MentionType
 }
 
-export function CreateForumPost({
+export function CreateForumThread({
   forumChannelId,
   members,
   onSearchMembers,
@@ -47,7 +48,7 @@ export function CreateForumPost({
   // Async — the page owns the mutation call + `enterThread` navigation. This
   // handler either resolves (success — child clears its state) or rejects
   // (failure — child toasts and preserves state for retry).
-  onCreatePost: (post: NewForumPost) => Promise<void>
+  onCreatePost: (post: NewForumThread) => Promise<void>
 }) {
   const [title, setTitle] = useState("")
   const [bodyHasContent, setBodyHasContent] = useState(false)
@@ -65,6 +66,7 @@ export function CreateForumPost({
   // create failure. Mutation-only (ref, not state) — read inside the async
   // submit path. Cleared after a successful create.
   const uploadedCacheRef = useRef<Map<File, UploadedAttachment>>(new Map())
+  const commandNonceRef = useRef(crypto.randomUUID())
 
   const canSubmit = title.trim().length > 0 && bodyHasContent
 
@@ -104,6 +106,7 @@ export function CreateForumPost({
       }
       try {
         await onCreatePost({
+          nonce: commandNonceRef.current,
           name: title.trim(),
           content: markdown,
           attachments: uploaded.length > 0 ? uploaded : undefined,
@@ -114,6 +117,7 @@ export function CreateForumPost({
         return
       }
       uploadedCacheRef.current.clear()
+      commandNonceRef.current = crypto.randomUUID()
       bodyComposerRef.current?.resetAfterSubmit()
       setTitle("")
     } catch (e) {
@@ -162,7 +166,7 @@ export function CreateForumPost({
       <Composer
         sendContract="deferred"
         ref={bodyComposerRef}
-        mode="forumPostBody"
+        mode="forumThreadBody"
         hideEmoji
         hideAttach
         channel=""

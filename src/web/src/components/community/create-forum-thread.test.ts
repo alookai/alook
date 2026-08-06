@@ -1,5 +1,5 @@
 /**
- * Server-render probes for CreateForumPost. Composer is mocked because it
+ * Server-render probes for CreateForumThread. Composer is mocked because it
  * mounts a real tiptap editor (needs DOM); everything else here is pure JSX
  * that renderToStaticMarkup can walk.
  */
@@ -24,11 +24,11 @@ vi.mock("@/hooks/community/mutations/uploads", () => ({
   zipUploadResultsWithDimensions: () => [],
 }))
 
-import { CreateForumPost } from "./create-forum-post"
+import { CreateForumThread } from "./create-forum-thread"
 
-function render(over: Partial<Parameters<typeof CreateForumPost>[0]> = {}) {
+function render(over: Partial<Parameters<typeof CreateForumThread>[0]> = {}) {
   return renderToStaticMarkup(
-    createElement(CreateForumPost, {
+    createElement(CreateForumThread, {
       forumChannelId: "cha_forum",
       members: [],
       onCancel: () => {},
@@ -38,7 +38,7 @@ function render(over: Partial<Parameters<typeof CreateForumPost>[0]> = {}) {
   )
 }
 
-describe("CreateForumPost — copy + structure", () => {
+describe("CreateForumThread — copy + structure", () => {
   it("renders the region role + label so keyboard/SR users land in a named region", () => {
     const html = render()
     expect(html).toContain('role="region"')
@@ -51,10 +51,10 @@ describe("CreateForumPost — copy + structure", () => {
     expect(html).not.toContain('placeholder="Title"')
   })
 
-  it("renders the composer in forumPostBody mode with hideEmoji + the body placeholder", () => {
+  it("renders the composer in forumThreadBody mode with hideEmoji + the body placeholder", () => {
     const html = render()
     expect(html).toContain('data-testid="mock-composer"')
-    expect(html).toContain('data-mode="forumPostBody"')
+    expect(html).toContain('data-mode="forumThreadBody"')
     expect(html).toContain('data-send-contract="deferred"')
     expect(html).toContain('data-has-deferred-submit="true"')
     expect(html).toContain('data-hide-emoji="true"')

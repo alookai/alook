@@ -114,6 +114,33 @@ export async function reserveAttachmentsForMessage(
   return rows.map((r) => r.id);
 }
 
+export async function rebindPendingAttachmentsToChild(
+  db: Database,
+  data: { ids: string[]; uploaderId: string; parentTargetId: string; childTargetId: string }
+): Promise<boolean> {
+  if (data.ids.length === 0) return true;
+  const eligible = await db
+    .select({ id: communityAttachment.id, targetId: communityAttachment.targetId })
+    .from(communityAttachment)
+    .where(and(
+      inArray(communityAttachment.id, data.ids),
+      isNull(communityAttachment.messageId),
+      eq(communityAttachment.uploaderId, data.uploaderId),
+      inArray(communityAttachment.targetId, [data.parentTargetId, data.childTargetId])
+    ));
+  if (eligible.length !== data.ids.length) return false;
+  await db
+    .update(communityAttachment)
+    .set({ targetId: data.childTargetId })
+    .where(and(
+      inArray(communityAttachment.id, data.ids),
+      isNull(communityAttachment.messageId),
+      eq(communityAttachment.uploaderId, data.uploaderId),
+      eq(communityAttachment.targetId, data.parentTargetId)
+    ));
+  return true;
+}
+
 /**
  * Compensating UPDATE for the three send-time rollback sites:
  *   (a) reservation-mismatch (partial-overlap race),

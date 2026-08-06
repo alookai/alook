@@ -223,6 +223,7 @@ async function handleHumanSend(
 
   const body = raw as { nonce?: unknown; attachments?: unknown }
   const clientNonce = typeof body?.nonce === "string" ? body.nonce : undefined
+  const target = resolved.value.target
 
   // Reserve-by-id (route/disc step 2b): the composer uploads first (creating a
   // pending row) and sends the attachment IDS, mirroring the bot flow. Validate
@@ -236,8 +237,33 @@ async function handleHumanSend(
   const attachmentIds = Array.isArray(body.attachments)
     ? (body.attachments as unknown[]).filter((x): x is string => typeof x === "string")
     : []
+  // A human send into a forum uses the same canonical message door and the
+  // same opener+thread primitive as the bot arm. The body is sent separately
+  // through this ordinary message door after the caller receives threadId.
+  if (target.kind === "forum") {
+    const forumBody = raw as { content?: unknown; mentionType?: unknown }
+    const content = typeof forumBody.content === "string" ? forumBody.content : ""
+    if (!content.trim()) return NextResponse.json({ error: "content is required" }, { status: 400 })
+    const created = await createMessageWithThread({
+      db,
+      authorId: userId,
+      parentChannelId: target.channelId,
+      serverId: target.serverId,
+      body: { content, mentionType: forumBody.mentionType },
+      pendingAttachmentIdsToRebind: attachmentIds,
+      clientNonce,
+      source: "web",
+    })
+    if (!created.ok) return NextResponse.json({ error: created.error }, { status: created.status })
+    return NextResponse.json({
+      message: created.message,
+      threadId: created.thread.id,
+      deduped: created.deduped,
+    }, { status: created.deduped ? 200 : 201 })
+  }
+
   if (attachmentIds.length > 0) {
-    const channelId = resolved.value.target.channelId
+    const channelId = target.channelId
     const rows = await withD1Retry(
       () => queries.communityAttachment.findPendingAttachmentsForSender(db, { ids: attachmentIds, uploaderId: userId, targetId: channelId }),
       { route: "community/messages:human-attachments" },
@@ -250,7 +276,7 @@ async function handleHumanSend(
   const result = await createCommunityMessage({
     db,
     authorId: userId,
-    target: resolved.value.target,
+    target,
     body: raw as Record<string, unknown>,
     source: "web",
     clientNonce,
@@ -299,64 +325,29 @@ async function handleBotSend(
   // channel's own stored type), never on a body field's presence — a forum
   // message always gets this treatment regardless of what fields the client
   // happened to send, and a plain channel/thread/DM never does regardless of
-  // what fields it sends either. `replyContent` is required here because a
-  // forum entry needs a human-scannable opener distinct from its body; a
-  // thread can't nest another thread and a DM has no thread axis, which is
+  // what fields it sends either. A thread can't nest another thread and a DM
+  // has no thread axis, which is
   // exactly why this path is only reachable when the target's kind is
   // "forum". No alignment/hasUnread gate on this branch — opening a
   // brand-new thread is a fresh scope with no seq contention to align
   // against.
   if (target.kind === "forum") {
-    if (
-      body.replyContent === undefined ||
-      (body.replyContent.trim().length === 0 && body.attachments.length === 0)
-    ) {
-      return NextResponse.json({ error: "replyContent is required when sending into a forum" }, { status: 400 })
-    }
-    // A same-nonce replay must reach createMessageWithThread's dedupe hydrate
-    // even after the first send consumed its pending attachments. Scope the
-    // probe to this resolved forum so a nonce used elsewhere cannot bypass
-    // the confused-deputy attachment check below.
-    const forumNonce = body.nonce
-    const existingForumOpener = forumNonce
-      ? await withD1Retry(
-          () => queries.communityMessage.getMessageByAuthorAndNonce(db, botUserId, forumNonce),
-          { route: "community/messages:post-nonce-precheck" },
-        )
-      : null
-    const isForumReplay = existingForumOpener?.channelId === channelId
-
-    if (!isForumReplay && body.attachments.length > 0) {
-      const rows = await withD1Retry(
-        () => queries.communityAttachment.findPendingAttachmentsForSender(db, { ids: body.attachments, uploaderId: botUserId, targetId: channelId }),
-        { route: "community/messages:post-attachments" },
-      )
-      if (rows.length !== body.attachments.length) {
-        return NextResponse.json({ error: "attachment not found or not attachable to this target" }, { status: 400 })
-      }
-    }
     const created = await createMessageWithThread({
       db,
       authorId: botUserId,
       parentChannelId: channelId,
       serverId: target.serverId,
       body: { content: body.content.text },
-      replyBody: { content: body.replyContent },
       attachmentIds: undefined,
-      replyAttachmentIds: body.attachments.length > 0 ? body.attachments : undefined,
+      pendingAttachmentIdsToRebind: body.attachments,
       clientNonce: body.nonce,
       source: "cli",
     })
     if (!created.ok) return NextResponse.json({ error: created.error }, { status: created.status })
-    const orderedAttachments = created.replyAttachments.map((a) => ({ id: a.id, filename: a.filename, contentType: a.contentType, size: a.size }))
     const message = await queries.communityAgentInbox.toAgentMessage(db, created.message, botUserId)
-    const reply = created.reply
-      ? await queries.communityAgentInbox.toAgentMessage(db, created.reply, botUserId, orderedAttachments)
-      : null
     return NextResponse.json({
       state: "sent",
       message,
-      reply,
       threadId: created.thread.id,
       deduped: created.deduped,
     })

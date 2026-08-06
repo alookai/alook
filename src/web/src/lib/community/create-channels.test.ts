@@ -7,9 +7,8 @@ const mockHardDeleteMessage = vi.fn()
 const mockAddThreadParticipants = vi.fn()
 const mockFanOutToChannel = vi.fn()
 const mockDeleteChannel = vi.fn()
-const mockGetMessageByChannelAndSeq = vi.fn()
-const mockGetMessage = vi.fn()
 const mockListMessageAttachments = vi.fn()
+const mockRebindPendingAttachmentsToChild = vi.fn()
 
 vi.mock("@/lib/community/message-handler", () => ({
   createCommunityMessage: (...a: unknown[]) => mockCreateCommunityMessage(...a),
@@ -35,12 +34,11 @@ vi.mock("@alook/shared", async () => {
       communityMessage: {
         ...actual.queries.communityMessage,
         hardDeleteMessage: (...a: unknown[]) => mockHardDeleteMessage(...a),
-        getMessageByChannelAndSeq: (...a: unknown[]) => mockGetMessageByChannelAndSeq(...a),
-        getMessage: (...a: unknown[]) => mockGetMessage(...a),
       },
       communityAttachment: {
         ...actual.queries.communityAttachment,
         listMessageAttachments: (...a: unknown[]) => mockListMessageAttachments(...a),
+        rebindPendingAttachmentsToChild: (...a: unknown[]) => mockRebindPendingAttachmentsToChild(...a),
       },
       communityThread: {
         ...actual.queries.communityThread,
@@ -62,6 +60,7 @@ describe("createMessageWithThread (phase2 forum≡thread — atomic-by-compensat
     // the next; any test exercising a rollback failure overrides explicitly.
     mockDeleteChannel.mockResolvedValue(undefined)
     mockHardDeleteMessage.mockResolvedValue(undefined)
+    mockRebindPendingAttachmentsToChild.mockResolvedValue(true)
   })
 
   it("inserts the opener message into the PARENT channel, then opens a fresh thread rooted on it", async () => {
@@ -174,7 +173,7 @@ describe("createMessageWithThread (phase2 forum≡thread — atomic-by-compensat
     expect(mockHardDeleteMessage).not.toHaveBeenCalled()
   })
 
-  it("same-nonce replay returns the existing thread and reply without creating or broadcasting again", async () => {
+  it("same-nonce replay returns the existing thread without rebinding or broadcasting", async () => {
     mockCreateCommunityMessage.mockResolvedValue({
       ok: true,
       row: { id: "msg_1", content: "Title", channelId: "forum_1" },
@@ -184,12 +183,6 @@ describe("createMessageWithThread (phase2 forum≡thread — atomic-by-compensat
     mockGetThreadChannelByParentMessage.mockResolvedValue({
       id: "th_1", creatorId: "u1", createdAt: "t0", name: "Title",
     })
-    mockGetMessageByChannelAndSeq.mockResolvedValue(
-      { id: "msg_2", content: "Body", channelId: "th_1", seq: 1 },
-    )
-    mockGetMessage.mockResolvedValue(
-      { id: "msg_2", content: "Body", channelId: "th_1", seq: 1 },
-    )
     mockListMessageAttachments.mockResolvedValue([])
 
     const res = await createMessageWithThread({
@@ -198,7 +191,7 @@ describe("createMessageWithThread (phase2 forum≡thread — atomic-by-compensat
       parentChannelId: "forum_1",
       serverId: "s1",
       body: { content: "Title" },
-      replyBody: { content: "Body" },
+      pendingAttachmentIdsToRebind: ["att_1"],
       clientNonce: "nonce_1",
     })
 
@@ -206,18 +199,12 @@ describe("createMessageWithThread (phase2 forum≡thread — atomic-by-compensat
       ok: true,
       deduped: true,
       thread: expect.objectContaining({ id: "th_1" }),
-      reply: expect.objectContaining({ id: "msg_2" }),
     }))
     expect(mockCreateCommunityMessage).toHaveBeenCalledTimes(1)
     expect(mockCreateChannel).not.toHaveBeenCalled()
     expect(mockAddThreadParticipants).not.toHaveBeenCalled()
     expect(mockFanOutToChannel).not.toHaveBeenCalled()
-    expect(mockGetMessageByChannelAndSeq).toHaveBeenCalledWith(
-      expect.anything(),
-      { channelId: "th_1" },
-      1,
-    )
-    expect(mockGetMessage).toHaveBeenCalledWith(expect.anything(), "msg_2")
+    expect(mockRebindPendingAttachmentsToChild).not.toHaveBeenCalled()
   })
 
   it("returns the message-handler's error verbatim without touching the thread path at all", async () => {
@@ -258,153 +245,32 @@ describe("createMessageWithThread (phase2 forum≡thread — atomic-by-compensat
     expect(mockHardDeleteMessage).toHaveBeenCalledWith(expect.anything(), "msg_1")
   })
 
-  it("with replyBody present, sends it as the thread's first reply via the SAME target shape any later reply would use", async () => {
-    mockCreateCommunityMessage
-      .mockResolvedValueOnce({ ok: true, row: { id: "msg_1", content: "My Post Title", channelId: "forum_1" }, attachments: [] })
-      .mockResolvedValueOnce({ ok: true, row: { id: "msg_2", content: "the actual body text", channelId: "th_1" }, attachments: [] })
-    mockCreateChannel.mockResolvedValue({ id: "th_1", creatorId: "u1", createdAt: "t0", name: "My Post Title" })
+  it("rebinds pending attachments from the forum to the fresh child thread", async () => {
+    mockCreateCommunityMessage.mockResolvedValue({ ok: true, row: { id: "msg_1", content: "Title", channelId: "forum_1" }, attachments: [] })
+    mockCreateChannel.mockResolvedValue({ id: "th_1", creatorId: "u1", createdAt: "t0", name: "Title" })
 
     const res = await createMessageWithThread({
-      db: {} as any,
-      authorId: "u1",
-      parentChannelId: "forum_1",
-      serverId: "s1",
-      body: { content: "My Post Title" },
-      replyBody: { content: "the actual body text" },
+      db: {} as any, authorId: "u1", parentChannelId: "forum_1", serverId: "s1",
+      body: { content: "Title" }, pendingAttachmentIdsToRebind: ["att_1"],
     })
 
     expect(res.ok).toBe(true)
-    // Second createCommunityMessage call is the reply, targeted at the THREAD.
-    expect(mockCreateCommunityMessage).toHaveBeenNthCalledWith(2,
-      expect.objectContaining({
-        authorId: "u1",
-        target: { kind: "thread", channelId: "th_1", parentChannelId: "forum_1", serverId: "s1" },
-        body: { content: "the actual body text" },
-      }),
-    )
-    if (res.ok) expect(res.reply?.id).toBe("msg_2")
-  })
-
-  it("replyAttachmentIds attach to the REPLY (body) message, not the opener (title) — matches the old create-forum-post.ts model where attachments rode the content message, now the reply", async () => {
-    mockCreateCommunityMessage
-      .mockResolvedValueOnce({ ok: true, row: { id: "msg_1", content: "My Post Title", channelId: "forum_1" }, attachments: [] })
-      .mockResolvedValueOnce({ ok: true, row: { id: "msg_2", content: "body text", channelId: "th_1" }, attachments: [{ id: "att_1" }] })
-    mockCreateChannel.mockResolvedValue({ id: "th_1", creatorId: "u1", createdAt: "t0", name: "My Post Title" })
-
-    await createMessageWithThread({
-      db: {} as any,
-      authorId: "u1",
-      parentChannelId: "forum_1",
-      serverId: "s1",
-      body: { content: "My Post Title" },
-      replyBody: { content: "body text" },
-      replyAttachmentIds: ["att_1"],
+    expect(mockRebindPendingAttachmentsToChild).toHaveBeenCalledWith(expect.anything(), {
+      ids: ["att_1"], uploaderId: "u1", parentTargetId: "forum_1", childTargetId: "th_1",
     })
-
-    // Opener call carries NO attachmentIds (undefined, per its own attachmentIds param).
-    expect(mockCreateCommunityMessage).toHaveBeenNthCalledWith(1,
-      expect.objectContaining({ attachmentIds: undefined }),
-    )
-    // Reply call carries replyAttachmentIds under createCommunityMessage's attachmentIds field.
-    expect(mockCreateCommunityMessage).toHaveBeenNthCalledWith(2,
-      expect.objectContaining({ attachmentIds: ["att_1"] }),
-    )
   })
 
-  it("when the reply's attachment reserve fails inside createCommunityMessage (which self-cleans its own message), the outer compensation STILL deletes the thread + opener — the two compensation layers compose, not conflict", async () => {
-    mockCreateCommunityMessage
-      .mockResolvedValueOnce({ ok: true, row: { id: "msg_1", content: "Title", channelId: "forum_1" }, attachments: [] })
-      .mockResolvedValueOnce({ ok: false, status: 400, error: "attachment not found or not attachable to this target" })
+  it("compensates the fresh opener and thread when attachment rebind is rejected", async () => {
+    mockCreateCommunityMessage.mockResolvedValue({ ok: true, row: { id: "msg_1", content: "Title", channelId: "forum_1" }, attachments: [] })
     mockCreateChannel.mockResolvedValue({ id: "th_1", creatorId: "u1", createdAt: "t0", name: "Title" })
+    mockRebindPendingAttachmentsToChild.mockResolvedValue(false)
 
     const res = await createMessageWithThread({
-      db: {} as any,
-      authorId: "u1",
-      parentChannelId: "forum_1",
-      serverId: "s1",
-      body: { content: "Title" },
-      replyBody: { content: "body" },
-      replyAttachmentIds: ["stolen_att"],
+      db: {} as any, authorId: "u1", parentChannelId: "forum_1", serverId: "s1",
+      body: { content: "Title" }, pendingAttachmentIdsToRebind: ["stolen"],
     })
 
-    expect(res).toEqual({ ok: false, status: 400, error: "attachment not found or not attachable to this target" })
-    expect(mockDeleteChannel).toHaveBeenCalledWith(expect.anything(), "th_1")
-    expect(mockHardDeleteMessage).toHaveBeenCalledWith(expect.anything(), "msg_1")
-  })
-
-  it("without replyBody, reply is null and only ONE createCommunityMessage call happens (the migration M=0 orphan path — opener + empty thread is a normal state)", async () => {
-    mockCreateCommunityMessage.mockResolvedValue({ ok: true, row: { id: "msg_1", content: "Old Post Title", channelId: "forum_1" }, attachments: [] })
-    mockCreateChannel.mockResolvedValue({ id: "th_1", creatorId: "u1", createdAt: "t0", name: "Old Post Title" })
-
-    const res = await createMessageWithThread({
-      db: {} as any, authorId: "u1", parentChannelId: "forum_1", serverId: "s1", body: { content: "Old Post Title" },
-    })
-
-    expect(res.ok).toBe(true)
-    if (res.ok) expect(res.reply).toBeNull()
-    expect(mockCreateCommunityMessage).toHaveBeenCalledTimes(1)
-  })
-
-  it("when the reply send fails, unwinds the WHOLE structure — deletes the thread (FK-cascades any partial reply) AND hard-deletes the opener, never leaving a half-built post", async () => {
-    mockCreateCommunityMessage
-      .mockResolvedValueOnce({ ok: true, row: { id: "msg_1", content: "Title", channelId: "forum_1" }, attachments: [] })
-      .mockResolvedValueOnce({ ok: false, status: 400, error: "content or attachments required" })
-    mockCreateChannel.mockResolvedValue({ id: "th_1", creatorId: "u1", createdAt: "t0", name: "Title" })
-
-    const res = await createMessageWithThread({
-      db: {} as any,
-      authorId: "u1",
-      parentChannelId: "forum_1",
-      serverId: "s1",
-      body: { content: "Title" },
-      replyBody: { content: "" },
-    })
-
-    expect(res).toEqual({ ok: false, status: 400, error: "content or attachments required" })
-    expect(mockDeleteChannel).toHaveBeenCalledWith(expect.anything(), "th_1")
-    expect(mockHardDeleteMessage).toHaveBeenCalledWith(expect.anything(), "msg_1")
-  })
-
-  it("when deleteChannel (thread rollback) throws, hardDeleteMessage (opener rollback) is STILL attempted — one compensation's failure must never block the other's attempt (Blondie #723)", async () => {
-    mockCreateCommunityMessage
-      .mockResolvedValueOnce({ ok: true, row: { id: "msg_1", content: "Title", channelId: "forum_1" }, attachments: [] })
-      .mockResolvedValueOnce({ ok: false, status: 500, error: "d1 outage" })
-    mockCreateChannel.mockResolvedValue({ id: "th_1", creatorId: "u1", createdAt: "t0", name: "Title" })
-    mockDeleteChannel.mockRejectedValue(new Error("rollback also down"))
-
-    const res = await createMessageWithThread({
-      db: {} as any,
-      authorId: "u1",
-      parentChannelId: "forum_1",
-      serverId: "s1",
-      body: { content: "Title" },
-      replyBody: { content: "body" },
-    })
-
-    expect(res).toEqual({ ok: false, status: 500, error: "d1 outage" })
-    expect(mockDeleteChannel).toHaveBeenCalledWith(expect.anything(), "th_1")
-    // The critical assertion: hardDeleteMessage was attempted DESPITE
-    // deleteChannel throwing — a shared try block would have skipped this.
-    expect(mockHardDeleteMessage).toHaveBeenCalledWith(expect.anything(), "msg_1")
-  })
-
-  it("symmetrically, when hardDeleteMessage (opener rollback) throws, deleteChannel (thread rollback) was still attempted first and independently", async () => {
-    mockCreateCommunityMessage
-      .mockResolvedValueOnce({ ok: true, row: { id: "msg_1", content: "Title", channelId: "forum_1" }, attachments: [] })
-      .mockResolvedValueOnce({ ok: false, status: 500, error: "d1 outage" })
-    mockCreateChannel.mockResolvedValue({ id: "th_1", creatorId: "u1", createdAt: "t0", name: "Title" })
-    mockHardDeleteMessage.mockRejectedValue(new Error("rollback also down"))
-
-    const res = await createMessageWithThread({
-      db: {} as any,
-      authorId: "u1",
-      parentChannelId: "forum_1",
-      serverId: "s1",
-      body: { content: "Title" },
-      replyBody: { content: "body" },
-    })
-
-    expect(res).toEqual({ ok: false, status: 500, error: "d1 outage" })
+    expect(res).toEqual({ ok: false, status: 400, error: "attachment not found or not attachable to this thread" })
     expect(mockDeleteChannel).toHaveBeenCalledWith(expect.anything(), "th_1")
     expect(mockHardDeleteMessage).toHaveBeenCalledWith(expect.anything(), "msg_1")
   })

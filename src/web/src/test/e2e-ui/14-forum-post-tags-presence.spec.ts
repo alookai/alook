@@ -4,7 +4,7 @@ import {
   seedServer,
   seedChannel,
   seedJoinServer,
-  seedForumPost,
+  seedForumThread,
   seedMessage,
   seedDm,
   seedDmMessage,
@@ -19,14 +19,14 @@ import {
 test.describe.serial("forum post tags + participant avatars", () => {
   let serverId: string
   let forumId: string
-  let postId: string
+  let threadId: string
 
   test.beforeAll(async () => {
     serverId = await seedServer("alice", `Forum ${Date.now()}`)
     forumId = await seedChannel("alice", serverId, "ideas", "forum")
     // Bob joins the server so he's a candidate participant / viewer.
     await seedJoinServer("alice", "bob", serverId)
-    postId = await seedForumPost("alice", forumId, `Bug ${Date.now()}`, "first post body")
+    threadId = await seedForumThread("alice", forumId, `Bug ${Date.now()}`, "first post body")
   })
 
   test("creator edits a post's tags from the card; the filter bar derives the union", async ({ asUser }) => {
@@ -34,7 +34,7 @@ test.describe.serial("forum post tags + participant avatars", () => {
     await page.goto(`/c/channels/${serverId}/${forumId}`)
     await page.waitForURL(new RegExp(forumId), { timeout: 20_000, waitUntil: "commit" })
 
-    const card = page.getByTestId(tid.forumPostCard(postId))
+    const card = page.getByTestId(tid.forumThreadCard(threadId))
     await expect(card).toBeVisible({ timeout: 20_000 })
 
     // No tags yet → no filter-bar chip for the post's future tags.
@@ -42,7 +42,7 @@ test.describe.serial("forum post tags + participant avatars", () => {
 
     // Hover reveals the tag-edit icon; open the dialog and add two tags.
     await card.hover()
-    await page.getByTestId(tid.forumPostTagBtn(postId)).click()
+    await page.getByTestId(tid.forumThreadTagBtn(threadId)).click()
     await expect(page.getByTestId(tid.forumTagDialog)).toBeVisible({ timeout: 10_000 })
     for (const t of ["alpha", "beta"]) {
       await page.getByPlaceholder("new-tag").fill(t)
@@ -56,7 +56,7 @@ test.describe.serial("forum post tags + participant avatars", () => {
 
     // Remove one tag → the filter bar's union drops it.
     await card.hover()
-    await page.getByTestId(tid.forumPostTagBtn(postId)).click()
+    await page.getByTestId(tid.forumThreadTagBtn(threadId)).click()
     await expect(page.getByTestId(tid.forumTagDialog)).toBeVisible({ timeout: 10_000 })
     // The active (selected) chips carry a remove affordance; click #beta to
     // deselect, then save.
@@ -72,11 +72,11 @@ test.describe.serial("forum post tags + participant avatars", () => {
     await page.goto(`/c/channels/${serverId}/${forumId}`)
     await page.waitForURL(new RegExp(forumId), { timeout: 20_000, waitUntil: "commit" })
 
-    const card = page.getByTestId(tid.forumPostCard(postId))
+    const card = page.getByTestId(tid.forumThreadCard(threadId))
     await expect(card).toBeVisible({ timeout: 20_000 })
     await card.hover()
     // Bob is neither the post creator nor a server manager → no tag icon.
-    await expect(page.getByTestId(tid.forumPostTagBtn(postId))).toHaveCount(0)
+    await expect(page.getByTestId(tid.forumThreadTagBtn(threadId))).toHaveCount(0)
   })
 
   test("post card shows a participant AvatarGroup once a second person joins", async ({ asUser }) => {
@@ -84,14 +84,14 @@ test.describe.serial("forum post tags + participant avatars", () => {
     // spoke). Seeded via API (a forum post's own channel accepts messages at
     // the channel messages route); the enrollment path is the product code
     // under test, and the card render is what this journey asserts.
-    await seedMessage("bob", postId, `bob joins ${Date.now()}`)
+    await seedMessage("bob", threadId, `bob joins ${Date.now()}`)
 
     // Alice opens the forum list: the post now has >1 participant, so the card
     // renders the participant AvatarGroup (creator + Bob).
     const alice = await asUser("alice")
     await alice.page.goto(`/c/channels/${serverId}/${forumId}`)
     await alice.page.waitForURL(new RegExp(forumId), { timeout: 20_000, waitUntil: "commit" })
-    await expect(alice.page.getByTestId(tid.forumPostAvatars(postId))).toBeVisible({ timeout: 20_000 })
+    await expect(alice.page.getByTestId(tid.forumThreadAvatars(threadId))).toBeVisible({ timeout: 20_000 })
   })
 })
 

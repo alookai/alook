@@ -25,64 +25,8 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     type: "thread",
   })
 
-  // Collect id sets up front so we can resolve parent-message / creator /
-  // first-message previews in three parallel batches instead of 1+2N calls.
-  const parentIds = [
-    ...new Set(childChannels.filter((r) => r.parentMessageId).map((r) => r.parentMessageId!)),
-  ]
-  const creatorIds = [
-    ...new Set(
-      childChannels
-        .filter((r) => !r.parentMessageId && r.creatorId)
-        .map((r) => r.creatorId!),
-    ),
-  ]
-  const firstMessageChannelIds = [
-    ...new Set(childChannels.filter((r) => !r.parentMessageId).map((r) => r.id)),
-  ]
-
-  const [parentMessages, creators, firstMessages] = await Promise.all([
-    queries.communityMessage.getMessagesByIds(db, parentIds),
-    queries.user.getUsersByIds(db, creatorIds),
-    queries.communityMessage.getFirstMessageByChannelIds(db, firstMessageChannelIds),
-  ])
-
-  const parentMessageMap = new Map(parentMessages.map((m) => [m.id, m]))
-  const creatorMap = new Map(creators.map((u) => [u.id, u]))
-  const firstMessageMap = new Map(
-    firstMessages.map((m) => [m.channelId as string, m.content]),
-  )
-
-  const threads = childChannels.map((t) => {
-    let parent = { authorName: "", text: "" }
-    let parentSeq: number | undefined
-    if (t.parentMessageId) {
-      const msg = parentMessageMap.get(t.parentMessageId)
-      if (msg) {
-        parent = {
-          authorName: msg.authorName,
-          text: (msg.content ?? "").slice(0, 100),
-        }
-        parentSeq = msg.seq
-      }
-    } else if (t.creatorId) {
-      const creator = creatorMap.get(t.creatorId)
-      if (creator) parent = { authorName: creator.name, text: "" }
-      const firstText = firstMessageMap.get(t.id)
-      if (firstText !== undefined) {
-        parent = { ...parent, text: (firstText ?? "").slice(0, 100) }
-      }
-    }
-    return {
-      id: t.id,
-      name: t.name,
-      kind: t.type,
-      messageCount: t.messageCount ?? 0,
-      lastMessageAt: t.lastMessageAt ?? t.createdAt,
-      parent,
-      ...(parentSeq !== undefined ? { parentSeq } : {}),
-    }
-  })
-
-  return writeJSON({ threads })
+  // Plain nested collection representation. View-specific parent previews,
+  // first messages, tags, participants, and creator presentation are composed
+  // by consumers through the generic batch resource reads.
+  return writeJSON({ threads: childChannels })
 })

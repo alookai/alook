@@ -168,15 +168,23 @@ export async function seedMessage(author: UserKey, channelId: string, content: s
 // Create a forum post (a child channel of a `type:"forum"` channel) via API.
 // Returns the post's own channel id. The creator is enrolled as a participant
 // server-side. Use when a spec needs an existing post before driving the UI.
-export async function seedForumPost(
+export async function seedForumThread(
   author: UserKey,
   forumChannelId: string,
   name: string,
   content: string,
 ): Promise<string> {
-  const res = await post(author, `/api/community/channels/${forumChannelId}/posts`, { name, content })
-  const data = (await res.json()) as { post: { id: string } }
-  return data.post.id
+  const nonce = `e2e:${crypto.randomUUID()}`
+  const structure = await post(author, `/api/community/channels/${forumChannelId}/messages`, {
+    content: name,
+    nonce: `${nonce}:opener`,
+  })
+  const data = (await structure.json()) as { threadId: string }
+  await post(author, `/api/community/channels/${data.threadId}/messages`, {
+    content,
+    nonce: `${nonce}:reply`,
+  })
+  return data.threadId
 }
 
 // Create a thread rooted on an existing message. Returns the thread's own

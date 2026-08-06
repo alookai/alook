@@ -114,10 +114,6 @@ describe("DEFAULT_CAPABILITY_RESOLVER", () => {
     expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/messages/m1/threads")).toBe("send");
   });
 
-  it("still maps the canonical posts door (createPost's home) to `send`", () => {
-    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/channels/abc123/posts")).toBe("send");
-  });
-
   it("does not map deleted flat write verbs; inboxPull still matches the generic /inbox read family", () => {
     expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/createPost")).toBeUndefined();
     expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/createPost")).toBeUndefined();

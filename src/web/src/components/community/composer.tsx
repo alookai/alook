@@ -70,6 +70,8 @@ export function clipboardFiles(items: DataTransferItemList | undefined): File[] 
   return files
 }
 
+type ComposerMode = "chat" | "forumThreadBody"
+
 export type ComposerHandle = {
   focusEditor: () => void
   submitNow: () => void
@@ -101,7 +103,11 @@ type ComposerBaseProps = {
   // Auto-focus the editor on mount and on channel change. Desktop only —
   // callers pass `bp !== "mobile"` to avoid unexpected soft-keyboard pop-up.
   autoFocus?: boolean
-  // Placeholder override — used by `forumPostBody` to swap the chat-composer
+  // `"chat"` (default) — Enter sends, Shift+Enter newline, `send()` clears.
+  // `"forumThreadBody"` — inverted: Enter newline, Shift+Enter submits; `send()`
+  // does NOT clear so the parent can await mutation success before resetting.
+  mode?: ComposerMode
+  // Placeholder override — used by `forumThreadBody` to swap the chat-composer
   // relic string. Falls back to the mode-derived default when absent.
   placeholder?: string
   // Hide the composer's built-in emoji-picker button (bottom-right). Used by
@@ -118,7 +124,7 @@ type ComposerBaseProps = {
   // When set, the composer persists its unsent text under this localStorage
   // scope (per channel/DM) and restores it on mount — the view remounts on
   // every channel switch (keyed by id), so this is what survives navigation.
-  // Text only; attachments/replies are not cached. Omitted for forumPostBody
+  // Text only; attachments/replies are not cached. Omitted for forumThreadBody
   // (the parent owns that draft lifecycle).
   draftKey?: string
 }
@@ -132,7 +138,7 @@ type ComposerAcceptedSend = {
 
 type ComposerDeferredSend = {
   sendContract: "deferred"
-  mode: "forumPostBody"
+  mode: "forumThreadBody"
   onDeferredSubmit: (markdown: string, attachments?: SendAttachment[], mentionType?: MentionType) => void | Promise<void>
   onAcceptSend?: never
 }
@@ -142,7 +148,7 @@ export type ComposerProps = ComposerBaseProps & (ComposerAcceptedSend | Composer
 // Composer — plain-text TipTap editor with a chat-style @-mention popover.
 // Users type raw markdown which MessageBody/Streamdown renders on display.
 // In `mode="chat"` (default) Enter sends, Shift+Enter adds a newline. In
-// `mode="forumPostBody"` the mapping is inverted (Enter = newline,
+// `mode="forumThreadBody"` the mapping is inverted (Enter = newline,
 // Shift+Enter = submit) to match /w's issue-sheet convention. While the
 // mention popover is open Enter/Tab/Arrow keys drive selection instead.
 // @everyone is a virtual candidate in channel + thread contexts
@@ -167,7 +173,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   onDirty,
   draftKey,
 }, ref) {
-  const isForumPostBody = mode === "forumPostBody"
+  const isForumThreadBody = mode === "forumThreadBody"
   const {
     pendingFiles,
     setPendingFiles,
@@ -310,7 +316,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     editorProps: {
       attributes: {
         class: "outline-none",
-        enterkeyhint: isForumPostBody ? "enter" : "send",
+        enterkeyhint: isForumThreadBody ? "enter" : "send",
       },
       handleKeyDown: (_view, event) => {
         // editorProps.handleKeyDown runs BEFORE the suggestion plugin's keymap,
@@ -324,7 +330,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           channelRefPopupRef.current.items.length > 0 && channelRefPopupRef.current.command !== null
         if (mentionOpen || channelRefOpen) return false
 
-        if (isForumPostBody) {
+        if (isForumThreadBody) {
           if (event.key === "Enter" && event.shiftKey && !event.isComposing) {
             event.preventDefault()
             send()
@@ -376,7 +382,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       fireTyping()
       emitDirtyTransition()
       const key = draftKeyRef.current
-      if (key && !isForumPostBody) {
+      if (key && !isForumThreadBody) {
         // Persist the ProseMirror doc (JSON), not plain text — so @mention /
         // channel-ref pill nodes survive the round-trip and restore as pills,
         // not inert `@label` text.
@@ -391,7 +397,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   // change. Uses the paste pipeline so paragraph/hard-break structure round-
   // trips exactly like `getText({blockSeparator:"\n\n"})` serialized it.
   useEffect(() => {
-    if (!editor || isForumPostBody || !draftKey) return
+    if (!editor || isForumThreadBody || !draftKey) return
     const doc = readComposerDraft(draftKey)
     if (!doc) return
     restoringDraftRef.current = true
@@ -450,10 +456,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     } else {
       void onDeferredSubmit?.(markdown, attachments, mentionType)
     }
-    // In forumPostBody mode the parent needs to await mutation success before
+    // In forumThreadBody mode the parent needs to await mutation success before
     // clearing — otherwise a failed create wipes the user's typed content.
     // Reset is delegated to the parent via `resetAfterSubmit()` on the ref.
-    if (isForumPostBody) return
+    if (isForumThreadBody) return
     editor.commands.clearContent()
     if (draftKeyRef.current) clearComposerDraft(draftKeyRef.current)
     transferPendingFiles()
@@ -481,12 +487,12 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   // Auto-focus on mount + on channel switch. `<Composer>` is not remounted
   // per channel (only `<MessageList>` is keyed by channelId), so keying this
   // effect on `channel` is what refocuses when the user navigates channels.
-  // Skipped in forumPostBody mode — the parent controls focus (starts on the
+  // Skipped in forumThreadBody mode — the parent controls focus (starts on the
   // title, jumps to the body on Enter).
   useEffect(() => {
-    if (!autoFocus || !editor || isForumPostBody) return
+    if (!autoFocus || !editor || isForumThreadBody) return
     editor.commands.focus("end")
-  }, [autoFocus, editor, channel, isForumPostBody])
+  }, [autoFocus, editor, channel, isForumThreadBody])
 
   // Focus the editor when a reply is initiated. Clicking "reply" on a message
   // sets `replyingTo` on the parent but doesn't touch the composer, so without
@@ -499,8 +505,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   useEffect(() => {
     const opened = !prevReplyingToRef.current && !!replyingTo
     prevReplyingToRef.current = replyingTo
-    if (opened && editor && !isForumPostBody) editor.commands.focus("end")
-  }, [replyingTo, editor, isForumPostBody])
+    if (opened && editor && !isForumThreadBody) editor.commands.focus("end")
+  }, [replyingTo, editor, isForumThreadBody])
 
   // Refocus editor after a drop so the user can start typing without
   // clicking. The drop landed on the composer container — the intent is
@@ -512,7 +518,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 
   return (
     <div
-      className={isForumPostBody ? "relative" : "relative px-3 pb-3 pt-0"}
+      className={isForumThreadBody ? "relative" : "relative px-3 pb-3 pt-0"}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDragOver={handleDragOver}
@@ -553,7 +559,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         </div>
       )}
 
-      <div className={`relative ${isForumPostBody ? "bg-transparent ring-0" : "bg-muted shadow-(--e1) ring-1 ring-border/40 transition-shadow focus-within:ring-2 focus-within:ring-ring/60"} ${replyingTo || pendingFiles.length > 0 ? "rounded-b-xl" : "rounded-xl"}`}>
+      <div className={`relative ${isForumThreadBody ? "bg-transparent ring-0" : "bg-muted shadow-(--e1) ring-1 ring-border/40 transition-shadow focus-within:ring-2 focus-within:ring-ring/60"} ${replyingTo || pendingFiles.length > 0 ? "rounded-b-xl" : "rounded-xl"}`}>
         {dragging && (
           <div
             className={`pointer-events-none absolute inset-0 z-10 grid place-items-center border-2 border-dashed border-ring bg-background/80 ${replyingTo || pendingFiles.length > 0 ? "rounded-b-xl" : "rounded-xl"}`}
@@ -568,8 +574,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           onChange={handleFileSelect}
           className="hidden"
         />
-        <div className={`chat-composer relative py-3 ${isForumPostBody ? "px-2" : "px-12"}`} data-testid={tid.composerInput}>
-          <EditorContent editor={editor} className={`${isForumPostBody ? "max-h-60" : "max-h-40"} overflow-y-auto thin-scrollbar text-base chat-input-line-height outline-none`} />
+        <div className={`chat-composer relative py-3 ${isForumThreadBody ? "px-2" : "px-12"}`} data-testid={tid.composerInput}>
+          <EditorContent editor={editor} className={`${isForumThreadBody ? "max-h-60" : "max-h-40"} overflow-y-auto thin-scrollbar text-base chat-input-line-height outline-none`} />
         </div>
         {/* Attach button — fixed bottom-left */}
         {!hideAttach && (

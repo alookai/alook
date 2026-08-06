@@ -257,12 +257,10 @@ export const DEFAULT_CAPABILITY_RESOLVER: CapabilityResolver = (method, pathname
   //      - GET  channels/{id}/messages/seq/{seq}  → read  (folds `resolve`'s seq→id)
   //      - PUT/DELETE messages/{id}/reactions/…   → send  (write, folds `reactAdd`)
   //      - POST messages/{id}/threads             → send  (create, folds build-thread)
-  //      - POST channels/{id}/posts               → send  (create, folds `createPost`)
   const isMessagesDoor = /\/channels\/[^/]+\/messages(\/|$|\?)/.test(pathname)
   if (isMessagesDoor) return method === "GET" ? "read" : "send";
   if (/\/messages\/[^/]+\/reactions\//.test(pathname)) return "send";
   if (/\/messages\/[^/]+\/threads(\/|$|\?)/.test(pathname)) return "send";
-  if (/\/channels\/[^/]+\/posts(\/|$|\?)/.test(pathname)) return "send";
   // Single-message hydrate door GET messages/{id} (folds the `resolve` verb — a
   // read). Matched AFTER the message-keyed write doors above so their more
   // specific `/reactions|/threads` sub-paths win first.

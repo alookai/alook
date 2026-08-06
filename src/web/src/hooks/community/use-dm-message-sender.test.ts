@@ -12,10 +12,10 @@ const postMock = vi.fn()
 vi.mock("@/hooks/community/mutations", () => ({
   sendNonce: () => "fresh_nonce",
   tempMessageId: () => "temp_fresh",
-  toAttachmentVm: (attachment: { url: string; filename: string }) => ({
+  toAttachmentVm: (channelId: string, attachment: { id: string; filename: string }) => ({
     kind: "file" as const,
     name: attachment.filename,
-    url: attachment.url,
+    url: `/api/community/channels/${channelId}/attachments/${attachment.id}`,
     size: "1 KB",
   }),
   zipUploadResultsWithDimensions: (results: unknown[]) => results.filter(Boolean),
@@ -125,7 +125,7 @@ describe("useDmMessageSender", () => {
 
   it("reuses settled remote attachments on retry without uploading twice", async () => {
     uploadMock.mockResolvedValueOnce({
-      url: "https://files.example/x.txt",
+      id: "att_x",
       filename: "x.txt",
       contentType: "text/plain",
       size: 1,
@@ -158,7 +158,7 @@ describe("useDmMessageSender", () => {
       content: "file",
       replyToId: undefined,
       attachments: [{
-        url: "https://files.example/x.txt",
+        id: "att_x",
         filename: "x.txt",
         contentType: "text/plain",
         size: 1,

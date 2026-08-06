@@ -591,7 +591,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             queryKey: communityKeys.threads(event.parentChannelId),
           })
           void queryClient.invalidateQueries({
-            queryKey: communityKeys.forumPosts(event.parentChannelId),
+            queryKey: communityKeys.forumThreads(event.parentChannelId),
           })
           if (event.type === "community:channel.child_create") {
             if (event.parentMessageId) {
@@ -804,14 +804,14 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
               queryKey: communityKeys.threads(event.channelId),
             })
             queryClient.removeQueries({
-              queryKey: communityKeys.forumPosts(event.channelId),
+              queryKey: communityKeys.forumThreads(event.channelId),
             })
             // When a child (forum_post / thread) is deleted, refresh the
             // PARENT's list so the deleted card disappears from the feed on
             // every client. Absent on older events / top-level channels.
             if (event.parentChannelId) {
               void queryClient.invalidateQueries({
-                queryKey: communityKeys.forumPosts(event.parentChannelId),
+                queryKey: communityKeys.forumThreads(event.parentChannelId),
               })
               void queryClient.invalidateQueries({
                 queryKey: communityKeys.threads(event.parentChannelId),
@@ -848,7 +848,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             queryClient.removeQueries({ queryKey: communityKeys.channelMessages(event.channelId) })
             queryClient.removeQueries({ queryKey: communityKeys.pins(event.channelId) })
             queryClient.removeQueries({ queryKey: communityKeys.threads(event.channelId) })
-            queryClient.removeQueries({ queryKey: communityKeys.forumPosts(event.channelId) })
+            queryClient.removeQueries({ queryKey: communityKeys.forumThreads(event.channelId) })
           }
           void queryClient.invalidateQueries({ queryKey: communityKeys.server(event.serverId) })
           // Refetch the channel roster so an open private-channel Members drawer

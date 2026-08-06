@@ -9,7 +9,7 @@ import {
   seedJoinServer,
   seedMessage,
   seedThread,
-  seedForumPost,
+  seedForumThread,
   seedDm,
   memberInfo,
 } from "./_fixtures/seed"
@@ -64,7 +64,7 @@ test.describe.serial("mentions — candidate scope", () => {
     // to the FORUM, not the post — posts reject access-member adds and derive
     // their mention pool from the parent forum's audience.
     await seedChannelMember("alice", privateForumId, userId("bob"))
-    privatePostId = await seedForumPost("alice", privateForumId, `Post ${Date.now()}`, "post body")
+    privatePostId = await seedForumThread("alice", privateForumId, `Post ${Date.now()}`, "post body")
 
     // A thread rooted on a message in the private channel — its scope is the
     // PARENT channel's audience (alice+bob), NOT its own participant set.

@@ -10,7 +10,7 @@ import { ChannelHeader, ChannelHeaderSkeleton, type ChannelNotifLevel } from "@/
 import { MessageList } from "@/components/community/message-list"
 import { Composer, ComposerSkeleton, type SendAttachment } from "@/components/community/composer"
 import { ForumView, ForumViewSkeleton } from "@/components/community/forum-view"
-import type { NewForumPost } from "@/components/community/create-forum-post"
+import type { NewForumThread } from "@/components/community/create-forum-thread"
 import { CommunityPanelSheet } from "@/components/community/community-panel-sheet"
 import { MessageContextSheet } from "@/components/community/message-context-sheet"
 import { ThreadOpener } from "@/components/community/thread-opener"
@@ -43,7 +43,7 @@ import { useChannelWatermark } from "@/hooks/community/use-channel-watermark"
 import { useEagerChannelRead } from "@/hooks/community/use-eager-channel-read"
 import {
   useThreads,
-  useForumPosts,
+  useForumThreads,
   usePins,
 } from "@/hooks/community/use-channel-panels"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
@@ -56,9 +56,9 @@ import {
   useUnpinMessage,
   useToggleMark,
   useCreateThread,
-  useCreateForumPost,
+  useCreateForumThread,
   useUpdatePostTags,
-  useDeleteForumPost,
+  useDeleteForumThread,
   useSetMemberRole,
   useKickMember,
   useSetChannelNotif,
@@ -134,7 +134,7 @@ function ChannelView() {
   )
   // Type-gate the forum-posts fetch: only forum channels have a valid
   // /posts endpoint; text channels return 400. Compute the flag BEFORE the
-  // hook call so `useForumPosts` can stay disabled for non-forum channels.
+  // hook call so `useForumThreads` can stay disabled for non-forum channels.
   const channelInServer = useMemo(() => {
     const allChannels = currentServer?.categories?.flatMap((c) => c.channels) ?? []
     return allChannels.find((ch) => ch.id === channelId) ?? null
@@ -433,7 +433,7 @@ function ChannelView() {
   }, [latestSeq, readSnapshot])
 
   const { threads, isLoading: threadsLoading } = useThreads(channelId)
-  const { posts: forumPosts, isLoading: forumPostsLoading } = useForumPosts(channelId, isForum)
+  const { threads: forumThreads, isLoading: forumThreadsLoading } = useForumThreads(channelId, isForum)
   const { pins: pinned, isLoading: pinnedLoading } = usePins(channelId)
   const notifs = useNotificationSettings()
   const channelNotif = notifs.channel
@@ -451,9 +451,9 @@ function ChannelView() {
   const { mutate: unpinMessageMutate } = useUnpinMessage()
   const toggleMark = useToggleMark()
   const { mutateAsync: createThreadAsync } = useCreateThread()
-  const createForumPostMut = useCreateForumPost()
+  const createForumThreadMut = useCreateForumThread()
   const updatePostTagsMut = useUpdatePostTags()
-  const deleteForumPostMut = useDeleteForumPost()
+  const deleteForumThreadMut = useDeleteForumThread()
   const setMemberRoleMut = useSetMemberRole()
   const kickMemberMut = useKickMember()
   const setChannelNotifMut = useSetChannelNotif()
@@ -598,12 +598,12 @@ function ChannelView() {
     if (localName) return localName
     if (channelInServer) return channelInServer.name
     if (currentChannelMeta?.name) return currentChannelMeta.name
-    const post = forumPosts.find((p) => p.id === channelId)
+    const post = forumThreads.find((p) => p.id === channelId)
     if (post) return post.name
     const thread = threads.find((t) => t.id === channelId)
     if (thread) return thread.name
     return "channel"
-  }, [localName, channelInServer, forumPosts, threads, currentChannelMeta, channelId])
+  }, [localName, channelInServer, forumThreads, threads, currentChannelMeta, channelId])
 
   // Pinned message ids
   const pinnedIds = useMemo(() => new Set(pinned.map((p) => p.id)), [pinned])
@@ -941,8 +941,9 @@ function ChannelView() {
     communityWsSendTyping({ channelId })
   }
 
-  const createForumPost = useCallback(async (post: NewForumPost) => {
-    const data = await createForumPostMut.mutateAsync({
+  const createForumThread = useCallback(async (post: NewForumThread) => {
+    const data = await createForumThreadMut.mutateAsync({
+      nonce: post.nonce,
       channelId,
       name: post.name,
       content: post.content,
@@ -950,8 +951,8 @@ function ChannelView() {
       mentionType: post.mentionType,
     })
     // A post is its own child channel — open it, same as clicking a post row.
-    enterThread(data.post.id)
-  }, [channelId, createForumPostMut, enterThread])
+    enterThread(data.threadId)
+  }, [channelId, createForumThreadMut, enterThread])
 
   const myRole = members.find((m) => m.userId === currentUser.id)?.role
   // The unit's creator (thread/channel/post) — drives the manage-context
@@ -1066,7 +1067,7 @@ function ChannelView() {
   })()
 
   const isPotentialChild = !channelInServer && !!currentServer?.categories
-  const bodyLoading = isForum ? forumPostsLoading : messagesLoading
+  const bodyLoading = isForum ? forumThreadsLoading : messagesLoading
   const channelHydrated =
     currentChannelId === channelId &&
     !bodyLoading &&
@@ -1259,25 +1260,25 @@ function ChannelView() {
             forumChannelId={channelId}
             members={composerMembers}
             onSearchMembers={membersHook.searchMembers}
-            posts={forumPosts}
-            loading={forumPostsLoading}
+            posts={forumThreads}
+            loading={forumThreadsLoading}
             onOpenPost={enterThread}
-            onCreatePost={createForumPost}
+            onCreatePost={createForumThread}
             canEditPostTags={(post) => canManage || post.authorId === currentUser.id}
-            savingTagsFor={updatePostTagsMut.isPending ? updatePostTagsMut.variables?.postId ?? null : null}
-            onEditPostTags={(postId, tags) => {
-              const post = forumPosts.find((candidate) => candidate.id === postId)
+            savingTagsFor={updatePostTagsMut.isPending ? updatePostTagsMut.variables?.threadId ?? null : null}
+            onEditPostTags={(threadId, tags) => {
+              const post = forumThreads.find((candidate) => candidate.id === threadId)
               if (!post) return
               updatePostTagsMut.mutate(
-                { forumChannelId: channelId, postId, openerMessageId: post.openerMessageId, tags },
+                { forumChannelId: channelId, threadId, openerMessageId: post.openerMessageId, tags },
                 { onError: (e) => toastApiError(e, "Failed to update tags") },
               )
             }}
             canDeletePost={(post) => canManage || post.authorId === currentUser.id}
-            deletingPost={deleteForumPostMut.isPending ? deleteForumPostMut.variables?.postId ?? null : null}
+            deletingPost={deleteForumThreadMut.isPending ? deleteForumThreadMut.variables?.threadId ?? null : null}
             onDeletePost={(post) => {
-              deleteForumPostMut.mutate(
-                { forumChannelId: channelId, postId: post.id },
+              deleteForumThreadMut.mutate(
+                { forumChannelId: channelId, threadId: post.id },
                 { onError: (e) => toastApiError(e, "Failed to delete post") },
               )
             }}

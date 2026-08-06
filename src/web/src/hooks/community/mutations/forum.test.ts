@@ -6,8 +6,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
-import type { ForumPostsResponse } from "@/hooks/community/use-channel-panels"
-import type { ForumPost } from "@/components/community/_types"
+import type { ForumThreadsResponse } from "@/hooks/community/use-channel-panels"
+import type { ForumThread } from "@/components/community/_types"
 
 vi.mock("react", () => ({
   useRef: (initial: unknown) => ({ current: initial }),
@@ -70,7 +70,7 @@ beforeEach(() => {
   capturedQc = new QueryClient()
 })
 
-function makePost(id: string): ForumPost {
+function makePost(id: string): ForumThread {
   return {
     id,
     name: `post ${id}`,
@@ -86,31 +86,34 @@ function makePost(id: string): ForumPost {
   }
 }
 
-describe("useCreateForumPost", () => {
+describe("useCreateForumThread", () => {
   it("POSTs JSON with name + content only when no attachments/mentionType are provided", async () => {
-    const { useCreateForumPost } = await load()
-    useCreateForumPost()
-    const created = makePost("p_new")
-    apiFetchMock.mockResolvedValueOnce({ post: created })
+    const { useCreateForumThread } = await load()
+    useCreateForumThread()
+    apiFetchMock.mockResolvedValueOnce({ threadId: "p_new" })
 
-    await runMutation({ channelId: "forum_1", name: "hi", content: "body" })
+    await runMutation({ nonce: "command_1", channelId: "forum_1", name: "hi", content: "body" })
 
-    expect(apiFetchMock).toHaveBeenCalledTimes(1)
+    expect(apiFetchMock).toHaveBeenCalledTimes(2)
     const [path, init] = apiFetchMock.mock.calls[0]
-    expect(path).toBe("/api/community/channels/forum_1/posts")
+    expect(path).toBe("/api/community/channels/forum_1/messages")
     expect((init as { method?: string }).method).toBe("POST")
     const body = JSON.parse((init as { body: string }).body)
-    expect(body.name).toBe("hi")
-    expect(body.content).toBe("body")
-    // Non-present fields serialize as `undefined` → dropped by JSON.stringify.
+    expect(body.content).toBe("hi")
+    expect(body.nonce).toBe("command_1:opener")
     expect(body.attachments).toBeUndefined()
     expect(body.mentionType).toBeUndefined()
+    const [replyPath, replyInit] = apiFetchMock.mock.calls[1]
+    expect(replyPath).toBe("/api/community/channels/p_new/messages")
+    const replyBody = JSON.parse((replyInit as { body: string }).body)
+    expect(replyBody.content).toBe("body")
+    expect(replyBody.nonce).toBe("command_1:reply")
   })
 
   it("threads attachment IDS + mentionType through to the request body (reserve-by-id)", async () => {
-    const { useCreateForumPost } = await load()
-    useCreateForumPost()
-    apiFetchMock.mockResolvedValueOnce({ post: makePost("p_new") })
+    const { useCreateForumThread } = await load()
+    useCreateForumThread()
+    apiFetchMock.mockResolvedValueOnce({ threadId: "p_new" })
 
     // Reserve-by-id: the client holds full upload descriptors but sends only
     // the pending-row ids; dimensions already rode the upload (single source).
@@ -123,6 +126,7 @@ describe("useCreateForumPost", () => {
       height: 10,
     }]
     await runMutation({
+      nonce: "command_1",
       channelId: "forum_1",
       name: "heads up",
       content: "Heads up @everyone",
@@ -136,19 +140,17 @@ describe("useCreateForumPost", () => {
     expect(body.mentionType).toBe("everyone")
   })
 
-  it("prepends the fresh post to the forum's cached list on success", async () => {
-    const { useCreateForumPost } = await load()
-    useCreateForumPost()
-    capturedQc.setQueryData<ForumPostsResponse>(communityKeys.forumPosts("forum_1"), {
-      posts: [makePost("p_old")],
+  it("invalidates the composed forum list on success", async () => {
+    const { useCreateForumThread } = await load()
+    useCreateForumThread()
+    capturedQc.setQueryData<ForumThreadsResponse>(communityKeys.forumThreads("forum_1"), {
+      threads: [makePost("p_old")],
     })
-    const fresh = makePost("p_new")
-    apiFetchMock.mockResolvedValueOnce({ post: fresh })
+    apiFetchMock.mockResolvedValueOnce({ threadId: "p_new" })
 
-    await runMutation({ channelId: "forum_1", name: "n", content: "c" })
+    await runMutation({ nonce: "command_1", channelId: "forum_1", name: "n", content: "c" })
 
-    const cache = capturedQc.getQueryData<ForumPostsResponse>(communityKeys.forumPosts("forum_1"))
-    expect(cache?.posts.map((p) => p.id)).toEqual(["p_new", "p_old"])
+    expect(capturedQc.getQueryState(communityKeys.forumThreads("forum_1"))?.isInvalidated).toBe(true)
   })
 })
 
@@ -156,14 +158,14 @@ describe("useUpdatePostTags", () => {
   it("PUTs normalized tags on the opener message and patches the post cache", async () => {
     const { useUpdatePostTags } = await load()
     useUpdatePostTags()
-    capturedQc.setQueryData<ForumPostsResponse>(communityKeys.forumPosts("forum_1"), {
-      posts: [makePost("p1"), makePost("p2")],
+    capturedQc.setQueryData<ForumThreadsResponse>(communityKeys.forumThreads("forum_1"), {
+      threads: [makePost("p1"), makePost("p2")],
     })
     apiFetchMock.mockResolvedValueOnce({ tags: ["bug", "p0"] })
 
     await runMutation({
       forumChannelId: "forum_1",
-      postId: "p2",
+      threadId: "p2",
       openerMessageId: "m_p2",
       tags: [" Bug ", "P0", "bug"],
     })
@@ -172,40 +174,40 @@ describe("useUpdatePostTags", () => {
       method: "PUT",
       body: JSON.stringify({ tags: ["bug", "p0"] }),
     })
-    const cache = capturedQc.getQueryData<ForumPostsResponse>(communityKeys.forumPosts("forum_1"))
-    expect(cache?.posts.find((post) => post.id === "p2")?.tags).toEqual(["bug", "p0"])
+    const cache = capturedQc.getQueryData<ForumThreadsResponse>(communityKeys.forumThreads("forum_1"))
+    expect(cache?.threads.find((post) => post.id === "p2")?.tags).toEqual(["bug", "p0"])
   })
 })
 
-describe("useDeleteForumPost", () => {
+describe("useDeleteForumThread", () => {
   it("DELETEs the post channel and removes it from the forum's cached list on success", async () => {
-    const { useDeleteForumPost } = await load()
-    useDeleteForumPost()
+    const { useDeleteForumThread } = await load()
+    useDeleteForumThread()
 
-    capturedQc.setQueryData<ForumPostsResponse>(communityKeys.forumPosts("forum_1"), {
-      posts: [makePost("p1"), makePost("p2"), makePost("p3")],
+    capturedQc.setQueryData<ForumThreadsResponse>(communityKeys.forumThreads("forum_1"), {
+      threads: [makePost("p1"), makePost("p2"), makePost("p3")],
     })
     apiFetchMock.mockResolvedValueOnce(undefined)
 
-    await runMutation({ forumChannelId: "forum_1", postId: "p2" })
+    await runMutation({ forumChannelId: "forum_1", threadId: "p2" })
 
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/p2", { method: "DELETE" })
-    const cache = capturedQc.getQueryData<ForumPostsResponse>(communityKeys.forumPosts("forum_1"))
-    expect(cache?.posts.map((p) => p.id)).toEqual(["p1", "p3"])
+    const cache = capturedQc.getQueryData<ForumThreadsResponse>(communityKeys.forumThreads("forum_1"))
+    expect(cache?.threads.map((p) => p.id)).toEqual(["p1", "p3"])
   })
 
   it("leaves the cache untouched when the DELETE fails", async () => {
-    const { useDeleteForumPost } = await load()
-    useDeleteForumPost()
+    const { useDeleteForumThread } = await load()
+    useDeleteForumThread()
 
-    capturedQc.setQueryData<ForumPostsResponse>(communityKeys.forumPosts("forum_1"), {
-      posts: [makePost("p1"), makePost("p2")],
+    capturedQc.setQueryData<ForumThreadsResponse>(communityKeys.forumThreads("forum_1"), {
+      threads: [makePost("p1"), makePost("p2")],
     })
     apiFetchMock.mockRejectedValueOnce(new Error("500"))
 
-    await runMutationExpectError({ forumChannelId: "forum_1", postId: "p2" })
+    await runMutationExpectError({ forumChannelId: "forum_1", threadId: "p2" })
 
-    const cache = capturedQc.getQueryData<ForumPostsResponse>(communityKeys.forumPosts("forum_1"))
-    expect(cache?.posts.map((p) => p.id)).toEqual(["p1", "p2"])
+    const cache = capturedQc.getQueryData<ForumThreadsResponse>(communityKeys.forumThreads("forum_1"))
+    expect(cache?.threads.map((p) => p.id)).toEqual(["p1", "p2"])
   })
 })
