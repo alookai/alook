@@ -1158,6 +1158,7 @@ function ChannelView() {
           tools={{ threads: false }}
           breadcrumb={{
             label: channelName,
+            inlineRename: parentIsForum,
             onNavigateBack: () => { if (parentId) router.push(`/c/channels/${params.serverId}/${parentId}`); else router.back() },
             onRename: parentIsForum && parentId && parentMessageId && currentChannelMeta?.creatorId === currentUser.id
               ? async (name) => {

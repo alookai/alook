@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { LucideIcon } from "lucide-react"
 import { Bell, BellOff, Pin, Users, MessagesSquare, ChevronLeft, Check, Pencil, MoreHorizontal } from "lucide-react"
 import { NOTIF_LEVELS, USE_SERVER_DEFAULT, type NotifLevel } from "@alook/shared"
@@ -55,7 +55,7 @@ export function ChannelHeader({
   onSetNotifLevel?: (l: ChannelNotifLevel) => void
   onBack?: () => void
   forum?: boolean
-  breadcrumb?: { label: string; onRename?: (name: string) => void | Promise<void>; onNavigateBack?: () => void }
+  breadcrumb?: { label: string; onRename?: (name: string) => void | Promise<void>; inlineRename?: boolean; onNavigateBack?: () => void }
   server?: { id: string; name: string; icon: string | null }
   tools?: { threads?: boolean; pinned?: boolean; members?: boolean }
 }) {
@@ -88,8 +88,12 @@ export function ChannelHeader({
             <span className="truncate text-base font-medium">{channel}</span>
           </button>
           <ChannelIcon className="shrink-0 text-base text-muted-foreground/60" />
-          <span className="min-w-0 truncate text-base font-medium" title={breadcrumb.label}>{breadcrumb.label}</span>
-          {breadcrumb.onRename && (
+          {breadcrumb.onRename && breadcrumb.inlineRename ? (
+            <InlineBreadcrumbRename label={breadcrumb.label} onRename={breadcrumb.onRename} />
+          ) : (
+            <span className="min-w-0 truncate text-base font-medium" title={breadcrumb.label}>{breadcrumb.label}</span>
+          )}
+          {breadcrumb.onRename && !breadcrumb.inlineRename && (
             <BreadcrumbRename label={breadcrumb.label} onRename={breadcrumb.onRename} />
           )}
         </>
@@ -115,6 +119,70 @@ export function ChannelHeader({
         )}
       </div>
     </header>
+  )
+}
+
+function InlineBreadcrumbRename({ label, onRename }: { label: string; onRename: (name: string) => void | Promise<void> }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(label)
+  const [saving, setSaving] = useState(false)
+  const savingRef = useRef(false)
+  useEffect(() => {
+    if (!editing) setDraft(label)
+  }, [editing, label])
+
+  const cancel = () => {
+    if (savingRef.current) return
+    setDraft(label)
+    setEditing(false)
+  }
+  const save = async () => {
+    const trimmed = draft.trim()
+    if (!trimmed || savingRef.current) return
+    if (trimmed === label) {
+      setEditing(false)
+      return
+    }
+    savingRef.current = true
+    setSaving(true)
+    try {
+      await onRename(trimmed)
+      setEditing(false)
+    } catch {
+      // The owner toasts the API failure; retain the draft for correction or retry.
+    } finally {
+      savingRef.current = false
+      setSaving(false)
+    }
+  }
+
+  if (!editing) {
+    return (
+      <div className="flex min-w-0 items-center gap-1">
+        <span className="min-w-0 truncate text-base font-medium" title={label}>{label}</span>
+        <Button variant="ghost" size="icon-sm" onClick={() => { setDraft(label); setEditing(true) }} className="text-muted-foreground hover:text-foreground" aria-label="Edit post title">
+          <Pencil className="size-3.5" />
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-1">
+      <Input
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") { e.preventDefault(); void save() }
+          if (e.key === "Escape") { e.preventDefault(); cancel() }
+        }}
+        className="h-8 min-w-0 flex-1"
+        aria-label="Post title"
+        autoFocus
+      />
+      <Button size="sm" onClick={() => void save()} disabled={!draft.trim() || saving}>Save</Button>
+      <Button variant="ghost" size="sm" onClick={cancel} disabled={saving}>Cancel</Button>
+    </div>
   )
 }
 

@@ -121,7 +121,7 @@ describe("resolveTargetForMember", () => {
     })
   })
 
-  describe("channel refs (/server/channel)", () => {
+  describe("channel refs (/server#disc/channel)", () => {
     it("404 server not found", async () => {
       mockResolveServerByNameForMember.mockResolvedValue([])
       const res = await resolveTargetForMember(db, "u_1", "/studio#0042/general")
@@ -176,7 +176,7 @@ describe("resolveTargetForMember", () => {
     })
   })
 
-  describe("thread refs (/server/channel/#N)", () => {
+  describe("thread refs (/server#disc/channel/#N)", () => {
     beforeEach(() => {
       mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1" }])
       mockResolveChannelByNameForMember.mockResolvedValue([{ id: "ch_1" }])
