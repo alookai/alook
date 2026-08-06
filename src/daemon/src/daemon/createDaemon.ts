@@ -130,8 +130,8 @@ export function createRuntimeRawLineTap(args: {
  *
  * Canonical `users/me/inbox/ack` is the advance sibling of `inboxPull` with no
  * user intent, so it is dropped (returns `null`). Anything outside recognized
- * `null` too — the proxy is generic and could carry non-audit traffic in the
- * future.
+ * canonical shapes returns `null` too — the proxy is generic and could carry
+ * non-audit traffic in the future.
  */
 export function deriveAuditLogSubcommand(pathname: string, method?: string): string | null {
   // Route/disc retarget: several flat verbs now hit the canonical id-in-path
