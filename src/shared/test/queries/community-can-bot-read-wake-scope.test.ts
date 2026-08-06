@@ -63,20 +63,8 @@ describe("canBotReadWakeScope — visibility gate", () => {
   });
 });
 
-describe("canBotReadWakeScope — notification-set narrowing (thread + forum_post)", () => {
+describe("canBotReadWakeScope — notification-set narrowing (thread)", () => {
   beforeEach(() => vi.clearAllMocks());
-
-  it("public forum_post + bot IS a thread participant → true", async () => {
-    mockResolveChannelAccessContext.mockResolvedValue(ctx({ type: "forum_post", isPrivate: false }));
-    mockIsThreadParticipant.mockResolvedValue(true);
-    expect(await canBotReadWakeScope(fakeDb, "bot", { channelId: "post_1" })).toBe(true);
-  });
-
-  it("public forum_post + bot NOT a participant → false (regression guard for Mellicent's exact case)", async () => {
-    mockResolveChannelAccessContext.mockResolvedValue(ctx({ type: "forum_post", isPrivate: false }));
-    mockIsThreadParticipant.mockResolvedValue(false);
-    expect(await canBotReadWakeScope(fakeDb, "bot", { channelId: "post_1" })).toBe(false);
-  });
 
   it("thread under public channel + bot NOT a participant → false", async () => {
     mockResolveChannelAccessContext.mockResolvedValue(ctx({ type: "thread", isPrivate: false }));
@@ -90,20 +78,20 @@ describe("canBotReadWakeScope — notification-set narrowing (thread + forum_pos
     expect(await canBotReadWakeScope(fakeDb, "bot", { channelId: "thread_1" })).toBe(true);
   });
 
-  it("private forum_post + bot on roster + IS a participant → true", async () => {
+  it("private thread + bot on roster + IS a participant → true", async () => {
     mockResolveChannelAccessContext.mockResolvedValue(
-      ctx({ type: "forum_post", isPrivate: true, isChannelMember: true }),
+      ctx({ type: "thread", isPrivate: true, isChannelMember: true }),
     );
     mockIsThreadParticipant.mockResolvedValue(true);
-    expect(await canBotReadWakeScope(fakeDb, "bot", { channelId: "post_priv" })).toBe(true);
+    expect(await canBotReadWakeScope(fakeDb, "bot", { channelId: "thread_priv" })).toBe(true);
   });
 
-  it("private forum_post + bot on roster but NOT a participant → false (both gates enforced)", async () => {
+  it("private thread + bot on roster but NOT a participant → false (both gates enforced)", async () => {
     mockResolveChannelAccessContext.mockResolvedValue(
-      ctx({ type: "forum_post", isPrivate: true, isChannelMember: true }),
+      ctx({ type: "thread", isPrivate: true, isChannelMember: true }),
     );
     mockIsThreadParticipant.mockResolvedValue(false);
-    expect(await canBotReadWakeScope(fakeDb, "bot", { channelId: "post_priv" })).toBe(false);
+    expect(await canBotReadWakeScope(fakeDb, "bot", { channelId: "thread_priv" })).toBe(false);
   });
 });
 

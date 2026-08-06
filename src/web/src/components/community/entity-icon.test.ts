@@ -13,8 +13,7 @@ describe("getEntityIcon", () => {
     expect(getEntityIcon("forum")).toBe(ListChevronsUpDown)
   })
 
-  it("thread and forum_post → MessagesSquare", () => {
+  it("thread → MessagesSquare", () => {
     expect(getEntityIcon("thread")).toBe(MessagesSquare)
-    expect(getEntityIcon("forum_post")).toBe(MessagesSquare)
   })
 })

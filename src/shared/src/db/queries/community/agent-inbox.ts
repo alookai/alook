@@ -194,16 +194,14 @@ async function resolveScopeRefs(
     const serverName = ch.serverId ? (serverNameById.get(ch.serverId) ?? ch.serverId) : "unknown";
     const parent = ch.parentChannelId ? parentChannelById.get(ch.parentChannelId) : undefined;
     const rootSeq = ch.parentMessageId ? parentSeqById.get(ch.parentMessageId) : undefined;
-    // A thread and a forum_post are both `parent`-anchored children, but only a
-    // thread carries a `parentMessageId` (→ root seq). Distinguish by whether a
-    // root seq resolved so we hand the emitter the right addressing type: a
-    // child WITH a root seq is a thread, WITHOUT is a forum_post.
+    // A thread is a `parent`-anchored child carrying a `parentMessageId` (→
+    // root seq). Only emit "thread" once that root seq actually resolved —
+    // otherwise fall through to the raw stored type (degrades to the
+    // "unresolvable" sentinel below via formatCanonicalRef returning null).
     const emitType: StoredChannelType =
       ch.parentChannelId && ch.parentMessageId && parent && rootSeq !== undefined
         ? "thread"
-        : ch.parentChannelId && storedType === "forum_post" && parent
-          ? "forum_post"
-          : storedType;
+        : storedType;
     const ref = formatCanonicalRef({
       type: emitType,
       serverName,
@@ -416,23 +414,6 @@ export async function resolveUnreadNoticeChannel(
     const serverName = await getServerName(db, parent.serverId);
     if (!serverName) return null;
     return formatCanonicalRef({ type: "thread", serverName, parentName: parent.name, rootSeq: root.seq });
-  }
-
-  // Forum post: parent forum but no parentMessageId — anchor by the post's own
-  // name under the forum (`/server/<forum>/<post>`). A missing/serverless parent
-  // resolves to null (notice_channel_unresolvable) rather than a bogus ref, per
-  // this function's no-placeholder contract.
-  if (storedType === "forum_post" && ch.parentChannelId) {
-    const parentRows = await db
-      .select({ name: communityChannel.name, serverId: communityChannel.serverId })
-      .from(communityChannel)
-      .where(eq(communityChannel.id, ch.parentChannelId))
-      .limit(1);
-    const parent = parentRows[0];
-    if (!parent || !parent.serverId) return null;
-    const serverName = await getServerName(db, parent.serverId);
-    if (!serverName) return null;
-    return formatCanonicalRef({ type: "forum_post", serverName, parentName: parent.name, name: ch.name });
   }
 
   if (!ch.serverId) return null;

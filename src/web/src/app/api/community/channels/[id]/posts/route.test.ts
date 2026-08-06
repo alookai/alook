@@ -3,19 +3,15 @@ import { NextRequest } from "next/server"
 
 const mockGetChannelForMember = vi.fn()
 const mockResolveChannelAccessContext = vi.fn()
-const mockCreateChannel = vi.fn()
-const mockDedupeChildChannelSlug = vi.fn(async (_db: unknown, _parent: unknown, slug: string) => slug)
+const mockCreateMessageWithThread = vi.fn()
 const mockFindPendingAttachmentsForSender = vi.fn(async () => [])
-const mockReserveAttachmentsForMessage = vi.fn(async () => [])
-const mockCreateMessage = vi.fn()
-const mockGetMessage = vi.fn()
 const mockGetUserSelf = vi.fn()
-const mockGetUserInternal = vi.fn()
-const mockFanOutToChannel = vi.fn()
 const mockListChildChannels = vi.fn()
 const mockGetUsersByIds = vi.fn()
-const mockGetFirstMessageByChannelIds = vi.fn()
+const mockGetMessagesByIds = vi.fn(async () => [] as unknown[])
+const mockGetFirstMessageByChannelIds = vi.fn(async () => [] as unknown[])
 const mockListParticipantsForChannels = vi.fn(async () => [] as unknown[])
+const mockListTagsForMessages = vi.fn(async () => [] as unknown[])
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -31,64 +27,33 @@ vi.mock("@alook/shared", async () => {
       communityChannel: {
         getChannelForMember: (...a: unknown[]) => mockGetChannelForMember(...a),
         resolveChannelAccessContext: (...a: unknown[]) => mockResolveChannelAccessContext(...a),
-        createChannel: (...a: unknown[]) => mockCreateChannel(...a),
-        dedupeChildChannelSlug: (...a: unknown[]) => mockDedupeChildChannelSlug(...a),
         listChildChannels: (...a: unknown[]) => mockListChildChannels(...a),
-        // createCommunityMessage's private-channel scoping guard is only hit
-        // when there are mentions; the happy-path posts have none, so these
-        // return public/empty.
-        isChannelPrivate: vi.fn(async () => false),
       },
       communityMessage: {
-        createMessage: (...a: unknown[]) => mockCreateMessage(...a),
-        getMessage: (...a: unknown[]) => mockGetMessage(...a),
+        getMessagesByIds: (...a: unknown[]) => mockGetMessagesByIds(...a),
         getFirstMessageByChannelIds: (...a: unknown[]) => mockGetFirstMessageByChannelIds(...a),
       },
-      communityMember: {
-        listMembers: vi.fn(async () => []),
-        listMemberUserIds: vi.fn(async () => []),
-      },
-      communityMention: {
-        createMentions: vi.fn(async () => []),
+      communityMessageTag: {
+        listTagsForMessages: (...a: unknown[]) => mockListTagsForMessages(...a),
       },
       communityAttachment: {
         // Reserve-by-id: the post route validates pending ids via findPending,
-        // then createForumPost reserves them onto the first message.
+        // then createMessageWithThread reserves them onto the reply message.
         findPendingAttachmentsForSender: (...a: unknown[]) => mockFindPendingAttachmentsForSender(...a),
-        reserveAttachmentsForMessage: (...a: unknown[]) => mockReserveAttachmentsForMessage(...a),
-        listByMessageIds: vi.fn(async () => []),
-        unreserveAttachments: vi.fn(async () => {}),
       },
       communityThread: {
-        addThreadParticipants: vi.fn(async () => {}),
         listParticipantsForChannels: (...a: unknown[]) => mockListParticipantsForChannels(...a),
       },
       user: {
         getUserSelf: (...a: unknown[]) => mockGetUserSelf(...a),
-        getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a),
         getUsersByIds: (...a: unknown[]) => mockGetUsersByIds(...a),
       },
     },
   }
 })
 
-vi.mock("@/lib/community/fanout", () => ({
-  fanOutToChannel: (...a: unknown[]) => mockFanOutToChannel(...a),
-  fanOutToDM: vi.fn(async () => {}),
-  resolveChannelRecipients: vi.fn(async () => [] as string[]),
-}))
-
-vi.mock("@/lib/community/notify", () => ({
-  dispatchMessageNotify: vi.fn(async () => {}),
-}))
-
-// createCommunityMessage's non-fanout side effects — stub so the pipeline runs.
-vi.mock("@/lib/broadcast", () => ({
-  broadcastToUser: vi.fn(async () => {}),
-}))
-vi.mock("@/lib/community/audit", () => ({
-  logAudit: vi.fn(),
-  COMMUNITY_AUDIT_ACTIONS: { MESSAGE_AUTHORED_AS_BOT: "message_authored_as_bot" },
+vi.mock("@/lib/community/create-channels", () => ({
+  createMessageWithThread: (...a: unknown[]) => mockCreateMessageWithThread(...a),
 }))
 
 vi.mock("@/lib/middleware/auth", () => ({
@@ -119,87 +84,74 @@ function postReq(body: unknown) {
   })
 }
 
+// A post is now a thread rooted directly under a forum: title lands as the
+// opener message (in the forum), content as the thread's first reply, both
+// via the SAME createMessageWithThread primitive the bot send-into-forum
+// path uses. Route-level tests mock that primitive directly (it's unit-
+// tested on its own in create-channels.test.ts) and assert the route's own
+// validation + response projection.
+function successResult(overrides: Partial<{ threadId: string; threadName: string; messageContent: string; replyCreatedAt: string; messageCreatedAt: string }> = {}) {
+  const {
+    threadId = "post1",
+    threadName = "my-thoughts-on-this",
+    messageContent = "My thoughts on this!",
+    replyCreatedAt = "2026-07-02T00:00:01.000Z",
+    messageCreatedAt = "2026-07-02T00:00:00.000Z",
+  } = overrides
+  return {
+    ok: true,
+    message: { id: "m_opener", content: messageContent, createdAt: messageCreatedAt },
+    attachments: [],
+    thread: { id: threadId, name: threadName, createdAt: messageCreatedAt },
+    reply: { id: "m_reply", content: "hello", createdAt: replyCreatedAt },
+    replyAttachments: [],
+  }
+}
+
 describe("POST /api/community/channels/[id]/posts — name normalization", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockGetChannelForMember.mockResolvedValue({ id: "ch1", serverId: "s1", type: "forum", tags: [] })
-    mockCreateMessage.mockResolvedValue({ id: "m1", createdAt: "2026-07-02T00:00:00.000Z" })
-    // createCommunityMessage re-fetches the row via getMessage after insert.
-    mockGetMessage.mockResolvedValue({
-      id: "m1",
-      authorId: "u1",
-      authorName: "Alice",
-      authorImage: null,
-      content: "hello",
-      type: "default",
-      mentionType: null,
-      replyToId: null,
-      embeds: null,
-      channelId: "post1",
-      dmConversationId: null,
-      seq: 1,
-      createdAt: "2026-07-02T00:00:00.000Z",
-    })
     mockGetUserSelf.mockResolvedValue({ id: "u1", name: "Alice", image: null })
-    mockGetUserInternal.mockResolvedValue({ id: "u1", name: "Alice", isBot: false })
-    mockFanOutToChannel.mockResolvedValue(undefined)
+    mockCreateMessageWithThread.mockResolvedValue(successResult())
   })
 
-  it("normalizes a spaced post title via slugify before creating the post channel", async () => {
-    mockCreateChannel.mockResolvedValue({
-      id: "post1",
-      name: "My-thoughts-on-this!",
-      createdAt: "2026-07-02T00:00:00.000Z",
-    })
-
+  it("passes the trimmed title as the opener body and content as the reply body", async () => {
     const res = await POST(postReq({ name: "My thoughts on this!", content: "hello" }), ctx)
     expect(res.status).toBe(201)
-    // The addressing name is the slug; display_title captures the PRE-slugify
-    // original verbatim (B4b) — the two MUST differ here, proving capture happens
-    // before slugify (a slugified display_title would be worthless).
-    expect(mockCreateChannel).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ name: "My-thoughts-on-this!", displayTitle: "My thoughts on this!" }),
+    expect(mockCreateMessageWithThread).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parentChannelId: "ch1",
+        body: { content: "My thoughts on this!", mentionType: undefined },
+        replyBody: { content: "hello" },
+      }),
     )
   })
 
-  it("returns 400 (and never calls createChannel) when the post title is all disallowed characters", async () => {
-    const res = await POST(postReq({ name: "///", content: "hello" }), ctx)
+  it("returns 400 (and never calls createMessageWithThread) when the post title is all disallowed characters", async () => {
+    const res = await POST(postReq({ name: "   ", content: "hello" }), ctx)
     expect(res.status).toBe(400)
-    expect(mockCreateChannel).not.toHaveBeenCalled()
+    expect(mockCreateMessageWithThread).not.toHaveBeenCalled()
   })
 
-  it("dedupes the slug within the forum before creating (so the name anchor is unique)", async () => {
-    // The forum already has an "ideas" post → dedupe yields "ideas-2".
-    mockDedupeChildChannelSlug.mockResolvedValueOnce("ideas-2")
-    mockCreateChannel.mockResolvedValue({
-      id: "post1",
-      name: "ideas-2",
-      createdAt: "2026-07-02T00:00:00.000Z",
-    })
-    const res = await POST(postReq({ name: "ideas", content: "hello" }), ctx)
-    expect(res.status).toBe(201)
-    // dedupe is called with the slugified base name under this forum...
-    expect(mockDedupeChildChannelSlug).toHaveBeenCalledWith(expect.anything(), "ch1", "ideas")
-    // ...and the DEDUPED name is what gets persisted.
-    expect(mockCreateChannel).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ name: "ideas-2" }),
-    )
-    const body = await res.json()
-    expect(body.post.name).toBe("ideas-2")
+  it("returns 400 (and never calls createMessageWithThread) when the title exceeds MAX_CHANNEL_NAME_LENGTH", async () => {
+    const res = await POST(postReq({ name: "x".repeat(200), content: "hello" }), ctx)
+    expect(res.status).toBe(400)
+    expect(mockCreateMessageWithThread).not.toHaveBeenCalled()
   })
 
-  it("returns messageCount 0 in the response (body IS the first message, not a reply)", async () => {
-    mockCreateChannel.mockResolvedValue({
-      id: "post1",
-      name: "solo",
-      createdAt: "2026-07-02T00:00:00.000Z",
-    })
+  it("returns messageCount 0 in the response (a fresh post has no replies beyond its own body)", async () => {
     const res = await POST(postReq({ name: "solo", content: "hi" }), ctx)
     expect(res.status).toBe(201)
     const body = await res.json()
     expect(body.post.messageCount).toBe(0)
+  })
+
+  it("the response id is the thread's id (the post channel)", async () => {
+    mockCreateMessageWithThread.mockResolvedValue(successResult({ threadId: "thread_xyz" }))
+    const res = await POST(postReq({ name: "solo", content: "hi" }), ctx)
+    const body = await res.json()
+    expect(body.post.id).toBe("thread_xyz")
   })
 })
 
@@ -207,62 +159,68 @@ describe("POST /api/community/channels/[id]/posts — content + attachments cont
   beforeEach(() => {
     vi.clearAllMocks()
     mockGetChannelForMember.mockResolvedValue({ id: "ch1", serverId: "s1", type: "forum", tags: [] })
-    mockCreateMessage.mockResolvedValue({ id: "m1", createdAt: "2026-07-02T00:00:00.000Z" })
-    mockGetMessage.mockResolvedValue({
-      id: "m1",
-      authorId: "u1",
-      authorName: "Alice",
-      authorImage: null,
-      content: "",
-      type: "default",
-      mentionType: null,
-      replyToId: null,
-      embeds: null,
-      channelId: "post1",
-      dmConversationId: null,
-      seq: 1,
-      createdAt: "2026-07-02T00:00:00.000Z",
-    })
     mockGetUserSelf.mockResolvedValue({ id: "u1", name: "Alice", image: null })
-    mockGetUserInternal.mockResolvedValue({ id: "u1", name: "Alice", isBot: false })
-    mockFanOutToChannel.mockResolvedValue(undefined)
-    mockCreateChannel.mockResolvedValue({
-      id: "post1",
-      name: "my-post",
-      createdAt: "2026-07-02T00:00:00.000Z",
-    })
+    mockCreateMessageWithThread.mockResolvedValue(successResult())
   })
 
-  it("empty content + zero attachments returns 400", async () => {
+  it("empty content + zero attachments returns 400 — the reply body is required (matches the composer's existing disabled-submit behavior)", async () => {
     const res = await POST(postReq({ name: "my post", content: "" }), ctx)
     expect(res.status).toBe(400)
     const body = await res.json()
-    expect(body.error).toBe("post is empty")
-    expect(mockCreateChannel).not.toHaveBeenCalled()
+    expect(body.error).toBe("post body is required")
+    expect(mockCreateMessageWithThread).not.toHaveBeenCalled()
   })
 
-  it("empty content + one valid attachment creates the post (attachments-only path)", async () => {
-    // Reserve-by-id: the client sends pending-row IDS; the route validates them
-    // (findPending echoes → count matches) then createForumPost reserves them.
-    mockFindPendingAttachmentsForSender.mockResolvedValueOnce([{ id: "att_1" }])
-    mockReserveAttachmentsForMessage.mockResolvedValueOnce(["att_1"])
+  it("empty content + one valid attachment is STILL rejected — attachments alone don't satisfy the required reply body", async () => {
+    // Per Gener/Aigneis's ruling: the human posts route now matches the bot
+    // send-into-forum path's replyContent-required contract — attachment-only
+    // posts are no longer supported (the live composer already disabled
+    // submit without body text before this route even existed). Content is
+    // validated BEFORE attachments, so findPendingAttachmentsForSender is
+    // never even reached here.
     const res = await POST(postReq({ name: "img", content: "", attachments: ["att_1"] }), ctx)
-    expect(res.status).toBe(201)
-    // Route passes attachment ids through to createForumPost → reserve.
-    expect(mockCreateChannel).toHaveBeenCalled()
-    expect(mockReserveAttachmentsForMessage).toHaveBeenCalled()
+    expect(res.status).toBe(400)
+    expect(mockFindPendingAttachmentsForSender).not.toHaveBeenCalled()
+    expect(mockCreateMessageWithThread).not.toHaveBeenCalled()
   })
 
-  it("threads mentionType through to createCommunityMessage / first message", async () => {
+  it("attachments are validated then passed through as replyAttachmentIds (they land on the reply, not the opener)", async () => {
+    mockFindPendingAttachmentsForSender.mockResolvedValueOnce([{ id: "att_1" }])
+    const res = await POST(postReq({ name: "img", content: "check this out", attachments: ["att_1"] }), ctx)
+    expect(res.status).toBe(201)
+    expect(mockFindPendingAttachmentsForSender).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ ids: ["att_1"], uploaderId: "u1", targetId: "ch1" }),
+    )
+    expect(mockCreateMessageWithThread).toHaveBeenCalledWith(
+      expect.objectContaining({ replyAttachmentIds: ["att_1"], attachmentIds: undefined }),
+    )
+  })
+
+  it("rejects when an attachment id doesn't validate against (uploader, target)", async () => {
+    mockFindPendingAttachmentsForSender.mockResolvedValueOnce([]) // none matched
+    const res = await POST(postReq({ name: "img", content: "hi", attachments: ["att_bad"] }), ctx)
+    expect(res.status).toBe(400)
+    expect(mockCreateMessageWithThread).not.toHaveBeenCalled()
+  })
+
+  it("threads mentionType through to createMessageWithThread's opener body", async () => {
     const res = await POST(
       postReq({ name: "heads up", content: "Heads up @everyone", mentionType: "everyone" }),
       ctx,
     )
     expect(res.status).toBe(201)
-    // The mock records the createMessage call — the pipeline lifts mentionType
-    // out of `body` and lands it on the row.
-    const call = mockCreateMessage.mock.calls[0]?.[1]
-    expect(call?.mentionType).toBe("everyone")
+    expect(mockCreateMessageWithThread).toHaveBeenCalledWith(
+      expect.objectContaining({ body: { content: "heads up", mentionType: "everyone" } }),
+    )
+  })
+
+  it("propagates a createMessageWithThread failure as the route's error response", async () => {
+    mockCreateMessageWithThread.mockResolvedValue({ ok: false, status: 404, error: "thread not found" })
+    const res = await POST(postReq({ name: "img", content: "hi" }), ctx)
+    expect(res.status).toBe(404)
+    const body = await res.json()
+    expect(body.error).toBe("thread not found")
   })
 })
 
@@ -277,6 +235,8 @@ describe("GET /api/community/channels/[id]/posts — authorId", () => {
       role: "member", isPrivate: false, isChannelMember: false, isCreator: true,
     })
     mockGetFirstMessageByChannelIds.mockResolvedValue([])
+    mockGetMessagesByIds.mockResolvedValue([])
+    mockListTagsForMessages.mockResolvedValue([])
   })
 
   function getReq() {
@@ -285,9 +245,10 @@ describe("GET /api/community/channels/[id]/posts — authorId", () => {
 
   it("carries each post's creatorId through as authorId", async () => {
     mockListChildChannels.mockResolvedValue([
-      { id: "post1", name: "First", messageCount: 2, lastMessageAt: "2026-07-02T00:00:00.000Z", createdAt: "2026-07-01T00:00:00.000Z", creatorId: "u_alice", tags: [] },
+      { id: "post1", name: "First", messageCount: 2, lastMessageAt: "2026-07-02T00:00:00.000Z", createdAt: "2026-07-01T00:00:00.000Z", creatorId: "u_alice", parentMessageId: "m_opener1", tags: [] },
     ])
     mockGetUsersByIds.mockResolvedValue([{ id: "u_alice", name: "Alice", image: null }])
+    mockGetMessagesByIds.mockResolvedValue([{ id: "m_opener1", content: "First" }])
 
     const res = await GET(getReq(), ctx)
     expect(res.status).toBe(200)
@@ -298,9 +259,10 @@ describe("GET /api/community/channels/[id]/posts — authorId", () => {
 
   it("falls back to an empty authorId when the creator was deleted (creatorId null)", async () => {
     mockListChildChannels.mockResolvedValue([
-      { id: "post1", name: "Orphan", messageCount: 0, lastMessageAt: null, createdAt: "2026-07-01T00:00:00.000Z", creatorId: null, tags: [] },
+      { id: "post1", name: "Orphan", messageCount: 0, lastMessageAt: null, createdAt: "2026-07-01T00:00:00.000Z", creatorId: null, parentMessageId: "m_opener1", tags: [] },
     ])
     mockGetUsersByIds.mockResolvedValue([])
+    mockGetMessagesByIds.mockResolvedValue([{ id: "m_opener1", content: "Orphan" }])
 
     const res = await GET(getReq(), ctx)
     expect(res.status).toBe(200)
@@ -308,14 +270,57 @@ describe("GET /api/community/channels/[id]/posts — authorId", () => {
     expect(body.posts[0].authorId).toBe("")
   })
 
+  it("reads the post's title from its opener message's content, not the channel's own name column", async () => {
+    mockListChildChannels.mockResolvedValue([
+      { id: "post1", name: "post1-slug", messageCount: 1, lastMessageAt: "2026-07-02T00:00:00.000Z", createdAt: "2026-07-01T00:00:00.000Z", creatorId: "u_alice", parentMessageId: "m_opener1", tags: [] },
+    ])
+    mockGetUsersByIds.mockResolvedValue([{ id: "u_alice", name: "Alice", image: null }])
+    mockGetMessagesByIds.mockResolvedValue([{ id: "m_opener1", content: "My Real Title" }])
+
+    const res = await GET(getReq(), ctx)
+    const body = await res.json()
+    expect(body.posts[0].name).toBe("My Real Title")
+  })
+
+  it("reads tags from message_tags via the opener message id, not a channel column", async () => {
+    mockListChildChannels.mockResolvedValue([
+      { id: "post1", name: "post1-slug", messageCount: 1, lastMessageAt: "2026-07-02T00:00:00.000Z", createdAt: "2026-07-01T00:00:00.000Z", creatorId: "u_alice", parentMessageId: "m_opener1", tags: [] },
+    ])
+    mockGetUsersByIds.mockResolvedValue([{ id: "u_alice", name: "Alice", image: null }])
+    mockGetMessagesByIds.mockResolvedValue([{ id: "m_opener1", content: "Tagged" }])
+    mockListTagsForMessages.mockResolvedValue([{ messageId: "m_opener1", tag: "alpha" }, { messageId: "m_opener1", tag: "beta" }])
+
+    const res = await GET(getReq(), ctx)
+    const body = await res.json()
+    expect(body.posts[0].tags.sort()).toEqual(["alpha", "beta"])
+  })
+
+  it("filters by ?tag= after tags are hydrated from message_tags", async () => {
+    mockListChildChannels.mockResolvedValue([
+      { id: "post1", name: "p1", messageCount: 1, lastMessageAt: null, createdAt: "2026-07-01T00:00:00.000Z", creatorId: "u1", parentMessageId: "m1", tags: [] },
+      { id: "post2", name: "p2", messageCount: 1, lastMessageAt: null, createdAt: "2026-07-01T00:00:00.000Z", creatorId: "u1", parentMessageId: "m2", tags: [] },
+    ])
+    mockGetUsersByIds.mockResolvedValue([])
+    mockGetMessagesByIds.mockResolvedValue([{ id: "m1", content: "p1" }, { id: "m2", content: "p2" }])
+    mockListTagsForMessages.mockResolvedValue([{ messageId: "m1", tag: "alpha" }])
+
+    const res = await GET(new NextRequest("http://localhost/api/community/channels/ch1/posts?tag=alpha"), ctx)
+    const body = await res.json()
+    expect(body.posts.map((p: { id: string }) => p.id)).toEqual(["post1"])
+  })
+
   it("groups each post's participants onto its card, ordered by addedAt (creator first)", async () => {
     mockListChildChannels.mockResolvedValue([
-      { id: "post1", name: "Multi", messageCount: 3, lastMessageAt: "2026-07-02T00:00:00.000Z", createdAt: "2026-07-01T00:00:00.000Z", creatorId: "u_alice", tags: [] },
-      { id: "post2", name: "Solo", messageCount: 1, lastMessageAt: "2026-07-02T00:00:00.000Z", createdAt: "2026-07-01T00:00:00.000Z", creatorId: "u_bob", tags: [] },
+      { id: "post1", name: "Multi", messageCount: 3, lastMessageAt: "2026-07-02T00:00:00.000Z", createdAt: "2026-07-01T00:00:00.000Z", creatorId: "u_alice", parentMessageId: "m_opener1", tags: [] },
+      { id: "post2", name: "Solo", messageCount: 1, lastMessageAt: "2026-07-02T00:00:00.000Z", createdAt: "2026-07-01T00:00:00.000Z", creatorId: "u_bob", parentMessageId: "m_opener2", tags: [] },
     ])
     mockGetUsersByIds.mockResolvedValue([
       { id: "u_alice", name: "Alice", image: null },
       { id: "u_bob", name: "Bob", image: null },
+    ])
+    mockGetMessagesByIds.mockResolvedValue([
+      { id: "m_opener1", content: "Multi" },
+      { id: "m_opener2", content: "Solo" },
     ])
     // Rows arrive unordered; the route sorts by addedAt so the creator (earliest
     // "spoke") leads.
@@ -337,14 +342,16 @@ describe("GET /api/community/channels/[id]/posts — authorId", () => {
 
 describe("GET /api/community/channels/[id]/posts — private-forum post visibility", () => {
   const posts = [
-    { id: "p_mine", name: "Mine", messageCount: 1, lastMessageAt: null, createdAt: "2026-07-01T00:00:00.000Z", creatorId: "u_other", tags: [] },
-    { id: "p_hidden", name: "Secret", messageCount: 1, lastMessageAt: null, createdAt: "2026-07-01T00:00:00.000Z", creatorId: "u_other", tags: [] },
-    { id: "p_created", name: "By me", messageCount: 1, lastMessageAt: null, createdAt: "2026-07-01T00:00:00.000Z", creatorId: "u1", tags: [] },
+    { id: "p_mine", name: "Mine", messageCount: 1, lastMessageAt: null, createdAt: "2026-07-01T00:00:00.000Z", creatorId: "u_other", parentMessageId: "m1", tags: [] },
+    { id: "p_hidden", name: "Secret", messageCount: 1, lastMessageAt: null, createdAt: "2026-07-01T00:00:00.000Z", creatorId: "u_other", parentMessageId: "m2", tags: [] },
+    { id: "p_created", name: "By me", messageCount: 1, lastMessageAt: null, createdAt: "2026-07-01T00:00:00.000Z", creatorId: "u1", parentMessageId: "m3", tags: [] },
   ]
 
   beforeEach(() => {
     vi.clearAllMocks()
     mockGetFirstMessageByChannelIds.mockResolvedValue([])
+    mockGetMessagesByIds.mockResolvedValue([])
+    mockListTagsForMessages.mockResolvedValue([])
     mockGetUsersByIds.mockResolvedValue([])
     mockListChildChannels.mockResolvedValue(posts)
   })

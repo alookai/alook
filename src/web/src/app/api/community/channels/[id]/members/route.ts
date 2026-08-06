@@ -6,7 +6,6 @@ import {
   queries,
   WS_EVENTS,
   isForum,
-  isForumPost,
   isThread,
   DM_SERVER,
   formatHandle,
@@ -58,13 +57,13 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
 
   const { anchor, channel } = access.value
 
-  // Thread / forum-post: the NOTIFY dimension. The panel == the participant set
-  // (not the access audience), so a public forum post lists only its
-  // participants, never the whole server. The row's `isCreator` locks the
-  // UNIT's own author (`channel.creatorId`), NOT the access anchor. NOTE: the
-  // live /c UI reads `/participants` for these units; this branch is API/agent
-  // parity so a direct GET of a post's `/members` agrees.
-  if (isThread(channel.type) || isForumPost(channel.type)) {
+  // Thread: the NOTIFY dimension. The panel == the participant set (not the
+  // access audience), so a public thread lists only its participants, never
+  // the whole server. The row's `isCreator` locks the UNIT's own author
+  // (`channel.creatorId`), NOT the access anchor. NOTE: the live /c UI reads
+  // `/participants` for these units; this branch is API/agent parity so a
+  // direct GET of a thread's `/members` agrees.
+  if (isThread(channel.type)) {
     const participants = await queries.communityThread.listThreadParticipants(db, channelId)
     const userIds = participants.map((p) => p.userId)
     const rows = await queries.communityMember.getMembersByUserIds(db, channel.serverId, userIds)
@@ -117,9 +116,9 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
  * (both own their roster; a forum resolves access like a channel). ANY current
  * member (or the creator) may add — passing `requireChannelAccess` for a private
  * unit already means the caller is the creator or an added member (admins have
- * no implicit access). The target must be an existing server member. Threads AND
- * forum posts are rejected — they're the NOTIFY dimension, inherit the parent's
- * roster, and take PARTICIPANTS (via the participants route), not access members.
+ * no implicit access). The target must be an existing server member. Threads
+ * are rejected — they're the NOTIFY dimension, inherit the parent's roster,
+ * and take PARTICIPANTS (via the participants route), not access members.
  */
 export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   // Human-only management op (add a member to a private access unit). There is
@@ -137,13 +136,12 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   if (!access.ok) return writeError(access.error, access.status)
 
   const channel = access.value.channel
-  // Threads AND forum posts are the NOTIFY dimension — they inherit their parent
-  // channel/forum's access roster and store their own set in the participant
-  // table. You add PARTICIPANTS to them (via the participants route), not access
-  // members. A thread has a `parentMessageId`; a forum post has a
-  // `parentChannelId` but no `parentMessageId`.
-  if (isThread(channel.type) || isForumPost(channel.type) || channel.parentMessageId) {
-    return writeError("threads and forum posts inherit their parent's members — add participants instead", 400)
+  // Threads are the NOTIFY dimension — they inherit their parent channel/
+  // forum's access roster and store their own set in the participant table.
+  // You add PARTICIPANTS to them (via the participants route), not access
+  // members. A thread carries a `parentMessageId`.
+  if (isThread(channel.type) || channel.parentMessageId) {
+    return writeError("threads inherit their parent's members — add participants instead", 400)
   }
   // `isPrivate` from requireChannelAccess reflects the category. A public
   // channel/forum has no explicit roster (everyone can access it).

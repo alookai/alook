@@ -712,15 +712,16 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     ])
   })
 
-  it("forum_post: author joins as 'spoke' just like a thread (notify-scoped)", async () => {
-    // A forum_post enrolls participants identically to a thread — a message in
-    // a post notifies only its participants, not the whole server/roster.
+  it("thread first reply: author joins as 'spoke' (notify-scoped)", async () => {
+    // A thread's first reply (a post's old "body message") enrolls
+    // participants — a message notifies only its participants, not the
+    // whole server/roster.
     mockGetMessage.mockResolvedValue(messageRow({ content: "first reply", channelId: "p1" }))
 
     await createCommunityMessage({
       db: {} as never,
       authorId: "author_1",
-      target: { kind: "forum_post", channelId: "p1", parentChannelId: "forum_1", serverId: "srv_1" },
+      target: { kind: "thread", channelId: "p1", parentChannelId: "forum_1", serverId: "srv_1" },
       body: { content: "first reply" },
     })
 
@@ -730,14 +731,14 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     expect(mockCreateChannelMember).not.toHaveBeenCalled()
   })
 
-  it("forum_post: an in-audience @mention enrolls as a participant", async () => {
+  it("thread under a forum: an in-audience @mention enrolls as a participant", async () => {
     mockGetPrivateChannelAudienceUserIds.mockResolvedValue(["author_1", "cara_1"])
     mockGetMessage.mockResolvedValue(messageRow({ content: "hey @Cara#0002", channelId: "p1" }))
 
     await createCommunityMessage({
       db: {} as never,
       authorId: "author_1",
-      target: { kind: "forum_post", channelId: "p1", parentChannelId: "forum_1", serverId: "srv_1" },
+      target: { kind: "thread", channelId: "p1", parentChannelId: "forum_1", serverId: "srv_1" },
       body: { content: "hey @Cara#0002" },
     })
 
@@ -747,19 +748,19 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     ])
   })
 
-  it("forum_post + skipChildChannelUpdate: enroll STILL runs, but the parent CHILD_CHANNEL_UPDATE is suppressed", async () => {
-    // The forum-post CREATE path routes the first message as kind:"forum_post"
-    // (so an @-mentioned user enrolls as a participant → appears in members),
-    // AND sets skipChildChannelUpdate to avoid colliding with its own
-    // CHILD_CHANNEL_CREATE. Enroll and the WS tick are decoupled: enroll runs,
-    // the tick does not.
+  it("thread under a forum + skipChildChannelUpdate: enroll STILL runs, but the parent CHILD_CHANNEL_UPDATE is suppressed", async () => {
+    // The post-opening CREATE path (createMessageWithThread) routes its
+    // reply as kind:"thread" (so an @-mentioned user enrolls as a
+    // participant → appears in members), AND sets skipChildChannelUpdate to
+    // avoid colliding with its own CHILD_CHANNEL_CREATE. Enroll and the WS
+    // tick are decoupled: enroll runs, the tick does not.
     mockGetPrivateChannelAudienceUserIds.mockResolvedValue(["author_1", "cara_1"])
     mockGetMessage.mockResolvedValue(messageRow({ content: "welcome @Cara#0002", channelId: "p1" }))
 
     await createCommunityMessage({
       db: {} as never,
       authorId: "author_1",
-      target: { kind: "forum_post", channelId: "p1", parentChannelId: "forum_1", serverId: "srv_1" },
+      target: { kind: "thread", channelId: "p1", parentChannelId: "forum_1", serverId: "srv_1" },
       body: { content: "welcome @Cara#0002" },
       skipChildChannelUpdate: true,
     })
@@ -796,9 +797,9 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
   })
 
   it("suppressBroadcast (migration-backfill mode): STRUCTURAL core runs (enroll + mention rows), real-time delivery shell is fully dropped", async () => {
-    // route/disc trunk step 1: the forum carrier-swap migration entry needs a
-    // create that persists the message + enrolls participants + writes mention
-    // rows but fires ZERO real-time WS (no ping / no M×N frames on historical
+    // The existing-data migration's atomic primitive needs a create that
+    // persists the message + enrolls participants + writes mention rows but
+    // fires ZERO real-time WS (no ping / no M×N frames on historical
     // backfill). This proves the shell-OFF capability keeps the structural core
     // — unlike skipMentions, which would ALSO drop enroll (the 213-218 class bug
     // this whole knob-split guards against).
@@ -808,7 +809,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     const result = await createCommunityMessage({
       db: {} as never,
       authorId: "author_1",
-      target: { kind: "forum_post", channelId: "p1", parentChannelId: "forum_1", serverId: "srv_1" },
+      target: { kind: "thread", channelId: "p1", parentChannelId: "forum_1", serverId: "srv_1" },
       body: { content: "welcome @Cara#0002" },
       suppressBroadcast: true,
     })

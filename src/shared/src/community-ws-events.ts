@@ -130,7 +130,7 @@ export type CommunityTypingStop = {
   discriminator?: string
 }
 
-// ── Child channel events (threads + forum posts) ─────────────────────────────
+// ── Child channel events (threads) ────────────────────────────────────────────
 
 export type CommunityChildChannelCreate = {
   type: "community:channel.child_create"
@@ -138,7 +138,7 @@ export type CommunityChildChannelCreate = {
   channel: {
     id: string
     name: string
-    type: "thread" | "forum_post"
+    type: "thread"
     creatorId?: string
     createdAt: string
   }
@@ -208,11 +208,10 @@ export type CommunityChannelDelete = {
   type: "community:channel.delete"
   serverId: string
   channelId: string
-  // The parent forum/thread channel, when the deleted channel is a child
-  // (forum_post / thread). Lets clients invalidate the parent's post/thread
-  // list so the deleted card disappears from the feed. Optional and additive —
-  // older events without it still work (the handler simply skips the parent
-  // invalidate).
+  // The parent channel, when the deleted channel is a child (thread). Lets
+  // clients invalidate the parent's post/thread list so the deleted card
+  // disappears from the feed. Optional and additive — older events without
+  // it still work (the handler simply skips the parent invalidate).
   parentChannelId?: string | null
 }
 

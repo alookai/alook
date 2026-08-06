@@ -833,20 +833,12 @@ describe("message emoji", () => {
     expect(reactAddSpy).toHaveBeenCalledWith({ channel: "/.dm/peer#0001", seq: 7, emoji: "🙏" });
   });
 
-  it("forum-post ref — reacts to a message INSIDE the post (childChannelName kept, not the parent forum)", async () => {
+  it("the old forum-post ref shape no longer parses (no-compat, phase2 forum≡thread) — errors before reactAdd", async () => {
     const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
     setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
     await main(["message", "emoji", "--target", "/demo/ideas/my-post#4", "--emoji", "👍"]);
-    // channel is the POST scope (/demo/ideas/my-post), NOT the parent forum /demo/ideas.
-    expect(reactAddSpy).toHaveBeenCalledWith({ channel: "/demo/ideas/my-post", seq: 4, emoji: "👍" });
-  });
-
-  it("forum-post ref without a message seq → error, reactAdd never called", async () => {
-    const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
-    setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
-    await main(["message", "emoji", "--target", "/demo/ideas/my-post", "--emoji", "👍"]);
     const env = parseEnvelope(cap.lines());
-    expect(env.error).toMatch(/needs a ref with a seq/);
+    expect(env.error).toBeDefined();
     expect(reactAddSpy).not.toHaveBeenCalled();
   });
 

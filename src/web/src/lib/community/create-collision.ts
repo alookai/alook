@@ -1,13 +1,12 @@
 import { isUniqueConstraintError, type CreationTrait } from "@alook/shared"
 
 /**
- * The single collision-handling strategy for CREATING a channel, dispatched on
- * the channel type's `creation` trait (B4 convergence正题). Before this, "what a
- * name/anchor collision means" was hand-rolled in three places with three shapes:
- *   - forum_post: dedupe-bump the slug and retry the insert (pure-create)
+ * The single collision-handling strategy for CREATING a channel, dispatched
+ * on the channel type's `creation` trait. "What a name/anchor collision
+ * means" is hand-rolled in two shapes:
  *   - thread: catch the unique-conflict and re-SELECT the winner (get-or-create)
  *   - top-level text/forum: let the unique index 409 (reject-on-collision)
- * They collide on DIFFERENT keys (name / parent_message_id / server-name), so the
+ * They collide on DIFFERENT keys (parent_message_id / server-name), so the
  * per-type CHANNEL-SHAPE construction stays with each caller — only the COLLISION
  * POLICY converges here, parameterized by callbacks the caller supplies. (DM is
  * NOT wired in this round: its collision is identity-collision on a user-pair, a
@@ -22,11 +21,6 @@ import { isUniqueConstraintError, type CreationTrait } from "@alook/shared"
  *     the race. Returns null if it somehow can't be found.
  *   - `onReject()`: (reject-on-collision only) the structured error to return when
  *     the create is refused.
- *   - `maxAttempts`: (pure-create only) bump-retry cap.
- *
- * ⚠ pure-create's race-safety REQUIRES the partial-unique index that makes
- * `attempt()` throw on a concurrent duplicate (migration, B4b). Without it a race
- * silently double-inserts — this dispatch is only correct once that index exists.
  */
 
 export type CollisionOutcome<T> =
@@ -39,7 +33,6 @@ export async function createWithCollisionPolicy<T>(
     attempt: () => Promise<T>
     refetchWinner?: () => Promise<T | null>
     onReject?: () => { status: 400 | 409; error: string }
-    maxAttempts?: number
   },
 ): Promise<CollisionOutcome<T>> {
   switch (creation) {
@@ -55,29 +48,6 @@ export async function createWithCollisionPolicy<T>(
           if (winner !== null) return { ok: true, value: winner }
         }
         throw err
-      }
-    }
-    case "pure-create": {
-      // Each create is a distinct unit; a collision means "this name is taken" →
-      // the caller re-derives a bumped name inside `attempt()` on the next pass
-      // and retries. NEVER re-select the winner (that's get-or-create — it would
-      // silently hand this caller someone else's unit). The cap stops an unbounded
-      // loop if the index is missing (a mis-shipped B4a without B4b) or contention
-      // is pathological.
-      const max = handlers.maxAttempts ?? 8
-      let attempts = 0
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        try {
-          return { ok: true, value: await handlers.attempt() }
-        } catch (err) {
-          attempts++
-          if (isUniqueConstraintError(err) && attempts < max) continue
-          if (isUniqueConstraintError(err)) {
-            return { ok: false, status: 409, error: "could not allocate a unique name after repeated collisions" }
-          }
-          throw err
-        }
       }
     }
     case "reject-on-collision": {

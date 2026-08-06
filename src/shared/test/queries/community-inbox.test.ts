@@ -209,23 +209,6 @@ describe("listUnreadChannels — seq read-watermark behaviour", () => {
     expect(result).toEqual([]);
   });
 
-  const unreadPostRow = (channelId: string) => ({
-    channelId, channelName: "a post", serverId: "srv_1", serverName: "server 1",
-    type: "forum_post", parentChannelId: "forum_1", lastMessageAt: "2026-07-06T00:00:05.000Z",
-    hasReadState: 1, hasUnreadBeyondSeq: 1, archived: false, joinedAt: j,
-  });
-
-  it("forum post the viewer participates in surfaces as unread", async () => {
-    const db = createTwoQueryMock([unreadPostRow("p_in")], ["p_in"]);
-    const result = await inboxQueries.listUnreadChannels(db, "u_1", ["p_in"]);
-    expect(result.map((r) => r.channelId)).toEqual(["p_in"]);
-  });
-
-  it("public forum post the viewer has NOT joined is filtered out (visible but un-notified)", async () => {
-    const db = createTwoQueryMock([unreadPostRow("p_out")], []);
-    const result = await inboxQueries.listUnreadChannels(db, "u_1", ["p_out"]);
-    expect(result).toEqual([]);
-  });
 });
 
 describe("isDmUnread — predicate (seq)", () => {

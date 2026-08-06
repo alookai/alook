@@ -8,7 +8,7 @@ import {
 } from "@alook/shared"
 import { requireMessageBearingSurface, requireChildSurface } from "./channel-write-guard"
 import type { Database } from "@alook/shared"
-import { isThread, isForumPost } from "@alook/shared"
+import { isThread } from "@alook/shared"
 import { requireMessageSurfaceAccess } from "./permissions"
 import { writeError, writeJSON } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
@@ -302,7 +302,7 @@ export function handleBotAvatarUpload(
  * present as `surface="channel"`), so the channel arm splits on `channel.type`:
  *   - dm                                  → kind "dm"      (a DM is a legitimate
  *                                            attachment target — no bearing guard)
- *   - channel + thread/forum_post         → kind "thread"  (requireChildSurface)
+ *   - channel + thread                    → kind "thread"  (requireChildSurface)
  *   - channel + text/forum(-top)          → kind "channel" (requireMessageBearingSurface)
  * These map byte-for-byte to what the three routes passed before, so new
  * uploads land under the same R2 key prefix (existing attachments read from the
@@ -326,7 +326,7 @@ export async function runAttachmentUpload(
     kind = "dm"
   } else {
     const channelType = auth.value.channel.type
-    if (isThread(channelType) || isForumPost(channelType)) {
+    if (isThread(channelType)) {
       const child = requireChildSurface(channelType)
       if (!child.ok) return writeError(child.error, child.status)
       kind = "thread"

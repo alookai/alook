@@ -138,38 +138,22 @@ describe("parseRef", () => {
     });
   });
 
-  it('parses "/studio/ideas/my-post" as a forum-post ref (childChannelName)', () => {
-    expect(parseRef("/studio/ideas/my-post")).toEqual({
-      server: "studio",
-      channel: "ideas",
-      childChannelName: "my-post",
-    });
+  it('the old forum-post ref shape "/studio/ideas/my-post" no longer parses (no-compat, phase2 forum≡thread)', () => {
+    // A post is now addressed like any other thread (by-root-seq), never by
+    // its own child-name — the old 3-segment-no-hash form is GONE, not just
+    // unsupported. A ref-render layer that fails to parse this degrades to
+    // plain literal text (never a misresolved-to-wrong-target pill).
+    expect(() => parseRef("/studio/ideas/my-post")).toThrow();
   });
 
-  it("does not confuse a forum-post ref with a thread ref (3rd segment has no #)", () => {
-    // Thread: 3rd segment starts with "#". Post: it doesn't.
+  it("still parses the thread form (3rd segment starts with #) unaffected by the forum-post removal", () => {
     expect(parseRef("/studio/ideas/#5")).toEqual({ server: "studio", channel: "ideas", threadRootSeq: 5 });
-    expect(parseRef("/studio/ideas/notes")).toEqual({ server: "studio", channel: "ideas", childChannelName: "notes" });
   });
 
-  it("throws on a 4th segment (posts have no deeper addressing today)", () => {
+  it("throws on any 3+ segment ref whose last segment doesn't start with # (the old forum-post ref's territory)", () => {
+    expect(() => parseRef("/studio/ideas/notes")).toThrow();
     expect(() => parseRef("/studio/ideas/post/extra")).toThrow();
-  });
-
-  it('parses "/studio/ideas/post#3" — a message pinned inside a forum post', () => {
-    // Symmetric to the top-level message form /server/channel#N — used by
-    // `message emoji` to react to a specific message inside a post.
-    expect(parseRef("/studio/ideas/post#3")).toEqual({
-      server: "studio",
-      channel: "ideas",
-      childChannelName: "post",
-      seq: 3,
-    });
-  });
-
-  it("throws when a forum-post pin-seq ref has an empty post name (#N with no post)", () => {
-    expect(() => parseRef("/studio/ideas/#3")).not.toThrow(); // this is the THREAD form, still valid
-    expect(parseRef("/studio/ideas/#3")).toEqual({ server: "studio", channel: "ideas", threadRootSeq: 3 });
+    expect(() => parseRef("/studio/ideas/post#3")).toThrow();
   });
 });
 
@@ -216,33 +200,7 @@ describe("formatRef", () => {
     );
   });
 
-  it("formats a forum-post ref (childChannelName)", () => {
-    expect(formatRef({ server: "studio", channel: "ideas", childChannelName: "my-post" })).toBe(
-      "/studio/ideas/my-post",
-    );
-  });
 
-  it("round-trips a forum-post ref through parseRef", () => {
-    const input = { server: "studio", channel: "ideas", childChannelName: "my-post" };
-    expect(parseRef(formatRef(input))).toEqual(input);
-  });
-
-  it("formats a forum-post message ref (childChannelName + seq)", () => {
-    expect(formatRef({ server: "studio", channel: "ideas", childChannelName: "my-post", seq: 3 })).toBe(
-      "/studio/ideas/my-post#3",
-    );
-  });
-
-  it("round-trips a forum-post message ref through parseRef", () => {
-    const input = { server: "studio", channel: "ideas", childChannelName: "my-post", seq: 3 };
-    expect(parseRef(formatRef(input))).toEqual(input);
-  });
-
-  it("throws when childChannelName is combined with threadRootSeq (posts have no thread root)", () => {
-    expect(() =>
-      formatRef({ server: "studio", channel: "ideas", childChannelName: "p", threadRootSeq: 5 }),
-    ).toThrow();
-  });
 });
 
 describe("formatSeq / parseSeq", () => {
@@ -275,12 +233,6 @@ describe("formatCanonicalRef", () => {
     expect(formatCanonicalRef({ type: "forum", serverName: "studio", name: "ideas" })).toBe("/studio/ideas");
   });
 
-  it("by-child-name (forum_post): /server/forum/post", () => {
-    expect(
-      formatCanonicalRef({ type: "forum_post", serverName: "studio", parentName: "ideas", name: "my-post" }),
-    ).toBe("/studio/ideas/my-post");
-  });
-
   it("by-root-seq (thread): /server/channel/#rootSeq", () => {
     expect(
       formatCanonicalRef({ type: "thread", serverName: "studio", parentName: "general", rootSeq: 42 }),
@@ -300,9 +252,6 @@ describe("formatCanonicalRef", () => {
       channel: "general",
     });
     expect(
-      parseRef(formatCanonicalRef({ type: "forum_post", serverName: "studio", parentName: "ideas", name: "notes" })!),
-    ).toEqual({ server: "studio", channel: "ideas", childChannelName: "notes" });
-    expect(
       parseRef(formatCanonicalRef({ type: "thread", serverName: "studio", parentName: "general", rootSeq: 7 })!),
     ).toEqual({ server: "studio", channel: "general", threadRootSeq: 7 });
     expect(parseRef(formatCanonicalRef({ type: "dm", peerSegment: "gusye#1231" })!)).toEqual({
@@ -316,7 +265,6 @@ describe("formatCanonicalRef", () => {
   // rather than emitting a ref that won't round-trip.
   it("returns null when a required addressing field is absent", () => {
     expect(formatCanonicalRef({ type: "text", serverName: "studio" })).toBeNull(); // no name
-    expect(formatCanonicalRef({ type: "forum_post", serverName: "studio", name: "p" })).toBeNull(); // no parentName
     expect(formatCanonicalRef({ type: "thread", serverName: "studio", parentName: "g" })).toBeNull(); // no rootSeq
     expect(formatCanonicalRef({ type: "dm" })).toBeNull(); // no peerSegment
   });

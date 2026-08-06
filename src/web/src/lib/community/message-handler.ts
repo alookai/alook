@@ -30,22 +30,16 @@ export type MessageTarget =
     parentChannelId: string
     serverId: string
   }
-  | {
-    kind: "forum_post"
-    channelId: string
-    parentChannelId: string
-    serverId: string
-  }
   | { kind: "dm"; channelId: string; otherUserId: string }
   // A top-level `forum`-type channel (parentChannelId is null — it's still
   // the addressed channel itself, not a child under it; peer to "channel",
-  // not to "thread"/"forum_post" which both carry a parent). Split out from
-  // the generic "channel" kind so the SEND layer can dispatch "does this
-  // send open a thread" off the target's own structural kind — the same
-  // channel.type the door already resolved — instead of an ad-hoc body
-  // field. A body field's presence is a client choice, decoupled from the
-  // channel's actual type; branching on the target's own kind here means
-  // there is only ever one axis deciding this, not two that can drift apart.
+  // not to "thread" which carries a parent). Split out from the generic
+  // "channel" kind so the SEND layer can dispatch "does this send open a
+  // thread" off the target's own structural kind — the same channel.type the
+  // door already resolved — instead of an ad-hoc body field. A body field's
+  // presence is a client choice, decoupled from the channel's actual type;
+  // branching on the target's own kind here means there is only ever one
+  // axis deciding this, not two that can drift apart.
   | { kind: "forum"; channelId: string; serverId: string }
 
 export function isDmTarget<T extends { kind: string }>(target: T): target is Extract<T, { kind: "dm" }>
@@ -66,13 +60,13 @@ export function isChannelTarget(target: { kind: string } | string): boolean {
   return (typeof target === "string" ? target : target.kind) === "channel"
 }
 
-// A thread and a forum_post share the same notify + parent-tick behavior: both
-// enroll participants (spoke/mention) and both fire the parent CHILD_CHANNEL_UPDATE
-// via their `parentChannelId`. This narrows to the two variants that carry one.
+// A thread enrolls participants (spoke/mention) and fires the parent
+// CHILD_CHANNEL_UPDATE via its `parentChannelId`. This narrows to the one
+// variant that carries one.
 function hasParentChannel(
   target: MessageTarget,
-): target is Extract<MessageTarget, { kind: "thread" | "forum_post" }> {
-  return target.kind === "thread" || target.kind === "forum_post"
+): target is Extract<MessageTarget, { kind: "thread" }> {
+  return target.kind === "thread"
 }
 
 export type IncomingMessageBody = {
@@ -213,12 +207,11 @@ export async function createCommunityMessage(params: {
   suppressBroadcast?: boolean
   /**
    * Suppress ONLY the parent `CHILD_CHANNEL_UPDATE` WS emission — participant
-   * enroll (the notify-set write) still runs per `kind`. The forum-post CREATE
-   * path opts in: it routes the post's first message as `kind:"forum_post"` so
-   * mentioned users enroll as participants, but must not fire
-   * CHILD_CHANNEL_UPDATE because it already emits its own CHILD_CHANNEL_CREATE
-   * for the new post (the two would collide). Decouples enroll from the WS tick
-   * so dodging the collision no longer silently skips enrollment.
+   * enroll (the notify-set write) still runs per `kind`. A thread-open's
+   * first message opts in when the caller already emits its own
+   * CHILD_CHANNEL_CREATE for the new thread (the two would otherwise
+   * collide). Decouples enroll from the WS tick so dodging the collision no
+   * longer silently skips enrollment.
    */
   skipChildChannelUpdate?: boolean
   /**
@@ -645,23 +638,22 @@ export async function createCommunityMessage(params: {
   // Mention beats reply — never double-count the same user.
   for (const id of mentionTargets) replyTargets.delete(id)
 
-  // Thread / forum_post participation (notification dimension). Both units'
-  // NOTIFY set is their participant rows — join by:
+  // Thread participation (notification dimension). A thread's NOTIFY set is
+  // its participant rows — join by:
   //   - speaking: the author becomes a participant (source "spoke").
   //   - @mention: an explicitly mentioned/replied audience member becomes a
   //     participant (source "mention"). `mentionTargets`/`replyTargets` are
   //     already scoped to the unit's audience by the block above.
   // Admins are NOT auto-added — only real participation joins the set. System /
-  // card messages (`skipMentions`) don't add the author. A forum post is
-  // enrolled exactly like a thread so it notifies only its participants.
+  // card messages (`skipMentions`) don't add the author.
   // Enroll gate = the REACH axis (B2): a message enrolls participants iff its
   // channel's reach is `participant-set`. This is the WRITE side of red-line ③ —
   // it keys on the SAME reach value that the fan-out recipient set and the
   // agent-inbox deliverable narrowing (the READ side, who's-participant) key on,
   // so who-enrolls and who's-read can never drift (the class of bug the agent
   // thread-inbox deadlock was). `target.kind` is the channel's stored type here
-  // (channel/thread/forum_post/dm). NOT folded with `hasParentChannel` below:
-  // that is a distinct STRUCTURAL fact ("has a parent channel" → railChannelId /
+  // (channel/thread/forum/dm). NOT folded with `hasParentChannel` below: that
+  // is a distinct STRUCTURAL fact ("has a parent channel" → railChannelId /
   // parent CHILD_CHANNEL_UPDATE tick), which merely coincides with participant-set
   // for today's types — a future type could have a parent but server reach, or
   // participant reach without a parent, so the two rules stay separate.

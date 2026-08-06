@@ -4,13 +4,25 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
   queries,
+  MAX_CHANNEL_NAME_LENGTH,
+  MAX_MESSAGE_CONTENT_LENGTH,
   MESSAGE_PREVIEW_LENGTH,
-  WS_EVENTS,
 } from "@alook/shared"
-import { fanOutToChannel } from "@/lib/community/fanout"
 import { requireChannelMember, requireChannelAccess } from "@/lib/community/permissions"
 import { avatarInitial } from "@/lib/community/avatar"
-import { createForumPost } from "@/lib/community/create-forum-post"
+import { createMessageWithThread } from "@/lib/community/create-channels"
+
+/**
+ * A "post" is a thread rooted directly under a forum (phase2 forum≡thread —
+ * zero structural difference from any other thread). This route stays a
+ * dedicated human-facing door (URL unchanged, new-door∥old-door discipline)
+ * but its internals now call `createMessageWithThread` — the same atomic
+ * primitive the bot's send-into-forum path (`channels/[id]/messages` POST,
+ * `target.kind === "forum"`) uses — instead of the deleted forum_post-
+ * specific `createForumPost` core. A post's title = its opener message's
+ * `content` (landing in the forum itself); its body = the thread's first
+ * reply. Both callers now converge on ONE creation path.
+ */
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
@@ -28,14 +40,14 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
   const tag = req.nextUrl.searchParams.get("tag")
 
-  let childChannels = await queries.communityChannel.listChildChannels(db, channelId, {
+  // A post is now a thread rooted on an opener message landing in this
+  // forum — `listChildChannels(..., {type:"thread"})` replaces the old
+  // `type:"forum_post"` query; every thread under a forum IS a post (there
+  // is no other reason a thread would be parented directly on a forum).
+  const childChannels = await queries.communityChannel.listChildChannels(db, channelId, {
     archived: false,
-    type: "forum_post",
+    type: "thread",
   })
-
-  if (tag) {
-    childChannels = childChannels.filter((ch) => ch.tags.includes(tag))
-  }
 
   // Unified model: a forum's posts INHERIT the forum's access (a post is not its
   // own access unit — like a thread inherits its channel). Reaching here means
@@ -48,16 +60,42 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const creators = creatorIds.length > 0 ? await queries.user.getUsersByIds(db, creatorIds) : []
   const creatorMap = new Map(creators.map((u) => [u.id, u]))
 
-  // Batch-fetch first message for each post channel
+  // The post's TITLE is its opener message — the message this thread's own
+  // `parentMessageId` points at (lives in the FORUM, not in the thread
+  // itself; see createMessageWithThread's doc). Batch-fetch those by id
+  // (not `getFirstMessageByChannelIds`, which reads a channel's own oldest
+  // message — the opener is a row in the PARENT forum's message set, one
+  // level up).
+  const openerMessageIds = childChannels.map((t) => t.parentMessageId).filter((id): id is string => !!id)
+  const openers = openerMessageIds.length > 0
+    ? await queries.communityMessage.getMessagesByIds(db, openerMessageIds)
+    : []
+  const openerByMessageId = new Map(openers.map((m) => [m.id, m]))
+
+  // The post's BODY PREVIEW is the thread's own first reply (its oldest
+  // message, read from the thread channel itself — same query shape as
+  // before, just no longer "the same message" as the title).
   const postChannelIds = childChannels.map((t) => t.id)
-  const firstMessages = postChannelIds.length > 0
+  const firstReplies = postChannelIds.length > 0
     ? await queries.communityMessage.getFirstMessageByChannelIds(db, postChannelIds)
     : []
-  const previewMap = new Map(firstMessages.map((m) => [m.channelId, m.content]))
+  const previewMap = new Map(firstReplies.map((m) => [m.channelId, m.content]))
+
+  // Tags now live on the opener message in `message_tags`, not a channel
+  // column — batch-fetch by opener message id.
+  const tagRows = openerMessageIds.length > 0
+    ? await queries.communityMessageTag.listTagsForMessages(db, openerMessageIds)
+    : []
+  const tagsByMessageId = new Map<string, string[]>()
+  for (const r of tagRows) {
+    const list = tagsByMessageId.get(r.messageId) ?? []
+    list.push(r.tag)
+    tagsByMessageId.set(r.messageId, list)
+  }
 
   // Batch-fetch each post's participant (notify) set for the card AvatarGroup.
   // A post's participants are the people actually involved (creator + whoever
-  // spoke / was mentioned / was added), the same set fan-out notifies. Grouped
+  // spoke/was mentioned/was added), the same set fan-out notifies. Grouped
   // by channel id and ordered by `addedAt` so the creator (earliest "spoke"
   // row) leads.
   const participantRows = postChannelIds.length > 0
@@ -70,27 +108,37 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     participantsByPost.set(r.channelId, list)
   }
 
-  const posts = childChannels.map((t) => {
+  let posts = childChannels.map((t) => {
     const creator = t.creatorId ? creatorMap.get(t.creatorId) : null
     // creator can be null if the user was deleted (channel.creatorId has ON DELETE SET NULL).
     const authorName = creator ? creator.name : ""
     const authorAvatar = creator?.image ?? avatarInitial(authorName)
+    const opener = t.parentMessageId ? openerByMessageId.get(t.parentMessageId) : undefined
+    const tags = (t.parentMessageId ? tagsByMessageId.get(t.parentMessageId) : undefined) ?? []
     const preview = (previewMap.get(t.id) ?? "").slice(0, MESSAGE_PREVIEW_LENGTH)
     return {
       id: t.id,
-      name: t.name,
-      // Excludes the body message — the body IS the first message; the badge
-      // shows reply count, not total message count.
-      messageCount: Math.max(0, (t.messageCount ?? 0) - 1),
+      // The card's displayed title — the opener message's content (falls
+      // back to the thread's derived `name` if the opener somehow didn't
+      // hydrate, so a post never renders with a blank title).
+      name: opener?.content ?? t.name,
+      // Excludes the opener — the thread's OWN messageCount already counts
+      // only its own (reply) messages, unlike the old model where the
+      // opener lived inside the post channel itself.
+      messageCount: t.messageCount ?? 0,
       lastMessageAt: t.lastMessageAt ?? t.createdAt,
       parent: { authorName, text: preview },
       authorId: t.creatorId ?? "",
       authorAvatar,
-      tags: t.tags ?? [],
+      tags,
       preview,
       participants: participantsByPost.get(t.id) ?? [],
     }
   })
+
+  if (tag) {
+    posts = posts.filter((p) => p.tags.includes(tag))
+  }
 
   return writeJSON({ posts })
 })
@@ -119,14 +167,31 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (!body.name || typeof body.name !== "string") {
     return writeError("name is required", 400)
   }
+  const title = body.name.trim()
+  if (title.length === 0 || title.length > MAX_CHANNEL_NAME_LENGTH) {
+    return writeError(`title must be 1-${MAX_CHANNEL_NAME_LENGTH} characters`, 400)
+  }
+  // The post BODY is now the thread's first reply, not the opener — matches
+  // the bot send-into-forum path's `replyContent` (91d18e4f), which is
+  // required non-empty. The existing web composer already disables submit
+  // until the body composer has content (create-forum-post.tsx's
+  // `canSubmit`), so this isn't a new UI-visible restriction, only a
+  // backend gate catching up to what the form already enforces.
   const content = typeof body.content === "string" ? body.content : ""
+  if (content.trim().length === 0) {
+    return writeError("post body is required", 400)
+  }
+  if (content.length > MAX_MESSAGE_CONTENT_LENGTH) {
+    return writeError(`content must be ≤ ${MAX_MESSAGE_CONTENT_LENGTH} characters`, 400)
+  }
 
   // Reserve-by-id (route/disc step 2b): the composer uploads to the FORUM
-  // channel (the post child doesn't exist yet at upload time), so pending rows
+  // channel (the thread doesn't exist yet at upload time), so pending rows
   // carry `targetId = forum channelId`. Validate each id against (uploader =
   // this user, target = this forum) before creating the post — the same
-  // uploader-scoped guard the message send arm uses. The reserve inside
-  // createForumPost re-links them to the new post's first message.
+  // uploader-scoped guard the message send arm uses. Attachments land on the
+  // REPLY (body) message, matching the bot arm — the opener/title carries no
+  // attachments.
   const attachmentIds = Array.isArray(body.attachments)
     ? (body.attachments as unknown[]).filter((x): x is string => typeof x === "string")
     : []
@@ -141,58 +206,51 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     }
   }
 
-  // Create via the shared core (B4 creation-axis convergence): slug dedupe +
-  // forum_post child create + first-message-as-body, with the collision
-  // contract dispatched on the forum_post `creation` trait (pure-create:
-  // bump-and-retry, never merge). The bot verb (`createPost` / `alook message
-  // post`) calls the SAME `createForumPost`, so the two can't drift on how a
-  // post is created. This route keeps its own response projection + the human
-  // CHILD_CHANNEL_CREATE fan-out below.
-  const result = await createForumPost({
+  // Create via the SAME atomic primitive the bot send-into-forum path uses —
+  // title lands as the opener message in the forum, content as the thread's
+  // first reply, both wrapped in one compensation chain (no half-built post
+  // possible). This route keeps its own response projection; fan-out +
+  // enroll are handled inside createMessageWithThread (fresh-create only).
+  const result = await createMessageWithThread({
     db,
-    forumChannelId: channelId,
-    serverId: channel.serverId!,
     authorId: ctx.userId,
-    rawTitle: body.name,
-    content,
-    attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
-    mentionType: body.mentionType,
+    parentChannelId: channelId,
+    serverId: channel.serverId!,
+    body: { content: title, mentionType: body.mentionType },
+    replyBody: { content },
+    attachmentIds: undefined,
+    replyAttachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
+    source: "web",
   })
   if (!result.ok) return writeError(result.error, result.status)
-  const postChannel = result.postChannel
-  const message = result.messageRow
+  const postChannel = result.thread
 
   // Resolve author info for response
   const creator = await queries.user.getUserSelf(db, ctx.userId)
   const authorName = creator ? creator.name : ""
   const authorAvatar = creator?.image ?? avatarInitial(authorName)
 
-  fanOutToChannel(channelId, {
-    type: WS_EVENTS.CHILD_CHANNEL_CREATE,
-    parentChannelId: channelId,
-    channel: {
-      id: postChannel.id,
-      name: postChannel.name,
-      type: "forum_post" as const,
-      creatorId: ctx.userId,
-      createdAt: postChannel.createdAt,
-    },
-  })
+  // createMessageWithThread already fires the fresh-create CHILD_CHANNEL_CREATE
+  // fan-out internally — no separate emission needed here (unlike the old
+  // create-forum-post.ts model, which left that to each caller).
 
   return writeJSON({
     post: {
       id: postChannel.id,
-      name: postChannel.name,
-      // Excludes the body message — the body IS the first message; the badge
-      // shows reply count, so a freshly created post reads 0.
+      name: result.message.content,
+      // A fresh post's only reply is the one just created; the badge shows
+      // reply count, so a freshly created post reads 0 (its own reply
+      // doesn't count as a "reply" to itself in the UI's badge semantics —
+      // matches the old model's "excludes the body message" comment).
       messageCount: 0,
-      lastMessageAt: message.createdAt,
+      lastMessageAt: result.reply?.createdAt ?? result.message.createdAt,
       parent: { authorName, text: content.slice(0, MESSAGE_PREVIEW_LENGTH) },
       authorId: ctx.userId,
       authorAvatar,
       tags: [],
       preview: content.slice(0, MESSAGE_PREVIEW_LENGTH),
-      // A fresh post's only participant is its creator (just enrolled above).
+      // A fresh post's only participant is its creator (just enrolled by
+      // createMessageWithThread's fresh-create branch).
       participants: [{ id: ctx.userId, name: authorName, avatar: authorAvatar }],
     },
   }, 201)

@@ -1,4 +1,4 @@
-import { isMessageBearingSurface, isThread, isForumPost, isDm } from "@alook/shared"
+import { isMessageBearingSurface, isThread, isDm } from "@alook/shared"
 
 type GuardOk = { ok: true }
 type GuardErr = { ok: false; status: 400; error: string }
@@ -36,8 +36,8 @@ export function requireReactableSurface(channelType: string | null | undefined):
 }
 
 export function requireChildSurface(channelType: string | null | undefined): WriteGuardResult {
-  if (isThread(channelType) || isForumPost(channelType)) return pass
-  return { ok: false, status: 400, error: "not a thread or forum post" }
+  if (isThread(channelType)) return pass
+  return { ok: false, status: 400, error: "not a thread" }
 }
 
 export function requirePinnableSurface(channelType: string | null | undefined): WriteGuardResult {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { isForum, isForumPost, isThread, canManageServer } from "../../src/utils/community-roles"
+import { isForum, isThread, canManageServer } from "../../src/utils/community-roles"
 import { isPresenceOnline, isPresenceOffline } from "../../src/utils/status"
 import { isAccepted, isPending, isBlocked } from "../../src/utils/friendship"
 import { isPublic, isPrivate } from "../../src/utils/visibility"
@@ -7,15 +7,9 @@ import { isPublic, isPrivate } from "../../src/utils/visibility"
 describe("channel-type predicates", () => {
   it("isForum", () => {
     expect(isForum("forum")).toBe(true)
-    expect(isForum("forum_post")).toBe(false)
     expect(isForum("text")).toBe(false)
     expect(isForum(null)).toBe(false)
     expect(isForum(undefined)).toBe(false)
-  })
-  it("isForumPost", () => {
-    expect(isForumPost("forum_post")).toBe(true)
-    expect(isForumPost("forum")).toBe(false)
-    expect(isForumPost(null)).toBe(false)
   })
   it("isThread", () => {
     expect(isThread("thread")).toBe(true)

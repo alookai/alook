@@ -332,68 +332,6 @@ export async function getThreadChannelByParentMessage(
   return row ? mapChannelRow(row) : null;
 }
 
-/**
- * Resolve a forum post by its name under a parent forum. A forum post is a
- * `forum_post` child channel anchored by its own name (not a root-message seq
- * like a thread), so `(parentChannelId, name, type='forum_post')` is its
- * address. Returns ALL matches so the caller can disambiguate: post names are
- * NOT unique within a forum (schema exempts child channels from the per-server
- * unique index), so >1 row means an ambiguous ref the resolver must 400 on —
- * never silently pick one.
- */
-export async function getChildChannelByName(
-  db: Database,
-  parentChannelId: string,
-  name: string,
-  type = "forum_post"
-) {
-  const rows = await db
-    .select(CHANNEL_COLUMNS)
-    .from(communityChannel)
-    .where(
-      and(
-        eq(communityChannel.parentChannelId, parentChannelId),
-        eq(communityChannel.name, name),
-        eq(communityChannel.type, type)
-      )
-    );
-  return rows.map(mapChannelRow);
-}
-
-/**
- * Dedupe a forum-post slug within its parent forum so the name anchor
- * (`/server/forum/<post>`) is a real address. Post names are not covered by the
- * per-server unique index (that's top-level channels only), so uniqueness is
- * enforced here at create time, mirroring the discipline top-level channel
- * names already follow: `ideas` → `ideas-2` → `ideas-3`. The input is already
- * a slug (the caller `slugify`s the raw name — this only appends the numeric
- * suffix on collision, never re-introduces `/`/`#`/whitespace). Best-effort
- * against a read snapshot; the create path is single-writer per forum in
- * practice, and a rare race just yields a second same-named post the resolver's
- * ambiguity floor still handles safely.
- */
-export async function dedupeChildChannelSlug(
-  db: Database,
-  parentChannelId: string,
-  baseSlug: string,
-  type = "forum_post"
-): Promise<string> {
-  const rows = await db
-    .select({ name: communityChannel.name })
-    .from(communityChannel)
-    .where(
-      and(
-        eq(communityChannel.parentChannelId, parentChannelId),
-        eq(communityChannel.type, type)
-      )
-    );
-  const taken = new Set(rows.map((r) => r.name));
-  if (!taken.has(baseSlug)) return baseSlug;
-  for (let n = 2; ; n++) {
-    const candidate = `${baseSlug}-${n}`;
-    if (!taken.has(candidate)) return candidate;
-  }
-}
 
 /**
  * Auto-create a thread channel rooted at `parentMessageId` inside

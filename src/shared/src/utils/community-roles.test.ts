@@ -12,18 +12,18 @@ import {
 } from "./community-roles"
 
 describe("isMessageBearingSurface", () => {
-  it("is true for all 5 stored types — text/forum/forum_post/thread/dm (phase2 forum≡thread write-guard reversal: forum GAINS message-bearing status, forum_post KEEPS it — existing posts stay live and addressable until forum_post is deleted entirely at a later step, Ingaborg #782-790 caught an earlier draft that regressed this)", () => {
+  it("is true for all 4 stored types — text/forum/thread/dm", () => {
     expect(isMessageBearingSurface("text")).toBe(true)
     expect(isMessageBearingSurface("forum")).toBe(true)
-    expect(isMessageBearingSurface("forum_post")).toBe(true)
     expect(isMessageBearingSurface("thread")).toBe(true)
     expect(isMessageBearingSurface("dm")).toBe(true)
   })
 
-  it("is false for null/undefined/unknown — equivalent to isStoredChannelType(t), so anything outside the closed 5-value set is denied", () => {
+  it("is false for null/undefined/unknown — equivalent to isStoredChannelType(t), so anything outside the closed 4-value set is denied", () => {
     expect(isMessageBearingSurface(null)).toBe(false)
     expect(isMessageBearingSurface(undefined)).toBe(false)
     expect(isMessageBearingSurface("bogus")).toBe(false)
+    expect(isMessageBearingSurface("forum_post")).toBe(false)
   })
 })
 
@@ -31,52 +31,38 @@ describe("isChannelType (creatable top-level types)", () => {
   it("accepts only text and forum", () => {
     expect(isChannelType("text")).toBe(true)
     expect(isChannelType("forum")).toBe(true)
-    expect(isChannelType("forum_post")).toBe(false)
     expect(isChannelType("thread")).toBe(false)
     expect(isChannelType("dm")).toBe(false)
   })
 })
 
 // B0 trait table — lock each type's trait values to today's hand-branched
-// behavior (the assignments Ingaborg #41 enumerated from current code). This is
-// the "scan enum assignment vs current code" gate as an executable assertion:
-// a later refactor that silently flips a type's axis fails here. B0 is behavior-
-// inert (nothing consumes CHANNEL_TRAITS until B1), so this is the only consumer
-// today and the guard that the extraction stayed behavior-invariant.
+// behavior. This is the "scan enum assignment vs current code" gate as an
+// executable assertion: a later refactor that silently flips a type's axis
+// fails here.
 describe("CHANNEL_TRAITS (B0 trait model)", () => {
   it("maps each stored channel type to its extracted trait values", () => {
     expect(CHANNEL_TRAITS).toEqual({
       text: { addressing: "by-server-name", visibility: "own-roster", reach: "server-or-roster", creation: "reject-on-collision" },
       forum: { addressing: "by-server-name", visibility: "own-roster", reach: "server-or-roster", creation: "reject-on-collision" },
-      forum_post: { addressing: "by-child-name", visibility: "inherit-parent", reach: "participant-set", creation: "pure-create" },
       thread: { addressing: "by-root-seq", visibility: "inherit-parent", reach: "participant-set", creation: "get-or-create" },
       dm: { addressing: "by-peer-identity", visibility: "dm-participant", reach: "dm-pair", creation: "get-or-create" },
     })
   })
 
-  it("each CreationTrait value names exactly one collision contract (Aigneis #45 / Blondie #49)", () => {
+  it("each CreationTrait value names exactly one collision contract", () => {
     // reject-on-collision = top-level 409/0-rows (idx_channel_server_name);
-    // pure-create = forum_post bump→N distinct; get-or-create = thread/dm
-    // fetch-winner. A value spanning two contracts has no single oracle.
+    // get-or-create = thread/dm fetch-winner.
     expect(CHANNEL_TRAITS.text.creation).toBe("reject-on-collision")
     expect(CHANNEL_TRAITS.forum.creation).toBe("reject-on-collision")
-    expect(CHANNEL_TRAITS.forum_post.creation).toBe("pure-create")
     expect(CHANNEL_TRAITS.thread.creation).toBe("get-or-create")
     expect(CHANNEL_TRAITS.dm.creation).toBe("get-or-create")
   })
 
   it("covers every stored channel type (no type left un-traited)", () => {
-    const types: StoredChannelType[] = ["text", "forum", "forum_post", "thread", "dm"]
+    const types: StoredChannelType[] = ["text", "forum", "thread", "dm"]
     for (const t of types) expect(CHANNEL_TRAITS[t]).toBeDefined()
     expect(Object.keys(CHANNEL_TRAITS).sort()).toEqual([...types].sort())
-  })
-
-  it("addressing values are distinct per addressing strategy (no accidental reuse across strategies)", () => {
-    // forum_post addresses by its own child name, thread by root seq — the two
-    // must NOT share an addressing value (they resolve on different keys; a
-    // shared value would collapse the resolver's two branches, the exact
-    // do-not-fold the resolver comment warns about).
-    expect(CHANNEL_TRAITS.forum_post.addressing).not.toBe(CHANNEL_TRAITS.thread.addressing)
   })
 })
 
@@ -86,14 +72,12 @@ describe("reach axis helpers", () => {
   it("channelReach reads the reach value straight from the trait table", () => {
     expect(channelReach("text")).toBe("server-or-roster")
     expect(channelReach("forum")).toBe("server-or-roster")
-    expect(channelReach("forum_post")).toBe("participant-set")
     expect(channelReach("thread")).toBe("participant-set")
     expect(channelReach("dm")).toBe("dm-pair")
   })
 
-  it("reachIsParticipantSet is true for exactly thread + forum_post (the enroll ⟷ read shared predicate)", () => {
+  it("reachIsParticipantSet is true for exactly thread (the enroll ⟷ read shared predicate)", () => {
     expect(reachIsParticipantSet("thread")).toBe(true)
-    expect(reachIsParticipantSet("forum_post")).toBe(true)
     expect(reachIsParticipantSet("text")).toBe(false)
     expect(reachIsParticipantSet("forum")).toBe(false)
     expect(reachIsParticipantSet("dm")).toBe(false)
@@ -103,12 +87,14 @@ describe("reach axis helpers", () => {
     expect(reachIsParticipantSet(null)).toBe(false)
     expect(reachIsParticipantSet(undefined)).toBe(false)
     expect(reachIsParticipantSet("bogus")).toBe(false)
+    expect(reachIsParticipantSet("forum_post")).toBe(false)
   })
 
-  it("isStoredChannelType guards the five stored types", () => {
-    for (const t of ["text", "forum", "forum_post", "thread", "dm"]) expect(isStoredChannelType(t)).toBe(true)
+  it("isStoredChannelType guards the four stored types", () => {
+    for (const t of ["text", "forum", "thread", "dm"]) expect(isStoredChannelType(t)).toBe(true)
     expect(isStoredChannelType(null)).toBe(false)
     expect(isStoredChannelType("channel")).toBe(false)
+    expect(isStoredChannelType("forum_post")).toBe(false)
   })
 })
 
@@ -118,7 +104,6 @@ describe("visibility axis helpers", () => {
   it("channelVisibility reads the visibility value straight from the trait table", () => {
     expect(channelVisibility("text")).toBe("own-roster")
     expect(channelVisibility("forum")).toBe("own-roster")
-    expect(channelVisibility("forum_post")).toBe("inherit-parent")
     expect(channelVisibility("thread")).toBe("inherit-parent")
     expect(channelVisibility("dm")).toBe("dm-participant")
   })
@@ -127,7 +112,6 @@ describe("visibility axis helpers", () => {
     expect(visibilityIsDmParticipant("dm")).toBe(true)
     expect(visibilityIsDmParticipant("text")).toBe(false)
     expect(visibilityIsDmParticipant("forum")).toBe(false)
-    expect(visibilityIsDmParticipant("forum_post")).toBe(false)
     expect(visibilityIsDmParticipant("thread")).toBe(false)
   })
 

@@ -522,18 +522,6 @@ describe("runAttachmentUpload", () => {
     expect(key).toMatch(/^thread\/c1\//)
   })
 
-  it("channel surface + type 'forum_post' → kind 'thread' (child surface, same as thread)", async () => {
-    surfaceChannel("forum_post")
-    const put = vi.fn().mockResolvedValue(undefined)
-    const res = await runAttachmentUpload(
-      reqWithFile(fakeFile("hi.png", "image/png", 10)),
-      ctxWith(envWithR2(put), { id: "c1" }),
-    )
-    expect(res.status).toBe(200)
-    const [key] = put.mock.calls[0]
-    expect(key).toMatch(/^thread\/c1\//)
-  })
-
   it("channel surface + forum top-level → kind 'channel' (phase2 forum≡thread write-guard reversal — forum is now a message-bearing surface)", async () => {
     surfaceChannel("forum")
     const put = vi.fn().mockResolvedValue(undefined)

@@ -147,7 +147,7 @@ export async function resolveMessageTarget(
   // already resolved — instead of a body-field trigger.
   const target: MessageTarget = channel.parentChannelId
     ? {
-        kind: channel.type === "forum_post" ? "forum_post" : "thread",
+        kind: "thread",
         channelId,
         parentChannelId: channel.parentChannelId,
         serverId: channel.serverId,

@@ -111,15 +111,6 @@ describe("resolveMessageTarget — single mask output + surface→target (Aignei
     expect(res).toMatchObject({ ok: true, value: { target: { kind: "thread", channelId: "t1", parentChannelId: "p1", serverId: "s1" } } })
   })
 
-  it("channel + parentChannelId + type forum_post → forum_post-kind target", async () => {
-    mockRequireMessageSurfaceAccess.mockResolvedValue({
-      ok: true,
-      value: { surface: "channel", channel: { id: "fp1", type: "forum_post", serverId: "s1", parentChannelId: "f1" } },
-    })
-    const res = await resolveMessageTarget(db, "u1", { id: "fp1" }, "human")
-    expect(res).toMatchObject({ ok: true, value: { target: { kind: "forum_post", channelId: "fp1", parentChannelId: "f1", serverId: "s1" } } })
-  })
-
   it("bearing guard failure (e.g. forum top-level) → error, no target", async () => {
     mockRequireMessageSurfaceAccess.mockResolvedValue({
       ok: true,

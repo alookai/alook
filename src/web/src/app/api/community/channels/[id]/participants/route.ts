@@ -2,18 +2,18 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, WS_EVENTS, isThread, isForumPost, PARTICIPANT_SOURCE } from "@alook/shared"
+import { queries, WS_EVENTS, isThread, PARTICIPANT_SOURCE } from "@alook/shared"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
 import { requireChannelAccess } from "@/lib/community/permissions"
 
 // GET (the participant-list READ) was retired: the unified `/members` endpoint
 // now serves the notify set in the canonical `MappedMember` shape, and the
-// post/thread panel reads that. Only the participant WRITE endpoints remain
-// here (POST add + DELETE in `[userId]/route.ts`).
+// thread panel reads that. Only the participant WRITE endpoints remain here
+// (POST add + DELETE in `[userId]/route.ts`).
 
 /**
- * Add a participant to a thread/forum-post — the "add from channel" flow. ANY
- * current viewer with access may add (passing `requireChannelAccess` means the
+ * Add a participant to a thread — the "add from channel" flow. ANY current
+ * viewer with access may add (passing `requireChannelAccess` means the
  * caller can see the unit — i.e. is a member of the parent channel/forum).
  * Other joins happen automatically via mention/speak. The target must be a
  * member of the PARENT's access audience (you can only pull in people who can
@@ -27,8 +27,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const access = await requireChannelAccess(db, channelId, ctx.userId)
   if (!access.ok) return writeError(access.error, access.status)
   const channel = access.value.channel
-  if (!isThread(channel.type) && !isForumPost(channel.type)) {
-    return writeError("not a thread or forum post", 400)
+  if (!isThread(channel.type)) {
+    return writeError("not a thread", 400)
   }
 
   let body: { userId?: string }

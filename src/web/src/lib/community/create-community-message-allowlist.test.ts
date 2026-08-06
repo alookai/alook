@@ -21,9 +21,6 @@ const ALLOWLIST = [
   "src/app/api/community/channels/[id]/messages/route.ts",
   // Bot enrollment welcome message (server owner adds a bot → greeting).
   "src/app/api/community/servers/[id]/bots/route.ts",
-  // Forum post creation (its first message); folds into send-with-title at the
-  // forum≡thread step.
-  "src/lib/community/create-forum-post.ts",
   // phase2 forum≡thread step 1: the atomic-by-compensation "message+thread"
   // primitive — shared by the send-fold (step 4) and the existing-data
   // migration (step 5) to open a message with its own auto-created thread.

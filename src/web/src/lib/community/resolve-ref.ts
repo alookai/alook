@@ -31,8 +31,8 @@ export interface ResolveTargetOpts {
  * Channel names are unique per server for top-level channels (migration
  * 0057's partial-unique index `idx_channel_server_name`) — the resolver
  * enforces the same invariant by matching only where `parentChannelId IS
- * NULL`. Threads and forum posts are unreachable from this helper by name
- * or id; use the canonical `#seq` grammar to descend into a thread. Server
+ * NULL`. A thread is unreachable from this helper by name or id; use the
+ * canonical `#seq` grammar to descend into one. Server
  * NAME ambiguity is still possible (server names are non-unique) and still
  * returns `{ error: 400, hint: [...] }` so the agent can pick.
  * `createDmIfMissing`/`createThreadIfMissing` are both `true` for `send`
@@ -105,34 +105,6 @@ export async function resolveTargetForMember(
   if (matches.length === 0) return { error: 404, message: `channel not found: ${parsed.channel}` }
   const channel = matches[0]!
 
-  // Forum-post form (`/server/forum/post`) — the resolved `channel` is the
-  // parent forum; descend to the `forum_post` child by name. Runs parallel to
-  // the thread branch below (do NOT fold them: a thread anchors on a root-msg
-  // seq, a post on its own name). Post names are NOT unique within a forum, so
-  // >1 match is an ambiguous ref — return 400 + candidates, NEVER silently pick
-  // one (mirrors the ambiguous-server-name behavior above). A forum post
-  // inherits its forum's access; `requireChannelMember`/`requireChannelAccess`
-  // at the call site climb `parentChannelId` to gate on the forum's roster.
-  if (parsed.childChannelName !== undefined) {
-    const posts = await queries.communityChannel.getChildChannelByName(db, channel.id, parsed.childChannelName)
-    if (posts.length === 0) {
-      return { error: 404, message: `post not found: ${parsed.childChannelName}` }
-    }
-    if (posts.length > 1) {
-      // Ambiguous: >1 post shares this name (only possible for legacy dupes
-      // predating create-time dedup). The red line is met by refusing — we
-      // NEVER silently pick one. A name-based hint can't disambiguate here
-      // (the candidates' name-anchor paths are identical), so we report the
-      // count instead of fabricating useless identical paths; a one-time
-      // slug-dedup migration on legacy posts is the clean fix (deferred).
-      return {
-        error: 400,
-        message: `ambiguous post name "${parsed.childChannelName}" in ${parsed.channel} — ${posts.length} posts share this name; rename the duplicates to address them by name`,
-      }
-    }
-    return { kind: "channel", channelId: posts[0]!.id }
-  }
-
   if (parsed.threadRootSeq === undefined) {
     return { kind: "channel", channelId: channel.id }
   }
@@ -174,13 +146,11 @@ export async function resolveTargetForMember(
   // Thread create via the shared trait-keyed collision policy (B4): thread's
   // creation trait is get-or-create — a concurrent create that loses the race on
   // the parent_message_id anchor (unique index, migration 0052) re-selects the
-  // winner rather than making a second thread. This is the SAME dispatch
-  // forum_post (pure-create) and top-level channels (reject-on-collision) use;
-  // only these callbacks (the thread channel-shape + its anchor refetch) are
-  // thread-specific. Anchor-collision (parent_message_id) and name-collision are
-  // both "a structure anchor was taken → fetch the winner" — one get-or-create
-  // value covers both; DM's identity-collision is a different key space and is
-  // NOT wired here.
+  // winner rather than making a second thread. Top-level channels
+  // (reject-on-collision) use the same dispatch with a different collision
+  // contract; only these callbacks (the thread channel-shape + its anchor
+  // refetch) are thread-specific. DM's identity-collision is a different key
+  // space and is NOT wired here.
   const threadResult = await createWithCollisionPolicy(channelCreation("thread"), {
     attempt: () => queries.communityChannel.createThreadChannel(db, channel.id, rootMessage.id, userId),
     refetchWinner: () => queries.communityChannel.getThreadChannelByParentMessage(db, channel.id, rootMessage.id),

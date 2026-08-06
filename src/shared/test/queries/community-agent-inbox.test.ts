@@ -105,28 +105,6 @@ describe("toAgentMessages", () => {
     expect(msg!.channel).toBe(formatRef({ server: "studio", channel: "general", threadRootSeq: 7 }));
   });
 
-  it("hydrates a forum-post message with the name-anchor ref (/server/forum/post)", async () => {
-    // A forum_post has a parentChannelId (the forum) but NO parentMessageId
-    // (unlike a thread), so it must be anchored by its own name under the
-    // forum — NOT fall through to the top-level fallback `/server/<post-name>`
-    // (which the name resolver, top-level only, could never parse back).
-    // Call order: 1. channels (the post itself), 2. author names,
-    // 3. parentChannels (the forum), 4. servers. parentMessageIds is empty
-    // (null) so that select is skipped.
-    const db = createSequentialDb([
-      [{ id: "post_1", name: "my-post", type: "forum_post", serverId: "srv_1", parentChannelId: "forum_1", parentMessageId: null }],
-      [{ id: "u_1", name: "Alice" }],
-      [{ id: "forum_1", name: "ideas" }],
-      [{ id: "srv_1", name: "studio" }],
-    ]);
-    const [msg] = await agentInbox.toAgentMessages(
-      db,
-      [rawMsg({ channelId: "post_1" })],
-      "viewer_1"
-    );
-    expect(msg!.channel).toBe(formatRef({ server: "studio", channel: "ideas", childChannelName: "my-post" }));
-  });
-
   it("hydrates a DM message, addressing the OTHER party (as a name#0042 handle) relative to viewerId", async () => {
     // A DM is a type=dm channel now, so it flows through the SAME `channels`
     // query as any other scope. Call order: 1. channels query (returns the
@@ -419,7 +397,7 @@ describe("listUnreadMessagesForAgent", () => {
     );
   });
 
-  it("excludes thread/forum_post channels the bot isn't a participant of from the allowed set", async () => {
+  it("excludes thread channels the bot isn't a participant of from the allowed set", async () => {
     // ch_a is a plain text channel (always allowed); ch_b_thread is a thread
     // the bot doesn't participate in. `listAgentAllowedChannelIds` drops
     // ch_b_thread BEFORE the messages SQL runs, so the WHERE never lets a
@@ -445,7 +423,7 @@ describe("listUnreadMessagesForAgent", () => {
     expect(result.map((r) => r.id)).toEqual(["m_a"]);
   });
 
-  it("keeps thread/forum_post channels when the bot IS a participant", async () => {
+  it("keeps thread channels when the bot IS a participant", async () => {
     const db = createSequentialDb([
       [{ serverId: "srv_1" }],
       [
@@ -674,7 +652,7 @@ describe("getInboxSnapshotForAgent", () => {
     ]);
   });
 
-  it("excludes thread/forum_post channels the bot isn't a participant of from the allowed set", async () => {
+  it("excludes thread channels the bot isn't a participant of from the allowed set", async () => {
     // ch_thread is filtered out of `allowedChannelIds` up front, so the
     // aggregation SQL's WHERE ... inArray(channelId, allowed) never surfaces
     // it. No post-filter needed → no risk of an aggregation row silently
@@ -864,7 +842,7 @@ describe("listMessagesBySeq", () => {
 describe("hasDeliverableUnreadForAgentScope", () => {
   // Call order (see the query's body):
   //  1. channel-type lookup (participation-narrowing pre-check)
-  //  2. `listParticipatingThreadIds` — ONLY when (1) is thread/forum_post
+  //  2. `listParticipatingThreadIds` — ONLY when (1) is thread
   //  3. the deliverable-unread existence scan (limit 1)
   // For a plain (non-thread) channel, (2) is skipped: (1)=type, (2)=scan.
   it("returns true when a deliverable message beyond `seen` exists", async () => {
