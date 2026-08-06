@@ -381,10 +381,10 @@ export interface CommunityAgentReactAddResponse {
 /**
  * Create a new forum post (`alook message post`). `forum` is a forum REF
  * (`/server/forum`), resolved server-side (bots hold refs, not ids — same reason
- * `send` takes a ref). `title` is the raw human title; its slug becomes the
- * post's addressing name. Content follows the forum-post opener contract: text
- * OR at least one attachment. `attachments` are pending ids the bot uploaded
- * bound to the FORUM (the post channel doesn't exist at upload time).
+ * `send` takes a ref). The canonical messages door stores `title` as an opener
+ * message in the forum and `content` as the first reply in its ordinary thread.
+ * The reply may contain text OR at least one attachment. `attachments` are
+ * pending ids the bot uploaded against the forum before the thread exists.
  */
 export interface CreatePostRequest {
   agentId: AgentId;
@@ -397,9 +397,8 @@ export interface CreatePostRequest {
 }
 
 /**
- * The created post's canonical address. `ref` is the round-trippable
- * `/server/forum/<real-slug>` (the slug after create-time dedupe/bump) — the bot
- * hands it straight back as a target. `seq` is the body (first-message) seq.
+ * The created thread's canonical address. `ref` is `/server/forum/#N`, where
+ * `N` is the opener message seq; `seq` is the first reply's seq in that thread.
  */
 export interface CreatePostResponse {
   ref: ChannelRef;

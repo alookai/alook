@@ -414,7 +414,7 @@ describe("message post", () => {
     const postSpy = vi.fn(async (req: { nonce?: string }) => {
       nonces.push(req.nonce);
       calls++;
-      if (calls === 1) throw new Error("upstream returned 502 with non-JSON body from /api/createPost");
+      if (calls === 1) throw new Error("upstream returned 502 with non-JSON body from canonical messages door");
       return okRes;
     });
     setApiForTesting(stubApi({ createPost: postSpy }));

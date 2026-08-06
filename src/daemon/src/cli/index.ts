@@ -365,8 +365,7 @@ async function cmdMessagePost(opts: Record<string, unknown>): Promise<unknown> {
     attachments: attachmentIds.length > 0 ? attachmentIds : undefined,
     nonce,
   });
-  // Surface the canonical /server/forum/<real-slug> ref — the bot's handle for
-  // the just-created post, usable directly as a `--target`.
+  // Surface the canonical /server/forum/#N thread ref, usable as `--target`.
   return { posted: res.ref };
 }
 

@@ -268,13 +268,9 @@ export const DEFAULT_CAPABILITY_RESOLVER: CapabilityResolver = (method, pathname
   // specific `/reactions|/threads` sub-paths win first.
   if (method === "GET" && /\/messages\/[^/]+(\?|$)/.test(pathname)) return "read";
 
-  // ── Remaining flat verbs (kept-class: no id-in-path door folds them yet). ──
+  // ── Remaining generic read/server families. ──
   // send/read/reactAdd/resolve/channelMember flat routes are DELETED (folded into
-  // the canonical doors above), so their substring rules are gone. `/createPost`
-  // is the one write verb still flat (folds into send-with-title at the
-  // forum≡thread step) — a create/write, needs `send` so a read/attach-only
-  // voucher can't create content.
-  if (pathname.includes("/createPost")) return "send";
+  // the canonical doors above), so their substring rules are gone.
   if (pathname.includes("/history") || pathname.includes("/search") || pathname.includes("/inbox"))
     return "read";
   if (pathname.includes("/server") || pathname.includes("/channel")) return "server";

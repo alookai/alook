@@ -1189,7 +1189,7 @@ export const CommunityAgentSendRequestSchema = z
     // and data model never use that word — it's message content, following
     // MAX_MESSAGE_CONTENT_LENGTH like any other content, not a channel-naming
     // constant (title is no longer a channel name at all).
-    replyContent: z.string().min(1).max(MAX_MESSAGE_CONTENT_LENGTH).optional(),
+    replyContent: z.string().max(MAX_MESSAGE_CONTENT_LENGTH).optional(),
   })
   .refine(
     (d) => d.content.text.trim().length > 0 || d.attachments.length > 0,
@@ -1253,13 +1253,10 @@ export type CommunityAgentListChannelsRequest = z.infer<
   typeof CommunityAgentListChannelsRequestSchema
 >;
 
-// Body for POST /api/community/createPost (`alook message post`). `forum` is a
-// forum REF (`/server/forum`), resolved server-side like `send`'s `channel`.
-// `title` is the raw human title — its slug becomes the post's addressing name,
-// the original is captured into display_title (B4b). Content follows the same
-// opener contract as a forum post: text OR at least one attachment (an
-// attachment-only post is legitimate). `attachments` are pending ids the bot
-// uploaded bound to the FORUM (the post channel doesn't exist at upload time).
+// CLI adapter input for `alook message post`. The daemon maps this shape onto
+// the canonical forum send body: title → opener message, content → the ordinary
+// thread's first reply. An attachment-only reply is legitimate; pending ids are
+// uploaded against the forum before the thread exists.
 export const CommunityAgentCreatePostRequestSchema = z
   .object({
     forum: z.string().min(1),

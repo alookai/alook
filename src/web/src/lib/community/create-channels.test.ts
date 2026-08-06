@@ -7,6 +7,8 @@ const mockHardDeleteMessage = vi.fn()
 const mockAddThreadParticipants = vi.fn()
 const mockFanOutToChannel = vi.fn()
 const mockDeleteChannel = vi.fn()
+const mockListMessages = vi.fn()
+const mockListMessageAttachments = vi.fn()
 
 vi.mock("@/lib/community/message-handler", () => ({
   createCommunityMessage: (...a: unknown[]) => mockCreateCommunityMessage(...a),
@@ -32,6 +34,11 @@ vi.mock("@alook/shared", async () => {
       communityMessage: {
         ...actual.queries.communityMessage,
         hardDeleteMessage: (...a: unknown[]) => mockHardDeleteMessage(...a),
+        listMessages: (...a: unknown[]) => mockListMessages(...a),
+      },
+      communityAttachment: {
+        ...actual.queries.communityAttachment,
+        listMessageAttachments: (...a: unknown[]) => mockListMessageAttachments(...a),
       },
       communityThread: {
         ...actual.queries.communityThread,
@@ -163,6 +170,43 @@ describe("createMessageWithThread (phase2 forum≡thread — atomic-by-compensat
     expect(mockAddThreadParticipants).not.toHaveBeenCalled()
     expect(mockFanOutToChannel).not.toHaveBeenCalled()
     expect(mockHardDeleteMessage).not.toHaveBeenCalled()
+  })
+
+  it("same-nonce replay returns the existing thread and reply without creating or broadcasting again", async () => {
+    mockCreateCommunityMessage.mockResolvedValue({
+      ok: true,
+      row: { id: "msg_1", content: "Title", channelId: "forum_1" },
+      attachments: [],
+      deduped: true,
+    })
+    mockGetThreadChannelByParentMessage.mockResolvedValue({
+      id: "th_1", creatorId: "u1", createdAt: "t0", name: "Title",
+    })
+    mockListMessages.mockResolvedValue([
+      { id: "msg_2", content: "Body", channelId: "th_1", seq: 1 },
+    ])
+    mockListMessageAttachments.mockResolvedValue([])
+
+    const res = await createMessageWithThread({
+      db: {} as any,
+      authorId: "u1",
+      parentChannelId: "forum_1",
+      serverId: "s1",
+      body: { content: "Title" },
+      replyBody: { content: "Body" },
+      clientNonce: "nonce_1",
+    })
+
+    expect(res).toEqual(expect.objectContaining({
+      ok: true,
+      deduped: true,
+      thread: expect.objectContaining({ id: "th_1" }),
+      reply: expect.objectContaining({ id: "msg_2" }),
+    }))
+    expect(mockCreateCommunityMessage).toHaveBeenCalledTimes(1)
+    expect(mockCreateChannel).not.toHaveBeenCalled()
+    expect(mockAddThreadParticipants).not.toHaveBeenCalled()
+    expect(mockFanOutToChannel).not.toHaveBeenCalled()
   })
 
   it("returns the message-handler's error verbatim without touching the thread path at all", async () => {

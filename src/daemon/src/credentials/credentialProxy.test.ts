@@ -118,10 +118,9 @@ describe("DEFAULT_CAPABILITY_RESOLVER", () => {
     expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/channels/abc123/posts")).toBe("send");
   });
 
-  it("maps the surviving flat verbs (createPost→send, inboxPull→read via the generic /inbox substring); deleted flat send/reactAdd/friendRequest/listFriends no longer map", () => {
-    // Kept-class flat verb (no id-in-path door folds it yet).
-    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/createPost")).toBe("send");
-    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/createPost")).toBe("send");
+  it("does not map deleted flat write verbs; inboxPull still matches the generic /inbox read family", () => {
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/createPost")).toBeUndefined();
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/createPost")).toBeUndefined();
     // /api/inboxPull's flat ROUTE is deleted, but the resolver's generic
     // `/inbox` substring rule (unrelated to the specific flat-verb rules)
     // still fires on this path shape — the daemon proxy only rejects the

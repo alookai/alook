@@ -182,6 +182,41 @@ describe("createProxyServerApi — send (retargeted to the canonical messages do
   });
 });
 
+describe("createProxyServerApi — createPost (folded into the canonical messages door)", () => {
+  it("maps the legacy CLI contract onto forum send and adapts the thread reply response", async () => {
+    const seen: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
+      seen.push({ url, init });
+      return jsonBody(JSON.stringify({
+        state: "sent",
+        message: { seq: "#12", channel: "/demo/forum", content: { text: "Title" } },
+        reply: { seq: "#1", channel: "/demo/forum/#12", content: { text: "Body" } },
+        threadId: "thread_1",
+      }));
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const out = await api.createPost({
+      agentId: "a1",
+      forum: "/demo/forum",
+      title: "Title",
+      content: { text: "Body" },
+      attachments: ["att_1"],
+      nonce: "nonce_1",
+    });
+
+    expect(seen[0].url).toBe("http://proxy.test/api/community/channels/resolve/messages");
+    expect(seen[0].init?.method).toBe("POST");
+    expect(JSON.parse(String(seen[0].init?.body))).toEqual({
+      channel: "/demo/forum",
+      content: { text: "Title" },
+      replyContent: "Body",
+      attachments: ["att_1"],
+      nonce: "nonce_1",
+    });
+    expect(out).toEqual({ ref: "/demo/forum/#12", name: "Title", seq: 1 });
+  });
+});
+
 describe("createProxyServerApi — channelMember (retargeted to the canonical members door)", () => {
   it("GETs channels/{id}/members with ?ref= (encoded); returns the ChannelMemberResult", async () => {
     const seen: Array<{ url: string; init?: RequestInit }> = [];

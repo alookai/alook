@@ -307,7 +307,10 @@ async function handleBotSend(
   // brand-new thread is a fresh scope with no seq contention to align
   // against.
   if (target.kind === "forum") {
-    if (body.replyContent === undefined) {
+    if (
+      body.replyContent === undefined ||
+      (body.replyContent.trim().length === 0 && body.attachments.length === 0)
+    ) {
       return NextResponse.json({ error: "replyContent is required when sending into a forum" }, { status: 400 })
     }
     if (body.attachments.length > 0) {
@@ -337,7 +340,13 @@ async function handleBotSend(
     const reply = created.reply
       ? await queries.communityAgentInbox.toAgentMessage(db, created.reply, botUserId, orderedAttachments)
       : null
-    return NextResponse.json({ state: "sent", message, reply, threadId: created.thread.id })
+    return NextResponse.json({
+      state: "sent",
+      message,
+      reply,
+      threadId: created.thread.id,
+      deduped: created.deduped,
+    })
   }
 
   const scopeTarget = { channelId }

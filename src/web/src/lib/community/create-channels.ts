@@ -20,6 +20,7 @@ import { requireServerMember, requireChannelMember } from "@/lib/community/permi
 import { requireMessageBearingSurface } from "@/lib/community/channel-write-guard"
 import { guardDmOpen } from "@/lib/community/dm-guard"
 import { createCommunityMessage, type IncomingMessageBody } from "@/lib/community/message-handler"
+import { attachmentUrl } from "@/lib/community/storage"
 
 const log = createLogger({ service: "community-create-channels" })
 
@@ -303,6 +304,7 @@ export type CreateMessageWithThreadResult =
     thread: Awaited<ReturnType<typeof queries.communityChannel.createChannel>>
     reply: CreateMessageSuccess["row"] | null
     replyAttachments: CreateMessageSuccess["attachments"]
+    deduped?: boolean
   }
   | { ok: false; status: number; error: string }
 
@@ -400,6 +402,43 @@ export async function createMessageWithThread(params: {
   })
   if (!created.ok) return { ok: false, status: created.status, error: created.error }
   const messageId = created.row.id
+
+  if (created.deduped) {
+    const thread = await queries.communityChannel.getThreadChannelByParentMessage(
+      db,
+      parentChannelId,
+      messageId,
+    )
+    if (!thread) throw new Error("deduped forum opener is missing its thread")
+    const reply = params.replyBody
+      ? (await queries.communityMessage.listMessages(db, {
+          channelId: thread.id,
+          limit: 1,
+        }))[0] ?? null
+      : null
+    if (params.replyBody && !reply) {
+      throw new Error("deduped forum opener is missing its first reply")
+    }
+    const [storedAttachments, storedReplyAttachments] = await Promise.all([
+      queries.communityAttachment.listMessageAttachments(db, messageId),
+      reply
+        ? queries.communityAttachment.listMessageAttachments(db, reply.id)
+        : Promise.resolve([]),
+    ])
+    const toCreatedAttachment = (row: (typeof storedAttachments)[number]) => ({
+      ...row,
+      url: attachmentUrl(row.targetId, row.id),
+    })
+    return {
+      ok: true,
+      message: created.row,
+      attachments: storedAttachments.map(toCreatedAttachment),
+      thread,
+      reply,
+      replyAttachments: storedReplyAttachments.map(toCreatedAttachment),
+      deduped: true,
+    }
+  }
 
   // Always truncated to MAX_CHANNEL_NAME_LENGTH — the thread's `name` column
   // is a channel-naming field (display-only, but still bounded like every

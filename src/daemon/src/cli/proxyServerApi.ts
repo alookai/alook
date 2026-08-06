@@ -116,23 +116,6 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     return json as T;
   }
 
-  async function call<T>(method: string, body: unknown): Promise<T> {
-    // Strip any agentId from the wire body: identity travels ONLY as the voucher,
-    // which the proxy turns into a trusted X-Agent-Id the bridge injects. Sending
-    // an agentId here would be ignored (the bridge overrides it) — we omit it so
-    // the wire carries no self-asserted identity at all.
-    const { agentId: _omit, ...wire } = (body ?? {}) as Record<string, unknown>;
-    const res = await fetchImpl(`${base}/api/${method}`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${config.voucher}`,
-      },
-      body: JSON.stringify(wire),
-    });
-    return parseJsonResponse<T>(res, method);
-  }
-
   async function callUpload(req: AttachmentUploadRequest): Promise<AgentAttachmentUploadResult> {
     const form = new FormData();
     // The Blob's `type` becomes `File.type` on the server after multipart parsing;
@@ -184,6 +167,35 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
       body: JSON.stringify(wire),
     });
     return parseJsonResponse<SendResponse>(res, "send");
+  }
+
+  async function callCreatePost(req: CreatePostRequest): Promise<CreatePostResponse> {
+    const res = await fetchImpl(`${base}/api/community/channels/${REF_PLACEHOLDER_ID}/messages`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${config.voucher}`,
+      },
+      body: JSON.stringify({
+        channel: req.forum,
+        content: { text: req.title },
+        replyContent: req.content.text,
+        attachments: req.attachments ?? [],
+        ...(req.nonce !== undefined ? { nonce: req.nonce } : {}),
+      }),
+    });
+    const body = await parseJsonResponse<{
+      state: "sent";
+      reply: Message | null;
+    }>(res, "createPost");
+    if (body.state !== "sent" || !body.reply) {
+      throw new Error("createPost: upstream response missing thread reply");
+    }
+    return {
+      ref: body.reply.channel,
+      name: req.title,
+      seq: Number(body.reply.seq.replace(/^#/, "")),
+    };
   }
 
   async function callRead(req: ReadRequest): Promise<Page<Message>> {
@@ -542,7 +554,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     inboxSnapshot: (_r: { agentId: AgentId }) => callInboxSnapshot(),
     ack: callAck,
     send: callSend,
-    createPost: (r: CreatePostRequest) => call<CreatePostResponse>("createPost", r),
+    createPost: callCreatePost,
     read: callRead,
     resolve: callResolve,
     listMembers: callListMembers,

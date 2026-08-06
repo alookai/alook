@@ -132,6 +132,31 @@ describe("POST /api/community/channels/[id]/messages — send into a forum opens
     expect(mockCreateMessageWithThread).not.toHaveBeenCalled()
   })
 
+  it("allows an attachment-only forum body while still rejecting a fully empty body", async () => {
+    mockForumTarget()
+    mockFindPendingAttachmentsForSender.mockResolvedValue([{ id: "att_1" }])
+    mockCreateMessageWithThread.mockResolvedValue({
+      ok: true,
+      message: { id: "msg_1", content: "Title", seq: 5 },
+      attachments: [],
+      thread: { id: "th_1" },
+      reply: { id: "msg_2", content: "", seq: 1 },
+      replyAttachments: [{ id: "att_1", filename: "x.png", contentType: "image/png", size: 10 }],
+    })
+
+    const res = await POST(botReq({
+      channel: "/demo/forum1",
+      content: { text: "Title" },
+      replyContent: "",
+      attachments: ["att_1"],
+    }), ctxResolve)
+
+    expect(res.status).toBe(200)
+    expect(mockCreateMessageWithThread).toHaveBeenCalledWith(
+      expect.objectContaining({ replyBody: { content: "" }, replyAttachmentIds: ["att_1"] }),
+    )
+  })
+
   it("targeting a plain channel with replyContent set is IGNORED by this branch — falls through to the plain send path", async () => {
     mockResolveTargetForMember.mockResolvedValue({ channelId: "c1" })
     mockRequireMessageSurfaceAccess.mockResolvedValue({
