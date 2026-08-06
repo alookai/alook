@@ -671,3 +671,35 @@ export const communityMessageMark = sqliteTable(
   ]
 );
 
+// 24. community_message_tag
+// Post tags (phase2 forum≡thread, Gener #768 — locked shape). A post is now
+// just a message (its opener) that opened a thread — tags describe the
+// CONTENT of that message, not the channel/thread it lives in (a thread can
+// be opened by any message, so a channel/thread-level column would leak a
+// tagging capability onto every thread, not just posts — this field's mere
+// presence on a message row IS the "is this a tagged post" signal, no extra
+// branch needed). Supersedes `communityChannel.forumTags` (JSON), which stays
+// readable until the existing-data migration backfills here and verifies
+// zero loss (new-door∥old-door — see that column's own doc comment).
+export const communityMessageTag = sqliteTable(
+  "community_message_tag",
+  {
+    id: text("id").primaryKey().$defaultFn(() => nanoid()),
+    messageId: text("message_id")
+      .notNull()
+      .references(() => communityMessage.id, { onDelete: "cascade" }),
+    tag: text("tag").notNull(),
+  },
+  (t) => [
+    // Toggle idempotency: adding a tag already present is a no-op, not a
+    // duplicate row (mirrors community_message_mark's uq_mark_user_message).
+    unique("uq_message_tag").on(t.messageId, t.tag),
+    // Tag-first: the read pattern is "find messages with tag X" (the forum
+    // ?tag= filter, always applied on top of an already-resolved,
+    // membership-gated channel's message set) — never a bare cross-channel
+    // tag search (Aigneis #646/#647 red-line: that would hand a bot an
+    // existence-probe, "which channels have this tag").
+    index("idx_message_tag_tag").on(t.tag, t.messageId),
+  ]
+);
+
