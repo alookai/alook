@@ -46,6 +46,14 @@
 -- `type='thread'` rooted on that opener — the result is one opener message +
 -- an empty thread, an entirely ordinary state (any message can open a thread
 -- nobody has replied to yet).
+--
+-- TAGS BACKFILL (step 6 below): a post's `forum_tags` JSON array moves onto
+-- the SAME new opener message (tags are an opener-message property under the
+-- collapsed model, per Aigneis #696/#853 — not a channel/thread column) as
+-- rows in the new `community_message_tag` table. Never-drop: a tag the user
+-- actually set must survive this migration, so this backfill rides the SAME
+-- commit as the type-flip rather than a separate migration file — the old
+-- `forum_tags` column cannot be dropped until this has run.
 
 -- 1. One new opener message per forum_post, landing in the forum (the parent
 --    channel) — matches the live send path's model: an opener lives in the
@@ -178,3 +186,41 @@ SELECT
   t.created_at
 FROM community_channel AS t
 WHERE t.type = 'thread' AND t.creator_id IS NOT NULL AND t.parent_message_id = 'mig_opener_' || t.id;
+
+-- 6. Tags backfill: expand each migrated post's `forum_tags` JSON array (one
+--    string per element) into `community_message_tag` rows on the new opener
+--    message step 1 minted for it. `json_each` is SQLite core (no extension/
+--    migration needed to enable it), reading directly off the now-flipped
+--    `community_channel.type = 'thread'` rows this same commit just produced
+--    — so this step must run AFTER step 4 above, keyed on the SAME
+--    `parent_message_id = 'mig_opener_' || id` identity used to build the
+--    enroll rows. `json_each.value` for a JSON array of strings yields the
+--    unquoted string directly (SQLite decodes the JSON scalar), so no extra
+--    unquoting/parsing is needed here. `id` reuses the same random-blob
+--    shape as `community_message_tag.id` elsewhere (no natural key).
+--
+--    ⚠ The NULL/empty/malformed filter MUST live in the inner subquery, NOT
+--    a WHERE on the outer join: `json_each(t.forum_tags)` is a table-valued
+--    function evaluated per OUTER ROW before any outer-level WHERE narrows
+--    the set, so a NULL/''/non-array argument throws "malformed JSON" for
+--    that row regardless of an outer filter that would have excluded it —
+--    verified against a real sqlite3 binary (a naive outer-WHERE version of
+--    this statement aborted the whole INSERT on the very first tag-less
+--    row). Restricting rows to json_each's input in a subquery FIRST means
+--    json_each only ever sees rows already known to be a non-empty string.
+--    No known malformed (non-JSON-array) `forum_tags` values exist (the live
+--    read path has always parsed this same column successfully), so the
+--    remaining case — a malformed value slipping through the inner filter —
+--    is accepted as a hard migration-abort rather than silently swallowed
+--    like the live path's `safeParseForumTags` fallback.
+INSERT OR IGNORE INTO community_message_tag (id, message_id, tag)
+SELECT
+  lower(hex(randomblob(16))),
+  'mig_opener_' || tagged.id,
+  je.value
+FROM (
+  SELECT id, forum_tags FROM community_channel
+  WHERE type = 'thread' AND parent_message_id = 'mig_opener_' || id
+    AND forum_tags IS NOT NULL AND forum_tags != '' AND forum_tags != '[]'
+) AS tagged
+JOIN json_each(tagged.forum_tags) AS je;
