@@ -192,6 +192,36 @@ describe("toAgentMessages", () => {
     expect(JSON.stringify(msg)).not.toContain("u_ghost");
   });
 
+  it("preserves 101 mixed-author rows across hydration chunks, changing only the missing display identity", async () => {
+    const rows = Array.from({ length: 101 }, (_, i) => rawMsg({
+      id: `m_${i}`,
+      authorId: `u_${i}`,
+      seq: i + 1,
+      content: `body_${i}`,
+    }));
+    const users0to99 = Array.from({ length: 100 }, (_, i) => ({
+      id: `u_${i}`,
+      name: `User${i}`,
+      discriminator: String(i).padStart(4, "0"),
+    }));
+    const attachments = new Map([["m_100", [{ id: "att_1", filename: "proof.txt", contentType: "text/plain", size: 5 }]]]);
+    const db = createSequentialDb([
+      [{ id: "ch_1", name: "general", type: "text", serverId: "srv_1", parentChannelId: null, parentMessageId: null }],
+      users0to99,
+      [], // second (>100) author chunk: u_100 is deleted
+      [{ id: "srv_1", name: "studio", discriminator: "0042" }],
+    ]);
+    const out = await agentInbox.toAgentMessages(db, rows, "viewer_1", attachments);
+    expect(out).toHaveLength(101);
+    expect(out.map((m) => m.seq)).toEqual(Array.from({ length: 101 }, (_, i) => `#${i + 1}`));
+    expect(out[0]).toMatchObject({ sender: "@User0#0000", content: { text: "body_0" } });
+    expect(out[100]).toMatchObject({
+      sender: "Unknown user",
+      content: { text: "body_100", attachments: [{ id: "att_1", filename: "proof.txt" }] },
+    });
+    expect(JSON.stringify(out)).not.toContain("u_100");
+  });
+
   it("read/resolvable: a channel reply gets content.replyTo = { seq, sender } from the in-scope target", async () => {
     // Call order (synchronous phase): 0 channels, 1 author names, 2 reply-scope
     // getMessagesByIdsInScope query; then (post-await) 3 servers.
@@ -612,6 +642,34 @@ describe("getInboxSnapshotForAgent", () => {
     ]);
     const result = await agentInbox.getInboxSnapshotForAgent(db, "bot_1");
     expect(result).toEqual([]);
+  });
+
+  it("preserves 101 snapshot rows across latest-sender chunks with a missing boundary identity", async () => {
+    const channels = Array.from({ length: 101 }, (_, i) => ({
+      id: `ch_${i}`, type: "text", categoryId: null, categoryPrivate: null,
+      creatorId: "u_owner", parentChannelId: null,
+    }));
+    const channelTypes = channels.map(({ id, type }) => ({ id, type }));
+    const aggregated = Array.from({ length: 101 }, (_, i) => ({
+      channelId: `ch_${i}`, pendingCount: i + 1, firstPendingSeq: i + 2,
+      latestSeq: i + 3, latestSenderId: `sender_${i}`, mentionCount: i % 2,
+    }));
+    const firstSenderChunk = Array.from({ length: 100 }, (_, i) => ({
+      id: `sender_${i}`, name: `Sender${i}`, discriminator: String(i).padStart(4, "0"),
+    }));
+    const db = createSequentialDb([
+      [{ serverId: "srv_1" }], channels, [], [], channelTypes.slice(0, 100), channelTypes.slice(100),
+      aggregated.slice(0, 100), aggregated.slice(100),
+      firstSenderChunk, [], // sender_100 is absent in the second hydration chunk
+    ]);
+    const out = await agentInbox.getInboxSnapshotForAgent(db, "bot_1");
+    expect(out).toHaveLength(101);
+    expect(out.map((r) => r.channelId)).toEqual(channels.map((c) => c.id));
+    expect(out[0]).toMatchObject({ latestSender: "@Sender0#0000", pendingCount: 1, latestSeq: 3 });
+    expect(out[100]).toMatchObject({
+      latestSender: "Unknown user", pendingCount: 101, firstPendingSeq: 102, latestSeq: 103,
+    });
+    expect(JSON.stringify(out)).not.toContain("sender_100");
   });
 
   it("hydrates latestSender from the user table and sets hasMention from mentionCount", async () => {

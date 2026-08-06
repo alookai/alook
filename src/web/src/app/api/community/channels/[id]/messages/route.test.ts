@@ -850,6 +850,21 @@ describe("GET /api/community/channels/[id]/messages", () => {
       expect(body.items).toEqual([{ seq: 1, text: "dm hi" }])
     })
 
+    it("loudly rejects read hydration for an orphan DM without leaking raw ids", async () => {
+      mockGetUserByNameAndDiscriminator.mockResolvedValue({ id: "peer_internal", discriminator: "1231" })
+      mockGetDMBetween.mockResolvedValue({ id: "dm_internal" })
+      mockGetChannel.mockResolvedValue({ id: "dm_internal", serverId: null, type: "dm", parentChannelId: null })
+      mockGetDM.mockResolvedValue({ id: "dm_internal", lastMessageAt: null, createdAt: "t" })
+      mockGetDMPeer.mockResolvedValue({ otherUserId: "peer_internal" })
+      mockIsBlocked.mockResolvedValue(false)
+      mockListMessagesBySeq.mockResolvedValue({ items: [{ id: "message_internal", seq: 1 }], hasMore: false, latestSeq: 1 })
+      mockToAgentMessages.mockRejectedValue(new Error("DM peer identity unavailable"))
+
+      const read = GET(botGetReq(`?ref=${encodeURIComponent("/.dm/gusye#1231")}`), botCtx)
+      await expect(read).rejects.toThrow("DM peer identity unavailable")
+      await expect(read).rejects.not.toThrow(/peer_internal|dm_internal|message_internal/)
+    })
+
     it("bot read of a ref to a nonexistent target → 404, NO create (read-create=false ⑤)", async () => {
       // resolveTargetForMember (real, through the mocked queries) returns
       // not-found for an unknown ref; the door surfaces 404 and never creates.

@@ -211,6 +211,29 @@ describe("message send --reply", () => {
 });
 
 describe("inbox pull", () => {
+  it("never acks a rejected pull and only advances the returned cursor after repair", async () => {
+    const ackSpy = vi.fn(async () => undefined);
+    const pullSpy = vi.fn()
+      .mockRejectedValueOnce(new Error("DM peer identity unavailable"))
+      .mockResolvedValueOnce({
+        messages: [{ seq: "#7", channel: "/.dm/Bob#0042", sender: "@Alice#1234", content: { text: "still owed" }, time: "" }],
+        hasMore: false,
+      });
+    setApiForTesting(stubApi({ inboxPull: pullSpy, ack: ackSpy }));
+
+    await main(["inbox", "pull"]);
+    expect(parseEnvelope(cap.lines()).error).toContain("DM peer identity unavailable");
+    expect(ackSpy).not.toHaveBeenCalled();
+
+    cap.lines().length = 0;
+    await main(["inbox", "pull"]);
+    expect(ackSpy).toHaveBeenCalledOnce();
+    expect(ackSpy).toHaveBeenCalledWith({
+      agentId: expect.any(String),
+      cursors: [{ channel: "/.dm/Bob#0042", seq: 7 }],
+    });
+  });
+
   it("acks by default and returns messages in success", async () => {
     const ackSpy = vi.fn(async () => undefined);
     setApiForTesting(
