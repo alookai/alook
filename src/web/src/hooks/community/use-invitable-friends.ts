@@ -23,9 +23,10 @@ const EMPTY: readonly Friend[] = Object.freeze([])
 
 export async function invitableFriendsQueryFn(serverId: string): Promise<InvitableFriendsResponse> {
   const [accepted, members] = await Promise.all([
-    apiFetch<{ friends: Friend[] }>("/api/community/friends/accepted"),
+    apiFetch<{ friends: Friend[]; stale?: boolean }>("/api/community/friends/accepted"),
     fetchAllServerMembers(serverId),
   ])
+  if (accepted.stale) throw new Error("stale D1 read")
   const memberIds = new Set(members.map((member) => member.userId))
   return { friends: accepted.friends.filter((friend) => !friend.userId || !memberIds.has(friend.userId)) }
 }

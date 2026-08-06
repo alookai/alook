@@ -33,4 +33,13 @@ describe("membership facade composition", () => {
     const result = await invitableFriendsQueryFn("s1")
     expect(result.friends.map((friend) => friend.userId)).toEqual(["bob"])
   })
+
+  it("rejects a stale accepted-friends read instead of caching a false-empty candidate set", async () => {
+    apiFetchMock.mockImplementation(async (url: string) => {
+      if (url === "/api/community/friends/accepted") return { friends: [], stale: true }
+      if (url.includes("/api/community/servers/s1/members?")) return { members: [], hasMore: false }
+      throw new Error(`unexpected ${url}`)
+    })
+    await expect(invitableFriendsQueryFn("s1")).rejects.toThrow("stale D1 read")
+  })
 })
