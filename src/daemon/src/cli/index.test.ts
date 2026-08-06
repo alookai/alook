@@ -342,7 +342,7 @@ describe("message send — idempotent retry (mutation-idempotency ②)", () => {
     const sendSpy = vi.fn(async (req: { nonce?: string }) => {
       nonces.push(req.nonce);
       calls++;
-      if (calls === 1) throw new Error("upstream returned 502 with non-JSON body from /api/send");
+      if (calls === 1) throw new Error("upstream returned 502 with non-JSON body during send");
       return okRes;
     });
     setApiForTesting(stubApi({ send: sendSpy }));

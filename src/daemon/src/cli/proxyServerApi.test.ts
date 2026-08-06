@@ -47,7 +47,7 @@ describe("createProxyServerApi — parseJsonResponse via call<T>", () => {
     const fetchImpl: FetchLike = vi.fn(async () => jsonBody("", { status: 500 }));
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
     await expect(api.listServers({ agentId: "a1" as never })).rejects.toThrow(
-      /upstream returned 500 with non-JSON body from \/api\/listServers/,
+      /upstream returned 500 with non-JSON body during listServers/,
     );
   });
 
@@ -69,7 +69,7 @@ describe("createProxyServerApi — parseJsonResponse via call<T>", () => {
     const fetchImpl: FetchLike = vi.fn(async () => jsonBody("<html>bad gateway", { status: 502 }));
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
     await expect(api.listServers({ agentId: "a1" as never })).rejects.toThrow(
-      /upstream returned 502 with non-JSON body from \/api\/listServers/,
+      /upstream returned 502 with non-JSON body during listServers/,
     );
   });
 
@@ -77,7 +77,7 @@ describe("createProxyServerApi — parseJsonResponse via call<T>", () => {
     const fetchImpl: FetchLike = vi.fn(async () => textThrowingResponse(500, "terminated"));
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
     await expect(api.listServers({ agentId: "a1" as never })).rejects.toThrow(
-      /upstream body read failed from \/api\/listServers \(500\): terminated/,
+      /upstream body read failed during listServers \(500\): terminated/,
     );
   });
 
@@ -485,7 +485,7 @@ describe("createProxyServerApi — callUpload via parseJsonResponse", () => {
         target: "/c/s/g",
         file: { data: new Uint8Array([1, 2, 3]), filename: "x.png", contentType: "image/png" },
       } as never),
-    ).rejects.toThrow(/upstream returned 500 with non-JSON body from \/api\/attachmentUpload/);
+    ).rejects.toThrow(/upstream returned 500 with non-JSON body during attachmentUpload/);
   });
 
   it("POSTs the canonical attachments door with the ref on ?target= (retargeted, `resolve` placeholder id)", async () => {
@@ -522,7 +522,7 @@ describe("createProxyServerApi — callDownload", () => {
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
     await expect(
       api.attachmentDownload({ agentId: "a1", id: "att_1", destPath: path.join(tmp, "out.bin") } as never),
-    ).rejects.toThrow(/upstream returned 500 with non-JSON body from \/api\/attachmentDownload/);
+    ).rejects.toThrow(/upstream returned 500 with non-JSON body during attachmentDownload/);
   });
 
   it("happy path writes the binary body to destPath", async () => {
@@ -622,7 +622,7 @@ describe("createProxyServerApi — friendRequest / listFriends", () => {
     const fetchImpl: FetchLike = vi.fn(async () => jsonBody("", { status: 500 }));
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
     await expect(api.friendRequest({ agentId: "a1" as never, username: "A#0001" })).rejects.toThrow(
-      /upstream returned 500 with non-JSON body from \/api\/friendRequest/,
+      /upstream returned 500 with non-JSON body during friendRequest/,
     );
   });
 
@@ -630,7 +630,7 @@ describe("createProxyServerApi — friendRequest / listFriends", () => {
     const fetchImpl: FetchLike = vi.fn(async () => jsonBody("", { status: 500 }));
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
     await expect(api.listFriends({ agentId: "a1" as never })).rejects.toThrow(
-      /upstream returned 500 with non-JSON body from \/api\/listFriends/,
+      /upstream returned 500 with non-JSON body during listFriends/,
     );
   });
 });

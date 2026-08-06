@@ -26,8 +26,8 @@ export interface DaemonItFixture {
   /**
    * Top-level channel NAME — the only way agent surfaces address a channel.
    * `resolveChannelByNameForMember` is name-only (migration 0057's partial
-   * unique index; agent refs never accept ids), so agent-facing routes
-   * (`/api/community/agent/*`) must build the ref as `/serverId/channelName`,
+   * unique index; agent refs never accept ids), so canonical community REST
+   * agent doors receive the ref as `/serverHandle/channelName`,
    * while the `/c` UI REST routes (`/api/community/channels/:id/*`) still key
    * on `channelId`.
    */

@@ -90,20 +90,20 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
       text = await res.text();
     } catch (err) {
       const cause = err instanceof Error ? err.message : String(err);
-      throw new Error(`upstream body read failed from /api/${method} (${res.status}): ${cause}`);
+      throw new Error(`upstream body read failed during ${method} (${res.status}): ${cause}`);
     }
     if (text.length === 0) {
       if (res.ok) return undefined as T;
-      throw new Error(`upstream returned ${res.status} with non-JSON body from /api/${method}`);
+      throw new Error(`upstream returned ${res.status} with non-JSON body during ${method}`);
     }
     let json: (T & { error?: string; code?: string; hint?: string }) | undefined;
     try {
       json = JSON.parse(text) as T & { error?: string; code?: string; hint?: string };
     } catch {
-      throw new Error(`upstream returned ${res.status} with non-JSON body from /api/${method}`);
+      throw new Error(`upstream returned ${res.status} with non-JSON body during ${method}`);
     }
     if (!res.ok) {
-      const e = new Error(json?.error ?? `proxy api/${method} failed (${res.status})`);
+      const e = new Error(json?.error ?? `proxy ${method} failed (${res.status})`);
       // Only attach when present — assigning `undefined` would leave an own
       // property that trips `"code" in err` / `hasOwnProperty` checks in
       // callers that use those as feature-tests.

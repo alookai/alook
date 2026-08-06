@@ -128,8 +128,8 @@ export function createRuntimeRawLineTap(args: {
  * pathname. The CLI calls canonical `/api/community/*` REST doors directly;
  * the proxy preserves that pathname unchanged.
  *
- * `/api/ack` is a paired sibling of `inboxPull` with no user intent, so it's
- * dropped (returns `null`). Anything else outside the `/api/*` prefix returns
+ * Canonical `users/me/inbox/ack` is the advance sibling of `inboxPull` with no
+ * user intent, so it is dropped (returns `null`). Anything outside recognized
  * `null` too — the proxy is generic and could carry non-audit traffic in the
  * future.
  */
@@ -185,7 +185,7 @@ export function deriveAuditLogSubcommand(pathname: string, method?: string): str
   // family, NOT to channels/{id}/read.)
   if (/^\/api\/community\/users\/me\/inbox\/pull(\/|$|\?)/.test(canonical)) return "inboxPull";
   if (/^\/api\/community\/users\/me\/inbox\/snapshot(\/|$|\?)/.test(canonical)) return "inboxSnapshot";
-  if (/^\/api\/community\/users\/me\/inbox\/ack(\/|$|\?)/.test(canonical)) return null; // ack writes no audit row here (re-homed to daemon reborn-ready signal) — match flat /ack's `sub === "ack" → null` below
+  if (/^\/api\/community\/users\/me\/inbox\/ack(\/|$|\?)/.test(canonical)) return null; // ack writes no audit row here (re-homed to daemon reborn-ready signal)
 
   // Bot-self lifecycle door (bots/me/*, Blondie #527): nap relocated from the flat
   // /nap to bots/me/nap. Map back to the logical `nap` verb so the audit stays

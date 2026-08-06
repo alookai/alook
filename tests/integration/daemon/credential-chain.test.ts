@@ -39,9 +39,8 @@ beforeAll(async () => {
   expect(enrollRes.ok).toBe(true)
     ; ({ runnerKey } = (await enrollRes.json()) as { runnerKey: string })
 
-  // Upstream is the real web app's origin — the proxy itself rewrites
-  // `/api/*` → `/api/community/agent/*` (mirrors `createDaemon`'s
-  // `upstreamBaseUrl: opts.serverUrl` wiring).
+  // Upstream is the real web app's origin. The client sends canonical
+  // `/api/community/*` REST paths and the proxy preserves them unchanged.
   broker = new CredentialBroker({ upstreamBaseUrl: APP_URL })
   proxy = await startCredentialProxy(broker)
 }, 30_000)
@@ -53,7 +52,7 @@ afterAll(async () => {
 })
 
 describe("daemon credential chain — real local proxy against the real web app", () => {
-  it("a valid per-launch voucher reaches the real /api/community/agent/read route and gets a well-formed response", async () => {
+  it("a valid per-launch voucher reaches the canonical channel-messages read door", async () => {
     const reg = broker.mint(fixture.bot.botUserId, "launch-1", ["read", "send"], runnerKey)
     const api = createProxyServerApi({ proxyUrl: proxy.url, voucher: reg.voucher })
 
@@ -65,7 +64,7 @@ describe("daemon credential chain — real local proxy against the real web app"
     expect(typeof page.hasMore).toBe("boolean")
   })
 
-  it("rejects a forged/unknown voucher AT THE PROXY — distinct from what the real upstream would return for a bad crk_, proving upstream was never reached", async () => {
+  it("auth-before-shape: rejects a forged voucher with 401 before examining the deleted flat path", async () => {
     const res = await fetch(`${proxy.url}/api/read`, {
       method: "POST",
       headers: { Authorization: "Bearer vch_this_was_never_minted", "content-type": "application/json" },
