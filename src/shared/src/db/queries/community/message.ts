@@ -856,7 +856,7 @@ export async function updateOwnMessageContent(
 // per-channel sequence without a separate lookup.
 export async function getMessagesByIds(db: Database, ids: string[]) {
   if (ids.length === 0) return [];
-  // `ids` are the thread/forum-post parents under one channel — unbounded on a
+  // `ids` are child-thread openers under one channel — unbounded on a
   // busy forum. Chunk for D1's 100-param limit; no order/limit → concat.
   const rows = (
     await Promise.all(

@@ -5,7 +5,7 @@ import type { Database } from "../../index";
 import { chunk, maxRowsPerInsert, D1_MAX_IN_PARAMS } from "../_chunk";
 import { type ParticipantSource } from "../../../constants/community";
 
-// The NOTIFICATION set for a thread OR forum_post — now relation='notify' rows
+// The NOTIFICATION set for a child thread — relation='notify' rows
 // on `community_channel_member` (formerly the standalone
 // community_thread_participant table). A thread/post is not an access unit —
 // any parent-channel member can read it — so these rows only decide who gets
@@ -117,7 +117,7 @@ export async function listThreadParticipants(
     );
 }
 
-// Batch participant hydration for many channels at once — the forum post list's
+// Batch participant hydration for many channels at once — the forum list's
 // per-card AvatarGroup. One query for N post ids instead of N. Rows carry the
 // channel id so the caller can group them back per post; `addedAt` orders the
 // group. Soft-deleted users drop out via the inner join.
@@ -183,7 +183,7 @@ export async function removeThreadParticipant(
   return rows[0] ?? null;
 }
 
-// Drop a user's notify rows from EVERY child channel (forum_post OR thread)
+// Drop a user's notify rows from EVERY child thread
 // under a top-level unit. Called when a member is removed from a forum/channel's
 // access roster: their access is gone, so their leftover notify rows on the
 // unit's posts/threads must go too. A later mention/speak (which requires

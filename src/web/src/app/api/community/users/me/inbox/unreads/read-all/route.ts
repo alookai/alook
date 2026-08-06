@@ -5,7 +5,7 @@ import { writeJSON } from "@/lib/middleware/helpers"
 
 export const POST = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
-  // Resolve the viewer's visible channels once (top-level + threads/forum-posts,
+  // Resolve the viewer's visible channels once (top-level + child threads,
   // parent-climbed) and scope the mark-all to them — a private thread under an
   // invisible parent is excluded.
   const visibleChannelIds = await queries.communityChannel.listVisibleChannelIdsForUser(db, ctx.userId)

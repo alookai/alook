@@ -15,7 +15,7 @@ import { listMemberUserIds } from "./member";
 
 // The ACCESS scopes — units that own (or inherit) a stored/derived access
 // roster. `forum` resolves like a top-level text channel (its own roster);
-// `channel` is a top-level text channel. Thread / forum_post are NOT here: they
+// `channel` is a top-level text channel. Child threads are NOT here: they
 // are the NOTIFICATION dimension (participant set), resolved at the call site
 // via `listThreadParticipantUserIds` — never through this resolver.
 export type ScopeKind = "channel" | "forum";
@@ -42,8 +42,8 @@ export type ScopeMember = {
  *     creator (delegates to `getPrivateChannelAudienceUserIds`, which climbs
  *     `parentChannelId` so a forum resolves its own roster like a text channel).
  *
- * Only ACCESS units (`channel`/`forum`) reach here. Notify units (thread /
- * forum_post) resolve their recipient set from the participant table at the
+ * Only ACCESS units (`channel`/`forum`) reach here. Child threads resolve their
+ * recipient set from the participant table at the
  * call site.
  */
 export async function resolveScopeMemberUserIds(

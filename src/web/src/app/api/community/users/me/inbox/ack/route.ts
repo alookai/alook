@@ -31,7 +31,7 @@ import { requireChannelMember, requireDMAccess } from "@/lib/community/permissio
  *
  * Best-effort per cursor, NOT fail-fast: every good cursor is applied and its
  * waterline advanced regardless of any sibling cursor failing. A single
- * unresolvable cursor (e.g. a forum_post whose ref can't parse back) must
+ * unresolvable child-thread cursor must
  * never stall the healthy cursors behind it — that regressed their waterlines
  * and muted the bot in every channel with unread. Bad cursors are collected
  * into `failed[]` with a coarse `code`; the response is ALWAYS 200 (partial

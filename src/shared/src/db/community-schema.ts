@@ -107,9 +107,8 @@ export const communityChannel: SQLiteTableWithColumns<any> = sqliteTable(
 //   - "access" — gates private units: a top-level channel in a PRIVATE
 //     category, a forum, or a DM (a DM's two participants are access rows).
 //     Public/uncategorized channels imply access via server membership.
-//   - "notify" — the thread / forum_post participant (notification) set. A
-//     message reaches only the unit's notify members; a thread never notifies
-//     its whole parent channel, a forum post never notifies the whole server.
+//   - "notify" — a child thread's participant (notification) set. A message
+//     reaches only the thread's notify members, never its whole parent channel.
 // A user may hold BOTH an access and a notify row for the same channel, so the
 // unique key is (channel_id, user_id, relation). `source` records how the row
 // arose: mention | spoke | added.
@@ -676,4 +675,3 @@ export const communityMessageTag = sqliteTable(
     index("idx_message_tag_tag").on(t.tag, t.messageId),
   ]
 );
-

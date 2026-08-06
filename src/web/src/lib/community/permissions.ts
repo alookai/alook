@@ -84,7 +84,7 @@ export type ChannelAccess = {
  *   - public/uncategorized → access; canManage only for admins
  *   - private → access iff creator or added member (admins have NO implicit
  *     content access); canManage iff admin (who can see it) or the unit creator
- * Threads AND forum posts inherit their parent anchor's audience (the context
+ * Child threads inherit their parent anchor's audience (the context
  * query climbs `parentChannelId`); a forum/top-level channel owns its roster.
  *
  * Because access now requires membership/creator even for admins, an admin who
@@ -227,7 +227,7 @@ export async function requireMessageSurfaceAccess(
     return ok({ surface: "dm", dm: dm.value })
   }
 
-  // channel / thread / forum / forum_post: the id is known (probe above), so
+  // channel / thread / forum: the id is known (probe above), so
   // requireChannelMember's collapse-to-403 now only fires for a real
   // non-member — the unknown case already 404'd. Preserves the 403/404 split.
   const member = await requireChannelMember(db, channelId, userId)

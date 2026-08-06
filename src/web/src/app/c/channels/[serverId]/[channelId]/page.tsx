@@ -81,7 +81,7 @@ import {
  *
  * - Forum channel: ForumView
  * - Text channel: MessageList + Composer + right panels
- * - Thread / forum-post opened via URL: child-channel view (breadcrumb + list)
+ * - Child thread opened via URL: child-channel view (breadcrumb + list)
  */
 export default function ChannelPage() {
   const params = useParams<{ serverId: string; channelId: string }>()
@@ -164,7 +164,7 @@ function ChannelView() {
   // only risks calling the channel endpoint when it wasn't needed — safe.
   const currentChannelPrivate = useMemo(() => {
     const cats = currentServer?.categories ?? []
-    // Thread/forum-post: privacy is governed by the anchor channel's category.
+    // Child-thread privacy is governed by the anchor channel's category.
     const anchorId = isChildChannel
       ? (currentChannelMeta?.parentChannelId ?? channelId)
       : channelId
@@ -484,14 +484,14 @@ function ChannelView() {
         )
         .catch((e) => {
           useCommunityStore.getState().setCurrentChannelMeta(null)
-          // A channel not in the server tree is either a real thread/forum-post
+          // A channel not in the server tree is either a real child thread
           // (meta fetch succeeds above) or one we can't open: deleted (404) or
           // no-longer-accessible — gone private / kicked (403, the threads/:id
           // 404-vs-403 contract). Both mean "can't land here" — bounce to the
           // server root, which forwards to the first remaining channel, rather
           // than strand the user on a dead URL with a misleading "thread" error.
           // This is also what makes last-channel restore safe for a remembered
-          // forum-post id (per-server memory trusts the id; validity is settled
+          // child-thread id (per-server memory trusts the id; validity is settled
           // here): a remembered post that was deleted/hidden degrades to default.
           if (e instanceof ApiError && (e.status === 404 || e.status === 403)) {
             // BREAK THE REDIRECT LOOP: if this dead id is the server's remembered
@@ -1188,7 +1188,7 @@ function ChannelView() {
             viewerUserId={currentUser.id}
             // Same gate as the top-level channel view: hold the mount-time
             // scroll until the read snapshot resolves and its anchor is loaded,
-            // so a thread/forum-post opens on the "New" divider too.
+            // so a child thread opens on the "New" divider too.
             initialScrollReady={!readSnapshotFetching && anchorInCache}
             hasMore={hasMoreMessages}
             isFetchingOlder={isFetchingOlderMessages}

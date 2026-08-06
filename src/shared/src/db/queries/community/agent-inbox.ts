@@ -458,7 +458,7 @@ export async function getLatestSeqForScope(db: Database, channelId: string): Pro
 
 /**
  * Effective allowed channel-id set for a bot: visible channels MINUS
- * thread/forum_post channels the bot isn't a participant of. Pushes the
+ * child threads the bot isn't a participant of. Pushes the
  * thread-participation narrowing into a pre-computed set so it can join the
  * message SQL as a single `inArray` predicate — the old shape did the
  * narrowing as a JS post-filter AFTER `.limit(max)`, which silently
@@ -542,8 +542,8 @@ const channelJoinBaselineGuard = sql`${communityMessage.createdAt} > COALESCE(${
  *
  * Visibility rule: same as the human unread path (`listUnreadChannels`) —
  * (1) channel messages restricted to `listVisibleChannelIdsForUser(botUserId)`
- * (respects private-category rosters and private-forum-post narrowness), and
- * (2) thread / forum_post channels additionally require a
+ * (respects private-category rosters), and
+ * (2) child threads additionally require a
  * `community_thread_participant` row for the bot. Both dimensions are folded
  * into ONE `inArray` predicate up front so `.limit(max)` operates on
  * already-visible rows — post-filtering after `limit` (the earlier shape)
@@ -639,8 +639,8 @@ export async function listUnreadMessagesForAgent(
  * for already-stuck bots: the gate stops counting messages the pull never hands
  * over.
  *
- * Thread/forum-post participation narrowing: the pull's allowed set
- * (`listAgentAllowedChannelIds`) additionally drops thread/forum_post channels
+ * Child-thread participation narrowing: the pull's allowed set
+ * (`listAgentAllowedChannelIds`) additionally drops child threads
  * the bot holds no `relation='notify'` row on — those are never delivered. The
  * gate MUST mirror that same narrowing (via the SAME `listParticipatingThreadIds`
  * predicate, not a re-derived one) or it counts backlog in a non-participated
@@ -657,7 +657,7 @@ export async function hasDeliverableUnreadForAgentScope(
   seen: number
 ): Promise<boolean> {
   // Participation narrowing, single-channel form of `listAgentAllowedChannelIds`'s
-  // set-wide step: a thread/forum_post the bot doesn't participate in is never
+  // set-wide step: a child thread the bot doesn't participate in is never
   // deliverable, so its backlog must not register as unread here. Short-circuits
   // before the deliverable scan — cheaper for the common spectator case too.
   const typeRows = await db
@@ -723,7 +723,7 @@ export type InboxSnapshotRow = {
  *
  * Visibility rule mirrors `listUnreadMessagesForAgent`: (1) channel scopes
  * restricted to `listVisibleChannelIdsForUser(botUserId)`, and (2) scopes of
- * type `thread` or `forum_post` additionally require a
+ * child threads additionally require a
  * `community_thread_participant` row for the bot (post-filter). Because the
  * outer `WHERE` is `inArray(channelId, visibleChannelIds)` and non-participated
  * thread rows are dropped in the post-filter, `hasMention` (a correlated
@@ -875,8 +875,8 @@ export async function toInboxRows(
  * `listUnreadMessagesForAgent`'s doc comment).
  *
  * Visibility rule identical to `listUnreadMessagesForAgent`: the bot must be
- * able to see the channel (`listVisibleChannelIdsForUser`) AND, for thread /
- * forum_post scopes, hold a `community_thread_participant` row. Both
+ * able to see the channel (`listVisibleChannelIdsForUser`) AND, for child
+ * threads, hold a `community_thread_participant` row. Both
  * dimensions are folded into the SQL WHERE via `listAgentAllowedChannelIds`
  * so `LIMIT 1` returns the newest allowed row directly — an earlier shape
  * used a bounded post-filter window that could return `null` when older

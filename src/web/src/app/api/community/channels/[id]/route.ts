@@ -23,7 +23,7 @@ import { requireChannelAccess, requireChannelMember } from "@/lib/community/perm
  * creatorId, …). The canonical home for reading ANY channel's meta — a
  * top-level channel, a thread, or a forum post (a DM's meta is not read this
  * way; DMs surface through the DM list). Folds the old `threads/[id]` GET, which
- * only ever served thread/forum-post meta but was really channel-meta by another
+ * only ever served child-thread metadata but was channel metadata by another
  * name (a thread IS a channel row). The thread-view opener + child-channel
  * bootstrap read it.
  *

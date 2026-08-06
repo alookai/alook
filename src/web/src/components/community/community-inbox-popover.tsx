@@ -61,7 +61,7 @@ function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenDm }: {
                 <MentionBadge count={c.mentionCount} />
                 <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
               </button>
-              {/* Unread threads / forum-posts, indented under their parent. */}
+              {/* Unread child threads, indented under their parent. */}
               {c.children.map((child) => (
                 <button
                   key={child.channelId}

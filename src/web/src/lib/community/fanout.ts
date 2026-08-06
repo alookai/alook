@@ -72,7 +72,7 @@ async function getChannelRecipientUserIds(db: Database, channelId: string): Prom
   const reach = isStoredChannelType(type) ? channelReach(type) : "server-or-roster"
   switch (reach) {
     case "participant-set":
-      // Thread / forum_post: the unit's notify (participant) rows — the same set
+      // Child thread: the unit's notify (participant) rows — the same set
       // the send-path enroll writes into.
       return withD1Retry(
         () => queries.communityThread.listThreadParticipantUserIds(db, channelId),
@@ -102,7 +102,7 @@ async function getChannelRecipientUserIds(db: Database, channelId: string): Prom
  * Public wrapper so `message-handler` can resolve a channel's recipient set
  * ONCE and share it between the unfiltered `MESSAGE_CREATE` fan-out and the
  * level-filtered notify pipeline (no second membership query). Same split as
- * `getChannelRecipientUserIds` (thread/forum_post → participants; dm → access
+ * `getChannelRecipientUserIds` (child thread → participants; dm → access
  * members; channel/forum → scope audience).
  */
 export async function resolveChannelRecipients(db: Database, channelId: string): Promise<string[]> {

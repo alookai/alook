@@ -18,11 +18,11 @@ export interface UnreadChannelRow {
   channelName: string;
   serverId: string;
   serverName: string;
-  // Raw stored channel type (text | forum | thread | forum_post). Threaded
-  // through to the inbox so it can render the same entity icon as the sidebar.
+  // Raw stored channel type (text | forum | thread). Threaded through to the
+  // inbox so it can render the same entity icon as the sidebar.
   type: string | null;
   lastMessageAt: string;
-  // null for a top-level channel; set for a thread / forum-post child. The
+  // null for a top-level channel; set for a child thread. The
   // inbox route uses this to nest child unreads under their parent channel.
   parentChannelId: string | null;
 }
@@ -70,7 +70,7 @@ export async function listUnreadChannels(
   userId: string,
   visibleChannelIds: string[]
 ): Promise<UnreadChannelRow[]> {
-  // All channels — top-level AND child threads/forum-posts — the viewer may
+  // All channels — top-level AND child threads — the viewer may
   // see (the `visibleChannelIds` set, resolved once per inbox fetch via
   // `listVisibleChannelIdsForUser`), plus read state. Visibility is the id-set
   // `inArray`, NOT an inlined category `or()`: a child channel's own
@@ -149,7 +149,7 @@ export async function listUnreadChannels(
     })
   );
 
-  // Thread AND forum-post unreads are scoped to PARTICIPATION (notification
+  // Child-thread unreads are scoped to PARTICIPATION (notification
   // dimension): they surface in the inbox only for their participants, NOT for
   // every member who can merely read them. A public post is visible to the
   // whole server but only notifies its participants, so an un-joined post must

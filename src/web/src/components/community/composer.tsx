@@ -111,14 +111,14 @@ type ComposerBaseProps = {
   // relic string. Falls back to the mode-derived default when absent.
   placeholder?: string
   // Hide the composer's built-in emoji-picker button (bottom-right). Used by
-  // the forum-post composer, where emoji is dropped from the compose surface.
+  // the create-post composer, where emoji is dropped from the compose surface.
   hideEmoji?: boolean
   // Hide the composer's built-in attach button (bottom-left). Used by the
-  // forum-post composer, which renders its own attach button in the footer
+  // create-post composer, which renders its own attach button in the footer
   // row and drives it through `ComposerHandle.openFilePicker()`.
   hideAttach?: boolean
   // Fires only on emptiness-state transitions (`hasContent` flips), not every
-  // keystroke. Used by the forum-post orchestrator to drive the footer button's
+  // keystroke. Used by the create-post orchestrator to drive the footer button's
   // `disabled` state without mirroring editor content in parent React state.
   onDirty?: (hasContent: boolean) => void
   // When set, the composer persists its unsent text under this localStorage

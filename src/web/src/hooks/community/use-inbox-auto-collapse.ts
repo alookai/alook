@@ -17,7 +17,7 @@ import type { Mention, UnreadDm, UnreadServer } from "@/components/community/_ty
  *
  * Row → key:
  *   - DM row      → `dm:<channelId>` (a DM is a channel)
- *   - channel row → `channel:<channelId>` (top-level OR nested thread/forum-post)
+ *   - channel row → `channel:<channelId>` (top-level or nested child thread)
  *   - mention row → `mention:<mention.id>`
  */
 

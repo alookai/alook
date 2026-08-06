@@ -257,9 +257,7 @@ async function handleAvatarUpload(
     ok: true,
     id: ownerId,
     key,
-    // Not `/api/community/media/${key}` — that catch-all route only recognizes
-    // channel/thread/dm/server-icon kinds and would 404. `url` is the real
-    // routable dedicated avatar route (`userAvatarUrl`/`botAvatarUrl`).
+    // Avatar uploads return their dedicated routable URL.
     url,
     filename: file.name,
     contentType: file.type,

@@ -101,7 +101,7 @@ export function useThreads(channelId: string | null): UseQueryResult<ThreadsResp
 }
 
 /**
- * Fetches the forum-post listing for a `type='forum'` channel. Server-side
+ * Fetches the child-thread listing for a `type='forum'` channel. Server-side
  * resolves creator + first-message + counts; the payload is display-ready.
  */
 export type ForumThreadsResponse = { threads: ForumThread[] }

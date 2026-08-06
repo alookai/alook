@@ -9,7 +9,7 @@ export type SlugPreview = {
 }
 
 /**
- * Client-side mirror of what every server/channel/forum-post name route
+ * Client-side mirror of what every server/channel name route
  * does server-side (`trim()` then `slugify()`), so the preview shown here
  * is byte-identical to what actually gets stored.
  */

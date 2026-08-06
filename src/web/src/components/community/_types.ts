@@ -145,7 +145,7 @@ export type Msg = {
 export type RenderMsg = Msg & { grouped: boolean }
 
 // ── Threads / forum ──────────────────────────────────────────────────────────
-// Thread/forum-post summaries shown in side panels and forum lists. Actual
+// Child-thread summaries shown in side panels and forum lists. Actual
 // message content for a thread or post is loaded into `ctx.messages` once the
 // user navigates into the child channel — these summaries don't carry messages.
 export type Thread = {
@@ -155,7 +155,7 @@ export type Thread = {
   lastMessageAt: string
   parent: { authorName: string; text: string }
   // The root message's per-channel seq, when the thread was created from a
-  // parent message (omitted for threads with no parent, e.g. forum posts).
+  // parent message (omitted only for legacy rootless threads).
   // Used by `channel-ref-pill.tsx` to match a `/server/channel/#N` ref.
   parentSeq?: number
 }
@@ -323,19 +323,19 @@ export type Marked = {
   m: Msg
 }
 
-// A single unread thread / forum-post nested under its parent channel.
+// A single unread child thread nested under its parent channel.
 type UnreadChild = {
   channelId: string
   channelName: string
-  // Raw stored channel type — drives the inbox entity icon (thread/forum_post
-  // → MessagesSquare). Optional for backward-compat with cached responses.
+  // Raw stored channel type — drives the inbox entity icon (thread →
+  // MessagesSquare). Optional for backward-compat with cached responses.
   type?: EntityKind
   lastMessageAt: string
   mentionCount: number
 }
 
 // "Unreads" — channels with unread messages, grouped by server. Each channel
-// may carry `children` (unread threads/forum-posts) rendered as indented
+// may carry `children` (unread child threads) rendered as indented
 // sub-rows; a parent can appear solely to host unread children.
 export type UnreadServer = {
   serverId: string

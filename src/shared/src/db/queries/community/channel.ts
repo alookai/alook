@@ -130,7 +130,7 @@ export async function getChannelForMember(db: Database, channelId: string, userI
   const { memberRole, ...channelRow } = row;
 
   // Unified model — the anchor (`parentChannelId ?? id`) is both the privacy and
-  // roster anchor. A forum_post/thread climbs to its parent forum/channel for
+  // roster anchor. A child thread climbs to its parent forum/channel for
   // BOTH the category-privacy flag and the roster (member rows + creator); a
   // top-level channel/forum is its own anchor. The single query below reads that
   // anchor and its creator.
@@ -210,7 +210,7 @@ export async function listServerChannels(db: Database, serverId: string) {
  *
  * Ids are NOT accepted from agent surfaces. Agents address channels via
  * the canonical ref grammar (`/server/channel`, `/server/channel/#seq`);
- * ids are a `/c` UI internal. Threads and forum posts must be reached
+ * ids are a `/c` UI internal. Child threads must be reached
  * through their parent + `#seq`, never by direct name or id here.
  *
  * The returned array is length 0 or 1: the WHERE clause narrows to a single
@@ -334,7 +334,7 @@ export async function createThreadChannel(
   if (!serverId) throw new Error(`createThreadChannel: parent channel ${parentChannelId} not found`);
 
   // A thread may only root on a TOP-LEVEL channel. Rooting on a child channel
-  // (a forum post, or another thread) would make this a grandchild whose
+  // (a forum child thread, or another thread) would make this a grandchild whose
   // privacy the single-level anchor climb can't resolve — it would read the
   // child's own `categoryId` (always NULL) as public and leak a private
   // forum's thread server-wide. Single chokepoint for every caller (web
@@ -545,7 +545,7 @@ export async function deleteChannelMember(
 /**
  * ACCESS members explicitly added to a channel, joined to `user` for display.
  * Scoped to one channel id — cross-channel ids never resolve. Notify rows
- * (thread/forum-post participants) are excluded.
+ * (child-thread participants) are excluded.
  */
 export async function listChannelMembers(db: Database, channelId: string) {
   return db
@@ -632,7 +632,7 @@ export async function countChannelsInCategory(
 /**
  * The full recipient audience for a PRIVATE channel: explicit members ∪ the
  * unit's creator. Unified model — a unit's roster is always its anchor's
- * (`parentChannelId ?? id`), so a forum_post/thread inherits its parent
+ * (`parentChannelId ?? id`), so a child thread inherits its parent
  * forum/channel's roster. Only meaningful for a private anchor; callers guard on
  * `isChannelPrivate` first (fan-out short-circuits public channels to
  * `listMemberUserIds` and never calls this).
@@ -661,10 +661,9 @@ export async function getPrivateChannelAudienceUserIds(
 
   // Unified access model — a unit's roster is always its anchor's roster:
   //   - forum / text channel → its OWN explicit members ∪ its OWN creator.
-  //   - forum_post / thread  → climbs `parentChannelId` to the anchor (the
-  //     forum / parent channel) and uses THAT roster — a post inherits the
-  //     forum's audience exactly like a thread inherits its channel's.
-  // No derived union, no per-post roster: forum ≈ channel, forum_post ≈ thread.
+  //   - child thread → climbs `parentChannelId` to the anchor and uses that
+  //     forum or channel roster.
+  // No derived union and no per-thread roster.
   const rosterAnchorId = target[0]!.parentChannelId ?? target[0]!.id;
   const rosterCreatorId =
     rosterAnchorId === target[0]!.id
@@ -788,7 +787,7 @@ async function resolveVisibleChannelIdSet(
     }
   }
 
-  // Pass 2 — children. Both forum posts AND threads INHERIT their parent's
+  // Pass 2 — child threads INHERIT their parent's
   // visibility (a forum member sees every post; a channel member sees every
   // thread). No per-post access unit.
   for (const r of rows) {
@@ -804,10 +803,10 @@ async function resolveVisibleChannelIdSet(
 }
 
 /**
- * The set of channel ids (top-level AND child/thread/forum-post channels) a
+ * The set of channel ids (top-level AND child-thread channels) a
  * viewer may see — backs read-path scoping for search / inbox / mark-all-read /
- * mentions. Unified model (see `resolveVisibleChannelIdSet`): forum posts AND
- * threads inherit their parent's visibility; a private forum/channel is visible
+ * mentions. Unified model (see `resolveVisibleChannelIdSet`): child threads
+ * inherit their parent's visibility; a private forum/channel is visible
  * via the viewer's own member row (or creator).
  */
 export async function listVisibleChannelIds(
@@ -821,7 +820,7 @@ export async function listVisibleChannelIds(
 
 /**
  * Cross-server sibling of `listVisibleChannelIds` — every channel id (top-level
- * AND child/thread/forum-post) a viewer may see across ALL of their servers, in
+ * AND child-thread) a viewer may see across ALL of their servers, in
  * a handful of queries instead of an N+1 loop-per-server. Backs the inbox
  * consumers (unread + mentions + mark-all), which span every server the viewer
  * belongs to.
@@ -918,7 +917,7 @@ export async function resolveChannelAccessContext(
   const anchor = anchorRows[0]!;
 
   // Unified model — privacy anchor == roster anchor == `parentChannelId ?? id`.
-  // A forum_post/thread climbs to its parent (forum/channel) for BOTH the
+  // A child thread climbs to its parent (forum/channel) for BOTH the
   // category-privacy flag and the roster; a forum/top-level channel is its own
   // anchor. So post access is pure inheritance from the forum, exactly like a
   // thread inherits its channel — no per-post roster, no forum-derived union.

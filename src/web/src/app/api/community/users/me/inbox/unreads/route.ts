@@ -20,7 +20,7 @@ export const GET = withAuth(async (req, ctx) => {
     MAX_INBOX_PAGE_SIZE,
   )
 
-  // Resolve the viewer's visible channels once (top-level + threads/forum-posts,
+  // Resolve the viewer's visible channels once (top-level + child threads,
   // parent-climbed) and thread the id set into BOTH consumers so neither
   // recomputes it. Private threads under an invisible parent are excluded.
   type UnreadRow = Awaited<ReturnType<typeof queries.communityInbox.listUnreadChannels>>[number]
@@ -66,7 +66,7 @@ export const GET = withAuth(async (req, ctx) => {
     mentionCountByChannel.set(cid, (mentionCountByChannel.get(cid) ?? 0) + 1)
   }
 
-  // Split unread rows into top-level channels and child threads/forum-posts.
+  // Split unread rows into top-level channels and child threads.
   // A child nests under its `parentChannelId`; a parent surfaces in the tree
   // even when it has no direct unread of its own (only unread children).
   type UnreadChild = { channelId: string; channelName: string; type: string | null; lastMessageAt: string; mentionCount: number }
@@ -89,7 +89,7 @@ export const GET = withAuth(async (req, ctx) => {
     if (!row.serverId || !row.channelId || !row.serverName || !row.channelName) continue
     if (mutedServers.has(row.serverId)) continue
     if (row.parentChannelId) {
-      // Child (thread / forum-post). Skip if the child itself is muted; the
+      // Child thread. Skip if the child itself is muted; the
       // parent-mute cascade is applied later (once we know which parents are
       // muted) so a child under a muted parent is dropped even if it isn't
       // individually muted.

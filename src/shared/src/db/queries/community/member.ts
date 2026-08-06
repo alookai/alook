@@ -424,7 +424,7 @@ export async function removeOwnerBotsFromServer(
  * caller wake a bot that lost access to the scope.
  *
  * The gate applies BOTH visibility AND notification-set semantics: a public
- * forum_post is technically READABLE by any server member, but wakes only
+ * child thread is technically READABLE by any server member, but wakes only
  * fire for its `community_thread_participant` set — same rule the human
  * inbox uses (`listUnreadChannels`, `inbox.ts:123-143`). Without the
  * participation gate a bogus source query could still leak a wake for a
@@ -432,7 +432,7 @@ export async function removeOwnerBotsFromServer(
  *
  * A channel in a PRIVATE category is only readable by the bot if it's the
  * channel creator or has a `community_channel_member` row (server admins too);
- * public/uncategorized channels need only server membership. Thread/forum_post
+ * public/uncategorized channels need only server membership. Child-thread
  * scopes must additionally hold a participant row on top of the access check.
  */
 export async function canBotReadWakeScope(
@@ -454,7 +454,7 @@ export async function canBotReadWakeScope(
   });
   if (!accessible) return false;
 
-  // Notification-set narrowing — thread + forum_post scopes only notify
+  // Notification-set narrowing — child-thread scopes only notify
   // their participants (mirrors the human inbox's post-visibility filter).
   // Bots are just users; notify rows are added the same way (spoke /
   // mention / added), so the same predicate applies verbatim.

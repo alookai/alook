@@ -105,9 +105,8 @@ export type DeleteForumThreadArgs = {
 }
 
 /**
- * Delete a single forum post. A post IS a `forum_post` child channel, so this
- * DELETEs the channel (creator or manager gated server-side — see the DELETE
- * route's forum_post carve-out). On success (204) the post is filtered out of
+ * Delete a single forum thread through the canonical child-channel resource.
+ * On success (204) the post is filtered out of
  * the forum's cached list so the card disappears without a refetch; the
  * server-side WS `channel.delete` also invalidates for other clients.
  */

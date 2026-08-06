@@ -411,7 +411,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           //    A DM is a channel, distinguished only by which subscription slot
           //    its channelId lands in.
           if (event.channelId === sub.channelId) {
-            // A thread/forum_post enrolls its sender + mentioned users as
+            // A child thread enrolls its sender + mentioned users as
             // participants server-side on send. That set IS its Members panel,
             // so refetch it live — otherwise a new speaker/mention only appears
             // after a manual refresh. No-op for a plain channel (whose panel is
@@ -458,7 +458,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
         // defensively).
         case "community:unread.bump": {
           const viewerId = viewerUserIdRef.current
-          // The sidebar row to light: a thread/forum-post message has no
+          // The sidebar row to light: a child-thread message has no
           // independent tree row, so its dot lights the PARENT channel
           // (`railChannelId`); a plain channel is its own row. Fall back to
           // `channelId` for older frames that predate `railChannelId`.
@@ -594,10 +594,10 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           return
         }
 
-        // ── Child channels (threads + forum posts) ──────────────────────
+        // ── Child threads ──────────────────────────────────────────────
         case "community:channel.child_create":
         case "community:channel.child_update": {
-          // Cheap invalidate for the thread + forum-post lists. The parent
+          // Cheap invalidate for the child-thread lists. The parent
           // messages list also needs an update because the parent message's
           // thread indicator (`msg.thread`) changes — do a targeted
           // setQueryData patch when we know parentMessageId.
@@ -799,7 +799,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
         case "community:category.reorder": {
           // #3: on channel.delete, evict every channel-scoped cache before
           // invalidating the server. Without this the messages/pins/threads/
-          // forum-posts caches for the dead channel linger forever — a
+          // child-thread caches for the dead channel linger forever — a
           // subsequent same-id revive (rare, but the server can reuse ids)
           // would surface stale rows.
           if (event.type === "community:channel.delete") {
@@ -820,7 +820,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             queryClient.removeQueries({
               queryKey: communityKeys.forumThreads(event.channelId),
             })
-            // When a child (forum_post / thread) is deleted, refresh the
+            // When a child thread is deleted, refresh the
             // PARENT's list so the deleted card disappears from the feed on
             // every client. Absent on older events / top-level channels.
             if (event.parentChannelId) {
@@ -872,7 +872,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           // a peer's add/remove changes it too, so an open add dialog doesn't
           // offer a just-added member (whose Add would 400) or hide a removed one.
           void queryClient.invalidateQueries({ queryKey: communityKeys.channelAddableMembers(event.channelId) })
-          // A forum_post's "Add participant" emits this same MEMBER_ADD event —
+          // A forum thread's "Add participant" emits this same MEMBER_ADD event —
           // its Members panel is the participant set, so refetch it too. No-op
           // for a plain channel (participants query disabled there).
           void queryClient.invalidateQueries({ queryKey: communityKeys.threadParticipants(event.channelId) })
