@@ -139,7 +139,7 @@ export function deriveAuditLogSubcommand(pathname: string, method?: string): str
   // `/api/<verb>`. Slicing the first segment of those would log the DOOR name
   // (`channels`/`messages`) instead of the logical verb the bot invoked, so the
   // `cli_invocation` audit row would lose which action ran. Map the canonical
-  // SHAPES back to their verb FIRST, on the post-rewrite `/api/community/…`
+  // SHAPES back to their verb FIRST, on the canonical `/api/community/…`
   // shape. The messages door is dual-verb — GET is `read`, POST is `send` — so
   // it needs the method; the others are single-verb.
   const canonical = pathname.split("?")[0] ?? pathname;

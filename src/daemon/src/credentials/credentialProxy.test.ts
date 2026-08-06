@@ -263,8 +263,11 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
   it("passes canonical REST paths through and rejects deleted flat inputs", async () => {
     const upstream = await startUpstream();
     upstreamClose = upstream.close;
+    const sightings: Array<{ agentId: string; method: string; pathname: string }> = [];
     const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
-    proxy = await startCredentialProxy(broker);
+    proxy = await startCredentialProxy(broker, {
+      onProxyRequest: (agentId, method, pathname) => sightings.push({ agentId, method, pathname }),
+    });
     const reg = broker.mint("agent-1", "l", ["send", "read", "server", "attach"], REAL_KEY);
 
     for (const legacyPath of [
@@ -277,11 +280,15 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
       expect((await post(proxy.url, reg.voucher, legacyPath)).status).toBe(404);
     }
     expect(upstream.seen).toHaveLength(0);
+    expect(sightings).toEqual([]);
 
-    // A folded verb's real REST path passes through unchanged.
-    await post(proxy.url, reg.voucher, "/api/community/servers");
+    // A folded verb's real REST path and encoded query pass through byte-for-byte.
+    await post(proxy.url, reg.voucher, "/api/community/servers?cursor=a%2Fb&limit=2");
     expect(upstream.seen).toHaveLength(1);
-    expect(upstream.seen[0]!.path).toBe("/api/community/servers");
+    expect(upstream.seen[0]!.path).toBe("/api/community/servers?cursor=a%2Fb&limit=2");
+    expect(sightings).toEqual([
+      { agentId: "agent-1", method: "POST", pathname: "/api/community/servers" },
+    ]);
   });
 
   it("leaves non-/api paths untouched", async () => {

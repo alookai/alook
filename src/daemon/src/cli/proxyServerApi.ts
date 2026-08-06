@@ -6,8 +6,8 @@
  *   - `<PREFIX>_PROXY_URL`         — the local credential proxy's URL
  *   - `<PREFIX>_PROXY_TOKEN_FILE`  — a 0600 file holding the per-launch `vch_` voucher
  *
- * This client reads those, then calls `POST <proxyUrl>/api/<method>` carrying
- * `Authorization: Bearer <voucher>`. The proxy validates the voucher, swaps in
+ * This client reads those, then calls canonical `/api/community/*` REST doors
+ * carrying `Authorization: Bearer <voucher>`. The proxy validates the voucher, swaps in
  * the real key, stamps `X-Agent-Id` (derived from the voucher — NOT from anything
  * the agent says), and forwards to the data-plane upstream. So the agent's
  * identity is established by the voucher it holds, never self-asserted.
@@ -376,11 +376,8 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
   async function callInboxPull(req: InboxPullRequest): Promise<InboxPullResponse> {
     // RETARGETED off the flat `inboxPull` verb onto the caller's own inbox
     // resource POST users/me/inbox/pull (route/disc 轴3). Self-scoped to the
-    // voucher's bot — no target-user param on the wire (users/me/* family). The
-    // flat /inboxPull route stays alive through deploy (daemon is non-hot-reload;
-    // deleting it same-commit would 404 the whole fleet during the restart
-    // window) — its deletion is deferred to the flat-delete step, after daemon
-    // is confirmed on this new target. Same optional `{max?}` body.
+    // voucher's bot — no target-user param on the wire (users/me/* family).
+    // The legacy flat route is deleted. Same optional `{max?}` body.
     const { agentId: _omit, ...wire } = (req ?? {}) as unknown as Record<string, unknown>;
     const res = await fetchImpl(`${base}/api/community/users/me/inbox/pull`, {
       method: "POST",
@@ -400,10 +397,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     // #41). Self-scoped to the voucher's bot — the wire carries only the cursors,
     // no target-user param (users/me/* family). Body byte-identical to the flat
     // verb (the endpoint is a MOVE-FLAT, same seq-native/failed[]-batch/no-create
-    // shape — only the URL moved). The flat /ack route stays alive through deploy
-    // (daemon is non-hot-reload; deleting it same-commit would 404 the fleet
-    // during the restart window) — deletion deferred to the flat-delete step,
-    // after the daemon is confirmed on this new target. Returns void (the daemon
+    // shape — only the URL moved). The legacy flat route is deleted. Returns void (the daemon
     // fire-and-forgets the {ok,applied,failed} body, same as the flat verb).
     const { agentId: _omit, ...wire } = (req ?? {}) as unknown as Record<string, unknown>;
     const res = await fetchImpl(`${base}/api/community/users/me/inbox/ack`, {
