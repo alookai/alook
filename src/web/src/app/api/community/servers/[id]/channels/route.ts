@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { buildServerChannelGroups } from "@/lib/community/list-channels"
+import { requireServerMember } from "@/lib/community/permissions"
 
 /**
  * GET /api/community/servers/[id]/channels — single-server channel list, bot
@@ -20,11 +21,18 @@ import { buildServerChannelGroups } from "@/lib/community/list-channels"
  * so private-category channels the bot can't see never appear.
  */
 export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
-  if (ctx.actor.kind !== "bot") {
-    return NextResponse.json({ error: "not found" }, { status: 404 })
-  }
-  const botUserId = ctx.actor.userId
   const db = getDb(ctx.env.DB)
+
+  if (ctx.actor.kind === "human") {
+    const serverId = ctx.params?.id
+    if (!serverId) return NextResponse.json({ error: "missing server id" }, { status: 400 })
+    const auth = await requireServerMember(db, serverId, ctx.actor.userId)
+    if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
+    const channels = await queries.communityChannel.listServerChannelsForViewer(db, serverId, ctx.actor.userId)
+    return NextResponse.json({ channels })
+  }
+
+  const botUserId = ctx.actor.userId
 
   const serverRef = new URL(req.url).searchParams.get("server")
   if (!serverRef) {

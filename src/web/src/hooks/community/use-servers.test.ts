@@ -59,18 +59,40 @@ describe("useServers / serversQueryFn", () => {
 })
 
 describe("useServer / serverQueryFn", () => {
-  it("returns a single server detail from GET /api/community/servers/:id", async () => {
-    const detail = { id: "srv_1", name: "Alook", description: "", icon: null, ownerId: "u_1", categories: [] }
-    apiFetchMock.mockResolvedValueOnce(detail)
+  it("composes a single server detail from canonical resources", async () => {
+    const detail = { id: "srv_1", name: "Alook", description: "", icon: null, ownerId: "u_1" }
+    apiFetchMock.mockImplementation(async (url: string) => {
+      if (url === "/api/community/servers") return { servers: [{ ...detail, discriminator: "0001" }] }
+      if (url.endsWith("/categories")) return { categories: [{ id: "cat_1", name: "Main", private: 0 }] }
+      if (url.endsWith("/channels")) return { channels: [
+        { id: "ch_1", name: "general", categoryId: "cat_1" },
+        { id: "ch_2", name: "loose", categoryId: null },
+      ] }
+      if (url.includes("/inbox/unreads")) return { servers: [{ serverId: "srv_1", channels: [
+        { channelId: "ch_1", hasDirectUnread: true, children: [] },
+      ] }] }
+      throw new Error(`unexpected ${url}`)
+    })
     const { serverQueryFn } = await import("./use-servers")
     const data = await serverQueryFn("srv_1")()
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/srv_1")
-    expect(data).toEqual(detail)
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers")
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/srv_1/categories")
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/srv_1/channels")
+    expect(data).toEqual({ ...detail, categories: [
+      { id: "cat_1", name: "Main", private: 0, channels: [{ id: "ch_1", name: "general", categoryId: "cat_1", active: false, unread: true }] },
+      { id: "__uncategorized__", name: "", private: 0, channels: [{ id: "ch_2", name: "loose", categoryId: null, active: false, unread: false }] },
+    ] })
   })
 
   it("nests the server(id) key under servers() so prefix invalidation cascades", async () => {
     const detail = { id: "srv_1", name: "Alook", description: "", icon: null, ownerId: "u_1", categories: [] }
-    apiFetchMock.mockResolvedValueOnce(detail)
+    apiFetchMock.mockImplementation(async (url: string) => {
+      if (url === "/api/community/servers") return { servers: [{ ...detail, discriminator: "0001" }] }
+      if (url.endsWith("/categories")) return { categories: [] }
+      if (url.endsWith("/channels")) return { channels: [] }
+      if (url.includes("/inbox/unreads")) return { servers: [] }
+      throw new Error(`unexpected ${url}`)
+    })
     const { serverQueryFn } = await import("./use-servers")
     const qc = new QueryClient()
     const key = communityKeys.server("srv_1")

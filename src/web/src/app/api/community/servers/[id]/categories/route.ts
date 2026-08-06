@@ -10,7 +10,20 @@ import {
 } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 import { logAudit } from "@/lib/community/audit"
-import { requireServerAdmin } from "@/lib/community/permissions"
+import { requireServerAdmin, requireServerMember } from "@/lib/community/permissions"
+
+export const GET = withAuth(async (_req: NextRequest, ctx) => {
+  const serverId = ctx.params?.id
+  if (!serverId) return writeError("missing server id", 400)
+  const db = getDb(ctx.env.DB)
+  const auth = await requireServerMember(db, serverId, ctx.userId)
+  if (!auth.ok) return writeError(auth.error, auth.status)
+  const categories = await db.query.communityCategory.findMany({
+    where: (t, { eq }) => eq(t.serverId, serverId),
+    orderBy: (t, { asc }) => [asc(t.position)],
+  })
+  return writeJSON({ categories })
+})
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const serverId = ctx.params?.id

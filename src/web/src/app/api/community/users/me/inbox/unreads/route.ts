@@ -198,6 +198,7 @@ export const GET = withAuth(async (req, ctx) => {
         type: c.type ?? undefined,
         lastMessageAt: c.lastMessageAt,
         mentionCount: c.mentionCount,
+        hasDirectUnread: c.hasDirectUnread,
         children: c.children.map((k) => ({ ...k, type: k.type ?? undefined })),
       })),
   }))
