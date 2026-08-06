@@ -10,6 +10,7 @@ const mockUpdateOwnMessageContent = vi.fn()
 const mockGetMessagesByIdsInScope = vi.fn()
 const mockGetChannelForMember = vi.fn()
 const mockGetChannelType = vi.fn()
+const mockGetThreadChannelByParentMessage = vi.fn()
 const mockGetDM = vi.fn()
 const mockGetDMPeer = vi.fn()
 const mockIsBlocked = vi.fn()
@@ -37,6 +38,7 @@ vi.mock("@alook/shared", async () => {
       communityChannel: {
         getChannelForMember: (...a: unknown[]) => mockGetChannelForMember(...a),
         getChannelType: (...a: unknown[]) => mockGetChannelType(...a),
+        getThreadChannelByParentMessage: (...a: unknown[]) => mockGetThreadChannelByParentMessage(...a),
       },
       communityMessage: {
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
@@ -117,6 +119,7 @@ describe("GET /api/community/messages/[id]", () => {
       dmConversationId: null,
     })
     mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
+    mockGetThreadChannelByParentMessage.mockResolvedValue(null)
     mockListByMessageIds.mockResolvedValue([
       { id: "att_1", messageId: "m1", targetId: "c1", filename: "photo.png", r2Key: "channel/c1/uuid/photo.png", contentType: "image/png", size: 12345 },
     ])
@@ -392,17 +395,22 @@ describe("PATCH /api/community/messages/[id]", () => {
     expect(mockUpdateOwnMessageContent).not.toHaveBeenCalled()
   })
 
-  it("includes the parent only when editing the child channel opener", async () => {
-    mockGetChannelForMember.mockResolvedValue({
-      id: "post_1", serverId: "s1", parentChannelId: "forum_1", parentMessageId: "m1",
-    })
+  it("resolves a real parent-forum opener to its child and omits parent data for replies", async () => {
+    // Production shape: opener m1 belongs to the parent forum c1; the child
+    // post row points back to it through parentMessageId.
+    mockGetChannelType.mockResolvedValue("forum")
+    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "forum", parentChannelId: null })
+    mockGetThreadChannelByParentMessage.mockResolvedValue({ id: "post_1", type: "thread", parentChannelId: "c1", parentMessageId: "m1" })
     const res = await PATCH(editReq("new"), { params: { id: "m1" } } as any)
     expect(res.status).toBe(200)
-    expect(mockFanOutToChannel).toHaveBeenCalledWith("c1", expect.objectContaining({ parentChannelId: "forum_1" }))
+    expect(mockGetThreadChannelByParentMessage).toHaveBeenCalledWith(expect.anything(), "c1", "m1")
+    expect(mockFanOutToChannel).toHaveBeenCalledWith("c1", expect.objectContaining({ parentChannelId: "c1" }))
 
     mockFanOutToChannel.mockClear()
-    mockGetMessage.mockResolvedValue({ id: "reply_1", channelId: "c1", authorId: "u1", content: "old" })
-    mockUpdateOwnMessageContent.mockResolvedValue({ id: "reply_1", channelId: "c1", content: "new" })
+    mockGetChannelType.mockResolvedValue("thread")
+    mockGetMessage.mockResolvedValue({ id: "reply_1", channelId: "post_1", authorId: "u1", content: "old" })
+    mockGetChannelForMember.mockResolvedValue({ id: "post_1", serverId: "s1", type: "thread", parentChannelId: "c1" })
+    mockUpdateOwnMessageContent.mockResolvedValue({ id: "reply_1", channelId: "post_1", content: "new" })
     await PATCH(
       new NextRequest("http://localhost/api/community/messages/reply_1", {
         method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ content: "new" }),

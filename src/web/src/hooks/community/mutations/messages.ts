@@ -112,7 +112,7 @@ export function useEditMessage() {
       }
     },
     onSuccess: (_data, variables) => {
-      if (variables.forumChannelId) void queryClient.invalidateQueries({ queryKey: communityKeys.threads(variables.forumChannelId) })
+      if (variables.forumChannelId) void queryClient.invalidateQueries({ queryKey: communityKeys.forumThreads(variables.forumChannelId) })
     },
   })
 }

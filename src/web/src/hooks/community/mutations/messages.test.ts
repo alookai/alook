@@ -133,6 +133,21 @@ describe("useEditMessage", () => {
     const cache = capturedQc.getQueryData<{ pages: { messages: { content?: string }[] }[] }>(key)
     expect(cache?.pages[0].messages[0]?.content).toBe("old")
   })
+
+  it("invalidates every forum summary variant after an opener edit", async () => {
+    capturedQc.setQueryData(communityKeys.forumThreads("forum_1"), { threads: [] })
+    capturedQc.setQueryData(communityKeys.forumThreads("forum_1", "bug"), { threads: [] })
+    apiFetchMock.mockResolvedValueOnce(undefined)
+    const mod = await loadMod()
+    mod.useEditMessage()
+
+    await runMutation({
+      channelId: "forum_1", messageId: "opener_1", content: "new", forumChannelId: "forum_1",
+    })
+
+    expect(capturedQc.getQueryState(communityKeys.forumThreads("forum_1"))?.isInvalidated).toBe(true)
+    expect(capturedQc.getQueryState(communityKeys.forumThreads("forum_1", "bug"))?.isInvalidated).toBe(true)
+  })
 })
 
 // ── useSendMessage ────────────────────────────────────────────────────────

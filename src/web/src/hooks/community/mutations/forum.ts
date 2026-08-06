@@ -3,7 +3,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import type { ForumThread } from "@/components/community/_types"
 import type { ForumThreadsResponse } from "@/hooks/community/use-channel-panels"
 import type { UploadedAttachment } from "@/hooks/community/mutations/uploads"
 import type { MentionType } from "@alook/shared"
@@ -90,6 +89,10 @@ export function useUpdatePostTags() {
               }
             : prev,
       )
+      // Prefix invalidation covers the unfiltered list and every
+      // forumThreads(parent, tag) variant. This is required when the edited
+      // post loses the currently-selected tag and must leave that result set.
+      void queryClient.invalidateQueries({ queryKey: communityKeys.forumThreads(args.forumChannelId) })
     },
   })
 }

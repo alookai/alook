@@ -161,6 +161,9 @@ describe("useUpdatePostTags", () => {
     capturedQc.setQueryData<ForumThreadsResponse>(communityKeys.forumThreads("forum_1"), {
       threads: [makePost("p1"), makePost("p2")],
     })
+    capturedQc.setQueryData<ForumThreadsResponse>(communityKeys.forumThreads("forum_1", "bug"), {
+      threads: [makePost("p2")],
+    })
     apiFetchMock.mockResolvedValueOnce({ tags: ["bug", "p0"] })
 
     await runMutation({
@@ -176,6 +179,8 @@ describe("useUpdatePostTags", () => {
     })
     const cache = capturedQc.getQueryData<ForumThreadsResponse>(communityKeys.forumThreads("forum_1"))
     expect(cache?.threads.find((post) => post.id === "p2")?.tags).toEqual(["bug", "p0"])
+    expect(capturedQc.getQueryState(communityKeys.forumThreads("forum_1"))?.isInvalidated).toBe(true)
+    expect(capturedQc.getQueryState(communityKeys.forumThreads("forum_1", "bug"))?.isInvalidated).toBe(true)
   })
 })
 

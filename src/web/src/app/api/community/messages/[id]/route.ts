@@ -87,12 +87,13 @@ export const PATCH = withCommunityActor(async (req: NextRequest, ctx) => {
     content,
   })
   if (!updated) return writeError("message not found", 404)
-  const parentChannelId = channelType !== "dm"
-    && access.ok
-    && "parentMessageId" in access.value
-    && access.value.parentMessageId === messageId
-    ? access.value.parentChannelId ?? undefined
-    : undefined
+  // Forum openers live in the PARENT forum channel; the child post points back
+  // to them via parentMessageId. Resolve through the same indexed relation as
+  // the tags route instead of inspecting the parent row's own parentMessageId.
+  const openerThread = channelType === "forum"
+    ? await queries.communityChannel.getThreadChannelByParentMessage(db, message.channelId, messageId)
+    : null
+  const parentChannelId = openerThread?.type === "thread" ? message.channelId : undefined
   await fanOutToChannel(message.channelId, {
     type: WS_EVENTS.MESSAGE_EDITED,
     channelId: message.channelId,

@@ -1035,7 +1035,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             })
           }
           if (event.parentChannelId) {
-            void queryClient.invalidateQueries({ queryKey: communityKeys.threads(event.parentChannelId) })
+            void queryClient.invalidateQueries({ queryKey: communityKeys.forumThreads(event.parentChannelId) })
           }
           return
         }

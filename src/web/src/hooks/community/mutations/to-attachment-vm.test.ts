@@ -62,19 +62,14 @@ describe("toAttachmentVm", () => {
     "materializes unsafe %s attachments as file-kind",
     (contentType) => {
       const result = toAttachmentVm("c1", {
-        id: "att_unsafe",
+        id: "att_3",
         filename: "unsafe.img",
         contentType,
         size: 2048,
         width: 1920,
         height: 1080,
       })
-      expect(result).toEqual({
-        kind: "file",
-        name: "unsafe.img",
-        url: "/api/community/channels/c1/attachments/att_unsafe",
-        size: "2 KB",
-      })
+      expect(result).toEqual({ kind: "file", name: "unsafe.img", url: "/api/community/channels/c1/attachments/att_3", size: "2 KB" })
     },
   )
 })
