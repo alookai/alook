@@ -215,12 +215,12 @@ describe("POST /api/community/channels/[id]/messages", () => {
     mockCheckMessageRateLimit.mockResolvedValue({ allowed: true })
   })
 
-  it("rejects a bare message to a forum top-level with 400 (not a message-bearing surface)", async () => {
+  it("accepts a bare message to a forum top-level (phase2 forum≡thread write-guard reversal — forum is now directly sendable)", async () => {
     mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "forum", parentChannelId: null })
     mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1", type: "forum", parentChannelId: null })
-    const res = await POST(postReq({ content: "bare into forum index" }), ctx)
-    expect(res.status).toBe(400)
-    expect(mockCreateMessage).not.toHaveBeenCalled()
+    const res = await POST(postReq({ content: "a post's opener message" }), ctx)
+    expect(res.status).toBe(201)
+    expect(mockCreateMessage).toHaveBeenCalled()
   })
 
   it("a DM id via the door routes to the DM arm — the block gate runs (blocked peer → 403, not a silent channel-route bypass)", async () => {

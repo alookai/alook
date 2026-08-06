@@ -106,11 +106,11 @@ describe("reactions [emoji] surface guard", () => {
     mockFanOutToDM.mockResolvedValue(undefined);
   });
 
-  it("PUT rejects reacting on a forum top-level with 400", async () => {
+  it("PUT allows reacting on a forum top-level (phase2 forum≡thread write-guard reversal — forum is now a message-bearing surface)", async () => {
     mockGetChannelType.mockResolvedValue("forum");
     const res = await PUT(req("PUT"), ctx);
-    expect(res.status).toBe(400);
-    expect(mockAddReaction).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(mockAddReaction).toHaveBeenCalled();
   });
 
   it("PUT allows reacting in a DM (bearing surface, block-checked)", async () => {
@@ -130,11 +130,11 @@ describe("reactions [emoji] surface guard", () => {
     expect(mockFanOutToChannel).toHaveBeenCalled();
   });
 
-  it("DELETE (un-react) rejects a forum top-level with 400", async () => {
+  it("DELETE (un-react) allows a forum top-level (phase2 forum≡thread write-guard reversal — forum is now a message-bearing surface)", async () => {
     mockGetChannelType.mockResolvedValue("forum");
     const res = await DELETE(req("DELETE"), ctx);
-    expect(res.status).toBe(400);
-    expect(mockRemoveReaction).not.toHaveBeenCalled();
+    expect(res.status).toBe(204);
+    expect(mockRemoveReaction).toHaveBeenCalled();
   });
 
   it("DELETE (un-react) works in a DM", async () => {

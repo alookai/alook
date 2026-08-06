@@ -236,7 +236,7 @@ describe("POST /api/community/messages/[id]/threads", () => {
     expect(mockCreateChannel).not.toHaveBeenCalled()
   })
 
-  it("400s when rooting a thread on a forum top-level message (not a message-bearing surface)", async () => {
+  it("roots a thread on a message sent directly in a forum top-level (phase2 forum≡thread write-guard reversal — forum is now a message-bearing surface, so its messages are threadable like any other channel's)", async () => {
     mockGetChannelForMember.mockResolvedValue({
       id: "forum-1",
       serverId: "s1",
@@ -244,8 +244,8 @@ describe("POST /api/community/messages/[id]/threads", () => {
       parentChannelId: null,
     })
     const res = await POST(req({ name: "x" }), ctx)
-    expect(res.status).toBe(400)
-    expect(mockCreateChannel).not.toHaveBeenCalled()
+    expect(res.status).toBe(201)
+    expect(mockCreateChannel).toHaveBeenCalled()
   })
 
   it("seeds the creator (spoke) AND the parent-message author (added) as default participants", async () => {

@@ -75,8 +75,19 @@ export function isDm(t: string | null | undefined): boolean {
   return t === "dm"
 }
 
+// Derived (excludes, not enumerates) — phase2 forum≡thread write-guard reversal.
+// `forum` used to be the ONLY excluded stored type (a post index, not directly
+// sendable); as forum_post is deleted (step 6), every remaining stored type
+// becomes message-bearing, at which point this whole guard retires. Written as
+// "every valid type EXCEPT forum_post" rather than an enumerated allowlist so
+// the exclusion set shrinks to empty (not silently drifts) as types are removed.
+// `isStoredChannelType(t)` gates first: negating a bare `=== "forum_post"` check
+// would flip null/undefined/garbage from false (deny) to true (allow) — a
+// fail-open regression on a write guard (Blondie #765). Gating on membership in
+// the closed StoredChannelType set FIRST keeps the fail-closed default for any
+// value that isn't one of the five legitimate types.
 export function isMessageBearingSurface(t: string | null | undefined): boolean {
-  return t === "text" || t === "forum_post" || t === "thread" || t === "dm"
+  return isStoredChannelType(t) && !isForumPost(t)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

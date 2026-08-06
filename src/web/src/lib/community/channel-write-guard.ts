@@ -22,7 +22,7 @@ export function requireMessageBearingSurface(channelType: string | null | undefi
   return {
     ok: false,
     status: 400,
-    error: "cannot post a message here — a forum top-level holds posts, not messages. Create a post (a title is required).",
+    error: "cannot post a message here",
   }
 }
 
@@ -31,7 +31,7 @@ export function requireReactableSurface(channelType: string | null | undefined):
   return {
     ok: false,
     status: 400,
-    error: "a forum top-level holds posts, not messages — nothing to react to here",
+    error: "nothing to react to here",
   }
 }
 
@@ -45,7 +45,7 @@ export function requirePinnableSurface(channelType: string | null | undefined): 
     return { ok: false, status: 400, error: "direct messages don't support pinning" }
   }
   if (!isMessageBearingSurface(channelType)) {
-    return { ok: false, status: 400, error: "a forum top-level holds posts, not messages — nothing to pin here" }
+    return { ok: false, status: 400, error: "nothing to pin here" }
   }
   return pass
 }

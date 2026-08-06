@@ -12,18 +12,18 @@ import {
 } from "./community-roles"
 
 describe("isMessageBearingSurface", () => {
-  it("is true for surfaces that bear messages: text, forum_post, thread, dm", () => {
+  it("is true for every stored type EXCEPT forum_post (phase2 forum≡thread write-guard reversal — forum is now directly sendable)", () => {
     expect(isMessageBearingSurface("text")).toBe(true)
-    expect(isMessageBearingSurface("forum_post")).toBe(true)
+    expect(isMessageBearingSurface("forum")).toBe(true)
     expect(isMessageBearingSurface("thread")).toBe(true)
     expect(isMessageBearingSurface("dm")).toBe(true)
   })
 
-  it("is false for a forum top-level (a post index, not a message surface)", () => {
-    expect(isMessageBearingSurface("forum")).toBe(false)
+  it("is false for forum_post (the sole remaining exclusion, until it's deleted entirely at step 6)", () => {
+    expect(isMessageBearingSurface("forum_post")).toBe(false)
   })
 
-  it("is false for null/undefined/unknown", () => {
+  it("is false for null/undefined/unknown — a negated bare `=== 'forum_post'` check would wrongly flip these to true (fail-open regression); isStoredChannelType(t) gates first to keep the fail-closed default", () => {
     expect(isMessageBearingSurface(null)).toBe(false)
     expect(isMessageBearingSurface(undefined)).toBe(false)
     expect(isMessageBearingSurface("bogus")).toBe(false)

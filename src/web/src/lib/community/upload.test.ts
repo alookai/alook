@@ -534,15 +534,16 @@ describe("runAttachmentUpload", () => {
     expect(key).toMatch(/^thread\/c1\//)
   })
 
-  it("channel surface + forum top-level → 400 (non-message-bearing, no put)", async () => {
+  it("channel surface + forum top-level → kind 'channel' (phase2 forum≡thread write-guard reversal — forum is now a message-bearing surface)", async () => {
     surfaceChannel("forum")
-    const put = vi.fn()
+    const put = vi.fn().mockResolvedValue(undefined)
     const res = await runAttachmentUpload(
       reqWithFile(fakeFile("hi.png", "image/png", 10)),
       ctxWith(envWithR2(put), { id: "c1" }),
     )
-    expect(res.status).toBe(400)
-    expect(put).not.toHaveBeenCalled()
+    expect(res.status).toBe(200)
+    const [key] = put.mock.calls[0]
+    expect(key).toMatch(/^channel\/c1\//)
   })
 
   it("forwards handleAttachmentUpload errors (e.g. oversize) unchanged", async () => {
