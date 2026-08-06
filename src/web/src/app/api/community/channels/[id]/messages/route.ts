@@ -13,7 +13,7 @@ import {
 } from "@/lib/community/messages"
 import { enrichMessages } from "@/lib/community/enrich-messages"
 import { checkRateLimit } from "@/lib/rate-limit"
-import { createCommunityMessage } from "@/lib/community/message-handler"
+import { createCommunityMessage, getCommunityMessageReplay } from "@/lib/community/message-handler"
 import { createMessageWithThread } from "@/lib/community/create-channels"
 import {
   resolveMessageTarget,
@@ -262,6 +262,16 @@ async function handleHumanSend(
     }, { status: created.deduped ? 200 : 201 })
   }
 
+  const replay = await getCommunityMessageReplay({
+    db,
+    authorId: userId,
+    channelId: target.channelId,
+    clientNonce,
+  })
+  if (replay) {
+    return NextResponse.json({ message: replay.row, deduped: true }, { status: 200 })
+  }
+
   if (attachmentIds.length > 0) {
     const channelId = target.channelId
     const rows = await withD1Retry(
@@ -351,6 +361,19 @@ async function handleBotSend(
       threadId: created.thread.id,
       deduped: created.deduped,
     })
+  }
+
+
+  const replay = await getCommunityMessageReplay({
+    db,
+    authorId: botUserId,
+    channelId,
+    clientNonce: body.nonce,
+  })
+  if (replay) {
+    const orderedAttachments = replay.attachments.map((a) => ({ id: a.id, filename: a.filename, contentType: a.contentType, size: a.size }))
+    const message = await queries.communityAgentInbox.toAgentMessage(db, replay.row, botUserId, orderedAttachments)
+    return NextResponse.json({ state: "sent", message, deduped: true })
   }
 
   const scopeTarget = { channelId }

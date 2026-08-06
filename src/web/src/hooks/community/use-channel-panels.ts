@@ -58,7 +58,7 @@ async function loadThreadResources(channelId: string) {
     }),
     apiFetch<{ participants: ParticipantRow[] }>("/api/community/channels/participants/batch", {
       method: "POST",
-      body: JSON.stringify({ channelIds: threadIds }),
+      body: JSON.stringify({ parentChannelId: channelId, channelIds: threadIds }),
     }),
   ])
   return { threads, openerIds, ...messageBatch, ...tagBatch, ...participantBatch }

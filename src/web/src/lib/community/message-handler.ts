@@ -85,6 +85,39 @@ type CreatedAttachment = {
   height?: number | null
 }
 
+async function hydrateStoredAttachments(db: Database, messageId: string): Promise<CreatedAttachment[]> {
+  const rows = await queries.communityAttachment.listByMessageIds(db, [messageId])
+  return rows.map((row) => ({
+    id: row.id,
+    filename: row.filename,
+    url: attachmentUrl(row.targetId, row.id),
+    contentType: row.contentType,
+    size: row.size,
+    width: row.width,
+    height: row.height,
+  }))
+}
+
+export async function getCommunityMessageReplay(params: {
+  db: Database
+  authorId: string
+  channelId: string
+  clientNonce?: string
+}): Promise<CreateMessageOk | null> {
+  if (params.clientNonce === undefined) return null
+  const existing = await withD1Retry(
+    () => queries.communityMessage.getMessageByAuthorAndNonce(params.db, params.authorId, params.clientNonce!),
+    { route: "message-handler:nonce-precheck" },
+  )
+  if (!existing || existing.channelId !== params.channelId) return null
+  return {
+    ok: true,
+    row: existing,
+    attachments: await hydrateStoredAttachments(params.db, existing.id),
+    deduped: true,
+  }
+}
+
 type FullMessageRow = NonNullable<
   Awaited<ReturnType<typeof queries.communityMessage.getMessage>>
 >
@@ -288,13 +321,8 @@ export async function createCommunityMessage(params: {
   // race where two concurrent first-sends both pass this check is caught at
   // insert time by the partial-unique-index handler below.
   if (clientNonce !== undefined) {
-    const existing = await withD1Retry(
-      () => queries.communityMessage.getMessageByAuthorAndNonce(db, authorId, clientNonce),
-      { route: "message-handler:nonce-precheck" },
-    )
-    if (existing) {
-      return { ok: true, row: existing, attachments: [], deduped: true }
-    }
+    const replay = await getCommunityMessageReplay({ db, authorId, channelId: target.channelId, clientNonce })
+    if (replay) return replay
   }
 
   // A client-supplied `replyToId` must reference a message IN THE TARGET
@@ -393,7 +421,13 @@ export async function createCommunityMessage(params: {
         { route: "message-handler:nonce-insert-race" },
       )
       if (existing) {
-        return { ok: true, row: existing, attachments: [], deduped: true }
+        if (existing.channelId !== target.channelId) throw err
+        return {
+          ok: true,
+          row: existing,
+          attachments: await hydrateStoredAttachments(db, existing.id),
+          deduped: true,
+        }
       }
     }
     throw err

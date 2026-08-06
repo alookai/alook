@@ -1,4 +1,5 @@
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNull, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import { nanoid } from "nanoid";
 import { communityAttachment } from "../../community-schema";
 import type { Database } from "../../index";
@@ -119,26 +120,28 @@ export async function rebindPendingAttachmentsToChild(
   data: { ids: string[]; uploaderId: string; parentTargetId: string; childTargetId: string }
 ): Promise<boolean> {
   if (data.ids.length === 0) return true;
-  const eligible = await db
-    .select({ id: communityAttachment.id, targetId: communityAttachment.targetId })
-    .from(communityAttachment)
+  const eligible = alias(communityAttachment, "eligible_attachment");
+  const eligibleCount = db
+    .select({ value: count() })
+    .from(eligible)
     .where(and(
-      inArray(communityAttachment.id, data.ids),
-      isNull(communityAttachment.messageId),
-      eq(communityAttachment.uploaderId, data.uploaderId),
-      inArray(communityAttachment.targetId, [data.parentTargetId, data.childTargetId])
+      inArray(eligible.id, data.ids),
+      isNull(eligible.messageId),
+      eq(eligible.uploaderId, data.uploaderId),
+      inArray(eligible.targetId, [data.parentTargetId, data.childTargetId])
     ));
-  if (eligible.length !== data.ids.length) return false;
-  await db
+  const rebound = await db
     .update(communityAttachment)
     .set({ targetId: data.childTargetId })
     .where(and(
       inArray(communityAttachment.id, data.ids),
       isNull(communityAttachment.messageId),
       eq(communityAttachment.uploaderId, data.uploaderId),
-      eq(communityAttachment.targetId, data.parentTargetId)
-    ));
-  return true;
+      inArray(communityAttachment.targetId, [data.parentTargetId, data.childTargetId]),
+      sql`(${eligibleCount}) = ${data.ids.length}`
+    ))
+    .returning({ id: communityAttachment.id });
+  return rebound.length === data.ids.length;
 }
 
 /**

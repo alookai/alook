@@ -11,6 +11,7 @@ const mockCreateMessage = vi.fn()
 const mockGetMessage = vi.fn()
 const mockGetMessageByAuthorAndNonce = vi.fn()
 const mockGetMessageInScope = vi.fn()
+const mockGetMessageByAuthorAndNonce = vi.fn()
 const mockGetMessagesByIdsInScope = vi.fn()
 const mockListMembers = vi.fn()
 const mockListMemberUserIds = vi.fn()
@@ -32,6 +33,11 @@ const mockGetDMPeer = vi.fn()
 const mockIsBlocked = vi.fn()
 const mockListMessagesBySeq = vi.fn()
 const mockToAgentMessages = vi.fn()
+const mockToAgentMessage = vi.fn()
+const mockGetLatestSeqForScope = vi.fn()
+const mockGetReadState = vi.fn()
+const mockHasDeliverableUnreadForAgentScope = vi.fn()
+const mockBumpBotDailyActivityStatement = vi.fn()
 const mockResolveServerByNameForMember = vi.fn()
 const mockResolveChannelByNameForMember = vi.fn()
 const mockGetUserByNameAndDiscriminator = vi.fn()
@@ -81,6 +87,7 @@ vi.mock("@alook/shared", async () => {
         listMessagesSince: (...a: unknown[]) => mockListMessagesSince(...a),
         getLatestMessageSeq: (...a: unknown[]) => mockGetLatestMessageSeq(...a),
         hardDeleteMessage: (...a: unknown[]) => mockHardDeleteMessage(...a),
+        getMessageByAuthorAndNonce: (...a: unknown[]) => mockGetMessageByAuthorAndNonce(...a),
       },
       communityMember: {
         listMembers: (...a: unknown[]) => mockListMembers(...a),
@@ -118,6 +125,15 @@ vi.mock("@alook/shared", async () => {
       communityAgentInbox: {
         listMessagesBySeq: (...a: unknown[]) => mockListMessagesBySeq(...a),
         toAgentMessages: (...a: unknown[]) => mockToAgentMessages(...a),
+        toAgentMessage: (...a: unknown[]) => mockToAgentMessage(...a),
+        getLatestSeqForScope: (...a: unknown[]) => mockGetLatestSeqForScope(...a),
+        hasDeliverableUnreadForAgentScope: (...a: unknown[]) => mockHasDeliverableUnreadForAgentScope(...a),
+      },
+      communityReadState: {
+        getReadState: (...a: unknown[]) => mockGetReadState(...a),
+      },
+      communityBot: {
+        bumpBotDailyActivityStatement: (...a: unknown[]) => mockBumpBotDailyActivityStatement(...a),
       },
       // resolveTargetForMember (real, for the bot ref-via-query arm) resolves
       // the server then channel by name, both member-scoped.
@@ -184,6 +200,14 @@ function postReq(body: unknown) {
   })
 }
 
+function botPostReq(body: unknown) {
+  return new NextRequest("http://localhost/api/community/channels/send/messages", {
+    method: "POST",
+    body: JSON.stringify(body),
+    headers: { "Content-Type": "application/json", Authorization: "Bearer crk_test" },
+  })
+}
+
 function getReq() {
   return new NextRequest("http://localhost/api/community/channels/c1/messages", { method: "GET" })
 }
@@ -212,16 +236,23 @@ describe("POST /api/community/channels/[id]/messages", () => {
       type: "default",
       mentionType: null,
       replyToId: null,
+      channelId: "c1",
       embeds: null,
       createdAt: "2026-06-30T00:00:00.000Z",
     })
     mockGetMessageByAuthorAndNonce.mockResolvedValue(null)
     mockListMembers.mockResolvedValue([])
+    mockGetMessageByAuthorAndNonce.mockResolvedValue(null)
     mockListMemberUserIds.mockResolvedValue([])
     mockGetMessagesByIdsInScope.mockResolvedValue([])
     mockCreateMentions.mockResolvedValue(undefined)
     mockFanOutToChannel.mockResolvedValue(undefined)
     mockBroadcastToUser.mockResolvedValue(undefined)
+    mockGetLatestSeqForScope.mockResolvedValue(0)
+    mockGetReadState.mockResolvedValue(null)
+    mockHasDeliverableUnreadForAgentScope.mockResolvedValue(false)
+    mockBumpBotDailyActivityStatement.mockReturnValue({})
+    mockToAgentMessage.mockImplementation(async (_db, row, _user, attachments) => ({ ...row, attachments }))
     mockCheckMessageRateLimit.mockResolvedValue({ allowed: true })
     mockCreateChannel.mockResolvedValue({ id: "thread_1", creatorId: "u1", createdAt: "t0", name: "thread" })
     mockRebindPendingAttachmentsToChild.mockResolvedValue(true)
@@ -481,16 +512,51 @@ describe("POST /api/community/channels/[id]/messages", () => {
     // no-CHILD_CHANNEL_UPDATE assertion above.)
   })
 
-  // ── Idempotency nonce (mutation-idempotency plan, ③) ──────────────────────
-  // The human web send path threads `nonce` symmetrically to the agent send
-  // route (bot=user, Gus #204): body `nonce` → `createCommunityMessage`'s
-  // `clientNonce` param → surfaced `deduped` on the response. The route change
-  // is a thin pass-through; the handler-internal dedup (nonce pre-check,
-  // partial-unique backstop) is covered by the handler/① tests, and the
-  // end-to-end retry-dedup by Blair/Olivia's integration pass. Asserting the
-  // nonce plumbing here would require reaching into the handler's own query
-  // mocks (getMessageByAuthorAndNonce), which this route-level suite doesn't
-  // wire — kept out to avoid a wrong-layer assertion.
+  it("human full-command replay hydrates bound attachments before pending validation", async () => {
+    const stored = { id: "a1", targetId: "c1", filename: "x.png", contentType: "image/png", size: 10, width: 1, height: 1 }
+    mockFindPendingAttachmentsForSender.mockResolvedValueOnce([stored])
+    mockReserveAttachmentsForMessage.mockResolvedValueOnce(["a1"])
+    mockListByMessageIds.mockResolvedValue([stored])
+    mockGetMessageByAuthorAndNonce
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ ...await mockGetMessage(), clientNonce: "cmd:reply" })
+
+    const first = await POST(postReq({ content: "reply", attachments: ["a1"], nonce: "cmd:reply" }), ctx)
+    const replay = await POST(postReq({ content: "reply", attachments: ["a1"], nonce: "cmd:reply" }), ctx)
+
+    expect(first.status).toBe(201)
+    expect(replay.status).toBe(200)
+    expect(await replay.json()).toEqual(expect.objectContaining({ deduped: true }))
+    expect(mockFindPendingAttachmentsForSender).toHaveBeenCalledTimes(1)
+    expect(mockCreateMessage).toHaveBeenCalledTimes(1)
+    expect(mockReserveAttachmentsForMessage).toHaveBeenCalledTimes(1)
+  })
+
+  it("bot full-command replay bypasses alignment and pending checks after the first committed send", async () => {
+    const stored = { id: "a1", targetId: "c1", filename: "x.png", contentType: "image/png", size: 10, width: 1, height: 1 }
+    const row = { ...await mockGetMessage(), authorId: "bot_1", clientNonce: "cmd:reply" }
+    mockResolveServerByNameForMember.mockResolvedValue([{ id: "s1" }])
+    mockResolveChannelByNameForMember.mockResolvedValue([{ id: "c1", serverId: "s1", type: "text", parentChannelId: null }])
+    mockFindPendingAttachmentsForSender.mockResolvedValueOnce([stored])
+    mockReserveAttachmentsForMessage.mockResolvedValueOnce(["a1"])
+    mockListByMessageIds.mockResolvedValue([stored])
+    mockGetMessageByAuthorAndNonce
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(row)
+
+    const body = { channel: "/demo/text", content: { text: "reply" }, attachments: ["a1"], nonce: "cmd:reply" }
+    const first = await POST(botPostReq(body), ctx)
+    const replay = await POST(botPostReq(body), ctx)
+
+    expect(first.status).toBe(200)
+    expect(replay.status).toBe(200)
+    expect(await replay.json()).toEqual(expect.objectContaining({ state: "sent", deduped: true }))
+    expect(mockFindPendingAttachmentsForSender).toHaveBeenCalledTimes(1)
+    expect(mockCreateMessage).toHaveBeenCalledTimes(1)
+    expect(mockHasDeliverableUnreadForAgentScope).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe("GET /api/community/channels/[id]/messages", () => {

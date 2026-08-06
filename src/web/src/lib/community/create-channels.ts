@@ -331,6 +331,7 @@ export async function createMessageWithThread(params: {
     attachmentIds: params.attachmentIds,
     clientNonce: params.clientNonce,
     suppressBroadcast: params.suppressBroadcast,
+    deferBroadcast: true,
   })
   if (!created.ok) return { ok: false, status: created.status, error: created.error }
   const messageId = created.row.id
@@ -415,27 +416,62 @@ export async function createMessageWithThread(params: {
   const childChannel = threadResult.value
   const isFreshCreate = childChannel.creatorId === authorId
 
-  const rebound = await queries.communityAttachment.rebindPendingAttachmentsToChild(db, {
-    ids: params.pendingAttachmentIdsToRebind ?? [],
-    uploaderId: authorId,
-    parentTargetId: parentChannelId,
-    childTargetId: childChannel.id,
-  })
-  if (!rebound) {
+  const compensateFreshStructure = async (cause: unknown) => {
     if (isFreshCreate) {
-      await queries.communityChannel.deleteChannel(db, childChannel.id)
-      await queries.communityMessage.hardDeleteMessage(db, messageId)
+      try {
+        await queries.communityChannel.deleteChannel(db, childChannel.id)
+      } catch (rollbackErr) {
+        log.error("thread_rollback_delete_channel_failed", {
+          messageId,
+          cause: cause instanceof Error ? cause.message : String(cause),
+          rollbackErr: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+        })
+      }
+      try {
+        await queries.communityMessage.hardDeleteMessage(db, messageId)
+      } catch (rollbackErr) {
+        log.error("thread_rollback_delete_opener_failed", {
+          messageId,
+          cause: cause instanceof Error ? cause.message : String(cause),
+          rollbackErr: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+        })
+      }
     }
+  }
+
+  if (isFreshCreate) {
+    try {
+      await queries.communityThread.addThreadParticipants(db, childChannel.id, [
+        { userId: authorId, source: PARTICIPANT_SOURCE.SPOKE },
+      ])
+    } catch (err) {
+      await compensateFreshStructure(err)
+      throw err
+    }
+  }
+
+  let rebound: boolean
+  try {
+    rebound = await queries.communityAttachment.rebindPendingAttachmentsToChild(db, {
+      ids: params.pendingAttachmentIdsToRebind ?? [],
+      uploaderId: authorId,
+      parentTargetId: parentChannelId,
+      childTargetId: childChannel.id,
+    })
+  } catch (err) {
+    await compensateFreshStructure(err)
+    throw err
+  }
+  if (!rebound) {
+    await compensateFreshStructure("attachment rebind rejected")
     return { ok: false, status: 400, error: "attachment not found or not attachable to this thread" }
   }
 
   if (isFreshCreate) {
-    await queries.communityThread.addThreadParticipants(db, childChannel.id, [
-      { userId: authorId, source: PARTICIPANT_SOURCE.SPOKE },
-    ])
+    await created.broadcast?.()
 
     if (!params.suppressThreadFanout) {
-      fanOutToChannel(parentChannelId, {
+      await fanOutToChannel(parentChannelId, {
         type: WS_EVENTS.CHILD_CHANNEL_CREATE,
         parentChannelId,
         channel: {

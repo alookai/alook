@@ -261,7 +261,8 @@ describe("createMessageWithThread (phase2 forum≡thread — atomic-by-compensat
   })
 
   it("compensates the fresh opener and thread when attachment rebind is rejected", async () => {
-    mockCreateCommunityMessage.mockResolvedValue({ ok: true, row: { id: "msg_1", content: "Title", channelId: "forum_1" }, attachments: [] })
+    const broadcast = vi.fn()
+    mockCreateCommunityMessage.mockResolvedValue({ ok: true, row: { id: "msg_1", content: "Title", channelId: "forum_1" }, attachments: [], broadcast })
     mockCreateChannel.mockResolvedValue({ id: "th_1", creatorId: "u1", createdAt: "t0", name: "Title" })
     mockRebindPendingAttachmentsToChild.mockResolvedValue(false)
 
@@ -273,5 +274,39 @@ describe("createMessageWithThread (phase2 forum≡thread — atomic-by-compensat
     expect(res).toEqual({ ok: false, status: 400, error: "attachment not found or not attachable to this thread" })
     expect(mockDeleteChannel).toHaveBeenCalledWith(expect.anything(), "th_1")
     expect(mockHardDeleteMessage).toHaveBeenCalledWith(expect.anything(), "msg_1")
+    expect(broadcast).not.toHaveBeenCalled()
+    expect(mockFanOutToChannel).not.toHaveBeenCalled()
+  })
+
+  it("attempts both compensations and never publishes when rebind throws", async () => {
+    const broadcast = vi.fn()
+    mockCreateCommunityMessage.mockResolvedValue({ ok: true, row: { id: "msg_1", content: "Title", channelId: "forum_1" }, attachments: [], broadcast })
+    mockCreateChannel.mockResolvedValue({ id: "th_1", creatorId: "u1", createdAt: "t0", name: "Title" })
+    mockRebindPendingAttachmentsToChild.mockRejectedValue(new Error("rebind failed"))
+    mockDeleteChannel.mockRejectedValue(new Error("delete thread failed"))
+
+    await expect(createMessageWithThread({
+      db: {} as any, authorId: "u1", parentChannelId: "forum_1", serverId: "s1",
+      body: { content: "Title" }, pendingAttachmentIdsToRebind: ["att_1"],
+    })).rejects.toThrow("rebind failed")
+
+    expect(mockDeleteChannel).toHaveBeenCalledWith(expect.anything(), "th_1")
+    expect(mockHardDeleteMessage).toHaveBeenCalledWith(expect.anything(), "msg_1")
+    expect(broadcast).not.toHaveBeenCalled()
+    expect(mockFanOutToChannel).not.toHaveBeenCalled()
+  })
+
+  it("publishes the opener only after structure and participants commit", async () => {
+    const broadcast = vi.fn(async () => undefined)
+    mockCreateCommunityMessage.mockResolvedValue({ ok: true, row: { id: "msg_1", content: "Title", channelId: "forum_1" }, attachments: [], broadcast })
+    mockCreateChannel.mockResolvedValue({ id: "th_1", creatorId: "u1", createdAt: "t0", name: "Title" })
+
+    await createMessageWithThread({
+      db: {} as any, authorId: "u1", parentChannelId: "forum_1", serverId: "s1", body: { content: "Title" },
+    })
+
+    expect(mockAddThreadParticipants.mock.invocationCallOrder[0]).toBeLessThan(mockRebindPendingAttachmentsToChild.mock.invocationCallOrder[0])
+    expect(mockRebindPendingAttachmentsToChild.mock.invocationCallOrder[0]).toBeLessThan(broadcast.mock.invocationCallOrder[0])
+    expect(broadcast.mock.invocationCallOrder[0]).toBeLessThan(mockFanOutToChannel.mock.invocationCallOrder[0])
   })
 })

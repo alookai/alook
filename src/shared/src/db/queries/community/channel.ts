@@ -438,6 +438,29 @@ export async function getChannelsByIds(db: Database, channelIds: string[]) {
   return rows;
 }
 
+export async function getDirectChildThreadsByIds(
+  db: Database,
+  parentChannelId: string,
+  channelIds: string[]
+) {
+  if (channelIds.length === 0) return [];
+  const rows = (
+    await Promise.all(
+      chunk(channelIds, D1_MAX_IN_PARAMS - 2).map((ids) =>
+        db
+          .select(CHANNEL_COLUMNS)
+          .from(communityChannel)
+          .where(and(
+            inArray(communityChannel.id, ids),
+            eq(communityChannel.parentChannelId, parentChannelId),
+            eq(communityChannel.type, "thread")
+          ))
+      )
+    )
+  ).flat();
+  return rows;
+}
+
 // ---------------------------------------------------------------------------
 // Private-channel membership + visibility
 // (plans/channel-category-role-permissions.md)

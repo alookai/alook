@@ -7,6 +7,7 @@ vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 const mockRequireMessageSurfaceAccess = vi.fn()
 const mockGetMessagesByIdsInScope = vi.fn()
 const mockGetFirstMessageByChannelIds = vi.fn()
+const mockGetDirectChildThreadsByIds = vi.fn()
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -18,6 +19,10 @@ vi.mock("@alook/shared", async () => {
         ...actual.queries.communityMessage,
         getMessagesByIdsInScope: (...args: unknown[]) => mockGetMessagesByIdsInScope(...args),
         getFirstMessageByChannelIds: (...args: unknown[]) => mockGetFirstMessageByChannelIds(...args),
+      },
+      communityChannel: {
+        ...actual.queries.communityChannel,
+        getDirectChildThreadsByIds: (...args: unknown[]) => mockGetDirectChildThreadsByIds(...args),
       },
     },
   }
@@ -50,15 +55,17 @@ describe("POST /api/community/messages/batch", () => {
     mockRequireMessageSurfaceAccess.mockResolvedValue({ ok: true })
     mockGetMessagesByIdsInScope.mockResolvedValue([{ id: "message_1", channelId: "forum_1" }])
     mockGetFirstMessageByChannelIds.mockResolvedValue([{ id: "reply_1", channelId: "thread_1" }])
+    mockGetDirectChildThreadsByIds.mockResolvedValue([{ id: "thread_1" }])
   })
 
-  it("scopes opener ids in SQL and gates every requested child channel before reading", async () => {
+  it("gates the parent once and validates all requested direct children in one query", async () => {
     const response = await POST(request({ channelId: "forum_1", ids: ["message_1"], firstInChannelIds: ["thread_1"] }))
 
     expect(response.status).toBe(200)
     expect(mockGetMessagesByIdsInScope).toHaveBeenCalledWith(expect.anything(), ["message_1"], { channelId: "forum_1" })
     expect(mockRequireMessageSurfaceAccess).toHaveBeenCalledWith(expect.anything(), "forum_1", "user_1")
-    expect(mockRequireMessageSurfaceAccess).toHaveBeenCalledWith(expect.anything(), "thread_1", "user_1")
+    expect(mockRequireMessageSurfaceAccess).toHaveBeenCalledTimes(1)
+    expect(mockGetDirectChildThreadsByIds).toHaveBeenCalledWith(expect.anything(), "forum_1", ["thread_1"])
   })
 
   it("does not query messages when the parent scope is inaccessible", async () => {
@@ -68,5 +75,12 @@ describe("POST /api/community/messages/batch", () => {
 
     expect(response.status).toBe(404)
     expect(mockGetMessagesByIdsInScope).not.toHaveBeenCalled()
+  })
+
+  it("rejects the entire batch when any id is not a direct child", async () => {
+    mockGetDirectChildThreadsByIds.mockResolvedValue([])
+    const response = await POST(request({ channelId: "forum_1", firstInChannelIds: ["foreign_thread"] }))
+    expect(response.status).toBe(404)
+    expect(mockGetFirstMessageByChannelIds).not.toHaveBeenCalled()
   })
 })
