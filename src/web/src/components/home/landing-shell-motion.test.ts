@@ -19,6 +19,22 @@ describe("landing shell motion timeline", () => {
     expect(sceneSnapshot("server", 5)).toMatchObject({ visibleMessages: 4, focus: "message-shelly" })
   })
 
+  it("provides one deterministic Case 1 timeline for desktop and mobile consumers", () => {
+    const sharedBeats = Array.from({ length: SCENE_MAX_BEAT.server + 1 }, (_, beat) =>
+      sceneSnapshot("server", beat),
+    )
+
+    expect(sharedBeats.map(({ beat, composerText, visibleMessages }) => ({ beat, composerText, visibleMessages }))).toEqual([
+      { beat: 0, composerText: "", visibleMessages: 0 },
+      { beat: 1, composerText: "hello world", visibleMessages: 0 },
+      { beat: 2, composerText: "", visibleMessages: 1 },
+      { beat: 3, composerText: "", visibleMessages: 2 },
+      { beat: 4, composerText: "", visibleMessages: 3 },
+      { beat: 5, composerText: "", visibleMessages: 4 },
+      { beat: 6, composerText: "", visibleMessages: 4 },
+    ])
+  })
+
   it("shows the real pair-sheet steps before the machine and born bot", () => {
     expect(sceneSnapshot("machine", 1)).toMatchObject({ machineState: "empty", pairSheet: "closed", focus: "connect" })
     expect(sceneSnapshot("machine", 2)).toMatchObject({ machineState: "connecting", pairSheet: "command", focus: "pair-step-1" })
@@ -66,7 +82,30 @@ describe("landing shell motion timeline", () => {
     expect(sceneSnapshot("spaces", 12)).toMatchObject({ room: "play", focus: null, camera: { scale: 1 } })
   })
 
-  it("zooms in around the cursor and returns wide in all four acts", () => {
+  it("turns one Gus request into two proactive exchanges discovered through unread inbox items", () => {
+    expect(sceneSnapshot("continuity", 0)).toMatchObject({ room: "work", visibleMessages: 0, focus: null })
+    expect(sceneSnapshot("continuity", 1)).toMatchObject({ composerText: "Alli, please move today’s priorities forward.", visibleMessages: 0, focus: "continuity-dm-composer" })
+    expect(sceneSnapshot("continuity", 2)).toMatchObject({ composerText: "", visibleMessages: 1, focus: "continuity-dm-gus" })
+    expect(sceneSnapshot("continuity", 3)).toMatchObject({ visibleMessages: 2, focus: "continuity-dm-alli" })
+    expect(sceneSnapshot("continuity", 4)).toMatchObject({ focus: null, camera: { scale: 1 } })
+    expect(sceneSnapshot("continuity", 5)).toMatchObject({ room: "work", visibleMessages: 2, focus: "continuity-inbox" })
+    expect(sceneSnapshot("continuity", 6)).toMatchObject({ room: "work", visibleMessages: 2, focus: "continuity-inbox-row-work" })
+
+    expect(sceneSnapshot("continuity", 7)).toMatchObject({ visibleMessages: 1, focus: "continuity-work-alli" })
+    expect(sceneSnapshot("continuity", 8)).toMatchObject({ visibleMessages: 2, focus: "continuity-work-shelly" })
+    expect(sceneSnapshot("continuity", 9)).toMatchObject({ focus: null, camera: { scale: 1 } })
+    expect(sceneSnapshot("continuity", 10)).toMatchObject({ room: "work", visibleMessages: 2, focus: "continuity-inbox" })
+    expect(sceneSnapshot("continuity", 11)).toMatchObject({ room: "work", visibleMessages: 2, focus: "continuity-inbox-row-life" })
+
+    expect(sceneSnapshot("continuity", 12)).toMatchObject({ room: "life", visibleMessages: 2, focus: "continuity-life-alli" })
+    expect(sceneSnapshot("continuity", 13)).toMatchObject({ visibleMessages: 2, focus: "continuity-life-tracy" })
+    expect(sceneSnapshot("continuity", 14)).toMatchObject({ focus: null, camera: { scale: 1 } })
+    expect(
+      Array.from({ length: 8 }, (_, index) => sceneSnapshot("continuity", index + 7).composerText),
+    ).toEqual(Array.from({ length: 8 }, () => ""))
+  })
+
+  it("zooms in around the cursor and returns wide in all five acts", () => {
     expect(sceneSnapshot("server", 1).camera.scale).toBe(1.22)
     expect(sceneSnapshot("server", 6).camera.scale).toBe(1)
     expect(sceneSnapshot("machine", 2).camera.scale).toBe(1.22)
@@ -77,6 +116,8 @@ describe("landing shell motion timeline", () => {
     expect(sceneSnapshot("provider", 9).camera.scale).toBe(1)
     expect(sceneSnapshot("spaces", 5).camera.scale).toBe(1.2)
     expect(sceneSnapshot("spaces", 12).camera.scale).toBe(1)
+    expect(sceneSnapshot("continuity", 6).camera.scale).toBe(1.2)
+    expect(sceneSnapshot("continuity", 14).camera.scale).toBe(1)
   })
 
   it("clamps out-of-range beats to a valid deterministic snapshot", () => {
@@ -93,6 +134,7 @@ describe("landing shell motion timeline", () => {
     expect(sceneDurationMs("machine")).toBe(12_900)
     expect(sceneDurationMs("provider")).toBe(15_900)
     expect(sceneDurationMs("spaces")).toBe(20_400)
+    expect(sceneDurationMs("continuity")).toBe(23_400)
   })
 
   it("boosts focused gallery beats while preserving wide beats", () => {

@@ -36,7 +36,7 @@ export function resolveCardStatus(
 // `initialStatusEmoji` / `initialStatusText` props are a first-paint seed for
 // users the overlay has never seen a WS event for; once the overlay has an
 // entry, it wins. See plans/profile-card-status-overlay.md.
-export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpdateStatus, initialStatusEmoji, initialStatusText }: {
+export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpdateStatus, initialStatusEmoji, initialStatusText, embedded }: {
   data: Profile
   x: number
   y: number
@@ -49,6 +49,9 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
   onUpdateStatus?: (emoji: string | null, text: string | null) => void
   initialStatusEmoji?: string | null
   initialStatusText?: string | null
+  // Static card surface for contexts such as product previews. The regular
+  // profile interaction still uses the anchored popover / mobile sheet.
+  embedded?: boolean
 }) {
   const [msg, setMsg] = useState("")
   const [open, setOpen] = useState(true)
@@ -194,6 +197,9 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
       </div>
     </>
   )
+
+  if (embedded)
+    return <div data-testid={tid.profileCard} className="w-full overflow-hidden rounded-xl border border-border bg-popover p-2 shadow-(--e2)">{card}</div>
 
   // mobile: bottom sheet (intentional mobile UX, kept manual)
   if (mobile)

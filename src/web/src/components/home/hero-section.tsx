@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import gsap from "gsap";
@@ -12,7 +12,41 @@ import { trackLandingCtaClicked } from "@/lib/analytics";
 
 gsap.registerPlugin(ScrollTrigger, SplitText);
 
-export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
+export function HeroSection({
+  isLoggedIn,
+  kicker,
+  headline = "Run Your Personal Company",
+  subline,
+  papers,
+  showClipboard = true,
+  showCommunityLinks = true,
+  primaryCtaLabel,
+  secondaryCta,
+  headlineClassName,
+  headlineStyle,
+  typewriterClassName,
+  largeCtas = false,
+  highlightPrimaryCta = false,
+  testId,
+  backgroundDecoration,
+}: {
+  isLoggedIn: boolean;
+  kicker?: string;
+  headline?: ReactNode;
+  subline?: ReactNode;
+  papers?: ReactNode[];
+  showClipboard?: boolean;
+  showCommunityLinks?: boolean;
+  primaryCtaLabel?: string;
+  secondaryCta?: { href: string; label: string } | null;
+  headlineClassName?: string;
+  headlineStyle?: CSSProperties;
+  typewriterClassName?: string;
+  largeCtas?: boolean;
+  highlightPrimaryCta?: boolean;
+  testId?: string;
+  backgroundDecoration?: ReactNode;
+}) {
   const sectionRef = useRef<HTMLDivElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const sublineRef = useRef<HTMLParagraphElement>(null);
@@ -21,12 +55,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
 
   useGSAP(
     () => {
-      if (
-        !headingRef.current ||
-        !sublineRef.current ||
-        !ctaRef.current
-      )
-        return;
+      if (!headingRef.current || !ctaRef.current) return;
 
       const entranceTl = gsap.timeline({ delay: 0.3 });
 
@@ -35,26 +64,36 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
           { y: -20, opacity: 0 },
           { y: 0, opacity: 1, duration: 0.5, ease: "power3.out" }
         )
-        .to(headingRef.current, { opacity: 1, duration: 0.4, ease: "power2.out" }, 0.2)
-        .to(sublineRef.current, { opacity: 1, duration: 0.3, ease: "power2.out" }, "-=0.1")
-        .fromTo(
+        .to(headingRef.current, { opacity: 1, duration: 0.4, ease: "power2.out" }, 0.2);
+
+      if (sublineRef.current) {
+        entranceTl.to(sublineRef.current, { opacity: 1, duration: 0.3, ease: "power2.out" }, "-=0.1");
+      }
+
+      if (showClipboard) {
+        entranceTl.fromTo(
           ".hero-clipboard",
           { y: 10, opacity: 0 },
           { y: 0, opacity: 1, duration: 0.3, ease: "power2.out" },
           "-=0.1"
-        )
-        .fromTo(
+        );
+      }
+
+      if (showCommunityLinks) {
+        entranceTl.fromTo(
           ".hero-providers",
           { y: 10, opacity: 0 },
           { y: 0, opacity: 1, duration: 0.4, ease: "power2.out" },
           "-=0.2"
-        )
-        .fromTo(
-          ctaRef.current,
-          { y: 15, opacity: 0 },
-          { y: 0, opacity: 1, duration: 0.4, ease: "power2.out" },
-          "-=0.2"
         );
+      }
+
+      entranceTl.fromTo(
+        ctaRef.current,
+        { y: 15, opacity: 0 },
+        { y: 0, opacity: 1, duration: 0.4, ease: "power2.out" },
+        "-=0.2"
+      );
 
     },
     { scope: sectionRef }
@@ -63,6 +102,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
   return (
     <section
       ref={sectionRef}
+      data-testid={testId}
       className="hero-section relative flex h-screen items-center justify-center overflow-hidden"
       style={{ backgroundColor: "var(--landing-bg)" }}
     >
@@ -75,6 +115,8 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
           backgroundSize: "256px 256px",
         }}
       />
+
+      {backgroundDecoration}
 
       <div className="hero-content relative z-10 mx-auto flex w-full max-w-4xl flex-col items-center px-4 sm:px-6 py-8 max-h-full">
         {/* Brand */}
@@ -100,44 +142,62 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
         <div className="relative w-full shrink min-h-0 flex-1">
           {/* Slogan — positioned at top of typewriter area */}
           <div className="absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-2">
+            {kicker && (
+              <p
+                className="mb-2 text-center text-[10px] uppercase tracking-[0.16em] sm:text-xs"
+                style={{ fontFamily: "var(--font-mono)", color: "var(--landing-text-muted)" }}
+              >
+                {kicker}
+              </p>
+            )}
             <h1
               ref={headingRef}
-              className="mb-1 text-center leading-[1.2] px-2"
+              className={`mb-1 px-2 text-center leading-[1.2] ${headlineClassName ?? ""}`}
               style={{
                 fontFamily: "var(--font-crt)",
                 color: "var(--landing-text)",
                 fontSize: "clamp(26px, 4vw, 44px)",
                 letterSpacing: "-0.01em",
                 opacity: 0,
+                ...headlineStyle,
               }}
             >
-              Run Your Personal Company
+              {headline}
             </h1>
-            <p
-              ref={sublineRef}
-              className="block max-w-lg text-center text-sm sm:text-base leading-relaxed px-2"
-              style={{
-                fontFamily: "var(--font-crt)",
-                color: "var(--landing-text-muted)",
-                fontSize: "clamp(15px, 3.6vw, 20px)",
-                opacity: 0,
-              }}
-            >
-              You have ideas that need ten people to execute.
-              Now you only need yourself and Alook.
-            </p>
+            {subline !== null && (
+              <p
+                ref={sublineRef}
+                className="block max-w-lg px-2 text-center text-sm leading-relaxed sm:text-base"
+                style={{
+                  fontFamily: "var(--font-crt)",
+                  color: "var(--landing-text-muted)",
+                  fontSize: "clamp(15px, 3.6vw, 20px)",
+                  opacity: 0,
+                }}
+              >
+                {subline === undefined ? (
+                  <>
+                    You have ideas that need ten people to execute.
+                    Now you only need yourself and Alook.
+                  </>
+                ) : subline}
+              </p>
+            )}
           </div>
 
           {/* Full Typewriter */}
-          <TypewriterVisual
-            interactive
-            entranceDelay={1.2}
-            className="absolute! inset-0"
-          />
+          <div className={`absolute inset-0 ${typewriterClassName ?? ""}`}>
+            <TypewriterVisual
+              interactive
+              entranceDelay={1.2}
+              papers={papers}
+              className="absolute! inset-0"
+            />
+          </div>
         </div>
 
         {/* Clipboard copy widget */}
-        <div
+        {showClipboard && <div
           className="hero-clipboard relative mt-8 shrink-0 w-full max-w-lg cursor-pointer"
           style={{ opacity: 0 }}
           onClick={() => {
@@ -198,7 +258,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
               )}
             </span>
           </div>
-        </div>
+        </div>}
 
         {/* Specs */}
         {/* <div className="hero-specs mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2" style={{ opacity: 0 }}>
@@ -221,7 +281,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
         </div> */}
 
         {/* Community links */}
-        <div className="hero-providers mt-4 shrink-0 flex items-center justify-center gap-4" style={{ opacity: 0 }}>
+        {showCommunityLinks && <div className="hero-providers mt-4 shrink-0 flex items-center justify-center gap-4" style={{ opacity: 0 }}>
           <a
             href="https://github.com/alookai/alook"
             target="_blank"
@@ -258,7 +318,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
               <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
             </svg>
           </a>
-        </div>
+        </div>}
 
         {/* CTA */}
         <div ref={ctaRef} className="mt-8 shrink-0 flex flex-nowrap items-center justify-center gap-3" style={{ opacity: 0 }}>
@@ -281,11 +341,11 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
             <Link
               href="/c/me"
               onClick={() => trackLandingCtaClicked({ cta_name: "open_app" })}
-              className="inline-flex items-center gap-2 px-6 py-2 text-sm transition-all duration-200 hover:opacity-80"
+              className={`inline-flex items-center gap-2 transition-all duration-200 hover:opacity-80 ${largeCtas ? "px-8 py-3 text-base" : "px-6 py-2 text-sm"}`}
               style={{
                 fontFamily: "var(--font-mono)",
                 color: "var(--landing-bg)",
-                backgroundColor: "var(--landing-text)",
+                backgroundColor: highlightPrimaryCta ? "var(--landing-accent)" : "var(--landing-text)",
                 letterSpacing: "0.12em",
               }}
             >
@@ -294,17 +354,17 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
                 <polyline points="10 17 15 12 10 7" />
                 <line x1="15" y1="12" x2="3" y2="12" />
               </svg>
-              OPEN APP
+              {primaryCtaLabel ?? "OPEN APP"}
             </Link>
           ) : (
             <a
               href="/sign-in"
               onClick={() => trackLandingCtaClicked({ cta_name: "get_started" })}
-              className="inline-flex items-center gap-2 px-6 py-2 text-sm transition-all duration-200 hover:opacity-80"
+              className={`inline-flex items-center gap-2 transition-all duration-200 hover:opacity-80 ${largeCtas ? "px-8 py-3 text-base" : "px-6 py-2 text-sm"}`}
               style={{
                 fontFamily: "var(--font-mono)",
                 color: "var(--landing-bg)",
-                backgroundColor: "var(--landing-text)",
+                backgroundColor: highlightPrimaryCta ? "var(--landing-accent)" : "var(--landing-text)",
                 letterSpacing: "0.12em",
               }}
             >
@@ -313,13 +373,13 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
                 <polyline points="10 17 15 12 10 7" />
                 <line x1="15" y1="12" x2="3" y2="12" />
               </svg>
-              GET STARTED
+              {primaryCtaLabel ?? "GET STARTED"}
             </a>
           )}
-          <Link
-            href="/templates"
-            onClick={() => trackLandingCtaClicked({ cta_name: "templates" })}
-            className="inline-flex items-center gap-2 px-6 py-2 text-sm transition-all duration-200 hover:opacity-80"
+          {secondaryCta !== null && <Link
+            href={secondaryCta?.href ?? "/templates"}
+            onClick={secondaryCta === undefined ? () => trackLandingCtaClicked({ cta_name: "templates" }) : undefined}
+            className={`inline-flex items-center gap-2 transition-all duration-200 hover:opacity-80 ${largeCtas ? "px-8 py-3 text-base" : "px-6 py-2 text-sm"}`}
             style={{
               fontFamily: "var(--font-mono)",
               color: "var(--landing-text)",
@@ -327,14 +387,16 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
               letterSpacing: "0.12em",
             }}
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="3" width="7" height="7" />
-              <rect x="14" y="3" width="7" height="7" />
-              <rect x="3" y="14" width="7" height="7" />
-              <rect x="14" y="14" width="7" height="7" />
-            </svg>
-            TEMPLATES
-          </Link>
+            {secondaryCta === undefined && (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="7" height="7" />
+                <rect x="14" y="3" width="7" height="7" />
+                <rect x="3" y="14" width="7" height="7" />
+                <rect x="14" y="14" width="7" height="7" />
+              </svg>
+            )}
+            {secondaryCta?.label ?? "TEMPLATES"}
+          </Link>}
         </div>
 
         </div>{/* end hero-scalable */}

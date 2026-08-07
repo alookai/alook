@@ -1,0 +1,212 @@
+.swarm {
+  --swarm-ground: 78%;
+
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.runner {
+  position: absolute;
+  top: calc(var(--swarm-ground) - var(--avatar-size) + var(--avatar-ground-offset));
+  left: var(--avatar-start-x);
+  width: var(--avatar-size);
+  height: var(--avatar-size);
+  opacity: 0;
+  will-change: transform, opacity;
+  animation: avatar-travel var(--avatar-duration) var(--avatar-delay) linear forwards;
+}
+
+.face,
+.shadow {
+  position: absolute;
+  left: 0;
+  display: block;
+  width: 100%;
+  animation-delay: var(--avatar-delay);
+  animation-duration: var(--avatar-duration);
+  animation-fill-mode: forwards;
+  animation-timing-function: linear;
+}
+
+.face {
+  bottom: 0;
+  height: 100%;
+  filter: drop-shadow(0 7px 9px color-mix(in oklch, var(--landing-text), transparent 78%));
+  transform: rotate(var(--avatar-tilt));
+  transform-origin: center bottom;
+  will-change: transform;
+}
+
+.shadow {
+  bottom: -5px;
+  height: 6px;
+  border-radius: 50%;
+  background: color-mix(in oklch, var(--landing-text), transparent 82%);
+  filter: blur(1.5px);
+  transform-origin: center;
+  will-change: opacity, transform;
+}
+
+.runner[data-path="bound"] .face {
+  animation-name: hop-bound;
+}
+
+.runner[data-path="bound"] .shadow {
+  animation-name: shadow-bound;
+}
+
+.runner[data-path="skip"] .face {
+  animation-name: hop-skip;
+}
+
+.runner[data-path="skip"] .shadow {
+  animation-name: shadow-skip;
+}
+
+.runner[data-path="scurry"] .face {
+  animation-name: hop-scurry;
+}
+
+.runner[data-path="scurry"] .shadow {
+  animation-name: shadow-scurry;
+}
+
+@keyframes avatar-travel {
+  0% {
+    opacity: 0;
+    transform: translate3d(-26px, 0, 0);
+  }
+  3% {
+    opacity: 1;
+  }
+  18% {
+    transform: translate3d(15vw, 0, 0);
+  }
+  21% {
+    transform: translate3d(16vw, 0, 0);
+  }
+  40% {
+    transform: translate3d(37vw, 0, 0);
+  }
+  43% {
+    transform: translate3d(38vw, 0, 0);
+  }
+  62% {
+    transform: translate3d(60vw, 0, 0);
+  }
+  65% {
+    transform: translate3d(61vw, 0, 0);
+  }
+  82% {
+    transform: translate3d(82vw, 0, 0);
+  }
+  85% {
+    transform: translate3d(83vw, 0, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(calc(100vw + 150px), 0, 0);
+  }
+}
+
+@keyframes hop-bound {
+  0%, 18%, 40%, 62%, 82%, 100% {
+    transform: translateY(0) scale(1.15, 0.82) rotate(var(--avatar-tilt));
+  }
+  3%, 21%, 43%, 65%, 85% {
+    transform: translateY(-10px) scale(0.84, 1.18) rotate(var(--avatar-tilt));
+  }
+  10%, 30%, 52%, 74%, 93% {
+    transform: translateY(var(--avatar-hop)) scale(1) rotate(var(--avatar-tilt));
+  }
+  15%, 36%, 58%, 78%, 97% {
+    transform: translateY(-8px) scale(0.96, 1.05) rotate(var(--avatar-tilt));
+  }
+}
+
+@keyframes hop-skip {
+  0%, 22%, 48%, 73%, 100% {
+    transform: translateY(0) scale(1.18, 0.8) rotate(var(--avatar-tilt));
+  }
+  4%, 26%, 52%, 77% {
+    transform: translateY(-12px) scale(0.82, 1.2) rotate(var(--avatar-tilt));
+  }
+  13%, 37%, 63%, 88% {
+    transform: translateY(var(--avatar-hop)) scale(1) rotate(var(--avatar-tilt));
+  }
+  19%, 44%, 69%, 95% {
+    transform: translateY(-7px) scale(0.95, 1.06) rotate(var(--avatar-tilt));
+  }
+}
+
+@keyframes hop-scurry {
+  0%, 15%, 31%, 47%, 64%, 81%, 100% {
+    transform: translateY(0) scale(1.2, 0.78) rotate(var(--avatar-tilt));
+  }
+  3%, 18%, 34%, 50%, 67%, 84% {
+    transform: translateY(-7px) scale(0.8, 1.22) rotate(var(--avatar-tilt));
+  }
+  8%, 24%, 40%, 57%, 74%, 91% {
+    transform: translateY(var(--avatar-hop)) scale(1) rotate(var(--avatar-tilt));
+  }
+  13%, 29%, 45%, 62%, 79%, 97% {
+    transform: translateY(-5px) scale(0.94, 1.07) rotate(var(--avatar-tilt));
+  }
+}
+
+@keyframes shadow-bound {
+  0%, 18%, 40%, 62%, 82%, 100% {
+    opacity: 0.42;
+    transform: scaleX(1);
+  }
+  10%, 30%, 52%, 74%, 93% {
+    opacity: 0.1;
+    transform: scaleX(0.42);
+  }
+}
+
+@keyframes shadow-skip {
+  0%, 22%, 48%, 73%, 100% {
+    opacity: 0.44;
+    transform: scaleX(1.08);
+  }
+  13%, 37%, 63%, 88% {
+    opacity: 0.08;
+    transform: scaleX(0.36);
+  }
+}
+
+@keyframes shadow-scurry {
+  0%, 15%, 31%, 47%, 64%, 81%, 100% {
+    opacity: 0.38;
+    transform: scaleX(0.92);
+  }
+  8%, 24%, 40%, 57%, 74%, 91% {
+    opacity: 0.13;
+    transform: scaleX(0.5);
+  }
+}
+
+@media (max-width: 639px) {
+  .swarm {
+    --swarm-ground: 75%;
+  }
+
+  .runner {
+    left: calc(var(--avatar-start-x) - 64%);
+  }
+
+  .face > * {
+    transform: scale(0.82);
+    transform-origin: center bottom;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .swarm {
+    display: none;
+  }
+}

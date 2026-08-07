@@ -1,5 +1,9 @@
 .root {
+  --motion-frame-radius: var(--gallery-frame-radius, var(--radius-lg));
+
   width: 100%;
+  overflow: hidden;
+  border-radius: var(--motion-frame-radius);
 }
 
 .galleryContainer {
@@ -30,17 +34,67 @@
   aspect-ratio: 1120 / 660;
   overflow: hidden;
   pointer-events: none;
-  border-radius: var(--gallery-frame-radius);
+  border-radius: var(--motion-frame-radius);
   box-shadow: none;
   contain: layout paint;
   isolation: isolate;
 }
 
+.mobileStage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 390 / 788;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.mobileCanvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 390px;
+  height: 788px;
+  transform: scale(var(--mobile-stage-scale));
+  transform-origin: top left;
+}
+
+.mobileTop {
+  display: flex;
+  height: 40px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 22px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+}
+
+.mobileSurface {
+  display: flex;
+  width: 100%;
+  height: 748px;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--background);
+}
+
+.mobileMessages {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+
+.mobileMessages :global([data-testid="message-row"]) {
+  padding-right: 0;
+  padding-left: 0;
+}
+
 .productShell {
-  border: 1px solid color-mix(in oklch, var(--border), var(--foreground) 20%);
-  border-radius: var(--gallery-frame-radius);
+  overflow: hidden;
+  border: var(--motion-shell-border-width, 1px) solid color-mix(in oklch, var(--border), var(--foreground) 20%);
+  border-radius: var(--motion-frame-radius);
   background: var(--app-bg);
-  clip-path: inset(0 round var(--gallery-frame-radius));
+  clip-path: inset(0 round var(--motion-frame-radius));
 }
 
 .canvas {
@@ -154,6 +208,21 @@
     transform 420ms cubic-bezier(0.4, 0, 0.2, 1),
     opacity 320ms cubic-bezier(0.4, 0, 0.2, 1),
     visibility 0s;
+}
+
+.inboxSurface {
+  position: absolute;
+  z-index: 60;
+  bottom: 60px;
+  left: 12px;
+  width: 360px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: var(--shadow-md);
+  animation: inbox-enter 320ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .motionTarget {
@@ -312,7 +381,14 @@
 
 @keyframes typing {
   to {
-    max-width: 11ch;
+    max-width: var(--typing-width, 11ch);
+  }
+}
+
+@keyframes inbox-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
   }
 }
 
@@ -330,6 +406,7 @@
   .botMenu,
   .sheetSurface,
   .inviteSurface,
+  .inboxSurface,
   .camera,
   .sceneEnter {
     transition: none;
@@ -337,7 +414,7 @@
   }
 
   .typingText {
-    max-width: 11ch;
+    max-width: var(--typing-width, 11ch);
   }
 }
 

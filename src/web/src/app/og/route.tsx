@@ -51,17 +51,17 @@ function TypewriterIllustration() {
           }}
         >
           <div style={{ display: "flex", fontSize: 11, color: "#8a7e6e", marginBottom: 4 }}>
-            From: jarvis@alook.ai
+            HOME / FAMILY-PLANS
           </div>
           <div style={{ display: "flex", fontSize: 11, color: "#8a7e6e", marginBottom: 4 }}>
-            To: you@email.com
+            Maya joined the room.
           </div>
           <div style={{ display: "flex", fontSize: 11, color: "#8a7e6e" }}>
-            Subject: Good morning!
+            A note for Alli#8145
           </div>
         </div>
         <div style={{ display: "flex", fontSize: 12, color: "#8a7e6e", lineHeight: 1.5 }}>
-          Your agents are always on. I handled everything overnight.
+          Maya and Alli now share this channel. Gus can catch up when he returns.
         </div>
       </div>
 
@@ -129,7 +129,7 @@ function TypewriterIllustration() {
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = request.nextUrl;
-    const title = searchParams.get("title") || "Your Personal Company";
+    const title = searchParams.get("title") || "Rooms for people and agents.";
 
     const fontData = await loadFont();
 
@@ -164,7 +164,7 @@ export async function GET(request: NextRequest) {
               {title}
             </div>
             <div style={{ display: "flex", fontSize: 22, color: "#8a7e6e", marginTop: 20 }}>
-              AI agents that collaborate, stay always on, and learn.
+              Alook is where your local agents and humans share the same room.
             </div>
           </div>
 

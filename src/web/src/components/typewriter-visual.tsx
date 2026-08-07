@@ -146,19 +146,21 @@ const TW_VARS: React.CSSProperties = {
   "--tw-chrome": "oklch(0.72 0.01 75)",
   "--tw-chrome-hi": "oklch(0.82 0.005 80)",
   "--tw-paper": "oklch(0.97 0.008 80)",
-  "--tw-blob": "oklch(0.88 0.025 82)",
+  "--tw-blob": "var(--tw-blob-theme, oklch(0.88 0.025 82))",
   "--tw-roller": "oklch(0.15 0.01 55)",
 } as React.CSSProperties;
 
 interface TypewriterVisualProps {
   className?: string;
-  /** When true, keyboard Enter cycles emails. Default false. */
+  /** When true, keyboard Enter cycles the available papers. Default false. */
   interactive?: boolean;
   /** Delay (seconds) before the paper-feed entrance animation starts. */
   entranceDelay?: number;
   /** Custom paper content. When provided, replaces the default email carousel and disables cycling. */
   paper?: React.ReactNode;
-  /** Email scheme to display. Defaults to EMAILS_DEFAULT. Ignored when `paper` is provided. */
+  /** Custom paper carousel. Return cycles these papers without using the legacy email examples. */
+  papers?: React.ReactNode[];
+  /** Email scheme to display. Defaults to EMAILS_DEFAULT. Ignored when custom paper content is provided. */
   emails?: TypewriterEmail[];
   /** Scale factor for the background blob. Default 1. */
   blobScale?: number;
@@ -176,6 +178,7 @@ export function TypewriterVisual({
   interactive = false,
   entranceDelay = 0.3,
   paper,
+  papers,
   emails = EMAILS_DEFAULT,
   blobScale = 1,
   blobBottom,
@@ -205,6 +208,9 @@ export function TypewriterVisual({
       };
     });
   }, [emails, birthday]);
+  const effectivePapers = papers && papers.length > 0 ? papers : null;
+  const cycleItemCount = effectivePapers?.length ?? effectiveEmails.length;
+  const canCycle = !paper && cycleItemCount > 1;
 
   useEffect(() => {
     if (!birthday) return;
@@ -311,12 +317,12 @@ export function TypewriterVisual({
       ease: "power2.in",
       onComplete: () => {
         setEmailIndex(() => {
-          const unseen = Array.from({ length: effectiveEmails.length }, (_, i) => i)
+          const unseen = Array.from({ length: cycleItemCount }, (_, i) => i)
             .filter((i) => !seenRef.current.has(i));
           if (unseen.length === 0) {
             seenRef.current = new Set();
           }
-          const pool = unseen.length > 0 ? unseen : Array.from({ length: effectiveEmails.length }, (_, i) => i);
+          const pool = unseen.length > 0 ? unseen : Array.from({ length: cycleItemCount }, (_, i) => i);
           const next = pool[Math.floor(Math.random() * pool.length)];
           seenRef.current.add(next);
           requestAnimationFrame(() => {
@@ -328,11 +334,11 @@ export function TypewriterVisual({
         });
       },
     });
-  }, [playPaperFeed, effectiveEmails.length]);
+  }, [playPaperFeed, cycleItemCount]);
 
   // Keyboard Enter listener — only when interactive
   useEffect(() => {
-    if (!interactive) return;
+    if (!interactive || !canCycle) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Enter") {
         e.preventDefault();
@@ -341,7 +347,7 @@ export function TypewriterVisual({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [interactive, handleReturnKey]);
+  }, [interactive, canCycle, handleReturnKey]);
 
   // Entrance animation — paper feeds in on mount
   useGSAP(
@@ -385,6 +391,7 @@ export function TypewriterVisual({
   );
 
   const email = effectiveEmails[emailIndex];
+  const activePaper = paper ?? effectivePapers?.[emailIndex];
 
   return (
     <div
@@ -408,8 +415,8 @@ export function TypewriterVisual({
             <div className="tw-body-front">
               {/* Paper track — clips paper as it feeds out */}
               <div className="tw-paper-track">
-                <div className="tw-paper" key={paper ? "custom" : `${emailIndex}-${paperKey}`}>
-                  {paper ?? (
+                <div className="tw-paper" key={activePaper ? `custom-${emailIndex}-${paperKey}` : `${emailIndex}-${paperKey}`}>
+                  {activePaper ?? (
                     <>
                       <div
                         className="tw-email-headers"
@@ -469,7 +476,7 @@ export function TypewriterVisual({
                 {KEY_ROWS.map((count, ri) => (
                   <div key={ri} className="tw-key-row">
                     {Array.from({ length: count }).map((_, ki) => {
-                      if (ri === 2 && ki === 4 && !paper) {
+                      if (ri === 2 && ki === 4 && !paper && !effectivePapers) {
                         return (
                           <Popover key={ki} open={hPopoverOpen} onOpenChange={setHPopoverOpen}>
                             <PopoverTrigger
@@ -503,11 +510,11 @@ export function TypewriterVisual({
                       }
                       return <div key={ki} className="tw-key" />;
                     })}
-                    {ri === 1 && !paper && (
+                    {ri === 1 && canCycle && (
                       <button
                         className="tw-key tw-return-key"
                         onClick={handleReturnKey}
-                        aria-label="Return — load next email"
+                        aria-label="Return — load next paper"
                       >
                         <span className="tw-return-label">{"\u21B5"}</span>
                       </button>

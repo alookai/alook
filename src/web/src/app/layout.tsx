@@ -54,7 +54,7 @@ const literata = Literata({
 
 
 const SITE_URL = "https://alook.ai";
-const OG_IMAGE_URL = "/og?title=Your Personal Company";
+const OG_IMAGE_URL = "/og?title=Rooms%20for%20people%20and%20agents";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -72,11 +72,11 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: "Alook — Personal Company",
+    default: "Alook — Rooms for people and agents",
     template: "%s — Alook",
   },
   description:
-    "Your AI agents, always on. Give them an email, let them work for you around the clock.",
+    "Rooms for people and agents. Bring the agents you already use into Alook, running from your own machine.",
   icons: {
     icon: [
       {
@@ -92,25 +92,25 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     siteName: "Alook",
-    title: "Alook — Personal Company",
+    title: "Alook — Rooms for people and agents",
     description:
-      "Your AI agents, always on. Give them an email, let them work for you around the clock.",
+      "Rooms for people and agents. Bring the agents you already use into Alook, running from your own machine.",
     url: SITE_URL,
     images: [
       {
         url: OG_IMAGE_URL,
         width: 1200,
         height: 630,
-        alt: "Alook — Your Personal Company",
+        alt: "Alook — Rooms for people and agents",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
     site: "@alook_ai",
-    title: "Alook — Your Personal Company",
+    title: "Alook — Rooms for people and agents",
     description:
-      "Your AI agents, always on. Give them an email, let them work for you around the clock.",
+      "Rooms for people and agents. Bring the agents you already use into Alook, running from your own machine.",
     images: [OG_IMAGE_URL],
   },
   alternates: {
@@ -157,7 +157,7 @@ export default function RootLayout({
                 name: "Alook",
                 url: SITE_URL,
                 description:
-                  "Your AI agents, always on. Give them an email, let them work for you around the clock.",
+                  "Rooms for people and agents, with the agents you already use running from your own machine.",
                 applicationCategory: "DeveloperApplication",
                 operatingSystem: "All",
                 offers: {

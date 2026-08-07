@@ -37,6 +37,7 @@ import { DmHeader } from "@/components/community/dm-header"
 import { ChannelHeader } from "@/components/community/channel-header"
 import { Avatar } from "@/components/community/avatar"
 import { Message } from "@/components/community/message"
+import { InboxPopover } from "@/components/community/community-inbox-popover"
 import { MachineCard } from "@/components/community/machines/machine-card"
 import { PairMachineSteps } from "@/components/community/machines/pair-machine-sheet"
 import { ConnectTile } from "@/components/community/onboarding-tiles/connect-tile"
@@ -44,7 +45,7 @@ import { BotFormFields } from "@/components/community/bots/bot-form-fields"
 import { BotRuntimeFields } from "@/components/community/bots/bot-runtime-fields"
 import { UserBar } from "@/components/community/user-bar"
 import { useChannelTree } from "@/components/community/use-channel-tree"
-import type { Category, DM, RenderMsg, Server } from "@/components/community/_types"
+import type { Category, DM, RenderMsg, Server, UnreadServer } from "@/components/community/_types"
 import { serializeBeamSeed } from "@/lib/avatar/seed-url"
 import { tid } from "@/lib/community/testids"
 import {
@@ -146,6 +147,31 @@ const SPACE_CHANNELS: Record<LandingRoom, Category[]> = {
       ],
     },
   ],
+}
+
+const CONTINUITY_CHANNELS: Record<LandingRoom, Category[]> = {
+  work: [
+    {
+      id: "cat_continuity_work",
+      name: "Public",
+      channels: [
+        { id: "continuity-frontend-design", name: "frontend-design", active: true, unread: false, type: "text" },
+        { id: "continuity-launch", name: "launch", active: false, unread: false, type: "text" },
+      ],
+    },
+  ],
+  life: [
+    {
+      id: "cat_continuity_life",
+      name: "Private",
+      private: true,
+      channels: [
+        { id: "continuity-family", name: "family", active: true, unread: false, type: "text" },
+        { id: "continuity-travel", name: "travel", active: false, unread: false, type: "text" },
+      ],
+    },
+  ],
+  play: SPACE_CHANNELS.play,
 }
 
 const DMS: DM[] = [
@@ -321,6 +347,115 @@ const DM_MESSAGES: RenderMsg[] = [
   },
 ]
 
+const CONTINUITY_DM_MESSAGES: RenderMsg[] = [
+  {
+    id: "continuity-dm-gus",
+    type: "chat",
+    authorId: "gus",
+    authorName: "Gus",
+    authorAvatar: "avatar:beam:gus",
+    content: "Alli, please move today’s priorities forward.",
+    createdAt: "2026-08-07T08:30:00.000Z",
+    seq: 610,
+    grouped: false,
+  },
+  {
+    id: "continuity-dm-alli",
+    type: "chat",
+    authorId: "alli",
+    authorName: "Alli",
+    authorAvatar: "avatar:beam:alli",
+    content: "Got it. I’ll ask Shelly for today’s A/B conversion update, then check with Tracy about the home router.",
+    createdAt: "2026-08-07T08:30:04.000Z",
+    seq: 611,
+    grouped: false,
+  },
+]
+
+const CONTINUITY_WORK_MESSAGES: RenderMsg[] = [
+  {
+    id: "continuity-work-alli",
+    type: "chat",
+    authorId: "alli",
+    authorName: "Alli",
+    authorAvatar: "avatar:beam:alli",
+    content: "@Shelly#3863 How are Gus’s A/B landing pages converting today?",
+    createdAt: "2026-08-07T08:31:00.000Z",
+    seq: 612,
+    grouped: false,
+  },
+  {
+    id: "continuity-work-shelly",
+    type: "chat",
+    authorId: "shelly",
+    authorName: "Shelly",
+    authorAvatar: "avatar:beam:shelly",
+    content: "B is ahead on sign-ups. I’m checking the mobile drop-off.",
+    createdAt: "2026-08-07T08:31:05.000Z",
+    seq: 613,
+    grouped: false,
+  },
+]
+
+const CONTINUITY_LIFE_MESSAGES: RenderMsg[] = [
+  {
+    id: "continuity-life-alli",
+    type: "chat",
+    authorId: "alli",
+    authorName: "Alli",
+    authorAvatar: "avatar:beam:alli",
+    content: "@Tracy#2048 Is the router at home still dropping out?",
+    createdAt: "2026-08-07T08:32:00.000Z",
+    seq: 614,
+    grouped: false,
+  },
+  {
+    id: "continuity-life-tracy",
+    type: "chat",
+    authorId: "tracy",
+    authorName: "Tracy",
+    authorAvatar: "avatar:beam:tracy",
+    content: "Yes — it dropped twice this morning.",
+    createdAt: "2026-08-07T08:32:05.000Z",
+    seq: 615,
+    grouped: false,
+  },
+]
+
+const CONTINUITY_WORK_UNREAD: UnreadServer[] = [
+  {
+    serverId: "work",
+    serverName: "Studio",
+    channels: [
+      {
+        channelId: "continuity-frontend-design",
+        channelName: "frontend-design",
+        type: "text",
+        lastMessageAt: "2026-08-07T08:31:05.000Z",
+        mentionCount: 0,
+        children: [],
+      },
+    ],
+  },
+]
+
+const CONTINUITY_LIFE_UNREAD: UnreadServer[] = [
+  {
+    serverId: "life",
+    serverName: "Home",
+    channels: [
+      {
+        channelId: "continuity-family",
+        channelName: "family",
+        type: "text",
+        lastMessageAt: "2026-08-07T08:32:05.000Z",
+        mentionCount: 0,
+        children: [],
+      },
+    ],
+  },
+]
+
 const ONLINE_MACHINE: CommunityMachineSummary = {
   id: "machine-studio",
   hostname: "gus-macbook",
@@ -448,8 +583,16 @@ function useVisualFocus(scene: LandingScene, focus: string | null) {
   return visualFocus
 }
 
-export function LandingShellMotion({ scene }: { scene: LandingScene }) {
-  const [beat, setBeat] = useState(0)
+export function LandingShellMotion({
+  scene,
+  machineIntroDescription,
+  beat: controlledBeat,
+}: {
+  scene: LandingScene
+  machineIntroDescription?: string
+  beat?: number
+}) {
+  const [localBeat, setLocalBeat] = useState(0)
   const stageRef = useRef<HTMLDivElement>(null)
   const cameraRef = useRef<HTMLDivElement>(null)
   const [stageScale, setStageScale] = useState(1)
@@ -458,19 +601,22 @@ export function LandingShellMotion({ scene }: { scene: LandingScene }) {
     () => new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } }),
   )
   const maxBeat = SCENE_MAX_BEAT[scene]
+  const beat = controlledBeat ?? localBeat
 
   useEffect(() => {
-    setBeat(reducedMotion ? maxBeat : 0)
-  }, [scene, maxBeat, reducedMotion])
+    if (controlledBeat === undefined) {
+      setLocalBeat(reducedMotion ? maxBeat : 0)
+    }
+  }, [controlledBeat, scene, maxBeat, reducedMotion])
 
   useEffect(() => {
-    if (reducedMotion) return
+    if (controlledBeat !== undefined || reducedMotion) return
     const delay = beat >= maxBeat ? SCENE_FINAL_HOLD_MS : SCENE_BEAT_DURATION_MS
     const timer = window.setTimeout(() => {
-      setBeat((current) => (current >= maxBeat ? 0 : current + 1))
+      setLocalBeat((current) => (current >= maxBeat ? 0 : current + 1))
     }, delay)
     return () => window.clearTimeout(timer)
-  }, [beat, maxBeat, reducedMotion])
+  }, [beat, controlledBeat, maxBeat, reducedMotion])
 
   useEffect(() => {
     const stage = stageRef.current
@@ -524,7 +670,11 @@ export function LandingShellMotion({ scene }: { scene: LandingScene }) {
             }
           >
             <QueryClientProvider client={queryClient}>
-              <PrototypeShell scene={scene} snapshot={visualSnapshot} />
+              <PrototypeShell
+                scene={scene}
+                snapshot={visualSnapshot}
+                machineIntroDescription={machineIntroDescription}
+              />
             </QueryClientProvider>
             <MousePointer2
               aria-hidden
@@ -542,9 +692,96 @@ export function LandingShellMotion({ scene }: { scene: LandingScene }) {
   )
 }
 
-function PrototypeShell({ scene, snapshot }: { scene: LandingScene; snapshot: SceneSnapshot }) {
-  const serverView = scene === "server" || scene === "spaces"
-  const room = scene === "spaces" ? snapshot.room : null
+export function LandingMobileChatMotion({ beat }: { beat: number }) {
+  const snapshot = sceneSnapshot("server", beat)
+  const stageRef = useRef<HTMLDivElement>(null)
+  const [stageScale, setStageScale] = useState(1)
+  const [queryClient] = useState(
+    () => new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } }),
+  )
+
+  useEffect(() => {
+    const stage = stageRef.current
+    if (!stage) return
+    const sync = () => setStageScale(stage.getBoundingClientRect().width / 390)
+    sync()
+    const observer = new ResizeObserver(sync)
+    observer.observe(stage)
+    return () => observer.disconnect()
+  }, [])
+
+  return (
+    <div
+      ref={stageRef}
+      className={styles.mobileStage}
+      data-testid="landing-mobile-motion-stage"
+      data-beat={snapshot.beat}
+      aria-hidden
+    >
+      <div
+        className={styles.mobileCanvas}
+        style={{ "--mobile-stage-scale": stageScale } as CSSProperties}
+      >
+        <div className={styles.mobileTop}>
+          <span>9:41</span>
+          <span>Phone</span>
+        </div>
+        <QueryClientProvider client={queryClient}>
+          <div className={styles.mobileSurface}>
+            <ChannelHeader
+              channel="general"
+              rightPanel={null}
+              onToggle={() => {}}
+              onBack={() => {}}
+              server={{ id: "gus", name: "Gus", icon: null }}
+              tools={{ threads: false, pinned: false, members: false }}
+            />
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className={`${styles.mobileMessages} flex-1 overflow-hidden px-2 py-2`}>
+                {MESSAGES.map((message, index) => (
+                  <div
+                    key={message.id}
+                    data-visible={index < snapshot.visibleMessages}
+                    className={styles.messageSlot}
+                  >
+                    <div
+                      className={targetClass(snapshot, `message-${message.authorId}`)}
+                    >
+                      <Message m={message} onOpenThread={() => {}} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <PrototypeComposer
+                snapshot={snapshot}
+                target="composer"
+                placeholder="Message /general"
+              />
+            </div>
+          </div>
+        </QueryClientProvider>
+      </div>
+    </div>
+  )
+}
+
+function PrototypeShell({
+  scene,
+  snapshot,
+  machineIntroDescription,
+}: {
+  scene: LandingScene
+  snapshot: SceneSnapshot
+  machineIntroDescription?: string
+}) {
+  const continuityRoom = scene === "continuity" && snapshot.beat >= 7
+    ? snapshot.room
+    : null
+  const serverView =
+    scene === "server" ||
+    scene === "spaces" ||
+    continuityRoom !== null
+  const room = scene === "spaces" ? snapshot.room : continuityRoom
   const servers = room
     ? SPACE_SERVERS.map((server) => ({ ...server, active: server.id === room }))
     : SERVERS
@@ -563,7 +800,10 @@ function PrototypeShell({ scene, snapshot }: { scene: LandingScene; snapshot: Sc
               className={`flex w-60 shrink-0 flex-col bg-sidebar pb-14 ${styles.sceneEnter}`}
             >
               {serverView ? (
-                <PrototypeChannelSidebar room={room} />
+                <PrototypeChannelSidebar
+                  room={room}
+                  channels={scene === "continuity" ? CONTINUITY_CHANNELS : SPACE_CHANNELS}
+                />
               ) : (
                 <PrototypeDmSidebar scene={scene} snapshot={snapshot} />
               )}
@@ -573,20 +813,81 @@ function PrototypeShell({ scene, snapshot }: { scene: LandingScene; snapshot: Sc
               className={`flex min-w-0 flex-1 flex-col bg-background ${styles.sceneEnter}`}
             >
               {scene === "server" && <ServerScene snapshot={snapshot} />}
-              {scene === "machine" && <MachineScene snapshot={snapshot} />}
+              {scene === "machine" && (
+                <MachineScene
+                  snapshot={snapshot}
+                  introDescription={machineIntroDescription}
+                />
+              )}
               {scene === "provider" && <ProviderScene snapshot={snapshot} />}
               {scene === "spaces" && <SpacesScene snapshot={snapshot} />}
+              {scene === "continuity" && <ContinuityScene snapshot={snapshot} />}
             </div>
           </div>
         </AppSurface>
         <div className="absolute bottom-0 left-0 z-10 -ml-14 w-74">
-          <UserBar
-            user={{ id: "gus", name: "Gus", avatar: "avatar:beam:gus" }}
-            onEditProfile={() => {}}
-          />
+          <PrototypeUserBar scene={scene} snapshot={snapshot} />
         </div>
       </div>
     </Shell>
+  )
+}
+
+function PrototypeUserBar({
+  scene,
+  snapshot,
+}: {
+  scene: LandingScene
+  snapshot: SceneSnapshot
+}) {
+  const rootRef = useRef<HTMLDivElement>(null)
+  const continuityBeat = scene === "continuity" ? snapshot.beat : -1
+  const workUnread = continuityBeat === 5 || continuityBeat === 6
+  const lifeUnread = continuityBeat === 10 || continuityBeat === 11
+  const hasUnread = workUnread || lifeUnread
+  const inboxOpen = continuityBeat === 6 || continuityBeat === 11
+  const inboxTarget = workUnread
+    ? "continuity-inbox-row-work"
+    : "continuity-inbox-row-life"
+  const inboxChannel = workUnread ? "frontend-design" : "family"
+  const unreads = workUnread ? CONTINUITY_WORK_UNREAD : CONTINUITY_LIFE_UNREAD
+
+  useLayoutEffect(() => {
+    const root = rootRef.current
+    const trigger = root?.querySelector<HTMLElement>('button[aria-label="Inbox"]')
+    trigger?.setAttribute("data-motion-target", "continuity-inbox")
+
+    const row = Array.from(root?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+      .find((button) => button.textContent?.includes(inboxChannel))
+    row?.setAttribute("data-motion-target", inboxTarget)
+
+    return () => {
+      trigger?.removeAttribute("data-motion-target")
+      row?.removeAttribute("data-motion-target")
+    }
+  }, [inboxChannel, inboxOpen, inboxTarget])
+
+  return (
+    <div ref={rootRef} className="relative">
+      {inboxOpen && (
+        <div className={styles.inboxSurface}>
+          <InboxPopover
+            unreads={unreads}
+            unreadDms={[]}
+            mentions={[]}
+            marked={[]}
+          />
+        </div>
+      )}
+      <UserBar
+        user={{ id: "gus", name: "Gus", avatar: "avatar:beam:gus" }}
+        onEditProfile={() => {}}
+        inbox={scene === "continuity" ? <span /> : undefined}
+        hasUnread={hasUnread}
+        inboxOpen={false}
+        onInboxOpenChange={() => {}}
+      />
+    </div>
   )
 }
 
@@ -634,8 +935,14 @@ function PrototypeServerRail({
   )
 }
 
-function PrototypeChannelSidebar({ room }: { room: LandingRoom | null }) {
-  const categories = room ? SPACE_CHANNELS[room] : CHANNELS
+function PrototypeChannelSidebar({
+  room,
+  channels = SPACE_CHANNELS,
+}: {
+  room: LandingRoom | null
+  channels?: Record<LandingRoom, Category[]>
+}) {
+  const categories = room ? channels[room] : CHANNELS
   const tree = useChannelTree(categories)
   const serverName = room
     ? SPACE_SERVERS.find((server) => server.id === room)?.name ?? ""
@@ -694,7 +1001,9 @@ function PrototypeDmSidebar({
   snapshot: SceneSnapshot
 }) {
   const sidebarRef = useRef<HTMLDivElement>(null)
-  const dmOpen = scene === "provider" && snapshot.beat >= 6
+  const dmOpen =
+    (scene === "provider" && snapshot.beat >= 6) ||
+    (scene === "continuity" && snapshot.beat < 5)
 
   useLayoutEffect(() => {
     const row = sidebarRef.current?.querySelector<HTMLElement>(
@@ -835,6 +1144,75 @@ function SpacesScene({ snapshot }: { snapshot: SceneSnapshot }) {
   )
 }
 
+function ContinuityScene({ snapshot }: { snapshot: SceneSnapshot }) {
+  if (snapshot.beat < 7) {
+    return (
+      <>
+        <DmHeader dm={DMS[0]} />
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="flex-1 overflow-hidden px-4 py-3">
+            {CONTINUITY_DM_MESSAGES.map((message, index) => (
+              <div
+                key={message.id}
+                data-visible={index < snapshot.visibleMessages}
+                className={styles.messageSlot}
+              >
+                <div
+                  data-motion-target={message.id}
+                  className={targetClass(snapshot, message.id)}
+                >
+                  <Message m={message} onOpenThread={() => {}} />
+                </div>
+              </div>
+            ))}
+          </div>
+          <PrototypeComposer
+            snapshot={snapshot}
+            target="continuity-dm-composer"
+            placeholder="Message @Alli"
+          />
+        </div>
+      </>
+    )
+  }
+
+  const room = snapshot.room
+  const server = SPACE_SERVERS.find((item) => item.id === room) ?? SPACE_SERVERS[0]
+  const channel = CONTINUITY_CHANNELS[room][0]?.channels[0]
+  const messages = room === "life"
+    ? CONTINUITY_LIFE_MESSAGES
+    : CONTINUITY_WORK_MESSAGES
+
+  return (
+    <>
+      <ChannelHeader
+        channel={channel?.name ?? "general"}
+        rightPanel={null}
+        onToggle={() => {}}
+        server={{ id: server.id, name: server.name, icon: server.icon ?? null }}
+      />
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="flex-1 overflow-hidden px-4 py-3">
+          {messages.map((message, index) => (
+            <div
+              key={message.id}
+              data-visible={index < snapshot.visibleMessages}
+              className={styles.messageSlot}
+            >
+              <div
+                data-motion-target={message.id}
+                className={targetClass(snapshot, message.id)}
+              >
+                <Message m={message} onOpenThread={() => {}} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  )
+}
+
 function PrototypeInviteSurface({ snapshot }: { snapshot: SceneSnapshot }) {
   return (
     <aside
@@ -926,7 +1304,12 @@ function PrototypeComposer({
             className={styles.composerLayer}
           >
             {snapshot.composerText && (
-              <span className={styles.typingText}>{snapshot.composerText}</span>
+              <span
+                className={styles.typingText}
+                style={{ "--typing-width": `${Math.max(11, snapshot.composerText.length)}ch` } as CSSProperties}
+              >
+                {snapshot.composerText}
+              </span>
             )}
             <span className="ml-0.5 inline-block h-5 w-px bg-foreground align-middle" />
           </span>
@@ -948,7 +1331,13 @@ function PrototypeComposer({
   )
 }
 
-function MachineScene({ snapshot }: { snapshot: SceneSnapshot }) {
+function MachineScene({
+  snapshot,
+  introDescription,
+}: {
+  snapshot: SceneSnapshot
+  introDescription?: string
+}) {
   const online = snapshot.machineState === "online" || snapshot.machineState === "bot-born"
   const pairOpen = snapshot.pairSheet !== "closed"
   const pairConnected = snapshot.pairSheet === "connected"
@@ -969,8 +1358,12 @@ function MachineScene({ snapshot }: { snapshot: SceneSnapshot }) {
             <div className="flex flex-col gap-1">
               <h2 className="text-lg font-medium text-foreground">No machines yet</h2>
               <p className="max-w-md text-sm text-muted-foreground">
-                Connect a machine and your bots run on it always-on — reach them from
-                your phone or anywhere, wherever you sign in.
+                {introDescription ?? (
+                  <>
+                    Connect a machine and your bots run on it always-on — reach them from
+                    your phone or anywhere, wherever you sign in.
+                  </>
+                )}
               </p>
             </div>
             <div className="flex items-center gap-2">

@@ -93,7 +93,7 @@ export function PublicLayout({
                 </span>
               </Link>
               <span className="text-[10px] uppercase tracking-[0.2em] font-mono text-muted-foreground">
-                Your Personal Company
+                Rooms for people and agents.
               </span>
             </div>
 

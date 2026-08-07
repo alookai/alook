@@ -297,7 +297,7 @@ const galleryScenes: { scene: LandingScene; label: string; description: string }
   },
   {
     scene: "machine",
-    label: "Bring your own workspaces",
+    label: "Bring your own agents",
     description: "Use your own computer and existing agent subscriptions.",
   },
   {

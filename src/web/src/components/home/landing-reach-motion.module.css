@@ -1,0 +1,91 @@
+.stage {
+  position: relative;
+  width: 100%;
+  max-width: 1120px;
+  height: auto;
+  margin: 0 auto;
+  aspect-ratio: 1120 / 760;
+}
+
+.desktopShell {
+  position: absolute;
+  top: 0;
+  left: 9%;
+  width: 82%;
+  overflow: hidden;
+  border: 1px solid var(--landing-border);
+  border-radius: var(--radius-xl);
+  background: var(--background);
+  box-shadow: var(--shadow-md);
+}
+
+.deviceBar {
+  display: flex;
+  height: 32px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--muted);
+}
+
+.deviceBar > span {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--muted-foreground);
+  opacity: 0.36;
+}
+
+.deviceBar p {
+  margin-left: 8px;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+}
+
+.phone {
+  position: absolute;
+  z-index: 5;
+  right: clamp(20px, 12%, 120px);
+  bottom: clamp(24px, 8%, 64px);
+  width: clamp(96px, 24%, 224px);
+  aspect-ratio: 390 / 788;
+  overflow: hidden;
+  border: 3px solid var(--foreground);
+  border-radius: 24px;
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow: var(--shadow-md);
+}
+
+@media (max-width: 720px) {
+  .stage {
+    display: flex;
+    height: auto;
+    aspect-ratio: auto;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .desktopShell {
+    position: relative;
+    left: 0;
+    width: 100%;
+  }
+
+  .phone {
+    position: relative;
+    right: auto;
+    bottom: auto;
+    width: clamp(148px, 42%, 196px);
+    margin: clamp(-220px, -42vw, -160px) clamp(12px, 4vw, 24px) 0 auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .desktopShell,
+  .phone {
+    scroll-behavior: auto;
+  }
+}

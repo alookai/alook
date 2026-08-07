@@ -1,4 +1,4 @@
-export type LandingScene = "server" | "machine" | "provider" | "spaces"
+export type LandingScene = "server" | "machine" | "provider" | "spaces" | "continuity"
 
 export type LandingRoom = "work" | "life" | "play"
 
@@ -15,6 +15,7 @@ export const SCENE_MAX_BEAT: Record<LandingScene, number> = {
   machine: 7,
   provider: 9,
   spaces: 12,
+  continuity: 14,
 }
 
 export const SCENE_BEAT_DURATION_MS = 1500
@@ -107,6 +108,23 @@ const SPACES_CAMERAS = [
   { scale: 1.18, x: 650, y: 180 },
   WIDE_CAMERA,
 ]
+const CONTINUITY_CAMERAS = [
+  WIDE_CAMERA,
+  { scale: 1.22, x: 680, y: 570 },
+  { scale: 1.18, x: 660, y: 170 },
+  { scale: 1.18, x: 660, y: 250 },
+  WIDE_CAMERA,
+  { scale: 1.18, x: 210, y: 610 },
+  { scale: 1.2, x: 190, y: 410 },
+  { scale: 1.18, x: 660, y: 180 },
+  { scale: 1.18, x: 660, y: 270 },
+  WIDE_CAMERA,
+  { scale: 1.18, x: 210, y: 610 },
+  { scale: 1.2, x: 190, y: 410 },
+  { scale: 1.18, x: 660, y: 180 },
+  { scale: 1.18, x: 660, y: 270 },
+  WIDE_CAMERA,
+]
 
 export function sceneSnapshot(scene: LandingScene, requestedBeat: number): SceneSnapshot {
   const beat = Math.max(0, Math.min(requestedBeat, SCENE_MAX_BEAT[scene]))
@@ -188,6 +206,44 @@ export function sceneSnapshot(scene: LandingScene, requestedBeat: number): Scene
         "dm-message-alli",
       ][beat] ?? null,
       camera: PROVIDER_CAMERAS[beat] ?? WIDE_CAMERA,
+    }
+  }
+  if (scene === "continuity") {
+    const dmAct = beat < 7
+    const studioAct = beat >= 7 && beat < 12
+    return {
+      beat,
+      visibleMessages: dmAct
+        ? beat >= 3 ? 2 : beat >= 2 ? 1 : 0
+        : studioAct
+          ? beat >= 8 ? 2 : 1
+          : 2,
+      composerText: beat === 1 ? "Alli, please move today’s priorities forward." : "",
+      machineState: "online",
+      pairSheet: "closed",
+      runtime: "claude",
+      model: null,
+      room: beat >= 12 ? "life" : "work",
+      inviteOpen: false,
+      inviteSent: false,
+      focus: [
+        null,
+        "continuity-dm-composer",
+        "continuity-dm-gus",
+        "continuity-dm-alli",
+        null,
+        "continuity-inbox",
+        "continuity-inbox-row-work",
+        "continuity-work-alli",
+        "continuity-work-shelly",
+        null,
+        "continuity-inbox",
+        "continuity-inbox-row-life",
+        "continuity-life-alli",
+        "continuity-life-tracy",
+        null,
+      ][beat] ?? null,
+      camera: CONTINUITY_CAMERAS[beat] ?? WIDE_CAMERA,
     }
   }
   return {
