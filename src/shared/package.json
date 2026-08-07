@@ -29,8 +29,8 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.9.4",
     "better-sqlite3": "^12.11.1",
-    "knip": "^6.29.0",
-    "playwright-core": "^1.61.1",
+    "knip": "^6.31.0",
+    "playwright-core": "^1.62.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10"
   }

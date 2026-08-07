@@ -47,16 +47,16 @@
   },
   "dependencies": {
     "commander": "^15.0.0",
-    "ws": "^8.21.1"
+    "ws": "^8.21.2"
   },
   "devDependencies": {
     "@alook/shared": "workspace:*",
     "@types/node": "^20.0.0",
     "@types/ws": "^8.18.1",
     "eslint": "^9.39.5",
-    "tsx": "^4.23.1",
+    "tsx": "^4.23.5",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.65.0",
+    "typescript-eslint": "^8.66.0",
     "vitest": "^4.1.10"
   }
 }
