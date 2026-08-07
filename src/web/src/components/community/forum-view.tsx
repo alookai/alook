@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useLayoutEffect, useRef, useState } from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { MessagesSquare, ListChevronsUpDown, Plus, Tag, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -69,6 +69,9 @@ export function ForumView({
   const [deletingFor, setDeletingFor] = useState<ForumThread | null>(null)
   const newPostTriggerRef = useRef<HTMLButtonElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const alignedTagRef = useRef<string | null>(null)
+  const prependSnapshotRef = useRef<{ height: number; top: number } | null>(null)
+  const wasLoadingMoreRef = useRef(loadingMore)
   const virtualizer = useVirtualizer({
     count: posts.length,
     getScrollElement: () => scrollRef.current,
@@ -80,11 +83,32 @@ export function ForumView({
   const filterTags = availableTags.length > 0
     ? availableTags
     : [...new Set(posts.flatMap((post) => post.tags))]
+  useLayoutEffect(() => {
+    if (posts.length === 0 || alignedTagRef.current === tag) return
+    alignedTagRef.current = tag
+    virtualizer.scrollToIndex(posts.length - 1, { align: "end" })
+  }, [posts.length, tag, virtualizer])
+  useLayoutEffect(() => {
+    const wasLoading = wasLoadingMoreRef.current
+    wasLoadingMoreRef.current = loadingMore
+    const snapshot = prependSnapshotRef.current
+    const root = scrollRef.current
+    if (!wasLoading || loadingMore || !snapshot || !root) return
+    root.scrollTop = snapshot.top + (root.scrollHeight - snapshot.height)
+    prependSnapshotRef.current = null
+  }, [loadingMore, posts.length])
+  const loadOlder = () => {
+    const root = scrollRef.current
+    if (root && !prependSnapshotRef.current) {
+      prependSnapshotRef.current = { height: root.scrollHeight, top: root.scrollTop }
+    }
+    onLoadMore?.()
+  }
   const olderSentinelRef = useVirtualCursorSentinel({
     scrollRef,
     hasMore,
     isFetching: loadingMore,
-    onLoad: onLoadMore,
+    onLoad: loadOlder,
     edge: "start",
   })
 
