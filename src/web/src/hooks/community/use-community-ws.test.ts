@@ -247,13 +247,13 @@ describe("useCommunityWs — message.create", () => {
     expect(cache?.pages[0].messages).toEqual([])
   })
 
-  it("invalidates threadParticipants for the focused channel (live panel growth)", async () => {
-    // A child thread enrolls the sender + mentioned users in its notify set.
-    // server-side; the panel must refetch so a new speaker appears without a
-    // manual refresh.
+  it("invalidates channelMembers for a focused child channel", async () => {
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")
-    useCommunityStore.getState().subscribe({ channelId: "ch_1" })
+    const store = useCommunityStore.getState()
+    store.setCurrentChannelId("ch_1")
+    store.setCurrentChannelMeta({ name: "thread", parentChannelId: "parent_1" })
+    store.subscribe({ channelId: "ch_1" })
     refCounter = 0
     stateCounter = 0
     callbackCounter = 0
@@ -262,17 +262,45 @@ describe("useCommunityWs — message.create", () => {
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     capturedOnMessage!(messageCreate("ch_1"))
 
-    expect(spy).toHaveBeenCalledWith({ queryKey: communityKeys.threadParticipants("ch_1") })
+    expect(spy).toHaveBeenCalledWith({ queryKey: communityKeys.channelMembers("ch_1") })
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: communityKeys.threadParticipants("ch_1") })
   })
 
-  it("does NOT invalidate threadParticipants for an unfocused channel", async () => {
+  it("does NOT invalidate channelMembers for a focused top-level channel", async () => {
     await mountHook()
+    const { useCommunityStore } = await import("@/stores/community")
+    const store = useCommunityStore.getState()
+    store.setCurrentChannelId("ch_1")
+    store.subscribe({ channelId: "ch_1" })
+    refCounter = 0
+    stateCounter = 0
+    callbackCounter = 0
+    await mountHook()
+
+    const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+    capturedOnMessage!(messageCreate("ch_1"))
+
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: communityKeys.channelMembers("ch_1") })
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: communityKeys.threadParticipants("ch_1") })
+  })
+
+  it("does NOT invalidate channelMembers for an unfocused channel", async () => {
+    await mountHook()
+    const { useCommunityStore } = await import("@/stores/community")
+    const store = useCommunityStore.getState()
+    store.setCurrentChannelId("ch_1")
+    store.setCurrentChannelMeta({ name: "thread", parentChannelId: "parent_1" })
+    store.subscribe({ channelId: "ch_1" })
+    refCounter = 0
+    stateCounter = 0
+    callbackCounter = 0
+    await mountHook()
+
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     capturedOnMessage!(messageCreate("ch_other"))
-    const calls = spy.mock.calls.filter(
-      (c) => JSON.stringify(c[0]?.queryKey) === JSON.stringify(communityKeys.threadParticipants("ch_other")),
-    )
-    expect(calls).toHaveLength(0)
+
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: communityKeys.channelMembers("ch_other") })
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: communityKeys.threadParticipants("ch_other") })
   })
 
   it("dedupes by messageId — a repeat event is a no-op", async () => {

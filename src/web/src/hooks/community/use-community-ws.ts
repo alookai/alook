@@ -376,7 +376,8 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
     (msg: { type: string;[key: string]: unknown }) => {
       if (!isCommunityEvent(msg)) return
       const event = msg as CommunityWsEvent
-      const sub = useCommunityStore.getState().subscription
+      const communityStore = useCommunityStore.getState()
+      const sub = communityStore.subscription
       const wsStore = useCommunityWsStore.getState()
       const cbs = callbacksRef.current
       // A DM is a channel now — every message/typing/reaction event carries a
@@ -419,17 +420,15 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           // regular channel (`ch:`) so the pill clears in the right bucket.
           clearTypingIndicator(typingScopeKey(event, sub), event.message.authorId)
 
-          // 1) Patch the focused channel/dm page cache if the event matches.
-          //    A DM is a channel, distinguished only by which subscription slot
-          //    its channelId lands in.
-          if (event.channelId === sub.channelId) {
-            // A child thread enrolls its sender + mentioned users as
-            // participants server-side on send. That set IS its Members panel,
-            // so refetch it live — otherwise a new speaker/mention only appears
-            // after a manual refresh. No-op for a plain channel (whose panel is
-            // the access roster, not participants); the query is disabled there.
+          // 1) A child channel enrolls its sender and mentioned users in its
+          //    member set server-side, so refresh an open child roster live.
+          if (
+            event.channelId === sub.channelId &&
+            communityStore.currentChannelId === event.channelId &&
+            communityStore.currentChannelMeta?.parentChannelId
+          ) {
             void queryClient.invalidateQueries({
-              queryKey: communityKeys.threadParticipants(event.channelId),
+              queryKey: communityKeys.channelMembers(event.channelId),
             })
           }
 
