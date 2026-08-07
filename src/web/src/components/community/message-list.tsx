@@ -291,9 +291,17 @@ export function MessageList({
     window.setTimeout(() => setJumped((v) => (v === id ? null : v)), 1600)
   }, [jumpToIndex])
 
+  const consumedScrollTargetRef = useRef<string | null>(null)
   useEffect(() => {
-    if (scrollToMessageId) jumpTo(scrollToMessageId)
-  }, [scrollToMessageId, jumpTo])
+    if (!scrollToMessageId) {
+      consumedScrollTargetRef.current = null
+      return
+    }
+    if (consumedScrollTargetRef.current === scrollToMessageId) return
+    if (!messages.some((message) => message.id === scrollToMessageId)) return
+    consumedScrollTargetRef.current = scrollToMessageId
+    jumpTo(scrollToMessageId)
+  }, [scrollToMessageId, messages, jumpTo])
 
   // ↓ N pill precedence:
   //   - When there are messages the client hasn't fetched yet
