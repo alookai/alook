@@ -73,15 +73,18 @@ describe("createRotatingFileSink (batch E1 — bounded default trace backing)", 
 
   it("keeps secure mode on both active and rotated generations", () => {
     const path = join(dir, "runtime-raw-events-a1.jsonl");
+    const rotatedPath = `${path}.1`;
     const sink = createRotatingFileSink(path, 20, { mode: 0o600 });
     sink.write("a".repeat(20));
     sink.write("latest");
 
+    expect(readFileSync(path, "utf8")).toBe("latest\n");
+    expect(readFileSync(rotatedPath, "utf8")).toBe(`${"a".repeat(20)}\n`);
     expectSecureMode(path, 0o600);
     // Rotated `.1` keeps the prior active's mode on POSIX; Windows mode bits
     // are not meaningful after rename, so only assert the active path there.
     if (process.platform !== "win32") {
-      expect(statSync(`${path}.1`).mode & 0o777).toBe(0o600);
+      expectSecureMode(rotatedPath, 0o600);
     }
   });
 
