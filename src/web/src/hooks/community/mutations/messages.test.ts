@@ -118,7 +118,9 @@ beforeEach(() => {
 describe("useEditMessage", () => {
   it("optimistically patches content and rolls back when PATCH fails", async () => {
     const key = communityKeys.channelMessages("ch_1")
+    const messageKey = communityKeys.message("m1")
     capturedQc.setQueryData(key, makeCache([{ id: "m1", content: "old" }]))
+    capturedQc.setQueryData(messageKey, { id: "m1", content: "old" })
     apiFetchMock.mockRejectedValueOnce(new Error("boom"))
     const mod = await loadMod()
     mod.useEditMessage()
@@ -132,6 +134,21 @@ describe("useEditMessage", () => {
     })
     const cache = capturedQc.getQueryData<{ pages: { messages: { content?: string }[] }[] }>(key)
     expect(cache?.pages[0].messages[0]?.content).toBe("old")
+    expect(capturedQc.getQueryData<{ content: string }>(messageKey)?.content).toBe("old")
+  })
+
+  it("optimistically patches the single-message cache used by a post header", async () => {
+    const messageKey = communityKeys.message("opener_1")
+    capturedQc.setQueryData(messageKey, { id: "opener_1", content: "Old title" })
+    apiFetchMock.mockResolvedValueOnce(undefined)
+    const mod = await loadMod()
+    mod.useEditMessage()
+
+    await runMutation({
+      serverId: "s1", channelId: "forum_1", messageId: "opener_1", content: "New title", forumChannelId: "forum_1",
+    })
+
+    expect(capturedQc.getQueryData<{ content: string }>(messageKey)?.content).toBe("New title")
   })
 
   it("invalidates every forum summary variant after an opener edit", async () => {
@@ -142,7 +159,7 @@ describe("useEditMessage", () => {
     mod.useEditMessage()
 
     await runMutation({
-      channelId: "forum_1", messageId: "opener_1", content: "new", forumChannelId: "forum_1",
+      serverId: "s1", channelId: "forum_1", messageId: "opener_1", content: "new", forumChannelId: "forum_1",
     })
 
     expect(capturedQc.getQueryState(communityKeys.forumThreads("forum_1"))?.isInvalidated).toBe(true)

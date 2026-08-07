@@ -1640,12 +1640,17 @@ describe("useCommunityWs — message edit refreshes forum opener summary", () =>
       content: "new title",
       parentChannelId: "forum_1",
     }
+    capturedQueryClient.setQueryData(communityKeys.message("opener_1"), {
+      id: "opener_1",
+      content: "old title",
+    })
     capturedQueryClient.setQueryData(communityKeys.forumThreads("forum_1"), { threads: [] })
     capturedQueryClient.setQueryData(communityKeys.forumThreads("forum_1", "bug"), { threads: [] })
     capturedOnMessage!(opener)
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: communityKeys.forumThreads("forum_1") })
     expect(capturedQueryClient.getQueryState(communityKeys.forumThreads("forum_1"))?.isInvalidated).toBe(true)
     expect(capturedQueryClient.getQueryState(communityKeys.forumThreads("forum_1", "bug"))?.isInvalidated).toBe(true)
+    expect(capturedQueryClient.getQueryData<{ content: string }>(communityKeys.message("opener_1"))?.content).toBe("new title")
 
     invalidateSpy.mockClear()
     capturedOnMessage!({

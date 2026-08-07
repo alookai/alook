@@ -22,6 +22,7 @@ import { isForum as isForumType, deriveThreadName, USE_SERVER_DEFAULT } from "@a
 import { resolveRowPresence } from "@/lib/community/presence"
 import { setLastChannel, getLastChannel, clearLastChannel } from "@/lib/community/last-channel"
 import { makeUserNameResolver } from "@/lib/community/display-name"
+import { resolveChannelDisplayName } from "@/lib/community/channel-display-name"
 import { avatarInitial } from "@/lib/community/avatar"
 import {
   useCommunityStore,
@@ -37,6 +38,7 @@ import { useServerMembers } from "@/hooks/community/use-server-members"
 import { useChannelMembers, useAddableMembers, useAddChannelMember, useRemoveChannelMember } from "@/hooks/community/use-channel-members"
 import { useAddThreadParticipant, useRemoveThreadParticipant } from "@/hooks/community/use-thread-participants"
 import { useMessages } from "@/hooks/community/use-messages"
+import { useMessage } from "@/hooks/community/use-message"
 import { useChannelReadStateSnapshot } from "@/hooks/community/use-channel-read-state"
 import { useChannelWatermark } from "@/hooks/community/use-channel-watermark"
 import { useEagerChannelRead } from "@/hooks/community/use-eager-channel-read"
@@ -141,6 +143,16 @@ function ChannelView() {
   }, [currentServer, channelId])
   const isForum = isForumType(channelInServer?.type)
   const isChildChannel = !channelInServer && !!currentServer?.categories
+  const parentChannelInServer = useMemo(() => {
+    const parentId = currentChannelMeta?.parentChannelId
+    if (!parentId) return null
+    const allChannels = currentServer?.categories?.flatMap((c) => c.channels) ?? []
+    return allChannels.find((ch) => ch.id === parentId) ?? null
+  }, [currentChannelMeta?.parentChannelId, currentServer])
+  const isForumPostChild = isChildChannel && isForumType(parentChannelInServer?.type)
+  const { message: forumPostOpener, isLoading: forumPostOpenerLoading } = useMessage(
+    isForumPostChild ? currentChannelMeta?.parentMessageId : null,
+  )
   // A thread (child channel rooted on a `parentMessageId`) and a forum post
   // (child channel with no `parentMessageId`) are both the NOTIFICATION
   // dimension: their drawer shows PARTICIPANTS (not an access audience), their
@@ -593,15 +605,18 @@ function ChannelView() {
 
   // Find the channel name
   const channelName = useMemo(() => {
-    if (localName) return localName
-    if (channelInServer) return channelInServer.name
-    if (currentChannelMeta?.name) return currentChannelMeta.name
     const post = forumThreads.find((p) => p.id === channelId)
-    if (post) return post.name
     const thread = threads.find((t) => t.id === channelId)
-    if (thread) return thread.name
-    return "channel"
-  }, [localName, channelInServer, forumThreads, threads, currentChannelMeta, channelId])
+    return resolveChannelDisplayName({
+      localName,
+      forumPostTitle: isForumPostChild ? forumPostOpener?.content : null,
+      topLevelName: channelInServer?.name,
+      childChannelName: isForumPostChild ? null : currentChannelMeta?.name,
+      forumListName: post?.name,
+      threadListName: thread?.name,
+      fallback: isForumPostChild ? "Post" : "channel",
+    })
+  }, [localName, isForumPostChild, forumPostOpener, channelInServer, forumThreads, threads, currentChannelMeta, channelId])
 
   // Pinned message ids
   const pinnedIds = useMemo(() => new Set(pinned.map((p) => p.id)), [pinned])
@@ -1078,7 +1093,8 @@ function ChannelView() {
   const channelHydrated =
     currentChannelId === channelId &&
     !bodyLoading &&
-    (!isPotentialChild || currentChannelMeta !== null)
+    (!isPotentialChild || currentChannelMeta !== null) &&
+    (!isForumPostChild || !forumPostOpenerLoading)
   if (!channelHydrated) {
     if (isForum) {
       return (
@@ -1170,7 +1186,6 @@ function ChannelView() {
                     content: name,
                     forumChannelId: parentId,
                   })
-                  setLocalName(name)
                 } catch (e) {
                   toastApiError(e, "Failed to edit post")
                   throw e

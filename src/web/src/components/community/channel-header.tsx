@@ -255,14 +255,14 @@ function BreadcrumbRename({ label, onRename, titleMode = false }: { label: strin
   }
   return (
     <>
-      <Button variant="ghost" size="icon-sm" onClick={() => { setDraft(label); setOpen(true) }} className="text-muted-foreground hover:text-foreground" aria-label={titleMode ? "Edit forum thread title" : "Rename"}>
+      <Button variant="ghost" size="icon-sm" onClick={() => { setDraft(label); setOpen(true) }} className="text-muted-foreground hover:text-foreground" aria-label={titleMode ? "Edit post title" : "Rename"}>
         <Pencil className="size-3.5" />
       </Button>
       {open && (
         <Dialog open onOpenChange={(o) => { if (!o) setOpen(false) }}>
           <DialogContent className="w-105 max-w-[calc(100vw-2rem)] p-0">
             <DialogHeader className="border-b border-border px-4 py-4">
-              <DialogTitle>{titleMode ? "Edit forum thread title" : "Rename Thread"}</DialogTitle>
+              <DialogTitle>{titleMode ? "Edit post title" : "Rename Thread"}</DialogTitle>
             </DialogHeader>
             <div className="px-4 pb-5 pt-4">
               <label className="block">
@@ -271,8 +271,8 @@ function BreadcrumbRename({ label, onRename, titleMode = false }: { label: strin
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   onKeyDown={onEnterSubmit(save)}
-                  placeholder={titleMode ? "Thread title" : "thread-name"}
-                  aria-label={titleMode ? "Forum thread title" : "Thread name"}
+                  placeholder={titleMode ? "Post title" : "thread-name"}
+                  aria-label={titleMode ? "Post title" : "Thread name"}
                   className="h-10"
                   autoFocus
                 />

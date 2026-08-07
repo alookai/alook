@@ -20,16 +20,16 @@ describe("ChannelHeader — forum title dialog", () => {
   it("gates the title edit affordance to the creator and keeps normal threads on Rename", () => {
     let renderer: TestRenderer.ReactTestRenderer
     act(() => { renderer = renderHeader() })
-    expect(renderer!.root.findAllByProps({ "aria-label": "Edit forum thread title" })).toHaveLength(0)
+    expect(renderer!.root.findAllByProps({ "aria-label": "Edit post title" })).toHaveLength(0)
     act(() => renderer!.unmount())
 
     act(() => { renderer = renderHeader(vi.fn()) })
-    expect(renderer!.root.findAllByProps({ "aria-label": "Edit forum thread title" }).length).toBeGreaterThan(0)
-    expect(renderer!.root.findAllByProps({ "aria-label": "Forum thread title" })).toHaveLength(0)
+    expect(renderer!.root.findAllByProps({ "aria-label": "Edit post title" }).length).toBeGreaterThan(0)
+    expect(renderer!.root.findAllByProps({ "aria-label": "Post title" })).toHaveLength(0)
     act(() => renderer!.unmount())
 
     act(() => { renderer = renderHeader(vi.fn(), false) })
-    expect(renderer!.root.findAllByProps({ "aria-label": "Edit forum thread title" })).toHaveLength(0)
+    expect(renderer!.root.findAllByProps({ "aria-label": "Edit post title" })).toHaveLength(0)
     expect(renderer!.root.findAllByProps({ "aria-label": "Rename" }).length).toBeGreaterThan(0)
     act(() => renderer!.unmount())
   })

@@ -74,6 +74,8 @@ type EditMessageContext = {
   previousContent: string | undefined
   key: readonly unknown[]
   scope: MessageScope
+  previousMessage: { content: string } | undefined
+  messageKey: readonly unknown[]
 }
 
 export function useEditMessage() {
@@ -89,16 +91,22 @@ export function useEditMessage() {
     onMutate: async ({ serverId, channelId, messageId, content }) => {
       const key = communityKeys.channelMessages(channelId)
       const scope: MessageScope = { kind: "channel", id: channelId, serverId }
-      await queryClient.cancelQueries({ queryKey: key })
+      const messageKey = communityKeys.message(messageId)
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: key }),
+        queryClient.cancelQueries({ queryKey: messageKey }),
+      ])
       const previous = queryClient.getQueryData<PageCache>(key)
+      const previousMessage = queryClient.getQueryData<{ content: string }>(messageKey)
       const previousContent = currentMaterializedMessage(previous, scope, messageId)?.content
       queryClient.setQueryData<PageCache>(key, (cache) => patchContentById(cache, messageId, content))
+      queryClient.setQueryData<{ content: string }>(messageKey, (message) => message ? { ...message, content } : message)
       useMessageStreamStore.getState().dispatch(scope, {
         type: "messageEdited",
         messageId,
         content,
       })
-      return { previous, previousContent, key, scope }
+      return { previous, previousContent, key, scope, previousMessage, messageKey }
     },
     onError: (_error, _variables, context) => {
       if (!context) return
@@ -110,6 +118,7 @@ export function useEditMessage() {
           content: context.previousContent,
         })
       }
+      queryClient.setQueryData(context.messageKey, context.previousMessage)
     },
     onSuccess: (_data, variables) => {
       if (variables.forumChannelId) void queryClient.invalidateQueries({ queryKey: communityKeys.forumThreads(variables.forumChannelId) })

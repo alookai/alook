@@ -1017,6 +1017,10 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
         }
 
         case "community:message.edited": {
+          queryClient.setQueryData<{ content: string }>(
+            communityKeys.message(event.messageId),
+            (message) => message ? { ...message, content: event.content } : message,
+          )
           queryClient.setQueryData<PageCache>(
             communityKeys.channelMessages(event.channelId),
             (cache) => patchMessageContentInCache(cache, event.messageId, event.content),
