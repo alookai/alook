@@ -10,6 +10,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
+import type { Msg } from "@/components/community/_types"
 
 // ── React shim (mirrors use-community-ws.test.ts) ────────────────────────
 let refs: Map<string, { current: unknown }> = new Map()
@@ -97,10 +98,24 @@ async function loadMod() {
   return await import("./messages")
 }
 
-function makeCache(msgs: { id: string; content?: string; failed?: boolean; reactions?: unknown[] }[] = []) {
+function makeCache(msgs: Array<{ id: string } & Record<string, unknown>> = []) {
   return {
     pages: [{ messages: msgs, hasMore: false }],
     pageParams: [null],
+  }
+}
+
+function postedMessage(id: string, seq: number) {
+  return {
+    id,
+    seq,
+    createdAt: "2026-08-07T10:00:00.000Z",
+    content: "canonical content",
+    authorId: "u_me",
+    authorName: "Canonical Name",
+    authorImage: "https://avatar.test/me.png",
+    type: "default",
+    embeds: [{ title: "Canonical embed" }],
   }
 }
 
@@ -174,7 +189,7 @@ describe("useEditMessage", () => {
 describe("useSendMessage — happy path", () => {
   it("keeps Query base-only and acknowledges the accepted overlay intent", async () => {
     capturedQc.setQueryData(communityKeys.channelMessages("ch_1"), makeCache([]))
-    apiFetchMock.mockResolvedValueOnce({ message: { id: "server_id_1", seq: 9 } })
+    apiFetchMock.mockResolvedValueOnce({ message: postedMessage("server_id_1", 9) })
 
     const mod = await loadMod()
     const stream = await import("@/stores/community/message-stream")
@@ -191,12 +206,21 @@ describe("useSendMessage — happy path", () => {
       author: { id: "u_me", name: "me", avatar: "M" },
     })
 
-    const cache = capturedQc.getQueryData<{ pages: { messages: { id: string }[] }[] }>(
+    const cache = capturedQc.getQueryData<{ pages: { messages: Msg[] }[] }>(
       communityKeys.channelMessages("ch_1"),
     )
     expect(cache?.pages[0].messages).toEqual([])
     expect(stream.getMessageOverlay({ kind: "channel", id: "ch_1", serverId: "s1" }).outboxByNonce.get("n1")).toEqual(
-      expect.objectContaining({ status: "acked", serverMessageId: "server_id_1", serverSeq: 9 }),
+      expect.objectContaining({
+        status: "acked",
+        serverMessageId: "server_id_1",
+        serverSeq: 9,
+        message: expect.objectContaining({
+          authorName: "Canonical Name",
+          content: "canonical content",
+          embeds: [{ title: "Canonical embed" }],
+        }),
+      }),
     )
   })
 })
@@ -267,7 +291,7 @@ async function acceptDmIntent(nonce = "n1") {
 describe("useSendDmMessage — overlay terminal emitter", () => {
   it("keeps Query base-only and emits exactly one postAck", async () => {
     capturedQc.setQueryData(communityKeys.dmMessages("dm_1"), makeCache([]))
-    apiFetchMock.mockResolvedValueOnce({ message: { id: "server_1", seq: 8 } })
+    apiFetchMock.mockResolvedValueOnce({ message: postedMessage("server_1", 8) })
     const mod = await loadMod()
     const stream = await acceptDmIntent()
     const dispatch = vi.spyOn(stream.useMessageStreamStore.getState(), "dispatch")
@@ -278,7 +302,17 @@ describe("useSendDmMessage — overlay terminal emitter", () => {
     expect(dispatch).toHaveBeenCalledTimes(1)
     expect(dispatch).toHaveBeenCalledWith(
       { kind: "dm", id: "dm_1" },
-      { type: "postAck", nonce: "n1", serverMessageId: "server_1", serverSeq: 8 },
+      {
+        type: "postAck",
+        nonce: "n1",
+        message: expect.objectContaining({
+          id: "server_1",
+          seq: 8,
+          authorName: "Canonical Name",
+          content: "canonical content",
+          clientNonce: "n1",
+        }),
+      },
     )
   })
 

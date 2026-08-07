@@ -6,6 +6,18 @@ import type { CanonicalMessage } from "@/lib/community/message-stream"
 
 type UiEmbed = NonNullable<Msg["embeds"]>[number]
 
+export type PostedMessage = {
+  id: string
+  seq: number
+  createdAt: string
+  content: string | null
+  authorId: string
+  authorName: string
+  authorImage: string | null
+  type: string | null
+  embeds: unknown
+}
+
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined
 }
@@ -115,5 +127,34 @@ export function projectCommunityMessageCreate(
     ...(message.approval ? { approval: message.approval } : {}),
     ...(embeds?.length ? { embeds } : {}),
     ...(attachments?.length ? { attachments } : {}),
+  }
+}
+
+export function projectPostedMessage(
+  message: PostedMessage,
+  clientNonce: string,
+): CanonicalMessage {
+  const embeds = Array.isArray(message.embeds)
+    ? message.embeds.flatMap((embed) => {
+      const projected = projectEmbed(embed)
+      return projected ? [projected] : []
+    })
+    : undefined
+  const type = message.type === "thread_created"
+    ? { type: "system" as const, systemKind: "thread" as const }
+    : message.type === "system"
+      ? { type: "system" as const }
+      : { type: "chat" as const }
+  return {
+    id: message.id,
+    seq: message.seq,
+    ...type,
+    authorId: message.authorId,
+    authorName: message.authorName,
+    authorAvatar: message.authorImage || avatarInitial(message.authorName),
+    content: message.content ?? "",
+    createdAt: message.createdAt,
+    clientNonce,
+    ...(embeds?.length ? { embeds } : {}),
   }
 }

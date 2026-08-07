@@ -154,6 +154,7 @@ function messageCreate(channelId: string, msgId = "m_1"): CommunityMessageCreate
       authorId: "u_author",
       authorName: "author",
       content: "hi",
+      seq: 1,
       createdAt: "2026-07-03T00:00:00.000Z",
     },
   }
@@ -187,7 +188,7 @@ describe("useCommunityWs — message.create", () => {
 
     capturedOnMessage!(messageCreate("ch_1"))
 
-    const cache = capturedQueryClient.getQueryData<{ pages: { messages: { id: string }[] }[] }>(
+    const cache = capturedQueryClient.getQueryData<{ pages: { messages: { id: string; seq?: number }[] }[] }>(
       communityKeys.channelMessages("ch_1"),
     )
     expect(cache?.pages[0].messages).toEqual([])
@@ -1265,11 +1266,12 @@ describe("useCommunityWs — DM message.create", () => {
           authorName: "a",
           content: "hi",
           type: "chat",
+          seq: 1,
           createdAt: "2026-07-03T00:00:00.000Z",
         },
       }
       capturedOnMessage!(event)
-      const cache = capturedQueryClient.getQueryData<{ pages: { messages: { id: string }[] }[] }>(
+      const cache = capturedQueryClient.getQueryData<{ pages: { messages: { id: string; seq?: number }[] }[] }>(
         communityKeys.dmMessages("dm_1"),
       )
       expect(cache?.pages[0].messages).toEqual([])
@@ -1381,7 +1383,9 @@ describe("useCommunityWs — child_create patches parent thread badge with count
     const cache = capturedQueryClient.getQueryData<{
       pages: { messages: { id: string; thread?: { id: string; name: string; messageCount: number } }[] }[]
     }>(communityKeys.channelMessages("ch_parent"))
-    expect(cache?.pages[0].messages[0].thread).toEqual({
+    expect(cache?.pages[0].messages).toEqual([])
+    const overlay = getMessageOverlay({ kind: "channel", id: "ch_parent", serverId: "s1" })
+    expect(overlay.liveById.get("m_parent")?.thread).toEqual({
       id: "ch_thread",
       name: "New thread",
       messageCount: 0,
@@ -1679,6 +1683,7 @@ describe("useCommunityWs — typing state is scoped per conversation", () => {
         authorName: "bot",
         content: "done",
         type: "chat",
+        seq: 1,
         createdAt: "2026-07-03T00:00:00.000Z",
       },
     } as CommunityMessageCreate)
@@ -1804,6 +1809,7 @@ describe("useCommunityWs — does NOT auto-mark-read on WS message.create", () =
         authorId: "u_someone_else",
         authorName: "them",
         content: "hi",
+        seq: 1,
         createdAt: "2026-07-03T00:00:00.000Z",
       },
     }
@@ -1829,6 +1835,7 @@ describe("useCommunityWs — does NOT auto-mark-read on WS message.create", () =
         authorId: "u_me",
         authorName: "me",
         content: "hi",
+        seq: 1,
         createdAt: "2026-07-03T00:00:00.000Z",
       },
     }
@@ -1855,6 +1862,7 @@ describe("useCommunityWs — does NOT auto-mark-read on WS message.create", () =
         authorName: "a",
         content: "hi",
         type: "chat",
+        seq: 1,
         createdAt: "2026-07-03T00:00:00.000Z",
       },
     }

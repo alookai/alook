@@ -37,6 +37,7 @@ export type MessageRow = {
   embeds: unknown
   seq: number
   createdAt: string
+  clientNonce?: string | null
   /** Friend-approval card back-ref — set only on approval card messages. */
   friendshipId?: string | null
 }
@@ -128,9 +129,12 @@ export function mapMessageForApi(row: MessageRow, ctx: ApiMessageContext) {
   const core = coreFields(row)
   const thread = ctx.threadByMessageId?.get(row.id)
   const approval = ctx.approvalByMessageId?.get(row.id)
+  const clientNonce =
+    row.clientNonce && !row.clientNonce.startsWith("srv:") ? row.clientNonce : undefined
   return {
     ...core,
     ...splitType(row.type),
+    ...(clientNonce ? { clientNonce } : {}),
     replyTo: resolveReply(row, ctx.replyMap),
     embeds: row.embeds,
     attachments: ctx.attachmentsByMessage[row.id]?.length ? ctx.attachmentsByMessage[row.id] : undefined,

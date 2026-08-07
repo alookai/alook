@@ -175,8 +175,16 @@ describe("useDmMessageSender", () => {
       useMessageStreamStore.getState().dispatch(scope, {
         type: "postAck",
         nonce: args.nonce,
-        serverMessageId: "server_1",
-        serverSeq: 11,
+        message: {
+          id: "server_1",
+          seq: 11,
+          type: "chat",
+          authorId: "u_me",
+          authorName: "Me",
+          content: "out of view",
+          createdAt: "2026-08-07T10:00:00.000Z",
+          clientNonce: args.nonce,
+        },
       })
       return { message: { id: "server_1", seq: 11 } }
     })

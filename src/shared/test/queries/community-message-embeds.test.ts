@@ -14,6 +14,7 @@ vi.mock("../../src/logger", () => ({
 }));
 
 import * as messageQueries from "../../src/db/queries/community/message";
+import { communityMessage } from "../../src/db/community-schema";
 
 function messageRow(id: string, embeds: string | null) {
   return {
@@ -31,6 +32,7 @@ function messageRow(id: string, embeds: string | null) {
     authorName: `User ${id}`,
     authorEmail: `${id}@x.com`,
     authorImage: null,
+    clientNonce: "client-1",
   };
 }
 
@@ -60,6 +62,8 @@ describe("safeParseEmbeds via listMessages", () => {
     const db = createSelectMock([messageRow("m_1", raw)]);
     const result = await messageQueries.listMessages(db, { channelId: "ch_1" });
     expect(result[0]!.embeds).toEqual([{ url: "https://x/y", title: "t" }]);
+    expect(result[0]!.clientNonce).toBe("client-1");
+    expect(db.select.mock.calls[0]?.[0]?.clientNonce).toBe(communityMessage.clientNonce);
     expect(warn).not.toHaveBeenCalled();
   });
 
@@ -119,6 +123,7 @@ describe("safeParseEmbeds via getMessage", () => {
     const db = createSelectMock([messageRow("m_1", '[{"url":"z"}]')]);
     const result = await messageQueries.getMessage(db, "m_1");
     expect(result?.embeds).toEqual([{ url: "z" }]);
+    expect(db.select.mock.calls[0]?.[0]).not.toHaveProperty("clientNonce");
     expect(warn).not.toHaveBeenCalled();
   });
 

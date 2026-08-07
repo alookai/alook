@@ -11,7 +11,6 @@ const mockCreateMessage = vi.fn()
 const mockGetMessage = vi.fn()
 const mockGetMessageByAuthorAndNonce = vi.fn()
 const mockGetMessageInScope = vi.fn()
-const mockGetMessageByAuthorAndNonce = vi.fn()
 const mockGetMessagesByIdsInScope = vi.fn()
 const mockListMembers = vi.fn()
 const mockListMemberUserIds = vi.fn()
@@ -242,7 +241,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
     })
     mockGetMessageByAuthorAndNonce.mockResolvedValue(null)
     mockListMembers.mockResolvedValue([])
-    mockGetMessageByAuthorAndNonce.mockResolvedValue(null)
+    mockListByMessageIds.mockResolvedValue([])
     mockListMemberUserIds.mockResolvedValue([])
     mockGetMessagesByIdsInScope.mockResolvedValue([])
     mockCreateMentions.mockResolvedValue(undefined)
@@ -327,17 +326,56 @@ describe("POST /api/community/channels/[id]/messages", () => {
   })
 
   it("returns the original canonical contract for a same-nonce replay", async () => {
-    mockGetMessageByAuthorAndNonce.mockResolvedValue({ id: "m-existing", seq: 8, clientNonce: "n1" })
+    mockGetMessageByAuthorAndNonce.mockResolvedValue({
+      id: "m-existing",
+      seq: 8,
+      clientNonce: "n1",
+      channelId: "c1",
+      authorId: "u1",
+      authorName: "Alice",
+      authorImage: null,
+      authorEmail: "u1@t.com",
+      content: "hello",
+      type: "default",
+      mentionType: null,
+      replyToId: null,
+      embeds: null,
+      createdAt: "2026-06-30T00:00:00.000Z",
+    })
 
     const res = await POST(postReq({ content: "hello", nonce: "n1" }), ctx)
     const body = await res.json() as { message: { id: string; seq: number; clientNonce?: string }; deduped: boolean }
 
-    expect(res.status).toBe(201)
+    expect(res.status).toBe(200)
     expect(body).toEqual({
       message: expect.objectContaining({ id: "m-existing", seq: 8, clientNonce: "n1" }),
       deduped: true,
     })
     expect(mockCreateMessage).not.toHaveBeenCalled()
+  })
+
+  it("returns the full raw message row for human POST convergence", async () => {
+    const row = {
+      id: "m_full",
+      authorId: "u1",
+      authorName: "Canonical Author",
+      authorImage: "https://avatar.test/u1.png",
+      authorEmail: "u1@t.com",
+      content: "canonical content",
+      type: "default",
+      mentionType: null,
+      replyToId: null,
+      channelId: "c1",
+      embeds: [{ title: "Canonical embed" }],
+      seq: 42,
+      createdAt: "2026-08-07T10:00:00.000Z",
+    }
+    mockGetMessage.mockResolvedValue(row)
+
+    const response = await POST(postReq({ content: "canonical content", nonce: "client-1" }), ctx)
+
+    expect(response.status).toBe(201)
+    expect(await response.json()).toEqual({ message: row })
   })
 
   it("rejects content longer than MAX_MESSAGE_CONTENT_LENGTH with 400", async () => {

@@ -224,6 +224,31 @@ describe("flattenMessageItems", () => {
     const keys = items.map((i) => i.key)
     expect(new Set(keys).size).toBe(keys.length)
   })
+
+  it("keeps the FlatItem key stable across temp id, server id, and GET refetch", () => {
+    const keyFor = (message: Msg) =>
+      flattenMessageItems([message], undefined).find((item) => item.kind === "message")!.key
+    const optimistic = msg({ id: "temp_1", authorId: "u_me", clientNonce: "nonce-1" })
+    const reconciled = { ...optimistic, id: "message_1", seq: 8 }
+    const refetched = { ...reconciled, content: "canonical", createdAt: "2026-01-01T10:00:01.000Z" }
+    expect(keyFor(optimistic)).toBe(keyFor(reconciled))
+    expect(keyFor(reconciled)).toBe(keyFor(refetched))
+  })
+
+  it("pairs nonce identity with author and rejects server fallback nonces", () => {
+    const keys = flattenMessageItems(
+      [
+        msg({ id: "m1", authorId: "u1", clientNonce: "same" }),
+        msg({ id: "m2", authorId: "u2", clientNonce: "same" }),
+        msg({ id: "m3", authorId: "u3", clientNonce: "srv:fallback" }),
+        msg({ id: "m4", authorId: "u4" }),
+      ],
+      undefined,
+    ).filter((item) => item.kind === "message").map((item) => item.key)
+    expect(keys[0]).not.toBe(keys[1])
+    expect(keys[2]).toBe("msg:id:m3")
+    expect(keys[3]).toBe("msg:id:m4")
+  })
 })
 
 describe("estimateRowHeight", () => {
@@ -301,6 +326,18 @@ describe("estimateRowHeight", () => {
       undefined,
     ).find((i) => i.kind === "message")!
     expect(estimateRowHeight(withImage)).toBeGreaterThan(estimateRowHeight(withoutImage))
+  })
+
+  it("reserves reply-header height before measurement", () => {
+    const withoutReply = flattenMessageItems([msg({ id: "m1" })], undefined)
+      .find((item) => item.kind === "message")!
+    const withReply = flattenMessageItems([
+      msg({
+        id: "m1",
+        replyTo: { id: "reply_1", authorName: "Bob", text: "preview" },
+      }),
+    ], undefined).find((item) => item.kind === "message")!
+    expect(estimateRowHeight(withReply) - estimateRowHeight(withoutReply)).toBe(28)
   })
 })
 

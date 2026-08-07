@@ -349,6 +349,7 @@ const listedMessageProjection = {
   createdAt: communityMessage.createdAt,
   channelId: communityMessage.channelId,
   friendshipId: communityMessage.friendshipId,
+  clientNonce: communityMessage.clientNonce,
   authorName: user.name,
   authorEmail: user.email,
   authorImage: user.image,
@@ -366,6 +367,7 @@ export type ListedMessageRow = {
   createdAt: string;
   channelId: string;
   friendshipId: string | null;
+  clientNonce: string | null;
   authorName: string;
   authorEmail: string;
   authorImage: string | null;

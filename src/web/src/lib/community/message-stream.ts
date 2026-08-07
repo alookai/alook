@@ -63,7 +63,7 @@ export type MessageOverlayEvent =
   | { type: "submit"; intent: NewOutboxIntent }
   | { type: "uploadSettled"; nonce: string; attachments: Msg["attachments"] }
   | { type: "uploadFailed"; nonce: string }
-  | { type: "postAck"; nonce: string; serverMessageId: string; serverSeq: number }
+  | { type: "postAck"; nonce: string; message: CanonicalMessage }
   | { type: "postFail"; nonce: string }
   | { type: "terminalReject"; nonce: string }
   | { type: "retry"; nonce: string }
@@ -295,13 +295,21 @@ export function reduceMessageOverlay(
       const intent = state.outboxByNonce.get(event.nonce)
       if (!intent) return unchanged(state)
       const outboxByNonce = new Map(state.outboxByNonce)
+      const canonical = event.message
       outboxByNonce.set(event.nonce, {
         ...intent,
         status: "acked",
-        serverMessageId: event.serverMessageId,
-        serverSeq: event.serverSeq,
+        serverMessageId: canonical.id,
+        serverSeq: canonical.seq,
         localUploads: [],
-        message: { ...intent.message, failed: false },
+        message: {
+          ...intent.message,
+          ...canonical,
+          clientNonce: event.nonce,
+          replyTo: canonical.replyTo ?? intent.message.replyTo,
+          attachments: canonical.attachments ?? intent.message.attachments,
+          failed: false,
+        },
       })
       return {
         state: { ...state, outboxByNonce },

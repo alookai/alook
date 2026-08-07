@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
-import type { MentionType } from "@alook/shared"
-import { deriveThreadName } from "@alook/shared"
+import { deriveThreadName, MESSAGE_PREVIEW_LENGTH, type MentionType } from "@alook/shared"
 import { apiFetch, toastApiError } from "@/lib/api/client"
 import { avatarInitial } from "@/lib/community/avatar"
 import type { Msg } from "@/components/community/_types"
@@ -404,7 +403,7 @@ export function MessageChannelController({
         authorAvatar: viewer.avatar,
         content: markdown,
         createdAt: new Date().toISOString(),
-        ...(replyTo ? { replyTo: { id: replyTo.id, authorName: replyTo.authorName, text: replyTo.text.slice(0, 100) } } : {}),
+        ...(replyTo ? { replyTo: { ...replyTo, text: replyTo.text.slice(0, MESSAGE_PREVIEW_LENGTH) } } : {}),
       },
       localUploads: attachments?.map((attachment) => {
         const previewObjectUrl = attachment.previewObjectUrl ?? URL.createObjectURL(attachment.file)

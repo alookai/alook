@@ -106,6 +106,15 @@ describe("mapMessageForApi", () => {
     const withoutThread = mapMessageForApi(baseRow, emptyApiCtx)
     expect(withoutThread.thread).toBeUndefined()
   })
+
+  it("returns client-provided nonces and filters srv fallbacks", () => {
+    expect(mapMessageForApi({ ...baseRow, clientNonce: "client-1" }, emptyApiCtx).clientNonce)
+      .toBe("client-1")
+    expect(mapMessageForApi({ ...baseRow, clientNonce: "srv:fallback" }, emptyApiCtx).clientNonce)
+      .toBeUndefined()
+    expect(mapMessageForApi({ ...baseRow, clientNonce: null }, emptyApiCtx).clientNonce)
+      .toBeUndefined()
+  })
 })
 
 describe("mapMessageForWs", () => {

@@ -11,6 +11,10 @@ import { apiFetch, toastApiError } from "@/lib/api/client"
 import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import { isInlineAttachmentContentType } from "@/lib/community/attachment-content-type"
+import {
+  projectPostedMessage,
+  type PostedMessage,
+} from "@/lib/community/message-wire"
 import { useCommunityStore } from "@/stores/community"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
 import { getMessageOverlay } from "@/stores/community/message-stream"
@@ -23,8 +27,7 @@ import type { Msg, Attachment } from "@/components/community/_types"
 import type { MessagesPage } from "@/hooks/community/use-messages"
 import type { PinsResponse } from "@/hooks/community/use-channel-panels"
 import type { MarkedResponse, MessageMarkedResponse } from "@/hooks/community/use-inbox"
-import type { MentionType } from "@alook/shared"
-import { isBlocked } from "@alook/shared"
+import { isBlocked, type MentionType } from "@alook/shared"
 
 /**
  * Message-scoped mutation hooks — the split of the God-context's
@@ -176,6 +179,7 @@ export type SendMessageArgs = {
   channelId: string
   content: string
   replyToId?: string
+  replyTo?: Msg["replyTo"]
   mentionType?: MentionType
   // Reserve-by-id: pre-uploaded pending-attachment descriptors. Only `id` is
   // sent to the server (in an id array); the rest drive the optimistic VM
@@ -193,7 +197,7 @@ export type SendMessageArgs = {
 // the same nonce — `message` is the canonical (original) row, nothing new was
 // inserted. The caller treats it as success (reconcile the optimistic row,
 // clear the failed pill), never as a failure to resend.
-export type SendMessageResult = { message: { id: string; seq: number }; deduped?: boolean }
+export type SendMessageResult = { message: PostedMessage; deduped?: boolean }
 
 /**
  * Channel/thread send. The server infers thread-vs-channel routing from the
@@ -206,7 +210,7 @@ export function useSendMessage() {
     Error,
     SendMessageArgs
   >({
-    mutationFn: async ({ channelId, content, replyToId, mentionType, attachments, nonce }) => {
+    mutationFn: async ({ channelId, content, replyToId, replyTo, mentionType, attachments, nonce }) => {
       // Server receives only the attachment IDS (reserve-by-id); the rest of the
       // descriptor is client-only (optimistic VM). Dimensions already rode the
       // upload, so they are NOT re-sent here (single-source guard).
@@ -215,7 +219,13 @@ export function useSendMessage() {
         `/api/community/channels/${channelId}/messages`,
         {
           method: "POST",
-          body: JSON.stringify({ content, replyToId, mentionType, attachments: attachmentIds, nonce }),
+          body: JSON.stringify({
+            content,
+            replyToId: replyTo?.id ?? replyToId,
+            mentionType,
+            attachments: attachmentIds,
+            nonce,
+          }),
         },
       )
     },
@@ -247,8 +257,7 @@ export function useSendMessage() {
         {
           type: "postAck",
           nonce: args.nonce,
-          serverMessageId: data.message.id,
-          serverSeq: data.message.seq,
+          message: projectPostedMessage(data.message, args.nonce),
         },
       )
     },
@@ -261,6 +270,7 @@ export type SendDmMessageArgs = {
   dmId: string
   content: string
   replyToId?: string
+  replyTo?: Msg["replyTo"]
   // Reserve-by-id (see SendMessageArgs.attachments): id-bearing descriptors;
   // only `id` reaches the server.
   attachments?: { id: string; filename: string; contentType: string; size: number; width?: number; height?: number }[]
@@ -273,13 +283,18 @@ export function useSendDmMessage() {
     Error,
     SendDmMessageArgs
   >({
-    mutationFn: async ({ dmId, content, replyToId, attachments, nonce }) => {
+    mutationFn: async ({ dmId, content, replyToId, replyTo, attachments, nonce }) => {
       const attachmentIds = attachments?.map((a) => a.id)
       return apiFetch<SendMessageResult>(
         `/api/community/channels/${dmId}/messages`,
         {
           method: "POST",
-          body: JSON.stringify({ content, replyToId, attachments: attachmentIds, nonce }),
+          body: JSON.stringify({
+            content,
+            replyToId: replyTo?.id ?? replyToId,
+            attachments: attachmentIds,
+            nonce,
+          }),
         },
       )
     },
@@ -309,8 +324,7 @@ export function useSendDmMessage() {
         {
           type: "postAck",
           nonce: args.nonce,
-          serverMessageId: data.message.id,
-          serverSeq: data.message.seq,
+          message: projectPostedMessage(data.message, args.nonce),
         },
       )
     },

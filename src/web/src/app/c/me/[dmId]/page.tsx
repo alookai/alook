@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useParams, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
+import { MESSAGE_PREVIEW_LENGTH } from "@alook/shared"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { DmHeader, DmHeaderSkeleton } from "@/components/community/dm-header"
 import { Avatar } from "@/components/community/avatar"
@@ -309,7 +310,7 @@ function DmView() {
       dmId,
       content: markdown,
       replyTo: replyTo
-        ? { id: replyTo.id, authorName: replyTo.authorName, text: replyTo.text.slice(0, 100) }
+        ? { ...replyTo, text: replyTo.text.slice(0, MESSAGE_PREVIEW_LENGTH) }
         : undefined,
       attachments,
       author: {
