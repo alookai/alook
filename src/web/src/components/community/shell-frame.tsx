@@ -19,6 +19,7 @@ import {
   desktopUserBarOverlayWidth,
 } from "./shell-frame-geometry"
 import { ServerRail } from "./server-rail"
+import { resolveServerRailOverlayAction } from "./server-rail-actions"
 import { UserBar } from "./user-bar"
 import { markVoluntaryLeave, pickPostEjectDestination } from "./eject-server"
 import { InboxPopover } from "./community-inbox-popover"
@@ -83,6 +84,8 @@ export function ShellFrame({
   sidebar,
   children,
   extraDialogs,
+  onOpenActiveServerSettings,
+  onOpenActiveServerInvite,
   goHome,
   goServer,
 }: {
@@ -93,6 +96,8 @@ export function ShellFrame({
   sidebar: (opts?: { noHeader?: boolean }) => ReactNode
   children: ReactNode
   extraDialogs?: ReactNode
+  onOpenActiveServerSettings?: () => void
+  onOpenActiveServerInvite?: () => void
   goHome: () => void
   goServer: () => void
 }) {
@@ -238,15 +243,31 @@ export function ShellFrame({
   )
   const onRailOpenSettings = useCallback(
     (id?: string) => {
-      if (id) router.push(`/c/channels/${id}?settings=1`)
+      if (!id) return
+      const action = resolveServerRailOverlayAction({
+        targetServerId: id,
+        activeServerId,
+        overlay: "settings",
+        hasActiveOpener: !!onOpenActiveServerSettings,
+      })
+      if (action.kind === "open-active") onOpenActiveServerSettings?.()
+      else router.push(action.href)
     },
-    [router],
+    [activeServerId, onOpenActiveServerSettings, router],
   )
   const onRailOpenInvitePopover = useCallback(
     (id?: string) => {
-      if (id) router.push(`/c/channels/${id}?invite=1`)
+      if (!id) return
+      const action = resolveServerRailOverlayAction({
+        targetServerId: id,
+        activeServerId,
+        overlay: "invite",
+        hasActiveOpener: !!onOpenActiveServerInvite,
+      })
+      if (action.kind === "open-active") onOpenActiveServerInvite?.()
+      else router.push(action.href)
     },
-    [router],
+    [activeServerId, onOpenActiveServerInvite, router],
   )
   const onRailUngroupFolder = useCallback(
     (fId: string) => {

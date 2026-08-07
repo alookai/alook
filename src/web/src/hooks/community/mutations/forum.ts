@@ -81,6 +81,7 @@ export function useUpdatePostTags() {
       // This is required when the edited
       // post loses the currently-selected tag and must leave that result set.
       void queryClient.invalidateQueries({ queryKey: communityKeys.channelMessages(args.forumChannelId) })
+      void queryClient.invalidateQueries({ queryKey: communityKeys.forumTags(args.forumChannelId) })
     },
   })
 }

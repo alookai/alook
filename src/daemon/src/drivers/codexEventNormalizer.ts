@@ -15,6 +15,26 @@ import type { ParsedEvent } from "../types.js";
 import { mapCodexTelemetry } from "./codexTelemetrySidecar.js";
 import { tryParseJsonLine } from "./utils.js";
 
+function normalizeFileChangeInput(item: any): { path?: string } {
+  const paths: string[] = [];
+  const seen = new Set<string>();
+  const changePaths = Array.isArray(item?.changes)
+    ? item.changes.map((change: any) => change?.path)
+    : [];
+  for (const candidate of changePaths) {
+    if (typeof candidate !== "string") continue;
+    const path = candidate.trim();
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+    paths.push(path);
+  }
+  if (paths.length === 0 && typeof item?.path === "string") {
+    const path = item.path.trim();
+    if (path) paths.push(path);
+  }
+  return paths.length > 0 ? { path: paths.join(", ") } : {};
+}
+
 export class CodexEventNormalizer {
   private threadId: string | null = null;
   /**
@@ -149,7 +169,7 @@ export class CodexEventNormalizer {
       case "enteredReviewMode":
         return [{ kind: "review_started" }];
       case "fileChange":
-        return [{ kind: "tool_call", name: "file_change", input: params?.item }];
+        return [{ kind: "tool_call", name: "file_change", input: normalizeFileChangeInput(params?.item) }];
       case "mcpToolCall":
         return [{ kind: "tool_call", name: `mcp_${params?.item?.name ?? "tool"}`, input: params?.item }];
       case "webSearch":

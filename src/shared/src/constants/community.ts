@@ -70,6 +70,22 @@ export const UNCATEGORIZED_CATEGORY_ID = "__uncategorized__"
 // Previews
 export const MESSAGE_PREVIEW_LENGTH = 120
 
+export function truncateMessagePreview(text: string): string {
+  if (text.length <= MESSAGE_PREVIEW_LENGTH) return text
+  let end = MESSAGE_PREVIEW_LENGTH - 1
+  const lastIncluded = text.charCodeAt(end - 1)
+  const firstExcluded = text.charCodeAt(end)
+  if (
+    lastIncluded >= 0xd800
+    && lastIncluded <= 0xdbff
+    && firstExcluded >= 0xdc00
+    && firstExcluded <= 0xdfff
+  ) {
+    end -= 1
+  }
+  return `${text.slice(0, end)}…`
+}
+
 // Inbox / unreads
 export const DEFAULT_INBOX_PAGE_SIZE = 100
 export const MAX_INBOX_PAGE_SIZE = 200

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
 import { materializeMessageStream } from "@/lib/community/message-stream"
+import { MESSAGE_PREVIEW_LENGTH } from "@alook/shared"
 
 vi.mock("react", () => ({
   useCallback: (fn: Function) => fn,
@@ -121,6 +122,33 @@ describe("useDmMessageSender", () => {
       { kind: "dm", id: "dm_1" },
       { type: "retry", nonce: "retry_nonce" },
     )
+  })
+
+  it("bounds a DM optimistic reply and preserves the exact preview through retry", async () => {
+    postMock
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockRejectedValueOnce(new Error("still offline"))
+    const { useDmMessageSender } = await import("./use-dm-message-sender")
+    const sender = useDmMessageSender()
+    const receipt = sender.accept({
+      dmId: "dm_1",
+      content: "replying",
+      replyTo: {
+        id: "prior",
+        authorName: "Peer",
+        text: "x".repeat(MESSAGE_PREVIEW_LENGTH + 1),
+      },
+      author: { id: "u_me", name: "Me", avatar: "M" },
+    })
+
+    if (!receipt.accepted) throw new Error("expected accepted receipt")
+    await expect(receipt.committed).resolves.toEqual({ ok: false, error: expect.any(Error) })
+    const expected = `${"x".repeat(MESSAGE_PREVIEW_LENGTH - 1)}…`
+    expect(getMessageOverlay({ kind: "dm", id: "dm_1" }).outboxByNonce.get("fresh_nonce")?.message.replyTo?.text).toBe(expected)
+
+    await expect(sender.retry("dm_1", "fresh_nonce")).resolves.toEqual({ ok: false, error: expect.any(Error) })
+    expect(getMessageOverlay({ kind: "dm", id: "dm_1" }).outboxByNonce.get("fresh_nonce")?.message.replyTo?.text).toBe(expected)
+    expect(postMock).toHaveBeenNthCalledWith(2, expect.objectContaining({ replyToId: "prior", nonce: "fresh_nonce" }))
   })
 
   it("reuses settled remote attachments on retry without uploading twice", async () => {

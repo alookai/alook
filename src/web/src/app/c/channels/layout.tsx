@@ -277,6 +277,10 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     setServerSettingsOpen(true)
   }, [])
 
+  const onRailOpenActiveInvite = useCallback(() => {
+    setInvitePopoverOpen(true)
+  }, [])
+
   const onBlockedCreate = useCallback(() => {
     toast("Only admins can create channels in a private category")
   }, [])
@@ -488,6 +492,8 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       setMobileZone={setMobileZone}
       sidebar={sidebar}
       extraDialogs={<>{serverSettingsDialog}{iconCropDialog}</>}
+      onOpenActiveServerSettings={onSidebarOpenSettings}
+      onOpenActiveServerInvite={onRailOpenActiveInvite}
       goHome={goHome}
       goServer={goServer}
     >

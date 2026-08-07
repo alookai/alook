@@ -135,12 +135,13 @@ describe("useCreateForumThread", () => {
 })
 
 describe("useUpdatePostTags", () => {
-  it("PUTs normalized tags and invalidates every message-feed variant", async () => {
+  it("PUTs normalized tags and invalidates every message-feed variant plus the forum tag list", async () => {
     const { useUpdatePostTags } = await load()
     useUpdatePostTags()
     capturedQc.setQueryData(communityKeys.channelMessages("forum_1"), { pages: [], pageParams: [] })
     const bugKey = [...communityKeys.channelMessages("forum_1"), "tag", "bug"] as const
     capturedQc.setQueryData(bugKey, { pages: [], pageParams: [] })
+    capturedQc.setQueryData(communityKeys.forumTags("forum_1"), { tags: ["bug", "p0"] })
     apiFetchMock.mockResolvedValueOnce({ tags: ["bug", "p0"] })
 
     await runMutation({
@@ -156,6 +157,29 @@ describe("useUpdatePostTags", () => {
     })
     expect(capturedQc.getQueryState(communityKeys.channelMessages("forum_1"))?.isInvalidated).toBe(true)
     expect(capturedQc.getQueryState(bugKey)?.isInvalidated).toBe(true)
+    expect(capturedQc.getQueryState(communityKeys.forumTags("forum_1"))?.isInvalidated).toBe(true)
+  })
+
+  it("leaves both the message feeds and forum tag list untouched when the PUT fails", async () => {
+    const { useUpdatePostTags } = await load()
+    useUpdatePostTags()
+    const feedBefore = { pages: [{ messages: [{ id: "m_p2" }] }], pageParams: [null] }
+    const tagsBefore = { tags: ["bug"] }
+    capturedQc.setQueryData(communityKeys.channelMessages("forum_1"), feedBefore)
+    capturedQc.setQueryData(communityKeys.forumTags("forum_1"), tagsBefore)
+    apiFetchMock.mockRejectedValueOnce(new Error("500"))
+
+    await runMutationExpectError({
+      forumChannelId: "forum_1",
+      threadId: "p2",
+      openerMessageId: "m_p2",
+      tags: [],
+    })
+
+    expect(capturedQc.getQueryData(communityKeys.channelMessages("forum_1"))).toEqual(feedBefore)
+    expect(capturedQc.getQueryData(communityKeys.forumTags("forum_1"))).toEqual(tagsBefore)
+    expect(capturedQc.getQueryState(communityKeys.channelMessages("forum_1"))?.isInvalidated).toBe(false)
+    expect(capturedQc.getQueryState(communityKeys.forumTags("forum_1"))?.isInvalidated).toBe(false)
   })
 })
 
