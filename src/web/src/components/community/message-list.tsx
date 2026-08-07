@@ -14,6 +14,8 @@ import type { RenderMsg } from "./_types"
 import { NumberTicker } from "@/components/ui/number-ticker"
 import { useScrollAnchor } from "@/hooks/community/use-scroll-anchor"
 import { flattenMessageItems } from "./message-list-items"
+import { VirtualRows } from "./virtual-cursor-list"
+import { useVirtualCursorSentinel } from "@/hooks/community/use-virtual-cursor-sentinel"
 import type { Msg, OpenProfile } from "./_types"
 
 // Channel message list — welcome hero, date dividers, messages (with the NEW divider),
@@ -248,92 +250,13 @@ export function MessageList({
   // history in one scroll). Instead: create the observer ONCE per scroll
   // container and read the mutable guards from refs, so it only fires on a
   // genuine scroll-in transition.
-  const topSentinelRef = useRef<HTMLDivElement>(null)
-  const loadOlderStateRef = useRef({ onLoadOlder, hasMore, isFetchingOlder })
-  const topIntersectingRef = useRef(false)
-  const pendingOlderDemandRef = useRef(false)
-  const wasFetchingOlderRef = useRef(isFetchingOlder)
-  // Sync the latest guards into the ref after each commit — the observer
-  // callback (which reads it) only fires asynchronously, so a post-render
-  // write is behavior-identical while keeping the ref untouched during render.
-  useEffect(() => {
-    loadOlderStateRef.current = { onLoadOlder, hasMore, isFetchingOlder }
+  const topSentinelRef = useVirtualCursorSentinel({
+    scrollRef,
+    hasMore,
+    isFetching: isFetchingOlder,
+    onLoad: onLoadOlder,
+    edge: "start",
   })
-  // A true-entry (or continued upward intent near the top) can arrive while a
-  // previous page is still in flight. IntersectionObserver will not emit
-  // again merely because that fetch settled while the sentinel stayed
-  // visible, so retain at most one demand and replay it clear-first. The
-  // clear-first ordering prevents the replayed load's state ticks from
-  // draining every older page without another user intent.
-  useEffect(() => {
-    const wasFetching = wasFetchingOlderRef.current
-    wasFetchingOlderRef.current = isFetchingOlder
-    if (!hasMore) {
-      pendingOlderDemandRef.current = false
-      topIntersectingRef.current = false
-      return
-    }
-    if (
-      wasFetching &&
-      !isFetchingOlder &&
-      pendingOlderDemandRef.current &&
-      topIntersectingRef.current &&
-      onLoadOlder
-    ) {
-      pendingOlderDemandRef.current = false
-      onLoadOlder()
-    }
-  }, [hasMore, isFetchingOlder, onLoadOlder])
-  useEffect(() => {
-    const el = topSentinelRef.current
-    const root = scrollRef.current
-    if (!el || !root) return
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const { onLoadOlder, hasMore, isFetchingOlder } = loadOlderStateRef.current
-        for (const entry of entries) {
-          topIntersectingRef.current = entry.isIntersecting
-          if (!entry.isIntersecting) continue
-          if (!onLoadOlder || !hasMore) continue
-          if (isFetchingOlder) {
-            pendingOlderDemandRef.current = true
-          } else {
-            onLoadOlder()
-          }
-          break
-        }
-      },
-      { root, rootMargin: "200px" },
-    )
-    let lastScrollTop = root.scrollTop
-    const onScroll = () => {
-      const nextScrollTop = root.scrollTop
-      const movingUp = nextScrollTop < lastScrollTop
-      lastScrollTop = nextScrollTop
-      const state = loadOlderStateRef.current
-      if (
-        movingUp &&
-        nextScrollTop <= 200 &&
-        topIntersectingRef.current &&
-        state.hasMore &&
-        state.isFetchingOlder
-      ) {
-        pendingOlderDemandRef.current = true
-      }
-    }
-    observer.observe(el)
-    root.addEventListener("scroll", onScroll, { passive: true })
-    return () => {
-      pendingOlderDemandRef.current = false
-      topIntersectingRef.current = false
-      root.removeEventListener("scroll", onScroll)
-      observer.disconnect()
-    }
-    // Re-observe only when the sentinel node mounts/unmounts (it's absent
-    // while `hasMore` is false) or the scroll container changes — never on a
-    // fetch-state tick. `hasMore` gates whether the sentinel node renders at
-    // all, so it belongs here to (re-)attach when history reappears.
-  }, [hasMore, scrollRef])
 
   // Bottom sentinel — symmetric to the top one. Only mounted when the loaded
   // window is not tail-attached (`hasMoreNewer === true`). Appended rows from
@@ -345,32 +268,13 @@ export function MessageList({
   // mutable guards from a ref so a fetch-state tick never recreates the
   // observer (which would re-fire against the still-visible sentinel and
   // cascade through all newer pages).
-  const bottomSentinelRef = useRef<HTMLDivElement>(null)
-  const loadNewerStateRef = useRef({ onLoadNewer, hasMoreNewer, isFetchingNewer })
-  // Same post-commit ref sync as the top sentinel — see comment above.
-  useEffect(() => {
-    loadNewerStateRef.current = { onLoadNewer, hasMoreNewer, isFetchingNewer }
+  const bottomSentinelRef = useVirtualCursorSentinel({
+    scrollRef,
+    hasMore: hasMoreNewer,
+    isFetching: isFetchingNewer,
+    onLoad: onLoadNewer,
+    edge: "end",
   })
-  useEffect(() => {
-    const el = bottomSentinelRef.current
-    const root = scrollRef.current
-    if (!el || !root) return
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const { onLoadNewer, hasMoreNewer, isFetchingNewer } = loadNewerStateRef.current
-        if (!onLoadNewer || !hasMoreNewer || isFetchingNewer) return
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            onLoadNewer()
-            break
-          }
-        }
-      },
-      { root, rootMargin: "200px" },
-    )
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [hasMoreNewer, scrollRef])
 
   // `jumpTo` — click a reply pill, scroll to (and briefly highlight) an
   // earlier message. Replaces the old `querySelector('[data-msg-id="..."]')`
@@ -474,22 +378,12 @@ export function MessageList({
                 )}
               </div>
 
-              <div style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}>
-                {virtualizer.getVirtualItems().map((virtualRow) => {
-                  const item = items[virtualRow.index]
-                  return (
-                    <div
-                      key={item.key}
-                      data-index={virtualRow.index}
-                      ref={virtualizer.measureElement}
-                      style={{
-                        position: "absolute",
-                        top: 0,
-                        left: 0,
-                        width: "100%",
-                        transform: `translateY(${virtualRow.start - virtualizer.options.scrollMargin}px)`,
-                      }}
-                    >
+              <VirtualRows
+                items={items}
+                virtualizer={virtualizer}
+                itemKey={(item) => item.key}
+                renderItem={(item) => (
+                  <>
                       {item.kind === "date-divider" && <DateDivider label={item.label} />}
                       {item.kind === "new-divider" && <NewDivider dateLabel={item.dateLabel} />}
                       {item.kind === "message" && (
@@ -527,10 +421,9 @@ export function MessageList({
                           />
                         </div>
                       )}
-                    </div>
-                  )
-                })}
-              </div>
+                  </>
+                )}
+              />
 
               {hasMoreNewer && (
                 <div
