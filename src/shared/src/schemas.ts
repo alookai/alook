@@ -757,7 +757,7 @@ export const SkillSyncRequestSchema = z.object({
   scope: z.enum(["global", "agent"]),
   agent_id: z.string().min(1).optional(),
   daemon_id: z.string().min(1).optional(),
-  runtime: z.enum(["claude", "codex", "opencode"]),
+  runtime: z.enum(["claude", "codex", "opencode", "hermes"]),
   skills: z.array(SkillItemSchema),
 });
 export type SkillSyncRequest = z.infer<typeof SkillSyncRequestSchema>;

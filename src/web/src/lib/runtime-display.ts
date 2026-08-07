@@ -9,6 +9,7 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   claude: "Claude Code",
   codex: "Codex",
   opencode: "OpenCode",
+  hermes: "Hermes",
 };
 
 /** Generic label when the provider is unknown / missing / legacy. */
