@@ -6,8 +6,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
-import type { ForumThreadsResponse } from "@/hooks/community/use-channel-panels"
-import type { ForumThread } from "@/components/community/_types"
 
 vi.mock("react", () => ({
   useRef: (initial: unknown) => ({ current: initial }),
@@ -70,22 +68,6 @@ beforeEach(() => {
   capturedQc = new QueryClient()
 })
 
-function makePost(id: string): ForumThread {
-  return {
-    id,
-    name: `post ${id}`,
-    messageCount: 1,
-    lastMessageAt: "2026-07-03T00:00:00.000Z",
-    parent: { authorName: "Alice", text: "root" },
-    authorId: "usr_alice",
-    authorAvatar: "A",
-    openerMessageId: `m_${id}`,
-    tags: [],
-    preview: "preview",
-    participants: [{ id: "usr_alice", name: "Alice", avatar: "A" }],
-  }
-}
-
 describe("useCreateForumThread", () => {
   it("POSTs JSON with name + content only when no attachments/mentionType are provided", async () => {
     const { useCreateForumThread } = await load()
@@ -143,27 +125,22 @@ describe("useCreateForumThread", () => {
   it("invalidates the composed forum list on success", async () => {
     const { useCreateForumThread } = await load()
     useCreateForumThread()
-    capturedQc.setQueryData<ForumThreadsResponse>(communityKeys.forumThreads("forum_1"), {
-      threads: [makePost("p_old")],
-    })
+    capturedQc.setQueryData(communityKeys.channelMessages("forum_1"), { pages: [], pageParams: [] })
     apiFetchMock.mockResolvedValueOnce({ threadId: "p_new" })
 
     await runMutation({ nonce: "command_1", channelId: "forum_1", name: "n", content: "c" })
 
-    expect(capturedQc.getQueryState(communityKeys.forumThreads("forum_1"))?.isInvalidated).toBe(true)
+    expect(capturedQc.getQueryState(communityKeys.channelMessages("forum_1"))?.isInvalidated).toBe(true)
   })
 })
 
 describe("useUpdatePostTags", () => {
-  it("PUTs normalized tags on the opener message and patches the post cache", async () => {
+  it("PUTs normalized tags and invalidates every message-feed variant", async () => {
     const { useUpdatePostTags } = await load()
     useUpdatePostTags()
-    capturedQc.setQueryData<ForumThreadsResponse>(communityKeys.forumThreads("forum_1"), {
-      threads: [makePost("p1"), makePost("p2")],
-    })
-    capturedQc.setQueryData<ForumThreadsResponse>(communityKeys.forumThreads("forum_1", "bug"), {
-      threads: [makePost("p2")],
-    })
+    capturedQc.setQueryData(communityKeys.channelMessages("forum_1"), { pages: [], pageParams: [] })
+    const bugKey = [...communityKeys.channelMessages("forum_1"), "tag", "bug"] as const
+    capturedQc.setQueryData(bugKey, { pages: [], pageParams: [] })
     apiFetchMock.mockResolvedValueOnce({ tags: ["bug", "p0"] })
 
     await runMutation({
@@ -177,42 +154,35 @@ describe("useUpdatePostTags", () => {
       method: "PUT",
       body: JSON.stringify({ tags: ["bug", "p0"] }),
     })
-    const cache = capturedQc.getQueryData<ForumThreadsResponse>(communityKeys.forumThreads("forum_1"))
-    expect(cache?.threads.find((post) => post.id === "p2")?.tags).toEqual(["bug", "p0"])
-    expect(capturedQc.getQueryState(communityKeys.forumThreads("forum_1"))?.isInvalidated).toBe(true)
-    expect(capturedQc.getQueryState(communityKeys.forumThreads("forum_1", "bug"))?.isInvalidated).toBe(true)
+    expect(capturedQc.getQueryState(communityKeys.channelMessages("forum_1"))?.isInvalidated).toBe(true)
+    expect(capturedQc.getQueryState(bugKey)?.isInvalidated).toBe(true)
   })
 })
 
 describe("useDeleteForumThread", () => {
-  it("DELETEs the post channel and removes it from the forum's cached list on success", async () => {
+  it("DELETEs the post channel and invalidates the canonical feed on success", async () => {
     const { useDeleteForumThread } = await load()
     useDeleteForumThread()
 
-    capturedQc.setQueryData<ForumThreadsResponse>(communityKeys.forumThreads("forum_1"), {
-      threads: [makePost("p1"), makePost("p2"), makePost("p3")],
-    })
+    capturedQc.setQueryData(communityKeys.channelMessages("forum_1"), { pages: [], pageParams: [] })
     apiFetchMock.mockResolvedValueOnce(undefined)
 
     await runMutation({ forumChannelId: "forum_1", threadId: "p2" })
 
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/p2", { method: "DELETE" })
-    const cache = capturedQc.getQueryData<ForumThreadsResponse>(communityKeys.forumThreads("forum_1"))
-    expect(cache?.threads.map((p) => p.id)).toEqual(["p1", "p3"])
+    expect(capturedQc.getQueryState(communityKeys.channelMessages("forum_1"))?.isInvalidated).toBe(true)
   })
 
   it("leaves the cache untouched when the DELETE fails", async () => {
     const { useDeleteForumThread } = await load()
     useDeleteForumThread()
 
-    capturedQc.setQueryData<ForumThreadsResponse>(communityKeys.forumThreads("forum_1"), {
-      threads: [makePost("p1"), makePost("p2")],
-    })
+    const before = { pages: [{ messages: [{ id: "m_p2" }] }], pageParams: [null] }
+    capturedQc.setQueryData(communityKeys.channelMessages("forum_1"), before)
     apiFetchMock.mockRejectedValueOnce(new Error("500"))
 
     await runMutationExpectError({ forumChannelId: "forum_1", threadId: "p2" })
 
-    const cache = capturedQc.getQueryData<ForumThreadsResponse>(communityKeys.forumThreads("forum_1"))
-    expect(cache?.threads.map((p) => p.id)).toEqual(["p1", "p2"])
+    expect(capturedQc.getQueryData(communityKeys.channelMessages("forum_1"))).toEqual(before)
   })
 })

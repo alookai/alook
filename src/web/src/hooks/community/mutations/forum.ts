@@ -3,7 +3,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import type { ForumThreadsResponse } from "@/hooks/community/use-channel-panels"
 import type { UploadedAttachment } from "@/hooks/community/mutations/uploads"
 import type { MentionType } from "@alook/shared"
 
@@ -45,7 +44,7 @@ export function useCreateForumThread() {
     },
     onSuccess: (data, args) => {
       void data
-      void queryClient.invalidateQueries({ queryKey: communityKeys.forumThreads(args.channelId) })
+      void queryClient.invalidateQueries({ queryKey: communityKeys.channelMessages(args.channelId) })
     },
   })
 }
@@ -77,22 +76,11 @@ export function useUpdatePostTags() {
       return { tags: normalized }
     },
     onSuccess: (data, args) => {
-      queryClient.setQueryData<ForumThreadsResponse | undefined>(
-        communityKeys.forumThreads(args.forumChannelId),
-        (prev) =>
-          prev
-            ? {
-                ...prev,
-                threads: prev.threads.map((thread) =>
-                  thread.id === args.threadId ? { ...thread, tags: data.tags } : thread,
-                ),
-              }
-            : prev,
-      )
-      // Prefix invalidation covers the unfiltered list and every
-      // forumThreads(parent, tag) variant. This is required when the edited
+      void data
+      // Prefix invalidation covers the unfiltered list and every tag variant.
+      // This is required when the edited
       // post loses the currently-selected tag and must leave that result set.
-      void queryClient.invalidateQueries({ queryKey: communityKeys.forumThreads(args.forumChannelId) })
+      void queryClient.invalidateQueries({ queryKey: communityKeys.channelMessages(args.forumChannelId) })
     },
   })
 }
@@ -117,13 +105,7 @@ export function useDeleteForumThread() {
       await apiFetch(`/api/community/channels/${threadId}`, { method: "DELETE" })
     },
     onSuccess: (_data, args) => {
-      queryClient.setQueryData<ForumThreadsResponse | undefined>(
-        communityKeys.forumThreads(args.forumChannelId),
-        (prev) =>
-          prev
-            ? { ...prev, threads: prev.threads.filter((thread) => thread.id !== args.threadId) }
-            : prev,
-      )
+      void queryClient.invalidateQueries({ queryKey: communityKeys.channelMessages(args.forumChannelId) })
     },
   })
 }

@@ -38,46 +38,6 @@ describe("useThreads / threadsQueryFn", () => {
   })
 })
 
-describe("useForumThreads / forumThreadsQueryFn", () => {
-  it("composes posts from child threads plus generic batch resources", async () => {
-    apiFetchMock
-      .mockResolvedValueOnce({ threads: [{ id: "p_1", name: "fallback", type: "thread", creatorId: "u1", parentMessageId: "m1", messageCount: 1, lastMessageAt: null, createdAt: "now" }] })
-      .mockResolvedValueOnce({ messages: [{ id: "m1", channelId: "ch_1", content: "Title", seq: 1, authorId: "u1", authorName: "A", authorImage: null }], firstMessages: [{ id: "r1", channelId: "p_1", content: "Body", seq: 1, authorId: "u1", authorName: "A", authorImage: null }] })
-      .mockResolvedValueOnce({ tags: [{ messageId: "m1", tag: "bug" }] })
-      .mockResolvedValueOnce({ participants: [{ channelId: "p_1", userId: "u1", userName: "A", userImage: null, addedAt: "now" }] })
-    const { forumThreadsQueryFn } = await import("./use-channel-panels")
-    const data = await forumThreadsQueryFn("ch_1")()
-    expect(apiFetchMock).not.toHaveBeenCalledWith("/api/community/channels/ch_1/posts")
-    expect(data.threads).toHaveLength(1)
-    expect(data.threads[0]).toEqual(expect.objectContaining({ name: "Title", preview: "Body", tags: ["bug"] }))
-  })
-
-  it("populates queryClient at communityKeys.forumThreads(channelId)", async () => {
-    apiFetchMock.mockResolvedValueOnce({ threads: [] })
-      .mockResolvedValueOnce({ messages: [], firstMessages: [] })
-      .mockResolvedValueOnce({ tags: [] })
-      .mockResolvedValueOnce({ participants: [] })
-    const { forumThreadsQueryFn } = await import("./use-channel-panels")
-    const qc = new QueryClient()
-    const key = communityKeys.forumThreads("ch_1")
-    await qc.fetchQuery({ queryKey: key, queryFn: forumThreadsQueryFn("ch_1") })
-    expect(qc.getQueryData(key)).toEqual({ threads: [] })
-  })
-
-  it("sends tag filtering to the server and isolates the filtered cache key", async () => {
-    apiFetchMock.mockResolvedValueOnce({ threads: [] })
-      .mockResolvedValueOnce({ messages: [], firstMessages: [] })
-      .mockResolvedValueOnce({ tags: [] })
-      .mockResolvedValueOnce({ participants: [] })
-    const { forumThreadsQueryFn } = await import("./use-channel-panels")
-    const qc = new QueryClient()
-    const key = communityKeys.forumThreads("ch_1", "bug")
-    await qc.fetchQuery({ queryKey: key, queryFn: forumThreadsQueryFn("ch_1", "bug") })
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/ch_1/threads?tag=bug")
-    expect(qc.getQueryData(key)).toEqual({ threads: [] })
-  })
-})
-
 describe("usePins / pinsQueryFn", () => {
   it("fetches from /channels/:id/pins and returns { pins }", async () => {
     apiFetchMock.mockResolvedValueOnce({ pins: [{ id: "m_1" }] })

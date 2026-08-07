@@ -1141,7 +1141,7 @@ describe("useCommunityWs — machines", () => {
 })
 
 describe("useCommunityWs — child channel events", () => {
-  it("child_create invalidates threads + forumThreads", async () => {
+  it("child_create invalidates threads without a parallel forum cache", async () => {
     await mountHook()
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     const event: CommunityChildChannelCreate = {
@@ -1157,7 +1157,7 @@ describe("useCommunityWs — child channel events", () => {
     capturedOnMessage!(event)
     const keys = spy.mock.calls.map((c) => c[0]?.queryKey as unknown[])
     expect(keys.some((k) => k?.includes("threads"))).toBe(true)
-    expect(keys.some((k) => k?.includes("forum-threads"))).toBe(true)
+    expect(keys.some((k) => k?.includes("forum-threads"))).toBe(false)
   })
 })
 
@@ -1276,16 +1276,15 @@ describe("useCommunityWs — non-community events bail", () => {
 
 // ── Regression #3 — channel.delete evicts channel-scoped caches ─────────
 describe("useCommunityWs — channel.delete evicts channel-scoped caches", () => {
-  it("removes channelMessages, pins, threads, and forumThreads for the deleted channel", async () => {
+  it("removes channelMessages, pins, and threads for the deleted channel", async () => {
     await mountHook()
-    // Seed all four caches for the target channel so we can observe eviction.
+    // Seed every canonical cache for the target channel so we can observe eviction.
     capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_dead"), {
       pages: [{ messages: [{ id: "m_1" }], hasMore: false }],
       pageParams: [null],
     })
     capturedQueryClient.setQueryData(communityKeys.pins("ch_dead"), { pins: [{ id: "p" }] })
     capturedQueryClient.setQueryData(communityKeys.threads("ch_dead"), { threads: [{ id: "t" }] })
-    capturedQueryClient.setQueryData(communityKeys.forumThreads("ch_dead"), { threads: [{ id: "fp" }] })
 
     const event: CommunityChannelDelete = {
       type: "community:channel.delete",
@@ -1297,7 +1296,6 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
     expect(capturedQueryClient.getQueryData(communityKeys.channelMessages("ch_dead"))).toBeUndefined()
     expect(capturedQueryClient.getQueryData(communityKeys.pins("ch_dead"))).toBeUndefined()
     expect(capturedQueryClient.getQueryData(communityKeys.threads("ch_dead"))).toBeUndefined()
-    expect(capturedQueryClient.getQueryData(communityKeys.forumThreads("ch_dead"))).toBeUndefined()
   })
 })
 
@@ -1594,7 +1592,7 @@ describe("useCommunityWs — typing state is scoped per conversation", () => {
 
 // ── channel.delete invalidates the parent forum list (post deletion) ────────
 describe("useCommunityWs — channel.delete refreshes the parent forum feed", () => {
-  it("invalidates the parent's forumThreads + threads lists when parentChannelId is present", async () => {
+  it("invalidates the parent's message feed + threads list when parentChannelId is present", async () => {
     await mountHook()
     const invalidateSpy = vi.spyOn(capturedQueryClient, "invalidateQueries")
 
@@ -1607,14 +1605,14 @@ describe("useCommunityWs — channel.delete refreshes the parent forum feed", ()
     capturedOnMessage!(event)
 
     const invalidatedKeys = invalidateSpy.mock.calls.map((c) => JSON.stringify(c[0]?.queryKey))
-    expect(invalidatedKeys).toContain(JSON.stringify(communityKeys.forumThreads("forum_1")))
+    expect(invalidatedKeys).toContain(JSON.stringify(communityKeys.channelMessages("forum_1")))
     expect(invalidatedKeys).toContain(JSON.stringify(communityKeys.threads("forum_1")))
   })
 
   it("does not throw and still evicts own caches when parentChannelId is absent (legacy event)", async () => {
     await mountHook()
-    // Seed the deleted channel's own caches so we can assert eviction.
-    capturedQueryClient.setQueryData(communityKeys.forumThreads("post_1"), { threads: [] })
+    // Seed the deleted channel's own message cache so we can assert eviction.
+    capturedQueryClient.setQueryData(communityKeys.channelMessages("post_1"), { pages: [], pageParams: [] })
     const removeSpy = vi.spyOn(capturedQueryClient, "removeQueries")
 
     const event: CommunityChannelDelete = {
@@ -1625,7 +1623,7 @@ describe("useCommunityWs — channel.delete refreshes the parent forum feed", ()
     expect(() => capturedOnMessage!(event)).not.toThrow()
 
     const removedKeys = removeSpy.mock.calls.map((c) => JSON.stringify(c[0]?.queryKey))
-    expect(removedKeys).toContain(JSON.stringify(communityKeys.forumThreads("post_1")))
+    expect(removedKeys).toContain(JSON.stringify(communityKeys.channelMessages("post_1")))
   })
 })
 
@@ -1644,12 +1642,12 @@ describe("useCommunityWs — message edit refreshes forum opener summary", () =>
       id: "opener_1",
       content: "old title",
     })
-    capturedQueryClient.setQueryData(communityKeys.forumThreads("forum_1"), { threads: [] })
-    capturedQueryClient.setQueryData(communityKeys.forumThreads("forum_1", "bug"), { threads: [] })
+    capturedQueryClient.setQueryData(communityKeys.channelMessages("forum_1"), { pages: [], pageParams: [] })
+    capturedQueryClient.setQueryData([...communityKeys.channelMessages("forum_1"), "tag", "bug"], { pages: [], pageParams: [] })
     capturedOnMessage!(opener)
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: communityKeys.forumThreads("forum_1") })
-    expect(capturedQueryClient.getQueryState(communityKeys.forumThreads("forum_1"))?.isInvalidated).toBe(true)
-    expect(capturedQueryClient.getQueryState(communityKeys.forumThreads("forum_1", "bug"))?.isInvalidated).toBe(true)
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: communityKeys.channelMessages("forum_1") })
+    expect(capturedQueryClient.getQueryState(communityKeys.channelMessages("forum_1"))?.isInvalidated).toBe(true)
+    expect(capturedQueryClient.getQueryState([...communityKeys.channelMessages("forum_1"), "tag", "bug"])?.isInvalidated).toBe(true)
     expect(capturedQueryClient.getQueryData<{ content: string }>(communityKeys.message("opener_1"))?.content).toBe("new title")
 
     invalidateSpy.mockClear()

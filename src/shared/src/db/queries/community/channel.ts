@@ -388,6 +388,28 @@ export async function listChildChannels(
   return rows;
 }
 
+export async function listChildChannelsByParentMessageIds(
+  db: Database,
+  parentChannelId: string,
+  parentMessageIds: string[],
+) {
+  if (parentMessageIds.length === 0) return [];
+  return (
+    await Promise.all(
+      chunk(parentMessageIds, D1_MAX_IN_PARAMS - 2).map((ids) =>
+        db
+          .select(CHANNEL_COLUMNS)
+          .from(communityChannel)
+          .where(and(
+            eq(communityChannel.parentChannelId, parentChannelId),
+            eq(communityChannel.type, "thread"),
+            inArray(communityChannel.parentMessageId, ids),
+          ))
+      )
+    )
+  ).flat();
+}
+
 export async function reorderChannels(
   db: Database,
   _serverId: string,

@@ -49,7 +49,16 @@ type UiReaction = { emoji: string; count: number; me: boolean; userIds: string[]
 
 type ReplyPreview = { id: string; authorName: string; text: string; deleted?: boolean }
 
-type ThreadPreview = { id: string; name: string; messageCount: number }
+type ThreadPreview = {
+  id: string
+  name: string
+  messageCount: number
+  lastReplyAt?: string
+  tags?: string[]
+  preview?: string
+  participants?: { id: string; name: string; avatar: string }[]
+  participantCount?: number
+}
 
 /** Common fields shared by both API and WS variants — derived exactly once. */
 function coreFields(row: MessageRow) {
@@ -126,7 +135,7 @@ export function mapMessageForApi(row: MessageRow, ctx: ApiMessageContext) {
     embeds: row.embeds,
     attachments: ctx.attachmentsByMessage[row.id]?.length ? ctx.attachmentsByMessage[row.id] : undefined,
     reactions: ctx.reactionsByMessage[row.id]?.length ? ctx.reactionsByMessage[row.id] : undefined,
-    thread: thread ? { id: thread.id, name: thread.name, messageCount: thread.messageCount } : undefined,
+    thread,
     approval,
   }
 }

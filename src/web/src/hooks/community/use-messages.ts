@@ -60,8 +60,9 @@ export type MessagesPageParam =
   | { mode: "older"; cursor: string }
   | { mode: "newer"; cursor: string }
 
-function buildMessagesUrl(base: string, pageParam: MessagesPageParam): string {
+function buildMessagesUrl(base: string, pageParam: MessagesPageParam, tag?: string | null): string {
   const params = new URLSearchParams()
+  if (tag) params.set("tag", tag)
   switch (pageParam.mode) {
     case "newest":
       break
@@ -83,10 +84,10 @@ function buildMessagesUrl(base: string, pageParam: MessagesPageParam): string {
 }
 
 export const channelMessagesQueryFn =
-  (channelId: string) =>
+  (channelId: string, tag?: string | null) =>
   async ({ pageParam }: { pageParam: MessagesPageParam }): Promise<MessagesPage> => {
     return apiFetch<MessagesPage>(
-      buildMessagesUrl(`/api/community/channels/${channelId}/messages`, pageParam),
+      buildMessagesUrl(`/api/community/channels/${channelId}/messages`, pageParam, tag),
     )
   }
 
@@ -161,6 +162,8 @@ type MessagesReturn = Omit<UseInfiniteQueryResult<PageCache, Error>, "isLoading"
 }
 
 type MessagesOpts = {
+  /** Server-side message-tag filter. Null/undefined means the complete set. */
+  tag?: string | null
   /**
    * Anchor for the initial fetch. Undefined = read-state not resolved yet;
    * the hook stays disabled until this becomes a value or `null`. `null`
@@ -533,11 +536,12 @@ export function useMessages(
   channelId: string | null,
   opts: ChannelMessagesOpts,
 ): MessagesReturn {
-  const queryKey = communityKeys.channelMessages(channelId ?? "__none__")
+  const baseKey = communityKeys.channelMessages(channelId ?? "__none__")
+  const queryKey = opts.tag ? [...baseKey, "tag", opts.tag] as const : baseKey
   const base = useMessagesInner(
     channelId,
     queryKey,
-    channelMessagesQueryFn(channelId ?? "__none__"),
+    channelMessagesQueryFn(channelId ?? "__none__", opts?.tag),
     opts,
   )
   const scope = useMemo<MessageScope>(() => ({
@@ -560,8 +564,9 @@ export function useMessages(
     })
   }, [canonicalBase, channelId, scope])
   const messages = useMemo(
-    () => materializeMessageStream(canonicalBase, overlay),
-    [canonicalBase, overlay],
+    () => materializeMessageStream(canonicalBase, overlay).filter((message) =>
+      !opts.tag || message.thread?.tags?.includes(opts.tag)),
+    [canonicalBase, opts.tag, overlay],
   )
   return { ...base, messages }
 }

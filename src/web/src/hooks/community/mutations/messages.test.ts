@@ -152,8 +152,10 @@ describe("useEditMessage", () => {
   })
 
   it("invalidates every forum summary variant after an opener edit", async () => {
-    capturedQc.setQueryData(communityKeys.forumThreads("forum_1"), { threads: [] })
-    capturedQc.setQueryData(communityKeys.forumThreads("forum_1", "bug"), { threads: [] })
+    const root = communityKeys.channelMessages("forum_1")
+    const bug = [...root, "tag", "bug"] as const
+    capturedQc.setQueryData(root, { pages: [], pageParams: [] })
+    capturedQc.setQueryData(bug, { pages: [], pageParams: [] })
     apiFetchMock.mockResolvedValueOnce(undefined)
     const mod = await loadMod()
     mod.useEditMessage()
@@ -162,8 +164,8 @@ describe("useEditMessage", () => {
       serverId: "s1", channelId: "forum_1", messageId: "opener_1", content: "new", forumChannelId: "forum_1",
     })
 
-    expect(capturedQc.getQueryState(communityKeys.forumThreads("forum_1"))?.isInvalidated).toBe(true)
-    expect(capturedQc.getQueryState(communityKeys.forumThreads("forum_1", "bug"))?.isInvalidated).toBe(true)
+    expect(capturedQc.getQueryState(root)?.isInvalidated).toBe(true)
+    expect(capturedQc.getQueryState(bug)?.isInvalidated).toBe(true)
   })
 })
 

@@ -9,7 +9,8 @@ import { useBreakpoint } from "@/hooks/use-mobile"
 import { ChannelHeader, ChannelHeaderSkeleton, type ChannelNotifLevel } from "@/components/community/channel-header"
 import { MessageList } from "@/components/community/message-list"
 import { Composer, ComposerSkeleton, type SendAttachment } from "@/components/community/composer"
-import { ForumView, ForumViewSkeleton } from "@/components/community/forum-view"
+import { ForumViewSkeleton } from "@/components/community/forum-view"
+import { ForumSurface } from "@/components/community/forum-surface"
 import type { NewForumThread } from "@/components/community/create-forum-thread"
 import { CommunityPanelSheet } from "@/components/community/community-panel-sheet"
 import { MessageContextSheet } from "@/components/community/message-context-sheet"
@@ -44,7 +45,6 @@ import { useChannelWatermark } from "@/hooks/community/use-channel-watermark"
 import { useEagerChannelRead } from "@/hooks/community/use-eager-channel-read"
 import {
   useThreads,
-  useForumThreads,
   usePins,
 } from "@/hooks/community/use-channel-panels"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
@@ -134,9 +134,7 @@ function ChannelView() {
       }),
     [membersHook.members, onlineUserIds, currentUser.id, userStatuses],
   )
-  // Type-gate the forum-thread resource fetch: only forum channels render the
-  // forum summary. Compute the flag BEFORE the hook call so `useForumThreads`
-  // can stay disabled for non-forum channels.
+  // Resolve the active surface before initializing its message feed options.
   const channelInServer = useMemo(() => {
     const allChannels = currentServer?.categories?.flatMap((c) => c.channels) ?? []
     return allChannels.find((ch) => ch.id === channelId) ?? null
@@ -321,7 +319,7 @@ function ChannelView() {
       serverName: currentServer?.name ?? "",
     }))
   }, [currentServer, serverId])
-  const readStateSnapshot = useChannelReadStateSnapshot(channelId)
+  const readStateSnapshot = useChannelReadStateSnapshot(isForum ? null : channelId)
 
   // Frozen-once snapshot of the viewer's read pointer for this channel — the
   // anchor for the "New" divider AND the mount-time initial scroll target.
@@ -334,7 +332,7 @@ function ChannelView() {
   // while the pointer is still resolving — the hook stays disabled until
   // the value settles (a bare `null` would fall back to newest-mode too
   // early).
-  const messagesQuery = useMessages(channelId, {
+  const messagesQuery = useMessages(isForum ? null : channelId, {
     serverId,
     lastReadMessageId: readSnapshotFetching
       ? undefined
@@ -413,14 +411,14 @@ function ChannelView() {
   // the page's default viewport. Set once by `MessageList` via
   // `onScrollRoot`.
   const [scrollRootEl, setScrollRootEl] = useState<HTMLDivElement | null>(null)
-  useChannelWatermark({ channelId, messages, scrollRootEl })
+  useChannelWatermark({ channelId: isForum ? null : channelId, messages, scrollRootEl })
 
   // Eager mark-read on open — clears this channel/thread from the inbox the
   // moment it's opened, while the frozen `readSnapshot` above keeps the "New"
   // divider anchored to the pre-open pointer. Gated on the snapshot having
   // settled (fetching done; `null` = never-visited is a valid resolved state).
   useEagerChannelRead({
-    channelId,
+    channelId: isForum ? null : channelId,
     serverId,
     isChildChannel,
     snapshotReady: !readSnapshotFetching,
@@ -436,14 +434,8 @@ function ChannelView() {
     return diff > 0 ? diff : 0
   }, [latestSeq, readSnapshot])
 
-  const { threads, isLoading: threadsLoading } = useThreads(channelId)
-  const [forumTag, setForumTag] = useState("All")
-  const { threads: forumThreads, isLoading: forumThreadsLoading } = useForumThreads(
-    channelId,
-    isForum,
-    forumTag === "All" ? null : forumTag,
-  )
-  const { pins: pinned, isLoading: pinnedLoading } = usePins(channelId)
+  const { threads, isLoading: threadsLoading } = useThreads(isForum ? null : channelId)
+  const { pins: pinned, isLoading: pinnedLoading } = usePins(isForum ? null : channelId)
   const notifs = useNotificationSettings()
   const channelNotif = notifs.channel
   const typingUsers = useTypingUsersForScope(`ch:${channelId}`)
@@ -605,18 +597,17 @@ function ChannelView() {
 
   // Find the channel name
   const channelName = useMemo(() => {
-    const post = forumThreads.find((p) => p.id === channelId)
     const thread = threads.find((t) => t.id === channelId)
     return resolveChannelDisplayName({
       localName,
       forumPostTitle: isForumPostChild ? forumPostOpener?.content : null,
       topLevelName: channelInServer?.name,
       childChannelName: isForumPostChild ? null : currentChannelMeta?.name,
-      forumListName: post?.name,
+      forumListName: null,
       threadListName: thread?.name,
       fallback: isForumPostChild ? "Post" : "channel",
     })
-  }, [localName, isForumPostChild, forumPostOpener, channelInServer, forumThreads, threads, currentChannelMeta, channelId])
+  }, [localName, isForumPostChild, forumPostOpener, channelInServer, threads, currentChannelMeta, channelId])
 
   // Pinned message ids
   const pinnedIds = useMemo(() => new Set(pinned.map((p) => p.id)), [pinned])
@@ -1089,7 +1080,9 @@ function ChannelView() {
   })()
 
   const isPotentialChild = !channelInServer && !!currentServer?.categories
-  const bodyLoading = isForum ? forumThreadsLoading : messagesLoading
+  // ForumSurface owns its feed loading state. Channel hydration only waits on
+  // the text/thread message controller for non-forum surfaces.
+  const bodyLoading = isForum ? false : messagesLoading
   const channelHydrated =
     currentChannelId === channelId &&
     !bodyLoading &&
@@ -1299,23 +1292,18 @@ function ChannelView() {
           tools={{ threads: false, pinned: false }}
         />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <ForumView
+          <ForumSurface
+            serverId={serverId}
             forumChannelId={channelId}
             members={composerMembers}
             onSearchMembers={membersHook.searchMembers}
-            posts={forumThreads}
-            loading={forumThreadsLoading}
-            tag={forumTag}
-            onTagChange={setForumTag}
             onOpenPost={enterThread}
             onCreatePost={createForumThread}
             canEditPostTags={(post) => canManage || post.authorId === currentUser.id}
             savingTagsFor={updatePostTagsMut.isPending ? updatePostTagsMut.variables?.threadId ?? null : null}
-            onEditPostTags={(threadId, tags) => {
-              const post = forumThreads.find((candidate) => candidate.id === threadId)
-              if (!post) return
+            onEditPostTags={(post, tags) => {
               updatePostTagsMut.mutate(
-                { forumChannelId: channelId, threadId, openerMessageId: post.openerMessageId, tags },
+                { forumChannelId: channelId, threadId: post.id, openerMessageId: post.openerMessageId, tags },
                 { onError: (e) => toastApiError(e, "Failed to update tags") },
               )
             }}

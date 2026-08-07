@@ -3,12 +3,10 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import type { Thread, ForumThread, Msg } from "@/components/community/_types"
-import { avatarInitial } from "@/lib/community/avatar"
+import type { Thread, Msg } from "@/components/community/_types"
 
 // Frozen empty fallbacks — see `use-servers.ts` for the rationale.
 const EMPTY_THREADS: readonly Thread[] = Object.freeze([])
-const EMPTY_FORUM_THREADS: readonly ForumThread[] = Object.freeze([])
 const EMPTY_PINS: readonly Msg[] = Object.freeze([])
 
 /**
@@ -41,7 +39,7 @@ type BatchMessage = {
   authorName: string
   authorImage: string | null
 }
-type ParticipantRow = { channelId: string; userId: string; userName: string | null; userImage: string | null; addedAt: string }
+type ParticipantRow = { channelId: string; userId: string; userName: string | null; userImage: string | null; addedAt: string; participantCount?: number }
 
 async function loadThreadResources(channelId: string, tag?: string | null) {
   const query = tag ? `?tag=${encodeURIComponent(tag)}` : ""
@@ -100,71 +98,12 @@ export function useThreads(channelId: string | null): UseQueryResult<ThreadsResp
   }
 }
 
-/**
- * Fetches the child-thread listing for a `type='forum'` channel. Server-side
- * resolves creator + first-message + counts; the payload is display-ready.
- */
-export type ForumThreadsResponse = { threads: ForumThread[] }
-
-export const forumThreadsQueryFn = (channelId: string, tag?: string | null) => async (): Promise<ForumThreadsResponse> => {
-  const data = await loadThreadResources(channelId, tag)
-  const openerMap = new Map(data.messages.map((message) => [message.id, message]))
-  const firstMap = new Map(data.firstMessages.map((message) => [message.channelId, message]))
-  const tagsByMessage = new Map<string, string[]>()
-  for (const row of data.tags) tagsByMessage.set(row.messageId, [...(tagsByMessage.get(row.messageId) ?? []), row.tag])
-  const participantsByChannel = new Map<string, ForumThread["participants"]>()
-  for (const row of [...data.participants].sort((a, b) => a.addedAt.localeCompare(b.addedAt))) {
-    participantsByChannel.set(row.channelId, [
-      ...(participantsByChannel.get(row.channelId) ?? []),
-      { id: row.userId, name: row.userName ?? "", avatar: row.userImage ?? avatarInitial(row.userName ?? "") },
-    ])
-  }
-  return {
-    threads: data.threads.map((thread): ForumThread => {
-      const opener = thread.parentMessageId ? openerMap.get(thread.parentMessageId) : undefined
-      const first = firstMap.get(thread.id)
-      const authorId = thread.creatorId ?? opener?.authorId ?? ""
-      const authorName = opener?.authorName ?? ""
-      return {
-        id: thread.id,
-        name: opener?.content ?? thread.name,
-        messageCount: thread.messageCount ?? 0,
-        lastMessageAt: thread.lastMessageAt ?? thread.createdAt,
-        parent: { authorName, text: (first?.content ?? "").slice(0, 100) },
-        authorId,
-        authorAvatar: opener?.authorImage ?? avatarInitial(authorName),
-        openerMessageId: opener?.id ?? thread.parentMessageId ?? "",
-        tags: thread.parentMessageId ? tagsByMessage.get(thread.parentMessageId) ?? [] : [],
-        preview: (first?.content ?? "").slice(0, 100),
-        participants: participantsByChannel.get(thread.id) ?? [],
-      }
-    }),
-  }
-}
-
-/**
- * Fetches forum posts. Only enabled when the channel is a `forum` — otherwise
- * the server returns 400 "channel is not a forum" and TanStack Query would
- * retry it. Callers must pass the channel's type gate; passing `false` (or a
- * null channelId) leaves the query disabled and no request fires.
- */
-export function useForumThreads(
-  channelId: string | null,
-  isForum: boolean = true,
-  tag?: string | null,
-): UseQueryResult<ForumThreadsResponse> & { threads: ForumThread[] } {
-  const enabled = !!channelId && isForum
-  const query = useQuery({
-    queryKey: enabled ? communityKeys.forumThreads(channelId!, tag) : communityKeys.forumThreads("__none__"),
-    queryFn: enabled
-      ? forumThreadsQueryFn(channelId!, tag)
-      : (() => Promise.reject(new Error("disabled"))),
-    enabled,
+export function useForumTags(channelId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: communityKeys.forumTags(channelId ?? "__none__"),
+    queryFn: () => apiFetch<{ tags: string[] }>(`/api/community/channels/${channelId}/messages/tags`),
+    enabled: !!channelId && enabled,
   })
-  return {
-    ...query,
-    threads: query.data?.threads ?? (EMPTY_FORUM_THREADS as ForumThread[]),
-  }
 }
 
 /**

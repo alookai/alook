@@ -131,7 +131,16 @@ export type Msg = {
   attachments?: Attachment[]
   reactions?: Reaction[]
   replyTo?: { id: string; authorName: string; text: string; deleted?: boolean }
-  thread?: { id: string; name: string; messageCount: number; lastReplyAt?: string }
+  thread?: {
+    id: string
+    name: string
+    messageCount: number
+    lastReplyAt?: string
+    tags?: string[]
+    preview?: string
+    participants?: { id: string; name: string; avatar: string }[]
+    participantCount?: number
+  }
   // Present only on a friend-approval DM card. Its presence (not the message
   // `type`) is the discriminator for rendering <BotApprovalCard>.
   approval?: import("@alook/shared").FriendApprovalPayload
@@ -171,6 +180,8 @@ export type ForumThread = Thread & {
   // present (empty for a post with no participant rows yet, e.g. one created
   // before the notify-scope change shipped).
   participants: { id: string; name: string; avatar: string }[]
+  // Total participant rows before the card-preview cap is applied.
+  participantCount: number
 }
 
 // ── Members / friends / DMs ──────────────────────────────────────────────────

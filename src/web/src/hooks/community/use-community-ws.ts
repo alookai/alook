@@ -515,8 +515,8 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           // `channelMessages(id)`, a DM channel's under `dmMessages(id)` — patch
           // both keys; the one that doesn't exist receives `undefined` and the
           // updater returns it, a harmless no-op.
-          queryClient.setQueryData<PageCache>(
-            communityKeys.channelMessages(event.channelId),
+          queryClient.setQueriesData<PageCache>(
+            { queryKey: communityKeys.channelMessages(event.channelId) },
             (c) => applyReactionToCache(c, event, viewerId),
           )
           queryClient.setQueryData<PageCache>(
@@ -604,13 +604,10 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           void queryClient.invalidateQueries({
             queryKey: communityKeys.threads(event.parentChannelId),
           })
-          void queryClient.invalidateQueries({
-            queryKey: communityKeys.forumThreads(event.parentChannelId),
-          })
           if (event.type === "community:channel.child_create") {
             if (event.parentMessageId) {
-              queryClient.setQueryData<PageCache>(
-                communityKeys.channelMessages(event.parentChannelId),
+              queryClient.setQueriesData<PageCache>(
+                { queryKey: communityKeys.channelMessages(event.parentChannelId) },
                 (cache) => {
                   if (!cache) return cache
                   let touched = false
@@ -667,8 +664,8 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             // indicator if the update carries them.
             const changes = event.changes
             if (changes.messageCount !== undefined || changes.name !== undefined) {
-              queryClient.setQueryData<PageCache>(
-                communityKeys.channelMessages(event.parentChannelId),
+              queryClient.setQueriesData<PageCache>(
+                { queryKey: communityKeys.channelMessages(event.parentChannelId) },
                 (cache) => {
                   if (!cache) return cache
                   let touched = false
@@ -817,15 +814,12 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             queryClient.removeQueries({
               queryKey: communityKeys.threads(event.channelId),
             })
-            queryClient.removeQueries({
-              queryKey: communityKeys.forumThreads(event.channelId),
-            })
             // When a child thread is deleted, refresh the
             // PARENT's list so the deleted card disappears from the feed on
             // every client. Absent on older events / top-level channels.
             if (event.parentChannelId) {
               void queryClient.invalidateQueries({
-                queryKey: communityKeys.forumThreads(event.parentChannelId),
+                queryKey: communityKeys.channelMessages(event.parentChannelId),
               })
               void queryClient.invalidateQueries({
                 queryKey: communityKeys.threads(event.parentChannelId),
@@ -862,7 +856,6 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             queryClient.removeQueries({ queryKey: communityKeys.channelMessages(event.channelId) })
             queryClient.removeQueries({ queryKey: communityKeys.pins(event.channelId) })
             queryClient.removeQueries({ queryKey: communityKeys.threads(event.channelId) })
-            queryClient.removeQueries({ queryKey: communityKeys.forumThreads(event.channelId) })
           }
           void queryClient.invalidateQueries({ queryKey: communityKeys.server(event.serverId) })
           // Refetch the channel roster so an open private-channel Members drawer
@@ -1021,8 +1014,8 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             communityKeys.message(event.messageId),
             (message) => message ? { ...message, content: event.content } : message,
           )
-          queryClient.setQueryData<PageCache>(
-            communityKeys.channelMessages(event.channelId),
+          queryClient.setQueriesData<PageCache>(
+            { queryKey: communityKeys.channelMessages(event.channelId) },
             (cache) => patchMessageContentInCache(cache, event.messageId, event.content),
           )
           queryClient.setQueryData<PageCache>(
@@ -1039,7 +1032,9 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             })
           }
           if (event.parentChannelId) {
-            void queryClient.invalidateQueries({ queryKey: communityKeys.forumThreads(event.parentChannelId) })
+            void queryClient.invalidateQueries({
+              queryKey: communityKeys.channelMessages(event.parentChannelId),
+            })
           }
           return
         }

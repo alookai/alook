@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, lte, sql } from "drizzle-orm";
 import { communityChannel, communityChannelMember } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
@@ -123,9 +123,41 @@ export async function listThreadParticipants(
 // group. Soft-deleted users drop out via the inner join.
 export async function listParticipantsForChannels(
   db: Database,
-  channelIds: string[]
+  channelIds: string[],
+  limitPerChannel?: number
 ) {
   if (channelIds.length === 0) return [];
+  if (limitPerChannel !== undefined) {
+    const ranked = db
+      .select({
+        channelId: communityChannelMember.channelId,
+        userId: communityChannelMember.userId,
+        addedAt: communityChannelMember.addedAt,
+        userName: user.name,
+        userImage: user.image,
+        participantCount: sql<number>`count(*) over (partition by ${communityChannelMember.channelId})`.as("participant_count"),
+        rank: sql<number>`row_number() over (partition by ${communityChannelMember.channelId} order by ${communityChannelMember.addedAt}, ${communityChannelMember.userId})`.as("participant_rank"),
+      })
+      .from(communityChannelMember)
+      .innerJoin(user, eq(user.id, communityChannelMember.userId))
+      .where(and(
+        inArray(communityChannelMember.channelId, channelIds),
+        eq(communityChannelMember.relation, "notify")
+      ))
+      .as("ranked_participants");
+    return db
+      .select({
+        channelId: ranked.channelId,
+        userId: ranked.userId,
+        addedAt: ranked.addedAt,
+        userName: ranked.userName,
+        userImage: ranked.userImage,
+        participantCount: ranked.participantCount,
+      })
+      .from(ranked)
+      .where(lte(ranked.rank, limitPerChannel))
+      .orderBy(asc(ranked.channelId), asc(ranked.addedAt), asc(ranked.userId));
+  }
   return db
     .select({
       channelId: communityChannelMember.channelId,

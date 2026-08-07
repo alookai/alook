@@ -62,4 +62,28 @@ describe("POST /api/community/channels/participants/batch", () => {
     expect(response.status).toBe(404)
     expect(mockListParticipantsForChannels).not.toHaveBeenCalled()
   })
+
+  it("passes an explicit capped preview limit without changing the legacy absent-limit call", async () => {
+    const response = await POST(request({
+      parentChannelId: "forum_1",
+      channelIds: ["thread_1", "thread_2"],
+      limitPerChannel: 5,
+    }))
+    expect(response.status).toBe(200)
+    expect(mockListParticipantsForChannels).toHaveBeenCalledWith(
+      expect.anything(),
+      ["thread_1", "thread_2"],
+      5,
+    )
+  })
+
+  it.each([0, -1, 11, 1.5, "5"])("rejects invalid present limitPerChannel %s", async (limitPerChannel) => {
+    const response = await POST(request({
+      parentChannelId: "forum_1",
+      channelIds: ["thread_1", "thread_2"],
+      limitPerChannel,
+    }))
+    expect(response.status).toBe(400)
+    expect(mockListParticipantsForChannels).not.toHaveBeenCalled()
+  })
 })

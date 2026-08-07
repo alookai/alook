@@ -80,6 +80,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
   // identical whether the caller addressed a DM by its channelId here or via the
   // old dm/[id]/messages route (which passed isDm:true explicitly).
   const isDm = resolved.value.isDm
+  const isForum = resolved.value.target.kind === "forum"
 
   // TODO(route-disc): unify the two response projections.
   // Auth/pagination-scope already single-source (one mask, one channel-scoped set);
@@ -135,7 +136,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
       { hasMoreOlder: around.hasMoreOlder, hasMoreNewer: around.hasMoreNewer },
     )
 
-    const { messages, latestSeq } = await enrichMessages(db, userId, { channelId, isDm }, items)
+    const { messages, latestSeq } = await enrichMessages(db, userId, { channelId, isDm, isForum }, items)
     return writeJSON({ messages, hasMoreOlder, hasMoreNewer, olderCursor, newerCursor, latestSeq })
   }
 
@@ -147,7 +148,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
       tag,
     })
     const { items, hasMoreNewer, newerCursor, hasMoreOlder, olderCursor } = buildSinceResponse(rows, pageSize)
-    const { messages, latestSeq } = await enrichMessages(db, userId, { channelId, isDm }, items)
+    const { messages, latestSeq } = await enrichMessages(db, userId, { channelId, isDm, isForum }, items)
     return writeJSON({ messages, hasMoreNewer, newerCursor, hasMoreOlder, olderCursor, latestSeq })
   }
 
@@ -159,7 +160,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
   })
 
   const { items, hasMore, cursor: nextCursor } = buildPaginatedResponse(rows, pageSize)
-  const { messages, latestSeq } = await enrichMessages(db, userId, { channelId, isDm }, items.slice().reverse())
+  const { messages, latestSeq } = await enrichMessages(db, userId, { channelId, isDm, isForum }, items.slice().reverse())
   return writeJSON({ messages, hasMore, cursor: nextCursor, latestSeq })
 })
 
