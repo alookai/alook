@@ -381,7 +381,7 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
   // deleted between navigation and load, or the anchor fetch failed — the row
   // will never appear, so release the state rather than leak it for the mount.
   useEffect(() => {
-    if (!scrollToMessageId) return
+    if (!isChildChannel || !scrollToMessageId) return
     if (messages.some((m) => m.id === scrollToMessageId)) {
       const t = setTimeout(() => setScrollToMessageId((v) => (v === scrollToMessageId ? null : v)), 1600)
       return () => clearTimeout(t)
@@ -389,7 +389,7 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
     const settled =
       !messagesLoading && !isFetchingOlderMessages && !isFetchingNewerMessages
     if (settled) setScrollToMessageId((v) => (v === scrollToMessageId ? null : v))
-  }, [scrollToMessageId, messages, messagesLoading, isFetchingOlderMessages, isFetchingNewerMessages])
+  }, [isChildChannel, scrollToMessageId, messages, messagesLoading, isFetchingOlderMessages, isFetchingNewerMessages])
 
   // Channel switch — reset every piece of UI state scoped to the previous
   // channel. `ChannelView` is keyed by `serverId/channelId`, so this remounts on
@@ -506,7 +506,7 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
   // actions ref so the callback stays reference-stable (no memo churn).
   const jumpToSeq = useCallback((seq: number) => {
     const msg = actionsCtxRef.current.messages.find((m) => m.seq === seq)
-    if (msg) setScrollToMessageId(msg.id)
+    if (msg) actionsCtxRef.current.setScrollTargetId(msg.id)
     else setContextTarget({ serverId, channelId, label: channelName, seq })
   }, [serverId, channelId, channelName])
   // Cross-channel message ref via `openMessageContext`: open the sheet IN PLACE
@@ -639,12 +639,13 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
     pinnedIds: Set<string>
     channelName: string
     uiHandlers: typeof uiHandlers
-  }>({ messages, pinnedIds, channelName, uiHandlers })
+    setScrollTargetId: (targetId: string | null) => void
+  }>({ messages, pinnedIds, channelName, uiHandlers, setScrollTargetId: setScrollToMessageId })
   // Latest-ref write during render is intentional here: the ref only feeds
   // click-time reads inside the stable `messageActions` callbacks, never
   // render output, so it can't cause a missed update.
   /* eslint-disable-next-line react-hooks/immutability -- latest-ref for lazy click reads */
-  actionsCtxRef.current = { messages, pinnedIds, channelName, uiHandlers }
+  actionsCtxRef.current = { messages, pinnedIds, channelName, uiHandlers, setScrollTargetId: setScrollToMessageId }
 
   const messageActions = useMemo(() => ({
     onToggleReaction: (id: string, emoji: string) =>
@@ -739,6 +740,7 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
       pinnedIds: new Set(controller.pinned.map((message) => message.id)),
       channelName,
       uiHandlers,
+      setScrollTargetId: controller.setScrollTargetId,
     }
   }, [channelName, uiHandlers])
 
@@ -1211,7 +1213,7 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
           {...messageActions}
           onOpenProfile={openProfile}
           resolveUserName={resolveUserName}
-          scrollToMessageId={scrollToMessageId}
+          scrollToMessageId={textFeed.scrollTargetId}
           onScrollRoot={textFeed.setScrollRootEl}
           viewerUserId={currentUser.id}
           // Delay initial scroll until the read-state snapshot resolves AND
