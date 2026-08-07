@@ -3,17 +3,23 @@ import TestRenderer, { act } from "react-test-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { MessageList } from "./message-list"
 
-const mocks = vi.hoisted(() => ({ jumpToIndex: vi.fn() }))
+const mocks = vi.hoisted(() => {
+  const scrollToIndex = vi.fn()
+  const scrollToEnd = vi.fn()
+  return {
+    scrollToIndex,
+    scrollToEnd,
+    virtualizer: {
+      scrollToIndex,
+      scrollToEnd,
+      isAtEnd: () => true,
+      range: null,
+    },
+  }
+})
 
-vi.mock("@/hooks/community/use-scroll-anchor", () => ({
-  useScrollAnchor: () => ({
-    scrollRef: { current: null },
-    virtualizer: {},
-    belowCount: 0,
-    scrollToBottom: vi.fn(),
-    jumpTo: mocks.jumpToIndex,
-    onImageLoad: vi.fn(),
-  }),
+vi.mock("@tanstack/react-virtual", () => ({
+  useVirtualizer: () => mocks.virtualizer,
 }))
 vi.mock("@/hooks/community/use-virtual-cursor-sentinel", () => ({
   useVirtualCursorSentinel: () => vi.fn(),
@@ -46,14 +52,31 @@ const unrelated = {
   content: "Other",
 }
 
-function render(messages: typeof target[], scrollToMessageId: string | null, loading = false) {
+function render(
+  messages: typeof target[],
+  scrollToMessageId: string | null,
+  loading = false,
+  initialScrollReady = true,
+) {
   return React.createElement(MessageList, {
     channel: "general",
     messages,
     loading,
+    initialScrollReady,
+    hasMoreNewer: true,
     scrollToMessageId,
     onOpenThread: vi.fn(),
   })
+}
+
+function createNodeMock() {
+  return {
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    offsetHeight: 48,
+    clientHeight: 800,
+    scrollTop: 0,
+  }
 }
 
 function highlighted(renderer: TestRenderer.ReactTestRenderer) {
@@ -64,7 +87,12 @@ describe("MessageList pending jump target", () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.stubGlobal("window", { setTimeout })
-    mocks.jumpToIndex.mockClear()
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      disconnect() {}
+    })
+    mocks.scrollToIndex.mockClear()
+    mocks.scrollToEnd.mockClear()
   })
 
   afterEach(() => {
@@ -76,21 +104,31 @@ describe("MessageList pending jump target", () => {
     let renderer: TestRenderer.ReactTestRenderer
 
     act(() => {
-      renderer = TestRenderer.create(render([], "m_target", true))
+      renderer = TestRenderer.create(render([], "m_target", true, false), { createNodeMock })
     })
-    expect(mocks.jumpToIndex).not.toHaveBeenCalled()
+    expect(mocks.scrollToIndex).not.toHaveBeenCalled()
 
     act(() => {
-      renderer!.update(render([target], "m_target"))
+      renderer!.update(render([target], "m_target", false, false))
     })
-    expect(mocks.jumpToIndex).toHaveBeenCalledOnce()
-    expect(mocks.jumpToIndex).toHaveBeenCalledWith("m_target")
+    expect(mocks.scrollToEnd).not.toHaveBeenCalled()
+    expect(mocks.scrollToIndex).not.toHaveBeenCalled()
+
+    act(() => {
+      renderer!.update(render([target], "m_target", false, true))
+    })
+    expect(mocks.scrollToEnd).toHaveBeenCalledOnce()
+    expect(mocks.scrollToIndex).toHaveBeenCalledOnce()
+    expect(mocks.scrollToEnd.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.scrollToIndex.mock.invocationCallOrder[0],
+    )
+    expect(mocks.scrollToIndex).toHaveBeenCalledWith(1, { align: "center", behavior: "smooth" })
     expect(highlighted(renderer!)).toBe(true)
 
     act(() => {
       renderer!.update(render([target, unrelated], "m_target"))
     })
-    expect(mocks.jumpToIndex).toHaveBeenCalledOnce()
+    expect(mocks.scrollToIndex).toHaveBeenCalledOnce()
     act(() => vi.advanceTimersByTime(1599))
     expect(highlighted(renderer!)).toBe(true)
     act(() => vi.advanceTimersByTime(1))
@@ -102,7 +140,7 @@ describe("MessageList pending jump target", () => {
     act(() => {
       renderer!.update(render([target, unrelated], "m_target"))
     })
-    expect(mocks.jumpToIndex).toHaveBeenCalledTimes(2)
+    expect(mocks.scrollToIndex).toHaveBeenCalledTimes(2)
     expect(highlighted(renderer!)).toBe(true)
   })
 })

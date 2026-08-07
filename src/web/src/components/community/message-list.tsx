@@ -299,9 +299,10 @@ export function MessageList({
     }
     if (consumedScrollTargetRef.current === scrollToMessageId) return
     if (!messages.some((message) => message.id === scrollToMessageId)) return
+    if (!initialScrollReady || !heroMeasured) return
     consumedScrollTargetRef.current = scrollToMessageId
     jumpTo(scrollToMessageId)
-  }, [scrollToMessageId, messages, jumpTo])
+  }, [scrollToMessageId, messages, initialScrollReady, heroMeasured, jumpTo])
 
   // ↓ N pill precedence:
   //   - When there are messages the client hasn't fetched yet
