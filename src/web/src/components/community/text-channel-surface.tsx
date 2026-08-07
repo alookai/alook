@@ -130,7 +130,6 @@ export function TextChannelSurface({
                 onLoadNewer={feed.fetchNewer}
                 onJumpToPresent={feed.jumpToPresent}
                 unreadCount={feed.unreadCount}
-                onOpenContextSheet={controller.openContextSeq}
               />
               <div data-onboarding-target="channel-composer" className="shrink-0">
                 <Composer
@@ -178,7 +177,6 @@ export function TextChannelSurface({
                 channelLabel={controller.contextTarget?.label}
                 targetSeq={controller.contextTarget?.seq ?? null}
                 pinnedIds={controller.pinnedIds}
-                onOpenContextSheet={controller.openContextSeq}
                 onOpenProfile={onOpenProfile}
                 resolveUserName={resolveUserName}
                 onReply={controller.onSheetReply}

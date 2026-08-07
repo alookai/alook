@@ -229,7 +229,6 @@ export function ThreadChannelSurface({
                 onLoadNewer={controller.feed.fetchNewer}
                 onJumpToPresent={controller.feed.jumpToPresent}
                 unreadCount={controller.feed.unreadCount}
-                onOpenContextSheet={controller.openContextSeq}
               />
               <div data-onboarding-target="channel-composer" className="shrink-0">
                 <Composer
@@ -277,7 +276,6 @@ export function ThreadChannelSurface({
                 channelLabel={controller.contextTarget?.label}
                 targetSeq={controller.contextTarget?.seq ?? null}
                 pinnedIds={controller.pinnedIds}
-                onOpenContextSheet={controller.openContextSeq}
                 onOpenProfile={onOpenProfile}
                 resolveUserName={resolveUserName}
                 onReply={controller.onSheetReply}

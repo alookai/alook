@@ -402,7 +402,6 @@ function DmView() {
           onLoadNewer={fetchNewerMessages}
           onJumpToPresent={jumpToPresent}
           unreadCount={unreadCount}
-          onOpenContextSheet={setContextSheetSeq}
           hero={
             <>
               <div className="relative mb-3 w-fit"><Avatar label={dm.avatar} seed={dm.userId} size={64} /></div>
@@ -441,7 +440,6 @@ function DmView() {
         onOpenChange={(v) => { if (!v) setContextSheetSeq(null) }}
         channelId={dmId}
         targetSeq={contextSheetSeq}
-        onOpenContextSheet={setContextSheetSeq}
         type="dm"
         onOpenProfile={openProfile}
         resolveUserName={resolveUserName}

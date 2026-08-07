@@ -130,7 +130,7 @@ function SortableServerImpl({
           ) : (
             <>
               <MarbleBackground seed={server.id} />
-              <span className="relative -translate-x-[2px] [-webkit-text-stroke:0.5px_currentColor]">
+              <span className="relative -translate-x-0.5 [-webkit-text-stroke:0.5px_currentColor]">
                 {server.initial}
               </span>
             </>

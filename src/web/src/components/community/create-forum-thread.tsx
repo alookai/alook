@@ -148,7 +148,7 @@ export function CreateForumThread({
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={onEnterSubmit(focusBody, { onEscape: onCancelGuarded })}
+          onKeyDown={(event) => onEnterSubmit(focusBody, { onEscape: onCancelGuarded })(event)}
           placeholder="New post"
           autoFocus
           maxLength={MAX_CHANNEL_NAME_LENGTH}

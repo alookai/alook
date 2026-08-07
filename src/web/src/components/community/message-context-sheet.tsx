@@ -119,7 +119,6 @@ export function MessageContextSheet({
   channelLabel,
   targetSeq,
   pinnedIds,
-  onOpenContextSheet,
   onOpenProfile,
   resolveUserName,
   onReply,
@@ -134,7 +133,6 @@ export function MessageContextSheet({
   channelLabel?: string
   targetSeq: number | null
   pinnedIds?: Set<string>
-  onOpenContextSheet?: (seq: number) => void
   onOpenProfile?: OpenProfile
   resolveUserName?: (userId: string) => string
   // Fired when Reply is clicked in the sheet. Parent should seed its
@@ -433,7 +431,6 @@ export function MessageContextSheet({
               onCreateThread={type === "channel" ? onCreateThreadId : undefined}
               onPreviewImage={onPreviewImage}
               onDownloadFile={onDownloadFile}
-              onOpenContextSheet={onOpenContextSheet}
             />
           )}
         </div>
@@ -458,7 +455,6 @@ function ContextRows({
   onCreateThread,
   onPreviewImage,
   onDownloadFile,
-  onOpenContextSheet,
 }: {
   rows: RenderMsg[]
   anchorId: string | null
@@ -475,7 +471,6 @@ function ContextRows({
   onCreateThread?: (id: string) => void
   onPreviewImage: (url: string) => void
   onDownloadFile: (url: string) => void
-  onOpenContextSheet?: (seq: number) => void
 }) {
   // Single-message share from the peek sheet. The sheet has no select-mode
   // context (it's a read-only preview), so Share opens the dialog directly on
@@ -540,7 +535,7 @@ function ContextSkeleton() {
               <Skeleton className="h-4 w-24 rounded" />
               <Skeleton className="h-3 w-14 rounded" />
             </div>
-            <Skeleton className="h-3.5 w-full max-w-[240px] rounded" />
+            <Skeleton className="h-3.5 w-full max-w-60 rounded" />
           </div>
         </div>
       ))}

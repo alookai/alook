@@ -7,13 +7,11 @@ import {
   createLogger,
 } from "@alook/shared"
 import { requireMessageBearingSurface, requireChildSurface } from "./channel-write-guard"
-import type { Database } from "@alook/shared"
 import { isThread } from "@alook/shared"
 import { requireMessageSurfaceAccess } from "./permissions"
 import { writeError, writeJSON } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import type { AuthContext } from "@/lib/middleware/auth"
-import type { Result } from "./permissions"
 import {
   buildMediaKey,
   buildServerIconKey,

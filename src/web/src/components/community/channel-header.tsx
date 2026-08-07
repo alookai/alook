@@ -180,7 +180,7 @@ function ServerCrumb({ id, name, icon, size = 5, className = "" }: { id: string;
       aria-label={name}
       title={name}
     >
-      {icon ? <img src={icon} alt="" className="size-full object-cover" /> : <><MarbleBackground seed={id} /><span className="relative -translate-x-[1px] [-webkit-text-stroke:0.5px_currentColor]">{avatarInitial(name)}</span></>}
+      {icon ? <img src={icon} alt="" className="size-full object-cover" /> : <><MarbleBackground seed={id} /><span className="relative -translate-x-px [-webkit-text-stroke:0.5px_currentColor]">{avatarInitial(name)}</span></>}
     </span>
   )
 }
@@ -279,7 +279,7 @@ function BreadcrumbRename({ label, onRename, titleMode = false }: { label: strin
               <input
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={onEnterSubmit(save)}
+                onKeyDown={(event) => onEnterSubmit(save)(event)}
                 placeholder="Post title"
                 aria-label="Post title"
                 disabled={saving}
@@ -300,7 +300,7 @@ function BreadcrumbRename({ label, onRename, titleMode = false }: { label: strin
                 <Input
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
-                  onKeyDown={onEnterSubmit(save)}
+                  onKeyDown={(event) => onEnterSubmit(save)(event)}
                   placeholder="thread-name"
                   aria-label="Thread name"
                   className="h-10"

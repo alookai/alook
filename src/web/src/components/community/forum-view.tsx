@@ -72,6 +72,7 @@ export function ForumView({
   const alignedTagRef = useRef<string | null>(null)
   const prependSnapshotRef = useRef<{ height: number; top: number } | null>(null)
   const wasLoadingMoreRef = useRef(loadingMore)
+  // eslint-disable-next-line react-hooks/incompatible-library -- library limitation, same as member-list.tsx
   const virtualizer = useVirtualizer({
     count: posts.length,
     getScrollElement: () => scrollRef.current,

@@ -9,7 +9,6 @@
 export function sanitizeAttachmentFilename(input: string): string {
   const cleaned = input
     .replace(/\.\./g, "_")
-    // eslint-disable-next-line no-control-regex
     .replace(/[\/\x00-\x1f\x7f]/g, "_")
   if (cleaned.length === 0) return "_"
   return cleaned.length > 255 ? cleaned.slice(0, 255) : cleaned

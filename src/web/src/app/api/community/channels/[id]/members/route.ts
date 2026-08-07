@@ -12,10 +12,7 @@ import {
   parseRef,
   withD1Retry,
 } from "@alook/shared"
-import type {
-  CommunityCliChannelMemberResult as ChannelMemberResult,
-  CommunityCliServerMember as ServerMember,
-} from "@alook/shared"
+import type { CommunityCliServerMember as ServerMember } from "@alook/shared"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
 import { logAudit } from "@/lib/community/audit"
 import { requireChannelAccess } from "@/lib/community/permissions"

@@ -27,7 +27,7 @@ export function MessageList({
   resolveUserName, scrollToMessageId, hero, variant = "channel", onScrollRoot, viewerUserId, initialScrollReady = true,
   onScrollTargetConsumed,
   hasMore, isFetchingOlder, onLoadOlder,
-  hasMoreNewer, isFetchingNewer, onLoadNewer, onJumpToPresent, unreadCount, onOpenContextSheet,
+  hasMoreNewer, isFetchingNewer, onLoadNewer, onJumpToPresent, unreadCount,
 }: {
   channel: string
   messages: Msg[]
@@ -100,10 +100,6 @@ export function MessageList({
   // the `↓ N` badge when `hasMoreNewer` is true — DOM math can't see rows
   // that haven't been fetched yet.
   unreadCount?: number
-  // Fired when a message ref pill (`#NUMBER`) is clicked and the target
-  // isn't in the currently loaded window — the owner opens the context
-  // sheet (see `MessageContextSheet`). If omitted, the click is a no-op.
-  onOpenContextSheet?: (seq: number) => void
 }) {
   const [jumped, setJumped] = useState<string | null>(null)
 
