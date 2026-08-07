@@ -74,6 +74,7 @@ function renderController(
   callbacks: {
     onOpenThread?: (threadId: string) => void
     onOpenPinned?: () => void
+    passivePinVersion?: number
   } = {},
 ) {
   return React.createElement(
@@ -91,8 +92,24 @@ function renderController(
       onOpenPinned: callbacks.onOpenPinned ?? vi.fn(),
       resolveUserName: (userId: string) => userId,
     },
-    (controller) => React.createElement(ControllerProbe, { controller }),
+    (controller) => React.createElement(PassiveActionProbe, {
+      controller,
+      pinVersion: callbacks.passivePinVersion ?? 0,
+    }),
   )
+}
+
+function PassiveActionProbe({
+  controller,
+  pinVersion,
+}: {
+  controller: MessageChannelControllerValue
+  pinVersion: number
+}) {
+  React.useEffect(() => {
+    if (pinVersion > 0) controller.messageActions.onPin("m_target")
+  }, [controller.messageActions, pinVersion])
+  return React.createElement(ControllerProbe, { controller })
 }
 
 function ControllerProbe({ controller }: { controller: MessageChannelControllerValue }) {
@@ -194,5 +211,29 @@ describe("MessageChannelController scroll target ownership", () => {
     })
     expect(latestOpenThread).toHaveBeenCalledWith("thread_1")
     expect(firstOpenThread).not.toHaveBeenCalled()
+  })
+
+  it("updates latest action callbacks before descendant passive effects run", () => {
+    const firstOpenPinned = vi.fn()
+    const latestOpenPinned = vi.fn()
+    let renderer: TestRenderer.ReactTestRenderer
+
+    act(() => {
+      renderer = TestRenderer.create(renderController(
+        feed({ messages: [{ id: "m_target" }] }),
+        "m_target",
+        { onOpenPinned: firstOpenPinned },
+      ))
+    })
+    act(() => {
+      renderer!.update(renderController(
+        feed({ messages: [{ id: "m_target" }] }),
+        "m_target",
+        { onOpenPinned: latestOpenPinned, passivePinVersion: 1 },
+      ))
+    })
+
+    expect(latestOpenPinned).toHaveBeenCalledTimes(1)
+    expect(firstOpenPinned).not.toHaveBeenCalled()
   })
 })

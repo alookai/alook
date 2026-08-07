@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import type { MentionType } from "@alook/shared"
@@ -182,7 +182,7 @@ export function MessageChannelController({
     onOpenThread,
     onOpenPinned,
   })
-  useEffect(() => {
+  useLayoutEffect(() => {
     actionContext.current = {
       messages: feed.messages,
       pinnedIds,
