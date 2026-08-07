@@ -5,6 +5,31 @@ import { ChannelRoute } from "./channel-route"
 import { MessageList } from "./message-list"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
 
+const { mockRouteModel } = vi.hoisted(() => ({
+  mockRouteModel: {
+    server: {
+      id: "server_1",
+      name: "Server",
+      icon: null,
+      categories: [{ channels: [{ id: "channel_1", name: "general", type: "text" }] }],
+    },
+    channel: { id: "channel_1", name: "general", type: "text" },
+    parent: null,
+    currentChannelMeta: null as null | {
+      id: string
+      name: string
+      parentChannelId: string
+      parentMessageId: string | null
+      creatorId: string
+    },
+    isForum: false,
+    isChild: false,
+    isForumPostChild: false,
+    isNotifyUnit: false,
+    routeHydrated: true,
+  },
+}))
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), back: vi.fn() }),
   useSearchParams: () => ({ get: (key: string) => key === "msg" ? "m_target" : null }),
@@ -59,22 +84,7 @@ vi.mock("@/contexts/community/current-user", () => ({
   useCurrentUser: () => ({ id: "viewer_1", name: "Viewer", avatar: "V" }),
 }))
 vi.mock("@/hooks/community/use-channel-route-model", () => ({
-  useChannelRouteModel: () => ({
-    server: {
-      id: "server_1",
-      name: "Server",
-      icon: null,
-      categories: [{ channels: [{ id: "channel_1", name: "general", type: "text" }] }],
-    },
-    channel: { id: "channel_1", name: "general", type: "text" },
-    parent: null,
-    currentChannelMeta: null,
-    isForum: false,
-    isChild: false,
-    isForumPostChild: false,
-    isNotifyUnit: false,
-    routeHydrated: true,
-  }),
+  useChannelRouteModel: () => mockRouteModel,
 }))
 vi.mock("@/hooks/community/use-server-members", () => ({
   useServerMembers: () => ({
@@ -167,6 +177,22 @@ describe("ChannelRoute top-level text scroll target ownership", () => {
   beforeEach(() => {
     vi.useFakeTimers()
     mockedMessageList.mockClear()
+    Object.assign(mockRouteModel, {
+      server: {
+        id: "server_1",
+        name: "Server",
+        icon: null,
+        categories: [{ channels: [{ id: "channel_1", name: "general", type: "text" }] }],
+      },
+      channel: { id: "channel_1", name: "general", type: "text" },
+      parent: null,
+      currentChannelMeta: null,
+      isForum: false,
+      isChild: false,
+      isForumPostChild: false,
+      isNotifyUnit: false,
+      routeHydrated: true,
+    })
   })
 
   afterEach(() => {
@@ -187,6 +213,9 @@ describe("ChannelRoute top-level text scroll target ownership", () => {
       )
     })
 
+    expect(mockedUseChannelMessageFeed.mock.calls.filter(([options]) => options.channelId !== null)).toHaveLength(1)
+    expect(mockedUseChannelMessageFeed).toHaveBeenCalledWith(expect.objectContaining({ channelId: null }))
+    expect(mockedUseChannelMessageFeed).toHaveBeenCalledWith(expect.objectContaining({ channelId: "channel_1" }))
     expect(mockedMessageList.mock.calls.at(-1)?.[0].scrollToMessageId).toBe("m_target")
 
     surfaceFeed = feed({ messages: [{ id: "m_target" }] })
@@ -224,5 +253,53 @@ describe("ChannelRoute top-level text scroll target ownership", () => {
       )
     })
     expect(mockedMessageList.mock.calls.at(-1)?.[0].scrollToMessageId).toBeNull()
+  })
+
+  it("does not initialize an active message feed for a forum route", () => {
+    Object.assign(mockRouteModel, {
+      channel: { id: "channel_1", name: "forum", type: "forum" },
+      isForum: true,
+    })
+    mockedUseChannelMessageFeed.mockImplementation(() => feed())
+
+    act(() => {
+      TestRenderer.create(
+        React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }),
+      )
+    })
+
+    expect(mockedUseChannelMessageFeed).toHaveBeenCalledTimes(1)
+    expect(mockedUseChannelMessageFeed).toHaveBeenCalledWith(expect.objectContaining({ channelId: null }))
+  })
+
+  it("initializes only the child feed for a thread route", () => {
+    Object.assign(mockRouteModel, {
+      channel: null,
+      currentChannelMeta: {
+        id: "channel_1",
+        name: "thread",
+        parentChannelId: "parent_1",
+        parentMessageId: "opener_1",
+        creatorId: "viewer_1",
+      },
+      isChild: true,
+      isNotifyUnit: true,
+    })
+    mockRouteModel.server.categories = [{
+      channels: [{ id: "parent_1", name: "general", type: "text" }],
+    }]
+    mockedUseChannelMessageFeed.mockImplementation(() => feed({ anchorInCache: true }))
+
+    act(() => {
+      TestRenderer.create(
+        React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }),
+      )
+    })
+
+    expect(mockedUseChannelMessageFeed).toHaveBeenCalledTimes(1)
+    expect(mockedUseChannelMessageFeed).toHaveBeenCalledWith(expect.objectContaining({
+      channelId: "channel_1",
+      isChildChannel: true,
+    }))
   })
 })

@@ -1,37 +1,33 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { apiFetch, toastApiError } from "@/lib/api/client"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { ChannelHeader, ChannelHeaderSkeleton, type ChannelNotifLevel } from "@/components/community/channel-header"
 import { MessageList } from "@/components/community/message-list"
-import { Composer, ComposerSkeleton, type SendAttachment } from "@/components/community/composer"
+import { Composer, ComposerSkeleton } from "@/components/community/composer"
 import { ForumViewSkeleton } from "@/components/community/forum-view"
 import { ForumSurface } from "@/components/community/forum-surface"
-import { TextChannelSurface } from "@/components/community/text-channel-surface"
+import { TextChannelSurface, type TextChannelMemberPanelProps } from "@/components/community/text-channel-surface"
+import { MessageChannelController } from "@/components/community/message-channel-controller"
 import { ChannelShell } from "@/components/community/channel-shell"
 import type { NewForumThread } from "@/components/community/create-forum-thread"
 import { CommunityPanelSheet } from "@/components/community/community-panel-sheet"
 import { MessageContextSheet } from "@/components/community/message-context-sheet"
 import { ThreadOpener } from "@/components/community/thread-opener"
 import { AddMembersDialog } from "@/components/community/add-members-dialog"
-import type { RightPanel, Msg, OpenProfile, Role } from "@/components/community/_types"
+import type { RightPanel, OpenProfile, Role } from "@/components/community/_types"
 import { canManageServer } from "@/components/community/_types"
-import type { MentionType } from "@alook/shared"
-import { isForum as isForumType, deriveThreadName, USE_SERVER_DEFAULT } from "@alook/shared"
+import { isForum as isForumType, USE_SERVER_DEFAULT } from "@alook/shared"
 import { resolveRowPresence } from "@/lib/community/presence"
 import { setLastChannel } from "@/lib/community/last-channel"
 import { makeUserNameResolver } from "@/lib/community/display-name"
 import { resolveChannelDisplayName } from "@/lib/community/channel-display-name"
-import { avatarInitial } from "@/lib/community/avatar"
 import {
-  useCommunityStore,
   useCurrentChannelId,
   useUiHandlers,
-  useTypingUsersForScope,
-  useTypingNamesForScope,
 } from "@/stores/community"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import { useChannelRouteModel } from "@/hooks/community/use-channel-route-model"
@@ -42,32 +38,15 @@ import { useMessage } from "@/hooks/community/use-message"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
 import { useOnlineUserIds, useCommunityWsStore } from "@/stores/community/ws"
-import { useMessageStreamStore } from "@/stores/community/message-stream"
 import {
-  useSendMessage,
-  useToggleReactionApi,
-  usePinMessage,
-  useUnpinMessage,
-  useToggleMark,
   useEditMessage,
-  useCreateThread,
   useCreateForumThread,
   useUpdatePostTags,
   useDeleteForumThread,
   useSetMemberRole,
   useKickMember,
   useSetChannelNotif,
-  useUploadFile,
-  zipUploadResultsWithDimensions,
-  toAttachmentVm,
-  sendNonce,
-  tempMessageId,
-  type UploadedAttachment,
 } from "@/hooks/community/mutations"
-import {
-  communityWsSendTyping,
-  communityWsResetTypingThrottle,
-} from "@/hooks/community/use-community-ws"
 
 /**
  * /c/channels/:serverId/:channelId
@@ -100,7 +79,6 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
   const {
     server: currentServer,
     channel: channelInServer,
-    parent: parentChannelInServer,
     currentChannelMeta,
     isForum,
     isChild: isChildChannel,
@@ -302,148 +280,50 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
     isChildChannel,
     anchorMessageId: jumpTargetId,
   })
-  const {
-    messages,
-    isLoading: messagesLoading,
-    hasMoreOlder: hasMoreMessages,
-    hasMoreNewer: hasMoreNewerMessages,
-    isFetchingOlder: isFetchingOlderMessages,
-    isFetchingNewer: isFetchingNewerMessages,
-    fetchOlder: fetchOlderMessages,
-    fetchNewer: fetchNewerMessages,
-    jumpToPresent,
-    latestSeq,
-    readSnapshot,
-    readSnapshotFetching,
-    newDividerBefore,
-    anchorInCache,
-    unreadCount,
-    setScrollRootEl,
-    threads,
-    threadsLoading,
-    pinned,
-    pinnedLoading,
-  } = messageFeed
+  const messagesLoading = messageFeed.isLoading
   const notifs = useNotificationSettings()
   const channelNotif = notifs.channel
-  const typingUsers = useTypingUsersForScope(`ch:${channelId}`)
-  const typingNames = useTypingNamesForScope(`ch:${channelId}`)
-
-  // Mutations
-  // Destructure the reference-STABLE mutation methods (TanStack binds
-  // `.mutate`/`.mutateAsync` in the observer, but returns a NEW wrapper object
-  // every render — depending on the whole object would bust every downstream
-  // useMemo/useCallback every render). See doSend / messageActions deps.
-  const { mutateAsync: sendMessageAsync } = useSendMessage()
-  const toggleReactionApi = useToggleReactionApi()
-  const { mutate: pinMessageMutate } = usePinMessage()
-  const { mutate: unpinMessageMutate } = useUnpinMessage()
-  const toggleMark = useToggleMark()
-  const { mutate: editMessage, mutateAsync: editMessageAsync } = useEditMessage()
-  const { mutateAsync: createThreadAsync } = useCreateThread()
+  const { mutateAsync: editMessageAsync } = useEditMessage()
   const createForumThreadMut = useCreateForumThread()
   const updatePostTagsMut = useUpdatePostTags()
   const deleteForumThreadMut = useDeleteForumThread()
   const setMemberRoleMut = useSetMemberRole()
   const kickMemberMut = useKickMember()
   const setChannelNotifMut = useSetChannelNotif()
-  const { mutateAsync: uploadFileAsync } = useUploadFile()
 
   const goBack = useCallback(() => { uiHandlers.goBackMobile?.() }, [uiHandlers])
 
-  // ── Local UI state ──────────────────────────────────────────────────────
   const [rightPanel, setRightPanel] = useState<RightPanel>(null)
-  const [replyTo, setReplyTo] = useState<{ id: string; authorName: string; text: string } | null>(null)
   const [localName, setLocalName] = useState<string | null>(null)
-  const [searchQuery, setSearchQuery] = useState("")
-  const [searchResults, setSearchResults] = useState<Msg[]>([])
-  // Seed the scroll target from the mount-time jump target (if any) so
-  // `MessageList` scrolls to + highlights the message once the anchored window
-  // loads it. Unlike the reply-pill path (100ms fixed-timer clear), this is
-  // cleared by an effect once the row is actually present (below) — the anchor
-  // page is still being fetched over the network, so a fixed timer would race
-  // and lose the "guaranteed land".
-  const [scrollToMessageId, setScrollToMessageId] = useState<string | null>(jumpTargetId)
 
   // Strip `?msg=` from the URL right after mount so a refresh/back doesn't
-  // re-trigger the jump. The frozen `jumpTargetId` + seeded `scrollToMessageId`
-  // still drive this mount's anchor and scroll; this only cleans the address.
+  // re-trigger the jump. The frozen `jumpTargetId` still seeds the mounted
+  // message controller for this mount; this only cleans the address.
   useEffect(() => {
     if (!jumpTargetId) return
     router.replace(`/c/channels/${serverParam}/${channelId}`, { scroll: false })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once for this mount's jump
   }, [])
 
-  // Clear the jump scroll target once the target row is present in the loaded
-  // window (guaranteed-land: don't clear on a fixed timer while the anchor page
-  // is still in flight). Fallback: if the load has fully SETTLED (not
-  // loading/fetching) and the row still isn't here — e.g. the message was
-  // deleted between navigation and load, or the anchor fetch failed — the row
-  // will never appear, so release the state rather than leak it for the mount.
   useEffect(() => {
-    if (!isChildChannel || !scrollToMessageId) return
-    if (messages.some((m) => m.id === scrollToMessageId)) {
-      const t = setTimeout(() => setScrollToMessageId((v) => (v === scrollToMessageId ? null : v)), 1600)
-      return () => clearTimeout(t)
-    }
-    const settled =
-      !messagesLoading && !isFetchingOlderMessages && !isFetchingNewerMessages
-    if (settled) setScrollToMessageId((v) => (v === scrollToMessageId ? null : v))
-  }, [isChildChannel, scrollToMessageId, messages, messagesLoading, isFetchingOlderMessages, isFetchingNewerMessages])
-
-  // Channel switch — reset every piece of UI state scoped to the previous
-  // channel. `ChannelView` is keyed by `serverId/channelId`, so this remounts on
-  // switch; the effect is a belt-and-suspenders reset. NB: `scrollToMessageId`
-  // is intentionally NOT reset here — it's seeded from the mount-time jump
-  // target and cleared by its own effect once the row lands; clearing it here
-  // would clobber a `?msg=` jump on the first render.
-  useEffect(() => {
-    setReplyTo(null)
     setRightPanel(null)
-    setSearchQuery("")
-    setSearchResults([])
     setLocalName(null)
     setMemberQuery("")
     setManageMembersOpen(false)
   }, [channelId])
 
-  const doSearch = useCallback(async (q: string) => {
-    setSearchQuery(q)
-    if (!q.trim()) { setSearchResults([]); return }
-    try {
-      const params = new URLSearchParams({ q })
-      if (params) params.set("channelId", channelId)
-      const data = await apiFetch<{ results: Array<{ message: { id: string; content: string; authorId: string; createdAt: string }; author: { name: string; image: string | null } }> }>(`/api/community/messages/search?${params}`)
-      setSearchResults(data.results.map((r) => ({
-        id: r.message.id,
-        type: "chat" as const,
-        authorName: r.author.name,
-        authorAvatar: r.author.image ?? avatarInitial(r.author.name),
-        content: r.message.content,
-        createdAt: r.message.createdAt,
-      })))
-    } catch (e) {
-      setSearchResults([])
-      toastApiError(e, "Search failed")
-    }
-  }, [channelId])
-
   // Find the channel name
   const channelName = useMemo(() => {
-    const thread = threads.find((t) => t.id === channelId)
     return resolveChannelDisplayName({
       localName,
       forumPostTitle: isForumPostChild ? forumPostOpener?.content : null,
       topLevelName: channelInServer?.name,
       childChannelName: isForumPostChild ? null : currentChannelMeta?.name,
       forumListName: null,
-      threadListName: thread?.name,
+      threadListName: null,
       fallback: isForumPostChild ? "Post" : "channel",
     })
-  }, [localName, isForumPostChild, forumPostOpener, channelInServer, threads, currentChannelMeta, channelId])
-
-  // Pinned message ids
-  const pinnedIds = useMemo(() => new Set(pinned.map((p) => p.id)), [pinned])
+  }, [localName, isForumPostChild, forumPostOpener, channelInServer, currentChannelMeta])
 
   const togglePanel = (k: Exclude<RightPanel, null>) =>
     setRightPanel((p) => (p === k ? null : k))
@@ -455,294 +335,9 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
     router.push(`/c/channels/${serverParam}/${id}`)
   }, [router, serverParam])
 
-  // The message context side sheet's target. A message ref opens it to preview
-  // a message + surrounding context WITHOUT navigating (Gus #417). The target
-  // carries the source channel (which may differ from the open one — a
-  // cross-channel ref) so the sheet resolves that channel's seq and shows its
-  // name in the header. `label` is the source channel's display name (passed in
-  // so the sheet needn't refetch metadata).
-  const [contextTarget, setContextTarget] = useState<
-    { serverId: string; channelId: string; label: string; seq: number } | null
-  >(null)
-  // Chained `#N` refs inside the sheet reopen it on the new seq — same channel
-  // as the currently-shown one (a `#N` in a previewed message is scoped to that
-  // message's channel).
-  const openContextSeq = useCallback((seq: number) => {
-    setContextTarget((prev) =>
-      prev ? { ...prev, seq } : { serverId, channelId, label: channelName, seq },
-    )
-  }, [serverId, channelId, channelName])
-
-  // Reply clicked inside the context sheet. Same-channel preview → seed THIS
-  // channel's composer directly. Cross-channel preview → you can't reply here to
-  // a message that lives in another channel (Gus #449/#452), so hand the target
-  // off through the store and navigate to that message's channel; its page seeds
-  // its own composer on arrival (see the pendingReply effect below). Reply stays
-  // available in both cases — it just routes you to where the reply belongs.
-  const onSheetReply = useCallback((target: { id: string; authorName: string; text: string }) => {
-    if (contextTarget && contextTarget.channelId !== channelId) {
-      useCommunityStore.getState().setPendingReply({ channelId: contextTarget.channelId, target })
-      setContextTarget(null)
-      uiHandlers.navigate?.(contextTarget.serverId, contextTarget.channelId)
-    } else {
-      setReplyTo(target)
-      setContextTarget(null)
-    }
-  }, [contextTarget, channelId, uiHandlers])
-
-  // Consume a reply handed off from a cross-channel sheet on another page: if a
-  // pendingReply targets THIS channel, seed the composer once and clear it.
-  const pendingReply = useCommunityStore((s) => s.pendingReply)
-  useEffect(() => {
-    if (pendingReply && pendingReply.channelId === channelId) {
-      setReplyTo(pendingReply.target)
-      useCommunityStore.getState().setPendingReply(null)
-    }
-  }, [pendingReply, channelId])
-
-  // Same-channel message ref (`/server/channel#N`, channel open) via `jumpToSeq`:
-  // message loaded in the window → scroll+highlight it in place; not loaded →
-  // open the context sheet on THIS channel. Reads `messages` lazily off the
-  // actions ref so the callback stays reference-stable (no memo churn).
-  const jumpToSeq = useCallback((seq: number) => {
-    const msg = actionsCtxRef.current.messages.find((m) => m.seq === seq)
-    if (msg) actionsCtxRef.current.setScrollTargetId(msg.id)
-    else setContextTarget({ serverId, channelId, label: channelName, seq })
-  }, [serverId, channelId, channelName])
-  // Cross-channel message ref via `openMessageContext`: open the sheet IN PLACE
-  // on the target (other) channel — never navigate (Gus #417). The sheet's
-  // access-checked read path returns not-found for a channel the viewer can't
-  // see, so a private-channel ref leaks nothing.
-  const openMessageContext = useCallback(
-    (target: { serverId: string; channelId: string; label: string; seq: number }) => setContextTarget(target),
-    [],
-  )
-  useEffect(() => {
-    useCommunityStore.getState().registerUiHandlers({ jumpToSeq, openMessageContext })
-    return () => useCommunityStore.getState().registerUiHandlers({ jumpToSeq: undefined, openMessageContext: undefined })
-  }, [jumpToSeq, openMessageContext])
-
-  // Marked-tab (and any cross-channel) deep-link: a `?seq=<n>` on the URL opens
-  // the context sheet on that message. Unlike the `?msg=` mount-anchor path,
-  // this is an EFFECT keyed on the seq param — so it fires even when navigating
-  // to an ALREADY-MOUNTED channel page (Next reuses the component, so a
-  // mount-once useState read would miss the new param). The sheet reads by
-  // (channelId, seq) and cold-fetches its own window, so the target row need
-  // not be in the loaded list. We strip the param right after so a refresh/back
-  // doesn't re-open it, and re-arm cleanly for the next jump.
-  const seqParam = searchParams.get("seq")
-  useEffect(() => {
-    if (!seqParam) return
-    const seq = Number(seqParam)
-    if (!Number.isFinite(seq)) return
-    setContextTarget({ serverId, channelId, label: channelName, seq })
-    router.replace(`/c/channels/${serverParam}/${channelId}`, { scroll: false })
-  }, [seqParam, serverId, channelId, channelName, router, serverParam])
-
-  // Stable so it doesn't bust the memoized message rows; reads uiHandlers
-  // lazily through the actions ref (assigned just below).
   const openProfile = useCallback<OpenProfile>((name, e, discriminator, userId) => {
-    actionsCtxRef.current.uiHandlers.openProfile?.(name, e, discriminator, userId)
-  }, [])
-
-  // ── Message actions ─────────────────────────────────────────────────────
-  //
-  // Swallow send failures at the caller boundary. `useSendMessage`'s `onError`
-  // already marks the optimistic row `failed: true` AND fires the rate-limit
-  // toast; we don't need the raw rejection to propagate any further. Letting
-  // it escape via `mutateAsync` would surface a bare `ApiError` in the Next.js
-  // error overlay (rate-limit path was the reproducer). Returning `null`
-  // instead lets thread-create + retry callers detect failure without a
-  // try/catch each.
-  const messageScope = useMemo(
-    () => ({ kind: "channel" as const, id: channelId, serverId }),
-    [channelId, serverId],
-  )
-
-  const runAcceptedIntent = useCallback(
-    async (nonce: string) => {
-      const streamStore = useMessageStreamStore.getState()
-      const payload = streamStore.getRetryPayload(messageScope, nonce)
-      if (!payload) return
-      let uploadedAttachments: UploadedAttachment[] | undefined
-      if (payload.localUploads.length > 0 && payload.uploadStatus === "settled") {
-        const projected = payload.message.attachments
-        if (projected?.length === payload.localUploads.length) {
-          uploadedAttachments = projected.map((attachment, index) => {
-            const local = payload.localUploads[index]
-            return {
-              id: attachment.url.slice(attachment.url.lastIndexOf("/") + 1),
-              filename: local.file.name,
-              contentType: local.file.type,
-              size: local.file.size,
-              width: local.width,
-              height: local.height,
-            }
-          })
-        }
-      }
-      if (payload.localUploads.length > 0 && !uploadedAttachments) {
-        const results = await Promise.all(
-          payload.localUploads.map((upload) =>
-            uploadFileAsync({
-              target: { channelId },
-              file: upload.file,
-              width: upload.width,
-              height: upload.height,
-            }).catch((error) => {
-              toastApiError(error, "Failed to attach file")
-              return null
-            }),
-          ),
-        )
-        if (results.some((result) => result === null)) {
-          streamStore.dispatch(messageScope, { type: "uploadFailed", nonce })
-          return
-        }
-        uploadedAttachments = zipUploadResultsWithDimensions(results, [...payload.localUploads])
-        streamStore.dispatch(messageScope, {
-          type: "uploadSettled",
-          nonce,
-          attachments: uploadedAttachments.map((attachment) =>
-            toAttachmentVm(channelId, attachment)),
-        })
-      }
-      try {
-        await sendMessageAsync({
-          serverId,
-          channelId,
-          content: payload.message.content ?? "",
-          replyToId: payload.message.replyTo?.id,
-          mentionType: payload.mentionType,
-          attachments: uploadedAttachments,
-          nonce,
-          author: {
-            id: currentUser.id,
-            name: currentUser.name,
-            avatar: currentUser.avatar,
-          },
-        })
-      } catch {
-        return
-      }
-    },
-    [messageScope, uploadFileAsync, channelId, sendMessageAsync, serverId, currentUser.id, currentUser.name, currentUser.avatar],
-  )
-
-  // Latest-ref for the values the message actions read at call time. Keeping
-  // these off the callback deps lets `messageActions` stay reference-STABLE
-  // across renders (a new `messages` array on every WS tick would otherwise
-  // rebuild every handler and defeat the memoized message rows). The handlers
-  // only ever read these lazily on click, so a ref is exactly right.
-  const actionsCtxRef = useRef<{
-    messages: Msg[]
-    pinnedIds: Set<string>
-    channelName: string
-    uiHandlers: typeof uiHandlers
-    setScrollTargetId: (targetId: string | null) => void
-  }>({ messages, pinnedIds, channelName, uiHandlers, setScrollTargetId: setScrollToMessageId })
-  // Latest-ref write during render is intentional here: the ref only feeds
-  // click-time reads inside the stable `messageActions` callbacks, never
-  // render output, so it can't cause a missed update.
-  /* eslint-disable-next-line react-hooks/immutability -- latest-ref for lazy click reads */
-  actionsCtxRef.current = { messages, pinnedIds, channelName, uiHandlers, setScrollTargetId: setScrollToMessageId }
-
-  const messageActions = useMemo(() => ({
-    onToggleReaction: (id: string, emoji: string) =>
-      toggleReactionApi({ serverId, channelId, messageId: id, emoji, userId: currentUser.id }),
-    onReact: (id: string, emoji: string) =>
-      toggleReactionApi({ serverId, channelId, messageId: id, emoji, userId: currentUser.id }),
-    onReply: (id: string) => {
-      const m = actionsCtxRef.current.messages.find((x) => x.id === id)
-      if (m) setReplyTo({ id: m.id, authorName: m.authorName ?? "", text: m.content ?? "" })
-    },
-    onPin: (id: string) => {
-      const isPinned = actionsCtxRef.current.pinnedIds.has(id)
-      if (isPinned) {
-        unpinMessageMutate({ channelId, messageId: id }, {
-          onSuccess: () => toast("Message unpinned"),
-          onError: (e) => toastApiError(e, "Failed to unpin message"),
-        })
-      } else {
-        pinMessageMutate({ channelId, messageId: id }, {
-          onSuccess: () => toast("Message pinned"),
-          onError: (e) => toastApiError(e, "Failed to pin message"),
-        })
-        setRightPanel("pinned")
-      }
-    },
-    onMark: (id: string) => toggleMark(channelId, id),
-    onCreateThread: async (id: string) => {
-      const m = actionsCtxRef.current.messages.find((x) => x.id === id)
-      const name = deriveThreadName(m?.content, actionsCtxRef.current.channelName)
-      try {
-        const data = await createThreadAsync({ serverId, channelId, messageId: id, name })
-        router.push(`/c/channels/${serverParam}/${data.id}`)
-      } catch (e) {
-        toastApiError(e, "Failed to create thread")
-      }
-    },
-    onCopy: (id: string) => {
-      const m = actionsCtxRef.current.messages.find((x) => x.id === id)
-      if (m?.content) { navigator.clipboard?.writeText(m.content); toast("Copied to clipboard") }
-    },
-    onEdit: (id: string) => {
-      const m = actionsCtxRef.current.messages.find((x) => x.id === id)
-      if (!m?.content || m.authorId !== currentUser.id || m.seq === undefined) return
-      const content = window.prompt("Edit message", m.content)
-      if (!content || content === m.content) return
-      editMessage({ serverId, channelId, messageId: id, content }, {
-        onError: (e) => toastApiError(e, "Failed to edit message"),
-      })
-    },
-    onRetry: (id: string) => {
-      const m = actionsCtxRef.current.messages.find((x) => x.id === id)
-      if (!m?.clientNonce) return
-      useMessageStreamStore.getState().dispatch(messageScope, { type: "retry", nonce: m.clientNonce })
-      void runAcceptedIntent(m.clientNonce)
-    },
-    onDismiss: (id: string) => {
-      const m = actionsCtxRef.current.messages.find((x) => x.id === id)
-      if (!m?.clientNonce) return
-      useMessageStreamStore.getState().dispatch(messageScope, {
-        type: "dismissFailed",
-        nonce: m.clientNonce,
-      })
-    },
-    onPreviewImage: (url: string) => {
-      actionsCtxRef.current.uiHandlers.previewImage?.(url)
-    },
-    onDownloadFile: (url: string) => {
-      const a = document.createElement("a")
-      a.href = url
-      a.download = url.split("/").pop() ?? "file"
-      a.click()
-    },
-    // Deps are all reference-stable: channelId/currentUser.id (strings),
-    // toggleReactionApi (useCallback), the mutation METHODS (TanStack binds
-    // `.mutate`/`.mutateAsync` stably — NOT the whole mutation object, which is
-    // a new wrapper every render), doSend (useCallback), router/params. Volatile
-    // reads go through actionsCtxRef. This stability is load-bearing: an unstable
-    // messageActions busts MessageRow/Message's memo and re-renders every visible
-    // row on every commit (see message.tsx messagePropsEqual).
-  }), [serverId, channelId, currentUser.id, toggleReactionApi, unpinMessageMutate, pinMessageMutate, toggleMark, createThreadAsync, editMessage, messageScope, runAcceptedIntent, router, serverParam])
-
-  const threadActions = useMemo(
-    () => ({ ...messageActions, onCreateThread: undefined }),
-    [messageActions],
-  )
-  const syncTextController = useCallback((controller: Parameters<NonNullable<React.ComponentProps<typeof TextChannelSurface>["onController"]>>[0]) => {
-    // Latest-ref synchronization runs from TextChannelSurface's layout effect,
-    // never during this component's render.
-    // eslint-disable-next-line react-hooks/immutability
-    actionsCtxRef.current = {
-      messages: controller.messages,
-      pinnedIds: new Set(controller.pinned.map((message) => message.id)),
-      channelName,
-      uiHandlers,
-      setScrollTargetId: controller.setScrollTargetId,
-    }
-  }, [channelName, uiHandlers])
+    uiHandlers.openProfile?.(name, e, discriminator, userId)
+  }, [uiHandlers])
 
   // Reference-stable across renders. MUST depend on the RAW roster
   // (`membersHook.members`), NOT the presence-enriched `members` (line ~110):
@@ -756,49 +351,6 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
     () => makeUserNameResolver(membersHook.members),
     [membersHook.members],
   )
-
-  // ── Send messages ───────────────────────────────────────────────────────
-  const acceptMessage = (markdown: string, attachments?: SendAttachment[], mentionType?: MentionType): boolean => {
-    if (!markdown && !attachments?.length) return false
-    const nonce = sendNonce()
-    const createdPreviewUrls: string[] = []
-    const accepted = useMessageStreamStore.getState().accept(messageScope, {
-      nonce,
-      tempId: tempMessageId(),
-      message: {
-        type: "chat",
-        authorId: currentUser.id,
-        authorName: currentUser.name,
-        authorAvatar: currentUser.avatar,
-        content: markdown,
-        createdAt: new Date().toISOString(),
-        ...(replyTo ? { replyTo: { id: replyTo.id, authorName: replyTo.authorName, text: replyTo.text.slice(0, 100) } } : {}),
-      },
-      localUploads: attachments?.map((attachment) => {
-        const previewObjectUrl = attachment.previewObjectUrl ?? URL.createObjectURL(attachment.file)
-        if (!attachment.previewObjectUrl) createdPreviewUrls.push(previewObjectUrl)
-        return {
-          file: attachment.file,
-          previewObjectUrl,
-          width: attachment.width,
-          height: attachment.height,
-        }
-      }) ?? [],
-      mentionType,
-    })
-    if (!accepted) {
-      for (const url of createdPreviewUrls) URL.revokeObjectURL(url)
-      return false
-    }
-    void runAcceptedIntent(nonce)
-    communityWsResetTypingThrottle({ channelId })
-    setReplyTo(null)
-    return true
-  }
-
-  const handleTyping = () => {
-    communityWsSendTyping({ channelId })
-  }
 
   const createForumThread = useCallback(async (post: NewForumThread) => {
     const data = await createForumThreadMut.mutateAsync({
@@ -846,8 +398,7 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
           (isNotifyUnit ? removeThreadParticipantMut : removeChannelMemberMut).mutateAsync(userId),
       }
     : undefined
-  const panelProps = {
-    onOpenThread: enterThread,
+  const memberPanelProps: TextChannelMemberPanelProps = {
     members: panelMembers,
     membersLoading: isNotifyUnit
       ? channelMembersHook.isLoading
@@ -859,14 +410,7 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
     onSearchMembers: scopedDrawer ? setMemberQuery : membersHook.searchMembers,
     onAddMember: showManageButton ? () => setManageMembersOpen(true) : undefined,
     manageContext,
-    pinned,
-    pinnedLoading,
-    searchResults,
-    threads,
-    threadsLoading,
-    searchQuery,
     myRole,
-    onSearch: doSearch,
     onSetRole: (memberId: string, role: Role) => {
       setMemberRoleMut.mutate({ serverId, memberId, role }, {
         onSuccess: () => toast("Role updated"),
@@ -878,11 +422,6 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
     // toast source).
     onKickMember: (memberId: string) =>
       kickMemberMut.mutateAsync({ serverId, memberId }).then(() => toast("Member kicked")),
-    // Pinned-message click routes through the same message-ref jump flow
-    // (scroll-in-place if the message is loaded, else open the context sheet),
-    // so clicking a pin always gives feedback — even an old, out-of-window one
-    // that the scroll-only path used to silently no-op on.
-    onJumpToMessage: (seq: number) => jumpToSeq(seq),
   }
 
   // Add-members dialog (shared), mounted when the drawer's Add button fires.
@@ -997,7 +536,20 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
       />
     ) : undefined
     return (
-      <ChannelShell
+      <MessageChannelController
+        channelId={channelId}
+        serverId={serverId}
+        serverParam={serverParam}
+        channelName={channelName}
+        viewer={currentUser}
+        anchorMessageId={jumpTargetId}
+        feed={messageFeed}
+        uiHandlers={uiHandlers}
+        onOpenThread={() => {}}
+        onOpenPinned={() => setRightPanel("pinned")}
+        resolveUserName={resolveUserName}
+      >
+        {(controller) => <ChannelShell
         header={<ChannelHeader
           channel={parentName}
           forum={parentIsForum}
@@ -1047,32 +599,33 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
           <MessageList
             key={channelId}
             channel={channelName}
-            messages={messages}
+            messages={controller.feed.messages}
             loading={messagesLoading}
-            pinnedIds={pinnedIds}
-            newDividerBefore={newDividerBefore}
-            typingUsers={typingUsers.map((id) => typingNames[id] ?? resolveUserName(id))}
+            pinnedIds={controller.pinnedIds}
+            newDividerBefore={controller.feed.newDividerBefore}
+            typingUsers={controller.typingUsers}
             onOpenThread={() => { }}
-            {...threadActions}
+            {...controller.threadActions}
             onOpenProfile={openProfile}
             resolveUserName={resolveUserName}
-            scrollToMessageId={scrollToMessageId}
+            scrollToMessageId={controller.scrollTargetId}
             hero={opener}
-            onScrollRoot={setScrollRootEl}
+            onScrollRoot={controller.feed.setScrollRootEl}
             viewerUserId={currentUser.id}
             // Same gate as the top-level channel view: hold the mount-time
             // scroll until the read snapshot resolves and its anchor is loaded,
             // so a child thread opens on the "New" divider too.
-            initialScrollReady={!readSnapshotFetching && anchorInCache}
-            hasMore={hasMoreMessages}
-            isFetchingOlder={isFetchingOlderMessages}
-            onLoadOlder={fetchOlderMessages}
-            hasMoreNewer={hasMoreNewerMessages}
-            isFetchingNewer={isFetchingNewerMessages}
-            onLoadNewer={fetchNewerMessages}
-            onJumpToPresent={jumpToPresent}
-            unreadCount={unreadCount}
-            onOpenContextSheet={openContextSeq}
+            initialScrollReady={!controller.feed.readSnapshotFetching && controller.feed.anchorInCache}
+            onScrollTargetConsumed={controller.consumeScrollTarget}
+            hasMore={controller.feed.hasMoreOlder}
+            isFetchingOlder={controller.feed.isFetchingOlder}
+            onLoadOlder={controller.feed.fetchOlder}
+            hasMoreNewer={controller.feed.hasMoreNewer}
+            isFetchingNewer={controller.feed.isFetchingNewer}
+            onLoadNewer={controller.feed.fetchNewer}
+            onJumpToPresent={controller.feed.jumpToPresent}
+            unreadCount={controller.feed.unreadCount}
+            onOpenContextSheet={controller.openContextSeq}
           />
           <div data-onboarding-target="channel-composer" className="shrink-0">
             <Composer
@@ -1082,10 +635,10 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
             onSearchMembers={membersHook.searchMembers}
             channelRefCandidates={channelRefCandidates}
             sendContract="accepted"
-            onAcceptSend={acceptMessage}
-            onTyping={handleTyping}
-            replyingTo={replyTo?.authorName}
-            onCancelReply={() => setReplyTo(null)}
+            onAcceptSend={controller.acceptMessage}
+            onTyping={controller.handleTyping}
+            replyingTo={controller.replyTo?.authorName}
+            onCancelReply={() => controller.setReplyTo(null)}
             autoFocus={bp !== "mobile"}
               draftKey={`${serverId}/${channelId}`}
             />
@@ -1096,23 +649,33 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
             open
             onOpenChange={(v) => { if (!v) setRightPanel(null) }}
             kind={rightPanel}
-            {...panelProps}
+            {...memberPanelProps}
+            pinned={controller.feed.pinned}
+            pinnedLoading={controller.feed.pinnedLoading}
+            searchResults={controller.searchResults}
+            searchQuery={controller.searchQuery}
+            threads={controller.feed.threads}
+            threadsLoading={controller.feed.threadsLoading}
+            onOpenThread={enterThread}
+            onJumpToMessage={controller.jumpToSeq}
+            onSearch={controller.search}
             onOpenProfile={openProfile}
           />
         )}
         dialogs={<>{manageMembersDialog}<MessageContextSheet
-          open={contextTarget !== null}
-          onOpenChange={(v) => { if (!v) setContextTarget(null) }}
-          channelId={contextTarget?.channelId ?? channelId}
-          channelLabel={contextTarget?.label}
-          targetSeq={contextTarget?.seq ?? null}
-          pinnedIds={pinnedIds}
-          onOpenContextSheet={openContextSeq}
+          open={controller.contextTarget !== null}
+          onOpenChange={(v) => { if (!v) controller.setContextTarget(null) }}
+          channelId={controller.contextTarget?.channelId ?? channelId}
+          channelLabel={controller.contextTarget?.label}
+          targetSeq={controller.contextTarget?.seq ?? null}
+          pinnedIds={controller.pinnedIds}
+          onOpenContextSheet={controller.openContextSeq}
           onOpenProfile={openProfile}
           resolveUserName={resolveUserName}
-          onReply={onSheetReply}
+          onReply={controller.onSheetReply}
         /></>}
-      />
+        />}
+      </MessageChannelController>
     )
   }
 
@@ -1165,7 +728,11 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
             open
             onOpenChange={(v) => { if (!v) setRightPanel(null) }}
             kind={rightPanel}
-            {...panelProps}
+            {...memberPanelProps}
+            pinned={[]}
+            searchResults={[]}
+            threads={[]}
+            onOpenThread={enterThread}
             onOpenProfile={openProfile}
           />
         )}
@@ -1179,104 +746,27 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
     <TextChannelSurface
       channelId={channelId}
       serverId={serverId}
-      viewerUserId={currentUser.id}
+      serverParam={serverParam}
+      channelName={channelName}
+      viewer={currentUser}
       anchorMessageId={jumpTargetId}
-      onController={syncTextController}
-    >
-      {(textFeed) => {
-        const textPinnedIds = new Set(textFeed.pinned.map((message) => message.id))
-        return (
-    <ChannelShell
-      header={<ChannelHeader
-        channel={channelName}
-        rightPanel={rightPanel}
-        onToggle={togglePanel}
-        notifLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
-        onSetNotifLevel={(l) => setChannelNotifMut.mutate({ channelId, level: l }, {
-          onError: (e) => toastApiError(e, "Failed to update notification level"),
-        })}
-        onBack={bp === "mobile" ? goBack : undefined}
-        server={bp === "mobile" && currentServer ? { id: currentServer.id, name: currentServer.name, icon: currentServer.icon } : undefined}
-      />}
-      body={<main className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <MessageList
-          // Remount per channel so mount-time initial-scroll fires afresh
-          // and internal refs (didInitialScrollRef, lastTailIdRef) reset.
-          key={channelId}
-          channel={channelName}
-          messages={textFeed.messages}
-          loading={textFeed.isLoading}
-          pinnedIds={textPinnedIds}
-          newDividerBefore={textFeed.newDividerBefore}
-          typingUsers={typingUsers.map((id) => typingNames[id] ?? resolveUserName(id))}
-          onOpenThread={enterThread}
-          {...messageActions}
-          onOpenProfile={openProfile}
-          resolveUserName={resolveUserName}
-          scrollToMessageId={textFeed.scrollTargetId}
-          onScrollRoot={textFeed.setScrollRootEl}
-          viewerUserId={currentUser.id}
-          // Delay initial scroll until the read-state snapshot resolves AND
-          // the anchor it names is actually present in `messages` — see
-          // `anchorInCache`'s doc comment above for the mount-vs-Fix-3 race
-          // this closes.
-          initialScrollReady={!textFeed.readSnapshotFetching && textFeed.anchorInCache}
-          onScrollTargetConsumed={textFeed.consumeScrollTarget}
-          hasMore={textFeed.hasMoreOlder}
-          isFetchingOlder={textFeed.isFetchingOlder}
-          onLoadOlder={textFeed.fetchOlder}
-          hasMoreNewer={textFeed.hasMoreNewer}
-          isFetchingNewer={textFeed.isFetchingNewer}
-          onLoadNewer={textFeed.fetchNewer}
-          onJumpToPresent={textFeed.jumpToPresent}
-          unreadCount={textFeed.unreadCount}
-          onOpenContextSheet={openContextSeq}
-        />
-        <div data-onboarding-target="channel-composer" className="shrink-0">
-          <Composer
-            channel={channelName}
-            context="channel"
-          members={composerMembers}
-          onSearchMembers={membersHook.searchMembers}
-          channelRefCandidates={channelRefCandidates}
-          sendContract="accepted"
-          onAcceptSend={acceptMessage}
-          onTyping={handleTyping}
-          replyingTo={replyTo?.authorName}
-          onCancelReply={() => setReplyTo(null)}
-          autoFocus={bp !== "mobile"}
-            draftKey={`${serverId}/${channelId}`}
-          />
-        </div>
-      </main>}
-      panels={rightPanel && (
-        <CommunityPanelSheet
-          open
-          onOpenChange={(v) => { if (!v) setRightPanel(null) }}
-          kind={rightPanel}
-          {...panelProps}
-          pinned={textFeed.pinned}
-          pinnedLoading={textFeed.pinnedLoading}
-          threads={textFeed.threads}
-          threadsLoading={textFeed.threadsLoading}
-          onOpenProfile={openProfile}
-        />
-      )}
-      dialogs={<>{manageMembersDialog}<MessageContextSheet
-        open={contextTarget !== null}
-        onOpenChange={(v) => { if (!v) setContextTarget(null) }}
-        channelId={contextTarget?.channelId ?? channelId}
-        channelLabel={contextTarget?.label}
-        targetSeq={contextTarget?.seq ?? null}
-        pinnedIds={textPinnedIds}
-        onOpenContextSheet={openContextSeq}
-        onOpenProfile={openProfile}
-        resolveUserName={resolveUserName}
-        onReply={onSheetReply}
-      /></>}
+      headerServer={bp === "mobile" && currentServer
+        ? { id: currentServer.id, name: currentServer.name, icon: currentServer.icon }
+        : undefined}
+      notificationLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
+      onSetNotificationLevel={(level) => setChannelNotifMut.mutate({ channelId, level }, {
+        onError: (error) => toastApiError(error, "Failed to update notification level"),
+      })}
+      onBack={bp === "mobile" ? goBack : undefined}
+      composerMembers={composerMembers}
+      onSearchComposerMembers={membersHook.searchMembers}
+      channelRefCandidates={channelRefCandidates}
+      memberPanelProps={memberPanelProps}
+      manageMembersDialog={manageMembersDialog}
+      uiHandlers={uiHandlers}
+      onOpenThread={enterThread}
+      onOpenProfile={openProfile}
+      resolveUserName={resolveUserName}
     />
-        )
-      }}
-    </TextChannelSurface>
   )
 }

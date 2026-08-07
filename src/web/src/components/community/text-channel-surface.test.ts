@@ -1,14 +1,60 @@
 import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { TextChannelSurface } from "./text-channel-surface"
-import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
+import { MessageChannelController } from "./message-channel-controller"
+import type { MessageChannelControllerValue } from "./message-channel-controller"
+import type { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
 
-vi.mock("@/hooks/community/use-channel-message-feed", () => ({
-  useChannelMessageFeed: vi.fn(),
+const mutationMocks = vi.hoisted(() => ({
+  sendMessage: vi.fn(),
+  toggleReaction: vi.fn(),
+  pinMessage: vi.fn(),
+  unpinMessage: vi.fn(),
+  toggleMark: vi.fn(),
+  editMessage: vi.fn(),
+  createThread: vi.fn(async () => ({ id: "thread_1" })),
+  uploadFile: vi.fn(),
 }))
 
-const mockedUseChannelMessageFeed = vi.mocked(useChannelMessageFeed)
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useSearchParams: () => ({ get: () => null }),
+}))
+vi.mock("sonner", () => ({ toast: vi.fn() }))
+vi.mock("@/lib/api/client", () => ({ apiFetch: vi.fn(), toastApiError: vi.fn() }))
+vi.mock("@alook/shared", () => ({ deriveThreadName: () => "thread" }))
+vi.mock("@/stores/community", () => {
+  const state = {
+    pendingReply: null,
+    setPendingReply: vi.fn(),
+    registerUiHandlers: vi.fn(),
+  }
+  const useCommunityStore = Object.assign(
+    (selector: (value: typeof state) => unknown) => selector(state),
+    { getState: () => state },
+  )
+  return {
+    useCommunityStore,
+    useTypingUsersForScope: () => [],
+    useTypingNamesForScope: () => ({}),
+  }
+})
+vi.mock("@/hooks/community/mutations", () => ({
+  useSendMessage: () => ({ mutateAsync: mutationMocks.sendMessage }),
+  useToggleReactionApi: () => mutationMocks.toggleReaction,
+  usePinMessage: () => ({ mutate: mutationMocks.pinMessage }),
+  useUnpinMessage: () => ({ mutate: mutationMocks.unpinMessage }),
+  useToggleMark: () => mutationMocks.toggleMark,
+  useEditMessage: () => ({ mutate: mutationMocks.editMessage }),
+  useCreateThread: () => ({ mutateAsync: mutationMocks.createThread }),
+  useUploadFile: () => ({ mutateAsync: mutationMocks.uploadFile }),
+  zipUploadResultsWithDimensions: () => [],
+  sendNonce: () => "nonce_1",
+}))
+vi.mock("@/hooks/community/use-community-ws", () => ({
+  communityWsSendTyping: vi.fn(),
+  communityWsResetTypingThrottle: vi.fn(),
+}))
 
 function feed(overrides: Record<string, unknown> = {}) {
   return {
@@ -22,23 +68,41 @@ function feed(overrides: Record<string, unknown> = {}) {
   } as ReturnType<typeof useChannelMessageFeed>
 }
 
-function renderSurface(targetId = "m_target") {
+function renderController(
+  messageFeed: ReturnType<typeof useChannelMessageFeed>,
+  targetId = "m_target",
+  callbacks: {
+    onOpenThread?: (threadId: string) => void
+    onOpenPinned?: () => void
+  } = {},
+) {
   return React.createElement(
-    TextChannelSurface,
+    MessageChannelController,
     {
       channelId: "channel_1",
       serverId: "server_1",
-      viewerUserId: "viewer_1",
+      serverParam: "server_1",
+      channelName: "general",
+      viewer: { id: "viewer_1", name: "Viewer", avatar: "V" },
       anchorMessageId: targetId,
+      feed: messageFeed,
+      uiHandlers: {},
+      onOpenThread: callbacks.onOpenThread ?? vi.fn(),
+      onOpenPinned: callbacks.onOpenPinned ?? vi.fn(),
+      resolveUserName: (userId: string) => userId,
     },
-    (controller) => React.createElement("div", {
-      "data-scroll-target": controller.scrollTargetId,
-      onClick: () => controller.consumeScrollTarget("m_target"),
-    }),
+    (controller) => React.createElement(ControllerProbe, { controller }),
   )
 }
 
-describe("TextChannelSurface scroll target ownership", () => {
+function ControllerProbe({ controller }: { controller: MessageChannelControllerValue }) {
+  return React.createElement("div", {
+    "data-scroll-target": controller.scrollTargetId,
+    onClick: () => controller.consumeScrollTarget("m_target"),
+  })
+}
+
+describe("MessageChannelController scroll target ownership", () => {
   beforeEach(() => {
     vi.useFakeTimers()
   })
@@ -48,25 +112,21 @@ describe("TextChannelSurface scroll target ownership", () => {
     vi.clearAllMocks()
   })
 
-  it("passes the route anchor through the loading surface to its message-list slot", () => {
-    mockedUseChannelMessageFeed.mockReturnValue(feed({ isLoading: true }))
+  it("passes the route anchor through while the feed is loading", () => {
     let renderer: TestRenderer.ReactTestRenderer
 
     act(() => {
-      renderer = TestRenderer.create(renderSurface())
+      renderer = TestRenderer.create(renderController(feed({ isLoading: true })))
     })
 
     expect(renderer!.root.findByType("div").props["data-scroll-target"]).toBe("m_target")
   })
 
   it("keeps a loaded target until MessageList reports consumption", () => {
-    mockedUseChannelMessageFeed.mockReturnValue(feed({
-      messages: [{ id: "m_target" }],
-    }))
     let renderer: TestRenderer.ReactTestRenderer
 
     act(() => {
-      renderer = TestRenderer.create(renderSurface())
+      renderer = TestRenderer.create(renderController(feed({ messages: [{ id: "m_target" }] })))
     })
 
     expect(renderer!.root.findByType("div").props["data-scroll-target"]).toBe("m_target")
@@ -77,30 +137,62 @@ describe("TextChannelSurface scroll target ownership", () => {
   })
 
   it("keeps a missing target across warm cache until the anchor request errors", () => {
-    let surfaceFeed = feed({ messages: [{ id: "m_unrelated" }] })
-    mockedUseChannelMessageFeed.mockImplementation(() => surfaceFeed)
+    let messageFeed = feed({ messages: [{ id: "m_unrelated" }] })
     let renderer: TestRenderer.ReactTestRenderer
 
     act(() => {
-      renderer = TestRenderer.create(renderSurface())
+      renderer = TestRenderer.create(renderController(messageFeed))
     })
 
     expect(renderer!.root.findByType("div").props["data-scroll-target"]).toBe("m_target")
-    surfaceFeed = feed({ messages: [{ id: "m_unrelated" }], isError: true })
-    act(() => renderer!.update(renderSurface()))
+    messageFeed = feed({ messages: [{ id: "m_unrelated" }], isError: true })
+    act(() => renderer!.update(renderController(messageFeed)))
     expect(renderer!.root.findByType("div").props["data-scroll-target"]).toBeNull()
   })
 
   it("does not start a visual highlight timer for a loaded target", () => {
-    mockedUseChannelMessageFeed.mockReturnValue(feed({
-      messages: [{ id: "m_target" }],
-    }))
     let renderer: TestRenderer.ReactTestRenderer
 
     act(() => {
-      renderer = TestRenderer.create(renderSurface())
+      renderer = TestRenderer.create(renderController(feed({ messages: [{ id: "m_target" }] })))
     })
     expect(vi.getTimerCount()).toBe(0)
     act(() => renderer!.unmount())
+  })
+
+  it("keeps message action references stable while calling the latest surface callbacks", async () => {
+    const firstOpenThread = vi.fn()
+    const firstOpenPinned = vi.fn()
+    const latestOpenThread = vi.fn()
+    const latestOpenPinned = vi.fn()
+    let renderer: TestRenderer.ReactTestRenderer
+
+    act(() => {
+      renderer = TestRenderer.create(renderController(
+        feed({ messages: [{ id: "m_target", content: "first" }] }),
+        "m_target",
+        { onOpenThread: firstOpenThread, onOpenPinned: firstOpenPinned },
+      ))
+    })
+    const firstActions = renderer!.root.findByType(ControllerProbe).props.controller.messageActions
+
+    act(() => {
+      renderer!.update(renderController(
+        feed({ messages: [{ id: "m_target", content: "latest" }] }),
+        "m_target",
+        { onOpenThread: latestOpenThread, onOpenPinned: latestOpenPinned },
+      ))
+    })
+    const latestActions = renderer!.root.findByType(ControllerProbe).props.controller.messageActions
+
+    expect(latestActions).toBe(firstActions)
+    act(() => latestActions.onPin("m_target"))
+    expect(latestOpenPinned).toHaveBeenCalledTimes(1)
+    expect(firstOpenPinned).not.toHaveBeenCalled()
+    await act(async () => {
+      await latestActions.onCreateThread("m_target")
+    })
+    expect(latestOpenThread).toHaveBeenCalledWith("thread_1")
+    expect(firstOpenThread).not.toHaveBeenCalled()
   })
 })
