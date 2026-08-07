@@ -118,22 +118,32 @@ beforeEach(() => {
 // ── useSendMessage ────────────────────────────────────────────────────────
 
 describe("useSendMessage — happy path", () => {
-  it("optimistic insert then reconciles server id on success", async () => {
+  it("keeps Query base-only and acknowledges the accepted overlay intent", async () => {
     capturedQc.setQueryData(communityKeys.channelMessages("ch_1"), makeCache([]))
-    apiFetchMock.mockResolvedValueOnce({ message: { id: "server_id_1" } })
+    apiFetchMock.mockResolvedValueOnce({ message: { id: "server_id_1", seq: 9 } })
 
     const mod = await loadMod()
+    const stream = await import("@/stores/community/message-stream")
+    stream.useMessageStreamStore.getState().accept(
+      { kind: "channel", id: "ch_1", serverId: "s1" },
+      { nonce: "n1", tempId: "temp_n1", message: { type: "chat", content: "hi" }, localUploads: [] },
+    )
     mod.useSendMessage() // populate capturedConfig
     await runMutation({
+      serverId: "s1",
       channelId: "ch_1",
       content: "hi",
+      nonce: "n1",
       author: { id: "u_me", name: "me", avatar: "M" },
     })
 
     const cache = capturedQc.getQueryData<{ pages: { messages: { id: string }[] }[] }>(
       communityKeys.channelMessages("ch_1"),
     )
-    expect(cache?.pages[0].messages.map((m) => m.id)).toEqual(["server_id_1"])
+    expect(cache?.pages[0].messages).toEqual([])
+    expect(stream.getMessageOverlay({ kind: "channel", id: "ch_1", serverId: "s1" }).outboxByNonce.get("n1")).toEqual(
+      expect.objectContaining({ status: "acked", serverMessageId: "server_id_1", serverSeq: 9 }),
+    )
   })
 })
 
@@ -142,17 +152,24 @@ describe("useSendMessage — rollback", () => {
     capturedQc.setQueryData(communityKeys.channelMessages("ch_1"), makeCache([]))
     apiFetchMock.mockRejectedValueOnce(new Error("boom"))
     const mod = await loadMod()
+    const stream = await import("@/stores/community/message-stream")
+    stream.useMessageStreamStore.getState().accept(
+      { kind: "channel", id: "ch_1", serverId: "s1" },
+      { nonce: "n1", tempId: "temp_n1", message: { type: "chat", content: "hi" }, localUploads: [] },
+    )
     mod.useSendMessage()
     await runMutation({
+      serverId: "s1",
       channelId: "ch_1",
       content: "hi",
+      nonce: "n1",
       author: { id: "u_me", name: "me", avatar: "M" },
     }).catch(() => { })
     const cache = capturedQc.getQueryData<{ pages: { messages: { id: string; failed?: boolean }[] }[] }>(
       communityKeys.channelMessages("ch_1"),
     )
-    expect(cache?.pages[0].messages).toHaveLength(1)
-    expect(cache?.pages[0].messages[0].failed).toBe(true)
+    expect(cache?.pages[0].messages).toEqual([])
+    expect(stream.getMessageOverlay({ kind: "channel", id: "ch_1", serverId: "s1" }).outboxByNonce.get("n1")?.status).toBe("failed")
   })
 })
 
@@ -163,21 +180,19 @@ describe("useSendMessage — rollback", () => {
 describe("useSendMessage — stamps authorId on optimistic row", () => {
   it("optimistic row carries the sender's authorId", async () => {
     capturedQc.setQueryData(communityKeys.channelMessages("ch_1"), makeCache([]))
-    // Never resolves — we only care about the optimistic write from onMutate.
-    apiFetchMock.mockImplementation(() => new Promise(() => { }))
     const mod = await loadMod()
-    mod.useSendMessage()
-    const cfg = capturedConfig!
-    await cfg.onMutate!({
-      channelId: "ch_1",
-      content: "hi",
-      author: { id: "u_me", name: "me", avatar: "M" },
-    })
-    const cache = capturedQc.getQueryData<{ pages: { messages: { authorId?: string }[] }[] }>(
-      communityKeys.channelMessages("ch_1"),
+    const stream = await import("@/stores/community/message-stream")
+    stream.useMessageStreamStore.getState().accept(
+      { kind: "channel", id: "ch_1", serverId: "s1" },
+      {
+        nonce: "n1",
+        tempId: "temp_n1",
+        message: { type: "chat", content: "hi", authorId: "u_me" },
+        localUploads: [],
+      },
     )
-    expect(cache?.pages[0].messages).toHaveLength(1)
-    expect(cache?.pages[0].messages[0].authorId).toBe("u_me")
+    expect(stream.getMessageOverlay({ kind: "channel", id: "ch_1", serverId: "s1" }).outboxByNonce.get("n1")?.message.authorId).toBe("u_me")
+    expect(mod.useSendMessage).toBeTypeOf("function")
   })
 })
 
@@ -278,15 +293,23 @@ describe("useSendMessage — 429 rate limit fires a toast + marks failed", () =>
     const { ApiError } = await import("@/lib/errors")
     apiFetchMock.mockRejectedValueOnce(new ApiError("rate_limited", 429))
     mod.useSendMessage()
+    const stream = await import("@/stores/community/message-stream")
+    stream.useMessageStreamStore.getState().accept(
+      { kind: "channel", id: "ch_1", serverId: "s1" },
+      { nonce: "n1", tempId: "temp_n1", message: { type: "chat", content: "hi" }, localUploads: [] },
+    )
     await runMutation({
+      serverId: "s1",
       channelId: "ch_1",
       content: "hi",
+      nonce: "n1",
       author: { id: "u_me", name: "me", avatar: "M" },
     }).catch(() => { })
     const cache = capturedQc.getQueryData<{ pages: { messages: { failed?: boolean }[] }[] }>(
       communityKeys.channelMessages("ch_1"),
     )
-    expect(cache?.pages[0].messages[0].failed).toBe(true)
+    expect(cache?.pages[0].messages).toEqual([])
+    expect(stream.getMessageOverlay({ kind: "channel", id: "ch_1", serverId: "s1" }).outboxByNonce.get("n1")?.status).toBe("failed")
     expect(toastMock).toHaveBeenCalledWith(expect.stringContaining("Rate limited"))
   })
 })
@@ -324,16 +347,23 @@ describe("useSendMessage — no blocked branch on channel path", () => {
     const { ApiError } = await import("@/lib/errors")
     apiFetchMock.mockRejectedValueOnce(new ApiError("blocked", 403))
     mod.useSendMessage()
+    const stream = await import("@/stores/community/message-stream")
+    stream.useMessageStreamStore.getState().accept(
+      { kind: "channel", id: "ch_1", serverId: "s1" },
+      { nonce: "n1", tempId: "temp_n1", message: { type: "chat", content: "hi" }, localUploads: [] },
+    )
     await runMutation({
+      serverId: "s1",
       channelId: "ch_1",
       content: "hi",
+      nonce: "n1",
       author: { id: "u_me", name: "me", avatar: "M" },
     }).catch(() => { })
     const cache = capturedQc.getQueryData<{ pages: { messages: { failed?: boolean }[] }[] }>(
       communityKeys.channelMessages("ch_1"),
     )
-    expect(cache?.pages[0].messages).toHaveLength(1)
-    expect(cache?.pages[0].messages[0].failed).toBe(true)
+    expect(cache?.pages[0].messages).toEqual([])
+    expect(stream.getMessageOverlay({ kind: "channel", id: "ch_1", serverId: "s1" }).outboxByNonce.get("n1")?.status).toBe("failed")
     expect(toastMock).not.toHaveBeenCalledWith("You cannot send messages to this user")
     expect(toastMock).toHaveBeenCalledWith("blocked")
   })
@@ -391,6 +421,61 @@ describe("useToggleReaction — optimistic flip + rollback", () => {
 // timer on subsequent clicks. Step 3's hook dropped the coalescing; this
 // restores it via useCommunityStore.reactionTimers.
 describe("useToggleReactionApi — 300ms debounce coalescing", () => {
+  it("updates and rolls back a fallback-only channel row without creating a second row", async () => {
+    vi.useFakeTimers()
+    try {
+      capturedQc.setQueryData(communityKeys.channelMessages("ch_1"), makeCache([]))
+      apiFetchMock.mockRejectedValueOnce(new Error("boom"))
+      const mod = await loadMod()
+      const stream = await import("@/stores/community/message-stream")
+      const scope = { kind: "channel" as const, id: "ch_1", serverId: "s1" }
+      stream.useMessageStreamStore.getState().dispatch(scope, {
+        type: "wsMessage",
+        message: {
+          id: "m_1",
+          seq: 1,
+          type: "chat",
+          authorId: "u_other",
+          authorName: "Other",
+          content: "hello",
+          createdAt: "2026-08-06T00:00:00.000Z",
+          reactions: [{ emoji: "👍", count: 1, me: true, userIds: ["u_me"] }],
+        },
+      })
+
+      const toggle = mod.useToggleReactionApi()
+      toggle({
+        serverId: "s1",
+        channelId: "ch_1",
+        messageId: "m_1",
+        emoji: "👍",
+        userId: "u_me",
+      })
+
+      let overlay = stream.getMessageOverlay(scope)
+      expect(overlay.liveById).toHaveLength(1)
+      expect(overlay.liveById.get("m_1")?.reactions).toEqual([])
+
+      await vi.advanceTimersByTimeAsync(300)
+      await Promise.resolve()
+
+      overlay = stream.getMessageOverlay(scope)
+      expect(apiFetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/api/community/messages/m_1/reactions/"),
+        { method: "DELETE" },
+      )
+      expect(overlay.liveById).toHaveLength(1)
+      expect(overlay.liveById.get("m_1")?.reactions).toEqual([
+        expect.objectContaining({ emoji: "👍", me: true, count: 1 }),
+      ])
+      expect(capturedQc.getQueryData<{ pages: { messages: unknown[] }[] }>(
+        communityKeys.channelMessages("ch_1"),
+      )?.pages[0].messages).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("5 rapid clicks with alternating me→!me→me settle to a SINGLE API call at end of window", async () => {
     vi.useFakeTimers()
     try {

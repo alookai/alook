@@ -48,6 +48,7 @@ import {
 } from "@/hooks/community/use-channel-panels"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
 import { useOnlineUserIds, useCommunityWsStore } from "@/stores/community/ws"
+import { useMessageStreamStore } from "@/stores/community/message-stream"
 import {
   useSendMessage,
   useToggleReactionApi,
@@ -63,8 +64,9 @@ import {
   useSetChannelNotif,
   useUploadFile,
   zipUploadResultsWithDimensions,
+  toAttachmentVm,
   sendNonce,
-  type SendMessageResult,
+  tempMessageId,
   type UploadedAttachment,
 } from "@/hooks/community/mutations"
 import {
@@ -328,6 +330,7 @@ function ChannelView() {
   // early). On the bootstrap path the initial page is pre-seeded, so trust it
   // and don't refetch page 0 on mount.
   const messagesQuery = useMessages(channelId, {
+    serverId,
     lastReadMessageId: readSnapshotFetching
       ? undefined
       : (readSnapshot?.lastReadMessageId ?? null),
@@ -454,7 +457,7 @@ function ChannelView() {
   const setMemberRoleMut = useSetMemberRole()
   const kickMemberMut = useKickMember()
   const setChannelNotifMut = useSetChannelNotif()
-  const uploadFileMut = useUploadFile()
+  const { mutateAsync: uploadFileAsync } = useUploadFile()
 
   const goBack = useCallback(() => { uiHandlers.goBackMobile?.() }, [uiHandlers])
 
@@ -511,7 +514,7 @@ function ChannelView() {
     return () => {
       communityWsUnsubscribe()
     }
-  }, [channelId, isChildChannel, params.serverId, router])
+  }, [channelId, isChildChannel, params.serverId, router, serverId])
 
   // ── Local UI state ──────────────────────────────────────────────────────
   const [rightPanel, setRightPanel] = useState<RightPanel>(null)
@@ -714,19 +717,62 @@ function ChannelView() {
   // error overlay (rate-limit path was the reproducer). Returning `null`
   // instead lets thread-create + retry callers detect failure without a
   // try/catch each.
-  const doSend = useCallback(
-    async (content: string, opts?: { replyToId?: string; mentionType?: MentionType; attachments?: UploadedAttachment[]; nonce?: string }): Promise<SendMessageResult | null> => {
+  const messageScope = useMemo(
+    () => ({ kind: "channel" as const, id: channelId, serverId }),
+    [channelId, serverId],
+  )
+
+  const runAcceptedIntent = useCallback(
+    async (nonce: string) => {
+      const streamStore = useMessageStreamStore.getState()
+      const payload = streamStore.getRetryPayload(messageScope, nonce)
+      if (!payload) return
+      let uploadedAttachments: UploadedAttachment[] | undefined
+      if (payload.localUploads.length > 0 && payload.uploadStatus === "settled") {
+        const projected = payload.message.attachments
+        if (projected?.length === payload.localUploads.length) {
+          uploadedAttachments = projected.map((attachment, index) => {
+            const local = payload.localUploads[index]
+            return {
+              url: attachment.url,
+              filename: local.file.name,
+              contentType: local.file.type,
+              size: local.file.size,
+              width: local.width,
+              height: local.height,
+            }
+          })
+        }
+      }
+      if (payload.localUploads.length > 0 && !uploadedAttachments) {
+        const results = await Promise.all(
+          payload.localUploads.map((upload) =>
+            uploadFileAsync({ target: { channelId }, file: upload.file }).catch((error) => {
+              toastApiError(error, "Failed to attach file")
+              return null
+            }),
+          ),
+        )
+        if (results.some((result) => result === null)) {
+          streamStore.dispatch(messageScope, { type: "uploadFailed", nonce })
+          return
+        }
+        uploadedAttachments = zipUploadResultsWithDimensions(results, [...payload.localUploads])
+        streamStore.dispatch(messageScope, {
+          type: "uploadSettled",
+          nonce,
+          attachments: uploadedAttachments.map(toAttachmentVm),
+        })
+      }
       try {
-        return await sendMessageAsync({
+        await sendMessageAsync({
+          serverId,
           channelId,
-          content,
-          replyToId: opts?.replyToId,
-          mentionType: opts?.mentionType,
-          attachments: opts?.attachments,
-          // Idempotency nonce: mint one per fresh send; a retry passes the
-          // failed row's nonce back (see `onRetry`) so the resend dedupes
-          // server-side instead of double-posting.
-          nonce: opts?.nonce ?? sendNonce(),
+          content: payload.message.content ?? "",
+          replyToId: payload.message.replyTo?.id,
+          mentionType: payload.mentionType,
+          attachments: uploadedAttachments,
+          nonce,
           author: {
             id: currentUser.id,
             name: currentUser.name,
@@ -734,10 +780,10 @@ function ChannelView() {
           },
         })
       } catch {
-        return null
+        return
       }
     },
-    [sendMessageAsync, channelId, currentUser.id, currentUser.name, currentUser.avatar],
+    [messageScope, uploadFileAsync, channelId, sendMessageAsync, serverId, currentUser.id, currentUser.name, currentUser.avatar],
   )
 
   // Latest-ref for the values the message actions read at call time. Keeping
@@ -759,9 +805,9 @@ function ChannelView() {
 
   const messageActions = useMemo(() => ({
     onToggleReaction: (id: string, emoji: string) =>
-      toggleReactionApi({ channelId, messageId: id, emoji, userId: currentUser.id }),
+      toggleReactionApi({ serverId, channelId, messageId: id, emoji, userId: currentUser.id }),
     onReact: (id: string, emoji: string) =>
-      toggleReactionApi({ channelId, messageId: id, emoji, userId: currentUser.id }),
+      toggleReactionApi({ serverId, channelId, messageId: id, emoji, userId: currentUser.id }),
     onReply: (id: string) => {
       const m = actionsCtxRef.current.messages.find((x) => x.id === id)
       if (m) setReplyTo({ id: m.id, authorName: m.authorName ?? "", text: m.content ?? "" })
@@ -786,7 +832,7 @@ function ChannelView() {
       const m = actionsCtxRef.current.messages.find((x) => x.id === id)
       const name = deriveThreadName(m?.content, actionsCtxRef.current.channelName)
       try {
-        const data = await createThreadAsync({ channelId, messageId: id, name })
+        const data = await createThreadAsync({ serverId, channelId, messageId: id, name })
         router.push(`/c/channels/${params.serverId}/${data.id}`)
       } catch (e) {
         toastApiError(e, "Failed to create thread")
@@ -798,13 +844,17 @@ function ChannelView() {
     },
     onRetry: (id: string) => {
       const m = actionsCtxRef.current.messages.find((x) => x.id === id)
-      // Reuse the failed row's nonce so the resend dedupes server-side if the
-      // original actually committed (500-after-commit). Remove the stale failed
-      // row first — `doSend` inserts a fresh optimistic row (reusing the nonce),
-      // and a WS/dedupe reconcile then converges them by nonce/id.
-      if (m?.content) {
-        void doSend(m.content, { nonce: m.clientNonce, replyToId: m.replyTo?.id })
-      }
+      if (!m?.clientNonce) return
+      useMessageStreamStore.getState().dispatch(messageScope, { type: "retry", nonce: m.clientNonce })
+      void runAcceptedIntent(m.clientNonce)
+    },
+    onDismiss: (id: string) => {
+      const m = actionsCtxRef.current.messages.find((x) => x.id === id)
+      if (!m?.clientNonce) return
+      useMessageStreamStore.getState().dispatch(messageScope, {
+        type: "dismissFailed",
+        nonce: m.clientNonce,
+      })
     },
     onPreviewImage: (url: string) => {
       actionsCtxRef.current.uiHandlers.previewImage?.(url)
@@ -822,7 +872,7 @@ function ChannelView() {
     // reads go through actionsCtxRef. This stability is load-bearing: an unstable
     // messageActions busts MessageRow/Message's memo and re-renders every visible
     // row on every commit (see message.tsx messagePropsEqual).
-  }), [channelId, currentUser.id, toggleReactionApi, unpinMessageMutate, pinMessageMutate, toggleMark, createThreadAsync, doSend, router, params.serverId])
+  }), [serverId, channelId, currentUser.id, toggleReactionApi, unpinMessageMutate, pinMessageMutate, toggleMark, createThreadAsync, messageScope, runAcceptedIntent, router, params.serverId])
 
   const threadActions = useMemo(
     () => ({ ...messageActions, onCreateThread: undefined }),
@@ -843,29 +893,42 @@ function ChannelView() {
   )
 
   // ── Send messages ───────────────────────────────────────────────────────
-  const sendMessage = async (markdown: string, attachments?: SendAttachment[], mentionType?: MentionType) => {
-    if (!markdown && !attachments?.length) return
-
-    let uploadedAttachments: UploadedAttachment[] = []
-    if (attachments?.length) {
-      const results = await Promise.all(
-        attachments.map((a) =>
-          uploadFileMut.mutateAsync({ target: { channelId }, file: a.file }).catch((e) => {
-            toastApiError(e, "Failed to attach file")
-            return null
-          }),
-        ),
-      )
-      uploadedAttachments = zipUploadResultsWithDimensions(results, attachments)
-    }
-
-    void doSend(markdown || "", {
-      replyToId: replyTo?.id,
+  const acceptMessage = (markdown: string, attachments?: SendAttachment[], mentionType?: MentionType): boolean => {
+    if (!markdown && !attachments?.length) return false
+    const nonce = sendNonce()
+    const createdPreviewUrls: string[] = []
+    const accepted = useMessageStreamStore.getState().accept(messageScope, {
+      nonce,
+      tempId: tempMessageId(),
+      message: {
+        type: "chat",
+        authorId: currentUser.id,
+        authorName: currentUser.name,
+        authorAvatar: currentUser.avatar,
+        content: markdown,
+        createdAt: new Date().toISOString(),
+        ...(replyTo ? { replyTo: { id: replyTo.id, authorName: replyTo.authorName, text: replyTo.text.slice(0, 100) } } : {}),
+      },
+      localUploads: attachments?.map((attachment) => {
+        const previewObjectUrl = attachment.previewObjectUrl ?? URL.createObjectURL(attachment.file)
+        if (!attachment.previewObjectUrl) createdPreviewUrls.push(previewObjectUrl)
+        return {
+          file: attachment.file,
+          previewObjectUrl,
+          width: attachment.width,
+          height: attachment.height,
+        }
+      }) ?? [],
       mentionType,
-      attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
     })
+    if (!accepted) {
+      for (const url of createdPreviewUrls) URL.revokeObjectURL(url)
+      return false
+    }
+    void runAcceptedIntent(nonce)
     communityWsResetTypingThrottle({ channelId })
     setReplyTo(null)
+    return true
   }
 
   const handleTyping = () => {
@@ -1130,7 +1193,8 @@ function ChannelView() {
             members={composerMembers}
             onSearchMembers={membersHook.searchMembers}
             channelRefCandidates={channelRefCandidates}
-            onSend={sendMessage}
+            sendContract="accepted"
+            onAcceptSend={acceptMessage}
             onTyping={handleTyping}
             replyingTo={replyTo?.authorName}
             onCancelReply={() => setReplyTo(null)}
@@ -1280,7 +1344,8 @@ function ChannelView() {
           members={composerMembers}
           onSearchMembers={membersHook.searchMembers}
           channelRefCandidates={channelRefCandidates}
-          onSend={sendMessage}
+          sendContract="accepted"
+          onAcceptSend={acceptMessage}
           onTyping={handleTyping}
           replyingTo={replyTo?.authorName}
           onCancelReply={() => setReplyTo(null)}

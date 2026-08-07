@@ -12,6 +12,13 @@ import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import { isInlineAttachmentContentType } from "@/lib/community/attachment-content-type"
 import { useCommunityStore } from "@/stores/community"
+import { useMessageStreamStore } from "@/stores/community/message-stream"
+import { getMessageOverlay } from "@/stores/community/message-stream"
+import {
+  materializeMessageStream,
+  type CanonicalMessage,
+  type MessageScope,
+} from "@/lib/community/message-stream"
 import type { Msg, Attachment } from "@/components/community/_types"
 import type { MessagesPage } from "@/hooks/community/use-messages"
 import type { PinsResponse } from "@/hooks/community/use-channel-panels"
@@ -194,6 +201,7 @@ export function sendNonce(): string {
 // ── Send message (channel/thread) ──────────────────────────────────────────
 
 export type SendMessageArgs = {
+  serverId: string
   channelId: string
   content: string
   replyToId?: string
@@ -210,7 +218,7 @@ export type SendMessageArgs = {
 // the same nonce — `message` is the canonical (original) row, nothing new was
 // inserted. The caller treats it as success (reconcile the optimistic row,
 // clear the failed pill), never as a failure to resend.
-export type SendMessageResult = { message: { id: string }; deduped?: boolean }
+export type SendMessageResult = { message: { id: string; seq: number }; deduped?: boolean }
 
 /**
  * Channel/thread send. The server infers thread-vs-channel routing from the
@@ -218,12 +226,10 @@ export type SendMessageResult = { message: { id: string }; deduped?: boolean }
  * `/channels/:id/messages`.
  */
 export function useSendMessage() {
-  const queryClient = useQueryClient()
   return useMutation<
     SendMessageResult,
     Error,
-    SendMessageArgs,
-    { tempId: string; key: readonly unknown[] }
+    SendMessageArgs
   >({
     mutationFn: async ({ channelId, content, replyToId, mentionType, attachments, nonce }) => {
       return apiFetch<SendMessageResult>(
@@ -234,61 +240,13 @@ export function useSendMessage() {
         },
       )
     },
-    onMutate: async (args) => {
-      const key = communityKeys.channelMessages(args.channelId)
-      await queryClient.cancelQueries({ queryKey: key })
-      const tempId = tempMessageId()
-      // Caller supplies the nonce (fresh send mints one, retry reuses the
-      // failed row's). Stamped on the optimistic row so a WS message-create
-      // echoing the same nonce can reconcile this row by nonce — this heals the
-      // no-click phantom (500-after-commit the user never retried).
-      const nonce = args.nonce
-      // Retry reuses the failed row's nonce — drop that stale row first so
-      // exactly one row carries this nonce (else the WS by-nonce reconcile
-      // would match two).
-      if (nonce) {
-        queryClient.setQueryData<PageCache>(key, (c) => removeByNonce(c, nonce))
+    onError: (err, args) => {
+      if (args.nonce) {
+        useMessageStreamStore.getState().dispatch(
+          { kind: "channel", id: args.channelId, serverId: args.serverId },
+          { type: "postFail", nonce: args.nonce },
+        )
       }
-      const cache = queryClient.getQueryData<PageCache>(key)
-      let replyTo: Msg["replyTo"] | undefined
-      if (args.replyToId && cache) {
-        for (const page of cache.pages) {
-          const original = page.messages.find((m) => m.id === args.replyToId)
-          if (original) {
-            replyTo = {
-              id: args.replyToId,
-              authorName: original.authorName ?? "Unknown",
-              text: (original.content ?? "").slice(0, 100),
-            }
-            break
-          }
-        }
-        if (!replyTo) {
-          replyTo = { id: args.replyToId, authorName: "Unknown", text: "" }
-        }
-      }
-      const optimisticAttachments = args.attachments?.map(toAttachmentVm)
-      const msg: Msg = {
-        id: tempId,
-        type: "chat",
-        // #3: stamp the sender's userId onto optimistic rows so
-        // `useChannelWatermark` recognizes them as self-authored (skip
-        // client PUT — server-side write path already writes the sender's
-        // watermark on POST, see #1).
-        authorId: args.author.id,
-        authorName: args.author.name,
-        authorAvatar: args.author.avatar,
-        content: args.content,
-        createdAt: new Date().toISOString(),
-        ...(nonce ? { clientNonce: nonce } : {}),
-        ...(replyTo ? { replyTo } : {}),
-        ...(optimisticAttachments?.length ? { attachments: optimisticAttachments } : {}),
-      }
-      queryClient.setQueryData<PageCache>(key, (c) => prependOptimistic(c, msg))
-      return { tempId, key }
-    },
-    onError: (err, _args, ctx) => {
-      if (!ctx) return
       // 429: server-side rate limit. Fire an explicit toast so the user
       // knows why the send failed — otherwise the only signal is a
       // `failed: true` pill, which reads like a generic error. The row
@@ -302,14 +260,17 @@ export function useSendMessage() {
         // failures outside the 429 case.
         toastApiError(err, "Failed to send message")
       }
-      queryClient.setQueryData<PageCache>(ctx.key as ReturnType<typeof communityKeys.channelMessages>, (c) =>
-        markFailedById(c, ctx.tempId),
-      )
     },
-    onSuccess: (data, _args, ctx) => {
-      if (!ctx) return
-      queryClient.setQueryData<PageCache>(ctx.key as ReturnType<typeof communityKeys.channelMessages>, (c) =>
-        reconcileServerId(c, ctx.tempId, data.message.id),
+    onSuccess: (data, args) => {
+      if (!args.nonce) return
+      useMessageStreamStore.getState().dispatch(
+        { kind: "channel", id: args.channelId, serverId: args.serverId },
+        {
+          type: "postAck",
+          nonce: args.nonce,
+          serverMessageId: data.message.id,
+          serverSeq: data.message.seq,
+        },
       )
     },
   })
@@ -413,6 +374,7 @@ export function useSendDmMessage() {
 // ── Toggle reaction ────────────────────────────────────────────────────────
 
 export type ToggleReactionArgs = {
+  serverId?: string
   channelId?: string
   dmId?: string
   messageId: string
@@ -439,32 +401,75 @@ function togglePageCacheReaction(
   const pages = cache.pages.map((p) => {
     if (!p.messages.some((m) => m.id === messageId)) return p
     touched = true
-    const nextMessages = p.messages.map((m) => {
-      if (m.id !== messageId) return m
-      const reactions = (m.reactions ?? []).map((r) => ({ ...r, userIds: [...(r.userIds ?? [])] }))
-      const existing = reactions.find((r) => r.emoji === emoji)
-      if (add) {
-        if (existing) {
-          if (!existing.userIds.includes(userId)) {
-            existing.userIds.push(userId)
-            existing.count = existing.userIds.length
-          }
-          existing.me = true
-        } else {
-          reactions.push({ emoji, count: 1, me: true, userIds: [userId] })
-        }
-      } else if (existing) {
-        existing.userIds = existing.userIds.filter((id) => id !== userId)
-        existing.count = existing.userIds.length
-        existing.me = false
-        if (existing.count <= 0) reactions.splice(reactions.indexOf(existing), 1)
-      }
-      return { ...m, reactions }
-    })
+    const nextMessages = p.messages.map((m) =>
+      m.id === messageId ? toggleMessageReaction(m, emoji, userId, add) : m)
     return { ...p, messages: nextMessages }
   })
   if (!touched) return cache
   return { ...cache, pages }
+}
+
+function toggleMessageReaction(
+  message: Msg,
+  emoji: string,
+  userId: string,
+  add: boolean,
+): Msg {
+  const reactions = (message.reactions ?? []).map((reaction) => ({
+    ...reaction,
+    userIds: [...(reaction.userIds ?? [])],
+  }))
+  const existing = reactions.find((reaction) => reaction.emoji === emoji)
+  if (add) {
+    if (existing) {
+      if (!existing.userIds.includes(userId)) existing.userIds.push(userId)
+      existing.count = existing.userIds.length
+      existing.me = true
+    } else {
+      reactions.push({ emoji, count: 1, me: true, userIds: [userId] })
+    }
+  } else if (existing) {
+    existing.userIds = existing.userIds.filter((id) => id !== userId)
+    existing.count = existing.userIds.length
+    existing.me = false
+    if (existing.count <= 0) reactions.splice(reactions.indexOf(existing), 1)
+  }
+  return { ...message, reactions }
+}
+
+function channelScope(args: ToggleReactionArgs): MessageScope | undefined {
+  return args.channelId && args.serverId
+    ? { kind: "channel", id: args.channelId, serverId: args.serverId }
+    : undefined
+}
+
+function currentMaterializedMessage(
+  cache: PageCache | undefined,
+  scope: MessageScope,
+  messageId: string,
+): Msg | undefined {
+  const base = cache?.pages.flatMap((page) => page.messages)
+    .filter((message): message is CanonicalMessage => message.seq !== undefined) ?? []
+  return materializeMessageStream(base, getMessageOverlay(scope))
+    .find((message) => message.id === messageId)
+}
+
+function refreshExistingReactionFallback(
+  cache: PageCache | undefined,
+  args: ToggleReactionArgs,
+  add: boolean,
+): void {
+  const scope = channelScope(args)
+  if (!scope) return
+  const overlay = getMessageOverlay(scope)
+  const existing = [...overlay.liveById.values()].find((message) => message.id === args.messageId)
+  if (!existing) return
+  const source = currentMaterializedMessage(cache, scope, args.messageId) ?? existing
+  if (source.seq === undefined) return
+  useMessageStreamStore.getState().dispatch(scope, {
+    type: "liveRefreshed",
+    message: toggleMessageReaction(source, args.emoji, args.userId, add) as CanonicalMessage,
+  })
 }
 
 function currentMeStatus(
@@ -573,13 +578,20 @@ export function useToggleReactionApi(): (args: ToggleReactionArgs) => void {
         ? communityKeys.dmMessages(args.dmId)
         : communityKeys.channelMessages("__none__")
     const cache = queryClient.getQueryData<PageCache>(key)
-    const wasMe = currentMeStatus(cache, args.messageId, args.emoji)
+    const scope = channelScope(args)
+    const source = scope
+      ? currentMaterializedMessage(cache, scope, args.messageId)
+      : undefined
+    const wasMe = source
+      ? source.reactions?.find((reaction) => reaction.emoji === args.emoji)?.me ?? false
+      : currentMeStatus(cache, args.messageId, args.emoji)
     const nextMe = !wasMe
     // Optimistic write is always synchronous — the debounce only defers the
     // API call, not the visible UI.
     queryClient.setQueryData<PageCache>(key, (c) =>
       togglePageCacheReaction(c, args.messageId, args.emoji, args.userId, nextMe),
     )
+    refreshExistingReactionFallback(queryClient.getQueryData<PageCache>(key), args, nextMe)
 
     const timerKey = `${args.messageId}:${args.emoji}`
     const reactionTimers = useCommunityStore.getState().reactionTimers
@@ -607,6 +619,7 @@ export function useToggleReactionApi(): (args: ToggleReactionArgs) => void {
         queryClient.setQueryData<PageCache>(key, (c) =>
           togglePageCacheReaction(c, args.messageId, args.emoji, args.userId, originalMe),
         )
+        refreshExistingReactionFallback(queryClient.getQueryData<PageCache>(key), args, originalMe)
       })
     }, REACTION_DEBOUNCE_MS)
     reactionTimers.set(timerKey, { timer, originalMe })
@@ -769,6 +782,7 @@ export function useToggleMark() {
 // ── Create thread ──────────────────────────────────────────────────────────
 
 export type CreateThreadArgs = {
+  serverId: string
   channelId: string // parent channel — used to invalidate the threads list
   messageId: string
   name: string
@@ -809,6 +823,23 @@ export function useCreateThread() {
           return { ...cache, pages }
         },
       )
+      const scope: MessageScope = { kind: "channel", id: args.channelId, serverId: args.serverId }
+      const fallback = [...getMessageOverlay(scope).liveById.values()]
+        .find((message) => message.id === args.messageId)
+      if (fallback) {
+        const cached = queryClient.getQueryData<PageCache>(communityKeys.channelMessages(args.channelId))
+        const source = currentMaterializedMessage(cached, scope, args.messageId) ?? fallback
+        if (source.seq !== undefined) {
+          useMessageStreamStore.getState().dispatch(scope, {
+            type: "liveRefreshed",
+            message: {
+              ...source,
+              seq: source.seq,
+              thread: { id: data.id, name: args.name, messageCount: 0 },
+            },
+          })
+        }
+      }
       void queryClient.invalidateQueries({ queryKey: communityKeys.threads(args.channelId) })
     },
   })

@@ -76,4 +76,22 @@ describe("useFileAttachments — PendingFile width/height", () => {
     expect(pending[0].width).toBeUndefined()
     expect(pending[0].height).toBeUndefined()
   })
+
+  it("transfers accepted files without revoking their preview URLs", async () => {
+    generateThumbnailMock.mockResolvedValue({ blob: { size: 1 } as Blob, width: 640, height: 480 })
+    const hook = await renderCapture()
+    const file = new File([new Uint8Array([1])], "photo.png", { type: "image/png" })
+    await hook.addFiles([file])
+
+    let transferred: PendingFile[] = []
+    await act(async () => {
+      transferred = hook.current.transferPendingFiles()
+    })
+
+    expect(transferred).toEqual([
+      expect.objectContaining({ file, thumbnailUrl: "blob:fake", width: 640, height: 480 }),
+    ])
+    expect(hook.current.pendingFiles).toEqual([])
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+  })
 })

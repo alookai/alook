@@ -437,6 +437,7 @@ function DmView() {
         ) : (
           <div data-onboarding-target="dm-composer" data-onboarding-name={dm.name} className="shrink-0">
             <Composer
+              sendContract="legacy"
               channel={dm.name}
               context="dm"
             // DM context short-circuits `rankMentionItems` to `[]` — no popup,

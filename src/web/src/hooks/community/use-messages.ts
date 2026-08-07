@@ -11,6 +11,12 @@ import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type { Msg } from "@/components/community/_types"
 import { flushPendingReads } from "@/hooks/community/mutations/messages"
+import {
+  materializeMessageStream,
+  type CanonicalMessage,
+  type MessageScope,
+} from "@/lib/community/message-stream"
+import { useMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
 
 /**
  * Fetches paginated messages for a community channel.
@@ -178,6 +184,10 @@ type MessagesOpts = {
    * still refetches normally. Only affects the initial window.
    */
   trustSeededInitialPage?: boolean
+}
+
+type ChannelMessagesOpts = MessagesOpts & {
+  serverId: string
 }
 
 // Shared pagination + reducer used by both channel and DM hooks. Kept inline
@@ -538,15 +548,39 @@ function useMessagesInner(
  */
 export function useMessages(
   channelId: string | null,
-  opts?: MessagesOpts,
+  opts: ChannelMessagesOpts,
 ): MessagesReturn {
   const queryKey = communityKeys.channelMessages(channelId ?? "__none__")
-  return useMessagesInner(
+  const base = useMessagesInner(
     channelId,
     queryKey,
     channelMessagesQueryFn(channelId ?? "__none__"),
     opts,
   )
+  const scope = useMemo<MessageScope>(() => ({
+    kind: "channel",
+    id: channelId ?? "__none__",
+    serverId: opts.serverId,
+  }), [channelId, opts.serverId])
+  const overlay = useMessageOverlay(scope)
+  const canonicalBase = useMemo(
+    () => base.messages.filter(
+      (message): message is CanonicalMessage => typeof message.seq === "number",
+    ),
+    [base.messages],
+  )
+  useEffect(() => {
+    if (!channelId) return
+    useMessageStreamStore.getState().dispatch(scope, {
+      type: "baseChanged",
+      messages: canonicalBase,
+    })
+  }, [canonicalBase, channelId, scope])
+  const messages = useMemo(
+    () => materializeMessageStream(canonicalBase, overlay),
+    [canonicalBase, overlay],
+  )
+  return { ...base, messages }
 }
 
 /**

@@ -28,6 +28,7 @@ import type {
   CommunityFriendRequest,
   CommunityTypingStart,
 } from "@alook/shared"
+import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
 import { communityKeys } from "@/lib/query-keys"
 
 // ── React shim ───────────────────────────────────────────────────────────
@@ -126,8 +127,10 @@ async function mountHook(options?: { viewerUserId?: string | null } & Record<str
 async function resetStore() {
   const { useCommunityStore } = await import("@/stores/community")
   useCommunityStore.getState().reset()
+  useCommunityStore.getState().setCurrentServerId("s1")
   const { useCommunityWsStore } = await import("@/stores/community/ws")
   useCommunityWsStore.getState().reset()
+  useMessageStreamStore.getState().resetAll()
   const mod = await import("./use-community-ws")
   mod._resetActiveSend_forTesting()
 }
@@ -145,6 +148,8 @@ function messageCreate(channelId: string, msgId = "m_1"): CommunityMessageCreate
     channelId,
     message: {
       id: msgId,
+      seq: Number(msgId.match(/\d+$/)?.[0] ?? 1),
+      type: "chat",
       authorId: "u_author",
       authorName: "author",
       content: "hi",
@@ -162,7 +167,7 @@ function unreadBump(
 }
 
 describe("useCommunityWs — message.create", () => {
-  it("patches channelMessages cache when the event matches the focused channel", async () => {
+  it("writes the channel overlay and leaves the base cache untouched when focused", async () => {
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")
     useCommunityStore.getState().subscribe({ channelId: "ch_1" })
@@ -184,7 +189,27 @@ describe("useCommunityWs — message.create", () => {
     const cache = capturedQueryClient.getQueryData<{ pages: { messages: { id: string }[] }[] }>(
       communityKeys.channelMessages("ch_1"),
     )
-    expect(cache?.pages[0].messages.map((m) => m.id)).toEqual(["m_1"])
+    expect(cache?.pages[0].messages).toEqual([])
+    expect([...getMessageOverlay({ kind: "channel", id: "ch_1", serverId: "s1" }).liveById]).toHaveLength(1)
+  })
+
+  it("heals a first-seen event replay once the focused serverId becomes available", async () => {
+    await mountHook()
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().setCurrentServerId(null)
+    useCommunityStore.getState().subscribe({ channelId: "ch_1" })
+    refCounter = 0
+    stateCounter = 0
+    callbackCounter = 0
+    await mountHook()
+
+    const event = messageCreate("ch_1")
+    capturedOnMessage!(event)
+    expect(getMessageOverlay({ kind: "channel", id: "ch_1", serverId: "s1" }).liveById).toHaveLength(0)
+
+    useCommunityStore.getState().setCurrentServerId("s1")
+    capturedOnMessage!(event)
+    expect(getMessageOverlay({ kind: "channel", id: "ch_1", serverId: "s1" }).liveById).toHaveLength(1)
   })
 
   it("does NOT patch a channel we aren't focused on", async () => {
@@ -244,10 +269,7 @@ describe("useCommunityWs — message.create", () => {
     capturedOnMessage!(messageCreate("ch_1"))
     capturedOnMessage!(messageCreate("ch_1"))
     capturedOnMessage!(messageCreate("ch_1"))
-    const cache = capturedQueryClient.getQueryData<{ pages: { messages: { id: string }[] }[] }>(
-      communityKeys.channelMessages("ch_1"),
-    )
-    expect(cache?.pages[0].messages).toHaveLength(1)
+    expect(getMessageOverlay({ kind: "channel", id: "ch_1", serverId: "s1" }).liveById.size).toBe(1)
   })
 
   it("caps the live page at MAX_LIVE_PAGE_MESSAGES, dropping the oldest entry", async () => {
@@ -277,11 +299,9 @@ describe("useCommunityWs — message.create", () => {
     )
     const ids = cache?.pages[0].messages.map((m) => m.id) ?? []
     expect(ids).toHaveLength(MAX_LIVE_PAGE_MESSAGES)
-    // Oldest entry (seed_0) was dropped; the newest inserted message is present.
-    expect(ids).not.toContain("seed_0")
-    expect(ids[ids.length - 1]).toBe("new_message")
-    // Second-oldest survivor shifts to the front.
-    expect(ids[0]).toBe("seed_1")
+    expect(ids[0]).toBe("seed_0")
+    expect(ids).not.toContain("new_message")
+    expect(getMessageOverlay({ kind: "channel", id: "ch_1", serverId: "s1" }).liveById.has("new_message")).toBe(true)
   })
 
   it("flips hasMore/hasMoreOlder to true when the head-slice discards history (legacy shape)", async () => {
@@ -313,7 +333,7 @@ describe("useCommunityWs — message.create", () => {
     // Head-slice discarded seed_0; the "Load older" affordance must re-arm
     // via `hasMore: true` (legacy shape had no `hasMoreOlder` so we don't
     // synthesize it).
-    expect(cache?.pages[0].hasMore).toBe(true)
+    expect(cache?.pages[0].hasMore).toBe(false)
     expect(cache?.pages[0].hasMoreOlder).toBeUndefined()
   })
 
@@ -343,7 +363,7 @@ describe("useCommunityWs — message.create", () => {
     const cache = capturedQueryClient.getQueryData<{
       pages: { messages: { id: string }[]; hasMore?: boolean; hasMoreOlder?: boolean; hasMoreNewer?: boolean }[]
     }>(communityKeys.channelMessages("ch_1"))
-    expect(cache?.pages[0].hasMoreOlder).toBe(true)
+    expect(cache?.pages[0].hasMoreOlder).toBe(false)
     // We must NOT invent a legacy `hasMore` flag on an anchor envelope —
     // the two shapes are mutually exclusive.
     expect(cache?.pages[0].hasMore).toBeUndefined()
@@ -396,7 +416,8 @@ describe("useCommunityWs — message.create", () => {
     const cache = capturedQueryClient.getQueryData<{ pages: { messages: { id: string }[] }[] }>(
       communityKeys.channelMessages("ch_1"),
     )
-    expect(cache?.pages[0].messages.map((m) => m.id)).toEqual(["seed_0", "m_new"])
+    expect(cache?.pages[0].messages.map((m) => m.id)).toEqual(["seed_0"])
+    expect(getMessageOverlay({ kind: "channel", id: "ch_1", serverId: "s1" }).liveById.has("m_new")).toBe(true)
   })
 
   it("does not schedule an inbox invalidate for viewer's own messages", async () => {
@@ -628,7 +649,8 @@ describe("useCommunityWs — message.create patches channel unread in the open s
       const messagesCache = capturedQueryClient.getQueryData<{ pages: { messages: { id: string }[] }[] }>(
         communityKeys.channelMessages("ch_focused"),
       )
-      expect(messagesCache?.pages[0].messages.map((m) => m.id)).toEqual(["m_1"])
+      expect(messagesCache?.pages[0].messages).toEqual([])
+      expect(getMessageOverlay({ kind: "channel", id: "ch_focused", serverId: "s1" }).liveById.has("m_1")).toBe(true)
       const inboxCalls = invalidateSpy.mock.calls.filter((c) => {
         const key = c[0]?.queryKey
         return Array.isArray(key) && key.includes("inbox")
@@ -1105,6 +1127,7 @@ describe("useCommunityWs — DM message.create", () => {
         channelId: "dm_1",
         message: {
           id: "dm_m_1",
+          seq: 1,
           authorId: "u_a",
           authorName: "a",
           content: "hi",
@@ -1235,6 +1258,66 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       pages: { messages: { thread?: { messageCount: number } }[] }[]
     }>(communityKeys.channelMessages("ch_parent"))
     expect(cache?.pages[0].messages[0].thread?.messageCount).toBe(5)
+  })
+
+  it("child_update keeps newer thread fields from the current base row when refreshing fallback", async () => {
+    await mountHook()
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().setCurrentServerId("s1")
+    const scope = { kind: "channel" as const, id: "ch_parent", serverId: "s1" }
+    useMessageStreamStore.getState().dispatch(scope, {
+      type: "wsMessage",
+      message: {
+        id: "m_parent",
+        seq: 1,
+        type: "chat",
+        authorId: "u1",
+        authorName: "Alice",
+        content: "hello",
+        createdAt: "2026-08-06T00:00:00.000Z",
+        thread: {
+          id: "ch_thread",
+          name: "fallback",
+          messageCount: 1,
+          lastReplyAt: "2026-08-06T00:00:01.000Z",
+        },
+      },
+    })
+    capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_parent"), {
+      pages: [{
+        messages: [{
+          id: "m_parent",
+          seq: 1,
+          type: "chat",
+          authorId: "u1",
+          authorName: "Alice",
+          content: "hello",
+          createdAt: "2026-08-06T00:00:00.000Z",
+          thread: {
+            id: "ch_thread",
+            name: "base",
+            messageCount: 2,
+            lastReplyAt: "2026-08-06T00:00:02.000Z",
+          },
+        }],
+        hasMore: false,
+      }],
+      pageParams: [null],
+    })
+
+    capturedOnMessage!({
+      type: "community:channel.child_update",
+      parentChannelId: "ch_parent",
+      channelId: "ch_thread",
+      changes: { messageCount: 5 },
+    } satisfies CommunityChildChannelUpdate)
+
+    expect(getMessageOverlay(scope).liveById.get("m_parent")?.thread).toEqual({
+      id: "ch_thread",
+      name: "base",
+      messageCount: 5,
+      lastReplyAt: "2026-08-06T00:00:02.000Z",
+    })
   })
 })
 

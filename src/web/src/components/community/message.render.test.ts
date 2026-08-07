@@ -143,4 +143,24 @@ describe("Message lazy overlays", () => {
     // The reaction-add testid only renders inside the activated toolbar.
     expect(tree).not.toContain("reaction-add")
   })
+
+  it("keeps failed-message dismiss independent from retry", () => {
+    const onRetry = vi.fn()
+    const onDismiss = vi.fn()
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        makeTree({ m: baseMsg({ failed: true }), onOpenThread: vi.fn(), onRetry, onDismiss }),
+        { createNodeMock: () => genericMock },
+      )
+    })
+
+    const dismiss = renderer!.root.findAllByType("button")
+      .find((button) => button.children.includes("Dismiss"))
+    expect(dismiss).toBeDefined()
+    act(() => dismiss!.props.onClick())
+
+    expect(onDismiss).toHaveBeenCalledOnce()
+    expect(onRetry).not.toHaveBeenCalled()
+  })
 })

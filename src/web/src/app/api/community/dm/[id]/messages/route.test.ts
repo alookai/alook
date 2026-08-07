@@ -10,6 +10,7 @@ const mockGetDMPeer = vi.fn()
 const mockIsBlocked = vi.fn()
 const mockCreateMessage = vi.fn()
 const mockGetMessage = vi.fn()
+const mockGetMessageByAuthorAndNonce = vi.fn()
 const mockGetMessageInScope = vi.fn()
 const mockGetMessagesByIdsInScope = vi.fn()
 const mockListMessages = vi.fn()
@@ -52,6 +53,7 @@ vi.mock("@alook/shared", async () => {
       communityMessage: {
         createMessage: (...a: unknown[]) => mockCreateMessage(...a),
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
+        getMessageByAuthorAndNonce: (...a: unknown[]) => mockGetMessageByAuthorAndNonce(...a),
         getMessageInScope: (...a: unknown[]) => mockGetMessageInScope(...a),
         getMessagesByIdsInScope: (...a: unknown[]) => mockGetMessagesByIdsInScope(...a),
         listMessages: (...a: unknown[]) => mockListMessages(...a),
@@ -145,6 +147,7 @@ describe("POST /api/community/dm/[id]/messages", () => {
     mockFanOutToDM.mockResolvedValue(undefined)
     mockBroadcastToUser.mockResolvedValue(undefined)
     mockCheckMessageRateLimit.mockResolvedValue({ allowed: true })
+    mockGetMessageByAuthorAndNonce.mockResolvedValue(null)
   })
 
   it("returns 429 with Retry-After when the sender is rate limited", async () => {
@@ -192,6 +195,38 @@ describe("POST /api/community/dm/[id]/messages", () => {
     expect(res.status).toBe(201)
     expect(mockListMembers).not.toHaveBeenCalled()
     expect(mockListMemberUserIds).not.toHaveBeenCalled()
+  })
+
+  it("returns canonical id, seq, and clientNonce for fresh and replayed sends", async () => {
+    mockIsBlocked.mockResolvedValue(false)
+    mockCreateMessage.mockResolvedValue({ id: "m1" })
+    mockGetMessage.mockResolvedValue({
+      id: "m1",
+      seq: 12,
+      clientNonce: "n1",
+      authorId: "u1",
+      authorName: "Alice",
+      authorImage: null,
+      authorEmail: "u1@t.com",
+      content: "hi",
+      type: "default",
+      mentionType: null,
+      replyToId: null,
+      embeds: null,
+      createdAt: "2026-06-30T00:00:00.000Z",
+    })
+
+    const fresh = await POST(postReq({ content: "hi", nonce: "n1" }), ctx)
+    expect(await fresh.json()).toEqual({
+      message: expect.objectContaining({ id: "m1", seq: 12, clientNonce: "n1" }),
+    })
+
+    mockGetMessageByAuthorAndNonce.mockResolvedValue({ id: "m1", seq: 12, clientNonce: "n1" })
+    const replay = await POST(postReq({ content: "hi", nonce: "n1" }), ctx)
+    expect(await replay.json()).toEqual({
+      message: expect.objectContaining({ id: "m1", seq: 12, clientNonce: "n1" }),
+      deduped: true,
+    })
   })
 })
 

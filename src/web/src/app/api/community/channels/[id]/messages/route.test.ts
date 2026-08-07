@@ -9,6 +9,7 @@ const mockGetChannelForMember = vi.fn()
 const mockGetChannel = vi.fn()
 const mockCreateMessage = vi.fn()
 const mockGetMessage = vi.fn()
+const mockGetMessageByAuthorAndNonce = vi.fn()
 const mockGetMessageInScope = vi.fn()
 const mockGetMessagesByIdsInScope = vi.fn()
 const mockListMembers = vi.fn()
@@ -53,6 +54,7 @@ vi.mock("@alook/shared", async () => {
       communityMessage: {
         createMessage: (...a: unknown[]) => mockCreateMessage(...a),
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
+        getMessageByAuthorAndNonce: (...a: unknown[]) => mockGetMessageByAuthorAndNonce(...a),
         getMessageInScope: (...a: unknown[]) => mockGetMessageInScope(...a),
         getMessagesByIdsInScope: (...a: unknown[]) => mockGetMessagesByIdsInScope(...a),
         listMessages: (...a: unknown[]) => mockListMessages(...a),
@@ -140,6 +142,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
     mockGetUserInternal.mockResolvedValue({ isBot: false, deletedAt: null })
     mockGetMessage.mockResolvedValue({
       id: "m1",
+      seq: 12,
       authorId: "u1",
       authorName: "Alice",
       authorImage: null,
@@ -151,6 +154,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
       embeds: null,
       createdAt: "2026-06-30T00:00:00.000Z",
     })
+    mockGetMessageByAuthorAndNonce.mockResolvedValue(null)
     mockListMembers.mockResolvedValue([])
     mockListMemberUserIds.mockResolvedValue([])
     mockGetMessagesByIdsInScope.mockResolvedValue([])
@@ -195,6 +199,46 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(mockCheckMessageRateLimit).toHaveBeenCalledWith(expect.anything(), "community:msgSend", "u1")
     // Membership check must run before rate limiting (auth first).
     expect(mockGetChannelForMember).toHaveBeenCalled()
+  })
+
+  it("returns canonical id, seq, and clientNonce for a fresh accepted send", async () => {
+    mockGetMessage.mockResolvedValue({
+      id: "m1",
+      seq: 12,
+      clientNonce: "n1",
+      authorId: "u1",
+      authorName: "Alice",
+      authorImage: null,
+      authorEmail: "u1@t.com",
+      content: "hello",
+      type: "default",
+      mentionType: null,
+      replyToId: null,
+      embeds: null,
+      createdAt: "2026-06-30T00:00:00.000Z",
+    })
+
+    const res = await POST(postReq({ content: "hello", nonce: "n1" }), ctx)
+    const body = await res.json() as { message: { id: string; seq: number; clientNonce?: string }; deduped?: boolean }
+
+    expect(res.status).toBe(201)
+    expect(body).toEqual({
+      message: expect.objectContaining({ id: "m1", seq: 12, clientNonce: "n1" }),
+    })
+  })
+
+  it("returns the original canonical contract for a same-nonce replay", async () => {
+    mockGetMessageByAuthorAndNonce.mockResolvedValue({ id: "m-existing", seq: 8, clientNonce: "n1" })
+
+    const res = await POST(postReq({ content: "hello", nonce: "n1" }), ctx)
+    const body = await res.json() as { message: { id: string; seq: number; clientNonce?: string }; deduped: boolean }
+
+    expect(res.status).toBe(201)
+    expect(body).toEqual({
+      message: expect.objectContaining({ id: "m-existing", seq: 8, clientNonce: "n1" }),
+      deduped: true,
+    })
+    expect(mockCreateMessage).not.toHaveBeenCalled()
   })
 
   it("rejects content longer than MAX_MESSAGE_CONTENT_LENGTH with 400", async () => {

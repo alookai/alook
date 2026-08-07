@@ -4,9 +4,9 @@ import { useCallback, useEffect, useRef } from "react"
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query"
 import { useUserWs } from "@/lib/use-user-ws"
 import { useCommunityStore } from "@/stores/community"
+import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { communityKeys } from "@/lib/query-keys"
-import { isInlineAttachmentContentType } from "@/lib/community/attachment-content-type"
 import {
   patchCacheJoin,
   patchCacheLeave,
@@ -51,8 +51,10 @@ import type {
   CommunityMachineRemoved,
 } from "@alook/shared"
 import { isCommunityEvent, TYPING_INDICATOR_TIMEOUT_MS, TYPING_INDICATOR_THROTTLE_MS } from "@alook/shared"
-import type { Msg, Attachment } from "@/components/community/_types"
+import type { Msg } from "@/components/community/_types"
 import { avatarInitial } from "@/lib/community/avatar"
+import { projectCommunityMessageCreate } from "@/lib/community/message-wire"
+import type { CanonicalMessage } from "@/lib/community/message-stream"
 import type { MachinesResponse } from "@/hooks/community/use-machines"
 import type { ServersResponse, ServerDetail } from "@/hooks/community/use-servers"
 import { patchChannelUnread } from "@/hooks/community/server-detail-cache"
@@ -143,7 +145,7 @@ type PageCache = InfiniteData<MessagesPage>
  */
 export function insertMessageIntoCache(
   cache: PageCache | undefined,
-  msg: CommunityMessageCreate["message"],
+  msg: CanonicalMessage,
 ): PageCache | undefined {
   if (!cache) return cache
   if (cache.pages.length === 0) return cache
@@ -161,7 +163,7 @@ export function insertMessageIntoCache(
   // `srv:`-fallback nonces are never echoed (WS step-1), so this only ever
   // matches the sender's own client-provided nonce; others' messages (no
   // matching optimistic row) fall through to the normal append below.
-  const nonce = "clientNonce" in msg ? (msg as { clientNonce?: string }).clientNonce : undefined
+  const nonce = msg.clientNonce
   if (nonce) {
     for (let pi = 0; pi < cache.pages.length; pi++) {
       const p = cache.pages[pi]
@@ -169,52 +171,19 @@ export function insertMessageIntoCache(
       if (mi !== -1) {
         const pages = cache.pages.slice()
         const msgs = p.messages.slice()
-        // Rename in place (temp id → server id), clear `failed`, keep position.
-        msgs[mi] = { ...msgs[mi], id: msg.id, failed: false }
+        msgs[mi] = {
+          ...msgs[mi],
+          id: msg.id,
+          seq: msg.seq,
+          ...(msg.clientNonce ? { clientNonce: msg.clientNonce } : {}),
+          failed: false,
+        }
         pages[pi] = { ...p, messages: msgs }
         return { ...cache, pages }
       }
     }
   }
-  const attachments: Attachment[] | undefined = msg.attachments?.map((a) => {
-    const isImage = isInlineAttachmentContentType(a.contentType)
-    return isImage
-      ? { kind: "image", name: a.filename, url: a.url, width: a.width ?? undefined, height: a.height ?? undefined }
-      : {
-        kind: "file",
-        name: a.filename,
-        url: a.url,
-        size: a.size ? `${Math.round(a.size / 1024)} KB` : "",
-      }
-  })
-  const isSystem = "type" in msg && (msg as { type?: string }).type === "system"
-  const systemKind = "systemKind" in msg ? (msg as { systemKind?: "thread" }).systemKind : undefined
-  const authorName = "authorName" in msg ? msg.authorName : "Unknown"
-  const authorAvatar = "authorAvatar" in msg ? msg.authorAvatar : undefined
-  const authorId = "authorId" in msg ? msg.authorId : undefined
-  const replyTo = "replyTo" in msg ? (msg.replyTo as Msg["replyTo"]) : undefined
-  const approval = "approval" in msg ? (msg.approval as Msg["approval"]) : undefined
-  const rendered: Msg = {
-    id: msg.id,
-    authorName,
-    authorAvatar: authorAvatar || avatarInitial(authorName ?? ""),
-    content: msg.content,
-    createdAt: msg.createdAt,
-    ...(approval ? { approval } : {}),
-    // Non-system branch is explicit ("chat", not omitted) — `Msg.type` is a
-    // required, exhaustive discriminator (#12); a DM message (the other
-    // union member here) never carries `type` at all, and also renders as
-    // an ordinary chat row, so it gets the same explicit fallback.
-    ...(isSystem ? { type: "system" as const, ...(systemKind ? { systemKind } : {}) } : { type: "chat" as const }),
-    ...(replyTo ? { replyTo } : {}),
-    ...(attachments?.length ? { attachments } : {}),
-    // #3: preserve authorId so `useChannelWatermark` can skip self-authored
-    // messages when advancing the read pointer (avoids a redundant PUT — the
-    // server-side write path already sets the sender's `lastReadMessageId`
-    // on send, see #1).
-    ...(authorId ? { authorId } : {}),
-  }
-  const merged = [...first.messages, rendered]
+  const merged = [...first.messages, msg]
   // Drop from the head (oldest end of this page) once the live tail grows
   // past the cap — keeps the newest messages, sheds the oldest.
   const trimmed = merged.length > MAX_LIVE_PAGE_MESSAGES
@@ -304,40 +273,57 @@ function applyReactionToCache(
     touched = true
     return {
       ...p,
-      messages: p.messages.map((m) => {
-        if (m.id !== event.messageId) return m
-        const reactions = (m.reactions ?? []).map((r) => ({ ...r, userIds: [...(r.userIds ?? [])] }))
-        if (event.type === "community:reaction.add") {
-          const existing = reactions.find((r) => r.emoji === event.emoji)
-          if (existing) {
-            if (!existing.userIds.includes(event.userId)) {
-              existing.userIds.push(event.userId)
-              existing.count = existing.userIds.length
-            }
-            if (viewerUserId && event.userId === viewerUserId) existing.me = true
-          } else {
-            reactions.push({
-              emoji: event.emoji,
-              count: 1,
-              me: !!viewerUserId && event.userId === viewerUserId,
-              userIds: [event.userId],
-            })
-          }
-        } else {
-          const idx = reactions.findIndex((r) => r.emoji === event.emoji)
-          if (idx !== -1) {
-            reactions[idx].userIds = reactions[idx].userIds.filter((id) => id !== event.userId)
-            reactions[idx].count = reactions[idx].userIds.length
-            if (viewerUserId && event.userId === viewerUserId) reactions[idx].me = false
-            if (reactions[idx].count <= 0) reactions.splice(idx, 1)
-          }
-        }
-        return { ...m, reactions }
-      }),
+      messages: p.messages.map((message) =>
+        message.id === event.messageId
+          ? applyReactionToMessage(message, event, viewerUserId)
+          : message),
     }
   })
   if (!touched) return cache
   return { ...cache, pages }
+}
+
+function applyReactionToMessage(
+  message: Msg,
+  event: CommunityReactionAdd | CommunityReactionRemove,
+  viewerUserId: string | null,
+): Msg {
+  const reactions = (message.reactions ?? []).map((reaction) => ({
+    ...reaction,
+    userIds: [...(reaction.userIds ?? [])],
+  }))
+  if (event.type === "community:reaction.add") {
+    const existing = reactions.find((reaction) => reaction.emoji === event.emoji)
+    if (existing) {
+      if (!existing.userIds.includes(event.userId)) existing.userIds.push(event.userId)
+      existing.count = existing.userIds.length
+      if (viewerUserId && event.userId === viewerUserId) existing.me = true
+    } else {
+      reactions.push({
+        emoji: event.emoji,
+        count: 1,
+        me: !!viewerUserId && event.userId === viewerUserId,
+        userIds: [event.userId],
+      })
+    }
+  } else {
+    const index = reactions.findIndex((reaction) => reaction.emoji === event.emoji)
+    if (index !== -1) {
+      reactions[index].userIds = reactions[index].userIds.filter((id) => id !== event.userId)
+      reactions[index].count = reactions[index].userIds.length
+      if (viewerUserId && event.userId === viewerUserId) reactions[index].me = false
+      if (reactions[index].count <= 0) reactions.splice(index, 1)
+    }
+  }
+  return { ...message, reactions }
+}
+
+function findCachedMessage(cache: PageCache | undefined, messageId: string): Msg | undefined {
+  for (const page of cache?.pages ?? []) {
+    const message = page.messages.find((row) => row.id === messageId)
+    if (message) return message
+  }
+  return undefined
 }
 
 // ── Public hook ────────────────────────────────────────────────────────────
@@ -466,6 +452,16 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
       switch (event.type) {
         // ── Message create ──────────────────────────────────────────────
         case "community:message.create": {
+          const projected = projectCommunityMessageCreate(event.message)
+          if (event.channelId === sub.channelId) {
+            const serverId = useCommunityStore.getState().currentServerId
+            if (serverId) {
+              useMessageStreamStore.getState().dispatch(
+                { kind: "channel", id: event.channelId, serverId },
+                { type: "wsMessage", message: projected },
+              )
+            }
+          }
           if (wsStore.hasSeenMessage(event.message.id)) return
           wsStore.markSeenMessage(event.message.id)
           // Sending a message is an implicit typing.stop for its author —
@@ -482,13 +478,9 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           if (event.channelId === sub.dmConversationId) {
             queryClient.setQueryData<PageCache>(
               communityKeys.dmMessages(event.channelId),
-              (c) => insertMessageIntoCache(c, event.message),
+              (c) => insertMessageIntoCache(c, projected),
             )
           } else if (event.channelId === sub.channelId) {
-            queryClient.setQueryData<PageCache>(
-              communityKeys.channelMessages(event.channelId),
-              (c) => insertMessageIntoCache(c, event.message),
-            )
             // A thread/forum_post enrolls its sender + mentioned users as
             // participants server-side on send. That set IS its Members panel,
             // so refetch it live — otherwise a new speaker/mention only appears
@@ -601,6 +593,25 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             communityKeys.dmMessages(event.channelId),
             (c) => applyReactionToCache(c, event, viewerId),
           )
+          if (event.channelId === sub.channelId) {
+            const serverId = useCommunityStore.getState().currentServerId
+            if (serverId) {
+              const scope = { kind: "channel" as const, id: event.channelId, serverId }
+              const fallback = [...getMessageOverlay(scope).liveById.values()]
+                .find((message) => message.id === event.messageId)
+              if (fallback) {
+                const cached = findCachedMessage(
+                  queryClient.getQueryData<PageCache>(communityKeys.channelMessages(event.channelId)),
+                  event.messageId,
+                )
+                const source = cached?.seq !== undefined ? cached as CanonicalMessage : fallback
+                useMessageStreamStore.getState().dispatch(scope, {
+                  type: "liveRefreshed",
+                  message: applyReactionToMessage(source, event, viewerId) as CanonicalMessage,
+                })
+              }
+            }
+          }
           if (matchesFocus(event)) cbs.onReaction?.(event)
           return
         }
@@ -684,6 +695,26 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
                   return { ...cache, pages }
                 },
               )
+              const serverId = useCommunityStore.getState().currentServerId
+              if (serverId) {
+                const scope = { kind: "channel" as const, id: event.parentChannelId, serverId }
+                const fallback = [...getMessageOverlay(scope).liveById.values()]
+                  .find((message) => message.id === event.parentMessageId)
+                if (fallback) {
+                  const cached = findCachedMessage(
+                    queryClient.getQueryData<PageCache>(communityKeys.channelMessages(event.parentChannelId)),
+                    event.parentMessageId,
+                  )
+                  const source = cached?.seq !== undefined ? cached as CanonicalMessage : fallback
+                  useMessageStreamStore.getState().dispatch(scope, {
+                    type: "liveRefreshed",
+                    message: {
+                      ...source,
+                      thread: { id: event.channel.id, name: event.channel.name, messageCount: 0 },
+                    },
+                  })
+                }
+              }
             }
           } else {
             // child_update — sync counts/name on the parent message's thread
@@ -720,6 +751,30 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
                   return { ...cache, pages }
                 },
               )
+              const serverId = useCommunityStore.getState().currentServerId
+              if (serverId) {
+                const scope = { kind: "channel" as const, id: event.parentChannelId, serverId }
+                const fallback = [...getMessageOverlay(scope).liveById.values()]
+                  .find((message) => message.thread?.id === event.channelId)
+                if (fallback?.thread) {
+                  const cached = findCachedMessage(
+                    queryClient.getQueryData<PageCache>(communityKeys.channelMessages(event.parentChannelId)),
+                    fallback.id,
+                  )
+                  const source = cached?.seq !== undefined ? cached as CanonicalMessage : fallback
+                  useMessageStreamStore.getState().dispatch(scope, {
+                    type: "liveRefreshed",
+                    message: {
+                      ...source,
+                      thread: {
+                        ...(source.thread ?? fallback.thread),
+                        ...(changes.name !== undefined ? { name: changes.name } : {}),
+                        ...(changes.messageCount !== undefined ? { messageCount: changes.messageCount } : {}),
+                      },
+                    },
+                  })
+                }
+              }
             }
           }
           cbs.onChildChannel?.(event)
@@ -777,6 +832,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             // the store pointers now dangle — reset them so the UI drops back
             // to a safe default instead of rendering a ghost server/channel.
             const store = useCommunityStore.getState()
+            useMessageStreamStore.getState().removeServer(event.serverId)
             if (store.currentServerId === event.serverId) {
               store.setCurrentServerId(null)
               store.setCurrentChannelId(null)
@@ -801,6 +857,11 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           // subsequent same-id revive (rare, but the server can reuse ids)
           // would surface stale rows.
           if (event.type === "community:channel.delete") {
+            useMessageStreamStore.getState().removeScope({
+              kind: "channel",
+              id: event.channelId,
+              serverId: event.serverId,
+            })
             queryClient.removeQueries({
               queryKey: communityKeys.channelMessages(event.channelId),
             })
@@ -847,6 +908,11 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             event.type === "community:channel.member_remove" &&
             event.userId === viewerUserIdRef.current
           ) {
+            useMessageStreamStore.getState().removeScope({
+              kind: "channel",
+              id: event.channelId,
+              serverId: event.serverId,
+            })
             queryClient.removeQueries({ queryKey: communityKeys.channelMessages(event.channelId) })
             queryClient.removeQueries({ queryKey: communityKeys.pins(event.channelId) })
             queryClient.removeQueries({ queryKey: communityKeys.threads(event.channelId) })
@@ -887,6 +953,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             // so the layout's eject effect can detect the drop and route
             // the user away from the now-forbidden URL.
             if (event.userId === viewerUserIdRef.current) {
+              useMessageStreamStore.getState().removeServer(event.serverId)
               // Rail LIST only (the layout's eject effect reads it to route the
               // kicked viewer away). `exact` so a kick doesn't cascade-refetch
               // every server's nested detail subtree.
@@ -914,6 +981,17 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
                   cacheEntry.queryKey,
                   (cache) => patchAuthorNameInCache(cache, userId, newName),
                 )
+              }
+              const streamState = useMessageStreamStore.getState()
+              for (const entry of streamState.entries.values()) {
+                if (entry.scope.kind !== "channel" || entry.scope.serverId !== event.serverId) continue
+                for (const message of entry.state.liveById.values()) {
+                  if (message.authorId !== userId) continue
+                  useMessageStreamStore.getState().dispatch(entry.scope, {
+                    type: "liveRefreshed",
+                    message: { ...message, authorName: newName },
+                  })
+                }
               }
             }
           }

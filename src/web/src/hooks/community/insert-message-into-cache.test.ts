@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest"
-import { insertMessageIntoCache } from "./use-community-ws"
+import { insertMessageIntoCache as placeMessageInCache } from "./use-community-ws"
 import type { CommunityMessageCreate } from "@alook/shared"
+import { projectCommunityMessageCreate } from "@/lib/community/message-wire"
+
+function insertMessageIntoCache(cache: unknown, message: CommunityMessageCreate["message"]) {
+  return placeMessageInCache(cache as never, projectCommunityMessageCreate(message))
+}
 
 // `insertMessageIntoCache` is a pure cache-patch function (no React), so it
 // can be imported and tested directly — no need for the file's heavy React
@@ -12,6 +17,7 @@ describe("insertMessageIntoCache — attachment width/height", () => {
   function baseMessage(overrides: Partial<CommunityMessageCreate["message"]> = {}): CommunityMessageCreate["message"] {
     return {
       id: "msg_1",
+      seq: 1,
       type: "chat",
       authorId: "author_1",
       authorName: "Author",
@@ -100,6 +106,7 @@ describe("insertMessageIntoCache — optimistic-row reconcile by clientNonce (re
   function echo(overrides: Partial<CommunityMessageCreate["message"]> = {}): CommunityMessageCreate["message"] {
     return {
       id: "msg_server_1",
+      seq: 2,
       type: "chat",
       authorId: "author_1",
       authorName: "Author",

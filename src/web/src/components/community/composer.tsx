@@ -38,14 +38,19 @@ import {
   type ChannelRefPopupState,
 } from "@/lib/community/channel-ref-extension"
 
-export type SendAttachment = { file: File; width?: number; height?: number }
+export type SendAttachment = { file: File; previewObjectUrl?: string; width?: number; height?: number }
 
 // Pure mapping from `useFileAttachments`'s pending-file state to `onSend`'s
 // attachments argument. Extracted so the width/height threading through
 // `Composer.send()` is unit-testable without mounting the tiptap editor.
 export function pendingFilesToSendAttachments(pendingFiles: PendingFile[]): SendAttachment[] | undefined {
   if (pendingFiles.length === 0) return undefined
-  return pendingFiles.map((pf) => ({ file: pf.file, width: pf.width, height: pf.height }))
+  return pendingFiles.map((pf) => ({
+    file: pf.file,
+    previewObjectUrl: pf.thumbnailUrl ?? undefined,
+    width: pf.width,
+    height: pf.height,
+  }))
 }
 
 // Pure extraction of the paste → File[] collection used by `handlePaste`:
@@ -77,7 +82,7 @@ export type ComposerHandle = {
   openFilePicker: () => void
 }
 
-export type ComposerProps = {
+type ComposerBaseProps = {
   channel: string
   context: MentionContext
   members: Member[]
@@ -91,7 +96,6 @@ export type ComposerProps = {
   // for DM composers. Always provided by the caller — empty array is fine,
   // the popup just shows nothing on `/`.
   channelRefCandidates?: ChannelRefCandidate[]
-  onSend?: (markdown: string, attachments?: SendAttachment[], mentionType?: MentionType) => void
   onTyping?: () => void
   // when set, shows a "Replying to X" bar above the input
   replyingTo?: string
@@ -125,6 +129,20 @@ export type ComposerProps = {
   draftKey?: string
 }
 
+type ComposerLegacySend = {
+  sendContract?: "legacy"
+  onSend?: (markdown: string, attachments?: SendAttachment[], mentionType?: MentionType) => void | Promise<void>
+  onAcceptSend?: never
+}
+
+type ComposerAcceptedSend = {
+  sendContract: "accepted"
+  onAcceptSend: (markdown: string, attachments?: SendAttachment[], mentionType?: MentionType) => boolean
+  onSend?: never
+}
+
+export type ComposerProps = ComposerBaseProps & (ComposerLegacySend | ComposerAcceptedSend)
+
 // Composer — plain-text TipTap editor with a chat-style @-mention popover.
 // Users type raw markdown which MessageBody/Streamdown renders on display.
 // In `mode="chat"` (default) Enter sends, Shift+Enter adds a newline. In
@@ -139,7 +157,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   members,
   onSearchMembers,
   channelRefCandidates = [],
+  sendContract = "legacy",
   onSend,
+  onAcceptSend,
   onTyping,
   replyingTo,
   onCancelReply,
@@ -155,6 +175,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const {
     pendingFiles,
     setPendingFiles,
+    transferPendingFiles,
     addPendingFiles,
     fileInputRef,
     handleFileSelect,
@@ -427,14 +448,20 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     // the compose → send → render round-trip preserves both newline levels.
     const markdown = editor.isEmpty ? "" : editor.getText({ blockSeparator: "\n\n" }).trim()
     const mentionType = detectMentionType(markdown)
-    onSend?.(markdown, pendingFilesToSendAttachments(pendingFiles), mentionType)
+    const attachments = pendingFilesToSendAttachments(pendingFiles)
+    if (sendContract === "accepted") {
+      if (!onAcceptSend?.(markdown, attachments, mentionType)) return
+    } else {
+      void onSend?.(markdown, attachments, mentionType)
+    }
     // In forumPostBody mode the parent needs to await mutation success before
     // clearing — otherwise a failed create wipes the user's typed content.
     // Reset is delegated to the parent via `resetAfterSubmit()` on the ref.
     if (isForumPostBody) return
     editor.commands.clearContent()
     if (draftKeyRef.current) clearComposerDraft(draftKeyRef.current)
-    setPendingFiles([])
+    if (sendContract === "accepted") transferPendingFiles()
+    else setPendingFiles([])
     setMentionPopup(EMPTY_MENTION_STATE)
     setChannelRefPopup(EMPTY_CHANNEL_REF_STATE)
   }

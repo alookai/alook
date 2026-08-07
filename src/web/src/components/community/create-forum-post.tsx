@@ -158,6 +158,7 @@ export function CreateForumPost({
         </button>
       </div>
       <Composer
+        sendContract="legacy"
         ref={bodyComposerRef}
         mode="forumPostBody"
         hideEmoji

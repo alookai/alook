@@ -173,6 +173,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     channelId: dm.id,
     message: {
       id: msg.id,
+      seq: msg.seq,
       authorId: botId,
       authorName: botName,
       content: msg.content,

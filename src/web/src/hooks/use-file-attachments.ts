@@ -47,6 +47,13 @@ export function useFileAttachments(opts: UseFileAttachmentsOptions = {}) {
     });
   }, []);
 
+  const transferPendingFiles = useCallback(() => {
+    const transferred = pendingFilesRef.current;
+    pendingFilesRef.current = [];
+    _setPendingFiles([]);
+    return transferred;
+  }, []);
+
   useEffect(() => {
     return () => revokeThumbnailUrls(pendingFilesRef.current);
   }, []);
@@ -141,6 +148,7 @@ export function useFileAttachments(opts: UseFileAttachmentsOptions = {}) {
   return {
     pendingFiles,
     setPendingFiles,
+    transferPendingFiles,
     fileInputRef,
     addPendingFiles,
     handleFileSelect,

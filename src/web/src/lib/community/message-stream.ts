@@ -1,0 +1,408 @@
+import type { Msg } from "@/components/community/_types"
+import type { MentionType } from "@alook/shared"
+import { isInlineAttachmentContentType } from "@/lib/community/attachment-content-type"
+
+export const MAX_LIVE_MESSAGE_DELTAS = 500
+
+export type CanonicalMessage = Msg & { seq: number }
+
+export type MessageScope =
+  | { kind: "channel"; id: string; serverId: string }
+  | { kind: "dm"; id: string }
+
+type LocalUploadInput = Readonly<{
+  file: File
+  previewObjectUrl?: string
+  width?: number
+  height?: number
+}>
+
+type LocalOutboxMessage = Omit<Msg, "id" | "seq" | "clientNonce" | "failed">
+
+export type NewOutboxIntent = Readonly<{
+  nonce: string
+  tempId: string
+  localOrdinal: number
+  message: LocalOutboxMessage
+  localUploads: readonly LocalUploadInput[]
+  mentionType?: MentionType
+}>
+
+export type OutboxRetryPayload = Readonly<{
+  nonce: string
+  message: Msg
+  localUploads: NewOutboxIntent["localUploads"]
+  uploadStatus: "none" | "pending" | "settled" | "failed"
+  mentionType?: MentionType
+}>
+
+type OutboxIntent = Omit<NewOutboxIntent, "message"> & {
+  message: Msg
+  status: "pending" | "failed" | "acked"
+  uploadStatus: "none" | "pending" | "settled" | "failed"
+  serverMessageId?: string
+  serverSeq?: number
+}
+
+export type MessageOverlayState = {
+  liveById: ReadonlyMap<string, CanonicalMessage>
+  outboxByNonce: ReadonlyMap<string, OutboxIntent>
+}
+
+type MessageOverlayEffect = {
+  type: "revokeObjectUrl"
+  url: string
+}
+
+export type MessageOverlayTransition = {
+  state: MessageOverlayState
+  effects: MessageOverlayEffect[]
+}
+
+export type MessageOverlayEvent =
+  | { type: "submit"; intent: NewOutboxIntent }
+  | { type: "uploadSettled"; nonce: string; attachments: Msg["attachments"] }
+  | { type: "uploadFailed"; nonce: string }
+  | { type: "postAck"; nonce: string; serverMessageId: string; serverSeq: number }
+  | { type: "postFail"; nonce: string }
+  | { type: "retry"; nonce: string }
+  | { type: "wsMessage"; message: CanonicalMessage }
+  | { type: "liveRefreshed"; message: CanonicalMessage }
+  | { type: "baseChanged"; messages: CanonicalMessage[]; latestSeq?: number }
+  | { type: "dismissFailed"; nonce: string }
+  | { type: "clear" }
+
+type MaterializedEntry = {
+  message: Msg
+  localOrdinal?: number
+}
+
+export function emptyMessageOverlay(): MessageOverlayState {
+  return {
+    liveById: new Map(),
+    outboxByNonce: new Map(),
+  }
+}
+
+function unchanged(state: MessageOverlayState): MessageOverlayTransition {
+  return { state, effects: [] }
+}
+
+function revokeEffects(intent: OutboxIntent): MessageOverlayEffect[] {
+  const urls = intent.localUploads.flatMap(({ previewObjectUrl }) =>
+    previewObjectUrl === undefined ? [] : [previewObjectUrl])
+  return [...new Set(urls)].map((url) => ({
+    type: "revokeObjectUrl" as const,
+    url,
+  }))
+}
+
+function updateIntent(
+  state: MessageOverlayState,
+  nonce: string,
+  update: (intent: OutboxIntent) => OutboxIntent,
+): MessageOverlayTransition {
+  const current = state.outboxByNonce.get(nonce)
+  if (!current) return unchanged(state)
+  const outboxByNonce = new Map(state.outboxByNonce)
+  outboxByNonce.set(nonce, update(current))
+  return { state: { ...state, outboxByNonce }, effects: [] }
+}
+
+function canonicalDeltaOrder(a: CanonicalMessage, b: CanonicalMessage): number {
+  return a.seq - b.seq
+}
+
+function trimLiveDeltas(liveById: Map<string, CanonicalMessage>): void {
+  const overflow = liveById.size - MAX_LIVE_MESSAGE_DELTAS
+  if (overflow <= 0) return
+  const oldest = [...liveById.values()].sort(canonicalDeltaOrder).slice(0, overflow)
+  for (const message of oldest) liveById.delete(message.id)
+}
+
+function upsertLiveCanonical(
+  liveById: Map<string, CanonicalMessage>,
+  message: CanonicalMessage,
+): void {
+  const nonce = message.clientNonce
+  if (nonce) {
+    for (const [id, current] of liveById) {
+      if (id !== message.id && current.clientNonce === nonce) liveById.delete(id)
+    }
+  }
+  liveById.set(message.id, { ...message, failed: false })
+}
+
+function materializeIntent(intent: OutboxIntent): Msg {
+  return {
+    ...intent.message,
+    id: intent.serverMessageId ?? intent.tempId,
+    ...(intent.serverSeq !== undefined ? { seq: intent.serverSeq } : {}),
+    clientNonce: intent.nonce,
+    failed: intent.status === "failed" || intent.uploadStatus === "failed",
+  }
+}
+
+function localUploadAttachments(
+  uploads: readonly LocalUploadInput[],
+): Msg["attachments"] {
+  const attachments: NonNullable<Msg["attachments"]> = []
+  for (const upload of uploads) {
+    if (!upload.previewObjectUrl) continue
+    if (isInlineAttachmentContentType(upload.file.type)) {
+      attachments.push({
+        kind: "image",
+        name: upload.file.name,
+        url: upload.previewObjectUrl,
+        width: upload.width,
+        height: upload.height,
+      })
+      continue
+    }
+    attachments.push({
+      kind: "file",
+      name: upload.file.name,
+      url: upload.previewObjectUrl,
+      size: upload.file.size ? `${Math.round(upload.file.size / 1024)} KB` : "",
+    })
+  }
+  return attachments.length > 0 ? attachments : undefined
+}
+
+function upsertMaterialized(
+  byId: Map<string, MaterializedEntry>,
+  idByNonce: Map<string, string>,
+  entry: MaterializedEntry,
+): void {
+  const { message } = entry
+  const nonce = message.clientNonce
+  if (nonce) {
+    const priorId = idByNonce.get(nonce)
+    if (priorId && priorId !== message.id) byId.delete(priorId)
+    idByNonce.set(nonce, message.id)
+  }
+  byId.set(message.id, entry)
+}
+
+function materializedOrder(a: MaterializedEntry, b: MaterializedEntry): number {
+  const aSeq = a.message.seq
+  const bSeq = b.message.seq
+  if (aSeq !== undefined && bSeq !== undefined && aSeq !== bSeq) return aSeq - bSeq
+  if (aSeq !== undefined && bSeq === undefined) return -1
+  if (aSeq === undefined && bSeq !== undefined) return 1
+
+  const aOrdinal = a.localOrdinal
+  const bOrdinal = b.localOrdinal
+  if (aOrdinal !== undefined && bOrdinal !== undefined && aOrdinal !== bOrdinal) {
+    return aOrdinal - bOrdinal
+  }
+  if (aOrdinal !== undefined && bOrdinal === undefined) return 1
+  if (aOrdinal === undefined && bOrdinal !== undefined) return -1
+
+  return 0
+}
+
+export function materializeMessageStream(
+  baseMessages: CanonicalMessage[],
+  overlay: MessageOverlayState,
+): Msg[] {
+  const byId = new Map<string, MaterializedEntry>()
+  const idByNonce = new Map<string, string>()
+
+  // Later sources replace earlier presentation for the same id/nonce:
+  // optimistic outbox < complete WS row < complete base row.
+  for (const intent of overlay.outboxByNonce.values()) {
+    upsertMaterialized(byId, idByNonce, {
+      message: materializeIntent(intent),
+      localOrdinal: intent.status === "acked" ? undefined : intent.localOrdinal,
+    })
+  }
+  for (const message of overlay.liveById.values()) {
+    upsertMaterialized(byId, idByNonce, { message })
+  }
+  for (const message of baseMessages) {
+    upsertMaterialized(byId, idByNonce, { message })
+  }
+
+  return [...byId.values()].sort(materializedOrder).map((entry) => entry.message)
+}
+
+export function getOutboxRetryPayload(
+  state: MessageOverlayState,
+  nonce: string,
+): OutboxRetryPayload | undefined {
+  const intent = state.outboxByNonce.get(nonce)
+  if (!intent) return undefined
+  return {
+    nonce,
+    message: intent.message,
+    localUploads: intent.localUploads,
+    uploadStatus: intent.uploadStatus,
+    mentionType: intent.mentionType,
+  }
+}
+
+export function reduceMessageOverlay(
+  state: MessageOverlayState,
+  event: MessageOverlayEvent,
+): MessageOverlayTransition {
+  switch (event.type) {
+    case "submit": {
+      if (state.outboxByNonce.has(event.intent.nonce)) return unchanged(state)
+      const outboxByNonce = new Map(state.outboxByNonce)
+      const optimisticAttachments = localUploadAttachments(event.intent.localUploads)
+      const message: Msg = {
+        ...event.intent.message,
+        id: event.intent.tempId,
+        clientNonce: event.intent.nonce,
+        failed: false,
+        ...(optimisticAttachments !== undefined
+          ? { attachments: optimisticAttachments }
+          : {}),
+      }
+      delete message.seq
+      outboxByNonce.set(event.intent.nonce, {
+        nonce: event.intent.nonce,
+        tempId: event.intent.tempId,
+        localOrdinal: event.intent.localOrdinal,
+        localUploads: event.intent.localUploads.map((upload) => ({ ...upload })),
+        status: "pending",
+        uploadStatus: event.intent.localUploads.length === 0 ? "none" : "pending",
+        message,
+        mentionType: event.intent.mentionType,
+      })
+      return { state: { ...state, outboxByNonce }, effects: [] }
+    }
+
+    case "uploadSettled":
+      return updateIntent(state, event.nonce, (intent) => ({
+        ...intent,
+        uploadStatus: "settled",
+        message: { ...intent.message, attachments: event.attachments },
+      }))
+
+    case "uploadFailed":
+      return updateIntent(state, event.nonce, (intent) => ({
+        ...intent,
+        status: "failed",
+        uploadStatus: "failed",
+        message: { ...intent.message, failed: true },
+      }))
+
+    case "postAck":
+      return updateIntent(state, event.nonce, (intent) => ({
+        ...intent,
+        status: "acked",
+        serverMessageId: event.serverMessageId,
+        serverSeq: event.serverSeq,
+        message: { ...intent.message, failed: false },
+      }))
+
+    case "postFail":
+      return updateIntent(state, event.nonce, (intent) => ({
+        ...intent,
+        status: "failed",
+        message: { ...intent.message, failed: true },
+      }))
+
+    case "retry":
+      return updateIntent(state, event.nonce, (intent) => ({
+        ...intent,
+        status: "pending",
+        uploadStatus: intent.uploadStatus === "failed" ? "pending" : intent.uploadStatus,
+        message: { ...intent.message, failed: false },
+      }))
+
+    case "wsMessage": {
+      const liveById = new Map(state.liveById)
+      const outboxByNonce = new Map(state.outboxByNonce)
+      const effects: MessageOverlayEffect[] = []
+      const nonce = event.message.clientNonce
+
+      for (const [intentNonce, intent] of outboxByNonce) {
+        const matchesNonce = nonce !== undefined && intentNonce === nonce
+        const matchesServerId = intent.serverMessageId !== undefined
+          && intent.serverMessageId === event.message.id
+        if (!matchesNonce && !matchesServerId) continue
+        outboxByNonce.delete(intentNonce)
+        effects.push(...revokeEffects(intent))
+      }
+
+      // The complete enriched WS row is canonical presentation.
+      upsertLiveCanonical(liveById, event.message)
+      trimLiveDeltas(liveById)
+      return { state: { liveById, outboxByNonce }, effects }
+    }
+
+    case "liveRefreshed": {
+      let existingId: string | undefined
+      if (state.liveById.has(event.message.id)) {
+        existingId = event.message.id
+      } else if (event.message.clientNonce) {
+        for (const [id, message] of state.liveById) {
+          if (message.clientNonce === event.message.clientNonce) {
+            existingId = id
+            break
+          }
+        }
+      }
+      if (!existingId) return unchanged(state)
+      const liveById = new Map(state.liveById)
+      if (existingId !== event.message.id) liveById.delete(existingId)
+      upsertLiveCanonical(liveById, event.message)
+      trimLiveDeltas(liveById)
+      return { state: { ...state, liveById }, effects: [] }
+    }
+
+    case "baseChanged": {
+      const baseById = new Map(event.messages.map((message) => [message.id, message]))
+      const baseByNonce = new Map(
+        event.messages.flatMap((message) =>
+          message.clientNonce ? [[message.clientNonce, message] as const] : []),
+      )
+      const liveById = new Map(state.liveById)
+      const outboxByNonce = new Map(state.outboxByNonce)
+      const effects: MessageOverlayEffect[] = []
+
+      for (const message of state.liveById.values()) {
+        const canonical = baseById.get(message.id)
+          ?? (message.clientNonce ? baseByNonce.get(message.clientNonce) : undefined)
+        if (canonical) upsertLiveCanonical(liveById, canonical)
+      }
+      for (const [nonce, intent] of outboxByNonce) {
+        const canonical = intent.serverMessageId
+          ? baseById.get(intent.serverMessageId) ?? baseByNonce.get(nonce)
+          : baseByNonce.get(nonce)
+        if (!canonical) continue
+        outboxByNonce.delete(nonce)
+        upsertLiveCanonical(liveById, canonical)
+        effects.push(...revokeEffects(intent))
+      }
+      trimLiveDeltas(liveById)
+
+      // `latestSeq` is deliberately not a deletion predicate: an anchor page
+      // can report a high stream seq while omitting this visible tail row. A
+      // base hit refreshes the bounded fallback but does not delete it, because
+      // a later window may omit the row again.
+      return { state: { liveById, outboxByNonce }, effects }
+    }
+
+    case "dismissFailed": {
+      const intent = state.outboxByNonce.get(event.nonce)
+      if (!intent || (intent.status !== "failed" && intent.uploadStatus !== "failed")) {
+        return unchanged(state)
+      }
+      const outboxByNonce = new Map(state.outboxByNonce)
+      outboxByNonce.delete(event.nonce)
+      return {
+        state: { ...state, outboxByNonce },
+        effects: revokeEffects(intent),
+      }
+    }
+
+    case "clear": {
+      const effects = [...state.outboxByNonce.values()].flatMap(revokeEffects)
+      return { state: emptyMessageOverlay(), effects }
+    }
+  }
+}

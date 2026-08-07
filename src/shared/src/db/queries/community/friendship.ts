@@ -433,6 +433,7 @@ export async function sendRequest(
         channelId: dm.id,
         message: {
           id: msg.id,
+          seq: msg.seq,
           authorId: botId,
           authorName: botP?.name ?? "",
           content: msg.content,
@@ -1091,6 +1092,7 @@ export async function ownerDecideOnRow(
               channelId: dm.id,
               message: {
                 id: msg.id,
+                seq: msg.seq,
                 authorId: row.addresseeId,
                 authorName: botP?.name ?? "",
                 content: msg.content,

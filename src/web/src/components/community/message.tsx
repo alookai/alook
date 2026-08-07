@@ -48,7 +48,7 @@ export function messageCanShare(m: RenderMsg, compact?: boolean): boolean {
 
 function MessageImpl({
   m, compact, pinned, onOpenThread, onOpenProfile, onJumpReply,
-  onToggleReaction, onReact, onReply, onPin, onMark, onCreateThread, onCopy, onRetry,
+  onToggleReaction, onReact, onReply, onPin, onMark, onCreateThread, onCopy, onRetry, onDismiss,
   onPreviewImage, onDownloadFile, highlighted, resolveUserName, onImageLoad,
   selectMode, selected, onToggleSelect, onEnterSelect, onShareSingle,
 }: {
@@ -69,6 +69,7 @@ function MessageImpl({
   onCreateThread?: () => void
   onCopy?: () => void
   onRetry?: () => void
+  onDismiss?: () => void
   onPreviewImage?: (name: string) => void
   onDownloadFile?: (name: string) => void
   highlighted?: boolean
@@ -414,9 +415,16 @@ function MessageImpl({
           )}
 
           {m.failed && (
-            <button onClick={onRetry} className="mt-1 flex items-center gap-2 text-xs text-destructive hover:underline">
-              <X className="size-3.5" /> Message failed to send. Click to retry.
-            </button>
+            <div className="mt-1 flex items-center gap-3 text-xs text-destructive">
+              <button onClick={onRetry} className="flex items-center gap-2 hover:underline">
+                <X className="size-3.5" /> Message failed to send. Click to retry.
+              </button>
+              {onDismiss && (
+                <button onClick={onDismiss} className="text-muted-foreground hover:text-foreground hover:underline">
+                  Dismiss
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -492,6 +500,7 @@ function messagePropsEqual(prev: MessageProps, next: MessageProps): boolean {
     prev.onCreateThread === next.onCreateThread &&
     prev.onCopy === next.onCopy &&
     prev.onRetry === next.onRetry &&
+    prev.onDismiss === next.onDismiss &&
     prev.onPreviewImage === next.onPreviewImage &&
     prev.onDownloadFile === next.onDownloadFile &&
     prev.resolveUserName === next.resolveUserName &&

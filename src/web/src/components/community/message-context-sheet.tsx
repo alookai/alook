@@ -278,10 +278,12 @@ export function MessageContextSheet({
 
   const onCreateThreadId = useCallback(async (id: string) => {
     if (type === "dm") return
+    const serverId = routeParams?.serverId
+    if (!serverId) return
     const m = findMessage(id)
     const name = deriveThreadName(m?.content, "channel")
     try {
-      const data = await createThreadMut.mutateAsync({ channelId, messageId: id, name })
+      const data = await createThreadMut.mutateAsync({ serverId, channelId, messageId: id, name })
       // Match the main-channel UX: after creating a thread the row shows
       // the thread indicator, click it to enter. Don't auto-navigate — we're
       // inside a sidecar preview, silently teleporting the user to the thread
@@ -304,7 +306,7 @@ export function MessageContextSheet({
     } catch (e) {
       toastApiError(e, "Failed to create thread")
     }
-  }, [type, channelId, findMessage, createThreadMut, queryClient, queryKey])
+  }, [type, routeParams, channelId, findMessage, createThreadMut, queryClient, queryKey])
 
   const onOpenThreadId = useCallback((threadId: string) => {
     // Sheet's Reply-style handoff: navigate the main window to the thread and

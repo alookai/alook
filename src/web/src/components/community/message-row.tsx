@@ -29,6 +29,7 @@ export interface MessageRowProps {
   onCreateThreadId?: (id: string) => void
   onCopyId?: (id: string) => void
   onRetryId?: (id: string) => void
+  onDismissId?: (id: string) => void
   onJumpToId?: (id: string) => void
   onPreviewImage?: (name: string) => void
   onDownloadFile?: (name: string) => void
@@ -50,7 +51,7 @@ function MessageRowImpl(props: MessageRowProps) {
   const {
     m, pinned, highlighted, onOpenThread, onOpenProfile,
     onToggleReactionId, onReactId, onReplyId, onPinId, onMarkId, onCreateThreadId,
-    onCopyId, onRetryId, onJumpToId, onPreviewImage, onDownloadFile,
+    onCopyId, onRetryId, onDismissId, onJumpToId, onPreviewImage, onDownloadFile,
     resolveUserName, onImageLoad,
     selectMode, selected, onToggleSelectId, onEnterSelectId, onShareSingleId,
   } = props
@@ -71,6 +72,7 @@ function MessageRowImpl(props: MessageRowProps) {
   const onCreateThread = useCallback(() => onCreateThreadId?.(id), [onCreateThreadId, id])
   const onCopy = useCallback(() => onCopyId?.(id), [onCopyId, id])
   const onRetry = useCallback(() => onRetryId?.(id), [onRetryId, id])
+  const onDismiss = useCallback(() => onDismissId?.(id), [onDismissId, id])
   const onJumpReply = useCallback(() => { if (replyToId) onJumpToId?.(replyToId) }, [onJumpToId, replyToId])
   const onToggleSelect = useCallback(() => onToggleSelectId?.(id), [onToggleSelectId, id])
   const onEnterSelect = useCallback(() => onEnterSelectId?.(id), [onEnterSelectId, id])
@@ -97,6 +99,7 @@ function MessageRowImpl(props: MessageRowProps) {
       onCreateThread={onCreateThreadId ? onCreateThread : undefined}
       onCopy={onCopyId ? onCopy : undefined}
       onRetry={onRetryId ? onRetry : undefined}
+      onDismiss={onDismissId ? onDismiss : undefined}
       onPreviewImage={onPreviewImage}
       onDownloadFile={onDownloadFile}
       resolveUserName={resolveUserName}

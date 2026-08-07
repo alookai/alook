@@ -19,7 +19,7 @@ function Capture({ onRender, channelId, lastReadMessageId }: {
   channelId: string | null
   lastReadMessageId?: string | null
 }) {
-  const result = useMessages(channelId, { lastReadMessageId })
+  const result = useMessages(channelId, { serverId: "s1", lastReadMessageId })
   onRender(result.messages.map((m) => m.id))
   return null
 }
@@ -66,8 +66,8 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
     queryClient.setQueryData(key, {
       pages: [{
         messages: [
-          { id: "m_old_1", createdAt: "2026-06-30T23:59:58.000Z" },
-          { id: "m_old_2", createdAt: "2026-06-30T23:59:59.000Z" },
+          { id: "m_old_1", seq: 1, createdAt: "2026-06-30T23:59:58.000Z" },
+          { id: "m_old_2", seq: 2, createdAt: "2026-06-30T23:59:59.000Z" },
         ],
         hasMoreOlder: false,
         hasMoreNewer: false,
@@ -86,9 +86,9 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
     apiFetchMock.mockImplementation(
       () => new Promise((resolve) => setTimeout(() => resolve({
         messages: [
-          { id: "m_new_1", createdAt: "2026-07-01T00:00:01.000Z" },
-          { id: "m_new_anchor", createdAt: "2026-07-01T00:00:02.000Z" },
-          { id: "m_new_2", createdAt: "2026-07-01T00:00:03.000Z" },
+          { id: "m_new_1", seq: 3, createdAt: "2026-07-01T00:00:01.000Z" },
+          { id: "m_new_anchor", seq: 4, createdAt: "2026-07-01T00:00:02.000Z" },
+          { id: "m_new_2", seq: 5, createdAt: "2026-07-01T00:00:03.000Z" },
         ],
         hasMoreOlder: true,
         hasMoreNewer: true,
@@ -146,9 +146,9 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
     // (`pages[0]` = anchor/newest, later pages = progressively older).
     queryClient.setQueryData(key, {
       pages: [
-        { messages: [{ id: "m_anchor_old", createdAt: "2026-07-01T00:00:05.000Z" }], hasMoreOlder: true, hasMoreNewer: false },
-        { messages: [{ id: "m_older_1", createdAt: "2026-07-01T00:00:03.000Z" }], hasMoreOlder: true, hasMoreNewer: false },
-        { messages: [{ id: "m_older_2", createdAt: "2026-07-01T00:00:01.000Z" }], hasMoreOlder: false, hasMoreNewer: false },
+        { messages: [{ id: "m_anchor_old", seq: 3, createdAt: "2026-07-01T00:00:05.000Z" }], hasMoreOlder: true, hasMoreNewer: false },
+        { messages: [{ id: "m_older_1", seq: 2, createdAt: "2026-07-01T00:00:03.000Z" }], hasMoreOlder: true, hasMoreNewer: false },
+        { messages: [{ id: "m_older_2", seq: 1, createdAt: "2026-07-01T00:00:01.000Z" }], hasMoreOlder: false, hasMoreNewer: false },
       ],
       pageParams: [
         { mode: "anchor", anchor: "m_anchor_old" },
@@ -159,7 +159,7 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
 
     apiFetchMock.mockImplementation(
       () => new Promise((resolve) => setTimeout(() => resolve({
-        messages: [{ id: "m_new_anchor", createdAt: "2026-07-01T00:00:10.000Z" }],
+        messages: [{ id: "m_new_anchor", seq: 4, createdAt: "2026-07-01T00:00:10.000Z" }],
         hasMoreOlder: true,
         hasMoreNewer: true,
       }), 20)),
@@ -210,7 +210,7 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
     const key = communityKeys.channelMessages("ch_2")
 
     queryClient.setQueryData(key, {
-      pages: [{ messages: [{ id: "m_old_1", createdAt: "2026-06-30T00:00:00.000Z" }], hasMoreOlder: false, hasMoreNewer: false }],
+      pages: [{ messages: [{ id: "m_old_1", seq: 1, createdAt: "2026-06-30T00:00:00.000Z" }], hasMoreOlder: false, hasMoreNewer: false }],
       pageParams: [{ mode: "anchor", anchor: "m_old_anchor" }],
     })
     // Force `dataUpdatedAt` far in the past — well beyond STALE_HYDRATED_CACHE_MS
@@ -225,7 +225,7 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
     // test above for the same rationale.
     apiFetchMock.mockImplementation(
       () => new Promise((resolve) => setTimeout(() => resolve({
-        messages: [{ id: "m_fresh_anchor", createdAt: "2026-07-01T00:00:00.000Z" }],
+        messages: [{ id: "m_fresh_anchor", seq: 2, createdAt: "2026-07-01T00:00:00.000Z" }],
         hasMoreOlder: true,
         hasMoreNewer: false,
       }), 20)),

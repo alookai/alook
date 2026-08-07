@@ -35,6 +35,7 @@ import { signOut } from "@/lib/auth-client"
 import { clearPersistedCache } from "@/lib/query-persister"
 import { useCommunityStore } from "@/stores/community"
 import { useCommunityWsStore, useOnlineUserIds } from "@/stores/community/ws"
+import { useMessageStreamStore } from "@/stores/community/message-stream"
 import { useCurrentUser, useSetCurrentUser } from "@/contexts/community/current-user"
 import { useServers } from "@/hooks/community/use-servers"
 import { useFolders } from "@/hooks/community/use-folders"
@@ -613,6 +614,7 @@ export function ShellFrame({
             // the debounce window — covers every sign-out path uniformly.
             useCommunityStore.getState().reset()
             useCommunityWsStore.getState().reset()
+            useMessageStreamStore.getState().resetAll()
             // Drop the persisted IDB blob so the next user on this machine
             // doesn't see the previous session's cached message rows.
             await clearPersistedCache(currentUser.id).catch(() => { })

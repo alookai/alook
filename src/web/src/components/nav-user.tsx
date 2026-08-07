@@ -7,6 +7,7 @@ import { clearAllCache } from "@/lib/chat-cache";
 import { clearPersistedCache } from "@/lib/query-persister";
 import { useCommunityStore } from "@/stores/community";
 import { useCommunityWsStore } from "@/stores/community/ws";
+import { useMessageStreamStore } from "@/stores/community/message-stream";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -80,6 +81,7 @@ export function NavUser() {
               // WS handler timers survive past sign-out.
               useCommunityStore.getState().reset();
               useCommunityWsStore.getState().reset();
+              useMessageStreamStore.getState().resetAll();
               await clearAllCache();
               // Drop the persisted IDB blob so the next user on this machine
               // doesn't inherit the previous session's cached message rows.

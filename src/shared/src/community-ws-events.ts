@@ -16,6 +16,7 @@ export type CommunityMessageCreate = {
   channelId: string
   message: {
     id: string
+    seq: number
     authorId: string
     authorName: string
     authorAvatar?: string

@@ -11,6 +11,7 @@ const baseRow: MessageRow = {
   mentionType: null,
   replyToId: null,
   embeds: null,
+  seq: 42,
   createdAt: "2026-07-03T12:00:00.000Z",
 }
 
@@ -108,6 +109,10 @@ describe("mapMessageForApi", () => {
 })
 
 describe("mapMessageForWs", () => {
+  it("preserves the required server seq", () => {
+    expect(mapMessageForWs(baseRow, emptyWsCtx).seq).toBe(42)
+  })
+
   it("maps ordinary rows to type: \"chat\" (was \"default\" before #12's exhaustive discriminator)", () => {
     expect(mapMessageForWs({ ...baseRow, type: null }, emptyWsCtx).type).toBe("chat")
     expect(mapMessageForWs({ ...baseRow, type: "default" }, emptyWsCtx).type).toBe("chat")
