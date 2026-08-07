@@ -1,4 +1,4 @@
-import { queries } from "@alook/shared"
+import { queries, withD1Retry } from "@alook/shared"
 import type { getDb } from "@/lib/db"
 import { groupAttachments, groupReactions } from "@/lib/community/messages"
 import { mapMessageForApi } from "@/lib/community/message-payload"
@@ -36,7 +36,10 @@ export async function enrichMessages(
       ? queries.communityReaction.listReactionsByMessageIds(db, messageIds, userId)
       : Promise.resolve([]),
     replyToIds.length > 0
-      ? queries.communityMessage.getMessagesByIdsInScope(db, replyToIds, { channelId: scope.channelId })
+      ? withD1Retry(
+        () => queries.communityMessage.getMessagesByIdsInScope(db, replyToIds, { channelId: scope.channelId }),
+        { route: "community/messages:reply-enrichment" },
+      )
       : Promise.resolve([]),
     // Thread indicators only exist for non-DM channel-scoped messages.
     !isDm

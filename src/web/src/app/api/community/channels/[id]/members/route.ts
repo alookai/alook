@@ -10,6 +10,7 @@ import {
   DM_SERVER,
   formatHandle,
   parseRef,
+  withD1Retry,
 } from "@alook/shared"
 import type {
   CommunityCliChannelMemberResult as ChannelMemberResult,
@@ -84,10 +85,13 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
   // Channel / forum: the ACCESS dimension. Resolve the audience (public → all
   // server members; private → own roster ∪ creator). The anchor IS the roster
   // for these top-level units, so the roster creator is `anchor.creatorId`.
-  const scopeMembers = await queries.communityMembersResolver.resolveScopeMembers(db, {
-    scope: isForum(channel.type) ? "forum" : "channel",
-    scopeId: channelId,
-  })
+  const scopeMembers = await withD1Retry(
+    () => queries.communityMembersResolver.resolveScopeMembers(db, {
+      scope: isForum(channel.type) ? "forum" : "channel",
+      scopeId: channelId,
+    }),
+    { route: "community/channel-members:resolve-scope" },
+  )
   const rows = await queries.communityMember.getMembersByUserIds(
     db,
     anchor.serverId,
@@ -256,7 +260,10 @@ async function handleBotChannelMember(
     return writeJSON({ visibility: "public", hint })
   }
 
-  const scoped = await queries.communityMembersResolver.resolveScopeMembers(db, { scope: "channel", scopeId: channelId })
+  const scoped = await withD1Retry(
+    () => queries.communityMembersResolver.resolveScopeMembers(db, { scope: "channel", scopeId: channelId }),
+    { route: "community/channel-members:resolve-scope" },
+  )
   const members = await hydrateBotMembers(db, env, channel.serverId, scoped.map((s) => s.userId))
   return writeJSON({ visibility: "private", members, hasMore: false })
 }

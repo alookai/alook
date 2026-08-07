@@ -611,6 +611,33 @@ describe("GET /api/community/channels/[id]/messages", () => {
     expect(scope).toEqual({ channelId: "c1" })
   })
 
+  it("retries BUSY reply enrichment and preserves the paginated response", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0)
+    mockListMessages.mockResolvedValue([
+      { id: "m1", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "reply", type: "default", mentionType: null, replyToId: "r1", channelId: "c1", embeds: null, createdAt: "t1" },
+    ])
+    mockGetMessagesByIdsInScope
+      .mockRejectedValueOnce(new Error("D1_ERROR: database is locked"))
+      .mockResolvedValueOnce([{ id: "r1", authorName: "B", content: "root", channelId: "c1", dmConversationId: null }])
+    const res = await GET(getReq(), ctx)
+    const body = await res.json()
+    expect(body.messages).toHaveLength(1)
+    expect(body.messages[0].replyTo).toEqual({ id: "r1", authorName: "B", text: "root" })
+    expect(body.hasMore).toBe(false)
+    expect(mockGetMessagesByIdsInScope).toHaveBeenCalledTimes(2)
+    expect(mockListMessages).toHaveBeenCalledTimes(1)
+  })
+
+  it("rethrows a non-BUSY reply-enrichment failure without retrying", async () => {
+    const error = new Error("bad projection")
+    mockListMessages.mockResolvedValue([
+      { id: "m1", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "reply", type: "default", mentionType: null, replyToId: "r1", channelId: "c1", embeds: null, createdAt: "t1" },
+    ])
+    mockGetMessagesByIdsInScope.mockRejectedValueOnce(error)
+    await expect(GET(getReq(), ctx)).rejects.toBe(error)
+    expect(mockGetMessagesByIdsInScope).toHaveBeenCalledTimes(1)
+  })
+
   it("returns author.name verbatim — no 'Unknown' sentinel, no email leak", async () => {
     // Post-migration 0050 the shared query returns user.name as a non-empty
     // string. The route must drop the pre-migration cascade

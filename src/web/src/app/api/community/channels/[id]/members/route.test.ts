@@ -158,6 +158,25 @@ describe("GET /channels/[id]/members", () => {
     expect(admin.role).toBe("admin")
   })
 
+  it("retries a BUSY scope resolution and preserves the resolved member result", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0)
+    mockResolveScopeMembers
+      .mockRejectedValueOnce(new Error("D1_ERROR: database is locked"))
+      .mockResolvedValueOnce([{ userId: "u1", role: "member", source: "explicit" }])
+    const res = await GET(new NextRequest("http://localhost/api/community/channels/c1/members"), ctx)
+    expect(res.status).toBe(200)
+    expect((await res.json()).members.map((member: { userId: string }) => member.userId)).toEqual(["u1"])
+    expect(mockResolveScopeMembers).toHaveBeenCalledTimes(2)
+    expect(mockResolveChannelAccessContext).toHaveBeenCalledTimes(1)
+  })
+
+  it("rethrows a non-BUSY scope-resolution failure without retrying", async () => {
+    const error = new Error("programmer bug")
+    mockResolveScopeMembers.mockRejectedValueOnce(error)
+    await expect(GET(new NextRequest("http://localhost/api/community/channels/c1/members"), ctx)).rejects.toBe(error)
+    expect(mockResolveScopeMembers).toHaveBeenCalledTimes(1)
+  })
+
   it("drops audience members with no hydrated (non-deleted) server row", async () => {
     mockGetMembersByUserIds.mockResolvedValue([
       { id: "m1", serverId: "s1", userId: "u1", role: "member", nickname: null, userName: "Ann", userImage: null, discriminator: "0001", statusEmoji: null, statusText: null, userIsBot: false, userOwnerUserId: null },
