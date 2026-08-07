@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
 const mockListUnreadChannels = vi.fn()
+const mockListUnreadForumOpeners = vi.fn()
 const mockGetSettings = vi.fn()
 const mockListUnreadMentions = vi.fn()
 const mockListUnreadDms = vi.fn()
@@ -21,6 +22,7 @@ vi.mock("@alook/shared", async () => {
     queries: {
       communityInbox: {
         listUnreadChannels: (...args: unknown[]) => mockListUnreadChannels(...args),
+        listUnreadForumOpeners: (...args: unknown[]) => mockListUnreadForumOpeners(...args),
         listUnreadDms: (...args: unknown[]) => mockListUnreadDms(...args),
       },
       communityNotificationSetting: {
@@ -68,12 +70,32 @@ function row(overrides: Partial<{ channelId: string; channelName: string; server
   }
 }
 
+function opener(overrides: Partial<{
+  forumChannelId: string
+  openerMessageId: string
+  childChannelId: string
+  title: string
+  createdAt: string
+  openerSeq: number
+}> = {}) {
+  return {
+    forumChannelId: "f1",
+    openerMessageId: "m1",
+    childChannelId: "p1",
+    title: "Full opener content",
+    createdAt: "2026-06-25T10:00:00Z",
+    openerSeq: 1,
+    ...overrides,
+  }
+}
+
 describe("GET /api/community/users/me/inbox/unreads", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockGetSettings.mockResolvedValue([])
     mockListUnreadMentions.mockResolvedValue([])
     mockListUnreadDms.mockResolvedValue([])
+    mockListUnreadForumOpeners.mockResolvedValue([])
     mockListVisibleChannelIds.mockResolvedValue([])
     mockGetChannelsByIds.mockResolvedValue([])
   })
@@ -319,5 +341,97 @@ describe("GET /api/community/users/me/inbox/unreads", () => {
     const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))
     const body = await res.json()
     expect(body.servers[0].channels[0].type).toBe("forum")
+  })
+
+  // ── Per-post forum opener projection ──────────────────────────────────────
+
+  it("queries only visible, direct-unread, unmuted top-level forum parents", async () => {
+    mockListVisibleChannelIds.mockResolvedValue(["f1", "f2", "text1", "post1"])
+    mockListUnreadChannels.mockResolvedValue([
+      row({ channelId: "f1", channelName: "Forum 1", type: "forum" }),
+      row({ channelId: "f2", channelName: "Muted forum", type: "forum" }),
+      row({ channelId: "text1", channelName: "Text", type: "text" }),
+      row({ channelId: "post1", channelName: "Post", type: "thread", parentChannelId: "f1" }),
+    ])
+    mockGetSettings.mockResolvedValue([{ serverId: null, channelId: "f2", level: "nothing" }])
+
+    await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))
+
+    expect(mockListUnreadChannels).toHaveBeenCalledWith(expect.anything(), "u1", ["f1", "f2", "text1", "post1"])
+    expect(mockListUnreadForumOpeners).toHaveBeenCalledWith(expect.anything(), "u1", ["f1"])
+  })
+
+  it("renders every unread opener as a separately titled child row, newest first", async () => {
+    mockListUnreadChannels.mockResolvedValue([
+      row({ channelId: "f1", channelName: "Forum", type: "forum", lastMessageAt: "2026-06-25T11:00:00Z" }),
+    ])
+    mockListUnreadForumOpeners.mockResolvedValue([
+      opener({ openerMessageId: "m2", childChannelId: "p2", title: "Second full opener", createdAt: "2026-06-25T11:00:00Z", openerSeq: 2 }),
+      opener({ openerMessageId: "m1", childChannelId: "p1", title: "First full opener", createdAt: "2026-06-25T10:00:00Z", openerSeq: 1 }),
+    ])
+
+    const body = await (await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))).json()
+    const children = body.servers[0].channels[0].children
+    expect(children.map((child: { channelId: string; channelName: string; openerMessageId: string }) => ({
+      channelId: child.channelId,
+      title: child.channelName,
+      openerMessageId: child.openerMessageId,
+    }))).toEqual([
+      { channelId: "p2", title: "Second full opener", openerMessageId: "m2" },
+      { channelId: "p1", title: "First full opener", openerMessageId: "m1" },
+    ])
+  })
+
+  it("dedupes an unread opener and child replies by childChannelId while retaining the parent target", async () => {
+    mockListUnreadChannels.mockResolvedValue([
+      row({ channelId: "f1", channelName: "Forum", type: "forum", lastMessageAt: "2026-06-25T10:00:00Z" }),
+      row({ channelId: "p1", channelName: "Derived title", type: "thread", parentChannelId: "f1", lastMessageAt: "2026-06-25T12:00:00Z" }),
+    ])
+    mockListUnreadForumOpeners.mockResolvedValue([
+      opener({ title: "Canonical opener title", createdAt: "2026-06-25T10:00:00Z", openerSeq: 7 }),
+    ])
+    mockListUnreadMentions.mockResolvedValue([
+      { message: { channelId: "p1" } },
+      { message: { channelId: "p1" } },
+    ])
+
+    const body = await (await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))).json()
+    const children = body.servers[0].channels[0].children
+    expect(children).toHaveLength(1)
+    expect(children[0]).toMatchObject({
+      channelId: "p1",
+      channelName: "Canonical opener title",
+      openerMessageId: "m1",
+      lastMessageAt: "2026-06-25T12:00:00Z",
+      mentionCount: 2,
+    })
+  })
+
+  it("drops opener rows whose child channel is individually muted", async () => {
+    mockListUnreadChannels.mockResolvedValue([
+      row({ channelId: "f1", channelName: "Forum", type: "forum" }),
+    ])
+    mockListUnreadForumOpeners.mockResolvedValue([opener()])
+    mockGetSettings.mockResolvedValue([{ serverId: null, channelId: "p1", level: "nothing" }])
+
+    const body = await (await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))).json()
+    expect(body.servers[0].channels[0].children).toEqual([])
+  })
+
+  it("uses opener seq/id as deterministic tie-breaks before child cap truncation", async () => {
+    mockListUnreadChannels.mockResolvedValue([
+      row({ channelId: "f1", channelName: "Forum", type: "forum" }),
+    ])
+    mockListUnreadForumOpeners.mockResolvedValue([
+      opener({ openerMessageId: "m1", childChannelId: "p1", openerSeq: 1 }),
+      opener({ openerMessageId: "m3", childChannelId: "p3", openerSeq: 3 }),
+      opener({ openerMessageId: "m2", childChannelId: "p2", openerSeq: 2 }),
+    ])
+
+    const body = await (await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads?limit=3"))).json()
+    expect(body.truncated).toBe(true)
+    // Parent consumes one row; the two newest equal-time openers consume the
+    // remaining rows in stable seq order.
+    expect(body.servers[0].channels[0].children.map((child: { channelId: string }) => child.channelId)).toEqual(["p3", "p2"])
   })
 })

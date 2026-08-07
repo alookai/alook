@@ -990,6 +990,57 @@ describe("useAdvanceChannelWatermark", () => {
   })
 })
 
+describe("useReadForumThreadFromInbox", () => {
+  it("PUTs the exact opener target to the parent forum immediately", async () => {
+    apiFetchMock.mockResolvedValue(undefined)
+    const mod = await loadMod()
+    mod.useReadForumThreadFromInbox()
+
+    await runMutation({ parentChannelId: "forum_1", openerMessageId: "opener_42" })
+
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/forum_1/read", {
+      method: "PUT",
+      body: JSON.stringify({ lastReadMessageId: "opener_42" }),
+    })
+  })
+
+  it("has no optimistic cache mutation and invalidates inbox + servers only after success", async () => {
+    apiFetchMock.mockResolvedValue(undefined)
+    const before = { servers: [{ serverId: "s1", channels: [{ channelId: "forum_1" }] }] }
+    capturedQc.setQueryData(communityKeys.inboxUnreads(), before)
+    const setSpy = vi.spyOn(capturedQc, "setQueryData")
+    const invalidateSpy = vi.spyOn(capturedQc, "invalidateQueries")
+    const mod = await loadMod()
+    mod.useReadForumThreadFromInbox()
+
+    await runMutation({ parentChannelId: "forum_1", openerMessageId: "opener_42" })
+
+    expect(setSpy).not.toHaveBeenCalled()
+    expect(capturedQc.getQueryData(communityKeys.inboxUnreads())).toEqual(before)
+    const invalidated = invalidateSpy.mock.calls.map((call) => call[0]?.queryKey)
+    expect(invalidated).toContainEqual(communityKeys.inbox())
+    expect(invalidated).toContainEqual(communityKeys.servers())
+  })
+
+  it("keeps cache intact, skips success invalidation, and toasts when the PUT fails", async () => {
+    const error = new Error("parent read failed")
+    apiFetchMock.mockRejectedValue(error)
+    const before = { servers: [{ serverId: "s1", channels: [{ channelId: "forum_1" }] }] }
+    capturedQc.setQueryData(communityKeys.inboxUnreads(), before)
+    const setSpy = vi.spyOn(capturedQc, "setQueryData")
+    const invalidateSpy = vi.spyOn(capturedQc, "invalidateQueries")
+    const mod = await loadMod()
+    mod.useReadForumThreadFromInbox()
+
+    await runMutation({ parentChannelId: "forum_1", openerMessageId: "opener_42" }).catch(() => {})
+
+    expect(setSpy).not.toHaveBeenCalled()
+    expect(invalidateSpy).not.toHaveBeenCalled()
+    expect(capturedQc.getQueryData(communityKeys.inboxUnreads())).toEqual(before)
+    expect(toastMock).toHaveBeenCalledWith("parent read failed")
+  })
+})
+
 // ── useAdvanceDmWatermark — DM sibling of the channel wrapper ───────────
 describe("useAdvanceDmWatermark", () => {
   it("returns a callable that PUTs { lastReadMessageId } to the canonical channels read route", async () => {

@@ -21,7 +21,6 @@ import { useEagerChannelRead } from "@/hooks/community/use-eager-channel-read"
 export function ForumChannelSurface({
   serverId,
   channelId,
-  serverId,
   channelName,
   viewer,
   viewerRole,
@@ -38,7 +37,6 @@ export function ForumChannelSurface({
 }: {
   serverId: string
   channelId: string
-  serverId: string
   channelName: string
   viewer: { id: string }
   viewerRole: Role | undefined

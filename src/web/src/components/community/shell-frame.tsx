@@ -58,6 +58,7 @@ import {
   useDeleteMention,
   useUnmarkMessage,
   useUpdateProfile,
+  useReadForumThreadFromInbox,
   useUploadUserAvatar,
 } from "@/hooks/community/mutations"
 import { useDmMessageSender } from "@/hooks/community/use-dm-message-sender"
@@ -157,6 +158,7 @@ export function ShellFrame({
   const { accept: acceptDmMessage } = useDmMessageSender()
   const markAllInboxRead = useMarkAllInboxRead()
   const deleteMention = useDeleteMention()
+  const { mutate: readForumThreadFromInbox } = useReadForumThreadFromInbox()
   const updateProfile = useUpdateProfile()
   const uploadUserAvatar = useUploadUserAvatar()
 
@@ -488,6 +490,19 @@ export function ShellFrame({
     [router, watchInboxItem],
   )
 
+  const openForumThreadFromInbox = useCallback(
+    (sid: string, parentChannelId: string, childChannelId: string, openerMessageId: string) => {
+      // Start the parent progressive read first, but never gate opening the
+      // child on network success. The mutation has no optimistic trim: success
+      // refreshes Inbox/server aggregates, while failure toasts and leaves the
+      // opener unread for a later retry.
+      watchInboxItem(`channel:${childChannelId}`)
+      readForumThreadFromInbox({ parentChannelId, openerMessageId })
+      router.push(`/c/channels/${sid}/${childChannelId}`)
+    },
+    [readForumThreadFromInbox, router, watchInboxItem],
+  )
+
   // A Marked row is cross-channel — clicking one navigates to the message's
   // channel AND opens the context sheet on it (Gus: always land on the channel
   // so you see WHERE the message lives, then the sheet shows it + its context;
@@ -538,6 +553,7 @@ export function ShellFrame({
       markedLoading={inboxMarked.isLoading}
       loading={inboxLoading}
       onOpenChannel={openServerChannel}
+      onOpenForumThread={openForumThreadFromInbox}
       onOpenDm={openInboxDm}
       onOpenMention={(mention) => {
         if (mention.serverId && mention.channelId) openServerChannel(mention.serverId, mention.channelId, `mention:${mention.id}`)

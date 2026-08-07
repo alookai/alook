@@ -959,6 +959,40 @@ export function useAdvanceChannelWatermark(): (
   }
 }
 
+// ── Read a forum opener from Inbox ──────────────────────────────────────
+
+export type ReadForumThreadFromInboxArgs = {
+  parentChannelId: string
+  openerMessageId: string
+}
+
+/**
+ * Immediate progressive read used only by an opener-backed Inbox row.
+ *
+ * Unlike viewport watermarks this is not debounced: the click starts the
+ * parent read and navigation immediately. There is deliberately no onMutate
+ * cache trim. Success refreshes Inbox/server aggregates; failure keeps the
+ * unread row and only reports the error.
+ */
+export function useReadForumThreadFromInbox() {
+  const queryClient = useQueryClient()
+  return useMutation<void, Error, ReadForumThreadFromInboxArgs>({
+    mutationFn: async ({ parentChannelId, openerMessageId }) => {
+      await apiFetch(`/api/community/channels/${parentChannelId}/read`, {
+        method: "PUT",
+        body: JSON.stringify({ lastReadMessageId: openerMessageId }),
+      })
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
+      void queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
+    },
+    onError: (error) => {
+      toastApiError(error, "Failed to mark forum post read")
+    },
+  })
+}
+
 // ── Advance DM watermark (progressive read) ───────────────────────────────
 
 /**

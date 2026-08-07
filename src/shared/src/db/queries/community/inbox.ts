@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, isNull, inArray, ne, sql } from "drizzle-orm";
+import { aliasedTable, and, eq, gt, isNotNull, isNull, inArray, ne, or, sql } from "drizzle-orm";
 import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 import {
   communityChannel,
@@ -25,6 +25,17 @@ export interface UnreadChannelRow {
   // null for a top-level channel; set for a child thread. The
   // inbox route uses this to nest child unreads under their parent channel.
   parentChannelId: string | null;
+}
+
+export interface UnreadForumOpenerRow {
+  forumChannelId: string;
+  openerMessageId: string;
+  childChannelId: string;
+  title: string;
+  createdAt: string;
+  // Kept in the read-model row so callers can preserve the query's stable
+  // createdAt → seq → id order through their own merge/cap pass.
+  openerSeq: number;
 }
 
 /**
@@ -179,6 +190,111 @@ export async function listUnreadChannels(
       parentChannelId: r.parentChannelId,
       lastMessageAt: r.lastMessageAt!,
     }));
+}
+
+/**
+ * Project every unread forum opener under an already-authorized parent scope.
+ *
+ * `forumParentIds` is intentionally supplied by the caller after visibility
+ * and mute filtering. This query never discovers forums globally: it only
+ * expands messages inside that bounded id set and joins each opener to the
+ * child channel rooted on it.
+ */
+export async function listUnreadForumOpeners(
+  db: Database,
+  userId: string,
+  forumParentIds: string[]
+): Promise<UnreadForumOpenerRow[]> {
+  if (forumParentIds.length === 0) return [];
+
+  const childChannel = aliasedTable(communityChannel, "forum_inbox_child");
+  const rows = (
+    await Promise.all(
+      chunk(forumParentIds, D1_MAX_IN_PARAMS).map((ids) =>
+        db
+          .select({
+            forumChannelId: communityMessage.channelId,
+            openerMessageId: communityMessage.id,
+            openerContent: communityMessage.content,
+            openerSeq: communityMessage.seq,
+            childChannelId: childChannel.id,
+            childName: childChannel.name,
+            createdAt: communityMessage.createdAt,
+          })
+          .from(communityMessage)
+          .innerJoin(
+            communityChannel,
+            eq(communityChannel.id, communityMessage.channelId)
+          )
+          .innerJoin(
+            childChannel,
+            and(
+              eq(childChannel.parentChannelId, communityChannel.id),
+              eq(childChannel.parentMessageId, communityMessage.id)
+            )
+          )
+          .innerJoin(
+            communityServerMember,
+            and(
+              eq(communityServerMember.serverId, communityChannel.serverId),
+              eq(communityServerMember.userId, userId)
+            )
+          )
+          .leftJoin(
+            communityReadState,
+            and(
+              eq(communityReadState.channelId, communityChannel.id),
+              eq(communityReadState.userId, userId)
+            )
+          )
+          .where(
+            and(
+              inArray(communityChannel.id, ids),
+              isNull(communityChannel.parentChannelId),
+              eq(communityChannel.type, "forum"),
+              eq(communityChannel.archived, 0),
+              eq(childChannel.archived, 0),
+              or(
+                and(
+                  isNotNull(communityReadState.id),
+                  gt(
+                    communityMessage.seq,
+                    sql<number>`COALESCE(${communityReadState.lastReadSeq}, 0)`
+                  )
+                ),
+                and(
+                  isNull(communityReadState.id),
+                  gt(communityMessage.createdAt, communityServerMember.joinedAt)
+                )
+              )
+            )
+          )
+      )
+    )
+  ).flat();
+
+  // D1 chunks are independent statements. Sort only after concatenation so a
+  // chunk boundary can never change the rows that survive the Inbox cap.
+  rows.sort(
+    (a, b) =>
+      b.createdAt.localeCompare(a.createdAt) ||
+      b.openerSeq - a.openerSeq ||
+      b.openerMessageId.localeCompare(a.openerMessageId)
+  );
+
+  return rows.map((row) => ({
+    forumChannelId: row.forumChannelId,
+    openerMessageId: row.openerMessageId,
+    childChannelId: row.childChannelId,
+    // The opener is the forum title source of truth. Child names are derived
+    // and truncated, so they are only an anomaly fallback for blank content.
+    title:
+      row.openerContent.trim().length > 0
+        ? row.openerContent
+        : row.childName?.trim() || "Thread",
+    createdAt: row.createdAt,
+    openerSeq: row.openerSeq,
+  }));
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
