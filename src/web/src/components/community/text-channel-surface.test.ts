@@ -14,6 +14,7 @@ function feed(overrides: Record<string, unknown> = {}) {
   return {
     messages: [],
     isLoading: false,
+    isError: false,
     isFetchingOlder: false,
     isFetchingNewer: false,
     pinned: [],
@@ -75,14 +76,18 @@ describe("TextChannelSurface scroll target ownership", () => {
     expect(renderer!.root.findByType("div").props["data-scroll-target"]).toBeNull()
   })
 
-  it("clears once the authoritative surface feed settles without the target", () => {
-    mockedUseChannelMessageFeed.mockReturnValue(feed())
+  it("keeps a missing target across warm cache until the anchor request errors", () => {
+    let surfaceFeed = feed({ messages: [{ id: "m_unrelated" }] })
+    mockedUseChannelMessageFeed.mockImplementation(() => surfaceFeed)
     let renderer: TestRenderer.ReactTestRenderer
 
     act(() => {
       renderer = TestRenderer.create(renderSurface())
     })
 
+    expect(renderer!.root.findByType("div").props["data-scroll-target"]).toBe("m_target")
+    surfaceFeed = feed({ messages: [{ id: "m_unrelated" }], isError: true })
+    act(() => renderer!.update(renderSurface()))
     expect(renderer!.root.findByType("div").props["data-scroll-target"]).toBeNull()
   })
 

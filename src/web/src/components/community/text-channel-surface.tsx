@@ -45,15 +45,13 @@ export function TextChannelSurface({
   useEffect(() => {
     if (!scrollTargetId) return
     if (feed.messages.some((message) => message.id === scrollTargetId)) return
-    if (!feed.isLoading && !feed.isFetchingOlder && !feed.isFetchingNewer) {
+    if (feed.isError) {
       setScrollTargetId((current) => (current === scrollTargetId ? null : current))
     }
   }, [
     scrollTargetId,
     feed.messages,
-    feed.isLoading,
-    feed.isFetchingOlder,
-    feed.isFetchingNewer,
+    feed.isError,
   ])
   return children(controller)
 }

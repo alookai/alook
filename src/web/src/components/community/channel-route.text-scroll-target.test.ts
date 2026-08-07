@@ -140,6 +140,7 @@ function feed(overrides: Record<string, unknown> = {}) {
   return {
     messages: [],
     isLoading: false,
+    isError: false,
     isFetchingOlder: false,
     isFetchingNewer: false,
     hasMoreOlder: false,
@@ -174,7 +175,7 @@ describe("ChannelRoute top-level text scroll target ownership", () => {
   })
 
   it("keeps the route anchor until MessageList reports a successful jump", () => {
-    let surfaceFeed = feed({ isLoading: true })
+    let surfaceFeed = feed({ messages: [{ id: "m_unrelated" }] })
     mockedUseChannelMessageFeed.mockImplementation(({ channelId }) =>
       channelId === null ? feed() : surfaceFeed,
     )
@@ -199,6 +200,29 @@ describe("ChannelRoute top-level text scroll target ownership", () => {
     act(() => vi.advanceTimersByTime(5000))
     expect(mockedMessageList.mock.calls.at(-1)?.[0].scrollToMessageId).toBe("m_target")
     act(() => mockedMessageList.mock.calls.at(-1)?.[0].onScrollTargetConsumed?.("m_target"))
+    expect(mockedMessageList.mock.calls.at(-1)?.[0].scrollToMessageId).toBeNull()
+  })
+
+  it("clears the route anchor only after the authoritative anchor request errors", () => {
+    let surfaceFeed = feed({ messages: [{ id: "m_unrelated" }] })
+    mockedUseChannelMessageFeed.mockImplementation(({ channelId }) =>
+      channelId === null ? feed() : surfaceFeed,
+    )
+    let renderer: TestRenderer.ReactTestRenderer
+
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }),
+      )
+    })
+
+    expect(mockedMessageList.mock.calls.at(-1)?.[0].scrollToMessageId).toBe("m_target")
+    surfaceFeed = feed({ messages: [{ id: "m_unrelated" }], isError: true })
+    act(() => {
+      renderer!.update(
+        React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }),
+      )
+    })
     expect(mockedMessageList.mock.calls.at(-1)?.[0].scrollToMessageId).toBeNull()
   })
 })
