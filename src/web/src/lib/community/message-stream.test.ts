@@ -129,6 +129,98 @@ describe("message stream monotonic visibility", () => {
     expect(state.liveById.size).toBe(1)
   })
 
+  it("retains WS canonical rows when different authors reuse the same nonce", () => {
+    let state = apply(emptyMessageOverlay(), {
+      type: "wsMessage",
+      message: canonical("m1", 11, "same", { authorId: "u1" }),
+    }).state
+    state = apply(state, {
+      type: "wsMessage",
+      message: canonical("m2", 12, "same", { authorId: "u2" }),
+    }).state
+
+    expect(materializeMessageStream([], state).map(({ id, authorId }) => [id, authorId])).toEqual([
+      ["m1", "u1"],
+      ["m2", "u2"],
+    ])
+  })
+
+  it("retains GET base rows when different authors reuse the same nonce", () => {
+    const base = [
+      canonical("m1", 11, "same", { authorId: "u1" }),
+      canonical("m2", 12, "same", { authorId: "u2" }),
+    ]
+
+    expect(materializeMessageStream(base, emptyMessageOverlay()).map(({ id, authorId }) => [id, authorId])).toEqual([
+      ["m1", "u1"],
+      ["m2", "u2"],
+    ])
+  })
+
+  it("does not use srv-prefixed nonce values as canonical identity", () => {
+    let state = apply(emptyMessageOverlay(), {
+      type: "wsMessage",
+      message: canonical("m1", 11, "srv:fallback", { authorId: "u1" }),
+    }).state
+    state = apply(state, {
+      type: "wsMessage",
+      message: canonical("m2", 12, "srv:fallback", { authorId: "u1" }),
+    }).state
+    const base = [
+      canonical("m3", 13, "srv:fallback", { authorId: "u1" }),
+      canonical("m4", 14, "srv:fallback", { authorId: "u1" }),
+    ]
+
+    expect(ids([], state)).toEqual(["m1", "m2"])
+    expect(ids(base, emptyMessageOverlay())).toEqual(["m3", "m4"])
+  })
+
+  it("does not settle a viewer outbox intent from a peer WS row with the same nonce", () => {
+    let state = submit(emptyMessageOverlay(), intent("same", 1, {
+      message: { ...localMessage("mine"), authorId: "u1" },
+    }))
+    state = apply(state, {
+      type: "wsMessage",
+      message: canonical("m2", 12, "same", { authorId: "u2" }),
+    }).state
+
+    expect(state.outboxByNonce.has("same")).toBe(true)
+    expect(ids([], state)).toEqual(["m2", "temp_same"])
+  })
+
+  it("does not settle a viewer outbox intent from a peer base row with the same nonce", () => {
+    let state = submit(emptyMessageOverlay(), intent("same", 1, {
+      message: { ...localMessage("mine"), authorId: "u1" },
+    }))
+    const peer = canonical("m2", 12, "same", { authorId: "u2" })
+    state = apply(state, { type: "baseChanged", messages: [peer] }).state
+
+    expect(state.outboxByNonce.has("same")).toBe(true)
+    expect(ids([peer], state)).toEqual(["m2", "temp_same"])
+  })
+
+  it("retains server-id WS settlement when the canonical row omits the nonce", () => {
+    let state = submit(emptyMessageOverlay())
+    state = apply(state, ack()).state
+    state = apply(state, {
+      type: "wsMessage",
+      message: message("m1", 11, { authorId: "u1", authorName: "Canonical" }),
+    }).state
+
+    expect(state.outboxByNonce.size).toBe(0)
+    expect(ids([], state)).toEqual(["m1"])
+  })
+
+  it("retains server-id base settlement when the canonical row omits the nonce", () => {
+    let state = submit(emptyMessageOverlay())
+    state = apply(state, ack()).state
+    const base = [message("m1", 11, { authorId: "u1", authorName: "Canonical" })]
+    state = apply(state, { type: "baseChanged", messages: base }).state
+
+    expect(state.outboxByNonce.size).toBe(0)
+    expect(ids(base, state)).toEqual(["m1"])
+  })
+
   it("materializes an outbox row synchronously when base/pages are absent", () => {
     const state = submit(emptyMessageOverlay())
     expect(ids([], state)).toEqual(["temp_n1"])
@@ -309,6 +401,21 @@ describe("message stream monotonic visibility", () => {
     }).state
     expect(state.liveById.get("m1")?.content).toBe("refreshed")
     expect(state.outboxByNonce.has("n2")).toBe(true)
+  })
+
+  it("does not refresh a live row from a peer row with the same nonce", () => {
+    const state = apply(emptyMessageOverlay(), {
+      type: "wsMessage",
+      message: canonical("m1", 11, "same", { authorId: "u1", content: "original" }),
+    }).state
+    const transition = apply(state, {
+      type: "liveRefreshed",
+      message: canonical("m2", 12, "same", { authorId: "u2", content: "peer" }),
+    })
+
+    expect(transition.state).toBe(state)
+    expect(transition.state.liveById.get("m1")?.content).toBe("original")
+    expect(transition.state.liveById.has("m2")).toBe(false)
   })
 
   it("patches edited content across live and acknowledged outbox rows", () => {
