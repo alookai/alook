@@ -17,10 +17,62 @@ describe("CodexEventNormalizer — tool_call/tool_output symmetry", () => {
   it("fileChange: item/started then item/completed emits tool_call then tool_output", () => {
     const n = new CodexEventNormalizer();
     const started = n.normalizeLine(notify("item/started", { item: { type: "fileChange" } }));
-    expect(started).toEqual([{ kind: "tool_call", name: "file_change", input: { type: "fileChange" } }]);
+    expect(started).toEqual([{ kind: "tool_call", name: "file_change", input: {} }]);
 
     const completed = n.normalizeLine(notify("item/completed", { item: { type: "fileChange" } }));
     expect(completed).toEqual([{ kind: "tool_output", name: "file_change" }]);
+  });
+
+  it("fileChange consumes raw changes at the adapter boundary and emits only an ordered-unique flat path", () => {
+    const n = new CodexEventNormalizer();
+    const started = n.normalizeLine(notify("item/started", {
+      item: {
+        type: "fileChange",
+        changes: [
+          { path: " a.ts ", diff: "secret-a" },
+          { path: "" },
+          { path: 42 },
+          { path: "b.ts", content: "secret-b" },
+          { path: "a.ts" },
+        ],
+        path: "ignored-fallback.ts",
+        diff: "top-secret",
+        content: "top-secret-content",
+      },
+    }));
+
+    expect(started).toEqual([
+      { kind: "tool_call", name: "file_change", input: { path: "a.ts, b.ts" } },
+    ]);
+    expect(JSON.stringify(started)).not.toContain("changes");
+    expect(JSON.stringify(started)).not.toContain("secret");
+
+    const completed = n.normalizeLine(notify("item/completed", { item: { type: "fileChange" } }));
+    expect(completed).toEqual([{ kind: "tool_output", name: "file_change" }]);
+  });
+
+  it("fileChange flattens a legacy top-level path when changes are absent", () => {
+    const started = new CodexEventNormalizer().normalizeLine(notify("item/started", {
+      item: { type: "fileChange", path: " legacy.ts ", diff: "secret" },
+    }));
+
+    expect(started).toEqual([
+      { kind: "tool_call", name: "file_change", input: { path: "legacy.ts" } },
+    ]);
+  });
+
+  it("fileChange falls back to a valid top-level path when changes contain no valid paths", () => {
+    const started = new CodexEventNormalizer().normalizeLine(notify("item/started", {
+      item: {
+        type: "fileChange",
+        changes: [{ path: " " }, { path: 42 }, { diff: "secret" }],
+        path: "fallback.ts",
+      },
+    }));
+
+    expect(started).toEqual([
+      { kind: "tool_call", name: "file_change", input: { path: "fallback.ts" } },
+    ]);
   });
 
   it("webSearch: item/started then item/completed emits tool_call then tool_output", () => {

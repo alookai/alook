@@ -1668,10 +1668,10 @@ describe("extractToolAudit — file-target class", () => {
       suppressed: false,
     });
   });
-  it("codex file_change → edit + path (already-unwrapped params.item)", () => {
-    expect(extractToolAudit("file_change", { path: "src/x.ts" })).toEqual({
+  it("codex file_change → edit + adapter-flattened ordered paths", () => {
+    expect(extractToolAudit("file_change", { path: "a.ts, b.ts" })).toEqual({
       name: "edit",
-      target: "src/x.ts",
+      target: "a.ts, b.ts",
       suppressed: false,
     });
   });
@@ -1829,7 +1829,7 @@ describe("extractToolAudit — driver coverage matrix", () => {
 
     { driver: "codex", rawName: "shell", rawInput: { command: "pnpm test" }, expected: { name: "bash", target: "pnpm test", suppressed: false } },
     { driver: "codex", rawName: "shell", rawInput: { command: ["bash", "-lc", "rm tmp"] }, expected: { name: "bash", target: "bash -lc rm tmp", suppressed: false } },
-    { driver: "codex", rawName: "file_change", rawInput: { path: "/x" }, expected: { name: "edit", target: "/x", suppressed: false } },
+    { driver: "codex", rawName: "file_change", rawInput: { path: "a.ts, b.ts" }, expected: { name: "edit", target: "a.ts, b.ts", suppressed: false } },
     { driver: "codex", rawName: "web_search", rawInput: { query: "cats" }, expected: { name: "web_search", target: "cats", suppressed: false } },
     { driver: "codex", rawName: "mcp_search", rawInput: { query: "foo" }, expected: { name: "mcp_search", target: "foo", suppressed: false } },
     { driver: "codex", rawName: "collab_tool_call", rawInput: { name: "x" }, expected: { name: "collab_tool_call", target: "x", suppressed: false } },
@@ -1879,7 +1879,7 @@ describe("onBotAuditEvent — integration through onRuntimeEvent (T9/T10)", () =
       { name: "edit", input: { path: "x" }, expect: { name: "edit", target: "x" } },
       { name: "Grep", input: { pattern: "TODO" }, expect: { name: "grep", target: "TODO" } },
       { name: "shell", input: { command: "pnpm test" }, expect: { name: "bash", target: "pnpm test" } },
-      { name: "file_change", input: { path: "src/x.ts" }, expect: { name: "edit", target: "src/x.ts" } },
+      { name: "file_change", input: { path: "a.ts, b.ts" }, expect: { name: "edit", target: "a.ts, b.ts" } },
     ];
 
     for (const c of combos) {

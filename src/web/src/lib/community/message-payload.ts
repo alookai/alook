@@ -14,7 +14,7 @@
  * embeds pass-through, and mentionType projection so adding/removing a
  * field on the wire is one edit, not four.
  */
-import { MESSAGE_PREVIEW_LENGTH, type MentionType } from "@alook/shared"
+import { truncateMessagePreview, type MentionType } from "@alook/shared"
 import type { FriendApprovalPayload } from "@alook/shared"
 import { avatarInitial } from "@/lib/community/avatar"
 
@@ -94,7 +94,7 @@ function resolveReply(row: MessageRow, replyMap: Map<string, ReplyTargetRow>): R
   return {
     id: target.id,
     authorName: target.authorName,
-    text: (target.content ?? "").slice(0, MESSAGE_PREVIEW_LENGTH),
+    text: truncateMessagePreview(target.content ?? ""),
   }
 }
 

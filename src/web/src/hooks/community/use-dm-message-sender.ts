@@ -4,6 +4,7 @@ import { useCallback } from "react"
 import type { Msg } from "@/components/community/_types"
 import type { SendAttachment } from "@/components/community/composer"
 import { toastApiError } from "@/lib/api/client"
+import { toOptimisticReplyPreview } from "@/lib/community/reply-preview"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
 import {
   sendNonce,
@@ -126,7 +127,7 @@ export function useDmMessageSender() {
           authorAvatar: args.author.avatar,
           content: args.content,
           createdAt: new Date().toISOString(),
-          ...(args.replyTo ? { replyTo: args.replyTo } : {}),
+          ...(args.replyTo ? { replyTo: toOptimisticReplyPreview(args.replyTo) } : {}),
         },
         localUploads: args.attachments?.map((attachment) => {
           const previewObjectUrl = attachment.previewObjectUrl ?? URL.createObjectURL(attachment.file)

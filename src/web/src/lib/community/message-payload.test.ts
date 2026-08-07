@@ -71,11 +71,14 @@ describe("mapMessageForApi", () => {
     expect(out.replyTo).toEqual({ id: "m-gone", authorName: "Unknown", text: "", deleted: true })
   })
 
-  it("truncates reply preview text to MESSAGE_PREVIEW_LENGTH", () => {
+  it("gives API and WS projections the same ellipsized reply preview", () => {
     const long = "x".repeat(500)
     const replyMap = new Map([["m0", { id: "m0", authorName: "Bob", content: long }]])
-    const out = mapMessageForApi({ ...baseRow, replyToId: "m0" }, { ...emptyApiCtx, replyMap })
-    expect(out.replyTo?.text.length).toBeLessThan(500)
+    const apiOut = mapMessageForApi({ ...baseRow, replyToId: "m0" }, { ...emptyApiCtx, replyMap })
+    const wsOut = mapMessageForWs({ ...baseRow, replyToId: "m0" }, { ...emptyWsCtx, replyMap })
+    const expected = `${"x".repeat(119)}…`
+    expect(apiOut.replyTo?.text).toBe(expected)
+    expect(wsOut.replyTo?.text).toBe(expected)
   })
 
   it("omits attachments/reactions when there are none", () => {

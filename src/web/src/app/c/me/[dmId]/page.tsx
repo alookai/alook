@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useParams, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
-import { MESSAGE_PREVIEW_LENGTH } from "@alook/shared"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { DmHeader, DmHeaderSkeleton } from "@/components/community/dm-header"
 import { Avatar } from "@/components/community/avatar"
@@ -309,9 +308,7 @@ function DmView() {
     const receipt = acceptDmMessage({
       dmId,
       content: markdown,
-      replyTo: replyTo
-        ? { ...replyTo, text: replyTo.text.slice(0, MESSAGE_PREVIEW_LENGTH) }
-        : undefined,
+      replyTo: replyTo ?? undefined,
       attachments,
       author: {
         id: currentUser.id,

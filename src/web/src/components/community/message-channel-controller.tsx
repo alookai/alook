@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
-import { deriveThreadName, MESSAGE_PREVIEW_LENGTH, type MentionType } from "@alook/shared"
+import { deriveThreadName, type MentionType } from "@alook/shared"
 import { apiFetch, toastApiError } from "@/lib/api/client"
 import { avatarInitial } from "@/lib/community/avatar"
 import type { Msg } from "@/components/community/_types"
@@ -15,6 +15,7 @@ import {
   useTypingUsersForScope,
 } from "@/stores/community"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
+import { toOptimisticReplyPreview } from "@/lib/community/reply-preview"
 import {
   sendNonce,
   tempMessageId,
@@ -403,7 +404,7 @@ export function MessageChannelController({
         authorAvatar: viewer.avatar,
         content: markdown,
         createdAt: new Date().toISOString(),
-        ...(replyTo ? { replyTo: { ...replyTo, text: replyTo.text.slice(0, MESSAGE_PREVIEW_LENGTH) } } : {}),
+        ...(replyTo ? { replyTo: toOptimisticReplyPreview(replyTo) } : {}),
       },
       localUploads: attachments?.map((attachment) => {
         const previewObjectUrl = attachment.previewObjectUrl ?? URL.createObjectURL(attachment.file)
