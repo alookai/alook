@@ -165,6 +165,10 @@ describe("createDaemon", () => {
 
 describe("createDaemon — opt-in raw runtime trace (P0-1)", () => {
   const dirs: string[] = [];
+  const expectSecureMode = (path: string) => {
+    if (process.platform === "win32") return;
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+  };
   afterEach(() => {
     for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
@@ -199,10 +203,7 @@ describe("createDaemon — opt-in raw runtime trace (P0-1)", () => {
 
     const path = join(dir, "runtime-raw-events-%2E%2E%2Fagent_a.jsonl");
     expect(readFileSync(path, "utf8")).toBe('{"jsonrpc":"2.0","vendor":"kept"}\n');
-    // Windows cannot express POSIX 0600 via Node mode bits (see credentialProxy.test).
-    if (process.platform !== "win32") {
-      expect(statSync(path).mode & 0o777).toBe(0o600);
-    }
+    expectSecureMode(path);
     expect(existsSync(join(dir, "runtime-raw-events-agent_b.jsonl"))).toBe(false);
   });
 
@@ -225,9 +226,7 @@ describe("createDaemon — opt-in raw runtime trace (P0-1)", () => {
     expect(existsSync(`${a1}.1`)).toBe(true);
     expect(readFileSync(a2, "utf8")).toBe("only-a2\n");
     for (const path of [a1, `${a1}.1`, a2]) {
-      if (process.platform !== "win32") {
-        expect(statSync(path).mode & 0o777).toBe(0o600);
-      }
+      expectSecureMode(path);
       expect(statSync(path).size).toBeLessThanOrEqual(20);
     }
   });
