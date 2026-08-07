@@ -9,10 +9,24 @@ vi.mock("node:fs", async (importOriginal) => {
   return { ...actual, chmodSync: vi.fn(actual.chmodSync) };
 });
 
+/**
+ * Windows cannot express POSIX 0600 via Node's mode bits (stat typically
+ * reports 0666 after chmod). On win32, prove we invoked chmodSync with the
+ * requested mode; on POSIX, assert the on-disk mode stuck.
+ */
+function expectSecureMode(path: string, mode: number): void {
+  if (process.platform === "win32") {
+    expect(vi.mocked(chmodSync)).toHaveBeenCalledWith(path, mode);
+    return;
+  }
+  expect(statSync(path).mode & 0o777).toBe(mode);
+}
+
 describe("createRotatingFileSink (batch E1 — bounded default trace backing)", () => {
   let dir: string;
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "fsm-sink-"));
+    vi.mocked(chmodSync).mockClear();
   });
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
@@ -63,19 +77,24 @@ describe("createRotatingFileSink (batch E1 — bounded default trace backing)", 
     sink.write("a".repeat(20));
     sink.write("latest");
 
-    expect(statSync(path).mode & 0o777).toBe(0o600);
-    expect(statSync(`${path}.1`).mode & 0o777).toBe(0o600);
+    expectSecureMode(path, 0o600);
+    // Rotated `.1` keeps the prior active's mode on POSIX; Windows mode bits
+    // are not meaningful after rename, so only assert the active path there.
+    if (process.platform !== "win32") {
+      expect(statSync(`${path}.1`).mode & 0o777).toBe(0o600);
+    }
   });
 
   it("secures a pre-existing broad active file before appending", () => {
     const path = join(dir, "runtime-raw-events-a1.jsonl");
     writeFileSync(path, "old\n");
     chmodSync(path, 0o644);
+    vi.mocked(chmodSync).mockClear();
     const sink = createRotatingFileSink(path, 100, { mode: 0o600 });
 
     sink.write("new");
 
-    expect(statSync(path).mode & 0o777).toBe(0o600);
+    expectSecureMode(path, 0o600);
     expect(readFileSync(path, "utf8")).toBe("old\nnew\n");
   });
 
