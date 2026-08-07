@@ -190,7 +190,7 @@ vi.mock("@/lib/middleware/helpers", () => {
 })
 
 import { POST, GET } from "./route"
-import { MAX_MESSAGE_CONTENT_LENGTH, MAX_ATTACHMENTS_PER_MESSAGE, WS_EVENTS } from "@alook/shared"
+import { MAX_MESSAGE_CONTENT_LENGTH, MAX_ATTACHMENTS_PER_MESSAGE, MAX_FORUM_TAG_LENGTH, WS_EVENTS } from "@alook/shared"
 
 function postReq(body: unknown) {
   return new NextRequest("http://localhost/api/community/channels/c1/messages", {
@@ -718,6 +718,21 @@ describe("GET /api/community/channels/[id]/messages", () => {
     }))
   })
 
+  it.each(["", "   "])("rejects an explicitly empty tag %j instead of widening to all messages", async (tag) => {
+    const req = new NextRequest(`http://localhost/api/community/channels/c1/messages?tag=${encodeURIComponent(tag)}`, { method: "GET" })
+    const res = await GET(req, ctx)
+    expect(res.status).toBe(400)
+    expect(mockListMessages).not.toHaveBeenCalled()
+  })
+
+  it("rejects a tag longer than the public message-tag limit", async () => {
+    const tag = "x".repeat(MAX_FORUM_TAG_LENGTH + 1)
+    const req = new NextRequest(`http://localhost/api/community/channels/c1/messages?tag=${tag}`, { method: "GET" })
+    const res = await GET(req, ctx)
+    expect(res.status).toBe(400)
+    expect(mockListMessages).not.toHaveBeenCalled()
+  })
+
   describe("?anchor mode", () => {
     it("returns a centered window with the anchor row present, plus latestSeq + cursors", async () => {
       mockGetMessageInScope.mockResolvedValue({
@@ -770,6 +785,19 @@ describe("GET /api/community/channels/[id]/messages", () => {
       expect(res.status).toBe(404)
       expect(mockListMessagesAround).not.toHaveBeenCalled()
     })
+
+    it("applies tag to the same channel-scoped anchor window", async () => {
+      mockGetMessageInScope.mockResolvedValue({ id: "m_anchor", createdAt: "2026-06-30T00:00:03.000Z" })
+      mockListMessagesAround.mockResolvedValue({ older: [], newer: [], hasMoreOlder: false, hasMoreNewer: false })
+      const req = new NextRequest("http://localhost/api/community/channels/c1/messages?anchor=m_anchor&tag=%20Bug%20", { method: "GET" })
+      const res = await GET(req, ctx)
+      expect(res.status).toBe(200)
+      expect(mockListMessagesAround).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+        channelId: "c1",
+        anchor: { createdAt: "2026-06-30T00:00:03.000Z", id: "m_anchor" },
+        tag: "bug",
+      }))
+    })
   })
 
   describe("?since mode", () => {
@@ -804,6 +832,21 @@ describe("GET /api/community/channels/[id]/messages", () => {
       // Anchor-mode paths must not fire.
       expect(mockGetMessageInScope).not.toHaveBeenCalled()
       expect(mockListMessagesAround).not.toHaveBeenCalled()
+    })
+
+    it("applies tag to the same channel-scoped since delta", async () => {
+      mockListMessagesSince.mockResolvedValue([])
+      const req = new NextRequest(
+        "http://localhost/api/community/channels/c1/messages?since=2026-06-30T00:00:00.000Z%7Cm_0&tag=%20Bug%20",
+        { method: "GET" },
+      )
+      const res = await GET(req, ctx)
+      expect(res.status).toBe(200)
+      expect(mockListMessagesSince).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+        channelId: "c1",
+        since: { createdAt: "2026-06-30T00:00:00.000Z", id: "m_0" },
+        tag: "bug",
+      }))
     })
   })
 

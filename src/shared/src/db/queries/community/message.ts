@@ -441,6 +441,7 @@ export async function listMessagesAround(
     channelId: string;
     anchor: { createdAt: string; id: string };
     limit?: number;
+    tag?: string;
   }
 ): Promise<{
   older: ListedMessageRow[];
@@ -481,18 +482,31 @@ export async function listMessagesAround(
     )
   )! as ReturnType<typeof eq>;
 
-  const [olderRows, newerRows] = await Promise.all([
-    db
+  const selectOlder = () => db
       .select(listedMessageProjection)
       .from(communityMessage)
       .innerJoin(user, eq(communityMessage.authorId, user.id))
+  const selectNewer = () => db
+      .select(listedMessageProjection)
+      .from(communityMessage)
+      .innerJoin(user, eq(communityMessage.authorId, user.id))
+
+  const [olderRows, newerRows] = await Promise.all([
+    (opts.tag
+      ? selectOlder().innerJoin(communityMessageTag, and(
+        eq(communityMessageTag.messageId, communityMessage.id),
+        eq(communityMessageTag.tag, opts.tag),
+      ))
+      : selectOlder())
       .where(and(...scopeConds, olderCond))
       .orderBy(desc(communityMessage.createdAt), desc(communityMessage.id))
       .limit(olderHalf + 1),
-    db
-      .select(listedMessageProjection)
-      .from(communityMessage)
-      .innerJoin(user, eq(communityMessage.authorId, user.id))
+    (opts.tag
+      ? selectNewer().innerJoin(communityMessageTag, and(
+        eq(communityMessageTag.messageId, communityMessage.id),
+        eq(communityMessageTag.tag, opts.tag),
+      ))
+      : selectNewer())
       .where(and(...scopeConds, newerCond))
       // Anchor + newerHalf newer rows + 1 extra probe.
       .orderBy(asc(communityMessage.createdAt), asc(communityMessage.id))
@@ -525,6 +539,7 @@ export async function listMessagesSince(
     channelId: string;
     since: { createdAt: string; id: string };
     limit?: number;
+    tag?: string;
   }
 ): Promise<ListedMessageRow[]> {
   const limit = opts.limit ?? DEFAULT_LIMIT;
@@ -542,10 +557,16 @@ export async function listMessagesSince(
     )! as ReturnType<typeof eq>
   );
 
-  const rows = await db
+  const baseQuery = db
     .select(listedMessageProjection)
     .from(communityMessage)
-    .innerJoin(user, eq(communityMessage.authorId, user.id))
+    .innerJoin(user, eq(communityMessage.authorId, user.id));
+  const rows = await (opts.tag
+    ? baseQuery.innerJoin(communityMessageTag, and(
+      eq(communityMessageTag.messageId, communityMessage.id),
+      eq(communityMessageTag.tag, opts.tag),
+    ))
+    : baseQuery)
     .where(and(...conditions))
     .orderBy(asc(communityMessage.createdAt), asc(communityMessage.id))
     .limit(limit + 1);

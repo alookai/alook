@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, withD1Retry, CommunityAgentSendRequestSchema, utcDayKey } from "@alook/shared"
+import { queries, withD1Retry, CommunityAgentSendRequestSchema, MAX_FORUM_TAG_LENGTH, utcDayKey } from "@alook/shared"
 import {
   parseCursor,
   parseAnchor,
@@ -113,7 +113,9 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
   const since = parseCursor(params.get("since"))
   const cursor = parseCursor(params.get("cursor"))
   const rawTag = params.get("tag")
-  const tag = rawTag?.trim().toLowerCase() || undefined
+  const tag = rawTag?.trim().toLowerCase()
+  if (rawTag !== null && !tag) return writeError("tag must not be empty", 400)
+  if (tag && tag.length > MAX_FORUM_TAG_LENGTH) return writeError(`tag must be ≤ ${MAX_FORUM_TAG_LENGTH} characters`, 400)
   const pageSize = parsePageSize(params.get("limit"))
 
   if (anchorId) {
@@ -124,6 +126,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
       channelId,
       anchor: { createdAt: anchor.createdAt, id: anchor.id },
       limit: pageSize,
+      tag,
     })
 
     const { items, hasMoreOlder, hasMoreNewer, olderCursor, newerCursor } = buildAnchorResponse(
@@ -141,6 +144,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
       channelId,
       since,
       limit: pageSize,
+      tag,
     })
     const { items, hasMoreNewer, newerCursor, hasMoreOlder, olderCursor } = buildSinceResponse(rows, pageSize)
     const { messages, latestSeq } = await enrichMessages(db, userId, { channelId, isDm }, items)

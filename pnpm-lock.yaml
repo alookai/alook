@@ -187,9 +187,15 @@ importers:
       '@cloudflare/workers-types':
         specifier: ^4.20260702.1
         version: 4.20260702.1
+      '@types/better-sqlite3':
+        specifier: ^7.6.13
+        version: 7.6.13
       '@types/node':
         specifier: ^25.9.4
         version: 25.9.4
+      better-sqlite3:
+        specifier: ^12.11.1
+        version: 12.11.1
       knip:
         specifier: ^6.29.0
         version: 6.29.0

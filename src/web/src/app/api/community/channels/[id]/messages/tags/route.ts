@@ -1,8 +1,9 @@
-import { withAuth } from "@/lib/middleware/auth"
-import { writeError, writeJSON } from "@/lib/middleware/helpers"
+import { queries } from "@alook/shared"
+
 import { getDb } from "@/lib/db"
 import { requireChannelAccess } from "@/lib/community/permissions"
-import { queries } from "@alook/shared"
+import { withAuth } from "@/lib/middleware/auth"
+import { writeError, writeJSON } from "@/lib/middleware/helpers"
 
 export const GET = withAuth(async (_req, ctx) => {
   const channelId = ctx.params?.id
