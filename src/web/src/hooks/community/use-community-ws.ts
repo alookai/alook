@@ -616,9 +616,14 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             queryKey: communityKeys.threads(event.parentChannelId),
           })
           if (event.type === "community:channel.child_create") {
+            const parentMessagesKey = communityKeys.channelMessages(event.parentChannelId)
+            const parentMessages = queryClient.getQueryData<PageCache>(parentMessagesKey)
+            const openerCached = !!event.parentMessageId && parentMessages?.pages.some((page) =>
+              page.messages.some((message) => message.id === event.parentMessageId),
+            )
             if (event.parentMessageId) {
               queryClient.setQueriesData<PageCache>(
-                { queryKey: communityKeys.channelMessages(event.parentChannelId) },
+                { queryKey: parentMessagesKey },
                 (cache) => {
                   if (!cache) return cache
                   let touched = false
@@ -669,6 +674,9 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
                   })
                 }
               }
+            }
+            if (event.parentMessageId && !openerCached) {
+              void queryClient.invalidateQueries({ queryKey: parentMessagesKey })
             }
           } else {
             // child_update — sync counts/name on the parent message's thread

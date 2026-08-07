@@ -1190,7 +1190,7 @@ describe("useCommunityWs — machines", () => {
 })
 
 describe("useCommunityWs — child channel events", () => {
-  it("child_create invalidates threads without a parallel forum cache", async () => {
+  it("child_create without a parentMessageId only invalidates threads", async () => {
     await mountHook()
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     const event: CommunityChildChannelCreate = {
@@ -1207,6 +1207,7 @@ describe("useCommunityWs — child channel events", () => {
     const keys = spy.mock.calls.map((c) => c[0]?.queryKey as unknown[])
     expect(keys.some((k) => k?.includes("threads"))).toBe(true)
     expect(keys.some((k) => k?.includes("forum-threads"))).toBe(false)
+    expect(keys).not.toContainEqual(communityKeys.channelMessages("ch_1"))
   })
 })
 
@@ -1350,18 +1351,19 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
 
 // ── Regression #4 — child_create seeds messageCount: 0 ──────────────────
 describe("useCommunityWs — child_create patches parent thread badge with count 0", () => {
-  it("stamps messageCount: 0 on the parent message's thread stub", async () => {
+  it("message.create then child_create patches the opener into a forum card", async () => {
     await mountHook()
-    // Seed the parent channel's messages cache with the parent message.
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "ch_parent" })
+    refCounter = 0
+    stateCounter = 0
+    callbackCounter = 0
+    await mountHook()
     capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_parent"), {
-      pages: [
-        {
-          messages: [{ id: "m_parent", content: "hello" }],
-          hasMore: false,
-        },
-      ],
+      pages: [{ messages: [], hasMore: false }],
       pageParams: [null],
     })
+    capturedOnMessage!(messageCreate("ch_parent", "m_parent"))
 
     const event: CommunityChildChannelCreate = {
       type: "community:channel.child_create",
@@ -1384,6 +1386,55 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       name: "New thread",
       messageCount: 0,
     })
+  })
+
+  it("child_create then message.create invalidates and preserves the enriched forum card", async () => {
+    await mountHook()
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "ch_parent" })
+    refCounter = 0
+    stateCounter = 0
+    callbackCounter = 0
+    await mountHook()
+    const parentMessagesKey = communityKeys.channelMessages("ch_parent")
+    capturedQueryClient.setQueryData(parentMessagesKey, {
+      pages: [{ messages: [], hasMore: false }],
+      pageParams: [null],
+    })
+    const invalidateSpy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+    const event: CommunityChildChannelCreate = {
+      type: "community:channel.child_create",
+      parentChannelId: "ch_parent",
+      parentMessageId: "m_parent",
+      channel: {
+        id: "ch_thread",
+        name: "New thread",
+        type: "thread",
+        createdAt: "2026-07-03T00:00:00.000Z",
+      },
+    }
+
+    capturedOnMessage!(event)
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: parentMessagesKey })
+
+    capturedQueryClient.setQueryData(parentMessagesKey, {
+      pages: [{
+        messages: [{
+          id: "m_parent",
+          content: "hello",
+          thread: { id: "ch_thread", name: "New thread", messageCount: 0 },
+        }],
+        hasMore: false,
+      }],
+      pageParams: [null],
+    })
+    capturedOnMessage!(messageCreate("ch_parent", "m_parent"))
+
+    const cache = capturedQueryClient.getQueryData<{
+      pages: { messages: { id: string; thread?: { id: string } }[] }[]
+    }>(parentMessagesKey)
+    expect(cache?.pages[0].messages).toHaveLength(1)
+    expect(cache?.pages[0].messages[0].thread?.id).toBe("ch_thread")
   })
 
   it("child_update still applies the reported messageCount unchanged", async () => {
