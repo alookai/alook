@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { LucideIcon } from "lucide-react"
 import { Bell, BellOff, Pin, Users, MessagesSquare, ChevronLeft, Check, Pencil, MoreHorizontal } from "lucide-react"
 import { NOTIF_LEVELS, USE_SERVER_DEFAULT, type NotifLevel } from "@alook/shared"
@@ -229,6 +229,7 @@ function BreadcrumbRename({ label, onRename, titleMode = false }: { label: strin
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState(label)
   const [saving, setSaving] = useState(false)
+  const savingRef = useRef(false)
   // Keep the draft mirror in sync with the upstream label whenever the dialog
   // is closed — covers WS-driven renames and channel switches (the parent
   // component is reused across channelId changes).
@@ -238,11 +239,13 @@ function BreadcrumbRename({ label, onRename, titleMode = false }: { label: strin
   const draftPreview = previewSlug(draft)
   const validDraft = titleMode ? Boolean(draft.trim()) : Boolean(draftPreview.slug)
   const save = async () => {
+    if (savingRef.current) return
     const trimmed = draft.trim()
     if (!validDraft || trimmed === label) {
       setOpen(false)
       return
     }
+    savingRef.current = true
     setSaving(true)
     try {
       await onRename(trimmed)
@@ -251,6 +254,7 @@ function BreadcrumbRename({ label, onRename, titleMode = false }: { label: strin
       // The owner surfaces the API error. Keep the dialog and draft open so
       // the user can correct or retry the same title.
     } finally {
+      savingRef.current = false
       setSaving(false)
     }
   }
@@ -278,6 +282,7 @@ function BreadcrumbRename({ label, onRename, titleMode = false }: { label: strin
                 onKeyDown={onEnterSubmit(save)}
                 placeholder="Post title"
                 aria-label="Post title"
+                disabled={saving}
                 className="w-full border-0 bg-transparent p-0 text-[30px] font-medium leading-tight tracking-tight shadow-none outline-none placeholder:font-normal placeholder:text-muted-foreground/40 focus-visible:ring-0"
                 autoFocus
               />

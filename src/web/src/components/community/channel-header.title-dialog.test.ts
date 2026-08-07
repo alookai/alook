@@ -62,7 +62,11 @@ describe("ChannelHeader — forum title dialog", () => {
 
   it("prevents duplicate saves and keeps a failed post-title draft open", async () => {
     let rejectRename!: (reason?: unknown) => void
-    const onRename = vi.fn(() => new Promise<void>((_, reject) => { rejectRename = reject }))
+    let resolveRename!: () => void
+    const onRename = vi.fn(() => new Promise<void>((resolve, reject) => {
+      resolveRename = resolve
+      rejectRename = reject
+    }))
     let renderer: TestRenderer.ReactTestRenderer
     act(() => { renderer = renderHeader(onRename) })
     act(() => renderer!.root.findByProps({ "aria-label": "Edit post title" }).props.onClick())
@@ -70,12 +74,24 @@ describe("ChannelHeader — forum title dialog", () => {
 
     const save = renderer!.root.findByProps({ children: "Save" })
     act(() => { void save.props.onClick() })
+    act(() => {
+      void save.props.onClick()
+      renderer!.root.findByProps({ "aria-label": "Post title" }).props.onKeyDown({
+        key: "Enter",
+        preventDefault: vi.fn(),
+        nativeEvent: { isComposing: false },
+      })
+    })
     expect(onRename).toHaveBeenCalledOnce()
     expect(renderer!.root.findByProps({ children: "Save" }).props.disabled).toBe(true)
 
     await act(async () => { rejectRename(new Error("save failed")); await Promise.resolve() })
     expect(renderer!.root.findByProps({ "aria-label": "Post title" }).props.value).toBe("New title")
     expect(renderer!.root.findByProps({ children: "Save" }).props.disabled).toBe(false)
+
+    act(() => { void renderer!.root.findByProps({ children: "Save" }).props.onClick() })
+    expect(onRename).toHaveBeenCalledTimes(2)
+    await act(async () => { resolveRename(); await Promise.resolve() })
 
     act(() => renderer!.unmount())
   })
