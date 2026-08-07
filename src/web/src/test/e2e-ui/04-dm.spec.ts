@@ -20,7 +20,7 @@ test.describe.serial("direct messages", () => {
     const responsePromise = alice.page.waitForResponse((response) => {
       const pathname = new URL(response.url()).pathname
       return response.request().method() === "POST"
-        && pathname === `/api/community/dm/${dmId}/messages`
+        && pathname === `/api/community/channels/${dmId}/messages`
     })
     await sendMessage(alice.page, body)
     const response = await responsePromise

@@ -78,7 +78,7 @@ test("server → channel → message", async ({ asUser }) => {
   let releaseMessages!: () => void
   const messagesGate = new Promise<void>((resolve) => { releaseMessages = resolve })
   let intercepted = false
-  await page.route("**/api/community/channels/*/bootstrap*", async (route) => {
+  await page.route("**/api/community/channels/*/messages*", async (route) => {
     if (route.request().method() !== "GET") {
       await route.continue()
       return
@@ -93,7 +93,7 @@ test("server → channel → message", async ({ asUser }) => {
   await expect(composerEditable(page)).toContainText(draft)
   await expect(page.getByTestId(tid.message(firstPayload.message.id))).toHaveCount(1)
   await expect(page.getByTestId(tid.message(imePayload.message.id))).toHaveCount(1)
-  await page.unroute("**/api/community/channels/*/bootstrap*")
+  await page.unroute("**/api/community/channels/*/messages*")
 
   const restored = composerEditable(page)
   await restored.click()
