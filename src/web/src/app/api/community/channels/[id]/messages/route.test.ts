@@ -706,6 +706,18 @@ describe("GET /api/community/channels/[id]/messages", () => {
     expect(mockGetLatestMessageSeq).toHaveBeenCalledWith(expect.anything(), { channelId: "c1" })
   })
 
+  it("passes a normalized tag into the channel-scoped message query before pagination", async () => {
+    mockListMessages.mockResolvedValue([])
+    const req = new NextRequest("http://localhost/api/community/channels/c1/messages?tag=%20Bug%20&cursor=2026-01-01T00%3A00%3A00.000Z%7Cm1", { method: "GET" })
+    const res = await GET(req, ctx)
+    expect(res.status).toBe(200)
+    expect(mockListMessages).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      channelId: "c1",
+      tag: "bug",
+      cursor: { createdAt: "2026-01-01T00:00:00.000Z", id: "m1" },
+    }))
+  })
+
   describe("?anchor mode", () => {
     it("returns a centered window with the anchor row present, plus latestSeq + cursors", async () => {
       mockGetMessageInScope.mockResolvedValue({

@@ -9,6 +9,7 @@ describe("community/message-tag exports", () => {
     expect(typeof tagQueries.listTagsForMessage).toBe("function");
     expect(typeof tagQueries.listTagsForMessages).toBe("function");
     expect(typeof tagQueries.filterMessageIdsByTag).toBe("function");
+    expect(typeof tagQueries.listDistinctTagsForChannel).toBe("function");
   });
 });
 

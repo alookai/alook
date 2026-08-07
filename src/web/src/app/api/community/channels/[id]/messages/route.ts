@@ -112,6 +112,8 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
   const anchorId = parseAnchor(params.get("anchor"))
   const since = parseCursor(params.get("since"))
   const cursor = parseCursor(params.get("cursor"))
+  const rawTag = params.get("tag")
+  const tag = rawTag?.trim().toLowerCase() || undefined
   const pageSize = parsePageSize(params.get("limit"))
 
   if (anchorId) {
@@ -149,6 +151,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
     channelId,
     cursor,
     limit: pageSize + 1,
+    tag,
   })
 
   const { items, hasMore, cursor: nextCursor } = buildPaginatedResponse(rows, pageSize)

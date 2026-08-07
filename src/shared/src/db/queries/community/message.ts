@@ -5,6 +5,7 @@ import {
   communityReadState,
   communityMessageSeq,
   communityChannelMember,
+  communityMessageTag,
 } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
@@ -380,6 +381,7 @@ export async function listMessages(
     channelId: string;
     cursor?: { createdAt: string; id: string };
     limit?: number;
+    tag?: string;
   }
 ) {
   const limit = opts.limit ?? DEFAULT_LIMIT;
@@ -399,14 +401,25 @@ export async function listMessages(
       )! as ReturnType<typeof eq>
     );
   }
-
-  const rows = await db
-    .select(listedMessageProjection)
-    .from(communityMessage)
-    .innerJoin(user, eq(communityMessage.authorId, user.id))
-    .where(and(...conditions))
-    .orderBy(desc(communityMessage.createdAt), desc(communityMessage.id))
-    .limit(limit);
+  const rows = opts.tag
+    ? await db
+      .select(listedMessageProjection)
+      .from(communityMessage)
+      .innerJoin(user, eq(communityMessage.authorId, user.id))
+      .innerJoin(communityMessageTag, and(
+        eq(communityMessageTag.messageId, communityMessage.id),
+        eq(communityMessageTag.tag, opts.tag),
+      ))
+      .where(and(...conditions))
+      .orderBy(desc(communityMessage.createdAt), desc(communityMessage.id))
+      .limit(limit)
+    : await db
+      .select(listedMessageProjection)
+      .from(communityMessage)
+      .innerJoin(user, eq(communityMessage.authorId, user.id))
+      .where(and(...conditions))
+      .orderBy(desc(communityMessage.createdAt), desc(communityMessage.id))
+      .limit(limit);
 
   return rows.map(parseEmbeds);
 }

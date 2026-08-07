@@ -1,5 +1,5 @@
-import { eq, and, inArray } from "drizzle-orm";
-import { communityMessageTag } from "../../community-schema";
+import { eq, and, inArray, asc } from "drizzle-orm";
+import { communityMessage, communityMessageTag } from "../../community-schema";
 import type { Database } from "../../index";
 import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 
@@ -104,4 +104,17 @@ export async function filterMessageIdsByTag(
     )
   );
   return results.flat().map((r) => r.messageId);
+}
+
+export async function listDistinctTagsForChannel(
+  db: Database,
+  channelId: string
+): Promise<string[]> {
+  const rows = await db
+    .selectDistinct({ tag: communityMessageTag.tag })
+    .from(communityMessageTag)
+    .innerJoin(communityMessage, eq(communityMessage.id, communityMessageTag.messageId))
+    .where(eq(communityMessage.channelId, channelId))
+    .orderBy(asc(communityMessageTag.tag));
+  return rows.map((row) => row.tag);
 }
