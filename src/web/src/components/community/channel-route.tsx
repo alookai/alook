@@ -1006,14 +1006,13 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
     )
   })()
 
-  const isPotentialChild = !channelInServer && !!currentServer?.categories
   // ForumSurface owns its feed loading state. Channel hydration only waits on
   // the text/thread message controller for non-forum surfaces.
   const bodyLoading = isForum ? false : messagesLoading
   const channelHydrated =
     currentChannelId === channelId &&
+    routeModel.routeHydrated &&
     !bodyLoading &&
-    (!isPotentialChild || currentChannelMeta !== null) &&
     (!isForumPostChild || !forumPostOpenerLoading)
   if (!channelHydrated) {
     if (isForum) {

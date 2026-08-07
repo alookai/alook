@@ -18,17 +18,25 @@ const server = {
 describe("buildChannelRouteModel", () => {
   it("classifies a top-level forum without treating it as a notify unit", () => {
     const model = buildChannelRouteModel(server, null, "forum1")
-    expect(model).toMatchObject({ isForum: true, isChild: false, isNotifyUnit: false, hydrated: true })
+    expect(model).toMatchObject({ isForum: true, isChild: false, isNotifyUnit: false, routeHydrated: true })
   })
 
   it("classifies a child under a forum as a forum post", () => {
     const meta = { name: "post", parentChannelId: "forum1", parentMessageId: "m1", creatorId: "u1" }
-    const model = buildChannelRouteModel(server, meta, "post1")
-    expect(model).toMatchObject({ isForum: false, isChild: true, isForumPostChild: true, isNotifyUnit: true, hydrated: true })
+    const model = buildChannelRouteModel(server, meta, "post1", { channelId: "post1", settled: true })
+    expect(model).toMatchObject({ isForum: false, isChild: true, isForumPostChild: true, isNotifyUnit: true, routeHydrated: true })
     expect(model.parent?.id).toBe("forum1")
   })
 
   it("keeps an unresolved child unhydrated until authoritative meta settles", () => {
-    expect(buildChannelRouteModel(server, null, "missing").hydrated).toBe(false)
+    expect(buildChannelRouteModel(server, null, "missing").routeHydrated).toBe(false)
+  })
+
+  it("does not consume child A metadata while child B is unresolved", () => {
+    const stale = { name: "A", parentChannelId: "forum1", parentMessageId: "m1", creatorId: "u1" }
+    const model = buildChannelRouteModel(server, stale, "post-b", { channelId: "post-a", settled: true })
+    expect(model.currentChannelMeta).toBeNull()
+    expect(model.metaSettled).toBe(false)
+    expect(model.routeHydrated).toBe(false)
   })
 })
