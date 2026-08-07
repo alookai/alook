@@ -1,6 +1,20 @@
 import { describe, expect, it, vi } from "vitest"
 import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
+
+vi.mock("./create-dialog-shell", async () => {
+  const ReactModule = await import("react")
+  return {
+    CreateDialogShell: ({ title, footer, children }: { title: React.ReactNode; footer?: React.ReactNode; children: React.ReactNode }) => (
+      ReactModule.createElement("div", { "data-testid": "create-dialog-shell", role: "dialog" },
+        ReactModule.createElement("div", { className: "text-xs font-normal text-muted-foreground" }, title),
+        children,
+        footer,
+      )
+    ),
+  }
+})
+
 import { ChannelHeader } from "./channel-header"
 
 function renderHeader(onRename?: (name: string) => void | Promise<void>, titleRename = true) {
@@ -31,6 +45,38 @@ describe("ChannelHeader — forum title dialog", () => {
     act(() => { renderer = renderHeader(vi.fn(), false) })
     expect(renderer!.root.findAllByProps({ "aria-label": "Edit post title" })).toHaveLength(0)
     expect(renderer!.root.findAllByProps({ "aria-label": "Rename" }).length).toBeGreaterThan(0)
+    act(() => renderer!.unmount())
+  })
+
+  it("uses the shared create-dialog shell and hero input for post titles", () => {
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => { renderer = renderHeader(vi.fn()) })
+    act(() => renderer!.root.findByProps({ "aria-label": "Edit post title" }).props.onClick())
+
+    expect(renderer!.root.findByProps({ "aria-label": "Post title" }).props.className).toContain("text-[30px]")
+    expect(renderer!.root.findByProps({ children: "Edit post title" }).props.className).toBe("text-xs font-normal text-muted-foreground")
+    expect(renderer!.root.findByProps({ "data-testid": "create-dialog-shell" })).toBeDefined()
+
+    act(() => renderer!.unmount())
+  })
+
+  it("prevents duplicate saves and keeps a failed post-title draft open", async () => {
+    let rejectRename!: (reason?: unknown) => void
+    const onRename = vi.fn(() => new Promise<void>((_, reject) => { rejectRename = reject }))
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => { renderer = renderHeader(onRename) })
+    act(() => renderer!.root.findByProps({ "aria-label": "Edit post title" }).props.onClick())
+    act(() => renderer!.root.findByProps({ "aria-label": "Post title" }).props.onChange({ target: { value: "New title" } }))
+
+    const save = renderer!.root.findByProps({ children: "Save" })
+    act(() => { void save.props.onClick() })
+    expect(onRename).toHaveBeenCalledOnce()
+    expect(renderer!.root.findByProps({ children: "Save" }).props.disabled).toBe(true)
+
+    await act(async () => { rejectRename(new Error("save failed")); await Promise.resolve() })
+    expect(renderer!.root.findByProps({ "aria-label": "Post title" }).props.value).toBe("New title")
+    expect(renderer!.root.findByProps({ children: "Save" }).props.disabled).toBe(false)
+
     act(() => renderer!.unmount())
   })
 })

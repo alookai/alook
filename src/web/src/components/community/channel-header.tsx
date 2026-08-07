@@ -17,6 +17,7 @@ import { SlugHint } from "./slug-hint"
 import { previewSlug } from "@/lib/community/slug-preview"
 import { MarbleBackground } from "@/components/avatar"
 import type { RightPanel } from "./_types"
+import { CreateDialogShell } from "./create-dialog-shell"
 
 // Skeleton header for the loading frame between route change and channel
 // metadata arriving. Same h-12 footprint as <ChannelHeader> so the body below
@@ -259,24 +260,48 @@ function BreadcrumbRename({ label, onRename, titleMode = false }: { label: strin
         <Pencil className="size-3.5" />
       </Button>
       {open && (
+        titleMode ? (
+          <CreateDialogShell
+            onClose={() => setOpen(false)}
+            title="Edit post title"
+            footer={(
+              <>
+                <Button variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={saving}>Cancel</Button>
+                <Button size="sm" onClick={() => void save()} disabled={!validDraft || saving}>Save</Button>
+              </>
+            )}
+          >
+            <div className="px-5 pb-5 pt-2">
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={onEnterSubmit(save)}
+                placeholder="Post title"
+                aria-label="Post title"
+                className="w-full border-0 bg-transparent p-0 text-[30px] font-medium leading-tight tracking-tight shadow-none outline-none placeholder:font-normal placeholder:text-muted-foreground/40 focus-visible:ring-0"
+                autoFocus
+              />
+            </div>
+          </CreateDialogShell>
+        ) : (
         <Dialog open onOpenChange={(o) => { if (!o) setOpen(false) }}>
           <DialogContent className="w-105 max-w-[calc(100vw-2rem)] p-0">
             <DialogHeader className="border-b border-border px-4 py-4">
-              <DialogTitle>{titleMode ? "Edit post title" : "Rename Thread"}</DialogTitle>
+              <DialogTitle>Rename Thread</DialogTitle>
             </DialogHeader>
             <div className="px-4 pb-5 pt-4">
               <label className="block">
-                <div className="mb-2 text-xs font-semibold text-muted-foreground">{titleMode ? "Title" : "Name"}</div>
+                <div className="mb-2 text-xs font-semibold text-muted-foreground">Name</div>
                 <Input
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   onKeyDown={onEnterSubmit(save)}
-                  placeholder={titleMode ? "Post title" : "thread-name"}
-                  aria-label={titleMode ? "Post title" : "Thread name"}
+                  placeholder="thread-name"
+                  aria-label="Thread name"
                   className="h-10"
                   autoFocus
                 />
-                {!titleMode && <SlugHint {...draftPreview} />}
+                <SlugHint {...draftPreview} />
               </label>
             </div>
             <DialogFooter className="mx-0 mb-0 flex-row items-center justify-end gap-2 rounded-b-xl border-t border-border bg-card px-4 py-3">
@@ -285,6 +310,7 @@ function BreadcrumbRename({ label, onRename, titleMode = false }: { label: strin
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        )
       )}
     </>
   )
