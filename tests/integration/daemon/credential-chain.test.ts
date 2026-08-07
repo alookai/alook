@@ -58,7 +58,7 @@ describe("daemon credential chain — real local proxy against the real web app"
 
     const page = await api.read({
       agentId: fixture.bot.botUserId,
-      channel: `/${fixture.serverId}/${fixture.channelName}`,
+      channel: `/${fixture.serverHandle}/${fixture.channelName}`,
     })
     expect(Array.isArray(page.items)).toBe(true)
     expect(typeof page.hasMore).toBe("boolean")
@@ -68,7 +68,7 @@ describe("daemon credential chain — real local proxy against the real web app"
     const res = await fetch(`${proxy.url}/api/read`, {
       method: "POST",
       headers: { Authorization: "Bearer vch_this_was_never_minted", "content-type": "application/json" },
-      body: JSON.stringify({ channel: `/${fixture.serverId}/${fixture.channelName}` }),
+      body: JSON.stringify({ channel: `/${fixture.serverHandle}/${fixture.channelName}` }),
     })
     expect(res.status).toBe(401)
     const body = (await res.json()) as { error: string; code: string }

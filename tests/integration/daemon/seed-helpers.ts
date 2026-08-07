@@ -6,6 +6,7 @@
  */
 import { randomUUID } from "crypto"
 import {
+  sqlQuery,
   sqlRun,
   pairAndActivateMachine,
   seedCommunityBot,
@@ -15,6 +16,7 @@ import {
   type PairedMachine,
   type SeededCommunityBot,
 } from "@alook/test-utils"
+import { computeDiscriminator, formatHandle } from "@alook/shared"
 
 export function nanoid() {
   return randomUUID().replace(/-/g, "").slice(0, 21)
@@ -22,6 +24,7 @@ export function nanoid() {
 
 export interface DaemonItFixture {
   serverId: string
+  serverHandle: string
   channelId: string
   /**
    * Top-level channel NAME — the only way agent surfaces address a channel.
@@ -39,16 +42,25 @@ export interface DaemonItFixture {
 export async function seedPairedBot(seed: TestSeed, cookie: string): Promise<DaemonItFixture> {
   const now = new Date().toISOString()
   const serverId = `srv_${nanoid()}`
+  const serverName = `Daemon IT Server ${serverId.slice(-8)}`
+  const serverDiscriminator = computeDiscriminator(serverId)
   const channelId = `chn_${nanoid()}`
   const channelName = "general"
   sqlRun(
-    `INSERT INTO community_server (id, name, description, owner_id, created_at) VALUES (?, ?, ?, ?, ?)`,
+    `INSERT INTO community_server (id, name, discriminator, description, owner_id, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
     serverId,
-    "Daemon IT Server",
+    serverName,
+    serverDiscriminator,
     "",
     seed.userId,
     now,
   )
+  const [server] = sqlQuery<{ name: string; discriminator: string }>(
+    `SELECT name, discriminator FROM community_server WHERE id = ?`,
+    serverId,
+  )
+  if (!server) throw new Error(`seedPairedBot: server ${serverId} was not persisted`)
+  const serverHandle = formatHandle(server.name, server.discriminator)
   sqlRun(
     `INSERT INTO community_server_member (id, server_id, user_id, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
     `mem_${nanoid()}`,
@@ -70,7 +82,7 @@ export async function seedPairedBot(seed: TestSeed, cookie: string): Promise<Dae
   const paired = await pairAndActivateMachine(cookie)
   const bot = seedCommunityBot({ ownerUserId: seed.userId, serverId, machineId: paired.machineId, runtime: "claude" })
 
-  return { serverId, channelId, channelName, paired, bot }
+  return { serverId, serverHandle, channelId, channelName, paired, bot }
 }
 
 export function cleanupPairedBot(seed: TestSeed, fixture: DaemonItFixture): void {
