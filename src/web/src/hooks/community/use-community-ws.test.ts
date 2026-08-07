@@ -213,6 +213,26 @@ describe("useCommunityWs — message.create", () => {
     expect(getMessageOverlay({ kind: "channel", id: "ch_1", serverId: "s1" }).liveById).toHaveLength(1)
   })
 
+  it("inserts a new untagged opener into All only, not an already-loaded tag variant", async () => {
+    await mountHook()
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "forum_1" })
+    refCounter = 0
+    stateCounter = 0
+    callbackCounter = 0
+    await mountHook()
+    const allKey = communityKeys.channelMessages("forum_1")
+    const bugKey = [...allKey, "tag", "bug"] as const
+    const empty = { pages: [{ messages: [], hasMore: false }], pageParams: [null] }
+    capturedQueryClient.setQueryData(allKey, empty)
+    capturedQueryClient.setQueryData(bugKey, empty)
+
+    capturedOnMessage!(messageCreate("forum_1"))
+
+    expect(capturedQueryClient.getQueryData<{ pages: { messages: { id: string }[] }[] }>(allKey)?.pages[0].messages).toHaveLength(1)
+    expect(capturedQueryClient.getQueryData<{ pages: { messages: unknown[] }[] }>(bugKey)?.pages[0].messages).toHaveLength(0)
+  })
+
   it("does NOT patch a channel we aren't focused on", async () => {
     await mountHook()
     capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_other"), {
@@ -1595,6 +1615,14 @@ describe("useCommunityWs — channel.delete refreshes the parent forum feed", ()
   it("invalidates the parent's message feed + threads list when parentChannelId is present", async () => {
     await mountHook()
     const invalidateSpy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+    const allKey = communityKeys.channelMessages("forum_1")
+    const bugKey = [...allKey, "tag", "bug"] as const
+    const page = {
+      pages: [{ messages: [{ id: "opener_1", thread: { id: "post_1" } }], hasMore: false }],
+      pageParams: [null],
+    }
+    capturedQueryClient.setQueryData(allKey, page)
+    capturedQueryClient.setQueryData(bugKey, page)
 
     const event: CommunityChannelDelete = {
       type: "community:channel.delete",
@@ -1607,6 +1635,8 @@ describe("useCommunityWs — channel.delete refreshes the parent forum feed", ()
     const invalidatedKeys = invalidateSpy.mock.calls.map((c) => JSON.stringify(c[0]?.queryKey))
     expect(invalidatedKeys).toContain(JSON.stringify(communityKeys.channelMessages("forum_1")))
     expect(invalidatedKeys).toContain(JSON.stringify(communityKeys.threads("forum_1")))
+    expect(capturedQueryClient.getQueryData<{ pages: { messages: unknown[] }[] }>(allKey)?.pages[0].messages).toHaveLength(0)
+    expect(capturedQueryClient.getQueryData<{ pages: { messages: unknown[] }[] }>(bugKey)?.pages[0].messages).toHaveLength(0)
   })
 
   it("does not throw and still evicts own caches when parentChannelId is absent (legacy event)", async () => {

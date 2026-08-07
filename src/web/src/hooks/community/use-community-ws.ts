@@ -190,6 +190,18 @@ function patchMessageContentInCache(cache: PageCache | undefined, messageId: str
   return touched ? { ...cache, pages } : cache
 }
 
+function removeThreadFromCache(cache: PageCache | undefined, threadId: string): PageCache | undefined {
+  if (!cache) return cache
+  let touched = false
+  const pages = cache.pages.map((page) => {
+    const messages = page.messages.filter((message) => message.thread?.id !== threadId)
+    if (messages.length === page.messages.length) return page
+    touched = true
+    return { ...page, messages }
+  })
+  return touched ? { ...cache, pages } : cache
+}
+
 function applyReactionToCache(
   cache: PageCache | undefined,
   event: CommunityReactionAdd | CommunityReactionRemove,
@@ -818,6 +830,10 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             // PARENT's list so the deleted card disappears from the feed on
             // every client. Absent on older events / top-level channels.
             if (event.parentChannelId) {
+              queryClient.setQueriesData<PageCache>(
+                { queryKey: communityKeys.channelMessages(event.parentChannelId) },
+                (cache) => removeThreadFromCache(cache, event.channelId),
+              )
               void queryClient.invalidateQueries({
                 queryKey: communityKeys.channelMessages(event.parentChannelId),
               })
