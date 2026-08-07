@@ -15,10 +15,13 @@ import {
   useDeleteForumThread,
   useUpdatePostTags,
 } from "@/hooks/community/mutations"
+import { useChannelReadStateSnapshot } from "@/hooks/community/use-channel-read-state"
+import { useEagerChannelRead } from "@/hooks/community/use-eager-channel-read"
 
 export function ForumChannelSurface({
   serverId,
   channelId,
+  serverId,
   channelName,
   viewer,
   viewerRole,
@@ -35,6 +38,7 @@ export function ForumChannelSurface({
 }: {
   serverId: string
   channelId: string
+  serverId: string
   channelName: string
   viewer: { id: string }
   viewerRole: Role | undefined
@@ -49,6 +53,13 @@ export function ForumChannelSurface({
   onOpenPost: (postId: string) => void
   onOpenProfile: OpenProfile
 }) {
+  const readState = useChannelReadStateSnapshot(channelId)
+  useEagerChannelRead({
+    channelId,
+    serverId,
+    isChildChannel: false,
+    snapshotReady: !readState.isFetching,
+  })
   const [panelState, setPanelState] = useState<{ channelId: string; panel: RightPanel }>({
     channelId,
     panel: null,

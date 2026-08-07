@@ -302,6 +302,10 @@ describe("ChannelRoute message surface ownership", () => {
     expect(mockedUseChannelMessageFeed).not.toHaveBeenCalled()
     expect(mockedUseChannelMemberViewModel).toHaveBeenCalledTimes(1)
     expect(mockedForumChannelSurface).toHaveBeenCalledTimes(1)
+    expect(mockedForumChannelSurface).toHaveBeenCalledWith(expect.objectContaining({
+      channelId: "channel_1",
+      serverId: "server_1",
+    }), undefined)
   })
 
   it("initializes only the child feed for a thread route", () => {

@@ -106,6 +106,34 @@ describe("useEagerChannelRead — rail-badge fan-out gate", () => {
     })
   })
 
+  it("does not repeat a PUT for the same channel and fires once after a channel switch", async () => {
+    const hook = await loadHook()
+    const render = (channelId: string) => {
+      refCounter = 0
+      pendingEffects = []
+      hook({
+        channelId,
+        serverId: "srv_1",
+        isChildChannel: false,
+        snapshotReady: true,
+      })
+      flushEffects()
+    }
+
+    render("ch_1")
+    await settle()
+    render("ch_1")
+    await settle()
+    expect(apiFetchMock).toHaveBeenCalledTimes(1)
+
+    render("ch_2")
+    await settle()
+    expect(apiFetchMock).toHaveBeenCalledTimes(2)
+    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/community/channels/ch_2/read", {
+      method: "PUT",
+    })
+  })
+
   it("uses the unified channels/[id]/read trunk for a child channel too (a thread IS a channel)", async () => {
     // The per-type /threads/:id/read split is retired — all kinds mark read via
     // channels/[id]/read, which dispatches by surface. isChildChannel no longer

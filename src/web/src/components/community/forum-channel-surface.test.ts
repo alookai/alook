@@ -10,12 +10,20 @@ const mocks = vi.hoisted(() => ({
   createForumThread: vi.fn(),
   updatePostTags: vi.fn(),
   deleteForumThread: vi.fn(),
+  readState: vi.fn(() => ({ snapshot: null, isFetching: false })),
+  eagerRead: vi.fn(),
   activeMessageFeed: vi.fn(() => { throw new Error("forum must not initialize an active message feed") }),
 }))
 
 vi.mock("@/lib/api/client", () => ({ toastApiError: vi.fn() }))
 vi.mock("@/hooks/community/use-channel-message-feed", () => ({
   useChannelMessageFeed: mocks.activeMessageFeed,
+}))
+vi.mock("@/hooks/community/use-channel-read-state", () => ({
+  useChannelReadStateSnapshot: mocks.readState,
+}))
+vi.mock("@/hooks/community/use-eager-channel-read", () => ({
+  useEagerChannelRead: mocks.eagerRead,
 }))
 vi.mock("@/hooks/community/mutations", () => ({
   useCreateForumThread: () => ({ mutateAsync: mocks.createForumThread }),
@@ -59,6 +67,7 @@ const mockedForumSurface = vi.mocked(ForumSurface)
 function surfaceProps(overrides: Record<string, unknown> = {}) {
   return {
     channelId: "forum_1",
+    serverId: "srv_1",
     channelName: "ideas",
     viewer: { id: "viewer_1" },
     viewerRole: "member" as const,
@@ -77,6 +86,7 @@ function surfaceProps(overrides: Record<string, unknown> = {}) {
 describe("ForumChannelSurface ownership", () => {
   beforeEach(() => {
     mocks.createForumThread.mockResolvedValue({ threadId: "post_new" })
+    mocks.readState.mockReturnValue({ snapshot: null, isFetching: false })
   })
 
   afterEach(() => {
@@ -153,6 +163,48 @@ describe("ForumChannelSurface ownership", () => {
     const otherPost = { id: "post_2", authorId: "other_1", openerMessageId: "opener_2" } as Parameters<NonNullable<typeof forumProps.canEditPostTags>>[0]
     expect(forumProps.canEditPostTags?.(otherPost)).toBe(true)
     expect(forumProps.canDeletePost?.(otherPost)).toBe(true)
+  })
+
+  it("waits for the read snapshot and eagerly reads each forum without an active message feed", () => {
+    mocks.readState.mockReturnValue({ snapshot: null, isFetching: true })
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(React.createElement(ForumChannelSurface, surfaceProps()))
+    })
+
+    expect(mocks.readState).toHaveBeenLastCalledWith("forum_1")
+    expect(mocks.eagerRead).toHaveBeenLastCalledWith({
+      channelId: "forum_1",
+      serverId: "srv_1",
+      isChildChannel: false,
+      snapshotReady: false,
+    })
+
+    mocks.readState.mockReturnValue({ snapshot: null, isFetching: false })
+    act(() => {
+      renderer!.update(React.createElement(ForumChannelSurface, surfaceProps()))
+    })
+    expect(mocks.eagerRead).toHaveBeenLastCalledWith({
+      channelId: "forum_1",
+      serverId: "srv_1",
+      isChildChannel: false,
+      snapshotReady: true,
+    })
+
+    act(() => {
+      renderer!.update(React.createElement(
+        ForumChannelSurface,
+        surfaceProps({ channelId: "forum_2", serverId: "srv_2" }),
+      ))
+    })
+    expect(mocks.readState).toHaveBeenLastCalledWith("forum_2")
+    expect(mocks.eagerRead).toHaveBeenLastCalledWith({
+      channelId: "forum_2",
+      serverId: "srv_2",
+      isChildChannel: false,
+      snapshotReady: true,
+    })
+    expect(mocks.activeMessageFeed).not.toHaveBeenCalled()
   })
 
   it("resets the right panel when channelId changes without relying on an outer remount", () => {

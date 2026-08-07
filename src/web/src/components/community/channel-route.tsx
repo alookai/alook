@@ -220,6 +220,7 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
       <ForumChannelSurface
         serverId={serverId}
         channelId={channelId}
+        serverId={serverId}
         channelName={channelName}
         viewer={currentUser}
         viewerRole={myRole}

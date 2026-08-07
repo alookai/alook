@@ -139,12 +139,12 @@ describe("useInboxAutoCollapse", () => {
     expect(hook.current.open).toBe(false)
   })
 
-  it("keeps the popover open when a watched channel persists (navigate-only forum parent)", async () => {
+  it("keeps the popover open when a watched forum parent remains to host an unread child", async () => {
     const withForum: InboxLists = { ...EMPTY, unreads: [server("s1", [{ id: "forum1", children: ["p1"] }])] }
     const hook = await renderHook(withForum)
     await hook.call(() => hook.current.onOpenChange(true))
     await hook.call(() => hook.current.watchItem("channel:forum1"))
-    // Re-render with the parent still present (posts unread) → stays open.
+    // The parent's own opener unread is gone, but it remains to host p1.
     await hook.rerender({ ...EMPTY, unreads: [server("s1", [{ id: "forum1", children: ["p1"] }])] })
     expect(hook.current.open).toBe(true)
   })
