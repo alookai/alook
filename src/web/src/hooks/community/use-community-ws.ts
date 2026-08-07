@@ -1048,6 +1048,10 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             })
           }
           if (event.parentChannelId) {
+            queryClient.setQueriesData<PageCache>(
+              { queryKey: communityKeys.channelMessages(event.parentChannelId) },
+              (cache) => patchMessageContentInCache(cache, event.messageId, event.content),
+            )
             void queryClient.invalidateQueries({
               queryKey: communityKeys.channelMessages(event.parentChannelId),
             })

@@ -213,7 +213,7 @@ describe("useCommunityWs — message.create", () => {
     expect(getMessageOverlay({ kind: "channel", id: "ch_1", serverId: "s1" }).liveById).toHaveLength(1)
   })
 
-  it("inserts a new untagged opener into All only, not an already-loaded tag variant", async () => {
+  it("keeps forum query variants base-only and stages a new opener in the overlay", async () => {
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")
     useCommunityStore.getState().subscribe({ channelId: "forum_1" })
@@ -229,8 +229,9 @@ describe("useCommunityWs — message.create", () => {
 
     capturedOnMessage!(messageCreate("forum_1"))
 
-    expect(capturedQueryClient.getQueryData<{ pages: { messages: { id: string }[] }[] }>(allKey)?.pages[0].messages).toHaveLength(1)
+    expect(capturedQueryClient.getQueryData<{ pages: { messages: { id: string }[] }[] }>(allKey)?.pages[0].messages).toHaveLength(0)
     expect(capturedQueryClient.getQueryData<{ pages: { messages: unknown[] }[] }>(bugKey)?.pages[0].messages).toHaveLength(0)
+    expect(getMessageOverlay({ kind: "channel", id: "forum_1", serverId: "s1" }).liveById).toHaveLength(1)
   })
 
   it("does NOT patch a channel we aren't focused on", async () => {
@@ -1672,12 +1673,17 @@ describe("useCommunityWs — message edit refreshes forum opener summary", () =>
       id: "opener_1",
       content: "old title",
     })
-    capturedQueryClient.setQueryData(communityKeys.channelMessages("forum_1"), { pages: [], pageParams: [] })
-    capturedQueryClient.setQueryData([...communityKeys.channelMessages("forum_1"), "tag", "bug"], { pages: [], pageParams: [] })
+    const allKey = communityKeys.channelMessages("forum_1")
+    const bugKey = [...allKey, "tag", "bug"] as const
+    const forumPage = { pages: [{ messages: [{ id: "opener_1", content: "old title" }] }], pageParams: [null] }
+    capturedQueryClient.setQueryData(allKey, forumPage)
+    capturedQueryClient.setQueryData(bugKey, forumPage)
     capturedOnMessage!(opener)
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: communityKeys.channelMessages("forum_1") })
-    expect(capturedQueryClient.getQueryState(communityKeys.channelMessages("forum_1"))?.isInvalidated).toBe(true)
-    expect(capturedQueryClient.getQueryState([...communityKeys.channelMessages("forum_1"), "tag", "bug"])?.isInvalidated).toBe(true)
+    expect(capturedQueryClient.getQueryState(allKey)?.isInvalidated).toBe(true)
+    expect(capturedQueryClient.getQueryState(bugKey)?.isInvalidated).toBe(true)
+    expect(capturedQueryClient.getQueryData<{ pages: { messages: { content: string }[] }[] }>(allKey)?.pages[0].messages[0].content).toBe("new title")
+    expect(capturedQueryClient.getQueryData<{ pages: { messages: { content: string }[] }[] }>(bugKey)?.pages[0].messages[0].content).toBe("new title")
     expect(capturedQueryClient.getQueryData<{ content: string }>(communityKeys.message("opener_1"))?.content).toBe("new title")
 
     invalidateSpy.mockClear()

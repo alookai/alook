@@ -99,6 +99,10 @@ export const dmMessagesQueryFn =
     )
   }
 
+export function messageMatchesTag(message: Msg, tag?: string | null): boolean {
+  return !tag || message.thread?.tags?.includes(tag) === true
+}
+
 /**
  * Merge all pages into a single chronological ASC list, deduping by id.
  * Extracted so tests can drive the reducer without spinning up a full hook.
@@ -565,7 +569,7 @@ export function useMessages(
   }, [canonicalBase, channelId, scope])
   const messages = useMemo(
     () => materializeMessageStream(canonicalBase, overlay).filter((message) =>
-      !opts.tag || message.thread?.tags?.includes(opts.tag)),
+      messageMatchesTag(message, opts.tag)),
     [canonicalBase, opts.tag, overlay],
   )
   return { ...base, messages }
