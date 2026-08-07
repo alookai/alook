@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { readdirSync, readFileSync } from "fs"
-import { join } from "path"
+import { join, relative, sep } from "path"
 
 /**
  * ③ shrink-gate (route/disc trunk — flat-tree deletion). `createCommunityMessage`
@@ -48,7 +48,8 @@ describe("createCommunityMessage caller allowlist (③ shrink-gate)", () => {
     const files = walk(srcRoot)
     const callers: string[] = []
     for (const file of files) {
-      if (file.endsWith("lib/community/message-handler.ts")) continue // defines it
+      const repoRelativePath = `src/${relative(srcRoot, file).split(sep).join("/")}`
+      if (repoRelativePath === "src/lib/community/message-handler.ts") continue // defines it
       // Strip `//` line comments and `/* */` block comments so a doc mention of
       // the funnel (e.g. "the MessageTarget for createCommunityMessage") is not
       // counted as a caller — only a real invocation `createCommunityMessage(`.
@@ -58,8 +59,7 @@ describe("createCommunityMessage caller allowlist (③ shrink-gate)", () => {
       // A direct call: `createCommunityMessage(` with no intervening space (a
       // call site, not the import binding or a JSDoc reference).
       if (/\bcreateCommunityMessage\(/.test(src)) {
-        // Normalize to a `src/`-relative path stable across cwd.
-        callers.push("src/" + file.slice(srcRoot.length + 1))
+        callers.push(repoRelativePath)
       }
     }
     expect(callers.sort()).toEqual(ALLOWLIST)
