@@ -93,7 +93,7 @@ export async function hasChannels(db: Database, categoryId: string): Promise<boo
 
 export async function reorderCategories(
   db: Database,
-  serverId: string,
+  _serverId: string,
   categoryIds: string[]
 ) {
   const statements = categoryIds.map((id, index) =>

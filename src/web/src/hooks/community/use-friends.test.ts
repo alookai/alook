@@ -12,28 +12,36 @@ beforeEach(() => {
 })
 
 describe("useFriends / friendsQueryFn", () => {
-  it("fetches friends+blocked and pending in parallel and merges", async () => {
-    apiFetchMock
-      .mockImplementationOnce(async (url: string) => {
-        expect(url).toBe("/api/community/friends")
-        return { friends: [{ id: "f_1", name: "n", discriminator: "0000", avatar: "a", status: "offline", sub: "" }], blocked: [{ id: "b_1", name: "b", avatar: "a" }] }
-      })
-      .mockImplementationOnce(async (url: string) => {
-        expect(url).toBe("/api/community/friends/pending")
-        return { pending: [{ id: "p_1", userId: "u_1", name: "n", avatar: "a", kind: "incoming" }] }
-      })
+  it("fetches accepted + blocked + pending buckets in parallel and merges", async () => {
+    // Legacy aggregate GET /friends retired — each bucket from its sub-resource.
+    const byUrl: Record<string, unknown> = {
+      "/api/community/friends/accepted": { friends: [{ id: "f_1", name: "n", discriminator: "0000", avatar: "a", status: "offline", sub: "" }] },
+      "/api/community/friends/blocked": { blocked: [{ id: "b_1", name: "b", avatar: "a" }] },
+      "/api/community/friends/pending": { pending: [{ id: "p_1", userId: "u_1", name: "n", avatar: "a", kind: "incoming" }] },
+    }
+    apiFetchMock.mockImplementation(async (url: string) => {
+      if (!(url in byUrl)) throw new Error(`unexpected url ${url}`)
+      return byUrl[url]
+    })
 
     const { friendsQueryFn } = await import("./use-friends")
     const data = await friendsQueryFn()
     expect(data.friends).toHaveLength(1)
     expect(data.blocked).toHaveLength(1)
     expect(data.pending).toHaveLength(1)
-    expect(apiFetchMock).toHaveBeenCalledTimes(2)
+    expect(apiFetchMock).toHaveBeenCalledTimes(3)
+    const urls = apiFetchMock.mock.calls.map((c) => c[0]).sort()
+    expect(urls).toEqual([
+      "/api/community/friends/accepted",
+      "/api/community/friends/blocked",
+      "/api/community/friends/pending",
+    ])
   })
 
   it("populates queryClient at communityKeys.friends() and is invalidated by prefix", async () => {
     apiFetchMock
-      .mockResolvedValueOnce({ friends: [], blocked: [] })
+      .mockResolvedValueOnce({ friends: [] })
+      .mockResolvedValueOnce({ blocked: [] })
       .mockResolvedValueOnce({ pending: [] })
     const { friendsQueryFn } = await import("./use-friends")
     const qc = new QueryClient()

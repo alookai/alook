@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, MAX_FORUM_TAG_LENGTH } from "@alook/shared"
 import { requireChannelAccess } from "@/lib/community/permissions"
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
@@ -20,69 +20,23 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const archivedParam = req.nextUrl.searchParams.get("archived")
   const archived = archivedParam === "true" ? true : archivedParam === "false" ? false : undefined
 
-  const childChannels = await queries.communityChannel.listChildChannels(db, channelId, {
+  let childChannels = await queries.communityChannel.listChildChannels(db, channelId, {
     archived,
     type: "thread",
   })
 
-  // Collect id sets up front so we can resolve parent-message / creator /
-  // first-message previews in three parallel batches instead of 1+2N calls.
-  const parentIds = [
-    ...new Set(childChannels.filter((r) => r.parentMessageId).map((r) => r.parentMessageId!)),
-  ]
-  const creatorIds = [
-    ...new Set(
-      childChannels
-        .filter((r) => !r.parentMessageId && r.creatorId)
-        .map((r) => r.creatorId!),
-    ),
-  ]
-  const firstMessageChannelIds = [
-    ...new Set(childChannels.filter((r) => !r.parentMessageId).map((r) => r.id)),
-  ]
+  const rawTag = req.nextUrl.searchParams.get("tag")
+  if (rawTag !== null) {
+    const tag = rawTag.trim().toLowerCase()
+    if (!tag) return writeError("tag is required", 400)
+    if (tag.length > MAX_FORUM_TAG_LENGTH) return writeError(`tag must be ≤ ${MAX_FORUM_TAG_LENGTH} characters`, 400)
+    const openerIds = childChannels.map((child) => child.parentMessageId).filter((id): id is string => !!id)
+    const matching = new Set(await queries.communityMessageTag.filterMessageIdsByTag(db, openerIds, tag))
+    childChannels = childChannels.filter((child) => !!child.parentMessageId && matching.has(child.parentMessageId))
+  }
 
-  const [parentMessages, creators, firstMessages] = await Promise.all([
-    queries.communityMessage.getMessagesByIds(db, parentIds),
-    queries.user.getUsersByIds(db, creatorIds),
-    queries.communityMessage.getFirstMessageByChannelIds(db, firstMessageChannelIds),
-  ])
-
-  const parentMessageMap = new Map(parentMessages.map((m) => [m.id, m]))
-  const creatorMap = new Map(creators.map((u) => [u.id, u]))
-  const firstMessageMap = new Map(
-    firstMessages.map((m) => [m.channelId as string, m.content]),
-  )
-
-  const threads = childChannels.map((t) => {
-    let parent = { authorName: "", text: "" }
-    let parentSeq: number | undefined
-    if (t.parentMessageId) {
-      const msg = parentMessageMap.get(t.parentMessageId)
-      if (msg) {
-        parent = {
-          authorName: msg.authorName,
-          text: (msg.content ?? "").slice(0, 100),
-        }
-        parentSeq = msg.seq
-      }
-    } else if (t.creatorId) {
-      const creator = creatorMap.get(t.creatorId)
-      if (creator) parent = { authorName: creator.name, text: "" }
-      const firstText = firstMessageMap.get(t.id)
-      if (firstText !== undefined) {
-        parent = { ...parent, text: (firstText ?? "").slice(0, 100) }
-      }
-    }
-    return {
-      id: t.id,
-      name: t.name,
-      kind: t.type,
-      messageCount: t.messageCount ?? 0,
-      lastMessageAt: t.lastMessageAt ?? t.createdAt,
-      parent,
-      ...(parentSeq !== undefined ? { parentSeq } : {}),
-    }
-  })
-
-  return writeJSON({ threads })
+  // Plain nested collection representation. View-specific parent previews,
+  // first messages, tags, participants, and creator presentation are composed
+  // by consumers through the generic batch resource reads.
+  return writeJSON({ threads: childChannels })
 })

@@ -204,6 +204,24 @@ describe("createServer", () => {
 
     expect(insertCalls[0].values).toMatchObject({ description: "" });
   });
+
+  it("writes a 4-digit discriminator + an up-front id on the server insert (name#disc handle)", async () => {
+    const { db, insertCalls } = createDbMock({
+      insertReturns: [[serverRow], [categoryRow], [], [memberRow]],
+      selectReturns: [[{ name: "Alice" }]],
+    });
+
+    await serverQueries.createServer(db, { name: "My Server", ownerId });
+
+    // The server insert now carries an id (minted up-front so the discriminator
+    // can hash on it, like createUser) and a computed 4-digit decimal disc. The
+    // (name, discriminator) uniqueness + salt-retry come from
+    // withUniqueDiscriminator (unit-tested in user.test.ts) + the real index
+    // (community-server-discriminator-unique.test.ts).
+    expect(insertCalls[0].table).toBe(communityServer);
+    expect(insertCalls[0].values.id).toEqual(expect.any(String));
+    expect(insertCalls[0].values.discriminator).toMatch(/^\d{4}$/);
+  });
 });
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -410,5 +428,58 @@ describe("listUserServers — filter predicates (source-level pin)", () => {
     // `community_channel.id = message.channelId`. Pin the join topology.
     expect(src).toMatch(/communityMessage/);
     expect(src).toMatch(/communityChannel/);
+  });
+});
+
+function createResolveServerMock(selectReturns: unknown[][]) {
+  const selectCalls: Array<{ fields: Record<string, unknown>; where?: unknown }> = [];
+  let index = 0;
+  const db: any = {
+    select(fields: Record<string, unknown>) {
+      const call: { fields: Record<string, unknown>; where?: unknown } = { fields };
+      selectCalls.push(call);
+      const rows = selectReturns[index++] ?? [];
+      const chain: any = {
+        from: () => chain,
+        innerJoin: () => chain,
+        where(condition: unknown) {
+          call.where = condition;
+          return Promise.resolve(rows);
+        },
+      };
+      return chain;
+    },
+  };
+  return { db, selectCalls };
+}
+
+describe("resolveServerByNameForMember — handle-only entry", () => {
+  it("rejects a raw server id without querying", async () => {
+    const { db, selectCalls } = createResolveServerMock([]);
+    await expect(serverQueries.resolveServerByNameForMember(db, "u_1", "srv_1")).resolves.toEqual([]);
+    expect(selectCalls).toHaveLength(0);
+  });
+
+  it("recognizes four-digit and expanded name#discriminator handles", async () => {
+    for (const handle of ["Studio#0042", "Studio#12345"]) {
+      const row = { id: "srv_1", name: "Studio", discriminator: handle.split("#")[1] };
+      const { db, selectCalls } = createResolveServerMock([[row]]);
+      await expect(serverQueries.resolveServerByNameForMember(db, "u_1", handle)).resolves.toEqual([row]);
+      expect(selectCalls).toHaveLength(1);
+    }
+  });
+
+  it("rejects a bare name without probing a name fallback", async () => {
+    const { db, selectCalls } = createResolveServerMock([]);
+    await expect(serverQueries.resolveServerByNameForMember(db, "u_1", "Studio")).resolves.toEqual([]);
+    expect(selectCalls).toHaveLength(0);
+  });
+
+  it("pins member scoping, discriminator parsing, and index-aligned NOCASE lookup in the query source", () => {
+    const source = serverQueries.resolveServerByNameForMember.toString();
+    expect(source).toMatch(/communityServerMember\.userId/);
+    expect(source).toMatch(/parseNameAndTag/);
+    expect(source).toMatch(/COLLATE NOCASE/);
+    expect(source).toMatch(/communityServer\.discriminator/);
   });
 });

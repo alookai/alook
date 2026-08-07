@@ -16,13 +16,21 @@ export type UploadTarget = {
   threadId?: string
 }
 
-export type UploadFileArgs = { target: UploadTarget; file: File }
+export type UploadFileArgs = { target: UploadTarget; file: File; width?: number; height?: number }
 
+// Reserve-by-id (route/disc step 2b): the upload now creates a PENDING
+// attachment row and returns its stable `id` (mirroring the bot flow). The
+// composer holds the id in-memory and passes it to `send`; the server links it
+// via reserve. The old `url` field is gone — the display URL is id-addressed
+// and derived client-side (see `toAttachmentVm`). Image dimensions ride the
+// UPLOAD request (single source) and echo back here for the optimistic VM.
 export type UploadFileResult = {
-  url: string
+  id: string
   filename: string
   contentType: string
   size: number
+  width?: number
+  height?: number
 }
 
 export type UploadedAttachment = UploadFileResult & { width?: number; height?: number }
@@ -52,19 +60,27 @@ export function zipUploadResultsWithDimensions(
 }
 
 function uploadPath(target: UploadTarget): string | null {
-  if (target.threadId) return `/api/community/threads/${target.threadId}/upload`
-  if (target.dmId) return `/api/community/dm/${target.dmId}/upload`
-  if (target.channelId) return `/api/community/channels/${target.channelId}/upload`
-  return null
+  // Thread / DM / channel are all channel rows in one id-space → one upload
+  // door. Whichever id the target carries, it's a channelId to channels/{id}.
+  // Canonical attachments door (route/disc trunk): POST channels/{id}/attachments
+  // (re-pointed off the old channels/{id}/upload, which stays alive through the
+  // deploy window and is deleted at the flat-delete step). Response shape is
+  // unchanged — the human arm still returns the `{ url, filename, ... }` carrier.
+  const id = target.threadId ?? target.dmId ?? target.channelId
+  return id ? `/api/community/channels/${id}/attachments` : null
 }
 
 export function useUploadFile() {
   return useMutation<UploadFileResult, Error, UploadFileArgs>({
-    mutationFn: async ({ target, file }) => {
+    mutationFn: async ({ target, file, width, height }) => {
       const path = uploadPath(target)
       if (!path) throw new Error("Upload target requires channelId, dmId, or threadId")
       const formData = new FormData()
       formData.append("file", file)
+      // Image dimensions ride the upload body (single source — written onto the
+      // pending row server-side; never re-sent on the message `send`).
+      if (width !== undefined) formData.append("width", String(width))
+      if (height !== undefined) formData.append("height", String(height))
       const res = await fetch(path, {
         method: "POST",
         body: formData,

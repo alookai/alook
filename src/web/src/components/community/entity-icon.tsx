@@ -3,11 +3,11 @@ import { ChannelIcon } from "./channel-icon"
 
 /**
  * Every community entity that gets a leading glyph, keyed by its RAW stored
- * type string. `ChannelType` is only `"text" | "forum"`, but children carry
- * `"thread"` / `"forum_post"` — so this wider union takes the raw value
- * straight off the row without a lossy cast.
+ * type string. `ChannelType` is only `"text" | "forum"`, but a child channel
+ * carries `"thread"` — so this wider union takes the raw value straight off
+ * the row without a lossy cast.
  */
-export type EntityKind = "text" | "forum" | "thread" | "forum_post"
+export type EntityKind = "text" | "forum" | "thread"
 
 type IconComponent = (props: { className?: string }) => React.ReactNode
 
@@ -23,7 +23,6 @@ export function getEntityIcon(kind: EntityKind | undefined): IconComponent {
     case "forum":
       return ListChevronsUpDown
     case "thread":
-    case "forum_post":
       return MessagesSquare
     default:
       return ChannelIcon
@@ -37,7 +36,7 @@ export function getEntityIcon(kind: EntityKind | undefined): IconComponent {
  *
  *   text | undefined   → ChannelIcon (the custom slash glyph)
  *   forum              → ListChevronsUpDown
- *   thread | forum_post → MessagesSquare
+ *   thread             → MessagesSquare
  *
  * Accepts `className` only — matching `ChannelIcon` — so both `size-*` and
  * `text-*` call sites keep working.
@@ -47,7 +46,6 @@ export function EntityIcon({ kind, className }: { kind: EntityKind | undefined; 
     case "forum":
       return <ListChevronsUpDown className={className} />
     case "thread":
-    case "forum_post":
       return <MessagesSquare className={className} />
     default:
       return <ChannelIcon className={className} />

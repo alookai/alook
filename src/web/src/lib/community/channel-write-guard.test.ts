@@ -8,16 +8,10 @@ import {
 } from "./channel-write-guard"
 
 describe("requireMessageBearingSurface", () => {
-  it("accepts message-bearing surfaces (text, forum_post, thread)", () => {
-    for (const t of ["text", "forum_post", "thread"]) {
+  it("accepts text/forum/thread — every stored type except dm", () => {
+    for (const t of ["text", "forum", "thread"]) {
       expect(requireMessageBearingSurface(t).ok).toBe(true)
     }
-  })
-
-  it("rejects a forum top-level (post index, not a message surface) with 400", () => {
-    const r = requireMessageBearingSurface("forum")
-    expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.status).toBe(400)
   })
 
   it("rejects a DM hitting a generic channel route with 400 (block-bypass guard)", () => {
@@ -30,41 +24,36 @@ describe("requireMessageBearingSurface", () => {
     expect(requireMessageBearingSurface(null).ok).toBe(false)
     expect(requireMessageBearingSurface(undefined).ok).toBe(false)
     expect(requireMessageBearingSurface("bogus").ok).toBe(false)
+    expect(requireMessageBearingSurface("forum_post").ok).toBe(false)
   })
 })
 
 describe("rejectDmOnGenericChannelRoute", () => {
   it("rejects only dm; passes every non-dm type", () => {
     expect(rejectDmOnGenericChannelRoute("dm").ok).toBe(false)
-    for (const t of ["text", "forum", "forum_post", "thread", null, undefined]) {
+    for (const t of ["text", "forum", "thread", null, undefined]) {
       expect(rejectDmOnGenericChannelRoute(t).ok).toBe(true)
     }
   })
 })
 
 describe("requireReactableSurface", () => {
-  it("accepts every message-bearing surface incl. dm (reacting in a DM is legit)", () => {
-    for (const t of ["text", "forum_post", "thread", "dm"]) {
+  it("accepts every message-bearing surface incl. dm and forum (reacting in a DM is legit)", () => {
+    for (const t of ["text", "forum", "thread", "dm"]) {
       expect(requireReactableSurface(t).ok).toBe(true)
     }
-  })
-
-  it("rejects a forum top-level (nothing to react to) with 400", () => {
-    const r = requireReactableSurface("forum")
-    expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.status).toBe(400)
   })
 })
 
 describe("requirePinnableSurface", () => {
-  it("accepts text/forum_post/thread", () => {
-    for (const t of ["text", "forum_post", "thread"]) {
+  it("accepts text/thread/forum", () => {
+    for (const t of ["text", "forum", "thread"]) {
       expect(requirePinnableSurface(t).ok).toBe(true)
     }
   })
 
-  it("rejects dm (governance model does not fit) and forum top-level with 400", () => {
-    for (const t of ["dm", "forum", null, undefined]) {
+  it("rejects dm (governance model does not fit) with 400", () => {
+    for (const t of ["dm", null, undefined]) {
       const r = requirePinnableSurface(t)
       expect(r.ok).toBe(false)
       if (!r.ok) expect(r.status).toBe(400)
@@ -73,13 +62,12 @@ describe("requirePinnableSurface", () => {
 })
 
 describe("requireChildSurface", () => {
-  it("accepts thread and forum_post", () => {
+  it("accepts thread", () => {
     expect(requireChildSurface("thread").ok).toBe(true)
-    expect(requireChildSurface("forum_post").ok).toBe(true)
   })
 
-  it("rejects top-level and dm types with 400", () => {
-    for (const t of ["text", "forum", "dm", null, undefined]) {
+  it("rejects top-level, dm, and forum_post (no longer a valid type) with 400", () => {
+    for (const t of ["text", "forum", "dm", "forum_post", null, undefined]) {
       const r = requireChildSurface(t)
       expect(r.ok).toBe(false)
       if (!r.ok) expect(r.status).toBe(400)

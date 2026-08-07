@@ -4,6 +4,7 @@ import { useQuery, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type { Friend } from "@/components/community/_types"
+import { fetchAllServerMembers } from "./fetch-all-server-members"
 
 /**
  * Friends of the viewer who are NOT already members of `serverId` — feeds
@@ -20,16 +21,23 @@ export type InvitableFriendsResponse = {
 
 const EMPTY: readonly Friend[] = Object.freeze([])
 
+export async function invitableFriendsQueryFn(serverId: string): Promise<InvitableFriendsResponse> {
+  const [accepted, members] = await Promise.all([
+    apiFetch<{ friends: Friend[]; stale?: boolean }>("/api/community/friends/accepted"),
+    fetchAllServerMembers(serverId),
+  ])
+  if (accepted.stale) throw new Error("stale D1 read")
+  const memberIds = new Set(members.map((member) => member.userId))
+  return { friends: accepted.friends.filter((friend) => !friend.userId || !memberIds.has(friend.userId)) }
+}
+
 export function useInvitableFriends(
   serverId: string,
   enabled = true,
 ): UseQueryResult<InvitableFriendsResponse> & { friends: Friend[] } {
   const query = useQuery({
     queryKey: communityKeys.invitableFriends(serverId),
-    queryFn: () =>
-      apiFetch<InvitableFriendsResponse>(
-        `/api/community/servers/${encodeURIComponent(serverId)}/invitable-friends`,
-      ),
+    queryFn: () => invitableFriendsQueryFn(serverId),
     enabled: enabled && !!serverId,
   })
   return {

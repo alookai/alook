@@ -74,12 +74,12 @@ describe("toAgentMessages", () => {
     const db = createSequentialDb([
       [{ id: "ch_1", name: "general", serverId: "srv_1", parentChannelId: null, parentMessageId: null }],
       [{ id: "u_1", name: "Alice", discriminator: "1234" }],
-      [{ id: "srv_1", name: "studio" }],
+      [{ id: "srv_1", name: "studio", discriminator: "0042" }],
     ]);
     const [msg] = await agentInbox.toAgentMessages(db, [rawMsg()], "viewer_1");
     expect(msg).toEqual({
       seq: formatSeq(1),
-      channel: formatRef({ server: "studio", channel: "general" }),
+      channel: formatRef({ server: "studio#0042", channel: "general" }),
       sender: "@Alice#1234",
       content: { text: "hello" },
       time: "2026-07-01T00:00:00.000Z",
@@ -94,7 +94,7 @@ describe("toAgentMessages", () => {
       [{ id: "thread_1", name: "thread-x", serverId: "srv_1", parentChannelId: "ch_parent", parentMessageId: "m_root" }],
       [{ id: "u_1", name: "Alice" }],
       [{ id: "ch_parent", name: "general" }],
-      [{ id: "srv_1", name: "studio" }],
+      [{ id: "srv_1", name: "studio", discriminator: "0042" }],
       [{ id: "m_root", seq: 7 }],
     ]);
     const [msg] = await agentInbox.toAgentMessages(
@@ -102,29 +102,7 @@ describe("toAgentMessages", () => {
       [rawMsg({ channelId: "thread_1" })],
       "viewer_1"
     );
-    expect(msg!.channel).toBe(formatRef({ server: "studio", channel: "general", threadRootSeq: 7 }));
-  });
-
-  it("hydrates a forum-post message with the name-anchor ref (/server/forum/post)", async () => {
-    // A forum_post has a parentChannelId (the forum) but NO parentMessageId
-    // (unlike a thread), so it must be anchored by its own name under the
-    // forum — NOT fall through to the top-level fallback `/server/<post-name>`
-    // (which the name resolver, top-level only, could never parse back).
-    // Call order: 1. channels (the post itself), 2. author names,
-    // 3. parentChannels (the forum), 4. servers. parentMessageIds is empty
-    // (null) so that select is skipped.
-    const db = createSequentialDb([
-      [{ id: "post_1", name: "my-post", type: "forum_post", serverId: "srv_1", parentChannelId: "forum_1", parentMessageId: null }],
-      [{ id: "u_1", name: "Alice" }],
-      [{ id: "forum_1", name: "ideas" }],
-      [{ id: "srv_1", name: "studio" }],
-    ]);
-    const [msg] = await agentInbox.toAgentMessages(
-      db,
-      [rawMsg({ channelId: "post_1" })],
-      "viewer_1"
-    );
-    expect(msg!.channel).toBe(formatRef({ server: "studio", channel: "ideas", childChannelName: "my-post" }));
+    expect(msg!.channel).toBe(formatRef({ server: "studio#0042", channel: "general", threadRootSeq: 7 }));
   });
 
   it("hydrates a DM message, addressing the OTHER party (as a name#0042 handle) relative to viewerId", async () => {
@@ -148,25 +126,47 @@ describe("toAgentMessages", () => {
     expect(msg!.channel).toBe(formatRef({ server: DM_SERVER, channel: "Bob#9999" }));
   });
 
-  it("falls back to /unknown/<key> when the scope can't be resolved (e.g. deleted channel)", async () => {
+  it("fails the whole delivery without leaking an id when the scope can't be resolved", async () => {
     const db = createSequentialDb([
       [], // channels query returns nothing for a stale/deleted channelId
       [{ id: "u_1", name: "Alice" }],
       [], // serverIds ends up empty since no channel row was found
     ]);
-    const [msg] = await agentInbox.toAgentMessages(db, [rawMsg({ channelId: "ch_gone" })], "viewer_1");
-    expect(msg!.channel).toBe("/unknown/ch_gone");
+    await expect(agentInbox.toAgentMessages(db, [rawMsg({ channelId: "ch_gone" })], "viewer_1"))
+      .rejects.toThrow("Channel identity unavailable");
   });
 
-  // B1.1 degraded-path (Ingaborg's assertion): a thread channel row EXISTS but
-  // its parent/root didn't hydrate (parentChannels + parentMessages come back
-  // empty — a dangling parent ref). The by-root-seq emitter can't build a ref
-  // without the root seq, so it returns null and resolveScopeRefs sets no map
-  // entry → the caller's `?? "/unknown/<id>"` sentinel takes over. Before B1.1
-  // this row got a hand-built top-level `/studio/thread-x` ref that LOOKS
-  // addressable but 404s on resolve; now it's an explicit unresolvable sentinel.
-  // The message ROW still surfaces (never-drop) — only its channel is /unknown/.
-  it("degraded thread (parent/root not hydrated) → /unknown/ sentinel, not a bogus top-level ref, row kept", async () => {
+  it("fails the whole batch when a DM peer identity cannot hydrate", async () => {
+    const db = createSequentialDb([
+      [{ id: "dm_ch_1", name: null, type: "dm", serverId: null, parentChannelId: null, parentMessageId: null }],
+      [{ id: "u_1", name: "Alice", discriminator: "1234" }],
+      [{ channelId: "dm_ch_1", userId: "peer_internal_1" }],
+      [], // peer user lookup misses
+    ]);
+    const delivery = agentInbox.toAgentMessages(db, [rawMsg({ channelId: "dm_ch_1" })], "viewer_1");
+    await expect(delivery).rejects.toThrow("DM peer identity unavailable");
+    await expect(delivery).rejects.not.toThrow(/peer_internal_1|dm_ch_1/);
+  });
+
+  it("fails a mixed valid+orphan DM batch atomically", async () => {
+    const rows = [rawMsg({ id: "m_valid", channelId: "ch_valid" }), rawMsg({ id: "m_orphan", channelId: "dm_orphan", seq: 2 })];
+    const db = createSequentialDb([
+      [
+        { id: "ch_valid", name: "general", type: "text", serverId: "srv_1", parentChannelId: null, parentMessageId: null },
+        { id: "dm_orphan", name: null, type: "dm", serverId: null, parentChannelId: null, parentMessageId: null },
+      ],
+      [{ id: "u_1", name: "Alice", discriminator: "1234" }],
+      [{ channelId: "dm_orphan", userId: "peer_internal_1" }],
+      [], // orphan peer hydration
+      [{ id: "srv_1", name: "studio", discriminator: "0042" }],
+    ]);
+    await expect(agentInbox.toAgentMessages(db, rows, "viewer_1"))
+      .rejects.toThrow("DM peer identity unavailable");
+  });
+
+  // A thread channel row exists but its parent/root no longer hydrates. The
+  // entire delivery must fail so the cursor stays put until data repair.
+  it("degraded thread fails the whole delivery instead of emitting a bogus ref", async () => {
     // Call order: 1. channels (the thread row itself), 2. author names,
     // 3. parentChannels (EMPTY — parent didn't resolve), 4. servers,
     // 5. parentMessages (EMPTY — root seq didn't resolve).
@@ -174,25 +174,52 @@ describe("toAgentMessages", () => {
       [{ id: "thread_1", name: "thread-x", type: "thread", serverId: "srv_1", parentChannelId: "ch_gone_parent", parentMessageId: "m_gone_root" }],
       [{ id: "u_1", name: "Alice" }],
       [], // parentChannels: parent didn't hydrate
-      [{ id: "srv_1", name: "studio" }],
+      [{ id: "srv_1", name: "studio", discriminator: "0042" }],
       [], // parentMessages: root seq didn't hydrate
     ]);
-    const [msg] = await agentInbox.toAgentMessages(db, [rawMsg({ channelId: "thread_1" })], "viewer_1");
-    // Row survives (never-drop) and the channel is the explicit sentinel — NOT
-    // a fabricated `/studio/thread-x` top-level ref.
-    expect(msg).toBeDefined();
-    expect(msg!.channel).toBe("/unknown/thread_1");
-    expect(msg!.channel).not.toBe(formatRef({ server: "studio", channel: "thread-x" }));
+    await expect(agentInbox.toAgentMessages(db, [rawMsg({ channelId: "thread_1" })], "viewer_1"))
+      .rejects.toThrow("Channel identity unavailable");
   });
 
-  it("falls back to the raw authorId as sender when the user row is missing", async () => {
+  it("uses a non-routable sentinel when the author identity is missing", async () => {
     const db = createSequentialDb([
       [{ id: "ch_1", name: "general", serverId: "srv_1", parentChannelId: null, parentMessageId: null }],
       [], // author lookup misses
-      [{ id: "srv_1", name: "studio" }],
+      [{ id: "srv_1", name: "studio", discriminator: "0042" }],
     ]);
     const [msg] = await agentInbox.toAgentMessages(db, [rawMsg({ authorId: "u_ghost" })], "viewer_1");
-    expect(msg!.sender).toBe("@u_ghost");
+    expect(msg!.sender).toBe("Unknown user");
+    expect(JSON.stringify(msg)).not.toContain("u_ghost");
+  });
+
+  it("preserves 101 mixed-author rows across hydration chunks, changing only the missing display identity", async () => {
+    const rows = Array.from({ length: 101 }, (_, i) => rawMsg({
+      id: `m_${i}`,
+      authorId: `u_${i}`,
+      seq: i + 1,
+      content: `body_${i}`,
+    }));
+    const users0to99 = Array.from({ length: 100 }, (_, i) => ({
+      id: `u_${i}`,
+      name: `User${i}`,
+      discriminator: String(i).padStart(4, "0"),
+    }));
+    const attachments = new Map([["m_100", [{ id: "att_1", filename: "proof.txt", contentType: "text/plain", size: 5 }]]]);
+    const db = createSequentialDb([
+      [{ id: "ch_1", name: "general", type: "text", serverId: "srv_1", parentChannelId: null, parentMessageId: null }],
+      users0to99,
+      [], // second (>100) author chunk: u_100 is deleted
+      [{ id: "srv_1", name: "studio", discriminator: "0042" }],
+    ]);
+    const out = await agentInbox.toAgentMessages(db, rows, "viewer_1", attachments);
+    expect(out).toHaveLength(101);
+    expect(out.map((m) => m.seq)).toEqual(Array.from({ length: 101 }, (_, i) => `#${i + 1}`));
+    expect(out[0]).toMatchObject({ sender: "@User0#0000", content: { text: "body_0" } });
+    expect(out[100]).toMatchObject({
+      sender: "Unknown user",
+      content: { text: "body_100", attachments: [{ id: "att_1", filename: "proof.txt" }] },
+    });
+    expect(JSON.stringify(out)).not.toContain("u_100");
   });
 
   it("read/resolvable: a channel reply gets content.replyTo = { seq, sender } from the in-scope target", async () => {
@@ -202,7 +229,7 @@ describe("toAgentMessages", () => {
       [{ id: "ch_1", name: "general", serverId: "srv_1", parentChannelId: null, parentMessageId: null }],
       [{ id: "u_1", name: "Alice", discriminator: "1234" }],
       [{ id: "m_target", seq: 37, authorName: "Ana", discriminator: "0012" }],
-      [{ id: "srv_1", name: "studio" }],
+      [{ id: "srv_1", name: "studio", discriminator: "0042" }],
     ]);
     const [msg] = await agentInbox.toAgentMessages(
       db,
@@ -237,7 +264,7 @@ describe("toAgentMessages", () => {
       [{ id: "ch_1", name: "general", serverId: "srv_1", parentChannelId: null, parentMessageId: null }],
       [{ id: "u_1", name: "Alice", discriminator: "1234" }],
       [], // target row deleted / not returned
-      [{ id: "srv_1", name: "studio" }],
+      [{ id: "srv_1", name: "studio", discriminator: "0042" }],
     ]);
     const [msg] = await agentInbox.toAgentMessages(
       db,
@@ -254,7 +281,7 @@ describe("toAgentMessages", () => {
       [{ id: "ch_1", name: "general", serverId: "srv_1", parentChannelId: null, parentMessageId: null }],
       [{ id: "u_1", name: "Alice", discriminator: "1234" }],
       [], // target is in a different channel → not returned by the scoped query
-      [{ id: "srv_1", name: "studio" }],
+      [{ id: "srv_1", name: "studio", discriminator: "0042" }],
     ]);
     const [msg] = await agentInbox.toAgentMessages(
       db,
@@ -269,7 +296,7 @@ describe("toAgentMessages", () => {
       [{ id: "ch_1", name: "general", serverId: "srv_1", parentChannelId: null, parentMessageId: null }],
       [{ id: "u_1", name: "Alice", discriminator: "1234" }],
       [{ id: "m_legacy", seq: 0, authorName: "Ana", discriminator: "0012" }],
-      [{ id: "srv_1", name: "studio" }],
+      [{ id: "srv_1", name: "studio", discriminator: "0042" }],
     ]);
     const [msg] = await agentInbox.toAgentMessages(
       db,
@@ -285,7 +312,7 @@ describe("toAgentMessages", () => {
     const db = createSequentialDb([
       [{ id: "ch_1", name: "general", serverId: "srv_1", parentChannelId: null, parentMessageId: null }],
       [{ id: "u_1", name: "Alice", discriminator: "1234" }],
-      [{ id: "srv_1", name: "studio" }],
+      [{ id: "srv_1", name: "studio", discriminator: "0042" }],
     ]);
     const [msg] = await agentInbox.toAgentMessages(db, [rawMsg()], "viewer_1");
     expect(msg!.content).not.toHaveProperty("replyTo");
@@ -301,7 +328,7 @@ describe("toAgentMessages", () => {
       [{ id: "ch_1", name: "general", serverId: "srv_1", parentChannelId: null, parentMessageId: null }],
       [{ id: "u_1", name: "Alice", discriminator: "1234" }],
       [{ id: "m_target", seq: 4, authorName: "Ana", discriminator: "0012" }],
-      [{ id: "srv_1", name: "studio" }],
+      [{ id: "srv_1", name: "studio", discriminator: "0042" }],
     ]);
     const [msg] = await agentInbox.toAgentMessages(
       db,
@@ -324,7 +351,7 @@ describe("toAgentMessages", () => {
       [{ id: "u_1", name: "Alice", discriminator: "1234" }],
       [{ id: "t_1", seq: 11, authorName: "Ana", discriminator: "0012" }],
       [{ id: "t_2", seq: 22, authorName: "Ben", discriminator: "3456" }],
-      [{ id: "srv_1", name: "studio" }],
+      [{ id: "srv_1", name: "studio", discriminator: "0042" }],
     ]);
     const msgs = await agentInbox.toAgentMessages(
       db,
@@ -335,9 +362,9 @@ describe("toAgentMessages", () => {
       "viewer_1"
     );
     const byChannel = new Map(msgs.map((m) => [m.channel, m]));
-    expect(byChannel.get(formatRef({ server: "studio", channel: "general" }))!.content.replyTo)
+    expect(byChannel.get(formatRef({ server: "studio#0042", channel: "general" }))!.content.replyTo)
       .toEqual({ seq: formatSeq(11), sender: "@Ana#0012" });
-    expect(byChannel.get(formatRef({ server: "studio", channel: "random" }))!.content.replyTo)
+    expect(byChannel.get(formatRef({ server: "studio#0042", channel: "random" }))!.content.replyTo)
       .toEqual({ seq: formatSeq(22), sender: "@Ben#3456" });
   });
 });
@@ -347,7 +374,7 @@ describe("toAgentMessage", () => {
     const db = createSequentialDb([
       [{ id: "ch_1", name: "general", serverId: "srv_1", parentChannelId: null, parentMessageId: null }],
       [{ id: "u_1", name: "Alice", discriminator: "1234" }],
-      [{ id: "srv_1", name: "studio" }],
+      [{ id: "srv_1", name: "studio", discriminator: "0042" }],
     ]);
     const msg = await agentInbox.toAgentMessage(db, rawMsg(), "viewer_1");
     expect(msg.sender).toBe("@Alice#1234");
@@ -419,7 +446,7 @@ describe("listUnreadMessagesForAgent", () => {
     );
   });
 
-  it("excludes thread/forum_post channels the bot isn't a participant of from the allowed set", async () => {
+  it("excludes thread channels the bot isn't a participant of from the allowed set", async () => {
     // ch_a is a plain text channel (always allowed); ch_b_thread is a thread
     // the bot doesn't participate in. `listAgentAllowedChannelIds` drops
     // ch_b_thread BEFORE the messages SQL runs, so the WHERE never lets a
@@ -445,7 +472,7 @@ describe("listUnreadMessagesForAgent", () => {
     expect(result.map((r) => r.id)).toEqual(["m_a"]);
   });
 
-  it("keeps thread/forum_post channels when the bot IS a participant", async () => {
+  it("keeps thread channels when the bot IS a participant", async () => {
     const db = createSequentialDb([
       [{ serverId: "srv_1" }],
       [
@@ -617,6 +644,34 @@ describe("getInboxSnapshotForAgent", () => {
     expect(result).toEqual([]);
   });
 
+  it("preserves 101 snapshot rows across latest-sender chunks with a missing boundary identity", async () => {
+    const channels = Array.from({ length: 101 }, (_, i) => ({
+      id: `ch_${i}`, type: "text", categoryId: null, categoryPrivate: null,
+      creatorId: "u_owner", parentChannelId: null,
+    }));
+    const channelTypes = channels.map(({ id, type }) => ({ id, type }));
+    const aggregated = Array.from({ length: 101 }, (_, i) => ({
+      channelId: `ch_${i}`, pendingCount: i + 1, firstPendingSeq: i + 2,
+      latestSeq: i + 3, latestSenderId: `sender_${i}`, mentionCount: i % 2,
+    }));
+    const firstSenderChunk = Array.from({ length: 100 }, (_, i) => ({
+      id: `sender_${i}`, name: `Sender${i}`, discriminator: String(i).padStart(4, "0"),
+    }));
+    const db = createSequentialDb([
+      [{ serverId: "srv_1" }], channels, [], [], channelTypes.slice(0, 100), channelTypes.slice(100),
+      aggregated.slice(0, 100), aggregated.slice(100),
+      firstSenderChunk, [], // sender_100 is absent in the second hydration chunk
+    ]);
+    const out = await agentInbox.getInboxSnapshotForAgent(db, "bot_1");
+    expect(out).toHaveLength(101);
+    expect(out.map((r) => r.channelId)).toEqual(channels.map((c) => c.id));
+    expect(out[0]).toMatchObject({ latestSender: "@Sender0#0000", pendingCount: 1, latestSeq: 3 });
+    expect(out[100]).toMatchObject({
+      latestSender: "Unknown user", pendingCount: 101, firstPendingSeq: 102, latestSeq: 103,
+    });
+    expect(JSON.stringify(out)).not.toContain("sender_100");
+  });
+
   it("hydrates latestSender from the user table and sets hasMention from mentionCount", async () => {
     const db = createSequentialDb([
       [{ serverId: "srv_1" }],
@@ -650,7 +705,6 @@ describe("getInboxSnapshotForAgent", () => {
       ],
       [
         { id: "u_1", name: "Alice", discriminator: "1234" },
-        { id: "u_2", name: "Bob", discriminator: "5678" },
       ],
     ]);
     const result = await agentInbox.getInboxSnapshotForAgent(db, "bot_1");
@@ -668,13 +722,13 @@ describe("getInboxSnapshotForAgent", () => {
         pendingCount: 1,
         firstPendingSeq: 9,
         latestSeq: 9,
-        latestSender: "@Bob#5678",
+        latestSender: "Unknown user",
         hasMention: false,
       },
     ]);
   });
 
-  it("excludes thread/forum_post channels the bot isn't a participant of from the allowed set", async () => {
+  it("excludes thread channels the bot isn't a participant of from the allowed set", async () => {
     // ch_thread is filtered out of `allowedChannelIds` up front, so the
     // aggregation SQL's WHERE ... inArray(channelId, allowed) never surfaces
     // it. No post-filter needed → no risk of an aggregation row silently
@@ -761,7 +815,7 @@ describe("toInboxRows", () => {
       [{ channelId: "dm_ch_1", userId: "peer_1" }],
       [{ id: "peer_1", name: "Bob", discriminator: "9999" }],
       [{ id: "ch_parent", name: "general" }],
-      [{ id: "srv_1", name: "studio" }],
+      [{ id: "srv_1", name: "studio", discriminator: "0042" }],
       [{ id: "m_root", seq: 3 }],
     ]);
     const result = await agentInbox.toInboxRows(db, rows, "viewer_1");
@@ -770,7 +824,7 @@ describe("toInboxRows", () => {
       flags: ["dm", "mention"],
     });
     expect(result[1]).toMatchObject({
-      channel: formatRef({ server: "studio", channel: "general", threadRootSeq: 3 }),
+      channel: formatRef({ server: "studio#0042", channel: "general", threadRootSeq: 3 }),
       flags: ["thread"],
     });
   });
@@ -864,7 +918,7 @@ describe("listMessagesBySeq", () => {
 describe("hasDeliverableUnreadForAgentScope", () => {
   // Call order (see the query's body):
   //  1. channel-type lookup (participation-narrowing pre-check)
-  //  2. `listParticipatingThreadIds` — ONLY when (1) is thread/forum_post
+  //  2. `listParticipatingThreadIds` — ONLY when (1) is thread
   //  3. the deliverable-unread existence scan (limit 1)
   // For a plain (non-thread) channel, (2) is skipped: (1)=type, (2)=scan.
   it("returns true when a deliverable message beyond `seen` exists", async () => {

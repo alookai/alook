@@ -46,10 +46,10 @@ describe("shouldPersistQueryKey", () => {
     expect(shouldPersistQueryKey(communityKeys.inbox())).toBe(false)
   })
 
-  it("does NOT persist pins/threads/forum posts (message-related but ephemeral)", () => {
+  it("does NOT persist pins/threads/forum tags (message-related but ephemeral)", () => {
     expect(shouldPersistQueryKey(communityKeys.pins("ch_1"))).toBe(false)
     expect(shouldPersistQueryKey(communityKeys.threads("ch_1"))).toBe(false)
-    expect(shouldPersistQueryKey(communityKeys.forumPosts("ch_1"))).toBe(false)
+    expect(shouldPersistQueryKey(communityKeys.forumTags("ch_1"))).toBe(false)
   })
 
   it("returns false for keys outside the community namespace", () => {

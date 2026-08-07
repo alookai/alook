@@ -389,7 +389,7 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                                 is forced to WRAP below before the runtime/model/
                                 awake text has to truncate (Gus #730 — never let
                                 the heatmap squeeze the meta). */}
-                            <div className="flex min-w-[220px] flex-1 flex-col gap-1">
+                            <div className="flex min-w-55 flex-1 flex-col gap-1">
                               <div className="flex items-center gap-2">
                                 <span className="truncate text-[15px] font-medium text-foreground">
                                   {bot.name}

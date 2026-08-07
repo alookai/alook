@@ -63,12 +63,13 @@ export type MessageOverlayEvent =
   | { type: "submit"; intent: NewOutboxIntent }
   | { type: "uploadSettled"; nonce: string; attachments: Msg["attachments"] }
   | { type: "uploadFailed"; nonce: string }
-  | { type: "postAck"; nonce: string; serverMessageId: string; serverSeq: number }
+  | { type: "postAck"; nonce: string; message: CanonicalMessage }
   | { type: "postFail"; nonce: string }
   | { type: "terminalReject"; nonce: string }
   | { type: "retry"; nonce: string }
   | { type: "wsMessage"; message: CanonicalMessage }
   | { type: "liveRefreshed"; message: CanonicalMessage }
+  | { type: "messageEdited"; messageId: string; content: string }
   | { type: "baseChanged"; messages: CanonicalMessage[]; latestSeq?: number }
   | { type: "dismissFailed"; nonce: string }
   | { type: "clear" }
@@ -114,6 +115,15 @@ function canonicalDeltaOrder(a: CanonicalMessage, b: CanonicalMessage): number {
   return a.seq - b.seq
 }
 
+function compoundIdentity(
+  message: Pick<Msg, "authorId" | "clientNonce">,
+): string | undefined {
+  if (!message.authorId || !message.clientNonce || message.clientNonce.startsWith("srv:")) {
+    return undefined
+  }
+  return JSON.stringify([message.authorId, message.clientNonce])
+}
+
 function trimLiveDeltas(liveById: Map<string, CanonicalMessage>): void {
   const overflow = liveById.size - MAX_LIVE_MESSAGE_DELTAS
   if (overflow <= 0) return
@@ -125,10 +135,10 @@ function upsertLiveCanonical(
   liveById: Map<string, CanonicalMessage>,
   message: CanonicalMessage,
 ): void {
-  const nonce = message.clientNonce
-  if (nonce) {
+  const identity = compoundIdentity(message)
+  if (identity) {
     for (const [id, current] of liveById) {
-      if (id !== message.id && current.clientNonce === nonce) liveById.delete(id)
+      if (id !== message.id && compoundIdentity(current) === identity) liveById.delete(id)
     }
   }
   liveById.set(message.id, { ...message, failed: false })
@@ -172,15 +182,15 @@ function localUploadAttachments(
 
 function upsertMaterialized(
   byId: Map<string, MaterializedEntry>,
-  idByNonce: Map<string, string>,
+  idByIdentity: Map<string, string>,
   entry: MaterializedEntry,
 ): void {
   const { message } = entry
-  const nonce = message.clientNonce
-  if (nonce) {
-    const priorId = idByNonce.get(nonce)
+  const identity = compoundIdentity(message)
+  if (identity) {
+    const priorId = idByIdentity.get(identity)
     if (priorId && priorId !== message.id) byId.delete(priorId)
-    idByNonce.set(nonce, message.id)
+    idByIdentity.set(identity, message.id)
   }
   byId.set(message.id, entry)
 }
@@ -208,21 +218,21 @@ export function materializeMessageStream(
   overlay: MessageOverlayState,
 ): Msg[] {
   const byId = new Map<string, MaterializedEntry>()
-  const idByNonce = new Map<string, string>()
+  const idByIdentity = new Map<string, string>()
 
   // Later sources replace earlier presentation for the same id/nonce:
   // optimistic outbox < complete WS row < complete base row.
   for (const intent of overlay.outboxByNonce.values()) {
-    upsertMaterialized(byId, idByNonce, {
+    upsertMaterialized(byId, idByIdentity, {
       message: materializeIntent(intent),
       localOrdinal: intent.status === "acked" ? undefined : intent.localOrdinal,
     })
   }
   for (const message of overlay.liveById.values()) {
-    upsertMaterialized(byId, idByNonce, { message })
+    upsertMaterialized(byId, idByIdentity, { message })
   }
   for (const message of baseMessages) {
-    upsertMaterialized(byId, idByNonce, { message })
+    upsertMaterialized(byId, idByIdentity, { message })
   }
 
   return [...byId.values()].sort(materializedOrder).map((entry) => entry.message)
@@ -294,13 +304,21 @@ export function reduceMessageOverlay(
       const intent = state.outboxByNonce.get(event.nonce)
       if (!intent) return unchanged(state)
       const outboxByNonce = new Map(state.outboxByNonce)
+      const canonical = event.message
       outboxByNonce.set(event.nonce, {
         ...intent,
         status: "acked",
-        serverMessageId: event.serverMessageId,
-        serverSeq: event.serverSeq,
+        serverMessageId: canonical.id,
+        serverSeq: canonical.seq,
         localUploads: [],
-        message: { ...intent.message, failed: false },
+        message: {
+          ...intent.message,
+          ...canonical,
+          clientNonce: event.nonce,
+          replyTo: canonical.replyTo ?? intent.message.replyTo,
+          attachments: canonical.attachments ?? intent.message.attachments,
+          failed: false,
+        },
       })
       return {
         state: { ...state, outboxByNonce },
@@ -338,13 +356,17 @@ export function reduceMessageOverlay(
       const liveById = new Map(state.liveById)
       const outboxByNonce = new Map(state.outboxByNonce)
       const effects: MessageOverlayEffect[] = []
-      const nonce = event.message.clientNonce
+      const eventIdentity = compoundIdentity(event.message)
 
       for (const [intentNonce, intent] of outboxByNonce) {
-        const matchesNonce = nonce !== undefined && intentNonce === nonce
-        const matchesServerId = intent.serverMessageId !== undefined
-          && intent.serverMessageId === event.message.id
-        if (!matchesNonce && !matchesServerId) continue
+        if (intent.message.authorId !== event.message.authorId) continue
+        const intentIdentity = compoundIdentity({
+          authorId: intent.message.authorId,
+          clientNonce: intentNonce,
+        })
+        const matchesIdentity = eventIdentity !== undefined && eventIdentity === intentIdentity
+        const matchesServerId = intent.serverMessageId === event.message.id
+        if (!matchesIdentity && !matchesServerId) continue
         outboxByNonce.delete(intentNonce)
         effects.push(...revokeEffects(intent))
       }
@@ -359,9 +381,10 @@ export function reduceMessageOverlay(
       let existingId: string | undefined
       if (state.liveById.has(event.message.id)) {
         existingId = event.message.id
-      } else if (event.message.clientNonce) {
+      } else {
+        const identity = compoundIdentity(event.message)
         for (const [id, message] of state.liveById) {
-          if (message.clientNonce === event.message.clientNonce) {
+          if (identity && compoundIdentity(message) === identity) {
             existingId = id
             break
           }
@@ -375,25 +398,59 @@ export function reduceMessageOverlay(
       return { state: { ...state, liveById }, effects: [] }
     }
 
+    case "messageEdited": {
+      let changed = false
+      const liveById = new Map(state.liveById)
+      const live = liveById.get(event.messageId)
+      if (live) {
+        liveById.set(event.messageId, { ...live, content: event.content })
+        changed = true
+      }
+      const outboxByNonce = new Map(state.outboxByNonce)
+      for (const [nonce, intent] of outboxByNonce) {
+        if ((intent.serverMessageId ?? intent.tempId) !== event.messageId) continue
+        outboxByNonce.set(nonce, {
+          ...intent,
+          message: { ...intent.message, content: event.content },
+        })
+        changed = true
+      }
+      return changed
+        ? { state: { ...state, liveById, outboxByNonce }, effects: [] }
+        : unchanged(state)
+    }
+
     case "baseChanged": {
       const baseById = new Map(event.messages.map((message) => [message.id, message]))
-      const baseByNonce = new Map(
-        event.messages.flatMap((message) =>
-          message.clientNonce ? [[message.clientNonce, message] as const] : []),
+      const baseByIdentity = new Map(
+        event.messages.flatMap((message) => {
+          const identity = compoundIdentity(message)
+          return identity ? [[identity, message] as const] : []
+        }),
       )
       const liveById = new Map(state.liveById)
       const outboxByNonce = new Map(state.outboxByNonce)
       const effects: MessageOverlayEffect[] = []
 
       for (const message of state.liveById.values()) {
+        const identity = compoundIdentity(message)
         const canonical = baseById.get(message.id)
-          ?? (message.clientNonce ? baseByNonce.get(message.clientNonce) : undefined)
+          ?? (identity ? baseByIdentity.get(identity) : undefined)
         if (canonical) upsertLiveCanonical(liveById, canonical)
       }
       for (const [nonce, intent] of outboxByNonce) {
-        const canonical = intent.serverMessageId
-          ? baseById.get(intent.serverMessageId) ?? baseByNonce.get(nonce)
-          : baseByNonce.get(nonce)
+        const canonicalById = intent.serverMessageId
+          ? baseById.get(intent.serverMessageId)
+          : undefined
+        const identity = compoundIdentity({
+          authorId: intent.message.authorId,
+          clientNonce: nonce,
+        })
+        const canonical = canonicalById?.authorId === intent.message.authorId
+          ? canonicalById
+          : identity
+            ? baseByIdentity.get(identity)
+            : undefined
         if (!canonical) continue
         outboxByNonce.delete(nonce)
         upsertLiveCanonical(liveById, canonical)

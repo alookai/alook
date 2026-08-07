@@ -426,7 +426,7 @@ describe("WsControlChannel — downlink HostCommand validation (convergence #6)"
     launchId: "launch_1",
     unreadNotice: {
       kind: "unread_notice",
-      channel: "/demo/general",
+      channel: "/demo#1234/general",
       latestSeq: 42,
       channelId: "chan_xyz",
     },

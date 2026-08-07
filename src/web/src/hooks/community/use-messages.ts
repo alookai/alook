@@ -60,8 +60,9 @@ export type MessagesPageParam =
   | { mode: "older"; cursor: string }
   | { mode: "newer"; cursor: string }
 
-function buildMessagesUrl(base: string, pageParam: MessagesPageParam): string {
+function buildMessagesUrl(base: string, pageParam: MessagesPageParam, tag?: string | null): string {
   const params = new URLSearchParams()
+  if (tag) params.set("tag", tag)
   switch (pageParam.mode) {
     case "newest":
       break
@@ -83,10 +84,10 @@ function buildMessagesUrl(base: string, pageParam: MessagesPageParam): string {
 }
 
 export const channelMessagesQueryFn =
-  (channelId: string) =>
+  (channelId: string, tag?: string | null) =>
   async ({ pageParam }: { pageParam: MessagesPageParam }): Promise<MessagesPage> => {
     return apiFetch<MessagesPage>(
-      buildMessagesUrl(`/api/community/channels/${channelId}/messages`, pageParam),
+      buildMessagesUrl(`/api/community/channels/${channelId}/messages`, pageParam, tag),
     )
   }
 
@@ -94,9 +95,13 @@ export const dmMessagesQueryFn =
   (dmId: string) =>
   async ({ pageParam }: { pageParam: MessagesPageParam }): Promise<MessagesPage> => {
     return apiFetch<MessagesPage>(
-      buildMessagesUrl(`/api/community/dm/${dmId}/messages`, pageParam),
+      buildMessagesUrl(`/api/community/channels/${dmId}/messages`, pageParam),
     )
   }
+
+export function messageMatchesTag(message: Msg, tag?: string | null): boolean {
+  return !tag || message.thread?.tags?.includes(tag) === true
+}
 
 /**
  * Merge all pages into a single chronological ASC list, deduping by id.
@@ -161,6 +166,8 @@ type MessagesReturn = Omit<UseInfiniteQueryResult<PageCache, Error>, "isLoading"
 }
 
 type MessagesOpts = {
+  /** Server-side message-tag filter. Null/undefined means the complete set. */
+  tag?: string | null
   /**
    * Anchor for the initial fetch. Undefined = read-state not resolved yet;
    * the hook stays disabled until this becomes a value or `null`. `null`
@@ -176,14 +183,6 @@ type MessagesOpts = {
    * read snapshot resolves must NOT leave the query disabled.
    */
   anchorMessageId?: string | null
-  /**
-   * When true, the initial page is trusted from a pre-seeded cache (the channel
-   * bootstrap wrote `channelMessages(id)` before this hook mounted), so the
-   * hook must NOT refetch page 0 on mount — otherwise the de-serialization win
-   * is lost (bootstrap + a redundant messages fetch). Pagination (older/newer)
-   * still refetches normally. Only affects the initial window.
-   */
-  trustSeededInitialPage?: boolean
 }
 
 type ChannelMessagesOpts = MessagesOpts & {
@@ -255,15 +254,6 @@ function useMessagesInner(
       return { mode: "newer", cursor }
     },
     enabled,
-    // Trust a bootstrap-seeded initial window: treat it as fresh so the hook
-    // doesn't refetch page 0 on mount (otherwise the de-serialization win is
-    // lost — bootstrap + a redundant messages fetch). Pagination still fetches
-    // older/newer via getNext/PreviousPageParam. Without a seed these fall to
-    // the library defaults (staleTime 0, refetchOnMount true), so the
-    // non-bootstrap paths (DM, jump, forum) are unchanged.
-    ...(opts?.trustSeededInitialPage
-      ? { staleTime: Infinity, refetchOnMount: false as const }
-      : {}),
   })
 
   // Flush any pending mark-read on scope switch / unmount so the 500ms
@@ -511,7 +501,7 @@ function useMessagesInner(
     // Instant channel switch: a warm channel already has its newest-tail
     // hydrated into `messages` (from the persisted `channelMessages` cache)
     // before the read anchor resolves. Those rows must paint immediately rather
-    // than wait on the bootstrap/read-snapshot round-trip — switching must not
+    // than wait on the read-snapshot round-trip — switching must not
     // happen on a network timescale. So only report loading when there is
     // genuinely nothing to show yet.
     //
@@ -550,11 +540,12 @@ export function useMessages(
   channelId: string | null,
   opts: ChannelMessagesOpts,
 ): MessagesReturn {
-  const queryKey = communityKeys.channelMessages(channelId ?? "__none__")
+  const baseKey = communityKeys.channelMessages(channelId ?? "__none__")
+  const queryKey = opts.tag ? [...baseKey, "tag", opts.tag] as const : baseKey
   const base = useMessagesInner(
     channelId,
     queryKey,
-    channelMessagesQueryFn(channelId ?? "__none__"),
+    channelMessagesQueryFn(channelId ?? "__none__", opts?.tag),
     opts,
   )
   const scope = useMemo<MessageScope>(() => ({
@@ -577,8 +568,9 @@ export function useMessages(
     })
   }, [canonicalBase, channelId, scope])
   const messages = useMemo(
-    () => materializeMessageStream(canonicalBase, overlay),
-    [canonicalBase, overlay],
+    () => materializeMessageStream(canonicalBase, overlay).filter((message) =>
+      messageMatchesTag(message, opts.tag)),
+    [canonicalBase, opts.tag, overlay],
   )
   return { ...base, messages }
 }

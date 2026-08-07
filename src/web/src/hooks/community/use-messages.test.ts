@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { QueryClient, type InfiniteData } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
+import type { Msg } from "@/components/community/_types"
 
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({
@@ -107,7 +108,7 @@ describe("dmMessagesQueryFn", () => {
     const { dmMessagesQueryFn } = await loadHook()
     apiFetchMock.mockResolvedValueOnce({ messages: [], hasMore: false, latestSeq: 0 })
     await dmMessagesQueryFn("dm_1")({ pageParam: { mode: "newest" } })
-    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/community/dm/dm_1/messages")
+    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/community/channels/dm_1/messages")
   })
 
   it("older cursor → ?cursor", async () => {
@@ -117,7 +118,7 @@ describe("dmMessagesQueryFn", () => {
       pageParam: { mode: "older", cursor: "cur_1" },
     })
     expect(apiFetchMock).toHaveBeenLastCalledWith(
-      "/api/community/dm/dm_1/messages?cursor=cur_1",
+      "/api/community/channels/dm_1/messages?cursor=cur_1",
     )
   })
 
@@ -138,6 +139,18 @@ describe("dmMessagesQueryFn", () => {
     })
     const data = qc.getQueryData<InfiniteData<{ messages: unknown[] }>>(key)
     expect(data?.pages).toHaveLength(2)
+  })
+})
+
+describe("messageMatchesTag", () => {
+  it("keeps untagged live rows out of tagged forum variants", async () => {
+    const { messageMatchesTag } = await loadHook()
+    const untagged = { id: "m1", type: "chat", thread: { tags: [] } } as Msg
+    const tagged = { id: "m2", type: "chat", thread: { tags: ["bug"] } } as Msg
+
+    expect(messageMatchesTag(untagged, null)).toBe(true)
+    expect(messageMatchesTag(untagged, "bug")).toBe(false)
+    expect(messageMatchesTag(tagged, "bug")).toBe(true)
   })
 })
 

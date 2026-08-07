@@ -31,6 +31,7 @@ export type SettingsSection =
 export type Server = {
   id: string // nanoid
   name: string
+  discriminator?: string
   initial: string
   active: boolean
   mentions: number
@@ -130,7 +131,16 @@ export type Msg = {
   attachments?: Attachment[]
   reactions?: Reaction[]
   replyTo?: { id: string; authorName: string; text: string; deleted?: boolean }
-  thread?: { id: string; name: string; messageCount: number; lastReplyAt?: string }
+  thread?: {
+    id: string
+    name: string
+    messageCount: number
+    lastReplyAt?: string
+    tags?: string[]
+    preview?: string
+    participants?: { id: string; name: string; avatar: string }[]
+    participantCount?: number
+  }
   // Present only on a friend-approval DM card. Its presence (not the message
   // `type`) is the discriminator for rendering <BotApprovalCard>.
   approval?: import("@alook/shared").FriendApprovalPayload
@@ -144,7 +154,7 @@ export type Msg = {
 export type RenderMsg = Msg & { grouped: boolean }
 
 // ── Threads / forum ──────────────────────────────────────────────────────────
-// Thread/forum-post summaries shown in side panels and forum lists. Actual
+// Child-thread summaries shown in side panels and forum lists. Actual
 // message content for a thread or post is loaded into `ctx.messages` once the
 // user navigates into the child channel — these summaries don't carry messages.
 export type Thread = {
@@ -154,14 +164,15 @@ export type Thread = {
   lastMessageAt: string
   parent: { authorName: string; text: string }
   // The root message's per-channel seq, when the thread was created from a
-  // parent message (omitted for threads with no parent, e.g. forum posts).
+  // parent message (omitted only for legacy rootless threads).
   // Used by `channel-ref-pill.tsx` to match a `/server/channel/#N` ref.
   parentSeq?: number
 }
 
-export type ForumPost = Thread & {
+export type ForumThread = Thread & {
   authorId: string
   authorAvatar: string
+  openerMessageId: string
   tags: string[]
   preview: string
   // The post's participant (notify) set — creator first, then whoever
@@ -169,6 +180,8 @@ export type ForumPost = Thread & {
   // present (empty for a post with no participant rows yet, e.g. one created
   // before the notify-scope change shipped).
   participants: { id: string; name: string; avatar: string }[]
+  // Total participant rows before the card-preview cap is applied.
+  participantCount: number
 }
 
 // ── Members / friends / DMs ──────────────────────────────────────────────────
@@ -253,8 +266,10 @@ export type Profile = {
   // resolution and self-detection (never match by non-unique display name).
   // Optional so mock/older Profile-constructing sites keep type-checking.
   userId?: string
-  // 4-digit discriminator hash of user.id (`"0042"`) — undefined while the
-  // profile fetch is in flight. See computeDiscriminator in @alook/shared.
+  // Variable-width (≥4-digit) decimal discriminator derived from user.id
+  // (`"0042"`, widens on collision) — undefined while the profile fetch is in
+  // flight. Shown at its true width, never re-padded. See computeDiscriminator
+  // in @alook/shared.
   discriminator?: string
   avatar: string
   role: string
@@ -299,7 +314,7 @@ export type Mention = {
 }
 
 // A single per-user saved ("marked") message, as returned by
-// `/api/community/inbox/marked`. Cross-channel newest-first — each row carries
+// `/api/community/users/me/marks`. Cross-channel newest-first — each row carries
 // the serverId + channelId + seq needed to deep-link back to the message
 // (unlike a Mention, which only opens the channel, a Marked row jumps to the
 // exact message via the `?msg=<id>` deep-link). `id` is the mark row's own id,
@@ -319,19 +334,23 @@ export type Marked = {
   m: Msg
 }
 
-// A single unread thread / forum-post nested under its parent channel.
+// A single unread child thread nested under its parent channel.
 type UnreadChild = {
   channelId: string
   channelName: string
-  // Raw stored channel type — drives the inbox entity icon (thread/forum_post
-  // → MessagesSquare). Optional for backward-compat with cached responses.
+  // Raw stored channel type — drives the inbox entity icon (thread →
+  // MessagesSquare). Optional for backward-compat with cached responses.
   type?: EntityKind
   lastMessageAt: string
   mentionCount: number
+  // Present when this row projects an unread opener from the parent forum.
+  // The child id remains the navigation target; this opener id is the parent
+  // channel's progressive-read target.
+  openerMessageId?: string
 }
 
 // "Unreads" — channels with unread messages, grouped by server. Each channel
-// may carry `children` (unread threads/forum-posts) rendered as indented
+// may carry `children` (unread child threads) rendered as indented
 // sub-rows; a parent can appear solely to host unread children.
 export type UnreadServer = {
   serverId: string

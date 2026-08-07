@@ -33,7 +33,7 @@ const MENTION_LIMIT = 8
 // (`renderHTML`) and the rendered pill (message-markdown.tsx) both strip it
 // for display only.
 function mentionDisplayLabel(label: string): string {
-  return label.replace(/#\d{4}$/, "")
+  return label.replace(/#\d{4,}$/, "")
 }
 
 // Pure ranker — exported for tests. Items are everyone/here followed by

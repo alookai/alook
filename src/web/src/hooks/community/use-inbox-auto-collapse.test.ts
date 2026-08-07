@@ -67,7 +67,7 @@ describe("inboxItemPresent", () => {
     expect(inboxItemPresent(lists, "channel:c2")).toBe(false)
   })
 
-  it("finds a channel:<id> that is a nested child (thread / forum-post)", () => {
+  it("finds a channel:<id> that is a nested child thread", () => {
     const lists: InboxLists = { ...EMPTY, unreads: [server("s1", [{ id: "c1", children: ["t1"] }])] }
     expect(inboxItemPresent(lists, "channel:t1")).toBe(true)
   })
@@ -139,14 +139,42 @@ describe("useInboxAutoCollapse", () => {
     expect(hook.current.open).toBe(false)
   })
 
-  it("keeps the popover open when a watched channel persists (navigate-only forum parent)", async () => {
+  it("keeps the popover open when a watched forum parent remains to host an unread child", async () => {
     const withForum: InboxLists = { ...EMPTY, unreads: [server("s1", [{ id: "forum1", children: ["p1"] }])] }
     const hook = await renderHook(withForum)
     await hook.call(() => hook.current.onOpenChange(true))
     await hook.call(() => hook.current.watchItem("channel:forum1"))
-    // Re-render with the parent still present (posts unread) → stays open.
+    // The parent's own opener unread is gone, but it remains to host p1.
     await hook.rerender({ ...EMPTY, unreads: [server("s1", [{ id: "forum1", children: ["p1"] }])] })
     expect(hook.current.open).toBe(true)
+  })
+
+  it("collapses an opener-only forum thread after the successful parent refresh removes it", async () => {
+    const withOpener = { ...EMPTY, unreads: [server("s1", [{ id: "forum1", children: ["post1"] }])] }
+    const hook = await renderHook(withOpener)
+    await hook.call(() => hook.current.onOpenChange(true))
+    await hook.call(() => hook.current.watchItem("channel:post1"))
+
+    // Parent progressive read consumes the opener; there are no child replies,
+    // so the nested thread row leaves the Inbox immediately after refetch.
+    await hook.rerender(EMPTY)
+    expect(hook.current.open).toBe(false)
+  })
+
+  it("keeps an opener-plus-reply thread until the child eager read consumes replies", async () => {
+    const withPost = { ...EMPTY, unreads: [server("s1", [{ id: "forum1", children: ["post1"] }])] }
+    const hook = await renderHook(withPost)
+    await hook.call(() => hook.current.onOpenChange(true))
+    await hook.call(() => hook.current.watchItem("channel:post1"))
+
+    // Parent read removes the opener projection, but the same deduped child row
+    // remains because it still has unread replies.
+    await hook.rerender(withPost)
+    expect(hook.current.open).toBe(true)
+
+    // The destination child's existing eager read then removes the reply row.
+    await hook.rerender(EMPTY)
+    expect(hook.current.open).toBe(false)
   })
 
   it("collapses when a watched DM leaves the list", async () => {

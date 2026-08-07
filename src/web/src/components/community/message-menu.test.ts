@@ -22,16 +22,23 @@ describe("messageMenuItems", () => {
     expect(onShare).toHaveBeenCalledOnce()
   })
 
+  it("includes Edit Message only when the author-scoped handler is provided", () => {
+    expect(messageMenuItems({}).some((it) => it.label === "Edit Message")).toBe(false)
+    const onEdit = vi.fn()
+    messageMenuItems({ onEdit }).find((it) => it.label === "Edit Message")?.onClick?.()
+    expect(onEdit).toHaveBeenCalledOnce()
+  })
+
   it("gives only the high-frequency actions (Reply, Share) an icon; the rest text-only", () => {
     // Locked spec (uiux #14): single list; icons only on Reply + Share as
     // navigation anchors; low-freq actions are text (icon slot → placeholder).
     const items = messageMenuItems({
       onReply: () => {}, onShare: () => {}, onAddReaction: () => {},
-      onCreateThread: () => {}, onPin: () => {}, onCopy: () => {},
+      onCreateThread: () => {}, onPin: () => {}, onCopy: () => {}, onEdit: () => {},
     })
     const iconLabels = items.filter((it) => it.icon).map((it) => it.label)
     expect(iconLabels).toEqual(["Reply", "Share as Image"])
-    for (const label of ["Add Reaction", "Create Thread", "Pin Message", "Copy Text"]) {
+    for (const label of ["Add Reaction", "Create Thread", "Pin Message", "Copy Text", "Edit Message"]) {
       expect(items.find((it) => it.label === label)?.icon).toBeUndefined()
     }
   })
@@ -39,9 +46,9 @@ describe("messageMenuItems", () => {
   it("keeps the original row order — icons don't reorder the list (uiux #19)", () => {
     const labels = messageMenuItems({
       onReply: () => {}, onShare: () => {}, onAddReaction: () => {},
-      onCreateThread: () => {}, onPin: () => {}, onCopy: () => {},
+      onCreateThread: () => {}, onPin: () => {}, onCopy: () => {}, onEdit: () => {},
     }).map((it) => it.label)
-    expect(labels).toEqual(["Add Reaction", "Reply", "Create Thread", "Pin Message", "Copy Text", "Share as Image"])
+    expect(labels).toEqual(["Add Reaction", "Reply", "Create Thread", "Pin Message", "Copy Text", "Edit Message", "Share as Image"])
     expect(labels).not.toContain("sep")
   })
 

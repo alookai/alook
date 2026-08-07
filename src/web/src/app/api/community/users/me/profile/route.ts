@@ -7,6 +7,7 @@ import {
   BANNER_COLOR_REGEX,
   WS_EVENTS,
   validateCommunityName,
+  withD1Retry,
 } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { createAuth } from "@/lib/auth"
@@ -17,8 +18,14 @@ import { fanOutStatusUpdate, fanOutToServerMembers } from "@/lib/community/fanou
 export const GET = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
   const [profile, viewer] = await Promise.all([
-    queries.communityUserProfile.getProfile(db, ctx.userId),
-    queries.user.getUserSelf(db, ctx.userId),
+    withD1Retry(
+      () => queries.communityUserProfile.getProfile(db, ctx.userId),
+      { route: "community/profile:self-profile" }
+    ),
+    withD1Retry(
+      () => queries.user.getUserSelf(db, ctx.userId),
+      { route: "community/profile:self-user" }
+    ),
   ])
   return writeJSON({
     aboutMe: profile?.aboutMe ?? "",

@@ -5,12 +5,13 @@ const mockGetMember = vi.fn()
 const mockCreateCategory = vi.fn()
 const mockLogAction = vi.fn()
 const mockFanOut = vi.fn()
+const mockFindMany = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
 }))
 
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({ query: { communityCategory: { findMany: (...a: unknown[]) => mockFindMany(...a) } } })) }))
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -48,9 +49,17 @@ vi.mock("@/lib/middleware/helpers", () => {
   }
 })
 
-import { POST } from "./route"
+import { GET, POST } from "./route"
 
 const ctx = { params: { id: "s1" } } as any
+
+it("GET returns the canonical category rows for a server member", async () => {
+  mockGetMember.mockResolvedValue({ id: "mem_1", userId: "u1", role: "member" })
+  mockFindMany.mockResolvedValue([{ id: "cat1", serverId: "s1", name: "General", position: 0, private: 0 }])
+  const res = await GET(new NextRequest("http://localhost/api/community/servers/s1/categories"), ctx)
+  expect(res.status).toBe(200)
+  expect(await res.json()).toEqual({ categories: [{ id: "cat1", serverId: "s1", name: "General", position: 0, private: 0 }] })
+})
 
 function postReq(body: unknown) {
   return new NextRequest("http://localhost/api/community/servers/s1/categories", {

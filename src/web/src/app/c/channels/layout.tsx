@@ -30,8 +30,9 @@ import { useServer, useServers } from "@/hooks/community/use-servers"
 import { useServerMembers } from "@/hooks/community/use-server-members"
 import {
   consumeVoluntaryLeave,
-  pickPostEjectDestination,
+  runAuthoritativeServerEject,
 } from "@/components/community/eject-server"
+import { clearLastChannel } from "@/lib/community/last-channel"
 import { usePresence } from "@/hooks/community/use-server-panels"
 import { useCommunityWsStore, useOnlineUserIds } from "@/stores/community/ws"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
@@ -128,25 +129,25 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   //   4. Viewer pasted a URL for a server they were never in (list
   //      finishes loading, id is missing from the start).
   //
-  // Gate on `isFetched && !isFetching`, not on `isLoading`. TanStack v5
-  // `isLoading` is only true on the very first fetch — after any WS
-  // invalidate, reconnect, or IDB rehydrate, `isLoading=false` even while
-  // `servers=[]` between refetches. Using `isLoading` alone false-triggered
-  // this eject on every reload (see the "You're no longer in this server"
-  // toast on refresh regression). Also gate on the `!ejectedRef` to prevent
-  // a re-fire while the redirect is in flight.
+  // Only a settled SUCCESSFUL snapshot can prove absence. `isFetched` is also
+  // true after a first 5xx, while a failed background refetch may retain
+  // last-good data; treating either as authoritative ejects valid URLs on a
+  // transient read failure. The ref prevents a re-fire during navigation.
   const serversList = useServers()
   const ejectedRef = useRef(false)
   useEffect(() => {
     if (ejectedRef.current) return
-    if (!serversList.isFetched || serversList.isFetching) return
-    const inRail = serversList.servers.some((s) => s.id === serverId)
-    if (inRail) return
-    ejectedRef.current = true
-    const voluntary = consumeVoluntaryLeave(serverId)
-    if (!voluntary) toast("You're no longer in this server")
-    router.replace(pickPostEjectDestination(serversList.servers, serverId))
-  }, [serverId, serversList.isFetched, serversList.isFetching, serversList.servers, router])
+    ejectedRef.current = runAuthoritativeServerEject({
+      serverId,
+      servers: serversList.servers,
+      isSuccess: serversList.isSuccess,
+      isFetching: serversList.isFetching,
+      consumeVoluntaryLeave,
+      clearLastChannel,
+      toast,
+      replace: (destination) => router.replace(destination),
+    })
+  }, [serverId, serversList.isSuccess, serversList.isFetching, serversList.servers, router])
   // Reset the guard when the URL changes to a NEW server id — otherwise
   // navigating server → dangling-server → server would leave the ref
   // latched and skip the eject.

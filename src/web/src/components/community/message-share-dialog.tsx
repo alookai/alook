@@ -196,7 +196,7 @@ export function MessageShareDialog({ m, open, onClose }: {
                     <div
                       ref={(el) => { bodyRefs.current.set(msg.id, el) }}
                       onMouseUp={() => onBodyMouseUp(msg.id)}
-                      className="max-h-[41rem] overflow-hidden line-clamp-[32] [&_mark[data-hl]]:bg-[rgba(255,208,92,0.5)] [&_mark[data-hl]]:[border-radius:2px] [&_mark[data-hl]]:[padding:0_1px] [&_mark[data-hl]]:[box-decoration-break:clone] [&_mark[data-hl]]:[-webkit-box-decoration-break:clone] [&_mark[data-hl]]:text-inherit"
+                      className="max-h-164 overflow-hidden line-clamp-32 [&_mark[data-hl]]:rounded-xs [&_mark[data-hl]]:bg-[rgba(255,208,92,0.5)] [&_mark[data-hl]]:p-[0_1px] [&_mark[data-hl]]:[box-decoration-break:clone] [&_mark[data-hl]]:[-webkit-box-decoration-break:clone] [&_mark[data-hl]]:text-inherit"
                     >
                       <MessageBody text={msg.content} />
                     </div>

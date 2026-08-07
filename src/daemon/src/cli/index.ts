@@ -226,7 +226,7 @@ async function cmdMessageSend(opts: Record<string, unknown>): Promise<unknown> {
   const api = getApi();
   const agent = agentId(opts);
   const channel = opts.target as string;
-  if (!channel) throw new CliError("message send: --target <ref> is required (e.g. /demo-workspace/general)");
+  if (!channel) throw new CliError("message send: --target <ref> is required (e.g. /demo-workspace#1234/general)");
 
   let text: string | undefined;
   const fileFlag = opts.file as string | undefined;
@@ -328,7 +328,7 @@ async function cmdMessagePost(opts: Record<string, unknown>): Promise<unknown> {
   const api = getApi();
   const agent = agentId(opts);
   const forum = opts.target as string;
-  if (!forum) throw new CliError("message post: --target <forum-ref> is required (e.g. /demo/ideas)");
+  if (!forum) throw new CliError("message post: --target <forum-ref> is required (e.g. /demo#1234/ideas)");
   const title = opts.title as string | undefined;
   if (!title || title.trim().length === 0) throw new CliError("message post: --title <name> is required");
 
@@ -365,8 +365,7 @@ async function cmdMessagePost(opts: Record<string, unknown>): Promise<unknown> {
     attachments: attachmentIds.length > 0 ? attachmentIds : undefined,
     nonce,
   });
-  // Surface the canonical /server/forum/<real-slug> ref — the bot's handle for
-  // the just-created post, usable directly as a `--target`.
+  // Surface the canonical /server/forum/#N thread ref, usable as `--target`.
   return { posted: res.ref };
 }
 
@@ -374,7 +373,7 @@ async function cmdMessageEmoji(opts: Record<string, unknown>): Promise<unknown> 
   const api = getApi();
   const target = opts.target as string;
   const emoji = opts.emoji as string;
-  if (!target) throw new CliError("message emoji: --target <ref> is required (e.g. /demo/general#42)");
+  if (!target) throw new CliError("message emoji: --target <ref> is required (e.g. /demo#1234/general#42)");
   if (!emoji) throw new CliError("message emoji: --emoji <string> is required");
 
   let parsed: ReturnType<typeof parseRef>;
@@ -397,14 +396,10 @@ async function cmdMessageEmoji(opts: Record<string, unknown>): Promise<unknown> 
   }
 
   // Rebuild the SCOPE ref (no pin-seq — that's passed separately as `seq`).
-  // A forum-post target (`/server/forum/post#N`) must keep its childChannelName
-  // so the reaction lands on the post, not its parent forum.
   const channel =
-    parsed.childChannelName !== undefined
-      ? `/${parsed.server}/${parsed.channel}/${parsed.childChannelName}`
-      : parsed.threadRootSeq !== undefined
-        ? `/${parsed.server}/${parsed.channel}/#${parsed.threadRootSeq}`
-        : `/${parsed.server}/${parsed.channel}`;
+    parsed.threadRootSeq !== undefined
+      ? `/${parsed.server}/${parsed.channel}/#${parsed.threadRootSeq}`
+      : `/${parsed.server}/${parsed.channel}`;
   const res = await api.reactAdd({ channel, seq: parsed.seq, emoji });
   return { target, emoji, duplicate: res.duplicate === true };
 }
@@ -524,7 +519,7 @@ async function cmdServerMember(opts: Record<string, unknown>): Promise<unknown> 
   const api = getApi();
   const agent = agentId(opts);
   const server = opts.server as string;
-  if (!server) throw new CliError("server member: --server <name> is required");
+  if (!server) throw new CliError("server member: --server <name#discriminator> is required");
   let limit: number | undefined;
   if (opts.limit !== undefined) {
     limit = Number(opts.limit);
@@ -557,7 +552,7 @@ async function cmdChannelList(opts: Record<string, unknown>): Promise<unknown> {
   const api = getApi();
   const agent = agentId(opts);
   const server = opts.server as string;
-  if (!server) throw new CliError("channel list: --server <id-or-name> is required");
+  if (!server) throw new CliError("channel list: --server <name#discriminator> is required");
   return await api.listChannels({ agentId: agent, server });
 }
 
@@ -641,7 +636,7 @@ function buildProgram(): Command {
   message
     .command("send")
     .description("send a message to a channel, DM, or thread")
-    .option("--target <ref>", "destination (path-style ref, e.g. /demo-workspace/general)")
+    .option("--target <ref>", "destination (path-style ref, e.g. /demo-workspace#1234/general)")
     .option("--text <text>", "inline message body (short messages)")
     .option("--file <path>", "read message body from a file (long messages)")
     .option(
@@ -663,7 +658,7 @@ function buildProgram(): Command {
   message
     .command("post")
     .description("create a new forum post in a forum")
-    .option("--target <forum-ref>", "the forum to post in (path-style ref, e.g. /demo/ideas)")
+    .option("--target <forum-ref>", "the forum to post in (path-style ref, e.g. /demo#1234/ideas)")
     .option("--title <name>", "the post title (its slug becomes the post's address)")
     .option("--text <text>", "inline post body (short)")
     .option("--file <path>", "read post body from a file (long)")
@@ -685,7 +680,7 @@ function buildProgram(): Command {
   message
     .command("emoji")
     .description("react to a message with a single emoji")
-    .requiredOption("--target <ref>", "message ref (path-style, e.g. /demo/general#42 or /.dm/peer#7)")
+    .requiredOption("--target <ref>", "message ref (path-style, e.g. /demo#1234/general#42 or /.dm/peer#0007#42)")
     .requiredOption("--emoji <string>", "single emoji character")
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })
@@ -762,7 +757,7 @@ function buildProgram(): Command {
   server
     .command("member")
     .description("list members of a server (paginated; each member carries online + status)")
-    .option("--server <id-or-name>", "server id or name (from `server list`)")
+    .option("--server <handle>", "server name#discriminator handle (from `server list`)")
     .option("--limit <n>", "max members per page")
     .option("--cursor <cursor>", "opaque cursor from a prior page's response (omit for the first page)")
     .exitOverride()
@@ -793,7 +788,7 @@ function buildProgram(): Command {
   channel
     .command("list")
     .description("list top-level channels visible to this agent in one server")
-    .option("--server <id-or-name>", "server id or name (from `server list`)")
+    .option("--server <handle>", "server name#discriminator handle (from `server list`)")
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })
     .action(async function (this: Command) {

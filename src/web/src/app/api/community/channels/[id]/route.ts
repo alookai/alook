@@ -5,6 +5,8 @@ import { getDb } from "@/lib/db"
 import {
   queries,
   canManageServer,
+  isForum,
+  isThread,
   isUniqueConstraintError,
   MAX_CHANNEL_NAME_LENGTH,
   MAX_CHANNEL_TOPIC_LENGTH,
@@ -13,7 +15,34 @@ import {
 } from "@alook/shared"
 import { fanOutToServerMembers, fanOutToChannel, broadcastToUserSafe } from "@/lib/community/fanout"
 import { logAudit } from "@/lib/community/audit"
-import { requireChannelAccess } from "@/lib/community/permissions"
+import { requireChannelAccess, requireChannelMember } from "@/lib/community/permissions"
+
+/**
+ * GET /api/community/channels/[id] — single channel metadata (the
+ * `getChannelForMember` row: id, name, type, parentChannelId, parentMessageId,
+ * creatorId, …). The canonical home for reading ANY channel's meta — a
+ * top-level channel, a thread, or a forum post (a DM's meta is not read this
+ * way; DMs surface through the DM list). Folds the old `threads/[id]` GET, which
+ * only ever served child-thread metadata but was channel metadata by another
+ * name (a thread IS a channel row). The thread-view opener + child-channel
+ * bootstrap read it.
+ *
+ * Two-step check preserves the 404-vs-403 contract sibling channel routes honor:
+ * unknown channel → 404, known channel + non-member → 403 (`requireChannelMember`
+ * alone collapses both to 403 because the membership JOIN can't tell them apart).
+ */
+export const GET = withAuth(async (_req: NextRequest, ctx) => {
+  const channelId = ctx.params?.id
+  if (!channelId) return writeError("missing channel id", 400)
+
+  const db = getDb(ctx.env.DB)
+  const channel = await queries.communityChannel.getChannel(db, channelId)
+  if (!channel) return writeError("channel not found", 404)
+  const auth = await requireChannelMember(db, channelId, ctx.userId)
+  if (!auth.ok) return writeError(auth.error, auth.status)
+
+  return writeJSON(auth.value)
+})
 
 export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
@@ -24,33 +53,16 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   if (!access.ok) return writeError(access.error, access.status)
   const channel = access.value.channel
   const isAdmin = canManageServer(access.value.member.role)
-  // A forum post's OWN creator may edit that post's tags even without full
-  // `canManage`. `access.value.isCreator` is the ACCESS creator (the forum
-  // creator for a post), so we derive the post-own-creator directly from
-  // `channel.creatorId` — the same pattern the participants route uses for the
-  // unit-creator lock. Scoped to the `forumTags` field only below; every other
-  // field still requires `canManage`.
-  const canEditPostTags =
-    channel.type === "forum_post" && channel.creatorId === ctx.userId
-  if (!access.value.canManage && !canEditPostTags) return writeError("forbidden", 403)
+  if (!access.value.canManage) return writeError("forbidden", 403)
 
-  let body: { name?: string; topic?: string; categoryId?: string | null; forumTags?: string | null }
+  let body: { name?: string; topic?: string; categoryId?: string | null }
   try {
     body = await req.json()
   } catch {
     return writeError("invalid request body", 400)
   }
 
-  // A creator-without-canManage reached here only for the tag carve-out — they
-  // may edit forumTags and nothing else. Reject any other field explicitly
-  // rather than silently ignoring it.
-  if (!access.value.canManage) {
-    const nonTagField =
-      body.name !== undefined || body.topic !== undefined || body.categoryId !== undefined
-    if (nonTagField) return writeError("forbidden", 403)
-  }
-
-  const changes: { name?: string; topic?: string; categoryId?: string | null; forumTags?: string | null } = {}
+  const changes: { name?: string; topic?: string; categoryId?: string | null } = {}
   if (body.name !== undefined) {
     if (typeof body.name !== "string") return writeError("name must be a string", 400)
     const trimmed = body.name.trim()
@@ -90,31 +102,6 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
       return writeError("Can't move a channel across a public/private boundary", 400)
     }
     changes.categoryId = body.categoryId
-  }
-  if (body.forumTags !== undefined) {
-    // Tags are a per-post concept: only a forum_post carries a selected-tag
-    // list (a forum's tag vocabulary is now derived as the union of its posts).
-    if (channel.type !== "forum_post") {
-      return writeError("only forum posts can have tags", 400)
-    }
-    // Validate the shape the read side (`safeParseForumTags`) expects: a JSON
-    // array of strings, stored as its stringified form. Reject anything else so
-    // a malformed value can't poison the parse.
-    if (body.forumTags !== null) {
-      let parsed: unknown
-      try {
-        parsed = JSON.parse(body.forumTags)
-      } catch {
-        return writeError("forumTags must be a JSON array of strings", 400)
-      }
-      if (!Array.isArray(parsed) || parsed.some((t) => typeof t !== "string")) {
-        return writeError("forumTags must be a JSON array of strings", 400)
-      }
-      const normalized = [...new Set(parsed.map((t) => t.trim().toLowerCase()).filter(Boolean))]
-      changes.forumTags = JSON.stringify(normalized)
-    } else {
-      changes.forumTags = null
-    }
   }
 
   if (Object.keys(changes).length === 0) {
@@ -169,13 +156,23 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   const access = await requireChannelAccess(db, channelId, ctx.userId)
   if (!access.ok) return writeError(access.error, access.status)
   const channel = access.value.channel
-  // A forum post's OWN creator may delete their own post even without full
-  // `canManage`. Mirrors the PATCH tag carve-out. `access.value.isCreator` is the
-  // ACCESS creator (the forum creator for a post), so derive the post-own-creator
-  // directly from `channel.creatorId`. Scoped to `forum_post` so normal-channel
-  // and thread creators are not granted delete.
-  const canDeletePost =
-    channel.type === "forum_post" && channel.creatorId === ctx.userId
+  // A post's OWN creator may delete their own post — this carve-out predates
+  // forum_post's collapse into thread; a post is now a thread rooted under a
+  // forum, so its shape is `isThread(channel.type) && parent is a forum`.
+  // ⚠ MUST NOT widen to "any thread's creator" (Aigneis's catch): the
+  // carve-out is a session-authed HTTP DELETE, not a UI-gated action — anyone
+  // who replies to a message in an ordinary channel incidentally becomes a
+  // thread's creator, and that person must NOT gain the power to delete the
+  // whole thread (cascading every reply in it) just because they happened to
+  // trigger it. Only a thread whose PARENT is a forum carries the deliberate,
+  // intentional-creation semantics the old forum_post carve-out was actually
+  // scoped to. `access.value.isCreator` is the ACCESS creator (the parent's
+  // creator), so derive the unit-own-creator directly from `channel.creatorId`.
+  let canDeletePost = false
+  if (isThread(channel.type) && channel.creatorId === ctx.userId && channel.parentChannelId) {
+    const parentType = await queries.communityChannel.getChannelType(db, channel.parentChannelId)
+    canDeletePost = isForum(parentType)
+  }
   if (!access.value.canManage && !canDeletePost) return writeError("forbidden", 403)
 
   // Resolve the private-channel audience BEFORE deleting (the member rows

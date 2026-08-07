@@ -6,16 +6,29 @@ vi.mock("@opennextjs/cloudflare", () => ({
 }))
 
 const mockGetMessage = vi.fn()
+const mockUpdateOwnMessageContent = vi.fn()
 const mockGetMessagesByIdsInScope = vi.fn()
 const mockGetChannelForMember = vi.fn()
 const mockGetChannelType = vi.fn()
+const mockGetThreadChannelByParentMessage = vi.fn()
 const mockGetDM = vi.fn()
 const mockGetDMPeer = vi.fn()
 const mockIsBlocked = vi.fn()
 const mockListByMessageIds = vi.fn()
 const mockListReactionsByMessageIds = vi.fn()
+const mockGetMessageByChannelAndSeq = vi.fn()
+const mockToAgentMessage = vi.fn()
+const mockResolveTargetForMember = vi.fn()
+const mockFanOutToChannel = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
+
+vi.mock("@/lib/community/resolve-ref", () => ({
+  resolveTargetForMember: (...a: unknown[]) => mockResolveTargetForMember(...a),
+}))
+vi.mock("@/lib/community/fanout", () => ({
+  fanOutToChannel: (...a: unknown[]) => mockFanOutToChannel(...a),
+}))
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -25,10 +38,16 @@ vi.mock("@alook/shared", async () => {
       communityChannel: {
         getChannelForMember: (...a: unknown[]) => mockGetChannelForMember(...a),
         getChannelType: (...a: unknown[]) => mockGetChannelType(...a),
+        getThreadChannelByParentMessage: (...a: unknown[]) => mockGetThreadChannelByParentMessage(...a),
       },
       communityMessage: {
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
         getMessagesByIdsInScope: (...a: unknown[]) => mockGetMessagesByIdsInScope(...a),
+        getMessageByChannelAndSeq: (...a: unknown[]) => mockGetMessageByChannelAndSeq(...a),
+        updateOwnMessageContent: (...a: unknown[]) => mockUpdateOwnMessageContent(...a),
+      },
+      communityAgentInbox: {
+        toAgentMessage: (...a: unknown[]) => mockToAgentMessage(...a),
       },
       communityAttachment: {
         listByMessageIds: (...a: unknown[]) => mockListByMessageIds(...a),
@@ -47,11 +66,17 @@ vi.mock("@alook/shared", async () => {
   }
 })
 
-vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
+// Dual-actor: crk_ bearer → bot (folded resolve), else human. Human arm carries
+// messageId in the path; bot arm carries ref+seq on the query.
+vi.mock("@/lib/middleware/community-actor", () => ({
+  withCommunityActor: (handler: any) => async (req: any, ctx?: any) => {
     const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: { DB: {} }, userId: "u1", email: "u@t.com", params })
-  }),
+    const authz = req?.headers?.get?.("Authorization") ?? ""
+    const actor = authz.startsWith("Bearer crk_")
+      ? { kind: "bot", userId: "bot_1", ownerUserId: "o_1", machineId: "m_1" }
+      : { kind: "human", userId: "u1", email: "u@t.com" }
+    return handler(req, { env: { DB: {} }, actor, params })
+  },
 }))
 
 vi.mock("@/lib/middleware/helpers", () => {
@@ -62,7 +87,7 @@ vi.mock("@/lib/middleware/helpers", () => {
   }
 })
 
-import { GET } from "./route"
+import { GET, PATCH } from "./route"
 
 function req() {
   return new NextRequest("http://localhost/api/community/messages/m1", { method: "GET" })
@@ -94,8 +119,9 @@ describe("GET /api/community/messages/[id]", () => {
       dmConversationId: null,
     })
     mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
+    mockGetThreadChannelByParentMessage.mockResolvedValue(null)
     mockListByMessageIds.mockResolvedValue([
-      { messageId: "m1", filename: "photo.png", r2Key: "channel/c1/uuid/photo.png", contentType: "image/png", size: 12345 },
+      { id: "att_1", messageId: "m1", targetId: "c1", filename: "photo.png", r2Key: "channel/c1/uuid/photo.png", contentType: "image/png", size: 12345 },
     ])
     mockListReactionsByMessageIds.mockResolvedValue([
       { messageId: "m1", emoji: "👍", userId: "u1" },
@@ -107,10 +133,11 @@ describe("GET /api/community/messages/[id]", () => {
     expect(body.id).toBe("m1")
     expect(body.content).toBe("hello")
     expect(body.authorName).toBe("Alice")
-    // Attachments came through the mapper (grouped shape) — url is now
-    // derived from r2Key via the shared helper.
+    // Attachments came through the mapper (grouped shape) — url is now the
+    // id-addressed render URL (attachments fold), served by the canonical
+    // channels/{targetId}/attachments/{attachmentId} door.
     expect(body.attachments).toEqual([
-      { kind: "image", name: "photo.png", url: "/api/community/media/channel/c1/uuid/photo.png" },
+      { kind: "image", name: "photo.png", url: "/api/community/channels/c1/attachments/att_1" },
     ])
     // Reactions came through with `me: true` since userId matches.
     expect(body.reactions).toEqual([
@@ -263,5 +290,138 @@ describe("GET /api/community/messages/[id]", () => {
     const res = await GET(req(), { params: {} } as any)
     expect(res.status).toBe(400)
     expect(mockGetMessage).not.toHaveBeenCalled()
+  })
+
+  // ── bot arm (folded `resolve` verb): ref+seq → member-scoped 404, {message}
+  //    agent-shape projection. ──
+
+  function botReq(ref?: string, seq?: string) {
+    const q = new URLSearchParams()
+    if (ref !== undefined) q.set("ref", ref)
+    if (seq !== undefined) q.set("seq", seq)
+    return new NextRequest(`http://localhost/api/community/messages/resolve?${q.toString()}`, {
+      method: "GET",
+      headers: { Authorization: "Bearer crk_abc" },
+    })
+  }
+  const ctxResolve = { params: { id: "resolve" } } as any
+
+  it("bot resolves ref+seq via resolveTargetForMember → {message} agent shape", async () => {
+    mockResolveTargetForMember.mockResolvedValue({ kind: "channel", channelId: "c1" })
+    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "text" })
+    mockGetMessageByChannelAndSeq.mockResolvedValue({ id: "m42", channelId: "c1" })
+    mockListByMessageIds.mockResolvedValue([])
+    mockToAgentMessage.mockResolvedValue({ seq: "#42", channel: "/s/general", sender: "@a", content: { text: "hi" }, time: "" })
+    const res = await GET(botReq("/s/general", "42"), ctxResolve)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ message: expect.objectContaining({ seq: "#42" }) })
+    expect(mockResolveTargetForMember).toHaveBeenCalledWith({}, "bot_1", "/s/general", {
+      createDmIfMissing: false,
+      createThreadIfMissing: false,
+      callerKind: "bot",
+    })
+    expect(mockGetMessageByChannelAndSeq).toHaveBeenCalledWith({}, { channelId: "c1" }, 42)
+  })
+
+  it("①-C: bot ref to an UNREACHABLE channel → 404 (member-scoped resolve, not a 403 leak)", async () => {
+    mockResolveTargetForMember.mockResolvedValue({ error: 404, message: "channel not found: general" })
+    const res = await GET(botReq("/s/general", "42"), ctxResolve)
+    expect(res.status).toBe(404)
+    // never reaches the seq lookup or the message hydrate.
+    expect(mockGetMessageByChannelAndSeq).not.toHaveBeenCalled()
+    expect(mockGetMessage).not.toHaveBeenCalled()
+  })
+
+  it("bot ref resolves but seq absent in the channel → 404", async () => {
+    mockResolveTargetForMember.mockResolvedValue({ kind: "channel", channelId: "c1" })
+    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "text" })
+    mockGetMessageByChannelAndSeq.mockResolvedValue(null)
+    const res = await GET(botReq("/s/general", "999"), ctxResolve)
+    expect(res.status).toBe(404)
+  })
+
+  it("bot seq 0 → 404 (legacy pre-migration sentinel, never a real message)", async () => {
+    const res = await GET(botReq("/s/general", "0"), ctxResolve)
+    expect(res.status).toBe(404)
+    expect(mockResolveTargetForMember).not.toHaveBeenCalled()
+  })
+
+  it("bot missing ref → 400", async () => {
+    const res = await GET(botReq(undefined, "42"), ctxResolve)
+    expect(res.status).toBe(400)
+    expect(mockResolveTargetForMember).not.toHaveBeenCalled()
+  })
+
+  it("bot non-integer seq → 400", async () => {
+    const res = await GET(botReq("/s/general", "abc"), ctxResolve)
+    expect(res.status).toBe(400)
+    expect(mockResolveTargetForMember).not.toHaveBeenCalled()
+  })
+})
+
+describe("PATCH /api/community/messages/[id]", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetChannelType.mockResolvedValue("text")
+    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
+    mockGetMessage.mockResolvedValue({ id: "m1", channelId: "c1", authorId: "u1", content: "old" })
+    mockUpdateOwnMessageContent.mockResolvedValue({ id: "m1", channelId: "c1", content: "new" })
+    mockFanOutToChannel.mockResolvedValue(undefined)
+  })
+
+  function editReq(content: unknown, bot = false) {
+    return new NextRequest("http://localhost/api/community/messages/m1", {
+      method: "PATCH",
+      headers: { "content-type": "application/json", ...(bot ? { Authorization: "Bearer crk_x" } : {}) },
+      body: JSON.stringify({ content }),
+    })
+  }
+
+  it("updates the author's own content", async () => {
+    const res = await PATCH(editReq("new"), { params: { id: "m1" } } as any)
+    expect(res.status).toBe(200)
+    expect(mockUpdateOwnMessageContent).toHaveBeenCalledWith(expect.anything(), {
+      messageId: "m1", authorId: "u1", content: "new",
+    })
+    expect(mockFanOutToChannel).toHaveBeenCalledWith("c1", {
+      type: "community:message.edited", channelId: "c1", messageId: "m1", content: "new",
+    })
+  })
+
+  it("does not let an admin or other member edit someone else's message", async () => {
+    mockGetMessage.mockResolvedValue({ id: "m1", channelId: "c1", authorId: "u2", content: "old" })
+    const res = await PATCH(editReq("hijack"), { params: { id: "m1" } } as any)
+    expect(res.status).toBe(403)
+    expect(mockUpdateOwnMessageContent).not.toHaveBeenCalled()
+  })
+
+  it("resolves a real parent-forum opener to its child and omits parent data for replies", async () => {
+    // Production shape: opener m1 belongs to the parent forum c1; the child
+    // post row points back to it through parentMessageId.
+    mockGetChannelType.mockResolvedValue("forum")
+    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "forum", parentChannelId: null })
+    mockGetThreadChannelByParentMessage.mockResolvedValue({ id: "post_1", type: "thread", parentChannelId: "c1", parentMessageId: "m1" })
+    const res = await PATCH(editReq("new"), { params: { id: "m1" } } as any)
+    expect(res.status).toBe(200)
+    expect(mockGetThreadChannelByParentMessage).toHaveBeenCalledWith(expect.anything(), "c1", "m1")
+    expect(mockFanOutToChannel).toHaveBeenCalledWith("c1", expect.objectContaining({ parentChannelId: "c1" }))
+
+    mockFanOutToChannel.mockClear()
+    mockGetChannelType.mockResolvedValue("thread")
+    mockGetMessage.mockResolvedValue({ id: "reply_1", channelId: "post_1", authorId: "u1", content: "old" })
+    mockGetChannelForMember.mockResolvedValue({ id: "post_1", serverId: "s1", type: "thread", parentChannelId: "c1" })
+    mockUpdateOwnMessageContent.mockResolvedValue({ id: "reply_1", channelId: "post_1", content: "new" })
+    await PATCH(
+      new NextRequest("http://localhost/api/community/messages/reply_1", {
+        method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ content: "new" }),
+      }),
+      { params: { id: "reply_1" } } as any,
+    )
+    expect(mockFanOutToChannel.mock.calls[0]?.[1]).not.toHaveProperty("parentChannelId")
+  })
+
+  it("rejects bot credentials and empty content", async () => {
+    expect((await PATCH(editReq("new", true), { params: { id: "m1" } } as any)).status).toBe(401)
+    expect((await PATCH(editReq("  "), { params: { id: "m1" } } as any)).status).toBe(400)
   })
 })

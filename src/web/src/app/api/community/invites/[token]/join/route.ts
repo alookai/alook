@@ -101,14 +101,14 @@ export const POST = withCommunityActor(async (_req, ctx) => {
   }
 
   // Superset response: the human web client reads member/serverId; the bot's
-  // daemon reads `server` ({id,name}) and projects it to the CLI. `server` is
+  // daemon reads `server` and projects it to the canonical handle. `server` is
   // populated only for a bot — the human path already has serverId and would
   // otherwise pay an extra getServer round-trip for a field it ignores (the
   // superset is about a unified SHAPE, not forcing identical queries).
-  let server: { id: string; name: string } | undefined
+  let server: { id: string; name: string; discriminator: string } | undefined
   if (actor.kind === "bot") {
     const row = await queries.communityServer.getServer(db, result.invite.serverId)
-    server = row ? { id: row.id, name: row.name } : undefined
+    server = row ? { id: row.id, name: row.name, discriminator: row.discriminator } : undefined
   }
   return writeJSON({
     member: result.member,

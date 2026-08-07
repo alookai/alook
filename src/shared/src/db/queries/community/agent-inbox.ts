@@ -1,6 +1,6 @@
 /**
- * Seq-based queries powering the `/api/community/agent/*` CLI bridge routes
- * (plans/community-agent-cli-bridge.md §7) plus `toAgentMessages`, the
+ * Seq-based queries powering the canonical community REST agent doors plus
+ * `toAgentMessages`, the
  * DB-row → wire-`Message` projector every route that returns message bodies
  * uses.
  *
@@ -37,6 +37,7 @@ import { listParticipatingThreadIds } from "./thread";
 import { getMessagesByIdsInScope, type MessageScope } from "./message";
 import { reachIsParticipantSet, type StoredChannelType } from "../../../utils/community-roles";
 import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
+import { withD1Retry } from "../../resilience";
 
 type RawAgentMessage = {
   id: string;
@@ -82,7 +83,7 @@ async function resolveScopeRefs(
   const channels = (
     await Promise.all(
       chunk(channelIds, D1_MAX_IN_PARAMS).map((ids) =>
-        db
+        withD1Retry(() => db
           .select({
             id: communityChannel.id,
             name: communityChannel.name,
@@ -92,7 +93,7 @@ async function resolveScopeRefs(
             parentMessageId: communityChannel.parentMessageId,
           })
           .from(communityChannel)
-          .where(inArray(communityChannel.id, ids))
+          .where(inArray(communityChannel.id, ids)), { route: "community/agent-inbox:scope-channels" })
       )
     )
   ).flat();
@@ -103,7 +104,7 @@ async function resolveScopeRefs(
     ? (
         await Promise.all(
           chunk(dmChannelIds, D1_MAX_IN_PARAMS).map((ids) =>
-            db
+            withD1Retry(() => db
               .select({
                 channelId: communityChannelMember.channelId,
                 userId: communityChannelMember.userId,
@@ -115,7 +116,7 @@ async function resolveScopeRefs(
                   eq(communityChannelMember.relation, "access"),
                   ne(communityChannelMember.userId, viewerId)
                 )
-              )
+              ), { route: "community/agent-inbox:dm-members" })
           )
         )
       ).flat()
@@ -129,10 +130,10 @@ async function resolveScopeRefs(
     ? (
         await Promise.all(
           chunk(dmPeerIds, D1_MAX_IN_PARAMS).map((ids) =>
-            db
+            withD1Retry(() => db
               .select({ id: user.id, name: user.name, discriminator: user.discriminator })
               .from(user)
-              .where(inArray(user.id, ids))
+              .where(inArray(user.id, ids)), { route: "community/agent-inbox:dm-peers" })
           )
         )
       ).flat()
@@ -154,7 +155,11 @@ async function resolveScopeRefs(
     run: (batch: string[]) => Promise<T[]>
   ): Promise<T[]> =>
     ids.length
-      ? Promise.all(chunk(ids, D1_MAX_IN_PARAMS).map(run)).then((r) => r.flat())
+      ? Promise.all(
+          chunk(ids, D1_MAX_IN_PARAMS).map((batch) =>
+            withD1Retry(() => run(batch), { route: "community/agent-inbox:scope-context" })
+          )
+        ).then((r) => r.flat())
       : Promise.resolve([]);
 
   const [parentChannels, servers, parentMessages] = await Promise.all([
@@ -165,7 +170,7 @@ async function resolveScopeRefs(
         .where(inArray(communityChannel.id, ids))
     ),
     chunkedIn(serverIds, (ids) =>
-      db.select({ id: communityServer.id, name: communityServer.name }).from(communityServer).where(inArray(communityServer.id, ids))
+      db.select({ id: communityServer.id, name: communityServer.name, discriminator: communityServer.discriminator }).from(communityServer).where(inArray(communityServer.id, ids))
     ),
     chunkedIn(parentMessageIds, (ids) =>
       db.select({ id: communityMessage.id, seq: communityMessage.seq }).from(communityMessage).where(inArray(communityMessage.id, ids))
@@ -173,7 +178,7 @@ async function resolveScopeRefs(
   ]);
 
   const parentChannelById = new Map(parentChannels.map((c) => [c.id, c]));
-  const serverNameById = new Map(servers.map((s) => [s.id, s.name]));
+  const serverHandleById = new Map(servers.map((s) => [s.id, formatHandle(s.name, s.discriminator)]));
   const parentSeqById = new Map(parentMessages.map((m) => [m.id, m.seq]));
 
   const out = new Map<string, ScopeInfo>();
@@ -189,41 +194,33 @@ async function resolveScopeRefs(
     if (isDm) {
       const peerId = peerByDmChannel.get(ch.id);
       const peer = peerId ? dmPeerById.get(peerId) : undefined;
-      peerSegment = peer ? formatHandle(peer.name, peer.discriminator) : peerId || "unknown";
+      if (!peer) throw new Error("DM peer identity unavailable");
+      peerSegment = formatHandle(peer.name, peer.discriminator);
     }
-    const serverName = ch.serverId ? (serverNameById.get(ch.serverId) ?? ch.serverId) : "unknown";
+    const serverHandle = ch.serverId ? serverHandleById.get(ch.serverId) : undefined;
     const parent = ch.parentChannelId ? parentChannelById.get(ch.parentChannelId) : undefined;
     const rootSeq = ch.parentMessageId ? parentSeqById.get(ch.parentMessageId) : undefined;
-    // A thread and a forum_post are both `parent`-anchored children, but only a
-    // thread carries a `parentMessageId` (→ root seq). Distinguish by whether a
-    // root seq resolved so we hand the emitter the right addressing type: a
-    // child WITH a root seq is a thread, WITHOUT is a forum_post.
+    // A thread is a `parent`-anchored child carrying a `parentMessageId` (→
+    // root seq). Only emit "thread" once that root seq actually resolved —
+    // otherwise fall through to the raw stored type (degrades to the
+    // "unresolvable" sentinel below via formatCanonicalRef returning null).
     const emitType: StoredChannelType =
       ch.parentChannelId && ch.parentMessageId && parent && rootSeq !== undefined
         ? "thread"
-        : ch.parentChannelId && storedType === "forum_post" && parent
-          ? "forum_post"
-          : storedType;
+        : storedType;
     const ref = formatCanonicalRef({
       type: emitType,
-      serverName,
+      serverHandle,
       name: ch.name,
       parentName: parent?.name,
       rootSeq,
       peerSegment,
     });
-    // Degraded channel (emitter null — a required addressing field didn't
-    // hydrate, e.g. a thread missing its parent/root): skip its ENTRY in this
-    // channelId→ScopeInfo map. This is safe for never-drop: the map is looked
-    // up per message row by the two callers as `scope?.ref ?? "/unknown/<id>"`,
-    // which already keep the row and emit the explicit "/unknown/" sentinel when
-    // the scope is absent. So a missing entry funnels into that existing
-    // unresolvable path — the message row survives (nothing is dropped from the
-    // page) and its channel reads as an explicit "unresolvable" sentinel, NOT a
-    // hand-built top-level ref that looks addressable but 404s. This removes the
-    // second place the top-level ref shape was built (B1.1): the shape now lives
-    // ONLY in the emitter.
-    if (ref === null) continue;
+    // Scope identity is required for delivery. A fabricated sentinel would look
+    // like a route to downstream tokenizers while leaking an internal id, and a
+    // skipped row would violate never-drop. Fail the whole batch so its cursor
+    // is not advanced and the owed message can be retried after data repair.
+    if (ref === null) throw new Error("Channel identity unavailable");
     out.set(ch.id, {
       ref,
       isThread: emitType === "thread",
@@ -272,9 +269,10 @@ export async function toAgentMessages(
 
   return rows.map((r) => {
     const scope = refs.get(scopeRefKey(r));
-    const channel = scope?.ref ?? `/unknown/${scopeRefKey(r)}`;
+    if (!scope) throw new Error("Channel identity unavailable");
+    const channel = scope.ref;
     const author = userById.get(r.authorId);
-    const sender = author ? formatHandle(author.name, author.discriminator) : r.authorId;
+    const sender = author ? `@${formatHandle(author.name, author.discriminator)}` : "Unknown user";
     // Absent (not empty array) when a message has no attachments — smaller
     // wire payload; documented invariant in the plan.
     const atts = attachmentsByMessageId?.get(r.id);
@@ -285,7 +283,7 @@ export async function toAgentMessages(
     return {
       seq: formatSeq(r.seq),
       channel,
-      sender: `@${sender}`,
+      sender,
       content,
       time: r.createdAt,
     };
@@ -341,10 +339,9 @@ async function resolveReplyRefs(
 
 /**
  * Strict single-scope ref resolver for `UnreadNotice.channel`
- * (`buildUnreadWakeCommand`, minimal-wake-queue-unread-notice plan §4). Unlike
- * `resolveScopeRefs` (used for message/inbox hydration, where an `/unknown/…`
- * fallback is tolerable UI degradation), a wake command's notice channel must
- * NEVER be a placeholder — a missing channel, missing DM, missing parent
+ * (`buildUnreadWakeCommand`, minimal-wake-queue-unread-notice plan §4).
+ * A wake command's notice channel must NEVER be a placeholder — a missing
+ * channel, missing DM, missing parent
  * channel, or missing parent message for a thread all resolve to `null` so
  * the caller treats it as `notice_channel_unresolvable` (ack/skip) rather
  * than waking an agent with a bogus ref it can't `inboxPull` against.
@@ -413,41 +410,24 @@ export async function resolveUnreadNoticeChannel(
     const parent = parentRows[0];
     const root = rootRows[0];
     if (!parent || !root || !parent.serverId) return null;
-    const serverName = await getServerName(db, parent.serverId);
-    if (!serverName) return null;
-    return formatCanonicalRef({ type: "thread", serverName, parentName: parent.name, rootSeq: root.seq });
-  }
-
-  // Forum post: parent forum but no parentMessageId — anchor by the post's own
-  // name under the forum (`/server/<forum>/<post>`). A missing/serverless parent
-  // resolves to null (notice_channel_unresolvable) rather than a bogus ref, per
-  // this function's no-placeholder contract.
-  if (storedType === "forum_post" && ch.parentChannelId) {
-    const parentRows = await db
-      .select({ name: communityChannel.name, serverId: communityChannel.serverId })
-      .from(communityChannel)
-      .where(eq(communityChannel.id, ch.parentChannelId))
-      .limit(1);
-    const parent = parentRows[0];
-    if (!parent || !parent.serverId) return null;
-    const serverName = await getServerName(db, parent.serverId);
-    if (!serverName) return null;
-    return formatCanonicalRef({ type: "forum_post", serverName, parentName: parent.name, name: ch.name });
+    const serverHandle = await getServerHandle(db, parent.serverId);
+    if (!serverHandle) return null;
+    return formatCanonicalRef({ type: "thread", serverHandle, parentName: parent.name, rootSeq: root.seq });
   }
 
   if (!ch.serverId) return null;
-  const serverName = await getServerName(db, ch.serverId);
-  if (!serverName) return null;
-  return formatCanonicalRef({ type: storedType, serverName, name: ch.name ?? undefined });
+  const serverHandle = await getServerHandle(db, ch.serverId);
+  if (!serverHandle) return null;
+  return formatCanonicalRef({ type: storedType, serverHandle, name: ch.name ?? undefined });
 }
 
-async function getServerName(db: Database, serverId: string): Promise<string | null> {
+async function getServerHandle(db: Database, serverId: string): Promise<string | null> {
   const rows = await db
-    .select({ name: communityServer.name })
+    .select({ name: communityServer.name, discriminator: communityServer.discriminator })
     .from(communityServer)
     .where(eq(communityServer.id, serverId))
     .limit(1);
-  return rows[0]?.name ?? null;
+  return rows[0] ? formatHandle(rows[0].name, rows[0].discriminator) : null;
 }
 
 /** Single-row convenience wrapper around `toAgentMessages`. */
@@ -476,14 +456,14 @@ export async function getLatestSeqForScope(db: Database, channelId: string): Pro
 }
 
 /**
- * Effective allowed channel-id set for a bot: visible channels MINUS
- * thread/forum_post channels the bot isn't a participant of. Pushes the
- * thread-participation narrowing into a pre-computed set so it can join the
+ * Effective allowed channel-id set for a bot: visible channels MINUS child
+ * threads where it holds no `community_channel_member(relation='notify')`
+ * row. Pushes the notification-set narrowing into a pre-computed set so it can join the
  * message SQL as a single `inArray` predicate — the old shape did the
  * narrowing as a JS post-filter AFTER `.limit(max)`, which silently
- * collapsed a page of non-participating rows to `[]` (breaking `hasMore` in
+ * collapsed a page of non-notified rows to `[]` (breaking `hasMore` in
  * `inboxPull`) and could return `null` from `getLatestUnreadMessageForAgent`
- * when older participating unread existed outside the top-N-by-createdAt
+ * when older notified unread existed outside the top-N-by-createdAt
  * candidate window.
  */
 async function listAgentAllowedChannelIds(db: Database, botUserId: string): Promise<string[]> {
@@ -525,12 +505,12 @@ async function listAgentAllowedChannelIds(db: Database, botUserId: string): Prom
   const narrowIds = typeRows
     .filter((r) => reachIsParticipantSet(r.type))
     .map((r) => r.id);
-  const participating =
+  const notifiedChannelIds =
     narrowIds.length > 0
       ? new Set(await listParticipatingThreadIds(db, narrowIds, botUserId))
       : new Set<string>();
   const narrowSet = new Set(narrowIds);
-  const serverAllowed = visibleChannelIds.filter((id) => !narrowSet.has(id) || participating.has(id));
+  const serverAllowed = visibleChannelIds.filter((id) => !narrowSet.has(id) || notifiedChannelIds.has(id));
   return [...serverAllowed, ...dmChannelIds];
 }
 
@@ -561,9 +541,9 @@ const channelJoinBaselineGuard = sql`${communityMessage.createdAt} > COALESCE(${
  *
  * Visibility rule: same as the human unread path (`listUnreadChannels`) —
  * (1) channel messages restricted to `listVisibleChannelIdsForUser(botUserId)`
- * (respects private-category rosters and private-forum-post narrowness), and
- * (2) thread / forum_post channels additionally require a
- * `community_thread_participant` row for the bot. Both dimensions are folded
+ * (respects private-category rosters), and
+ * (2) child threads additionally require a
+ * `community_channel_member(relation='notify')` row for the bot. Both dimensions are folded
  * into ONE `inArray` predicate up front so `.limit(max)` operates on
  * already-visible rows — post-filtering after `limit` (the earlier shape)
  * could silently collapse a page to `[]` and break `hasMore`.
@@ -658,12 +638,13 @@ export async function listUnreadMessagesForAgent(
  * for already-stuck bots: the gate stops counting messages the pull never hands
  * over.
  *
- * Thread/forum-post participation narrowing: the pull's allowed set
- * (`listAgentAllowedChannelIds`) additionally drops thread/forum_post channels
+ * Child-thread notification-set narrowing: the pull's allowed set
+ * (`listAgentAllowedChannelIds`) additionally drops child threads
  * the bot holds no `relation='notify'` row on — those are never delivered. The
  * gate MUST mirror that same narrowing (via the SAME `listParticipatingThreadIds`
- * predicate, not a re-derived one) or it counts backlog in a non-participated
- * thread that the pull will never hand over — the exact "not aligned: N unread"
+ * predicate, not a re-derived one) or it counts backlog in a scope where the
+ * bot holds no `community_channel_member(relation='notify')` row, which the
+ * pull will never hand over — the exact "not aligned: N unread"
  * deadlock a bot hit trying to post into a thread it hadn't engaged. This drops
  * ONLY true spectators: a bot @mentioned into a thread gets a `notify` row on the
  * send hot path (`addThreadParticipants`, source=mention), so its owed mention
@@ -675,8 +656,8 @@ export async function hasDeliverableUnreadForAgentScope(
   channelId: string,
   seen: number
 ): Promise<boolean> {
-  // Participation narrowing, single-channel form of `listAgentAllowedChannelIds`'s
-  // set-wide step: a thread/forum_post the bot doesn't participate in is never
+  // Notification-set narrowing, single-channel form of `listAgentAllowedChannelIds`'s
+  // set-wide step: a child thread without a notify row for the bot is never
   // deliverable, so its backlog must not register as unread here. Short-circuits
   // before the deliverable scan — cheaper for the common spectator case too.
   const typeRows = await db
@@ -742,12 +723,13 @@ export type InboxSnapshotRow = {
  *
  * Visibility rule mirrors `listUnreadMessagesForAgent`: (1) channel scopes
  * restricted to `listVisibleChannelIdsForUser(botUserId)`, and (2) scopes of
- * type `thread` or `forum_post` additionally require a
- * `community_thread_participant` row for the bot (post-filter). Because the
- * outer `WHERE` is `inArray(channelId, visibleChannelIds)` and non-participated
+ * child threads additionally require a
+ * `community_channel_member(relation='notify')` row for the bot (post-filter). Because the
+ * outer `WHERE` is `inArray(channelId, visibleChannelIds)` and scopes lacking
+ * the bot's `community_channel_member(relation='notify')` row
  * thread rows are dropped in the post-filter, `hasMention` (a correlated
  * sub-select keyed on the surviving row's `channel_id`) can never inherit a
- * mention from an invisible or non-participated thread — do NOT try to
+ * mention from an invisible or non-notified thread — do NOT try to
  * sub-select mentions independently or the leak reopens on this axis.
  */
 export async function getInboxSnapshotForAgent(db: Database, botUserId: string): Promise<InboxSnapshotRow[]> {
@@ -840,7 +822,7 @@ export async function getInboxSnapshotForAgent(db: Database, botUserId: string):
       pendingCount: r.pendingCount,
       firstPendingSeq: r.firstPendingSeq,
       latestSeq: r.latestSeq,
-      latestSender: `@${sender ? formatHandle(sender.name, sender.discriminator) : r.latestSenderId}`,
+      latestSender: sender ? `@${formatHandle(sender.name, sender.discriminator)}` : "Unknown user",
       hasMention: r.mentionCount > 0,
     };
   });
@@ -869,12 +851,13 @@ export async function toInboxRows(
   const refs = await resolveScopeRefs(db, rows, viewerId);
   return rows.map((r) => {
     const scope = refs.get(scopeRefKey(r));
+    if (!scope) throw new Error("Channel identity unavailable");
     const flags: Array<"dm" | "thread" | "mention"> = [];
     if (scope?.isDm) flags.push("dm");
     if (scope?.isThread) flags.push("thread");
     if (r.hasMention) flags.push("mention");
     return {
-      channel: scope?.ref ?? `/unknown/${scopeRefKey(r)}`,
+      channel: scope.ref,
       pendingCount: r.pendingCount,
       firstPendingSeq: r.firstPendingSeq,
       latestSeq: r.latestSeq,
@@ -894,8 +877,8 @@ export async function toInboxRows(
  * `listUnreadMessagesForAgent`'s doc comment).
  *
  * Visibility rule identical to `listUnreadMessagesForAgent`: the bot must be
- * able to see the channel (`listVisibleChannelIdsForUser`) AND, for thread /
- * forum_post scopes, hold a `community_thread_participant` row. Both
+ * able to see the channel (`listVisibleChannelIdsForUser`) AND, for child
+ * threads, hold a `community_channel_member(relation='notify')` row. Both
  * dimensions are folded into the SQL WHERE via `listAgentAllowedChannelIds`
  * so `LIMIT 1` returns the newest allowed row directly — an earlier shape
  * used a bounded post-filter window that could return `null` when older

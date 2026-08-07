@@ -31,7 +31,7 @@ function stubApi(over: Partial<ServerApi> = {}): ServerApi {
     read: async () => ({ items: [], hasMore: false }),
     resolve: async () => null,
     listMembers: async () => ({ members: [], hasMore: false }),
-    joinServer: async () => ({ server: { id: "s", name: "s" } }),
+    joinServer: async () => ({ server: { handle: "s#0042" } }),
     reactAdd: async () => ({ ok: true, duplicate: false }),
     friendRequest: async () => ({ friendshipId: "fr_1", status: "pending", hint: "Your owner needs to approve this request in DM." }),
     listFriends: async () => ({ accepted: [], pendingOutgoing: [], pendingIncoming: [] }),
@@ -77,14 +77,14 @@ describe("envelope contract", () => {
       stubApi({
         send: async () => ({
           state: "sent",
-          message: { seq: "#7", channel: "/s/general", sender: "@a", content: { text: "hi" }, time: "" },
+          message: { seq: "#7", channel: "/s#0042/general", sender: "@a", content: { text: "hi" }, time: "" },
         }),
       }),
     );
-    const code = await main(["message", "send", "--target", "/s/general", "--text", "hi"]);
+    const code = await main(["message", "send", "--target", "/s#0042/general", "--text", "hi"]);
     const env = parseEnvelope(cap.lines());
     expect(code).toBe(0);
-    expect(env).toEqual({ success: { sent: "/s/general#7" } });
+    expect(env).toEqual({ success: { sent: "/s#0042/general#7" } });
     expect("error" in env).toBe(false);
     expect("hint" in env).toBe(false); // null fields omitted
   });
@@ -92,7 +92,7 @@ describe("envelope contract", () => {
   it("prints only `error` on failure (with hint when available)", async () => {
     setApiForTesting(stubApi());
     // Emoji ref without a seq → error carries a recovery hint
-    await main(["message", "emoji", "--target", "/s/general", "--emoji", "👍"]);
+    await main(["message", "emoji", "--target", "/s#0042/general", "--emoji", "👍"]);
     const env = parseEnvelope(cap.lines());
     expect(typeof env.error).toBe("string");
     expect("success" in env).toBe(false);
@@ -144,7 +144,7 @@ describe("channel alignment (message send)", () => {
     setApiForTesting(
       stubApi({ send: async () => ({ state: "blocked", reason: "unaligned", unreadCount: 3, latestSeq: 12 }) }),
     );
-    await main(["message", "send", "--target", "/s/general", "--text", "hi"]);
+    await main(["message", "send", "--target", "/s#0042/general", "--text", "hi"]);
     const env = parseEnvelope(cap.lines());
     expect("success" in env).toBe(false);
     expect(env.error).toContain("not aligned");
@@ -158,40 +158,40 @@ describe("message send --reply", () => {
   it("strips a leading # from --reply and forwards replyToSeq", async () => {
     const sendSpy = vi.fn(async () => ({
       state: "sent" as const,
-      message: { seq: "#8", channel: "/s/general", sender: "@a", content: { text: "on it" }, time: "" },
+      message: { seq: "#8", channel: "/s#0042/general", sender: "@a", content: { text: "on it" }, time: "" },
     }));
     setApiForTesting(stubApi({ send: sendSpy }));
-    await main(["message", "send", "--target", "/s/general", "--text", "on it", "--reply", "#37"]);
+    await main(["message", "send", "--target", "/s#0042/general", "--text", "on it", "--reply", "#37"]);
     expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ replyToSeq: 37 }));
   });
 
   it("accepts a bare numeric --reply", async () => {
     const sendSpy = vi.fn(async () => ({
       state: "sent" as const,
-      message: { seq: "#8", channel: "/s/general", sender: "@a", content: { text: "on it" }, time: "" },
+      message: { seq: "#8", channel: "/s#0042/general", sender: "@a", content: { text: "on it" }, time: "" },
     }));
     setApiForTesting(stubApi({ send: sendSpy }));
-    await main(["message", "send", "--target", "/s/general", "--text", "on it", "--reply", "37"]);
+    await main(["message", "send", "--target", "/s#0042/general", "--text", "on it", "--reply", "37"]);
     expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ replyToSeq: 37 }));
   });
 
   it("omits replyToSeq (undefined) when --reply is absent", async () => {
     const sendSpy = vi.fn(async () => ({
       state: "sent" as const,
-      message: { seq: "#8", channel: "/s/general", sender: "@a", content: { text: "hi" }, time: "" },
+      message: { seq: "#8", channel: "/s#0042/general", sender: "@a", content: { text: "hi" }, time: "" },
     }));
     setApiForTesting(stubApi({ send: sendSpy }));
-    await main(["message", "send", "--target", "/s/general", "--text", "hi"]);
+    await main(["message", "send", "--target", "/s#0042/general", "--text", "hi"]);
     expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ replyToSeq: undefined }));
   });
 
   it("rejects a non-numeric --reply with a CliError, never calling send", async () => {
     const sendSpy = vi.fn(async () => ({
       state: "sent" as const,
-      message: { seq: "#8", channel: "/s/general", sender: "@a", content: { text: "" }, time: "" },
+      message: { seq: "#8", channel: "/s#0042/general", sender: "@a", content: { text: "" }, time: "" },
     }));
     setApiForTesting(stubApi({ send: sendSpy }));
-    await main(["message", "send", "--target", "/s/general", "--text", "hi", "--reply", "x"]);
+    await main(["message", "send", "--target", "/s#0042/general", "--text", "hi", "--reply", "x"]);
     const env = parseEnvelope(cap.lines());
     expect(env.error).toContain("--reply must be a message seq");
     expect(sendSpy).not.toHaveBeenCalled();
@@ -200,10 +200,10 @@ describe("message send --reply", () => {
   it("rejects --reply 0 (not a real seq) with a CliError", async () => {
     const sendSpy = vi.fn(async () => ({
       state: "sent" as const,
-      message: { seq: "#8", channel: "/s/general", sender: "@a", content: { text: "" }, time: "" },
+      message: { seq: "#8", channel: "/s#0042/general", sender: "@a", content: { text: "" }, time: "" },
     }));
     setApiForTesting(stubApi({ send: sendSpy }));
-    await main(["message", "send", "--target", "/s/general", "--text", "hi", "--reply", "0"]);
+    await main(["message", "send", "--target", "/s#0042/general", "--text", "hi", "--reply", "0"]);
     const env = parseEnvelope(cap.lines());
     expect(env.error).toContain("--reply must be a message seq");
     expect(sendSpy).not.toHaveBeenCalled();
@@ -211,12 +211,35 @@ describe("message send --reply", () => {
 });
 
 describe("inbox pull", () => {
+  it("never acks a rejected pull and only advances the returned cursor after repair", async () => {
+    const ackSpy = vi.fn(async () => undefined);
+    const pullSpy = vi.fn()
+      .mockRejectedValueOnce(new Error("DM peer identity unavailable"))
+      .mockResolvedValueOnce({
+        messages: [{ seq: "#7", channel: "/.dm/Bob#0042", sender: "@Alice#1234", content: { text: "still owed" }, time: "" }],
+        hasMore: false,
+      });
+    setApiForTesting(stubApi({ inboxPull: pullSpy, ack: ackSpy }));
+
+    await main(["inbox", "pull"]);
+    expect(parseEnvelope(cap.lines()).error).toContain("DM peer identity unavailable");
+    expect(ackSpy).not.toHaveBeenCalled();
+
+    cap.lines().length = 0;
+    await main(["inbox", "pull"]);
+    expect(ackSpy).toHaveBeenCalledOnce();
+    expect(ackSpy).toHaveBeenCalledWith({
+      agentId: expect.any(String),
+      cursors: [{ channel: "/.dm/Bob#0042", seq: 7 }],
+    });
+  });
+
   it("acks by default and returns messages in success", async () => {
     const ackSpy = vi.fn(async () => undefined);
     setApiForTesting(
       stubApi({
         inboxPull: async () => ({
-          messages: [{ seq: "#2", channel: "/s/general", sender: "@x", content: { text: "yo" }, time: "" }],
+          messages: [{ seq: "#2", channel: "/s#0042/general", sender: "@x", content: { text: "yo" }, time: "" }],
           hasMore: false,
         }),
         ack: ackSpy,
@@ -237,7 +260,7 @@ describe("inbox pull", () => {
     setApiForTesting(
       stubApi({
         inboxPull: async () => ({
-          messages: [{ seq: "#2", channel: "/s/general", sender: "@x", content: { text: "yo" }, time: "" }],
+          messages: [{ seq: "#2", channel: "/s#0042/general", sender: "@x", content: { text: "yo" }, time: "" }],
           hasMore: false,
         }),
         ack: ackSpy,
@@ -261,8 +284,8 @@ describe("inbox pull", () => {
       stubApi({
         inboxPull: async () => ({
           messages: [
-            { seq: "#2", channel: "/s/general", sender: "@x", content: { text: "hi" }, time: "" },
-            { seq: "#3", channel: "/s/general", sender: "@x", content: { text: "bye" }, time: "" },
+            { seq: "#2", channel: "/s#0042/general", sender: "@x", content: { text: "hi" }, time: "" },
+            { seq: "#3", channel: "/s#0042/general", sender: "@x", content: { text: "bye" }, time: "" },
           ],
           hasMore: false,
         }),
@@ -283,7 +306,7 @@ describe("inbox pull", () => {
     setApiForTesting(
       stubApi({
         inboxPull: async () => ({
-          messages: [{ seq: "#2", channel: "/s/general", sender: "@x", content: { text: "yo" }, time: "" }],
+          messages: [{ seq: "#2", channel: "/s#0042/general", sender: "@x", content: { text: "yo" }, time: "" }],
           hasMore: false,
         }),
         ack: async () => undefined,
@@ -301,13 +324,13 @@ describe("inbox pull", () => {
 describe("message send — idempotent retry (mutation-idempotency ②)", () => {
   const okRes = {
     state: "sent" as const,
-    message: { seq: "#8", channel: "/s/general", sender: "@a", content: { text: "hi" }, time: "" },
+    message: { seq: "#8", channel: "/s#0042/general", sender: "@a", content: { text: "hi" }, time: "" },
   };
 
   it("attaches a nonce to the send request", async () => {
     const sendSpy = vi.fn(async () => okRes);
     setApiForTesting(stubApi({ send: sendSpy }));
-    await main(["message", "send", "--target", "/s/general", "--text", "hi"]);
+    await main(["message", "send", "--target", "/s#0042/general", "--text", "hi"]);
     const arg = sendSpy.mock.calls[0]![0] as { nonce?: string };
     expect(typeof arg.nonce).toBe("string");
     expect((arg.nonce ?? "").length).toBeGreaterThan(0);
@@ -319,13 +342,13 @@ describe("message send — idempotent retry (mutation-idempotency ②)", () => {
     const sendSpy = vi.fn(async (req: { nonce?: string }) => {
       nonces.push(req.nonce);
       calls++;
-      if (calls === 1) throw new Error("upstream returned 502 with non-JSON body from /api/send");
+      if (calls === 1) throw new Error("upstream returned 502 with non-JSON body during send");
       return okRes;
     });
     setApiForTesting(stubApi({ send: sendSpy }));
-    await main(["message", "send", "--target", "/s/general", "--text", "hi"]);
+    await main(["message", "send", "--target", "/s#0042/general", "--text", "hi"]);
     const env = parseEnvelope(cap.lines());
-    expect(env.success.sent).toBe("/s/general#8"); // succeeded, not an error
+    expect(env.success.sent).toBe("/s#0042/general#8"); // succeeded, not an error
     expect(calls).toBe(2); // retried once
     expect(nonces[0]).toBe(nonces[1]); // SAME nonce across the retry — server can dedupe
   });
@@ -333,25 +356,25 @@ describe("message send — idempotent retry (mutation-idempotency ②)", () => {
   it("treats a `deduped` success (same-nonce retry matched the committed message) as sent, not an error", async () => {
     const sendSpy = vi.fn(async () => ({ ...okRes, deduped: true }));
     setApiForTesting(stubApi({ send: sendSpy }));
-    await main(["message", "send", "--target", "/s/general", "--text", "hi"]);
+    await main(["message", "send", "--target", "/s#0042/general", "--text", "hi"]);
     const env = parseEnvelope(cap.lines());
-    expect(env.success.sent).toBe("/s/general#8");
+    expect(env.success.sent).toBe("/s#0042/general#8");
     expect(env.error).toBeUndefined();
   });
 
   it("does NOT retry a blocked/unaligned business outcome (it's a return, not transient)", async () => {
     const sendSpy = vi.fn(async () => ({ state: "blocked" as const, reason: "unaligned" as const, unreadCount: 2, latestSeq: 9 }));
     setApiForTesting(stubApi({ send: sendSpy }));
-    await main(["message", "send", "--target", "/s/general", "--text", "hi"]);
+    await main(["message", "send", "--target", "/s#0042/general", "--text", "hi"]);
     const env = parseEnvelope(cap.lines());
     expect(env.error).toContain("channel not aligned");
     expect(sendSpy).toHaveBeenCalledTimes(1); // no retry on a business outcome
   });
 
   it("does NOT retry a non-transient thrown error (e.g. 4xx), surfaces it once", async () => {
-    const sendSpy = vi.fn(async () => { throw new Error("reply target #5 not found in /s/general"); });
+    const sendSpy = vi.fn(async () => { throw new Error("reply target #5 not found in /s#0042/general"); });
     setApiForTesting(stubApi({ send: sendSpy }));
-    await main(["message", "send", "--target", "/s/general", "--text", "hi"]);
+    await main(["message", "send", "--target", "/s#0042/general", "--text", "hi"]);
     const env = parseEnvelope(cap.lines());
     expect(env.error).toContain("reply target");
     expect(sendSpy).toHaveBeenCalledTimes(1); // deterministic business error — not retried
@@ -414,7 +437,7 @@ describe("message post", () => {
     const postSpy = vi.fn(async (req: { nonce?: string }) => {
       nonces.push(req.nonce);
       calls++;
-      if (calls === 1) throw new Error("upstream returned 502 with non-JSON body from /api/createPost");
+      if (calls === 1) throw new Error("upstream returned 502 with non-JSON body from canonical messages door");
       return okRes;
     });
     setApiForTesting(stubApi({ createPost: postSpy }));
@@ -429,11 +452,11 @@ describe("message post", () => {
 describe("server list", () => {
   it("prints {success:{servers:[...]}} from a stubbed listServers", async () => {
     setApiForTesting(
-      stubApi({ listServers: async () => ({ servers: [{ id: "srv_1", name: "Design Studio" }] }) }),
+      stubApi({ listServers: async () => ({ servers: [{ handle: "Design Studio#0042" }] }) }),
     );
     await main(["server", "list"]);
     const env = parseEnvelope(cap.lines());
-    expect(env).toEqual({ success: { servers: [{ id: "srv_1", name: "Design Studio" }] } });
+    expect(env).toEqual({ success: { servers: [{ handle: "Design Studio#0042" }] } });
   });
 
   it("prints an empty array when the bot is in no servers", async () => {
@@ -470,7 +493,7 @@ describe("server member", () => {
   it("rejects a non-positive-integer --limit with a clear error, listMembers never called", async () => {
     const listMembersSpy = vi.fn(async () => ({ members: [], hasMore: false }));
     setApiForTesting(stubApi({ listMembers: listMembersSpy }));
-    await main(["server", "member", "--server", "Design Studio", "--limit", "abc"]);
+    await main(["server", "member", "--server", "Design Studio#0042", "--limit", "abc"]);
     const env = parseEnvelope(cap.lines());
     expect(env).toEqual({ error: "server member: --limit must be a positive integer" });
     expect(listMembersSpy).not.toHaveBeenCalled();
@@ -481,12 +504,12 @@ describe("server member", () => {
     setApiForTesting(stubApi({ listMembers: listMembersSpy }));
     await main(["server", "member"]);
     const env = parseEnvelope(cap.lines());
-    expect(env).toEqual({ error: "server member: --server <name> is required" });
+    expect(env).toEqual({ error: "server member: --server <name#discriminator> is required" });
     expect(listMembersSpy).not.toHaveBeenCalled();
   });
 
-  it("surfaces an ambiguous-name error verbatim as {error: <message>}", async () => {
-    const message = 'ambiguous server name "studio" — matches 2 servers: srv_1 ("Design Studio"), srv_2 ("Studio Ops")';
+  it("surfaces an invalid-handle error verbatim as {error: <message>}", async () => {
+    const message = "invalid server handle, expected name#0042";
     setApiForTesting(
       stubApi({
         listMembers: async () => {
@@ -503,14 +526,14 @@ describe("server member", () => {
 
 describe("server join", () => {
   it("extracts the token from a full URL and calls joinServer with the bare token only", async () => {
-    const joinServerSpy = vi.fn(async () => ({ server: { id: "srv_1", name: "Design Studio" } }));
+    const joinServerSpy = vi.fn(async () => ({ server: { handle: "Design Studio#0042" } }));
     setApiForTesting(stubApi({ joinServer: joinServerSpy }));
     await main(["server", "join", "--invite", "https://alook.dev/c/invite/AbC123XyZ0"]);
     expect(joinServerSpy).toHaveBeenCalledWith(expect.objectContaining({ invite: "AbC123XyZ0" }));
   });
 
   it("passes a bare token through unchanged", async () => {
-    const joinServerSpy = vi.fn(async () => ({ server: { id: "srv_1", name: "Design Studio" } }));
+    const joinServerSpy = vi.fn(async () => ({ server: { handle: "Design Studio#0042" } }));
     setApiForTesting(stubApi({ joinServer: joinServerSpy }));
     await main(["server", "join", "--invite", "AbC123XyZ0"]);
     expect(joinServerSpy).toHaveBeenCalledWith(expect.objectContaining({ invite: "AbC123XyZ0" }));
@@ -524,7 +547,7 @@ describe("server join", () => {
   });
 
   it("unparseable --invite value → descriptive error, joinServer never called", async () => {
-    const joinServerSpy = vi.fn(async () => ({ server: { id: "srv_1", name: "Design Studio" } }));
+    const joinServerSpy = vi.fn(async () => ({ server: { handle: "Design Studio#0042" } }));
     setApiForTesting(stubApi({ joinServer: joinServerSpy }));
     await main(["server", "join", "--invite", "not an invite at all"]);
     const env = parseEnvelope(cap.lines());
@@ -563,13 +586,13 @@ describe("server join", () => {
     });
   });
 
-  it("success prints {success:{server:{id,name}}} (no `joined` key)", async () => {
+  it("success prints {success:{server:{handle}}} (no `joined` key)", async () => {
     setApiForTesting(
-      stubApi({ joinServer: async () => ({ server: { id: "srv_1", name: "Design Studio" } }) }),
+      stubApi({ joinServer: async () => ({ server: { handle: "Design Studio#0042" } }) }),
     );
     await main(["server", "join", "--invite", "AbC123XyZ0"]);
     const env = parseEnvelope(cap.lines());
-    expect(env).toEqual({ success: { server: { id: "srv_1", name: "Design Studio" } } });
+    expect(env).toEqual({ success: { server: { handle: "Design Studio#0042" } } });
     expect(env.success as object).not.toHaveProperty("joined");
   });
 });
@@ -581,14 +604,14 @@ describe("channel list", () => {
         {
           category: null,
           channels: [
-            { ref: "/demo-workspace/announcements", name: "announcements", type: "text" as const, visibility: "public" as const },
+            { ref: "/demo-workspace#1234/announcements", name: "announcements", type: "text" as const, visibility: "public" as const },
           ],
         },
         {
           category: { name: "Ops", private: false },
           channels: [
-            { ref: "/demo-workspace/general", name: "general", type: "text" as const, visibility: "public" as const },
-            { ref: "/demo-workspace/help", name: "help", type: "forum" as const, visibility: "public" as const },
+            { ref: "/demo-workspace#1234/general", name: "general", type: "text" as const, visibility: "public" as const },
+            { ref: "/demo-workspace#1234/help", name: "help", type: "forum" as const, visibility: "public" as const },
           ],
         },
       ],
@@ -602,14 +625,14 @@ describe("channel list", () => {
           {
             category: null,
             channels: [
-              { ref: "/demo-workspace/announcements", name: "announcements", type: "text", visibility: "public" },
+              { ref: "/demo-workspace#1234/announcements", name: "announcements", type: "text", visibility: "public" },
             ],
           },
           {
             category: { name: "Ops", private: false },
             channels: [
-              { ref: "/demo-workspace/general", name: "general", type: "text", visibility: "public" },
-              { ref: "/demo-workspace/help", name: "help", type: "forum", visibility: "public" },
+              { ref: "/demo-workspace#1234/general", name: "general", type: "text", visibility: "public" },
+              { ref: "/demo-workspace#1234/help", name: "help", type: "forum", visibility: "public" },
             ],
           },
         ],
@@ -618,15 +641,15 @@ describe("channel list", () => {
     expect(listChannelsSpy).toHaveBeenCalledWith(expect.objectContaining({ server: "srv_8fk2" }));
   });
 
-  it("--server accepts a name and passes it straight through unmodified", async () => {
+  it("--server accepts a handle and passes it straight through unmodified", async () => {
     const listChannelsSpy = vi.fn(async () => ({ groups: [] }));
     setApiForTesting(stubApi({ listChannels: listChannelsSpy }));
-    await main(["channel", "list", "--server", "Design Studio"]);
-    expect(listChannelsSpy).toHaveBeenCalledWith(expect.objectContaining({ server: "Design Studio" }));
+    await main(["channel", "list", "--server", "Design Studio#0042"]);
+    expect(listChannelsSpy).toHaveBeenCalledWith(expect.objectContaining({ server: "Design Studio#0042" }));
   });
 
-  it("surfaces an ambiguous-name error verbatim as {error: <message>}", async () => {
-    const message = 'ambiguous server name "studio" — matches 2 servers: srv_1 ("Design Studio"), srv_2 ("Studio Ops")';
+  it("surfaces an invalid-handle error verbatim as {error: <message>}", async () => {
+    const message = "invalid server handle, expected name#0042";
     setApiForTesting(
       stubApi({
         listChannels: async () => {
@@ -657,7 +680,7 @@ describe("channel list", () => {
     setApiForTesting(stubApi({ listChannels: listChannelsSpy }));
     await main(["channel", "list"]);
     const env = parseEnvelope(cap.lines());
-    expect(env).toEqual({ error: "channel list: --server <id-or-name> is required" });
+    expect(env).toEqual({ error: "channel list: --server <name#discriminator> is required" });
     expect(listChannelsSpy).not.toHaveBeenCalled();
   });
 
@@ -676,7 +699,7 @@ describe("channel member", () => {
       hint: "This channel is public. Use `alook server member --server demo` to list who can see it.",
     }));
     setApiForTesting(stubApi({ channelMember: channelMemberSpy }));
-    await main(["channel", "member", "--channel", "/demo/general"]);
+    await main(["channel", "member", "--channel", "/demo#0042/general"]);
     const env = parseEnvelope(cap.lines());
     expect(env).toEqual({
       success: {
@@ -685,7 +708,7 @@ describe("channel member", () => {
       },
     });
     expect(channelMemberSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ channel: "/demo/general" }),
+      expect.objectContaining({ channel: "/demo#0042/general" }),
     );
   });
 
@@ -698,7 +721,7 @@ describe("channel member", () => {
       ],
     }));
     setApiForTesting(stubApi({ channelMember: channelMemberSpy }));
-    await main(["channel", "member", "--channel", "/demo/leadership"]);
+    await main(["channel", "member", "--channel", "/demo#0042/leadership"]);
     const env = parseEnvelope(cap.lines());
     expect(env).toEqual({
       success: {
@@ -714,9 +737,9 @@ describe("channel member", () => {
   it("thread ref passes through unchanged", async () => {
     const channelMemberSpy = vi.fn(async () => ({ visibility: "private" as const, members: [] }));
     setApiForTesting(stubApi({ channelMember: channelMemberSpy }));
-    await main(["channel", "member", "--channel", "/demo/general/#12"]);
+    await main(["channel", "member", "--channel", "/demo#0042/general/#12"]);
     expect(channelMemberSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ channel: "/demo/general/#12" }),
+      expect.objectContaining({ channel: "/demo#0042/general/#12" }),
     );
   });
 
@@ -757,11 +780,11 @@ describe("channel history", () => {
     const readSpy = vi.fn(async () => ({ items: [], hasMore: false }));
     setApiForTesting(stubApi({ read: readSpy }));
     await main([
-      "channel", "history", "--channel", "/demo-workspace/general",
+      "channel", "history", "--channel", "/demo-workspace#1234/general",
       "--before", "42", "--after", "1", "--around", "20", "--limit", "5",
     ]);
     expect(readSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ channel: "/demo-workspace/general", before: 42, after: 1, around: 20, limit: 5 }),
+      expect.objectContaining({ channel: "/demo-workspace#1234/general", before: 42, after: 1, around: 20, limit: 5 }),
     );
   });
 
@@ -769,12 +792,12 @@ describe("channel history", () => {
     setApiForTesting(
       stubApi({
         read: async () => ({
-          items: [{ seq: "#37", channel: "/s/general", sender: "@a", content: { text: "hi" }, time: "" }],
+          items: [{ seq: "#37", channel: "/s#0042/general", sender: "@a", content: { text: "hi" }, time: "" }],
           hasMore: true,
         }),
       }),
     );
-    await main(["channel", "history", "--channel", "/s/general"]);
+    await main(["channel", "history", "--channel", "/s#0042/general"]);
     const env = parseEnvelope(cap.lines()) as { success: { items: unknown[]; hasMore: boolean } };
     expect(env.success.hasMore).toBe(true);
     expect(env.success.items).toHaveLength(1);
@@ -783,7 +806,7 @@ describe("channel history", () => {
 
   it("includes latestSeq when the API returns one", async () => {
     setApiForTesting(stubApi({ read: async () => ({ items: [], hasMore: false, latestSeq: 41 }) }));
-    await main(["channel", "history", "--channel", "/s/general"]);
+    await main(["channel", "history", "--channel", "/s#0042/general"]);
     const env = parseEnvelope(cap.lines()) as { success: { latestSeq: number } };
     expect(env.success.latestSeq).toBe(41);
   });
@@ -791,8 +814,8 @@ describe("channel history", () => {
   it("works for a thread ref — passes it through to api.read() unmodified", async () => {
     const readSpy = vi.fn(async () => ({ items: [], hasMore: false }));
     setApiForTesting(stubApi({ read: readSpy }));
-    await main(["channel", "history", "--channel", "/demo-workspace/general/#12"]);
-    expect(readSpy).toHaveBeenCalledWith(expect.objectContaining({ channel: "/demo-workspace/general/#12" }));
+    await main(["channel", "history", "--channel", "/demo-workspace#1234/general/#12"]);
+    expect(readSpy).toHaveBeenCalledWith(expect.objectContaining({ channel: "/demo-workspace#1234/general/#12" }));
   });
 
   it("works for a DM ref — passes it through to api.read() unmodified", async () => {
@@ -820,10 +843,10 @@ describe("message emoji", () => {
   it("channel ref — calls reactAdd with (channel, seq, emoji) and prints success envelope", async () => {
     const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
     setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
-    await main(["message", "emoji", "--target", "/demo/general#42", "--emoji", "👍"]);
-    expect(reactAddSpy).toHaveBeenCalledWith({ channel: "/demo/general", seq: 42, emoji: "👍" });
+    await main(["message", "emoji", "--target", "/demo#0042/general#42", "--emoji", "👍"]);
+    expect(reactAddSpy).toHaveBeenCalledWith({ channel: "/demo#0042/general", seq: 42, emoji: "👍" });
     const env = parseEnvelope(cap.lines());
-    expect(env).toEqual({ success: { target: "/demo/general#42", emoji: "👍", duplicate: false } });
+    expect(env).toEqual({ success: { target: "/demo#0042/general#42", emoji: "👍", duplicate: false } });
   });
 
   it("DM ref — calls reactAdd with the DM channel + seq split out", async () => {
@@ -833,20 +856,12 @@ describe("message emoji", () => {
     expect(reactAddSpy).toHaveBeenCalledWith({ channel: "/.dm/peer#0001", seq: 7, emoji: "🙏" });
   });
 
-  it("forum-post ref — reacts to a message INSIDE the post (childChannelName kept, not the parent forum)", async () => {
+  it("the old forum-post ref shape no longer parses (no-compat, phase2 forum≡thread) — errors before reactAdd", async () => {
     const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
     setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
-    await main(["message", "emoji", "--target", "/demo/ideas/my-post#4", "--emoji", "👍"]);
-    // channel is the POST scope (/demo/ideas/my-post), NOT the parent forum /demo/ideas.
-    expect(reactAddSpy).toHaveBeenCalledWith({ channel: "/demo/ideas/my-post", seq: 4, emoji: "👍" });
-  });
-
-  it("forum-post ref without a message seq → error, reactAdd never called", async () => {
-    const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
-    setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
-    await main(["message", "emoji", "--target", "/demo/ideas/my-post", "--emoji", "👍"]);
+    await main(["message", "emoji", "--target", "/demo#0042/ideas/my-post#4", "--emoji", "👍"]);
     const env = parseEnvelope(cap.lines());
-    expect(env.error).toMatch(/needs a ref with a seq/);
+    expect(env.error).toBeDefined();
     expect(reactAddSpy).not.toHaveBeenCalled();
   });
 
@@ -860,7 +875,7 @@ describe("message emoji", () => {
         },
       }),
     );
-    await main(["message", "emoji", "--target", "/demo/general#42", "--emoji", "👍"]);
+    await main(["message", "emoji", "--target", "/demo#0042/general#42", "--emoji", "👍"]);
     const env = parseEnvelope(cap.lines());
     expect(env).toEqual({ error: "not a member of #general", hint: "join the channel first" });
   });
@@ -868,7 +883,7 @@ describe("message emoji", () => {
   it("thread scope ref without message seq → error, reactAdd never called", async () => {
     const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
     setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
-    await main(["message", "emoji", "--target", "/demo/general/#5", "--emoji", "👍"]);
+    await main(["message", "emoji", "--target", "/demo#0042/general/#5", "--emoji", "👍"]);
     const env = parseEnvelope(cap.lines());
     expect(env.error).toMatch(/needs a ref with a seq/);
     expect(env.hint).toMatch(/#N#M/);
@@ -878,7 +893,7 @@ describe("message emoji", () => {
   it("bare channel ref (no #N) → error envelope with seq hint, reactAdd never called", async () => {
     const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
     setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
-    await main(["message", "emoji", "--target", "/demo/general", "--emoji", "👍"]);
+    await main(["message", "emoji", "--target", "/demo#0042/general", "--emoji", "👍"]);
     const env = parseEnvelope(cap.lines());
     expect(env.error).toMatch(/needs a ref with a seq/);
     expect(env.hint).toMatch(/#N/);
@@ -897,7 +912,7 @@ describe("message emoji", () => {
   it("missing --emoji → commander error, reactAdd never called", async () => {
     const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
     setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
-    await main(["message", "emoji", "--target", "/demo/general#42"]);
+    await main(["message", "emoji", "--target", "/demo#0042/general#42"]);
     const env = parseEnvelope(cap.lines());
     expect("error" in env).toBe(true);
     expect(reactAddSpy).not.toHaveBeenCalled();
@@ -907,7 +922,7 @@ describe("message emoji", () => {
     const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
     setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
     const big = "🎉".repeat(20);
-    await main(["message", "emoji", "--target", "/demo/general#42", "--emoji", big]);
+    await main(["message", "emoji", "--target", "/demo#0042/general#42", "--emoji", big]);
     const env = parseEnvelope(cap.lines());
     expect(env.error).toMatch(/too long/);
     expect(env.hint).toMatch(/single emoji/);
@@ -916,7 +931,7 @@ describe("message emoji", () => {
 
   it("duplicate — envelope surfaces duplicate:true, exit code still 0", async () => {
     setApiForTesting(stubApi({ reactAdd: async () => ({ ok: true as const, duplicate: true }) }));
-    const code = await main(["message", "emoji", "--target", "/demo/general#42", "--emoji", "👍"]);
+    const code = await main(["message", "emoji", "--target", "/demo#0042/general#42", "--emoji", "👍"]);
     expect(code).toBe(0);
     const env = parseEnvelope(cap.lines()) as { success: { duplicate: boolean } };
     expect(env.success.duplicate).toBe(true);
@@ -925,24 +940,24 @@ describe("message emoji", () => {
   it("thread-reply ref — calls reactAdd with thread-scope channel + seq split out", async () => {
     const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
     setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
-    await main(["message", "emoji", "--target", "/demo/general/#5#42", "--emoji", "👍"]);
-    expect(reactAddSpy).toHaveBeenCalledWith({ channel: "/demo/general/#5", seq: 42, emoji: "👍" });
+    await main(["message", "emoji", "--target", "/demo#0042/general/#5#42", "--emoji", "👍"]);
+    expect(reactAddSpy).toHaveBeenCalledWith({ channel: "/demo#0042/general/#5", seq: 42, emoji: "👍" });
     const env = parseEnvelope(cap.lines());
-    expect(env).toEqual({ success: { target: "/demo/general/#5#42", emoji: "👍", duplicate: false } });
+    expect(env).toEqual({ success: { target: "/demo#0042/general/#5#42", emoji: "👍", duplicate: false } });
   });
 
   it("thread ROOT via parent channel ref (regression) unchanged", async () => {
     const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
     setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
-    await main(["message", "emoji", "--target", "/demo/general#5", "--emoji", "👀"]);
-    expect(reactAddSpy).toHaveBeenCalledWith({ channel: "/demo/general", seq: 5, emoji: "👀" });
+    await main(["message", "emoji", "--target", "/demo#0042/general#5", "--emoji", "👀"]);
+    expect(reactAddSpy).toHaveBeenCalledWith({ channel: "/demo#0042/general", seq: 5, emoji: "👀" });
   });
 
   it("thread-reply oversize emoji still hits the local check before the wire", async () => {
     const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
     setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
     const big = "🎉".repeat(20);
-    await main(["message", "emoji", "--target", "/demo/general/#5#42", "--emoji", big]);
+    await main(["message", "emoji", "--target", "/demo#0042/general/#5#42", "--emoji", big]);
     const env = parseEnvelope(cap.lines());
     expect(env.error).toMatch(/too long/);
     expect(reactAddSpy).not.toHaveBeenCalled();
@@ -950,7 +965,7 @@ describe("message emoji", () => {
 
   it("thread-reply duplicate — envelope surfaces duplicate:true", async () => {
     setApiForTesting(stubApi({ reactAdd: async () => ({ ok: true as const, duplicate: true }) }));
-    await main(["message", "emoji", "--target", "/demo/general/#5#42", "--emoji", "👍"]);
+    await main(["message", "emoji", "--target", "/demo#0042/general/#5#42", "--emoji", "👍"]);
     const env = parseEnvelope(cap.lines()) as { success: { duplicate: boolean } };
     expect(env.success.duplicate).toBe(true);
   });
@@ -984,7 +999,7 @@ describe("message attachment upload", () => {
         "attachment",
         "upload",
         "--target",
-        "/demo/general",
+        "/demo#0042/general",
         "--file",
         file,
       ]);
@@ -995,7 +1010,7 @@ describe("message attachment upload", () => {
     expect(uploadSpy).toHaveBeenCalledTimes(1);
     expect(uploadSpy).toHaveBeenCalledWith({
       agentId: "agent_test",
-      target: "/demo/general",
+      target: "/demo#0042/general",
       file: {
         data: new Uint8Array(Buffer.from(body)),
         filename: `prototype.${extension}`,
@@ -1185,7 +1200,7 @@ describe("message send — --text escape decoding wired end-to-end", () => {
       }),
     );
     // Two literal chars backslash-n twice, as a shell would pass them.
-    await main(["message", "send", "--target", "/s/general", "--text", "a\\n\\nb"]);
+    await main(["message", "send", "--target", "/s#0042/general", "--text", "a\\n\\nb"]);
     expect(sentText).toBe("a\n\nb");
     expect(sentText!.split("\n")).toHaveLength(3);
   });
@@ -1207,7 +1222,7 @@ describe("message send — --text escape decoding wired end-to-end", () => {
         },
       }),
     );
-    await main(["message", "send", "--target", "/s/general", "--file", file]);
+    await main(["message", "send", "--target", "/s#0042/general", "--file", file]);
     fs.rmSync(dir, { recursive: true, force: true });
     expect(sentText).toBe("a\\nb");
     expect(sentText).not.toContain("\n");

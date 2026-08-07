@@ -232,17 +232,41 @@ function parseBearer(authHeader: string | undefined): string | null {
  */
 export type CapabilityResolver = (method: string, pathname: string) => Capability | undefined;
 
-export const DEFAULT_CAPABILITY_RESOLVER: CapabilityResolver = (_method, pathname) => {
+export const DEFAULT_CAPABILITY_RESOLVER: CapabilityResolver = (method, pathname) => {
   // Match `/attachmentUpload` and `/attachmentDownload` (pre-rewrite pathname
   // — the credential proxy inspects the client's `/api/...` path here). Both
   // endpoints share the `"attach"` capability so a voucher can be scoped to
   // attach-only without granting `send`/`read`.
   if (pathname.includes("/attachment")) return "attach";
-  if (pathname.includes("/friendRequest") || pathname.includes("/listFriends")) return "friend";
-  // `/createPost` is a create/write (a new forum post + its first message), same
-  // write class as `/send`/`/reactAdd` — it needs the `send` capability so a
-  // read-only or attach-only voucher can't create content.
-  if (pathname.includes("/send") || pathname.includes("/reactAdd") || pathname.includes("/createPost")) return "send";
+  // Friend surfaces: the per-bucket sub-resource endpoints (/friends,
+  // /friends/accepted, /friends/pending, /friends/request). /friends/blocked is
+  // bot-403 at the route (owner-only) so a bot voucher never reaches it
+  // regardless of cap. The flat /friendRequest and /listFriends verbs are
+  // deleted (flat-delete step) — no substring rule for them anymore.
+  if (/\/friends(\/|$|\?)/.test(pathname)) return "friend";
+
+  // ── Canonical id-in-path message door (route/disc trunk). Matched by METHOD +
+  //    path SHAPE, before the flat-verb substring rules below, because the
+  //    substring rules can't tell a canonical shape apart: `/channels/{id}/…`
+  //    contains the literal `channel`, which the legacy `/server|/channel →
+  //    "server"` rule (kept at the bottom) would grab FIRST — mis-scoping a
+  //    bot send/read to the `server` capability. Shape+method disambiguates:
+  //    the same `channels/{id}/messages` path is `read` on GET, `send` on POST.
+  //      - GET  channels/{id}/messages           → read  (list, folds `read`)
+  //      - POST channels/{id}/messages           → send  (create, folds `send`)
+  //      - GET  channels/{id}/messages/seq/{seq}  → read  (folds `resolve`'s seq→id)
+  //      - PUT/DELETE messages/{id}/reactions/…   → send  (write, folds `reactAdd`)
+  const isMessagesDoor = /\/channels\/[^/]+\/messages(\/|$|\?)/.test(pathname)
+  if (isMessagesDoor) return method === "GET" ? "read" : "send";
+  if (/\/messages\/[^/]+\/reactions\//.test(pathname)) return "send";
+  // Single-message hydrate door GET messages/{id} (folds the `resolve` verb — a
+  // read). Matched AFTER the message-keyed write doors above so their more
+  // specific `/reactions|/threads` sub-paths win first.
+  if (method === "GET" && /\/messages\/[^/]+(\?|$)/.test(pathname)) return "read";
+
+  // ── Remaining generic read/server families. ──
+  // send/read/reactAdd/resolve/channelMember flat routes are DELETED (folded into
+  // the canonical doors above), so their substring rules are gone.
   if (pathname.includes("/history") || pathname.includes("/search") || pathname.includes("/inbox"))
     return "read";
   if (pathname.includes("/server") || pathname.includes("/channel")) return "server";
@@ -326,13 +350,27 @@ export async function startCredentialProxy(
       return;
     }
 
+    // Bot traffic has one canonical REST namespace. The deleted flat
+    // `/api/<verb>` surface must fail at this boundary rather than reaching an
+    // upstream that might accidentally grow a matching route later.
+    const canonicalCommunityDoor = /^\/api\/community\/(channels|messages|servers|invites|friends|users|bots)(\/|$)/.test(pathname);
+    if (pathname === "/api" || (pathname.startsWith("/api/") && !canonicalCommunityDoor)) {
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "unknown API route", code: "not_found" }));
+      req.resume();
+      return;
+    }
+
     const reg = verdict.reg;
     // Tightened from `.endsWith("/inboxPull")` — the attachment-download
     // endpoint returns raw binary, and a loose match here would try to JSON-
-    // parse it as an inbox response. Only the exact `/api/inboxPull` path
-    // (pre-rewrite; matches the daemon's CLI callers, see `rewriteAgentPath`)
-    // should trigger the timeline recorder callback.
-    const isInboxPull = onPull && pathname === "/api/inboxPull";
+    // parse it as an inbox response. Exact-path match the canonical inbox-pull
+    // door that returns the `{ messages }` shape the timeline recorder
+    // consumes: `/api/community/users/me/inbox/pull` (route/disc 轴3;
+    // `callInboxPull` sends this full path directly, no rewrite). The flat
+    // `/api/inboxPull` verb is deleted (flat-delete step). inboxSnapshot is
+    // deliberately EXCLUDED (peek, no `{ messages }` to record).
+    const isInboxPull = onPull && pathname === "/api/community/users/me/inbox/pull";
 
     if (onProxyRequest) {
       try {
@@ -371,7 +409,7 @@ export async function startCredentialProxy(
         hostname: upstream.hostname,
         port: upstream.port || (upstream.protocol === "https:" ? 443 : 80),
         method: req.method,
-        path: joinPath(upstream.pathname, rewriteAgentPath(req.url ?? "/")),
+        path: joinPath(upstream.pathname, req.url ?? "/"),
         headers: outHeaders,
       },
       (res_) => {
@@ -480,29 +518,4 @@ function joinPath(basePath: string, reqUrl: string): string {
   const base = basePath.replace(/\/+$/, "");
   const reqPath = reqUrl.startsWith("/") ? reqUrl : `/${reqUrl}`;
   return (base + reqPath) || "/";
-}
-
-/**
- * Rewrite the CLI's bare `/api/*` ops (`/api/send`, `/api/inboxPull`, …) onto
- * the real unified-actor server surface at `/api/community/*` (plans/22 §9 — the
- * `/api/community/agent/*` tree was deleted; every bot verb now lives flat under
- * `/api/community/`). This is a bot-only API — no back-compat to preserve — so
- * the rewrite is unconditional for anything under `/api/`.
- *
- * IDEMPOTENT: a path already under `/api/community/` passes through untouched.
- * The two FOLDED verbs (listServers → GET `/api/community/servers`, joinServer →
- * POST `/api/community/invites/<token>/join`) are addressed with their real REST
- * paths client-side in `proxyServerApi` (mirroring `callUpload`/`callDownload`);
- * this guard lets those flow through without being double-prefixed into a
- * non-existent `/api/community/community/...`.
- */
-function rewriteAgentPath(reqUrl: string): string {
-  const url = new URL(reqUrl, "http://placeholder");
-  if (url.pathname.startsWith("/api/community/")) {
-    return url.pathname + url.search;
-  }
-  if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
-    url.pathname = `/api/community${url.pathname.slice("/api".length)}`;
-  }
-  return url.pathname + url.search;
 }

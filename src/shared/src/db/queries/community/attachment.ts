@@ -1,47 +1,9 @@
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNull, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import { nanoid } from "nanoid";
 import { communityAttachment } from "../../community-schema";
 import type { Database } from "../../index";
 import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
-
-/**
- * Insert an attachment row already tied to a message (human-composer path).
- * The agent-attachment pipeline uses `createPendingAttachment` /
- * `reserveAttachmentsForMessage` instead — those two are the only writers of
- * `messageId = NULL` rows.
- */
-export async function createAttachment(
-  db: Database,
-  data: {
-    messageId: string;
-    uploaderId: string;
-    targetId: string;
-    r2Key: string;
-    filename: string;
-    position?: number;
-    contentType?: string | null;
-    size?: number | null;
-    width?: number | null;
-    height?: number | null;
-  }
-) {
-  const [row] = await db
-    .insert(communityAttachment)
-    .values({
-      messageId: data.messageId,
-      uploaderId: data.uploaderId,
-      targetId: data.targetId,
-      r2Key: data.r2Key,
-      filename: data.filename,
-      position: data.position ?? null,
-      contentType: data.contentType ?? null,
-      size: data.size ?? null,
-      width: data.width ?? null,
-      height: data.height ?? null,
-    })
-    .returning();
-  return row!;
-}
 
 /**
  * Insert a pending attachment row (`messageId = NULL`) for the agent
@@ -87,8 +49,17 @@ export async function createPendingAttachment(
  * the (uploader, scope) tuple. Callers compare `rows.length === ids.length`
  * to detect any mismatch and reject with a generic 400 that never leaks
  * which specific id failed (avoids id enumeration).
+ *
+ * Actor-agnostic: the guarantee is keyed entirely on the `uploaderId` param, so
+ * BOTH the human web composer and the bot flow use it (route/disc step 2b
+ * unified them onto reserve-by-id). A caller passes its own credential user id;
+ * the `uploaderId` + `messageId IS NULL` filters make it confused-deputy-safe —
+ * a caller can only reserve pending rows it uploaded, into the target it
+ * uploaded them for (the send-side dual of the download door's
+ * authorize-from-row guard). Named "…ForSender" (not "…ForBot") because the
+ * sender is whichever actor's credential keys the lookup.
  */
-export async function findPendingAttachmentsForBot(
+export async function findPendingAttachmentsForSender(
   db: Database,
   data: { ids: string[]; uploaderId: string; targetId: string }
 ) {
@@ -142,6 +113,35 @@ export async function reserveAttachmentsForMessage(
     )
     .returning({ id: communityAttachment.id });
   return rows.map((r) => r.id);
+}
+
+export async function rebindPendingAttachmentsToChild(
+  db: Database,
+  data: { ids: string[]; uploaderId: string; parentTargetId: string; childTargetId: string }
+): Promise<boolean> {
+  if (data.ids.length === 0) return true;
+  const eligible = alias(communityAttachment, "eligible_attachment");
+  const eligibleCount = db
+    .select({ value: count() })
+    .from(eligible)
+    .where(and(
+      inArray(eligible.id, data.ids),
+      isNull(eligible.messageId),
+      eq(eligible.uploaderId, data.uploaderId),
+      inArray(eligible.targetId, [data.parentTargetId, data.childTargetId])
+    ));
+  const rebound = await db
+    .update(communityAttachment)
+    .set({ targetId: data.childTargetId })
+    .where(and(
+      inArray(communityAttachment.id, data.ids),
+      isNull(communityAttachment.messageId),
+      eq(communityAttachment.uploaderId, data.uploaderId),
+      inArray(communityAttachment.targetId, [data.parentTargetId, data.childTargetId]),
+      sql`(${eligibleCount}) = ${data.ids.length}`
+    ))
+    .returning({ id: communityAttachment.id });
+  return rebound.length === data.ids.length;
 }
 
 /**

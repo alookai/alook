@@ -210,7 +210,7 @@ export const ServerRail = memo(function ServerRail({
                           s.icon ? "bg-card text-muted-foreground" : "text-white [text-shadow:0_1px_1px_rgb(0_0_0/0.35)]",
                         ].join(" ")}
                       >
-                        {s.icon ? <img src={s.icon} alt={s.name} className="size-full object-cover" /> : <><MarbleBackground seed={s.id} /><span className="relative -translate-x-[2px] [-webkit-text-stroke:0.5px_currentColor]">{s.initial}</span></>}
+                        {s.icon ? <img src={s.icon} alt={s.name} className="size-full object-cover" /> : <><MarbleBackground seed={s.id} /><span className="relative -translate-x-0.5 [-webkit-text-stroke:0.5px_currentColor]">{s.initial}</span></>}
                       </span>
                     ) : (
                       <span key={idx} className="aspect-square rounded-sm bg-card/50" />
@@ -229,7 +229,7 @@ export const ServerRail = memo(function ServerRail({
                   icon ? "bg-secondary text-foreground" : "text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.35)]",
                 ].join(" ")}
               >
-                {icon ? <img src={icon} alt={s.name} className="size-full object-cover" /> : <><MarbleBackground seed={s.id} /><span className="relative -translate-x-[2px] [-webkit-text-stroke:0.5px_currentColor]">{s.initial}</span></>}
+                {icon ? <img src={icon} alt={s.name} className="size-full object-cover" /> : <><MarbleBackground seed={s.id} /><span className="relative -translate-x-0.5 [-webkit-text-stroke:0.5px_currentColor]">{s.initial}</span></>}
               </div>
             )
           })()}

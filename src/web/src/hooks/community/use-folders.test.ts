@@ -25,7 +25,7 @@ describe("useFolders / foldersQueryFn", () => {
     })
     const { foldersQueryFn } = await import("./use-folders")
     const data = await foldersQueryFn()
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/server-folders")
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/users/me/server-folders")
     expect(data.folders[0].servers[0].initial).toBe("A")
     expect(data.folders[0].position).toBe(2)
   })

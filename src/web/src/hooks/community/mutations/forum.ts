@@ -3,47 +3,48 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import type { ForumPost } from "@/components/community/_types"
-import type { ForumPostsResponse } from "@/hooks/community/use-channel-panels"
 import type { UploadedAttachment } from "@/hooks/community/mutations/uploads"
 import type { MentionType } from "@alook/shared"
 
-export type CreateForumPostArgs = {
+export type CreateForumThreadArgs = {
+  nonce: string
   channelId: string
   name: string
   content: string
-  // Pre-uploaded R2 URLs (not raw files) — the client uploads via
-  // `useUploadFile` before firing this mutation, and the server persists them
-  // as `community_message_attachment` rows on the post's first message.
+  // Pre-uploaded pending attachments — the client uploads via `useUploadFile`
+  // (creating pending rows) before firing this mutation and passes the
+  // descriptors here; only their `id`s reach the server (reserve-by-id,
+  // route/disc step 2b), which links them onto the post's first message.
   attachments?: UploadedAttachment[]
   // Propagated to the first message so `@everyone` audience broadcast
   // fires end-to-end.
   mentionType?: MentionType
 }
-export type CreateForumPostResult = { post: ForumPost }
+export type CreateForumThreadResult = { threadId: string }
 
-export function useCreateForumPost() {
+export function useCreateForumThread() {
   const queryClient = useQueryClient()
-  return useMutation<CreateForumPostResult, Error, CreateForumPostArgs>({
-    mutationFn: async ({ channelId, name, content, attachments, mentionType }) => {
-      return apiFetch<CreateForumPostResult>(
-        `/api/community/channels/${channelId}/posts`,
+  return useMutation<CreateForumThreadResult, Error, CreateForumThreadArgs>({
+    mutationFn: async ({ nonce, channelId, name, content, attachments, mentionType }) => {
+      // Server receives only the attachment IDS (reserve-by-id); dimensions
+      // already rode the upload, so they are not re-sent.
+      const attachmentIds = attachments?.map((a) => a.id)
+      const structure = await apiFetch<CreateForumThreadResult>(
+        `/api/community/channels/${channelId}/messages`,
         {
           method: "POST",
-          body: JSON.stringify({ name, content, attachments, mentionType }),
+          body: JSON.stringify({ content: name, attachments: attachmentIds, mentionType, nonce: `${nonce}:opener` }),
         },
       )
+      await apiFetch(`/api/community/channels/${structure.threadId}/messages`, {
+        method: "POST",
+        body: JSON.stringify({ content, attachments: attachmentIds, nonce: `${nonce}:reply` }),
+      })
+      return structure
     },
     onSuccess: (data, args) => {
-      // Prepend the fresh post to the cached list — the server-side WS
-      // `child_create` also invalidates, but here we win the same-tab race.
-      queryClient.setQueryData<ForumPostsResponse | undefined>(
-        communityKeys.forumPosts(args.channelId),
-        (prev) =>
-          prev
-            ? { ...prev, posts: [data.post, ...prev.posts] }
-            : { posts: [data.post] },
-      )
+      void data
+      void queryClient.invalidateQueries({ queryKey: communityKeys.channelMessages(args.channelId) })
     },
   })
 }
@@ -51,72 +52,60 @@ export function useCreateForumPost() {
 export type UpdatePostTagsArgs = {
   // The parent forum channel — the cache key the post list lives under.
   forumChannelId: string
-  // The post channel whose tags are being edited.
-  postId: string
+  // The post/thread card being patched in cache.
+  threadId: string
+  // Tags are a resource of the forum opener message, never of the child thread.
+  openerMessageId: string
   tags: string[]
 }
 
 /**
- * Edit a single forum post's tags. PATCHes the post channel (creator or manager
+ * Edit a single forum post's tags. PUTs the opener-message tag resource (author or manager
  * gated server-side), then patches the post's row in the forum's cached list so
- * the card + the derived tag filter bar update without a refetch.
+ * the card + the derived tag filter bar update on success without a refetch.
  */
 export function useUpdatePostTags() {
   const queryClient = useQueryClient()
   return useMutation<{ tags: string[] }, Error, UpdatePostTagsArgs>({
-    mutationFn: async ({ postId, tags }) => {
+    mutationFn: async ({ openerMessageId, tags }) => {
       const normalized = [...new Set(tags.map((t) => t.trim().toLowerCase()).filter(Boolean))]
-      await apiFetch(`/api/community/channels/${postId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ forumTags: JSON.stringify(normalized) }),
+      await apiFetch(`/api/community/messages/${openerMessageId}/tags`, {
+        method: "PUT",
+        body: JSON.stringify({ tags: normalized }),
       })
       return { tags: normalized }
     },
     onSuccess: (data, args) => {
-      queryClient.setQueryData<ForumPostsResponse | undefined>(
-        communityKeys.forumPosts(args.forumChannelId),
-        (prev) =>
-          prev
-            ? {
-                ...prev,
-                posts: prev.posts.map((p) =>
-                  p.id === args.postId ? { ...p, tags: data.tags } : p,
-                ),
-              }
-            : prev,
-      )
+      void data
+      // Prefix invalidation covers the unfiltered list and every tag variant.
+      // This is required when the edited
+      // post loses the currently-selected tag and must leave that result set.
+      void queryClient.invalidateQueries({ queryKey: communityKeys.channelMessages(args.forumChannelId) })
     },
   })
 }
 
-export type DeleteForumPostArgs = {
+export type DeleteForumThreadArgs = {
   // The parent forum channel — the cache key the post list lives under.
   forumChannelId: string
   // The post channel being deleted.
-  postId: string
+  threadId: string
 }
 
 /**
- * Delete a single forum post. A post IS a `forum_post` child channel, so this
- * DELETEs the channel (creator or manager gated server-side — see the DELETE
- * route's forum_post carve-out). On success (204) the post is filtered out of
+ * Delete a single forum thread through the canonical child-channel resource.
+ * On success (204) the post is filtered out of
  * the forum's cached list so the card disappears without a refetch; the
  * server-side WS `channel.delete` also invalidates for other clients.
  */
-export function useDeleteForumPost() {
+export function useDeleteForumThread() {
   const queryClient = useQueryClient()
-  return useMutation<void, Error, DeleteForumPostArgs>({
-    mutationFn: async ({ postId }) => {
-      await apiFetch(`/api/community/channels/${postId}`, { method: "DELETE" })
+  return useMutation<void, Error, DeleteForumThreadArgs>({
+    mutationFn: async ({ threadId }) => {
+      await apiFetch(`/api/community/channels/${threadId}`, { method: "DELETE" })
     },
     onSuccess: (_data, args) => {
-      queryClient.setQueryData<ForumPostsResponse | undefined>(
-        communityKeys.forumPosts(args.forumChannelId),
-        (prev) =>
-          prev
-            ? { ...prev, posts: prev.posts.filter((p) => p.id !== args.postId) }
-            : prev,
-      )
+      void queryClient.invalidateQueries({ queryKey: communityKeys.channelMessages(args.forumChannelId) })
     },
   })
 }

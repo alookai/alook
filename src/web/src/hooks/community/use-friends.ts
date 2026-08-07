@@ -41,13 +41,18 @@ const EMPTY_PENDING: readonly PendingRequest[] = Object.freeze([])
 const EMPTY_BLOCKED: readonly BlockedUser[] = Object.freeze([])
 
 export const friendsQueryFn = async (): Promise<FriendsResponse> => {
-  const [friendsData, pendingData] = await Promise.all([
-    apiFetch<{ friends: Friend[]; blocked: BlockedUser[]; stale?: boolean }>("/api/community/friends").then(throwIfStale),
+  // The legacy aggregate GET /friends ({friends,blocked}) is retired — read each
+  // bucket from its own sub-resource endpoint (friends/accepted · friends/blocked
+  // · friends/pending) and compose the same triad. Same query key / cache grain
+  // as before, so mutations still fire one invalidation.
+  const [acceptedData, blockedData, pendingData] = await Promise.all([
+    apiFetch<{ friends: Friend[]; stale?: boolean }>("/api/community/friends/accepted").then(throwIfStale),
+    apiFetch<{ blocked: BlockedUser[]; stale?: boolean }>("/api/community/friends/blocked").then(throwIfStale),
     apiFetch<{ pending: PendingRequest[]; stale?: boolean }>("/api/community/friends/pending").then(throwIfStale),
   ])
   return {
-    friends: friendsData.friends,
-    blocked: friendsData.blocked,
+    friends: acceptedData.friends,
+    blocked: blockedData.blocked,
     pending: pendingData.pending,
   }
 }

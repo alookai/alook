@@ -1,6 +1,7 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useLayoutEffect, useRef, useState } from "react"
+import { useVirtualizer } from "@tanstack/react-virtual"
 import { MessagesSquare, ListChevronsUpDown, Plus, Tag, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { formatRelativeTime } from "./format-time"
@@ -9,15 +10,17 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "./avatar"
 import { AvatarGroup, AvatarGroupCount } from "@/components/ui/avatar"
 import { EmptyState } from "./empty-state"
-import { CreateForumPost, type NewForumPost } from "./create-forum-post"
+import { CreateForumThread, type NewForumThread } from "./create-forum-thread"
 import { PostTagDialog } from "./post-tag-dialog"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { tid } from "@/lib/community/testids"
-import type { ForumPost, Member } from "./_types"
+import type { ForumThread, Member } from "./_types"
+import { VirtualRows } from "./virtual-cursor-list"
+import { useVirtualCursorSentinel } from "@/hooks/community/use-virtual-cursor-sentinel"
 
 // Max member avatars shown in a post card's AvatarGroup before collapsing to a
 // "+N" bubble. Creator is always first.
-const MAX_AVATARS = 4
+const MAX_AVATARS = 5
 
 // Forum channel body — rendered under the shared ChannelHeader. A feed of posts;
 // each post opens as a thread. The filter bar's tag chips are DERIVED from the
@@ -28,43 +31,87 @@ export function ForumView({
   forumChannelId,
   members,
   onSearchMembers,
-  posts, loading, onOpenPost, onCreatePost, onEditPostTags, canEditPostTags, savingTagsFor,
+  posts, loading, tag, availableTags = [], onTagChange, onOpenPost, onCreatePost, onEditPostTags, canEditPostTags, savingTagsFor,
+  hasMore, loadingMore, onLoadMore,
   onDeletePost, canDeletePost, deletingPost,
 }: {
   forumChannelId: string
   members: Member[]
   onSearchMembers?: (query: string) => void
-  posts: ForumPost[]
+  posts: ForumThread[]
   loading?: boolean
+  tag: string
+  availableTags?: string[]
+  onTagChange: (tag: string) => void
+  hasMore?: boolean
+  loadingMore?: boolean
+  onLoadMore?: () => void
   onOpenPost: (id: string) => void
   // Async — page owns the mutation + `enterThread` navigation and either
-  // resolves or rejects. `CreateForumPost` catches rejection to toast and
+  // resolves or rejects. `CreateForumThread` catches rejection to toast and
   // preserve composer state for retry.
-  onCreatePost?: (post: NewForumPost) => Promise<void>
+  onCreatePost?: (post: NewForumThread) => Promise<void>
   // Save handler for a single post's tags. Absent → tag editing disabled.
-  onEditPostTags?: (postId: string, tags: string[]) => void
+  onEditPostTags?: (threadId: string, tags: string[]) => void
   // Whether the current user may edit a given post's tags (creator or manager).
-  canEditPostTags?: (post: ForumPost) => boolean
+  canEditPostTags?: (post: ForumThread) => boolean
   // The post id whose tag save is in flight, if any.
   savingTagsFor?: string | null
   // Delete handler for a single post. Absent → delete disabled.
-  onDeletePost?: (post: ForumPost) => void
+  onDeletePost?: (post: ForumThread) => void
   // Whether the current user may delete a given post (creator or manager).
-  canDeletePost?: (post: ForumPost) => boolean
+  canDeletePost?: (post: ForumThread) => boolean
   // The post id whose delete is in flight, if any.
   deletingPost?: string | null
 }) {
-  const [tag, setTag] = useState("All")
   const [composing, setComposing] = useState(false)
-  const [editingTagsFor, setEditingTagsFor] = useState<ForumPost | null>(null)
-  const [deletingFor, setDeletingFor] = useState<ForumPost | null>(null)
+  const [editingTagsFor, setEditingTagsFor] = useState<ForumThread | null>(null)
+  const [deletingFor, setDeletingFor] = useState<ForumThread | null>(null)
   const newPostTriggerRef = useRef<HTMLButtonElement>(null)
-
-  // Deduped union of every post's tags — the forum's tag list is derived, not
-  // stored. Only rendered when non-empty.
-  const allTags = [...new Set(posts.flatMap((p) => p.tags))].sort()
-
-  const filtered = tag === "All" ? posts : posts.filter((p) => p.tags.includes(tag))
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const alignedTagRef = useRef<string | null>(null)
+  const prependSnapshotRef = useRef<{ height: number; top: number } | null>(null)
+  const wasLoadingMoreRef = useRef(loadingMore)
+  // eslint-disable-next-line react-hooks/incompatible-library -- library limitation, same as member-list.tsx
+  const virtualizer = useVirtualizer({
+    count: posts.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 160,
+    getItemKey: (index) => posts[index]?.id ?? index,
+    overscan: 5,
+    initialRect: { width: 0, height: 800 },
+  })
+  const filterTags = availableTags.length > 0
+    ? availableTags
+    : [...new Set(posts.flatMap((post) => post.tags))]
+  useLayoutEffect(() => {
+    if (posts.length === 0 || alignedTagRef.current === tag) return
+    alignedTagRef.current = tag
+    virtualizer.scrollToIndex(posts.length - 1, { align: "end" })
+  }, [posts.length, tag, virtualizer])
+  useLayoutEffect(() => {
+    const wasLoading = wasLoadingMoreRef.current
+    wasLoadingMoreRef.current = loadingMore
+    const snapshot = prependSnapshotRef.current
+    const root = scrollRef.current
+    if (!wasLoading || loadingMore || !snapshot || !root) return
+    root.scrollTop = snapshot.top + (root.scrollHeight - snapshot.height)
+    prependSnapshotRef.current = null
+  }, [loadingMore, posts.length])
+  const loadOlder = () => {
+    const root = scrollRef.current
+    if (root && !prependSnapshotRef.current) {
+      prependSnapshotRef.current = { height: root.scrollHeight, top: root.scrollTop }
+    }
+    onLoadMore?.()
+  }
+  const olderSentinelRef = useVirtualCursorSentinel({
+    scrollRef,
+    hasMore,
+    isFetching: loadingMore,
+    onLoad: loadOlder,
+    edge: "start",
+  })
 
   const closeCompose = () => {
     setComposing(false)
@@ -79,7 +126,7 @@ export function ForumView({
       {/* Composer OR filter bar in the same slot — swapping (not stacking)
           keeps the post list below anchored. */}
       {composing ? (
-        <CreateForumPost
+        <CreateForumThread
           forumChannelId={forumChannelId}
           members={members}
           onSearchMembers={onSearchMembers}
@@ -93,16 +140,16 @@ export function ForumView({
       ) : (
         <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2">
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-            {allTags.length > 0 && (
+            {filterTags.length > 0 && (
               <>
-                <Badge variant={tag === "All" ? "default" : "secondary"} className="shrink-0 cursor-pointer" render={<button onClick={() => setTag("All")} />}>All</Badge>
-                {allTags.map((t) => (
+                <Badge variant={tag === "All" ? "default" : "secondary"} className="shrink-0 cursor-pointer" render={<button onClick={() => onTagChange("All")} />}>All</Badge>
+                {filterTags.map((t) => (
                   <Badge
                     key={t}
                     variant={tag === t ? "default" : "secondary"}
                     className="shrink-0 cursor-pointer"
                     data-testid={tid.forumTagChip(t)}
-                    render={<button onClick={() => setTag(t)} />}
+                    render={<button onClick={() => onTagChange(t)} />}
                   >
                     {`#${t}`}
                   </Badge>
@@ -116,28 +163,33 @@ export function ForumView({
         </div>
       )}
 
-      <main className="flex-1 overflow-y-auto thin-scrollbar p-4">
+      <div ref={scrollRef} role="main" className="flex-1 overflow-y-auto thin-scrollbar p-4">
         {loading && posts.length === 0 ? (
           <ForumListSkeleton />
-        ) : filtered.length === 0 ? (
+        ) : posts.length === 0 ? (
           <EmptyState icon={ListChevronsUpDown} label="No posts with this tag yet. Start one with New Post." />
         ) : (
-          <div className="flex flex-col gap-3">
-            {filtered.map((p) => {
+          <>
+            <div ref={olderSentinelRef} className="h-px" aria-hidden />
+            <VirtualRows
+              items={posts}
+              virtualizer={virtualizer}
+              itemKey={(post) => post.id}
+              renderItem={(p) => {
               const canEdit = !!onEditPostTags && (canEditPostTags?.(p) ?? false)
               const canDelete = !!onDeletePost && (canDeletePost?.(p) ?? false)
               const others = p.participants.filter((m) => m.id !== p.authorId)
               const shown = others.slice(0, MAX_AVATARS)
-              const overflow = others.length - shown.length
+              const overflow = Math.max(0, p.participantCount - 1 - shown.length)
               return (
                 <div
                   key={p.id}
                   role="button"
                   tabIndex={0}
-                  data-testid={tid.forumPostCard(p.id)}
+                  data-testid={tid.forumThreadCard(p.id)}
                   onClick={() => onOpenPost(p.id)}
                   onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpenPost(p.id) } }}
-                  className="group/card flex cursor-pointer flex-col gap-2 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:border-primary/40 hover:bg-accent/40"
+                  className="group/card mb-3 flex cursor-pointer flex-col gap-2 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:border-primary/40 hover:bg-accent/40"
                 >
                   <div className="flex items-center gap-2">
                     <Avatar label={p.authorAvatar} seed={p.authorId} size={24} />
@@ -146,7 +198,7 @@ export function ForumView({
                     {others.length > 0 && (
                       <>
                         <span className="h-4 w-px shrink-0 bg-border" aria-hidden />
-                        <AvatarGroup data-testid={tid.forumPostAvatars(p.id)}>
+                        <AvatarGroup data-testid={tid.forumThreadAvatars(p.id)}>
                           {shown.map((m) => (
                             <Avatar key={m.id} label={m.avatar} seed={m.id} size={24} ringColor="var(--card)" />
                           ))}
@@ -157,7 +209,7 @@ export function ForumView({
                     {canEdit && (
                       <button
                         type="button"
-                        data-testid={tid.forumPostTagBtn(p.id)}
+                        data-testid={tid.forumThreadTagBtn(p.id)}
                         onClick={(e) => { e.stopPropagation(); setEditingTagsFor(p) }}
                         className="ml-auto grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/card:opacity-100"
                         aria-label="Edit tags"
@@ -168,7 +220,7 @@ export function ForumView({
                     {canDelete && (
                       <button
                         type="button"
-                        data-testid={tid.forumPostDeleteBtn(p.id)}
+                        data-testid={tid.forumThreadDeleteBtn(p.id)}
                         disabled={deletingPost === p.id}
                         onClick={(e) => { e.stopPropagation(); setDeletingFor(p) }}
                         className={`${canEdit ? "" : "ml-auto "}grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-destructive focus-visible:opacity-100 group-hover/card:opacity-100 disabled:cursor-not-allowed disabled:opacity-50`}
@@ -190,10 +242,11 @@ export function ForumView({
                   </div>
                 </div>
               )
-            })}
-          </div>
+              }}
+            />
+          </>
         )}
-      </main>
+      </div>
 
       {editingTagsFor && (
         <PostTagDialog
@@ -201,7 +254,7 @@ export function ForumView({
           onOpenChange={(v) => { if (!v) setEditingTagsFor(null) }}
           postName={editingTagsFor.name}
           current={editingTagsFor.tags}
-          allTags={allTags}
+          allTags={availableTags}
           saving={savingTagsFor === editingTagsFor.id}
           onSave={(tags) => { onEditPostTags?.(editingTagsFor.id, tags); setEditingTagsFor(null) }}
         />

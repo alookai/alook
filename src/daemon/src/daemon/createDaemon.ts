@@ -13,11 +13,8 @@
  *      (Bearer `cmk_`) → per-agent runner key (`crk_`).
  *   3. credential proxy (http): validates agent vouchers, swaps in runner
  *      keys, stamps X-Agent-Id, and forwards to the server's data plane.
- *      All agent traffic flows through here. The agent-facing catalog is
- *      `/api/{inboxPull,ack,send,read,resolve,listServers,listChannels,
- *      listMembers,channelMember,joinServer,reactAdd,attachmentUpload,
- *      attachmentDownload,friendRequest,listFriends}` (rewritten to
- *      `/api/community/agent/*` — see `rewriteAgentPath` in credentialProxy.ts).
+ *      All agent traffic flows through canonical `/api/community/*` REST
+ *      doors; the deleted flat `/api/<verb>` catalog is rejected by the proxy.
  *
  * It is agnostic on both axes:
  *   - whether the server is a real Alook server or a local `wrangler dev`
@@ -128,28 +125,74 @@ export function createRuntimeRawLineTap(args: {
 
 /**
  * Derive the audit-log `cli_invocation` subcommand from a proxy request
- * pathname. The credential proxy rewrites the CLI's bare `/api/*` calls onto
- * `/api/community/agent/*` (see `rewriteAgentPath` in credentialProxy.ts) —
- * but the sighting fires BEFORE that rewrite runs (against the inbound
- * pathname), so we may see either shape here.
+ * pathname. The CLI calls canonical `/api/community/*` REST doors directly;
+ * the proxy preserves that pathname unchanged.
  *
- * `/api/ack` is a paired sibling of `inboxPull` with no user intent, so it's
- * dropped (returns `null`). Anything else outside the `/api/*` prefix returns
- * `null` too — the proxy is generic and could carry non-audit traffic in the
- * future.
+ * Canonical `users/me/inbox/ack` is the advance sibling of `inboxPull` with no
+ * user intent, so it is dropped (returns `null`). Anything outside recognized
+ * canonical shapes returns `null` too — the proxy is generic and could carry
+ * non-audit traffic in the future.
  */
-export function deriveAuditLogSubcommand(pathname: string): string | null {
-  // Normalize both the pre-rewrite client path (`/api/<verb>`) and the
-  // post-rewrite upstream path (`/api/community/<verb>`, plans/22 §9 — the old
-  // `/api/community/agent/` tree is gone) down to `/api/<verb>` before slicing.
-  const stripped = pathname
-    .replace(/^\/api\/community\/agent\//, "/api/")
-    .replace(/^\/api\/community\//, "/api/");
-  if (!stripped.startsWith("/api/")) return null;
-  const sub = stripped.slice("/api/".length).split("/")[0]?.split("?")[0] ?? "";
-  if (!sub) return null;
-  if (sub === "ack") return null;
-  return sub;
+export function deriveAuditLogSubcommand(pathname: string, method?: string): string | null {
+  // Route/disc retarget: several flat verbs now hit the canonical id-in-path
+  // door (`channels/{id}/messages`, `messages/{id}/reactions/…`) instead of
+  // `/api/<verb>`. Slicing the first segment of those would log the DOOR name
+  // (`channels`/`messages`) instead of the logical verb the bot invoked, so the
+  // `cli_invocation` audit row would lose which action ran. Map the canonical
+  // SHAPES back to their verb FIRST, on the canonical `/api/community/…`
+  // shape. The messages door is dual-verb — GET is `read`, POST is `send` — so
+  // it needs the method; the others are single-verb.
+  const canonical = pathname.split("?")[0] ?? pathname;
+  if (/^\/api\/community\/messages\/[^/]+\/reactions\//.test(canonical)) return "reactAdd";
+  if (/^\/api\/community\/channels\/[^/]+\/messages\/seq\//.test(canonical)) return "resolve";
+  if (/^\/api\/community\/channels\/[^/]+\/messages(\/|$)/.test(canonical)) {
+    return method === "GET" ? "read" : "send";
+  }
+  if (/^\/api\/community\/channels\/[^/]+\/members(\/|$)/.test(canonical)) return "channelMember";
+  // Attachments door (attachments fold): the flat `attachmentUpload` /
+  // `attachmentDownload` verbs fold onto channels/{id}/attachments (POST upload)
+  // + channels/{id}/attachments/{attachmentId} (GET download). Map both back so
+  // the audit row keeps the logical verb, not the `channels` door segment. The
+  // download shape (has the `{attachmentId}` sub-segment) is tested FIRST so the
+  // bare-upload shape doesn't swallow it.
+  if (/^\/api\/community\/channels\/[^/]+\/attachments\/[^/]+/.test(canonical)) return "attachmentDownload";
+  if (/^\/api\/community\/channels\/[^/]+\/attachments(\/|$)/.test(canonical)) return "attachmentUpload";
+  // Single-message hydrate door GET messages/{id} = the folded `resolve` verb.
+  // AFTER the reactions pattern so that specific sub-path wins.
+  if (/^\/api\/community\/messages\/[^/]+$/.test(canonical)) return "resolve";
+  // Server-scoped list doors (轴3 fold): GET servers/{id}/members = the folded
+  // `listMembers` verb; GET servers/{id}/channels and GET servers/channels (the
+  // all-servers collection read) = the folded `listChannels` verb. Map back so
+  // the audit row keeps the logical verb, not the `servers` door segment.
+  if (/^\/api\/community\/servers\/[^/]+\/members(\/|$)/.test(canonical)) return "listMembers";
+  if (/^\/api\/community\/servers\/[^/]+\/channels(\/|$)/.test(canonical)) return "listChannels";
+  if (/^\/api\/community\/servers\/channels(\/|$)/.test(canonical)) return "listChannels";
+  // Friends bucket doors (轴3 fold): the bot's `listFriends` fans out to
+  // GET friends/accepted + GET friends/pending. Map both back to the logical
+  // verb so the audit row stays `listFriends`, not the `friends` segment.
+  // (/friends/blocked is bot-403 → never reached by a bot, so it needs no map.)
+  if (/^\/api\/community\/friends\/(accepted|pending)(\/|$|\?)/.test(canonical)) return "listFriends";
+  // friend-request door (friendRequest fold): the bot verb folded onto POST
+  // friends/request (dual-actor). Map back to `friendRequest` so the audit row
+  // stays the logical verb, not the `friends` segment. (Audit derivation is
+  // daemon/proxy-only = bot path; the human arm's own logAudit is untouched.)
+  if (/^\/api\/community\/friends\/request(\/|$|\?)/.test(canonical)) return "friendRequest";
+  // Inbox trinity doors (轴3 fold): the caller's own inbox pull/snapshot/ack fold
+  // into users/me/inbox/{pull,snapshot,ack}. Map back to the logical verb so the
+  // audit row stays inboxPull/inboxSnapshot/ack, not the `users` segment. (ack is
+  // the advance operation of the fetch↔advance trinity — snapshot=peek /
+  // pull=fetch / ack=advance; route/disc Gener #215 乙, relocated with the inbox
+  // family, NOT to channels/{id}/read.)
+  if (/^\/api\/community\/users\/me\/inbox\/pull(\/|$|\?)/.test(canonical)) return "inboxPull";
+  if (/^\/api\/community\/users\/me\/inbox\/snapshot(\/|$|\?)/.test(canonical)) return "inboxSnapshot";
+  if (/^\/api\/community\/users\/me\/inbox\/ack(\/|$|\?)/.test(canonical)) return null; // ack writes no audit row here (re-homed to daemon reborn-ready signal)
+
+  // Bot-self lifecycle door (bots/me/*, Blondie #527): nap relocated from the flat
+  // /nap to bots/me/nap. Map back to the logical `nap` verb so the audit stays
+  // `nap`, not the `bots` segment.
+  if (/^\/api\/community\/bots\/me\/nap(\/|$|\?)/.test(canonical)) return "nap";
+
+  return null;
 }
 
 /**
@@ -335,8 +378,8 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     onInboxPullResponse: (agentId, messages) => timeline.appendEntryForAgent(agentId, messages),
     // Bot audit log — Producer B (authoritative for `alook <sub>`). Fires
     // ONLY on `verdict.ok === true`, before the upstream request is written.
-    onProxyRequest: (agentId, _method, pathname) => {
-      const subcommand = deriveAuditLogSubcommand(pathname);
+    onProxyRequest: (agentId, method, pathname) => {
+      const subcommand = deriveAuditLogSubcommand(pathname, method);
       if (!subcommand) return;
       // Producer B: read the same audit context Producer A does so
       // cli_invocation rows carry launchId (and sessionId once the runtime
@@ -531,14 +574,22 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
         headers: { "content-type": "application/json", authorization: `Bearer ${opts.machineKey}` },
         body: JSON.stringify({ agentId }),
       });
-      const json = (await res.json()) as { runnerKey?: string; error?: string };
+      const text = await res.text();
+      let json: { runnerKey?: string; error?: string } = {};
+      if (text) {
+        try {
+          json = JSON.parse(text) as { runnerKey?: string; error?: string };
+        } catch {
+          json = {};
+        }
+      }
       if (!res.ok || !json.runnerKey) {
         if (res.status === 404) {
           throw new UnknownBotError(agentId);
         }
         throw new BotEnrollFailedError(
           agentId,
-          new Error(json.error ?? `enroll failed (${res.status})`),
+          new Error(json.error ?? `enroll failed (${res.status})${text ? `: ${text.slice(0, 512)}` : ""}`),
         );
       }
       enrolledKeys.set(agentId, json.runnerKey);

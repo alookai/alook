@@ -10,6 +10,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
+import type { Msg } from "@/components/community/_types"
 
 // ── React shim (mirrors use-community-ws.test.ts) ────────────────────────
 let refs: Map<string, { current: unknown }> = new Map()
@@ -97,10 +98,24 @@ async function loadMod() {
   return await import("./messages")
 }
 
-function makeCache(msgs: { id: string; failed?: boolean; reactions?: unknown[] }[] = []) {
+function makeCache(msgs: Array<{ id: string } & Record<string, unknown>> = []) {
   return {
     pages: [{ messages: msgs, hasMore: false }],
     pageParams: [null],
+  }
+}
+
+function postedMessage(id: string, seq: number) {
+  return {
+    id,
+    seq,
+    createdAt: "2026-08-07T10:00:00.000Z",
+    content: "canonical content",
+    authorId: "u_me",
+    authorName: "Canonical Name",
+    authorImage: "https://avatar.test/me.png",
+    type: "default",
+    embeds: [{ title: "Canonical embed" }],
   }
 }
 
@@ -115,12 +130,66 @@ beforeEach(() => {
   callbackCounter = 0
 })
 
+describe("useEditMessage", () => {
+  it("optimistically patches content and rolls back when PATCH fails", async () => {
+    const key = communityKeys.channelMessages("ch_1")
+    const messageKey = communityKeys.message("m1")
+    capturedQc.setQueryData(key, makeCache([{ id: "m1", content: "old" }]))
+    capturedQc.setQueryData(messageKey, { id: "m1", content: "old" })
+    apiFetchMock.mockRejectedValueOnce(new Error("boom"))
+    const mod = await loadMod()
+    mod.useEditMessage()
+
+    await runMutation({ serverId: "s1", channelId: "ch_1", messageId: "m1", content: "new" }).catch(() => {})
+
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/messages/m1", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: "new" }),
+    })
+    const cache = capturedQc.getQueryData<{ pages: { messages: { content?: string }[] }[] }>(key)
+    expect(cache?.pages[0].messages[0]?.content).toBe("old")
+    expect(capturedQc.getQueryData<{ content: string }>(messageKey)?.content).toBe("old")
+  })
+
+  it("optimistically patches the single-message cache used by a post header", async () => {
+    const messageKey = communityKeys.message("opener_1")
+    capturedQc.setQueryData(messageKey, { id: "opener_1", content: "Old title" })
+    apiFetchMock.mockResolvedValueOnce(undefined)
+    const mod = await loadMod()
+    mod.useEditMessage()
+
+    await runMutation({
+      serverId: "s1", channelId: "forum_1", messageId: "opener_1", content: "New title", forumChannelId: "forum_1",
+    })
+
+    expect(capturedQc.getQueryData<{ content: string }>(messageKey)?.content).toBe("New title")
+  })
+
+  it("invalidates every forum summary variant after an opener edit", async () => {
+    const root = communityKeys.channelMessages("forum_1")
+    const bug = [...root, "tag", "bug"] as const
+    capturedQc.setQueryData(root, { pages: [], pageParams: [] })
+    capturedQc.setQueryData(bug, { pages: [], pageParams: [] })
+    apiFetchMock.mockResolvedValueOnce(undefined)
+    const mod = await loadMod()
+    mod.useEditMessage()
+
+    await runMutation({
+      serverId: "s1", channelId: "forum_1", messageId: "opener_1", content: "new", forumChannelId: "forum_1",
+    })
+
+    expect(capturedQc.getQueryState(root)?.isInvalidated).toBe(true)
+    expect(capturedQc.getQueryState(bug)?.isInvalidated).toBe(true)
+  })
+})
+
 // ── useSendMessage ────────────────────────────────────────────────────────
 
 describe("useSendMessage — happy path", () => {
   it("keeps Query base-only and acknowledges the accepted overlay intent", async () => {
     capturedQc.setQueryData(communityKeys.channelMessages("ch_1"), makeCache([]))
-    apiFetchMock.mockResolvedValueOnce({ message: { id: "server_id_1", seq: 9 } })
+    apiFetchMock.mockResolvedValueOnce({ message: postedMessage("server_id_1", 9) })
 
     const mod = await loadMod()
     const stream = await import("@/stores/community/message-stream")
@@ -137,12 +206,21 @@ describe("useSendMessage — happy path", () => {
       author: { id: "u_me", name: "me", avatar: "M" },
     })
 
-    const cache = capturedQc.getQueryData<{ pages: { messages: { id: string }[] }[] }>(
+    const cache = capturedQc.getQueryData<{ pages: { messages: Msg[] }[] }>(
       communityKeys.channelMessages("ch_1"),
     )
     expect(cache?.pages[0].messages).toEqual([])
     expect(stream.getMessageOverlay({ kind: "channel", id: "ch_1", serverId: "s1" }).outboxByNonce.get("n1")).toEqual(
-      expect.objectContaining({ status: "acked", serverMessageId: "server_id_1", serverSeq: 9 }),
+      expect.objectContaining({
+        status: "acked",
+        serverMessageId: "server_id_1",
+        serverSeq: 9,
+        message: expect.objectContaining({
+          authorName: "Canonical Name",
+          content: "canonical content",
+          embeds: [{ title: "Canonical embed" }],
+        }),
+      }),
     )
   })
 })
@@ -213,7 +291,7 @@ async function acceptDmIntent(nonce = "n1") {
 describe("useSendDmMessage — overlay terminal emitter", () => {
   it("keeps Query base-only and emits exactly one postAck", async () => {
     capturedQc.setQueryData(communityKeys.dmMessages("dm_1"), makeCache([]))
-    apiFetchMock.mockResolvedValueOnce({ message: { id: "server_1", seq: 8 } })
+    apiFetchMock.mockResolvedValueOnce({ message: postedMessage("server_1", 8) })
     const mod = await loadMod()
     const stream = await acceptDmIntent()
     const dispatch = vi.spyOn(stream.useMessageStreamStore.getState(), "dispatch")
@@ -224,7 +302,17 @@ describe("useSendDmMessage — overlay terminal emitter", () => {
     expect(dispatch).toHaveBeenCalledTimes(1)
     expect(dispatch).toHaveBeenCalledWith(
       { kind: "dm", id: "dm_1" },
-      { type: "postAck", nonce: "n1", serverMessageId: "server_1", serverSeq: 8 },
+      {
+        type: "postAck",
+        nonce: "n1",
+        message: expect.objectContaining({
+          id: "server_1",
+          seq: 8,
+          authorName: "Canonical Name",
+          content: "canonical content",
+          clientNonce: "n1",
+        }),
+      },
     )
   })
 
@@ -936,9 +1024,60 @@ describe("useAdvanceChannelWatermark", () => {
   })
 })
 
+describe("useReadForumThreadFromInbox", () => {
+  it("PUTs the exact opener target to the parent forum immediately", async () => {
+    apiFetchMock.mockResolvedValue(undefined)
+    const mod = await loadMod()
+    mod.useReadForumThreadFromInbox()
+
+    await runMutation({ parentChannelId: "forum_1", openerMessageId: "opener_42" })
+
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/forum_1/read", {
+      method: "PUT",
+      body: JSON.stringify({ lastReadMessageId: "opener_42" }),
+    })
+  })
+
+  it("has no optimistic cache mutation and invalidates inbox + servers only after success", async () => {
+    apiFetchMock.mockResolvedValue(undefined)
+    const before = { servers: [{ serverId: "s1", channels: [{ channelId: "forum_1" }] }] }
+    capturedQc.setQueryData(communityKeys.inboxUnreads(), before)
+    const setSpy = vi.spyOn(capturedQc, "setQueryData")
+    const invalidateSpy = vi.spyOn(capturedQc, "invalidateQueries")
+    const mod = await loadMod()
+    mod.useReadForumThreadFromInbox()
+
+    await runMutation({ parentChannelId: "forum_1", openerMessageId: "opener_42" })
+
+    expect(setSpy).not.toHaveBeenCalled()
+    expect(capturedQc.getQueryData(communityKeys.inboxUnreads())).toEqual(before)
+    const invalidated = invalidateSpy.mock.calls.map((call) => call[0]?.queryKey)
+    expect(invalidated).toContainEqual(communityKeys.inbox())
+    expect(invalidated).toContainEqual(communityKeys.servers())
+  })
+
+  it("keeps cache intact, skips success invalidation, and toasts when the PUT fails", async () => {
+    const error = new Error("parent read failed")
+    apiFetchMock.mockRejectedValue(error)
+    const before = { servers: [{ serverId: "s1", channels: [{ channelId: "forum_1" }] }] }
+    capturedQc.setQueryData(communityKeys.inboxUnreads(), before)
+    const setSpy = vi.spyOn(capturedQc, "setQueryData")
+    const invalidateSpy = vi.spyOn(capturedQc, "invalidateQueries")
+    const mod = await loadMod()
+    mod.useReadForumThreadFromInbox()
+
+    await runMutation({ parentChannelId: "forum_1", openerMessageId: "opener_42" }).catch(() => {})
+
+    expect(setSpy).not.toHaveBeenCalled()
+    expect(invalidateSpy).not.toHaveBeenCalled()
+    expect(capturedQc.getQueryData(communityKeys.inboxUnreads())).toEqual(before)
+    expect(toastMock).toHaveBeenCalledWith("parent read failed")
+  })
+})
+
 // ── useAdvanceDmWatermark — DM sibling of the channel wrapper ───────────
 describe("useAdvanceDmWatermark", () => {
-  it("returns a callable that PUTs { lastReadMessageId } to the DM read route", async () => {
+  it("returns a callable that PUTs { lastReadMessageId } to the canonical channels read route", async () => {
     vi.useFakeTimers()
     try {
       apiFetchMock.mockResolvedValue(undefined)
@@ -951,7 +1090,7 @@ describe("useAdvanceDmWatermark", () => {
         (c) => (c[1] as { method?: string })?.method === "PUT",
       )
       expect(put).toBeDefined()
-      expect(put![0] as string).toBe("/api/community/dm/dm_1/read")
+      expect(put![0] as string).toBe("/api/community/channels/dm_1/read")
       expect((put![1] as RequestInit).body).toBe(
         JSON.stringify({ lastReadMessageId: "m_42" }),
       )
@@ -979,19 +1118,17 @@ describe("useAdvanceDmWatermark", () => {
       const puts = apiFetchMock.mock.calls.filter(
         (c) => (c[1] as { method?: string })?.method === "PUT",
       )
+      // DM and channel now share the canonical /channels/{id}/read URL, so the
+      // two schedules are distinguished by BODY, not path — the point is the
+      // shared debounce map (keyed `dm:x` vs the channel's own key) does NOT
+      // alias them into one PUT.
       expect(puts).toHaveLength(2)
-      const dmPut = puts.find((c) => (c[0] as string).startsWith("/api/community/dm/"))
-      const chPut = puts.find((c) =>
-        (c[0] as string).startsWith("/api/community/channels/"),
-      )
-      expect(dmPut).toBeDefined()
-      expect(chPut).toBeDefined()
-      expect((dmPut![1] as RequestInit).body).toBe(
-        JSON.stringify({ lastReadMessageId: "m_dm" }),
-      )
-      expect((chPut![1] as RequestInit).body).toBe(
-        JSON.stringify({ lastReadMessageId: "m_ch" }),
-      )
+      const bodies = puts.map((c) => (c[1] as RequestInit).body)
+      expect(bodies).toContain(JSON.stringify({ lastReadMessageId: "m_dm" }))
+      expect(bodies).toContain(JSON.stringify({ lastReadMessageId: "m_ch" }))
+      for (const c of puts) {
+        expect(c[0] as string).toBe("/api/community/channels/x/read")
+      }
     } finally {
       vi.useRealTimers()
     }
@@ -1054,9 +1191,9 @@ describe("useMarkAllInboxRead", () => {
     expect(posts).toHaveLength(3)
     const paths = posts.map((c) => c[0] as string).sort()
     expect(paths).toEqual([
-      "/api/community/inbox/dms/read-all",
-      "/api/community/inbox/mentions/read-all",
-      "/api/community/inbox/unreads/read-all",
+      "/api/community/users/me/inbox/dms/read-all",
+      "/api/community/users/me/inbox/mentions/read-all",
+      "/api/community/users/me/inbox/unreads/read-all",
     ])
   })
 

@@ -43,13 +43,13 @@ async function getServerMemberUserIds(db: Database, serverId: string): Promise<s
 /**
  * Resolves the recipient set for a channel event.
  *
- * - THREAD (`type="thread"`) or FORUM_POST (`type="forum_post"`) → the unit's
- *   NOTIFY set (its participant rows). Both are the notification dimension:
- *   message events reach only participants (join by spoke/mention/added), NOT
- *   the whole parent channel or server, and NOT admins (never auto-participants).
- *   A public post therefore no longer blasts the whole server, and a private
- *   post no longer pings every roster member on every message — only the people
- *   actually involved. Nested-membership model.
+ * - THREAD (`type="thread"`, including a post — a thread rooted directly
+ *   under a forum) → the unit's NOTIFY set (its participant rows) — the
+ *   notification dimension: message events reach only participants (join by
+ *   spoke/mention/added), NOT the whole parent channel or server, and NOT
+ *   admins (never auto-participants). A public post therefore doesn't blast
+ *   the whole server, and a private post doesn't ping every roster member on
+ *   every message — only the people actually involved.
  * - DM (`type="dm"`) → its two `relation='access'` members. A DM has
  *   `server_id = NULL`, so it must NOT fall through to the server-scoped
  *   resolver (which would query `server_id = NULL` and return an empty set).
@@ -72,7 +72,7 @@ async function getChannelRecipientUserIds(db: Database, channelId: string): Prom
   const reach = isStoredChannelType(type) ? channelReach(type) : "server-or-roster"
   switch (reach) {
     case "participant-set":
-      // Thread / forum_post: the unit's notify (participant) rows — the same set
+      // Child thread: the unit's notify (participant) rows — the same set
       // the send-path enroll writes into.
       return withD1Retry(
         () => queries.communityThread.listThreadParticipantUserIds(db, channelId),
@@ -102,7 +102,7 @@ async function getChannelRecipientUserIds(db: Database, channelId: string): Prom
  * Public wrapper so `message-handler` can resolve a channel's recipient set
  * ONCE and share it between the unfiltered `MESSAGE_CREATE` fan-out and the
  * level-filtered notify pipeline (no second membership query). Same split as
- * `getChannelRecipientUserIds` (thread/forum_post → participants; dm → access
+ * `getChannelRecipientUserIds` (child thread → participants; dm → access
  * members; channel/forum → scope audience).
  */
 export async function resolveChannelRecipients(db: Database, channelId: string): Promise<string[]> {

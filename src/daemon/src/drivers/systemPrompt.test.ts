@@ -58,4 +58,5 @@ describe("buildCliSystemPrompt", () => {
     const withoutRole = buildCliSystemPrompt(baseConfig);
     expect(withoutRole).not.toContain("You are the onboarding assistant.");
   });
+
 });

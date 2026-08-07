@@ -154,7 +154,7 @@ export async function markAllServerChannelsRead(
   // inbox unread + mentions consumers use (resolved once per fetch via
   // `listVisibleChannelIdsForUser`). Convergence on the id set replaces the
   // old inlined category `or()`, which climbed nothing and so evaluated child
-  // threads/forum-posts by their own (always-NULL) categoryId as public. The
+  // child threads by their own (always-NULL) categoryId as public. The
   // id set parent-climbs, so a child under a private parent the viewer can't
   // see is now correctly EXCLUDED — mark-all no longer writes read-state rows
   // for channels behind an invisible private parent.

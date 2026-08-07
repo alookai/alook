@@ -1,4 +1,10 @@
-import { queries, canManageServer, canSeePrivateChannel, withD1Retry } from "@alook/shared"
+import {
+  queries,
+  canManageServer,
+  canSeePrivateChannel,
+  visibilityIsDmParticipant,
+  withD1Retry,
+} from "@alook/shared"
 import type { Database } from "@alook/shared"
 
 type PermissionError =
@@ -78,7 +84,7 @@ export type ChannelAccess = {
  *   - public/uncategorized → access; canManage only for admins
  *   - private → access iff creator or added member (admins have NO implicit
  *     content access); canManage iff admin (who can see it) or the unit creator
- * Threads AND forum posts inherit their parent anchor's audience (the context
+ * Child threads inherit their parent anchor's audience (the context
  * query climbs `parentChannelId`); a forum/top-level channel owns its roster.
  *
  * Because access now requires membership/creator even for admins, an admin who
@@ -156,6 +162,77 @@ export async function requireDMAccess(
     createdAt: dm.createdAt,
     otherUserId,
   })
+}
+
+export type MessageSurfaceAccess =
+  | { surface: "dm"; dm: DMAccess }
+  | {
+      surface: "channel"
+      channel: NonNullable<Awaited<ReturnType<typeof queries.communityChannel.getChannelForMember>>>
+    }
+
+/**
+ * Unified message-surface access gate for the id-in-path trunk
+ * (`channels/[id]/*`). One channelId, dispatched to the RIGHT per-surface gate
+ * by the channel's stored type — because a DM is a `type='dm'` row in the same
+ * channel id-space, so feeding a DM's id to the plain `requireChannelMember`
+ * path would pass (it has no block check) and let a BLOCKED user still act. The
+ * trunk must therefore route a DM id to `requireDMAccess`, not collapse every
+ * surface onto one gate.
+ *
+ * ⚠ Surface axis is orthogonal to the type tree (Aigneis #142 / B3): unifying
+ * the ROUTE structure must NOT flatten the per-surface no-access contract. Each
+ * arm keeps its own existence-mask discipline BY CONSTRUCTION:
+ *   - **dm** → `requireDMAccess`: unknown / non-participant → 404 (masks DM
+ *     existence); a real, known participant who is blocked → 403 (a legitimate
+ *     403 that doesn't disclose existence to a stranger).
+ *   - **channel / thread / forum(_post)** → the two-step contract sibling
+ *     channel routes honor: unknown channel → 404, known channel + non-member →
+ *     403. `requireChannelMember` alone collapses both to 403 (the JOIN can't
+ *     tell them apart), so the 404 is produced HERE by the explicit getChannel
+ *     probe first — preserving the human 403/404 split.
+ *
+ * The dm-block fold (requireDMAccess) is exactly the P0 the trunk closes: the
+ * old plain-channel message path never ran it.
+ */
+export async function requireMessageSurfaceAccess(
+  db: Database,
+  channelId: string,
+  userId: string,
+): Promise<Result<MessageSurfaceAccess>> {
+  // One existence probe, reused for the type dispatch AND the channel-arm's
+  // 404 leg — so an unknown id is a single 404 on every surface.
+  const channel = await queries.communityChannel.getChannel(db, channelId)
+  if (!channel) return err(404, "not found")
+
+  // Dispatch on the VISIBILITY trait, not a bare `type === "dm"` literal — the
+  // DM-participant visibility rule lives once in the trait table
+  // (visibilityIsDmParticipant, B3 "instead of each re-testing type==='dm'"),
+  // and this gate consumes it. Keeps who-is-a-dm / how-it-gates single-source
+  // (route dispatch consumes CHANNEL_TRAITS, never re-derives a parallel
+  // type→route judgement) and avoids seeding a literal type-switch the later
+  // forum/thread arms would copy into a parallel type tree.
+  if (visibilityIsDmParticipant(channel.type)) {
+    const dm = await requireDMAccess(db, channelId, userId)
+    if (!dm.ok) {
+      // ④ opaque 404 (Aigneis #157): a 404 here and the top-level unknown-id
+      // 404 must be byte-identical in body, not just status — else a stranger
+      // holding a real DM's id reads "dm not found" and learns the id IS a DM.
+      // The whole point of this gate is a UNIFIED no-access contract, so don't
+      // leak the surface word through the 404 text. A 403 (blocked) is a
+      // legitimate known-participant state and stays distinguishable.
+      if (dm.status === 404) return err(404, "not found")
+      return dm
+    }
+    return ok({ surface: "dm", dm: dm.value })
+  }
+
+  // channel / thread / forum: the id is known (probe above), so
+  // requireChannelMember's collapse-to-403 now only fires for a real
+  // non-member — the unknown case already 404'd. Preserves the 403/404 split.
+  const member = await requireChannelMember(db, channelId, userId)
+  if (!member.ok) return member
+  return ok({ surface: "channel", channel: member.value })
 }
 
 /**

@@ -1,0 +1,67 @@
+import { describe, it, expect } from "vitest"
+import { readdirSync, readFileSync } from "fs"
+import { join, relative, sep } from "path"
+
+/**
+ * ③ shrink-gate (route/disc trunk — flat-tree deletion). `createCommunityMessage`
+ * is the single write funnel; every caller must be an INTENDED door. This test
+ * enumerates the actual direct callers across the whole source tree and asserts
+ * the set equals a hand-maintained allowlist — a NEW caller (e.g. a re-added flat
+ * verb, or a route that should have folded into the canonical door) fails the
+ * test until it's consciously added here. That's the point: the allowlist is the
+ * positive proof that the flat tree stayed deleted and no fourth door-bypass
+ * caller crept in (Melly #346 / Aigneis ③).
+ *
+ * Paths are repo-relative to src/web (the vitest cwd). `message-handler.ts` is
+ * excluded — it DEFINES createCommunityMessage, it doesn't call it.
+ */
+const ALLOWLIST = [
+  // The canonical id-in-path message door (human + bot, folds flat `send` and
+  // the former dm/[id]/messages route — DM now flows through this one tree).
+  "src/app/api/community/channels/[id]/messages/route.ts",
+  // Bot enrollment welcome message (server owner adds a bot → greeting).
+  "src/app/api/community/servers/[id]/bots/route.ts",
+  // phase2 forum≡thread step 1: the atomic-by-compensation "message+thread"
+  // primitive — shared by the send-fold (step 4) and the existing-data
+  // migration (step 5) to open a message with its own auto-created thread.
+  "src/lib/community/create-channels.ts",
+].sort()
+
+function walk(dir: string, acc: string[] = []): string[] {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      if (entry.name === "node_modules" || entry.name === ".next") continue
+      walk(full, acc)
+    } else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) {
+      acc.push(full)
+    }
+  }
+  return acc
+}
+
+describe("createCommunityMessage caller allowlist (③ shrink-gate)", () => {
+  it("only the intended doors call createCommunityMessage — no flat-verb / bypass caller", () => {
+    // Resolve @alook/web's `src` regardless of vitest cwd (repo root vs package).
+    // This file is at src/lib/community/, so climb two levels to `src`.
+    const srcRoot = join(__dirname, "..", "..")
+    const files = walk(srcRoot)
+    const callers: string[] = []
+    for (const file of files) {
+      const repoRelativePath = `src/${relative(srcRoot, file).split(sep).join("/")}`
+      if (repoRelativePath === "src/lib/community/message-handler.ts") continue // defines it
+      // Strip `//` line comments and `/* */` block comments so a doc mention of
+      // the funnel (e.g. "the MessageTarget for createCommunityMessage") is not
+      // counted as a caller — only a real invocation `createCommunityMessage(`.
+      const src = readFileSync(file, "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/\/\/.*$/gm, "")
+      // A direct call: `createCommunityMessage(` with no intervening space (a
+      // call site, not the import binding or a JSDoc reference).
+      if (/\bcreateCommunityMessage\(/.test(src)) {
+        callers.push(repoRelativePath)
+      }
+    }
+    expect(callers.sort()).toEqual(ALLOWLIST)
+  })
+})

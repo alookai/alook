@@ -4,10 +4,16 @@ export type ChannelType = "text" | "forum"
 // with `type='dm'` in migration 0068 (`isDm` below has always checked for it),
 // but this union previously omitted `dm` — a real type-level gap. Widened to
 // the full stored set so code that switches on a channel's stored type is
-// exhaustive over DM channels too. (We keep `forum_post`, NOT the `post` rename
-// from the abandoned PR-408 batch1 — see
-// plans/22-community-unified-actor-route-unify.md §7 ADAPT.)
-export type StoredChannelType = "text" | "forum" | "forum_post" | "thread" | "dm"
+// exhaustive over DM channels too.
+//
+// `forum_post` deleted: a post is now just an ordinary thread whose opener
+// message happens to have a title-shaped `content` — no distinguishing type
+// value, because a post under a forum has zero structural difference from
+// any other thread. Migration 0082 type-flips every existing forum_post row
+// to `thread` before this union narrows; the fold is zero-schema-difference
+// by construction (see create-channels.ts's createMessageWithThread doc for
+// the full shape).
+export type StoredChannelType = "text" | "forum" | "thread" | "dm"
 
 export const ROLES = {
   OWNER: "owner",
@@ -63,10 +69,6 @@ export function isForum(t: string | null | undefined): boolean {
   return t === "forum"
 }
 
-export function isForumPost(t: string | null | undefined): boolean {
-  return t === "forum_post"
-}
-
 export function isThread(t: string | null | undefined): boolean {
   return t === "thread"
 }
@@ -75,8 +77,14 @@ export function isDm(t: string | null | undefined): boolean {
   return t === "dm"
 }
 
+// Every stored type is message-bearing — a channel/forum/thread/DM can all
+// receive a send. This IS isStoredChannelType(t); kept as its own named
+// predicate so send/react/pin call sites read as "is this surface legitimate
+// to write to," not a re-derived type check (phase2 forum≡thread reversed
+// this from an allowlist that excluded plain `forum` — see git history on
+// this function for that transition).
 export function isMessageBearingSurface(t: string | null | undefined): boolean {
-  return t === "text" || t === "forum_post" || t === "thread" || t === "dm"
+  return isStoredChannelType(t)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -109,16 +117,19 @@ export function isMessageBearingSurface(t: string | null | undefined): boolean {
 // (parse → id) and the single canonical-ref emitter (id → ref), which must read
 // the SAME value so a type can never have two addressing paths (red-line ①).
 //   by-server-name  — `/server/<name>`; top-level, name unique per server.
-//   by-child-name   — `/server/<forum>/<post>`; slug unique within parent forum.
 //   by-root-seq     — `/server/<channel>/#<rootSeq>`; anchored on root msg seq.
 //   by-peer-identity— `/.dm/<peer#0042>`; the OTHER access member's handle.
-export type AddressingTrait = "by-server-name" | "by-child-name" | "by-root-seq" | "by-peer-identity"
+// (`by-child-name` — `/server/<forum>/<post>` — deleted with forum_post,
+// phase2 forum≡thread: a post's only addressing was by its own slug under
+// the forum; a post is now an ordinary thread, addressed by-root-seq like
+// any other.)
+export type AddressingTrait = "by-server-name" | "by-root-seq" | "by-peer-identity"
 
 // Who can SEE the channel (read axis). The miss semantics (no access → 404, the
 // existence-non-disclosure red-line ②) are welded to the value, not per-type.
 //   own-roster      — its own server-membership / private-category roster.
 //   inherit-parent  — climbs `parentChannelId` to the parent forum/channel's
-//                     roster + privacy (a post/thread is not its own unit).
+//                     roster + privacy (a thread is not its own unit).
 //   dm-participant  — the two `relation='access'` DM members; the sole surviving
 //                     403 (block of a known participant) lives inside this value.
 export type VisibilityTrait = "own-roster" | "inherit-parent" | "dm-participant"
@@ -133,17 +144,12 @@ export type VisibilityTrait = "own-roster" | "inherit-parent" | "dm-participant"
 export type ReachTrait = "server-or-roster" | "participant-set" | "dm-pair"
 
 // How a channel is CREATED (write axis) — what a name/anchor COLLISION means.
-// Consumed by the create path (B4). Misusing it is a silent-success illusion
-// (a pure-create wrongly merged returns 200 for a post that was never made),
-// which is why it is a first-class trait, not handler-buried logic. Each value
-// names EXACTLY ONE observable collision contract, so it carries exactly one
-// definition-level existence-oracle (Aigneis's B0 criterion, #45) — a value that
-// spanned two contracts (e.g. 409-reject AND bump) would have two end states and
-// no single assertable oracle, collapsing the by-construction win back to
+// Consumed by the create path (B4). Each value names EXACTLY ONE observable
+// collision contract, so it carries exactly one definition-level
+// existence-oracle (Aigneis's B0 criterion, #45) — a value that spanned two
+// contracts (e.g. 409-reject AND bump) would have two end states and no
+// single assertable oracle, collapsing the by-construction win back to
 // per-type hand-verification.
-//   pure-create        — a slug collision BUMPS a new slug (`ideas`→`ideas-2`)
-//                        and retries the insert → N distinct rows, never merged
-//                        (forum_post). Contract: collision → bump → N distinct.
 //   get-or-create      — the anchor identifies ONE unit; a collision re-selects
 //                        and returns the existing winner (idempotent open — DM,
 //                        thread). Contract: collision → fetch winner, 1 unit.
@@ -153,7 +159,12 @@ export type ReachTrait = "server-or-roster" | "participant-set" | "dm-pair"
 //                        a singleton (many channels may exist, just not same-name)
 //                        and NOT "no create" (it is a real create path with a real
 //                        409 contract). Contract: collision → 0 rows + 409.
-export type CreationTrait = "pure-create" | "get-or-create" | "reject-on-collision"
+// (`pure-create` — a slug collision bumps and retries, N distinct rows,
+// never merged — deleted with forum_post, phase2 forum≡thread: it was the
+// sole user of this contract. A post's opener is now created via
+// createMessageWithThread, which doesn't go through this dispatch at all —
+// see create-channels.ts.)
+export type CreationTrait = "get-or-create" | "reject-on-collision"
 
 export type ChannelTraits = {
   addressing: AddressingTrait
@@ -168,23 +179,18 @@ export type ChannelTraits = {
 //
 // `text`/`forum` creation = `reject-on-collision`: a top-level channel create is
 // human-admin-only and a same-name create is REFUSED (409, 0 rows) by the
-// `idx_channel_server_name` unique index — a DIFFERENT observable contract from
-// forum_post's `pure-create` (collision → bump → N distinct rows). The two must
-// not share a value (Aigneis #45 / Ingaborg #46 / Blondie #49 — each verified in
-// code): one value = one collision contract = one oracle. `forum_post` is the
-// sole `pure-create` today (the bot content-create path this round).
+// `idx_channel_server_name` unique index.
 export const CHANNEL_TRAITS: Record<StoredChannelType, ChannelTraits> = {
   text: { addressing: "by-server-name", visibility: "own-roster", reach: "server-or-roster", creation: "reject-on-collision" },
   forum: { addressing: "by-server-name", visibility: "own-roster", reach: "server-or-roster", creation: "reject-on-collision" },
-  forum_post: { addressing: "by-child-name", visibility: "inherit-parent", reach: "participant-set", creation: "pure-create" },
   thread: { addressing: "by-root-seq", visibility: "inherit-parent", reach: "participant-set", creation: "get-or-create" },
   dm: { addressing: "by-peer-identity", visibility: "dm-participant", reach: "dm-pair", creation: "get-or-create" },
 }
 
 // ── reach axis (B2) — the SINGLE source for "who does a message here reach" ────
-// The reach model of a channel type used to be re-derived as `isThread(t) ||
-// isForumPost(t)` (→ participant set) vs `isDm(t)` (→ DM pair) vs else (→ server)
-// in THREE places: fan-out recipients (who-receives), the agent-inbox
+// The reach model of a channel type used to be re-derived as `isThread(t)`
+// (→ participant set) vs `isDm(t)` (→ DM pair) vs else (→ server) in THREE
+// places: fan-out recipients (who-receives), the agent-inbox
 // deliverable-unread narrowing (which channels need participation), and the
 // send-path enroll (who-enrolls into the notify set). Three copies of one
 // classification = drift (the agent thread-inbox deadlock was two of them
@@ -204,8 +210,8 @@ export function channelReach(t: StoredChannelType): ReachTrait {
 
 // A message in a channel of this type ENROLLS participants on send (author +
 // @-mentioned/replied) AND its recipients/deliverable set are read from that
-// same participant set. True iff the reach value is `participant-set` (thread,
-// forum_post today). This is the single predicate the enroll write-side and the
+// same participant set. True iff the reach value is `participant-set`
+// (thread). This is the single predicate the enroll write-side and the
 // participation-narrowing read-side share — they are two ends of one reach
 // value, never separately maintained (red-line ③).
 export function reachIsParticipantSet(t: string | null | undefined): boolean {
@@ -215,7 +221,7 @@ export function reachIsParticipantSet(t: string | null | undefined): boolean {
 // A narrow type guard so the reach helpers can accept the loosely-typed
 // `type` columns/params (string | null) that flow through the query layer.
 export function isStoredChannelType(t: string | null | undefined): t is StoredChannelType {
-  return t === "text" || t === "forum" || t === "forum_post" || t === "thread" || t === "dm"
+  return t === "text" || t === "forum" || t === "thread" || t === "dm"
 }
 
 // ── visibility axis (B3) — how the ACCESS CHECK runs (NOT the miss status) ─────
@@ -231,7 +237,7 @@ export function isStoredChannelType(t: string | null | undefined): t is StoredCh
 //                    parent inheritance (a DM is its own access unit).
 //   own-roster / inherit-parent → the server-membership + private-category path,
 //                    with the anchor climb (`parentChannelId ?? id`) that makes a
-//                    thread/forum_post inherit its parent's roster. That climb is
+//                    thread inherit its parent's roster. That climb is
 //                    already a single uniform idiom, so these two values share the
 //                    same code path today; the value records the intent.
 export function channelVisibility(t: StoredChannelType): VisibilityTrait {
@@ -253,12 +259,6 @@ export function visibilityIsDmParticipant(t: string | null | undefined): boolean
 // create path so "what happens when the name/anchor already exists" is chosen
 // from one place, not hand-branched per type. Each value = exactly one observable
 // contract = exactly one existence-oracle (Aigneis's B0 criterion):
-//   pure-create        → bump a new slug and retry the insert → N distinct rows,
-//                        never merged (forum_post). ⚠ its race-safety REQUIRES
-//                        the partial-unique index (migration, B4b) to catch a
-//                        concurrent collision — without it a race silent-double-
-//                        inserts. So a pure-create create path is only complete
-//                        with that index in place.
 //   get-or-create      → the anchor is ONE unit; a collision re-selects the
 //                        existing winner (idempotent open — DM, thread).
 //   reject-on-collision→ a same-name create is refused (409, 0 rows) by a unique

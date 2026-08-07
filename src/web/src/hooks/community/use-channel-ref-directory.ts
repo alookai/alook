@@ -22,7 +22,7 @@ export function buildChannelRefDirectory(
   return servers.map((s) => {
     const detail = detailsById[s.id]
     const channels = detail?.categories?.flatMap((c) => c.channels.map((ch) => ({ id: ch.id, name: ch.name }))) ?? []
-    return { id: s.id, name: s.name, channels }
+    return { id: s.id, name: s.name, discriminator: s.discriminator ?? "", channels }
   })
 }
 

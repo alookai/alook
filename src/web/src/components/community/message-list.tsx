@@ -14,6 +14,8 @@ import type { RenderMsg } from "./_types"
 import { NumberTicker } from "@/components/ui/number-ticker"
 import { useScrollAnchor } from "@/hooks/community/use-scroll-anchor"
 import { flattenMessageItems } from "./message-list-items"
+import { VirtualRows } from "./virtual-cursor-list"
+import { useVirtualCursorSentinel } from "@/hooks/community/use-virtual-cursor-sentinel"
 import type { Msg, OpenProfile } from "./_types"
 
 // Channel message list — welcome hero, date dividers, messages (with the NEW divider),
@@ -21,10 +23,11 @@ import type { Msg, OpenProfile } from "./_types"
 export function MessageList({
   channel, messages, loading, pinnedIds, newDividerBefore, typingUsers, onOpenThread, onOpenProfile,
   onToggleReaction, onReact,
-  onReply, onPin, onMark, onCreateThread, onCopy, onRetry, onDismiss, onPreviewImage, onDownloadFile,
+  onReply, onPin, onMark, onCreateThread, onCopy, onEdit, onRetry, onDismiss, onPreviewImage, onDownloadFile,
   resolveUserName, scrollToMessageId, hero, variant = "channel", onScrollRoot, viewerUserId, initialScrollReady = true,
+  onScrollTargetConsumed,
   hasMore, isFetchingOlder, onLoadOlder,
-  hasMoreNewer, isFetchingNewer, onLoadNewer, onJumpToPresent, unreadCount, onOpenContextSheet,
+  hasMoreNewer, isFetchingNewer, onLoadNewer, onJumpToPresent, unreadCount,
 }: {
   channel: string
   messages: Msg[]
@@ -41,6 +44,7 @@ export function MessageList({
   onMark?: (id: string) => void
   onCreateThread?: (id: string) => void
   onCopy?: (id: string) => void
+  onEdit?: (id: string) => void
   onRetry?: (id: string) => void
   onDismiss?: (id: string) => void
   onPreviewImage?: (name: string) => void
@@ -71,6 +75,7 @@ export function MessageList({
   // stale `newDividerBefore = undefined` and snaps to bottom before the
   // anchor is known.
   initialScrollReady?: boolean
+  onScrollTargetConsumed?: (id: string) => void
   // Reverse-infinite scroll. When `hasMore` is true a top sentinel is
   // rendered; when it enters the viewport (via IntersectionObserver on the
   // scroll root) `onLoadOlder()` fires. The prepended rows are scroll-
@@ -95,10 +100,6 @@ export function MessageList({
   // the `↓ N` badge when `hasMoreNewer` is true — DOM math can't see rows
   // that haven't been fetched yet.
   unreadCount?: number
-  // Fired when a message ref pill (`#NUMBER`) is clicked and the target
-  // isn't in the currently loaded window — the owner opens the context
-  // sheet (see `MessageContextSheet`). If omitted, the click is a no-op.
-  onOpenContextSheet?: (seq: number) => void
 }) {
   const [jumped, setJumped] = useState<string | null>(null)
 
@@ -107,6 +108,9 @@ export function MessageList({
   // ticks, presence updates, etc.) doesn't re-walk the full message list
   // every time.
   const items = useMemo(() => flattenMessageItems(messages, newDividerBefore, !!hasMore), [messages, newDividerBefore, hasMore])
+  const scrollTargetLoaded = !!scrollToMessageId
+    && messages.some((message) => message.id === scrollToMessageId)
+  const scrollAnchorReady = scrollToMessageId ? scrollTargetLoaded : initialScrollReady
 
   // ── Multi-message "share as image" (Gus uiux #128/#142) ──────────────────
   // Clicking Share on a row enters select mode with that row pre-selected; more
@@ -213,7 +217,7 @@ export function MessageList({
   const { scrollRef, virtualizer, belowCount, scrollToBottom, jumpTo: jumpToIndex, onImageLoad } = useScrollAnchor({
     items,
     newDividerBefore,
-    initialScrollReady,
+    initialScrollReady: scrollAnchorReady,
     hasMoreNewer,
     viewerUserId,
     heroHeight,
@@ -247,38 +251,13 @@ export function MessageList({
   // history in one scroll). Instead: create the observer ONCE per scroll
   // container and read the mutable guards from refs, so it only fires on a
   // genuine scroll-in transition.
-  const topSentinelRef = useRef<HTMLDivElement>(null)
-  const loadOlderStateRef = useRef({ onLoadOlder, hasMore, isFetchingOlder })
-  // Sync the latest guards into the ref after each commit — the observer
-  // callback (which reads it) only fires asynchronously, so a post-render
-  // write is behavior-identical while keeping the ref untouched during render.
-  useEffect(() => {
-    loadOlderStateRef.current = { onLoadOlder, hasMore, isFetchingOlder }
+  const topSentinelRef = useVirtualCursorSentinel({
+    scrollRef,
+    hasMore,
+    isFetching: isFetchingOlder,
+    onLoad: onLoadOlder,
+    edge: "start",
   })
-  useEffect(() => {
-    const el = topSentinelRef.current
-    const root = scrollRef.current
-    if (!el || !root) return
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const { onLoadOlder, hasMore, isFetchingOlder } = loadOlderStateRef.current
-        if (!onLoadOlder || !hasMore || isFetchingOlder) return
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            onLoadOlder()
-            break
-          }
-        }
-      },
-      { root, rootMargin: "200px" },
-    )
-    observer.observe(el)
-    return () => observer.disconnect()
-    // Re-observe only when the sentinel node mounts/unmounts (it's absent
-    // while `hasMore` is false) or the scroll container changes — never on a
-    // fetch-state tick. `hasMore` gates whether the sentinel node renders at
-    // all, so it belongs here to (re-)attach when history reappears.
-  }, [hasMore, scrollRef])
 
   // Bottom sentinel — symmetric to the top one. Only mounted when the loaded
   // window is not tail-attached (`hasMoreNewer === true`). Appended rows from
@@ -290,32 +269,13 @@ export function MessageList({
   // mutable guards from a ref so a fetch-state tick never recreates the
   // observer (which would re-fire against the still-visible sentinel and
   // cascade through all newer pages).
-  const bottomSentinelRef = useRef<HTMLDivElement>(null)
-  const loadNewerStateRef = useRef({ onLoadNewer, hasMoreNewer, isFetchingNewer })
-  // Same post-commit ref sync as the top sentinel — see comment above.
-  useEffect(() => {
-    loadNewerStateRef.current = { onLoadNewer, hasMoreNewer, isFetchingNewer }
+  const bottomSentinelRef = useVirtualCursorSentinel({
+    scrollRef,
+    hasMore: hasMoreNewer,
+    isFetching: isFetchingNewer,
+    onLoad: onLoadNewer,
+    edge: "end",
   })
-  useEffect(() => {
-    const el = bottomSentinelRef.current
-    const root = scrollRef.current
-    if (!el || !root) return
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const { onLoadNewer, hasMoreNewer, isFetchingNewer } = loadNewerStateRef.current
-        if (!onLoadNewer || !hasMoreNewer || isFetchingNewer) return
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            onLoadNewer()
-            break
-          }
-        }
-      },
-      { root, rootMargin: "200px" },
-    )
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [hasMoreNewer, scrollRef])
 
   // `jumpTo` — click a reply pill, scroll to (and briefly highlight) an
   // earlier message. Replaces the old `querySelector('[data-msg-id="..."]')`
@@ -326,15 +286,68 @@ export function MessageList({
   // this is a documented no-op — same limitation the old DOM lookup had (it
   // also required the row to be loaded, just not further required it to be
   // within the virtualization window).
-  const jumpTo = useCallback((id: string) => {
+  const jumpClearTimerRef = useRef<number | null>(null)
+  const jumpVisibilityFrameRef = useRef<number | null>(null)
+  const jumpTo = useCallback((id: string, behavior: ScrollBehavior = "smooth") => {
+    if (jumpClearTimerRef.current !== null) clearTimeout(jumpClearTimerRef.current)
+    if (jumpVisibilityFrameRef.current !== null) window.cancelAnimationFrame(jumpVisibilityFrameRef.current)
     setJumped(id)
-    jumpToIndex(id)
-    window.setTimeout(() => setJumped((v) => (v === id ? null : v)), 1600)
-  }, [jumpToIndex])
+    jumpToIndex(id, behavior)
+    let attempts = 0
+    const armClear = () => {
+      jumpVisibilityFrameRef.current = null
+      const timeout = window.setTimeout(() => {
+        setJumped((v) => (v === id ? null : v))
+        if (jumpClearTimerRef.current === timeout) jumpClearTimerRef.current = null
+      }, 1600)
+      jumpClearTimerRef.current = timeout
+    }
+    const waitUntilVisible = () => {
+      const root = scrollRef.current
+      const row = root
+        ? Array.from(root.querySelectorAll<HTMLElement>("[data-msg-id]"))
+          .find((element) => element.dataset.msgId === id)
+        : undefined
+      if (root && row) {
+        const rootRect = root.getBoundingClientRect()
+        const rowRect = row.getBoundingClientRect()
+        if (rowRect.bottom > rootRect.top && rowRect.top < rootRect.bottom) {
+          armClear()
+          return
+        }
+      }
+      attempts += 1
+      if (attempts >= 120) {
+        armClear()
+        return
+      }
+      jumpVisibilityFrameRef.current = window.requestAnimationFrame(waitUntilVisible)
+    }
+    jumpVisibilityFrameRef.current = window.requestAnimationFrame(waitUntilVisible)
+  }, [jumpToIndex, scrollRef])
+  useEffect(() => () => {
+    if (jumpClearTimerRef.current !== null) clearTimeout(jumpClearTimerRef.current)
+    if (jumpVisibilityFrameRef.current !== null) window.cancelAnimationFrame(jumpVisibilityFrameRef.current)
+  }, [])
 
+  const consumedScrollTargetRef = useRef<string | null>(null)
   useEffect(() => {
-    if (scrollToMessageId) jumpTo(scrollToMessageId)
-  }, [scrollToMessageId, jumpTo])
+    if (!scrollToMessageId) {
+      consumedScrollTargetRef.current = null
+      return
+    }
+    if (consumedScrollTargetRef.current === scrollToMessageId) return
+    if (!scrollTargetLoaded || !heroMeasured) return
+    consumedScrollTargetRef.current = scrollToMessageId
+    jumpTo(scrollToMessageId, "auto")
+    onScrollTargetConsumed?.(scrollToMessageId)
+  }, [
+    scrollToMessageId,
+    scrollTargetLoaded,
+    heroMeasured,
+    jumpTo,
+    onScrollTargetConsumed,
+  ])
 
   // ↓ N pill precedence:
   //   - When there are messages the client hasn't fetched yet
@@ -419,22 +432,12 @@ export function MessageList({
                 )}
               </div>
 
-              <div style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}>
-                {virtualizer.getVirtualItems().map((virtualRow) => {
-                  const item = items[virtualRow.index]
-                  return (
-                    <div
-                      key={item.key}
-                      data-index={virtualRow.index}
-                      ref={virtualizer.measureElement}
-                      style={{
-                        position: "absolute",
-                        top: 0,
-                        left: 0,
-                        width: "100%",
-                        transform: `translateY(${virtualRow.start - virtualizer.options.scrollMargin}px)`,
-                      }}
-                    >
+              <VirtualRows
+                items={items}
+                virtualizer={virtualizer}
+                itemKey={(item) => item.key}
+                renderItem={(item) => (
+                  <>
                       {item.kind === "date-divider" && <DateDivider label={item.label} />}
                       {item.kind === "new-divider" && <NewDivider dateLabel={item.dateLabel} />}
                       {item.kind === "message" && (
@@ -457,6 +460,7 @@ export function MessageList({
                             onMarkId={onMark}
                             onCreateThreadId={onCreateThread}
                             onCopyId={onCopy}
+                            onEditId={item.m.authorId === viewerUserId ? onEdit : undefined}
                             onRetryId={onRetry}
                             onDismissId={onDismiss}
                             onJumpToId={jumpTo}
@@ -471,10 +475,9 @@ export function MessageList({
                           />
                         </div>
                       )}
-                    </div>
-                  )
-                })}
-              </div>
+                  </>
+                )}
+              />
 
               {hasMoreNewer && (
                 <div

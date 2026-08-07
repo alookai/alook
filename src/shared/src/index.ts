@@ -588,7 +588,6 @@ export {
   isAssignableRole,
   isChannelType,
   isForum,
-  isForumPost,
   isThread,
   isDm,
   isMessageBearingSurface,

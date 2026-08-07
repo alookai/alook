@@ -19,11 +19,12 @@ function MentionBadge({ count }: { count: number }) {
   )
 }
 
-function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenDm }: {
+function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenForumThread, onOpenDm }: {
   servers: UnreadServer[]
   dms: UnreadDm[]
   loading?: boolean
   onOpenChannel?: (serverId: string, channelId: string) => void
+  onOpenForumThread: (serverId: string, parentChannelId: string, childChannelId: string, openerMessageId: string) => void
   onOpenDm?: (dmId: string) => void
 }) {
   const nothingUnread = servers.length === 0 && dms.length === 0
@@ -61,11 +62,17 @@ function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenDm }: {
                 <MentionBadge count={c.mentionCount} />
                 <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
               </button>
-              {/* Unread threads / forum-posts, indented under their parent. */}
+              {/* Unread child threads, indented under their parent. */}
               {c.children.map((child) => (
                 <button
                   key={child.channelId}
-                  onClick={() => onOpenChannel?.(s.serverId, child.channelId)}
+                  onClick={() => {
+                    if (child.openerMessageId) {
+                      onOpenForumThread(s.serverId, c.channelId, child.channelId, child.openerMessageId)
+                    } else {
+                      onOpenChannel?.(s.serverId, child.channelId)
+                    }
+                  }}
                   className="flex w-full items-center gap-2 rounded-md py-1.5 pl-8 pr-2 text-left text-sm hover:bg-accent"
                 >
                   <EntityIcon kind={child.type} className="size-3.5 shrink-0 text-muted-foreground" />
@@ -180,6 +187,7 @@ export function InboxPopover({
   markedLoading,
   loading,
   onOpenChannel,
+  onOpenForumThread,
   onOpenDm,
   onOpenMention,
   onOpenMarked,
@@ -195,6 +203,7 @@ export function InboxPopover({
   markedLoading?: boolean
   loading?: boolean
   onOpenChannel?: (serverId: string, channelId: string) => void
+  onOpenForumThread: (serverId: string, parentChannelId: string, childChannelId: string, openerMessageId: string) => void
   onOpenDm?: (dmId: string) => void
   onOpenMention?: (m: Mention) => void
   onOpenMarked?: (m: Marked) => void
@@ -242,7 +251,7 @@ export function InboxPopover({
         <TabsTrigger value="marked">Marked</TabsTrigger>
       </TabsList>
       <TabsContent value="unreads" className="min-h-0 flex-1">
-        <UnreadsTab servers={unreads} dms={unreadDms} loading={loading} onOpenChannel={onOpenChannel} onOpenDm={onOpenDm} />
+        <UnreadsTab servers={unreads} dms={unreadDms} loading={loading} onOpenChannel={onOpenChannel} onOpenForumThread={onOpenForumThread} onOpenDm={onOpenDm} />
       </TabsContent>
       <TabsContent value="mentions" className="min-h-0 flex-1">
         <MentionsTab mentions={mentions} loading={loading} onOpenMention={onOpenMention} onDeleteMention={onDeleteMention} />

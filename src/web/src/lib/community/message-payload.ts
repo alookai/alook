@@ -37,6 +37,7 @@ export type MessageRow = {
   embeds: unknown
   seq: number
   createdAt: string
+  clientNonce?: string | null
   /** Friend-approval card back-ref — set only on approval card messages. */
   friendshipId?: string | null
 }
@@ -49,7 +50,16 @@ type UiReaction = { emoji: string; count: number; me: boolean; userIds: string[]
 
 type ReplyPreview = { id: string; authorName: string; text: string; deleted?: boolean }
 
-type ThreadPreview = { id: string; name: string; messageCount: number }
+type ThreadPreview = {
+  id: string
+  name: string
+  messageCount: number
+  lastReplyAt?: string
+  tags?: string[]
+  preview?: string
+  participants?: { id: string; name: string; avatar: string }[]
+  participantCount?: number
+}
 
 /** Common fields shared by both API and WS variants — derived exactly once. */
 function coreFields(row: MessageRow) {
@@ -119,14 +129,17 @@ export function mapMessageForApi(row: MessageRow, ctx: ApiMessageContext) {
   const core = coreFields(row)
   const thread = ctx.threadByMessageId?.get(row.id)
   const approval = ctx.approvalByMessageId?.get(row.id)
+  const clientNonce =
+    row.clientNonce && !row.clientNonce.startsWith("srv:") ? row.clientNonce : undefined
   return {
     ...core,
     ...splitType(row.type),
+    ...(clientNonce ? { clientNonce } : {}),
     replyTo: resolveReply(row, ctx.replyMap),
     embeds: row.embeds,
     attachments: ctx.attachmentsByMessage[row.id]?.length ? ctx.attachmentsByMessage[row.id] : undefined,
     reactions: ctx.reactionsByMessage[row.id]?.length ? ctx.reactionsByMessage[row.id] : undefined,
-    thread: thread ? { id: thread.id, name: thread.name, messageCount: thread.messageCount } : undefined,
+    thread,
     approval,
   }
 }

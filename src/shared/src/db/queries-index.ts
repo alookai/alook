@@ -56,3 +56,4 @@ export * as communityMachine from "./queries/community/machine";
 export * as communityBot from "./queries/community/bot";
 export * as communityAgentInbox from "./queries/community/agent-inbox";
 export * as communityBotAuditLog from "./queries/community/bot-audit-log";
+export * as communityMessageTag from "./queries/community/message-tag";

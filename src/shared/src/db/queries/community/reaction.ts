@@ -44,7 +44,7 @@ export async function getMessageReactions(db: Database, messageId: string) {
 export async function listReactionsByMessageIds(
   db: Database,
   messageIds: string[],
-  currentUserId: string
+  _currentUserId: string
 ) {
   if (messageIds.length === 0) return [];
   return db

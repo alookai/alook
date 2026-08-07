@@ -176,6 +176,32 @@ function patchApprovalInCache(
   return { ...cache, pages }
 }
 
+function patchMessageContentInCache(cache: PageCache | undefined, messageId: string, content: string): PageCache | undefined {
+  if (!cache) return cache
+  let touched = false
+  const pages = cache.pages.map((page) => ({
+    ...page,
+    messages: page.messages.map((message) => {
+      if (message.id !== messageId) return message
+      touched = true
+      return { ...message, content }
+    }),
+  }))
+  return touched ? { ...cache, pages } : cache
+}
+
+function removeThreadFromCache(cache: PageCache | undefined, threadId: string): PageCache | undefined {
+  if (!cache) return cache
+  let touched = false
+  const pages = cache.pages.map((page) => {
+    const messages = page.messages.filter((message) => message.thread?.id !== threadId)
+    if (messages.length === page.messages.length) return page
+    touched = true
+    return { ...page, messages }
+  })
+  return touched ? { ...cache, pages } : cache
+}
+
 function applyReactionToCache(
   cache: PageCache | undefined,
   event: CommunityReactionAdd | CommunityReactionRemove,
@@ -350,7 +376,8 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
     (msg: { type: string;[key: string]: unknown }) => {
       if (!isCommunityEvent(msg)) return
       const event = msg as CommunityWsEvent
-      const sub = useCommunityStore.getState().subscription
+      const communityStore = useCommunityStore.getState()
+      const sub = communityStore.subscription
       const wsStore = useCommunityWsStore.getState()
       const cbs = callbacksRef.current
       // A DM is a channel now — every message/typing/reaction event carries a
@@ -393,17 +420,15 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           // regular channel (`ch:`) so the pill clears in the right bucket.
           clearTypingIndicator(typingScopeKey(event, sub), event.message.authorId)
 
-          // 1) Patch the focused channel/dm page cache if the event matches.
-          //    A DM is a channel, distinguished only by which subscription slot
-          //    its channelId lands in.
-          if (event.channelId === sub.channelId) {
-            // A thread/forum_post enrolls its sender + mentioned users as
-            // participants server-side on send. That set IS its Members panel,
-            // so refetch it live — otherwise a new speaker/mention only appears
-            // after a manual refresh. No-op for a plain channel (whose panel is
-            // the access roster, not participants); the query is disabled there.
+          // 1) A child channel enrolls its sender and mentioned users in its
+          //    member set server-side, so refresh an open child roster live.
+          if (
+            event.channelId === sub.channelId &&
+            communityStore.currentChannelId === event.channelId &&
+            communityStore.currentChannelMeta?.parentChannelId
+          ) {
             void queryClient.invalidateQueries({
-              queryKey: communityKeys.threadParticipants(event.channelId),
+              queryKey: communityKeys.channelMembers(event.channelId),
             })
           }
 
@@ -444,7 +469,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
         // defensively).
         case "community:unread.bump": {
           const viewerId = viewerUserIdRef.current
-          // The sidebar row to light: a thread/forum-post message has no
+          // The sidebar row to light: a child-thread message has no
           // independent tree row, so its dot lights the PARENT channel
           // (`railChannelId`); a plain channel is its own row. Fall back to
           // `channelId` for older frames that predate `railChannelId`.
@@ -501,8 +526,8 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           // `channelMessages(id)`, a DM channel's under `dmMessages(id)` — patch
           // both keys; the one that doesn't exist receives `undefined` and the
           // updater returns it, a harmless no-op.
-          queryClient.setQueryData<PageCache>(
-            communityKeys.channelMessages(event.channelId),
+          queryClient.setQueriesData<PageCache>(
+            { queryKey: communityKeys.channelMessages(event.channelId) },
             (c) => applyReactionToCache(c, event, viewerId),
           )
           queryClient.setQueryData<PageCache>(
@@ -580,23 +605,25 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           return
         }
 
-        // ── Child channels (threads + forum posts) ──────────────────────
+        // ── Child threads ──────────────────────────────────────────────
         case "community:channel.child_create":
         case "community:channel.child_update": {
-          // Cheap invalidate for the thread + forum-post lists. The parent
+          // Cheap invalidate for the child-thread lists. The parent
           // messages list also needs an update because the parent message's
           // thread indicator (`msg.thread`) changes — do a targeted
           // setQueryData patch when we know parentMessageId.
           void queryClient.invalidateQueries({
             queryKey: communityKeys.threads(event.parentChannelId),
           })
-          void queryClient.invalidateQueries({
-            queryKey: communityKeys.forumPosts(event.parentChannelId),
-          })
           if (event.type === "community:channel.child_create") {
+            const parentMessagesKey = communityKeys.channelMessages(event.parentChannelId)
+            const parentMessages = queryClient.getQueryData<PageCache>(parentMessagesKey)
+            const openerCached = !!event.parentMessageId && parentMessages?.pages.some((page) =>
+              page.messages.some((message) => message.id === event.parentMessageId),
+            )
             if (event.parentMessageId) {
-              queryClient.setQueryData<PageCache>(
-                communityKeys.channelMessages(event.parentChannelId),
+              queryClient.setQueriesData<PageCache>(
+                { queryKey: parentMessagesKey },
                 (cache) => {
                   if (!cache) return cache
                   let touched = false
@@ -648,13 +675,16 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
                 }
               }
             }
+            if (event.parentMessageId && !openerCached) {
+              void queryClient.invalidateQueries({ queryKey: parentMessagesKey })
+            }
           } else {
             // child_update — sync counts/name on the parent message's thread
             // indicator if the update carries them.
             const changes = event.changes
             if (changes.messageCount !== undefined || changes.name !== undefined) {
-              queryClient.setQueryData<PageCache>(
-                communityKeys.channelMessages(event.parentChannelId),
+              queryClient.setQueriesData<PageCache>(
+                { queryKey: communityKeys.channelMessages(event.parentChannelId) },
                 (cache) => {
                   if (!cache) return cache
                   let touched = false
@@ -785,7 +815,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
         case "community:category.reorder": {
           // #3: on channel.delete, evict every channel-scoped cache before
           // invalidating the server. Without this the messages/pins/threads/
-          // forum-posts caches for the dead channel linger forever — a
+          // child-thread caches for the dead channel linger forever — a
           // subsequent same-id revive (rare, but the server can reuse ids)
           // would surface stale rows.
           if (event.type === "community:channel.delete") {
@@ -803,15 +833,16 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             queryClient.removeQueries({
               queryKey: communityKeys.threads(event.channelId),
             })
-            queryClient.removeQueries({
-              queryKey: communityKeys.forumPosts(event.channelId),
-            })
-            // When a child (forum_post / thread) is deleted, refresh the
+            // When a child thread is deleted, refresh the
             // PARENT's list so the deleted card disappears from the feed on
             // every client. Absent on older events / top-level channels.
             if (event.parentChannelId) {
+              queryClient.setQueriesData<PageCache>(
+                { queryKey: communityKeys.channelMessages(event.parentChannelId) },
+                (cache) => removeThreadFromCache(cache, event.channelId),
+              )
               void queryClient.invalidateQueries({
-                queryKey: communityKeys.forumPosts(event.parentChannelId),
+                queryKey: communityKeys.channelMessages(event.parentChannelId),
               })
               void queryClient.invalidateQueries({
                 queryKey: communityKeys.threads(event.parentChannelId),
@@ -848,7 +879,6 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             queryClient.removeQueries({ queryKey: communityKeys.channelMessages(event.channelId) })
             queryClient.removeQueries({ queryKey: communityKeys.pins(event.channelId) })
             queryClient.removeQueries({ queryKey: communityKeys.threads(event.channelId) })
-            queryClient.removeQueries({ queryKey: communityKeys.forumPosts(event.channelId) })
           }
           void queryClient.invalidateQueries({ queryKey: communityKeys.server(event.serverId) })
           // Refetch the channel roster so an open private-channel Members drawer
@@ -858,7 +888,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           // a peer's add/remove changes it too, so an open add dialog doesn't
           // offer a just-added member (whose Add would 400) or hide a removed one.
           void queryClient.invalidateQueries({ queryKey: communityKeys.channelAddableMembers(event.channelId) })
-          // A forum_post's "Add participant" emits this same MEMBER_ADD event —
+          // A forum thread's "Add participant" emits this same MEMBER_ADD event —
           // its Members panel is the participant set, so refetch it too. No-op
           // for a plain channel (participants query disabled there).
           void queryClient.invalidateQueries({ queryKey: communityKeys.threadParticipants(event.channelId) })
@@ -998,6 +1028,40 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           // dead-letters FRIEND_ACCEPT to the bot).
           if (event.approval.status !== "pending" || event.approval.waitingOn !== "you") {
             void queryClient.invalidateQueries({ queryKey: communityKeys.friends() })
+          }
+          return
+        }
+
+        case "community:message.edited": {
+          queryClient.setQueryData<{ content: string }>(
+            communityKeys.message(event.messageId),
+            (message) => message ? { ...message, content: event.content } : message,
+          )
+          queryClient.setQueriesData<PageCache>(
+            { queryKey: communityKeys.channelMessages(event.channelId) },
+            (cache) => patchMessageContentInCache(cache, event.messageId, event.content),
+          )
+          queryClient.setQueryData<PageCache>(
+            communityKeys.dmMessages(event.channelId),
+            (cache) => patchMessageContentInCache(cache, event.messageId, event.content),
+          )
+          const streamStore = useMessageStreamStore.getState()
+          for (const entry of streamStore.entries.values()) {
+            if (entry.scope.id !== event.channelId) continue
+            streamStore.dispatch(entry.scope, {
+              type: "messageEdited",
+              messageId: event.messageId,
+              content: event.content,
+            })
+          }
+          if (event.parentChannelId) {
+            queryClient.setQueriesData<PageCache>(
+              { queryKey: communityKeys.channelMessages(event.parentChannelId) },
+              (cache) => patchMessageContentInCache(cache, event.messageId, event.content),
+            )
+            void queryClient.invalidateQueries({
+              queryKey: communityKeys.channelMessages(event.parentChannelId),
+            })
           }
           return
         }

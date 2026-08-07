@@ -352,7 +352,7 @@ export function useScrollAnchor({
   virtualizer: Virtualizer<HTMLDivElement, Element>
   belowCount: number
   scrollToBottom: () => void
-  jumpTo: (messageId: string) => void
+  jumpTo: (messageId: string, behavior?: ScrollBehavior) => void
   onImageLoad: () => void
 } {
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -517,13 +517,13 @@ export function useScrollAnchor({
     if (virtualizer.isAtEnd(NEAR_BOTTOM_PX)) virtualizer.scrollToEnd()
   }, [virtualizer])
 
-  const jumpTo = useCallback((messageId: string) => {
+  const jumpTo = useCallback((messageId: string, behavior: ScrollBehavior = "smooth") => {
     const idx = findMessageIndex(items, messageId)
     // Target not in the currently loaded page window — same limitation the
     // pre-virtualization `querySelector` lookup had (it also required the
     // row to be loaded); documented no-op, not a new failure mode.
     if (idx === null) return
-    virtualizer.scrollToIndex(idx, { align: "center", behavior: "smooth" })
+    virtualizer.scrollToIndex(idx, { align: "center", behavior })
   }, [items, virtualizer])
 
   return { scrollRef, virtualizer, belowCount, scrollToBottom, jumpTo, onImageLoad }

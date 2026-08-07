@@ -9,20 +9,24 @@
 export function sanitizeAttachmentFilename(input: string): string {
   const cleaned = input
     .replace(/\.\./g, "_")
-    // eslint-disable-next-line no-control-regex
     .replace(/[\/\x00-\x1f\x7f]/g, "_")
   if (cleaned.length === 0) return "_"
   return cleaned.length > 255 ? cleaned.slice(0, 255) : cleaned
 }
 
 /**
- * Derive the routable media URL from a stored R2 key. Every read-side call
- * site (`groupAttachments`, `mapMessageForApi`, `mapMessageForWs`) goes
- * through this helper so the `/api/community/media/` prefix lives in one
- * place.
+ * Read/render URL for a persisted attachment, served by the canonical
+ * `GET /api/community/channels/{targetId}/attachments/{attachmentId}` door.
+ * Every read-side call site (`groupAttachments`, the reserve/incoming arms of
+ * the message-create handler) builds display URLs through this helper so the
+ * id-addressed attachment scheme lives in one place.
+ *
+ * The `{targetId}` path segment is a routing anchor only — the download door
+ * authorizes from the attachment ROW's own channel, never from the path — so a
+ * stale/forged targetId can't reach another row's bytes.
  */
-export function mediaUrlFromKey(r2Key: string): string {
-  return `/api/community/media/${r2Key}`
+export function attachmentUrl(targetId: string, attachmentId: string): string {
+  return `/api/community/channels/${targetId}/attachments/${attachmentId}`
 }
 
 // R2 storage key builders

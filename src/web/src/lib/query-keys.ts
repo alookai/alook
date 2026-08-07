@@ -67,19 +67,13 @@ export const communityKeys = {
     [...communityKeys.all, "channel", channelId, "pins"] as const,
   threads: (channelId: string) =>
     [...communityKeys.all, "channel", channelId, "threads"] as const,
-  forumPosts: (channelId: string) =>
-    [...communityKeys.all, "channel", channelId, "posts"] as const,
+  forumTags: (channelId: string) =>
+    [...communityKeys.all, "channel", channelId, "forum-tags"] as const,
   // #3: the viewer's `communityReadState` row for a single channel, fetched
   // once per channel mount and frozen thereafter so the "New" divider stays
   // anchored while the watermark advances.
   channelReadStateSnapshot: (channelId: string) =>
     [...communityKeys.all, "channel", channelId, "read-state-snapshot"] as const,
-  // Channel-open bootstrap (read pointer + initial message window in one
-  // request). Frozen per mount like the snapshot; gcTime:0 so a fresh mount
-  // re-fetches. Distinct key so it doesn't collide with the seeded
-  // channelMessages / read-state-snapshot caches it writes.
-  channelBootstrap: (channelId: string) =>
-    [...communityKeys.all, "channel", channelId, "bootstrap"] as const,
   // DM sibling of `channelReadStateSnapshot`. Same freeze semantics — the
   // hook latches the first non-null response so the "New" divider anchor
   // stays put while the progressive watermark advances.
@@ -126,4 +120,3 @@ export const communityKeys = {
   profile: (userId: string) =>
     [...communityKeys.all, "profile", userId] as const,
 } as const
-

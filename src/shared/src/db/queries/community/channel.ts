@@ -8,33 +8,10 @@ import {
 } from "../../community-schema";
 import type { Database } from "../../index";
 import { PARTICIPANT_SOURCE } from "../../../constants/community";
-import { createLogger } from "../../../logger";
-import { canManageServer, canSeePrivateChannel, visibilityIsDmParticipant } from "../../../utils/community-roles";
+import { canSeePrivateChannel, visibilityIsDmParticipant } from "../../../utils/community-roles";
 import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 
-// Module-level logger — one tag per shared query module.
-const log = createLogger({ service: "community-queries" });
-
-// TEXT column at rest → string[] at the boundary. Null/empty is a clean read
-// (empty tag set); a parse throw or non-array shape signals bit-rot.
-function safeParseForumTags(raw: string | null, channelId: string): string[] {
-  if (!raw) return [];
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err) {
-    log.warn("forum_tags_parse_failed", { channelId, err });
-    return [];
-  }
-  if (!Array.isArray(parsed)) {
-    log.warn("forum_tags_not_array", { channelId });
-    return [];
-  }
-  return parsed as string[];
-}
-
-// Column selection shared by every read query — keeps `forumTags` off the wire
-// (renamed to `tags`) and hands each caller the same row shape.
+// Column selection shared by every read query.
 const CHANNEL_COLUMNS = {
   id: communityChannel.id,
   serverId: communityChannel.serverId,
@@ -43,7 +20,6 @@ const CHANNEL_COLUMNS = {
   type: communityChannel.type,
   topic: communityChannel.topic,
   position: communityChannel.position,
-  forumTags: communityChannel.forumTags,
   parentChannelId: communityChannel.parentChannelId,
   creatorId: communityChannel.creatorId,
   messageCount: communityChannel.messageCount,
@@ -52,13 +28,6 @@ const CHANNEL_COLUMNS = {
   lastMessageAt: communityChannel.lastMessageAt,
   createdAt: communityChannel.createdAt,
 } as const;
-
-function mapChannelRow<
-  T extends { id: string; forumTags: string | null },
->(row: T): Omit<T, "forumTags"> & { tags: string[] } {
-  const { forumTags, ...rest } = row;
-  return { ...rest, tags: safeParseForumTags(forumTags, row.id) };
-}
 
 
 export async function createChannel(
@@ -72,9 +41,6 @@ export async function createChannel(
     parentChannelId?: string | null;
     creatorId?: string | null;
     parentMessageId?: string | null;
-    // Display-only pre-slugify original title (forum_post CREATE only). Absent
-    // for every other create path — leaves the column null.
-    displayTitle?: string | null;
   }
 ) {
   const rows = await db
@@ -88,7 +54,6 @@ export async function createChannel(
       parentChannelId: data.parentChannelId ?? null,
       creatorId: data.creatorId ?? null,
       parentMessageId: data.parentMessageId ?? null,
-      displayTitle: data.displayTitle ?? null,
     })
     .returning();
   return rows[0]!;
@@ -100,12 +65,12 @@ export async function getChannel(db: Database, channelId: string) {
     .from(communityChannel)
     .where(eq(communityChannel.id, channelId));
   const row = rows[0];
-  return row ? mapChannelRow(row) : null;
+  return row ? row : null;
 }
 
-// Just the `type` of a channel ("text" | "forum" | "forum_post" | "thread" |
-// null). A one-column probe for hot paths that only need to branch by type
-// (e.g. fan-out routing a thread to its participant set). Returns null when the
+// Just the `type` of a channel ("text" | "forum" | "thread" | "dm" | null). A
+// one-column probe for hot paths that only need to branch by type (e.g.
+// fan-out routing a thread to its participant set). Returns null when the
 // channel doesn't exist.
 export async function getChannelType(
   db: Database,
@@ -146,7 +111,7 @@ export async function getChannelForMember(db: Database, channelId: string, userI
     // DM (type=dm, server_id NULL) — readable iff the user has a
     // relation='access' member row.
     const isMember = await isChannelMember(db, channelId, userId, "access");
-    return isMember ? mapChannelRow(dmRow) : null;
+    return isMember ? dmRow : null;
   }
 
   const rows = await db
@@ -165,7 +130,7 @@ export async function getChannelForMember(db: Database, channelId: string, userI
   const { memberRole, ...channelRow } = row;
 
   // Unified model — the anchor (`parentChannelId ?? id`) is both the privacy and
-  // roster anchor. A forum_post/thread climbs to its parent forum/channel for
+  // roster anchor. A child thread climbs to its parent forum/channel for
   // BOTH the category-privacy flag and the roster (member rows + creator); a
   // top-level channel/forum is its own anchor. The single query below reads that
   // anchor and its creator.
@@ -198,7 +163,7 @@ export async function getChannelForMember(db: Database, channelId: string, userI
     }
   }
 
-  return mapChannelRow(channelRow);
+  return channelRow;
 }
 
 export async function updateChannel(
@@ -208,7 +173,6 @@ export async function updateChannel(
     name?: string;
     topic?: string;
     categoryId?: string | null;
-    forumTags?: string | null;
     archived?: number;
     lastMessageAt?: string;
     messageCount?: number;
@@ -236,7 +200,7 @@ export async function listServerChannels(db: Database, serverId: string) {
     .from(communityChannel)
     .where(and(eq(communityChannel.serverId, serverId), isNull(communityChannel.parentChannelId)))
     .orderBy(asc(communityChannel.position));
-  return rows.map(mapChannelRow);
+  return rows;
 }
 
 /**
@@ -246,7 +210,7 @@ export async function listServerChannels(db: Database, serverId: string) {
  *
  * Ids are NOT accepted from agent surfaces. Agents address channels via
  * the canonical ref grammar (`/server/channel`, `/server/channel/#seq`);
- * ids are a `/c` UI internal. Threads and forum posts must be reached
+ * ids are a `/c` UI internal. Child threads must be reached
  * through their parent + `#seq`, never by direct name or id here.
  *
  * The returned array is length 0 or 1: the WHERE clause narrows to a single
@@ -279,7 +243,7 @@ export async function resolveChannelByNameForMember(
         isNull(communityChannel.parentChannelId)
       )
     );
-  return rows.map(mapChannelRow);
+  return rows;
 }
 
 /**
@@ -328,71 +292,9 @@ export async function getThreadChannelByParentMessage(
       )
     );
   const row = rows[0];
-  return row ? mapChannelRow(row) : null;
+  return row ? row : null;
 }
 
-/**
- * Resolve a forum post by its name under a parent forum. A forum post is a
- * `forum_post` child channel anchored by its own name (not a root-message seq
- * like a thread), so `(parentChannelId, name, type='forum_post')` is its
- * address. Returns ALL matches so the caller can disambiguate: post names are
- * NOT unique within a forum (schema exempts child channels from the per-server
- * unique index), so >1 row means an ambiguous ref the resolver must 400 on —
- * never silently pick one.
- */
-export async function getChildChannelByName(
-  db: Database,
-  parentChannelId: string,
-  name: string,
-  type = "forum_post"
-) {
-  const rows = await db
-    .select(CHANNEL_COLUMNS)
-    .from(communityChannel)
-    .where(
-      and(
-        eq(communityChannel.parentChannelId, parentChannelId),
-        eq(communityChannel.name, name),
-        eq(communityChannel.type, type)
-      )
-    );
-  return rows.map(mapChannelRow);
-}
-
-/**
- * Dedupe a forum-post slug within its parent forum so the name anchor
- * (`/server/forum/<post>`) is a real address. Post names are not covered by the
- * per-server unique index (that's top-level channels only), so uniqueness is
- * enforced here at create time, mirroring the discipline top-level channel
- * names already follow: `ideas` → `ideas-2` → `ideas-3`. The input is already
- * a slug (the caller `slugify`s the raw name — this only appends the numeric
- * suffix on collision, never re-introduces `/`/`#`/whitespace). Best-effort
- * against a read snapshot; the create path is single-writer per forum in
- * practice, and a rare race just yields a second same-named post the resolver's
- * ambiguity floor still handles safely.
- */
-export async function dedupeChildChannelSlug(
-  db: Database,
-  parentChannelId: string,
-  baseSlug: string,
-  type = "forum_post"
-): Promise<string> {
-  const rows = await db
-    .select({ name: communityChannel.name })
-    .from(communityChannel)
-    .where(
-      and(
-        eq(communityChannel.parentChannelId, parentChannelId),
-        eq(communityChannel.type, type)
-      )
-    );
-  const taken = new Set(rows.map((r) => r.name));
-  if (!taken.has(baseSlug)) return baseSlug;
-  for (let n = 2; ; n++) {
-    const candidate = `${baseSlug}-${n}`;
-    if (!taken.has(candidate)) return candidate;
-  }
-}
 
 /**
  * Auto-create a thread channel rooted at `parentMessageId` inside
@@ -432,7 +334,7 @@ export async function createThreadChannel(
   if (!serverId) throw new Error(`createThreadChannel: parent channel ${parentChannelId} not found`);
 
   // A thread may only root on a TOP-LEVEL channel. Rooting on a child channel
-  // (a forum post, or another thread) would make this a grandchild whose
+  // (a forum child thread, or another thread) would make this a grandchild whose
   // privacy the single-level anchor climb can't resolve — it would read the
   // child's own `categoryId` (always NULL) as public and leak a private
   // forum's thread server-wide. Single chokepoint for every caller (web
@@ -483,12 +385,34 @@ export async function listChildChannels(
     .from(communityChannel)
     .where(and(...conditions))
     .orderBy(desc(communityChannel.lastMessageAt));
-  return rows.map(mapChannelRow);
+  return rows;
+}
+
+export async function listChildChannelsByParentMessageIds(
+  db: Database,
+  parentChannelId: string,
+  parentMessageIds: string[],
+) {
+  if (parentMessageIds.length === 0) return [];
+  return (
+    await Promise.all(
+      chunk(parentMessageIds, D1_MAX_IN_PARAMS - 2).map((ids) =>
+        db
+          .select(CHANNEL_COLUMNS)
+          .from(communityChannel)
+          .where(and(
+            eq(communityChannel.parentChannelId, parentChannelId),
+            eq(communityChannel.type, "thread"),
+            inArray(communityChannel.parentMessageId, ids),
+          ))
+      )
+    )
+  ).flat();
 }
 
 export async function reorderChannels(
   db: Database,
-  serverId: string,
+  _serverId: string,
   channelIds: string[]
 ) {
   const statements = channelIds.map((id, index) =>
@@ -533,7 +457,30 @@ export async function getChannelsByIds(db: Database, channelIds: string[]) {
       )
     )
   ).flat();
-  return rows.map(mapChannelRow);
+  return rows;
+}
+
+export async function getDirectChildThreadsByIds(
+  db: Database,
+  parentChannelId: string,
+  channelIds: string[]
+) {
+  if (channelIds.length === 0) return [];
+  const rows = (
+    await Promise.all(
+      chunk(channelIds, D1_MAX_IN_PARAMS - 2).map((ids) =>
+        db
+          .select(CHANNEL_COLUMNS)
+          .from(communityChannel)
+          .where(and(
+            inArray(communityChannel.id, ids),
+            eq(communityChannel.parentChannelId, parentChannelId),
+            eq(communityChannel.type, "thread")
+          ))
+      )
+    )
+  ).flat();
+  return rows;
 }
 
 // ---------------------------------------------------------------------------
@@ -620,7 +567,7 @@ export async function deleteChannelMember(
 /**
  * ACCESS members explicitly added to a channel, joined to `user` for display.
  * Scoped to one channel id — cross-channel ids never resolve. Notify rows
- * (thread/forum-post participants) are excluded.
+ * (child-thread participants) are excluded.
  */
 export async function listChannelMembers(db: Database, channelId: string) {
   return db
@@ -707,7 +654,7 @@ export async function countChannelsInCategory(
 /**
  * The full recipient audience for a PRIVATE channel: explicit members ∪ the
  * unit's creator. Unified model — a unit's roster is always its anchor's
- * (`parentChannelId ?? id`), so a forum_post/thread inherits its parent
+ * (`parentChannelId ?? id`), so a child thread inherits its parent
  * forum/channel's roster. Only meaningful for a private anchor; callers guard on
  * `isChannelPrivate` first (fan-out short-circuits public channels to
  * `listMemberUserIds` and never calls this).
@@ -736,10 +683,9 @@ export async function getPrivateChannelAudienceUserIds(
 
   // Unified access model — a unit's roster is always its anchor's roster:
   //   - forum / text channel → its OWN explicit members ∪ its OWN creator.
-  //   - forum_post / thread  → climbs `parentChannelId` to the anchor (the
-  //     forum / parent channel) and uses THAT roster — a post inherits the
-  //     forum's audience exactly like a thread inherits its channel's.
-  // No derived union, no per-post roster: forum ≈ channel, forum_post ≈ thread.
+  //   - child thread → climbs `parentChannelId` to the anchor and uses that
+  //     forum or channel roster.
+  // No derived union and no per-thread roster.
   const rosterAnchorId = target[0]!.parentChannelId ?? target[0]!.id;
   const rosterCreatorId =
     rosterAnchorId === target[0]!.id
@@ -789,7 +735,7 @@ export async function listServerChannelsForViewer(
       .orderBy(asc(communityChannel.position)),
     resolveVisibleChannelIdSet(db, userId, { serverIds: [serverId] }),
   ]);
-  return rows.filter((r) => visibleSet.has(r.id)).map(mapChannelRow);
+  return rows.filter((r) => visibleSet.has(r.id));
 }
 
 // Shared visibility computation for the nested-membership model. Assembles the
@@ -863,7 +809,7 @@ async function resolveVisibleChannelIdSet(
     }
   }
 
-  // Pass 2 — children. Both forum posts AND threads INHERIT their parent's
+  // Pass 2 — child threads INHERIT their parent's
   // visibility (a forum member sees every post; a channel member sees every
   // thread). No per-post access unit.
   for (const r of rows) {
@@ -879,10 +825,10 @@ async function resolveVisibleChannelIdSet(
 }
 
 /**
- * The set of channel ids (top-level AND child/thread/forum-post channels) a
+ * The set of channel ids (top-level AND child-thread channels) a
  * viewer may see — backs read-path scoping for search / inbox / mark-all-read /
- * mentions. Unified model (see `resolveVisibleChannelIdSet`): forum posts AND
- * threads inherit their parent's visibility; a private forum/channel is visible
+ * mentions. Unified model (see `resolveVisibleChannelIdSet`): child threads
+ * inherit their parent's visibility; a private forum/channel is visible
  * via the viewer's own member row (or creator).
  */
 export async function listVisibleChannelIds(
@@ -896,7 +842,7 @@ export async function listVisibleChannelIds(
 
 /**
  * Cross-server sibling of `listVisibleChannelIds` — every channel id (top-level
- * AND child/thread/forum-post) a viewer may see across ALL of their servers, in
+ * AND child-thread) a viewer may see across ALL of their servers, in
  * a handful of queries instead of an N+1 loop-per-server. Backs the inbox
  * consumers (unread + mentions + mark-all), which span every server the viewer
  * belongs to.
@@ -948,7 +894,7 @@ export async function resolveChannelAccessContext(
     .where(eq(communityChannel.id, channelId))
     .limit(1);
   if (target.length === 0) return null;
-  const channel = mapChannelRow(target[0]!);
+  const channel = target[0]!;
   const anchorId = channel.parentChannelId ?? channel.id;
 
   // DM (type=dm, server_id NULL) — access iff the user has a relation='access'
@@ -990,10 +936,10 @@ export async function resolveChannelAccessContext(
           .where(eq(communityChannel.id, anchorId))
           .limit(1);
   if (anchorRows.length === 0) return null;
-  const anchor = mapChannelRow(anchorRows[0]!);
+  const anchor = anchorRows[0]!;
 
   // Unified model — privacy anchor == roster anchor == `parentChannelId ?? id`.
-  // A forum_post/thread climbs to its parent (forum/channel) for BOTH the
+  // A child thread climbs to its parent (forum/channel) for BOTH the
   // category-privacy flag and the roster; a forum/top-level channel is its own
   // anchor. So post access is pure inheritance from the forum, exactly like a
   // thread inherits its channel — no per-post roster, no forum-derived union.

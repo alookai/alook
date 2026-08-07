@@ -15,7 +15,6 @@ const mockGetMessagesByIdsInScope = vi.fn()
 const mockListMembers = vi.fn()
 const mockListMemberUserIds = vi.fn()
 const mockCreateMentions = vi.fn()
-const mockCreateAttachment = vi.fn()
 const mockListChildChannels = vi.fn()
 const mockIsChannelPrivate = vi.fn(() => false)
 const mockGetPrivateChannelAudienceUserIds = vi.fn(() => [] as string[])
@@ -24,8 +23,29 @@ const mockListMessagesAround = vi.fn()
 const mockListMessagesSince = vi.fn()
 const mockGetLatestMessageSeq = vi.fn()
 const mockListByMessageIds = vi.fn()
+const mockFindPendingAttachmentsForSender = vi.fn()
+const mockReserveAttachmentsForMessage = vi.fn()
 const mockListReactionsByMessageIds = vi.fn()
 const mockGetUserInternal = vi.fn()
+const mockGetDM = vi.fn()
+const mockGetDMPeer = vi.fn()
+const mockIsBlocked = vi.fn()
+const mockListMessagesBySeq = vi.fn()
+const mockToAgentMessages = vi.fn()
+const mockToAgentMessage = vi.fn()
+const mockGetLatestSeqForScope = vi.fn()
+const mockGetReadState = vi.fn()
+const mockHasDeliverableUnreadForAgentScope = vi.fn()
+const mockBumpBotDailyActivityStatement = vi.fn()
+const mockResolveServerByNameForMember = vi.fn()
+const mockResolveChannelByNameForMember = vi.fn()
+const mockGetUserByNameAndDiscriminator = vi.fn()
+const mockGetDMBetween = vi.fn()
+const mockCreateChannel = vi.fn()
+const mockGetThreadChannelByParentMessage = vi.fn()
+const mockDeleteChannel = vi.fn()
+const mockHardDeleteMessage = vi.fn()
+const mockRebindPendingAttachmentsToChild = vi.fn()
 
 const mockFanOutToChannel = vi.fn()
 const mockResolveChannelRecipients = vi.fn(async () => [] as string[])
@@ -47,9 +67,13 @@ vi.mock("@alook/shared", async () => {
       communityChannel: {
         getChannelForMember: (...a: unknown[]) => mockGetChannelForMember(...a),
         getChannel: (...a: unknown[]) => mockGetChannel(...a),
+        resolveChannelByNameForMember: (...a: unknown[]) => mockResolveChannelByNameForMember(...a),
         listChildChannels: (...a: unknown[]) => mockListChildChannels(...a),
         isChannelPrivate: (...a: unknown[]) => mockIsChannelPrivate(...a),
         getPrivateChannelAudienceUserIds: (...a: unknown[]) => mockGetPrivateChannelAudienceUserIds(...a),
+        createChannel: (...a: unknown[]) => mockCreateChannel(...a),
+        getThreadChannelByParentMessage: (...a: unknown[]) => mockGetThreadChannelByParentMessage(...a),
+        deleteChannel: (...a: unknown[]) => mockDeleteChannel(...a),
       },
       communityMessage: {
         createMessage: (...a: unknown[]) => mockCreateMessage(...a),
@@ -61,6 +85,8 @@ vi.mock("@alook/shared", async () => {
         listMessagesAround: (...a: unknown[]) => mockListMessagesAround(...a),
         listMessagesSince: (...a: unknown[]) => mockListMessagesSince(...a),
         getLatestMessageSeq: (...a: unknown[]) => mockGetLatestMessageSeq(...a),
+        hardDeleteMessage: (...a: unknown[]) => mockHardDeleteMessage(...a),
+        getMessageByAuthorAndNonce: (...a: unknown[]) => mockGetMessageByAuthorAndNonce(...a),
       },
       communityMember: {
         listMembers: (...a: unknown[]) => mockListMembers(...a),
@@ -73,14 +99,45 @@ vi.mock("@alook/shared", async () => {
         addThreadParticipants: vi.fn(async () => undefined),
       },
       communityAttachment: {
-        createAttachment: (...a: unknown[]) => mockCreateAttachment(...a),
         listByMessageIds: (...a: unknown[]) => mockListByMessageIds(...a),
+        findPendingAttachmentsForSender: (...a: unknown[]) => mockFindPendingAttachmentsForSender(...a),
+        reserveAttachmentsForMessage: (...a: unknown[]) => mockReserveAttachmentsForMessage(...a),
+        rebindPendingAttachmentsToChild: (...a: unknown[]) => mockRebindPendingAttachmentsToChild(...a),
       },
       communityReaction: {
         listReactionsByMessageIds: (...a: unknown[]) => mockListReactionsByMessageIds(...a),
       },
       user: {
         getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a),
+        getUserByNameAndDiscriminator: (...a: unknown[]) => mockGetUserByNameAndDiscriminator(...a),
+      },
+      // The door's DM arm (requireDMAccess) uses these when a DM id is dispatched.
+      communityDm: {
+        getDM: (...a: unknown[]) => mockGetDM(...a),
+        getDMPeer: (...a: unknown[]) => mockGetDMPeer(...a),
+        getDMBetween: (...a: unknown[]) => mockGetDMBetween(...a),
+      },
+      communityFriendship: {
+        isBlocked: (...a: unknown[]) => mockIsBlocked(...a),
+      },
+      // Bot read arm (GET dual-actor): seq-window + agent-message projection.
+      communityAgentInbox: {
+        listMessagesBySeq: (...a: unknown[]) => mockListMessagesBySeq(...a),
+        toAgentMessages: (...a: unknown[]) => mockToAgentMessages(...a),
+        toAgentMessage: (...a: unknown[]) => mockToAgentMessage(...a),
+        getLatestSeqForScope: (...a: unknown[]) => mockGetLatestSeqForScope(...a),
+        hasDeliverableUnreadForAgentScope: (...a: unknown[]) => mockHasDeliverableUnreadForAgentScope(...a),
+      },
+      communityReadState: {
+        getReadState: (...a: unknown[]) => mockGetReadState(...a),
+      },
+      communityBot: {
+        bumpBotDailyActivityStatement: (...a: unknown[]) => mockBumpBotDailyActivityStatement(...a),
+      },
+      // resolveTargetForMember (real, for the bot ref-via-query arm) resolves
+      // the server then channel by name, both member-scoped.
+      communityServer: {
+        resolveServerByNameForMember: (...a: unknown[]) => mockResolveServerByNameForMember(...a),
       },
     },
   }
@@ -106,6 +163,22 @@ vi.mock("@/lib/middleware/auth", () => ({
   }),
 }))
 
+// POST is now the dual-actor door (withCommunityActor). These POST tests
+// exercise the HUMAN arm — mock the wrapper to yield a human actor + the real
+// channelId from the path. The bot arm is covered in the send-fold tests.
+vi.mock("@/lib/middleware/community-actor", () => ({
+  // Credential-based actor dispatch (mirrors the real wrapper): a crk_ bearer →
+  // bot actor, else → human. Lets the bot-read arm be exercised via header.
+  withCommunityActor: vi.fn((handler: any) => async (req: any, ctx?: any) => {
+    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
+    const authz = req?.headers?.get?.("Authorization") ?? ""
+    const actor = authz.startsWith("Bearer crk_")
+      ? { kind: "bot", userId: "bot_1", ownerUserId: "owner_1", machineId: "m_1" }
+      : { kind: "human", userId: "u1", email: "u@t.com" }
+    return handler(req, { env: { DB: {} }, actor, params })
+  }),
+}))
+
 vi.mock("@/lib/middleware/helpers", () => {
   const { NextResponse } = require("next/server")
   return {
@@ -116,13 +189,21 @@ vi.mock("@/lib/middleware/helpers", () => {
 })
 
 import { POST, GET } from "./route"
-import { MAX_MESSAGE_CONTENT_LENGTH, MAX_ATTACHMENTS_PER_MESSAGE, WS_EVENTS } from "@alook/shared"
+import { MAX_MESSAGE_CONTENT_LENGTH, MAX_ATTACHMENTS_PER_MESSAGE, MAX_FORUM_TAG_LENGTH, WS_EVENTS } from "@alook/shared"
 
 function postReq(body: unknown) {
   return new NextRequest("http://localhost/api/community/channels/c1/messages", {
     method: "POST",
     body: JSON.stringify(body),
     headers: { "Content-Type": "application/json" },
+  })
+}
+
+function botPostReq(body: unknown) {
+  return new NextRequest("http://localhost/api/community/channels/send/messages", {
+    method: "POST",
+    body: JSON.stringify(body),
+    headers: { "Content-Type": "application/json", Authorization: "Bearer crk_test" },
   })
 }
 
@@ -135,7 +216,10 @@ const ctx = { params: { id: "c1" } } as any
 describe("POST /api/community/channels/[id]/messages", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "text" })
+    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "text", parentChannelId: null })
+    // The door's single mask (requireMessageSurfaceAccess) probes getChannel
+    // first to dispatch by surface; default = the same text channel.
+    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1", type: "text", parentChannelId: null })
     mockCreateMessage.mockResolvedValue({ id: "m1" })
     // Human author by default — `createCommunityMessage`'s bot-authored audit
     // (plan §10) only fires when `isBot === true`, which none of these tests exercise.
@@ -151,34 +235,48 @@ describe("POST /api/community/channels/[id]/messages", () => {
       type: "default",
       mentionType: null,
       replyToId: null,
+      channelId: "c1",
       embeds: null,
       createdAt: "2026-06-30T00:00:00.000Z",
     })
     mockGetMessageByAuthorAndNonce.mockResolvedValue(null)
     mockListMembers.mockResolvedValue([])
+    mockListByMessageIds.mockResolvedValue([])
     mockListMemberUserIds.mockResolvedValue([])
     mockGetMessagesByIdsInScope.mockResolvedValue([])
     mockCreateMentions.mockResolvedValue(undefined)
-    mockCreateAttachment.mockImplementation(async (_db: unknown, input: any) => ({
-      id: "a1",
-      ...input,
-    }))
     mockFanOutToChannel.mockResolvedValue(undefined)
     mockBroadcastToUser.mockResolvedValue(undefined)
+    mockGetLatestSeqForScope.mockResolvedValue(0)
+    mockGetReadState.mockResolvedValue(null)
+    mockHasDeliverableUnreadForAgentScope.mockResolvedValue(false)
+    mockBumpBotDailyActivityStatement.mockReturnValue({})
+    mockToAgentMessage.mockImplementation(async (_db, row, _user, attachments) => ({ ...row, attachments }))
     mockCheckMessageRateLimit.mockResolvedValue({ allowed: true })
+    mockCreateChannel.mockResolvedValue({ id: "thread_1", creatorId: "u1", createdAt: "t0", name: "thread" })
+    mockRebindPendingAttachmentsToChild.mockResolvedValue(true)
   })
 
-  it("rejects a bare message to a forum top-level with 400 (not a message-bearing surface)", async () => {
-    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "forum" })
-    const res = await POST(postReq({ content: "bare into forum index" }), ctx)
-    expect(res.status).toBe(400)
-    expect(mockCreateMessage).not.toHaveBeenCalled()
+  it("accepts a bare message to a forum top-level (phase2 forum≡thread write-guard reversal — forum is now directly sendable)", async () => {
+    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "forum", parentChannelId: null })
+    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1", type: "forum", parentChannelId: null })
+    const res = await POST(postReq({ content: "a post's opener message" }), ctx)
+    expect(res.status).toBe(201)
+    expect(mockCreateMessage).toHaveBeenCalled()
   })
 
-  it("rejects a message to a DM channel id via the generic channel route with 400 (block-bypass guard)", async () => {
-    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: null, type: "dm" })
+  it("a DM id via the door routes to the DM arm — the block gate runs (blocked peer → 403, not a silent channel-route bypass)", async () => {
+    // Corrected direction (one door): a DM id is a valid target here, dispatched
+    // to requireDMAccess (which runs the block check) — NOT the old two-door
+    // "reject DM on channel route with 400". The P0 the old test guarded (block
+    // bypass) is now closed by the dm arm running requireDMAccess, proven here:
+    // a blocked peer is refused 403, and createCommunityMessage never fires.
+    mockGetChannel.mockResolvedValue({ id: "c1", serverId: null, type: "dm", parentChannelId: null })
+    mockGetDM.mockResolvedValue({ id: "c1", lastMessageAt: null, createdAt: "t" })
+    mockGetDMPeer.mockResolvedValue({ otherUserId: "u2" })
+    mockIsBlocked.mockResolvedValue(true)
     const res = await POST(postReq({ content: "sneaking past block" }), ctx)
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(403)
     expect(mockCreateMessage).not.toHaveBeenCalled()
   })
 
@@ -228,17 +326,56 @@ describe("POST /api/community/channels/[id]/messages", () => {
   })
 
   it("returns the original canonical contract for a same-nonce replay", async () => {
-    mockGetMessageByAuthorAndNonce.mockResolvedValue({ id: "m-existing", seq: 8, clientNonce: "n1" })
+    mockGetMessageByAuthorAndNonce.mockResolvedValue({
+      id: "m-existing",
+      seq: 8,
+      clientNonce: "n1",
+      channelId: "c1",
+      authorId: "u1",
+      authorName: "Alice",
+      authorImage: null,
+      authorEmail: "u1@t.com",
+      content: "hello",
+      type: "default",
+      mentionType: null,
+      replyToId: null,
+      embeds: null,
+      createdAt: "2026-06-30T00:00:00.000Z",
+    })
 
     const res = await POST(postReq({ content: "hello", nonce: "n1" }), ctx)
     const body = await res.json() as { message: { id: string; seq: number; clientNonce?: string }; deduped: boolean }
 
-    expect(res.status).toBe(201)
+    expect(res.status).toBe(200)
     expect(body).toEqual({
       message: expect.objectContaining({ id: "m-existing", seq: 8, clientNonce: "n1" }),
       deduped: true,
     })
     expect(mockCreateMessage).not.toHaveBeenCalled()
+  })
+
+  it("returns the full raw message row for human POST convergence", async () => {
+    const row = {
+      id: "m_full",
+      authorId: "u1",
+      authorName: "Canonical Author",
+      authorImage: "https://avatar.test/u1.png",
+      authorEmail: "u1@t.com",
+      content: "canonical content",
+      type: "default",
+      mentionType: null,
+      replyToId: null,
+      channelId: "c1",
+      embeds: [{ title: "Canonical embed" }],
+      seq: 42,
+      createdAt: "2026-08-07T10:00:00.000Z",
+    }
+    mockGetMessage.mockResolvedValue(row)
+
+    const response = await POST(postReq({ content: "canonical content", nonce: "client-1" }), ctx)
+
+    expect(response.status).toBe(201)
+    expect(await response.json()).toEqual({ message: row })
   })
 
   it("rejects content longer than MAX_MESSAGE_CONTENT_LENGTH with 400", async () => {
@@ -249,13 +386,40 @@ describe("POST /api/community/channels/[id]/messages", () => {
   })
 
   it("rejects more than MAX_ATTACHMENTS_PER_MESSAGE attachments with 400", async () => {
-    const attachments = Array.from({ length: MAX_ATTACHMENTS_PER_MESSAGE + 1 }, (_, i) => ({
-      url: `r2://x/${i}`,
-      filename: `f${i}.png`,
-      contentType: "image/png",
-      size: 1,
-    }))
-    const res = await POST(postReq({ content: "ok", attachments }), ctx)
+    // Reserve-by-id: the human arm sends pending-row IDS. All ids validate as
+    // owned/attachable (findPending echoes them), so the over-cap rejection is
+    // the message handler's own MAX_ATTACHMENTS_PER_MESSAGE guard, not a
+    // validation miss.
+    const attachmentIds = Array.from({ length: MAX_ATTACHMENTS_PER_MESSAGE + 1 }, (_, i) => `att_${i}`)
+    mockFindPendingAttachmentsForSender.mockResolvedValue(attachmentIds.map((id) => ({ id })))
+    const res = await POST(postReq({ content: "ok", attachments: attachmentIds }), ctx)
+    expect(res.status).toBe(400)
+    expect(mockCreateMessage).not.toHaveBeenCalled()
+  })
+
+  it("reserve-by-id: validates the pending ids (uploader+target) then passes attachmentIds to the handler", async () => {
+    mockFindPendingAttachmentsForSender.mockResolvedValue([{ id: "att_1" }, { id: "att_2" }])
+    mockCreateMessage.mockResolvedValue({ id: "m_new" })
+    mockReserveAttachmentsForMessage.mockResolvedValue(["att_1", "att_2"])
+    mockListByMessageIds.mockResolvedValue([])
+    const res = await POST(postReq({ content: "pics", attachments: ["att_1", "att_2"] }), ctx)
+    expect(res.status).toBe(201)
+    // The validation query is scoped to THIS user + THIS channel (self-scope /
+    // confused-deputy-safe — the human dual of the download authorize-from-row).
+    expect(mockFindPendingAttachmentsForSender).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({ ids: ["att_1", "att_2"], uploaderId: "u1" }),
+    )
+  })
+
+  it("reserve-by-id confused-deputy guard: a foreign/stolen pending id (count mismatch) → 400, no message", async () => {
+    // The composer sends 2 ids but only 1 is owned by this user in this target
+    // (the other belongs to someone else / a different channel). The
+    // uploader+target-scoped query returns fewer rows than requested → reject
+    // with a generic 400 that never says which id failed, and NO message row is
+    // created. This is the send-side confused-deputy guard.
+    mockFindPendingAttachmentsForSender.mockResolvedValue([{ id: "att_mine" }])
+    const res = await POST(postReq({ content: "steal", attachments: ["att_mine", "att_theirs"] }), ctx)
     expect(res.status).toBe(400)
     expect(mockCreateMessage).not.toHaveBeenCalled()
   })
@@ -380,27 +544,65 @@ describe("POST /api/community/channels/[id]/messages", () => {
       (c) => c[1]?.type === WS_EVENTS.CHILD_CHANNEL_UPDATE,
     )
     expect(childUpdateCall).toBeUndefined()
-    // getChannel is only invoked in the thread branch to read messageCount /
-    // lastMessageAt for the CHILD_CHANNEL_UPDATE payload — must not fire here.
-    expect(mockGetChannel).not.toHaveBeenCalled()
+    // (Under the door, getChannel IS called by the dispatch mask
+    // (requireMessageSurfaceAccess) for every send — the old "getChannel only in
+    // the thread branch" check no longer holds; the real regression guard is the
+    // no-CHILD_CHANNEL_UPDATE assertion above.)
   })
 
-  // ── Idempotency nonce (mutation-idempotency plan, ③) ──────────────────────
-  // The human web send path threads `nonce` symmetrically to the agent send
-  // route (bot=user, Gus #204): body `nonce` → `createCommunityMessage`'s
-  // `clientNonce` param → surfaced `deduped` on the response. The route change
-  // is a thin pass-through; the handler-internal dedup (nonce pre-check,
-  // partial-unique backstop) is covered by the handler/① tests, and the
-  // end-to-end retry-dedup by Blair/Olivia's integration pass. Asserting the
-  // nonce plumbing here would require reaching into the handler's own query
-  // mocks (getMessageByAuthorAndNonce), which this route-level suite doesn't
-  // wire — kept out to avoid a wrong-layer assertion.
+  it("human full-command replay hydrates bound attachments before pending validation", async () => {
+    const stored = { id: "a1", targetId: "c1", filename: "x.png", contentType: "image/png", size: 10, width: 1, height: 1 }
+    mockFindPendingAttachmentsForSender.mockResolvedValueOnce([stored])
+    mockReserveAttachmentsForMessage.mockResolvedValueOnce(["a1"])
+    mockListByMessageIds.mockResolvedValue([stored])
+    mockGetMessageByAuthorAndNonce
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ ...await mockGetMessage(), clientNonce: "cmd:reply" })
+
+    const first = await POST(postReq({ content: "reply", attachments: ["a1"], nonce: "cmd:reply" }), ctx)
+    const replay = await POST(postReq({ content: "reply", attachments: ["a1"], nonce: "cmd:reply" }), ctx)
+
+    expect(first.status).toBe(201)
+    expect(replay.status).toBe(200)
+    expect(await replay.json()).toEqual(expect.objectContaining({ deduped: true }))
+    expect(mockFindPendingAttachmentsForSender).toHaveBeenCalledTimes(1)
+    expect(mockCreateMessage).toHaveBeenCalledTimes(1)
+    expect(mockReserveAttachmentsForMessage).toHaveBeenCalledTimes(1)
+  })
+
+  it("bot full-command replay bypasses alignment and pending checks after the first committed send", async () => {
+    const stored = { id: "a1", targetId: "c1", filename: "x.png", contentType: "image/png", size: 10, width: 1, height: 1 }
+    const row = { ...await mockGetMessage(), authorId: "bot_1", clientNonce: "cmd:reply" }
+    mockResolveServerByNameForMember.mockResolvedValue([{ id: "s1" }])
+    mockResolveChannelByNameForMember.mockResolvedValue([{ id: "c1", serverId: "s1", type: "text", parentChannelId: null }])
+    mockFindPendingAttachmentsForSender.mockResolvedValueOnce([stored])
+    mockReserveAttachmentsForMessage.mockResolvedValueOnce(["a1"])
+    mockListByMessageIds.mockResolvedValue([stored])
+    mockGetMessageByAuthorAndNonce
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(row)
+
+    const body = { channel: "/demo#0042/text", content: { text: "reply" }, attachments: ["a1"], nonce: "cmd:reply" }
+    const first = await POST(botPostReq(body), ctx)
+    const replay = await POST(botPostReq(body), ctx)
+
+    expect(first.status).toBe(200)
+    expect(replay.status).toBe(200)
+    expect(await replay.json()).toEqual(expect.objectContaining({ state: "sent", deduped: true }))
+    expect(mockFindPendingAttachmentsForSender).toHaveBeenCalledTimes(1)
+    expect(mockCreateMessage).toHaveBeenCalledTimes(1)
+    expect(mockHasDeliverableUnreadForAgentScope).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe("GET /api/community/channels/[id]/messages", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "text" })
+    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "text", parentChannelId: null })
+    // The door's single mask probes getChannel first (dual-actor GET dispatch).
+    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1", type: "text", parentChannelId: null })
     mockListChildChannels.mockResolvedValue([])
     mockListByMessageIds.mockResolvedValue([])
     mockListReactionsByMessageIds.mockResolvedValue([])
@@ -445,6 +647,33 @@ describe("GET /api/community/channels/[id]/messages", () => {
     expect(mockGetMessage).not.toHaveBeenCalled()
     const [, , scope] = mockGetMessagesByIdsInScope.mock.calls[0]
     expect(scope).toEqual({ channelId: "c1" })
+  })
+
+  it("retries BUSY reply enrichment and preserves the paginated response", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0)
+    mockListMessages.mockResolvedValue([
+      { id: "m1", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "reply", type: "default", mentionType: null, replyToId: "r1", channelId: "c1", embeds: null, createdAt: "t1" },
+    ])
+    mockGetMessagesByIdsInScope
+      .mockRejectedValueOnce(new Error("D1_ERROR: database is locked"))
+      .mockResolvedValueOnce([{ id: "r1", authorName: "B", content: "root", channelId: "c1", dmConversationId: null }])
+    const res = await GET(getReq(), ctx)
+    const body = await res.json()
+    expect(body.messages).toHaveLength(1)
+    expect(body.messages[0].replyTo).toEqual({ id: "r1", authorName: "B", text: "root" })
+    expect(body.hasMore).toBe(false)
+    expect(mockGetMessagesByIdsInScope).toHaveBeenCalledTimes(2)
+    expect(mockListMessages).toHaveBeenCalledTimes(1)
+  })
+
+  it("rethrows a non-BUSY reply-enrichment failure without retrying", async () => {
+    const error = new Error("bad projection")
+    mockListMessages.mockResolvedValue([
+      { id: "m1", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "reply", type: "default", mentionType: null, replyToId: "r1", channelId: "c1", embeds: null, createdAt: "t1" },
+    ])
+    mockGetMessagesByIdsInScope.mockRejectedValueOnce(error)
+    await expect(GET(getReq(), ctx)).rejects.toBe(error)
+    expect(mockGetMessagesByIdsInScope).toHaveBeenCalledTimes(1)
   })
 
   it("returns author.name verbatim — no 'Unknown' sentinel, no email leak", async () => {
@@ -542,6 +771,33 @@ describe("GET /api/community/channels/[id]/messages", () => {
     expect(mockGetLatestMessageSeq).toHaveBeenCalledWith(expect.anything(), { channelId: "c1" })
   })
 
+  it("passes a normalized tag into the channel-scoped message query before pagination", async () => {
+    mockListMessages.mockResolvedValue([])
+    const req = new NextRequest("http://localhost/api/community/channels/c1/messages?tag=%20Bug%20&cursor=2026-01-01T00%3A00%3A00.000Z%7Cm1", { method: "GET" })
+    const res = await GET(req, ctx)
+    expect(res.status).toBe(200)
+    expect(mockListMessages).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      channelId: "c1",
+      tag: "bug",
+      cursor: { createdAt: "2026-01-01T00:00:00.000Z", id: "m1" },
+    }))
+  })
+
+  it.each(["", "   "])("rejects an explicitly empty tag %j instead of widening to all messages", async (tag) => {
+    const req = new NextRequest(`http://localhost/api/community/channels/c1/messages?tag=${encodeURIComponent(tag)}`, { method: "GET" })
+    const res = await GET(req, ctx)
+    expect(res.status).toBe(400)
+    expect(mockListMessages).not.toHaveBeenCalled()
+  })
+
+  it("rejects a tag longer than the public message-tag limit", async () => {
+    const tag = "x".repeat(MAX_FORUM_TAG_LENGTH + 1)
+    const req = new NextRequest(`http://localhost/api/community/channels/c1/messages?tag=${tag}`, { method: "GET" })
+    const res = await GET(req, ctx)
+    expect(res.status).toBe(400)
+    expect(mockListMessages).not.toHaveBeenCalled()
+  })
+
   describe("?anchor mode", () => {
     it("returns a centered window with the anchor row present, plus latestSeq + cursors", async () => {
       mockGetMessageInScope.mockResolvedValue({
@@ -594,6 +850,19 @@ describe("GET /api/community/channels/[id]/messages", () => {
       expect(res.status).toBe(404)
       expect(mockListMessagesAround).not.toHaveBeenCalled()
     })
+
+    it("applies tag to the same channel-scoped anchor window", async () => {
+      mockGetMessageInScope.mockResolvedValue({ id: "m_anchor", createdAt: "2026-06-30T00:00:03.000Z" })
+      mockListMessagesAround.mockResolvedValue({ older: [], newer: [], hasMoreOlder: false, hasMoreNewer: false })
+      const req = new NextRequest("http://localhost/api/community/channels/c1/messages?anchor=m_anchor&tag=%20Bug%20", { method: "GET" })
+      const res = await GET(req, ctx)
+      expect(res.status).toBe(200)
+      expect(mockListMessagesAround).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+        channelId: "c1",
+        anchor: { createdAt: "2026-06-30T00:00:03.000Z", id: "m_anchor" },
+        tag: "bug",
+      }))
+    })
   })
 
   describe("?since mode", () => {
@@ -628,6 +897,103 @@ describe("GET /api/community/channels/[id]/messages", () => {
       // Anchor-mode paths must not fire.
       expect(mockGetMessageInScope).not.toHaveBeenCalled()
       expect(mockListMessagesAround).not.toHaveBeenCalled()
+    })
+
+    it("applies tag to the same channel-scoped since delta", async () => {
+      mockListMessagesSince.mockResolvedValue([])
+      const req = new NextRequest(
+        "http://localhost/api/community/channels/c1/messages?since=2026-06-30T00:00:00.000Z%7Cm_0&tag=%20Bug%20",
+        { method: "GET" },
+      )
+      const res = await GET(req, ctx)
+      expect(res.status).toBe(200)
+      expect(mockListMessagesSince).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+        channelId: "c1",
+        since: { createdAt: "2026-06-30T00:00:00.000Z", id: "m_0" },
+        tag: "bug",
+      }))
+    })
+  })
+
+  describe("bot arm (GET/read convergence — seq window + {items}, ref-via-query, no create)", () => {
+    function botGetReq(query = "") {
+      return new NextRequest(`http://localhost/api/community/channels/resolve/messages${query}`, {
+        method: "GET",
+        headers: { Authorization: "Bearer crk_abc" },
+      })
+    }
+    const botCtx = { params: { id: "resolve" } } as any
+
+    it("bot reads via ?ref= → seq window → {items} (agent-message projection), NOT {messages}", async () => {
+      // ref resolves to a channel; the door's single mask passes it (bot scope),
+      // then the bot arm pages by seq and projects to agent-message {items}.
+      // ref /studio#0042/general resolves server→channel (both member-scoped), then
+      // the door's mask probes getChannel.
+      mockResolveServerByNameForMember.mockResolvedValue([{ id: "s1" }])
+      mockResolveChannelByNameForMember.mockResolvedValue([{ id: "c1" }])
+      mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1", type: "text", parentChannelId: null })
+      mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "text", parentChannelId: null })
+      mockListMessagesBySeq.mockResolvedValue({ items: [{ id: "m1", seq: 1 }], hasMore: false, latestSeq: 1 })
+      mockToAgentMessages.mockResolvedValue([{ seq: 1, text: "hi" }])
+
+      const res = await GET(botGetReq("?ref=%2Fstudio%230042%2Fgeneral&after=0"), botCtx)
+      expect(res.status).toBe(200)
+      const body = await res.json() as { items?: unknown[]; messages?: unknown[] }
+      expect(body.items).toEqual([{ seq: 1, text: "hi" }])
+      expect(body.messages).toBeUndefined() // bot arm = {items}, never {messages}
+      // Read went through the shared seq query, scoped to the resolved channel.
+      expect(mockListMessagesBySeq).toHaveBeenCalledWith({}, { channelId: "c1" }, expect.objectContaining({ after: 0 }))
+    })
+
+    it("decodes an encoded ref carrying / and # (DM handle round-trip: %2F.dm%2Fgusye%231231 → /.dm/gusye#1231)", async () => {
+      // Gener #263 / Melly #264: a DM ref has `/` AND `#` (fragment char) — the
+      // CLI encodeURIComponent's it into the query; NextRequest.searchParams.get
+      // auto-decodes, so resolveTargetForMember sees the real ref. This asserts
+      // the door gets the DECODED ref (not truncated at #, not left percent-escaped).
+      const peer = { id: "peer_1", discriminator: "1231" }
+      mockGetUserByNameAndDiscriminator.mockResolvedValue(peer)
+      mockGetDMBetween.mockResolvedValue({ id: "dm1" })
+      mockGetChannel.mockResolvedValue({ id: "dm1", serverId: null, type: "dm", parentChannelId: null })
+      mockGetDM.mockResolvedValue({ id: "dm1", lastMessageAt: null, createdAt: "t" })
+      mockGetDMPeer.mockResolvedValue({ otherUserId: "peer_1" })
+      mockIsBlocked.mockResolvedValue(false)
+      mockListMessagesBySeq.mockResolvedValue({ items: [{ id: "m1", seq: 1 }], hasMore: false, latestSeq: 1 })
+      mockToAgentMessages.mockResolvedValue([{ seq: 1, text: "dm hi" }])
+
+      const encoded = encodeURIComponent("/.dm/gusye#1231")
+      const res = await GET(botGetReq(`?ref=${encoded}`), botCtx)
+      expect(res.status).toBe(200)
+      // The DM handle's #1231 was NOT lost as a URL fragment — the peer lookup
+      // received the decoded name#disc, proving the round-trip.
+      expect(mockGetUserByNameAndDiscriminator).toHaveBeenCalledWith({}, "gusye", "1231")
+      const body = await res.json() as { items?: unknown[] }
+      expect(body.items).toEqual([{ seq: 1, text: "dm hi" }])
+    })
+
+    it("loudly rejects read hydration for an orphan DM without leaking raw ids", async () => {
+      mockGetUserByNameAndDiscriminator.mockResolvedValue({ id: "peer_internal", discriminator: "1231" })
+      mockGetDMBetween.mockResolvedValue({ id: "dm_internal" })
+      mockGetChannel.mockResolvedValue({ id: "dm_internal", serverId: null, type: "dm", parentChannelId: null })
+      mockGetDM.mockResolvedValue({ id: "dm_internal", lastMessageAt: null, createdAt: "t" })
+      mockGetDMPeer.mockResolvedValue({ otherUserId: "peer_internal" })
+      mockIsBlocked.mockResolvedValue(false)
+      mockListMessagesBySeq.mockResolvedValue({ items: [{ id: "message_internal", seq: 1 }], hasMore: false, latestSeq: 1 })
+      mockToAgentMessages.mockRejectedValue(new Error("DM peer identity unavailable"))
+
+      const read = GET(botGetReq(`?ref=${encodeURIComponent("/.dm/gusye#1231")}`), botCtx)
+      await expect(read).rejects.toThrow("DM peer identity unavailable")
+      await expect(read).rejects.not.toThrow(/peer_internal|dm_internal|message_internal/)
+    })
+
+    it("bot read of a ref to a nonexistent target → 404, NO create (read-create=false ⑤)", async () => {
+      // resolveTargetForMember (real, through the mocked queries) returns
+      // not-found for an unknown ref; the door surfaces 404 and never creates.
+      mockResolveServerByNameForMember.mockResolvedValue([]) // server not found → resolve 404
+      const res = await GET(botGetReq("?ref=%2Fnope%230042%2Fmissing"), botCtx)
+      expect(res.status).toBe(404)
+      // No create query fired — read is pure addressing (structurally the GET
+      // descriptor carries no create-if-missing).
+      expect(mockCreateMessage).not.toHaveBeenCalled()
     })
   })
 })

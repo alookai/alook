@@ -13,15 +13,17 @@ import {
  * remove/leave controls live in the Members drawer's row right-click menu.
  */
 export function ChannelAddMembersDialog({
+  serverId,
   channelId,
   channelName,
   onClose,
 }: {
+  serverId: string
   channelId: string
   channelName: string
   onClose: () => void
 }) {
-  const { members: addable } = useAddableMembers(channelId)
+  const { members: addable } = useAddableMembers(serverId, channelId)
   const addMember = useAddChannelMember(channelId)
 
   const candidates = addable.map((m) => ({

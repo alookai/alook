@@ -41,7 +41,7 @@ export function useCreateServerFolderWith() {
       // both here and in `onMutate` below.
       const serverIds = [...new Set([serverIdA, serverIdB])]
       return apiFetch<CreateServerFolderWithResult>(
-        "/api/community/server-folders",
+        "/api/community/users/me/server-folders",
         {
           method: "POST",
           body: JSON.stringify({ name: "Group", serverIds }),
@@ -116,10 +116,10 @@ export function useUpdateFolderItems() {
   >({
     mutationFn: async ({ folderId, serverIds }) => {
       if (serverIds.length === 0) {
-        await apiFetch(`/api/community/server-folders/${folderId}`, { method: "DELETE" })
+        await apiFetch(`/api/community/users/me/server-folders/${folderId}`, { method: "DELETE" })
         return
       }
-      await apiFetch(`/api/community/server-folders/${folderId}`, {
+      await apiFetch(`/api/community/users/me/server-folders/${folderId}`, {
         method: "PATCH",
         body: JSON.stringify({ serverIds }),
       })
@@ -171,7 +171,7 @@ export function useDeleteServerFolder() {
     { snapshot: FoldersResponse | undefined }
   >({
     mutationFn: async ({ folderId }) => {
-      await apiFetch(`/api/community/server-folders/${folderId}`, { method: "DELETE" })
+      await apiFetch(`/api/community/users/me/server-folders/${folderId}`, { method: "DELETE" })
     },
     onMutate: async (args) => {
       const key = communityKeys.folders()
@@ -201,7 +201,7 @@ export function useReorderFolders() {
     { snapshot: FoldersResponse | undefined }
   >({
     mutationFn: async ({ folderIds }) => {
-      await apiFetch("/api/community/server-folders/reorder", {
+      await apiFetch("/api/community/users/me/server-folders/reorder", {
         method: "PATCH",
         body: JSON.stringify({ folderIds }),
       })

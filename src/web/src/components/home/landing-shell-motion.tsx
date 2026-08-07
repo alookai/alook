@@ -876,6 +876,7 @@ function PrototypeUserBar({
             unreadDms={[]}
             mentions={[]}
             marked={[]}
+            onOpenForumThread={() => {}}
           />
         </div>
       )}

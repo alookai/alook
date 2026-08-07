@@ -39,7 +39,6 @@ const FALLBACK_LOCAL_PART = "alook-agent";
  * legible remains.
  */
 function sanitizeGitName(name: string): string {
-  // eslint-disable-next-line no-control-regex
   return name.replace(/[\x00-\x1f\x7f]/g, "").replace(/\s+/g, " ").trim();
 }
 

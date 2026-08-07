@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { LucideIcon } from "lucide-react"
 import { Bell, BellOff, Pin, Users, MessagesSquare, ChevronLeft, Check, Pencil, MoreHorizontal } from "lucide-react"
 import { NOTIF_LEVELS, USE_SERVER_DEFAULT, type NotifLevel } from "@alook/shared"
@@ -17,6 +17,7 @@ import { SlugHint } from "./slug-hint"
 import { previewSlug } from "@/lib/community/slug-preview"
 import { MarbleBackground } from "@/components/avatar"
 import type { RightPanel } from "./_types"
+import { CreateDialogShell } from "./create-dialog-shell"
 
 // Skeleton header for the loading frame between route change and channel
 // metadata arriving. Same h-12 footprint as <ChannelHeader> so the body below
@@ -55,7 +56,7 @@ export function ChannelHeader({
   onSetNotifLevel?: (l: ChannelNotifLevel) => void
   onBack?: () => void
   forum?: boolean
-  breadcrumb?: { label: string; onRename?: (name: string) => void; onNavigateBack?: () => void }
+  breadcrumb?: { label: string; onRename?: (name: string) => void | Promise<void>; titleRename?: boolean; onNavigateBack?: () => void }
   server?: { id: string; name: string; icon: string | null }
   tools?: { threads?: boolean; pinned?: boolean; members?: boolean }
 }) {
@@ -90,7 +91,7 @@ export function ChannelHeader({
           <ChannelIcon className="shrink-0 text-base text-muted-foreground/60" />
           <span className="min-w-0 truncate text-base font-medium" title={breadcrumb.label}>{breadcrumb.label}</span>
           {breadcrumb.onRename && (
-            <BreadcrumbRename label={breadcrumb.label} onRename={breadcrumb.onRename} />
+            <BreadcrumbRename label={breadcrumb.label} onRename={breadcrumb.onRename} titleMode={breadcrumb.titleRename} />
           )}
         </>
       ) : (
@@ -179,7 +180,7 @@ function ServerCrumb({ id, name, icon, size = 5, className = "" }: { id: string;
       aria-label={name}
       title={name}
     >
-      {icon ? <img src={icon} alt="" className="size-full object-cover" /> : <><MarbleBackground seed={id} /><span className="relative -translate-x-[1px] [-webkit-text-stroke:0.5px_currentColor]">{avatarInitial(name)}</span></>}
+      {icon ? <img src={icon} alt="" className="size-full object-cover" /> : <><MarbleBackground seed={id} /><span className="relative -translate-x-px [-webkit-text-stroke:0.5px_currentColor]">{avatarInitial(name)}</span></>}
     </span>
   )
 }
@@ -224,9 +225,11 @@ function ChannelNotifDropdown({ level, onSetLevel }: {
   )
 }
 
-function BreadcrumbRename({ label, onRename }: { label: string; onRename: (name: string) => void }) {
+function BreadcrumbRename({ label, onRename, titleMode = false }: { label: string; onRename: (name: string) => void | Promise<void>; titleMode?: boolean }) {
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState(label)
+  const [saving, setSaving] = useState(false)
+  const savingRef = useRef(false)
   // Keep the draft mirror in sync with the upstream label whenever the dialog
   // is closed — covers WS-driven renames and channel switches (the parent
   // component is reused across channelId changes).
@@ -234,17 +237,58 @@ function BreadcrumbRename({ label, onRename }: { label: string; onRename: (name:
     if (!open) setDraft(label)
   }, [label, open])
   const draftPreview = previewSlug(draft)
-  const save = () => {
+  const validDraft = titleMode ? Boolean(draft.trim()) : Boolean(draftPreview.slug)
+  const save = async () => {
+    if (savingRef.current) return
     const trimmed = draft.trim()
-    if (draftPreview.slug && trimmed !== label) onRename(trimmed)
-    setOpen(false)
+    if (!validDraft || trimmed === label) {
+      setOpen(false)
+      return
+    }
+    savingRef.current = true
+    setSaving(true)
+    try {
+      await onRename(trimmed)
+      setOpen(false)
+    } catch {
+      // The owner surfaces the API error. Keep the dialog and draft open so
+      // the user can correct or retry the same title.
+    } finally {
+      savingRef.current = false
+      setSaving(false)
+    }
   }
   return (
     <>
-      <Button variant="ghost" size="icon-sm" onClick={() => { setDraft(label); setOpen(true) }} className="text-muted-foreground hover:text-foreground" aria-label="Rename">
+      <Button variant="ghost" size="icon-sm" onClick={() => { setDraft(label); setOpen(true) }} className="text-muted-foreground hover:text-foreground" aria-label={titleMode ? "Edit post title" : "Rename"}>
         <Pencil className="size-3.5" />
       </Button>
       {open && (
+        titleMode ? (
+          <CreateDialogShell
+            onClose={() => setOpen(false)}
+            title="Edit post title"
+            footer={(
+              <>
+                <Button variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={saving}>Cancel</Button>
+                <Button size="sm" onClick={() => void save()} disabled={!validDraft || saving}>Save</Button>
+              </>
+            )}
+          >
+            <div className="px-5 pb-5 pt-2">
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(event) => onEnterSubmit(save)(event)}
+                placeholder="Post title"
+                aria-label="Post title"
+                disabled={saving}
+                className="w-full border-0 bg-transparent p-0 text-[30px] font-medium leading-tight tracking-tight shadow-none outline-none placeholder:font-normal placeholder:text-muted-foreground/40 focus-visible:ring-0"
+                autoFocus
+              />
+            </div>
+          </CreateDialogShell>
+        ) : (
         <Dialog open onOpenChange={(o) => { if (!o) setOpen(false) }}>
           <DialogContent className="w-105 max-w-[calc(100vw-2rem)] p-0">
             <DialogHeader className="border-b border-border px-4 py-4">
@@ -256,8 +300,9 @@ function BreadcrumbRename({ label, onRename }: { label: string; onRename: (name:
                 <Input
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
-                  onKeyDown={onEnterSubmit(save)}
+                  onKeyDown={(event) => onEnterSubmit(save)(event)}
                   placeholder="thread-name"
+                  aria-label="Thread name"
                   className="h-10"
                   autoFocus
                 />
@@ -265,11 +310,12 @@ function BreadcrumbRename({ label, onRename }: { label: string; onRename: (name:
               </label>
             </div>
             <DialogFooter className="mx-0 mb-0 flex-row items-center justify-end gap-2 rounded-b-xl border-t border-border bg-card px-4 py-3">
-              <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>Cancel</Button>
-              <Button size="sm" onClick={save} disabled={!draftPreview.slug}>Save</Button>
+              <Button variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={saving}>Cancel</Button>
+              <Button size="sm" onClick={() => void save()} disabled={!validDraft || saving}>Save</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        )
       )}
     </>
   )

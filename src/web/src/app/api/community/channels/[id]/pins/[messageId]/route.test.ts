@@ -79,11 +79,11 @@ describe("DELETE /api/community/channels/[id]/pins/[messageId]", () => {
     expect(mockUnpinMessage).not.toHaveBeenCalled();
   });
 
-  it("returns 400 in a forum top-level (nothing to unpin)", async () => {
+  it("unpins a message in a forum top-level (phase2 forum≡thread write-guard reversal — forum is now a message-bearing surface)", async () => {
     mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1", type: "forum" });
     const res = await DELETE(delReq(), ctx);
-    expect(res.status).toBe(400);
-    expect(mockUnpinMessage).not.toHaveBeenCalled();
+    expect(res.status).toBe(204);
+    expect(mockUnpinMessage).toHaveBeenCalledWith(expect.anything(), { channelId: "c1", messageId: "m1" });
   });
 
   it("returns 400 in a DM (governance model does not fit)", async () => {

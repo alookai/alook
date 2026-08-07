@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { queries, parseRef, DM_SERVER, parseNameAndTag, channelCreation } from "@alook/shared"
+import { queries, parseRef, DM_SERVER, parseNameAndTag, channelCreation, withD1Retry } from "@alook/shared"
 import type { Database } from "@alook/shared"
 import { guardDmOpen } from "./dm-guard"
 import { createWithCollisionPolicy } from "./create-collision"
@@ -19,8 +19,8 @@ export interface ResolveTargetOpts {
 }
 
 /**
- * Resolve a CLI path ref (`ChannelRef`, e.g. `/studio/general`,
- * `/studio/general/#42`, `/.dm/gusye#1231`) to a concrete channel/DM id,
+ * Resolve a CLI path ref (`ChannelRef`, e.g. `/studio#0042/general`,
+ * `/studio#0042/general/#42`, `/.dm/gusye#1231`) to a concrete channel/DM id,
  * scoped to `userId`'s memberships. Threads flatten to `{ kind: "channel",
  * channelId: <thread's own id> }` (debt #10 — threads ARE channels); the
  * caller (the `send` route) is responsible for reconstructing the full
@@ -31,10 +31,9 @@ export interface ResolveTargetOpts {
  * Channel names are unique per server for top-level channels (migration
  * 0057's partial-unique index `idx_channel_server_name`) — the resolver
  * enforces the same invariant by matching only where `parentChannelId IS
- * NULL`. Threads and forum posts are unreachable from this helper by name
- * or id; use the canonical `#seq` grammar to descend into a thread. Server
- * NAME ambiguity is still possible (server names are non-unique) and still
- * returns `{ error: 400, hint: [...] }` so the agent can pick.
+ * NULL`. A thread is unreachable from this helper by name or id; use the
+ * canonical `#seq` grammar to descend into one. Real-server refs require a
+ * unique name#discriminator handle; bare names and internal ids are rejected.
  * `createDmIfMissing`/`createThreadIfMissing` are both `true` for `send`
  * only — every other route passes `false` so a stale ref never materializes
  * a DM/thread row as a side effect of a read.
@@ -52,7 +51,7 @@ export async function resolveTargetForMember(
     return { error: 400, message: "malformed channel ref" }
   }
 
-  // Message-pin form (`/server/channel#N`) has no use in this API surface —
+  // Message-pin form (`/server#disc/channel#N`) has no use in this API surface —
   // every endpoint that needs to pin a message takes a separate `seq` field
   // (`resolve`, `read`). Reject rather than silently ignoring the `#N`.
   if (parsed.seq !== undefined) {
@@ -90,48 +89,19 @@ export async function resolveTargetForMember(
   }
 
   // Channel form: resolve server, then channel, both scoped to membership.
-  const servers = await queries.communityServer.resolveServerByNameForMember(db, userId, parsed.server)
-  if (servers.length === 0) return { error: 404, message: `server not found: ${parsed.server}` }
-  if (servers.length > 1) {
-    return {
-      error: 400,
-      message: "ambiguous server name",
-      hint: servers.map((s) => ({ id: s.id, path: `/${s.id}/${parsed.channel}` })),
-    }
-  }
+  const servers = await withD1Retry(
+    () => queries.communityServer.resolveServerByNameForMember(db, userId, parsed.server),
+    { route: "community/resolve-ref:server" }
+  )
+  if (servers.length === 0) return { error: 404, message: "server not found" }
   const serverId = servers[0]!.id
 
-  const matches = await queries.communityChannel.resolveChannelByNameForMember(db, serverId, userId, parsed.channel)
+  const matches = await withD1Retry(
+    () => queries.communityChannel.resolveChannelByNameForMember(db, serverId, userId, parsed.channel),
+    { route: "community/resolve-ref:channel" }
+  )
   if (matches.length === 0) return { error: 404, message: `channel not found: ${parsed.channel}` }
   const channel = matches[0]!
-
-  // Forum-post form (`/server/forum/post`) — the resolved `channel` is the
-  // parent forum; descend to the `forum_post` child by name. Runs parallel to
-  // the thread branch below (do NOT fold them: a thread anchors on a root-msg
-  // seq, a post on its own name). Post names are NOT unique within a forum, so
-  // >1 match is an ambiguous ref — return 400 + candidates, NEVER silently pick
-  // one (mirrors the ambiguous-server-name behavior above). A forum post
-  // inherits its forum's access; `requireChannelMember`/`requireChannelAccess`
-  // at the call site climb `parentChannelId` to gate on the forum's roster.
-  if (parsed.childChannelName !== undefined) {
-    const posts = await queries.communityChannel.getChildChannelByName(db, channel.id, parsed.childChannelName)
-    if (posts.length === 0) {
-      return { error: 404, message: `post not found: ${parsed.childChannelName}` }
-    }
-    if (posts.length > 1) {
-      // Ambiguous: >1 post shares this name (only possible for legacy dupes
-      // predating create-time dedup). The red line is met by refusing — we
-      // NEVER silently pick one. A name-based hint can't disambiguate here
-      // (the candidates' name-anchor paths are identical), so we report the
-      // count instead of fabricating useless identical paths; a one-time
-      // slug-dedup migration on legacy posts is the clean fix (deferred).
-      return {
-        error: 400,
-        message: `ambiguous post name "${parsed.childChannelName}" in ${parsed.channel} — ${posts.length} posts share this name; rename the duplicates to address them by name`,
-      }
-    }
-    return { kind: "channel", channelId: posts[0]!.id }
-  }
 
   if (parsed.threadRootSeq === undefined) {
     return { kind: "channel", channelId: channel.id }
@@ -149,21 +119,23 @@ export async function resolveTargetForMember(
     return { error: 400, message: "can't start a thread inside a thread or forum post" }
   }
 
-  // Thread form (`/server/channel/#N`) — translate the root seq to the
+  // Thread form (`/server#disc/channel/#N`) — translate the root seq to the
   // parent message's id, then find (or create) the thread's own channel row.
-  const rootMessage = await queries.communityMessage.getMessageByChannelAndSeq(
-    db,
-    { channelId: channel.id },
-    parsed.threadRootSeq
+  const rootMessage = await withD1Retry(
+    () => queries.communityMessage.getMessageByChannelAndSeq(
+      db,
+      { channelId: channel.id },
+      parsed.threadRootSeq!
+    ),
+    { route: "community/resolve-ref:root-message" }
   )
   if (!rootMessage || parsed.threadRootSeq === 0) {
     return { error: 404, message: `no message with seq #${parsed.threadRootSeq} in this channel` }
   }
 
-  const existingThread = await queries.communityChannel.getThreadChannelByParentMessage(
-    db,
-    channel.id,
-    rootMessage.id
+  const existingThread = await withD1Retry(
+    () => queries.communityChannel.getThreadChannelByParentMessage(db, channel.id, rootMessage.id),
+    { route: "community/resolve-ref:thread" }
   )
   if (existingThread) return { kind: "channel", channelId: existingThread.id }
 
@@ -174,13 +146,11 @@ export async function resolveTargetForMember(
   // Thread create via the shared trait-keyed collision policy (B4): thread's
   // creation trait is get-or-create — a concurrent create that loses the race on
   // the parent_message_id anchor (unique index, migration 0052) re-selects the
-  // winner rather than making a second thread. This is the SAME dispatch
-  // forum_post (pure-create) and top-level channels (reject-on-collision) use;
-  // only these callbacks (the thread channel-shape + its anchor refetch) are
-  // thread-specific. Anchor-collision (parent_message_id) and name-collision are
-  // both "a structure anchor was taken → fetch the winner" — one get-or-create
-  // value covers both; DM's identity-collision is a different key space and is
-  // NOT wired here.
+  // winner rather than making a second thread. Top-level channels
+  // (reject-on-collision) use the same dispatch with a different collision
+  // contract; only these callbacks (the thread channel-shape + its anchor
+  // refetch) are thread-specific. DM's identity-collision is a different key
+  // space and is NOT wired here.
   const threadResult = await createWithCollisionPolicy(channelCreation("thread"), {
     attempt: () => queries.communityChannel.createThreadChannel(db, channel.id, rootMessage.id, userId),
     refetchWinner: () => queries.communityChannel.getThreadChannelByParentMessage(db, channel.id, rootMessage.id),

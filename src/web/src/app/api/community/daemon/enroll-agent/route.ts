@@ -3,6 +3,7 @@ import {
   queries,
   CommunityDaemonEnrollAgentRequestSchema,
   type CommunityDaemonEnrollAgentResponse,
+  withD1Retry,
 } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withCommunityDaemonAuth } from "@/lib/middleware/community-daemon-auth"
@@ -14,7 +15,8 @@ import { withCommunityDaemonAuth } from "@/lib/middleware/community-daemon-auth"
  * runner key (`crk_...`) scoped to (userId, machineId, agentId). The daemon's
  * `CredentialBroker` swaps this runner key in for the agent's per-launch
  * voucher at its local credential proxy, so subprocess CLIs never see it
- * directly — they only reach `/api/community/agent/*` through that proxy.
+ * directly — they only reach canonical `/api/community/*` REST doors through
+ * that proxy.
  */
 export const POST = withCommunityDaemonAuth(async (req, ctx) => {
   let raw: unknown
@@ -38,7 +40,10 @@ export const POST = withCommunityDaemonAuth(async (req, ctx) => {
   // AND its binding must point to this machine. Prevents a compromised daemon
   // on machine A from minting a `crk_` for a bot bound to machine B (which
   // would otherwise slip through the old blind-mint path).
-  const target = await queries.user.getUserInternal(db, parsed.data.agentId)
+  const target = await withD1Retry(
+    () => queries.user.getUserInternal(db, parsed.data.agentId),
+    { route: "community/daemon/enroll-agent:target" }
+  )
   if (
     !target ||
     target.isBot !== true ||
@@ -47,7 +52,10 @@ export const POST = withCommunityDaemonAuth(async (req, ctx) => {
   ) {
     return NextResponse.json({ error: "bot not found" }, { status: 404 })
   }
-  const binding = await queries.communityBot.getBotBinding(db, parsed.data.agentId)
+  const binding = await withD1Retry(
+    () => queries.communityBot.getBotBinding(db, parsed.data.agentId),
+    { route: "community/daemon/enroll-agent:binding" }
+  )
   if (!binding || binding.machineId !== ctx.machineId) {
     return NextResponse.json({ error: "bot not on this machine" }, { status: 404 })
   }

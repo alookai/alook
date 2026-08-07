@@ -26,6 +26,7 @@ import { z } from "zod";
 import type { RuntimeConfig } from "./runtime-config";
 import type { ChannelType, StoredChannelType } from "./utils/community-roles";
 import { CHANNEL_TRAITS } from "./utils/community-roles";
+import { parseNameAndTag } from "./lib/discriminator";
 
 /* ------------------------------------------------------------------ */
 /* Identifiers                                                         */
@@ -64,8 +65,7 @@ export interface Agent {
 
 /** A server == a workspace. An agent participates in many of these. */
 export interface Server {
-  id: ServerId;
-  name: string;
+  handle: string;
 }
 
 export type ChannelKind = "channel" | "dm";
@@ -154,7 +154,7 @@ export type Target =
  * The flat, agent-facing message. This is exactly what the agent sees (one JSON
  * object per line, JSONL). Deliberately minimal:
  *   - `seq`     — "#N", the per-channel sequence (locate via channel + seq).
- *   - `channel` — the path ref, e.g. "/demo-workspace/general" or "/.dm/gustavo#4821".
+ *   - `channel` — the path ref, e.g. "/demo-workspace#1234/general" or "/.dm/gustavo#4821".
  *   - `sender`  — "@handle" (`name#0042`, no id, no human/agent/system type).
  *   - `content` — `{ text }` today; an object (not a bare string) so future
  *                 content kinds (attachments, embeds, …) can be added without
@@ -381,10 +381,10 @@ export interface CommunityAgentReactAddResponse {
 /**
  * Create a new forum post (`alook message post`). `forum` is a forum REF
  * (`/server/forum`), resolved server-side (bots hold refs, not ids — same reason
- * `send` takes a ref). `title` is the raw human title; its slug becomes the
- * post's addressing name. Content follows the forum-post opener contract: text
- * OR at least one attachment. `attachments` are pending ids the bot uploaded
- * bound to the FORUM (the post channel doesn't exist at upload time).
+ * `send` takes a ref). The canonical messages door stores `title` as an opener
+ * message in the forum and `content` as the first reply in its ordinary thread.
+ * The reply may contain text OR at least one attachment. `attachments` are
+ * pending ids the bot uploaded against the forum before the thread exists.
  */
 export interface CreatePostRequest {
   agentId: AgentId;
@@ -397,9 +397,8 @@ export interface CreatePostRequest {
 }
 
 /**
- * The created post's canonical address. `ref` is the round-trippable
- * `/server/forum/<real-slug>` (the slug after create-time dedupe/bump) — the bot
- * hands it straight back as a target. `seq` is the body (first-message) seq.
+ * The created thread's canonical address. `ref` is `/server/forum/#N`, where
+ * `N` is the opener message seq; `seq` is the first reply's seq in that thread.
  */
 export interface CreatePostResponse {
   ref: ChannelRef;
@@ -1102,20 +1101,10 @@ export interface ServerApiError {
 
 /** A parsed channel ref: the channel location + an optional message seq (`#N`). */
 export interface ParsedRef {
-  /** Server segment (a real server id/name, or `.dm`). */
+  /** Server segment (a real server id/handle, or `.dm`). */
   server: string;
   /** Channel name (or DM peer when `server === DM_SERVER`). */
   channel: string;
-  /**
-   * Forum-post child-channel name when the ref addresses a forum post
-   * (`/server/forum/post`). A forum post is a `forum_post` child channel with
-   * no addressable root-message seq (unlike a thread), so it is anchored by its
-   * OWN name under the parent forum — `channel` is the forum, `childChannelName`
-   * is the post. May carry a `seq` (`/server/forum/post#N`) to pin a message
-   * inside the post, symmetric to the top-level `/server/channel#N` form.
-   * Mutually exclusive with `threadRootSeq`.
-   */
-  childChannelName?: string;
   /** Thread root seq when the ref points into a thread (`/server/channel/#N`). */
   threadRootSeq?: Seq;
   /** Message seq when the ref pins a specific message (`/server/channel#N`). */
@@ -1126,7 +1115,6 @@ export interface ParsedRef {
  * Parse a path ref into its parts. Grammar:
  *   /<server>/<channel>          → { server, channel }
  *   /<server>/<channel>#N        → { server, channel, seq:N }
- *   /<server>/<forum>/<post>     → { server, channel:forum, childChannelName:post }
  *   /<server>/<channel>/#N       → { server, channel, threadRootSeq:N }
  *   /<server>/<channel>/#N#M     → { server, channel, threadRootSeq:N, seq:M }
  *   /.dm/<peer>[...]             → DM (server = ".dm", channel = peer, a
@@ -1135,6 +1123,14 @@ export interface ParsedRef {
  *                                  generic channel-ref `#`-split (a handle's
  *                                  `#0042` suffix must NOT be mistaken for a
  *                                  pinned-message seq).
+ *
+ * (The old `/<server>/<forum>/<post>` forum-post form is GONE, not merely
+ * unsupported — a post is now addressed like any other thread, by-root-seq.
+ * A 3-segment ref whose last segment doesn't start with "#" no longer
+ * matches any grammar rule below and throws, same as any other malformed
+ * ref; callers already render an unparseable ref as plain literal text
+ * rather than a clickable pill, so an old-style link degrades cleanly
+ * instead of silently resolving to the wrong target.)
  */
 export function parseRef(ref: ChannelRef): ParsedRef {
   if (!ref.startsWith("/")) throw new Error(`ref must start with "/": ${ref}`);
@@ -1142,6 +1138,9 @@ export function parseRef(ref: ChannelRef): ParsedRef {
   const parts = body.split("/");
   if (parts.length < 2) throw new Error(`ref needs /<server>/<channel>: ${ref}`);
   const server = parts[0];
+  if (server !== DM_SERVER && !parseNameAndTag(server)) {
+    throw new Error(`server ref must use a name#discriminator handle: ${ref}`);
+  }
   // Trailing "#N" on the last segment pins a message seq.
   let seq: Seq | undefined;
 
@@ -1153,25 +1152,11 @@ export function parseRef(ref: ChannelRef): ParsedRef {
     return { server, channel: parts[1], ...tail };
   }
 
-  // Forum-post form: /server/forum/post — exactly 3 segments, third NOT
-  // starting with "#" (that's the thread form above). The post is anchored by
-  // its own name under the parent forum. An optional trailing "#N" pins a
-  // message seq WITHIN the post (`/server/forum/post#N`), symmetric to the
-  // top-level message form `/server/channel#N` — used by `message emoji` to
-  // react to a specific message inside a post. A 4th path segment is not
-  // addressable today — reject rather than silently truncate.
+  // Any other 3+ segment shape (the old forum-post form's territory) no
+  // longer names a valid ref — reject rather than silently truncate to the
+  // first two segments.
   if (parts.length >= 3 && server !== DM_SERVER) {
-    if (parts.length > 3) {
-      throw new Error(`ref has too many segments: ${ref}`);
-    }
-    const postSeg = parts[2];
-    const hashIdx = postSeg.indexOf("#");
-    if (hashIdx >= 0) {
-      const postName = postSeg.slice(0, hashIdx);
-      if (!postName) throw new Error(`forum-post ref missing post name: ${ref}`);
-      return { server, channel: parts[1], childChannelName: postName, seq: parseSeq(postSeg.slice(hashIdx)) };
-    }
-    return { server, channel: parts[1], childChannelName: postSeg };
+    throw new Error(`ref has too many segments: ${ref}`);
   }
 
   const chSeg = parts[1];
@@ -1189,7 +1174,7 @@ export function parseRef(ref: ChannelRef): ParsedRef {
     if (lastHash < 0) return { server, channel: chSeg };
     const firstHash = chSeg.indexOf("#");
     const tail = chSeg.slice(lastHash + 1);
-    const isBareHandle = firstHash === lastHash && /^\d{4}$/.test(tail);
+    const isBareHandle = firstHash === lastHash && /^\d{4,}$/.test(tail);
     if (isBareHandle) return { server, channel: chSeg };
     // A non-numeric tail after the last `#` isn't a valid seq — rather
     // than throwing (which crashes every caller not wrapped in
@@ -1240,35 +1225,23 @@ function parseThreadTail(segment: string): { threadRootSeq: Seq; seq?: Seq } {
 /**
  * Format a ParsedRef back to a path ref. Valid combinations:
  *   {}                             → /server/channel
- *   { childChannelName }           → /server/channel/childChannelName (forum post)
- *   { childChannelName, seq }      → /server/channel/childChannelName#N (msg in a post)
  *   { threadRootSeq }              → /server/channel/#N
  *   { threadRootSeq, seq }         → /server/channel/#N#M
- * A bare `seq` (neither `threadRootSeq` nor `childChannelName`) is NOT
- * supported — the top-level message form `/server/channel#N` puts `#N` on the
- * channel segment, not on a trailing path segment, and no caller needs to emit
- * that shape via formatRef today. `childChannelName` (forum post) is mutually
- * exclusive with `threadRootSeq`, but MAY carry a `seq` to pin a message inside
- * the post (`/server/forum/post#N`), symmetric to the top-level message form.
+ * A bare `seq` (without `threadRootSeq`) is NOT supported — the top-level
+ * message form `/server/channel#N` puts `#N` on the channel segment, not on
+ * a trailing path segment, and no caller needs to emit that shape via
+ * formatRef today.
  */
 export function formatRef(p: {
   server: string;
   channel: string;
-  childChannelName?: string;
   threadRootSeq?: Seq;
   seq?: Seq;
 }): ChannelRef {
-  if (p.childChannelName !== undefined && p.threadRootSeq !== undefined) {
-    throw new Error("formatRef: childChannelName is mutually exclusive with threadRootSeq");
-  }
-  if (p.seq !== undefined && p.threadRootSeq === undefined && p.childChannelName === undefined) {
-    throw new Error("formatRef: seq without threadRootSeq or childChannelName is not supported");
+  if (p.seq !== undefined && p.threadRootSeq === undefined) {
+    throw new Error("formatRef: seq without threadRootSeq is not supported");
   }
   const base = `/${p.server}/${p.channel}`;
-  if (p.childChannelName !== undefined) {
-    const postBase = `${base}/${p.childChannelName}`;
-    return p.seq === undefined ? postBase : `${postBase}#${p.seq}`;
-  }
   if (p.threadRootSeq === undefined) return base;
   if (p.seq === undefined) return `${base}/#${p.threadRootSeq}`;
   return `${base}/#${p.threadRootSeq}#${p.seq}`;
@@ -1296,11 +1269,11 @@ export function formatRef(p: {
  */
 export type CanonicalRefScope = {
   type: StoredChannelType;
-  /** Server display name (channel arm). Absent/irrelevant for a DM. */
-  serverName?: string;
-  /** The channel's own stored name — the top-level channel or the post slug. */
+  /** Server handle (channel arm). Absent/irrelevant for a DM. */
+  serverHandle?: string;
+  /** The channel's own stored name — the top-level channel's name. */
   name?: string;
-  /** Parent forum/channel display name — for by-child-name / by-root-seq. */
+  /** Parent channel display name — for by-root-seq. */
   parentName?: string;
   /** Thread root message seq — for by-root-seq. */
   rootSeq?: Seq;
@@ -1313,19 +1286,13 @@ export function formatCanonicalRef(scope: CanonicalRefScope): ChannelRef | null 
   switch (addressing) {
     case "by-server-name": {
       // Top-level channel/forum: `/server/<name>`.
-      if (scope.serverName === undefined || scope.name === undefined) return null;
-      return formatRef({ server: scope.serverName, channel: scope.name });
-    }
-    case "by-child-name": {
-      // Forum post: `/server/<forum>/<post-slug>` — anchored on its own name
-      // under the parent forum.
-      if (scope.serverName === undefined || scope.parentName === undefined || scope.name === undefined) return null;
-      return formatRef({ server: scope.serverName, channel: scope.parentName, childChannelName: scope.name });
+      if (scope.serverHandle === undefined || scope.name === undefined) return null;
+      return formatRef({ server: scope.serverHandle, channel: scope.name });
     }
     case "by-root-seq": {
       // Thread: `/server/<parent-channel>/#<rootSeq>`.
-      if (scope.serverName === undefined || scope.parentName === undefined || scope.rootSeq === undefined) return null;
-      return formatRef({ server: scope.serverName, channel: scope.parentName, threadRootSeq: scope.rootSeq });
+      if (scope.serverHandle === undefined || scope.parentName === undefined || scope.rootSeq === undefined) return null;
+      return formatRef({ server: scope.serverHandle, channel: scope.parentName, threadRootSeq: scope.rootSeq });
     }
     case "by-peer-identity": {
       // DM: `/.dm/<peer#0042>`.

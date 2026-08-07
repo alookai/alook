@@ -9,8 +9,11 @@ import {
 } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
+import { nanoid } from "nanoid";
 import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 import { MENTION_KIND } from "../../../constants/community";
+import { withUniqueDiscriminator } from "../user";
+import { parseNameAndTag } from "../../../lib/discriminator";
 
 export async function createServer(
   db: Database,
@@ -26,26 +29,44 @@ export async function createServer(
     userDiscriminator: string;
   };
 }> {
-  const [server] = await db
-    .insert(communityServer)
-    .values({
-      name: data.name,
-      description: data.description ?? "",
-      ownerId: data.ownerId,
-    })
-    .returning();
+  // Mint the id up-front so the discriminator (an FNV-1a hash of the id) is
+  // written in the same INSERT — same pattern as createUser/createBot. Only the
+  // server row carries the discriminator, so wrap just that insert (not the
+  // whole batch): category/channel/member rows don't touch the (name,
+  // discriminator) unique index, so they run after the server row wins its
+  // discriminator. A collision against idx_community_server_name_discriminator
+  // salt-retries the server insert; throw-at-cap on exhaustion (loud, never a
+  // silent duplicate).
+  const id = nanoid();
+  const server = await withUniqueDiscriminator(
+    db,
+    { id, name: data.name },
+    async (discriminator) => {
+      const [row] = await db
+        .insert(communityServer)
+        .values({
+          id,
+          name: data.name,
+          discriminator,
+          description: data.description ?? "",
+          ownerId: data.ownerId,
+        })
+        .returning();
+      return row!;
+    }
+  );
 
   const [category] = await db
     .insert(communityCategory)
     .values({
-      serverId: server!.id,
+      serverId: server.id,
       name: "All",
       position: 0,
     })
     .returning();
 
   await db.insert(communityChannel).values({
-    serverId: server!.id,
+    serverId: server.id,
     categoryId: category!.id,
     name: "general",
     type: "text",
@@ -55,7 +76,7 @@ export async function createServer(
   const [memberRow] = await db
     .insert(communityServerMember)
     .values({
-      serverId: server!.id,
+      serverId: server.id,
       userId: data.ownerId,
       role: "owner",
       railOrder: 0,
@@ -76,7 +97,7 @@ export async function createServer(
     .where(eq(user.id, data.ownerId));
 
   return {
-    server: server!,
+    server,
     ownerMember: {
       id: memberRow!.id,
       userId: memberRow!.userId,
@@ -148,6 +169,7 @@ export async function listUserServers(db: Database, userId: string) {
     .select({
       id: communityServer.id,
       name: communityServer.name,
+      discriminator: communityServer.discriminator,
       description: communityServer.description,
       icon: communityServer.icon,
       ownerId: communityServer.ownerId,
@@ -173,48 +195,41 @@ export async function listUserServers(db: Database, userId: string) {
 }
 
 /**
- * Resolve a server by ID or NAME, scoped to servers `userId` is a member of.
+ * Resolve a server by unique handle, scoped to servers
+ * `userId` is a member of.
  * Returns an ARRAY — the caller decides what "ambiguous" means (0 = not
- * found/not a member, 1 = resolved, 2+ = ambiguous name — ids are always
- * unique so only the name-match branch can return >1). Used by
- * `resolveTargetForMember` (debt #5 — ambiguity is not a hard error, the
- * agent picks from a hint list).
+ * found/not a member, 1 = resolved). Bare names are not an address.
  */
 export async function resolveServerByNameForMember(
   db: Database,
   userId: string,
-  nameOrId: string
+  handleRef: string
 ) {
-  const rows = await db
-    .select({
-      id: communityServer.id,
-      name: communityServer.name,
-    })
-    .from(communityServer)
-    .innerJoin(
-      communityServerMember,
-      and(
-        eq(communityServerMember.serverId, communityServer.id),
-        eq(communityServerMember.userId, userId)
+  const handle = parseNameAndTag(handleRef);
+  if (handle) {
+    return db
+      .select({
+        id: communityServer.id,
+        name: communityServer.name,
+        discriminator: communityServer.discriminator,
+      })
+      .from(communityServer)
+      .innerJoin(
+        communityServerMember,
+        and(
+          eq(communityServerMember.serverId, communityServer.id),
+          eq(communityServerMember.userId, userId)
+        )
       )
-    )
-    .where(eq(communityServer.id, nameOrId));
-  if (rows.length > 0) return rows;
+      .where(
+        and(
+          sql`${communityServer.name} COLLATE NOCASE = ${handle.name}`,
+          eq(communityServer.discriminator, handle.discriminator)
+        )
+      );
+  }
 
-  return db
-    .select({
-      id: communityServer.id,
-      name: communityServer.name,
-    })
-    .from(communityServer)
-    .innerJoin(
-      communityServerMember,
-      and(
-        eq(communityServerMember.serverId, communityServer.id),
-        eq(communityServerMember.userId, userId)
-      )
-    )
-    .where(eq(communityServer.name, nameOrId));
+  return [];
 }
 
 export async function getServersByIds(db: Database, serverIds: string[]) {

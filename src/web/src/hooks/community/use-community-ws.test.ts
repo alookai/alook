@@ -10,6 +10,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import type {
   CommunityMessageCreate,
+  CommunityMessageEdited,
   CommunityReactionAdd,
   CommunityMemberJoin,
   CommunityMemberUpdate,
@@ -153,6 +154,7 @@ function messageCreate(channelId: string, msgId = "m_1"): CommunityMessageCreate
       authorId: "u_author",
       authorName: "author",
       content: "hi",
+      seq: 1,
       createdAt: "2026-07-03T00:00:00.000Z",
     },
   }
@@ -186,7 +188,7 @@ describe("useCommunityWs — message.create", () => {
 
     capturedOnMessage!(messageCreate("ch_1"))
 
-    const cache = capturedQueryClient.getQueryData<{ pages: { messages: { id: string }[] }[] }>(
+    const cache = capturedQueryClient.getQueryData<{ pages: { messages: { id: string; seq?: number }[] }[] }>(
       communityKeys.channelMessages("ch_1"),
     )
     expect(cache?.pages[0].messages).toEqual([])
@@ -212,6 +214,27 @@ describe("useCommunityWs — message.create", () => {
     expect(getMessageOverlay({ kind: "channel", id: "ch_1", serverId: "s1" }).liveById).toHaveLength(1)
   })
 
+  it("keeps forum query variants base-only and stages a new opener in the overlay", async () => {
+    await mountHook()
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "forum_1" })
+    refCounter = 0
+    stateCounter = 0
+    callbackCounter = 0
+    await mountHook()
+    const allKey = communityKeys.channelMessages("forum_1")
+    const bugKey = [...allKey, "tag", "bug"] as const
+    const empty = { pages: [{ messages: [], hasMore: false }], pageParams: [null] }
+    capturedQueryClient.setQueryData(allKey, empty)
+    capturedQueryClient.setQueryData(bugKey, empty)
+
+    capturedOnMessage!(messageCreate("forum_1"))
+
+    expect(capturedQueryClient.getQueryData<{ pages: { messages: { id: string }[] }[] }>(allKey)?.pages[0].messages).toHaveLength(0)
+    expect(capturedQueryClient.getQueryData<{ pages: { messages: unknown[] }[] }>(bugKey)?.pages[0].messages).toHaveLength(0)
+    expect(getMessageOverlay({ kind: "channel", id: "forum_1", serverId: "s1" }).liveById).toHaveLength(1)
+  })
+
   it("does NOT patch a channel we aren't focused on", async () => {
     await mountHook()
     capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_other"), {
@@ -225,13 +248,13 @@ describe("useCommunityWs — message.create", () => {
     expect(cache?.pages[0].messages).toEqual([])
   })
 
-  it("invalidates threadParticipants for the focused channel (live panel growth)", async () => {
-    // A thread/forum_post enrolls the sender + mentioned users as participants
-    // server-side; the panel must refetch so a new speaker appears without a
-    // manual refresh.
+  it("invalidates channelMembers for a focused child channel", async () => {
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")
-    useCommunityStore.getState().subscribe({ channelId: "ch_1" })
+    const store = useCommunityStore.getState()
+    store.setCurrentChannelId("ch_1")
+    store.setCurrentChannelMeta({ name: "thread", parentChannelId: "parent_1" })
+    store.subscribe({ channelId: "ch_1" })
     refCounter = 0
     stateCounter = 0
     callbackCounter = 0
@@ -240,17 +263,45 @@ describe("useCommunityWs — message.create", () => {
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     capturedOnMessage!(messageCreate("ch_1"))
 
-    expect(spy).toHaveBeenCalledWith({ queryKey: communityKeys.threadParticipants("ch_1") })
+    expect(spy).toHaveBeenCalledWith({ queryKey: communityKeys.channelMembers("ch_1") })
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: communityKeys.threadParticipants("ch_1") })
   })
 
-  it("does NOT invalidate threadParticipants for an unfocused channel", async () => {
+  it("does NOT invalidate channelMembers for a focused top-level channel", async () => {
     await mountHook()
+    const { useCommunityStore } = await import("@/stores/community")
+    const store = useCommunityStore.getState()
+    store.setCurrentChannelId("ch_1")
+    store.subscribe({ channelId: "ch_1" })
+    refCounter = 0
+    stateCounter = 0
+    callbackCounter = 0
+    await mountHook()
+
+    const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+    capturedOnMessage!(messageCreate("ch_1"))
+
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: communityKeys.channelMembers("ch_1") })
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: communityKeys.threadParticipants("ch_1") })
+  })
+
+  it("does NOT invalidate channelMembers for an unfocused channel", async () => {
+    await mountHook()
+    const { useCommunityStore } = await import("@/stores/community")
+    const store = useCommunityStore.getState()
+    store.setCurrentChannelId("ch_1")
+    store.setCurrentChannelMeta({ name: "thread", parentChannelId: "parent_1" })
+    store.subscribe({ channelId: "ch_1" })
+    refCounter = 0
+    stateCounter = 0
+    callbackCounter = 0
+    await mountHook()
+
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     capturedOnMessage!(messageCreate("ch_other"))
-    const calls = spy.mock.calls.filter(
-      (c) => JSON.stringify(c[0]?.queryKey) === JSON.stringify(communityKeys.threadParticipants("ch_other")),
-    )
-    expect(calls).toHaveLength(0)
+
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: communityKeys.channelMembers("ch_other") })
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: communityKeys.threadParticipants("ch_other") })
   })
 
   it("dedupes by messageId — a repeat event is a no-op", async () => {
@@ -906,7 +957,7 @@ describe("useCommunityWs — member events", () => {
 })
 
 describe("useCommunityWs — channel.member_add/remove → invalidate rosters", () => {
-  it("member_add invalidates channelMembers AND threadParticipants (forum_post add-participant path)", async () => {
+  it("member_add invalidates channelMembers AND threadParticipants for a child thread", async () => {
     await mountHook()
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     capturedOnMessage!({
@@ -1140,7 +1191,7 @@ describe("useCommunityWs — machines", () => {
 })
 
 describe("useCommunityWs — child channel events", () => {
-  it("child_create invalidates threads + forumPosts", async () => {
+  it("child_create without a parentMessageId only invalidates threads", async () => {
     await mountHook()
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     const event: CommunityChildChannelCreate = {
@@ -1156,7 +1207,8 @@ describe("useCommunityWs — child channel events", () => {
     capturedOnMessage!(event)
     const keys = spy.mock.calls.map((c) => c[0]?.queryKey as unknown[])
     expect(keys.some((k) => k?.includes("threads"))).toBe(true)
-    expect(keys.some((k) => k?.includes("posts"))).toBe(true)
+    expect(keys.some((k) => k?.includes("forum-threads"))).toBe(false)
+    expect(keys).not.toContainEqual(communityKeys.channelMessages("ch_1"))
   })
 })
 
@@ -1214,11 +1266,12 @@ describe("useCommunityWs — DM message.create", () => {
           authorName: "a",
           content: "hi",
           type: "chat",
+          seq: 1,
           createdAt: "2026-07-03T00:00:00.000Z",
         },
       }
       capturedOnMessage!(event)
-      const cache = capturedQueryClient.getQueryData<{ pages: { messages: { id: string }[] }[] }>(
+      const cache = capturedQueryClient.getQueryData<{ pages: { messages: { id: string; seq?: number }[] }[] }>(
         communityKeys.dmMessages("dm_1"),
       )
       expect(cache?.pages[0].messages).toEqual([])
@@ -1275,16 +1328,15 @@ describe("useCommunityWs — non-community events bail", () => {
 
 // ── Regression #3 — channel.delete evicts channel-scoped caches ─────────
 describe("useCommunityWs — channel.delete evicts channel-scoped caches", () => {
-  it("removes channelMessages, pins, threads, and forumPosts for the deleted channel", async () => {
+  it("removes channelMessages, pins, and threads for the deleted channel", async () => {
     await mountHook()
-    // Seed all four caches for the target channel so we can observe eviction.
+    // Seed every canonical cache for the target channel so we can observe eviction.
     capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_dead"), {
       pages: [{ messages: [{ id: "m_1" }], hasMore: false }],
       pageParams: [null],
     })
     capturedQueryClient.setQueryData(communityKeys.pins("ch_dead"), { pins: [{ id: "p" }] })
     capturedQueryClient.setQueryData(communityKeys.threads("ch_dead"), { threads: [{ id: "t" }] })
-    capturedQueryClient.setQueryData(communityKeys.forumPosts("ch_dead"), { posts: [{ id: "fp" }] })
 
     const event: CommunityChannelDelete = {
       type: "community:channel.delete",
@@ -1296,24 +1348,24 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
     expect(capturedQueryClient.getQueryData(communityKeys.channelMessages("ch_dead"))).toBeUndefined()
     expect(capturedQueryClient.getQueryData(communityKeys.pins("ch_dead"))).toBeUndefined()
     expect(capturedQueryClient.getQueryData(communityKeys.threads("ch_dead"))).toBeUndefined()
-    expect(capturedQueryClient.getQueryData(communityKeys.forumPosts("ch_dead"))).toBeUndefined()
   })
 })
 
 // ── Regression #4 — child_create seeds messageCount: 0 ──────────────────
 describe("useCommunityWs — child_create patches parent thread badge with count 0", () => {
-  it("stamps messageCount: 0 on the parent message's thread stub", async () => {
+  it("message.create then child_create patches the opener into a forum card", async () => {
     await mountHook()
-    // Seed the parent channel's messages cache with the parent message.
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "ch_parent" })
+    refCounter = 0
+    stateCounter = 0
+    callbackCounter = 0
+    await mountHook()
     capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_parent"), {
-      pages: [
-        {
-          messages: [{ id: "m_parent", content: "hello" }],
-          hasMore: false,
-        },
-      ],
+      pages: [{ messages: [], hasMore: false }],
       pageParams: [null],
     })
+    capturedOnMessage!(messageCreate("ch_parent", "m_parent"))
 
     const event: CommunityChildChannelCreate = {
       type: "community:channel.child_create",
@@ -1331,11 +1383,62 @@ describe("useCommunityWs — child_create patches parent thread badge with count
     const cache = capturedQueryClient.getQueryData<{
       pages: { messages: { id: string; thread?: { id: string; name: string; messageCount: number } }[] }[]
     }>(communityKeys.channelMessages("ch_parent"))
-    expect(cache?.pages[0].messages[0].thread).toEqual({
+    expect(cache?.pages[0].messages).toEqual([])
+    const overlay = getMessageOverlay({ kind: "channel", id: "ch_parent", serverId: "s1" })
+    expect(overlay.liveById.get("m_parent")?.thread).toEqual({
       id: "ch_thread",
       name: "New thread",
       messageCount: 0,
     })
+  })
+
+  it("child_create then message.create invalidates and preserves the enriched forum card", async () => {
+    await mountHook()
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "ch_parent" })
+    refCounter = 0
+    stateCounter = 0
+    callbackCounter = 0
+    await mountHook()
+    const parentMessagesKey = communityKeys.channelMessages("ch_parent")
+    capturedQueryClient.setQueryData(parentMessagesKey, {
+      pages: [{ messages: [], hasMore: false }],
+      pageParams: [null],
+    })
+    const invalidateSpy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+    const event: CommunityChildChannelCreate = {
+      type: "community:channel.child_create",
+      parentChannelId: "ch_parent",
+      parentMessageId: "m_parent",
+      channel: {
+        id: "ch_thread",
+        name: "New thread",
+        type: "thread",
+        createdAt: "2026-07-03T00:00:00.000Z",
+      },
+    }
+
+    capturedOnMessage!(event)
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: parentMessagesKey })
+
+    capturedQueryClient.setQueryData(parentMessagesKey, {
+      pages: [{
+        messages: [{
+          id: "m_parent",
+          content: "hello",
+          thread: { id: "ch_thread", name: "New thread", messageCount: 0 },
+        }],
+        hasMore: false,
+      }],
+      pageParams: [null],
+    })
+    capturedOnMessage!(messageCreate("ch_parent", "m_parent"))
+
+    const cache = capturedQueryClient.getQueryData<{
+      pages: { messages: { id: string; thread?: { id: string } }[] }[]
+    }>(parentMessagesKey)
+    expect(cache?.pages[0].messages).toHaveLength(1)
+    expect(cache?.pages[0].messages[0].thread?.id).toBe("ch_thread")
   })
 
   it("child_update still applies the reported messageCount unchanged", async () => {
@@ -1580,6 +1683,7 @@ describe("useCommunityWs — typing state is scoped per conversation", () => {
         authorName: "bot",
         content: "done",
         type: "chat",
+        seq: 1,
         createdAt: "2026-07-03T00:00:00.000Z",
       },
     } as CommunityMessageCreate)
@@ -1593,9 +1697,17 @@ describe("useCommunityWs — typing state is scoped per conversation", () => {
 
 // ── channel.delete invalidates the parent forum list (post deletion) ────────
 describe("useCommunityWs — channel.delete refreshes the parent forum feed", () => {
-  it("invalidates the parent's forumPosts + threads lists when parentChannelId is present", async () => {
+  it("invalidates the parent's message feed + threads list when parentChannelId is present", async () => {
     await mountHook()
     const invalidateSpy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+    const allKey = communityKeys.channelMessages("forum_1")
+    const bugKey = [...allKey, "tag", "bug"] as const
+    const page = {
+      pages: [{ messages: [{ id: "opener_1", thread: { id: "post_1" } }], hasMore: false }],
+      pageParams: [null],
+    }
+    capturedQueryClient.setQueryData(allKey, page)
+    capturedQueryClient.setQueryData(bugKey, page)
 
     const event: CommunityChannelDelete = {
       type: "community:channel.delete",
@@ -1606,14 +1718,16 @@ describe("useCommunityWs — channel.delete refreshes the parent forum feed", ()
     capturedOnMessage!(event)
 
     const invalidatedKeys = invalidateSpy.mock.calls.map((c) => JSON.stringify(c[0]?.queryKey))
-    expect(invalidatedKeys).toContain(JSON.stringify(communityKeys.forumPosts("forum_1")))
+    expect(invalidatedKeys).toContain(JSON.stringify(communityKeys.channelMessages("forum_1")))
     expect(invalidatedKeys).toContain(JSON.stringify(communityKeys.threads("forum_1")))
+    expect(capturedQueryClient.getQueryData<{ pages: { messages: unknown[] }[] }>(allKey)?.pages[0].messages).toHaveLength(0)
+    expect(capturedQueryClient.getQueryData<{ pages: { messages: unknown[] }[] }>(bugKey)?.pages[0].messages).toHaveLength(0)
   })
 
   it("does not throw and still evicts own caches when parentChannelId is absent (legacy event)", async () => {
     await mountHook()
-    // Seed the deleted channel's own caches so we can assert eviction.
-    capturedQueryClient.setQueryData(communityKeys.forumPosts("post_1"), { posts: [] })
+    // Seed the deleted channel's own message cache so we can assert eviction.
+    capturedQueryClient.setQueryData(communityKeys.channelMessages("post_1"), { pages: [], pageParams: [] })
     const removeSpy = vi.spyOn(capturedQueryClient, "removeQueries")
 
     const event: CommunityChannelDelete = {
@@ -1624,7 +1738,46 @@ describe("useCommunityWs — channel.delete refreshes the parent forum feed", ()
     expect(() => capturedOnMessage!(event)).not.toThrow()
 
     const removedKeys = removeSpy.mock.calls.map((c) => JSON.stringify(c[0]?.queryKey))
-    expect(removedKeys).toContain(JSON.stringify(communityKeys.forumPosts("post_1")))
+    expect(removedKeys).toContain(JSON.stringify(communityKeys.channelMessages("post_1")))
+  })
+})
+
+describe("useCommunityWs — message edit refreshes forum opener summary", () => {
+  it("invalidates the parent thread list for an opener edit, but not for an ordinary reply", async () => {
+    await mountHook()
+    const invalidateSpy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+    const opener: CommunityMessageEdited = {
+      type: "community:message.edited",
+      channelId: "post_1",
+      messageId: "opener_1",
+      content: "new title",
+      parentChannelId: "forum_1",
+    }
+    capturedQueryClient.setQueryData(communityKeys.message("opener_1"), {
+      id: "opener_1",
+      content: "old title",
+    })
+    const allKey = communityKeys.channelMessages("forum_1")
+    const bugKey = [...allKey, "tag", "bug"] as const
+    const forumPage = { pages: [{ messages: [{ id: "opener_1", content: "old title" }] }], pageParams: [null] }
+    capturedQueryClient.setQueryData(allKey, forumPage)
+    capturedQueryClient.setQueryData(bugKey, forumPage)
+    capturedOnMessage!(opener)
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: communityKeys.channelMessages("forum_1") })
+    expect(capturedQueryClient.getQueryState(allKey)?.isInvalidated).toBe(true)
+    expect(capturedQueryClient.getQueryState(bugKey)?.isInvalidated).toBe(true)
+    expect(capturedQueryClient.getQueryData<{ pages: { messages: { content: string }[] }[] }>(allKey)?.pages[0].messages[0].content).toBe("new title")
+    expect(capturedQueryClient.getQueryData<{ pages: { messages: { content: string }[] }[] }>(bugKey)?.pages[0].messages[0].content).toBe("new title")
+    expect(capturedQueryClient.getQueryData<{ content: string }>(communityKeys.message("opener_1"))?.content).toBe("new title")
+
+    invalidateSpy.mockClear()
+    capturedOnMessage!({
+      type: "community:message.edited",
+      channelId: "post_1",
+      messageId: "reply_1",
+      content: "edited reply",
+    } satisfies CommunityMessageEdited)
+    expect(invalidateSpy).not.toHaveBeenCalled()
   })
 })
 
@@ -1656,6 +1809,7 @@ describe("useCommunityWs — does NOT auto-mark-read on WS message.create", () =
         authorId: "u_someone_else",
         authorName: "them",
         content: "hi",
+        seq: 1,
         createdAt: "2026-07-03T00:00:00.000Z",
       },
     }
@@ -1681,6 +1835,7 @@ describe("useCommunityWs — does NOT auto-mark-read on WS message.create", () =
         authorId: "u_me",
         authorName: "me",
         content: "hi",
+        seq: 1,
         createdAt: "2026-07-03T00:00:00.000Z",
       },
     }
@@ -1707,6 +1862,7 @@ describe("useCommunityWs — does NOT auto-mark-read on WS message.create", () =
         authorName: "a",
         content: "hi",
         type: "chat",
+        seq: 1,
         createdAt: "2026-07-03T00:00:00.000Z",
       },
     }

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 
 const getMember = vi.fn()
 const getChannelForMember = vi.fn()
+const getChannel = vi.fn()
 const resolveChannelAccessContext = vi.fn()
 const getDM = vi.fn()
 const getDMPeer = vi.fn()
@@ -15,6 +16,7 @@ vi.mock("@alook/shared", async () => {
       communityMember: { getMember: (...a: unknown[]) => getMember(...a) },
       communityChannel: {
         getChannelForMember: (...a: unknown[]) => getChannelForMember(...a),
+        getChannel: (...a: unknown[]) => getChannel(...a),
         resolveChannelAccessContext: (...a: unknown[]) => resolveChannelAccessContext(...a),
       },
       communityDm: {
@@ -33,6 +35,7 @@ import {
   requireChannelAccess,
   requireDMAccess,
   requireNotBlocked,
+  requireMessageSurfaceAccess,
 } from "./permissions"
 
 // Build a resolveChannelAccessContext return row. `anchor` defaults to the
@@ -302,3 +305,73 @@ describe("requireNotBlocked", () => {
   })
 })
 
+
+describe("requireMessageSurfaceAccess — id-in-path trunk dispatch (surface axis not flattened)", () => {
+  beforeEach(() => {
+    getChannel.mockReset()
+    getChannelForMember.mockReset()
+    getDM.mockReset()
+    getDMPeer.mockReset()
+    isBlocked.mockReset()
+  })
+
+  it("unknown channel id → single 404 on every surface (existence-masked)", async () => {
+    getChannel.mockResolvedValue(null)
+    const res = await requireMessageSurfaceAccess(db, "nope", "u1")
+    expect(res).toEqual({ ok: false, status: 404, error: "not found" })
+  })
+
+  it("DM id → routes to requireDMAccess (block check runs — closes the P0), ok when a participant & not blocked", async () => {
+    getChannel.mockResolvedValue({ id: "d1", type: "dm" })
+    getDM.mockResolvedValue({ id: "d1", lastMessageAt: null, createdAt: "2026-06-30" })
+    getDMPeer.mockResolvedValue({ otherUserId: "u2" })
+    isBlocked.mockResolvedValue(false)
+    const res = await requireMessageSurfaceAccess(db, "d1", "u1")
+    expect(res.ok).toBe(true)
+    if (res.ok) expect(res.value.surface).toBe("dm")
+    // The block check that the plain-channel path never ran — now on the DM arm.
+    expect(isBlocked).toHaveBeenCalledWith(db, "u1", "u2")
+  })
+
+  it("DM id, blocked participant → 403 (a legit known-participant 403, not existence disclosure)", async () => {
+    getChannel.mockResolvedValue({ id: "d1", type: "dm" })
+    getDM.mockResolvedValue({ id: "d1", lastMessageAt: null, createdAt: "2026-06-30" })
+    getDMPeer.mockResolvedValue({ otherUserId: "u2" })
+    isBlocked.mockResolvedValue(true)
+    const res = await requireMessageSurfaceAccess(db, "d1", "u1")
+    expect(res).toEqual({ ok: false, status: 403, error: "blocked" })
+  })
+
+  it("DM id, non-participant → 404 with OPAQUE body (masks DM existence — same text as unknown-id 404, not 'dm not found')", async () => {
+    getChannel.mockResolvedValue({ id: "d1", type: "dm" })
+    getDM.mockResolvedValue({ id: "d1", lastMessageAt: null, createdAt: "2026-06-30" })
+    getDMPeer.mockResolvedValue(null)
+    const res = await requireMessageSurfaceAccess(db, "d1", "u1")
+    // ④ (Aigneis #157): byte-identical to the unknown-id 404 body — a stranger
+    // must not read "dm not found" and learn the id IS a DM.
+    expect(res).toEqual({ ok: false, status: 404, error: "not found" })
+  })
+
+  it("channel id, known but non-member → 403 (the unknown case already 404'd above, so 403 = real non-member)", async () => {
+    getChannel.mockResolvedValue({ id: "c1", type: "text" })
+    getChannelForMember.mockResolvedValue(null) // known (getChannel found it) but caller not a member
+    const res = await requireMessageSurfaceAccess(db, "c1", "u1")
+    expect(res).toEqual({ ok: false, status: 403, error: "forbidden" })
+  })
+
+  it("channel id, member → ok, surface=channel", async () => {
+    getChannel.mockResolvedValue({ id: "c1", type: "text" })
+    getChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
+    const res = await requireMessageSurfaceAccess(db, "c1", "u1")
+    expect(res.ok).toBe(true)
+    if (res.ok) expect(res.value.surface).toBe("channel")
+  })
+
+  it("thread id (child channel) → channel arm, member gate (thread inherits parent audience)", async () => {
+    getChannel.mockResolvedValue({ id: "t1", type: "thread" })
+    getChannelForMember.mockResolvedValue({ id: "t1", serverId: "s1" })
+    const res = await requireMessageSurfaceAccess(db, "t1", "u1")
+    expect(res.ok).toBe(true)
+    if (res.ok) expect(res.value.surface).toBe("channel")
+  })
+})

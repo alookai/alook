@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, isNull, inArray, ne, sql } from "drizzle-orm";
+import { aliasedTable, and, eq, gt, isNotNull, isNull, inArray, ne, or, sql } from "drizzle-orm";
 import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 import {
   communityChannel,
@@ -18,13 +18,24 @@ export interface UnreadChannelRow {
   channelName: string;
   serverId: string;
   serverName: string;
-  // Raw stored channel type (text | forum | thread | forum_post). Threaded
-  // through to the inbox so it can render the same entity icon as the sidebar.
+  // Raw stored channel type (text | forum | thread). Threaded through to the
+  // inbox so it can render the same entity icon as the sidebar.
   type: string | null;
   lastMessageAt: string;
-  // null for a top-level channel; set for a thread / forum-post child. The
+  // null for a top-level channel; set for a child thread. The
   // inbox route uses this to nest child unreads under their parent channel.
   parentChannelId: string | null;
+}
+
+export interface UnreadForumOpenerRow {
+  forumChannelId: string;
+  openerMessageId: string;
+  childChannelId: string;
+  title: string;
+  createdAt: string;
+  // Kept in the read-model row so callers can preserve the query's stable
+  // createdAt → seq → id order through their own merge/cap pass.
+  openerSeq: number;
 }
 
 /**
@@ -70,7 +81,7 @@ export async function listUnreadChannels(
   userId: string,
   visibleChannelIds: string[]
 ): Promise<UnreadChannelRow[]> {
-  // All channels — top-level AND child threads/forum-posts — the viewer may
+  // All channels — top-level AND child threads — the viewer may
   // see (the `visibleChannelIds` set, resolved once per inbox fetch via
   // `listVisibleChannelIdsForUser`), plus read state. Visibility is the id-set
   // `inArray`, NOT an inlined category `or()`: a child channel's own
@@ -149,7 +160,7 @@ export async function listUnreadChannels(
     })
   );
 
-  // Thread AND forum-post unreads are scoped to PARTICIPATION (notification
+  // Child-thread unreads are scoped to PARTICIPATION (notification
   // dimension): they surface in the inbox only for their participants, NOT for
   // every member who can merely read them. A public post is visible to the
   // whole server but only notifies its participants, so an un-joined post must
@@ -179,6 +190,111 @@ export async function listUnreadChannels(
       parentChannelId: r.parentChannelId,
       lastMessageAt: r.lastMessageAt!,
     }));
+}
+
+/**
+ * Project every unread forum opener under an already-authorized parent scope.
+ *
+ * `forumParentIds` is intentionally supplied by the caller after visibility
+ * and mute filtering. This query never discovers forums globally: it only
+ * expands messages inside that bounded id set and joins each opener to the
+ * child channel rooted on it.
+ */
+export async function listUnreadForumOpeners(
+  db: Database,
+  userId: string,
+  forumParentIds: string[]
+): Promise<UnreadForumOpenerRow[]> {
+  if (forumParentIds.length === 0) return [];
+
+  const childChannel = aliasedTable(communityChannel, "forum_inbox_child");
+  const rows = (
+    await Promise.all(
+      chunk(forumParentIds, D1_MAX_IN_PARAMS).map((ids) =>
+        db
+          .select({
+            forumChannelId: communityMessage.channelId,
+            openerMessageId: communityMessage.id,
+            openerContent: communityMessage.content,
+            openerSeq: communityMessage.seq,
+            childChannelId: childChannel.id,
+            childName: childChannel.name,
+            createdAt: communityMessage.createdAt,
+          })
+          .from(communityMessage)
+          .innerJoin(
+            communityChannel,
+            eq(communityChannel.id, communityMessage.channelId)
+          )
+          .innerJoin(
+            childChannel,
+            and(
+              eq(childChannel.parentChannelId, communityChannel.id),
+              eq(childChannel.parentMessageId, communityMessage.id)
+            )
+          )
+          .innerJoin(
+            communityServerMember,
+            and(
+              eq(communityServerMember.serverId, communityChannel.serverId),
+              eq(communityServerMember.userId, userId)
+            )
+          )
+          .leftJoin(
+            communityReadState,
+            and(
+              eq(communityReadState.channelId, communityChannel.id),
+              eq(communityReadState.userId, userId)
+            )
+          )
+          .where(
+            and(
+              inArray(communityChannel.id, ids),
+              isNull(communityChannel.parentChannelId),
+              eq(communityChannel.type, "forum"),
+              eq(communityChannel.archived, 0),
+              eq(childChannel.archived, 0),
+              or(
+                and(
+                  isNotNull(communityReadState.id),
+                  gt(
+                    communityMessage.seq,
+                    sql<number>`COALESCE(${communityReadState.lastReadSeq}, 0)`
+                  )
+                ),
+                and(
+                  isNull(communityReadState.id),
+                  gt(communityMessage.createdAt, communityServerMember.joinedAt)
+                )
+              )
+            )
+          )
+      )
+    )
+  ).flat();
+
+  // D1 chunks are independent statements. Sort only after concatenation so a
+  // chunk boundary can never change the rows that survive the Inbox cap.
+  rows.sort(
+    (a, b) =>
+      b.createdAt.localeCompare(a.createdAt) ||
+      b.openerSeq - a.openerSeq ||
+      b.openerMessageId.localeCompare(a.openerMessageId)
+  );
+
+  return rows.map((row) => ({
+    forumChannelId: row.forumChannelId,
+    openerMessageId: row.openerMessageId,
+    childChannelId: row.childChannelId,
+    // The opener is the forum title source of truth. Child names are derived
+    // and truncated, so they are only an anomaly fallback for blank content.
+    title:
+      row.openerContent.trim().length > 0
+        ? row.openerContent
+        : row.childName?.trim() || "Thread",
+    createdAt: row.createdAt,
+    openerSeq: row.openerSeq,
+  }));
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

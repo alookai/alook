@@ -7,9 +7,9 @@ import type { Mention, UnreadDm, UnreadServer } from "@/components/community/_ty
  * Inbox auto-collapse.
  *
  * The inbox popover should close by itself the moment the row the user clicked
- * leaves the list — and only then. Clicking a row that merely navigates (e.g. a
- * forum-channel parent, whose unread posts aren't read by visiting the listing)
- * keeps its `channel:<id>` row present, so the popover stays open.
+ * leaves the list — and only then. A forum parent can remain after its own
+ * opener messages are read when it still hosts unread child channels, so the
+ * popover stays open while that exact `channel:<id>` row is present.
  *
  * The mechanism: record the clicked row's key (a "pending close" marker held in
  * a ref so setting it doesn't render), then watch the inbox lists. When that
@@ -17,7 +17,7 @@ import type { Mention, UnreadDm, UnreadServer } from "@/components/community/_ty
  *
  * Row → key:
  *   - DM row      → `dm:<channelId>` (a DM is a channel)
- *   - channel row → `channel:<channelId>` (top-level OR nested thread/forum-post)
+ *   - channel row → `channel:<channelId>` (top-level or nested child thread)
  *   - mention row → `mention:<mention.id>`
  */
 

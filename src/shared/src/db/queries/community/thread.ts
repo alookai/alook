@@ -1,11 +1,11 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, lte, sql } from "drizzle-orm";
 import { communityChannel, communityChannelMember } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
 import { chunk, maxRowsPerInsert, D1_MAX_IN_PARAMS } from "../_chunk";
 import { type ParticipantSource } from "../../../constants/community";
 
-// The NOTIFICATION set for a thread OR forum_post — now relation='notify' rows
+// The NOTIFICATION set for a child thread — relation='notify' rows
 // on `community_channel_member` (formerly the standalone
 // community_thread_participant table). A thread/post is not an access unit —
 // any parent-channel member can read it — so these rows only decide who gets
@@ -117,15 +117,47 @@ export async function listThreadParticipants(
     );
 }
 
-// Batch participant hydration for many channels at once — the forum post list's
+// Batch participant hydration for many channels at once — the forum list's
 // per-card AvatarGroup. One query for N post ids instead of N. Rows carry the
 // channel id so the caller can group them back per post; `addedAt` orders the
 // group. Soft-deleted users drop out via the inner join.
 export async function listParticipantsForChannels(
   db: Database,
-  channelIds: string[]
+  channelIds: string[],
+  limitPerChannel?: number
 ) {
   if (channelIds.length === 0) return [];
+  if (limitPerChannel !== undefined) {
+    const ranked = db
+      .select({
+        channelId: communityChannelMember.channelId,
+        userId: communityChannelMember.userId,
+        addedAt: communityChannelMember.addedAt,
+        userName: user.name,
+        userImage: user.image,
+        participantCount: sql<number>`count(*) over (partition by ${communityChannelMember.channelId})`.as("participant_count"),
+        rank: sql<number>`row_number() over (partition by ${communityChannelMember.channelId} order by ${communityChannelMember.addedAt}, ${communityChannelMember.userId})`.as("participant_rank"),
+      })
+      .from(communityChannelMember)
+      .innerJoin(user, eq(user.id, communityChannelMember.userId))
+      .where(and(
+        inArray(communityChannelMember.channelId, channelIds),
+        eq(communityChannelMember.relation, "notify")
+      ))
+      .as("ranked_participants");
+    return db
+      .select({
+        channelId: ranked.channelId,
+        userId: ranked.userId,
+        addedAt: ranked.addedAt,
+        userName: ranked.userName,
+        userImage: ranked.userImage,
+        participantCount: ranked.participantCount,
+      })
+      .from(ranked)
+      .where(lte(ranked.rank, limitPerChannel))
+      .orderBy(asc(ranked.channelId), asc(ranked.addedAt), asc(ranked.userId));
+  }
   return db
     .select({
       channelId: communityChannelMember.channelId,
@@ -183,7 +215,7 @@ export async function removeThreadParticipant(
   return rows[0] ?? null;
 }
 
-// Drop a user's notify rows from EVERY child channel (forum_post OR thread)
+// Drop a user's notify rows from EVERY child thread
 // under a top-level unit. Called when a member is removed from a forum/channel's
 // access roster: their access is gone, so their leftover notify rows on the
 // unit's posts/threads must go too. A later mention/speak (which requires

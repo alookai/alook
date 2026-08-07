@@ -74,6 +74,16 @@ export type CommunityMessageUpdated = {
   approval: FriendApprovalPayload
 }
 
+export type CommunityMessageEdited = {
+  type: "community:message.edited"
+  channelId: string
+  messageId: string
+  content: string
+  // Present only when this message is the child channel's opener. Consumers
+  // use it to refresh the parent forum/thread summary; ordinary replies omit it.
+  parentChannelId?: string
+}
+
 export type CommunityReactionAdd = {
   type: "community:reaction.add"
   channelId: string
@@ -130,7 +140,7 @@ export type CommunityTypingStop = {
   discriminator?: string
 }
 
-// ── Child channel events (threads + forum posts) ─────────────────────────────
+// ── Child channel events (threads) ────────────────────────────────────────────
 
 export type CommunityChildChannelCreate = {
   type: "community:channel.child_create"
@@ -138,7 +148,7 @@ export type CommunityChildChannelCreate = {
   channel: {
     id: string
     name: string
-    type: "thread" | "forum_post"
+    type: "thread"
     creatorId?: string
     createdAt: string
   }
@@ -200,7 +210,6 @@ export type CommunityChannelUpdate = {
     topic?: string
     categoryId?: string | null
     type?: ChannelType
-    forumTags?: string | null
   }
 }
 
@@ -208,11 +217,10 @@ export type CommunityChannelDelete = {
   type: "community:channel.delete"
   serverId: string
   channelId: string
-  // The parent forum/thread channel, when the deleted channel is a child
-  // (forum_post / thread). Lets clients invalidate the parent's post/thread
-  // list so the deleted card disappears from the feed. Optional and additive —
-  // older events without it still work (the handler simply skips the parent
-  // invalidate).
+  // The parent channel, when the deleted channel is a child (thread). Lets
+  // clients invalidate the parent's post/thread list so the deleted card
+  // disappears from the feed. Optional and additive — older events without
+  // it still work (the handler simply skips the parent invalidate).
   parentChannelId?: string | null
 }
 
@@ -433,7 +441,7 @@ export type CommunityUnreadBump = {
   serverId?: string
   /**
    * The sidebar-locatable channel row = `parentChannelId ?? channelId`, computed
-   * server-side. A thread/forum-post message has no independent sidebar row, so
+   * server-side. A child-thread message has no independent sidebar row, so
    * its dot must light the PARENT channel's row; a plain channel is its own row.
    * Absent → client falls back to `channelId`.
    */
@@ -579,6 +587,7 @@ export type CommunityBotHostFrame = BotAddedFrame | BotUpdatedFrame | BotRemoved
 export type CommunityWsEvent =
   | CommunityMessageCreate
   | CommunityMessageUpdated
+  | CommunityMessageEdited
   | CommunityReactionAdd
   | CommunityReactionRemove
   | CommunityPinAdd
@@ -627,6 +636,7 @@ export function isCommunityEvent(msg: { type: string }): msg is CommunityWsEvent
 export const WS_EVENTS = {
   MESSAGE_CREATE: "community:message.create",
   MESSAGE_UPDATED: "community:message.updated",
+  MESSAGE_EDITED: "community:message.edited",
   REACTION_ADD: "community:reaction.add",
   REACTION_REMOVE: "community:reaction.remove",
   PIN_ADD: "community:pin.add",

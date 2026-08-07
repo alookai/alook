@@ -5,7 +5,6 @@ const mockGetMessage = vi.fn()
 const mockGetMessageInScope = vi.fn()
 const mockHardDeleteMessage = vi.fn()
 const mockGetUserInternal = vi.fn()
-const mockCreateAttachment = vi.fn()
 const mockReserveAttachmentsForMessage = vi.fn()
 const mockUnreserveAttachments = vi.fn()
 const mockListByMessageIds = vi.fn()
@@ -38,7 +37,6 @@ vi.mock("@alook/shared", async () => {
         hardDeleteMessage: (...a: unknown[]) => mockHardDeleteMessage(...a),
       },
       communityAttachment: {
-        createAttachment: (...a: unknown[]) => mockCreateAttachment(...a),
         reserveAttachmentsForMessage: (...a: unknown[]) => mockReserveAttachmentsForMessage(...a),
         unreserveAttachments: (...a: unknown[]) => mockUnreserveAttachments(...a),
         listByMessageIds: (...a: unknown[]) => mockListByMessageIds(...a),
@@ -400,7 +398,6 @@ describe("createCommunityMessage — CAS race (plans/fix-agent-send-race-conditi
     expect(result).toEqual({ ok: false, status: 409, error: "seq_conflict" })
     // Lost the race — none of the downstream pipeline steps should fire.
     expect(mockGetMessage).not.toHaveBeenCalled()
-    expect(mockCreateAttachment).not.toHaveBeenCalled()
     expect(mockCreateMentions).not.toHaveBeenCalled()
     expect(mockFanOutToChannel).not.toHaveBeenCalled()
     expect(mockFanOutToDM).not.toHaveBeenCalled()
@@ -453,32 +450,37 @@ describe("createCommunityMessage — attachment width/height reach the live WS b
     mockBroadcastToUser.mockResolvedValue(undefined)
   })
 
-  it("includes width/height on an image attachment in the MESSAGE_CREATE broadcast payload", async () => {
+  it("includes width/height on an image attachment in the MESSAGE_CREATE broadcast payload (reserve-by-id)", async () => {
+    // Reserve-by-id (route/disc step 2b): dimensions are written onto the
+    // pending row at UPLOAD (single source) and reach the broadcast when the
+    // reserved rows are re-read via listByMessageIds after the reserve. There is
+    // no url-carried body path anymore — the caller passes attachmentIds.
     mockCreateMessage.mockResolvedValue({ id: "msg_1" })
-    mockCreateAttachment.mockResolvedValue({
-      id: "att_1",
-      filename: "photo.png",
-      r2Key: "channel/c1/uuid/photo.png",
-      contentType: "image/png",
-      size: 1000,
-      width: 1920,
-      height: 1080,
-    })
+    mockReserveAttachmentsForMessage.mockResolvedValue(["att_1"])
+    mockListByMessageIds.mockResolvedValue([
+      {
+        id: "att_1",
+        messageId: "msg_1",
+        targetId: "c1",
+        filename: "photo.png",
+        r2Key: "channel/c1/uuid/photo.png",
+        contentType: "image/png",
+        size: 1000,
+        width: 1920,
+        height: 1080,
+        position: 0,
+      },
+    ])
     mockGetMessage.mockResolvedValue(messageRow())
 
     await createCommunityMessage({
       db: {} as never,
       authorId: "author_1",
       target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
-      body: {
-        content: "hello",
-        attachments: [
-          { url: "/api/community/media/channel/c1/uuid/photo.png", filename: "photo.png", contentType: "image/png", size: 1000, width: 1920, height: 1080 },
-        ],
-      },
+      body: { content: "hello" },
+      attachmentIds: ["att_1"],
     })
 
-    expect(mockCreateAttachment).toHaveBeenCalledWith({}, expect.objectContaining({ width: 1920, height: 1080, r2Key: "channel/c1/uuid/photo.png" }))
     expect(mockFanOutToChannel).toHaveBeenCalledTimes(1)
     const [, event] = mockFanOutToChannel.mock.calls[0]!
     expect(event.message.attachments).toEqual([
@@ -710,15 +712,16 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     ])
   })
 
-  it("forum_post: author joins as 'spoke' just like a thread (notify-scoped)", async () => {
-    // A forum_post enrolls participants identically to a thread — a message in
-    // a post notifies only its participants, not the whole server/roster.
+  it("thread first reply: author joins as 'spoke' (notify-scoped)", async () => {
+    // A thread's first reply (a post's old "body message") enrolls
+    // participants — a message notifies only its participants, not the
+    // whole server/roster.
     mockGetMessage.mockResolvedValue(messageRow({ content: "first reply", channelId: "p1" }))
 
     await createCommunityMessage({
       db: {} as never,
       authorId: "author_1",
-      target: { kind: "forum_post", channelId: "p1", parentChannelId: "forum_1", serverId: "srv_1" },
+      target: { kind: "thread", channelId: "p1", parentChannelId: "forum_1", serverId: "srv_1" },
       body: { content: "first reply" },
     })
 
@@ -728,14 +731,14 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     expect(mockCreateChannelMember).not.toHaveBeenCalled()
   })
 
-  it("forum_post: an in-audience @mention enrolls as a participant", async () => {
+  it("thread under a forum: an in-audience @mention enrolls as a participant", async () => {
     mockGetPrivateChannelAudienceUserIds.mockResolvedValue(["author_1", "cara_1"])
     mockGetMessage.mockResolvedValue(messageRow({ content: "hey @Cara#0002", channelId: "p1" }))
 
     await createCommunityMessage({
       db: {} as never,
       authorId: "author_1",
-      target: { kind: "forum_post", channelId: "p1", parentChannelId: "forum_1", serverId: "srv_1" },
+      target: { kind: "thread", channelId: "p1", parentChannelId: "forum_1", serverId: "srv_1" },
       body: { content: "hey @Cara#0002" },
     })
 
@@ -745,19 +748,19 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     ])
   })
 
-  it("forum_post + skipChildChannelUpdate: enroll STILL runs, but the parent CHILD_CHANNEL_UPDATE is suppressed", async () => {
-    // The forum-post CREATE path routes the first message as kind:"forum_post"
-    // (so an @-mentioned user enrolls as a participant → appears in members),
-    // AND sets skipChildChannelUpdate to avoid colliding with its own
-    // CHILD_CHANNEL_CREATE. Enroll and the WS tick are decoupled: enroll runs,
-    // the tick does not.
+  it("thread under a forum + skipChildChannelUpdate: enroll STILL runs, but the parent CHILD_CHANNEL_UPDATE is suppressed", async () => {
+    // The post-opening CREATE path (createMessageWithThread) routes its
+    // reply as kind:"thread" (so an @-mentioned user enrolls as a
+    // participant → appears in members), AND sets skipChildChannelUpdate to
+    // avoid colliding with its own CHILD_CHANNEL_CREATE. Enroll and the WS
+    // tick are decoupled: enroll runs, the tick does not.
     mockGetPrivateChannelAudienceUserIds.mockResolvedValue(["author_1", "cara_1"])
     mockGetMessage.mockResolvedValue(messageRow({ content: "welcome @Cara#0002", channelId: "p1" }))
 
     await createCommunityMessage({
       db: {} as never,
       authorId: "author_1",
-      target: { kind: "forum_post", channelId: "p1", parentChannelId: "forum_1", serverId: "srv_1" },
+      target: { kind: "thread", channelId: "p1", parentChannelId: "forum_1", serverId: "srv_1" },
       body: { content: "welcome @Cara#0002" },
       skipChildChannelUpdate: true,
     })
@@ -791,6 +794,42 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
       userIds: ["bob_1"],
       kind: "mention",
     })
+  })
+
+  it("suppressBroadcast (migration-backfill mode): STRUCTURAL core runs (enroll + mention rows), real-time delivery shell is fully dropped", async () => {
+    // The existing-data migration's atomic primitive needs a create that
+    // persists the message + enrolls participants + writes mention rows but
+    // fires ZERO real-time WS (no ping / no M×N frames on historical
+    // backfill). This proves the shell-OFF capability keeps the structural core
+    // — unlike skipMentions, which would ALSO drop enroll (the 213-218 class bug
+    // this whole knob-split guards against).
+    mockGetPrivateChannelAudienceUserIds.mockResolvedValue(["author_1", "cara_1"])
+    mockGetMessage.mockResolvedValue(messageRow({ content: "welcome @Cara#0002", channelId: "p1" }))
+
+    const result = await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "thread", channelId: "p1", parentChannelId: "forum_1", serverId: "srv_1" },
+      body: { content: "welcome @Cara#0002" },
+      suppressBroadcast: true,
+    })
+
+    // Structural core KEPT: participant enroll (reach-axis write) still runs...
+    expect(mockAddThreadParticipants).toHaveBeenCalledWith({}, "p1", [
+      { userId: "author_1", source: "spoke" },
+      { userId: "cara_1", source: "mention" },
+    ])
+    // ...and mention ROW persistence still runs (rows are not a broadcast).
+    expect(mockCreateMentions).toHaveBeenCalledWith({}, {
+      messageId: "msg_1",
+      userIds: ["cara_1"],
+      kind: "mention",
+    })
+    // Real-time delivery shell FULLY dropped: no WS fan-out of any kind.
+    expect(mockFanOutToChannel).not.toHaveBeenCalled()
+    // ...and no deferred thunk handed back either (unlike deferBroadcast).
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.broadcast).toBeUndefined()
   })
 })
 
@@ -990,6 +1029,7 @@ describe("createCommunityMessage — attachment reservation-first flow (agent pa
       {
         id: "att_1",
         filename: "photo.png",
+        targetId: "c1",
         r2Key: "channel/c1/uuid/photo.png",
         contentType: "image/png",
         size: 100,
@@ -1014,7 +1054,9 @@ describe("createCommunityMessage — attachment reservation-first flow (agent pa
       expect.objectContaining({
         id: "att_1",
         filename: "photo.png",
-        url: "/api/community/media/channel/c1/uuid/photo.png",
+        // id-addressed render URL (attachments fold) — served by the canonical
+        // channels/{targetId}/attachments/{attachmentId} door.
+        url: "/api/community/channels/c1/attachments/att_1",
       }),
     ])
     expect(mockUnreserveAttachments).not.toHaveBeenCalled()

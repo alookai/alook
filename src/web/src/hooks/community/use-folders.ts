@@ -26,7 +26,7 @@ export type FoldersResponse = { folders: CommunityFolder[] }
 const EMPTY_FOLDERS: readonly CommunityFolder[] = Object.freeze([])
 
 export const foldersQueryFn = async (): Promise<FoldersResponse> => {
-  const data = await apiFetch<{ folders: RawFolder[] }>("/api/community/server-folders")
+  const data = await apiFetch<{ folders: RawFolder[] }>("/api/community/users/me/server-folders")
   const folders: CommunityFolder[] = data.folders.map((f) => ({
     id: f.id,
     name: f.name,

@@ -30,16 +30,15 @@ const CONTEXT_LIMIT = 11
 
 type ScopeType = "channel" | "dm"
 
-function seqLookupUrl(type: ScopeType, id: string, seq: number): string {
-  return type === "dm"
-    ? `/api/community/dm/${id}/messages/seq/${seq}`
-    : `/api/community/channels/${id}/messages/seq/${seq}`
+// A DM (type=dm) and a thread are channel rows in the same id-space, so both
+// resolve through the one canonical door — no per-type URL fork. `type` is kept
+// in the signatures for call-site clarity but no longer branches the path.
+function seqLookupUrl(_type: ScopeType, id: string, seq: number): string {
+  return `/api/community/channels/${id}/messages/seq/${seq}`
 }
 
-function anchorFetchUrl(type: ScopeType, id: string, anchor: string, limit: number): string {
-  const base = type === "dm"
-    ? `/api/community/dm/${id}/messages`
-    : `/api/community/channels/${id}/messages`
+function anchorFetchUrl(_type: ScopeType, id: string, anchor: string, limit: number): string {
+  const base = `/api/community/channels/${id}/messages`
   return `${base}?anchor=${encodeURIComponent(anchor)}&limit=${limit}`
 }
 
@@ -120,7 +119,6 @@ export function MessageContextSheet({
   channelLabel,
   targetSeq,
   pinnedIds,
-  onOpenContextSheet,
   onOpenProfile,
   resolveUserName,
   onReply,
@@ -135,7 +133,6 @@ export function MessageContextSheet({
   channelLabel?: string
   targetSeq: number | null
   pinnedIds?: Set<string>
-  onOpenContextSheet?: (seq: number) => void
   onOpenProfile?: OpenProfile
   resolveUserName?: (userId: string) => string
   // Fired when Reply is clicked in the sheet. Parent should seed its
@@ -434,7 +431,6 @@ export function MessageContextSheet({
               onCreateThread={type === "channel" ? onCreateThreadId : undefined}
               onPreviewImage={onPreviewImage}
               onDownloadFile={onDownloadFile}
-              onOpenContextSheet={onOpenContextSheet}
             />
           )}
         </div>
@@ -459,7 +455,6 @@ function ContextRows({
   onCreateThread,
   onPreviewImage,
   onDownloadFile,
-  onOpenContextSheet,
 }: {
   rows: RenderMsg[]
   anchorId: string | null
@@ -476,7 +471,6 @@ function ContextRows({
   onCreateThread?: (id: string) => void
   onPreviewImage: (url: string) => void
   onDownloadFile: (url: string) => void
-  onOpenContextSheet?: (seq: number) => void
 }) {
   // Single-message share from the peek sheet. The sheet has no select-mode
   // context (it's a read-only preview), so Share opens the dialog directly on
@@ -541,7 +535,7 @@ function ContextSkeleton() {
               <Skeleton className="h-4 w-24 rounded" />
               <Skeleton className="h-3 w-14 rounded" />
             </div>
-            <Skeleton className="h-3.5 w-full max-w-[240px] rounded" />
+            <Skeleton className="h-3.5 w-full max-w-60 rounded" />
           </div>
         </div>
       ))}

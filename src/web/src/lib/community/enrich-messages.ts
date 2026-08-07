@@ -1,7 +1,8 @@
-import { queries } from "@alook/shared"
+import { queries, withD1Retry } from "@alook/shared"
 import type { getDb } from "@/lib/db"
 import { groupAttachments, groupReactions } from "@/lib/community/messages"
 import { mapMessageForApi } from "@/lib/community/message-payload"
+import { avatarInitial } from "@/lib/community/avatar"
 
 // Message enrichment shared by the channel messages route, the channel
 // bootstrap route, and the DM messages route (previously three near-identical
@@ -15,7 +16,7 @@ import { mapMessageForApi } from "@/lib/community/message-payload"
 
 type Db = ReturnType<typeof getDb>
 
-export type MessageScope = { channelId: string; isDm?: boolean }
+export type MessageScope = { channelId: string; isDm?: boolean; isForum?: boolean }
 
 export async function enrichMessages(
   db: Db,
@@ -35,11 +36,16 @@ export async function enrichMessages(
       ? queries.communityReaction.listReactionsByMessageIds(db, messageIds, userId)
       : Promise.resolve([]),
     replyToIds.length > 0
-      ? queries.communityMessage.getMessagesByIdsInScope(db, replyToIds, { channelId: scope.channelId })
+      ? withD1Retry(
+        () => queries.communityMessage.getMessagesByIdsInScope(db, replyToIds, { channelId: scope.channelId }),
+        { route: "community/messages:reply-enrichment" },
+      )
       : Promise.resolve([]),
     // Thread indicators only exist for non-DM channel-scoped messages.
     !isDm
-      ? queries.communityChannel.listChildChannels(db, scope.channelId)
+      ? scope.isForum
+        ? queries.communityChannel.listChildChannelsByParentMessageIds(db, scope.channelId, messageIds)
+        : queries.communityChannel.listChildChannels(db, scope.channelId)
       : Promise.resolve([]),
     queries.communityMessage.getLatestMessageSeq(db, { channelId: scope.channelId }),
     // Friend-approval cards only ever live in DMs — skip the hydration query
@@ -53,10 +59,54 @@ export async function enrichMessages(
   const reactionsByMessage = groupReactions(allReactions, userId)
   const replyMap = new Map(replyMessages.map((m) => [m.id, m]))
 
+  const threadIds = childChannels.map((channel) => channel.id)
+  const [forumTags, forumFirstMessages, forumParticipants] = scope.isForum && messageIds.length > 0
+    ? await Promise.all([
+      queries.communityMessageTag.listTagsForMessages(db, messageIds),
+      queries.communityMessage.getFirstMessageByChannelIds(db, threadIds),
+      queries.communityThread.listParticipantsForChannels(db, threadIds, 5),
+    ])
+    : [[], [], []]
+  const tagsByMessage = new Map<string, string[]>()
+  for (const row of forumTags) {
+    tagsByMessage.set(row.messageId, [...(tagsByMessage.get(row.messageId) ?? []), row.tag])
+  }
+  const firstByChannel = new Map(forumFirstMessages.map((message) => [message.channelId, message]))
+  const participantsByChannel = new Map<string, Array<{ id: string; name: string; avatar: string }>>()
+  const participantCountByChannel = new Map<string, number>()
+  for (const row of forumParticipants) {
+    participantCountByChannel.set(
+      row.channelId,
+      "participantCount" in row ? Number(row.participantCount) : 0,
+    )
+    participantsByChannel.set(row.channelId, [
+      ...(participantsByChannel.get(row.channelId) ?? []),
+      {
+        id: row.userId,
+        name: row.userName ?? "",
+        avatar: row.userImage ?? avatarInitial(row.userName ?? ""),
+      },
+    ])
+  }
+
   const threadByMessageId = new Map(
     childChannels
       .filter((c) => c.parentMessageId)
-      .map((c) => [c.parentMessageId!, { id: c.id, name: c.name, messageCount: c.messageCount ?? 0 }] as const),
+      .map((c) => {
+        const first = firstByChannel.get(c.id)
+        return [c.parentMessageId!, {
+          id: c.id,
+          name: c.name,
+          messageCount: c.messageCount ?? 0,
+          lastReplyAt: c.lastMessageAt ?? c.createdAt,
+          ...(scope.isForum ? {
+            tags: tagsByMessage.get(c.parentMessageId!) ?? [],
+            preview: (first?.content ?? "").slice(0, 100),
+            participants: participantsByChannel.get(c.id) ?? [],
+            participantCount: participantCountByChannel.get(c.id) ?? 0,
+          } : {}),
+        }] as const
+      }),
   )
 
   const messages = items.map((r) =>

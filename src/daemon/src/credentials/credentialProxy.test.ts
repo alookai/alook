@@ -47,16 +47,89 @@ async function post(url: string, voucher: string, path: string) {
 }
 
 describe("DEFAULT_CAPABILITY_RESOLVER", () => {
-  it("maps /api/reactAdd to the `send` capability (a read-only voucher must not react)", () => {
-    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/reactAdd")).toBe("send");
-    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/reactAdd")).toBe("send");
+  it("maps a reaction (canonical door PUT messages/{id}/reactions) to `send` (a read-only voucher must not react)", () => {
+    // Flat /api/reactAdd is DELETED (folded into the canonical reaction door).
+    // The write capability now attaches to the door shape.
+    expect(DEFAULT_CAPABILITY_RESOLVER("PUT", "/api/community/messages/resolve/reactions/%F0%9F%91%8D")).toBe("send");
   });
 
-  it("maps friendRequest / listFriends to the `friend` capability, both pre- and post-rewrite", () => {
-    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/friendRequest")).toBe("friend");
-    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/listFriends")).toBe("friend");
-    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/friendRequest")).toBe("friend");
-    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/listFriends")).toBe("friend");
+  it("maps the friends bucket sub-resource endpoints (listFriends fold) to `friend`", () => {
+    // The bot's listFriends fans out to these; friends/blocked is bot-403 at the
+    // route so a bot never reaches it, but the cap mapping is uniform.
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/friends/accepted")).toBe("friend");
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/friends/pending")).toBe("friend");
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/friends/blocked")).toBe("friend");
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/friends/request")).toBe("friend");
+  });
+
+  // ── Canonical id-in-path message door (route/disc retarget). The SHAPE is
+  //    matched by method, BEFORE the legacy `/channel → server` substring rule,
+  //    which would otherwise grab `/channels/{id}/…` first and mis-scope a bot
+  //    send/read to the `server` capability. ──
+  it("maps the canonical messages door by METHOD: POST→send, GET→read", () => {
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/channels/resolve/messages")).toBe("send");
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/channels/resolve/messages")).toBe("read");
+    // real channelId in the path (human/web shape) resolves the same way.
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/channels/abc123/messages")).toBe("send");
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/channels/abc123/messages")).toBe("read");
+    // with a query string (read's ?ref=&before=…).
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/channels/resolve/messages?ref=%2Fs%2Fg&before=5")).toBe("read");
+  });
+
+  it("does NOT let the canonical `/channels/…` path fall through to the `server` capability (the miscap this rewrite fixes)", () => {
+    // Pre-rewrite this path contains `channel`, which the legacy rule maps to
+    // `server`; the shape rule must intercept POST/GET first.
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/channels/resolve/messages")).not.toBe("server");
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/channels/resolve/messages")).not.toBe("server");
+  });
+
+  it("maps the canonical attachments door (attachments fold) to `attach`, NOT `server` — no new rule needed", () => {
+    // The upload/download verbs folded onto channels/{id}/attachments. The
+    // existing `.includes("/attachment")` rule fires FIRST (before the shape
+    // rules and before the legacy `/channel → server` fallback), so the nested
+    // path keeps the `attach` capability with no resolver change (Aigneis #554).
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/channels/resolve/attachments")).toBe("attach");
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/channels/c1/attachments?target=%2Fs%2Fg")).toBe("attach");
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/channels/resolve/attachments/att_1")).toBe("attach");
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/channels/c1/attachments/att_1")).toBe("attach");
+    // The `/channels/` substring must NOT drag it to the `server` fallback.
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/channels/c1/attachments/att_1")).not.toBe("server");
+    // …and must NOT be mistaken for the messages door (send/read).
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/channels/resolve/attachments")).not.toBe("send");
+  });
+
+  it("maps the message-keyed write doors to `send` (reactions PUT/DELETE, threads POST, seq GET→read)", () => {
+    expect(DEFAULT_CAPABILITY_RESOLVER("PUT", "/api/community/messages/resolve/reactions/%F0%9F%91%8D")).toBe("send");
+    expect(DEFAULT_CAPABILITY_RESOLVER("DELETE", "/api/community/messages/m1/reactions/%F0%9F%91%8D")).toBe("send");
+    // the seq→id lookup is a read.
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/channels/resolve/messages/seq/42")).toBe("read");
+  });
+
+  it("maps the single-message hydrate door GET messages/{id} to `read` (folds `resolve`)", () => {
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/messages/resolve?ref=%2Fs%2Fg&seq=42")).toBe("read");
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/messages/m1")).toBe("read");
+    // must NOT shadow the more specific write sub-paths.
+    expect(DEFAULT_CAPABILITY_RESOLVER("PUT", "/api/community/messages/m1/reactions/x")).toBe("send");
+  });
+
+  it("does not map deleted flat write verbs; inboxPull still matches the generic /inbox read family", () => {
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/createPost")).toBeUndefined();
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/createPost")).toBeUndefined();
+    // /api/inboxPull's flat ROUTE is deleted, but the resolver's generic
+    // `/inbox` substring rule (unrelated to the specific flat-verb rules)
+    // still fires on this path shape — the daemon proxy only rejects the
+    // capability, it never routes the request, so this mapping is harmless
+    // even with the route gone.
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/inboxPull")).toBe("read");
+    // The flat send/reactAdd/read/resolve/channelMember/friendRequest/listFriends
+    // routes are DELETED — their bare `/api/<verb>` paths no longer carry a
+    // capability rule (they only reached upstream via the flat routes, which
+    // are gone). `/api/send` still matches nothing else, so it's undefined
+    // now, not `send`.
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/send")).toBeUndefined();
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/reactAdd")).toBeUndefined();
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/friendRequest")).toBeUndefined();
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/listFriends")).toBeUndefined();
   });
 });
 
@@ -181,31 +254,41 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     proxy = await startCredentialProxy(broker);
     const reg = broker.mint("a", "l", ["read"], REAL_KEY); // no "send"
 
-    const r = await post(proxy.url, reg.voucher, "/send");
+    // The canonical send door (POST channels/{id}/messages) requires `send`.
+    const r = await post(proxy.url, reg.voucher, "/api/community/channels/resolve/messages");
     expect(r.status).toBe(403);
     expect(upstream.seen.length).toBe(0);
   });
 
-  it("rewrites flat /api/* verbs to /api/community/* (plans/22 §9); is idempotent for already-namespaced paths", async () => {
+  it("passes canonical REST paths through and rejects deleted flat inputs", async () => {
     const upstream = await startUpstream();
     upstreamClose = upstream.close;
+    const sightings: Array<{ agentId: string; method: string; pathname: string }> = [];
     const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
-    proxy = await startCredentialProxy(broker);
-    const reg = broker.mint("agent-1", "l", ["send", "read", "server"], REAL_KEY);
+    proxy = await startCredentialProxy(broker, {
+      onProxyRequest: (agentId, method, pathname) => sightings.push({ agentId, method, pathname }),
+    });
+    const reg = broker.mint("agent-1", "l", ["send", "read", "server", "attach"], REAL_KEY);
 
-    await post(proxy.url, reg.voucher, "/api/send");
-    expect(upstream.seen.at(-1)!.path).toBe("/api/community/send");
+    for (const legacyPath of [
+      "/api/send",
+      "/api/attachmentUpload?target=/x/y",
+      "/api/community/send",
+      "/api/community/agent/send",
+      "/api",
+    ]) {
+      expect((await post(proxy.url, reg.voucher, legacyPath)).status).toBe(404);
+    }
+    expect(upstream.seen).toHaveLength(0);
+    expect(sightings).toEqual([]);
 
-    await post(proxy.url, reg.voucher, "/api/inboxPull?max=10");
-    expect(upstream.seen.at(-1)!.path).toBe("/api/community/inboxPull?max=10");
-
-    await post(proxy.url, reg.voucher, "/api");
-    expect(upstream.seen.at(-1)!.path).toBe("/api/community");
-
-    // Idempotent: a folded verb's real REST path (already under /api/community/)
-    // passes through unprefixed — NOT doubled into /api/community/community/...
-    await post(proxy.url, reg.voucher, "/api/community/servers");
-    expect(upstream.seen.at(-1)!.path).toBe("/api/community/servers");
+    // A folded verb's real REST path and encoded query pass through byte-for-byte.
+    await post(proxy.url, reg.voucher, "/api/community/servers?cursor=a%2Fb&limit=2");
+    expect(upstream.seen).toHaveLength(1);
+    expect(upstream.seen[0]!.path).toBe("/api/community/servers?cursor=a%2Fb&limit=2");
+    expect(sightings).toEqual([
+      { agentId: "agent-1", method: "POST", pathname: "/api/community/servers" },
+    ]);
   });
 
   it("leaves non-/api paths untouched", async () => {
@@ -241,9 +324,9 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     });
     const reg = broker.mint("agent-1", "l", ["send"], REAL_KEY);
 
-    const r = await post(proxy.url, reg.voucher, "/api/send");
+    const r = await post(proxy.url, reg.voucher, "/api/community/channels/resolve/messages");
     expect(r.status).toBe(200);
-    expect(sightings).toEqual([{ agentId: "agent-1", method: "POST", pathname: "/api/send" }]);
+    expect(sightings).toEqual([{ agentId: "agent-1", method: "POST", pathname: "/api/community/channels/resolve/messages" }]);
   });
 
   it("does NOT fire onProxyRequest on a rejected voucher (401/403)", async () => {
@@ -263,9 +346,10 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     const bogus = await post(proxy.url, "vch_bogus", "/api/send");
     expect(bogus.status).toBe(401);
 
-    // Capability denied → 403 (still not fired).
+    // Capability denied → 403 (still not fired). Use the canonical send door
+    // (POST channels/{id}/messages → send) since the flat /api/send is deleted.
     const scoped = broker.mint("agent-1", "l", ["read"], REAL_KEY);
-    const denied = await post(proxy.url, scoped.voucher, "/api/send");
+    const denied = await post(proxy.url, scoped.voucher, "/api/community/channels/resolve/messages");
     expect(denied.status).toBe(403);
 
     expect(sightings).toEqual([]);
@@ -279,14 +363,14 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     const scoped = broker.mint("agent-1", "l", ["send", "read"], REAL_KEY); // no "attach"
     const withAttach = broker.mint("agent-2", "l2", ["attach"], REAL_KEY);
 
-    const upDenied = await post(proxy.url, scoped.voucher, "/api/attachmentUpload?target=/x/y");
+    const upDenied = await post(proxy.url, scoped.voucher, "/api/community/channels/resolve/attachments?target=/x/y");
     expect(upDenied.status).toBe(403);
-    const dlDenied = await post(proxy.url, scoped.voucher, "/api/attachmentDownload");
+    const dlDenied = await post(proxy.url, scoped.voucher, "/api/community/channels/resolve/attachments/att_1");
     expect(dlDenied.status).toBe(403);
 
-    const upOk = await post(proxy.url, withAttach.voucher, "/api/attachmentUpload?target=/x/y");
+    const upOk = await post(proxy.url, withAttach.voucher, "/api/community/channels/resolve/attachments?target=/x/y");
     expect(upOk.status).toBe(200);
-    const dlOk = await post(proxy.url, withAttach.voucher, "/api/attachmentDownload");
+    const dlOk = await post(proxy.url, withAttach.voucher, "/api/community/channels/resolve/attachments/att_1");
     expect(dlOk.status).toBe(200);
   });
 
@@ -297,11 +381,12 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     proxy = await startCredentialProxy(broker);
     const reg = broker.mint("agent-1", "l", ["attach"], REAL_KEY);
 
-    const r = await post(proxy.url, reg.voucher, "/api/send");
+    // Canonical send door requires `send`; an attach-only voucher is denied.
+    const r = await post(proxy.url, reg.voucher, "/api/community/channels/resolve/messages");
     expect(r.status).toBe(403);
   });
 
-  it("onInboxPullResponse is NOT triggered by /attachmentDownload (tightened guard)", async () => {
+  it("onInboxPullResponse is NOT triggered by canonical attachment download (tightened guard)", async () => {
     const upstream = await startUpstream();
     upstreamClose = upstream.close;
     let called = 0;
@@ -314,20 +399,44 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     const reg = broker.mint("agent-1", "l", ["attach", "read"], REAL_KEY);
 
     // Path that used to (loosely) match `.endsWith("/inboxPull")` — the
-    // tightened `pathname === "/api/inboxPull"` guard must not fire for
-    // attachment traffic, which returns raw binary.
-    const r = await post(proxy.url, reg.voucher, "/api/attachmentDownload");
+    // exact-path guard must not fire for attachment traffic, which returns
+    // raw binary.
+    const r = await post(proxy.url, reg.voucher, "/api/community/channels/resolve/attachments/att_1");
     expect(r.status).toBe(200);
     expect(called).toBe(0);
 
     // The real inbox pull still triggers the callback (baseline).
-    const p = await post(proxy.url, reg.voucher, "/api/inboxPull");
+    const p = await post(proxy.url, reg.voucher, "/api/community/users/me/inbox/pull");
     expect(p.status).toBe(200);
     // startUpstream() returns { ok: true } (no `messages`), so the callback
     // still receives a call attempt — it just doesn't call the handler with
     // a non-empty message list. What we care about is that it saw the pull
     // path and attempted parsing (proving the guard was true here vs. false
     // above).
+  });
+
+  it("onInboxPullResponse fires for the canonical fold path users/me/inbox/pull, but NOT snapshot", async () => {
+    // The inboxPull verb folds into POST users/me/inbox/pull (route/disc 轴3);
+    // callInboxPull sends this full path directly (no rewrite), so the timeline
+    // recorder's exact-path guard must recognize it. The snapshot door is a
+    // peek (no `{ messages }`) and must NOT be treated as a pull. The flat
+    // `/api/inboxPull` verb is deleted (flat-delete step) — no longer part of
+    // this guard.
+    const upstream = await startUpstream();
+    upstreamClose = upstream.close;
+    const seen: string[] = [];
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    proxy = await startCredentialProxy(broker, {
+      onInboxPullResponse: (agentId) => seen.push(agentId),
+    });
+    const reg = broker.mint("agent-1", "l", ["read"], REAL_KEY);
+
+    const canonical = await post(proxy.url, reg.voucher, "/api/community/users/me/inbox/pull");
+    expect(canonical.status).toBe(200);
+    // startUpstream() returns { ok: true } (no messages) so the handler never
+    // fires with a real list — seen stays empty, but the path isn't 500 or
+    // rejected, proving it's accepted as pull traffic (the guard matched).
+    expect(seen).toEqual([]);
   });
 
   it("surfaces the buffered inboxPull response AND fires onInboxPullResponse", async () => {
@@ -340,7 +449,7 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     });
     const reg = broker.mint("agent-1", "l", ["read"], REAL_KEY);
 
-    const r = await post(proxy.url, reg.voucher, "/api/inboxPull");
+    const r = await post(proxy.url, reg.voucher, "/api/community/users/me/inbox/pull");
     expect(r.status).toBe(200);
     // `startUpstream()` always responds `{ ok: true }` — no `messages` field —
     // so the callback should NOT fire for a response that isn't shaped like

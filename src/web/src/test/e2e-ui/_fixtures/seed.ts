@@ -51,7 +51,7 @@ export async function seedChannel(
   type?: "text" | "forum",
   categoryId?: string,
 ): Promise<string> {
-  const res = await post(owner, `/api/community/servers/${serverId}/channels`, { name, type, categoryId })
+  const res = await post(owner, "/api/community/channels", { serverId, name, type, categoryId })
   const data = (await res.json()) as { channel: { id: string } }
   return data.channel.id
 }
@@ -102,7 +102,7 @@ export async function seedChannelMember(owner: UserKey, channelId: string, userI
 }
 
 export async function seedDm(from: UserKey, targetUserId: string): Promise<string> {
-  const res = await post(from, "/api/community/dm", { userId: targetUserId })
+  const res = await post(from, "/api/community/channels", { type: "dm", userId: targetUserId })
   const data = (await res.json()) as { conversation: { id: string } }
   return data.conversation.id
 }
@@ -110,7 +110,7 @@ export async function seedDm(from: UserKey, targetUserId: string): Promise<strin
 // Post a DM message via API so the conversation shows in both sidebars with a
 // preview. Returns the message id.
 export async function seedDmMessage(author: UserKey, dmId: string, content: string): Promise<string> {
-  const res = await post(author, `/api/community/dm/${dmId}/messages`, { content })
+  const res = await post(author, `/api/community/channels/${dmId}/messages`, { content })
   const data = (await res.json()) as { message: { id: string } }
   return data.message.id
 }
@@ -123,7 +123,7 @@ export async function seedBlock(blocker: UserKey, targetUserId: string): Promise
 // user, from the requester's friends list. Used to recover idempotently when a
 // re-run (Playwright retry) finds the pair already friends.
 async function findFriendshipId(requester: UserKey, targetUserId: string): Promise<string | undefined> {
-  const res = await fetch(`${WEB_URL}/api/community/friends`, {
+  const res = await fetch(`${WEB_URL}/api/community/friends/accepted`, {
     headers: { Cookie: sessionCookie(requester), Origin: WEB_URL },
   })
   if (!res.ok) return undefined
@@ -168,22 +168,30 @@ export async function seedMessage(author: UserKey, channelId: string, content: s
 // Create a forum post (a child channel of a `type:"forum"` channel) via API.
 // Returns the post's own channel id. The creator is enrolled as a participant
 // server-side. Use when a spec needs an existing post before driving the UI.
-export async function seedForumPost(
+export async function seedForumThread(
   author: UserKey,
   forumChannelId: string,
   name: string,
   content: string,
 ): Promise<string> {
-  const res = await post(author, `/api/community/channels/${forumChannelId}/posts`, { name, content })
-  const data = (await res.json()) as { post: { id: string } }
-  return data.post.id
+  const nonce = `e2e:${crypto.randomUUID()}`
+  const structure = await post(author, `/api/community/channels/${forumChannelId}/messages`, {
+    content: name,
+    nonce: `${nonce}:opener`,
+  })
+  const data = (await structure.json()) as { threadId: string }
+  await post(author, `/api/community/channels/${data.threadId}/messages`, {
+    content,
+    nonce: `${nonce}:reply`,
+  })
+  return data.threadId
 }
 
 // Create a thread rooted on an existing message. Returns the thread's own
 // child-channel id. A thread has NO roster of its own — its @-mention scope is
 // the PARENT channel's audience — which is exactly what the scope spec probes.
 export async function seedThread(author: UserKey, messageId: string, name: string): Promise<string> {
-  const res = await post(author, `/api/community/messages/${messageId}/threads`, { name })
+  const res = await post(author, "/api/community/channels", { type: "thread", messageId, name })
   const data = (await res.json()) as { id: string }
   return data.id
 }

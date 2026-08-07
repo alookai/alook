@@ -1,4 +1,4 @@
-import { eq, and, desc, ne, lt, sql, count as drizzleCount, inArray, isNull, isNotNull } from "drizzle-orm";
+import { eq, and, desc, ne, lt, sql, inArray, isNull, isNotNull } from "drizzle-orm";
 import { conversation, message } from "../schema";
 import type { Database } from "../index";
 import { TASK_TYPES, type TaskType } from "../../constants";

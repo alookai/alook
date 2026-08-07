@@ -3,11 +3,11 @@ import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { ForumView } from "./forum-view"
 import { tid } from "@/lib/community/testids"
-import type { ForumPost } from "./_types"
+import type { ForumThread } from "./_types"
 
 const LAST_AT = "2020-01-01T00:00:00.000Z"
 
-function makePost(over: Partial<ForumPost> = {}): ForumPost {
+function makePost(over: Partial<ForumThread> = {}): ForumThread {
   return {
     id: "p1",
     name: "A post title",
@@ -23,12 +23,14 @@ function makePost(over: Partial<ForumPost> = {}): ForumPost {
   }
 }
 
-function render(posts: ForumPost[]): string {
+function render(posts: ForumThread[]): string {
   return renderToStaticMarkup(
     createElement(ForumView, {
       forumChannelId: "cha_forum",
       members: [],
       posts,
+      tag: "All",
+      onTagChange: () => {},
       onOpenPost: () => {},
     })
   )
@@ -37,14 +39,16 @@ function render(posts: ForumPost[]): string {
 // Render with the delete affordance wired. `canDeletePost` decides per-post
 // visibility; `deletingPost` is the in-flight post id (button disabled).
 function renderWithDelete(
-  posts: ForumPost[],
-  opts: { canDeletePost?: (p: ForumPost) => boolean; deletingPost?: string | null } = {},
+  posts: ForumThread[],
+  opts: { canDeletePost?: (p: ForumThread) => boolean; deletingPost?: string | null } = {},
 ): string {
   return renderToStaticMarkup(
     createElement(ForumView, {
       forumChannelId: "cha_forum",
       members: [],
       posts,
+      tag: "All",
+      onTagChange: () => {},
       onOpenPost: () => {},
       onDeletePost: () => {},
       canDeletePost: opts.canDeletePost ?? (() => true),
@@ -57,7 +61,7 @@ describe("ForumView post card header", () => {
   it("solo post renders the creator name and no participant AvatarGroup", () => {
     const html = render([makePost()])
     expect(html).toContain(">Alice<")
-    expect(html).not.toContain(tid.forumPostAvatars("p1"))
+    expect(html).not.toContain(tid.forumThreadAvatars("p1"))
   })
 
   it("renders the creator name and time before the participant AvatarGroup in markup order", () => {
@@ -70,7 +74,7 @@ describe("ForumView post card header", () => {
         ],
       }),
     ])
-    const groupTid = tid.forumPostAvatars("p1")
+    const groupTid = tid.forumThreadAvatars("p1")
     expect(html).toContain(groupTid)
     expect(html.indexOf(">Alice<")).toBeGreaterThanOrEqual(0)
     expect(html.indexOf(">Alice<")).toBeLessThan(html.indexOf(groupTid))
@@ -95,32 +99,43 @@ describe("ForumView post card header", () => {
       }),
     ])
     expect(withOthers).toContain("· ")
-    expect(withOthers).toContain(tid.forumPostAvatars("p1"))
+    expect(withOthers).toContain(tid.forumThreadAvatars("p1"))
+  })
+
+  it("does not invent overflow when the author is absent from a capped five-person preview", () => {
+    const participants = Array.from({ length: 5 }, (_, index) => ({
+      id: `usr_${index}`,
+      name: `Person ${index}`,
+      avatar: `P${index}`,
+    }))
+    const html = render([makePost({ participants, participantCount: 6 })])
+    expect(html).toContain(tid.forumThreadAvatars("p1"))
+    expect(html).not.toContain(">+1<")
   })
 })
 
 describe("ForumView post delete button", () => {
   it("renders the delete button (with aria-label + testid) when canDeletePost is true", () => {
     const html = renderWithDelete([makePost()], { canDeletePost: () => true })
-    expect(html).toContain(tid.forumPostDeleteBtn("p1"))
+    expect(html).toContain(tid.forumThreadDeleteBtn("p1"))
     expect(html).toContain('aria-label="Delete post"')
   })
 
   it("does not render the delete button when canDeletePost is false", () => {
     const html = renderWithDelete([makePost()], { canDeletePost: () => false })
-    expect(html).not.toContain(tid.forumPostDeleteBtn("p1"))
+    expect(html).not.toContain(tid.forumThreadDeleteBtn("p1"))
   })
 
   it("does not render the delete button when onDeletePost is absent", () => {
     // render() wires onOpenPost only — no delete handler → no button.
     const html = render([makePost()])
-    expect(html).not.toContain(tid.forumPostDeleteBtn("p1"))
+    expect(html).not.toContain(tid.forumThreadDeleteBtn("p1"))
   })
 
   it("disables the delete button for the post whose delete is in flight", () => {
     const html = renderWithDelete([makePost()], { deletingPost: "p1" })
     // The disabled attribute rides on the button carrying the delete testid.
-    const btnIdx = html.indexOf(tid.forumPostDeleteBtn("p1"))
+    const btnIdx = html.indexOf(tid.forumThreadDeleteBtn("p1"))
     expect(btnIdx).toBeGreaterThanOrEqual(0)
     // renderToStaticMarkup emits a bare `disabled` attribute for disabled={true}.
     const around = html.slice(Math.max(0, btnIdx - 200), btnIdx + 200)
@@ -142,6 +157,12 @@ describe("ForumView filter bar / composer swap", () => {
     expect(html).toContain("New Post")
     // The composer's aria-label region only exists in composing mode.
     expect(html).not.toContain('aria-label="Create post"')
+  })
+
+  it("renders the server-query tag controls from the unfiltered result", () => {
+    const html = render([makePost({ tags: ["bug", "help"] })])
+    expect(html).toContain("#bug")
+    expect(html).toContain("#help")
   })
 })
 

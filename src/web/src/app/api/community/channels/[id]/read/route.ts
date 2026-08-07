@@ -2,8 +2,8 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
-import { requireChannelMember } from "@/lib/community/permissions"
+import { queries, withD1Retry } from "@alook/shared"
+import { requireMessageSurfaceAccess } from "@/lib/community/permissions"
 
 /**
  * PUT /api/community/channels/:id/read
@@ -33,13 +33,15 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
 
   const db = getDb(ctx.env.DB)
 
-  // Two-step check preserves the 404-vs-403 contract that sibling channel
-  // routes (pins, threads, PATCH/DELETE) also honor: unknown channel → 404,
-  // known channel + non-member → 403. `requireChannelMember` alone collapses
-  // both into 403 because the JOIN can't tell the difference.
-  const channel = await queries.communityChannel.getChannel(db, channelId)
-  if (!channel) return writeError("channel not found", 404)
-  const auth = await requireChannelMember(db, channelId, ctx.userId)
+  // Unified id-in-path access gate: preserves the 404-vs-403 human split
+  // (unknown → 404, known non-member → 403) AND, for a DM id, runs the DM block
+  // gate — closing the incidental P0 where a blocked-but-still-DM-member could
+  // mark a DM read through this bare-channel route (the old path ran only the
+  // access-member check, never the block).
+  const auth = await withD1Retry(
+    () => requireMessageSurfaceAccess(db, channelId, ctx.userId),
+    { route: "community/channel-read:access" }
+  )
   if (!auth.ok) return writeError(auth.error, auth.status)
 
   // Parse the body — best-effort. An empty body is legal (mass mark-read).
@@ -62,7 +64,10 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
   // to a real message — that's the read-state invariant.
   let target: { id: string; createdAt: string; seq: number } | null
   if (lastReadMessageId) {
-    const msg = await queries.communityMessage.getMessage(db, lastReadMessageId)
+    const msg = await withD1Retry(
+      () => queries.communityMessage.getMessage(db, lastReadMessageId),
+      { route: "community/channel-read:message" }
+    )
     if (!msg) return writeError("message not found", 404)
     // Scope check — a message from another channel MUST NOT advance THIS
     // channel's watermark.
@@ -71,7 +76,10 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     }
     target = { id: msg.id, createdAt: msg.createdAt, seq: msg.seq }
   } else {
-    target = await queries.communityMessage.getLatestMessage(db, { channelId })
+    target = await withD1Retry(
+      () => queries.communityMessage.getLatestMessage(db, { channelId }),
+      { route: "community/channel-read:latest" }
+    )
     // Empty channel: no row can be written under the invariant. Nothing to
     // clear either (mentions/for-you require messages to exist first), so
     // short-circuit with a successful no-op.
@@ -81,14 +89,17 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
   // Fire both writes in one D1 batch so partial failure can't leave the
   // inbox inconsistent (mark-read succeeded but the mention clear didn't, or
   // vice versa). D1 batches are atomic per SQLite guarantees.
-  await db.batch([
-    queries.communityReadState.markReadToMessageBuilder(db, {
-      userId: ctx.userId,
-      channelId,
-      message: target,
-    }),
-    queries.communityMention.markChannelMentionsReadBuilder(db, ctx.userId, channelId),
-  ])
+  await withD1Retry(
+    () => db.batch([
+      queries.communityReadState.markReadToMessageBuilder(db, {
+        userId: ctx.userId,
+        channelId,
+        message: target,
+      }),
+      queries.communityMention.markChannelMentionsReadBuilder(db, ctx.userId, channelId),
+    ]),
+    { route: "community/channel-read:commit" }
+  )
 
   return writeJSON({ ok: true })
 })

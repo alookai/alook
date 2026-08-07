@@ -130,11 +130,12 @@ describe("POST /api/community/channels/[id]/pins", () => {
     expect(mockPinMessage).not.toHaveBeenCalled();
   });
 
-  it("returns 400 when pinning in a forum top-level (nothing to pin)", async () => {
+  it("pins a message in a forum top-level (phase2 forum≡thread write-guard reversal — forum is now a message-bearing surface)", async () => {
     mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1", type: "forum" });
+    mockPinMessage.mockResolvedValue({ channelId: "c1", messageId: "m1", pinnedBy: "u1" });
     const res = await POST(postReq("m1"), ctx);
-    expect(res.status).toBe(400);
-    expect(mockPinMessage).not.toHaveBeenCalled();
+    expect(res.status).toBe(201);
+    expect(mockPinMessage).toHaveBeenCalled();
   });
 
   it("returns 400 when pinning in a DM (governance model does not fit)", async () => {

@@ -7,8 +7,8 @@ export type GuardDmOpenResult =
   | { ok: false; status: 400 | 403 | 404; error: string; code?: string }
 
 /**
- * Shared DM-open gate (debt #9), extracted verbatim from the human DM route
- * (`/api/community/dm` POST) so bot DM-open goes through the SAME gating a
+ * Shared DM-open gate (debt #9), shared with the human DM create door
+ * (`POST /api/community/channels`, `type: "dm"`) so bot DM-open uses the SAME gating a
  * human does — not a looser path. Single signature, one opts flag:
  * `callerKind` defaults to `"human"` (preserves existing behavior for the
  * human route with zero call-site changes).

@@ -11,6 +11,10 @@ import { apiFetch, toastApiError } from "@/lib/api/client"
 import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import { isInlineAttachmentContentType } from "@/lib/community/attachment-content-type"
+import {
+  projectPostedMessage,
+  type PostedMessage,
+} from "@/lib/community/message-wire"
 import { useCommunityStore } from "@/stores/community"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
 import { getMessageOverlay } from "@/stores/community/message-stream"
@@ -23,8 +27,7 @@ import type { Msg, Attachment } from "@/components/community/_types"
 import type { MessagesPage } from "@/hooks/community/use-messages"
 import type { PinsResponse } from "@/hooks/community/use-channel-panels"
 import type { MarkedResponse, MessageMarkedResponse } from "@/hooks/community/use-inbox"
-import type { MentionType } from "@alook/shared"
-import { isBlocked } from "@alook/shared"
+import { isBlocked, type MentionType } from "@alook/shared"
 
 /**
  * Message-scoped mutation hooks — the split of the God-context's
@@ -47,20 +50,107 @@ import { isBlocked } from "@alook/shared"
 
 type PageCache = InfiniteData<MessagesPage>
 
+function patchContentById(cache: PageCache | undefined, id: string, content: string): PageCache | undefined {
+  if (!cache) return cache
+  let touched = false
+  const pages = cache.pages.map((page) => ({
+    ...page,
+    messages: page.messages.map((message) => {
+      if (message.id !== id) return message
+      touched = true
+      return { ...message, content }
+    }),
+  }))
+  return touched ? { ...cache, pages } : cache
+}
+
+type EditMessageArgs = {
+  serverId: string
+  channelId: string
+  messageId: string
+  content: string
+  forumChannelId?: string
+}
+
+type EditMessageContext = {
+  previous: PageCache | undefined
+  previousContent: string | undefined
+  key: readonly unknown[]
+  scope: MessageScope
+  previousMessage: { content: string } | undefined
+  messageKey: readonly unknown[]
+}
+
+export function useEditMessage() {
+  const queryClient = useQueryClient()
+  return useMutation<void, Error, EditMessageArgs, EditMessageContext>({
+    mutationFn: async ({ messageId, content }) => {
+      await apiFetch(`/api/community/messages/${messageId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ content }),
+      })
+    },
+    onMutate: async ({ serverId, channelId, messageId, content }) => {
+      const key = communityKeys.channelMessages(channelId)
+      const scope: MessageScope = { kind: "channel", id: channelId, serverId }
+      const messageKey = communityKeys.message(messageId)
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: key }),
+        queryClient.cancelQueries({ queryKey: messageKey }),
+      ])
+      const previous = queryClient.getQueryData<PageCache>(key)
+      const previousMessage = queryClient.getQueryData<{ content: string }>(messageKey)
+      const previousContent = currentMaterializedMessage(previous, scope, messageId)?.content
+      queryClient.setQueryData<PageCache>(key, (cache) => patchContentById(cache, messageId, content))
+      queryClient.setQueryData<{ content: string }>(messageKey, (message) => message ? { ...message, content } : message)
+      useMessageStreamStore.getState().dispatch(scope, {
+        type: "messageEdited",
+        messageId,
+        content,
+      })
+      return { previous, previousContent, key, scope, previousMessage, messageKey }
+    },
+    onError: (_error, _variables, context) => {
+      if (!context) return
+      queryClient.setQueryData(context.key, context.previous)
+      if (context.previousContent !== undefined) {
+        useMessageStreamStore.getState().dispatch(context.scope, {
+          type: "messageEdited",
+          messageId: _variables.messageId,
+          content: context.previousContent,
+        })
+      }
+      queryClient.setQueryData(context.messageKey, context.previousMessage)
+    },
+    onSuccess: (_data, variables) => {
+      if (variables.forumChannelId) void queryClient.invalidateQueries({ queryKey: communityKeys.channelMessages(variables.forumChannelId) })
+    },
+  })
+}
+
 /**
  * Materialize the attachment view-model from the API attachment shape.
  * Mirrors the old context's conversion at `postWithOptimisticInsert`.
  * Exported for direct unit testing — see `to-attachment-vm.test.ts`.
  */
 export function toAttachmentVm(
-  a: { url: string; filename: string; contentType: string; size: number; width?: number; height?: number },
+  channelId: string,
+  a: { id: string; filename: string; contentType: string; size: number; width?: number; height?: number },
 ): Attachment {
+  // Reserve-by-id (route/disc step 2b): the server no longer returns a `url` for
+  // a fresh upload — it returns the attachment `id`. The display URL is
+  // id-addressed (the canonical `channels/{id}/attachments/{attachmentId}` door)
+  // and derived HERE client-side, matching what the server's read path emits via
+  // `attachmentUrl`. This keeps the optimistic row's image src identical to the
+  // reconciled row that arrives over WS.
+  const url = `/api/community/channels/${channelId}/attachments/${a.id}`
   const isImage = isInlineAttachmentContentType(a.contentType)
-  if (isImage) return { kind: "image", name: a.filename, url: a.url, width: a.width, height: a.height }
+  if (isImage) return { kind: "image", name: a.filename, url, width: a.width, height: a.height }
   return {
     kind: "file",
     name: a.filename,
-    url: a.url,
+    url,
     size: a.size ? `${Math.round(a.size / 1024)} KB` : "",
   }
 }
@@ -89,8 +179,13 @@ export type SendMessageArgs = {
   channelId: string
   content: string
   replyToId?: string
+  replyTo?: Msg["replyTo"]
   mentionType?: MentionType
-  attachments?: { url: string; filename: string; contentType: string; size: number; width?: number; height?: number }[]
+  // Reserve-by-id: pre-uploaded pending-attachment descriptors. Only `id` is
+  // sent to the server (in an id array); the rest drive the optimistic VM
+  // (whose url is derived client-side from `id`). No `url` field — the upload
+  // no longer returns one.
+  attachments?: { id: string; filename: string; contentType: string; size: number; width?: number; height?: number }[]
   author: { id: string; name: string; avatar: string }
   // Idempotency nonce. Omitted on a fresh send (the hook mints one); the
   // retry-pill caller passes the failed row's nonce back so the resend reuses
@@ -102,7 +197,7 @@ export type SendMessageArgs = {
 // the same nonce — `message` is the canonical (original) row, nothing new was
 // inserted. The caller treats it as success (reconcile the optimistic row,
 // clear the failed pill), never as a failure to resend.
-export type SendMessageResult = { message: { id: string; seq: number }; deduped?: boolean }
+export type SendMessageResult = { message: PostedMessage; deduped?: boolean }
 
 /**
  * Channel/thread send. The server infers thread-vs-channel routing from the
@@ -115,12 +210,22 @@ export function useSendMessage() {
     Error,
     SendMessageArgs
   >({
-    mutationFn: async ({ channelId, content, replyToId, mentionType, attachments, nonce }) => {
+    mutationFn: async ({ channelId, content, replyToId, replyTo, mentionType, attachments, nonce }) => {
+      // Server receives only the attachment IDS (reserve-by-id); the rest of the
+      // descriptor is client-only (optimistic VM). Dimensions already rode the
+      // upload, so they are NOT re-sent here (single-source guard).
+      const attachmentIds = attachments?.map((a) => a.id)
       return apiFetch<SendMessageResult>(
         `/api/community/channels/${channelId}/messages`,
         {
           method: "POST",
-          body: JSON.stringify({ content, replyToId, mentionType, attachments, nonce }),
+          body: JSON.stringify({
+            content,
+            replyToId: replyTo?.id ?? replyToId,
+            mentionType,
+            attachments: attachmentIds,
+            nonce,
+          }),
         },
       )
     },
@@ -152,8 +257,7 @@ export function useSendMessage() {
         {
           type: "postAck",
           nonce: args.nonce,
-          serverMessageId: data.message.id,
-          serverSeq: data.message.seq,
+          message: projectPostedMessage(data.message, args.nonce),
         },
       )
     },
@@ -166,7 +270,10 @@ export type SendDmMessageArgs = {
   dmId: string
   content: string
   replyToId?: string
-  attachments?: { url: string; filename: string; contentType: string; size: number; width?: number; height?: number }[]
+  replyTo?: Msg["replyTo"]
+  // Reserve-by-id (see SendMessageArgs.attachments): id-bearing descriptors;
+  // only `id` reaches the server.
+  attachments?: { id: string; filename: string; contentType: string; size: number; width?: number; height?: number }[]
   nonce: string
 }
 
@@ -176,12 +283,18 @@ export function useSendDmMessage() {
     Error,
     SendDmMessageArgs
   >({
-    mutationFn: async ({ dmId, content, replyToId, attachments, nonce }) => {
+    mutationFn: async ({ dmId, content, replyToId, replyTo, attachments, nonce }) => {
+      const attachmentIds = attachments?.map((a) => a.id)
       return apiFetch<SendMessageResult>(
-        `/api/community/dm/${dmId}/messages`,
+        `/api/community/channels/${dmId}/messages`,
         {
           method: "POST",
-          body: JSON.stringify({ content, replyToId, attachments, nonce }),
+          body: JSON.stringify({
+            content,
+            replyToId: replyTo?.id ?? replyToId,
+            attachments: attachmentIds,
+            nonce,
+          }),
         },
       )
     },
@@ -211,8 +324,7 @@ export function useSendDmMessage() {
         {
           type: "postAck",
           nonce: args.nonce,
-          serverMessageId: data.message.id,
-          serverSeq: data.message.seq,
+          message: projectPostedMessage(data.message, args.nonce),
         },
       )
     },
@@ -469,7 +581,7 @@ export function useUnpinMessage() {
 //
 // mark ≠ pin: a pin is channel-scoped and shared; a mark is the viewer's own
 // private saved-messages set. So these hit a distinct per-user route
-// (`/api/community/marks`, self-scoped by ctx.userId server-side), never the
+// (`/api/community/messages/{id}/marks`, self-scoped by ctx.userId server-side), never the
 // pins route. The ⋯ menu's Mark/Unmark label is driven by `useMessageMarked`
 // (a lazy single-row read on menu-open); these mutations flip that per-message
 // cache optimistically so the label updates instantly, and prune the Marked
@@ -481,9 +593,11 @@ export function useMarkMessage() {
   const queryClient = useQueryClient()
   return useMutation<void, Error, MarkMessageArgs, { prev: MessageMarkedResponse | undefined }>({
     mutationFn: async ({ channelId, messageId }) => {
-      await apiFetch(`/api/community/marks`, {
-        method: "POST",
-        body: JSON.stringify({ channelId, messageId }),
+      // Message-keyed mark door (route/disc marks relocation): messageId in path,
+      // channelId in body (the membership + belongs-to-channel gate). PUT = mark.
+      await apiFetch(`/api/community/messages/${messageId}/marks`, {
+        method: "PUT",
+        body: JSON.stringify({ channelId }),
       })
     },
     onMutate: async ({ messageId }) => {
@@ -515,7 +629,7 @@ export function useUnmarkMessage() {
     prevList: MarkedResponse | undefined
   }>({
     mutationFn: async ({ messageId }) => {
-      await apiFetch(`/api/community/marks/${messageId}`, { method: "DELETE" })
+      await apiFetch(`/api/community/messages/${messageId}/marks`, { method: "DELETE" })
     },
     onMutate: async ({ messageId }) => {
       const markedKey = communityKeys.messageMarked(messageId)
@@ -581,9 +695,11 @@ export function useCreateThread() {
   const queryClient = useQueryClient()
   return useMutation<CreateThreadResult, Error, CreateThreadArgs>({
     mutationFn: async ({ messageId, name }) => {
+      // Unified create door (route/disc create-door step): POST /channels with
+      // {type:"thread", messageId, name} → get-or-create thread by root message.
       return apiFetch<CreateThreadResult>(
-        `/api/community/messages/${messageId}/threads`,
-        { method: "POST", body: JSON.stringify({ name }) },
+        `/api/community/channels`,
+        { method: "POST", body: JSON.stringify({ type: "thread", messageId, name }) },
       )
     },
     onSuccess: (data, args) => {
@@ -704,11 +820,11 @@ export type ScheduleMarkReadOpts = {
  * unique strings without a discriminated-union tag on `PendingRead`.
  */
 function resolveReadEndpoint(key: string): string {
-  if (key.startsWith("dm:")) {
-    const dmId = key.slice(3)
-    return `/api/community/dm/${dmId}/read`
-  }
-  return `/api/community/channels/${key}/read`
+  // DM and channel both resolve through the one canonical read door (a DM is a
+  // channel row in the same id-space); the `dm:` key prefix only strips to the
+  // channelId, no per-type URL fork.
+  const channelId = key.startsWith("dm:") ? key.slice(3) : key
+  return `/api/community/channels/${channelId}/read`
 }
 
 /**
@@ -857,11 +973,46 @@ export function useAdvanceChannelWatermark(): (
   }
 }
 
+// ── Read a forum opener from Inbox ──────────────────────────────────────
+
+export type ReadForumThreadFromInboxArgs = {
+  parentChannelId: string
+  openerMessageId: string
+}
+
+/**
+ * Immediate progressive read used only by an opener-backed Inbox row.
+ *
+ * Unlike viewport watermarks this is not debounced: the click starts the
+ * parent read and navigation immediately. There is deliberately no onMutate
+ * cache trim. Success refreshes Inbox/server aggregates; failure keeps the
+ * unread row and only reports the error.
+ */
+export function useReadForumThreadFromInbox() {
+  const queryClient = useQueryClient()
+  return useMutation<void, Error, ReadForumThreadFromInboxArgs>({
+    mutationFn: async ({ parentChannelId, openerMessageId }) => {
+      await apiFetch(`/api/community/channels/${parentChannelId}/read`, {
+        method: "PUT",
+        body: JSON.stringify({ lastReadMessageId: openerMessageId }),
+      })
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
+      void queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
+    },
+    onError: (error) => {
+      toastApiError(error, "Failed to mark forum post read")
+    },
+  })
+}
+
 // ── Advance DM watermark (progressive read) ───────────────────────────────
 
 /**
  * DM sibling of `useAdvanceChannelWatermark` — a thin wrapper that PUTs
- * `{ lastReadMessageId }` to `/api/community/dm/:id/read`. Same debounce
+ * `{ lastReadMessageId }` to `/api/community/channels/:id/read` (DM and
+ * channel share the one canonical read door). Same debounce
  * primitive underneath (`scheduleMarkRead`), keyed by `"dm:<dmId>"` so
  * DM and channel schedules never alias each other in the shared pending
  * map.
@@ -895,7 +1046,7 @@ export function useMarkDmRead() {
   const queryClient = useQueryClient()
   return useMutation<void, Error, MarkDmReadArgs, { snapshot: unknown } | undefined>({
     mutationFn: async ({ dmId }) => {
-      await apiFetch(`/api/community/dm/${dmId}/read`, { method: "PUT" })
+      await apiFetch(`/api/community/channels/${dmId}/read`, { method: "PUT" })
     },
     onMutate: async (args) => {
       const key = communityKeys.dms()
@@ -920,9 +1071,9 @@ export function useMarkAllInboxRead() {
   return useMutation<void, Error, void>({
     mutationFn: async () => {
       await Promise.all([
-        apiFetch("/api/community/inbox/mentions/read-all", { method: "POST" }),
-        apiFetch("/api/community/inbox/unreads/read-all", { method: "POST" }),
-        apiFetch("/api/community/inbox/dms/read-all", { method: "POST" }),
+        apiFetch("/api/community/users/me/inbox/mentions/read-all", { method: "POST" }),
+        apiFetch("/api/community/users/me/inbox/unreads/read-all", { method: "POST" }),
+        apiFetch("/api/community/users/me/inbox/dms/read-all", { method: "POST" }),
       ])
     },
     onMutate: async () => {
@@ -954,7 +1105,7 @@ export function useDeleteMention() {
   const queryClient = useQueryClient()
   return useMutation<void, Error, DeleteMentionArgs, { snapshot: unknown }>({
     mutationFn: async ({ mentionId }) => {
-      await apiFetch(`/api/community/inbox/mentions/${mentionId}`, { method: "DELETE" })
+      await apiFetch(`/api/community/users/me/inbox/mentions/${mentionId}`, { method: "DELETE" })
     },
     onMutate: async (args) => {
       const key = communityKeys.inboxMentions()

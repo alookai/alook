@@ -64,8 +64,8 @@ export function shouldDeliver(level: NotificationLevelValue, wasMentioned: boole
  * Fire-and-forget: absorbs all failures (the message already synced via
  * `MESSAGE_CREATE`; a level-resolution blip must never fail the send).
  *
- * @param channelId  the message's channel scope. Every scope (channel, thread,
- *   forum_post, AND dm) resolves its per-recipient level here — there is NO
+ * @param channelId  the message's channel scope. Every scope (channel, child
+ *   thread, AND dm) resolves its per-recipient level here — there is NO
  *   channelId-nullness bypass (main's DMs are channels with a channelId; a DM's
  *   level is self-contained and defaults to `all`, so routing it through the
  *   resolver both honors an explicit per-DM mute and never inherits a
@@ -87,7 +87,7 @@ export async function dispatchMessageNotify(
      * patches the right server tree/rail (inbox-dot-ws-driven). Undefined for
      * a DM (no server). From the caller's `target.serverId`, no extra query. */
     serverId?: string
-    /** Sidebar-locatable row = `parentChannelId ?? channelId` (thread/forum-post
+    /** Sidebar-locatable row = `parentChannelId ?? channelId` (child-thread
      * light the parent row). From the caller's target, no extra query. */
     railChannelId?: string
   },

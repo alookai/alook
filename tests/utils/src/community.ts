@@ -177,10 +177,10 @@ export interface SeededDm {
 }
 
 export async function seedDmViaApi(cookie: string, opts: { userId: string }): Promise<SeededDm> {
-  const res = await sessionRequest("/api/community/dm", cookie, {
+  const res = await sessionRequest("/api/community/channels", cookie, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ userId: opts.userId }),
+    body: JSON.stringify({ type: "dm", userId: opts.userId }),
   })
   if (!res.ok) throw new Error(`seedDmViaApi failed (${res.status})`)
   const data = (await res.json()) as { conversation: { id: string } }

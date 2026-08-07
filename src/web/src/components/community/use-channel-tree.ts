@@ -193,9 +193,6 @@ export function useChannelTree(categories: Category[]) {
   const renameCategory = useCallback((id: string, name: string) =>
     setCatNames((prev) => (prev[id] === name ? prev : { ...prev, [id]: name })), [])
 
-  const catPrivateRef = useRef(catPrivate)
-  catPrivateRef.current = catPrivate
-
   const onDragOver = useCallback((e: DragEndEvent) => {
     const { active, over } = e
     if (!over || isCat(String(active.id))) return // category drags handled on drop
@@ -206,12 +203,12 @@ export function useChannelTree(categories: Category[]) {
       // visibility would silently widen/tighten. Same-class cross-category
       // moves still follow the cursor. `onDragEnd` toasts on a blocked attempt.
       if (fromCat && toCat && fromCat !== toCat &&
-          !!catPrivateRef.current[fromCat] !== !!catPrivateRef.current[toCat]) {
+          !!catPrivate[fromCat] !== !!catPrivate[toCat]) {
         return prev
       }
       return moveChannelAcrossCategories(prev, String(active.id), String(over.id))
     })
-  }, [])
+  }, [catPrivate])
 
   const onDragEnd = useCallback((e: DragEndEvent) => {
     const { active, over } = e

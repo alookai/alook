@@ -72,6 +72,10 @@ function canonical(
   return message(id, seq, { clientNonce: nonce, authorName: "Canonical", ...extra })
 }
 
+function ack(nonce = "n1", id = "m1", seq = 11, extra: Partial<Msg> = {}): MessageOverlayEvent {
+  return { type: "postAck", nonce, message: canonical(id, seq, nonce, extra) }
+}
+
 describe("message stream monotonic visibility", () => {
   it("keeps a pending row when an anchor snapshot started first and resolves without it", () => {
     let state = submit(emptyMessageOverlay())
@@ -86,24 +90,24 @@ describe("message stream monotonic visibility", () => {
 
   it.each([
     ["ack → WS → stale snapshot", [
-      { type: "postAck", nonce: "n1", serverMessageId: "m1", serverSeq: 11 },
+      ack(),
       { type: "wsMessage", message: canonical() },
       { type: "baseChanged", messages: [message("older", 5)], latestSeq: 10 },
     ]],
     ["WS → ack → stale snapshot", [
       { type: "wsMessage", message: canonical() },
-      { type: "postAck", nonce: "n1", serverMessageId: "m1", serverSeq: 11 },
+      ack(),
       { type: "baseChanged", messages: [message("older", 5)], latestSeq: 10 },
     ]],
     ["stale snapshot → ack → delayed WS", [
       { type: "baseChanged", messages: [message("older", 5)], latestSeq: 10 },
-      { type: "postAck", nonce: "n1", serverMessageId: "m1", serverSeq: 11 },
+      ack(),
       { type: "wsMessage", message: canonical() },
     ]],
     ["WS → stale snapshot → ack", [
       { type: "wsMessage", message: canonical() },
       { type: "baseChanged", messages: [message("older", 5)], latestSeq: 10 },
-      { type: "postAck", nonce: "n1", serverMessageId: "m1", serverSeq: 11 },
+      ack(),
     ]],
   ] satisfies Array<[string, MessageOverlayEvent[]]>) (
     "%s always materializes exactly one canonical row",
@@ -123,6 +127,98 @@ describe("message stream monotonic visibility", () => {
 
     expect(ids([], state)).toEqual(["m1"])
     expect(state.liveById.size).toBe(1)
+  })
+
+  it("retains WS canonical rows when different authors reuse the same nonce", () => {
+    let state = apply(emptyMessageOverlay(), {
+      type: "wsMessage",
+      message: canonical("m1", 11, "same", { authorId: "u1" }),
+    }).state
+    state = apply(state, {
+      type: "wsMessage",
+      message: canonical("m2", 12, "same", { authorId: "u2" }),
+    }).state
+
+    expect(materializeMessageStream([], state).map(({ id, authorId }) => [id, authorId])).toEqual([
+      ["m1", "u1"],
+      ["m2", "u2"],
+    ])
+  })
+
+  it("retains GET base rows when different authors reuse the same nonce", () => {
+    const base = [
+      canonical("m1", 11, "same", { authorId: "u1" }),
+      canonical("m2", 12, "same", { authorId: "u2" }),
+    ]
+
+    expect(materializeMessageStream(base, emptyMessageOverlay()).map(({ id, authorId }) => [id, authorId])).toEqual([
+      ["m1", "u1"],
+      ["m2", "u2"],
+    ])
+  })
+
+  it("does not use srv-prefixed nonce values as canonical identity", () => {
+    let state = apply(emptyMessageOverlay(), {
+      type: "wsMessage",
+      message: canonical("m1", 11, "srv:fallback", { authorId: "u1" }),
+    }).state
+    state = apply(state, {
+      type: "wsMessage",
+      message: canonical("m2", 12, "srv:fallback", { authorId: "u1" }),
+    }).state
+    const base = [
+      canonical("m3", 13, "srv:fallback", { authorId: "u1" }),
+      canonical("m4", 14, "srv:fallback", { authorId: "u1" }),
+    ]
+
+    expect(ids([], state)).toEqual(["m1", "m2"])
+    expect(ids(base, emptyMessageOverlay())).toEqual(["m3", "m4"])
+  })
+
+  it("does not settle a viewer outbox intent from a peer WS row with the same nonce", () => {
+    let state = submit(emptyMessageOverlay(), intent("same", 1, {
+      message: { ...localMessage("mine"), authorId: "u1" },
+    }))
+    state = apply(state, {
+      type: "wsMessage",
+      message: canonical("m2", 12, "same", { authorId: "u2" }),
+    }).state
+
+    expect(state.outboxByNonce.has("same")).toBe(true)
+    expect(ids([], state)).toEqual(["m2", "temp_same"])
+  })
+
+  it("does not settle a viewer outbox intent from a peer base row with the same nonce", () => {
+    let state = submit(emptyMessageOverlay(), intent("same", 1, {
+      message: { ...localMessage("mine"), authorId: "u1" },
+    }))
+    const peer = canonical("m2", 12, "same", { authorId: "u2" })
+    state = apply(state, { type: "baseChanged", messages: [peer] }).state
+
+    expect(state.outboxByNonce.has("same")).toBe(true)
+    expect(ids([peer], state)).toEqual(["m2", "temp_same"])
+  })
+
+  it("retains server-id WS settlement when the canonical row omits the nonce", () => {
+    let state = submit(emptyMessageOverlay())
+    state = apply(state, ack()).state
+    state = apply(state, {
+      type: "wsMessage",
+      message: message("m1", 11, { authorId: "u1", authorName: "Canonical" }),
+    }).state
+
+    expect(state.outboxByNonce.size).toBe(0)
+    expect(ids([], state)).toEqual(["m1"])
+  })
+
+  it("retains server-id base settlement when the canonical row omits the nonce", () => {
+    let state = submit(emptyMessageOverlay())
+    state = apply(state, ack()).state
+    const base = [message("m1", 11, { authorId: "u1", authorName: "Canonical" })]
+    state = apply(state, { type: "baseChanged", messages: base }).state
+
+    expect(state.outboxByNonce.size).toBe(0)
+    expect(ids(base, state)).toEqual(["m1"])
   })
 
   it("materializes an outbox row synchronously when base/pages are absent", () => {
@@ -173,25 +269,47 @@ describe("message stream monotonic visibility", () => {
     expect(state.outboxByNonce.size).toBe(1)
     expect(state.outboxByNonce.get("n1")?.status).toBe("pending")
 
-    state = apply(state, {
-      type: "postAck",
-      nonce: "n1",
-      serverMessageId: "m1",
-      serverSeq: 11,
-    }).state
+    state = apply(state, ack()).state
     state = apply(state, { type: "wsMessage", message: canonical() }).state
     expect(ids([], state)).toEqual(["m1"])
     expect(state.outboxByNonce.size).toBe(0)
   })
 
+  it("merges the full POST canonical row into the intent while retaining optimistic reply and attachments", () => {
+    const replyTo = { id: "reply_1", authorName: "Reply Author", text: "preview" }
+    const attachments: Msg["attachments"] = [{ kind: "image", name: "image.png", url: "/local/image" }]
+    let state = submit(emptyMessageOverlay(), intent("n1", 1, {
+      message: { ...localMessage("optimistic"), replyTo, attachments },
+    }))
+
+    state = apply(state, ack("n1", "m1", 11, {
+      authorName: "Canonical Author",
+      authorAvatar: "canonical-avatar",
+      content: "canonical content",
+      createdAt: "2026-08-07T10:00:00.000Z",
+      embeds: [{ title: "Canonical embed" }],
+    })).state
+
+    expect(materializeMessageStream([], state)).toEqual([
+      expect.objectContaining({
+        id: "m1",
+        seq: 11,
+        authorName: "Canonical Author",
+        authorAvatar: "canonical-avatar",
+        content: "canonical content",
+        createdAt: "2026-08-07T10:00:00.000Z",
+        embeds: [{ title: "Canonical embed" }],
+        replyTo,
+        attachments,
+        clientNonce: "n1",
+        failed: false,
+      }),
+    ])
+  })
+
   it("does not treat latestSeq as proof that an anchor window contains the row", () => {
     let state = submit(emptyMessageOverlay())
-    state = apply(state, {
-      type: "postAck",
-      nonce: "n1",
-      serverMessageId: "m1",
-      serverSeq: 11,
-    }).state
+    state = apply(state, ack()).state
     state = apply(state, {
       type: "baseChanged",
       messages: [message("anchor", 50)],
@@ -204,12 +322,7 @@ describe("message stream monotonic visibility", () => {
 
   it("settles an exact base hit into a bounded fallback that survives later window omission", () => {
     let state = submit(emptyMessageOverlay())
-    state = apply(state, {
-      type: "postAck",
-      nonce: "n1",
-      serverMessageId: "m1",
-      serverSeq: 11,
-    }).state
+    state = apply(state, ack()).state
     state = apply(state, {
       type: "baseChanged",
       messages: [canonical("m1", 11, "n1", { content: "from base" })],
@@ -264,12 +377,7 @@ describe("message stream monotonic visibility", () => {
       "m10", "m20", "temp_n1", "temp_n2",
     ])
 
-    state = apply(state, {
-      type: "postAck",
-      nonce: "n2",
-      serverMessageId: "m15",
-      serverSeq: 15,
-    }).state
+    state = apply(state, ack("n2", "m15", 15)).state
     expect(ids([message("m20", 20), message("m10", 10)], state)).toEqual([
       "m10", "m15", "m20", "temp_n1",
     ])
@@ -293,6 +401,36 @@ describe("message stream monotonic visibility", () => {
     }).state
     expect(state.liveById.get("m1")?.content).toBe("refreshed")
     expect(state.outboxByNonce.has("n2")).toBe(true)
+  })
+
+  it("does not refresh a live row from a peer row with the same nonce", () => {
+    const state = apply(emptyMessageOverlay(), {
+      type: "wsMessage",
+      message: canonical("m1", 11, "same", { authorId: "u1", content: "original" }),
+    }).state
+    const transition = apply(state, {
+      type: "liveRefreshed",
+      message: canonical("m2", 12, "same", { authorId: "u2", content: "peer" }),
+    })
+
+    expect(transition.state).toBe(state)
+    expect(transition.state.liveById.get("m1")?.content).toBe("original")
+    expect(transition.state.liveById.has("m2")).toBe(false)
+  })
+
+  it("patches edited content across live and acknowledged outbox rows", () => {
+    let state = submit(emptyMessageOverlay(), intent("n1", 1))
+    state = apply(state, ack()).state
+    state = apply(state, {
+      type: "wsMessage",
+      message: canonical("m2", 12, "n2", { content: "before" }),
+    }).state
+
+    state = apply(state, { type: "messageEdited", messageId: "m1", content: "outbox edit" }).state
+    state = apply(state, { type: "messageEdited", messageId: "m2", content: "live edit" }).state
+
+    expect(state.outboxByNonce.get("n1")?.message.content).toBe("outbox edit")
+    expect(state.liveById.get("m2")?.content).toBe("live edit")
   })
 
   it("bounds canonical live deltas to the existing 500-row live-tail scale", () => {
@@ -348,12 +486,7 @@ describe("attachment ownership effects", () => {
       nonce: "files",
       attachments: [{ kind: "file", name: "notes.txt", url: "/media/notes", size: "1 KB" }],
     }).state
-    const acked = apply(state, {
-      type: "postAck",
-      nonce: "files",
-      serverMessageId: "mf",
-      serverSeq: 20,
-    })
+    const acked = apply(state, ack("files", "mf", 20))
     expect(acked.effects).toEqual([
       { type: "revokeObjectUrl", url: "blob:a" },
       { type: "revokeObjectUrl", url: "blob:b" },
@@ -387,12 +520,7 @@ describe("attachment ownership effects", () => {
       { type: "revokeObjectUrl", url: "blob:a" },
       { type: "revokeObjectUrl", url: "blob:b" },
     ])
-    const lateAck = apply(ws.state, {
-      type: "postAck",
-      nonce: "files",
-      serverMessageId: "mf",
-      serverSeq: 20,
-    })
+    const lateAck = apply(ws.state, ack("files", "mf", 20))
     expect(lateAck.effects).toEqual([])
   })
 
@@ -430,12 +558,7 @@ describe("attachment ownership effects", () => {
 
   it("emits cleanup exactly once for canonical base absorption and clear", () => {
     const state = submit(emptyMessageOverlay(), attachedIntent())
-    const acked = apply(state, {
-      type: "postAck",
-      nonce: "files",
-      serverMessageId: "mf",
-      serverSeq: 20,
-    })
+    const acked = apply(state, ack("files", "mf", 20))
     expect(acked.effects).toHaveLength(2)
     const absorbed = apply(acked.state, { type: "baseChanged", messages: [canonical("mf", 20, "files")] })
     expect(absorbed.effects).toEqual([])

@@ -34,7 +34,7 @@ type Dialog =
 // right-click) creates; channels right-click to edit/delete. A private category only
 // lets admins create channels — non-admins are blocked via onBlockedCreate.
 export const ChannelSidebar = memo(function ChannelSidebar({
-  tree, serverName, serverIcon, activeChannel, setActiveChannel, noHeader, onOpenSettings,
+  tree, serverName, activeChannel, setActiveChannel, noHeader, onOpenSettings,
   isAdmin = true, currentUserId, onBlockedCreate, mutedChannels, loading,
   onCreateChannel, onCreateCategory, onDeleteChannel, onDeleteCategory,
   onUpdateCategory, onRenameChannel, onReorderCategories, onReorderChannels,
@@ -329,6 +329,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
       )}
       {dialog?.kind === "manage-members" && serverId && (
         <ChannelAddMembersDialog
+          serverId={serverId}
           channelId={dialog.channelId}
           channelName={dialog.channelName}
           onClose={() => setDialog(null)}

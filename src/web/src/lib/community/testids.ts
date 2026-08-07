@@ -30,13 +30,13 @@ export const tid = {
   messageShareCopy: `community-message-share-copy`,
   threadIndicator: (msgId: string) => `community-thread-indicator-${msgId}`,
   railUnreadBadge: (serverId: string) => `community-rail-unread-badge-${serverId}`,
-  // Forum post feed (ForumView). `forumPostCard` is the whole clickable card;
-  // `forumPostTagBtn` is the hover-revealed tag-edit icon; `forumPostDeleteBtn`
-  // is the hover-revealed delete icon; `forumPostAvatars` wraps the participant
+  // Forum post feed (ForumView). `forumThreadCard` is the whole clickable card;
+  // `forumThreadTagBtn` is the hover-revealed tag-edit icon; `forumThreadDeleteBtn`
+  // is the hover-revealed delete icon; `forumThreadAvatars` wraps the participant
   // AvatarGroup; `forumTagChip` is a filter-bar tag chip.
-  forumPostCard: (id: string) => `community-forum-post-${id}`,
-  forumPostTagBtn: (id: string) => `community-forum-post-tag-btn-${id}`,
-  forumPostDeleteBtn: (id: string) => `community-forum-post-delete-btn-${id}`,
-  forumPostAvatars: (id: string) => `community-forum-post-avatars-${id}`,
+  forumThreadCard: (id: string) => `community-forum-post-${id}`,
+  forumThreadTagBtn: (id: string) => `community-forum-post-tag-btn-${id}`,
+  forumThreadDeleteBtn: (id: string) => `community-forum-post-delete-btn-${id}`,
+  forumThreadAvatars: (id: string) => `community-forum-post-avatars-${id}`,
   forumTagChip: (tag: string) => `community-forum-tag-chip-${tag}`,
 } as const
