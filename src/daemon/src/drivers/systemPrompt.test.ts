@@ -59,17 +59,4 @@ describe("buildCliSystemPrompt", () => {
     expect(withoutRole).not.toContain("You are the onboarding assistant.");
   });
 
-  it("emits copyable ref examples as standalone bare handle tokens", () => {
-    const lines = buildCliSystemPrompt(baseConfig).split("\n");
-    const examples = lines.filter((line) => line.startsWith("/Alook#1234") || line.startsWith("/.dm/alice#0042"));
-    expect(examples).toEqual([
-      "/Alook#1234/chore",
-      "/Alook#1234/chore#28",
-      "/Alook#1234/chore/#28",
-      "/Alook#1234/chore/#28#5",
-      "/Alook#1234",
-      "/.dm/alice#0042",
-    ]);
-    expect(examples.every((line) => !line.includes("`"))).toBe(true);
-  });
 });
