@@ -21,12 +21,12 @@ export function buildChannelRouteModel(
 ) {
   const channels = server?.categories?.flatMap((category) => category.channels) ?? []
   const channel = channels.find((candidate) => candidate.id === channelId) ?? null
-  const parent = currentChannelMeta?.parentChannelId
-    ? channels.find((candidate) => candidate.id === currentChannelMeta.parentChannelId) ?? null
-    : null
   const isChild = !channel && !!server?.categories
   const metaSettled = !isChild || (metaState?.channelId === channelId && metaState.settled)
   const channelMeta = !isChild || metaState?.channelId === channelId ? currentChannelMeta : null
+  const parent = channelMeta?.parentChannelId
+    ? channels.find((candidate) => candidate.id === channelMeta.parentChannelId) ?? null
+    : null
   return {
     server,
     channel,

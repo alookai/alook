@@ -36,7 +36,17 @@ describe("buildChannelRouteModel", () => {
     const stale = { name: "A", parentChannelId: "forum1", parentMessageId: "m1", creatorId: "u1" }
     const model = buildChannelRouteModel(server, stale, "post-b", { channelId: "post-a", settled: true })
     expect(model.currentChannelMeta).toBeNull()
+    expect(model.parent).toBeNull()
+    expect(model.isForumPostChild).toBe(false)
     expect(model.metaSettled).toBe(false)
     expect(model.routeHydrated).toBe(false)
+  })
+
+  it("derives the child subtype only after that child's metadata settles", () => {
+    const meta = { name: "B", parentChannelId: "forum1", parentMessageId: "m2", creatorId: "u2" }
+    const model = buildChannelRouteModel(server, meta, "post-b", { channelId: "post-b", settled: true })
+    expect(model.parent?.id).toBe("forum1")
+    expect(model.isForumPostChild).toBe(true)
+    expect(model.routeHydrated).toBe(true)
   })
 })
