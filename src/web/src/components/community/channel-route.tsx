@@ -10,6 +10,7 @@ import { MessageList } from "@/components/community/message-list"
 import { Composer, ComposerSkeleton, type SendAttachment } from "@/components/community/composer"
 import { ForumViewSkeleton } from "@/components/community/forum-view"
 import { ForumSurface } from "@/components/community/forum-surface"
+import { TextChannelSurface } from "@/components/community/text-channel-surface"
 import { ChannelShell } from "@/components/community/channel-shell"
 import type { NewForumThread } from "@/components/community/create-forum-thread"
 import { CommunityPanelSheet } from "@/components/community/community-panel-sheet"
@@ -37,15 +38,8 @@ import { useChannelRouteModel } from "@/hooks/community/use-channel-route-model"
 import { useServerMembers } from "@/hooks/community/use-server-members"
 import { useChannelMembers, useAddableMembers, useAddChannelMember, useRemoveChannelMember } from "@/hooks/community/use-channel-members"
 import { useAddThreadParticipant, useRemoveThreadParticipant } from "@/hooks/community/use-thread-participants"
-import { useMessages } from "@/hooks/community/use-messages"
 import { useMessage } from "@/hooks/community/use-message"
-import { useChannelReadStateSnapshot } from "@/hooks/community/use-channel-read-state"
-import { useChannelWatermark } from "@/hooks/community/use-channel-watermark"
-import { useEagerChannelRead } from "@/hooks/community/use-eager-channel-read"
-import {
-  useThreads,
-  usePins,
-} from "@/hooks/community/use-channel-panels"
+import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
 import { useOnlineUserIds, useCommunityWsStore } from "@/stores/community/ws"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
@@ -301,24 +295,11 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
       serverName: currentServer?.name ?? "",
     }))
   }, [currentServer, serverId])
-  const readStateSnapshot = useChannelReadStateSnapshot(isForum ? null : channelId)
-
-  // Frozen-once snapshot of the viewer's read pointer for this channel — the
-  // anchor for the "New" divider AND the mount-time initial scroll target.
-  // The value NEVER changes during the mount even as the watermark advances.
-  const readSnapshot = readStateSnapshot.snapshot
-  const readSnapshotFetching = readStateSnapshot.isFetching
-
-  // Anchor the initial page on the read pointer so an unread-heavy channel
-  // opens with a centered window instead of the newest 50. Pass `undefined`
-  // while the pointer is still resolving — the hook stays disabled until
-  // the value settles (a bare `null` would fall back to newest-mode too
-  // early).
-  const messagesQuery = useMessages(isForum ? null : channelId, {
+  const messageFeed = useChannelMessageFeed({
+    channelId: isChildChannel ? channelId : null,
     serverId,
-    lastReadMessageId: readSnapshotFetching
-      ? undefined
-      : (readSnapshot?.lastReadMessageId ?? null),
+    viewerUserId: currentUser.id,
+    isChildChannel,
     anchorMessageId: jumpTargetId,
   })
   const {
@@ -332,92 +313,17 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
     fetchNewer: fetchNewerMessages,
     jumpToPresent,
     latestSeq,
-  } = messagesQuery
-
-  // The message immediately after the viewer's `lastReadMessageId` inside the
-  // current window. id-first: the invariant guarantees
-  // `getMessage(lastReadMessageId).createdAt === lastReadAt`, so we only need
-  // the id to find the anchor. `idx === -1` means the last-read message has
-  // scrolled off the top of the fetched window — no divider is shown.
-  //
-  // Skip past runs of viewer-authored messages. The frozen client snapshot
-  // doesn't move mid-mount, but the server DOES advance the sender's own
-  // watermark on every send (see `createMessage` in
-  // `src/shared/src/db/queries/community/message.ts`) — so without this
-  // walk, the divider anchors above the viewer's OWN just-sent message,
-  // which is never "unread" from the sender's perspective.
-  // `anchorFound` and `newDividerBefore` MUST be computed inside the same
-  // memo — they used to be two independently-evaluated expressions (a
-  // `.findIndex` here, a separate `.some` in `anchorInCache` below) that
-  // read the same `messages`/`readSnapshot` inputs but weren't guaranteed to
-  // agree on every commit. A real (Playwright-verified) repro showed `mount`
-  // firing on a frame where the anchor's presence check passed but this
-  // walk hadn't "caught up" yet, burning the one-shot scroll gate with
-  // `newDividerBefore: undefined` and permanently missing the divider.
-  // Deriving both from one loop makes that class of disagreement impossible.
-  const { newDividerBefore, anchorFound } = useMemo(() => {
-    if (!readSnapshot) return { newDividerBefore: undefined, anchorFound: false }
-    const lastId = readSnapshot.lastReadMessageId
-    // First-visit case (viewer never read this channel): anchor the
-    // divider on the first non-self message so users landing from
-    // inbox / rail see "here's what you missed" instead of the bottom.
-    // Mirrors the DM view for parity. No anchor id to find — trivially "in
-    // cache".
-    if (!lastId) {
-      for (const m of messages) {
-        if (m.authorId !== currentUser.id) return { newDividerBefore: m.id, anchorFound: true }
-      }
-      return { newDividerBefore: undefined, anchorFound: true }
-    }
-    const idx = messages.findIndex((m) => m.id === lastId)
-    if (idx === -1) return { newDividerBefore: undefined, anchorFound: false }
-    for (let i = idx + 1; i < messages.length; i++) {
-      if (messages[i].authorId !== currentUser.id) return { newDividerBefore: messages[i].id, anchorFound: true }
-    }
-    return { newDividerBefore: undefined, anchorFound: true }
-  }, [messages, readSnapshot, currentUser.id])
-
-  // Gates `<MessageList>`'s mount-time scroll action until the anchor
-  // (`readSnapshot.lastReadMessageId`) is actually present in the loaded
-  // `messages` — not just until the read-state fetch settles. Without this,
-  // a stale IDB-hydrated cache (or a same-session anchor drift, e.g.
-  // returning from a thread after the watermark advanced) can win the race
-  // against `useMessages`' Fix 3 re-validation: `useScrollAnchor`'s mount
-  // effect (a `useLayoutEffect`) runs before Fix 3's plain `useEffect` can
-  // reset the query, burns its one-shot gate on the wrong window, and never
-  // re-fires once the correct data arrives.
-  const anchorInCache = anchorFound
-
-  // Scroll root of the message list — needed so `useChannelWatermark`'s
-  // IntersectionObserver measures against the correct viewport instead of
-  // the page's default viewport. Set once by `MessageList` via
-  // `onScrollRoot`.
-  const [scrollRootEl, setScrollRootEl] = useState<HTMLDivElement | null>(null)
-  useChannelWatermark({ channelId: isForum ? null : channelId, messages, scrollRootEl })
-
-  // Eager mark-read on open — clears this channel/thread from the inbox the
-  // moment it's opened, while the frozen `readSnapshot` above keeps the "New"
-  // divider anchored to the pre-open pointer. Gated on the snapshot having
-  // settled (fetching done; `null` = never-visited is a valid resolved state).
-  useEagerChannelRead({
-    channelId: isForum ? null : channelId,
-    serverId,
-    isChildChannel,
-    snapshotReady: !readSnapshotFetching,
-  })
-
-  // `↓ N` unread count for the anchor-window path — server truth
-  // (`latestSeq - viewerLastReadSeq`). Clamped to 0 in case the read
-  // pointer somehow overshot latestSeq (e.g. a bot updated latestSeq
-  // between the two fetches).
-  const unreadCount = useMemo(() => {
-    const seenSeq = readSnapshot?.lastReadSeq ?? 0
-    const diff = latestSeq - seenSeq
-    return diff > 0 ? diff : 0
-  }, [latestSeq, readSnapshot])
-
-  const { threads, isLoading: threadsLoading } = useThreads(isForum ? null : channelId)
-  const { pins: pinned, isLoading: pinnedLoading } = usePins(isForum ? null : channelId)
+    readSnapshot,
+    readSnapshotFetching,
+    newDividerBefore,
+    anchorInCache,
+    unreadCount,
+    setScrollRootEl,
+    threads,
+    threadsLoading,
+    pinned,
+    pinnedLoading,
+  } = messageFeed
   const notifs = useNotificationSettings()
   const channelNotif = notifs.channel
   const typingUsers = useTypingUsersForScope(`ch:${channelId}`)
@@ -824,6 +730,17 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
     () => ({ ...messageActions, onCreateThread: undefined }),
     [messageActions],
   )
+  const syncTextController = useCallback((controller: Parameters<NonNullable<React.ComponentProps<typeof TextChannelSurface>["onController"]>>[0]) => {
+    // Latest-ref synchronization runs from TextChannelSurface's layout effect,
+    // never during this component's render.
+    // eslint-disable-next-line react-hooks/immutability
+    actionsCtxRef.current = {
+      messages: controller.messages,
+      pinnedIds: new Set(controller.pinned.map((message) => message.id)),
+      channelName,
+      uiHandlers,
+    }
+  }, [channelName, uiHandlers])
 
   // Reference-stable across renders. MUST depend on the RAW roster
   // (`membersHook.members`), NOT the presence-enriched `members` (line ~110):
@@ -1008,7 +925,7 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
 
   // ForumSurface owns its feed loading state. Channel hydration only waits on
   // the text/thread message controller for non-forum surfaces.
-  const bodyLoading = isForum ? false : messagesLoading
+  const bodyLoading = isChildChannel ? messagesLoading : false
   const channelHydrated =
     currentChannelId === channelId &&
     routeModel.routeHydrated &&
@@ -1257,6 +1174,16 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
 
   // ── Standard channel view ───────────────────────────────────────────────
   return (
+    <TextChannelSurface
+      channelId={channelId}
+      serverId={serverId}
+      viewerUserId={currentUser.id}
+      anchorMessageId={jumpTargetId}
+      onController={syncTextController}
+    >
+      {(textFeed) => {
+        const textPinnedIds = new Set(textFeed.pinned.map((message) => message.id))
+        return (
     <ChannelShell
       header={<ChannelHeader
         channel={channelName}
@@ -1275,31 +1202,31 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
           // and internal refs (didInitialScrollRef, lastTailIdRef) reset.
           key={channelId}
           channel={channelName}
-          messages={messages}
-          loading={messagesLoading}
-          pinnedIds={pinnedIds}
-          newDividerBefore={newDividerBefore}
+          messages={textFeed.messages}
+          loading={textFeed.isLoading}
+          pinnedIds={textPinnedIds}
+          newDividerBefore={textFeed.newDividerBefore}
           typingUsers={typingUsers.map((id) => typingNames[id] ?? resolveUserName(id))}
           onOpenThread={enterThread}
           {...messageActions}
           onOpenProfile={openProfile}
           resolveUserName={resolveUserName}
           scrollToMessageId={scrollToMessageId}
-          onScrollRoot={setScrollRootEl}
+          onScrollRoot={textFeed.setScrollRootEl}
           viewerUserId={currentUser.id}
           // Delay initial scroll until the read-state snapshot resolves AND
           // the anchor it names is actually present in `messages` — see
           // `anchorInCache`'s doc comment above for the mount-vs-Fix-3 race
           // this closes.
-          initialScrollReady={!readSnapshotFetching && anchorInCache}
-          hasMore={hasMoreMessages}
-          isFetchingOlder={isFetchingOlderMessages}
-          onLoadOlder={fetchOlderMessages}
-          hasMoreNewer={hasMoreNewerMessages}
-          isFetchingNewer={isFetchingNewerMessages}
-          onLoadNewer={fetchNewerMessages}
-          onJumpToPresent={jumpToPresent}
-          unreadCount={unreadCount}
+          initialScrollReady={!textFeed.readSnapshotFetching && textFeed.anchorInCache}
+          hasMore={textFeed.hasMoreOlder}
+          isFetchingOlder={textFeed.isFetchingOlder}
+          onLoadOlder={textFeed.fetchOlder}
+          hasMoreNewer={textFeed.hasMoreNewer}
+          isFetchingNewer={textFeed.isFetchingNewer}
+          onLoadNewer={textFeed.fetchNewer}
+          onJumpToPresent={textFeed.jumpToPresent}
+          unreadCount={textFeed.unreadCount}
           onOpenContextSheet={openContextSeq}
         />
         <div data-onboarding-target="channel-composer" className="shrink-0">
@@ -1325,6 +1252,10 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
           onOpenChange={(v) => { if (!v) setRightPanel(null) }}
           kind={rightPanel}
           {...panelProps}
+          pinned={textFeed.pinned}
+          pinnedLoading={textFeed.pinnedLoading}
+          threads={textFeed.threads}
+          threadsLoading={textFeed.threadsLoading}
           onOpenProfile={openProfile}
         />
       )}
@@ -1334,12 +1265,15 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
         channelId={contextTarget?.channelId ?? channelId}
         channelLabel={contextTarget?.label}
         targetSeq={contextTarget?.seq ?? null}
-        pinnedIds={pinnedIds}
+        pinnedIds={textPinnedIds}
         onOpenContextSheet={openContextSeq}
         onOpenProfile={openProfile}
         resolveUserName={resolveUserName}
         onReply={onSheetReply}
       /></>}
     />
+        )
+      }}
+    </TextChannelSurface>
   )
 }
