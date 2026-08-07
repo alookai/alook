@@ -40,6 +40,7 @@ export async function loginAndSaveState(
     }
     const me = (await meRes.json()) as { userId: string }
 
+    await context.clearCookies({ name: /^(?:is_new_signup|is_sign_in)$/ })
     await context.storageState({ path: storageStatePath })
     return { key, email, name, userId: me.userId, storageState: storageStatePath }
   } finally {
