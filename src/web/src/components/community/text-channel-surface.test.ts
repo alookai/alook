@@ -30,7 +30,10 @@ function renderSurface(targetId = "m_target") {
       viewerUserId: "viewer_1",
       anchorMessageId: targetId,
     },
-    (controller) => React.createElement("div", { "data-scroll-target": controller.scrollTargetId }),
+    (controller) => React.createElement("div", {
+      "data-scroll-target": controller.scrollTargetId,
+      onClick: () => controller.consumeScrollTarget("m_target"),
+    }),
   )
 }
 
@@ -55,7 +58,7 @@ describe("TextChannelSurface scroll target ownership", () => {
     expect(renderer!.root.findByType("div").props["data-scroll-target"]).toBe("m_target")
   })
 
-  it("keeps the target through anchor arrival and clears it after 1600ms", () => {
+  it("keeps a loaded target until MessageList reports consumption", () => {
     mockedUseChannelMessageFeed.mockReturnValue(feed({
       messages: [{ id: "m_target" }],
     }))
@@ -66,9 +69,9 @@ describe("TextChannelSurface scroll target ownership", () => {
     })
 
     expect(renderer!.root.findByType("div").props["data-scroll-target"]).toBe("m_target")
-    act(() => vi.advanceTimersByTime(1599))
+    act(() => vi.advanceTimersByTime(5000))
     expect(renderer!.root.findByType("div").props["data-scroll-target"]).toBe("m_target")
-    act(() => vi.advanceTimersByTime(1))
+    act(() => renderer!.root.findByType("div").props.onClick())
     expect(renderer!.root.findByType("div").props["data-scroll-target"]).toBeNull()
   })
 
@@ -83,7 +86,7 @@ describe("TextChannelSurface scroll target ownership", () => {
     expect(renderer!.root.findByType("div").props["data-scroll-target"]).toBeNull()
   })
 
-  it("cancels a pending clear when the surface unmounts", () => {
+  it("does not start a visual highlight timer for a loaded target", () => {
     mockedUseChannelMessageFeed.mockReturnValue(feed({
       messages: [{ id: "m_target" }],
     }))
@@ -92,10 +95,7 @@ describe("TextChannelSurface scroll target ownership", () => {
     act(() => {
       renderer = TestRenderer.create(renderSurface())
     })
-    act(() => {
-      renderer!.unmount()
-    })
-
     expect(vi.getTimerCount()).toBe(0)
+    act(() => renderer!.unmount())
   })
 })

@@ -1,11 +1,12 @@
 "use client"
 
-import { useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
 
 export type TextChannelController = ReturnType<typeof useChannelMessageFeed> & {
   scrollTargetId: string | null
   setScrollTargetId: (targetId: string | null) => void
+  consumeScrollTarget: (targetId: string) => void
 }
 
 export function TextChannelSurface({
@@ -31,21 +32,19 @@ export function TextChannelSurface({
     anchorMessageId,
   })
   const [scrollTargetId, setScrollTargetId] = useState<string | null>(anchorMessageId)
+  const consumeScrollTarget = useCallback((targetId: string) => {
+    setScrollTargetId((current) => (current === targetId ? null : current))
+  }, [])
   const controller = useMemo(
-    () => ({ ...feed, scrollTargetId, setScrollTargetId }),
-    [feed, scrollTargetId],
+    () => ({ ...feed, scrollTargetId, setScrollTargetId, consumeScrollTarget }),
+    [feed, scrollTargetId, consumeScrollTarget],
   )
   useLayoutEffect(() => {
     onController?.(controller)
   }, [controller, onController])
   useEffect(() => {
     if (!scrollTargetId) return
-    if (feed.messages.some((message) => message.id === scrollTargetId)) {
-      const timeout = setTimeout(() => {
-        setScrollTargetId((current) => (current === scrollTargetId ? null : current))
-      }, 1600)
-      return () => clearTimeout(timeout)
-    }
+    if (feed.messages.some((message) => message.id === scrollTargetId)) return
     if (!feed.isLoading && !feed.isFetchingOlder && !feed.isFetchingNewer) {
       setScrollTargetId((current) => (current === scrollTargetId ? null : current))
     }

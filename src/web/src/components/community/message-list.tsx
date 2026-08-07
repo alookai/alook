@@ -25,6 +25,7 @@ export function MessageList({
   onToggleReaction, onReact,
   onReply, onPin, onMark, onCreateThread, onCopy, onEdit, onRetry, onDismiss, onPreviewImage, onDownloadFile,
   resolveUserName, scrollToMessageId, hero, variant = "channel", onScrollRoot, viewerUserId, initialScrollReady = true,
+  onScrollTargetConsumed,
   hasMore, isFetchingOlder, onLoadOlder,
   hasMoreNewer, isFetchingNewer, onLoadNewer, onJumpToPresent, unreadCount, onOpenContextSheet,
 }: {
@@ -74,6 +75,7 @@ export function MessageList({
   // stale `newDividerBefore = undefined` and snaps to bottom before the
   // anchor is known.
   initialScrollReady?: boolean
+  onScrollTargetConsumed?: (id: string) => void
   // Reverse-infinite scroll. When `hasMore` is true a top sentinel is
   // rendered; when it enters the viewport (via IntersectionObserver on the
   // scroll root) `onLoadOlder()` fires. The prepended rows are scroll-
@@ -110,6 +112,9 @@ export function MessageList({
   // ticks, presence updates, etc.) doesn't re-walk the full message list
   // every time.
   const items = useMemo(() => flattenMessageItems(messages, newDividerBefore, !!hasMore), [messages, newDividerBefore, hasMore])
+  const scrollTargetLoaded = !!scrollToMessageId
+    && messages.some((message) => message.id === scrollToMessageId)
+  const scrollAnchorReady = scrollToMessageId ? scrollTargetLoaded : initialScrollReady
 
   // ── Multi-message "share as image" (Gus uiux #128/#142) ──────────────────
   // Clicking Share on a row enters select mode with that row pre-selected; more
@@ -216,7 +221,7 @@ export function MessageList({
   const { scrollRef, virtualizer, belowCount, scrollToBottom, jumpTo: jumpToIndex, onImageLoad } = useScrollAnchor({
     items,
     newDividerBefore,
-    initialScrollReady,
+    initialScrollReady: scrollAnchorReady,
     hasMoreNewer,
     viewerUserId,
     heroHeight,
@@ -285,11 +290,49 @@ export function MessageList({
   // this is a documented no-op — same limitation the old DOM lookup had (it
   // also required the row to be loaded, just not further required it to be
   // within the virtualization window).
-  const jumpTo = useCallback((id: string) => {
+  const jumpClearTimerRef = useRef<number | null>(null)
+  const jumpVisibilityFrameRef = useRef<number | null>(null)
+  const jumpTo = useCallback((id: string, behavior: ScrollBehavior = "smooth") => {
+    if (jumpClearTimerRef.current !== null) clearTimeout(jumpClearTimerRef.current)
+    if (jumpVisibilityFrameRef.current !== null) window.cancelAnimationFrame(jumpVisibilityFrameRef.current)
     setJumped(id)
-    jumpToIndex(id)
-    window.setTimeout(() => setJumped((v) => (v === id ? null : v)), 1600)
-  }, [jumpToIndex])
+    jumpToIndex(id, behavior)
+    let attempts = 0
+    const armClear = () => {
+      jumpVisibilityFrameRef.current = null
+      const timeout = window.setTimeout(() => {
+        setJumped((v) => (v === id ? null : v))
+        if (jumpClearTimerRef.current === timeout) jumpClearTimerRef.current = null
+      }, 1600)
+      jumpClearTimerRef.current = timeout
+    }
+    const waitUntilVisible = () => {
+      const root = scrollRef.current
+      const row = root
+        ? Array.from(root.querySelectorAll<HTMLElement>("[data-msg-id]"))
+          .find((element) => element.dataset.msgId === id)
+        : undefined
+      if (root && row) {
+        const rootRect = root.getBoundingClientRect()
+        const rowRect = row.getBoundingClientRect()
+        if (rowRect.bottom > rootRect.top && rowRect.top < rootRect.bottom) {
+          armClear()
+          return
+        }
+      }
+      attempts += 1
+      if (attempts >= 120) {
+        armClear()
+        return
+      }
+      jumpVisibilityFrameRef.current = window.requestAnimationFrame(waitUntilVisible)
+    }
+    jumpVisibilityFrameRef.current = window.requestAnimationFrame(waitUntilVisible)
+  }, [jumpToIndex, scrollRef])
+  useEffect(() => () => {
+    if (jumpClearTimerRef.current !== null) clearTimeout(jumpClearTimerRef.current)
+    if (jumpVisibilityFrameRef.current !== null) window.cancelAnimationFrame(jumpVisibilityFrameRef.current)
+  }, [])
 
   const consumedScrollTargetRef = useRef<string | null>(null)
   useEffect(() => {
@@ -298,11 +341,17 @@ export function MessageList({
       return
     }
     if (consumedScrollTargetRef.current === scrollToMessageId) return
-    if (!messages.some((message) => message.id === scrollToMessageId)) return
-    if (!initialScrollReady || !heroMeasured) return
+    if (!scrollTargetLoaded || !heroMeasured) return
     consumedScrollTargetRef.current = scrollToMessageId
-    jumpTo(scrollToMessageId)
-  }, [scrollToMessageId, messages, initialScrollReady, heroMeasured, jumpTo])
+    jumpTo(scrollToMessageId, "auto")
+    onScrollTargetConsumed?.(scrollToMessageId)
+  }, [
+    scrollToMessageId,
+    scrollTargetLoaded,
+    heroMeasured,
+    jumpTo,
+    onScrollTargetConsumed,
+  ])
 
   // ↓ N pill precedence:
   //   - When there are messages the client hasn't fetched yet

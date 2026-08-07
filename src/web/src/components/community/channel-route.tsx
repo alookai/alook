@@ -1221,6 +1221,7 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
           // `anchorInCache`'s doc comment above for the mount-vs-Fix-3 race
           // this closes.
           initialScrollReady={!textFeed.readSnapshotFetching && textFeed.anchorInCache}
+          onScrollTargetConsumed={textFeed.consumeScrollTarget}
           hasMore={textFeed.hasMoreOlder}
           isFetchingOlder={textFeed.isFetchingOlder}
           onLoadOlder={textFeed.fetchOlder}

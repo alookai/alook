@@ -173,7 +173,7 @@ describe("ChannelRoute top-level text scroll target ownership", () => {
     vi.clearAllMocks()
   })
 
-  it("keeps the route anchor on MessageList until the surface feed lands it", () => {
+  it("keeps the route anchor until MessageList reports a successful jump", () => {
     let surfaceFeed = feed({ isLoading: true })
     mockedUseChannelMessageFeed.mockImplementation(({ channelId }) =>
       channelId === null ? feed() : surfaceFeed,
@@ -196,7 +196,9 @@ describe("ChannelRoute top-level text scroll target ownership", () => {
     })
 
     expect(mockedMessageList.mock.calls.at(-1)?.[0].scrollToMessageId).toBe("m_target")
-    act(() => vi.advanceTimersByTime(1600))
+    act(() => vi.advanceTimersByTime(5000))
+    expect(mockedMessageList.mock.calls.at(-1)?.[0].scrollToMessageId).toBe("m_target")
+    act(() => mockedMessageList.mock.calls.at(-1)?.[0].onScrollTargetConsumed?.("m_target"))
     expect(mockedMessageList.mock.calls.at(-1)?.[0].scrollToMessageId).toBeNull()
   })
 })

@@ -6,9 +6,11 @@ import { MessageList } from "./message-list"
 const mocks = vi.hoisted(() => {
   const scrollToIndex = vi.fn()
   const scrollToEnd = vi.fn()
+  const onScrollTargetConsumed = vi.fn()
   return {
     scrollToIndex,
     scrollToEnd,
+    onScrollTargetConsumed,
     virtualizer: {
       scrollToIndex,
       scrollToEnd,
@@ -52,6 +54,13 @@ const unrelated = {
   content: "Other",
 }
 
+const newer = {
+  ...target,
+  id: "m_newer",
+  content: "Newer",
+  createdAt: new Date(1).toISOString(),
+}
+
 function render(
   messages: typeof target[],
   scrollToMessageId: string | null,
@@ -65,11 +74,28 @@ function render(
     initialScrollReady,
     hasMoreNewer: true,
     scrollToMessageId,
+    onScrollTargetConsumed: mocks.onScrollTargetConsumed,
     onOpenThread: vi.fn(),
   })
 }
 
-function createNodeMock() {
+const visibleTargetNode = {
+  dataset: { msgId: "m_target" },
+  getBoundingClientRect: () => ({ top: 300, bottom: 400 }),
+}
+
+function createNodeMock(element: { props?: { className?: string } }) {
+  if (element.props?.className?.includes("thin-scrollbar")) {
+    return {
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      offsetHeight: 48,
+      clientHeight: 800,
+      scrollTop: 0,
+      querySelectorAll: () => [visibleTargetNode],
+      getBoundingClientRect: () => ({ top: 0, bottom: 800 }),
+    }
+  }
   return {
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
@@ -86,13 +112,21 @@ function highlighted(renderer: TestRenderer.ReactTestRenderer) {
 describe("MessageList pending jump target", () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    vi.stubGlobal("window", { setTimeout })
+    vi.stubGlobal("window", {
+      setTimeout,
+      requestAnimationFrame: (callback: FrameRequestCallback) => {
+        callback(0)
+        return 1
+      },
+      cancelAnimationFrame: vi.fn(),
+    })
     vi.stubGlobal("ResizeObserver", class {
       observe() {}
       disconnect() {}
     })
     mocks.scrollToIndex.mockClear()
     mocks.scrollToEnd.mockClear()
+    mocks.onScrollTargetConsumed.mockClear()
   })
 
   afterEach(() => {
@@ -104,43 +138,46 @@ describe("MessageList pending jump target", () => {
     let renderer: TestRenderer.ReactTestRenderer
 
     act(() => {
-      renderer = TestRenderer.create(render([], "m_target", true, false), { createNodeMock })
-    })
-    expect(mocks.scrollToIndex).not.toHaveBeenCalled()
-
-    act(() => {
-      renderer!.update(render([target], "m_target", false, false))
+      renderer = TestRenderer.create(render([unrelated], "m_target", false, false), { createNodeMock })
     })
     expect(mocks.scrollToEnd).not.toHaveBeenCalled()
     expect(mocks.scrollToIndex).not.toHaveBeenCalled()
+    expect(mocks.onScrollTargetConsumed).not.toHaveBeenCalled()
 
     act(() => {
-      renderer!.update(render([target], "m_target", false, true))
+      renderer!.update(render([unrelated, target], "m_target", false, false))
     })
     expect(mocks.scrollToEnd).toHaveBeenCalledOnce()
     expect(mocks.scrollToIndex).toHaveBeenCalledOnce()
     expect(mocks.scrollToEnd.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.scrollToIndex.mock.invocationCallOrder[0],
     )
-    expect(mocks.scrollToIndex).toHaveBeenCalledWith(1, { align: "center", behavior: "smooth" })
+    expect(mocks.scrollToIndex).toHaveBeenCalledWith(2, { align: "center", behavior: "auto" })
+    expect(mocks.onScrollTargetConsumed).toHaveBeenCalledOnce()
+    expect(mocks.onScrollTargetConsumed).toHaveBeenCalledWith("m_target")
     expect(highlighted(renderer!)).toBe(true)
 
     act(() => {
-      renderer!.update(render([target, unrelated], "m_target"))
+      renderer!.update(render([unrelated, target, newer], "m_target", false, false))
     })
     expect(mocks.scrollToIndex).toHaveBeenCalledOnce()
-    act(() => vi.advanceTimersByTime(1599))
+    expect(mocks.onScrollTargetConsumed).toHaveBeenCalledOnce()
+
+    act(() => vi.advanceTimersByTime(800))
+
+    act(() => {
+      renderer!.update(render([unrelated, target, newer], null, false, false))
+    })
+    act(() => {
+      renderer!.update(render([unrelated, target, newer], "m_target", false, false))
+    })
+    expect(mocks.scrollToIndex).toHaveBeenCalledTimes(2)
+    expect(mocks.onScrollTargetConsumed).toHaveBeenCalledTimes(2)
+    act(() => vi.advanceTimersByTime(800))
+    expect(highlighted(renderer!)).toBe(true)
+    act(() => vi.advanceTimersByTime(799))
     expect(highlighted(renderer!)).toBe(true)
     act(() => vi.advanceTimersByTime(1))
     expect(highlighted(renderer!)).toBe(false)
-
-    act(() => {
-      renderer!.update(render([target, unrelated], null))
-    })
-    act(() => {
-      renderer!.update(render([target, unrelated], "m_target"))
-    })
-    expect(mocks.scrollToIndex).toHaveBeenCalledTimes(2)
-    expect(highlighted(renderer!)).toBe(true)
   })
 })
