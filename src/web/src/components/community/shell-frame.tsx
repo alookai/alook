@@ -14,6 +14,10 @@ import { AppSurface } from "@/components/ui/app-surface"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { Shell } from "./shell"
+import {
+  COMMUNITY_RAIL_WIDTH,
+  desktopUserBarOverlayWidth,
+} from "./shell-frame-geometry"
 import { ServerRail } from "./server-rail"
 import { UserBar } from "./user-bar"
 import { markVoluntaryLeave, pickPostEjectDestination } from "./eject-server"
@@ -684,7 +688,13 @@ export function ShellFrame({
               </ResizablePanel>
             </ResizablePanelGroup>
           </AppSurface>
-          <div className="absolute bottom-0 left-0 z-10" style={{ width: sidebarW + 56, marginLeft: -56 }}>
+          <div
+            className="absolute bottom-0 left-0 z-10"
+            style={{
+              width: desktopUserBarOverlayWidth(sidebarW),
+              marginLeft: -COMMUNITY_RAIL_WIDTH,
+            }}
+          >
             <UserBar user={{ id: currentUser.id, name: currentUser.name, avatar: currentUser.avatar }} onOpenProfile={openProfile} onEditProfile={() => setEditingProfile(true)} inbox={inboxElement} hasUnread={inboxHasUnread} inboxOpen={inbox.open} onInboxOpenChange={inbox.onOpenChange} />
           </div>
         </div>

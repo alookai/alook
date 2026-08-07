@@ -23,6 +23,12 @@ import { tid } from "@/lib/community/testids"
 import { useInvites, useAuditLog } from "@/hooks/community/use-server-panels"
 import type { SettingsSection, Member, Role, InviteRow, AuditEntry, OpenProfile } from "./_types"
 import { isServerOwner } from "./_types"
+import {
+  SETTINGS_NAV_CLASS,
+  SETTINGS_NAV_LABEL_CLASS,
+  SETTINGS_TAB_CLASS,
+  SETTINGS_TABS_LIST_CLASS,
+} from "./settings-navigation"
 
 const SETTABLE_ROLES: Role[] = ["admin", "member"]
 
@@ -98,11 +104,11 @@ export function ServerSettings({
         className="min-h-0 flex-1 flex-row gap-0"
       >
         {/* settings nav */}
-        <nav className="flex w-60 shrink-0 flex-col gap-2 overflow-y-auto thin-scrollbar border-r border-border p-4" style={{ background: "var(--d-rail)" }}>
-          <div className="px-2 text-xs font-semibold text-muted-foreground">{serverName}</div>
-          <TabsList variant="line" className="h-auto w-full flex-col gap-1">
+        <nav className={SETTINGS_NAV_CLASS} style={{ background: "var(--d-rail)" }}>
+          <div className={SETTINGS_NAV_LABEL_CLASS}>{serverName}</div>
+          <TabsList variant="line" className={SETTINGS_TABS_LIST_CLASS}>
             {nav.map((n) => (
-              <TabsTrigger key={n.id} value={n.id} className="h-9 w-full justify-start gap-2">
+              <TabsTrigger key={n.id} value={n.id} className={SETTINGS_TAB_CLASS}>
                 <n.icon className="size-4" /> {n.label}
               </TabsTrigger>
             ))}

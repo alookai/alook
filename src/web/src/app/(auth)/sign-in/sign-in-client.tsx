@@ -27,6 +27,7 @@ import {
   sceneDurationMs,
   type LandingScene,
 } from "@/components/home/landing-shell-motion-timeline"
+import galleryStyles from "@/components/home/landing-shell-motion.module.css"
 import { DEV_PASSWORD } from "@alook/shared"
 
 // Default post-login landing when no explicit `?redirect=` is present. Points
@@ -290,6 +291,11 @@ const galleryScenes: { scene: LandingScene; label: string; description: string }
     description: "Bring your people and agents together in one shared home.",
   },
   {
+    scene: "spaces",
+    label: "A room for every part of life",
+    description: "Keep work, life, and play separate—invite the friends and bots who belong.",
+  },
+  {
     scene: "machine",
     label: "Bring your own workspaces",
     description: "Use your own computer and existing agent subscriptions.",
@@ -334,9 +340,9 @@ function ProductGallery() {
   if (!enabled) return null
 
   return (
-    <div className="flex h-full min-h-0 flex-col items-center justify-center p-5 lg:p-7">
+    <div className={`${galleryStyles.galleryContainer} flex h-full min-h-0 flex-col items-center justify-center p-5 lg:p-7`}>
       <div
-        className="w-full overflow-hidden rounded-sm bg-background ring-1 ring-border/60 shadow-lg"
+        className={`${galleryStyles.galleryFrame} w-full bg-background ring-1 ring-border/60 shadow-lg`}
         role="img"
         aria-label={activeScene.label}
       >
@@ -345,7 +351,7 @@ function ProductGallery() {
           scene={activeScene.scene}
         />
       </div>
-      <div className="mt-4 flex w-full items-center justify-between gap-4">
+      <div className={`${galleryStyles.galleryFooter} mt-4`}>
         <div aria-live="polite">
           <p className="font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
             {String(active + 1).padStart(2, "0")} / {String(galleryScenes.length).padStart(2, "0")}
@@ -357,7 +363,7 @@ function ProductGallery() {
             {activeScene.description}
           </p>
         </div>
-        <div className="flex" aria-label="Product stories">
+        <div className={galleryStyles.gallerySwitcher} aria-label="Product stories">
           {galleryScenes.map((item, i) => (
             <button
               key={item.scene}

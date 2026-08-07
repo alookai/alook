@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { ChevronLeft, Monitor, MoreVertical, HelpCircle, RotateCcw, Activity } from "lucide-react"
+import { ChevronDown, ChevronLeft, Monitor, MoreVertical, HelpCircle, RotateCcw, Activity } from "lucide-react"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
 import { isPresenceOnline, formatModelLabel } from "@alook/shared"
@@ -99,6 +99,9 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
   // Batch "reset all agents on this machine" confirm — keyed by machineId so the
   // dialog knows which group it's acting on (and can name it).
   const [confirmResetMachine, setConfirmResetMachine] = useState<string | null>(null)
+  const [collapsedMachines, setCollapsedMachines] = useState<Set<string>>(
+    () => new Set(),
+  )
   const [helpOpen, setHelpOpen] = useState(false)
   const del = useDeleteBot()
   const resetSession = useResetBotSession()
@@ -198,6 +201,12 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
   const scrolledForRef = useRef<string | null>(null)
   useEffect(() => {
     if (!targetMachineId || bots.length === 0) return
+    setCollapsedMachines((current) => {
+      if (!current.has(targetMachineId)) return current
+      const next = new Set(current)
+      next.delete(targetMachineId)
+      return next
+    })
     if (scrolledForRef.current === targetMachineId) return
     scrolledForRef.current = targetMachineId
     groupRefs.current[targetMachineId]?.scrollIntoView({ behavior: "smooth", block: "start" })
@@ -307,6 +316,8 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
         <div className="flex flex-col gap-6">
           {groups.map(({ machineId, machine, bots: machineBots }) => {
             const machineOnline = isPresenceOnline(machine?.status)
+            const collapsed = collapsedMachines.has(machineId)
+            const label = machineName(machineId)
             return (
               <div
                 key={machineId}
@@ -319,16 +330,34 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                 ].join(" ")}
               >
                 <div className="flex items-center gap-2 px-1">
-                  <Monitor className="size-3.5 text-muted-foreground" />
-                  <span className="font-mono text-xs font-medium text-muted-foreground">
-                    {machineName(machineId)}
-                  </span>
-                  <span
-                    className={[
-                      "inline-block size-1.5 rounded-full",
-                      machineOnline ? "bg-status-online" : "bg-muted-foreground",
-                    ].join(" ")}
-                  />
+                  <button
+                    type="button"
+                    className="flex min-w-0 items-center gap-2 rounded-md text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    aria-expanded={!collapsed}
+                    aria-label={`${collapsed ? "Expand" : "Collapse"} ${label}`}
+                    onClick={() => {
+                      setCollapsedMachines((current) => {
+                        const next = new Set(current)
+                        if (next.has(machineId)) next.delete(machineId)
+                        else next.add(machineId)
+                        return next
+                      })
+                    }}
+                  >
+                    <ChevronDown
+                      className={`size-3 shrink-0 text-muted-foreground transition-transform ${collapsed ? "-rotate-90" : ""}`}
+                    />
+                    <Monitor className="size-3.5 shrink-0 text-muted-foreground" />
+                    <span className="truncate font-mono text-xs font-medium text-muted-foreground">
+                      {label}
+                    </span>
+                    <span
+                      className={[
+                        "inline-block size-1.5 shrink-0 rounded-full",
+                        machineOnline ? "bg-status-online" : "bg-muted-foreground",
+                      ].join(" ")}
+                    />
+                  </button>
                   {/* Reset every agent bound to this machine in one command
                       (Gus #811). Idle bots get cold-started too (② semantics). */}
                   <Button
@@ -341,7 +370,7 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                     Reset all
                   </Button>
                 </div>
-                <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-3" hidden={collapsed}>
                   {machineBots.map((bot) => {
                     const online = onlineUserIds.has(bot.id)
                     return (

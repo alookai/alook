@@ -12,17 +12,21 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
   Activity,
+  Check,
   MoreVertical,
   MousePointer2,
   PlusCircle,
   RotateCcw,
+  Search,
   Smile,
+  UserPlus,
 } from "lucide-react"
 import type { CommunityMachineSummary } from "@alook/shared"
 import { AgentAvatar, type AvatarDraft } from "@/components/avatar"
 import { ProviderLogo } from "@/components/provider-logo"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import { AppSurface } from "@/components/ui/app-surface"
 import { SheetBody, SheetFooter, SheetHeader } from "@/components/ui/sheet"
 import { Shell } from "@/components/community/shell"
@@ -31,6 +35,7 @@ import { ChannelSidebar } from "@/components/community/channel-sidebar"
 import { DmSidebar } from "@/components/community/dm-sidebar"
 import { DmHeader } from "@/components/community/dm-header"
 import { ChannelHeader } from "@/components/community/channel-header"
+import { Avatar } from "@/components/community/avatar"
 import { Message } from "@/components/community/message"
 import { MachineCard } from "@/components/community/machines/machine-card"
 import { PairMachineSteps } from "@/components/community/machines/pair-machine-sheet"
@@ -50,12 +55,19 @@ import {
   galleryCameraTransform,
   sceneSnapshot,
   type LandingScene,
+  type LandingRoom,
   type SceneSnapshot,
 } from "./landing-shell-motion-timeline"
 import styles from "./landing-shell-motion.module.css"
 
 const SERVERS: Server[] = [
   { id: "gus", name: "Gus", initial: "G", active: true, mentions: 0, isOwner: true, icon: null },
+]
+
+const SPACE_SERVERS: Server[] = [
+  { id: "work", name: "Studio", initial: "S", active: true, mentions: 0, isOwner: true, icon: null },
+  { id: "life", name: "Home", initial: "H", active: false, mentions: 0, isOwner: true, icon: null },
+  { id: "play", name: "Game Night", initial: "G", active: false, mentions: 0, isOwner: true, icon: null },
 ]
 
 const CHANNELS: Category[] = [
@@ -75,6 +87,66 @@ const CHANNELS: Category[] = [
     ],
   },
 ]
+
+const SPACE_CHANNELS: Record<LandingRoom, Category[]> = {
+  work: [
+    {
+      id: "cat_work_public",
+      name: "Public",
+      channels: [
+        { id: "work-general", name: "general", active: true, unread: false, type: "text" },
+        { id: "work-design", name: "design-review", active: false, unread: false, type: "text" },
+      ],
+    },
+    {
+      id: "cat_work_private",
+      name: "Private",
+      private: true,
+      channels: [
+        { id: "work-launch", name: "launch-room", active: false, unread: false, type: "text" },
+        { id: "work-release", name: "release-notes", active: false, unread: false, type: "text" },
+      ],
+    },
+  ],
+  life: [
+    {
+      id: "cat_life_public",
+      name: "Public",
+      channels: [
+        { id: "life-kitchen", name: "kitchen", active: true, unread: false, type: "text" },
+        { id: "life-photos", name: "photos", active: false, unread: false, type: "text" },
+      ],
+    },
+    {
+      id: "cat_life_private",
+      name: "Private",
+      private: true,
+      channels: [
+        { id: "life-plans", name: "family-plans", active: false, unread: false, type: "text" },
+        { id: "life-travel", name: "travel", active: false, unread: false, type: "text" },
+      ],
+    },
+  ],
+  play: [
+    {
+      id: "cat_play_public",
+      name: "Public",
+      channels: [
+        { id: "play-lobby", name: "lobby", active: true, unread: false, type: "text" },
+        { id: "play-clips", name: "clips", active: false, unread: false, type: "text" },
+      ],
+    },
+    {
+      id: "cat_play_private",
+      name: "Private",
+      private: true,
+      channels: [
+        { id: "play-party", name: "party-chat", active: false, unread: false, type: "text" },
+        { id: "play-strategy", name: "strategy", active: false, unread: false, type: "text" },
+      ],
+    },
+  ],
+}
 
 const DMS: DM[] = [
   { id: "dm-alli", userId: "alli", name: "Alli", discriminator: "8145", avatar: "avatar:beam:alli", status: "online", preview: "Available" },
@@ -126,6 +198,103 @@ const MESSAGES: RenderMsg[] = [
     grouped: false,
   },
 ]
+
+const SPACE_MESSAGES: Record<LandingRoom, RenderMsg[]> = {
+  work: [
+    {
+      id: "space-work-gus",
+      type: "chat",
+      authorId: "gus",
+      authorName: "Gus",
+      authorAvatar: "avatar:beam:gus",
+      content: "The new gallery story is ready.",
+      createdAt: "2026-08-06T06:00:00.000Z",
+      seq: 501,
+      grouped: false,
+    },
+    {
+      id: "space-work-shelly",
+      type: "chat",
+      authorId: "shelly",
+      authorName: "Shelly",
+      authorAvatar: "avatar:beam:shelly",
+      content: "I’ll ship it after review.",
+      createdAt: "2026-08-06T06:00:05.000Z",
+      seq: 502,
+      grouped: false,
+    },
+  ],
+  life: [
+    {
+      id: "space-life-gus",
+      type: "chat",
+      authorId: "gus-life",
+      authorName: "Gus",
+      authorAvatar: "avatar:beam:gus",
+      content: "Dinner at seven?",
+      createdAt: "2026-08-06T06:01:00.000Z",
+      seq: 503,
+      grouped: false,
+    },
+    {
+      id: "space-life-alli",
+      type: "chat",
+      authorId: "alli-life",
+      authorName: "Alli",
+      authorAvatar: "avatar:beam:alli",
+      content: "I’ll remind everyone.",
+      createdAt: "2026-08-06T06:01:04.000Z",
+      seq: 504,
+      grouped: false,
+    },
+    {
+      id: "space-life-maya",
+      type: "chat",
+      authorId: "maya",
+      authorName: "Maya",
+      authorAvatar: "avatar:beam:maya",
+      content: "I’m in — I’ll bring dessert.",
+      createdAt: "2026-08-06T06:01:08.000Z",
+      seq: 505,
+      grouped: false,
+    },
+  ],
+  play: [
+    {
+      id: "space-play-noah",
+      type: "chat",
+      authorId: "noah",
+      authorName: "Noah",
+      authorAvatar: "avatar:beam:noah",
+      content: "Game night at eight.",
+      createdAt: "2026-08-06T06:02:00.000Z",
+      seq: 506,
+      grouped: false,
+    },
+    {
+      id: "space-play-quest",
+      type: "chat",
+      authorId: "quest",
+      authorName: "Quest Bot",
+      authorAvatar: "avatar:beam:quest",
+      content: "The room and teams are ready.",
+      createdAt: "2026-08-06T06:02:04.000Z",
+      seq: 507,
+      grouped: false,
+    },
+    {
+      id: "space-play-gus",
+      type: "chat",
+      authorId: "gus-play",
+      authorName: "Gus",
+      authorAvatar: "avatar:beam:gus",
+      content: "Let’s go.",
+      createdAt: "2026-08-06T06:02:08.000Z",
+      seq: 508,
+      grouped: false,
+    },
+  ],
+}
 
 const DM_MESSAGES: RenderMsg[] = [
   {
@@ -374,39 +543,39 @@ export function LandingShellMotion({ scene }: { scene: LandingScene }) {
 }
 
 function PrototypeShell({ scene, snapshot }: { scene: LandingScene; snapshot: SceneSnapshot }) {
-  const serverView = scene === "server"
+  const serverView = scene === "server" || scene === "spaces"
+  const room = scene === "spaces" ? snapshot.room : null
+  const servers = room
+    ? SPACE_SERVERS.map((server) => ({ ...server, active: server.id === room }))
+    : SERVERS
   return (
-    <Shell>
-      <ServerRail
-        servers={SERVERS}
-        folders={[]}
-        activeServerId="gus"
-        view={serverView ? "server" : "dm"}
-        bottomInset={60}
-        onHome={() => {}}
-        onServer={() => {}}
-        onServerNavigate={() => {}}
+    <Shell className={styles.productShell}>
+      <PrototypeServerRail
+        servers={servers}
+        activeServerId={room ?? "gus"}
+        serverView={serverView}
       />
       <div className="relative flex min-w-0 flex-1 flex-col pt-2">
         <AppSurface className="rounded-tl-xl rounded-tr-none rounded-br-none rounded-bl-none border-l border-t border-border/40 shadow-none ring-0">
           <div className="flex min-h-0 flex-1">
             <div
-              key={`sidebar-${scene}`}
+              key={`sidebar-${scene}-${room ?? "default"}`}
               className={`flex w-60 shrink-0 flex-col bg-sidebar pb-14 ${styles.sceneEnter}`}
             >
               {serverView ? (
-                <PrototypeChannelSidebar />
+                <PrototypeChannelSidebar room={room} />
               ) : (
                 <PrototypeDmSidebar scene={scene} snapshot={snapshot} />
               )}
             </div>
             <div
-              key={`content-${scene}`}
+              key={`content-${scene}-${room ?? "default"}`}
               className={`flex min-w-0 flex-1 flex-col bg-background ${styles.sceneEnter}`}
             >
               {scene === "server" && <ServerScene snapshot={snapshot} />}
               {scene === "machine" && <MachineScene snapshot={snapshot} />}
               {scene === "provider" && <ProviderScene snapshot={snapshot} />}
+              {scene === "spaces" && <SpacesScene snapshot={snapshot} />}
             </div>
           </div>
         </AppSurface>
@@ -421,17 +590,99 @@ function PrototypeShell({ scene, snapshot }: { scene: LandingScene; snapshot: Sc
   )
 }
 
-function PrototypeChannelSidebar() {
-  const tree = useChannelTree(CHANNELS)
+function PrototypeServerRail({
+  servers,
+  activeServerId,
+  serverView,
+}: {
+  servers: Server[]
+  activeServerId: string
+  serverView: boolean
+}) {
+  const railRef = useRef<HTMLDivElement>(null)
+
+  useLayoutEffect(() => {
+    const rail = railRef.current
+    const targets = ["life", "play"] as const
+    for (const id of targets) {
+      rail
+        ?.querySelector<HTMLElement>(`[data-testid="${tid.serverIcon(id)}"]`)
+        ?.setAttribute("data-motion-target", `server-${id}`)
+    }
+    return () => {
+      for (const id of targets) {
+        rail
+          ?.querySelector<HTMLElement>(`[data-testid="${tid.serverIcon(id)}"]`)
+          ?.removeAttribute("data-motion-target")
+      }
+    }
+  }, [servers])
+
   return (
-    <ChannelSidebar
-      tree={tree}
-      serverName="Gus"
-      activeChannel="general"
-      setActiveChannel={() => {}}
-      isAdmin={false}
-      currentUserId="gus"
-    />
+    <div ref={railRef} className="contents">
+      <ServerRail
+        servers={servers}
+        folders={[]}
+        activeServerId={activeServerId}
+        view={serverView ? "server" : "dm"}
+        bottomInset={60}
+        onHome={() => {}}
+        onServer={() => {}}
+        onServerNavigate={() => {}}
+      />
+    </div>
+  )
+}
+
+function PrototypeChannelSidebar({ room }: { room: LandingRoom | null }) {
+  const categories = room ? SPACE_CHANNELS[room] : CHANNELS
+  const tree = useChannelTree(categories)
+  const serverName = room
+    ? SPACE_SERVERS.find((server) => server.id === room)?.name ?? ""
+    : "Gus"
+  const activeChannel = categories[0]?.channels[0]?.id ?? "general"
+  const sidebarRef = useRef<HTMLDivElement>(null)
+
+  useLayoutEffect(() => {
+    if (!room) return
+    const sidebar = sidebarRef.current
+    const serverNameElement = Array.from(
+      sidebar?.querySelectorAll<HTMLElement>("header span") ?? [],
+    ).find((element) => element.textContent?.trim() === serverName)
+    const channelElement = sidebar?.querySelector<HTMLElement>(
+      `[data-testid="${tid.channelRow(activeChannel)}"]`,
+    )
+    serverNameElement?.setAttribute(
+      "data-motion-target",
+      `space-server-name-${room}`,
+    )
+    channelElement?.setAttribute("data-motion-target", `space-channel-${room}`)
+    return () => {
+      serverNameElement?.removeAttribute("data-motion-target")
+      channelElement?.removeAttribute("data-motion-target")
+    }
+  }, [activeChannel, room, serverName])
+
+  return (
+    <div ref={sidebarRef} className="relative flex min-h-0 flex-1 flex-col">
+      <ChannelSidebar
+        tree={tree}
+        serverName={serverName}
+        activeChannel={activeChannel}
+        setActiveChannel={() => {}}
+        isAdmin={false}
+        currentUserId="gus"
+      />
+      {room && (
+        <button
+          data-motion-target="invite-life"
+          className="absolute right-2 top-2 grid size-7 place-items-center rounded-md text-muted-foreground"
+          aria-label="Invite to server"
+        >
+          <UserPlus className="size-4" />
+        </button>
+      )}
+    </div>
   )
 }
 
@@ -536,6 +787,108 @@ function ServerScene({ snapshot }: { snapshot: SceneSnapshot }) {
         />
       </div>
     </>
+  )
+}
+
+function SpacesScene({ snapshot }: { snapshot: SceneSnapshot }) {
+  const room = snapshot.room
+  const server = SPACE_SERVERS.find((item) => item.id === room) ?? SPACE_SERVERS[0]
+  const channel = SPACE_CHANNELS[room][0]?.channels[0]
+  const messages = SPACE_MESSAGES[room]
+
+  return (
+    <>
+      <ChannelHeader
+        channel={channel?.name ?? "general"}
+        rightPanel={null}
+        onToggle={() => {}}
+        server={{ id: server.id, name: server.name, icon: server.icon ?? null }}
+      />
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="flex-1 overflow-hidden px-4 py-3">
+          {messages.map((message, index) => {
+            const target = `space-message-${message.authorId}`
+            return (
+              <div
+                key={message.id}
+                data-visible={index < snapshot.visibleMessages}
+                className={styles.messageSlot}
+              >
+                <div
+                  data-motion-target={target}
+                  className={targetClass(snapshot, target)}
+                >
+                  <Message m={message} onOpenThread={() => {}} />
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        <PrototypeComposer
+          snapshot={snapshot}
+          target="spaces-composer"
+          placeholder={`Message /${channel?.name ?? "general"}`}
+        />
+      </div>
+      <PrototypeInviteSurface snapshot={snapshot} />
+    </>
+  )
+}
+
+function PrototypeInviteSurface({ snapshot }: { snapshot: SceneSnapshot }) {
+  return (
+    <aside
+      aria-label="Invite friends to Home"
+      aria-hidden={!snapshot.inviteOpen}
+      data-open={snapshot.inviteOpen}
+      className={styles.inviteSurface}
+    >
+      <header className="border-b border-border/50 px-4 py-3">
+        <h2 className="truncate text-sm font-semibold">Invite friends to Home</h2>
+      </header>
+      <div className="px-4 pt-3">
+        <label className="relative block">
+          <Search
+            aria-hidden
+            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+          />
+          <Input readOnly placeholder="Search for friends" className="pl-9" />
+        </label>
+      </div>
+      <div className="px-2 py-2">
+        <div className="flex items-center gap-3 rounded-md px-2 py-2">
+          <Avatar label="Maya" seed="maya" size={32} presence="online" ringColor="var(--popover)" />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-medium">Maya</div>
+            <div className="truncate text-xs text-muted-foreground">Free for dinner</div>
+          </div>
+          <Button
+            size="sm"
+            variant={snapshot.inviteSent ? "secondary" : "default"}
+            data-motion-target="invite-maya"
+            className={targetClass(snapshot, "invite-maya")}
+          >
+            {snapshot.inviteSent ? (
+              <>
+                <Check className="size-3.5" />
+                Invited
+              </>
+            ) : (
+              "Invite"
+            )}
+          </Button>
+        </div>
+      </div>
+      <footer className="border-t border-border/50 px-4 py-3">
+        <div className="text-xs font-medium text-muted-foreground">
+          Or, send a server invite link to a friend
+        </div>
+        <div className="mt-2 flex items-center gap-2">
+          <Input readOnly value="alook.ai/c/invite/home" className="font-mono text-xs" />
+          <Button size="sm">Copy</Button>
+        </div>
+      </footer>
+    </aside>
   )
 }
 

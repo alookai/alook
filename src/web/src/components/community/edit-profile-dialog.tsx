@@ -14,6 +14,13 @@ import { clearPersistedCache } from "@/lib/query-persister"
 import { Avatar } from "./avatar"
 import { Field } from "./field"
 import { StatusEditor, hasStatus } from "./status-editor"
+import {
+  SETTINGS_LOGOUT_CLASS,
+  SETTINGS_NAV_CLASS,
+  SETTINGS_NAV_LABEL_CLASS,
+  SETTINGS_TAB_CLASS,
+  SETTINGS_TABS_LIST_CLASS,
+} from "./settings-navigation"
 
 const THEME_OPTIONS = [
   { value: "light", label: "Light", icon: Sun },
@@ -172,21 +179,21 @@ export function UserSettings({ onClose, userId, userName, aboutMe, avatar, statu
       onValueChange={setTab}
       className="min-h-0 flex-1 flex-row gap-0"
     >
-      <nav className="flex w-60 shrink-0 flex-col gap-2 overflow-y-auto thin-scrollbar border-r border-border p-3" style={{ background: "var(--d-rail)" }}>
-        <div className="px-2 text-xs font-semibold text-muted-foreground">User Settings</div>
-        <TabsList variant="line" className="h-auto w-full flex-col gap-1">
-          <TabsTrigger value="profile" className="h-8 w-full justify-start gap-2">
+      <nav className={SETTINGS_NAV_CLASS} style={{ background: "var(--d-rail)" }}>
+        <div className={SETTINGS_NAV_LABEL_CLASS}>User Settings</div>
+        <TabsList variant="line" className={SETTINGS_TABS_LIST_CLASS}>
+          <TabsTrigger value="profile" className={SETTINGS_TAB_CLASS}>
             <User className="size-4" /> My Profile
           </TabsTrigger>
-          <TabsTrigger value="appearance" className="h-8 w-full justify-start gap-2">
+          <TabsTrigger value="appearance" className={SETTINGS_TAB_CLASS}>
             <Palette className="size-4" /> Appearance
           </TabsTrigger>
-          <TabsTrigger value="advanced" className="h-8 w-full justify-start gap-2">
+          <TabsTrigger value="advanced" className={SETTINGS_TAB_CLASS}>
             <Database className="size-4" /> Advanced
           </TabsTrigger>
         </TabsList>
         <Separator className="my-1" />
-        <Button variant="ghost" className="justify-start text-destructive hover:text-destructive" size="sm" onClick={onLogout}>
+        <Button variant="ghost" className={SETTINGS_LOGOUT_CLASS} size="sm" onClick={onLogout}>
           <LogOut className="size-4" /> Log Out
         </Button>
       </nav>

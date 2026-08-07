@@ -114,4 +114,19 @@ describe("BotList — card model segment", () => {
     const renderer = render()
     expect(modelSegments(renderer)).toEqual(["local default"])
   })
+
+  it("folds and reopens a machine category from its header", () => {
+    useBotsMock.mockReturnValue({ bots: [bot({ modelName: null })], isLoading: false })
+    const renderer = render()
+    const collapse = renderer.root.findByProps({ "aria-label": "Collapse Mac" })
+
+    act(() => collapse.props.onClick())
+    expect(renderer.root.findAll((node) => node.props.hidden === true)).toHaveLength(1)
+    const expand = renderer.root.findByProps({ "aria-label": "Expand Mac" })
+    expect(expand.props["aria-expanded"]).toBe(false)
+
+    act(() => expand.props.onClick())
+    expect(renderer.root.findAll((node) => node.props.hidden === true)).toHaveLength(0)
+    expect(modelSegments(renderer)).toEqual(["local default"])
+  })
 })

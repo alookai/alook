@@ -50,7 +50,23 @@ describe("landing shell motion timeline", () => {
     expect(sceneSnapshot("provider", 9)).toMatchObject({ visibleMessages: 2, focus: null, camera: { scale: 1 } })
   })
 
-  it("zooms in around the cursor and returns wide in all three acts", () => {
+  it("switches isolated rooms, invites a friend, and lands in play with its bot", () => {
+    expect(sceneSnapshot("spaces", 0)).toMatchObject({ room: "work", inviteOpen: false, focus: null })
+    expect(sceneSnapshot("spaces", 1)).toMatchObject({ room: "work", focus: "server-life" })
+    expect(sceneSnapshot("spaces", 2)).toMatchObject({ room: "life", focus: "space-server-name-life" })
+    expect(sceneSnapshot("spaces", 3)).toMatchObject({ room: "life", focus: "space-channel-life" })
+    expect(sceneSnapshot("spaces", 4)).toMatchObject({ room: "life", focus: "invite-life" })
+    expect(sceneSnapshot("spaces", 5)).toMatchObject({ room: "life", inviteOpen: true, inviteSent: false, focus: "invite-maya" })
+    expect(sceneSnapshot("spaces", 6)).toMatchObject({ room: "life", inviteOpen: true, inviteSent: true, focus: "invite-maya" })
+    expect(sceneSnapshot("spaces", 7)).toMatchObject({ room: "life", inviteOpen: false, visibleMessages: 3, focus: "space-message-maya" })
+    expect(sceneSnapshot("spaces", 8)).toMatchObject({ room: "life", focus: "server-play" })
+    expect(sceneSnapshot("spaces", 9)).toMatchObject({ room: "play", focus: "space-server-name-play" })
+    expect(sceneSnapshot("spaces", 10)).toMatchObject({ room: "play", focus: "space-channel-play" })
+    expect(sceneSnapshot("spaces", 11)).toMatchObject({ room: "play", visibleMessages: 3, focus: "space-message-quest" })
+    expect(sceneSnapshot("spaces", 12)).toMatchObject({ room: "play", focus: null, camera: { scale: 1 } })
+  })
+
+  it("zooms in around the cursor and returns wide in all four acts", () => {
     expect(sceneSnapshot("server", 1).camera.scale).toBe(1.22)
     expect(sceneSnapshot("server", 6).camera.scale).toBe(1)
     expect(sceneSnapshot("machine", 2).camera.scale).toBe(1.22)
@@ -59,12 +75,15 @@ describe("landing shell motion timeline", () => {
     expect(sceneSnapshot("provider", 5).camera.scale).toBe(1)
     expect(sceneSnapshot("provider", 6).camera.scale).toBe(1.18)
     expect(sceneSnapshot("provider", 9).camera.scale).toBe(1)
+    expect(sceneSnapshot("spaces", 5).camera.scale).toBe(1.2)
+    expect(sceneSnapshot("spaces", 12).camera.scale).toBe(1)
   })
 
   it("clamps out-of-range beats to a valid deterministic snapshot", () => {
     expect(sceneSnapshot("server", -1).beat).toBe(0)
     expect(sceneSnapshot("server", 99).beat).toBe(SCENE_MAX_BEAT.server)
     expect(sceneSnapshot("machine", 99).machineState).toBe("bot-born")
+    expect(sceneSnapshot("spaces", 99)).toMatchObject({ room: "play", inviteSent: true })
   })
 
   it("exposes each act's complete playback duration to gallery consumers", () => {
@@ -73,6 +92,7 @@ describe("landing shell motion timeline", () => {
     )
     expect(sceneDurationMs("machine")).toBe(12_900)
     expect(sceneDurationMs("provider")).toBe(15_900)
+    expect(sceneDurationMs("spaces")).toBe(20_400)
   })
 
   it("boosts focused gallery beats while preserving wide beats", () => {

@@ -1,4 +1,6 @@
-export type LandingScene = "server" | "machine" | "provider"
+export type LandingScene = "server" | "machine" | "provider" | "spaces"
+
+export type LandingRoom = "work" | "life" | "play"
 
 export const LANDING_MACHINE_RUNTIMES = [
   "claude",
@@ -12,6 +14,7 @@ export const SCENE_MAX_BEAT: Record<LandingScene, number> = {
   server: 6,
   machine: 7,
   provider: 9,
+  spaces: 12,
 }
 
 export const SCENE_BEAT_DURATION_MS = 1500
@@ -50,6 +53,9 @@ export type SceneSnapshot = {
   pairSheet: "closed" | "command" | "waiting" | "connected"
   runtime: "claude" | "codex"
   model: string | null
+  room: LandingRoom
+  inviteOpen: boolean
+  inviteSent: boolean
   focus: string | null
   camera: { scale: number; x: number; y: number }
 }
@@ -86,6 +92,21 @@ const PROVIDER_CAMERAS = [
   { scale: 1.18, x: 620, y: 230 },
   WIDE_CAMERA,
 ]
+const SPACES_CAMERAS = [
+  WIDE_CAMERA,
+  { scale: 1.18, x: 84, y: 190 },
+  { scale: 1.18, x: 160, y: 28 },
+  { scale: 1.18, x: 200, y: 105 },
+  { scale: 1.18, x: 210, y: 45 },
+  { scale: 1.2, x: 610, y: 340 },
+  { scale: 1.2, x: 610, y: 340 },
+  { scale: 1.18, x: 650, y: 240 },
+  { scale: 1.18, x: 84, y: 250 },
+  { scale: 1.18, x: 160, y: 28 },
+  { scale: 1.18, x: 200, y: 105 },
+  { scale: 1.18, x: 650, y: 180 },
+  WIDE_CAMERA,
+]
 
 export function sceneSnapshot(scene: LandingScene, requestedBeat: number): SceneSnapshot {
   const beat = Math.max(0, Math.min(requestedBeat, SCENE_MAX_BEAT[scene]))
@@ -98,6 +119,9 @@ export function sceneSnapshot(scene: LandingScene, requestedBeat: number): Scene
       pairSheet: "closed",
       runtime: "claude",
       model: null,
+      room: "work",
+      inviteOpen: false,
+      inviteSent: false,
       focus: [null, "composer", "message-gus", "message-alli", "message-ruth", "message-shelly"][beat] ?? null,
       camera: SERVER_CAMERAS[beat] ?? WIDE_CAMERA,
     }
@@ -125,6 +149,9 @@ export function sceneSnapshot(scene: LandingScene, requestedBeat: number): Scene
               : "closed",
       runtime: "claude",
       model: null,
+      room: "work",
+      inviteOpen: false,
+      inviteSent: false,
       focus: [
         null,
         "connect",
@@ -137,25 +164,58 @@ export function sceneSnapshot(scene: LandingScene, requestedBeat: number): Scene
       camera: MACHINE_CAMERAS[beat] ?? WIDE_CAMERA,
     }
   }
+  if (scene === "provider") {
+    return {
+      beat,
+      visibleMessages: beat >= 8 ? 2 : beat >= 7 ? 1 : 0,
+      composerText: beat === 6 ? "hello Alli" : "",
+      machineState: "online",
+      pairSheet: "closed",
+      runtime: beat >= 4 ? "codex" : "claude",
+      model: null,
+      room: "work",
+      inviteOpen: false,
+      inviteSent: false,
+      focus: [
+        null,
+        "bot-actions",
+        "bot-edit",
+        "runtime-codex",
+        "save-provider",
+        "dm-alli",
+        "dm-composer",
+        "dm-message-gus",
+        "dm-message-alli",
+      ][beat] ?? null,
+      camera: PROVIDER_CAMERAS[beat] ?? WIDE_CAMERA,
+    }
+  }
   return {
     beat,
-    visibleMessages: beat >= 8 ? 2 : beat >= 7 ? 1 : 0,
-    composerText: beat === 6 ? "hello Alli" : "",
+    visibleMessages: beat >= 9 ? 3 : beat >= 7 ? 3 : 2,
+    composerText: "",
     machineState: "online",
     pairSheet: "closed",
-    runtime: beat >= 4 ? "codex" : "claude",
+    runtime: "claude",
     model: null,
+    room: beat >= 9 ? "play" : beat >= 2 ? "life" : "work",
+    inviteOpen: beat === 5 || beat === 6,
+    inviteSent: beat >= 6,
     focus: [
       null,
-      "bot-actions",
-      "bot-edit",
-      "runtime-codex",
-      "save-provider",
-      "dm-alli",
-      "dm-composer",
-      "dm-message-gus",
-      "dm-message-alli",
+      "server-life",
+      "space-server-name-life",
+      "space-channel-life",
+      "invite-life",
+      "invite-maya",
+      "invite-maya",
+      "space-message-maya",
+      "server-play",
+      "space-server-name-play",
+      "space-channel-play",
+      "space-message-quest",
+      null,
     ][beat] ?? null,
-    camera: PROVIDER_CAMERAS[beat] ?? WIDE_CAMERA,
+    camera: SPACES_CAMERAS[beat] ?? WIDE_CAMERA,
   }
 }
