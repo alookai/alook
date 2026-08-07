@@ -173,7 +173,26 @@ function feed(overrides: Record<string, unknown> = {}) {
   } as ReturnType<typeof useChannelMessageFeed>
 }
 
-describe("ChannelRoute top-level text scroll target ownership", () => {
+function configureThreadRoute() {
+  Object.assign(mockRouteModel, {
+    channel: null,
+    parent: { id: "parent_1", name: "general", type: "text" },
+    currentChannelMeta: {
+      id: "channel_1",
+      name: "thread",
+      parentChannelId: "parent_1",
+      parentMessageId: "opener_1",
+      creatorId: "viewer_1",
+    },
+    isChild: true,
+    isNotifyUnit: true,
+  })
+  mockRouteModel.server.categories = [{
+    channels: [{ id: "parent_1", name: "general", type: "text" }],
+  }]
+}
+
+describe("ChannelRoute message surface ownership", () => {
   beforeEach(() => {
     vi.useFakeTimers()
     mockedMessageList.mockClear()
@@ -202,9 +221,7 @@ describe("ChannelRoute top-level text scroll target ownership", () => {
 
   it("keeps the route anchor until MessageList reports a successful jump", () => {
     let surfaceFeed = feed({ messages: [{ id: "m_unrelated" }] })
-    mockedUseChannelMessageFeed.mockImplementation(({ channelId }) =>
-      channelId === null ? feed() : surfaceFeed,
-    )
+    mockedUseChannelMessageFeed.mockImplementation(() => surfaceFeed)
     let renderer: TestRenderer.ReactTestRenderer
 
     act(() => {
@@ -213,8 +230,7 @@ describe("ChannelRoute top-level text scroll target ownership", () => {
       )
     })
 
-    expect(mockedUseChannelMessageFeed.mock.calls.filter(([options]) => options.channelId !== null)).toHaveLength(1)
-    expect(mockedUseChannelMessageFeed).toHaveBeenCalledWith(expect.objectContaining({ channelId: null }))
+    expect(mockedUseChannelMessageFeed).toHaveBeenCalledTimes(1)
     expect(mockedUseChannelMessageFeed).toHaveBeenCalledWith(expect.objectContaining({ channelId: "channel_1" }))
     expect(mockedMessageList.mock.calls.at(-1)?.[0].scrollToMessageId).toBe("m_target")
 
@@ -234,9 +250,7 @@ describe("ChannelRoute top-level text scroll target ownership", () => {
 
   it("clears the route anchor only after the authoritative anchor request errors", () => {
     let surfaceFeed = feed({ messages: [{ id: "m_unrelated" }] })
-    mockedUseChannelMessageFeed.mockImplementation(({ channelId }) =>
-      channelId === null ? feed() : surfaceFeed,
-    )
+    mockedUseChannelMessageFeed.mockImplementation(() => surfaceFeed)
     let renderer: TestRenderer.ReactTestRenderer
 
     act(() => {
@@ -268,26 +282,11 @@ describe("ChannelRoute top-level text scroll target ownership", () => {
       )
     })
 
-    expect(mockedUseChannelMessageFeed).toHaveBeenCalledTimes(1)
-    expect(mockedUseChannelMessageFeed).toHaveBeenCalledWith(expect.objectContaining({ channelId: null }))
+    expect(mockedUseChannelMessageFeed).not.toHaveBeenCalled()
   })
 
   it("initializes only the child feed for a thread route", () => {
-    Object.assign(mockRouteModel, {
-      channel: null,
-      currentChannelMeta: {
-        id: "channel_1",
-        name: "thread",
-        parentChannelId: "parent_1",
-        parentMessageId: "opener_1",
-        creatorId: "viewer_1",
-      },
-      isChild: true,
-      isNotifyUnit: true,
-    })
-    mockRouteModel.server.categories = [{
-      channels: [{ id: "parent_1", name: "general", type: "text" }],
-    }]
+    configureThreadRoute()
     mockedUseChannelMessageFeed.mockImplementation(() => feed({ anchorInCache: true }))
 
     act(() => {
@@ -301,5 +300,52 @@ describe("ChannelRoute top-level text scroll target ownership", () => {
       channelId: "channel_1",
       isChildChannel: true,
     }))
+  })
+
+  it("keeps a child target through warm cache and 5000ms until MessageList consumes it", () => {
+    configureThreadRoute()
+    let childFeed = feed({ messages: [{ id: "m_unrelated" }], anchorInCache: true })
+    mockedUseChannelMessageFeed.mockImplementation(() => childFeed)
+    let renderer: TestRenderer.ReactTestRenderer
+
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }),
+      )
+    })
+
+    expect(mockedMessageList.mock.calls.at(-1)?.[0].scrollToMessageId).toBe("m_target")
+    childFeed = feed({ messages: [{ id: "m_target" }], anchorInCache: true })
+    act(() => {
+      renderer!.update(
+        React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }),
+      )
+    })
+    act(() => vi.advanceTimersByTime(5000))
+    expect(mockedMessageList.mock.calls.at(-1)?.[0].scrollToMessageId).toBe("m_target")
+    act(() => mockedMessageList.mock.calls.at(-1)?.[0].onScrollTargetConsumed?.("m_target"))
+    expect(mockedMessageList.mock.calls.at(-1)?.[0].scrollToMessageId).toBeNull()
+  })
+
+  it("clears a missing child target only after the child feed errors", () => {
+    configureThreadRoute()
+    let childFeed = feed({ messages: [{ id: "m_unrelated" }], anchorInCache: true })
+    mockedUseChannelMessageFeed.mockImplementation(() => childFeed)
+    let renderer: TestRenderer.ReactTestRenderer
+
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }),
+      )
+    })
+    expect(mockedMessageList.mock.calls.at(-1)?.[0].scrollToMessageId).toBe("m_target")
+
+    childFeed = feed({ messages: [{ id: "m_unrelated" }], isError: true, anchorInCache: true })
+    act(() => {
+      renderer!.update(
+        React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }),
+      )
+    })
+    expect(mockedMessageList.mock.calls.at(-1)?.[0].scrollToMessageId).toBeNull()
   })
 })

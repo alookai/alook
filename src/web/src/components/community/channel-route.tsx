@@ -3,24 +3,22 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
-import { apiFetch, toastApiError } from "@/lib/api/client"
+import { toastApiError } from "@/lib/api/client"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { ChannelHeader, ChannelHeaderSkeleton, type ChannelNotifLevel } from "@/components/community/channel-header"
 import { MessageList } from "@/components/community/message-list"
-import { Composer, ComposerSkeleton } from "@/components/community/composer"
+import { ComposerSkeleton } from "@/components/community/composer"
 import { ForumViewSkeleton } from "@/components/community/forum-view"
 import { ForumSurface } from "@/components/community/forum-surface"
 import { TextChannelSurface, type TextChannelMemberPanelProps } from "@/components/community/text-channel-surface"
-import { MessageChannelController } from "@/components/community/message-channel-controller"
+import { ThreadChannelSurface } from "@/components/community/thread-channel-surface"
 import { ChannelShell } from "@/components/community/channel-shell"
 import type { NewForumThread } from "@/components/community/create-forum-thread"
 import { CommunityPanelSheet } from "@/components/community/community-panel-sheet"
-import { MessageContextSheet } from "@/components/community/message-context-sheet"
-import { ThreadOpener } from "@/components/community/thread-opener"
 import { AddMembersDialog } from "@/components/community/add-members-dialog"
 import type { RightPanel, OpenProfile, Role } from "@/components/community/_types"
 import { canManageServer } from "@/components/community/_types"
-import { isForum as isForumType, USE_SERVER_DEFAULT } from "@alook/shared"
+import { USE_SERVER_DEFAULT } from "@alook/shared"
 import { resolveRowPresence } from "@/lib/community/presence"
 import { setLastChannel } from "@/lib/community/last-channel"
 import { makeUserNameResolver } from "@/lib/community/display-name"
@@ -35,11 +33,9 @@ import { useServerMembers } from "@/hooks/community/use-server-members"
 import { useChannelMembers, useAddableMembers, useAddChannelMember, useRemoveChannelMember } from "@/hooks/community/use-channel-members"
 import { useAddThreadParticipant, useRemoveThreadParticipant } from "@/hooks/community/use-thread-participants"
 import { useMessage } from "@/hooks/community/use-message"
-import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
 import { useOnlineUserIds, useCommunityWsStore } from "@/stores/community/ws"
 import {
-  useEditMessage,
   useCreateForumThread,
   useUpdatePostTags,
   useDeleteForumThread,
@@ -79,6 +75,7 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
   const {
     server: currentServer,
     channel: channelInServer,
+    parent: parentChannelInServer,
     currentChannelMeta,
     isForum,
     isChild: isChildChannel,
@@ -273,17 +270,8 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
       serverName: currentServer?.name ?? "",
     }))
   }, [currentServer, serverId])
-  const messageFeed = useChannelMessageFeed({
-    channelId: isChildChannel ? channelId : null,
-    serverId,
-    viewerUserId: currentUser.id,
-    isChildChannel,
-    anchorMessageId: jumpTargetId,
-  })
-  const messagesLoading = messageFeed.isLoading
   const notifs = useNotificationSettings()
   const channelNotif = notifs.channel
-  const { mutateAsync: editMessageAsync } = useEditMessage()
   const createForumThreadMut = useCreateForumThread()
   const updatePostTagsMut = useUpdatePostTags()
   const deleteForumThreadMut = useDeleteForumThread()
@@ -294,7 +282,6 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
   const goBack = useCallback(() => { uiHandlers.goBackMobile?.() }, [uiHandlers])
 
   const [rightPanel, setRightPanel] = useState<RightPanel>(null)
-  const [localName, setLocalName] = useState<string | null>(null)
 
   // Strip `?msg=` from the URL right after mount so a refresh/back doesn't
   // re-trigger the jump. The frozen `jumpTargetId` still seeds the mounted
@@ -307,7 +294,6 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
 
   useEffect(() => {
     setRightPanel(null)
-    setLocalName(null)
     setMemberQuery("")
     setManageMembersOpen(false)
   }, [channelId])
@@ -315,7 +301,6 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
   // Find the channel name
   const channelName = useMemo(() => {
     return resolveChannelDisplayName({
-      localName,
       forumPostTitle: isForumPostChild ? forumPostOpener?.content : null,
       topLevelName: channelInServer?.name,
       childChannelName: isForumPostChild ? null : currentChannelMeta?.name,
@@ -323,7 +308,7 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
       threadListName: null,
       fallback: isForumPostChild ? "Post" : "channel",
     })
-  }, [localName, isForumPostChild, forumPostOpener, channelInServer, currentChannelMeta])
+  }, [isForumPostChild, forumPostOpener, channelInServer, currentChannelMeta])
 
   const togglePanel = (k: Exclude<RightPanel, null>) =>
     setRightPanel((p) => (p === k ? null : k))
@@ -464,13 +449,9 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
     )
   })()
 
-  // ForumSurface owns its feed loading state. Channel hydration only waits on
-  // the text/thread message controller for non-forum surfaces.
-  const bodyLoading = isChildChannel ? messagesLoading : false
   const channelHydrated =
     currentChannelId === channelId &&
     routeModel.routeHydrated &&
-    !bodyLoading &&
     (!isForumPostChild || !forumPostOpenerLoading)
   if (!channelHydrated) {
     if (isForum) {
@@ -508,174 +489,39 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
 
   // ── Child channel view (forum post / thread opened via URL) ─────────────
   if (isChildChannel) {
-    const parentId = currentChannelMeta?.parentChannelId
-    const parentMessageId = currentChannelMeta?.parentMessageId ?? null
-    const allChannels = currentServer?.categories?.flatMap((c) => c.channels) ?? []
-    const parentChannel = parentId ? allChannels.find((ch) => ch.id === parentId) : null
-    const parentName = parentChannel?.name ?? "channel"
-    const parentIsForum = isForumType(parentChannel?.type)
-    const opener = parentMessageId && !parentIsForum ? (
-      <ThreadOpener
-        parentMessageId={parentMessageId}
-        onOpenProfile={openProfile}
-        onPreviewImage={(url) => uiHandlers.previewImage?.(url)}
-        onDownloadFile={(url) => {
-          const a = document.createElement("a")
-          a.href = url
-          a.download = url.split("/").pop() ?? "file"
-          a.click()
-        }}
-        onJump={
-          parentId
-            ? () =>
-                router.push(
-                  `/c/channels/${serverParam}/${parentId}?msg=${parentMessageId}`,
-                )
-            : undefined
-        }
-      />
-    ) : undefined
     return (
-      <MessageChannelController
+      <ThreadChannelSurface
         channelId={channelId}
         serverId={serverId}
         serverParam={serverParam}
         channelName={channelName}
         viewer={currentUser}
         anchorMessageId={jumpTargetId}
-        feed={messageFeed}
+        parentChannelId={currentChannelMeta?.parentChannelId ?? null}
+        parentMessageId={currentChannelMeta?.parentMessageId ?? null}
+        parentChannelName={parentChannelInServer?.name ?? "channel"}
+        parentIsForum={isForumPostChild}
+        childCreatorId={currentChannelMeta?.creatorId}
+        canRenameThread={canManageServer(myRole)}
+        headerServer={bp === "mobile" && currentServer
+          ? { id: currentServer.id, name: currentServer.name, icon: currentServer.icon }
+          : undefined}
+        notificationLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
+        onSetNotificationLevel={(level) => setChannelNotifMut.mutate({ channelId, level }, {
+          onError: (error) => toastApiError(error, "Failed to update notification level"),
+        })}
+        onBack={bp === "mobile" ? () => router.back() : undefined}
+        onLoadingBack={bp === "mobile" ? goBack : undefined}
+        composerMembers={composerMembers}
+        onSearchComposerMembers={membersHook.searchMembers}
+        channelRefCandidates={channelRefCandidates}
+        memberPanelProps={memberPanelProps}
+        manageMembersDialog={manageMembersDialog}
         uiHandlers={uiHandlers}
-        onOpenThread={() => {}}
-        onOpenPinned={() => setRightPanel("pinned")}
+        onOpenChild={enterThread}
+        onOpenProfile={openProfile}
         resolveUserName={resolveUserName}
-      >
-        {(controller) => <ChannelShell
-        header={<ChannelHeader
-          channel={parentName}
-          forum={parentIsForum}
-          rightPanel={rightPanel}
-          onToggle={togglePanel}
-          notifLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
-          onSetNotifLevel={(l) => setChannelNotifMut.mutate({ channelId, level: l }, {
-            onError: (e) => toastApiError(e, "Failed to update notification level"),
-          })}
-          onBack={bp === "mobile" ? () => router.back() : undefined}
-          server={bp === "mobile" && currentServer ? { id: currentServer.id, name: currentServer.name, icon: currentServer.icon } : undefined}
-          tools={{ threads: false }}
-          breadcrumb={{
-            label: channelName,
-            titleRename: parentIsForum,
-            onNavigateBack: () => { if (parentId) router.push(`/c/channels/${serverParam}/${parentId}`); else router.back() },
-            onRename: parentIsForum && parentId && parentMessageId && currentChannelMeta?.creatorId === currentUser.id
-              ? async (name) => {
-                try {
-                  await editMessageAsync({
-                    serverId,
-                    channelId: parentId,
-                    messageId: parentMessageId,
-                    content: name,
-                    forumChannelId: parentId,
-                  })
-                } catch (e) {
-                  toastApiError(e, "Failed to edit post")
-                  throw e
-                }
-              }
-              : !parentIsForum && canManageServer(myRole) ? async (name) => {
-              try {
-                await apiFetch(`/api/community/channels/${channelId}`, {
-                  method: "PATCH",
-                  body: JSON.stringify({ name }),
-                })
-                setLocalName(name)
-              } catch (e) {
-                toastApiError(e, "Failed to rename")
-                throw e
-              }
-            } : undefined,
-          }}
-        />}
-        body={<main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <MessageList
-            key={channelId}
-            channel={channelName}
-            messages={controller.feed.messages}
-            loading={messagesLoading}
-            pinnedIds={controller.pinnedIds}
-            newDividerBefore={controller.feed.newDividerBefore}
-            typingUsers={controller.typingUsers}
-            onOpenThread={() => { }}
-            {...controller.threadActions}
-            onOpenProfile={openProfile}
-            resolveUserName={resolveUserName}
-            scrollToMessageId={controller.scrollTargetId}
-            hero={opener}
-            onScrollRoot={controller.feed.setScrollRootEl}
-            viewerUserId={currentUser.id}
-            // Same gate as the top-level channel view: hold the mount-time
-            // scroll until the read snapshot resolves and its anchor is loaded,
-            // so a child thread opens on the "New" divider too.
-            initialScrollReady={!controller.feed.readSnapshotFetching && controller.feed.anchorInCache}
-            onScrollTargetConsumed={controller.consumeScrollTarget}
-            hasMore={controller.feed.hasMoreOlder}
-            isFetchingOlder={controller.feed.isFetchingOlder}
-            onLoadOlder={controller.feed.fetchOlder}
-            hasMoreNewer={controller.feed.hasMoreNewer}
-            isFetchingNewer={controller.feed.isFetchingNewer}
-            onLoadNewer={controller.feed.fetchNewer}
-            onJumpToPresent={controller.feed.jumpToPresent}
-            unreadCount={controller.feed.unreadCount}
-            onOpenContextSheet={controller.openContextSeq}
-          />
-          <div data-onboarding-target="channel-composer" className="shrink-0">
-            <Composer
-              channel={channelName}
-              context="thread"
-            members={composerMembers}
-            onSearchMembers={membersHook.searchMembers}
-            channelRefCandidates={channelRefCandidates}
-            sendContract="accepted"
-            onAcceptSend={controller.acceptMessage}
-            onTyping={controller.handleTyping}
-            replyingTo={controller.replyTo?.authorName}
-            onCancelReply={() => controller.setReplyTo(null)}
-            autoFocus={bp !== "mobile"}
-              draftKey={`${serverId}/${channelId}`}
-            />
-          </div>
-        </main>}
-        panels={rightPanel && (
-          <CommunityPanelSheet
-            open
-            onOpenChange={(v) => { if (!v) setRightPanel(null) }}
-            kind={rightPanel}
-            {...memberPanelProps}
-            pinned={controller.feed.pinned}
-            pinnedLoading={controller.feed.pinnedLoading}
-            searchResults={controller.searchResults}
-            searchQuery={controller.searchQuery}
-            threads={controller.feed.threads}
-            threadsLoading={controller.feed.threadsLoading}
-            onOpenThread={enterThread}
-            onJumpToMessage={controller.jumpToSeq}
-            onSearch={controller.search}
-            onOpenProfile={openProfile}
-          />
-        )}
-        dialogs={<>{manageMembersDialog}<MessageContextSheet
-          open={controller.contextTarget !== null}
-          onOpenChange={(v) => { if (!v) controller.setContextTarget(null) }}
-          channelId={controller.contextTarget?.channelId ?? channelId}
-          channelLabel={controller.contextTarget?.label}
-          targetSeq={controller.contextTarget?.seq ?? null}
-          pinnedIds={controller.pinnedIds}
-          onOpenContextSheet={controller.openContextSeq}
-          onOpenProfile={openProfile}
-          resolveUserName={resolveUserName}
-          onReply={controller.onSheetReply}
-        /></>}
-        />}
-      </MessageChannelController>
+      />
     )
   }
 
