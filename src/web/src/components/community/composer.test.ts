@@ -1,6 +1,32 @@
 import { describe, it, expect } from "vitest"
 import { clipboardFiles, pendingFilesToSendAttachments, popoverStyle } from "./composer"
+import type { ComposerProps } from "./composer"
 import type { PendingFile } from "@/hooks/use-file-attachments"
+
+describe("Composer send contract", () => {
+  it("keeps accepted chat and deferred forum modes mutually exclusive", () => {
+    const accepted = {
+      channel: "dm",
+      context: "dm" as const,
+      members: [],
+      sendContract: "accepted" as const,
+      mode: "chat" as const,
+      onAcceptSend: () => true,
+    } satisfies ComposerProps
+    expect(accepted.sendContract).toBe("accepted")
+
+    // @ts-expect-error accepted sends must clear/transfer and therefore cannot use the deferred forum mode
+    const invalid: ComposerProps = {
+      channel: "forum",
+      context: "channel",
+      members: [],
+      sendContract: "accepted",
+      mode: "forumPostBody",
+      onAcceptSend: () => true,
+    }
+    expect(invalid.mode).toBe("forumPostBody")
+  })
+})
 
 // Minimal DataTransferItemList stand-in: each entry declares its `kind` and the
 // File its `getAsFile()` yields (null models the browser returning nothing for

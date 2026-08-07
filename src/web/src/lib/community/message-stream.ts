@@ -65,6 +65,7 @@ export type MessageOverlayEvent =
   | { type: "uploadFailed"; nonce: string }
   | { type: "postAck"; nonce: string; serverMessageId: string; serverSeq: number }
   | { type: "postFail"; nonce: string }
+  | { type: "terminalReject"; nonce: string }
   | { type: "retry"; nonce: string }
   | { type: "wsMessage"; message: CanonicalMessage }
   | { type: "liveRefreshed"; message: CanonicalMessage }
@@ -289,14 +290,23 @@ export function reduceMessageOverlay(
         message: { ...intent.message, failed: true },
       }))
 
-    case "postAck":
-      return updateIntent(state, event.nonce, (intent) => ({
+    case "postAck": {
+      const intent = state.outboxByNonce.get(event.nonce)
+      if (!intent) return unchanged(state)
+      const outboxByNonce = new Map(state.outboxByNonce)
+      outboxByNonce.set(event.nonce, {
         ...intent,
         status: "acked",
         serverMessageId: event.serverMessageId,
         serverSeq: event.serverSeq,
+        localUploads: [],
         message: { ...intent.message, failed: false },
-      }))
+      })
+      return {
+        state: { ...state, outboxByNonce },
+        effects: revokeEffects(intent),
+      }
+    }
 
     case "postFail":
       return updateIntent(state, event.nonce, (intent) => ({
@@ -304,6 +314,17 @@ export function reduceMessageOverlay(
         status: "failed",
         message: { ...intent.message, failed: true },
       }))
+
+    case "terminalReject": {
+      const intent = state.outboxByNonce.get(event.nonce)
+      if (!intent) return unchanged(state)
+      const outboxByNonce = new Map(state.outboxByNonce)
+      outboxByNonce.delete(event.nonce)
+      return {
+        state: { ...state, outboxByNonce },
+        effects: revokeEffects(intent),
+      }
+    }
 
     case "retry":
       return updateIntent(state, event.nonce, (intent) => ({

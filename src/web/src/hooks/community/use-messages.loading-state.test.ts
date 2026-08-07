@@ -3,7 +3,7 @@ import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
-import { useMessages } from "./use-messages"
+import { useDmMessages, useMessages } from "./use-messages"
 import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
 
 const apiFetchMock = vi.fn()
@@ -55,6 +55,34 @@ function renderCapture(
         QueryClientProvider,
         { client: queryClient },
         React.createElement(Capture, { onResult, channelId: "ch_new", lastReadMessageId }),
+      ),
+    )
+  })
+}
+
+function DmCapture({ onResult }: {
+  onResult: (r: { messages: unknown[]; latestSeq: number }) => void
+}) {
+  const result = useDmMessages("dm_new", { lastReadMessageId: undefined })
+  onResult({ messages: result.messages, latestSeq: result.latestSeq })
+  return null
+}
+
+function renderDmCapture(
+  onResult: (r: { messages: unknown[]; latestSeq: number }) => void,
+  seedTail: { id: string; seq: number }[],
+) {
+  const queryClient = new QueryClient()
+  queryClient.setQueryData(communityKeys.dmMessages("dm_new"), {
+    pages: [{ messages: seedTail, hasMore: false, latestSeq: seedTail.at(-1)?.seq ?? 0 }],
+    pageParams: [{ mode: "newest" }],
+  })
+  act(() => {
+    TestRenderer.create(
+      React.createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        React.createElement(DmCapture, { onResult }),
       ),
     )
   })
@@ -155,5 +183,32 @@ describe("useMessages — instant channel switch: warm cache paints without wait
     act(() => useMessageStreamStore.getState().removeServer("s1"))
     expect(useMessageStreamStore.getState().entries.size).toBe(0)
     expect(getMessageOverlay(messageScope).liveById.size).toBe(0)
+  })
+})
+
+describe("useDmMessages — base plus overlay", () => {
+  it("materializes a higher live fallback while latestSeq remains base-owned", () => {
+    useMessageStreamStore.getState().dispatch(
+      { kind: "dm", id: "dm_new" },
+      {
+        type: "wsMessage",
+        message: {
+          id: "m_live",
+          seq: 99,
+          type: "chat",
+          authorId: "u1",
+          authorName: "Alice",
+          content: "live",
+          createdAt: "2026-08-06T00:00:00.000Z",
+        },
+      },
+    )
+    let latest: { messages: unknown[]; latestSeq: number } | undefined
+
+    renderDmCapture((result) => { latest = result }, [{ id: "m_base", seq: 5 }])
+
+    expect(latest?.messages).toHaveLength(2)
+    expect(latest?.latestSeq).toBe(5)
+    expect(apiFetchMock).not.toHaveBeenCalled()
   })
 })

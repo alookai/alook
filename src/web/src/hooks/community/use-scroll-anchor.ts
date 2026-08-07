@@ -224,11 +224,10 @@ export function decideScrollAction(input: DecideScrollActionInput): DecideScroll
     const tail = messages[messages.length - 1]
     const isSelfSend = !!viewerUserId && tail?.authorId === viewerUserId
     if (isSelfSend) {
-      // Always follow — handles the composer path and, incidentally, the
-      // optimistic temp-id → server-id reconcile (the tail id string
-      // changes via `reconcileServerId` on send success, but the author is
-      // still the viewer, so this branch still catches it as an idempotent
-      // self-send snap, not a misclassified no-op).
+      // Always follow — handles the composer path and the overlay identity
+      // advance on postAck (temp id → canonical server id). The author remains
+      // the viewer, so this branch treats that id change as an idempotent
+      // self-send snap rather than a peer append.
       return { action: { type: "scrollToEnd" }, nextState: liveState }
     }
     // Peer send: only follow if the loaded window is tail-attached to the

@@ -17,7 +17,24 @@ test.describe.serial("direct messages", () => {
     await alice.page.waitForURL(new RegExp(dmId), { timeout: 20_000 , waitUntil: "commit" })
 
     const body = `dm hello ${Date.now()}`
+    const responsePromise = alice.page.waitForResponse((response) => {
+      const pathname = new URL(response.url()).pathname
+      return response.request().method() === "POST"
+        && pathname === `/api/community/dm/${dmId}/messages`
+    })
     await sendMessage(alice.page, body)
+    const response = await responsePromise
+    expect(response.status()).toBe(201)
+    const payload = await response.json() as { message: { id: string; seq: number } }
+    expect(payload.message.seq).toBeGreaterThan(0)
+    await expect(alice.page.getByTestId(tid.message(payload.message.id))).toHaveCount(1)
+    await expect(alice.page.getByTestId(tid.composerInput)).toHaveText("")
+
+    // Revisit through the DM index. The accepted row must remain canonical
+    // exactly once while the base query catches up to the session overlay.
+    await alice.page.goto("/c/me", { waitUntil: "commit" })
+    await alice.page.goto(`/c/me/${dmId}`, { waitUntil: "commit" })
+    await expect(alice.page.getByTestId(tid.message(payload.message.id))).toHaveCount(1)
 
     // Bob's DM sidebar row shows the new conversation without a manual reload.
     await expect(bob.page.getByTestId(tid.dmRow(dmId))).toBeVisible({ timeout: 15_000 })
@@ -26,6 +43,7 @@ test.describe.serial("direct messages", () => {
     // lag, so give the body a generous window rather than the default.
     await bob.page.waitForURL(new RegExp(dmId), { timeout: 20_000 , waitUntil: "commit" })
     await expect(bob.page.getByText(body, { exact: false }).first()).toBeVisible({ timeout: 20_000 })
+    await expect(bob.page.getByTestId(tid.message(payload.message.id))).toHaveCount(1)
   })
 
   test("blocking replaces the composer with a blocked notice", async ({ asUser }) => {

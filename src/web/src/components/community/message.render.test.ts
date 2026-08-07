@@ -144,23 +144,46 @@ describe("Message lazy overlays", () => {
     expect(tree).not.toContain("reaction-add")
   })
 
-  it("keeps failed-message dismiss independent from retry", () => {
+  it.each([
+    ["Retry", (onRetry: ReturnType<typeof vi.fn>, _onDismiss: ReturnType<typeof vi.fn>) => onRetry],
+    ["Dismiss", (_onRetry: ReturnType<typeof vi.fn>, onDismiss: ReturnType<typeof vi.fn>) => onDismiss],
+  ])("keeps a failed row out of lazy overlays so pointerenter → first %s click fires once", (label, expectedCallback) => {
     const onRetry = vi.fn()
     const onDismiss = vi.fn()
     let renderer: TestRenderer.ReactTestRenderer
     act(() => {
       renderer = TestRenderer.create(
-        makeTree({ m: baseMsg({ failed: true }), onOpenThread: vi.fn(), onRetry, onDismiss }),
+        makeTree({
+          m: baseMsg({ failed: true }),
+          onOpenThread: vi.fn(),
+          onCopy: vi.fn(),
+          onRetry,
+          onDismiss,
+        }),
         { createNodeMock: () => genericMock },
       )
     })
 
-    const dismiss = renderer!.root.findAllByType("button")
-      .find((button) => button.children.includes("Dismiss"))
-    expect(dismiss).toBeDefined()
-    act(() => dismiss!.props.onClick())
+    const row = renderer!.root.find(
+      (node) => typeof node.props.className === "string"
+        && node.props.className.includes("group relative -mx-2"),
+    )
+    expect(row.props.onPointerEnter).toBeUndefined()
+    act(() => row.props.onPointerEnter?.())
+    expect(renderer!.root.findAll(
+      (node) => node.props["data-slot"] === "context-menu-trigger",
+    )).toHaveLength(0)
 
-    expect(onDismiss).toHaveBeenCalledOnce()
-    expect(onRetry).not.toHaveBeenCalled()
+    const action = renderer!.root.findAllByType("button").find((button) =>
+      label === "Dismiss"
+        ? button.children.includes("Dismiss")
+        : button.children.some((child) => typeof child === "string" && child.includes("Message failed to send")),
+    )
+    expect(action).toBeDefined()
+    act(() => action!.props.onClick())
+
+    expect(expectedCallback(onRetry, onDismiss)).toHaveBeenCalledOnce()
+    const otherCallback = label === "Dismiss" ? onRetry : onDismiss
+    expect(otherCallback).not.toHaveBeenCalled()
   })
 })

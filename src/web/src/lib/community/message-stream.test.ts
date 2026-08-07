@@ -341,30 +341,59 @@ describe("attachment ownership effects", () => {
     ])
   })
 
-  it("keeps one attachment intent across upload + ack and revokes URLs once on WS reconciliation", () => {
+  it("transfers attachment preview ownership on ack and never revokes twice on WS/base/clear", () => {
     let state = submit(emptyMessageOverlay(), attachedIntent())
     state = apply(state, {
       type: "uploadSettled",
       nonce: "files",
       attachments: [{ kind: "file", name: "notes.txt", url: "/media/notes", size: "1 KB" }],
     }).state
-    state = apply(state, {
+    const acked = apply(state, {
       type: "postAck",
       nonce: "files",
       serverMessageId: "mf",
       serverSeq: 20,
-    }).state
-
-    const first = apply(state, { type: "wsMessage", message: canonical("mf", 20, "files") })
-    expect(first.effects).toEqual([
+    })
+    expect(acked.effects).toEqual([
       { type: "revokeObjectUrl", url: "blob:a" },
       { type: "revokeObjectUrl", url: "blob:b" },
     ])
-    expect(first.state.outboxByNonce.size).toBe(0)
+    expect(acked.state.outboxByNonce.get("files")?.localUploads).toEqual([])
+    expect(acked.state.outboxByNonce.get("files")?.message.attachments).toEqual([
+      { kind: "file", name: "notes.txt", url: "/media/notes", size: "1 KB" },
+    ])
 
-    const replay = apply(first.state, { type: "wsMessage", message: canonical("mf", 20, "files") })
+    const ws = apply(acked.state, { type: "wsMessage", message: canonical("mf", 20, "files") })
+    expect(ws.effects).toEqual([])
+    expect(ws.state.outboxByNonce.size).toBe(0)
+    const base = apply(ws.state, { type: "baseChanged", messages: [canonical("mf", 20, "files")] })
+    expect(base.effects).toEqual([])
+    const cleared = apply(base.state, { type: "clear" })
+    expect(cleared.effects).toEqual([])
+
+    const replay = apply(cleared.state, { type: "wsMessage", message: canonical("mf", 20, "files") })
     expect(replay.effects).toEqual([])
     expect(ids([], replay.state)).toEqual(["mf"])
+  })
+
+  it("revokes once when WS wins before ack, while postFail keeps previews owned", () => {
+    const submitted = submit(emptyMessageOverlay(), attachedIntent())
+    const failed = apply(submitted, { type: "postFail", nonce: "files" })
+    expect(failed.effects).toEqual([])
+    expect(failed.state.outboxByNonce.get("files")?.localUploads).toHaveLength(3)
+
+    const ws = apply(submitted, { type: "wsMessage", message: canonical("mf", 20, "files") })
+    expect(ws.effects).toEqual([
+      { type: "revokeObjectUrl", url: "blob:a" },
+      { type: "revokeObjectUrl", url: "blob:b" },
+    ])
+    const lateAck = apply(ws.state, {
+      type: "postAck",
+      nonce: "files",
+      serverMessageId: "mf",
+      serverSeq: 20,
+    })
+    expect(lateAck.effects).toEqual([])
   })
 
   it("retains upload failure across retry and only dismisses explicitly", () => {
@@ -387,16 +416,29 @@ describe("attachment ownership effects", () => {
     expect(dismissed.state.outboxByNonce.size).toBe(0)
   })
 
+  it("terminally rejects a confirmed non-commit and revokes owned URLs once", () => {
+    const state = submit(emptyMessageOverlay(), attachedIntent())
+    const rejected = apply(state, { type: "terminalReject", nonce: "files" })
+
+    expect(rejected.state.outboxByNonce.size).toBe(0)
+    expect(rejected.effects).toEqual([
+      { type: "revokeObjectUrl", url: "blob:a" },
+      { type: "revokeObjectUrl", url: "blob:b" },
+    ])
+    expect(apply(rejected.state, { type: "terminalReject", nonce: "files" }).effects).toEqual([])
+  })
+
   it("emits cleanup exactly once for canonical base absorption and clear", () => {
-    let state = submit(emptyMessageOverlay(), attachedIntent())
-    state = apply(state, {
+    const state = submit(emptyMessageOverlay(), attachedIntent())
+    const acked = apply(state, {
       type: "postAck",
       nonce: "files",
       serverMessageId: "mf",
       serverSeq: 20,
-    }).state
-    const absorbed = apply(state, { type: "baseChanged", messages: [canonical("mf", 20, "files")] })
-    expect(absorbed.effects).toHaveLength(2)
+    })
+    expect(acked.effects).toHaveLength(2)
+    const absorbed = apply(acked.state, { type: "baseChanged", messages: [canonical("mf", 20, "files")] })
+    expect(absorbed.effects).toEqual([])
 
     const absorbedAgain = apply(absorbed.state, { type: "baseChanged", messages: [canonical("mf", 20, "files")] })
     expect(absorbedAgain.effects).toEqual([])

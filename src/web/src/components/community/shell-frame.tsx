@@ -58,9 +58,9 @@ import {
   useDeleteMention,
   useUnmarkMessage,
   useUpdateProfile,
-  useSendDmMessage,
   useUploadUserAvatar,
 } from "@/hooks/community/mutations"
+import { useDmMessageSender } from "@/hooks/community/use-dm-message-sender"
 
 /**
  * Shared community shell — ServerRail on the left, sidebar column with the
@@ -154,7 +154,7 @@ export function ShellFrame({
   const { mutate: updateFolderItemsMutate } = useUpdateFolderItems()
   const { mutate: createFolderWithMutate } = useCreateServerFolderWith()
   const createOrGetDm = useCreateOrGetDm()
-  const sendDmMessage = useSendDmMessage()
+  const { accept: acceptDmMessage } = useDmMessageSender()
   const markAllInboxRead = useMarkAllInboxRead()
   const deleteMention = useDeleteMention()
   const updateProfile = useUpdateProfile()
@@ -454,27 +454,22 @@ export function ShellFrame({
       toastApiError(e, "Failed to open DM")
       return
     }
-    // Await the send BEFORE navigating so the server row exists by the time
-    // the DM page mounts and fires its initial `GET /messages`. Otherwise
-    // the fresh-mount fetch races the send: it returns [], overwrites the
-    // optimistic cache, and the first message silently vanishes. Failure
-    // surfaces as a toast + `failed: true` pill; we still navigate so the
-    // user has the composer to retry.
     const trimmed = text.trim()
     if (trimmed) {
-      try {
-        await sendDmMessage.mutateAsync({
-          dmId,
-          content: trimmed,
-          author: {
-            id: currentUser.id,
-            name: currentUser.name,
-            avatar: currentUser.avatar,
-          },
-        })
-      } catch (e) {
-        toastApiError(e, "Failed to send message")
+      const receipt = acceptDmMessage({
+        dmId,
+        content: trimmed,
+        author: {
+          id: currentUser.id,
+          name: currentUser.name,
+          avatar: currentUser.avatar,
+        },
+      })
+      if (!receipt.accepted) {
+        toast("Failed to send message")
+        return
       }
+      void receipt.committed
     }
     router.push(`/c/me/${dmId}`)
   }

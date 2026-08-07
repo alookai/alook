@@ -70,8 +70,6 @@ export function clipboardFiles(items: DataTransferItemList | undefined): File[] 
   return files
 }
 
-type ComposerMode = "chat" | "forumPostBody"
-
 export type ComposerHandle = {
   focusEditor: () => void
   submitNow: () => void
@@ -103,10 +101,6 @@ type ComposerBaseProps = {
   // Auto-focus the editor on mount and on channel change. Desktop only —
   // callers pass `bp !== "mobile"` to avoid unexpected soft-keyboard pop-up.
   autoFocus?: boolean
-  // `"chat"` (default) — Enter sends, Shift+Enter newline, `send()` clears.
-  // `"forumPostBody"` — inverted: Enter newline, Shift+Enter submits; `send()`
-  // does NOT clear so the parent can await mutation success before resetting.
-  mode?: ComposerMode
   // Placeholder override — used by `forumPostBody` to swap the chat-composer
   // relic string. Falls back to the mode-derived default when absent.
   placeholder?: string
@@ -129,19 +123,21 @@ type ComposerBaseProps = {
   draftKey?: string
 }
 
-type ComposerLegacySend = {
-  sendContract?: "legacy"
-  onSend?: (markdown: string, attachments?: SendAttachment[], mentionType?: MentionType) => void | Promise<void>
+type ComposerAcceptedSend = {
+  sendContract: "accepted"
+  mode?: "chat"
+  onAcceptSend: (markdown: string, attachments?: SendAttachment[], mentionType?: MentionType) => boolean
+  onDeferredSubmit?: never
+}
+
+type ComposerDeferredSend = {
+  sendContract: "deferred"
+  mode: "forumPostBody"
+  onDeferredSubmit: (markdown: string, attachments?: SendAttachment[], mentionType?: MentionType) => void | Promise<void>
   onAcceptSend?: never
 }
 
-type ComposerAcceptedSend = {
-  sendContract: "accepted"
-  onAcceptSend: (markdown: string, attachments?: SendAttachment[], mentionType?: MentionType) => boolean
-  onSend?: never
-}
-
-export type ComposerProps = ComposerBaseProps & (ComposerLegacySend | ComposerAcceptedSend)
+export type ComposerProps = ComposerBaseProps & (ComposerAcceptedSend | ComposerDeferredSend)
 
 // Composer — plain-text TipTap editor with a chat-style @-mention popover.
 // Users type raw markdown which MessageBody/Streamdown renders on display.
@@ -157,9 +153,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   members,
   onSearchMembers,
   channelRefCandidates = [],
-  sendContract = "legacy",
-  onSend,
+  sendContract,
   onAcceptSend,
+  onDeferredSubmit,
   onTyping,
   replyingTo,
   onCancelReply,
@@ -452,7 +448,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     if (sendContract === "accepted") {
       if (!onAcceptSend?.(markdown, attachments, mentionType)) return
     } else {
-      void onSend?.(markdown, attachments, mentionType)
+      void onDeferredSubmit?.(markdown, attachments, mentionType)
     }
     // In forumPostBody mode the parent needs to await mutation success before
     // clearing — otherwise a failed create wipes the user's typed content.
@@ -460,8 +456,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     if (isForumPostBody) return
     editor.commands.clearContent()
     if (draftKeyRef.current) clearComposerDraft(draftKeyRef.current)
-    if (sendContract === "accepted") transferPendingFiles()
-    else setPendingFiles([])
+    transferPendingFiles()
     setMentionPopup(EMPTY_MENTION_STATE)
     setChannelRefPopup(EMPTY_CHANNEL_REF_STATE)
   }

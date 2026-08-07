@@ -12,6 +12,8 @@ vi.mock("./composer", () => ({
     createElement("div", {
       "data-testid": "mock-composer",
       "data-mode": (props.mode as string) ?? "chat",
+      "data-send-contract": props.sendContract as string,
+      "data-has-deferred-submit": String(typeof props.onDeferredSubmit === "function"),
       "data-hide-emoji": String(!!props.hideEmoji),
       "data-placeholder": (props.placeholder as string) ?? "",
     }),
@@ -53,6 +55,8 @@ describe("CreateForumPost — copy + structure", () => {
     const html = render()
     expect(html).toContain('data-testid="mock-composer"')
     expect(html).toContain('data-mode="forumPostBody"')
+    expect(html).toContain('data-send-contract="deferred"')
+    expect(html).toContain('data-has-deferred-submit="true"')
     expect(html).toContain('data-hide-emoji="true"')
     expect(html).toContain('data-placeholder="What do you want to discuss?"')
   })

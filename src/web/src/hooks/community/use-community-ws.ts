@@ -86,17 +86,6 @@ import { patchChannelUnread } from "@/hooks/community/server-detail-cache"
 // message burst.
 const INBOX_INVALIDATE_DEBOUNCE_MS = 500
 
-// Cap on the live (newest) page's message count inside `insertMessageIntoCache`.
-// Without this, a channel that stays open for a long session (or a flood of
-// WS message.create events) grows the first page — and the per-render
-// clustering pass in `message-list.tsx` — without bound. Matches
-// `SEEN_MESSAGE_MAX` (stores/community/ws.ts) for consistency; set generous
-// on purpose — tune down later if memory/render cost is still a problem.
-// Only the live-tail page is capped: pagination-loaded older pages
-// (`fetchOlder`) are left uncapped since they only grow from explicit user
-// "load more" clicks, not an attacker-controlled vector.
-const MAX_LIVE_PAGE_MESSAGES = 500
-
 // ── Types (kept for backwards compat with any lingering imports) ─────────
 
 export type Subscription = {
@@ -137,80 +126,6 @@ export type CommunityWsCallbacks = {
 // ── Cache patch helpers ───────────────────────────────────────────────────
 
 type PageCache = InfiniteData<MessagesPage>
-
-/**
- * Insert a WS-delivered message onto the first (newest) page of the channel
- * or DM stream — the same slot `useSendMessage` writes optimistic rows into,
- * so the two paths converge. Deduplicates by id.
- */
-export function insertMessageIntoCache(
-  cache: PageCache | undefined,
-  msg: CanonicalMessage,
-): PageCache | undefined {
-  if (!cache) return cache
-  if (cache.pages.length === 0) return cache
-  const first = cache.pages[0]
-  if (first.messages.some((m) => m.id === msg.id)) return cache
-  // Reconcile the SENDER's own optimistic row instead of inserting a second row.
-  // A message.create echo of a send the viewer just made carries the same
-  // `clientNonce` the optimistic row was stamped with (WS step-1). Without this,
-  // the echo (server id) shares no key with the optimistic row (temp id) and
-  // gets appended as a DUPLICATE — the 2-row transient that, collapsed under an
-  // unlucky POST-vs-WS ordering, made a just-sent reply vanish (reply-disappear).
-  // Rename the optimistic row to the server id in place: exactly one row, so the
-  // collapse has nothing to double-delete. `reconcileServerId` (the POST path)
-  // then finds no temp id and no-ops — both orderings converge to one row.
-  // `srv:`-fallback nonces are never echoed (WS step-1), so this only ever
-  // matches the sender's own client-provided nonce; others' messages (no
-  // matching optimistic row) fall through to the normal append below.
-  const nonce = msg.clientNonce
-  if (nonce) {
-    for (let pi = 0; pi < cache.pages.length; pi++) {
-      const p = cache.pages[pi]
-      const mi = p.messages.findIndex((m) => m.clientNonce === nonce)
-      if (mi !== -1) {
-        const pages = cache.pages.slice()
-        const msgs = p.messages.slice()
-        msgs[mi] = {
-          ...msgs[mi],
-          id: msg.id,
-          seq: msg.seq,
-          ...(msg.clientNonce ? { clientNonce: msg.clientNonce } : {}),
-          failed: false,
-        }
-        pages[pi] = { ...p, messages: msgs }
-        return { ...cache, pages }
-      }
-    }
-  }
-  const merged = [...first.messages, msg]
-  // Drop from the head (oldest end of this page) once the live tail grows
-  // past the cap — keeps the newest messages, sheds the oldest.
-  const trimmed = merged.length > MAX_LIVE_PAGE_MESSAGES
-  const messages = trimmed
-    ? merged.slice(merged.length - MAX_LIVE_PAGE_MESSAGES)
-    : merged
-  // When we drop rows off the head of the live page we've forgotten history
-  // that the server still has. Flip both the anchor-mode and the legacy
-  // `hasMore` flags to `true` so the older-pagination affordance re-arms —
-  // otherwise `hasMoreOlder ?? hasMore ?? false` collapses to `false` for
-  // the trimmed page and the UI stops offering "Load more" even though
-  // there's still history to fetch. Only touch the flags that already
-  // existed on the page so we don't accidentally invent an anchor-mode
-  // envelope on a legacy newest cache (or vice versa).
-  const nextFirst = trimmed
-    ? {
-      ...first,
-      messages,
-      ...(first.hasMoreOlder !== undefined ? { hasMoreOlder: true } : {}),
-      ...(first.hasMore !== undefined ? { hasMore: true } : {}),
-    }
-    : { ...first, messages }
-  return {
-    ...cache,
-    pages: [nextFirst, ...cache.pages.slice(1)],
-  }
-}
 
 /**
  * Patch every cached message authored by `userId` to the renamed
@@ -462,6 +377,12 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
               )
             }
           }
+          if (event.channelId === sub.dmConversationId) {
+            useMessageStreamStore.getState().dispatch(
+              { kind: "dm", id: event.channelId },
+              { type: "wsMessage", message: projected },
+            )
+          }
           if (wsStore.hasSeenMessage(event.message.id)) return
           wsStore.markSeenMessage(event.message.id)
           // Sending a message is an implicit typing.stop for its author —
@@ -475,12 +396,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           // 1) Patch the focused channel/dm page cache if the event matches.
           //    A DM is a channel, distinguished only by which subscription slot
           //    its channelId lands in.
-          if (event.channelId === sub.dmConversationId) {
-            queryClient.setQueryData<PageCache>(
-              communityKeys.dmMessages(event.channelId),
-              (c) => insertMessageIntoCache(c, projected),
-            )
-          } else if (event.channelId === sub.channelId) {
+          if (event.channelId === sub.channelId) {
             // A thread/forum_post enrolls its sender + mentioned users as
             // participants server-side on send. That set IS its Members panel,
             // so refetch it live — otherwise a new speaker/mention only appears
@@ -610,6 +526,22 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
                   message: applyReactionToMessage(source, event, viewerId) as CanonicalMessage,
                 })
               }
+            }
+          }
+          if (event.channelId === sub.dmConversationId) {
+            const scope = { kind: "dm" as const, id: event.channelId }
+            const fallback = [...getMessageOverlay(scope).liveById.values()]
+              .find((message) => message.id === event.messageId)
+            if (fallback) {
+              const cached = findCachedMessage(
+                queryClient.getQueryData<PageCache>(communityKeys.dmMessages(event.channelId)),
+                event.messageId,
+              )
+              const source = cached?.seq !== undefined ? cached as CanonicalMessage : fallback
+              useMessageStreamStore.getState().dispatch(scope, {
+                type: "liveRefreshed",
+                message: applyReactionToMessage(source, event, viewerId) as CanonicalMessage,
+              })
             }
           }
           if (matchesFocus(event)) cbs.onReaction?.(event)
@@ -984,7 +916,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
               }
               const streamState = useMessageStreamStore.getState()
               for (const entry of streamState.entries.values()) {
-                if (entry.scope.kind !== "channel" || entry.scope.serverId !== event.serverId) continue
+                if (entry.scope.kind === "channel" && entry.scope.serverId !== event.serverId) continue
                 for (const message of entry.state.liveById.values()) {
                   if (message.authorId !== userId) continue
                   useMessageStreamStore.getState().dispatch(entry.scope, {
@@ -1032,6 +964,33 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
               communityKeys.channelMessages(event.channelId),
               (c) => patchApprovalInCache(c, event.messageId, event.approval),
             )
+          }
+          const overlayScopes = event.channelId === sub.dmConversationId
+            ? [{ kind: "dm" as const, id: event.channelId }]
+            : event.channelId === sub.channelId
+              ? (() => {
+                const serverId = useCommunityStore.getState().currentServerId
+                return serverId
+                  ? [{ kind: "channel" as const, id: event.channelId, serverId }]
+                  : []
+              })()
+              : []
+          for (const scope of overlayScopes) {
+            const fallback = [...getMessageOverlay(scope).liveById.values()]
+              .find((message) => message.id === event.messageId)
+            if (!fallback) continue
+            const key = scope.kind === "dm"
+              ? communityKeys.dmMessages(event.channelId)
+              : communityKeys.channelMessages(event.channelId)
+            const cached = findCachedMessage(
+              queryClient.getQueryData<PageCache>(key),
+              event.messageId,
+            )
+            const source = cached?.seq !== undefined ? cached as CanonicalMessage : fallback
+            useMessageStreamStore.getState().dispatch(scope, {
+              type: "liveRefreshed",
+              message: { ...source, approval: event.approval },
+            })
           }
           // When a card resolves (accepted/denied/superseded), the friend graph
           // changed — invalidate friends + pending so the owner's lists reflect

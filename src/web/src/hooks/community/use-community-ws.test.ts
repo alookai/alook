@@ -691,6 +691,71 @@ describe("useCommunityWs — reactions", () => {
       { emoji: "👍", count: 1, me: false, userIds: ["u_other"] },
     ])
   })
+
+  it("refreshes a focused DM row that exists only in the overlay", async () => {
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ dmConversationId: "dm_1" })
+    await mountHook({ viewerUserId: "u_me" })
+    useMessageStreamStore.getState().dispatch(
+      { kind: "dm", id: "dm_1" },
+      {
+        type: "wsMessage",
+        message: {
+          id: "m_dm",
+          seq: 4,
+          type: "chat",
+          authorId: "u_other",
+          authorName: "Other",
+          content: "hi",
+          reactions: [],
+        },
+      },
+    )
+
+    capturedOnMessage!({
+      type: "community:reaction.add",
+      channelId: "dm_1",
+      messageId: "m_dm",
+      userId: "u_me",
+      emoji: "👍",
+    })
+
+    expect(getMessageOverlay({ kind: "dm", id: "dm_1" }).liveById.get("m_dm")?.reactions).toEqual([
+      { emoji: "👍", count: 1, me: true, userIds: ["u_me"] },
+    ])
+  })
+})
+
+describe("useCommunityWs — message.updated", () => {
+  it("refreshes approval fields on a focused DM row that exists only in the overlay", async () => {
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ dmConversationId: "dm_1" })
+    await mountHook()
+    useMessageStreamStore.getState().dispatch(
+      { kind: "dm", id: "dm_1" },
+      {
+        type: "wsMessage",
+        message: { id: "m_dm", seq: 4, type: "chat", content: "approval" },
+      },
+    )
+    const profile = { id: "u_other", name: "Other", discriminator: "0001", image: null }
+    const approval = {
+      friendshipId: "friendship_1",
+      status: "approved" as const,
+      waitingOn: null,
+      otherProfile: profile,
+      botProfile: { ...profile, id: "bot_1", name: "Bot" },
+    }
+
+    capturedOnMessage!({
+      type: "community:message.updated",
+      channelId: "dm_1",
+      messageId: "m_dm",
+      approval,
+    })
+
+    expect(getMessageOverlay({ kind: "dm", id: "dm_1" }).liveById.get("m_dm")?.approval).toEqual(approval)
+  })
 })
 
 describe("useCommunityWs — pin.add", () => {
@@ -747,6 +812,20 @@ describe("useCommunityWs — member events", () => {
 
   it("a self-rename (member.update with userId + changes.nickname) patches authorName in every cached channel/DM message list", async () => {
     await mountHook()
+    useMessageStreamStore.getState().dispatch(
+      { kind: "dm", id: "dm_overlay" },
+      {
+        type: "wsMessage",
+        message: {
+          id: "m_overlay",
+          seq: 9,
+          type: "chat",
+          authorId: "u_renamed",
+          authorName: "OldName",
+          content: "overlay only",
+        },
+      },
+    )
 
     // Two message caches — one channel, one DM — each with a message
     // authored by the renamed user and one by someone else. Both should
@@ -794,6 +873,9 @@ describe("useCommunityWs — member events", () => {
     expect(dmCache?.pages[0].messages).toEqual([
       { id: "m_3", authorId: "u_renamed", authorName: "NewName", content: "sup" },
     ])
+    expect(
+      getMessageOverlay({ kind: "dm", id: "dm_overlay" }).liveById.get("m_overlay")?.authorName,
+    ).toBe("NewName")
   })
 
   it("a role-only member.update (no userId/nickname) does not touch any message cache", async () => {
@@ -1104,7 +1186,7 @@ describe("useCommunityWs — channel.* invalidates server(id)", () => {
 })
 
 describe("useCommunityWs — DM message.create", () => {
-  it("patches dmMessages cache when focused + invalidates dms()", async () => {
+  it("writes the focused DM overlay, leaves Query base-only, and invalidates dms()", async () => {
     vi.useFakeTimers()
     try {
       await mountHook()
@@ -1139,7 +1221,11 @@ describe("useCommunityWs — DM message.create", () => {
       const cache = capturedQueryClient.getQueryData<{ pages: { messages: { id: string }[] }[] }>(
         communityKeys.dmMessages("dm_1"),
       )
-      expect(cache?.pages[0].messages).toHaveLength(1)
+      expect(cache?.pages[0].messages).toEqual([])
+      const { getMessageOverlay } = await import("@/stores/community/message-stream")
+      expect(
+        [...getMessageOverlay({ kind: "dm", id: "dm_1" }).liveById.values()].map((message) => message.id),
+      ).toEqual(["dm_m_1"])
       // The inbox + `dms()` invalidation is batched behind the inbox debounce.
       vi.advanceTimersByTime(600)
       expect(
@@ -1151,6 +1237,30 @@ describe("useCommunityWs — DM message.create", () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it("heals an already-seen DM event into the overlay before seen dedupe returns", async () => {
+    const { useCommunityStore } = await import("@/stores/community")
+    const { useCommunityWsStore } = await import("@/stores/community/ws")
+    useCommunityStore.getState().subscribe({ dmConversationId: "dm_1" })
+    useCommunityWsStore.getState().markSeenMessage("dm_replay")
+    await mountHook()
+
+    capturedOnMessage!({
+      type: "community:message.create",
+      channelId: "dm_1",
+      message: {
+        id: "dm_replay",
+        seq: 12,
+        authorId: "u_a",
+        authorName: "a",
+        content: "replay",
+        type: "chat",
+        createdAt: "2026-07-03T00:00:00.000Z",
+      },
+    })
+
+    expect(getMessageOverlay({ kind: "dm", id: "dm_1" }).liveById.has("dm_replay")).toBe(true)
   })
 })
 

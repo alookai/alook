@@ -13,8 +13,8 @@ import { useInvitableFriends } from "@/hooks/community/use-invitable-friends"
 import {
   useResolveOrCreateInvite,
   useCreateOrGetDm,
-  useSendDmMessage,
 } from "@/hooks/community/mutations"
+import { useDmMessageSender } from "@/hooks/community/use-dm-message-sender"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import type { Friend } from "./_types"
 
@@ -52,7 +52,7 @@ export function InviteDialog({
   const { friends, isLoading: friendsLoading } = useInvitableFriends(serverId, open)
   const resolveOrCreate = useResolveOrCreateInvite(serverId)
   const createOrGetDm = useCreateOrGetDm()
-  const sendDm = useSendDmMessage()
+  const { accept: acceptDmMessage } = useDmMessageSender()
 
   const [token, setToken] = useState<string | null>(null)
   const [resolveError, setResolveError] = useState<string | null>(null)
@@ -108,7 +108,7 @@ export function InviteDialog({
     if (!token || !friend.userId) return
     try {
       const { conversation } = await createOrGetDm.mutateAsync({ userId: friend.userId })
-      await sendDm.mutateAsync({
+      const receipt = acceptDmMessage({
         dmId: conversation.id,
         content: inviteUrl(token),
         author: {
@@ -117,6 +117,9 @@ export function InviteDialog({
           avatar: currentUser.avatar,
         },
       })
+      if (!receipt.accepted) throw new Error("Couldn't send invite")
+      const committed = await receipt.committed
+      if (!committed.ok) throw committed.error
       setInvitedUserIds((prev) => {
         const next = new Set(prev)
         next.add(friend.userId!)

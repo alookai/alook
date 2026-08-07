@@ -136,7 +136,7 @@ function MessageImpl({
     onShare: canShare ? (onEnterSelect ?? onShareSingle) : undefined,
   }
   const showMenu = hasMessageMenu(menuHandlers)
-  const interactive = !compact && showMenu
+  const interactive = !compact && !m.failed && showMenu
   const activate = interactive && !activated ? () => setActivated(true) : undefined
   // In select mode (multi-share), the whole row is a big toggle target and gets
   // a leading checkbox overlay + a tint when picked. `canShare` rows only —

@@ -197,10 +197,10 @@ describe("decideScrollAction — self-send / peer-follow (both hand-rolled — f
     expect(action).toEqual({ type: "none" })
   })
 
-  it("temp-id → server-id reconcile: tail id changes via reconcileServerId but author/content/position are otherwise unchanged — resolves as an idempotent self-send, not a misclassified no-op", () => {
+  it("temp-id → canonical-id identity reconcile: tail id changes but author/content/position are otherwise unchanged — resolves as an idempotent self-send, not a misclassified no-op", () => {
     // Simulates: viewer sent a message (tempId "temp_123"), it's already the
-    // tail, then the server responds and `reconcileServerId` swaps the id to
-    // the real server id ("srv_abc") — same author, same position, nothing
+    // tail, then postAck advances the id to the canonical server id
+    // ("srv_abc") — same author, same position, nothing
     // about scroll position should change, but the tail id STRING changed.
     // With getItemKey keyed on message id, this is a bigger structural event
     // for the virtualizer than it was for raw DOM (the item's key changes) —

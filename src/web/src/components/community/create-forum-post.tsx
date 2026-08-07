@@ -158,7 +158,7 @@ export function CreateForumPost({
         </button>
       </div>
       <Composer
-        sendContract="legacy"
+        sendContract="deferred"
         ref={bodyComposerRef}
         mode="forumPostBody"
         hideEmoji
@@ -169,7 +169,7 @@ export function CreateForumPost({
         onSearchMembers={onSearchMembers}
         channelRefCandidates={[]}
         placeholder="What do you want to discuss?"
-        onSend={handleBodySubmit}
+        onDeferredSubmit={handleBodySubmit}
         onDirty={setBodyHasContent}
       />
       <div className="mt-2 flex items-center gap-3">

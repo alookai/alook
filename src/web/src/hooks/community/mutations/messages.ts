@@ -29,11 +29,10 @@ import { isBlocked } from "@alook/shared"
 /**
  * Message-scoped mutation hooks — the split of the God-context's
  * `sendMessage`/`toggleReaction`/`pinMessage`/etc. into standalone
- * `useMutation` hooks. Every hook writes optimistic state into the shared
- * TanStack Query cache (`communityKeys.channelMessages(id)` /
- * `communityKeys.pins(id)` / etc.), performs the fetch inside `mutationFn`,
- * and rolls back via the context returned from `onMutate` when the request
- * fails.
+ * `useMutation` hooks. Message existence is owned by the session overlay;
+ * field-only operations and panel resources may still patch TanStack Query.
+ * Each hook performs its fetch inside `mutationFn` and applies the matching
+ * reducer/cache terminal transition on success or failure.
  *
  * Rules of engagement:
  * - Never invalidate on success unless there's no server-broadcast path — the
@@ -47,121 +46,6 @@ import { isBlocked } from "@alook/shared"
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 type PageCache = InfiniteData<MessagesPage>
-
-/**
- * Insert an optimistic message into the newest page. Pages carry ASC rows;
- * "newest" is the FIRST page (pageParam=null). Consumers of `useMessages`
- * concatenate in reverse-page order (oldest page first), so appending to
- * page 0 places the new row at the end of the visible list.
- */
-function prependOptimistic(
-  cache: PageCache | undefined,
-  msg: Msg,
-): PageCache | undefined {
-  if (!cache) return cache
-  if (cache.pages.length === 0) return cache
-  const [first, ...rest] = cache.pages
-  return {
-    ...cache,
-    pages: [{ ...first, messages: [...first.messages, msg] }, ...rest],
-  }
-}
-
-/**
- * Swap an optimistic `temp_` id for the server-assigned id after a successful
- * POST. Walks every page since there's no guarantee which page the row lives
- * in (though the newest is the only realistic one for a fresh insert).
- */
-function reconcileServerId(
-  cache: PageCache | undefined,
-  tempId: string,
-  serverId: string,
-): PageCache | undefined {
-  if (!cache) return cache
-  // Dedupe guard: if the server row is already in the cache (e.g. a
-  // deduped-replay whose WS message-create already landed, or a nonce-based WS
-  // reconcile that already healed this send), DROP the temp row instead of
-  // renaming it — renaming would leave two rows sharing `serverId`. Only when
-  // `serverId` is absent do we rename the optimistic row in place. This also
-  // clears the `failed` flag, since a successful reconcile means the send
-  // landed.
-  const alreadyPresent = cache.pages.some((p) =>
-    p.messages.some((m) => m.id === serverId),
-  )
-  let touched = false
-  const pages = cache.pages.map((p) => {
-    if (!p.messages.some((m) => m.id === tempId)) return p
-    touched = true
-    if (alreadyPresent) {
-      return { ...p, messages: p.messages.filter((m) => m.id !== tempId) }
-    }
-    return {
-      ...p,
-      messages: p.messages.map((m) =>
-        m.id === tempId ? { ...m, id: serverId, failed: false } : m,
-      ),
-    }
-  })
-  if (!touched) return cache
-  return { ...cache, pages }
-}
-
-function removeById(
-  cache: PageCache | undefined,
-  id: string,
-): PageCache | undefined {
-  if (!cache) return cache
-  let touched = false
-  const pages = cache.pages.map((p) => {
-    const filtered = p.messages.filter((m) => m.id !== id)
-    if (filtered.length === p.messages.length) return p
-    touched = true
-    return { ...p, messages: filtered }
-  })
-  if (!touched) return cache
-  return { ...cache, pages }
-}
-
-// Drop any row carrying `nonce` as its `clientNonce`. Called on a retry-pill
-// resend BEFORE inserting the fresh optimistic row: the retry reuses the failed
-// row's nonce, so without this both the stale failed row and the new row would
-// share one nonce and the WS by-nonce reconcile would match two rows. Removing
-// the stale one first keeps exactly one row per nonce.
-function removeByNonce(
-  cache: PageCache | undefined,
-  nonce: string,
-): PageCache | undefined {
-  if (!cache) return cache
-  let touched = false
-  const pages = cache.pages.map((p) => {
-    const filtered = p.messages.filter((m) => m.clientNonce !== nonce)
-    if (filtered.length === p.messages.length) return p
-    touched = true
-    return { ...p, messages: filtered }
-  })
-  if (!touched) return cache
-  return { ...cache, pages }
-}
-
-function markFailedById(
-  cache: PageCache | undefined,
-  id: string,
-): PageCache | undefined {
-  if (!cache) return cache
-  let touched = false
-  const pages = cache.pages.map((p) => {
-    if (!p.messages.some((m) => m.id === id)) return p
-    touched = true
-    return {
-      ...p,
-      messages: p.messages.map((m) =>
-        m.id === id ? { ...m, failed: true } : m,
-      ),
-    }
-  })
-  if (!touched) return cache
-  return { ...cache, pages }
-}
 
 /**
  * Materialize the attachment view-model from the API attachment shape.
@@ -283,18 +167,14 @@ export type SendDmMessageArgs = {
   content: string
   replyToId?: string
   attachments?: { url: string; filename: string; contentType: string; size: number; width?: number; height?: number }[]
-  author: { id: string; name: string; avatar: string }
-  // Idempotency nonce — see `SendMessageArgs.nonce`.
-  nonce?: string
+  nonce: string
 }
 
 export function useSendDmMessage() {
-  const queryClient = useQueryClient()
   return useMutation<
     SendMessageResult,
     Error,
-    SendDmMessageArgs,
-    { tempId: string; key: readonly unknown[] }
+    SendDmMessageArgs
   >({
     mutationFn: async ({ dmId, content, replyToId, attachments, nonce }) => {
       return apiFetch<SendMessageResult>(
@@ -305,67 +185,35 @@ export function useSendDmMessage() {
         },
       )
     },
-    onMutate: async (args) => {
-      const key = communityKeys.dmMessages(args.dmId)
-      await queryClient.cancelQueries({ queryKey: key })
-      const tempId = tempMessageId()
-      // Idempotency nonce — mirror the channel path. Caller mints on fresh
-      // send / reuses the failed row's on retry; stamp it on the optimistic
-      // row for WS-by-nonce reconcile.
-      const nonce = args.nonce
-      if (nonce) {
-        queryClient.setQueryData<PageCache>(key, (c) => removeByNonce(c, nonce))
-      }
-      const optimisticAttachments = args.attachments?.map(toAttachmentVm)
-      const msg: Msg = {
-        id: tempId,
-        type: "chat",
-        // Mirror the channel path: stamp the sender's userId so the
-        // self-send auto-scroll effect in <MessageList> (gated on
-        // `tail.authorId === viewerUserId`) recognizes the optimistic row
-        // as viewer-authored and pins to bottom on send.
-        authorId: args.author.id,
-        authorName: args.author.name,
-        authorAvatar: args.author.avatar,
-        content: args.content,
-        createdAt: new Date().toISOString(),
-        ...(nonce ? { clientNonce: nonce } : {}),
-        ...(optimisticAttachments?.length ? { attachments: optimisticAttachments } : {}),
-      }
-      queryClient.setQueryData<PageCache>(key, (c) => prependOptimistic(c, msg))
-      return { tempId, key }
-    },
-    onError: (err, _args, ctx) => {
-      if (!ctx) return
-      // 403 "blocked" is a friendly signal (recipient has blocked the sender) —
-      // scrub the optimistic row and show a scoped toast rather than leaving a
-      // `failed: true` bubble in place. Mirrors the old context's `onBlocked`
-      // branch at contexts/community/context.tsx:1021-1027.
+    onError: (err, args) => {
+      const scope = { kind: "dm" as const, id: args.dmId }
       if (err instanceof ApiError && err.status === 403 && isBlocked(err.message)) {
-        queryClient.setQueryData<PageCache>(ctx.key as ReturnType<typeof communityKeys.dmMessages>, (c) =>
-          removeById(c, ctx.tempId),
-        )
+        useMessageStreamStore.getState().dispatch(scope, {
+          type: "terminalReject",
+          nonce: args.nonce,
+        })
         toast("You cannot send messages to this user")
         return
       }
-      // 429: server-side rate limit. Fire a scoped toast so the user knows
-      // the send was throttled; still mark the row `failed: true` so the
-      // retry pill is available (mirrors the channel path).
+      useMessageStreamStore.getState().dispatch(scope, {
+        type: "postFail",
+        nonce: args.nonce,
+      })
       if (err instanceof ApiError && err.status === 429) {
         toast.error("Rate limited — please wait a moment before trying again")
       } else {
-        // Any other failure besides 429/blocked (handled above) — the
-        // `failed: true` pill is a retry affordance, not a reason.
         toastApiError(err, "Failed to send message")
       }
-      queryClient.setQueryData<PageCache>(ctx.key as ReturnType<typeof communityKeys.dmMessages>, (c) =>
-        markFailedById(c, ctx.tempId),
-      )
     },
-    onSuccess: (data, _args, ctx) => {
-      if (!ctx) return
-      queryClient.setQueryData<PageCache>(ctx.key as ReturnType<typeof communityKeys.dmMessages>, (c) =>
-        reconcileServerId(c, ctx.tempId, data.message.id),
+    onSuccess: (data, args) => {
+      useMessageStreamStore.getState().dispatch(
+        { kind: "dm", id: args.dmId },
+        {
+          type: "postAck",
+          nonce: args.nonce,
+          serverMessageId: data.message.id,
+          serverSeq: data.message.seq,
+        },
       )
     },
   })
@@ -380,11 +228,6 @@ export type ToggleReactionArgs = {
   messageId: string
   emoji: string
   userId: string
-}
-
-type ToggleReactionCtx = {
-  key: readonly unknown[]
-  originalMe: boolean
 }
 
 // Apply an optimistic reaction toggle to any page cache that contains the
@@ -437,10 +280,11 @@ function toggleMessageReaction(
   return { ...message, reactions }
 }
 
-function channelScope(args: ToggleReactionArgs): MessageScope | undefined {
-  return args.channelId && args.serverId
-    ? { kind: "channel", id: args.channelId, serverId: args.serverId }
-    : undefined
+function messageScope(args: ToggleReactionArgs): MessageScope | undefined {
+  if (args.channelId && args.serverId) {
+    return { kind: "channel", id: args.channelId, serverId: args.serverId }
+  }
+  return args.dmId ? { kind: "dm", id: args.dmId } : undefined
 }
 
 function currentMaterializedMessage(
@@ -459,7 +303,7 @@ function refreshExistingReactionFallback(
   args: ToggleReactionArgs,
   add: boolean,
 ): void {
-  const scope = channelScope(args)
+  const scope = messageScope(args)
   if (!scope) return
   const overlay = getMessageOverlay(scope)
   const existing = [...overlay.liveById.values()].find((message) => message.id === args.messageId)
@@ -484,63 +328,6 @@ function currentMeStatus(
     return msg.reactions?.find((r) => r.emoji === emoji)?.me ?? false
   }
   return false
-}
-
-/**
- * Toggle a reaction on a message. Optimistic: flips `me` immediately, rolls
- * back on server failure. The HTTP method (`PUT` add vs `DELETE` remove) is
- * derived from the cache read at call-time inside `mutationFn` — capturing
- * the original state before the optimistic flip.
- *
- * Note: consumers usually want `useToggleReactionApi()` below — a
- * fire-and-forget callable — because reactions don't need pending UI.
- */
-export function useToggleReaction() {
-  const queryClient = useQueryClient()
-  return useMutation<void, Error, ToggleReactionArgs, ToggleReactionCtx>({
-    mutationFn: async (args, ..._rest) => {
-      // Re-read cache at call time to pick the correct verb. The optimistic
-      // write in onMutate has already flipped `me` in cache, but we captured
-      // `originalMe` in the context — pull it from there via a ref map. In
-      // practice mutationFn doesn't receive ctx, so we re-derive from the
-      // originalMe stashed by `onMutate` in a shared closure via `queryClient
-      // .getMutationCache()`. Simpler: encode the verb into args pre-call.
-      void _rest
-      const key = args.channelId
-        ? communityKeys.channelMessages(args.channelId)
-        : args.dmId
-          ? communityKeys.dmMessages(args.dmId)
-          : communityKeys.channelMessages("__none__")
-      // The cache at this point reflects the optimistic flip. Reverse-derive:
-      // if the current `me` after flip is TRUE, we're adding; ELSE removing.
-      const cache = queryClient.getQueryData<PageCache>(key)
-      const meAfterFlip = currentMeStatus(cache, args.messageId, args.emoji)
-      const method = meAfterFlip ? "PUT" : "DELETE"
-      const url = `/api/community/messages/${args.messageId}/reactions/${encodeURIComponent(args.emoji)}`
-      await apiFetch(url, { method })
-    },
-    onMutate: async (args) => {
-      const key = args.channelId
-        ? communityKeys.channelMessages(args.channelId)
-        : args.dmId
-          ? communityKeys.dmMessages(args.dmId)
-          : communityKeys.channelMessages("__none__")
-      await queryClient.cancelQueries({ queryKey: key })
-      const cache = queryClient.getQueryData<PageCache>(key)
-      const originalMe = currentMeStatus(cache, args.messageId, args.emoji)
-      const nextMe = !originalMe
-      queryClient.setQueryData<PageCache>(key, (c) =>
-        togglePageCacheReaction(c, args.messageId, args.emoji, args.userId, nextMe),
-      )
-      return { key, originalMe }
-    },
-    onError: (_err, args, ctx) => {
-      if (!ctx) return
-      queryClient.setQueryData<PageCache>(ctx.key as ReturnType<typeof communityKeys.channelMessages>, (c) =>
-        togglePageCacheReaction(c, args.messageId, args.emoji, args.userId, ctx.originalMe),
-      )
-    },
-  })
 }
 
 // #9: 300ms coalescing window. A user tapping the same reaction pill in rapid
@@ -578,7 +365,7 @@ export function useToggleReactionApi(): (args: ToggleReactionArgs) => void {
         ? communityKeys.dmMessages(args.dmId)
         : communityKeys.channelMessages("__none__")
     const cache = queryClient.getQueryData<PageCache>(key)
-    const scope = channelScope(args)
+    const scope = messageScope(args)
     const source = scope
       ? currentMaterializedMessage(cache, scope, args.messageId)
       : undefined

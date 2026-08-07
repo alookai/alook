@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useParams, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
-import { toastApiError } from "@/lib/api/client"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { DmHeader, DmHeaderSkeleton } from "@/components/community/dm-header"
 import { Avatar } from "@/components/community/avatar"
@@ -30,13 +29,11 @@ import { useDmWatermark } from "@/hooks/community/use-dm-watermark"
 import { useEagerDmRead } from "@/hooks/community/use-eager-dm-read"
 import { useChannelRefDirectory } from "@/hooks/community/use-channel-ref-directory"
 import {
-  useSendDmMessage,
   useToggleReactionApi,
-  useUploadFile,
   useToggleMark,
-  zipUploadResultsWithDimensions,
-  sendNonce,
 } from "@/hooks/community/mutations"
+import { useDmMessageSender } from "@/hooks/community/use-dm-message-sender"
+import { useMessageStreamStore } from "@/stores/community/message-stream"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import {
   communityWsSubscribe,
@@ -196,9 +193,8 @@ function DmView() {
 
   const typingUsers = useTypingUsersForScope(`dm:${dmId}`)
   const typingNames = useTypingNamesForScope(`dm:${dmId}`)
-  const sendDmMessage = useSendDmMessage()
+  const { accept: acceptDmMessage, retry: retryDmMessage } = useDmMessageSender()
   const toggleReaction = useToggleReactionApi()
-  const uploadFile = useUploadFile()
   const toggleMark = useToggleMark()
 
   const goBack = useCallback(() => { uiHandlers.goBackMobile?.() }, [uiHandlers])
@@ -282,24 +278,18 @@ function DmView() {
     onMark: (id: string) => toggleMark(dmId, id),
     onRetry: (id: string) => {
       const m = messages.find((x) => x.id === id)
-      if (m?.content) {
-        sendDmMessage.mutate(
-          {
-            dmId,
-            content: m.content,
-            replyToId: m.replyTo?.id,
-            // Reuse the failed row's nonce so the resend dedupes server-side if
-            // the original committed (`onMutate` drops the stale row first).
-            nonce: m.clientNonce,
-            author: {
-              id: currentUser.id,
-              name: currentUser.name,
-              avatar: currentUser.avatar,
-            },
-          },
-          { onSuccess: advanceOnboardingAfterSend },
-        )
-      }
+      if (!m?.clientNonce) return
+      void retryDmMessage(dmId, m.clientNonce).then((result) => {
+        if (result.ok) advanceOnboardingAfterSend()
+      })
+    },
+    onDismiss: (id: string) => {
+      const m = messages.find((x) => x.id === id)
+      if (!m?.clientNonce) return
+      useMessageStreamStore.getState().dispatch(
+        { kind: "dm", id: dmId },
+        { type: "dismissFailed", nonce: m.clientNonce },
+      )
     },
     onPreviewImage: (url: string) => {
       uiHandlers.previewImage?.(url)
@@ -310,42 +300,31 @@ function DmView() {
       a.download = url.split("/").pop() ?? "file"
       a.click()
     },
-  }), [toggleReaction, toggleMark, dmId, currentUser.id, currentUser.name, currentUser.avatar, messages, sendDmMessage, uiHandlers, advanceOnboardingAfterSend])
+  }), [toggleReaction, toggleMark, dmId, currentUser.id, messages, retryDmMessage, uiHandlers, advanceOnboardingAfterSend])
 
   // DM endpoint ignores mentionType. Replies are supported — the backend
   // persists replyToId for DMs too.
-  const sendDmMsg = async (markdown: string, attachments?: SendAttachment[]) => {
-    if (!markdown && !attachments?.length) return
-    if (!dmId) return
-    let uploadedAttachments: ReturnType<typeof zipUploadResultsWithDimensions> = []
-    if (attachments?.length) {
-      const results = await Promise.all(
-        attachments.map((a) =>
-          uploadFile.mutateAsync({ target: { dmId }, file: a.file }).catch((e) => {
-            toastApiError(e, "Failed to attach file")
-            return null
-          }),
-        ),
-      )
-      uploadedAttachments = zipUploadResultsWithDimensions(results, attachments)
-    }
-    sendDmMessage.mutate(
-      {
-        dmId,
-        content: markdown || "",
-        replyToId: replyTo?.id,
-        attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
-        nonce: sendNonce(),
-        author: {
-          id: currentUser.id,
-          name: currentUser.name,
-          avatar: currentUser.avatar,
-        },
+  const acceptDmSend = (markdown: string, attachments?: SendAttachment[]): boolean => {
+    const receipt = acceptDmMessage({
+      dmId,
+      content: markdown,
+      replyTo: replyTo
+        ? { id: replyTo.id, authorName: replyTo.authorName, text: replyTo.text.slice(0, 100) }
+        : undefined,
+      attachments,
+      author: {
+        id: currentUser.id,
+        name: currentUser.name,
+        avatar: currentUser.avatar,
       },
-    )
-    advanceOnboardingAfterSend()
+    })
+    if (!receipt.accepted) return false
+    void receipt.committed.then((result) => {
+      if (result.ok) advanceOnboardingAfterSend()
+    })
     communityWsResetTypingThrottle({ channelId: dmId })
     setReplyTo(null)
+    return true
   }
 
   const handleTyping = () => { communityWsSendTyping({ channelId: dmId }) }
@@ -403,6 +382,7 @@ function DmView() {
           onCopy={messageActions.onCopy}
           onMark={dmBlocked ? undefined : messageActions.onMark}
           onRetry={dmBlocked ? undefined : messageActions.onRetry}
+          onDismiss={dmBlocked ? undefined : messageActions.onDismiss}
           onPreviewImage={messageActions.onPreviewImage}
           onDownloadFile={messageActions.onDownloadFile}
           onOpenProfile={openProfile}
@@ -437,7 +417,7 @@ function DmView() {
         ) : (
           <div data-onboarding-target="dm-composer" data-onboarding-name={dm.name} className="shrink-0">
             <Composer
-              sendContract="legacy"
+              sendContract="accepted"
               channel={dm.name}
               context="dm"
             // DM context short-circuits `rankMentionItems` to `[]` — no popup,
@@ -445,7 +425,7 @@ function DmView() {
             // honest without shimming friends into a member shape.
             members={[]}
             channelRefCandidates={channelRefCandidates}
-            onSend={sendDmMsg}
+            onAcceptSend={acceptDmSend}
             onTyping={handleTyping}
             replyingTo={replyTo?.authorName}
             onCancelReply={() => setReplyTo(null)}

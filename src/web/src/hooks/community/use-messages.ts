@@ -591,10 +591,33 @@ export function useDmMessages(
   opts?: MessagesOpts,
 ): MessagesReturn {
   const queryKey = communityKeys.dmMessages(dmId ?? "__none__")
-  return useMessagesInner(
+  const base = useMessagesInner(
     dmId,
     queryKey,
     dmMessagesQueryFn(dmId ?? "__none__"),
     opts,
   )
+  const scope = useMemo<MessageScope>(() => ({
+    kind: "dm",
+    id: dmId ?? "__none__",
+  }), [dmId])
+  const overlay = useMessageOverlay(scope)
+  const canonicalBase = useMemo(
+    () => base.messages.filter(
+      (message): message is CanonicalMessage => typeof message.seq === "number",
+    ),
+    [base.messages],
+  )
+  useEffect(() => {
+    if (!dmId) return
+    useMessageStreamStore.getState().dispatch(scope, {
+      type: "baseChanged",
+      messages: canonicalBase,
+    })
+  }, [canonicalBase, dmId, scope])
+  const messages = useMemo(
+    () => materializeMessageStream(canonicalBase, overlay),
+    [canonicalBase, overlay],
+  )
+  return { ...base, messages }
 }
