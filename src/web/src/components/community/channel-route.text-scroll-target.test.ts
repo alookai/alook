@@ -2,10 +2,12 @@ import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ChannelRoute } from "./channel-route"
+import { ForumChannelSurface } from "./forum-channel-surface"
 import { MessageList } from "./message-list"
+import { useChannelMemberViewModel } from "./channel-member-view-model"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
 
-const { mockRouteModel } = vi.hoisted(() => ({
+const { mockRouteModel, mockMemberViewModel } = vi.hoisted(() => ({
   mockRouteModel: {
     server: {
       id: "server_1",
@@ -28,6 +30,14 @@ const { mockRouteModel } = vi.hoisted(() => ({
     isNotifyUnit: false,
     routeHydrated: true,
   },
+  mockMemberViewModel: {
+    composerMembers: [],
+    onSearchComposerMembers: vi.fn(),
+    memberPanelProps: { members: [] },
+    manageMembersDialog: null,
+    resolveUserName: (userId: string) => userId,
+    myRole: "member",
+  },
 }))
 
 vi.mock("next/navigation", () => ({
@@ -47,7 +57,12 @@ vi.mock("@/components/community/composer", () => ({
   ComposerSkeleton: () => null,
 }))
 vi.mock("@/components/community/forum-view", () => ({ ForumViewSkeleton: () => null }))
-vi.mock("@/components/community/forum-surface", () => ({ ForumSurface: () => null }))
+vi.mock("@/components/community/forum-channel-surface", () => ({
+  ForumChannelSurface: vi.fn(() => null),
+}))
+vi.mock("@/components/community/channel-member-view-model", () => ({
+  useChannelMemberViewModel: vi.fn(() => mockMemberViewModel),
+}))
 vi.mock("@/components/community/channel-shell", () => ({
   ChannelShell: ({ body }: { body: React.ReactNode }) => body,
 }))
@@ -145,6 +160,8 @@ vi.mock("@/hooks/community/use-community-ws", () => ({
 
 const mockedMessageList = vi.mocked(MessageList)
 const mockedUseChannelMessageFeed = vi.mocked(useChannelMessageFeed)
+const mockedUseChannelMemberViewModel = vi.mocked(useChannelMemberViewModel)
+const mockedForumChannelSurface = vi.mocked(ForumChannelSurface)
 
 function feed(overrides: Record<string, unknown> = {}) {
   return {
@@ -283,6 +300,8 @@ describe("ChannelRoute message surface ownership", () => {
     })
 
     expect(mockedUseChannelMessageFeed).not.toHaveBeenCalled()
+    expect(mockedUseChannelMemberViewModel).toHaveBeenCalledTimes(1)
+    expect(mockedForumChannelSurface).toHaveBeenCalledTimes(1)
   })
 
   it("initializes only the child feed for a thread route", () => {

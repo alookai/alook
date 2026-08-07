@@ -15,7 +15,7 @@ import { MessageContextSheet } from "@/components/community/message-context-shee
 import { MessageList } from "@/components/community/message-list"
 import { ThreadOpener } from "@/components/community/thread-opener"
 import type { OpenProfile, RightPanel } from "@/components/community/_types"
-import type { TextChannelMemberPanelProps } from "@/components/community/text-channel-surface"
+import type { ChannelMemberPanelProps } from "@/components/community/channel-member-view-model"
 
 const ignoreNestedThread = () => {}
 
@@ -67,7 +67,7 @@ export function ThreadChannelSurface({
   composerMembers: ComponentProps<typeof Composer>["members"]
   onSearchComposerMembers: ComponentProps<typeof Composer>["onSearchMembers"]
   channelRefCandidates: ComponentProps<typeof Composer>["channelRefCandidates"]
-  memberPanelProps: TextChannelMemberPanelProps
+  memberPanelProps: ChannelMemberPanelProps
   manageMembersDialog: ReactNode
   uiHandlers: {
     navigate?: (serverId: string, channelId: string) => void

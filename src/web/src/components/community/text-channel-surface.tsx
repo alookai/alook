@@ -6,6 +6,7 @@ import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-fee
 import { ChannelHeader, type ChannelNotifLevel } from "@/components/community/channel-header"
 import { ChannelShell } from "@/components/community/channel-shell"
 import { CommunityPanelSheet } from "@/components/community/community-panel-sheet"
+import type { ChannelMemberPanelProps } from "@/components/community/channel-member-view-model"
 import { Composer } from "@/components/community/composer"
 import { MessageContextSheet } from "@/components/community/message-context-sheet"
 import { MessageList } from "@/components/community/message-list"
@@ -13,23 +14,6 @@ import {
   MessageChannelController,
 } from "@/components/community/message-channel-controller"
 import type { OpenProfile, RightPanel } from "@/components/community/_types"
-
-type PanelProps = ComponentProps<typeof CommunityPanelSheet>
-
-export type TextChannelMemberPanelProps = Pick<
-  PanelProps,
-  | "members"
-  | "membersLoading"
-  | "membersLoadingMore"
-  | "membersHasMore"
-  | "onLoadMoreMembers"
-  | "onSearchMembers"
-  | "onAddMember"
-  | "manageContext"
-  | "onSetRole"
-  | "onKickMember"
-  | "myRole"
->
 
 export function TextChannelSurface({
   channelId,
@@ -65,7 +49,7 @@ export function TextChannelSurface({
   composerMembers: ComponentProps<typeof Composer>["members"]
   onSearchComposerMembers: ComponentProps<typeof Composer>["onSearchMembers"]
   channelRefCandidates: ComponentProps<typeof Composer>["channelRefCandidates"]
-  memberPanelProps: TextChannelMemberPanelProps
+  memberPanelProps: ChannelMemberPanelProps
   manageMembersDialog: ReactNode
   uiHandlers: {
     navigate?: (serverId: string, channelId: string) => void
