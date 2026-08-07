@@ -101,6 +101,17 @@ describe("ForumView post card header", () => {
     expect(withOthers).toContain("· ")
     expect(withOthers).toContain(tid.forumThreadAvatars("p1"))
   })
+
+  it("does not invent overflow when the author is absent from a capped five-person preview", () => {
+    const participants = Array.from({ length: 5 }, (_, index) => ({
+      id: `usr_${index}`,
+      name: `Person ${index}`,
+      avatar: `P${index}`,
+    }))
+    const html = render([makePost({ participants, participantCount: 6 })])
+    expect(html).toContain(tid.forumThreadAvatars("p1"))
+    expect(html).not.toContain(">+1<")
+  })
 })
 
 describe("ForumView post delete button", () => {
