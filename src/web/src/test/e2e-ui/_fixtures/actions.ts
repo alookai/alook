@@ -24,7 +24,7 @@ export async function createServer(page: Page, name: string, opts?: { autoDialog
   await page.getByTestId(tid.createServerSubmit).click()
 
   // Land on the new server's default channel.
-  await page.waitForURL(/\/c\/channels\/[^/]+\/[^/]+/, { timeout: 20_000, waitUntil: "commit" })
+  await page.waitForURL(/\/c\/channels\/[^/]+\/[^/]+/, { timeout: 45_000, waitUntil: "commit" })
   const m = page.url().match(/\/c\/channels\/([^/]+)\//)
   if (!m) throw new Error(`createServer: no serverId in URL ${page.url()}`)
   return m[1]

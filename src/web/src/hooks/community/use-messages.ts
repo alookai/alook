@@ -136,14 +136,28 @@ export function mergeMessagesPages(pages: MessagesPage[]): Msg[] {
   return out
 }
 
-// Fix 4 window: how stale a hydrated cache may be before a mount fires an
-// invalidate. Short enough that a returning tab picks up fresh data on the
-// first paint, long enough that rapid channel switching within a single
-// session doesn't churn the network — the reconnect handler in
-// `useCommunityWs` covers longer offline gaps on its own.
-const STALE_HYDRATED_CACHE_MS = 30_000
+// Anchor-drift repair uses age only to decide whether a fetched anchor page
+// should merge into a trustworthy same-session window or replace an older
+// hydrated window. General mount freshness is owned by the query's
+// `staleTime: 0` contract below, not by this threshold.
+const ANCHOR_CACHE_FRESHNESS_MS = 30_000
 
 type PageCache = InfiniteData<MessagesPage, MessagesPageParam>
+
+function cachedWindowNeedsAnchor(
+  pages: MessagesPage[] | undefined,
+  anchorId: string | null,
+): boolean {
+  if (!anchorId || !pages || pages.length === 0) return false
+  let hasMessages = false
+  for (const page of pages) {
+    for (const message of page.messages) {
+      hasMessages = true
+      if (message.id === anchorId) return false
+    }
+  }
+  return hasMessages
+}
 
 type MessagesReturn = Omit<UseInfiniteQueryResult<PageCache, Error>, "isLoading"> & {
   messages: Msg[]
@@ -254,6 +268,17 @@ function useMessagesInner(
       return { mode: "newer", cursor }
     },
     enabled,
+    // Message bases are persisted, while accepted/session rows live in an
+    // in-memory overlay. Treat each ordinary active message query as stale so
+    // disabled→enabled activation revalidates even inside the global 5-second
+    // freshness window. TanStack keeps cached pages painted during the fetch.
+    // A nonempty window missing the resolved anchor is the one exception: Fix
+    // 3 below owns that repair and must fetch the NEW anchor page before any
+    // persisted pageParam can replace or discard the existing history.
+    staleTime: (cachedQuery) => cachedWindowNeedsAnchor(
+      (cachedQuery.state.data as PageCache | undefined)?.pages,
+      anchorId,
+    ) ? Infinity : 0,
   })
 
   // Flush any pending mark-read on scope switch / unmount so the 500ms
@@ -317,29 +342,13 @@ function useMessagesInner(
     if (!anchorId) return
     if (query.isFetching) return
     if (query.isPending) return
-    const pages = query.data?.pages
-    if (!pages || pages.length === 0) return
-    let messageCount = 0
-    let anchorFound = false
-    for (const p of pages) {
-      messageCount += p.messages.length
-      if (!anchorFound) {
-        for (const m of p.messages) {
-          if (m.id === anchorId) {
-            anchorFound = true
-            break
-          }
-        }
-      }
-    }
-    if (messageCount === 0) return
-    if (anchorFound) return
+    if (!cachedWindowNeedsAnchor(query.data?.pages, anchorId)) return
     const resetKey = `${scopeId ?? ""}::${anchorId}`
     if (anchorResetKeyRef.current === resetKey) return
     anchorResetKeyRef.current = resetKey
 
     const updatedAt = query.dataUpdatedAt
-    const isFresh = !!updatedAt && Date.now() - updatedAt < STALE_HYDRATED_CACHE_MS
+    const isFresh = !!updatedAt && Date.now() - updatedAt < ANCHOR_CACHE_FRESHNESS_MS
 
     // Both branches fetch a fresh anchor-centered page out of band and swap
     // it in via `setQueryData` — NEITHER uses `resetQueries`. `resetQueries`
@@ -411,49 +420,6 @@ function useMessagesInner(
     queryClient,
     queryKey,
     queryFn,
-  ])
-
-  // Fix 4 — staleness invalidate on mount / scope switch ONLY.
-  //
-  // When the cache is hydrated from IDB, `dataUpdatedAt` reflects the last
-  // fetch of the previous session. TanStack won't refetch on mount for
-  // infinite queries by default, so the client keeps rendering the stale
-  // window even though `latestSeq` on the server may have advanced. On
-  // mount, if the hydrated window is older than the freshness window, kick
-  // off an invalidation — TanStack re-runs every persisted `pageParam` and
-  // the fresh `latestSeq` in the server response drives `unreadCount` and
-  // `hasMoreNewer` to the truth without any client bookkeeping.
-  //
-  // Fires EXACTLY ONCE per scope (channelId / dmId), gated by a scopeId ref.
-  // Previously the effect had `query.dataUpdatedAt` in its dep list, which
-  // re-evaluated on every fetch complete — including AFTER an optimistic
-  // send stayed in-place past 30s of stillness. Any such re-eval could
-  // invalidate the cache, refetch server pages, and drop the just-sent
-  // (already reconciled) row visually before the WS broadcast caught up.
-  // Locking to "one shot per scope" preserves the mount-time invariant
-  // (hydrated-and-stale gets refreshed) without ever firing again for the
-  // same open scope. WS reconnect + user-initiated navigation cover any
-  // subsequent freshness needs.
-  const staleCacheCheckedScopeRef = useRef<string | null>(null)
-  useEffect(() => {
-    if (!enabled) return
-    if (!scopeId) return
-    if (staleCacheCheckedScopeRef.current === scopeId) return
-    if (query.isFetching) return
-    if (query.isPending) return
-    const updatedAt = query.dataUpdatedAt
-    if (!updatedAt) return
-    staleCacheCheckedScopeRef.current = scopeId
-    if (Date.now() - updatedAt < STALE_HYDRATED_CACHE_MS) return
-    void queryClient.invalidateQueries({ queryKey })
-  }, [
-    enabled,
-    scopeId,
-    query.dataUpdatedAt,
-    query.isFetching,
-    query.isPending,
-    queryClient,
-    queryKey,
   ])
 
   const messages = useMemo<Msg[]>(() => {

@@ -632,11 +632,6 @@ export type CommunityWsEvent =
   | CommunityMachineRemoved
   | CommunityBotAuditEvent
 
-/** Type guard: is this a community WS event? */
-export function isCommunityEvent(msg: { type: string }): msg is CommunityWsEvent {
-  return msg.type.startsWith("community:")
-}
-
 /** Constant map of every community WS event type string. */
 export const WS_EVENTS = {
   MESSAGE_CREATE: "community:message.create",
@@ -681,3 +676,17 @@ export const WS_EVENTS = {
   MACHINE_REMOVED: "community:machine.removed",
   BOT_AUDIT_EVENT: "community:bot.audit_event",
 } as const
+
+type DeclaredCommunityEventType = (typeof WS_EVENTS)[keyof typeof WS_EVENTS]
+type ExactCommunityEventType = Exclude<CommunityWsEvent["type"], DeclaredCommunityEventType> extends never
+  ? Exclude<DeclaredCommunityEventType, CommunityWsEvent["type"]> extends never
+    ? CommunityWsEvent["type"]
+    : never
+  : never
+
+const COMMUNITY_EVENT_TYPES: ReadonlySet<string> = new Set<ExactCommunityEventType>(Object.values(WS_EVENTS))
+
+/** Type guard: is this a community WS event? */
+export function isCommunityEvent(msg: { type: string }): msg is CommunityWsEvent {
+  return COMMUNITY_EVENT_TYPES.has(msg.type)
+}

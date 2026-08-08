@@ -1,778 +1,108 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
-import { createMockDONamespace } from "./__mocks__/cf"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { readFileSync } from "node:fs"
+import {
+  createRouterTestContext,
+  loadRouter,
+  getSharedMocks,
+  type RouterHandler,
+  type RouterTestContext,
+} from "./routes/test-harness"
 
-// Mock ws-durable / rate-limit-do so the router import doesn't pull in cloudflare:workers
-vi.mock("./ws-durable", () => ({
-  WebSocketDurableObject: class { },
-}))
-vi.mock("./rate-limit-do", () => ({
-  RateLimitDurableObject: class { },
-}))
-
-const mockHashCredential = vi.fn(async (bearer: string) => `sha256:${bearer}`)
-const mockDoNameFromHash = vi.fn((hash: string) => hash.slice(0, 32))
-const mockGetActiveDoNamesForMachine = vi.fn(async (_db: unknown, _machineId: string) => [] as string[])
-
-vi.mock("@alook/shared", () => {
-  const noopLogger = { debug: () => { }, info: () => { }, warn: () => { }, error: () => { }, child() { return this } }
-  return {
-    // Real WS event-type strings the DO reads at runtime (#5 T2 — ws-do
-    // broadcasts now use WS_EVENTS.* instead of raw literals). Only the keys
-    // this suite exercises are needed; values match @alook/shared.
-    WS_EVENTS: {
-      BOT_AUDIT_EVENT: "community:bot.audit_event",
-    },
-    createDb: () => ({}),
-    createLogger: () => noopLogger,
-    queries: {
-      communityMachine: {
-        hashCredential: (bearer: string) => mockHashCredential(bearer),
-        doNameFromHash: (hash: string) => mockDoNameFromHash(hash),
-        getActiveDoNamesForMachine: (db: unknown, machineId: string) => mockGetActiveDoNamesForMachine(db, machineId),
-      },
-    },
-  }
-})
-
-import handler from "./index"
+const sharedMocks = getSharedMocks()
+const mockHashCredential = sharedMocks.hashCredential
+const mockDoNameFromHash = sharedMocks.doNameFromHash
+const mockGetActiveDoNamesForMachine = sharedMocks.getActiveDoNamesForMachine
+const loggerMocks = {
+  child: sharedMocks.loggerChild,
+  debug: sharedMocks.loggerDebug,
+}
 
 describe("ws-do router", () => {
-  let doMock: ReturnType<typeof createMockDONamespace>
-  let env: { WS_DO: DurableObjectNamespace }
+  let handler: RouterHandler
+  let doMock: RouterTestContext["doMock"]
+  let rateLimitMock: RouterTestContext["rateLimitMock"]
+  let env: RouterTestContext["env"]
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    vi.resetModules()
     vi.clearAllMocks()
-    doMock = createMockDONamespace()
-    env = { WS_DO: doMock.namespace } as unknown as { WS_DO: DurableObjectNamespace }
+    const context = createRouterTestContext()
+    doMock = context.doMock
+    rateLimitMock = context.rateLimitMock
+    env = context.env
+    handler = await loadRouter()
   })
 
-  describe("broadcast route", () => {
-    it("forwards POST /broadcast/user/:userId to correct DO instance", async () => {
-      doMock.stubFetch.mockResolvedValue(new Response("ok"))
-      const req = new Request("http://localhost/broadcast/user/user-123", {
-        method: "POST",
-        body: JSON.stringify({ type: "runtime.status", daemonId: "d1", workspaceId: "w1", status: "online" }),
-      })
-
-      const res = await handler.fetch(req, env as any)
-
-      expect(doMock.idFromName).toHaveBeenCalledWith("user:user-123")
-      expect(doMock.get).toHaveBeenCalledWith("mock-do-id")
-      expect(doMock.stubFetch).toHaveBeenCalled()
-      const stubReq = doMock.stubFetch.mock.calls[0][0] as Request
-      expect(stubReq.url).toBe("http://internal/broadcast")
-      expect(stubReq.method).toBe("POST")
-      expect(res.status).toBe(200)
-    })
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+    vi.clearAllMocks()
+    vi.resetModules()
+    doMock = undefined as unknown as RouterTestContext["doMock"]
+    rateLimitMock = undefined as unknown as RouterTestContext["rateLimitMock"]
+    env = undefined as unknown as RouterTestContext["env"]
+    handler = undefined as unknown as RouterHandler
   })
 
-  describe("POST /internal/broadcast-bot-audit-event", () => {
-    it("forwards a well-formed audit event to the owner's user-DO with the community:bot.audit_event shape", async () => {
-      doMock.stubFetch.mockResolvedValue(new Response("ok"))
-      const payload = {
-        botId: "bot_1",
-        ownerUserId: "owner_1",
-        id: "evt_1",
-        kind: "wake_trigger",
-        payload: {
-          messageId: "msg_1",
-          channel: "/srv_1/general",
-          seq: 7,
-          senderId: "u_human",
-          senderHandle: "@gustavo#0042",
-          reason: "unread",
-        },
-        createdAt: "2026-07-23T00:00:00.000Z",
-      }
-      const req = new Request("http://localhost/internal/broadcast-bot-audit-event", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+  describe("root contract", () => {
+    it("exports exactly the two Durable Object classes and the default fetch handler", async () => {
+      const routerModule = await import("./index")
+
+      expect(Object.keys(routerModule).sort()).toEqual([
+        "RateLimitDurableObject",
+        "WebSocketDurableObject",
+        "default",
+      ])
+      expect(Object.keys(routerModule.default)).toEqual(["fetch"])
+    })
+
+    it("falls through a known path with the wrong method to the websocket/default routing", async () => {
+      doMock.stubFetch.mockResolvedValue(new Response("fallback"))
+      const req = new Request("http://localhost/rate-limit/check?userId=user-fallback", {
+        method: "GET",
       })
 
       const res = await handler.fetch(req, env as any)
 
-      expect(res.status).toBe(204)
-      expect(doMock.idFromName).toHaveBeenCalledWith("user:owner_1")
-      const stubReq = doMock.stubFetch.mock.calls[0][0] as Request
-      expect(stubReq.url).toBe("http://internal/broadcast")
-      const body = JSON.parse(await stubReq.text()) as Record<string, unknown>
-      // Matches the shape ws-durable.ts emits for daemon-originating frames.
-      expect(body.type).toBe("community:bot.audit_event")
-      expect(body.botId).toBe("bot_1")
-      expect(body.id).toBe("evt_1")
-      expect(body.kind).toBe("wake_trigger")
-      expect(body.createdAt).toBe(payload.createdAt)
-      expect(body.payload).toEqual(payload.payload)
-    })
-
-    it("400s on invalid JSON", async () => {
-      const req = new Request("http://localhost/internal/broadcast-bot-audit-event", {
-        method: "POST",
-        body: "not json",
-      })
-      const res = await handler.fetch(req, env as any)
-      expect(res.status).toBe(400)
-    })
-
-    it("400s on a payload missing required fields", async () => {
-      const req = new Request("http://localhost/internal/broadcast-bot-audit-event", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ botId: "bot_1" }),
-      })
-      const res = await handler.fetch(req, env as any)
-      expect(res.status).toBe(400)
-    })
-
-    it("400s on an unknown kind (rejects browser-untypeable rows at the boundary)", async () => {
-      const req = new Request("http://localhost/internal/broadcast-bot-audit-event", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          botId: "bot_1",
-          ownerUserId: "owner_1",
-          id: "evt_1",
-          kind: "some_future_kind",
-          payload: {},
-          createdAt: "2026-07-23T00:00:00.000Z",
-        }),
-      })
-      const res = await handler.fetch(req, env as any)
-      expect(res.status).toBe(400)
-    })
-
-    it("503s and never broadcasts when the DO fetch throws", async () => {
-      doMock.stubFetch.mockRejectedValue(new Error("do down"))
-      const req = new Request("http://localhost/internal/broadcast-bot-audit-event", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          botId: "bot_1",
-          ownerUserId: "owner_1",
-          id: "evt_1",
-          kind: "wake_trigger",
-          payload: {},
-          createdAt: "2026-07-23T00:00:00.000Z",
-        }),
-      })
-      const res = await handler.fetch(req, env as any)
-      expect(res.status).toBe(503)
-    })
-
-    it("accepts kind: 'model_changed' (guards the AUDIT_KINDS allowlist)", async () => {
-      doMock.stubFetch.mockResolvedValue(new Response("ok"))
-      const req = new Request("http://localhost/internal/broadcast-bot-audit-event", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          botId: "bot_1",
-          ownerUserId: "owner_1",
-          id: "evt_m",
-          kind: "model_changed",
-          payload: { from: "claude-opus-4-6", to: "claude-sonnet-4-6" },
-          createdAt: "2026-07-26T00:00:00.000Z",
-        }),
-      })
-      const res = await handler.fetch(req, env as any)
-      expect(res.status).toBe(204)
-      const body = JSON.parse(await (doMock.stubFetch.mock.calls[0][0] as Request).text()) as Record<string, unknown>
-      expect(body.kind).toBe("model_changed")
-      expect(body.payload).toEqual({ from: "claude-opus-4-6", to: "claude-sonnet-4-6" })
-    })
-  })
-
-  describe("POST /presence/users", () => {
-    it("empty ids array short-circuits and performs zero DO fetches", async () => {
-      const req = new Request("http://localhost/presence/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: [] }),
-      })
-
-      const res = await handler.fetch(req, env as any)
-
-      expect(res.status).toBe(200)
-      expect(await res.json()).toEqual({ online: [] })
-      expect(doMock.stubFetch).not.toHaveBeenCalled()
-    })
-
-    it("returns only online ids from mixed responses", async () => {
-      doMock.stubFetch.mockImplementation((req: Request) => {
-        // Round-robin: we can't tell which id -- rely on call order.
-        const idx = doMock.stubFetch.mock.calls.length - 1
-        const online = idx % 2 === 0 // u1 online, u2 offline, u3 online
-        return Promise.resolve(new Response(JSON.stringify({ online }), { status: 200 }))
-      })
-
-      const req = new Request("http://localhost/presence/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: ["u1", "u2", "u3"] }),
-      })
-
-      const res = await handler.fetch(req, env as any)
-      const body = await res.json() as { online: string[] }
-
-      expect(res.status).toBe(200)
-      expect(body.online.sort()).toEqual(["u1", "u3"])
-    })
-
-    it("returns empty online list when all ids are offline", async () => {
-      doMock.stubFetch.mockResolvedValue(new Response(JSON.stringify({ online: false }), { status: 200 }))
-
-      const req = new Request("http://localhost/presence/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: ["a", "b", "c"] }),
-      })
-
-      const res = await handler.fetch(req, env as any)
-      expect(res.status).toBe(200)
-      expect(await res.json()).toEqual({ online: [] })
-    })
-
-    it("passes ?userId=<id> on every /check-user-online request — the target DO can't recover its own name from ctx (Fix 3)", async () => {
-      doMock.stubFetch.mockResolvedValue(new Response(JSON.stringify({ online: true }), { status: 200 }))
-
-      const req = new Request("http://localhost/presence/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: ["bot-1", "human-2"] }),
-      })
-
-      await handler.fetch(req, env as any)
-
-      const urls = doMock.stubFetch.mock.calls.map(([r]: [Request]) => r.url)
-      expect(urls).toContain("http://internal/check-user-online?userId=bot-1")
-      expect(urls).toContain("http://internal/check-user-online?userId=human-2")
-    })
-
-    it("returns 400 on malformed body — missing ids", async () => {
-      const req = new Request("http://localhost/presence/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      })
-      const res = await handler.fetch(req, env as any)
-      expect(res.status).toBe(400)
-    })
-
-    it("returns 400 on malformed body — ids is not an array", async () => {
-      const req = new Request("http://localhost/presence/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: "u1" }),
-      })
-      const res = await handler.fetch(req, env as any)
-      expect(res.status).toBe(400)
-    })
-
-    it("returns 400 on malformed body — non-string entries", async () => {
-      const req = new Request("http://localhost/presence/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: ["u1", 42, "u3"] }),
-      })
-      const res = await handler.fetch(req, env as any)
-      expect(res.status).toBe(400)
-    })
-
-    it("returns 400 on invalid JSON body", async () => {
-      const req = new Request("http://localhost/presence/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "not json",
-      })
-      const res = await handler.fetch(req, env as any)
-      expect(res.status).toBe(400)
-    })
-
-    it("returns 400 when ids array exceeds cap", async () => {
-      const ids = Array.from({ length: 1001 }, (_, i) => `u${i}`)
-      const req = new Request("http://localhost/presence/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids }),
-      })
-      const res = await handler.fetch(req, env as any)
-      expect(res.status).toBe(400)
-    })
-
-    it("tolerates a per-id DO fetch throwing — other ids still evaluated", async () => {
-      let call = 0
-      doMock.stubFetch.mockImplementation(() => {
-        call++
-        if (call === 1) return Promise.reject(new Error("boom"))
-        return Promise.resolve(new Response(JSON.stringify({ online: true }), { status: 200 }))
-      })
-
-      const req = new Request("http://localhost/presence/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: ["u1", "u2", "u3"] }),
-      })
-      const res = await handler.fetch(req, env as any)
-      const body = await res.json() as { online: string[] }
-
-      expect(res.status).toBe(200)
-      expect(body.online.sort()).toEqual(["u2", "u3"])
-    })
-  })
-
-  describe("compat: GET /presence/user/:uid", () => {
-    it("still returns { online: boolean } (kept for rollout safety)", async () => {
-      doMock.stubFetch.mockResolvedValue(
-        new Response(JSON.stringify({ online: true }), { status: 200 })
-      )
-      const req = new Request("http://localhost/presence/user/user-789", { method: "GET" })
-      const res = await handler.fetch(req, env as any)
-
-      expect(doMock.idFromName).toHaveBeenCalledWith("user:user-789")
-      expect(res.status).toBe(200)
-      expect(await res.json()).toEqual({ online: true })
-      const stubReq = doMock.stubFetch.mock.calls[0][0] as Request
-      expect(stubReq.url).toBe("http://internal/check-user-online?userId=user-789")
-    })
-  })
-
-  describe("WebSocket route", () => {
-    it("forwards GET with userId param to DO instance", async () => {
-      doMock.stubFetch.mockResolvedValue(new Response(null, { status: 200 }))
-      const req = new Request("http://localhost/?userId=user-456", {
-        headers: { Upgrade: "websocket" },
-      })
-
-      const res = await handler.fetch(req, env as any)
-
-      expect(doMock.idFromName).toHaveBeenCalledWith("user:user-456")
-      expect(doMock.get).toHaveBeenCalledWith("mock-do-id")
+      expect(doMock.idFromName).toHaveBeenCalledWith("user:user-fallback")
       expect(doMock.stubFetch).toHaveBeenCalledWith(req)
+      expect(await res.text()).toBe("fallback")
     })
 
-    it("returns 400 when userId is missing", async () => {
-      const req = new Request("http://localhost/", {
-        headers: { Upgrade: "websocket" },
+    it("keeps every old handler in order and inserts bulk broadcast immediately after singular user", () => {
+      const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8")
+      const orderedHandlers = [...source.matchAll(/response = await (handle\w+)\(context\)/g)]
+        .map((match) => match[1])
+
+      expect(orderedHandlers).toEqual([
+        "handleDaemonBroadcast",
+        "handleUserBroadcast",
+        "handleUsersBroadcast",
+        "handleAuditBroadcast",
+        "handleBatchPresence",
+        "handleSinglePresence",
+        "handleMachinePush",
+        "handleMachineWake",
+        "handleMachineReset",
+        "handleMachineBatchReset",
+        "handleMachineModelSwitch",
+        "handleMachineProviderSwitch",
+        "handleMachineNap",
+        "handleMachineForceClose",
+      ])
+    })
+
+    it("sends a wrong-method bulk path through the existing upgrade fallback", async () => {
+      doMock.stubFetch.mockResolvedValue(new Response("fallback"))
+      const req = new Request("http://localhost/broadcast/users?userId=user-fallback", {
+        method: "GET",
       })
 
       const res = await handler.fetch(req, env as any)
 
-      expect(res.status).toBe(400)
-      expect(await res.text()).toBe("userId required")
-      expect(doMock.stubFetch).not.toHaveBeenCalled()
-    })
-  })
-
-  describe("community-machine Bearer auth", () => {
-    beforeEach(() => {
-      mockHashCredential.mockClear()
-      mockDoNameFromHash.mockClear()
-    })
-
-    it("names DO from sha256(bearer).slice(0,32) with zero D1 reads", async () => {
-      mockHashCredential.mockResolvedValue("0".repeat(32) + "1".repeat(32))
-      mockDoNameFromHash.mockReturnValue("0".repeat(32))
-      doMock.stubFetch.mockResolvedValue(new Response(null, { status: 200 }))
-      const req = new Request("http://localhost/", {
-        headers: { Upgrade: "websocket", Authorization: "Bearer cmk_abc" },
-      })
-      const res = await handler.fetch(req, env as any)
-      expect(mockHashCredential).toHaveBeenCalledWith("cmk_abc")
-      expect(doMock.idFromName).toHaveBeenCalledWith("community-machine:" + "0".repeat(32))
-      expect(res.status).toBe(200)
-    })
-
-    it("returns 400 for legacy ?token=cmt_ requests (no 426, no body)", async () => {
-      const req = new Request("http://localhost/?token=cmt_legacy", {
-        headers: { Upgrade: "websocket" },
-      })
-      const res = await handler.fetch(req, env as any)
-      // The 426 legacy branch was deleted; the request falls through to the
-      // "no userId" branch, which 400s.
-      expect(res.status).toBe(400)
-      expect(doMock.get).not.toHaveBeenCalled()
-    })
-
-    it("routes missing Authorization without cmk_ to the default handler (no auth path)", async () => {
-      const req = new Request("http://localhost/", {
-        headers: { Upgrade: "websocket" },
-      })
-      const res = await handler.fetch(req, env as any)
-      // No userId → 400 (existing default). We assert we do NOT hit the
-      // credential-hash path or touch a DO under community-machine:*.
-      expect(mockHashCredential).not.toHaveBeenCalled()
-      expect(res.status).toBe(400)
-    })
-  })
-
-  describe("POST /community-machine/by-id/:machineId/forward-agent-wake", () => {
-    beforeEach(() => {
-      mockGetActiveDoNamesForMachine.mockReset()
-      mockGetActiveDoNamesForMachine.mockResolvedValue([])
-    })
-
-    it("zero active doNames → { sent: 0 } without touching any DO", async () => {
-      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-wake", {
-        method: "POST",
-        body: JSON.stringify({ type: "agent:wake" }),
-      })
-      const res = await handler.fetch(req, env as any)
-
-      expect(mockGetActiveDoNamesForMachine).toHaveBeenCalledWith({}, "machine-1")
-      expect(res.status).toBe(200)
-      expect(await res.json()).toEqual({ sent: 0 })
-      expect(doMock.stubFetch).not.toHaveBeenCalled()
-    })
-
-    it("single active doName, daemon connected → forwards and aggregates sent count", async () => {
-      mockGetActiveDoNamesForMachine.mockResolvedValue(["do-abc"])
-      doMock.stubFetch.mockResolvedValue(new Response(JSON.stringify({ sent: 1 }), { status: 200 }))
-
-      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-wake", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ type: "agent:wake", agentId: "bot-1" }),
-      })
-      const res = await handler.fetch(req, env as any)
-
-      expect(doMock.idFromName).toHaveBeenCalledWith("community-machine:do-abc")
-      const stubReq = doMock.stubFetch.mock.calls[0][0] as Request
-      expect(stubReq.url).toBe("http://internal/forward-agent-wake")
-      expect(res.status).toBe(200)
-      expect(await res.json()).toEqual({ sent: 1 })
-    })
-
-    it("daemon offline (DO reports { sent: 0 }) → does not count as delivered", async () => {
-      mockGetActiveDoNamesForMachine.mockResolvedValue(["do-abc"])
-      doMock.stubFetch.mockResolvedValue(new Response(JSON.stringify({ sent: 0 }), { status: 200 }))
-
-      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-wake", {
-        method: "POST",
-        body: JSON.stringify({ type: "agent:wake" }),
-      })
-      const res = await handler.fetch(req, env as any)
-
-      expect(res.status).toBe(200)
-      expect(await res.json()).toEqual({ sent: 0 })
-    })
-
-    it("multi-doName fan-out: both DOs hit, aggregate sums delivered counts", async () => {
-      mockGetActiveDoNamesForMachine.mockResolvedValue(["do-a", "do-b"])
-      let call = 0
-      doMock.stubFetch.mockImplementation(() => {
-        call++
-        const sent = call === 1 ? 0 : 1
-        return Promise.resolve(new Response(JSON.stringify({ sent }), { status: 200 }))
-      })
-
-      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-wake", {
-        method: "POST",
-        body: JSON.stringify({ type: "agent:wake" }),
-      })
-      const res = await handler.fetch(req, env as any)
-
-      expect(doMock.idFromName).toHaveBeenCalledWith("community-machine:do-a")
-      expect(doMock.idFromName).toHaveBeenCalledWith("community-machine:do-b")
-      expect(res.status).toBe(200)
-      expect(await res.json()).toEqual({ sent: 1 })
-    })
-
-    it("DO fetch throws — tolerated, other doNames still evaluated", async () => {
-      mockGetActiveDoNamesForMachine.mockResolvedValue(["do-a", "do-b"])
-      let call = 0
-      doMock.stubFetch.mockImplementation(() => {
-        call++
-        if (call === 1) return Promise.reject(new Error("network error"))
-        return Promise.resolve(new Response(JSON.stringify({ sent: 1 }), { status: 200 }))
-      })
-
-      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-wake", {
-        method: "POST",
-        body: JSON.stringify({ type: "agent:wake" }),
-      })
-      const res = await handler.fetch(req, env as any)
-
-      expect(res.status).toBe(200)
-      expect(await res.json()).toEqual({ sent: 1 })
-    })
-
-    it("DO fetch throws with no delivery → retryable 503", async () => {
-      mockGetActiveDoNamesForMachine.mockResolvedValue(["do-a"])
-      doMock.stubFetch.mockRejectedValue(new Error("network error"))
-
-      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-wake", {
-        method: "POST",
-        body: JSON.stringify({ type: "agent:wake" }),
-      })
-      const res = await handler.fetch(req, env as any)
-
-      expect(res.status).toBe(503)
-      expect(await res.json()).toEqual({ error: "failed to forward agent wake" })
-    })
-
-    it("non-2xx or malformed DO responses with no delivery → retryable 503", async () => {
-      mockGetActiveDoNamesForMachine.mockResolvedValue(["do-a", "do-b"])
-      let call = 0
-      doMock.stubFetch.mockImplementation(() => {
-        call++
-        if (call === 1) return Promise.resolve(new Response("oops", { status: 502 }))
-        return Promise.resolve(new Response(JSON.stringify({ sent: "bad" }), { status: 200 }))
-      })
-
-      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-wake", {
-        method: "POST",
-        body: JSON.stringify({ type: "agent:wake" }),
-      })
-      const res = await handler.fetch(req, env as any)
-
-      expect(res.status).toBe(503)
-      expect(await res.json()).toEqual({ error: "failed to forward agent wake" })
-    })
-
-    it("DB lookup failure → retryable 503, not offline { sent: 0 }", async () => {
-      mockGetActiveDoNamesForMachine.mockRejectedValue(new Error("d1 unreachable"))
-
-      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-wake", {
-        method: "POST",
-        body: JSON.stringify({ type: "agent:wake" }),
-      })
-      const res = await handler.fetch(req, env as any)
-
-      expect(res.status).toBe(503)
-      expect(await res.json()).toEqual({ error: "failed to resolve machine" })
-      expect(doMock.stubFetch).not.toHaveBeenCalled()
-    })
-  })
-
-  describe("POST /community-machine/by-id/:machineId/forward-agent-reset", () => {
-    const validBody = {
-      agentId: "bot-1",
-      config: { version: 1, runtime: "claude", model: { kind: "default" }, mode: { kind: "default" } },
-      launchId: "l-1",
-    }
-
-    beforeEach(() => {
-      mockGetActiveDoNamesForMachine.mockReset()
-      mockGetActiveDoNamesForMachine.mockResolvedValue([])
-    })
-
-    it("rejects missing agentId with 400 without touching D1 or the DOs", async () => {
-      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-reset", {
-        method: "POST",
-        body: JSON.stringify({ config: validBody.config, launchId: "l-1" }),
-      })
-      const res = await handler.fetch(req, env as any)
-      expect(res.status).toBe(400)
-      expect(mockGetActiveDoNamesForMachine).not.toHaveBeenCalled()
-      expect(doMock.stubFetch).not.toHaveBeenCalled()
-    })
-
-    it("rejects extra unexpected fields with 400", async () => {
-      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-reset", {
-        method: "POST",
-        body: JSON.stringify({ ...validBody, sneaky: "value" }),
-      })
-      const res = await handler.fetch(req, env as any)
-      expect(res.status).toBe(400)
-      expect(doMock.stubFetch).not.toHaveBeenCalled()
-    })
-
-    it("zero active doNames → { sent: 0 } without touching any DO", async () => {
-      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-reset", {
-        method: "POST",
-        body: JSON.stringify(validBody),
-      })
-      const res = await handler.fetch(req, env as any)
-      expect(res.status).toBe(200)
-      expect(await res.json()).toEqual({ sent: 0 })
-      expect(doMock.stubFetch).not.toHaveBeenCalled()
-    })
-
-    it("well-formed body → forwards a { type:'agent:reset', ... } frame to each DO's /push and aggregates sent", async () => {
-      mockGetActiveDoNamesForMachine.mockResolvedValue(["do-abc"])
-      doMock.stubFetch.mockResolvedValue(new Response(JSON.stringify({ sent: 1 }), { status: 200 }))
-
-      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-reset", {
-        method: "POST",
-        body: JSON.stringify(validBody),
-      })
-      const res = await handler.fetch(req, env as any)
-
-      expect(doMock.idFromName).toHaveBeenCalledWith("community-machine:do-abc")
-      const stubReq = doMock.stubFetch.mock.calls[0][0] as Request
-      expect(stubReq.url).toBe("http://internal/push")
-      const forwardedBody = await stubReq.text()
-      const parsed = JSON.parse(forwardedBody)
-      expect(parsed).toEqual({ type: "agent:reset", agentId: "bot-1", config: validBody.config, launchId: "l-1" })
-      expect(res.status).toBe(200)
-      expect(await res.json()).toEqual({ sent: 1 })
-    })
-  })
-
-  describe("POST /community-machine/by-id/:machineId/forward-agent-model-switch", () => {
-    // from/to are required for DO pending attribution; outer body has no `type`
-    // — the inner DO endpoint `/push-model-switch` stamps the wire frame.
-    const validBody = {
-      agentId: "bot-1",
-      config: { version: 1, runtime: "claude", model: { kind: "named", name: "claude-sonnet-4-6" }, mode: { kind: "default" } },
-      launchId: "l-1",
-      from: null as string | null,
-      to: "claude-sonnet-4-6" as string | null,
-    }
-
-    beforeEach(() => {
-      mockGetActiveDoNamesForMachine.mockReset()
-      mockGetActiveDoNamesForMachine.mockResolvedValue([])
-    })
-
-    it("forwards attribution body to DO /push-model-switch (no type on inner body)", async () => {
-      mockGetActiveDoNamesForMachine.mockResolvedValue(["do-abc"])
-      doMock.stubFetch.mockResolvedValue(new Response(JSON.stringify({ sent: 1 }), { status: 200 }))
-      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-model-switch", {
-        method: "POST",
-        body: JSON.stringify(validBody),
-      })
-      const res = await handler.fetch(req, env as any)
-      expect(doMock.idFromName).toHaveBeenCalledWith("community-machine:do-abc")
-      const stubReq = doMock.stubFetch.mock.calls[0][0] as Request
-      expect(stubReq.url).toBe("http://internal/push-model-switch")
-      const parsed = JSON.parse(await stubReq.text())
-      expect(parsed).toEqual({
-        agentId: "bot-1",
-        config: validBody.config,
-        launchId: "l-1",
-        from: null,
-        to: "claude-sonnet-4-6",
-      })
-      expect(parsed.type).toBeUndefined()
-      expect(parsed.config.model).toEqual({ kind: "named", name: "claude-sonnet-4-6" })
-      expect(res.status).toBe(200)
-      expect(await res.json()).toEqual({ sent: 1 })
-    })
-
-    it("rejects an extra top-level key with 400 (allowlist parity with reset)", async () => {
-      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-model-switch", {
-        method: "POST",
-        body: JSON.stringify({ ...validBody, sneaky: "x" }),
-      })
-      const res = await handler.fetch(req, env as any)
-      expect(res.status).toBe(400)
-      expect(doMock.stubFetch).not.toHaveBeenCalled()
-    })
-
-    it("rejects a missing/non-object config with 400", async () => {
-      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-model-switch", {
-        method: "POST",
-        body: JSON.stringify({ agentId: "bot-1", config: "nope", launchId: "l-1", from: null, to: "x" }),
-      })
-      const res = await handler.fetch(req, env as any)
-      expect(res.status).toBe(400)
-      expect(mockGetActiveDoNamesForMachine).not.toHaveBeenCalled()
-      expect(doMock.stubFetch).not.toHaveBeenCalled()
-    })
-
-    it("rejects missing from/to with 400", async () => {
-      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-model-switch", {
-        method: "POST",
-        body: JSON.stringify({
-          agentId: "bot-1",
-          config: validBody.config,
-          launchId: "l-1",
-        }),
-      })
-      const res = await handler.fetch(req, env as any)
-      expect(res.status).toBe(400)
-      expect(doMock.stubFetch).not.toHaveBeenCalled()
-    })
-
-    it("zero active doNames → { sent: 0 } without erroring", async () => {
-      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-model-switch", {
-        method: "POST",
-        body: JSON.stringify(validBody),
-      })
-      const res = await handler.fetch(req, env as any)
-      expect(res.status).toBe(200)
-      expect(await res.json()).toEqual({ sent: 0 })
-      expect(doMock.stubFetch).not.toHaveBeenCalled()
-    })
-  })
-
-  describe("POST /community-machine/by-id/:machineId/forward-agent-provider-switch", () => {
-    const validBody = {
-      agentId: "bot-1",
-      config: { version: 1, runtime: "codex", model: { kind: "default" }, mode: { kind: "default" } },
-      launchId: "l-1",
-      from: "claude",
-      to: "codex",
-    }
-
-    beforeEach(() => {
-      mockGetActiveDoNamesForMachine.mockReset()
-      mockGetActiveDoNamesForMachine.mockResolvedValue([])
-    })
-
-    it("forwards attribution body to DO /push-provider-switch (no type on inner body)", async () => {
-      mockGetActiveDoNamesForMachine.mockResolvedValue(["do-abc"])
-      doMock.stubFetch.mockResolvedValue(new Response(JSON.stringify({ sent: 1 }), { status: 200 }))
-      const req = new Request(
-        "http://localhost/community-machine/by-id/machine-1/forward-agent-provider-switch",
-        { method: "POST", body: JSON.stringify(validBody) },
-      )
-      const res = await handler.fetch(req, env as any)
-      expect(doMock.idFromName).toHaveBeenCalledWith("community-machine:do-abc")
-      const stubReq = doMock.stubFetch.mock.calls[0][0] as Request
-      expect(stubReq.url).toBe("http://internal/push-provider-switch")
-      const parsed = JSON.parse(await stubReq.text())
-      expect(parsed).toEqual({
-        agentId: "bot-1",
-        config: validBody.config,
-        launchId: "l-1",
-        from: "claude",
-        to: "codex",
-      })
-      expect(parsed.type).toBeUndefined()
-      expect(res.status).toBe(200)
-      expect(await res.json()).toEqual({ sent: 1 })
-    })
-
-    it("rejects missing from/to with 400", async () => {
-      const req = new Request(
-        "http://localhost/community-machine/by-id/machine-1/forward-agent-provider-switch",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            agentId: "bot-1",
-            config: validBody.config,
-            launchId: "l-1",
-          }),
-        },
-      )
-      const res = await handler.fetch(req, env as any)
-      expect(res.status).toBe(400)
-      expect(doMock.stubFetch).not.toHaveBeenCalled()
-    })
-
-    it("zero active doNames → { sent: 0 }", async () => {
-      const req = new Request(
-        "http://localhost/community-machine/by-id/machine-1/forward-agent-provider-switch",
-        { method: "POST", body: JSON.stringify(validBody) },
-      )
-      const res = await handler.fetch(req, env as any)
-      expect(res.status).toBe(200)
-      expect(await res.json()).toEqual({ sent: 0 })
-      expect(doMock.stubFetch).not.toHaveBeenCalled()
-    })
-  })
-
-  describe("force-close routing", () => {
-    it("keys the DO by the do_name suffix", async () => {
-      doMock.stubFetch.mockResolvedValue(new Response(JSON.stringify({ closed: 1 })))
-      const doName = "a".repeat(32)
-      const req = new Request(`http://localhost/community-machine/${doName}/force-close`, {
-        method: "POST",
-      })
-      await handler.fetch(req, env as any)
-      expect(doMock.idFromName).toHaveBeenCalledWith("community-machine:" + doName)
+      expect(doMock.idFromName).toHaveBeenCalledWith("user:user-fallback")
+      expect(doMock.stubFetch).toHaveBeenCalledWith(req)
+      expect(await res.text()).toBe("fallback")
     })
   })
 })

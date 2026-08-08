@@ -24,7 +24,7 @@ vi.mock("@alook/shared", async () => {
   }
 })
 
-import { wsDoFetch, broadcastToUser } from "./broadcast"
+import { wsDoFetch, broadcastToUser, broadcastToUsers } from "./broadcast"
 
 const originalFetch = globalThis.fetch
 const mockFetch = vi.fn<(...args: unknown[]) => Promise<Response>>()
@@ -237,8 +237,87 @@ describe("broadcastToUser", () => {
       ctx: { waitUntil: mockCtxWaitUntil },
     })
 
-    await expect(broadcastToUser("u1", { type: "message:new" } as any)).resolves.toBeUndefined()
+    const message = { type: "message:new", raw: "unchanged" } as any
+    await expect(broadcastToUser("u1", message)).resolves.toBeUndefined()
+    expect(String(bindingFetch.mock.calls[0]?.[0])).toBe("http://internal/broadcast/user/u1")
+    expect(bindingFetch.mock.calls[0]?.[1]?.body).toBe(JSON.stringify(message))
     expect(mockFetch).not.toHaveBeenCalled()
     expect(mockWarn).not.toHaveBeenCalled()
+  })
+})
+
+describe("broadcastToUsers", () => {
+  it("sends one bulk service-binding request with the exact shared payload and exclusion", async () => {
+    const bindingFetch = vi.fn(async () =>
+      new Response(JSON.stringify({ sent: 2 }), { status: 200 }),
+    )
+    const env = makeEnv(bindingFetch)
+    mockGetCloudflareContext.mockReturnValue({
+      env,
+      ctx: { waitUntil: mockCtxWaitUntil },
+    })
+    const message = { type: "community:message.create", channelId: "c1" } as any
+
+    await broadcastToUsers(["u1", "u2", "u3"], message, "u1")
+
+    expect(bindingFetch).toHaveBeenCalledTimes(1)
+    expect(mockFetch).not.toHaveBeenCalled()
+    expect(String(bindingFetch.mock.calls[0]?.[0])).toBe("http://internal/broadcast/users")
+    expect(bindingFetch.mock.calls[0]?.[1]).toEqual(expect.objectContaining({
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userIds: ["u1", "u2", "u3"], message, excludeUserId: "u1" }),
+    }))
+  })
+
+  it("omits excludeUserId from the body when it is absent", async () => {
+    const bindingFetch = vi.fn(async () =>
+      new Response(JSON.stringify({ sent: 1 }), { status: 200 }),
+    )
+    const env = makeEnv(bindingFetch)
+    mockGetCloudflareContext.mockReturnValue({
+      env,
+      ctx: { waitUntil: mockCtxWaitUntil },
+    })
+    const message = { type: "community:member.update" } as any
+
+    await broadcastToUsers(["u1"], message)
+
+    const body = JSON.parse(String(bindingFetch.mock.calls[0]?.[1]?.body))
+    expect(body).toEqual({ userIds: ["u1"], message })
+    expect(body).not.toHaveProperty("excludeUserId")
+  })
+
+  it("falls back exactly once after one binding 5xx", async () => {
+    const bindingFetch = vi.fn(async () => new Response("boom", { status: 502 }))
+    mockFetch.mockResolvedValue(new Response(JSON.stringify({ sent: 2 }), { status: 200 }))
+    const env = makeEnv(bindingFetch)
+    mockGetCloudflareContext.mockReturnValue({
+      env,
+      ctx: { waitUntil: mockCtxWaitUntil },
+    })
+
+    await broadcastToUsers(["u1", "u2"], { type: "community:member.update" } as any)
+
+    expect(bindingFetch).toHaveBeenCalledTimes(1)
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+    expect(String(mockFetch.mock.calls[0]?.[0])).toBe("http://dev-ws:8789/broadcast/users")
+  })
+
+  it("falls back exactly once after one binding throw", async () => {
+    const bindingFetch = vi.fn(async () => {
+      throw new Error("binding down")
+    })
+    mockFetch.mockResolvedValue(new Response(JSON.stringify({ sent: 2 }), { status: 200 }))
+    const env = makeEnv(bindingFetch)
+    mockGetCloudflareContext.mockReturnValue({
+      env,
+      ctx: { waitUntil: mockCtxWaitUntil },
+    })
+
+    await broadcastToUsers(["u1", "u2"], { type: "community:member.update" } as any)
+
+    expect(bindingFetch).toHaveBeenCalledTimes(1)
+    expect(mockFetch).toHaveBeenCalledTimes(1)
   })
 })

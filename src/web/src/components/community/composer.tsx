@@ -191,6 +191,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     maxFileSize: MAX_ATTACHMENT_SIZE_BYTES,
   })
   const typingTimer = useRef<NodeJS.Timeout | null>(null)
+  const sendRef = useRef<() => void>(() => {})
 
   // Draft cache key, held in a ref so the editor's `onUpdate` closure (captured
   // once at build) always persists under the current scope. Restore is
@@ -333,7 +334,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         if (isForumThreadBody) {
           if (event.key === "Enter" && event.shiftKey && !event.isComposing) {
             event.preventDefault()
-            send()
+            sendRef.current()
             return true
           }
           return false
@@ -341,7 +342,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 
         if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
           event.preventDefault()
-          send()
+          sendRef.current()
           return true
         }
         return false
@@ -466,6 +467,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     setMentionPopup(EMPTY_MENTION_STATE)
     setChannelRefPopup(EMPTY_CHANNEL_REF_STATE)
   }
+
+  useEffect(() => {
+    sendRef.current = send
+  })
 
   useImperativeHandle(ref, () => ({
     focusEditor: () => { editor?.commands.focus("end") },

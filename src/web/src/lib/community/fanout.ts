@@ -2,21 +2,21 @@
  * Server-side fan-out helpers for community real-time events.
  *
  * Each function resolves the recipient set via D1 queries,
- * then POSTs the event to each user's per-user DO via the existing
- * broadcast service binding (WS_DO_WORKER -> /broadcast/user/<userId>).
+ * then sends one bounded bulk request through the existing broadcast
+ * service binding (WS_DO_WORKER -> /broadcast/users).
  *
- * Uses the same `broadcastToUser` function that existing code uses,
- * ensuring consistent service-binding -> HTTP fallback behavior.
+ * The bulk helper uses the same service-binding -> HTTP fallback behavior
+ * as the compatibility single-user helper.
  *
  * Contract: these helpers absorb all failures internally and never reject.
  * Routes call them as fire-and-forget statements without `.catch()`.
  */
 
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { queries, createLogger, WS_EVENTS, channelReach, isStoredChannelType, withD1Retry } from "@alook/shared"
+import { queries, createLogger, WS_EVENTS, withD1Retry } from "@alook/shared"
 import type { CommunityWsEvent, Database } from "@alook/shared"
 import { getDb } from "../db"
-import { broadcastToUser } from "../broadcast"
+import { broadcastToUser, broadcastToUsers } from "../broadcast"
 import { enqueueBotWakes, type WakeMessageRow } from "./wake-producer"
 
 const log = createLogger({ service: "community-fanout" })
@@ -59,43 +59,17 @@ async function getServerMemberUserIds(db: Database, serverId: string): Promise<s
  * The split lives here so fan-out and bot-wake use the same recipient set.
  */
 async function getChannelRecipientUserIds(db: Database, channelId: string): Promise<string[]> {
-  const type = await withD1Retry(
-    () => queries.communityChannel.getChannelType(db, channelId),
-    { route: "fanout:channel-type" },
+  const retryRoute = {
+    "channel-type": "fanout:channel-type",
+    "thread-participants": "fanout:thread-participants",
+    "dm-members": "fanout:dm-members",
+    "scope-members": "fanout:scope-members",
+  } as const
+  return queries.communityMembersResolver.resolveChannelRecipientUserIds(
+    db,
+    channelId,
+    (phase, query) => withD1Retry(query, { route: retryRoute[phase] }),
   )
-  // Dispatch on the reach TRAIT, not a re-derived `isThread || isForumPost` /
-  // `isDm` classification (B2 — the reach axis's single source). An unknown/null
-  // type falls to `server-or-roster` (the historical default arm). The read side
-  // here (who-receives) keys on the SAME reach value the send-path enroll keys on
-  // (who-enrolls), so a participant-set channel's fan-out and its enroll can't
-  // drift (red-line ③).
-  const reach = isStoredChannelType(type) ? channelReach(type) : "server-or-roster"
-  switch (reach) {
-    case "participant-set":
-      // Child thread: the unit's notify (participant) rows — the same set
-      // the send-path enroll writes into.
-      return withD1Retry(
-        () => queries.communityThread.listThreadParticipantUserIds(db, channelId),
-        { route: "fanout:thread-participants" },
-      )
-    case "dm-pair":
-      // DM: its two relation='access' members (server_id is NULL, so it must not
-      // fall through to the server-scoped resolver).
-      return withD1Retry(
-        () => queries.communityChannel.listChannelMemberUserIds(db, channelId),
-        { route: "fanout:dm-members" },
-      )
-    case "server-or-roster":
-      // Channel / forum: the access audience (public/private split).
-      return withD1Retry(
-        () => queries.communityMembersResolver.resolveScopeMemberUserIds(db, { scope: "channel", scopeId: channelId }),
-        { route: "fanout:scope-members" },
-      )
-    default: {
-      const _never: never = reach
-      return _never
-    }
-  }
 }
 
 /**
@@ -315,17 +289,14 @@ async function broadcastToRecipients(
   event: BroadcastableEvent,
   excludeUserId?: string
 ): Promise<void> {
-  const recipients = excludeUserId
-    ? userIds.filter((id) => id !== excludeUserId)
-    : userIds
-
-  if (recipients.length === 0) return
-
-  // Fire all broadcasts concurrently — non-blocking via waitUntil in broadcastToUser
-  const promises = recipients.map((userId) =>
-    broadcastToUser(userId, event).catch((err) => {
-      log.warn("broadcastToRecipient failed", { userId, type: event.type, err: String(err) })
+  if (userIds.length === 0) return
+  try {
+    await broadcastToUsers(userIds, event, excludeUserId)
+  } catch (err) {
+    log.warn("broadcast_to_recipients_failed", {
+      recipientCount: userIds.length,
+      type: event.type,
+      err: String(err),
     })
-  )
-  await Promise.all(promises)
+  }
 }

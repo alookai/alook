@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import type { WsMessage } from "@alook/shared"
+import type { UseUserWsOptions } from "./use-user-ws"
 
 // --- Mock WebSocket ---
 class MockWebSocket {
@@ -42,6 +43,16 @@ let refs: Map<string, { current: unknown }> = new Map()
 let refCounter = 0
 let callbackMemo: Map<string, { fn: Function; deps: unknown[] }> = new Map()
 let callbackCounter = 0
+let effectMemo: Map<string, {
+  deps: unknown[]
+  setup: () => (() => void) | void
+  cleanup?: () => void
+}> = new Map()
+let effectCounter = 0
+
+function depsEqual(left: unknown[], right: unknown[]) {
+  return left.length === right.length && left.every((value, index) => Object.is(value, right[index]))
+}
 
 vi.mock("react", () => ({
   useRef: (initial: unknown) => {
@@ -60,11 +71,40 @@ vi.mock("react", () => ({
     callbackMemo.set(id, { fn, deps })
     return fn
   },
-  useEffect: (fn: () => (() => void) | void, _deps: unknown[]) => {
+  useEffect: (fn: () => (() => void) | void, deps: unknown[]) => {
+    const id = `effect-${effectCounter++}`
+    const existing = effectMemo.get(id)
+    if (existing && depsEqual(existing.deps, deps)) return
     const cleanup = fn()
+    effectMemo.set(id, { deps, setup: fn, cleanup: cleanup || undefined })
     if (cleanup) effectCleanup = cleanup
   },
 }))
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
+async function flushPromises() {
+  await Promise.resolve()
+  await Promise.resolve()
+  await Promise.resolve()
+}
+
+function replayEffects() {
+  for (const effect of effectMemo.values()) effect.cleanup?.()
+  for (const effect of effectMemo.values()) {
+    const cleanup = effect.setup()
+    effect.cleanup = cleanup || undefined
+    if (cleanup) effectCleanup = cleanup
+  }
+}
 
 function setupTokenFetch() {
   mockFetch.mockResolvedValue({
@@ -81,6 +121,8 @@ function resetMockState() {
   refCounter = 0
   callbackMemo = new Map()
   callbackCounter = 0
+  effectMemo = new Map()
+  effectCounter = 0
 }
 
 describe("useUserWs", () => {
@@ -93,10 +135,13 @@ describe("useUserWs", () => {
     vi.useRealTimers()
   })
 
-  async function mountHook(onMessage: (msg: WsMessage) => void) {
+  async function mountHook(
+    onMessage: (msg: WsMessage) => void,
+    options?: UseUserWsOptions,
+  ) {
     // Re-import to get fresh module with fresh mocks
     const mod = await import("./use-user-ws")
-    mod.useUserWs(onMessage)
+    mod.useUserWs(onMessage, options)
     // Wait for async connect to complete
     await vi.runAllTimersAsync()
     return mod
@@ -116,6 +161,7 @@ describe("useUserWs", () => {
     setupTokenFetch()
     refCounter = 0
     callbackCounter = 0
+    effectCounter = 0
 
     mod.useUserWs(cb1)
     const firstCallbackId = Array.from(callbackMemo.keys()).find(k => k.startsWith("cb-"))
@@ -124,12 +170,75 @@ describe("useUserWs", () => {
     // Simulate second render with different callback
     refCounter = 0
     callbackCounter = 0
+    effectCounter = 0
 
     mod.useUserWs(cb2)
     const secondConnect = callbackMemo.get(firstCallbackId!)?.fn
 
     // connect should be the same reference since deps are []
     expect(firstConnect).toBe(secondConnect)
+  })
+
+  it.each<[string, UseUserWsOptions | undefined]>([
+    ["the option is omitted", undefined],
+    ["the option is explicitly true", { requestDaemonStatusOnAuth: true }],
+  ])("auth.ok sends the complete daemon-status frame when %s", async (_label, options) => {
+    setupTokenFetch()
+
+    const onMsg = vi.fn()
+    await mountHook(onMsg, options)
+
+    const ws = MockWebSocket.instances[0]
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+
+    expect(ws.sent).toEqual([
+      JSON.stringify({ type: "auth", token: "tok-123" }),
+      JSON.stringify({ type: "check_daemon_status" }),
+    ])
+    expect(onMsg).not.toHaveBeenCalled()
+  })
+
+  it("auth.ok suppresses daemon status and remains consumed when the option is false", async () => {
+    setupTokenFetch()
+
+    const onMsg = vi.fn()
+    await mountHook(onMsg, { requestDaemonStatusOnAuth: false })
+
+    const ws = MockWebSocket.instances[0]
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+
+    expect(ws.sent).toEqual([
+      JSON.stringify({ type: "auth", token: "tok-123" }),
+    ])
+    expect(onMsg).not.toHaveBeenCalled()
+  })
+
+  it("uses the latest option on the original socket without changing connect identity", async () => {
+    setupTokenFetch()
+
+    const onMsg = vi.fn()
+    const mod = await mountHook(onMsg, { requestDaemonStatusOnAuth: false })
+    const ws = MockWebSocket.instances[0]
+    ws.simulateOpen()
+    const firstConnect = callbackMemo.get("cb-1")?.fn
+
+    refCounter = 0
+    callbackCounter = 0
+    effectCounter = 0
+    mod.useUserWs(onMsg, { requestDaemonStatusOnAuth: true })
+    const secondConnect = callbackMemo.get("cb-1")?.fn
+
+    expect(secondConnect).toBe(firstConnect)
+    expect(MockWebSocket.instances).toEqual([ws])
+
+    ws.simulateMessage({ type: "auth.ok" })
+    expect(ws.sent).toEqual([
+      JSON.stringify({ type: "auth", token: "tok-123" }),
+      JSON.stringify({ type: "check_daemon_status" }),
+    ])
+    expect(onMsg).not.toHaveBeenCalled()
   })
 
   it("effect cleanup nullifies wsRef.current and calls .close() — subsequent onclose skips reconnect", async () => {
@@ -284,5 +393,78 @@ describe("useUserWs", () => {
 
     // No new connection should have been created because the timer was cleared
     expect(MockWebSocket.instances.length).toBe(instancesBefore)
+  })
+
+  it("cleanup invalidates a pending successful token request before socket creation", async () => {
+    const tokenResponse = deferred<{
+      ok: boolean
+      json: () => Promise<{ userId: string; token: string }>
+    }>()
+    mockFetch.mockReturnValue(tokenResponse.promise)
+
+    const mod = await import("./use-user-ws")
+    mod.useUserWs(vi.fn())
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+
+    effectCleanup?.()
+    tokenResponse.resolve({
+      ok: true,
+      json: () => Promise.resolve({ userId: "stale-user", token: "stale-token" }),
+    })
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(60_000)
+
+    expect(MockWebSocket.instances).toHaveLength(0)
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it("StrictMode replay keeps only the latest socket when token requests resolve out of order", async () => {
+    const firstTokenResponse = deferred<{
+      ok: boolean
+      json: () => Promise<{ userId: string; token: string }>
+    }>()
+    const secondTokenResponse = deferred<{
+      ok: boolean
+      json: () => Promise<{ userId: string; token: string }>
+    }>()
+    mockFetch
+      .mockReturnValueOnce(firstTokenResponse.promise)
+      .mockReturnValueOnce(secondTokenResponse.promise)
+
+    const mod = await import("./use-user-ws")
+    mod.useUserWs(vi.fn())
+    replayEffects()
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+
+    secondTokenResponse.resolve({
+      ok: true,
+      json: () => Promise.resolve({ userId: "latest-user", token: "latest-token" }),
+    })
+    await flushPromises()
+    firstTokenResponse.resolve({
+      ok: true,
+      json: () => Promise.resolve({ userId: "stale-user", token: "stale-token" }),
+    })
+    await flushPromises()
+
+    expect(MockWebSocket.instances).toHaveLength(1)
+    expect(MockWebSocket.instances[0]?.url).toContain("latest-user")
+  })
+
+  it("cleanup invalidates a pending failed token request before reconnect scheduling", async () => {
+    const tokenResponse = deferred<never>()
+    mockFetch.mockReturnValue(tokenResponse.promise)
+
+    const mod = await import("./use-user-ws")
+    mod.useUserWs(vi.fn())
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+
+    effectCleanup?.()
+    tokenResponse.reject(new Error("stale token failure"))
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(60_000)
+
+    expect(MockWebSocket.instances).toHaveLength(0)
+    expect(mockFetch).toHaveBeenCalledTimes(1)
   })
 })

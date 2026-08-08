@@ -22,12 +22,30 @@ test.describe.serial("multi-user realtime", () => {
     const alice = await asUser("alice")
     const bob = await asUser("bob")
     await alice.page.goto(`/c/channels/${serverId}/${channelId}`)
+    const messagesPath = `/api/community/channels/${channelId}/messages`
+    const bobInitialMessagesPromise = bob.page.waitForResponse((response) => {
+      return response.request().method() === "GET"
+        && new URL(response.url()).pathname === messagesPath
+    })
     await bob.page.goto(`/c/channels/${serverId}/${channelId}`)
     await alice.page.waitForURL(new RegExp(channelId), { timeout: 20_000 , waitUntil: "commit" })
     await bob.page.waitForURL(new RegExp(channelId), { timeout: 20_000 , waitUntil: "commit" })
 
+    // A committed channel URL can still be rendering its initial skeleton.
+    // Wait for Bob's message query and composer surface before Alice sends, so
+    // the final assertion proves realtime delivery rather than initial fetch.
+    const bobInitialMessages = await bobInitialMessagesPromise
+    expect(bobInitialMessages.status()).toBe(200)
+    await expect(composerEditable(bob.page)).toBeVisible()
+
     const body = `live from alice ${Date.now()}`
+    const aliceMessagePromise = alice.page.waitForResponse((response) => {
+      return response.request().method() === "POST"
+        && new URL(response.url()).pathname === messagesPath
+    })
     await sendMessage(alice.page, body)
+    const aliceMessage = await aliceMessagePromise
+    expect(aliceMessage.status()).toBe(201)
     // Bob sees it without reloading.
     await expectMessageVisible(bob.page, body)
   })
