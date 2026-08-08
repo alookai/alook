@@ -70,7 +70,7 @@ describe("ws-do router", () => {
     })
 
     it("keeps every old handler in order and inserts bulk broadcast immediately after singular user", () => {
-      const source = readFileSync("src/index.ts", "utf8")
+      const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8")
       const orderedHandlers = [...source.matchAll(/response = await (handle\w+)\(context\)/g)]
         .map((match) => match[1])
 

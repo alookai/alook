@@ -765,7 +765,7 @@ describe("WebSocketDurableObject", () => {
     })
 
     it("contains no local reach classifier after delegating to shared", () => {
-      const source = readFileSync("src/ws-durable/presence-typing.ts", "utf8")
+      const source = readFileSync(new URL("./presence-typing.ts", import.meta.url), "utf8")
       expect(source).not.toMatch(/\bchannelReach\b|\bisStoredChannelType\b|switch\s*\(\s*reach\s*\)/)
     })
   })
