@@ -6,6 +6,7 @@ import {
   capturedOnMessage,
   capturedOnReconnect,
   capturedQueryClient,
+  capturedUseUserWsOptions,
   cleanupCommunityWsHarness,
   flushEffects,
   getStableSend,
@@ -84,6 +85,7 @@ describe("useCommunityWs — double-mount detection", () => {
     expect(useUserWsCallCount).toBe(1)
     expect(capturedOnMessage).not.toBeNull()
     expect(capturedOnReconnect).not.toBeNull()
+    expect(capturedUseUserWsOptions?.requestDaemonStatusOnAuth).toBe(false)
   })
 
   it("emits console.warn when a second instance mounts with a different send", async () => {

@@ -18,11 +18,20 @@ const WS_RECONNECT_MAX = Number(process.env.NEXT_PUBLIC_WS_RECONNECT_MAX_DELAY_M
  */
 export type WsMessageIncoming = WsMessage & { [key: string]: unknown }
 
-export function useUserWs(onMessage: (msg: WsMessageIncoming) => void, options?: { onReconnect?: () => void }): { send: (msg: object) => void } {
+export type UseUserWsOptions = {
+  onReconnect?: () => void
+  requestDaemonStatusOnAuth?: boolean
+}
+
+export function useUserWs(
+  onMessage: (msg: WsMessageIncoming) => void,
+  options?: UseUserWsOptions,
+): { send: (msg: object) => void } {
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectDelay = useRef(WS_RECONNECT_INIT)
   const onMessageRef = useRef(onMessage)
   const onReconnectRef = useRef(options?.onReconnect)
+  const requestDaemonStatusOnAuthRef = useRef(options?.requestDaemonStatusOnAuth ?? true)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const hasConnectedBeforeRef = useRef(false)
   const lastMessageAtRef = useRef(0)
@@ -36,6 +45,10 @@ export function useUserWs(onMessage: (msg: WsMessageIncoming) => void, options?:
   useEffect(() => {
     onReconnectRef.current = options?.onReconnect
   }, [options?.onReconnect])
+
+  useEffect(() => {
+    requestDaemonStatusOnAuthRef.current = options?.requestDaemonStatusOnAuth ?? true
+  }, [options?.requestDaemonStatusOnAuth])
 
   const connectRef = useRef<(() => Promise<void>) | null>(null)
 
@@ -109,7 +122,9 @@ export function useUserWs(onMessage: (msg: WsMessageIncoming) => void, options?:
       try {
         const msg = JSON.parse(e.data)
         if (msg.type === "auth.ok") {
-          ws.send(JSON.stringify({ type: "check_daemon_status" }))
+          if (requestDaemonStatusOnAuthRef.current) {
+            ws.send(JSON.stringify({ type: "check_daemon_status" }))
+          }
           return
         }
         onMessageRef.current(msg as WsMessageIncoming)

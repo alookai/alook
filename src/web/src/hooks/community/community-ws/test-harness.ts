@@ -1,6 +1,7 @@
 import { QueryClient } from "@tanstack/react-query"
 import type { CommunityMessageCreate } from "@alook/shared"
 import { vi } from "vitest"
+import type { UseUserWsOptions } from "@/lib/use-user-ws"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
 
 type ShimCallback = (...args: unknown[]) => unknown
@@ -53,13 +54,15 @@ vi.mock("@tanstack/react-query", async () => {
 
 export let capturedOnMessage: ((msg: unknown) => void) | null = null
 export let capturedOnReconnect: (() => void) | null = null
+export let capturedUseUserWsOptions: UseUserWsOptions | undefined
 let stableSend: ReturnType<typeof vi.fn> = vi.fn()
 export let useUserWsCallCount = 0
 vi.mock("@/lib/use-user-ws", () => ({
-  useUserWs: (onMessage: (msg: unknown) => void, options?: { onReconnect?: () => void }) => {
+  useUserWs: (onMessage: (msg: unknown) => void, options?: UseUserWsOptions) => {
     useUserWsCallCount += 1
     capturedOnMessage = onMessage
     capturedOnReconnect = options?.onReconnect ?? null
+    capturedUseUserWsOptions = options
     return { send: stableSend }
   },
 }))
@@ -95,6 +98,7 @@ function resetHarnessState() {
   effectCleanups = []
   capturedOnMessage = null
   capturedOnReconnect = null
+  capturedUseUserWsOptions = undefined
   capturedQueryClient = new QueryClient()
   stableSend = vi.fn()
   useUserWsCallCount = 0

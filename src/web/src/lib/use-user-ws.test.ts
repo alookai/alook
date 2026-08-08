@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import type { WsMessage } from "@alook/shared"
+import type { UseUserWsOptions } from "./use-user-ws"
 
 // --- Mock WebSocket ---
 class MockWebSocket {
@@ -42,6 +43,12 @@ let refs: Map<string, { current: unknown }> = new Map()
 let refCounter = 0
 let callbackMemo: Map<string, { fn: Function; deps: unknown[] }> = new Map()
 let callbackCounter = 0
+let effectMemo: Map<string, { deps: unknown[] }> = new Map()
+let effectCounter = 0
+
+function depsEqual(left: unknown[], right: unknown[]) {
+  return left.length === right.length && left.every((value, index) => Object.is(value, right[index]))
+}
 
 vi.mock("react", () => ({
   useRef: (initial: unknown) => {
@@ -60,7 +67,11 @@ vi.mock("react", () => ({
     callbackMemo.set(id, { fn, deps })
     return fn
   },
-  useEffect: (fn: () => (() => void) | void, _deps: unknown[]) => {
+  useEffect: (fn: () => (() => void) | void, deps: unknown[]) => {
+    const id = `effect-${effectCounter++}`
+    const existing = effectMemo.get(id)
+    if (existing && depsEqual(existing.deps, deps)) return
+    effectMemo.set(id, { deps })
     const cleanup = fn()
     if (cleanup) effectCleanup = cleanup
   },
@@ -81,6 +92,8 @@ function resetMockState() {
   refCounter = 0
   callbackMemo = new Map()
   callbackCounter = 0
+  effectMemo = new Map()
+  effectCounter = 0
 }
 
 describe("useUserWs", () => {
@@ -93,10 +106,13 @@ describe("useUserWs", () => {
     vi.useRealTimers()
   })
 
-  async function mountHook(onMessage: (msg: WsMessage) => void) {
+  async function mountHook(
+    onMessage: (msg: WsMessage) => void,
+    options?: UseUserWsOptions,
+  ) {
     // Re-import to get fresh module with fresh mocks
     const mod = await import("./use-user-ws")
-    mod.useUserWs(onMessage)
+    mod.useUserWs(onMessage, options)
     // Wait for async connect to complete
     await vi.runAllTimersAsync()
     return mod
@@ -116,6 +132,7 @@ describe("useUserWs", () => {
     setupTokenFetch()
     refCounter = 0
     callbackCounter = 0
+    effectCounter = 0
 
     mod.useUserWs(cb1)
     const firstCallbackId = Array.from(callbackMemo.keys()).find(k => k.startsWith("cb-"))
@@ -124,12 +141,75 @@ describe("useUserWs", () => {
     // Simulate second render with different callback
     refCounter = 0
     callbackCounter = 0
+    effectCounter = 0
 
     mod.useUserWs(cb2)
     const secondConnect = callbackMemo.get(firstCallbackId!)?.fn
 
     // connect should be the same reference since deps are []
     expect(firstConnect).toBe(secondConnect)
+  })
+
+  it.each<[string, UseUserWsOptions | undefined]>([
+    ["the option is omitted", undefined],
+    ["the option is explicitly true", { requestDaemonStatusOnAuth: true }],
+  ])("auth.ok sends the complete daemon-status frame when %s", async (_label, options) => {
+    setupTokenFetch()
+
+    const onMsg = vi.fn()
+    await mountHook(onMsg, options)
+
+    const ws = MockWebSocket.instances[0]
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+
+    expect(ws.sent).toEqual([
+      JSON.stringify({ type: "auth", token: "tok-123" }),
+      JSON.stringify({ type: "check_daemon_status" }),
+    ])
+    expect(onMsg).not.toHaveBeenCalled()
+  })
+
+  it("auth.ok suppresses daemon status and remains consumed when the option is false", async () => {
+    setupTokenFetch()
+
+    const onMsg = vi.fn()
+    await mountHook(onMsg, { requestDaemonStatusOnAuth: false })
+
+    const ws = MockWebSocket.instances[0]
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+
+    expect(ws.sent).toEqual([
+      JSON.stringify({ type: "auth", token: "tok-123" }),
+    ])
+    expect(onMsg).not.toHaveBeenCalled()
+  })
+
+  it("uses the latest option on the original socket without changing connect identity", async () => {
+    setupTokenFetch()
+
+    const onMsg = vi.fn()
+    const mod = await mountHook(onMsg, { requestDaemonStatusOnAuth: false })
+    const ws = MockWebSocket.instances[0]
+    ws.simulateOpen()
+    const firstConnect = callbackMemo.get("cb-1")?.fn
+
+    refCounter = 0
+    callbackCounter = 0
+    effectCounter = 0
+    mod.useUserWs(onMsg, { requestDaemonStatusOnAuth: true })
+    const secondConnect = callbackMemo.get("cb-1")?.fn
+
+    expect(secondConnect).toBe(firstConnect)
+    expect(MockWebSocket.instances).toEqual([ws])
+
+    ws.simulateMessage({ type: "auth.ok" })
+    expect(ws.sent).toEqual([
+      JSON.stringify({ type: "auth", token: "tok-123" }),
+      JSON.stringify({ type: "check_daemon_status" }),
+    ])
+    expect(onMsg).not.toHaveBeenCalled()
   })
 
   it("effect cleanup nullifies wsRef.current and calls .close() — subsequent onclose skips reconnect", async () => {

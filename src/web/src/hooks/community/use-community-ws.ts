@@ -286,7 +286,10 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
   const handleReconnect = useCallback(() => {
     reconcileCommunityWsReconnect(queryClient)
   }, [queryClient])
-  const { send } = useUserWs(handleMessage, { onReconnect: handleReconnect })
+  const { send } = useUserWs(handleMessage, {
+    onReconnect: handleReconnect,
+    requestDaemonStatusOnAuth: false,
+  })
 
   // Publish the send binding so free helpers (`communityWsSendTyping`) can
   // dispatch without holding a hook reference. Single-instance assumption
