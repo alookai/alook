@@ -7,8 +7,10 @@ export default defineConfig({
   testMatch: "**/*.spec.ts",
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  // The suite shares and mutates three seeded user accounts, so every run is
+  // single-worker and zero-retry; parallelism or retries would reuse state.
+  retries: 0,
+  workers: 1,
   reporter: process.env.CI ? [["html", { open: "never" }], ["list"]] : "list",
   globalSetup: "./src/test/e2e-ui/_setup/global-setup.ts",
   globalTeardown: "./src/test/e2e-ui/_setup/global-teardown.ts",
@@ -16,7 +18,7 @@ export default defineConfig({
   expect: { timeout: 10_000 },
   use: {
     baseURL: BASE_URL,
-    trace: "on-first-retry",
+    trace: "retain-on-failure",
     video: "retain-on-failure",
     screenshot: "only-on-failure",
   },
