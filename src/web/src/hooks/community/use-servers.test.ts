@@ -80,7 +80,32 @@ describe("useServer / serverQueryFn", () => {
     expect(data).toEqual({ ...detail, categories: [
       { id: "cat_1", name: "Main", private: 0, channels: [{ id: "ch_1", name: "general", categoryId: "cat_1", active: false, unread: true }] },
       { id: "__uncategorized__", name: "", private: 0, channels: [{ id: "ch_2", name: "loose", categoryId: null, active: false, unread: false }] },
-    ] })
+    ], forumUnreadState: {} })
+  })
+
+  it("cold-boots a forum fallback from a canonical unread child outside the sidebar projection", async () => {
+    apiFetchMock.mockImplementation(async (url: string) => {
+      if (url === "/api/community/servers") return { servers: [{
+        id: "srv_1", name: "Alook", discriminator: "0001", icon: null, ownerId: "u_1",
+      }] }
+      if (url.endsWith("/categories")) return { categories: [{ id: "cat_1", name: "Main", private: 0 }] }
+      if (url.endsWith("/channels")) return { channels: [{
+        id: "forum_1", name: "Forum", type: "forum", categoryId: "cat_1",
+      }] }
+      if (url.endsWith("/unreads")) return {
+        channelIds: ["post_hidden"],
+        childChannels: [{ id: "post_hidden", parentChannelId: "forum_1" }],
+      }
+      throw new Error(`unexpected ${url}`)
+    })
+
+    const { serverQueryFn } = await import("./use-servers")
+    const data = await serverQueryFn("srv_1")()
+
+    expect(data.categories[0]?.channels[0]?.unread).toBe(true)
+    expect(data.forumUnreadState).toEqual({
+      forum_1: { baseUnread: false, childIds: ["post_hidden"] },
+    })
   })
 
   it("nests the server(id) key under servers() so prefix invalidation cascades", async () => {

@@ -41,7 +41,7 @@ describe("GET /api/community/servers/[id]/unreads", () => {
     mockListVisibleChannelIds.mockResolvedValue(["channel_1", "channel_2", "other_1"])
     mockListUnreadChannels.mockResolvedValue([
       { serverId: "server_1", channelId: "channel_1" },
-      { serverId: "server_1", channelId: "channel_2" },
+      { serverId: "server_1", channelId: "channel_2", parentChannelId: "channel_1" },
       { serverId: "server_2", channelId: "other_1" },
     ])
   })
@@ -53,7 +53,11 @@ describe("GET /api/community/servers/[id]/unreads", () => {
     )
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ channelIds: ["channel_1", "channel_2"], stale: false })
+    expect(await response.json()).toEqual({
+      channelIds: ["channel_1", "channel_2"],
+      childChannels: [{ id: "channel_2", parentChannelId: "channel_1" }],
+      stale: false,
+    })
     expect(mockListUnreadChannels).toHaveBeenCalledWith(expect.anything(), "user_1", ["channel_1", "channel_2", "other_1"])
   })
 
@@ -87,6 +91,6 @@ describe("GET /api/community/servers/[id]/unreads", () => {
     )
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ channelIds: [], stale: true })
+    expect(await response.json()).toEqual({ channelIds: [], childChannels: [], stale: true })
   })
 })

@@ -36,7 +36,7 @@ import { clearLastChannel } from "@/lib/community/last-channel"
 import { usePresence } from "@/hooks/community/use-server-panels"
 import {
   patchForumSidebarUnread,
-  reconcileForumSidebarUnreadFallbacks,
+  removeForumSidebarUnreadChild,
   setForumSidebarParentUnreadBase,
   useForumSidebarThreads,
   type ForumSidebarThread,
@@ -308,7 +308,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const setActiveForumThread = useCallback((id: string) => {
     markSwitch("channel", id)
     router.push(`/c/channels/${serverId}/${id}`)
-    reconcileForumSidebarUnreadFallbacks(queryClient, serverId, [id])
+    removeForumSidebarUnreadChild(queryClient, serverId, id)
     queryClient.setQueriesData<ForumSidebarQueryData>(
       { queryKey: communityKeys.forumSidebarThreads(serverId) },
       (data) => patchForumSidebarUnread(data, id, false),

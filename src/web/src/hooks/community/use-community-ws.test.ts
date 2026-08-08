@@ -31,6 +31,7 @@ import type {
 } from "@alook/shared"
 import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
 import { communityKeys } from "@/lib/query-keys"
+import type { ServerDetail } from "./use-servers"
 import {
   patchForumSidebarUnread,
   reconcileForumSidebarUnreadFallbacks,
@@ -618,6 +619,9 @@ describe("useCommunityWs — message.create patches channel unread in the open s
     expect(capturedQueryClient.getQueryData<ReturnType<typeof serverDetailFixture>>(
       communityKeys.server("srv_open"),
     )?.categories[0].channels[0].unread).toBe(false)
+    expect(capturedQueryClient.getQueryData<ServerDetail>(
+      communityKeys.server("srv_open"),
+    )?.forumUnreadState?.forum_1?.childIds).toEqual(["post_1"])
   })
 
   it("falls back to the parent forum dot when the child has no locatable sidebar row", async () => {

@@ -63,8 +63,9 @@ import {
   patchForumSidebarActivity,
   patchForumSidebarTitle,
   patchForumSidebarUnread,
-  recordForumSidebarUnreadFallback,
+  recordForumSidebarChildUnread,
   removeForumSidebarThread,
+  removeForumSidebarUnreadChild,
   setForumSidebarParentUnreadBase,
   type ForumSidebarQueryData,
 } from "@/hooks/community/use-forum-sidebar-threads"
@@ -529,9 +530,16 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
                 { queryKey: sidebarKey },
                 (data) => patchForumSidebarUnread(data, event.channelId, true),
               )
+              recordForumSidebarChildUnread(
+                queryClient,
+                targetServerId!,
+                railChannelId,
+                event.channelId,
+                true,
+              )
             } else if (targetServerId) {
               if (event.channelId !== railChannelId) {
-                recordForumSidebarUnreadFallback(
+                recordForumSidebarChildUnread(
                   queryClient,
                   targetServerId,
                   railChannelId,
@@ -747,6 +755,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             if (sidebarServerId) {
               const sidebarKey = communityKeys.forumSidebarThreads(sidebarServerId)
               if (changes.archived === true) {
+                removeForumSidebarUnreadChild(queryClient, sidebarServerId, event.channelId)
                 queryClient.setQueriesData<ForumSidebarQueryData>(
                   { queryKey: sidebarKey },
                   (data) => removeForumSidebarThread(data, event.channelId),
@@ -902,6 +911,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           // subsequent same-id revive (rare, but the server can reuse ids)
           // would surface stale rows.
           if (event.type === "community:channel.delete") {
+            removeForumSidebarUnreadChild(queryClient, event.serverId, event.channelId)
             useMessageStreamStore.getState().removeScope({
               kind: "channel",
               id: event.channelId,
@@ -958,6 +968,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             event.type === "community:channel.member_remove" &&
             event.userId === viewerUserIdRef.current
           ) {
+            removeForumSidebarUnreadChild(queryClient, event.serverId, event.channelId)
             useMessageStreamStore.getState().removeScope({
               kind: "channel",
               id: event.channelId,

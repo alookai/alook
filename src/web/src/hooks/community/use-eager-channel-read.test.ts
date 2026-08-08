@@ -50,8 +50,15 @@ vi.mock("@/lib/api/client", () => ({
 let serversCache: ServersResponse | undefined
 const invalidateQueries = vi.fn()
 const getQueryData = vi.fn((_key: unknown) => serversCache)
+const setQueryData = vi.fn()
+const setQueriesData = vi.fn()
 vi.mock("@tanstack/react-query", () => ({
-  useQueryClient: () => ({ invalidateQueries, getQueryData }),
+  useQueryClient: () => ({
+    invalidateQueries,
+    getQueryData,
+    setQueryData,
+    setQueriesData,
+  }),
 }))
 
 function resetHarness() {
@@ -62,6 +69,8 @@ function resetHarness() {
   apiFetchMock.mockClear()
   invalidateQueries.mockClear()
   getQueryData.mockClear()
+  setQueryData.mockClear()
+  setQueriesData.mockClear()
 }
 
 async function loadHook() {

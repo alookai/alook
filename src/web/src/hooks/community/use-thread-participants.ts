@@ -5,6 +5,7 @@ import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import {
   removeForumSidebarThread,
+  removeForumSidebarUnreadChild,
   type ForumSidebarQueryData,
 } from "@/hooks/community/use-forum-sidebar-threads"
 
@@ -41,6 +42,7 @@ export function useRemoveThreadParticipant(channelId: string, serverId?: string,
     onSuccess: (_data, userId) => {
       void qc.invalidateQueries({ queryKey: communityKeys.channelMembers(channelId) })
       if (serverId && userId === viewerUserId) {
+        removeForumSidebarUnreadChild(qc, serverId, channelId)
         qc.setQueriesData<ForumSidebarQueryData>(
           { queryKey: communityKeys.forumSidebarThreads(serverId) },
           (data) => removeForumSidebarThread(data, channelId),

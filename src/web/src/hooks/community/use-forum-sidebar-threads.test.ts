@@ -8,8 +8,9 @@ import {
   patchForumSidebarUnread,
   projectForumSidebarThreads,
   reconcileForumSidebarUnreadFallbacks,
-  recordForumSidebarUnreadFallback,
+  recordForumSidebarChildUnread,
   removeForumSidebarThread,
+  removeForumSidebarUnreadChild,
   setForumSidebarParentUnreadBase,
   type ForumSidebarQueryData,
   type ForumSidebarUnreadFallbackState,
@@ -96,7 +97,7 @@ describe("useForumSidebarThreads", () => {
   it("preserves a genuine parent unread when a child fallback becomes locatable", () => {
     const queryClient = new QueryClient()
     queryClient.setQueryData(communityKeys.server("server-1"), serverDetail(true))
-    recordForumSidebarUnreadFallback(queryClient, "server-1", "forum-1", "post-1")
+    recordForumSidebarChildUnread(queryClient, "server-1", "forum-1", "post-1")
 
     reconcileForumSidebarUnreadFallbacks(queryClient, "server-1", ["post-1"])
 
@@ -109,7 +110,7 @@ describe("useForumSidebarThreads", () => {
   it("preserves a parent unread that arrives while a child fallback is pending", () => {
     const queryClient = new QueryClient()
     queryClient.setQueryData(communityKeys.server("server-1"), serverDetail(false))
-    recordForumSidebarUnreadFallback(queryClient, "server-1", "forum-1", "post-1")
+    recordForumSidebarChildUnread(queryClient, "server-1", "forum-1", "post-1")
     expect(setForumSidebarParentUnreadBase(queryClient, "server-1", "forum-1", true)).toBe(true)
 
     reconcileForumSidebarUnreadFallbacks(queryClient, "server-1", ["post-1"])
@@ -120,8 +121,8 @@ describe("useForumSidebarThreads", () => {
   it("keeps the parent fallback while another unread child is still unlisted", () => {
     const queryClient = new QueryClient()
     queryClient.setQueryData(communityKeys.server("server-1"), serverDetail(false))
-    recordForumSidebarUnreadFallback(queryClient, "server-1", "forum-1", "post-1")
-    recordForumSidebarUnreadFallback(queryClient, "server-1", "forum-1", "post-2")
+    recordForumSidebarChildUnread(queryClient, "server-1", "forum-1", "post-1")
+    recordForumSidebarChildUnread(queryClient, "server-1", "forum-1", "post-2")
     expect(queryClient.getQueryData<ForumSidebarUnreadFallbackState>(
       communityKeys.forumSidebarUnreadFallbacks("server-1"),
     )?.["forum-1"]?.childIds).toEqual(["post-1", "post-2"])
@@ -132,8 +133,122 @@ describe("useForumSidebarThreads", () => {
       communityKeys.forumSidebarUnreadFallbacks("server-1"),
     )?.["forum-1"]?.childIds).toEqual(["post-2"])
 
-    reconcileForumSidebarUnreadFallbacks(queryClient, "server-1", ["post-2"])
+    reconcileForumSidebarUnreadFallbacks(queryClient, "server-1", ["post-1", "post-2"])
     expect(parentUnread(queryClient)).toBe(false)
+  })
+
+  it("transfers a loaded unread child back to its parent when top-five/expiry hides it", async () => {
+    apiFetchMock
+      .mockResolvedValueOnce(envelope(["post-1"]))
+      .mockResolvedValueOnce(envelope([]))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    queryClient.setQueryData(communityKeys.server("server-1"), {
+      ...serverDetail(true),
+      forumUnreadState: {
+        "forum-1": { baseUnread: false, childIds: ["post-1"] },
+      },
+    })
+
+    let renderer: TestRenderer.ReactTestRenderer
+    const renders: string[][] = []
+    await act(async () => {
+      renderer = TestRenderer.create(
+        React.createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          React.createElement(Capture, {
+            retainId: null,
+            onRender: (ids) => renders.push(ids),
+          }),
+        ),
+      )
+    })
+    await waitFor(() => renders.at(-1)?.[0] === "post-1")
+    await waitFor(() => Object.keys(
+      queryClient.getQueryData<ForumSidebarUnreadFallbackState>(
+        communityKeys.forumSidebarUnreadFallbacks("server-1"),
+      ) ?? {},
+    ).length === 0)
+
+    expect(parentUnread(queryClient)).toBe(false)
+    await act(async () => {
+      await queryClient.invalidateQueries({
+        queryKey: communityKeys.forumSidebarThreads("server-1"),
+      })
+    })
+    await waitFor(() => renders.at(-1)?.length === 0)
+    await waitFor(() => parentUnread(queryClient))
+
+    expect(queryClient.getQueryData<ForumSidebarUnreadFallbackState>(
+      communityKeys.forumSidebarUnreadFallbacks("server-1"),
+    )).toEqual({
+      "forum-1": { baseUnread: false, childIds: ["post-1"] },
+    })
+    renderer!.unmount()
+  })
+
+  it("does not create a fallback after an explicit leave/delete/archive removal", () => {
+    const queryClient = new QueryClient()
+    queryClient.setQueryData(communityKeys.server("server-1"), {
+      ...serverDetail(false),
+      forumUnreadState: {
+        "forum-1": { baseUnread: false, childIds: ["post-1"] },
+      },
+    })
+    reconcileForumSidebarUnreadFallbacks(queryClient, "server-1", ["post-1"])
+
+    removeForumSidebarUnreadChild(queryClient, "server-1", "post-1")
+    reconcileForumSidebarUnreadFallbacks(queryClient, "server-1", [])
+
+    expect(parentUnread(queryClient)).toBe(false)
+    expect(queryClient.getQueryData<ServerDetail>(
+      communityKeys.server("server-1"),
+    )?.forumUnreadState?.["forum-1"]?.childIds).toEqual([])
+  })
+
+  it("clears a hidden fallback when a canonical refetch removes access or participation", async () => {
+    apiFetchMock.mockResolvedValue(envelope([]))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    queryClient.setQueryData(communityKeys.server("server-1"), {
+      ...serverDetail(true),
+      forumUnreadState: {
+        "forum-1": { baseUnread: false, childIds: ["post-inaccessible"] },
+      },
+    })
+
+    let renderer: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(
+        React.createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          React.createElement(Capture, { retainId: null, onRender: () => undefined }),
+        ),
+      )
+    })
+    await waitFor(() => queryClient.getQueryData<ForumSidebarUnreadFallbackState>(
+      communityKeys.forumSidebarUnreadFallbacks("server-1"),
+    )?.["forum-1"]?.childIds[0] === "post-inaccessible")
+
+    await act(async () => {
+      queryClient.setQueryData(communityKeys.server("server-1"), {
+        ...serverDetail(false),
+        forumUnreadState: {
+          "forum-1": { baseUnread: false, childIds: [] },
+        },
+      })
+    })
+    await waitFor(() => Object.keys(
+      queryClient.getQueryData<ForumSidebarUnreadFallbackState>(
+        communityKeys.forumSidebarUnreadFallbacks("server-1"),
+      ) ?? {},
+    ).length === 0)
+
+    expect(parentUnread(queryClient)).toBe(false)
+    expect(queryClient.getQueryData<ForumSidebarUnreadFallbackState>(
+      communityKeys.forumSidebarUnreadFallbacks("server-1"),
+    )).toEqual({})
+    renderer!.unmount()
   })
 
   it("migrates a missing-child fallback dot to the child after the sidebar refetch", async () => {
@@ -150,7 +265,7 @@ describe("useForumSidebarThreads", () => {
     // message.create invalidates the missing row; unread.bump temporarily owns
     // the parent fallback while that refetch is outstanding.
     await queryClient.invalidateQueries({ queryKey: communityKeys.forumSidebarThreads("server-1") })
-    recordForumSidebarUnreadFallback(queryClient, "server-1", "forum-1", "post-missing")
+    recordForumSidebarChildUnread(queryClient, "server-1", "forum-1", "post-missing")
     expect(parentUnread(queryClient)).toBe(true)
 
     let renderer: TestRenderer.ReactTestRenderer

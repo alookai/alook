@@ -52,38 +52,61 @@ function parentUnread(cache: ServerDetail | undefined, parentChannelId: string):
   )
 }
 
-/**
- * Attribute a parent-row fallback dot to the missing child that caused it.
- * `baseUnread` snapshots the parent's own unread state so later migration to a
- * loaded child removes only the fallback contribution, never a genuine parent
- * unread.
- */
-export function recordForumSidebarUnreadFallback(
+/** Record canonical child unread ownership and project it to the loaded row or parent fallback. */
+export function recordForumSidebarChildUnread(
   queryClient: QueryClient,
   serverId: string,
   parentChannelId: string,
   childChannelId: string,
+  loaded = false,
 ) {
   const key = communityKeys.forumSidebarUnreadFallbacks(serverId)
   const serverKey = communityKeys.server(serverId)
-  const baseUnread = parentUnread(
-    queryClient.getQueryData<ServerDetail>(serverKey),
-    parentChannelId,
-  )
-  queryClient.setQueryData<ForumSidebarUnreadFallbackState>(key, (state = {}) => {
-    const current = state[parentChannelId]
-    if (current?.childIds.includes(childChannelId)) return state
-    return {
-      ...state,
-      [parentChannelId]: {
-        baseUnread: current?.baseUnread ?? baseUnread,
-        childIds: [...(current?.childIds ?? []), childChannelId],
+  const cachedServer = queryClient.getQueryData<ServerDetail>(serverKey)
+  const canonicalBaseUnread = cachedServer?.forumUnreadState?.[parentChannelId]?.baseUnread
+    ?? parentUnread(cachedServer, parentChannelId)
+  queryClient.setQueryData<ServerDetail | undefined>(serverKey, (cache) => {
+    if (!cache) return cache
+    const current = cache.forumUnreadState?.[parentChannelId]
+    const baseUnread = current?.baseUnread ?? canonicalBaseUnread
+    const childIds = current?.childIds.includes(childChannelId)
+      ? current.childIds
+      : [...(current?.childIds ?? []), childChannelId]
+    const next = {
+      ...cache,
+      forumUnreadState: {
+        ...cache.forumUnreadState,
+        [parentChannelId]: { baseUnread, childIds },
       },
     }
+    const hidden = (queryClient.getQueryData<ForumSidebarUnreadFallbackState>(key)
+      ?.[parentChannelId]?.childIds ?? [])
+      .filter((id) => !loaded || id !== childChannelId)
+    return patchChannelUnread(
+      next,
+      parentChannelId,
+      baseUnread || !loaded || hidden.length > 0,
+    )
   })
-  queryClient.setQueryData<ServerDetail | undefined>(serverKey, (cache) =>
-    patchChannelUnread(cache, parentChannelId, true),
-  )
+  queryClient.setQueryData<ForumSidebarUnreadFallbackState>(key, (state = {}) => {
+    const current = state[parentChannelId]
+    const baseUnread = current?.baseUnread ?? canonicalBaseUnread
+    const childIds = loaded
+      ? (current?.childIds ?? []).filter((id) => id !== childChannelId)
+      : current?.childIds.includes(childChannelId)
+        ? current.childIds
+        : [...(current?.childIds ?? []), childChannelId]
+    if (childIds.length === 0) {
+      if (!current) return state
+      const next = { ...state }
+      delete next[parentChannelId]
+      return next
+    }
+    return {
+      ...state,
+      [parentChannelId]: { baseUnread, childIds },
+    }
+  })
 }
 
 /** Update the genuine parent contribution while preserving missing children. */
@@ -96,49 +119,104 @@ export function setForumSidebarParentUnreadBase(
   const key = communityKeys.forumSidebarUnreadFallbacks(serverId)
   const state = queryClient.getQueryData<ForumSidebarUnreadFallbackState>(key)
   const current = state?.[parentChannelId]
-  if (!current) return false
-  queryClient.setQueryData<ForumSidebarUnreadFallbackState>(key, {
-    ...state,
-    [parentChannelId]: { ...current, baseUnread: unread },
+  let handled = false
+  queryClient.setQueryData<ServerDetail | undefined>(communityKeys.server(serverId), (cache) => {
+    if (!cache?.forumUnreadState?.[parentChannelId]) return cache
+    handled = true
+    const entry = cache.forumUnreadState[parentChannelId]!
+    return patchChannelUnread({
+      ...cache,
+      forumUnreadState: {
+        ...cache.forumUnreadState,
+        [parentChannelId]: { ...entry, baseUnread: unread },
+      },
+    }, parentChannelId, unread || (current?.childIds.length ?? 0) > 0)
   })
-  queryClient.setQueryData<ServerDetail | undefined>(
-    communityKeys.server(serverId),
-    (cache) => patchChannelUnread(cache, parentChannelId, unread || current.childIds.length > 0),
-  )
-  return true
+  if (current) {
+    queryClient.setQueryData<ForumSidebarUnreadFallbackState>(key, {
+      ...state,
+      [parentChannelId]: { ...current, baseUnread: unread },
+    })
+    handled = true
+  }
+  return handled
 }
 
-/** Move fallback ownership from a parent row to children that became locatable. */
+/**
+ * Re-project fallback ownership from the canonical unread child set. Loaded
+ * children own their own dots; only unread children omitted by the sidebar's
+ * 72h / top-five projection light the parent. Re-deriving (rather than merely
+ * removing loaded ids) is what preserves visible → hidden transitions.
+ */
 export function reconcileForumSidebarUnreadFallbacks(
   queryClient: QueryClient,
   serverId: string,
   loadedChildIds: Iterable<string>,
 ) {
   const loaded = new Set(loadedChildIds)
-  if (loaded.size === 0) return
   const key = communityKeys.forumSidebarUnreadFallbacks(serverId)
-  const state = queryClient.getQueryData<ForumSidebarUnreadFallbackState>(key)
-  if (!state) return
+  let fallbackState: ForumSidebarUnreadFallbackState = {}
+  queryClient.setQueryData<ServerDetail | undefined>(communityKeys.server(serverId), (cache) => {
+    if (!cache?.forumUnreadState) return cache
+    let next: ServerDetail | undefined = cache
+    for (const [parentChannelId, entry] of Object.entries(cache.forumUnreadState)) {
+      const childIds = entry.childIds.filter((id) => !loaded.has(id))
+      if (childIds.length > 0) {
+        fallbackState = {
+          ...fallbackState,
+          [parentChannelId]: { baseUnread: entry.baseUnread, childIds },
+        }
+      }
+      next = patchChannelUnread(
+        next,
+        parentChannelId,
+        entry.baseUnread || childIds.length > 0,
+      )
+    }
+    return next
+  })
+  queryClient.setQueryData(key, fallbackState)
+}
 
-  let nextState = state
-  let nextServer = queryClient.getQueryData<ServerDetail>(communityKeys.server(serverId))
-  for (const [parentChannelId, entry] of Object.entries(state)) {
-    const childIds = entry.childIds.filter((id) => !loaded.has(id))
-    if (childIds.length === entry.childIds.length) continue
-    if (nextState === state) nextState = { ...state }
-    if (childIds.length === 0) delete nextState[parentChannelId]
-    else nextState[parentChannelId] = { ...entry, childIds }
-    nextServer = patchChannelUnread(
-      nextServer,
-      parentChannelId,
-      entry.baseUnread || childIds.length > 0,
-    )
-  }
-
-  if (nextState !== state) {
-    queryClient.setQueryData(key, nextState)
-    queryClient.setQueryData(communityKeys.server(serverId), nextServer)
-  }
+/** Remove a child's canonical unread ownership after read/leave/delete/archive. */
+export function removeForumSidebarUnreadChild(
+  queryClient: QueryClient,
+  serverId: string,
+  childChannelId: string,
+) {
+  const key = communityKeys.forumSidebarUnreadFallbacks(serverId)
+  queryClient.setQueryData<ForumSidebarUnreadFallbackState>(key, (state = {}) => {
+    let next = state
+    for (const [parentChannelId, entry] of Object.entries(state)) {
+      if (!entry.childIds.includes(childChannelId)) continue
+      const childIds = entry.childIds.filter((id) => id !== childChannelId)
+      next = { ...state }
+      if (childIds.length === 0) delete next[parentChannelId]
+      else next[parentChannelId] = { ...entry, childIds }
+      break
+    }
+    return next
+  })
+  queryClient.setQueryData<ServerDetail | undefined>(communityKeys.server(serverId), (cache) => {
+    if (!cache?.forumUnreadState) return cache
+    const found = Object.entries(cache.forumUnreadState)
+      .find(([, entry]) => entry.childIds.includes(childChannelId))
+    if (!found) return cache
+    const [parentChannelId, entry] = found
+    const childIds = entry.childIds.filter((id) => id !== childChannelId)
+    const next = {
+      ...cache,
+      forumUnreadState: {
+        ...cache.forumUnreadState,
+        [parentChannelId]: { ...entry, childIds },
+      },
+    }
+    const hiddenChildIds = queryClient
+      .getQueryData<ForumSidebarUnreadFallbackState>(key)
+      ?.[parentChannelId]?.childIds ?? []
+    const unread = entry.baseUnread || hiddenChildIds.length > 0
+    return patchChannelUnread(next, parentChannelId, unread)
+  })
 }
 
 export function hasForumSidebarThread(data: ForumSidebarQueryData | undefined, threadId: string) {
@@ -217,6 +295,15 @@ export function projectForumSidebarThreads(data: SidebarThreadEnvelope): ForumSi
 
 export function useForumSidebarThreads(serverId: string, retainId: string | null) {
   const queryClient = useQueryClient()
+  // Observe (without fetching) the already-canonical ServerDetail cache so a
+  // fresh `/unreads` result re-runs attribution even when the sidebar rows did
+  // not change. This is essential for access/archive/participation removal:
+  // those must clear a prior fallback instead of being mistaken for expiry.
+  const serverDetailQuery = useQuery<ServerDetail>({
+    queryKey: communityKeys.server(serverId),
+    queryFn: () => Promise.reject(new Error("server detail observer only")),
+    enabled: false,
+  })
   const query = useQuery({
     queryKey: communityKeys.forumSidebarThreadsView(serverId, retainId),
     enabled: !!serverId,
@@ -254,7 +341,7 @@ export function useForumSidebarThreads(serverId: string, retainId: string | null
       serverId,
       query.data.threads.map((thread) => thread.id),
     )
-  }, [query.data, queryClient, serverId])
+  }, [query.data, queryClient, serverDetailQuery.data?.forumUnreadState, serverId])
 
   // Expire rows against the server's clock without polling. The currently
   // retained route is deliberately excluded: it remains visible until the

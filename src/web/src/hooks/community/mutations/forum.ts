@@ -7,6 +7,7 @@ import type { UploadedAttachment } from "@/hooks/community/mutations/uploads"
 import type { MentionType } from "@alook/shared"
 import {
   removeForumSidebarThread,
+  removeForumSidebarUnreadChild,
   type ForumSidebarQueryData,
 } from "@/hooks/community/use-forum-sidebar-threads"
 
@@ -115,6 +116,7 @@ export function useDeleteForumThread() {
     onSuccess: (_data, args) => {
       void queryClient.invalidateQueries({ queryKey: communityKeys.channelMessages(args.forumChannelId) })
       void queryClient.invalidateQueries({ queryKey: communityKeys.threads(args.forumChannelId) })
+      removeForumSidebarUnreadChild(queryClient, args.serverId, args.threadId)
       queryClient.setQueriesData<ForumSidebarQueryData>(
         { queryKey: communityKeys.forumSidebarThreads(args.serverId) },
         (data) => removeForumSidebarThread(data, args.threadId),
