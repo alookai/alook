@@ -78,16 +78,17 @@ test.describe.serial("mentions — mandatory discriminator", () => {
     await mentionAndSend(page, carol.id, "msgCarol")
 
     // Both messages render a single `@John Doe` pill with NO visible tag.
-    const bobMsg = page.getByText("msgBob", { exact: false }).first()
-    const carolMsg = page.getByText("msgCarol", { exact: false }).first()
+    const bobMsg = page.locator("[data-msg-id]").filter({ hasText: "msgBob" }).first()
+    const carolMsg = page.locator("[data-msg-id]").filter({ hasText: "msgCarol" }).first()
     await expect(bobMsg).toBeVisible({ timeout: 15_000 })
     await expect(carolMsg).toBeVisible({ timeout: 15_000 })
-    // Wait for BOTH pills to exist before touching either — a bare `.nth(1)`
-    // click would otherwise hang to the 60s test timeout if the second pill
-    // hasn't rendered yet (the observed flake).
-    const pills = page.locator("button", { hasText: "@John Doe" })
-    await expect(pills).toHaveCount(2, { timeout: 15_000 })
-    const bobPill = pills.first()
+    // Bind each pill to its marker-bearing message row. The canonical GET can
+    // reorder rows while a profile is loading, so a global live `nth` locator
+    // can otherwise retarget from Carol's pill back to Bob's.
+    const bobPill = bobMsg.getByRole("button", { name: "@John Doe", exact: true })
+    const carolPill = carolMsg.getByRole("button", { name: "@John Doe", exact: true })
+    await expect(bobPill).toHaveCount(1)
+    await expect(carolPill).toHaveCount(1)
     await expect(bobPill).toBeVisible()
     await expect(bobPill).not.toContainText("#")
 
@@ -113,7 +114,6 @@ test.describe.serial("mentions — mandatory discriminator", () => {
     // guarantee the overlay has detached. Retry the whole dismiss→click so a
     // transient interception (or a stray still-open card) re-presses Escape and
     // tries again, instead of hanging the bare click to the 60s test timeout.
-    const carolPill = pills.nth(1)
     const carolProfilePromise = page.waitForResponse((response) => {
       return response.request().method() === "GET"
         && new URL(response.url()).pathname === `/api/community/users/${userId("carol")}/profile`

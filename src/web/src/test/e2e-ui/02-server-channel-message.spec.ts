@@ -10,6 +10,7 @@ test("server → channel → message", async ({ asUser }) => {
   await createServer(page, `E2E Server ${Date.now()}`)
   const channelUrl = page.url()
   expect(channelUrl).toMatch(/\/c\/channels\/[^/]+\/[^/]+/)
+  const channelId = new URL(channelUrl).pathname.split("/").at(-1)!
 
   const firstBody = `hello world ${Date.now()}`
   const firstResponsePromise = page.waitForResponse((response) => {
@@ -116,18 +117,20 @@ test("server → channel → message", async ({ asUser }) => {
 
   let releaseMessages!: () => void
   const messagesGate = new Promise<void>((resolve) => { releaseMessages = resolve })
-  let intercepted = false
   await page.route("**/api/community/channels/*/messages*", async (route) => {
     if (route.request().method() !== "GET") {
       await route.continue()
       return
     }
-    intercepted = true
     await messagesGate
     await route.continue()
   })
+  const messagesRequestPromise = page.waitForRequest((request) => {
+    return request.method() === "GET"
+      && new URL(request.url()).pathname === `/api/community/channels/${channelId}/messages`
+  }, { timeout: 45_000 })
   await page.reload({ waitUntil: "commit" })
-  await expect.poll(() => intercepted).toBe(true)
+  await messagesRequestPromise
   releaseMessages()
   await expect(composerEditable(page)).toContainText(draft)
   await expect(page.getByTestId(tid.message(firstPayload.message.id))).toHaveCount(1)
