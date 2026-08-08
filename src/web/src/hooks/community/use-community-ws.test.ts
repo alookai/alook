@@ -92,8 +92,10 @@ vi.mock("@tanstack/react-query", async () => {
 let capturedOnMessage: ((msg: unknown) => void) | null = null
 let capturedOnReconnect: (() => void) | null = null
 let stableSend: ReturnType<typeof vi.fn> = vi.fn()
+let useUserWsCallCount = 0
 vi.mock("@/lib/use-user-ws", () => ({
   useUserWs: (onMessage: (msg: unknown) => void, options?: { onReconnect?: () => void }) => {
+    useUserWsCallCount += 1
     capturedOnMessage = onMessage
     capturedOnReconnect = options?.onReconnect ?? null
     return { send: stableSend }
@@ -123,6 +125,7 @@ function resetHarness() {
   capturedOnReconnect = null
   capturedQueryClient = new QueryClient()
   stableSend = vi.fn()
+  useUserWsCallCount = 0
   markReadMutate.mockClear()
 }
 
@@ -571,6 +574,22 @@ describe("useCommunityWs — message.create", () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it("fires the legacy message callbacks exactly once for a focused first-seen message", async () => {
+    const onAnyMessage = vi.fn()
+    const onMessage = vi.fn()
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "ch_1" })
+
+    await mountHook({ viewerUserId: "u_me", onAnyMessage, onMessage })
+    const event = messageCreate("ch_1", "m_callbacks")
+    capturedOnMessage!(event)
+
+    expect(onAnyMessage).toHaveBeenCalledOnce()
+    expect(onAnyMessage).toHaveBeenCalledWith(event)
+    expect(onMessage).toHaveBeenCalledOnce()
+    expect(onMessage).toHaveBeenCalledWith(event)
   })
 })
 
@@ -1240,6 +1259,21 @@ describe("useCommunityWs — presence → Zustand store, no cache", () => {
     // No cache touched.
     expect(spy).not.toHaveBeenCalled()
   })
+
+  it("fires the legacy presence callback exactly once", async () => {
+    const onPresence = vi.fn()
+    await mountHook({ onPresence })
+    const event: CommunityPresenceUpdate = {
+      type: "community:presence.update",
+      userId: "u_callback",
+      online: false,
+    }
+
+    capturedOnMessage!(event)
+
+    expect(onPresence).toHaveBeenCalledOnce()
+    expect(onPresence).toHaveBeenCalledWith(event)
+  })
 })
 
 describe("useCommunityWs — status.update → Zustand store, no cache", () => {
@@ -1809,6 +1843,31 @@ describe("useCommunityWs — typing.start honours focus (no DM leak)", () => {
     ])
   })
 
+  it("typing.stop clears the focused scope immediately", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "ch_1" })
+    refCounter = 0
+    stateCounter = 0
+    callbackCounter = 0
+    await mountHook({ viewerUserId: "u_me" })
+
+    capturedOnMessage!({
+      type: "community:typing.start",
+      channelId: "ch_1",
+      userId: "u_other",
+    })
+    capturedOnMessage!({
+      type: "community:typing.stop",
+      channelId: "ch_1",
+      userId: "u_other",
+    })
+
+    const state = useCommunityStore.getState()
+    expect(state.typingByScope.get("ch:ch_1")).toBeUndefined()
+    expect(state.typingTimers.has("ch:ch_1|u_other")).toBe(false)
+  })
+
 })
 
 // ── Typing scope isolation (per-conversation, no cross-leak) ────────────────
@@ -2139,6 +2198,10 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
         return Array.isArray(key) && key.includes("machines")
       }),
     ).toBe(true)
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: [...communityKeys.all, "bot"],
+      exact: false,
+    })
   })
 
   it("invalidates the focused channel's messages + inbox on reconnect, but NOT the read-state snapshot", async () => {
@@ -2285,6 +2348,14 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
 
 // ── Regression #15 — double-mount guard warns ───────────────────────────
 describe("useCommunityWs — double-mount detection", () => {
+  it("owns exactly one useUserWs call for one hook mount", async () => {
+    await mountHook()
+
+    expect(useUserWsCallCount).toBe(1)
+    expect(capturedOnMessage).not.toBeNull()
+    expect(capturedOnReconnect).not.toBeNull()
+  })
+
   it("emits console.warn when a second instance mounts with a different send", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => { })
     try {
