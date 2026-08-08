@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
+import { readFileSync } from "node:fs"
 
 const mockGetCloudflareContext = vi.fn(() => ({ env: { DB: {} } }))
 vi.mock("@opennextjs/cloudflare", () => ({
@@ -6,6 +7,8 @@ vi.mock("@opennextjs/cloudflare", () => ({
 }))
 
 const mockWarn = vi.fn()
+const mockWithD1Retry = vi.fn(async (fn: () => Promise<unknown>, _opts?: unknown) => fn())
+const mockResolveChannelRecipientUserIds = vi.fn(() => Promise.resolve([] as string[]))
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -17,6 +20,7 @@ vi.mock("@alook/shared", async () => {
       error: vi.fn(),
       debug: vi.fn(),
     }),
+    withD1Retry: (...a: unknown[]) => mockWithD1Retry(...(a as [() => Promise<unknown>, unknown])),
     queries: {
       communityMember: {
         listMembers: (...a: unknown[]) => mockListMembers(...a),
@@ -32,6 +36,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityMembersResolver: {
         resolveScopeMemberUserIds: (...a: unknown[]) => mockResolveScopeMemberUserIds(...a),
+        resolveChannelRecipientUserIds: (...a: unknown[]) => mockResolveChannelRecipientUserIds(...a),
       },
       communityThread: {
         listThreadParticipantUserIds: (...a: unknown[]) => mockListThreadParticipantUserIds(...a),
@@ -80,6 +85,7 @@ import {
   fanOutToDM,
   fanOutStatusUpdate,
   broadcastToUserSafe,
+  resolveChannelRecipients,
 } from "./fanout"
 import { WS_EVENTS } from "@alook/shared"
 
@@ -88,6 +94,8 @@ describe("fanOutToServerMembers", () => {
     vi.clearAllMocks()
     mockGetCloudflareContext.mockImplementation(() => ({ env: { DB: {} } }))
     mockBroadcastToUser.mockResolvedValue(undefined)
+    mockWithD1Retry.mockImplementation(async (fn: () => Promise<unknown>, _opts?: unknown) => fn())
+    mockResolveChannelRecipientUserIds.mockResolvedValue([])
     // Default to a non-thread channel so fan-out uses the shared resolver path;
     // the thread test overrides this. (clearAllMocks resets call history, not
     // the resolved-value impl, so re-assert the default each test.)
@@ -130,8 +138,8 @@ describe("fanOutToServerMembers", () => {
     expect(mockBroadcastToUser).toHaveBeenCalledTimes(3)
   })
 
-  it("fanOutToChannel resolves recipients via the shared member resolver", async () => {
-    mockResolveScopeMemberUserIds.mockResolvedValue(["u1", "u2"])
+  it("fanOutToChannel resolves recipients via the shared channel recipient resolver", async () => {
+    mockResolveChannelRecipientUserIds.mockResolvedValue(["u1", "u2"])
 
     await fanOutToChannel("c1", {
       type: WS_EVENTS.MESSAGE_CREATE,
@@ -139,12 +147,12 @@ describe("fanOutToServerMembers", () => {
       message: {} as never,
     } as never)
 
-    expect(mockResolveScopeMemberUserIds).toHaveBeenCalledTimes(1)
-    expect(mockResolveScopeMemberUserIds).toHaveBeenCalledWith(expect.anything(), {
-      scope: "channel",
-      scopeId: "c1",
-    })
-    // The old inline split (getChannel + isChannelPrivate) is gone.
+    expect(mockResolveChannelRecipientUserIds).toHaveBeenCalledTimes(1)
+    expect(mockResolveChannelRecipientUserIds).toHaveBeenCalledWith(
+      expect.anything(),
+      "c1",
+      expect.any(Function),
+    )
     expect(mockGetChannel).not.toHaveBeenCalled()
     expect(mockListMembers).not.toHaveBeenCalled()
     expect(mockBroadcastToUser).toHaveBeenCalledTimes(2)
@@ -154,8 +162,7 @@ describe("fanOutToServerMembers", () => {
     // Regression: a DM has server_id=NULL. Before the isDm branch, it fell
     // through to resolveScopeMemberUserIds({scope:"channel"}) → WHERE
     // server_id = NULL → [] → the peer never received the live message frame.
-    mockGetChannelType.mockResolvedValue("dm")
-    mockListChannelMemberUserIds.mockResolvedValue(["u1", "u2"])
+    mockResolveChannelRecipientUserIds.mockResolvedValue(["u1", "u2"])
 
     await fanOutToChannel(
       "dm1",
@@ -163,17 +170,18 @@ describe("fanOutToServerMembers", () => {
       { excludeUserId: "u1" },
     )
 
-    expect(mockListChannelMemberUserIds).toHaveBeenCalledWith(expect.anything(), "dm1")
-    // Must NOT fall through to the server-scoped resolver (empty for a DM).
-    expect(mockResolveScopeMemberUserIds).not.toHaveBeenCalled()
+    expect(mockResolveChannelRecipientUserIds).toHaveBeenCalledWith(
+      expect.anything(),
+      "dm1",
+      expect.any(Function),
+    )
     // u1 excluded → only the peer receives the frame.
     expect(mockBroadcastToUser).toHaveBeenCalledTimes(1)
     expect(mockBroadcastToUser.mock.calls[0][0]).toBe("u2")
   })
 
   it("fanOutToChannel routes a THREAD to its participant set (not the channel audience)", async () => {
-    mockGetChannelType.mockResolvedValue("thread")
-    mockListThreadParticipantUserIds.mockResolvedValue(["u1", "u2"])
+    mockResolveChannelRecipientUserIds.mockResolvedValue(["u1", "u2"])
 
     await fanOutToChannel("t1", {
       type: WS_EVENTS.MESSAGE_CREATE,
@@ -181,10 +189,69 @@ describe("fanOutToServerMembers", () => {
       message: {} as never,
     } as never)
 
-    expect(mockListThreadParticipantUserIds).toHaveBeenCalledWith(expect.anything(), "t1")
-    // Thread fan-out must NOT fall back to the channel-audience resolver.
-    expect(mockResolveScopeMemberUserIds).not.toHaveBeenCalled()
+    expect(mockResolveChannelRecipientUserIds).toHaveBeenCalledWith(
+      expect.anything(),
+      "t1",
+      expect.any(Function),
+    )
     expect(mockBroadcastToUser).toHaveBeenCalledTimes(2)
+  })
+
+  it("keeps Web type and selected-branch retries as two independently labelled phases", async () => {
+    const typeQuery = vi.fn(async () => "text")
+    const scopeQuery = vi.fn(async () => ["u1"])
+    mockResolveChannelRecipientUserIds.mockImplementationOnce(async (_db, _channelId, runQuery) => {
+      await runQuery("channel-type", typeQuery)
+      return runQuery("scope-members", scopeQuery)
+    })
+
+    await expect(resolveChannelRecipients({} as never, "c1")).resolves.toEqual(["u1"])
+
+    expect(mockWithD1Retry).toHaveBeenCalledTimes(2)
+    expect(mockWithD1Retry.mock.calls.map((call) => call[1])).toEqual([
+      { route: "fanout:channel-type" },
+      { route: "fanout:scope-members" },
+    ])
+    expect(typeQuery).toHaveBeenCalledTimes(1)
+    expect(scopeQuery).toHaveBeenCalledTimes(1)
+  })
+
+  it("stops after a type-phase failure without starting the recipient phase", async () => {
+    const failure = new Error("bad channel type")
+    const scopeQuery = vi.fn(async () => ["u1"])
+    mockResolveChannelRecipientUserIds.mockImplementationOnce(async (_db, _channelId, runQuery) => {
+      await runQuery("channel-type", async () => { throw failure })
+      return runQuery("scope-members", scopeQuery)
+    })
+
+    await expect(resolveChannelRecipients({} as never, "c1")).rejects.toBe(failure)
+    expect(mockWithD1Retry).toHaveBeenCalledTimes(1)
+    expect(mockWithD1Retry.mock.calls[0]?.[1]).toEqual({ route: "fanout:channel-type" })
+    expect(scopeQuery).not.toHaveBeenCalled()
+  })
+
+  it("retries only the selected branch without re-reading channel type", async () => {
+    const typeQuery = vi.fn(async () => "text")
+    const scopeQuery = vi.fn()
+      .mockRejectedValueOnce(new Error("SQLITE_BUSY"))
+      .mockResolvedValueOnce(["u1"])
+    mockWithD1Retry.mockImplementation(async (fn, opts) => {
+      if ((opts as { route?: string }).route !== "fanout:scope-members") return fn()
+      try { return await fn() } catch { return fn() }
+    })
+    mockResolveChannelRecipientUserIds.mockImplementationOnce(async (_db, _channelId, runQuery) => {
+      await runQuery("channel-type", typeQuery)
+      return runQuery("scope-members", scopeQuery)
+    })
+
+    await expect(resolveChannelRecipients({} as never, "c1")).resolves.toEqual(["u1"])
+    expect(typeQuery).toHaveBeenCalledTimes(1)
+    expect(scopeQuery).toHaveBeenCalledTimes(2)
+  })
+
+  it("contains no local reach classifier after delegating to shared", () => {
+    const source = readFileSync(new URL("./fanout.ts", import.meta.url), "utf8")
+    expect(source).not.toMatch(/\bchannelReach\b|\bisStoredChannelType\b|switch\s*\(\s*reach\s*\)/)
   })
 })
 
@@ -257,7 +324,7 @@ describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for ME
   })
 
   it("fanOutToChannel enqueues wakes using the same recipient list, minus excludeUserId", async () => {
-    mockResolveScopeMemberUserIds.mockResolvedValue(["u1", "u2", "u3"])
+    mockResolveChannelRecipientUserIds.mockResolvedValue(["u1", "u2", "u3"])
 
     await fanOutToChannel(
       "c1",
@@ -302,13 +369,12 @@ describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for ME
       env: { DB: {} },
       ctx: { waitUntil },
     }))
-    let releaseChannelType!: (type: string) => void
-    mockGetChannelType.mockImplementationOnce(
-      () => new Promise<string>((resolve) => {
-        releaseChannelType = resolve
+    let releaseRecipients!: (ids: string[]) => void
+    mockResolveChannelRecipientUserIds.mockImplementationOnce(
+      () => new Promise<string[]>((resolve) => {
+        releaseRecipients = resolve
       }),
     )
-    mockResolveScopeMemberUserIds.mockResolvedValue(["u1", "u2"])
 
     const floatingFanout = fanOutToChannel(
       "c1",
@@ -322,7 +388,7 @@ describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for ME
     expect(waitUntil).toHaveBeenCalledTimes(1)
     expect(mockEnqueueBotWakes).not.toHaveBeenCalled()
 
-    releaseChannelType("text")
+    releaseRecipients(["u1", "u2"])
     await waitUntil.mock.calls[0]![0]
     expect(mockEnqueueBotWakes).toHaveBeenCalledTimes(1)
     await floatingFanout
@@ -348,7 +414,7 @@ describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for ME
   })
 
   it("does not enqueue wakes when wakeMessageRow is omitted", async () => {
-    mockResolveScopeMemberUserIds.mockResolvedValue(["u1", "u2"])
+    mockResolveChannelRecipientUserIds.mockResolvedValue(["u1", "u2"])
 
     await fanOutToChannel("c1", {
       type: WS_EVENTS.MESSAGE_CREATE,
@@ -360,7 +426,7 @@ describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for ME
   })
 
   it("does not enqueue wakes for non-MESSAGE_CREATE events even with a wakeMessageRow", async () => {
-    mockResolveScopeMemberUserIds.mockResolvedValue(["u1", "u2"])
+    mockResolveChannelRecipientUserIds.mockResolvedValue(["u1", "u2"])
 
     await fanOutToChannel(
       "c1",
@@ -377,7 +443,7 @@ describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for ME
   })
 
   it("a failing enqueueBotWakes does not reject fanOutToChannel", async () => {
-    mockResolveScopeMemberUserIds.mockResolvedValue(["u1"])
+    mockResolveChannelRecipientUserIds.mockResolvedValue(["u1"])
     mockEnqueueBotWakes.mockRejectedValue(new Error("queue down"))
 
     await expect(

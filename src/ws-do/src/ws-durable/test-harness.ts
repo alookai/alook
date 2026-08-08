@@ -97,6 +97,14 @@ export const mockResolveScopeMemberUserIds = vi.fn<(db: unknown, opts: { scope: 
 // Default: non-thread channel → typing uses the shared resolver path.
 export const mockGetChannelType = vi.fn<(db: unknown, channelId: string) => Promise<string | null>>().mockResolvedValue("text")
 export const mockListThreadParticipantUserIds = vi.fn<(db: unknown, channelId: string) => Promise<string[]>>().mockResolvedValue([])
+async function resolveChannelRecipientUserIdsMock(db: unknown, channelId: string): Promise<string[]> {
+  const type = await mockGetChannelType(db, channelId)
+  if (type === "thread") return mockListThreadParticipantUserIds(db, channelId)
+  if (type === "dm") return mockListChannelMemberUserIds(db, channelId)
+  return mockResolveScopeMemberUserIds(db, { scope: "channel", scopeId: channelId })
+}
+export const mockResolveChannelRecipientUserIds = vi.fn(resolveChannelRecipientUserIdsMock)
+export const mockWithD1Retry = vi.fn(async <T>(fn: () => Promise<T>, _opts?: unknown): Promise<T> => fn())
 export const mockGetDM = vi.fn()
 export const mockListMembers = vi.fn()
 export const mockListBotsForMachine = vi.fn<(db: unknown, machineId: string) => Promise<Array<{ id: string; name: string; discriminator: string; description: string }>>>().mockResolvedValue([])
@@ -284,19 +292,8 @@ vi.mock("@alook/shared", () => {
     },
     createDb: (d1: unknown) => mockCreateDb(d1),
     createLogger: () => noopLogger,
-    withD1Retry: async <T>(fn: () => Promise<T>): Promise<T> => fn(),
-    // Real reach-trait impls — fanOutTyping's recipient split dispatches on
-    // channelReach (B2 reach axis single source) to route a thread to the
-    // participant set, a dm to its members, else the access audience. Mirror
-    // the real CHANNEL_TRAITS reach values + the stored-type guard.
-    channelReach: (t: string) =>
-      t === "thread"
-        ? "participant-set"
-        : t === "dm"
-          ? "dm-pair"
-          : "server-or-roster",
-    isStoredChannelType: (t: unknown) =>
-      t === "text" || t === "forum" || t === "thread" || t === "dm",
+    withD1Retry: <T>(fn: () => Promise<T>, opts?: unknown): Promise<T> =>
+      mockWithD1Retry(fn, opts) as Promise<T>,
     // Minimal `readOrStale` shim — bypasses the classifier so tests can
     // inject arbitrary Error shapes at the query-fn boundary and observe
     // fail-closed semantics. Real production behavior (retry then fallback)
@@ -396,6 +393,8 @@ vi.mock("@alook/shared", () => {
       },
       communityMembersResolver: {
         resolveScopeMemberUserIds: (...a: any[]) => mockResolveScopeMemberUserIds(...a),
+        resolveChannelRecipientUserIds: (...a: [unknown, string]) =>
+          mockResolveChannelRecipientUserIds(...a),
       },
       communityThread: {
         listThreadParticipantUserIds: (...a: any[]) => mockListThreadParticipantUserIds(...a),
@@ -465,6 +464,9 @@ export function resetHarness() {
     mockGetChannelType.mockResolvedValue("text")
     mockListThreadParticipantUserIds.mockResolvedValue([])
     mockListChannelMemberUserIds.mockResolvedValue([])
+    mockResolveScopeMemberUserIds.mockResolvedValue([])
+    mockResolveChannelRecipientUserIds.mockImplementation(resolveChannelRecipientUserIdsMock)
+    mockWithD1Retry.mockImplementation(async <T>(fn: () => Promise<T>, _opts?: unknown): Promise<T> => fn())
     mockGetBotBinding.mockResolvedValue(null)
     mockUpdateProfile.mockResolvedValue({})
     mockGetProfile.mockResolvedValue(null)

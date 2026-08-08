@@ -1,7 +1,5 @@
 import {
-  channelReach,
   createDb,
-  isStoredChannelType,
   queries,
   withD1Retry,
   WS_EVENTS,
@@ -102,27 +100,6 @@ function machineStatusPayload(payload: unknown): { machineId: string; online: bo
   return { machineId: p.machineId, online: p.status === "online" }
 }
 
-async function typingRecipientUserIds(
-  context: WsDurableContext,
-  db: ReturnType<typeof createDb>,
-  channelId: string,
-): Promise<string[]> {
-  const channelType = await queries.communityChannel.getChannelType(db, channelId)
-  const reach = isStoredChannelType(channelType) ? channelReach(channelType) : "server-or-roster"
-  switch (reach) {
-    case "participant-set":
-      return queries.communityThread.listThreadParticipantUserIds(db, channelId)
-    case "dm-pair":
-      return queries.communityChannel.listChannelMemberUserIds(db, channelId)
-    case "server-or-roster":
-      return queries.communityMembersResolver.resolveScopeMemberUserIds(db, { scope: "channel", scopeId: channelId })
-    default: {
-      const _never: never = reach
-      return _never
-    }
-  }
-}
-
 export async function fanOutTyping(
   context: WsDurableContext,
   senderUserId: string,
@@ -142,7 +119,7 @@ export async function fanOutTyping(
     return
   }
   recipientUserIds = await withD1Retry(
-    () => typingRecipientUserIds(context, db, channelId),
+    () => queries.communityMembersResolver.resolveChannelRecipientUserIds(db, channelId),
     { route: "ws-do:agent-typing-recipients" },
   )
   recipientUserIds = recipientUserIds.filter((id) => id !== senderUserId)
@@ -178,7 +155,7 @@ export async function fanOutTypingStop(
     return
   }
   let recipientUserIds = await withD1Retry(
-    () => typingRecipientUserIds(context, db, channelId),
+    () => queries.communityMembersResolver.resolveChannelRecipientUserIds(db, channelId),
     { route: "ws-do:agent-typing-stop-recipients" },
   )
   recipientUserIds = recipientUserIds.filter((id) => id !== senderUserId)

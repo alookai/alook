@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { readFileSync } from "node:fs"
 import { createMockWebSocket } from "../__mocks__/cf"
 import {
   CFResponse,
@@ -41,12 +42,14 @@ import {
   mockMarkMachineOnlineIfOffline,
   mockReconcileBotActivityFromRunningAgents,
   mockResolveScopeMemberUserIds,
+  mockResolveChannelRecipientUserIds,
   mockStubFetch,
   mockToSummary,
   mockTouchBotRefreshContext,
   mockTouchMachineHeartbeat,
   mockUpdateProfile,
   mockUpsertMachineByMachineId,
+  mockWithD1Retry,
   resetHarness
 } from "./test-harness"
 
@@ -573,6 +576,7 @@ describe("WebSocketDurableObject", () => {
       await flush()
 
       expect(mockGetChannelForMember).toHaveBeenCalledWith(expect.anything(), "chan-private", "attacker")
+      expect(mockResolveChannelRecipientUserIds).not.toHaveBeenCalled()
       expect(mockListMembers).not.toHaveBeenCalled()
       expect((env.WS_DO as any).get).not.toHaveBeenCalled()
       expect(mockStubFetch).not.toHaveBeenCalled()
@@ -599,6 +603,7 @@ describe("WebSocketDurableObject", () => {
         scope: "channel",
         scopeId: "chan-1",
       })
+      expect(mockResolveChannelRecipientUserIds).toHaveBeenCalledWith(expect.anything(), "chan-1")
       // Sender is excluded from recipients — only the other 2 members get a broadcast POST.
       expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:member-1")
       expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:member-2")
@@ -626,6 +631,7 @@ describe("WebSocketDurableObject", () => {
         scope: "channel",
         scopeId: "chan-p",
       })
+      expect(mockResolveChannelRecipientUserIds).toHaveBeenCalledWith(expect.anything(), "chan-p")
       expect(mockListMembers).not.toHaveBeenCalled()
       // Only the non-sender audience member gets a broadcast POST.
       expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:member-1")
@@ -694,6 +700,73 @@ describe("WebSocketDurableObject", () => {
       expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:bob")
       expect((env.WS_DO as any).idFromName).not.toHaveBeenCalledWith("user:alice")
       expect(mockStubFetch).toHaveBeenCalledTimes(1)
+    })
+
+    it("keeps membership retry separate while recipient retry re-runs the complete shared resolver", async () => {
+      const { durable } = createDO()
+      mockGetChannelForMember.mockResolvedValue({ id: "chan-1", serverId: "server-1" })
+      mockResolveChannelRecipientUserIds
+        .mockRejectedValueOnce(new Error("SQLITE_BUSY"))
+        .mockResolvedValueOnce(["sender-1", "peer-1"])
+      mockWithD1Retry.mockImplementation(async (fn, opts) => {
+        if ((opts as { route?: string }).route !== "ws-do:agent-typing-recipients") return fn()
+        try { return await fn() } catch { return fn() }
+      })
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "community:typing.start", channelId: "chan-1" }),
+      )
+      await flushAsyncWork()
+
+      expect(mockGetChannelForMember).toHaveBeenCalledTimes(1)
+      expect(mockResolveChannelRecipientUserIds).toHaveBeenCalledTimes(2)
+      expect(mockWithD1Retry.mock.calls.map((call) => (call[1] as { route?: string }).route)).toEqual([
+        "ws-do:agent-typing-membership",
+        "ws-do:agent-typing-recipients",
+      ])
+      const request = mockStubFetch.mock.calls[0]![0] as Request
+      expect(JSON.parse(await request.text())).toEqual({
+        type: "community:typing.start",
+        channelId: "chan-1",
+        userId: "sender-1",
+      })
+    })
+
+    it("keeps typing delivery concurrency bounded by the class-owned batch size of forty", async () => {
+      const { durable, env } = createDO()
+      mockGetChannelForMember.mockResolvedValue({ id: "chan-1", serverId: "server-1" })
+      mockResolveChannelRecipientUserIds.mockResolvedValue(
+        Array.from({ length: 81 }, (_, index) => `recipient-${index}`),
+      )
+      let active = 0
+      let maximum = 0
+      const fetch = vi.fn(async () => {
+        active += 1
+        maximum = Math.max(maximum, active)
+        await Promise.resolve()
+        active -= 1
+        return new Response(JSON.stringify({ sent: 1 }))
+      })
+      ;(env.WS_DO.get as ReturnType<typeof vi.fn>).mockReturnValue({ fetch })
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "community:typing.start", channelId: "chan-1" }),
+      )
+      await flushAsyncWork()
+
+      expect(fetch).toHaveBeenCalledTimes(81)
+      expect(maximum).toBe(40)
+    })
+
+    it("contains no local reach classifier after delegating to shared", () => {
+      const source = readFileSync("src/ws-durable/presence-typing.ts", "utf8")
+      expect(source).not.toMatch(/\bchannelReach\b|\bisStoredChannelType\b|switch\s*\(\s*reach\s*\)/)
     })
   })
 })

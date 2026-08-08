@@ -5,13 +5,19 @@ import {
 } from "../../community-schema";
 import type { Database } from "../../index";
 import type { CommunityRole } from "../../../utils/community-roles";
-import { canManageServer } from "../../../utils/community-roles";
 import {
+  canManageServer,
+  channelReach,
+  isStoredChannelType,
+} from "../../../utils/community-roles";
+import {
+  getChannelType,
   getPrivateChannelAudienceUserIds,
   isChannelPrivate,
   listChannelMemberUserIds,
 } from "./channel";
 import { listMemberUserIds } from "./member";
+import { listThreadParticipantUserIds } from "./thread";
 
 // The ACCESS scopes — units that own (or inherit) a stored/derived access
 // roster. `forum` resolves like a top-level text channel (its own roster);
@@ -30,6 +36,43 @@ export type ScopeMember = {
   role: CommunityRole;
   source: MemberSource;
 };
+
+export type ChannelRecipientQueryPhase =
+  | "channel-type"
+  | "thread-participants"
+  | "dm-members"
+  | "scope-members";
+
+export type ChannelRecipientQueryRunner = <T>(
+  phase: ChannelRecipientQueryPhase,
+  query: () => Promise<T>,
+) => Promise<T>;
+
+const runChannelRecipientQuery: ChannelRecipientQueryRunner = (_phase, query) => query();
+
+export async function resolveChannelRecipientUserIds(
+  db: Database,
+  channelId: string,
+  runQuery: ChannelRecipientQueryRunner = runChannelRecipientQuery,
+): Promise<string[]> {
+  const type = await runQuery("channel-type", () => getChannelType(db, channelId));
+  const reach = isStoredChannelType(type) ? channelReach(type) : "server-or-roster";
+  switch (reach) {
+    case "participant-set":
+      return runQuery("thread-participants", () => listThreadParticipantUserIds(db, channelId));
+    case "dm-pair":
+      return runQuery("dm-members", () => listChannelMemberUserIds(db, channelId));
+    case "server-or-roster":
+      return runQuery(
+        "scope-members",
+        () => resolveScopeMemberUserIds(db, { scope: "channel", scopeId: channelId }),
+      );
+    default: {
+      const _never: never = reach;
+      return _never;
+    }
+  }
+}
 
 /**
  * The single source of truth for "who can access this scope." Consolidates the

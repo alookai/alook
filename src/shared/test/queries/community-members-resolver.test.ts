@@ -6,19 +6,28 @@ const mockIsChannelPrivate = vi.fn<() => Promise<boolean>>();
 const mockGetPrivateChannelAudienceUserIds = vi.fn<() => Promise<string[]>>();
 const mockListChannelMemberUserIds = vi.fn<() => Promise<string[]>>();
 const mockListMemberUserIds = vi.fn<() => Promise<string[]>>();
+const mockGetChannelType = vi.fn<() => Promise<string | null>>();
+const mockListThreadParticipantUserIds = vi.fn<() => Promise<string[]>>();
 
 vi.mock("../../src/db/queries/community/channel", () => ({
   isChannelPrivate: (...a: unknown[]) => mockIsChannelPrivate(...(a as [])),
   getPrivateChannelAudienceUserIds: (...a: unknown[]) =>
     mockGetPrivateChannelAudienceUserIds(...(a as [])),
   listChannelMemberUserIds: (...a: unknown[]) => mockListChannelMemberUserIds(...(a as [])),
+  getChannelType: (...a: unknown[]) => mockGetChannelType(...(a as [])),
 }));
 
 vi.mock("../../src/db/queries/community/member", () => ({
   listMemberUserIds: (...a: unknown[]) => mockListMemberUserIds(...(a as [])),
 }));
 
+vi.mock("../../src/db/queries/community/thread", () => ({
+  listThreadParticipantUserIds: (...a: unknown[]) =>
+    mockListThreadParticipantUserIds(...(a as [])),
+}));
+
 import {
+  resolveChannelRecipientUserIds,
   resolveScopeMemberUserIds,
   resolveScopeMembers,
 } from "../../src/db/queries/community/members-resolver";
@@ -60,6 +69,84 @@ const CHANNEL = "chan-1";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockGetChannelType.mockResolvedValue("text");
+  mockListThreadParticipantUserIds.mockResolvedValue([]);
+  mockListChannelMemberUserIds.mockResolvedValue([]);
+  mockIsChannelPrivate.mockResolvedValue(false);
+  mockListMemberUserIds.mockResolvedValue([]);
+});
+
+describe("resolveChannelRecipientUserIds", () => {
+  const runWithPhaseLog = (phases: string[]) =>
+    async <T>(phase: string, query: () => Promise<T>): Promise<T> => {
+      phases.push(phase);
+      return query();
+    };
+
+  it("participant-set routes only to thread participants with ordered phases", async () => {
+    mockGetChannelType.mockResolvedValue("thread");
+    mockListThreadParticipantUserIds.mockResolvedValue(["p1", "p2"]);
+    const phases: string[] = [];
+
+    await expect(
+      resolveChannelRecipientUserIds({} as Database, CHANNEL, runWithPhaseLog(phases)),
+    ).resolves.toEqual(["p1", "p2"]);
+
+    expect(phases).toEqual(["channel-type", "thread-participants"]);
+    expect(mockListChannelMemberUserIds).not.toHaveBeenCalled();
+    expect(mockIsChannelPrivate).not.toHaveBeenCalled();
+  });
+
+  it("dm-pair routes only to channel access members", async () => {
+    mockGetChannelType.mockResolvedValue("dm");
+    mockListChannelMemberUserIds.mockResolvedValue(["u1", "u2"]);
+    const phases: string[] = [];
+
+    await expect(
+      resolveChannelRecipientUserIds({} as Database, CHANNEL, runWithPhaseLog(phases)),
+    ).resolves.toEqual(["u1", "u2"]);
+
+    expect(phases).toEqual(["channel-type", "dm-members"]);
+    expect(mockListThreadParticipantUserIds).not.toHaveBeenCalled();
+    expect(mockIsChannelPrivate).not.toHaveBeenCalled();
+  });
+
+  it("server-or-roster routes only to the existing scope resolver", async () => {
+    mockGetChannelType.mockResolvedValue("text");
+    mockListMemberUserIds.mockResolvedValue(["u1", "u2"]);
+    const phases: string[] = [];
+    const db = makeDb({ select: [[{ serverId: "srv-1" }]] });
+
+    await expect(resolveChannelRecipientUserIds(db, CHANNEL, runWithPhaseLog(phases)))
+      .resolves.toEqual(["u1", "u2"]);
+
+    expect(phases).toEqual(["channel-type", "scope-members"]);
+    expect(mockListThreadParticipantUserIds).not.toHaveBeenCalled();
+    expect(mockListChannelMemberUserIds).not.toHaveBeenCalled();
+  });
+
+  it.each(["unknown", null])("%s channel type uses the historical scope fallback", async (type) => {
+    mockGetChannelType.mockResolvedValue(type);
+    mockListMemberUserIds.mockResolvedValue(["fallback"]);
+    const phases: string[] = [];
+    const db = makeDb({ select: [[{ serverId: "srv-1" }]] });
+
+    await expect(resolveChannelRecipientUserIds(db, CHANNEL, runWithPhaseLog(phases)))
+      .resolves.toEqual(["fallback"]);
+    expect(phases).toEqual(["channel-type", "scope-members"]);
+  });
+
+  it("propagates a selected phase failure unchanged", async () => {
+    const failure = new Error("thread lookup failed");
+    mockGetChannelType.mockResolvedValue("thread");
+    mockListThreadParticipantUserIds.mockRejectedValue(failure);
+    const phases: string[] = [];
+
+    await expect(
+      resolveChannelRecipientUserIds({} as Database, CHANNEL, runWithPhaseLog(phases)),
+    ).rejects.toBe(failure);
+    expect(phases).toEqual(["channel-type", "thread-participants"]);
+  });
 });
 
 describe("resolveScopeMemberUserIds", () => {
