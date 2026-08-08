@@ -36,6 +36,8 @@ import { clearLastChannel } from "@/lib/community/last-channel"
 import { usePresence } from "@/hooks/community/use-server-panels"
 import {
   patchForumSidebarUnread,
+  reconcileForumSidebarUnreadFallbacks,
+  setForumSidebarParentUnreadBase,
   useForumSidebarThreads,
   type ForumSidebarThread,
   type ForumSidebarQueryData,
@@ -288,16 +290,25 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     markSwitch("channel", id)
     router.push(`/c/channels/${serverId}/${id}`)
     channelTree.markRead(id)
-    queryClient.setQueryData<ServerDetail | undefined>(
-      communityKeys.server(serverId),
-      (cache) => patchChannelUnread(cache, id, false),
+    const hasChildFallback = setForumSidebarParentUnreadBase(
+      queryClient,
+      serverId,
+      id,
+      false,
     )
+    if (!hasChildFallback) {
+      queryClient.setQueryData<ServerDetail | undefined>(
+        communityKeys.server(serverId),
+        (cache) => patchChannelUnread(cache, id, false),
+      )
+    }
     if (bp === "mobile") setMobileZone("messages")
   }, [router, serverId, channelTree, bp, queryClient])
 
   const setActiveForumThread = useCallback((id: string) => {
     markSwitch("channel", id)
     router.push(`/c/channels/${serverId}/${id}`)
+    reconcileForumSidebarUnreadFallbacks(queryClient, serverId, [id])
     queryClient.setQueriesData<ForumSidebarQueryData>(
       { queryKey: communityKeys.forumSidebarThreads(serverId) },
       (data) => patchForumSidebarUnread(data, id, false),

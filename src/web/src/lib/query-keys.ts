@@ -24,6 +24,8 @@ export const communityKeys = {
     [...communityKeys.server(serverId), "forum-sidebar-threads"] as const,
   forumSidebarThreadsView: (serverId: string, retainId: string | null) =>
     [...communityKeys.forumSidebarThreads(serverId), retainId] as const,
+  forumSidebarUnreadFallbacks: (serverId: string) =>
+    [...communityKeys.server(serverId), "forum-sidebar-unread-fallbacks"] as const,
 
   // ── Server-scoped resources ─────────────────────────────────────────────
   members: (serverId: string) =>

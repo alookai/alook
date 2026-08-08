@@ -203,6 +203,7 @@ describe("useDeleteForumThread", () => {
     const sidebarKey = communityKeys.forumSidebarThreadsView("server_1", "p2")
     capturedQc.setQueryData(sidebarKey, {
       channels: [], included: { parentMessages: [] }, serverNow: "2026-08-08T00:00:00.000Z",
+      serverClockOffsetMs: 0,
       threads: [{ id: "p2", parentChannelId: "forum_1" }],
     })
     apiFetchMock.mockResolvedValueOnce(undefined)

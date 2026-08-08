@@ -1,9 +1,11 @@
 "use client"
 
 import { useEffect } from "react"
-import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query"
+import { keepPreviousData, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
+import { patchChannelUnread } from "@/hooks/community/server-detail-cache"
+import type { ServerDetail } from "@/hooks/community/use-servers"
 
 export type ForumSidebarThread = {
   id: string
@@ -33,9 +35,111 @@ export type SidebarThreadEnvelope = {
 
 export type ForumSidebarQueryData = SidebarThreadEnvelope & {
   threads: ForumSidebarThread[]
+  /** Server clock minus client clock, captured when this envelope arrived. */
+  serverClockOffsetMs: number
 }
 
+export type ForumSidebarUnreadFallbackState = Record<string, {
+  baseUnread: boolean
+  childIds: string[]
+}>
+
 const SIDEBAR_ACTIVITY_WINDOW_MS = 72 * 60 * 60 * 1000
+
+function parentUnread(cache: ServerDetail | undefined, parentChannelId: string): boolean {
+  return !!cache?.categories.some((category) =>
+    category.channels.some((channel) => channel.id === parentChannelId && channel.unread),
+  )
+}
+
+/**
+ * Attribute a parent-row fallback dot to the missing child that caused it.
+ * `baseUnread` snapshots the parent's own unread state so later migration to a
+ * loaded child removes only the fallback contribution, never a genuine parent
+ * unread.
+ */
+export function recordForumSidebarUnreadFallback(
+  queryClient: QueryClient,
+  serverId: string,
+  parentChannelId: string,
+  childChannelId: string,
+) {
+  const key = communityKeys.forumSidebarUnreadFallbacks(serverId)
+  const serverKey = communityKeys.server(serverId)
+  const baseUnread = parentUnread(
+    queryClient.getQueryData<ServerDetail>(serverKey),
+    parentChannelId,
+  )
+  queryClient.setQueryData<ForumSidebarUnreadFallbackState>(key, (state = {}) => {
+    const current = state[parentChannelId]
+    if (current?.childIds.includes(childChannelId)) return state
+    return {
+      ...state,
+      [parentChannelId]: {
+        baseUnread: current?.baseUnread ?? baseUnread,
+        childIds: [...(current?.childIds ?? []), childChannelId],
+      },
+    }
+  })
+  queryClient.setQueryData<ServerDetail | undefined>(serverKey, (cache) =>
+    patchChannelUnread(cache, parentChannelId, true),
+  )
+}
+
+/** Update the genuine parent contribution while preserving missing children. */
+export function setForumSidebarParentUnreadBase(
+  queryClient: QueryClient,
+  serverId: string,
+  parentChannelId: string,
+  unread: boolean,
+): boolean {
+  const key = communityKeys.forumSidebarUnreadFallbacks(serverId)
+  const state = queryClient.getQueryData<ForumSidebarUnreadFallbackState>(key)
+  const current = state?.[parentChannelId]
+  if (!current) return false
+  queryClient.setQueryData<ForumSidebarUnreadFallbackState>(key, {
+    ...state,
+    [parentChannelId]: { ...current, baseUnread: unread },
+  })
+  queryClient.setQueryData<ServerDetail | undefined>(
+    communityKeys.server(serverId),
+    (cache) => patchChannelUnread(cache, parentChannelId, unread || current.childIds.length > 0),
+  )
+  return true
+}
+
+/** Move fallback ownership from a parent row to children that became locatable. */
+export function reconcileForumSidebarUnreadFallbacks(
+  queryClient: QueryClient,
+  serverId: string,
+  loadedChildIds: Iterable<string>,
+) {
+  const loaded = new Set(loadedChildIds)
+  if (loaded.size === 0) return
+  const key = communityKeys.forumSidebarUnreadFallbacks(serverId)
+  const state = queryClient.getQueryData<ForumSidebarUnreadFallbackState>(key)
+  if (!state) return
+
+  let nextState = state
+  let nextServer = queryClient.getQueryData<ServerDetail>(communityKeys.server(serverId))
+  for (const [parentChannelId, entry] of Object.entries(state)) {
+    const childIds = entry.childIds.filter((id) => !loaded.has(id))
+    if (childIds.length === entry.childIds.length) continue
+    if (nextState === state) nextState = { ...state }
+    if (childIds.length === 0) delete nextState[parentChannelId]
+    else nextState[parentChannelId] = { ...entry, childIds }
+    nextServer = patchChannelUnread(
+      nextServer,
+      parentChannelId,
+      entry.baseUnread || childIds.length > 0,
+    )
+  }
+
+  if (nextState !== state) {
+    queryClient.setQueryData(key, nextState)
+    queryClient.setQueryData(communityKeys.server(serverId), nextServer)
+  }
+}
 
 export function hasForumSidebarThread(data: ForumSidebarQueryData | undefined, threadId: string) {
   return !!data?.threads.some((thread) => thread.id === threadId)
@@ -134,9 +238,23 @@ export function useForumSidebarThreads(serverId: string, retainId: string | null
       const envelope = await apiFetch<SidebarThreadEnvelope>(
         `/api/community/servers/${serverId}/channels?${params.toString()}`,
       )
-      return { ...envelope, threads: projectForumSidebarThreads(envelope) } satisfies ForumSidebarQueryData
+      const serverNowMs = Date.parse(envelope.serverNow)
+      return {
+        ...envelope,
+        threads: projectForumSidebarThreads(envelope),
+        serverClockOffsetMs: Number.isFinite(serverNowMs) ? serverNowMs - Date.now() : 0,
+      } satisfies ForumSidebarQueryData
     },
   })
+
+  useEffect(() => {
+    if (!query.data) return
+    reconcileForumSidebarUnreadFallbacks(
+      queryClient,
+      serverId,
+      query.data.threads.map((thread) => thread.id),
+    )
+  }, [query.data, queryClient, serverId])
 
   // Expire rows against the server's clock without polling. The currently
   // retained route is deliberately excluded: it remains visible until the
@@ -144,13 +262,13 @@ export function useForumSidebarThreads(serverId: string, retainId: string | null
   useEffect(() => {
     const data = query.data
     if (!data) return
-    const serverNowMs = Date.parse(data.serverNow)
+    const serverNowMs = Date.now() + data.serverClockOffsetMs
     const nextExpiry = data.threads
       .filter((thread) => thread.id !== retainId)
       .map((thread) => Date.parse(thread.expiresAt))
       .filter((expiresAt) => Number.isFinite(expiresAt))
       .sort((a, b) => a - b)[0]
-    if (nextExpiry === undefined || !Number.isFinite(serverNowMs)) return
+    if (nextExpiry === undefined) return
     const timeout = globalThis.setTimeout(() => {
       void queryClient.invalidateQueries({ queryKey: communityKeys.forumSidebarThreads(serverId) })
     }, Math.max(0, nextExpiry - serverNowMs) + 25)

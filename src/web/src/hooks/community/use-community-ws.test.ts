@@ -31,6 +31,12 @@ import type {
 } from "@alook/shared"
 import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
 import { communityKeys } from "@/lib/query-keys"
+import {
+  patchForumSidebarUnread,
+  reconcileForumSidebarUnreadFallbacks,
+  type ForumSidebarQueryData,
+  type ForumSidebarUnreadFallbackState,
+} from "./use-forum-sidebar-threads"
 
 // ── React shim ───────────────────────────────────────────────────────────
 let refs: Map<string, { current: unknown }> = new Map()
@@ -181,6 +187,7 @@ function forumSidebarFixture(ids = ["post_1"]) {
     })),
     included: { parentMessages: ids.map((id) => ({ id: `opener-${id}`, content: `title-${id}` })) },
     serverNow: "2026-08-01T00:00:00.000Z",
+    serverClockOffsetMs: 0,
     threads: ids.map((id) => ({
       id,
       parentChannelId: "forum_1",
@@ -629,6 +636,52 @@ describe("useCommunityWs — message.create patches channel unread in the open s
     expect(capturedQueryClient.getQueryData<ReturnType<typeof serverDetailFixture>>(
       communityKeys.server("srv_open"),
     )?.categories[0].channels[0].unread).toBe(true)
+    expect(capturedQueryClient.getQueryData<ForumSidebarUnreadFallbackState>(
+      communityKeys.forumSidebarUnreadFallbacks("srv_open"),
+    )).toEqual({
+      forum_1: { baseUnread: false, childIds: ["post_missing"] },
+    })
+  })
+
+  it("moves message.create → unread.bump fallback ownership to the refetched child", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const serverKey = communityKeys.server("srv_open")
+    const sidebarKey = communityKeys.forumSidebarThreadsView("srv_open", null)
+    capturedQueryClient.setQueryData(serverKey, serverDetailFixture("forum_1"))
+    capturedQueryClient.setQueryData(sidebarKey, forumSidebarFixture([]))
+
+    capturedOnMessage!({
+      ...messageCreate("post_new"),
+      serverId: "srv_open",
+      parentChannelId: "forum_1",
+    } satisfies CommunityMessageCreate)
+    expect(capturedQueryClient.getQueryState(sidebarKey)?.isInvalidated).toBe(true)
+
+    capturedOnMessage!(unreadBump("post_new", "u_me", {
+      serverId: "srv_open",
+      railChannelId: "forum_1",
+    }))
+    expect(capturedQueryClient.getQueryData<ReturnType<typeof serverDetailFixture>>(
+      serverKey,
+    )?.categories[0].channels[0].unread).toBe(true)
+
+    const refetched = forumSidebarFixture(["post_new"])
+    refetched.threads[0]!.unread = true
+    capturedQueryClient.setQueryData(sidebarKey, refetched)
+    reconcileForumSidebarUnreadFallbacks(capturedQueryClient, "srv_open", ["post_new"])
+
+    expect(capturedQueryClient.getQueryData<ForumSidebarQueryData>(sidebarKey)?.threads[0]?.unread).toBe(true)
+    expect(capturedQueryClient.getQueryData<ReturnType<typeof serverDetailFixture>>(
+      serverKey,
+    )?.categories[0].channels[0].unread).toBe(false)
+
+    capturedQueryClient.setQueryData<ForumSidebarQueryData>(sidebarKey, (data) =>
+      patchForumSidebarUnread(data, "post_new", false),
+    )
+    expect(capturedQueryClient.getQueryData<ForumSidebarQueryData>(sidebarKey)?.threads[0]?.unread).toBe(false)
+    expect(capturedQueryClient.getQueryData<ReturnType<typeof serverDetailFixture>>(
+      serverKey,
+    )?.categories[0].channels[0].unread).toBe(false)
   })
 
   it("message.create alone does NOT flip the sidebar unread (mute-gated bump is the only trigger now)", async () => {

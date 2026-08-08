@@ -63,7 +63,9 @@ import {
   patchForumSidebarActivity,
   patchForumSidebarTitle,
   patchForumSidebarUnread,
+  recordForumSidebarUnreadFallback,
   removeForumSidebarThread,
+  setForumSidebarParentUnreadBase,
   type ForumSidebarQueryData,
 } from "@/hooks/community/use-forum-sidebar-threads"
 
@@ -528,10 +530,27 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
                 (data) => patchForumSidebarUnread(data, event.channelId, true),
               )
             } else if (targetServerId) {
-              queryClient.setQueryData<ServerDetail | undefined>(
-                communityKeys.server(targetServerId),
-                (cache) => patchChannelUnread(cache, railChannelId, true),
-              )
+              if (event.channelId !== railChannelId) {
+                recordForumSidebarUnreadFallback(
+                  queryClient,
+                  targetServerId,
+                  railChannelId,
+                  event.channelId,
+                )
+              } else {
+                const hasChildFallback = setForumSidebarParentUnreadBase(
+                  queryClient,
+                  targetServerId,
+                  railChannelId,
+                  true,
+                )
+                if (!hasChildFallback) {
+                  queryClient.setQueryData<ServerDetail | undefined>(
+                    communityKeys.server(targetServerId),
+                    (cache) => patchChannelUnread(cache, railChannelId, true),
+                  )
+                }
+              }
             }
             // Rail mention badge: the rail row carries only a `mentions` count
             // (no separate unread dot — plain unread lives on the tree dot

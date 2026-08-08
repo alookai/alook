@@ -31,6 +31,7 @@ function sidebarData() {
     channels: [],
     included: { parentMessages: [] },
     serverNow: "2026-08-08T00:00:00.000Z",
+    serverClockOffsetMs: 0,
     threads: [{
       id: "post_1",
       parentChannelId: "forum_1",

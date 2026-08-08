@@ -34,6 +34,9 @@ describe("communityKeys", () => {
     const sidebar = [...server, "forum-sidebar-threads"]
     expect(communityKeys.forumSidebarThreads("s1")).toEqual(sidebar)
     expect(communityKeys.forumSidebarThreadsView("s1", "post_1")).toEqual([...sidebar, "post_1"])
+    expect(communityKeys.forumSidebarUnreadFallbacks("s1")).toEqual([
+      ...server, "forum-sidebar-unread-fallbacks",
+    ])
   })
 
   it("nests channel-scoped keys under a stable channel prefix", () => {

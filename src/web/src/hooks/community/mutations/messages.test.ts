@@ -124,6 +124,7 @@ function sidebarData(threadId = "post_1") {
     channels: [],
     included: { parentMessages: [] },
     serverNow: "2026-08-07T00:00:00.000Z",
+    serverClockOffsetMs: 0,
     threads: [{
       id: threadId,
       parentChannelId: "forum_1",
