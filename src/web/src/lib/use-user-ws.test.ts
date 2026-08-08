@@ -43,7 +43,11 @@ let refs: Map<string, { current: unknown }> = new Map()
 let refCounter = 0
 let callbackMemo: Map<string, { fn: Function; deps: unknown[] }> = new Map()
 let callbackCounter = 0
-let effectMemo: Map<string, { deps: unknown[] }> = new Map()
+let effectMemo: Map<string, {
+  deps: unknown[]
+  setup: () => (() => void) | void
+  cleanup?: () => void
+}> = new Map()
 let effectCounter = 0
 
 function depsEqual(left: unknown[], right: unknown[]) {
@@ -71,11 +75,36 @@ vi.mock("react", () => ({
     const id = `effect-${effectCounter++}`
     const existing = effectMemo.get(id)
     if (existing && depsEqual(existing.deps, deps)) return
-    effectMemo.set(id, { deps })
     const cleanup = fn()
+    effectMemo.set(id, { deps, setup: fn, cleanup: cleanup || undefined })
     if (cleanup) effectCleanup = cleanup
   },
 }))
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
+async function flushPromises() {
+  await Promise.resolve()
+  await Promise.resolve()
+  await Promise.resolve()
+}
+
+function replayEffects() {
+  for (const effect of effectMemo.values()) effect.cleanup?.()
+  for (const effect of effectMemo.values()) {
+    const cleanup = effect.setup()
+    effect.cleanup = cleanup || undefined
+    if (cleanup) effectCleanup = cleanup
+  }
+}
 
 function setupTokenFetch() {
   mockFetch.mockResolvedValue({
@@ -364,5 +393,78 @@ describe("useUserWs", () => {
 
     // No new connection should have been created because the timer was cleared
     expect(MockWebSocket.instances.length).toBe(instancesBefore)
+  })
+
+  it("cleanup invalidates a pending successful token request before socket creation", async () => {
+    const tokenResponse = deferred<{
+      ok: boolean
+      json: () => Promise<{ userId: string; token: string }>
+    }>()
+    mockFetch.mockReturnValue(tokenResponse.promise)
+
+    const mod = await import("./use-user-ws")
+    mod.useUserWs(vi.fn())
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+
+    effectCleanup?.()
+    tokenResponse.resolve({
+      ok: true,
+      json: () => Promise.resolve({ userId: "stale-user", token: "stale-token" }),
+    })
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(60_000)
+
+    expect(MockWebSocket.instances).toHaveLength(0)
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it("StrictMode replay keeps only the latest socket when token requests resolve out of order", async () => {
+    const firstTokenResponse = deferred<{
+      ok: boolean
+      json: () => Promise<{ userId: string; token: string }>
+    }>()
+    const secondTokenResponse = deferred<{
+      ok: boolean
+      json: () => Promise<{ userId: string; token: string }>
+    }>()
+    mockFetch
+      .mockReturnValueOnce(firstTokenResponse.promise)
+      .mockReturnValueOnce(secondTokenResponse.promise)
+
+    const mod = await import("./use-user-ws")
+    mod.useUserWs(vi.fn())
+    replayEffects()
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+
+    secondTokenResponse.resolve({
+      ok: true,
+      json: () => Promise.resolve({ userId: "latest-user", token: "latest-token" }),
+    })
+    await flushPromises()
+    firstTokenResponse.resolve({
+      ok: true,
+      json: () => Promise.resolve({ userId: "stale-user", token: "stale-token" }),
+    })
+    await flushPromises()
+
+    expect(MockWebSocket.instances).toHaveLength(1)
+    expect(MockWebSocket.instances[0]?.url).toContain("latest-user")
+  })
+
+  it("cleanup invalidates a pending failed token request before reconnect scheduling", async () => {
+    const tokenResponse = deferred<never>()
+    mockFetch.mockReturnValue(tokenResponse.promise)
+
+    const mod = await import("./use-user-ws")
+    mod.useUserWs(vi.fn())
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+
+    effectCleanup?.()
+    tokenResponse.reject(new Error("stale token failure"))
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(60_000)
+
+    expect(MockWebSocket.instances).toHaveLength(0)
+    expect(mockFetch).toHaveBeenCalledTimes(1)
   })
 })

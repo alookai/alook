@@ -37,6 +37,7 @@ export function useUserWs(
   const lastMessageAtRef = useRef(0)
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const livenessIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const connectionGenerationRef = useRef(0)
 
   useEffect(() => {
     onMessageRef.current = onMessage
@@ -52,32 +53,39 @@ export function useUserWs(
 
   const connectRef = useRef<(() => Promise<void>) | null>(null)
 
-  const scheduleReconnect = useCallback(() => {
+  const scheduleReconnect = useCallback((generation: number) => {
+    if (generation !== connectionGenerationRef.current) return
     const delay = Math.min(reconnectDelay.current, WS_RECONNECT_MAX)
     reconnectDelay.current = Math.min(delay * 2, WS_RECONNECT_MAX)
     reconnectTimerRef.current = setTimeout(() => {
+      if (generation !== connectionGenerationRef.current) return
       void connectRef.current?.()
     }, delay + Math.random() * 500)
   }, [])
 
   const connect = useCallback(async () => {
+    const generation = connectionGenerationRef.current + 1
+    connectionGenerationRef.current = generation
     let userId: string
     let authToken: string
     let wsPort: number = WS_DO_PORT_DEFAULT
     try {
       const res = await fetch("/api/ws/token")
       if (!res.ok) {
+        if (generation !== connectionGenerationRef.current) return
         console.warn("[ws] token fetch failed:", res.status)
-        scheduleReconnect()
+        scheduleReconnect(generation)
         return
       }
       const body = await res.json() as { userId: string; token: string; wsPort?: number }
+      if (generation !== connectionGenerationRef.current) return
       userId = body.userId
       authToken = body.token
       if (body.wsPort) wsPort = body.wsPort
     } catch (err) {
+      if (generation !== connectionGenerationRef.current) return
       console.warn("[ws] token fetch error:", err)
-      scheduleReconnect()
+      scheduleReconnect(generation)
       return
     }
 
@@ -87,10 +95,12 @@ export function useUserWs(
 
     let ws: WebSocket
     try {
+      if (generation !== connectionGenerationRef.current) return
       ws = new WebSocket(url)
     } catch (err) {
+      if (generation !== connectionGenerationRef.current) return
       console.warn("[ws] WebSocket creation failed:", err)
-      scheduleReconnect()
+      scheduleReconnect(generation)
       return
     }
     wsRef.current = ws
@@ -137,7 +147,7 @@ export function useUserWs(
       if (ws !== wsRef.current) return
       if (pingIntervalRef.current) { clearInterval(pingIntervalRef.current); pingIntervalRef.current = null }
       if (livenessIntervalRef.current) { clearInterval(livenessIntervalRef.current); livenessIntervalRef.current = null }
-      scheduleReconnect()
+      scheduleReconnect(generation)
     }
   }, [scheduleReconnect])
 
@@ -148,6 +158,7 @@ export function useUserWs(
   useEffect(() => {
     connect()
     return () => {
+      connectionGenerationRef.current += 1
       if (reconnectTimerRef.current !== null) {
         clearTimeout(reconnectTimerRef.current)
         reconnectTimerRef.current = null
