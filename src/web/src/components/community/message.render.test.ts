@@ -122,6 +122,38 @@ describe("Message memo comparator", () => {
   })
 })
 
+describe("Message image attachment layout", () => {
+  it("keeps a known portrait image intrinsic and constrains it by message width + max height", () => {
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        makeTree({
+          m: baseMsg({
+            attachments: [{
+              kind: "image",
+              name: "portrait.png",
+              url: "/portrait.png",
+              width: 396,
+              height: 702,
+            }],
+          }),
+          onOpenThread: vi.fn(),
+        }),
+        { createNodeMock: () => genericMock },
+      )
+    })
+
+    const image = renderer!.root.findByType("img")
+    expect(image.props).toMatchObject({ width: 396, height: 702 })
+    expect(image.props.className).toContain("h-auto")
+    expect(image.props.className).toContain("w-auto")
+    expect(image.props.className).toContain("max-h-75")
+    expect(image.props.className).toContain("max-w-full")
+    expect(image.parent?.props.className).toContain("w-fit")
+    expect(image.parent?.props.className).toContain("max-w-full")
+  })
+})
+
 describe("Message lazy overlays", () => {
   it("does not mount the ContextMenu root until the row is activated", () => {
     const onOpenThread = vi.fn()
