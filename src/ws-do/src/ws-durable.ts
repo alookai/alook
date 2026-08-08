@@ -3,7 +3,6 @@ import {
   createDb,
   queries,
   createLogger,
-  readOrStale,
   COMMUNITY_MACHINE_HEARTBEAT_MS,
   COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS,
   HostReadyMessageSchema,
@@ -16,12 +15,42 @@ import {
   pickBotActivityPreset,
   RUNNING_PRESETS,
   isBotActivityStatus,
-  channelReach,
-  isStoredChannelType,
   WS_EVENTS,
   withD1Retry,
 } from "@alook/shared"
 import type { CommunityMachineRuntime, CommunityMachineSummary } from "@alook/shared"
+import {
+  HANDLE_KEY,
+  IDENTITY_KEY,
+  normalizeRestartAttribution,
+  restartPendingKey,
+  RUNTIME_ERROR_KEY,
+} from "./ws-durable/internal"
+import type {
+  CommunityMachineConnectionState,
+  CommunityMachineHandle,
+  CommunityMachineIdentity,
+  ConnectionState,
+  ResetTrigger,
+  RestartAttribution,
+  WsDurableContext,
+} from "./ws-durable/internal"
+import {
+  acceptUserWebSocket,
+  handleUserFetch,
+  handleWebSocketClose,
+  handleWebSocketError,
+  handleWebSocketMessage,
+} from "./ws-durable/user-auth"
+import {
+  broadcastPresence,
+  broadcastToAudience,
+  fanOutTyping,
+  fanOutTypingStop,
+  getPresenceAudience,
+  notifyUserDO,
+  sendPresenceSnapshot,
+} from "./ws-durable/presence-typing"
 
 /**
  * Order-normalized JSON for comparing two runtime lists. Includes `status`
@@ -43,57 +72,6 @@ function canonicalRuntimes(list: CommunityMachineRuntime[]): string {
 
 const log = createLogger({ service: "ws-do" })
 
-type ConnectionState =
-  | { type: "user"; userId: string; authenticated: boolean; name?: string; discriminator?: string }
-  | { type: "daemon"; daemonId: string; userId: string; authenticated: boolean }
-  | {
-    type: "community-machine"
-    machineId: string
-    userId: string
-    authenticated: boolean
-  }
-
-/**
- * Persisted identity for the community-machine connection. Written once at
- * accept and read by every subsequent frame + alarm — the DB is only touched
- * for the ONE authentication lookup, not for each `ready`/heartbeat.
- */
-interface CommunityMachineIdentity {
-  userId: string
-  machineId: string
-  credentialHash: string
-}
-
-interface CommunityMachineHandle {
-  userId: string
-  machineId: string
-}
-
-/** DO storage keys. */
-const IDENTITY_KEY = "community-machine-identity"
-const HANDLE_KEY = "community-machine-handle"
-const RUNTIME_ERROR_KEY = "community-machine-runtime-error"
-// Per-launch restart attribution. Written only when a reset, nap, model switch,
-// or provider switch reaches this machine's daemon; read + deleted when the
-// resulting `agent_session` lands. ctx.storage, NOT an
-// in-memory Map: the DO can hibernate between dispatch and agent_session, and
-// a dropped entry would make a real reset silently write nothing (fire-once
-// reads it as "never dispatched"). See plans/reset-nap-completion-rehome.md §6.
-const RESTART_PENDING_PREFIX = "reset-pending:"
-const restartPendingKey = (launchId: string) => RESTART_PENDING_PREFIX + launchId
-
-type ResetTrigger = "single" | "reset_all" | "nap"
-type RestartAttribution =
-  | { kind: "session_reset"; trigger: "single" | "reset_all" }
-  | { kind: "nap" }
-  | { kind: "model_switch"; from: string | null; to: string | null }
-  | { kind: "provider_switch"; from: string; to: string }
-
-function normalizeRestartAttribution(value: ResetTrigger | RestartAttribution): RestartAttribution {
-  if (typeof value !== "string") return value
-  return value === "nap" ? { kind: "nap" } : { kind: "session_reset", trigger: value }
-}
-
 export class WebSocketDurableObject extends DurableObject<Env> {
   /**
    * Ephemeral typing dedup: channelId -> userId -> last timestamp.
@@ -104,85 +82,24 @@ export class WebSocketDurableObject extends DurableObject<Env> {
   /** Typing dedup window: 8 seconds */
   private static readonly TYPING_DEDUP_MS = 8_000
 
+  private static readonly SUBREQUEST_BATCH_SIZE = 40
+
+  private domainContext(): WsDurableContext {
+    return {
+      ctx: this.ctx,
+      env: this.env,
+      log,
+      typingDedup: this.typingDedup,
+      typingDedupMs: WebSocketDurableObject.TYPING_DEDUP_MS,
+      subrequestBatchSize: WebSocketDurableObject.SUBREQUEST_BATCH_SIZE,
+    }
+  }
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
 
-    if (url.pathname === "/broadcast" && request.method === "POST") {
-      const body = await request.text()
-      const sent = this.broadcast(body)
-      return new Response(JSON.stringify({ sent }), {
-        headers: { "Content-Type": "application/json" },
-      })
-    }
-
-    if (url.pathname === "/check-alive") {
-      const hasAuthDaemon = this.ctx.getWebSockets().some(ws => {
-        const s = ws.deserializeAttachment() as ConnectionState
-        return s?.type === "daemon" && s.authenticated
-      })
-      return new Response(JSON.stringify({ alive: hasAuthDaemon }), {
-        headers: { "Content-Type": "application/json" },
-      })
-    }
-
-    if (url.pathname === "/check-user-online") {
-      // This DO instance is keyed by `user:<targetUserId>` (see `idFromName`
-      // at every call site below), but a DO can't recover its own name from
-      // `ctx` on this worker's pinned compatibility_date (see
-      // plans/community-account-debt-fixes.md Fix 3) — so the caller passes
-      // the id explicitly instead. A bot has no WebSocket of its own; its
-      // "online" is `isBotOnline` (bound machine's status), not a live-socket
-      // check.
-      //
-      // Check the local WS attachments FIRST — that's D1-free, and a live
-      // authenticated user socket is authoritative "online" regardless of
-      // whether the target turns out to be a bot. Only when no live socket
-      // is attached do we consult D1 to see if this is a bot whose presence
-      // is derived from a bound machine's status.
-      //
-      // D1 reads fail-closed via `readOrStale`: a transient outage on the
-      // bot branch yields `{ online: false, stale: true }`. The live-WS
-      // early return is unaffected — a D1 blip must NOT flip a real,
-      // connected human user offline.
-      const targetUserId = url.searchParams.get("userId")
-      const hasAuthUser = this.ctx.getWebSockets().some(ws => {
-        const s = ws.deserializeAttachment() as ConnectionState
-        return s?.type === "user" && s.authenticated
-      })
-      if (hasAuthUser) {
-        return new Response(JSON.stringify({ online: true }), {
-          headers: { "Content-Type": "application/json" },
-        })
-      }
-      if (targetUserId) {
-        const db = createDb(this.env.DB)
-        const { value, stale } = await readOrStale<{ isBotResolved: boolean; online: boolean }>(
-          async () => {
-            const target = await queries.user.getUserInternal(db, targetUserId)
-            if (target?.isBot) {
-              const online = await queries.communityMachine.isBotOnline(db, targetUserId)
-              return { isBotResolved: true, online }
-            }
-            return { isBotResolved: false, online: false }
-          },
-          { isBotResolved: false, online: false },
-          { route: "ws-do/check-user-online" },
-        )
-        if (stale) {
-          return new Response(JSON.stringify({ online: false, stale: true }), {
-            headers: { "Content-Type": "application/json" },
-          })
-        }
-        if (value.isBotResolved) {
-          return new Response(JSON.stringify({ online: value.online }), {
-            headers: { "Content-Type": "application/json" },
-          })
-        }
-      }
-      return new Response(JSON.stringify({ online: false }), {
-        headers: { "Content-Type": "application/json" },
-      })
-    }
+    const userResponse = await handleUserFetch(this.domainContext(), request, url)
+    if (userResponse) return userResponse
 
     if (url.pathname === "/force-close" && request.method === "POST") {
       const closed = await this.forceCloseCommunityMachine()
@@ -283,18 +200,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       return this.acceptCommunityMachine(authHeader.slice(7).trim())
     }
 
-    const pair = new WebSocketPair()
-    const [client, server] = Object.values(pair)
-
-    this.ctx.acceptWebSocket(server)
-
-    server.serializeAttachment({ type: "user", userId: "", authenticated: false } as ConnectionState)
-
-    this.ctx.setWebSocketAutoResponse(
-      new WebSocketRequestResponsePair("ping", "pong")
-    )
-
-    return new Response(null, { status: 101, webSocket: client })
+    return acceptUserWebSocket(this.domainContext())
   }
 
   private async acceptCommunityMachine(bearer: string): Promise<Response> {
@@ -401,211 +307,49 @@ export class WebSocketDurableObject extends DurableObject<Env> {
   }
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
-    if (typeof message !== "string") return
-
-    let parsed: unknown
-    try { parsed = JSON.parse(message) } catch { ws.close(1008, "Invalid JSON"); return }
-
-    const state = ws.deserializeAttachment() as ConnectionState
-
-    if (state?.type === "community-machine") {
-      await this.handleCommunityMachineMessage(parsed)
-      return
-    }
-
-    const msg = parsed as { type: string; token?: string; machineToken?: string; daemonId?: string }
-
-    if (msg.type === "auth") {
-      if (msg.machineToken && msg.daemonId) {
-        const authResult = await this.validateMachineToken(msg.machineToken, msg.daemonId)
-        if (authResult.kind === "invalid") {
-          // Definitely-dead token — tell the daemon so it stops using it
-          // (AUTH_REJECTED is its trigger to mark the workspace auth-failed),
-          // then close.
-          log.warn("daemon websocket auth rejected", { daemonId: msg.daemonId })
-          try { ws.send(JSON.stringify({ type: "error", code: "AUTH_REJECTED" })) } catch { /* ok */ }
-          ws.close(1008, "Unauthorized")
-          return
-        }
-        if (authResult.kind === "transient") {
-          // Infra blip, not a token problem. Plain close (NO AUTH_REJECTED)
-          // so the daemon reconnects with backoff and does not drop the
-          // workspace.
-          log.warn("daemon websocket auth transient failure", { daemonId: msg.daemonId })
-          ws.close(1011, "Auth temporarily unavailable")
-          return
-        }
-        ws.serializeAttachment({ type: "daemon", daemonId: msg.daemonId, userId: authResult.userId, authenticated: true } as ConnectionState)
-        log.info("daemon websocket authenticated", { daemonId: msg.daemonId })
-        ws.send(JSON.stringify({ type: "auth.ok" }))
-
-        this.notifyUserDO(authResult.userId, { type: "runtime.status", status: "online", daemonId: msg.daemonId }).catch(() => { })
-        return
-      }
-
-      if (!msg.token) {
-        ws.close(1008, "Unauthorized")
-        return
-      }
-      const identity = await this.validateToken(msg.token)
-      if (!identity) {
-        log.warn("websocket auth failed")
-        ws.close(1008, "Unauthorized")
-        return
-      }
-      const { userId, name, discriminator } = identity
-      const wasOnline = this.countAuthenticatedUserConnections(userId) > 0
-      ws.serializeAttachment({ type: "user", userId, authenticated: true, name, discriminator } as ConnectionState)
-      log.info("websocket authenticated", { userId })
-      ws.send(JSON.stringify({ type: "auth.ok" }))
-      if (!wasOnline) {
-        this.broadcastPresence(userId, true).catch(() => { })
-      }
-      // Send presence snapshot of online co-members + friends
-      this.sendPresenceSnapshot(ws, userId).catch(() => { })
-      return
-    }
-
-    if (!state.authenticated) {
-      ws.close(1008, "Not authenticated")
-      return
-    }
-
-    if (msg.type === "check_daemon_status" && state.type === "user") {
-      const daemonId = await this.getDaemonIdForUser(state.userId)
-      if (daemonId) {
-        try {
-          const daemonDoId = this.env.WS_DO.idFromName("daemon:" + daemonId)
-          const daemonStub = this.env.WS_DO.get(daemonDoId)
-          const resp = await daemonStub.fetch(new Request("http://internal/check-alive"))
-          const { alive } = await resp.json() as { alive: boolean }
-          if (alive) {
-            ws.send(JSON.stringify({ type: "runtime.status", status: "online", daemonId }))
-          }
-        } catch {
-          log.debug("check_daemon_status: failed to reach daemon DO", { daemonId })
-        }
-      }
-      return
-    }
-
-    // ── Community: typing.start — dedup and fan-out ─────────────────────────
-    if (msg.type === WS_EVENTS.TYPING_START && state.type === "user") {
-      const typingMsg = parsed as {
-        type: string
-        channelId?: string
-      }
-      const scopeKey = typingMsg.channelId
-      if (!scopeKey) return
-
-      // Per-user dedup: drop if last event from same user < 8s ago
-      const now = Date.now()
-      let scopeMap = this.typingDedup.get(scopeKey)
-      if (!scopeMap) {
-        scopeMap = new Map()
-        this.typingDedup.set(scopeKey, scopeMap)
-      }
-      const lastTs = scopeMap.get(state.userId) || 0
-      if (now - lastTs < WebSocketDurableObject.TYPING_DEDUP_MS) return
-      scopeMap.set(state.userId, now)
-
-      // Prune stale scopes to prevent unbounded growth
-      if (this.typingDedup.size > 200) {
-        for (const [key, map] of this.typingDedup) {
-          let allStale = true
-          for (const ts of map.values()) {
-            if (now - ts < WebSocketDurableObject.TYPING_DEDUP_MS * 4) {
-              allStale = false
-              break
-            }
-          }
-          if (allStale) this.typingDedup.delete(key)
-        }
-      }
-
-      // Fan out: resolve recipients and POST to their user DOs.
-      // The typing event is forwarded to the recipients' DOs which deliver it
-      // via their existing broadcast path. The DO here only handles dedup.
-      // Actual fan-out is performed by the web API layer that calls fanOutToChannel.
-      // However, for typing events sent directly over WS (not via REST), we fan out here.
-      // `name`/`discriminator` ride from the connection state (stamped once at
-      // auth) so the recipient renders the sender's name without a roster
-      // lookup — no per-event DB. Undefined on a pre-existing connection that
-      // predates this field; the client falls back to roster resolution then.
-      const event = JSON.stringify({
-        type: WS_EVENTS.TYPING_START,
-        channelId: typingMsg.channelId,
-        userId: state.userId,
-        name: state.name,
-        discriminator: state.discriminator,
-      })
-
-      // Resolve recipients and broadcast
-      this.fanOutTyping(state.userId, typingMsg.channelId, event).catch((err) => {
-        log.warn("community:typing.start fan-out failed", { err: String(err) })
-      })
-      return
-    }
+    await handleWebSocketMessage(
+      this.domainContext(),
+      ws,
+      message,
+      (parsed) => this.handleCommunityMachineMessage(parsed),
+    )
   }
 
   async webSocketClose(ws: WebSocket): Promise<void> {
-    const state = ws.deserializeAttachment() as ConnectionState
-    if (state?.type === "daemon" && state.authenticated) {
-      log.info("daemon websocket closed", { daemonId: state.daemonId })
-      this.notifyUserDO(state.userId, { type: "runtime.status", status: "offline", daemonId: state.daemonId }).catch(() => { })
-    }
-    if (state?.type === "user" && state.authenticated) {
-      const remaining = this.countAuthenticatedUserConnections(state.userId) - 1
-      if (remaining <= 0) {
-        this.broadcastPresence(state.userId, false).catch(() => { })
-      }
-    }
-    if (state?.type === "community-machine" && state.authenticated) {
-      log.info("community machine websocket closed", { machineId: state.machineId, userId: state.userId })
-      // Presence source of truth: the WS connection. On close, flip the row
-      // status='online' → 'offline' scoped by the credential hash the DO owns.
-      // The scope guard ensures a rotated-credential reconnect (which lands
-      // on a DIFFERENT DO instance) is not clobbered by this DO's late close.
-      //
-      // See plans/community-machine-presence-fix.md for the full model.
-      const identity = await this.ctx.storage.get<CommunityMachineIdentity>(IDENTITY_KEY)
-      if (!identity) {
-        // No identity means we never fully accepted this connection (auth
-        // failed before we cached it) OR the DO was already cleaned up. No
-        // recoverable work for the alarm path here — HANDLE_KEY is written
-        // alongside IDENTITY_KEY, so if identity is gone the alarm has
-        // nothing to act on. Drop and return.
-        return
-      }
-      try {
-        const db = createDb(this.env.DB)
-        const flipped = await queries.communityMachine.markMachineOffline(db, {
-          userId: identity.userId,
+    await handleWebSocketClose(
+      this.domainContext(),
+      ws,
+      (state) => this.handleCommunityMachineClose(state),
+    )
+  }
+
+  private async handleCommunityMachineClose(state: CommunityMachineConnectionState): Promise<void> {
+    log.info("community machine websocket closed", { machineId: state.machineId, userId: state.userId })
+    const identity = await this.ctx.storage.get<CommunityMachineIdentity>(IDENTITY_KEY)
+    if (!identity) return
+    try {
+      const db = createDb(this.env.DB)
+      const flipped = await queries.communityMachine.markMachineOffline(db, {
+        userId: identity.userId,
+        machineId: identity.machineId,
+        credentialHash: identity.credentialHash,
+      })
+      if (flipped) {
+        await this.notifyUserDO(identity.userId, {
+          type: WS_EVENTS.MACHINE_STATUS,
           machineId: identity.machineId,
-          credentialHash: identity.credentialHash,
-        })
-        if (flipped) {
-          // Real transition — broadcast + clean up storage. Alarm no longer needed.
-          await this.notifyUserDO(identity.userId, {
-            type: WS_EVENTS.MACHINE_STATUS,
-            machineId: identity.machineId,
-            status: "offline",
-            lastSeenAt: flipped.lastSeenAt ?? new Date().toISOString(),
-          }).catch(() => { })
-          await this.ctx.storage.deleteAlarm()
-          await this.ctx.storage.delete(HANDLE_KEY)
-          await this.ctx.storage.delete(IDENTITY_KEY)
-        } else {
-          // No transition happened: row is already offline OR the credential
-          // was revoked (rotation → another DO owns this machine now). Leave
-          // storage alone; the alarm safety net catches any edge cases.
-          await this.ctx.storage.setAlarm(Date.now() + COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS)
-        }
-      } catch (err) {
-        log.warn("markMachineOffline failed on webSocketClose", { err: String(err) })
-        // D1 error — leave the alarm armed so the safety-net path can retry.
+          status: "offline",
+          lastSeenAt: flipped.lastSeenAt ?? new Date().toISOString(),
+        }).catch(() => { })
+        await this.ctx.storage.deleteAlarm()
+        await this.ctx.storage.delete(HANDLE_KEY)
+        await this.ctx.storage.delete(IDENTITY_KEY)
+      } else {
         await this.ctx.storage.setAlarm(Date.now() + COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS)
       }
+    } catch (err) {
+      log.warn("markMachineOffline failed on webSocketClose", { err: String(err) })
+      await this.ctx.storage.setAlarm(Date.now() + COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS)
     }
   }
 
@@ -1370,176 +1114,11 @@ export class WebSocketDurableObject extends DurableObject<Env> {
   }
 
   async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
-    log.error("websocket error", { err: error instanceof Error ? error : String(error) })
-    try { ws.close(1011, "Internal error") } catch { }
-  }
-
-  private broadcast(message: string): number {
-    let sent = 0
-    for (const ws of this.ctx.getWebSockets()) {
-      const state = ws.deserializeAttachment() as ConnectionState
-      if (state.authenticated) {
-        try {
-          ws.send(message)
-          sent++
-        } catch { }
-      }
-    }
-    return sent
+    await handleWebSocketError(this.domainContext(), ws, error)
   }
 
   private async notifyUserDO(userId: string, payload: unknown): Promise<void> {
-    // Every one of the 5 call sites wraps this whole method in
-    // `.catch(() => {})` (fire-and-forget — a presence hiccup must never
-    // block the machine-status write it rides on), which means an
-    // unhandled throw ANYWHERE inside vanishes with zero trace. Own
-    // try/catch + log around the WHOLE body — including the primary owner
-    // notify — so a real failure is at least visible instead of silently
-    // degrading to "you have to refresh to see the update."
-    //
-    // The primary owner notify (`userStub.fetch`) and the bot-presence
-    // fan-out below are independent: a failed owner notify must NOT skip
-    // the bot fan-out, and vice versa. Each has its own inner try so one
-    // can't cascade into the other.
-    try {
-      const userDoId = this.env.WS_DO.idFromName("user:" + userId)
-      const userStub = this.env.WS_DO.get(userDoId)
-      try {
-        await userStub.fetch(new Request("http://internal/broadcast", {
-          method: "POST",
-          body: JSON.stringify(payload),
-        }))
-      } catch (err) {
-        log.error("notifyUserDO: owner notify failed", { err: String(err), userId })
-      }
-
-      // Single choke point for every `community:machine.status` emission (see
-      // plans/community-account-debt-fixes.md Fix 3) — a bot has no WS of its
-      // own, so its online/offline flip otherwise only ever reaches its owner
-      // via the fetch above. Fan the same transition out through the exact
-      // audience-based pipeline human presence already uses, for every bot
-      // bound to this machine.
-      try {
-        const status = this.machineStatusPayload(payload)
-        if (!status) return
-        const db = createDb(this.env.DB)
-        const bots = await queries.communityBot.listBotsForMachine(db, status.machineId)
-        if (bots.length === 0) return
-        await Promise.allSettled(
-          bots.map((bot) => this.broadcastPresence(bot.id, status.online))
-        )
-      } catch (err) {
-        log.error("notifyUserDO: bot presence fan-out failed", { err: String(err), userId })
-      }
-    } catch (err) {
-      log.error("notifyUserDO: unexpected failure", { err: String(err), userId })
-    }
-  }
-
-  /** Runtime type-guard — `notifyUserDO`'s `payload` is `unknown` by design. */
-  private machineStatusPayload(payload: unknown): { machineId: string; online: boolean } | null {
-    if (typeof payload !== "object" || payload === null) return null
-    const p = payload as { type?: unknown; machineId?: unknown; status?: unknown }
-    if (p.type !== WS_EVENTS.MACHINE_STATUS) return null
-    if (typeof p.machineId !== "string") return null
-    if (p.status !== "online" && p.status !== "offline") return null
-    return { machineId: p.machineId, online: p.status === "online" }
-  }
-
-  private async getDaemonIdForUser(userId: string): Promise<string | null> {
-    const db = createDb(this.env.DB)
-    const token = await queries.machineToken.getLatestTokenForUser(db, userId)
-    return token?.hostname || null
-  }
-
-  private async validateToken(
-    token: string,
-  ): Promise<{ userId: string; name: string; discriminator: string } | null> {
-    const db = createDb(this.env.DB)
-    // Resolve name/discriminator alongside the userId (one join) so the
-    // connection state can carry them — typing fan-out then stamps the name
-    // into the event without a per-event DB lookup. Runs once per WS auth.
-    return queries.session.getValidSessionWithIdentity(db, token)
-  }
-
-  /**
-   * Three-state machine-token validation. The daemon marks a workspace
-   * auth-failed only on `invalid`, so a transient D1 failure must NEVER be
-   * reported as `invalid` — it maps to `transient` (plain close, no
-   * AUTH_REJECTED) so the daemon retries instead of dropping the workspace.
-   *
-   * - `valid`     — token exists, active, has a workspace, AND owns the
-   *                 daemon it is connecting as (a machine row for
-   *                 daemonId+workspace exists). The daemonId is an
-   *                 unauthenticated URL param that selects the DO instance,
-   *                 so without this bind ANY valid token could authenticate
-   *                 as ANOTHER tenant's daemon socket and receive that
-   *                 daemon's task/file broadcasts. Machine-level (not runtime-
-   *                 level) so a workspace mid-registration with 0 runtimes is
-   *                 still valid — the machine row is written at register time.
-   * - `invalid`   — token doesn't exist, isn't active, or doesn't own this
-   *                 daemon. Definitely dead / not authorized.
-   * - `transient` — D1 threw. Infra blip, not a token problem.
-   */
-  private async validateMachineToken(
-    token: string,
-    daemonId: string,
-  ): Promise<
-    | { kind: "valid"; userId: string }
-    | { kind: "invalid" }
-    | { kind: "transient" }
-  > {
-    if (!token.startsWith("al_")) return { kind: "invalid" }
-    try {
-      const db = createDb(this.env.DB)
-      const mt = await queries.machineToken.getMachineTokenByToken(db, token)
-      if (!mt || mt.status !== "active" || !mt.workspaceId) return { kind: "invalid" }
-      const machine = await queries.machine.getMachineByDaemon(db, daemonId, mt.workspaceId)
-      if (!machine) return { kind: "invalid" }
-      return { kind: "valid", userId: mt.userId }
-    } catch (err) {
-      log.warn("daemon websocket auth lookup threw", { err: String(err) })
-      return { kind: "transient" }
-    }
-  }
-
-  /**
-   * Fan out a typing event to the appropriate recipients.
-   * For channel/thread: resolve channel -> server -> members.
-   * For DM: resolve the 2 participants.
-   * Excludes the sender.
-   *
-   * Authorization: the sender must actually be a member of the target
-   * channel's server (or a participant of the target DM) before we resolve
-   * recipients — otherwise anyone who merely knows a channel/DM id could
-   * make their client "type" into a scope they have no access to. Both
-   * branches fold the check into the same query that already resolves the
-   * fan-out target, so this adds no extra DB round-trip versus before.
-   */
-  /**
-   * The typing-broadcast recipient set for a channel — the SAME reach
-   * recipient-split as the message fan-out (`fanout.ts` getChannelRecipientUserIds).
-   * Both dispatch on the channel type's reach trait (`channelReach`) so typing
-   * reaches exactly whom a message would; they can't drift (B2 reach axis single
-   * source — this was previously a hand-copied `isThread||isForumPost` split in
-   * BOTH fanOutTyping and fanOutTypingStop, the reach rule's 7th/8th copies).
-   * Does not exclude the sender — the callers filter that.
-   */
-  private async typingRecipientUserIds(db: ReturnType<typeof createDb>, channelId: string): Promise<string[]> {
-    const channelType = await queries.communityChannel.getChannelType(db, channelId)
-    const reach = isStoredChannelType(channelType) ? channelReach(channelType) : "server-or-roster"
-    switch (reach) {
-      case "participant-set":
-        return queries.communityThread.listThreadParticipantUserIds(db, channelId)
-      case "dm-pair":
-        return queries.communityChannel.listChannelMemberUserIds(db, channelId)
-      case "server-or-roster":
-        return queries.communityMembersResolver.resolveScopeMemberUserIds(db, { scope: "channel", scopeId: channelId })
-      default: {
-        const _never: never = reach
-        return _never
-      }
-    }
+    await notifyUserDO(this.domainContext(), userId, payload)
   }
 
   private async fanOutTyping(
@@ -1547,45 +1126,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     channelId?: string,
     event?: string
   ): Promise<void> {
-    if (!event || !channelId) return
-    const db = createDb(this.env.DB)
-    let recipientUserIds: string[] = []
-
-    // getChannelForMember returns null when senderUserId can't see the
-    // channel — same authz the HTTP layer enforces via requireChannelMember
-    // (src/web/src/lib/community/permissions.ts). For a DM (type=dm) it
-    // resolves via the sender's relation='access' member row.
-    const membership = await withD1Retry(
-      () => queries.communityChannel.getChannelForMember(db, channelId, senderUserId),
-      { route: "ws-do:agent-typing-membership" },
-    )
-    if (!membership) {
-      log.warn("fanOutTyping: sender not a channel member", { senderUserId, channelId })
-      return
-    }
-    // Recipient set — the shared reach recipient-split (same as message
-    // fan-out), then exclude the sender.
-    recipientUserIds = await withD1Retry(
-      () => this.typingRecipientUserIds(db, channelId),
-      { route: "ws-do:agent-typing-recipients" },
-    )
-    recipientUserIds = recipientUserIds.filter((id) => id !== senderUserId)
-    if (recipientUserIds.length === 0) return
-
-    // POST to each user's DO broadcast endpoint (batched to stay under subrequest limit)
-    for (let i = 0; i < recipientUserIds.length; i += WebSocketDurableObject.SUBREQUEST_BATCH_SIZE) {
-      const batch = recipientUserIds.slice(i, i + WebSocketDurableObject.SUBREQUEST_BATCH_SIZE)
-      await Promise.all(
-        batch.map((userId) => {
-          const doId = this.env.WS_DO.idFromName("user:" + userId)
-          const stub = this.env.WS_DO.get(doId)
-          return stub.fetch(new Request("http://internal/broadcast", {
-            method: "POST",
-            body: event,
-          })).catch(() => { })
-        })
-      )
-    }
+    await fanOutTyping(this.domainContext(), senderUserId, channelId, event)
   }
 
   /**
@@ -1598,56 +1139,11 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     senderUserId: string,
     channelId: string,
   ): Promise<void> {
-    const db = createDb(this.env.DB)
-    const membership = await withD1Retry(
-      () => queries.communityChannel.getChannelForMember(db, channelId, senderUserId),
-      { route: "ws-do:agent-typing-stop-membership" },
-    )
-    if (!membership) {
-      log.warn("fanOutTypingStop: sender not a channel member", { senderUserId, channelId })
-      return
-    }
-    let recipientUserIds = await withD1Retry(
-      () => this.typingRecipientUserIds(db, channelId),
-      { route: "ws-do:agent-typing-stop-recipients" },
-    )
-    recipientUserIds = recipientUserIds.filter((id) => id !== senderUserId)
-    if (recipientUserIds.length === 0) return
-    const body = JSON.stringify({
-      type: WS_EVENTS.TYPING_STOP,
-      channelId,
-      userId: senderUserId,
-    })
-    for (let i = 0; i < recipientUserIds.length; i += WebSocketDurableObject.SUBREQUEST_BATCH_SIZE) {
-      const batch = recipientUserIds.slice(i, i + WebSocketDurableObject.SUBREQUEST_BATCH_SIZE)
-      await Promise.all(
-        batch.map((userId) => {
-          const doId = this.env.WS_DO.idFromName("user:" + userId)
-          const stub = this.env.WS_DO.get(doId)
-          return stub.fetch(new Request("http://internal/broadcast", {
-            method: "POST",
-            body,
-          })).catch(() => { })
-        })
-      )
-    }
+    await fanOutTypingStop(this.domainContext(), senderUserId, channelId)
   }
-
-  private countAuthenticatedUserConnections(userId: string): number {
-    let count = 0
-    for (const ws of this.ctx.getWebSockets()) {
-      const state = ws.deserializeAttachment() as ConnectionState
-      if (state?.type === "user" && state.authenticated && state.userId === userId) {
-        count++
-      }
-    }
-    return count
-  }
-
-  private static readonly SUBREQUEST_BATCH_SIZE = 40
 
   private async broadcastPresence(userId: string, online: boolean): Promise<void> {
-    await this.broadcastToAudience(userId, { type: WS_EVENTS.PRESENCE_UPDATE, userId, online })
+    await broadcastPresence(this.domainContext(), userId, online)
   }
 
   /**
@@ -1657,32 +1153,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
    * `community:bot.activity`) share the same batched-fetch loop.
    */
   private async broadcastToAudience(userId: string, payload: unknown): Promise<void> {
-    const audience = await this.getPresenceAudience(userId)
-    if (audience.length === 0) return
-    const body = JSON.stringify(payload)
-    for (let i = 0; i < audience.length; i += WebSocketDurableObject.SUBREQUEST_BATCH_SIZE) {
-      const batch = audience.slice(i, i + WebSocketDurableObject.SUBREQUEST_BATCH_SIZE)
-      await Promise.allSettled(
-        batch.map((memberId) => {
-          const doId = this.env.WS_DO.idFromName("user:" + memberId)
-          const stub = this.env.WS_DO.get(doId)
-          return stub.fetch(new Request("http://internal/broadcast", {
-            method: "POST",
-            body,
-          }))
-        })
-      )
-    }
-  }
-
-  private async getCoMembers(userId: string): Promise<string[]> {
-    const db = createDb(this.env.DB)
-    return queries.communityMember.getCoMemberUserIds(db, userId)
-  }
-
-  private async getFriendIds(userId: string): Promise<string[]> {
-    const db = createDb(this.env.DB)
-    return queries.communityFriendship.getFriendUserIds(db, userId)
+    await broadcastToAudience(this.domainContext(), userId, payload)
   }
 
   /**
@@ -1697,41 +1168,10 @@ export class WebSocketDurableObject extends DurableObject<Env> {
    * co-member gets one fetch, not two.
    */
   private async getPresenceAudience(userId: string): Promise<string[]> {
-    const [coMembers, friends] = await Promise.all([
-      this.getCoMembers(userId),
-      this.getFriendIds(userId),
-    ])
-    return [...new Set([...coMembers, ...friends])]
+    return getPresenceAudience(this.domainContext(), userId)
   }
 
   private async sendPresenceSnapshot(ws: WebSocket, userId: string): Promise<void> {
-    const audience = await this.getPresenceAudience(userId)
-    if (audience.length === 0) return
-    const onlineIds: string[] = []
-    for (let i = 0; i < audience.length; i += WebSocketDurableObject.SUBREQUEST_BATCH_SIZE) {
-      const batch = audience.slice(i, i + WebSocketDurableObject.SUBREQUEST_BATCH_SIZE)
-      const checks = await Promise.allSettled(
-        batch.map(async (memberId) => {
-          const doId = this.env.WS_DO.idFromName("user:" + memberId)
-          const stub = this.env.WS_DO.get(doId)
-          const resp = await stub.fetch(
-            new Request(`http://internal/check-user-online?userId=${encodeURIComponent(memberId)}`)
-          )
-          // On a stale response the callee could not resolve the target's
-          // presence — skip rather than treating `online: false` as truth
-          // (that would flip real-online contacts to offline on every
-          // D1 blip during snapshot).
-          const data = await resp.json() as { online: boolean; stale?: boolean }
-          if (data.stale) return null
-          return data.online ? memberId : null
-        })
-      )
-      for (const r of checks) {
-        if (r.status === "fulfilled" && r.value) onlineIds.push(r.value)
-      }
-    }
-    for (const id of onlineIds) {
-      ws.send(JSON.stringify({ type: WS_EVENTS.PRESENCE_UPDATE, userId: id, online: true }))
-    }
+    await sendPresenceSnapshot(this.domainContext(), ws, userId)
   }
 }
