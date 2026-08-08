@@ -7,7 +7,7 @@ import type {
 } from "@alook/shared";
 import { ApiError } from "@/lib/errors";
 import type { PendingFile } from "@/hooks/use-file-attachments";
-import { apiFetch, wsQuery } from "./client";
+import { apiFetch, redirectToSignIn, wsQuery } from "./client";
 
 export const listConversations = (workspaceId: string, channel?: string) =>
   apiFetch<Conversation[]>(`/api/conversations${wsQuery(workspaceId, channel ? { channel } : undefined)}`);
@@ -180,7 +180,7 @@ export const sendMessage = async (
   }
 
   if (res.status === 401) {
-    if (typeof window !== "undefined") window.location.href = "/sign-in";
+    redirectToSignIn();
     throw new ApiError("Unauthorized", 401);
   }
 

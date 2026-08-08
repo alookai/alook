@@ -1,6 +1,6 @@
 import type { LoginResponse, Workspace } from "@alook/shared";
 import { sanitizeSlug } from "@alook/shared";
-import { apiFetch, wsQuery } from "./client";
+import { apiFetch, redirectToSignIn, wsQuery } from "./client";
 
 export const listWorkspaces = () => apiFetch<Workspace[]>("/api/workspaces");
 
@@ -120,9 +120,7 @@ export const getWorkspaceOverview = (workspaceId: string) =>
 
 // Auth
 export const signOut = async () => {
-  if (typeof window !== "undefined") {
-    window.location.href = "/sign-in";
-  }
+  redirectToSignIn();
 };
 
 export const verifyCode = (email: string, code: string) =>

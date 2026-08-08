@@ -34,6 +34,19 @@ function getReadableErrorMessage(error: string | undefined, details: string[] | 
   return error;
 }
 
+/**
+ * Leave the authenticated app with a full document navigation.
+ *
+ * API helpers do not have access to the Next router, and a 401 must discard
+ * all in-memory authenticated state rather than preserve the current React
+ * tree. Use an explicit same-origin absolute URL so this intentional hard
+ * navigation is not mistaken for an internal client-side route transition.
+ */
+export function redirectToSignIn() {
+  if (typeof window === "undefined") return;
+  window.location.assign(new URL("/sign-in", window.location.origin));
+}
+
 export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   if (MOCK_NETWORK_ENABLED) {
     if (!mockNetworkLogged) {
@@ -61,9 +74,7 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
   }
 
   if (res.status === 401) {
-    if (typeof window !== "undefined") {
-      window.location.href = "/sign-in";
-    }
+    redirectToSignIn();
     throw new ApiError("Unauthorized", 401);
   }
 

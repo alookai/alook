@@ -8,7 +8,7 @@ import type {
   UpdateIssueRequest,
 } from "@alook/shared";
 import { ApiError } from "@/lib/errors";
-import { apiFetch, wsQuery } from "./client";
+import { apiFetch, redirectToSignIn, wsQuery } from "./client";
 
 export type IssueListItem = Issue & { thread_agent_ids?: string[] };
 
@@ -68,7 +68,7 @@ export const createIssue = async (
   }
 
   if (res.status === 401) {
-    if (typeof window !== "undefined") window.location.href = "/sign-in";
+    redirectToSignIn();
     throw new ApiError("Unauthorized", 401);
   }
 

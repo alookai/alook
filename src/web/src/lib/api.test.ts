@@ -10,21 +10,22 @@ Object.defineProperty(globalThis, "document", {
 // We need to mock fetch globally
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
+const locationAssignMock = vi.fn();
 
 // Prevent 401 redirect from blowing up
 Object.defineProperty(globalThis, "window", {
   value: {
     ...(globalThis.window || {}),
-    location: { href: "" },
+    location: {
+      origin: "https://alook.test",
+      assign: locationAssignMock,
+    },
   },
   writable: true,
 });
 
 beforeEach(() => {
   vi.clearAllMocks();
-  if (typeof window !== "undefined") {
-    window.location.href = "";
-  }
 });
 
 describe("ApiError class", () => {
@@ -215,6 +216,7 @@ describe("apiFetch", () => {
       expect((e as ApiError).status).toBe(401);
       expect((e as ApiError).message).toBe("Unauthorized");
       expect((e as ApiError).isUnauthorized).toBe(true);
+      expect(locationAssignMock).toHaveBeenCalledWith(new URL("/sign-in", "https://alook.test"));
     }
   });
 });
@@ -338,4 +340,3 @@ describe("apiFetch — mock network delay", () => {
     expect(result).toEqual([{ id: "a1" }]);
   });
 });
-
