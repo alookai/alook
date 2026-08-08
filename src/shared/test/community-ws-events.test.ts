@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isCommunityEvent } from "../src/community-ws-events";
+import { isCommunityEvent, WS_EVENTS } from "../src/community-ws-events";
 import type {
   CommunityMachineCreated,
   CommunityMachineUpdated,
@@ -7,19 +7,16 @@ import type {
 } from "../src/community-ws-events";
 
 describe("isCommunityEvent", () => {
-  it("returns true for community:machine.created", () => {
-    expect(isCommunityEvent({ type: "community:machine.created" })).toBe(true);
+  it("accepts every exact event declared by WS_EVENTS", () => {
+    expect(Object.values(WS_EVENTS)).toHaveLength(41);
+    for (const type of Object.values(WS_EVENTS)) {
+      expect(isCommunityEvent({ type })).toBe(true);
+    }
   });
-  it("returns true for community:machine.status", () => {
-    expect(isCommunityEvent({ type: "community:machine.status" })).toBe(true);
-  });
-  it("returns true for community:machine.updated", () => {
-    expect(isCommunityEvent({ type: "community:machine.updated" })).toBe(true);
-  });
-  it("returns true for community:machine.removed", () => {
-    expect(isCommunityEvent({ type: "community:machine.removed" })).toBe(true);
-  });
-  it("returns false for non-community events", () => {
+
+  it("rejects unknown, approximate, and non-community event names", () => {
+    expect(isCommunityEvent({ type: "community:unknown" })).toBe(false);
+    expect(isCommunityEvent({ type: "community:message.create.extra" })).toBe(false);
     expect(isCommunityEvent({ type: "foo:bar" })).toBe(false);
     expect(isCommunityEvent({ type: "runtime.status" })).toBe(false);
   });

@@ -1078,6 +1078,14 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           return
         }
 
+        case "community:invite.create": {
+          void queryClient.invalidateQueries({
+            queryKey: communityKeys.invites(event.serverId),
+            exact: true,
+          })
+          return
+        }
+
         // ── Friends ─────────────────────────────────────────────────────
         case "community:friend.request":
         case "community:friend.accept":
@@ -1285,6 +1293,10 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           )
           cbs.onMachine?.(event)
           return
+        }
+        default: {
+          const unhandledEvent: never = event
+          return unhandledEvent
         }
       }
     },

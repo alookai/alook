@@ -1495,11 +1495,37 @@ describe("useCommunityWs — DM message.create", () => {
 })
 
 describe("useCommunityWs — non-community events bail", () => {
-  it("malformed shape early-returns via isCommunityEvent", async () => {
+  it("rejects non-community and unknown community-prefixed events", async () => {
     await mountHook()
-    const spy = vi.spyOn(capturedQueryClient, "setQueryData")
+    const setSpy = vi.spyOn(capturedQueryClient, "setQueryData")
+    const invalidateSpy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     capturedOnMessage!({ type: "task.updated", taskId: "t_1" })
-    expect(spy).not.toHaveBeenCalled()
+    capturedOnMessage!({ type: "community:unknown", serverId: "srv_1" })
+    expect(setSpy).not.toHaveBeenCalled()
+    expect(invalidateSpy).not.toHaveBeenCalled()
+  })
+})
+
+describe("useCommunityWs — invite.create", () => {
+  it("invalidates only the matching server invite query", async () => {
+    await mountHook()
+    const matchingKey = communityKeys.invites("srv_1")
+    const otherKey = communityKeys.invites("srv_2")
+    capturedQueryClient.setQueryData(matchingKey, { invites: [] })
+    capturedQueryClient.setQueryData(otherKey, { invites: [] })
+
+    capturedOnMessage!({
+      type: "community:invite.create",
+      serverId: "srv_1",
+      invite: {
+        id: "invite_1",
+        token: "token_1",
+        createdAt: "2026-08-08T00:00:00.000Z",
+      },
+    })
+
+    expect(capturedQueryClient.getQueryState(matchingKey)?.isInvalidated).toBe(true)
+    expect(capturedQueryClient.getQueryState(otherKey)?.isInvalidated).toBe(false)
   })
 })
 
