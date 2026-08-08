@@ -1,5 +1,6 @@
 import { useCallback, useLayoutEffect, useRef } from "react"
 import { useVirtualizer, type Virtualizer } from "@tanstack/react-virtual"
+import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "./virtualizer-react-options"
 import { estimateRowHeight, computeBelowCount, type FlatItem } from "@/components/community/message-list-items"
 
 // Virtualized rewrite of message-list's scroll-anchoring logic. The
@@ -361,6 +362,7 @@ export function useScrollAnchor({
 
   // eslint-disable-next-line react-hooks/incompatible-library -- library limitation, same as member-list.tsx
   const virtualizer = useVirtualizer({
+    ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
     count: items.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: (index) => estimateRowHeight(items[index]),

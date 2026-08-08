@@ -2,7 +2,6 @@
 
 import type { ReactNode } from "react"
 import type { Virtualizer } from "@tanstack/react-virtual"
-import { useDeferredVirtualMeasure } from "@/hooks/community/use-deferred-virtual-measure"
 
 export function VirtualRows<T>({
   items,
@@ -15,8 +14,6 @@ export function VirtualRows<T>({
   itemKey: (item: T) => string
   renderItem: (item: T, index: number) => ReactNode
 }) {
-  const measureElement = useDeferredVirtualMeasure(virtualizer)
-
   return (
     <div style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}>
       {virtualizer.getVirtualItems().map((virtualRow) => {
@@ -25,7 +22,7 @@ export function VirtualRows<T>({
           <div
             key={itemKey(item)}
             data-index={virtualRow.index}
-            ref={measureElement}
+            ref={virtualizer.measureElement}
             style={{
               position: "absolute",
               top: 0,
