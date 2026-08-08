@@ -93,10 +93,18 @@ test.describe.serial("mentions — mandatory discriminator", () => {
 
     // Click Bob's pill → the profile card shows Bob's discriminator, not Carol's.
     const card = page.getByTestId(tid.profileCard)
+    const bobProfilePromise = page.waitForResponse((response) => {
+      return response.request().method() === "GET"
+        && new URL(response.url()).pathname === `/api/community/users/${userId("bob")}/profile`
+    })
     await expect(async () => {
       await bobPill.click({ timeout: 5_000 })
       await expect(card).toBeVisible({ timeout: 5_000 })
     }).toPass({ timeout: 30_000 })
+    // The card renders fallback member data before its exact user profile is
+    // enriched. Gate the discriminator oracle on that observable boundary.
+    const bobProfile = await bobProfilePromise
+    expect(bobProfile.status()).toBe(200)
     await expect(card).toContainText(`#${bob.discriminator}`)
     await expect(card).not.toContainText(`#${carol.discriminator}`)
     // Dismiss the first card, then open the second pill's. The popover renders
@@ -106,6 +114,10 @@ test.describe.serial("mentions — mandatory discriminator", () => {
     // transient interception (or a stray still-open card) re-presses Escape and
     // tries again, instead of hanging the bare click to the 60s test timeout.
     const carolPill = pills.nth(1)
+    const carolProfilePromise = page.waitForResponse((response) => {
+      return response.request().method() === "GET"
+        && new URL(response.url()).pathname === `/api/community/users/${userId("carol")}/profile`
+    })
     await expect(async () => {
       if (await card.isVisible()) {
         await page.keyboard.press("Escape")
@@ -114,6 +126,8 @@ test.describe.serial("mentions — mandatory discriminator", () => {
       await carolPill.click({ timeout: 5_000 })
       await expect(card).toBeVisible({ timeout: 5_000 })
     }).toPass({ timeout: 30_000 })
+    const carolProfile = await carolProfilePromise
+    expect(carolProfile.status()).toBe(200)
     await expect(card).toContainText(`#${carol.discriminator}`)
   })
 
