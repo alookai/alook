@@ -116,6 +116,7 @@ export function ThreadChannelSurface({
             messageId: parentMessageId,
             content: name,
             forumChannelId: parentChannelId,
+            forumThreadId: channelId,
           })
         } catch (error) {
           toastApiError(error, "Failed to edit post")
@@ -172,6 +173,7 @@ export function ThreadChannelSurface({
       serverId={serverId}
       serverParam={serverParam}
       channelName={displayName}
+      forumParentChannelId={parentIsForum ? parentChannelId ?? undefined : undefined}
       viewer={viewer}
       anchorMessageId={anchorMessageId}
       feed={feed}

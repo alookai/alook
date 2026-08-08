@@ -119,6 +119,23 @@ function postedMessage(id: string, seq: number) {
   }
 }
 
+function sidebarData(threadId = "post_1") {
+  return {
+    channels: [],
+    included: { parentMessages: [] },
+    serverNow: "2026-08-07T00:00:00.000Z",
+    threads: [{
+      id: threadId,
+      parentChannelId: "forum_1",
+      parentMessageId: "opener_1",
+      title: "Old title",
+      activityAt: "2026-08-06T00:00:00.000Z",
+      expiresAt: "2026-08-09T00:00:00.000Z",
+      unread: false,
+    }],
+  }
+}
+
 beforeEach(() => {
   apiFetchMock.mockReset()
   toastMock.mockReset()
@@ -182,6 +199,26 @@ describe("useEditMessage", () => {
     expect(capturedQc.getQueryState(root)?.isInvalidated).toBe(true)
     expect(capturedQc.getQueryState(bug)?.isInvalidated).toBe(true)
   })
+
+  it("patches a loaded forum-sidebar title after the opener edit succeeds", async () => {
+    const sidebarKey = communityKeys.forumSidebarThreadsView("s1", "post_1")
+    capturedQc.setQueryData(sidebarKey, sidebarData())
+    apiFetchMock.mockResolvedValueOnce(undefined)
+    const mod = await loadMod()
+    mod.useEditMessage()
+
+    await runMutation({
+      serverId: "s1",
+      channelId: "forum_1",
+      messageId: "opener_1",
+      content: "New title",
+      forumChannelId: "forum_1",
+      forumThreadId: "post_1",
+    })
+
+    expect(capturedQc.getQueryData<ReturnType<typeof sidebarData>>(sidebarKey)?.threads[0].title)
+      .toBe("New title")
+  })
 })
 
 // ── useSendMessage ────────────────────────────────────────────────────────
@@ -222,6 +259,47 @@ describe("useSendMessage — happy path", () => {
         }),
       }),
     )
+  })
+
+  it("re-ranks a loaded participating forum thread from the canonical send timestamp", async () => {
+    const sidebarKey = communityKeys.forumSidebarThreadsView("s1", "post_1")
+    capturedQc.setQueryData(sidebarKey, sidebarData())
+    apiFetchMock.mockResolvedValueOnce({ message: postedMessage("server_id_1", 9) })
+    const mod = await loadMod()
+    mod.useSendMessage()
+
+    await runMutation({
+      serverId: "s1",
+      channelId: "post_1",
+      forumParentChannelId: "forum_1",
+      content: "hi",
+      author: { id: "u_me", name: "me", avatar: "M" },
+    })
+
+    expect(capturedQc.getQueryData<ReturnType<typeof sidebarData>>(sidebarKey)?.threads[0])
+      .toMatchObject({
+        activityAt: "2026-08-07T10:00:00.000Z",
+        expiresAt: "2026-08-10T10:00:00.000Z",
+      })
+  })
+
+  it("invalidates the sidebar collection when a just-enrolled thread is not loaded", async () => {
+    const sidebarKey = communityKeys.forumSidebarThreadsView("s1", null)
+    const empty = { ...sidebarData(), threads: [] }
+    capturedQc.setQueryData(sidebarKey, empty)
+    apiFetchMock.mockResolvedValueOnce({ message: postedMessage("server_id_1", 9) })
+    const mod = await loadMod()
+    mod.useSendMessage()
+
+    await runMutation({
+      serverId: "s1",
+      channelId: "post_new",
+      forumParentChannelId: "forum_1",
+      content: "hi",
+      author: { id: "u_me", name: "me", avatar: "M" },
+    })
+
+    expect(capturedQc.getQueryState(sidebarKey)?.isInvalidated).toBe(true)
   })
 })
 

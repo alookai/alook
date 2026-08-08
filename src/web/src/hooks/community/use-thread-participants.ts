@@ -3,6 +3,10 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
+import {
+  removeForumSidebarThread,
+  type ForumSidebarQueryData,
+} from "@/hooks/community/use-forum-sidebar-threads"
 
 // The participant READ hook was retired: the post/thread member panel now reads
 // the unified `/members` endpoint (via `useChannelMembers`), which returns the
@@ -26,7 +30,7 @@ export function useAddThreadParticipant(channelId: string) {
 }
 
 /** Leave a thread/post (remove your own participation, or the creator removes someone). */
-export function useRemoveThreadParticipant(channelId: string) {
+export function useRemoveThreadParticipant(channelId: string, serverId?: string, viewerUserId?: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (userId: string) =>
@@ -34,8 +38,14 @@ export function useRemoveThreadParticipant(channelId: string) {
         `/api/community/channels/${encodeURIComponent(channelId)}/participants/${encodeURIComponent(userId)}`,
         { method: "DELETE" },
       ),
-    onSuccess: () => {
+    onSuccess: (_data, userId) => {
       void qc.invalidateQueries({ queryKey: communityKeys.channelMembers(channelId) })
+      if (serverId && userId === viewerUserId) {
+        qc.setQueriesData<ForumSidebarQueryData>(
+          { queryKey: communityKeys.forumSidebarThreads(serverId) },
+          (data) => removeForumSidebarThread(data, channelId),
+        )
+      }
     },
   })
 }

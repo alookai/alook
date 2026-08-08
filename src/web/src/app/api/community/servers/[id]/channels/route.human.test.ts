@@ -1,8 +1,11 @@
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 
 const mockGetMember = vi.fn()
 const mockListServerChannelsForViewer = vi.fn()
+const mockListParticipatingForumThreads = vi.fn()
+const mockGetMessagesByIds = vi.fn()
+const mockListUnreadChannels = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 vi.mock("@alook/shared", async () => {
@@ -15,6 +18,18 @@ vi.mock("@alook/shared", async () => {
       communityChannel: {
         ...actual.queries.communityChannel,
         listServerChannelsForViewer: (...args: unknown[]) => mockListServerChannelsForViewer(...args),
+      },
+      communityThread: {
+        ...actual.queries.communityThread,
+        listParticipatingForumThreads: (...args: unknown[]) => mockListParticipatingForumThreads(...args),
+      },
+      communityMessage: {
+        ...actual.queries.communityMessage,
+        getMessagesByIds: (...args: unknown[]) => mockGetMessagesByIds(...args),
+      },
+      communityInbox: {
+        ...actual.queries.communityInbox,
+        listUnreadChannels: (...args: unknown[]) => mockListUnreadChannels(...args),
       },
     },
   }
@@ -30,6 +45,11 @@ vi.mock("@/lib/middleware/community-actor", () => ({
 import { GET } from "./route"
 
 describe("GET /api/community/servers/[id]/channels — human resource", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockListUnreadChannels.mockResolvedValue([])
+  })
+
   it("returns only viewer-visible channel rows after one server membership gate", async () => {
     mockGetMember.mockResolvedValue({ id: "member_1", role: "member" })
     mockListServerChannelsForViewer.mockResolvedValue([{ id: "channel_1", serverId: "server_1", name: "general" }])
@@ -40,5 +60,63 @@ describe("GET /api/community/servers/[id]/channels — human resource", () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ channels: [{ id: "channel_1", serverId: "server_1", name: "general" }] })
     expect(mockListServerChannelsForViewer).toHaveBeenCalledWith(expect.anything(), "server_1", "user_1")
+  })
+
+  it("returns recent participating forum threads with opener messages and server-relative expiry", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-08-08T12:00:00.000Z"))
+    mockGetMember.mockResolvedValue({ id: "member_1", role: "member" })
+    mockListServerChannelsForViewer.mockResolvedValue([
+      { id: "forum_visible", serverId: "server_1", name: "Forum", type: "forum" },
+      { id: "text_visible", serverId: "server_1", name: "General", type: "text" },
+    ])
+    mockListParticipatingForumThreads.mockResolvedValue([{
+      id: "thread_1",
+      serverId: "server_1",
+      parentChannelId: "forum_visible",
+      parentMessageId: "message_1",
+      type: "thread",
+      activityAt: "2026-08-08T11:00:00.000Z",
+    }])
+    mockGetMessagesByIds.mockResolvedValue([{ id: "message_1", content: "Current title" }])
+    mockListUnreadChannels.mockResolvedValue([{ channelId: "thread_1" }])
+
+    try {
+      const response = await GET(
+        new NextRequest("http://localhost/api/community/servers/server_1/channels?type=thread&parentType=forum&participating=true&activeWithin=72h&limitPerParent=5&retainId=thread_1&include=parentMessage"),
+        { params: { id: "server_1" } } as never,
+      )
+      expect(response.status).toBe(200)
+      expect(mockListParticipatingForumThreads).toHaveBeenCalledWith(expect.anything(), {
+        parentChannelIds: ["forum_visible"],
+        userId: "user_1",
+        activeAfter: "2026-08-05T12:00:00.000Z",
+        limitPerParent: 5,
+        retainId: "thread_1",
+      })
+      expect(await response.json()).toEqual({
+        channels: [expect.objectContaining({
+          id: "thread_1",
+          expiresAt: "2026-08-11T11:00:00.000Z",
+          unread: true,
+        })],
+        included: { parentMessages: [{ id: "message_1", content: "Current title" }] },
+        serverNow: "2026-08-08T12:00:00.000Z",
+      })
+      expect(mockListUnreadChannels).toHaveBeenCalledWith(expect.anything(), "user_1", ["thread_1"])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("rejects a partial or oversized sidebar query without reading child threads", async () => {
+    mockGetMember.mockResolvedValue({ id: "member_1", role: "member" })
+    mockListServerChannelsForViewer.mockResolvedValue([])
+    const response = await GET(
+      new NextRequest("http://localhost/api/community/servers/server_1/channels?type=thread&limitPerParent=6"),
+      { params: { id: "server_1" } } as never,
+    )
+    expect(response.status).toBe(400)
+    expect(mockListParticipatingForumThreads).not.toHaveBeenCalled()
   })
 })

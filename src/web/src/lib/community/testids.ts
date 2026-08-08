@@ -35,6 +35,7 @@ export const tid = {
   // is the hover-revealed delete icon; `forumThreadAvatars` wraps the participant
   // AvatarGroup; `forumTagChip` is a filter-bar tag chip.
   forumThreadCard: (id: string) => `community-forum-post-${id}`,
+  forumSidebarThread: (id: string) => `community-forum-sidebar-thread-${id}`,
   forumThreadTagBtn: (id: string) => `community-forum-post-tag-btn-${id}`,
   forumThreadDeleteBtn: (id: string) => `community-forum-post-delete-btn-${id}`,
   forumThreadAvatars: (id: string) => `community-forum-post-avatars-${id}`,

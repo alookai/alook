@@ -7,8 +7,12 @@ vi.mock("@opennextjs/cloudflare", () => ({
 
 const mockResolveChannelAccessContext = vi.fn()
 const mockRemoveThreadParticipant = vi.fn()
+const mockBroadcastToUserSafe = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
+vi.mock("@/lib/community/fanout", () => ({
+  broadcastToUserSafe: (...args: unknown[]) => mockBroadcastToUserSafe(...args),
+}))
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -69,6 +73,12 @@ describe("DELETE /channels/[id]/participants/[userId] — leave", () => {
     const res = await DELETE(delReq(), { params: { id: "t1", userId: "u1" } } as any)
     expect(res.status).toBe(204)
     expect(mockRemoveThreadParticipant).toHaveBeenCalledWith(expect.anything(), "t1", "u1")
+    expect(mockBroadcastToUserSafe).toHaveBeenCalledWith("u1", {
+      type: "community:channel.member_remove",
+      serverId: "s1",
+      channelId: "t1",
+      userId: "u1",
+    })
   })
 
   it("thread creator can remove another participant", async () => {

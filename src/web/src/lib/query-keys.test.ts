@@ -31,6 +31,9 @@ describe("communityKeys", () => {
     expect(communityKeys.presence("s1")).toEqual([...server, "presence"])
     expect(communityKeys.auditLog("s1")).toEqual([...server, "audit-log"])
     expect(communityKeys.invites("s1")).toEqual([...server, "invites"])
+    const sidebar = [...server, "forum-sidebar-threads"]
+    expect(communityKeys.forumSidebarThreads("s1")).toEqual(sidebar)
+    expect(communityKeys.forumSidebarThreadsView("s1", "post_1")).toEqual([...sidebar, "post_1"])
   })
 
   it("nests channel-scoped keys under a stable channel prefix", () => {

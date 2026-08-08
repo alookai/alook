@@ -58,6 +58,14 @@ import type { CanonicalMessage } from "@/lib/community/message-stream"
 import type { MachinesResponse } from "@/hooks/community/use-machines"
 import type { ServersResponse, ServerDetail } from "@/hooks/community/use-servers"
 import { patchChannelUnread } from "@/hooks/community/server-detail-cache"
+import {
+  hasForumSidebarThread,
+  patchForumSidebarActivity,
+  patchForumSidebarTitle,
+  patchForumSidebarUnread,
+  removeForumSidebarThread,
+  type ForumSidebarQueryData,
+} from "@/hooks/community/use-forum-sidebar-threads"
 
 /**
  * Community WebSocket handler.
@@ -420,6 +428,29 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           // regular channel (`ch:`) so the pill clears in the right bucket.
           clearTypingIndicator(typingScopeKey(event, sub), event.message.authorId)
 
+          // Participation, not unread state, is the sidebar truth. A child
+          // message reaches every notify member even when muted; use its
+          // explicit server/parent metadata to re-rank a loaded row without a
+          // GET, or refetch when the active post is currently absent/expired.
+          if (event.serverId && event.parentChannelId) {
+            const key = communityKeys.forumSidebarThreads(event.serverId)
+            const cached = queryClient.getQueriesData<ForumSidebarQueryData>({ queryKey: key })
+            const loaded = cached.some(([, data]) => hasForumSidebarThread(data, event.channelId))
+            if (loaded) {
+              queryClient.setQueriesData<ForumSidebarQueryData>(
+                { queryKey: key },
+                (data) => patchForumSidebarActivity(
+                  data,
+                  event.channelId,
+                  event.parentChannelId!,
+                  event.message.createdAt,
+                ),
+              )
+            } else {
+              void queryClient.invalidateQueries({ queryKey: key })
+            }
+          }
+
           // 1) A child channel enrolls its sender and mentioned users in its
           //    member set server-side, so refresh an open child roster live.
           if (
@@ -469,23 +500,34 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
         // defensively).
         case "community:unread.bump": {
           const viewerId = viewerUserIdRef.current
-          // The sidebar row to light: a child-thread message has no
-          // independent tree row, so its dot lights the PARENT channel
-          // (`railChannelId`); a plain channel is its own row. Fall back to
-          // `channelId` for older frames that predate `railChannelId`.
+          // `railChannelId` is the always-locatable fallback. A participating
+          // forum child now has its own nested row, so prefer that row when it
+          // is loaded; ordinary/expired children continue to light the parent.
           const railChannelId = event.railChannelId ?? event.channelId
+          const targetServerId =
+            event.serverId ?? useCommunityStore.getState().currentServerId
+          const sidebarKey = targetServerId
+            ? communityKeys.forumSidebarThreads(targetServerId)
+            : null
+          const hasChildSidebarRow = !!sidebarKey && event.channelId !== railChannelId &&
+            queryClient.getQueriesData<ForumSidebarQueryData>({ queryKey: sidebarKey })
+              .some(([, data]) => hasForumSidebarThread(data, event.channelId))
+          const sidebarChannelId = hasChildSidebarRow ? event.channelId : railChannelId
           // Suppress the dot for the channel the viewer is actually looking at
           // (its unread clears on read anyway) — compare against the ROW being
           // lit, so a thread bump whose parent is open still suppresses.
-          if (event.userId === viewerId && railChannelId !== sub.channelId) {
+          if (event.userId === viewerId && sidebarChannelId !== sub.channelId) {
             // Channel-tree dot: patch the RIGHT server's detail. `serverId`
             // (inbox-dot-ws-driven) lets an other-server message light its dot
             // — previously only the open server was patched, so cross-server
             // bumps never lit. Absent serverId (DM bump / older frame) → fall
             // back to the currently-open server (backward-compatible).
-            const targetServerId =
-              event.serverId ?? useCommunityStore.getState().currentServerId
-            if (targetServerId) {
+            if (hasChildSidebarRow && sidebarKey) {
+              queryClient.setQueriesData<ForumSidebarQueryData>(
+                { queryKey: sidebarKey },
+                (data) => patchForumSidebarUnread(data, event.channelId, true),
+              )
+            } else if (targetServerId) {
               queryClient.setQueryData<ServerDetail | undefined>(
                 communityKeys.server(targetServerId),
                 (cache) => patchChannelUnread(cache, railChannelId, true),
@@ -682,6 +724,28 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             // child_update — sync counts/name on the parent message's thread
             // indicator if the update carries them.
             const changes = event.changes
+            const sidebarServerId = useCommunityStore.getState().currentServerId
+            if (sidebarServerId) {
+              const sidebarKey = communityKeys.forumSidebarThreads(sidebarServerId)
+              if (changes.archived === true) {
+                queryClient.setQueriesData<ForumSidebarQueryData>(
+                  { queryKey: sidebarKey },
+                  (data) => removeForumSidebarThread(data, event.channelId),
+                )
+              } else if (changes.archived === false) {
+                void queryClient.invalidateQueries({ queryKey: sidebarKey })
+              } else if (changes.lastMessageAt) {
+                queryClient.setQueriesData<ForumSidebarQueryData>(
+                  { queryKey: sidebarKey },
+                  (data) => patchForumSidebarActivity(
+                    data,
+                    event.channelId,
+                    event.parentChannelId,
+                    changes.lastMessageAt!,
+                  ),
+                )
+              }
+            }
             if (changes.messageCount !== undefined || changes.name !== undefined) {
               queryClient.setQueriesData<PageCache>(
                 { queryKey: communityKeys.channelMessages(event.parentChannelId) },
@@ -833,6 +897,10 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             queryClient.removeQueries({
               queryKey: communityKeys.threads(event.channelId),
             })
+            queryClient.setQueriesData<ForumSidebarQueryData>(
+              { queryKey: communityKeys.forumSidebarThreads(event.serverId) },
+              (data) => removeForumSidebarThread(data, event.channelId),
+            )
             // When a child thread is deleted, refresh the
             // PARENT's list so the deleted card disappears from the feed on
             // every client. Absent on older events / top-level channels.
@@ -879,6 +947,17 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             queryClient.removeQueries({ queryKey: communityKeys.channelMessages(event.channelId) })
             queryClient.removeQueries({ queryKey: communityKeys.pins(event.channelId) })
             queryClient.removeQueries({ queryKey: communityKeys.threads(event.channelId) })
+            queryClient.setQueriesData<ForumSidebarQueryData>(
+              { queryKey: communityKeys.forumSidebarThreads(event.serverId) },
+              (data) => removeForumSidebarThread(data, event.channelId),
+            )
+          } else if (
+            event.type === "community:channel.member_add" &&
+            event.userId === viewerUserIdRef.current
+          ) {
+            void queryClient.invalidateQueries({
+              queryKey: communityKeys.forumSidebarThreads(event.serverId),
+            })
           }
           void queryClient.invalidateQueries({ queryKey: communityKeys.server(event.serverId) })
           // Refetch the channel roster so an open private-channel Members drawer
@@ -1062,6 +1141,13 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             void queryClient.invalidateQueries({
               queryKey: communityKeys.channelMessages(event.parentChannelId),
             })
+            const serverId = useCommunityStore.getState().currentServerId
+            if (serverId) {
+              queryClient.setQueriesData<ForumSidebarQueryData>(
+                { queryKey: communityKeys.forumSidebarThreads(serverId) },
+                (data) => patchForumSidebarTitle(data, event.channelId, event.content),
+              )
+            }
           }
           return
         }

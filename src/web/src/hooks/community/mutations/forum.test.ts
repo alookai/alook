@@ -200,13 +200,19 @@ describe("useDeleteForumThread", () => {
 
     capturedQc.setQueryData(communityKeys.channelMessages("forum_1"), { pages: [], pageParams: [] })
     capturedQc.setQueryData(communityKeys.forumActivityFeed("forum_1", null), { pages: [], pageParams: [] })
+    const sidebarKey = communityKeys.forumSidebarThreadsView("server_1", "p2")
+    capturedQc.setQueryData(sidebarKey, {
+      channels: [], included: { parentMessages: [] }, serverNow: "2026-08-08T00:00:00.000Z",
+      threads: [{ id: "p2", parentChannelId: "forum_1" }],
+    })
     apiFetchMock.mockResolvedValueOnce(undefined)
 
-    await runMutation({ forumChannelId: "forum_1", threadId: "p2" })
+    await runMutation({ serverId: "server_1", forumChannelId: "forum_1", threadId: "p2" })
 
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/p2", { method: "DELETE" })
     expect(capturedQc.getQueryState(communityKeys.channelMessages("forum_1"))?.isInvalidated).toBe(true)
     expect(capturedQc.getQueryState(communityKeys.forumActivityFeed("forum_1", null))?.isInvalidated).toBe(true)
+    expect(capturedQc.getQueryData<{ threads: unknown[] }>(sidebarKey)?.threads).toEqual([])
   })
 
   it("leaves the cache untouched when the DELETE fails", async () => {
@@ -218,7 +224,7 @@ describe("useDeleteForumThread", () => {
     capturedQc.setQueryData(communityKeys.forumActivityFeed("forum_1", null), before)
     apiFetchMock.mockRejectedValueOnce(new Error("500"))
 
-    await runMutationExpectError({ forumChannelId: "forum_1", threadId: "p2" })
+    await runMutationExpectError({ serverId: "server_1", forumChannelId: "forum_1", threadId: "p2" })
 
     expect(capturedQc.getQueryData(communityKeys.channelMessages("forum_1"))).toEqual(before)
     expect(capturedQc.getQueryData(communityKeys.forumActivityFeed("forum_1", null))).toEqual(before)

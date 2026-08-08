@@ -483,9 +483,34 @@ describe("createCommunityMessage — attachment width/height reach the live WS b
 
     expect(mockFanOutToChannel).toHaveBeenCalledTimes(1)
     const [, event] = mockFanOutToChannel.mock.calls[0]!
+    expect(event).toMatchObject({ serverId: "srv_1" })
     expect(event.message.attachments).toEqual([
       expect.objectContaining({ width: 1920, height: 1080 }),
     ])
+  })
+
+  it("includes server + parent metadata for a child message so server-scoped sidebars can patch", async () => {
+    mockCreateMessage.mockResolvedValue({ id: "msg_1" })
+    mockGetMessage.mockResolvedValue(messageRow())
+
+    await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: {
+        kind: "thread",
+        channelId: "post_1",
+        serverId: "srv_1",
+        parentChannelId: "forum_1",
+      },
+      body: { content: "reply" },
+    })
+
+    expect(mockFanOutToChannel.mock.calls[0]?.[1]).toMatchObject({
+      type: "community:message.create",
+      channelId: "post_1",
+      serverId: "srv_1",
+      parentChannelId: "forum_1",
+    })
   })
 })
 

@@ -136,7 +136,7 @@ export function useChannelMemberViewModel({
   const addChannelMemberMut = useAddChannelMember(channelId)
   const removeChannelMemberMut = useRemoveChannelMember(channelId)
   const addThreadParticipantMut = useAddThreadParticipant(channelId)
-  const removeThreadParticipantMut = useRemoveThreadParticipant(channelId)
+  const removeThreadParticipantMut = useRemoveThreadParticipant(channelId, serverId, currentUser.id)
   const setMemberRoleMut = useSetMemberRole()
   const kickMemberMut = useKickMember()
 

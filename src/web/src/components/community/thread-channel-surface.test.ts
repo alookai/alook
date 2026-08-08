@@ -346,6 +346,7 @@ describe("ThreadChannelSurface ownership", () => {
       messageId: "opener_1",
       content: "Renamed post",
       forumChannelId: "parent_1",
+      forumThreadId: "thread_1",
     })
 
     act(() => {

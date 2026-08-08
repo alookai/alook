@@ -127,6 +127,44 @@ describe("listForumThreadsByActivity against real SQLite", () => {
 
     expect(rows.map((row) => row.userId)).toEqual(["A", "a"]);
   });
+
+  it("returns per-forum recent notify rows and retains an older open post", async () => {
+    sqlite.prepare("INSERT INTO user (id, name) VALUES (?, ?)").run("viewer", "Viewer");
+    const insertMember = sqlite.prepare(`
+      INSERT INTO community_channel_member
+        (id, channel_id, user_id, relation, source, added_at)
+      VALUES (?, ?, 'viewer', 'notify', 'spoke', '2026-08-08T00:00:00.000Z')
+    `);
+    for (const id of ["t_new", "t_tie_b", "t_tie_a", "t_created", "t_archived", "foreign"]) {
+      insertMember.run(`member_${id}`, id);
+    }
+
+    const recent = await threadQueries.listParticipatingForumThreads(db as never, {
+      parentChannelIds: ["forum_1", "forum_2"],
+      userId: "viewer",
+      activeAfter: "2026-08-08T03:00:00.000Z",
+      limitPerParent: 2,
+    });
+    expect(recent.map((row) => row.id)).toEqual(["t_new", "t_tie_b", "foreign"]);
+
+    const retained = await threadQueries.listParticipatingForumThreads(db as never, {
+      parentChannelIds: ["forum_1", "forum_2"],
+      userId: "viewer",
+      activeAfter: "2026-08-08T03:00:00.000Z",
+      limitPerParent: 2,
+      retainId: "t_created",
+    });
+    expect(retained.map((row) => row.id)).toEqual(["t_new", "t_created", "foreign"]);
+
+    const outOfScopeRetained = await threadQueries.listParticipatingForumThreads(db as never, {
+      parentChannelIds: ["forum_1"],
+      userId: "viewer",
+      activeAfter: "2026-08-08T03:00:00.000Z",
+      limitPerParent: 2,
+      retainId: "foreign",
+    });
+    expect(outOfScopeRetained.map((row) => row.id)).toEqual(["t_new", "t_tie_b"]);
+  });
 });
 
 describe("addThreadParticipant", () => {
@@ -213,6 +251,27 @@ describe("listParticipantsForChannels — D1 bind cap", () => {
     );
 
     expect(paramCounts).toHaveLength(2);
+    expect(Math.max(...paramCounts)).toBeLessThanOrEqual(D1_MAX_BIND_PARAMS);
+  });
+});
+
+describe("listParticipatingForumThreads — D1 bind cap", () => {
+  it("chunks 100 visible forum ids so ranked and retained statements stay within 100 binds", async () => {
+    const paramCounts: number[] = [];
+    const db = drizzleProxy(async (_sql, params) => {
+      paramCounts.push(params.length);
+      return { rows: [] };
+    });
+
+    await threadQueries.listParticipatingForumThreads(db as never, {
+      parentChannelIds: Array.from({ length: 100 }, (_, i) => `forum_${i}`),
+      userId: "viewer_1",
+      activeAfter: "2026-08-05T00:00:00.000Z",
+      limitPerParent: 5,
+      retainId: "thread_1",
+    });
+
+    expect(paramCounts).toHaveLength(4);
     expect(Math.max(...paramCounts)).toBeLessThanOrEqual(D1_MAX_BIND_PARAMS);
   });
 });

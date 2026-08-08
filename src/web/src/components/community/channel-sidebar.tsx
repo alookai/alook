@@ -1,6 +1,6 @@
 "use client"
 
-import { memo, useRef, useState } from "react"
+import { Fragment, memo, useRef, useState } from "react"
 import { Settings, Users, Link2, Bell, ScrollText, ChevronDown, UserPlus } from "lucide-react"
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors,
@@ -19,6 +19,8 @@ import { InviteDialog } from "./invite-dialog"
 import { ChannelAddMembersDialog } from "./channel-add-members-dialog"
 import type { Channel, SettingsSection } from "./_types"
 import { UNCATEGORIZED_CATEGORY_ID, type ChannelType } from "@alook/shared"
+import { tid } from "@/lib/community/testids"
+import type { ForumSidebarThread } from "@/hooks/community/use-forum-sidebar-threads"
 
 
 type Dialog =
@@ -40,6 +42,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
   onUpdateCategory, onRenameChannel, onReorderCategories, onReorderChannels,
   onMoveChannel, onBlockedMove,
   serverId, invitePopoverOpen, onInvitePopoverOpenChange,
+  forumThreadsByParent = {}, activeThreadId, onSelectForumThread,
 }: {
   tree: ChannelTree
   serverName: string
@@ -66,6 +69,9 @@ export const ChannelSidebar = memo(function ChannelSidebar({
   serverId?: string
   invitePopoverOpen?: boolean
   onInvitePopoverOpenChange?: (open: boolean) => void
+  forumThreadsByParent?: Record<string, ForumSidebarThread[]>
+  activeThreadId?: string | null
+  onSelectForumThread?: (id: string) => void
 }) {
   const { collapsed, catOrder, order, catNames, catPrivate, catPending, toggleCat, removeChannel, renameChannel, renameCategory, onDragOver, onDragEnd: treeDragEnd } = tree
   // Category the dragged channel started in — captured at drag start, because
@@ -136,6 +142,49 @@ export const ChannelSidebar = memo(function ChannelSidebar({
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
   const [dialog, setDialog] = useState<Dialog>(null)
   const withMute = (ch: Channel): Channel => mutedChannels && ch.id in mutedChannels ? { ...ch, muted: mutedChannels[ch.id] } : ch
+  const hasActiveSidebarThread = !!activeThreadId && Object.values(forumThreadsByParent)
+    .some((threads) => threads.some((thread) => thread.id === activeThreadId))
+  const childRows = (parentId: string) => {
+    const threads = forumThreadsByParent[parentId] ?? []
+    if (threads.length === 0) return null
+    const rowHeight = 28
+    const branchY = (index: number) => index * rowHeight + rowHeight / 2
+    const lastY = branchY(threads.length - 1)
+    const connectorPath = [
+      `M 1 0 V ${lastY - 6} Q 1 ${lastY} 7 ${lastY} H 16`,
+      ...threads.slice(0, -1).map((_, index) => `M 1 ${branchY(index)} H 16`),
+    ].join(" ")
+    return (
+      <div className="relative mt-0! ml-5">
+        <svg
+          aria-hidden="true"
+          viewBox={`0 0 16 ${threads.length * rowHeight}`}
+          preserveAspectRatio="none"
+          className="pointer-events-none absolute top-0 left-0 w-4 text-muted-foreground/60"
+          style={{ height: threads.length * rowHeight }}
+        >
+          <path
+            d={connectorPath}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            vectorEffect="non-scaling-stroke"
+          />
+        </svg>
+        {threads.map((thread) => (
+          <ForumSidebarThreadRow
+            key={thread.id}
+            thread={thread}
+            active={thread.id === activeThreadId}
+            muted={!!mutedChannels?.[parentId]}
+            onClick={() => onSelectForumThread?.(thread.id)}
+          />
+        ))}
+      </div>
+    )
+  }
 
   // Find the "none" category ID (empty name) — only if one explicitly exists
   const noneCatId = Object.keys(catNames).find((id) => catNames[id] === "") ?? ""
@@ -175,15 +224,17 @@ export const ChannelSidebar = memo(function ChannelSidebar({
             {order[noneCatId].map((ch) => ch.pending ? (
               <PendingChannelRow key={ch.id} ch={ch} />
             ) : (
-              <SortableChannel
-                key={ch.id}
-                ch={withMute(ch)}
-                active={ch.id === activeChannel}
-                canReorder={isAdmin}
-                onClick={() => setActiveChannel(ch.id)}
-                onEdit={isAdmin ? () => setDialog({ kind: "edit-channel", id: ch.id, categoryId: noneCatId, name: ch.name, type: ch.type ?? "text" }) : undefined}
-                onDelete={isAdmin ? () => { removeChannel(ch.id); onDeleteChannel?.(ch.id) } : undefined}
-              />
+              <Fragment key={ch.id}>
+                <SortableChannel
+                  ch={withMute(ch)}
+                  active={ch.id === activeChannel && !hasActiveSidebarThread}
+                  canReorder={isAdmin}
+                  onClick={() => setActiveChannel(ch.id)}
+                  onEdit={isAdmin ? () => setDialog({ kind: "edit-channel", id: ch.id, categoryId: noneCatId, name: ch.name, type: ch.type ?? "text" }) : undefined}
+                  onDelete={isAdmin ? () => { removeChannel(ch.id); onDeleteChannel?.(ch.id) } : undefined}
+                />
+                {childRows(ch.id)}
+              </Fragment>
             ))}
           </div>
         </SortableContext>
@@ -213,16 +264,18 @@ export const ChannelSidebar = memo(function ChannelSidebar({
                   // Public-category channels are admin-managed only.
                   const canManageChannel = isAdmin || (!!catPrivate[id] && ch.creatorId === currentUserId)
                   return (
-                    <SortableChannel
-                      key={ch.id}
-                      ch={withMute(ch)}
-                      active={ch.id === activeChannel}
-                      canReorder={isAdmin}
-                      onClick={() => setActiveChannel(ch.id)}
-                      onEdit={canManageChannel ? () => setDialog({ kind: "edit-channel", id: ch.id, categoryId: id, name: ch.name, type: ch.type ?? "text" }) : undefined}
-                      onDelete={canManageChannel ? () => { removeChannel(ch.id); onDeleteChannel?.(ch.id) } : undefined}
-                      onManageMembers={(catPrivate[id] && canManageChannel) ? () => setDialog({ kind: "manage-members", channelId: ch.id, channelName: ch.name }) : undefined}
-                    />
+                    <Fragment key={ch.id}>
+                      <SortableChannel
+                        ch={withMute(ch)}
+                        active={ch.id === activeChannel && !hasActiveSidebarThread}
+                        canReorder={isAdmin}
+                        onClick={() => setActiveChannel(ch.id)}
+                        onEdit={canManageChannel ? () => setDialog({ kind: "edit-channel", id: ch.id, categoryId: id, name: ch.name, type: ch.type ?? "text" }) : undefined}
+                        onDelete={canManageChannel ? () => { removeChannel(ch.id); onDeleteChannel?.(ch.id) } : undefined}
+                        onManageMembers={(catPrivate[id] && canManageChannel) ? () => setDialog({ kind: "manage-members", channelId: ch.id, channelName: ch.name }) : undefined}
+                      />
+                      {childRows(ch.id)}
+                    </Fragment>
                   )
                 })}
               </div>
@@ -338,6 +391,48 @@ export const ChannelSidebar = memo(function ChannelSidebar({
     </aside>
   )
 })
+
+function ForumSidebarThreadRow({
+  thread,
+  active,
+  muted,
+  onClick,
+}: {
+  thread: ForumSidebarThread
+  active: boolean
+  muted: boolean
+  onClick: () => void
+}) {
+  return (
+    <div className="relative h-7">
+      <button
+        type="button"
+        data-testid={tid.forumSidebarThread(thread.id)}
+        aria-current={active ? "page" : undefined}
+        onClick={onClick}
+        onContextMenu={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+        }}
+        className={[
+          "ml-4 flex h-7 w-[calc(100%-1rem)] min-w-0 items-center rounded-md px-2 text-left text-xs",
+          active
+            ? "bg-sidebar-accent text-foreground"
+            : muted
+              ? "text-muted-foreground/50 hover:bg-sidebar-accent/60 hover:text-muted-foreground"
+              : thread.unread
+                ? "font-semibold text-foreground hover:bg-sidebar-accent/60"
+            : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+        ].join(" ")}
+      >
+        <span className="truncate">{thread.title}</span>
+        {!muted && thread.unread && !active ? (
+          <span className="ml-auto size-2 shrink-0 rounded-full bg-primary" />
+        ) : null}
+      </button>
+    </div>
+  )
+}
 
 // Loading placeholder for the channel sidebar. Kept colocated so changes to
 // row density or header height stay in sync with the live sidebar above.

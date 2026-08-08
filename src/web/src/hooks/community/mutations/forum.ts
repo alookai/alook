@@ -5,6 +5,10 @@ import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type { UploadedAttachment } from "@/hooks/community/mutations/uploads"
 import type { MentionType } from "@alook/shared"
+import {
+  removeForumSidebarThread,
+  type ForumSidebarQueryData,
+} from "@/hooks/community/use-forum-sidebar-threads"
 
 export type CreateForumThreadArgs = {
   nonce: string
@@ -89,6 +93,7 @@ export function useUpdatePostTags() {
 }
 
 export type DeleteForumThreadArgs = {
+  serverId: string
   // The parent forum channel — the cache key the post list lives under.
   forumChannelId: string
   // The post channel being deleted.
@@ -110,6 +115,10 @@ export function useDeleteForumThread() {
     onSuccess: (_data, args) => {
       void queryClient.invalidateQueries({ queryKey: communityKeys.channelMessages(args.forumChannelId) })
       void queryClient.invalidateQueries({ queryKey: communityKeys.threads(args.forumChannelId) })
+      queryClient.setQueriesData<ForumSidebarQueryData>(
+        { queryKey: communityKeys.forumSidebarThreads(args.serverId) },
+        (data) => removeForumSidebarThread(data, args.threadId),
+      )
     },
   })
 }
