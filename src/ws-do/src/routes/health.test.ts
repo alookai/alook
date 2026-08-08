@@ -5,7 +5,7 @@ import {
   getSharedMocks,
   type RouterHandler,
   type RouterTestContext,
-} from "./routes/test-harness"
+} from "./test-harness"
 
 const sharedMocks = getSharedMocks()
 const mockHashCredential = sharedMocks.hashCredential
@@ -43,29 +43,12 @@ describe("ws-do router", () => {
     handler = undefined as unknown as RouterHandler
   })
 
-  describe("root contract", () => {
-    it("exports exactly the two Durable Object classes and the default fetch handler", async () => {
-      const routerModule = await import("./index")
+  describe("GET /health", () => {
+    it("returns the exact health response", async () => {
+      const res = await handler.fetch(new Request("http://localhost/health"), env as any)
 
-      expect(Object.keys(routerModule).sort()).toEqual([
-        "RateLimitDurableObject",
-        "WebSocketDurableObject",
-        "default",
-      ])
-      expect(Object.keys(routerModule.default)).toEqual(["fetch"])
-    })
-
-    it("falls through a known path with the wrong method to the websocket/default routing", async () => {
-      doMock.stubFetch.mockResolvedValue(new Response("fallback"))
-      const req = new Request("http://localhost/rate-limit/check?userId=user-fallback", {
-        method: "GET",
-      })
-
-      const res = await handler.fetch(req, env as any)
-
-      expect(doMock.idFromName).toHaveBeenCalledWith("user:user-fallback")
-      expect(doMock.stubFetch).toHaveBeenCalledWith(req)
-      expect(await res.text()).toBe("fallback")
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ status: "ok" })
     })
   })
 })
