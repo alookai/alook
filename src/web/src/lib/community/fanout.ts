@@ -2,11 +2,11 @@
  * Server-side fan-out helpers for community real-time events.
  *
  * Each function resolves the recipient set via D1 queries,
- * then POSTs the event to each user's per-user DO via the existing
- * broadcast service binding (WS_DO_WORKER -> /broadcast/user/<userId>).
+ * then sends one bounded bulk request through the existing broadcast
+ * service binding (WS_DO_WORKER -> /broadcast/users).
  *
- * Uses the same `broadcastToUser` function that existing code uses,
- * ensuring consistent service-binding -> HTTP fallback behavior.
+ * The bulk helper uses the same service-binding -> HTTP fallback behavior
+ * as the compatibility single-user helper.
  *
  * Contract: these helpers absorb all failures internally and never reject.
  * Routes call them as fire-and-forget statements without `.catch()`.
@@ -16,7 +16,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries, createLogger, WS_EVENTS, withD1Retry } from "@alook/shared"
 import type { CommunityWsEvent, Database } from "@alook/shared"
 import { getDb } from "../db"
-import { broadcastToUser } from "../broadcast"
+import { broadcastToUser, broadcastToUsers } from "../broadcast"
 import { enqueueBotWakes, type WakeMessageRow } from "./wake-producer"
 
 const log = createLogger({ service: "community-fanout" })
@@ -289,17 +289,14 @@ async function broadcastToRecipients(
   event: BroadcastableEvent,
   excludeUserId?: string
 ): Promise<void> {
-  const recipients = excludeUserId
-    ? userIds.filter((id) => id !== excludeUserId)
-    : userIds
-
-  if (recipients.length === 0) return
-
-  // Fire all broadcasts concurrently — non-blocking via waitUntil in broadcastToUser
-  const promises = recipients.map((userId) =>
-    broadcastToUser(userId, event).catch((err) => {
-      log.warn("broadcastToRecipient failed", { userId, type: event.type, err: String(err) })
+  if (userIds.length === 0) return
+  try {
+    await broadcastToUsers(userIds, event, excludeUserId)
+  } catch (err) {
+    log.warn("broadcast_to_recipients_failed", {
+      recipientCount: userIds.length,
+      type: event.type,
+      err: String(err),
     })
-  )
-  await Promise.all(promises)
+  }
 }

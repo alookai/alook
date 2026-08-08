@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { readFileSync } from "node:fs"
 import {
   createRouterTestContext,
   loadRouter,
@@ -58,6 +59,42 @@ describe("ws-do router", () => {
     it("falls through a known path with the wrong method to the websocket/default routing", async () => {
       doMock.stubFetch.mockResolvedValue(new Response("fallback"))
       const req = new Request("http://localhost/rate-limit/check?userId=user-fallback", {
+        method: "GET",
+      })
+
+      const res = await handler.fetch(req, env as any)
+
+      expect(doMock.idFromName).toHaveBeenCalledWith("user:user-fallback")
+      expect(doMock.stubFetch).toHaveBeenCalledWith(req)
+      expect(await res.text()).toBe("fallback")
+    })
+
+    it("keeps every old handler in order and inserts bulk broadcast immediately after singular user", () => {
+      const source = readFileSync("src/index.ts", "utf8")
+      const orderedHandlers = [...source.matchAll(/response = await (handle\w+)\(context\)/g)]
+        .map((match) => match[1])
+
+      expect(orderedHandlers).toEqual([
+        "handleDaemonBroadcast",
+        "handleUserBroadcast",
+        "handleUsersBroadcast",
+        "handleAuditBroadcast",
+        "handleBatchPresence",
+        "handleSinglePresence",
+        "handleMachinePush",
+        "handleMachineWake",
+        "handleMachineReset",
+        "handleMachineBatchReset",
+        "handleMachineModelSwitch",
+        "handleMachineProviderSwitch",
+        "handleMachineNap",
+        "handleMachineForceClose",
+      ])
+    })
+
+    it("sends a wrong-method bulk path through the existing upgrade fallback", async () => {
+      doMock.stubFetch.mockResolvedValue(new Response("fallback"))
+      const req = new Request("http://localhost/broadcast/users?userId=user-fallback", {
         method: "GET",
       })
 

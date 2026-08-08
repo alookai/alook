@@ -56,8 +56,10 @@ vi.mock("../db", () => ({
 }))
 
 const mockBroadcastToUser = vi.fn()
+const mockBroadcastToUsers = vi.fn()
 vi.mock("../broadcast", () => ({
   broadcastToUser: (...a: unknown[]) => mockBroadcastToUser(...a),
+  broadcastToUsers: (...a: unknown[]) => mockBroadcastToUsers(...a),
 }))
 
 const mockEnqueueBotWakes = vi.fn()
@@ -94,6 +96,7 @@ describe("fanOutToServerMembers", () => {
     vi.clearAllMocks()
     mockGetCloudflareContext.mockImplementation(() => ({ env: { DB: {} } }))
     mockBroadcastToUser.mockResolvedValue(undefined)
+    mockBroadcastToUsers.mockResolvedValue(undefined)
     mockWithD1Retry.mockImplementation(async (fn: () => Promise<unknown>, _opts?: unknown) => fn())
     mockResolveChannelRecipientUserIds.mockResolvedValue([])
     // Default to a non-thread channel so fan-out uses the shared resolver path;
@@ -120,9 +123,13 @@ describe("fanOutToServerMembers", () => {
     expect(mockListMemberUserIds).toHaveBeenCalledTimes(1)
     expect(mockListMembers).not.toHaveBeenCalled()
 
-    expect(mockBroadcastToUser).toHaveBeenCalledTimes(4)
-    const targets = mockBroadcastToUser.mock.calls.map((c) => c[0]).sort()
-    expect(targets).toEqual(["u2", "u3", "u4", "u5"])
+    expect(mockBroadcastToUsers).toHaveBeenCalledTimes(1)
+    expect(mockBroadcastToUsers).toHaveBeenCalledWith(
+      ["u1", "u2", "u3", "u4", "u5"],
+      expect.objectContaining({ type: WS_EVENTS.MEMBER_UPDATE }),
+      "u1",
+    )
+    expect(mockBroadcastToUser).not.toHaveBeenCalled()
   })
 
   it("broadcasts to every recipient when excludeUserId is absent", async () => {
@@ -135,7 +142,12 @@ describe("fanOutToServerMembers", () => {
       changes: { role: "admin" },
     })
 
-    expect(mockBroadcastToUser).toHaveBeenCalledTimes(3)
+    expect(mockBroadcastToUsers).toHaveBeenCalledTimes(1)
+    expect(mockBroadcastToUsers).toHaveBeenCalledWith(
+      ["u1", "u2", "u3"],
+      expect.objectContaining({ type: WS_EVENTS.MEMBER_UPDATE }),
+      undefined,
+    )
   })
 
   it("fanOutToChannel resolves recipients via the shared channel recipient resolver", async () => {
@@ -155,7 +167,7 @@ describe("fanOutToServerMembers", () => {
     )
     expect(mockGetChannel).not.toHaveBeenCalled()
     expect(mockListMembers).not.toHaveBeenCalled()
-    expect(mockBroadcastToUser).toHaveBeenCalledTimes(2)
+    expect(mockBroadcastToUsers).toHaveBeenCalledTimes(1)
   })
 
   it("fanOutToChannel routes a DM to its access members (not the empty server-scoped resolver)", async () => {
@@ -175,9 +187,11 @@ describe("fanOutToServerMembers", () => {
       "dm1",
       expect.any(Function),
     )
-    // u1 excluded → only the peer receives the frame.
-    expect(mockBroadcastToUser).toHaveBeenCalledTimes(1)
-    expect(mockBroadcastToUser.mock.calls[0][0]).toBe("u2")
+    expect(mockBroadcastToUsers).toHaveBeenCalledWith(
+      ["u1", "u2"],
+      expect.objectContaining({ type: WS_EVENTS.MESSAGE_CREATE }),
+      "u1",
+    )
   })
 
   it("fanOutToChannel routes a THREAD to its participant set (not the channel audience)", async () => {
@@ -194,7 +208,7 @@ describe("fanOutToServerMembers", () => {
       "t1",
       expect.any(Function),
     )
-    expect(mockBroadcastToUser).toHaveBeenCalledTimes(2)
+    expect(mockBroadcastToUsers).toHaveBeenCalledTimes(1)
   })
 
   it("keeps Web type and selected-branch retries as two independently labelled phases", async () => {
@@ -260,6 +274,7 @@ describe("fanOutStatusUpdate", () => {
     vi.clearAllMocks()
     mockGetCloudflareContext.mockImplementation(() => ({ env: { DB: {} } }))
     mockBroadcastToUser.mockResolvedValue(undefined)
+    mockBroadcastToUsers.mockResolvedValue(undefined)
     // Default to a non-thread channel so fan-out uses the shared resolver path;
     // the thread test overrides this. (clearAllMocks resets call history, not
     // the resolved-value impl, so re-assert the default each test.)
@@ -274,17 +289,17 @@ describe("fanOutStatusUpdate", () => {
 
     expect(mockGetCoMemberUserIds).toHaveBeenCalledWith(expect.anything(), "self1")
     expect(mockGetFriendUserIds).toHaveBeenCalledWith(expect.anything(), "self1")
-    expect(mockBroadcastToUser).toHaveBeenCalledTimes(3)
-    const targets = mockBroadcastToUser.mock.calls.map((c) => c[0]).sort()
-    expect(targets).toEqual(["u1", "u2", "u3"])
-    for (const call of mockBroadcastToUser.mock.calls) {
-      expect(call[1]).toEqual({
+    expect(mockBroadcastToUsers).toHaveBeenCalledTimes(1)
+    expect(mockBroadcastToUsers).toHaveBeenCalledWith(
+      ["u1", "u2", "u3"],
+      {
         type: "community:status.update",
         userId: "self1",
         statusEmoji: "🎧",
         statusText: "Vibing",
-      })
-    }
+      },
+      undefined,
+    )
   })
 
   it("does not broadcast when the audience is empty", async () => {
@@ -293,7 +308,7 @@ describe("fanOutStatusUpdate", () => {
 
     await fanOutStatusUpdate("self1", null, null)
 
-    expect(mockBroadcastToUser).not.toHaveBeenCalled()
+    expect(mockBroadcastToUsers).not.toHaveBeenCalled()
   })
 
   it("never throws — absorbs a DB error and logs a warning", async () => {
@@ -320,6 +335,7 @@ describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for ME
     vi.clearAllMocks()
     mockGetCloudflareContext.mockImplementation(() => ({ env: { DB: {} } }))
     mockBroadcastToUser.mockResolvedValue(undefined)
+    mockBroadcastToUsers.mockResolvedValue(undefined)
     mockEnqueueBotWakes.mockResolvedValue(undefined)
   })
 
@@ -342,7 +358,7 @@ describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for ME
 
   it("starts wake enqueue before a slow recipient broadcast settles", async () => {
     let releaseBroadcast!: () => void
-    mockBroadcastToUser.mockImplementation(
+    mockBroadcastToUsers.mockImplementation(
       () => new Promise<void>((resolve) => {
         releaseBroadcast = resolve
       }),
@@ -361,6 +377,23 @@ describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for ME
     expect(mockEnqueueBotWakes).toHaveBeenCalledTimes(1)
     releaseBroadcast()
     await pending
+  })
+
+  it("starts wake enqueue even when the bulk hop rejects", async () => {
+    mockBroadcastToUsers.mockRejectedValue(new Error("bulk down"))
+
+    await expect(fanOutToChannel(
+      "c1",
+      { type: WS_EVENTS.MESSAGE_CREATE, channelId: "c1", message: {} as never } as never,
+      {
+        excludeUserId: "u1",
+        recipients: ["u1", "u2"],
+        wakeMessageRow,
+      },
+    )).resolves.toBeUndefined()
+
+    expect(mockEnqueueBotWakes).toHaveBeenCalledTimes(1)
+    expect(mockBroadcastToUsers).toHaveBeenCalledTimes(1)
   })
 
   it("fire-and-forget fanOut registers its waitUntil before recipient resolution settles", async () => {
@@ -460,6 +493,38 @@ describe("fanout helpers absorb setup failures", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockBroadcastToUser.mockResolvedValue(undefined)
+    mockBroadcastToUsers.mockResolvedValue(undefined)
+  })
+
+  it("all shared-payload fanout helpers absorb a bulk rejection", async () => {
+    mockGetCloudflareContext.mockImplementation(() => ({ env: { DB: {} } }))
+    mockBroadcastToUsers.mockRejectedValue(new Error("bulk down"))
+    mockListMemberUserIds.mockResolvedValue(["u1"])
+    mockResolveChannelRecipientUserIds.mockResolvedValue(["u1"])
+    mockGetDM.mockResolvedValue({ id: "dm1" })
+    mockListChannelMemberUserIds.mockResolvedValue(["u1"])
+    mockGetCoMemberUserIds.mockResolvedValue(["u1"])
+    mockGetFriendUserIds.mockResolvedValue([])
+
+    await expect(fanOutToServerMembers("srv1", {
+      type: WS_EVENTS.MEMBER_UPDATE,
+      serverId: "srv1",
+      memberId: "m1",
+      changes: { role: "admin" },
+    })).resolves.toBeUndefined()
+    await expect(fanOutToChannel("c1", {
+      type: WS_EVENTS.MESSAGE_CREATE,
+      channelId: "c1",
+      message: {} as never,
+    } as never)).resolves.toBeUndefined()
+    await expect(fanOutToDM("dm1", {
+      type: WS_EVENTS.MESSAGE_CREATE,
+      channelId: "dm1",
+      message: {} as never,
+    } as never)).resolves.toBeUndefined()
+    await expect(fanOutStatusUpdate("u1", null, null)).resolves.toBeUndefined()
+
+    expect(mockBroadcastToUsers).toHaveBeenCalledTimes(4)
   })
 
   it("fanOutToServerMembers resolves and logs when getCloudflareContext throws", async () => {

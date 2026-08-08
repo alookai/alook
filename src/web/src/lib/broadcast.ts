@@ -75,6 +75,18 @@ export function broadcastToUser(userId: string, message: WsMessage): Promise<voi
   )
 }
 
+export function broadcastToUsers(
+  userIds: string[],
+  message: WsMessage,
+  excludeUserId?: string,
+): Promise<void> {
+  return sendBroadcast(
+    "/broadcast/users",
+    JSON.stringify({ userIds, message, excludeUserId }),
+    { label: `users:${userIds.length}`, type: message.type },
+  )
+}
+
 
 export function broadcastToDaemon(daemonId: string, message: DaemonPushMessage): Promise<{ sent: number }> {
   const promise = doSend(
