@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input"
 import { Avatar } from "./avatar"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { toastApiError } from "@/lib/api/client"
+import { useDeferredVirtualMeasure } from "@/hooks/community/use-deferred-virtual-measure"
 import { hasStatus } from "./status-presets"
 import { tid } from "@/lib/community/testids"
 import type { Member, Role, OpenProfile, MemberManageContext } from "./_types"
@@ -149,6 +150,7 @@ export function MemberList({
     estimateSize: (index) => (items[index]?.kind === "header" ? HEADER_HEIGHT : ROW_HEIGHT),
     overscan: 8,
   })
+  const measureElement = useDeferredVirtualMeasure(rowVirtualizer)
 
   // Trigger loadMore when the sentinel scrolls into the viewport. Guard on
   // `loadingMore` inside the callback path (the hook also guards internally,
@@ -269,7 +271,7 @@ export function MemberList({
                     key={item.key}
                     role="listitem"
                     data-index={virtualRow.index}
-                    ref={rowVirtualizer.measureElement}
+                    ref={measureElement}
                     style={{
                       position: "absolute",
                       top: 0,

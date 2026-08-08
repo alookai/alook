@@ -21,6 +21,7 @@ import { SlugHint } from "./slug-hint"
 import { previewSlug } from "@/lib/community/slug-preview"
 import { tid } from "@/lib/community/testids"
 import { useInvites, useAuditLog } from "@/hooks/community/use-server-panels"
+import { useDeferredVirtualMeasure } from "@/hooks/community/use-deferred-virtual-measure"
 import type { SettingsSection, Member, Role, InviteRow, AuditEntry, OpenProfile } from "./_types"
 import { isServerOwner } from "./_types"
 import {
@@ -253,6 +254,7 @@ function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoad
     estimateSize: () => SETTINGS_ROW_HEIGHT,
     overscan: 8,
   })
+  const measureElement = useDeferredVirtualMeasure(rowVirtualizer)
 
   useEffect(() => {
     if (!onLoadMore || !hasMore) return
@@ -302,7 +304,7 @@ function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoad
                 key={m.id}
                 role="listitem"
                 data-index={virtualRow.index}
-                ref={rowVirtualizer.measureElement}
+                ref={measureElement}
                 style={{
                   position: "absolute",
                   top: 0,
