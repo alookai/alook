@@ -45,6 +45,7 @@ export function useCreateForumThread() {
     onSuccess: (data, args) => {
       void data
       void queryClient.invalidateQueries({ queryKey: communityKeys.channelMessages(args.channelId) })
+      void queryClient.invalidateQueries({ queryKey: communityKeys.threads(args.channelId) })
     },
   })
 }
@@ -81,6 +82,7 @@ export function useUpdatePostTags() {
       // This is required when the edited
       // post loses the currently-selected tag and must leave that result set.
       void queryClient.invalidateQueries({ queryKey: communityKeys.channelMessages(args.forumChannelId) })
+      void queryClient.invalidateQueries({ queryKey: communityKeys.threads(args.forumChannelId) })
       void queryClient.invalidateQueries({ queryKey: communityKeys.forumTags(args.forumChannelId) })
     },
   })
@@ -107,6 +109,7 @@ export function useDeleteForumThread() {
     },
     onSuccess: (_data, args) => {
       void queryClient.invalidateQueries({ queryKey: communityKeys.channelMessages(args.forumChannelId) })
+      void queryClient.invalidateQueries({ queryKey: communityKeys.threads(args.forumChannelId) })
     },
   })
 }

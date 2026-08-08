@@ -5,6 +5,7 @@ import type { ForumThread } from "./_types"
 
 const scrollToIndex = vi.fn()
 let requestOlder: (() => void) | undefined
+let sentinelEdge: string | undefined
 vi.mock("@tanstack/react-virtual", () => ({
   useVirtualizer: ({ count }: { count: number }) => ({
     options: { scrollMargin: 0 },
@@ -15,8 +16,9 @@ vi.mock("@tanstack/react-virtual", () => ({
   }),
 }))
 vi.mock("@/hooks/community/use-virtual-cursor-sentinel", () => ({
-  useVirtualCursorSentinel: ({ onLoad }: { onLoad?: () => void }) => {
+  useVirtualCursorSentinel: ({ onLoad, edge }: { onLoad?: () => void; edge: string }) => {
     requestOlder = onLoad
+    sentinelEdge = edge
     return () => {}
   },
 }))
@@ -54,35 +56,39 @@ describe("ForumView scroll anchoring", () => {
     vi.resetModules()
     scrollToIndex.mockReset()
     requestOlder = undefined
+    sentinelEdge = undefined
     root.scrollHeight = 300
     root.scrollTop = 20
     ForumView = (await import("./forum-view")).ForumView
   })
 
-  it("aligns the newest post to the end on first load and again after a tag switch", async () => {
+  it("aligns the newest post to the top on first load and again after a tag switch", async () => {
     let view: ReactTestRenderer
     await act(async () => {
       view = create(createElement(ForumView, props([post("p1"), post("p2")])), {
         createNodeMock: (element) => element.props.role === "main" ? root : {},
       })
     })
-    expect(scrollToIndex).toHaveBeenLastCalledWith(1, { align: "end" })
+    expect(scrollToIndex).toHaveBeenLastCalledWith(0, { align: "start" })
     scrollToIndex.mockClear()
     await act(async () => { view!.update(createElement(ForumView, props([post("p3")], "bug"))) })
-    expect(scrollToIndex).toHaveBeenCalledWith(0, { align: "end" })
+    expect(scrollToIndex).toHaveBeenCalledWith(0, { align: "start" })
   })
 
-  it("preserves the visible rows by applying the scroll-height delta after older posts prepend", async () => {
+  it("loads older activity pages from the bottom sentinel without scroll-height compensation", async () => {
+    const onLoadMore = vi.fn()
     let view: ReactTestRenderer
     await act(async () => {
-      view = create(createElement(ForumView, props([post("p2"), post("p3")])), {
+      view = create(createElement(ForumView, { ...props([post("p3"), post("p2")]), onLoadMore }), {
         createNodeMock: (element) => element.props.role === "main" ? root : {},
       })
     })
     act(() => requestOlder?.())
-    await act(async () => { view!.update(createElement(ForumView, props([post("p2"), post("p3")], "All", true))) })
+    expect(sentinelEdge).toBe("end")
+    expect(onLoadMore).toHaveBeenCalledTimes(1)
+    await act(async () => { view!.update(createElement(ForumView, { ...props([post("p3"), post("p2")], "All", true), onLoadMore })) })
     root.scrollHeight = 500
-    await act(async () => { view!.update(createElement(ForumView, props([post("p1"), post("p2"), post("p3")]))) })
-    expect(root.scrollTop).toBe(220)
+    await act(async () => { view!.update(createElement(ForumView, { ...props([post("p3"), post("p2"), post("p1")]), onLoadMore })) })
+    expect(root.scrollTop).toBe(20)
   })
 })

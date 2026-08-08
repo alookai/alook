@@ -67,6 +67,8 @@ export const communityKeys = {
     [...communityKeys.all, "channel", channelId, "pins"] as const,
   threads: (channelId: string) =>
     [...communityKeys.all, "channel", channelId, "threads"] as const,
+  forumActivityFeed: (channelId: string, tag: string | null) =>
+    [...communityKeys.threads(channelId), "activity", tag] as const,
   forumTags: (channelId: string) =>
     [...communityKeys.all, "channel", channelId, "forum-tags"] as const,
   // #3: the viewer's `communityReadState` row for a single channel, fetched

@@ -71,8 +71,6 @@ export function ForumView({
   const newPostTriggerRef = useRef<HTMLButtonElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const alignedTagRef = useRef<string | null>(null)
-  const prependSnapshotRef = useRef<{ height: number; top: number } | null>(null)
-  const wasLoadingMoreRef = useRef(loadingMore)
   // eslint-disable-next-line react-hooks/incompatible-library -- library limitation, same as member-list.tsx
   const virtualizer = useVirtualizer({
     ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
@@ -89,30 +87,14 @@ export function ForumView({
   useLayoutEffect(() => {
     if (posts.length === 0 || alignedTagRef.current === tag) return
     alignedTagRef.current = tag
-    virtualizer.scrollToIndex(posts.length - 1, { align: "end" })
+    virtualizer.scrollToIndex(0, { align: "start" })
   }, [posts.length, tag, virtualizer])
-  useLayoutEffect(() => {
-    const wasLoading = wasLoadingMoreRef.current
-    wasLoadingMoreRef.current = loadingMore
-    const snapshot = prependSnapshotRef.current
-    const root = scrollRef.current
-    if (!wasLoading || loadingMore || !snapshot || !root) return
-    root.scrollTop = snapshot.top + (root.scrollHeight - snapshot.height)
-    prependSnapshotRef.current = null
-  }, [loadingMore, posts.length])
-  const loadOlder = () => {
-    const root = scrollRef.current
-    if (root && !prependSnapshotRef.current) {
-      prependSnapshotRef.current = { height: root.scrollHeight, top: root.scrollTop }
-    }
-    onLoadMore?.()
-  }
   const olderSentinelRef = useVirtualCursorSentinel({
     scrollRef,
     hasMore,
     isFetching: loadingMore,
-    onLoad: loadOlder,
-    edge: "start",
+    onLoad: onLoadMore,
+    edge: "end",
   })
 
   const closeCompose = () => {
@@ -172,7 +154,6 @@ export function ForumView({
           <EmptyState icon={ListChevronsUpDown} label="No posts with this tag yet. Start one with New Post." />
         ) : (
           <>
-            <div ref={olderSentinelRef} className="h-px" aria-hidden />
             <VirtualRows
               items={posts}
               virtualizer={virtualizer}
@@ -246,6 +227,7 @@ export function ForumView({
               )
               }}
             />
+            <div ref={olderSentinelRef} className="h-px" aria-hidden />
           </>
         )}
       </div>

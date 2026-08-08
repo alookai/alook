@@ -1,9 +1,16 @@
-import { and, asc, eq, inArray, lte, sql } from "drizzle-orm";
-import { communityChannel, communityChannelMember } from "../../community-schema";
+import { and, asc, desc, eq, inArray, isNotNull, lt, lte, or, sql } from "drizzle-orm";
+import { communityChannel, communityChannelMember, communityMessageTag } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
 import { chunk, maxRowsPerInsert, D1_MAX_IN_PARAMS } from "../_chunk";
 import { type ParticipantSource } from "../../../constants/community";
+
+// SQLite's default TEXT ordering is BINARY. These values are ASCII ids / ISO
+// timestamps, so JS code-unit comparison matches the database byte order while
+// localeCompare does not (notably for case-sensitive nanoids such as A vs a).
+function compareSqliteBinary(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
 
 // The NOTIFICATION set for a child thread — relation='notify' rows
 // on `community_channel_member` (formerly the standalone
@@ -127,38 +134,50 @@ export async function listParticipantsForChannels(
   limitPerChannel?: number
 ) {
   if (channelIds.length === 0) return [];
+  // D1 caps each statement at 100 bind parameters. Both variants below bind
+  // every channel id plus fixed predicates (and the ranked variant also binds
+  // the per-channel limit), so hydrate in safe chunks. De-duplicate first so
+  // an id repeated across chunk boundaries cannot duplicate participant rows.
+  const channelIdChunks = chunk([...new Set(channelIds)], D1_MAX_IN_PARAMS);
   if (limitPerChannel !== undefined) {
-    const ranked = db
-      .select({
-        channelId: communityChannelMember.channelId,
-        userId: communityChannelMember.userId,
-        addedAt: communityChannelMember.addedAt,
-        userName: user.name,
-        userImage: user.image,
-        participantCount: sql<number>`count(*) over (partition by ${communityChannelMember.channelId})`.as("participant_count"),
-        rank: sql<number>`row_number() over (partition by ${communityChannelMember.channelId} order by ${communityChannelMember.addedAt}, ${communityChannelMember.userId})`.as("participant_rank"),
-      })
-      .from(communityChannelMember)
-      .innerJoin(user, eq(user.id, communityChannelMember.userId))
-      .where(and(
-        inArray(communityChannelMember.channelId, channelIds),
-        eq(communityChannelMember.relation, "notify")
-      ))
-      .as("ranked_participants");
-    return db
-      .select({
-        channelId: ranked.channelId,
-        userId: ranked.userId,
-        addedAt: ranked.addedAt,
-        userName: ranked.userName,
-        userImage: ranked.userImage,
-        participantCount: ranked.participantCount,
-      })
-      .from(ranked)
-      .where(lte(ranked.rank, limitPerChannel))
-      .orderBy(asc(ranked.channelId), asc(ranked.addedAt), asc(ranked.userId));
+    const batches = await Promise.all(channelIdChunks.map((ids) => {
+      const ranked = db
+        .select({
+          channelId: communityChannelMember.channelId,
+          userId: communityChannelMember.userId,
+          addedAt: communityChannelMember.addedAt,
+          userName: user.name,
+          userImage: user.image,
+          participantCount: sql<number>`count(*) over (partition by ${communityChannelMember.channelId})`.as("participant_count"),
+          rank: sql<number>`row_number() over (partition by ${communityChannelMember.channelId} order by ${communityChannelMember.addedAt}, ${communityChannelMember.userId})`.as("participant_rank"),
+        })
+        .from(communityChannelMember)
+        .innerJoin(user, eq(user.id, communityChannelMember.userId))
+        .where(and(
+          inArray(communityChannelMember.channelId, ids),
+          eq(communityChannelMember.relation, "notify")
+        ))
+        .as("ranked_participants");
+      return db
+        .select({
+          channelId: ranked.channelId,
+          userId: ranked.userId,
+          addedAt: ranked.addedAt,
+          userName: ranked.userName,
+          userImage: ranked.userImage,
+          participantCount: ranked.participantCount,
+        })
+        .from(ranked)
+        .where(lte(ranked.rank, limitPerChannel))
+        .orderBy(asc(ranked.channelId), asc(ranked.addedAt), asc(ranked.userId));
+    }));
+    return batches.flat().sort((a, b) =>
+      compareSqliteBinary(a.channelId, b.channelId) ||
+      compareSqliteBinary(a.addedAt, b.addedAt) ||
+      compareSqliteBinary(a.userId, b.userId)
+    );
   }
-  return db
+  const batches = await Promise.all(channelIdChunks.map((ids) => db
     .select({
       channelId: communityChannelMember.channelId,
       userId: communityChannelMember.userId,
@@ -170,10 +189,11 @@ export async function listParticipantsForChannels(
     .innerJoin(user, eq(user.id, communityChannelMember.userId))
     .where(
       and(
-        inArray(communityChannelMember.channelId, channelIds),
+        inArray(communityChannelMember.channelId, ids),
         eq(communityChannelMember.relation, "notify")
       )
-    );
+    )));
+  return batches.flat();
 }
 
 export async function isThreadParticipant(
@@ -270,4 +290,74 @@ export async function listParticipatingThreadIds(
     )
   ).flat();
   return rows.map((r) => r.channelId);
+}
+
+export type ForumActivityCursor = { activityAt: string; id: string };
+
+export async function listForumThreadsByActivity(
+  db: Database,
+  params: {
+    parentChannelId: string;
+    tag?: string;
+    cursor?: ForumActivityCursor;
+    limit: number;
+  }
+) {
+  const activityAt = sql<string>`coalesce(${communityChannel.lastMessageAt}, ${communityChannel.createdAt})`;
+  const conditions = [
+    eq(communityChannel.parentChannelId, params.parentChannelId),
+    eq(communityChannel.type, "thread"),
+    eq(communityChannel.archived, 0),
+    isNotNull(communityChannel.parentMessageId),
+  ];
+  if (params.cursor) {
+    conditions.push(or(
+      lt(activityAt, params.cursor.activityAt),
+      and(
+        eq(activityAt, params.cursor.activityAt),
+        lt(communityChannel.id, params.cursor.id)
+      )
+    )!);
+  }
+
+  const select = {
+    id: communityChannel.id,
+    serverId: communityChannel.serverId,
+    categoryId: communityChannel.categoryId,
+    name: communityChannel.name,
+    type: communityChannel.type,
+    topic: communityChannel.topic,
+    position: communityChannel.position,
+    parentChannelId: communityChannel.parentChannelId,
+    creatorId: communityChannel.creatorId,
+    messageCount: communityChannel.messageCount,
+    archived: communityChannel.archived,
+    parentMessageId: communityChannel.parentMessageId,
+    lastMessageAt: communityChannel.lastMessageAt,
+    createdAt: communityChannel.createdAt,
+    activityAt: activityAt.as("activity_at"),
+  } as const;
+
+  if (params.tag) {
+    return db
+      .select(select)
+      .from(communityChannel)
+      .innerJoin(
+        communityMessageTag,
+        and(
+          eq(communityMessageTag.messageId, communityChannel.parentMessageId),
+          eq(communityMessageTag.tag, params.tag)
+        )
+      )
+      .where(and(...conditions))
+      .orderBy(desc(activityAt), desc(communityChannel.id))
+      .limit(params.limit);
+  }
+
+  return db
+    .select(select)
+    .from(communityChannel)
+    .where(and(...conditions))
+    .orderBy(desc(activityAt), desc(communityChannel.id))
+    .limit(params.limit);
 }
