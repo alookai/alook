@@ -1,7 +1,9 @@
 "use client"
 
+/* eslint-disable react-hooks/refs -- TanStack Virtual exposes an imperative instance whose render-time getters and ref callbacks are its supported React API. */
+
 import type { ReactNode } from "react"
-import type { Virtualizer } from "@tanstack/react-virtual"
+import type { ReactVirtualizer } from "@tanstack/react-virtual"
 
 export function VirtualRows<T>({
   items,
@@ -10,12 +12,18 @@ export function VirtualRows<T>({
   renderItem,
 }: {
   items: T[]
-  virtualizer: Virtualizer<HTMLDivElement, Element>
+  virtualizer: ReactVirtualizer<HTMLDivElement, Element>
   itemKey: (item: T) => string
   renderItem: (item: T, index: number) => ReactNode
 }) {
   return (
-    <div style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}>
+    <div
+      ref={virtualizer.containerRef}
+      style={{
+        position: "relative",
+        width: "100%",
+      }}
+    >
       {virtualizer.getVirtualItems().map((virtualRow) => {
         const item = items[virtualRow.index]
         return (
@@ -28,7 +36,6 @@ export function VirtualRows<T>({
               top: 0,
               left: 0,
               width: "100%",
-              transform: `translateY(${virtualRow.start - virtualizer.options.scrollMargin}px)`,
             }}
           >
             {renderItem(item, virtualRow.index)}

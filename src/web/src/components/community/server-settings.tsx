@@ -296,7 +296,7 @@ function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoad
         {query ? `${members.length} matches` : `${shownCount} members`}
       </div>
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto thin-scrollbar">
-        <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative", width: "100%" }}>
+        <div ref={rowVirtualizer.containerRef} style={{ position: "relative", width: "100%" }}>
           {rowVirtualizer.getVirtualItems().map((virtualRow) => {
             const m = members[virtualRow.index]
             return (
@@ -310,7 +310,6 @@ function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoad
                   top: 0,
                   left: 0,
                   width: "100%",
-                  transform: `translateY(${virtualRow.start}px)`,
                   paddingBottom: 8,
                 }}
               >

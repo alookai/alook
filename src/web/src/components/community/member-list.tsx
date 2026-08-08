@@ -262,7 +262,8 @@ export function MemberList({
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto thin-scrollbar">
           <div className="px-4 py-4">
             <div
-              style={{ height: rowVirtualizer.getTotalSize(), position: "relative", width: "100%" }}
+              ref={rowVirtualizer.containerRef}
+              style={{ position: "relative", width: "100%" }}
             >
               {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                 const item = items[virtualRow.index]
@@ -277,7 +278,6 @@ export function MemberList({
                       top: 0,
                       left: 0,
                       width: "100%",
-                      transform: `translateY(${virtualRow.start}px)`,
                     }}
                   >
                     {item.kind === "header" ? (

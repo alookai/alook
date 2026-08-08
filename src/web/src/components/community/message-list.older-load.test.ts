@@ -23,6 +23,7 @@ describe("MessageList — older-load sentinel does not cascade", () => {
     let scrollListener: (() => void) | null = null
     const removeScrollListener = vi.fn()
     const mockScrollEl = {
+      style: {},
       scrollHeight: 1000,
       scrollTop: 500,
       clientHeight: 500,

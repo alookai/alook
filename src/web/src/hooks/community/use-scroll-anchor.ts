@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useRef } from "react"
-import { useVirtualizer, type Virtualizer } from "@tanstack/react-virtual"
+import { useVirtualizer, type ReactVirtualizer } from "@tanstack/react-virtual"
 import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "./virtualizer-react-options"
 import { estimateRowHeight, computeBelowCount, type FlatItem } from "@/components/community/message-list-items"
 
@@ -350,7 +350,7 @@ export function useScrollAnchor({
   heroMeasured: boolean
 }): {
   scrollRef: React.RefObject<HTMLDivElement | null>
-  virtualizer: Virtualizer<HTMLDivElement, Element>
+  virtualizer: ReactVirtualizer<HTMLDivElement, Element>
   belowCount: number
   scrollToBottom: () => void
   jumpTo: (messageId: string, behavior?: ScrollBehavior) => void

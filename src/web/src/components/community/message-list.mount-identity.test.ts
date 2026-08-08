@@ -16,6 +16,7 @@ describe("MessageList — loading→loaded mount identity (Phase 4)", () => {
   it("does not re-fire the mount-time scroll effect when transitioning loading:true → loading:false on one instance", () => {
     let scrollToCalls = 0
     const mockScrollEl = {
+      style: {},
       scrollHeight: 1000,
       scrollTop: 0,
       clientHeight: 500,
