@@ -14,6 +14,10 @@ import type { MentionType } from "./utils/community-mentions"
 export type CommunityMessageCreate = {
   type: "community:message.create"
   channelId: string
+  /** Present for server-channel messages; lets server-scoped collections react without unread state. */
+  serverId?: string
+  /** Present when channelId is a child thread/post. */
+  parentChannelId?: string
   message: {
     id: string
     seq: number
@@ -429,7 +433,8 @@ export type CommunityUnreadBump = {
   type: "community:unread.bump"
   userId: string
   /** The channel the message actually landed in (a thread bump = the thread's
-   * id). Use `railChannelId` to locate the sidebar row; this is the true scope. */
+   * id). Clients with a loaded child row may badge it directly; otherwise use
+   * `railChannelId` as the locatable fallback. */
   channelId: string
   /**
    * The server whose tree/rail badge to patch (inbox-dot-ws-driven plan). Lets
@@ -440,9 +445,9 @@ export type CommunityUnreadBump = {
    */
   serverId?: string
   /**
-   * The sidebar-locatable channel row = `parentChannelId ?? channelId`, computed
-   * server-side. A child-thread message has no independent sidebar row, so
-   * its dot must light the PARENT channel's row; a plain channel is its own row.
+   * The always-locatable fallback row = `parentChannelId ?? channelId`, computed
+   * server-side. A participating forum thread may now have its own nested row;
+   * when it does not, this parent fallback keeps the unread signal visible.
    * Absent → client falls back to `channelId`.
    */
   railChannelId?: string

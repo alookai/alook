@@ -54,6 +54,7 @@ export function MessageChannelController({
   serverId,
   serverParam,
   channelName,
+  forumParentChannelId,
   viewer,
   anchorMessageId,
   feed,
@@ -67,6 +68,7 @@ export function MessageChannelController({
   serverId: string
   serverParam: string
   channelName: string
+  forumParentChannelId?: string
   viewer: Viewer
   anchorMessageId: string | null
   feed: MessageFeed
@@ -275,6 +277,7 @@ export function MessageChannelController({
         await sendMessageAsync({
           serverId,
           channelId,
+          forumParentChannelId,
           content: payload.message.content ?? "",
           replyToId: payload.message.replyTo?.id,
           mentionType: payload.mentionType,
@@ -290,7 +293,7 @@ export function MessageChannelController({
         return
       }
     },
-    [messageScope, uploadFileAsync, channelId, sendMessageAsync, serverId, viewer.id, viewer.name, viewer.avatar],
+    [messageScope, uploadFileAsync, channelId, forumParentChannelId, sendMessageAsync, serverId, viewer.id, viewer.name, viewer.avatar],
   )
 
   const messageActions = useMemo(() => ({

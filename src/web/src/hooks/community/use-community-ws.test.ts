@@ -31,6 +31,13 @@ import type {
 } from "@alook/shared"
 import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
 import { communityKeys } from "@/lib/query-keys"
+import type { ServerDetail } from "./use-servers"
+import {
+  patchForumSidebarUnread,
+  reconcileForumSidebarUnreadFallbacks,
+  type ForumSidebarQueryData,
+  type ForumSidebarUnreadFallbackState,
+} from "./use-forum-sidebar-threads"
 
 // ── React shim ───────────────────────────────────────────────────────────
 let refs: Map<string, { current: unknown }> = new Map()
@@ -168,7 +175,69 @@ function unreadBump(
   return { type: "community:unread.bump" as const, userId, channelId, ...extra }
 }
 
+function forumSidebarFixture(ids = ["post_1"]) {
+  return {
+    channels: ids.map((id) => ({
+      id,
+      name: `fallback-${id}`,
+      parentChannelId: "forum_1",
+      parentMessageId: `opener-${id}`,
+      activityAt: "2026-08-01T00:00:00.000Z",
+      expiresAt: "2026-08-04T00:00:00.000Z",
+      unread: false,
+    })),
+    included: { parentMessages: ids.map((id) => ({ id: `opener-${id}`, content: `title-${id}` })) },
+    serverNow: "2026-08-01T00:00:00.000Z",
+    serverClockOffsetMs: 0,
+    threads: ids.map((id) => ({
+      id,
+      parentChannelId: "forum_1",
+      parentMessageId: `opener-${id}`,
+      title: `title-${id}`,
+      activityAt: "2026-08-01T00:00:00.000Z",
+      expiresAt: "2026-08-04T00:00:00.000Z",
+      unread: false,
+    })),
+  }
+}
+
 describe("useCommunityWs — message.create", () => {
+  it("patches a loaded forum-sidebar child activity without a refetch", async () => {
+    await mountHook()
+    const key = communityKeys.forumSidebarThreadsView("srv_1", null)
+    capturedQueryClient.setQueryData(key, forumSidebarFixture())
+    const invalidateSpy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+    const event = {
+      ...messageCreate("post_1"),
+      serverId: "srv_1",
+      parentChannelId: "forum_1",
+    } satisfies CommunityMessageCreate
+
+    capturedOnMessage!(event)
+
+    const data = capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(key)
+    expect(data?.threads[0]).toMatchObject({
+      id: "post_1",
+      activityAt: "2026-07-03T00:00:00.000Z",
+      expiresAt: "2026-07-06T00:00:00.000Z",
+    })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: communityKeys.forumSidebarThreads("srv_1") })
+  })
+
+  it("invalidates the forum-sidebar collection when the active child is not loaded", async () => {
+    await mountHook()
+    const key = communityKeys.forumSidebarThreadsView("srv_1", null)
+    capturedQueryClient.setQueryData(key, forumSidebarFixture([]))
+
+    capturedOnMessage!({
+      ...messageCreate("post_missing"),
+      serverId: "srv_1",
+      parentChannelId: "forum_1",
+    } satisfies CommunityMessageCreate)
+
+    expect(capturedQueryClient.getQueryState(key)?.isInvalidated).toBe(true)
+  })
+
   it("writes the channel overlay and leaves the base cache untouched when focused", async () => {
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")
@@ -532,6 +601,91 @@ describe("useCommunityWs — message.create patches channel unread in the open s
       categories: { channels: { id: string; unread: boolean }[] }[]
     }>(communityKeys.server("srv_open"))
     expect(cache?.categories[0].channels[0]).toMatchObject({ id: "ch_random", unread: true })
+  })
+
+  it("routes a child unread.bump to its loaded forum-sidebar row instead of the parent forum", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    capturedQueryClient.setQueryData(communityKeys.server("srv_open"), serverDetailFixture("forum_1"))
+    const sidebarKey = communityKeys.forumSidebarThreadsView("srv_open", null)
+    capturedQueryClient.setQueryData(sidebarKey, forumSidebarFixture())
+
+    capturedOnMessage!(unreadBump("post_1", "u_me", {
+      serverId: "srv_open",
+      railChannelId: "forum_1",
+    }))
+
+    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(sidebarKey)?.threads[0].unread)
+      .toBe(true)
+    expect(capturedQueryClient.getQueryData<ReturnType<typeof serverDetailFixture>>(
+      communityKeys.server("srv_open"),
+    )?.categories[0].channels[0].unread).toBe(false)
+    expect(capturedQueryClient.getQueryData<ServerDetail>(
+      communityKeys.server("srv_open"),
+    )?.forumUnreadState?.forum_1?.childIds).toEqual(["post_1"])
+  })
+
+  it("falls back to the parent forum dot when the child has no locatable sidebar row", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    capturedQueryClient.setQueryData(communityKeys.server("srv_open"), serverDetailFixture("forum_1"))
+    capturedQueryClient.setQueryData(
+      communityKeys.forumSidebarThreadsView("srv_open", null),
+      forumSidebarFixture([]),
+    )
+
+    capturedOnMessage!(unreadBump("post_missing", "u_me", {
+      serverId: "srv_open",
+      railChannelId: "forum_1",
+    }))
+
+    expect(capturedQueryClient.getQueryData<ReturnType<typeof serverDetailFixture>>(
+      communityKeys.server("srv_open"),
+    )?.categories[0].channels[0].unread).toBe(true)
+    expect(capturedQueryClient.getQueryData<ForumSidebarUnreadFallbackState>(
+      communityKeys.forumSidebarUnreadFallbacks("srv_open"),
+    )).toEqual({
+      forum_1: { baseUnread: false, childIds: ["post_missing"] },
+    })
+  })
+
+  it("moves message.create → unread.bump fallback ownership to the refetched child", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const serverKey = communityKeys.server("srv_open")
+    const sidebarKey = communityKeys.forumSidebarThreadsView("srv_open", null)
+    capturedQueryClient.setQueryData(serverKey, serverDetailFixture("forum_1"))
+    capturedQueryClient.setQueryData(sidebarKey, forumSidebarFixture([]))
+
+    capturedOnMessage!({
+      ...messageCreate("post_new"),
+      serverId: "srv_open",
+      parentChannelId: "forum_1",
+    } satisfies CommunityMessageCreate)
+    expect(capturedQueryClient.getQueryState(sidebarKey)?.isInvalidated).toBe(true)
+
+    capturedOnMessage!(unreadBump("post_new", "u_me", {
+      serverId: "srv_open",
+      railChannelId: "forum_1",
+    }))
+    expect(capturedQueryClient.getQueryData<ReturnType<typeof serverDetailFixture>>(
+      serverKey,
+    )?.categories[0].channels[0].unread).toBe(true)
+
+    const refetched = forumSidebarFixture(["post_new"])
+    refetched.threads[0]!.unread = true
+    capturedQueryClient.setQueryData(sidebarKey, refetched)
+    reconcileForumSidebarUnreadFallbacks(capturedQueryClient, "srv_open", ["post_new"])
+
+    expect(capturedQueryClient.getQueryData<ForumSidebarQueryData>(sidebarKey)?.threads[0]?.unread).toBe(true)
+    expect(capturedQueryClient.getQueryData<ReturnType<typeof serverDetailFixture>>(
+      serverKey,
+    )?.categories[0].channels[0].unread).toBe(false)
+
+    capturedQueryClient.setQueryData<ForumSidebarQueryData>(sidebarKey, (data) =>
+      patchForumSidebarUnread(data, "post_new", false),
+    )
+    expect(capturedQueryClient.getQueryData<ForumSidebarQueryData>(sidebarKey)?.threads[0]?.unread).toBe(false)
+    expect(capturedQueryClient.getQueryData<ReturnType<typeof serverDetailFixture>>(
+      serverKey,
+    )?.categories[0].channels[0].unread).toBe(false)
   })
 
   it("message.create alone does NOT flip the sidebar unread (mute-gated bump is the only trigger now)", async () => {
@@ -987,6 +1141,29 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
       ),
     ).toBe(true)
   })
+
+  it("adds/removes the viewer's participating child in the forum sidebar", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const key = communityKeys.forumSidebarThreadsView("srv_1", null)
+    capturedQueryClient.setQueryData(key, forumSidebarFixture())
+
+    capturedOnMessage!({
+      type: "community:channel.member_remove",
+      serverId: "srv_1",
+      channelId: "post_1",
+      userId: "u_me",
+    })
+    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(key)?.threads).toEqual([])
+
+    capturedQueryClient.setQueryData(key, forumSidebarFixture([]))
+    capturedOnMessage!({
+      type: "community:channel.member_add",
+      serverId: "srv_1",
+      channelId: "post_2",
+      userId: "u_me",
+    })
+    expect(capturedQueryClient.getQueryState(key)?.isInvalidated).toBe(true)
+  })
 })
 
 describe("useCommunityWs — friend + mention → invalidate", () => {
@@ -1337,6 +1514,8 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
     })
     capturedQueryClient.setQueryData(communityKeys.pins("ch_dead"), { pins: [{ id: "p" }] })
     capturedQueryClient.setQueryData(communityKeys.threads("ch_dead"), { threads: [{ id: "t" }] })
+    const sidebarKey = communityKeys.forumSidebarThreadsView("srv_1", null)
+    capturedQueryClient.setQueryData(sidebarKey, forumSidebarFixture(["ch_dead"]))
 
     const event: CommunityChannelDelete = {
       type: "community:channel.delete",
@@ -1348,6 +1527,7 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
     expect(capturedQueryClient.getQueryData(communityKeys.channelMessages("ch_dead"))).toBeUndefined()
     expect(capturedQueryClient.getQueryData(communityKeys.pins("ch_dead"))).toBeUndefined()
     expect(capturedQueryClient.getQueryData(communityKeys.threads("ch_dead"))).toBeUndefined()
+    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(sidebarKey)?.threads).toEqual([])
   })
 })
 
@@ -1471,6 +1651,28 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       pages: { messages: { thread?: { messageCount: number } }[] }[]
     }>(communityKeys.channelMessages("ch_parent"))
     expect(cache?.pages[0].messages[0].thread?.messageCount).toBe(5)
+  })
+
+  it("child_update removes archived sidebar rows and invalidates on reopen", async () => {
+    await mountHook()
+    const key = communityKeys.forumSidebarThreadsView("s1", null)
+    capturedQueryClient.setQueryData(key, forumSidebarFixture(["ch_thread"]))
+
+    capturedOnMessage!({
+      type: "community:channel.child_update",
+      parentChannelId: "forum_1",
+      channelId: "ch_thread",
+      changes: { archived: true },
+    } satisfies CommunityChildChannelUpdate)
+    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(key)?.threads).toEqual([])
+
+    capturedOnMessage!({
+      type: "community:channel.child_update",
+      parentChannelId: "forum_1",
+      channelId: "ch_thread",
+      changes: { archived: false },
+    } satisfies CommunityChildChannelUpdate)
+    expect(capturedQueryClient.getQueryState(key)?.isInvalidated).toBe(true)
   })
 
   it("child_update keeps newer thread fields from the current base row when refreshing fallback", async () => {
@@ -1762,6 +1964,8 @@ describe("useCommunityWs — message edit refreshes forum opener summary", () =>
     const forumPage = { pages: [{ messages: [{ id: "opener_1", content: "old title" }] }], pageParams: [null] }
     capturedQueryClient.setQueryData(allKey, forumPage)
     capturedQueryClient.setQueryData(bugKey, forumPage)
+    const sidebarKey = communityKeys.forumSidebarThreadsView("s1", null)
+    capturedQueryClient.setQueryData(sidebarKey, forumSidebarFixture())
     capturedOnMessage!(opener)
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: communityKeys.channelMessages("forum_1") })
     expect(capturedQueryClient.getQueryState(allKey)?.isInvalidated).toBe(true)
@@ -1769,6 +1973,8 @@ describe("useCommunityWs — message edit refreshes forum opener summary", () =>
     expect(capturedQueryClient.getQueryData<{ pages: { messages: { content: string }[] }[] }>(allKey)?.pages[0].messages[0].content).toBe("new title")
     expect(capturedQueryClient.getQueryData<{ pages: { messages: { content: string }[] }[] }>(bugKey)?.pages[0].messages[0].content).toBe("new title")
     expect(capturedQueryClient.getQueryData<{ content: string }>(communityKeys.message("opener_1"))?.content).toBe("new title")
+    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(sidebarKey)?.threads[0].title)
+      .toBe("new title")
 
     invalidateSpy.mockClear()
     capturedOnMessage!({

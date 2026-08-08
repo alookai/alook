@@ -22,16 +22,7 @@ import { avatarInitial } from "@/lib/community/avatar"
 import { displayName } from "@/lib/community/display-name"
 import { stripInlineMarkup } from "@alook/shared"
 import type { RenderMsg, OpenProfile } from "./_types"
-
-// Fallback ratio for an attachment image with no known dimensions
-// (pre-feature rows sent before width/height were tracked). A more neutral
-// default than the embed-image branch's "40/21" wide-banner ratio — plain
-// attachments are typically screenshots/photos, not link-preview banners.
-const ATTACHMENT_FALLBACK_ASPECT_RATIO = "4/3"
-
-export function attachmentAspectRatio(width: number | undefined, height: number | undefined): string {
-  return width && height ? `${width}/${height}` : ATTACHMENT_FALLBACK_ASPECT_RATIO
-}
+import { attachmentAspectRatio } from "./attachment-layout"
 
 // Whether the "Share as Image" action is offered for a message. Share is
 // computed inside `Message` from the message alone (no handler is threaded in),
@@ -256,16 +247,25 @@ function MessageImpl({
 
           {m.attachments && (
             <div className="mt-2 flex flex-col gap-2 pb-2">
-              {m.attachments.map((a, i) =>
-                a.kind === "image" ? (
+              {m.attachments.map((a, i) => {
+                if (a.kind === "image") return (
                   <button
                     key={i}
                     onClick={() => onPreviewImage?.(a.url)}
-                    className="block w-fit max-w-[320px] overflow-hidden rounded-lg border border-border transition-colors hover:border-primary/40"
+                    className="block w-fit max-w-full overflow-hidden rounded-lg border border-border transition-colors hover:border-primary/40"
                   >
-                    <img src={a.url} alt={a.name} width={a.width} height={a.height} className="max-h-50 max-w-[320px] rounded-lg object-contain" style={{ aspectRatio: attachmentAspectRatio(a.width, a.height) }} onLoad={onImageLoad} />
+                    <img
+                      src={a.url}
+                      alt={a.name}
+                      width={a.width}
+                      height={a.height}
+                      className="block h-auto w-auto max-h-75 max-w-full rounded-lg object-contain"
+                      style={{ aspectRatio: attachmentAspectRatio(a.width, a.height) }}
+                      onLoad={onImageLoad}
+                    />
                   </button>
-                ) : (
+                )
+                return (
                   <button
                     key={i}
                     onClick={() => onDownloadFile?.(a.url)}
@@ -278,8 +278,8 @@ function MessageImpl({
                     </div>
                     <Download className="size-4 shrink-0 text-muted-foreground" />
                   </button>
-                ),
-              )}
+                )
+              })}
             </div>
           )}
 

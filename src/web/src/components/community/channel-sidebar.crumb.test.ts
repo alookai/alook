@@ -35,10 +35,77 @@ const render = () =>
     }),
   )
 
+const forumTree = {
+  ...emptyTree,
+  catOrder: ["cat_1"],
+  order: {
+    cat_1: [{
+      id: "forum_1",
+      name: "Forum",
+      type: "forum",
+      active: false,
+      unread: false,
+      muted: false,
+    }],
+  },
+  catNames: { cat_1: "Channels" },
+  catPrivate: { cat_1: false },
+  catPending: { cat_1: false },
+} as unknown as ChannelTree
+
+const renderForum = (muted = false) => renderToStaticMarkup(
+  createElement(ChannelSidebar, {
+    tree: forumTree,
+    serverName: "Alpha",
+    activeChannel: "forum_1",
+    setActiveChannel: vi.fn(),
+    mutedChannels: muted ? { forum_1: true } : {},
+    forumThreadsByParent: {
+      forum_1: [
+        {
+          id: "post_1",
+          parentChannelId: "forum_1",
+          parentMessageId: "opener_1",
+          title: "First post",
+          activityAt: "2026-08-08T00:00:00.000Z",
+          expiresAt: "2026-08-11T00:00:00.000Z",
+          unread: true,
+        },
+        {
+          id: "post_2",
+          parentChannelId: "forum_1",
+          parentMessageId: "opener_2",
+          title: "Second post",
+          activityAt: "2026-08-07T00:00:00.000Z",
+          expiresAt: "2026-08-10T00:00:00.000Z",
+          unread: false,
+        },
+      ],
+    },
+    activeThreadId: "post_2",
+    onSelectForumThread: vi.fn(),
+  }),
+)
+
 describe("ChannelSidebar header", () => {
   it("renders the server name as the sole header identity marker (no duplicate ServerCrumb icon)", () => {
     const html = render()
     expect(html).toContain("Alpha")
     expect(html).not.toContain('aria-label="Alpha"')
+  })
+
+  it("renders forum children as non-sortable nested rows with one solid 2px connector", () => {
+    const html = renderForum()
+    expect(html).toContain('data-testid="community-forum-sidebar-thread-post_1"')
+    expect(html).toContain('data-testid="community-forum-sidebar-thread-post_2"')
+    expect(html).toContain('aria-current="page"')
+    expect(html).toContain('stroke-width="2"')
+    expect(html).toContain("First post")
+    expect(html).toContain("Second post")
+    expect(html).toContain("bg-primary")
+  })
+
+  it("suppresses the child unread dot when its parent forum is muted", () => {
+    expect(renderForum(true)).not.toContain("bg-primary")
   })
 })

@@ -130,7 +130,7 @@ export function ForumChannelSurface({
             deletingPost={deleteForumThreadMut.isPending ? deleteForumThreadMut.variables?.threadId ?? null : null}
             onDeletePost={(post) => {
               deleteForumThreadMut.mutate(
-                { forumChannelId: channelId, threadId: post.id },
+                { serverId, forumChannelId: channelId, threadId: post.id },
                 { onError: (error) => toastApiError(error, "Failed to delete post") },
               )
             }}

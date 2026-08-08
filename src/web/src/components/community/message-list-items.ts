@@ -104,11 +104,9 @@ const MESSAGE_BASE_ESTIMATE_PX = 24
 const CHARS_PER_LINE_ESTIMATE = 55
 const LINE_HEIGHT_ESTIMATE_PX = 20
 const MAX_TEXT_ESTIMATE_PX = 400
-// Attachment images render inside a max-width box (see message.tsx's
-// `max-w-[320px]`) — an aspect-ratio estimate is clamped against that width
-// so a very tall/narrow image doesn't produce an absurd height guess.
-const ATTACHMENT_MAX_WIDTH_PX = 320
 const ATTACHMENT_FALLBACK_ESTIMATE_PX = 200
+const ATTACHMENT_MAX_HEIGHT_ESTIMATE_PX = 300
+const ATTACHMENT_TYPICAL_WIDTH_ESTIMATE_PX = 320
 const EMBED_ESTIMATE_PX = 120
 const REACTIONS_ESTIMATE_PX = 32
 const THREAD_PREVIEW_ESTIMATE_PX = 36
@@ -125,11 +123,12 @@ function estimateAttachmentsHeight(m: Msg): number {
   let total = 0
   for (const a of m.attachments) {
     if (a.kind !== "image") continue
-    if (a.width && a.height) {
-      total += Math.round((ATTACHMENT_MAX_WIDTH_PX * a.height) / a.width)
-    } else {
-      total += ATTACHMENT_FALLBACK_ESTIMATE_PX
-    }
+    total += a.width && a.height
+      ? Math.min(
+          ATTACHMENT_MAX_HEIGHT_ESTIMATE_PX,
+          Math.round((ATTACHMENT_TYPICAL_WIDTH_ESTIMATE_PX * a.height) / a.width),
+        )
+      : ATTACHMENT_FALLBACK_ESTIMATE_PX
   }
   return total
 }

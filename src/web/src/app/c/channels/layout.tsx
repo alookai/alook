@@ -18,7 +18,7 @@ import { ServerSettings } from "@/components/community/server-settings"
 import { ImageCropDialog } from "@/components/community/image-crop-dialog"
 import { validateIconSourceFile } from "@/lib/community/image-crop"
 import type { MobileZone, SettingsSection } from "@/components/community/_types"
-import { canManageServer, notifLevelDisplay, type ChannelType } from "@alook/shared"
+import { canManageServer, isForum, notifLevelDisplay, type ChannelType } from "@alook/shared"
 import { resolveRowPresence } from "@/lib/community/presence"
 import {
   useCommunityStore,
@@ -34,6 +34,14 @@ import {
 } from "@/components/community/eject-server"
 import { clearLastChannel } from "@/lib/community/last-channel"
 import { usePresence } from "@/hooks/community/use-server-panels"
+import {
+  patchForumSidebarUnread,
+  removeForumSidebarUnreadChild,
+  setForumSidebarParentUnreadBase,
+  useForumSidebarThreads,
+  type ForumSidebarThread,
+  type ForumSidebarQueryData,
+} from "@/hooks/community/use-forum-sidebar-threads"
 import { useCommunityWsStore, useOnlineUserIds } from "@/stores/community/ws"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
 import {
@@ -97,6 +105,23 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const channelNotif = notifs.channel
   const currentChannelId = useCurrentChannelId()
   const currentChannelMeta = useCurrentChannelMeta()
+  const activeForumThreadId = useMemo(() => {
+    if (!currentChannelId || !currentChannelMeta?.parentChannelId) return null
+    const parent = currentServer?.categories
+      .flatMap((category) => category.channels)
+      .find((channel) => channel.id === currentChannelMeta.parentChannelId)
+    return isForum(parent?.type) ? currentChannelId : null
+  }, [currentChannelId, currentChannelMeta?.parentChannelId, currentServer])
+  const forumSidebar = useForumSidebarThreads(serverId, activeForumThreadId)
+  const forumThreadsByParent = useMemo(() => {
+    const grouped: Record<string, ForumSidebarThread[]> = {}
+    for (const thread of forumSidebar.threads) {
+      const siblings = grouped[thread.parentChannelId] ?? []
+      siblings.push(thread)
+      grouped[thread.parentChannelId] = siblings
+    }
+    return grouped
+  }, [forumSidebar.threads])
 
   // Mutations
   const createChannelMut = useCreateChannel()
@@ -265,12 +290,31 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     markSwitch("channel", id)
     router.push(`/c/channels/${serverId}/${id}`)
     channelTree.markRead(id)
-    queryClient.setQueryData<ServerDetail | undefined>(
-      communityKeys.server(serverId),
-      (cache) => patchChannelUnread(cache, id, false),
+    const hasChildFallback = setForumSidebarParentUnreadBase(
+      queryClient,
+      serverId,
+      id,
+      false,
     )
+    if (!hasChildFallback) {
+      queryClient.setQueryData<ServerDetail | undefined>(
+        communityKeys.server(serverId),
+        (cache) => patchChannelUnread(cache, id, false),
+      )
+    }
     if (bp === "mobile") setMobileZone("messages")
   }, [router, serverId, channelTree, bp, queryClient])
+
+  const setActiveForumThread = useCallback((id: string) => {
+    markSwitch("channel", id)
+    router.push(`/c/channels/${serverId}/${id}`)
+    removeForumSidebarUnreadChild(queryClient, serverId, id)
+    queryClient.setQueriesData<ForumSidebarQueryData>(
+      { queryKey: communityKeys.forumSidebarThreads(serverId) },
+      (data) => patchForumSidebarUnread(data, id, false),
+    )
+    if (bp === "mobile") setMobileZone("messages")
+  }, [bp, queryClient, router, serverId])
 
   const onSidebarOpenSettings = useCallback((section?: SettingsSection) => {
     if (section) setSettingsSection(section)
@@ -348,6 +392,9 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     currentUserId: currentUser.id,
     loading: !currentServer,
     setActiveChannel,
+    forumThreadsByParent,
+    activeThreadId: activeForumThreadId,
+    onSelectForumThread: setActiveForumThread,
     onOpenSettings: isAdmin ? onSidebarOpenSettings : undefined,
     onBlockedCreate,
     mutedChannels,
@@ -367,6 +414,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   }), [
     channelTree, currentServer, currentChannelMeta?.parentChannelId,
     currentChannelId, isAdmin, currentUser.id, setActiveChannel,
+    forumThreadsByParent, activeForumThreadId, setActiveForumThread,
     onSidebarOpenSettings, onBlockedCreate, mutedChannels,
     onCreateChannelInSidebar, onCreateCategoryInSidebar, onRenameChannel,
     onDeleteChannelInSidebar, onDeleteCategoryInSidebar, onUpdateCategoryInSidebar,

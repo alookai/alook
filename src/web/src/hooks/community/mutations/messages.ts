@@ -27,6 +27,12 @@ import type { Msg, Attachment } from "@/components/community/_types"
 import type { MessagesPage } from "@/hooks/community/use-messages"
 import type { PinsResponse } from "@/hooks/community/use-channel-panels"
 import type { MarkedResponse, MessageMarkedResponse } from "@/hooks/community/use-inbox"
+import {
+  hasForumSidebarThread,
+  patchForumSidebarActivity,
+  patchForumSidebarTitle,
+  type ForumSidebarQueryData,
+} from "@/hooks/community/use-forum-sidebar-threads"
 import { isBlocked, type MentionType } from "@alook/shared"
 
 /**
@@ -70,6 +76,7 @@ type EditMessageArgs = {
   messageId: string
   content: string
   forumChannelId?: string
+  forumThreadId?: string
 }
 
 type EditMessageContext = {
@@ -125,6 +132,12 @@ export function useEditMessage() {
     },
     onSuccess: (_data, variables) => {
       if (variables.forumChannelId) void queryClient.invalidateQueries({ queryKey: communityKeys.channelMessages(variables.forumChannelId) })
+      if (variables.forumThreadId) {
+        queryClient.setQueriesData<ForumSidebarQueryData>(
+          { queryKey: communityKeys.forumSidebarThreads(variables.serverId) },
+          (data) => patchForumSidebarTitle(data, variables.forumThreadId!, variables.content),
+        )
+      }
     },
   })
 }
@@ -177,6 +190,7 @@ export function sendNonce(): string {
 export type SendMessageArgs = {
   serverId: string
   channelId: string
+  forumParentChannelId?: string
   content: string
   replyToId?: string
   replyTo?: Msg["replyTo"]
@@ -205,6 +219,7 @@ export type SendMessageResult = { message: PostedMessage; deduped?: boolean }
  * `/channels/:id/messages`.
  */
 export function useSendMessage() {
+  const queryClient = useQueryClient()
   return useMutation<
     SendMessageResult,
     Error,
@@ -251,6 +266,24 @@ export function useSendMessage() {
       }
     },
     onSuccess: (data, args) => {
+      if (args.forumParentChannelId) {
+        const key = communityKeys.forumSidebarThreads(args.serverId)
+        const cached = queryClient.getQueriesData<ForumSidebarQueryData>({ queryKey: key })
+        const loaded = cached.some(([, value]) => hasForumSidebarThread(value, args.channelId))
+        if (loaded) {
+          queryClient.setQueriesData<ForumSidebarQueryData>(
+            { queryKey: key },
+            (value) => patchForumSidebarActivity(
+              value,
+              args.channelId,
+              args.forumParentChannelId!,
+              data.message.createdAt,
+            ),
+          )
+        } else {
+          void queryClient.invalidateQueries({ queryKey: key })
+        }
+      }
       if (!args.nonce) return
       useMessageStreamStore.getState().dispatch(
         { kind: "channel", id: args.channelId, serverId: args.serverId },

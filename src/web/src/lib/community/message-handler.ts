@@ -784,6 +784,12 @@ export async function createCommunityMessage(params: {
       {
         type: WS_EVENTS.MESSAGE_CREATE,
         channelId: target.channelId,
+        ...(isDmTarget(target)
+          ? {}
+          : {
+              serverId: target.serverId,
+              ...(hasParentChannel(target) ? { parentChannelId: target.parentChannelId } : {}),
+            }),
         message: messagePayload,
       },
       {
@@ -806,8 +812,8 @@ export async function createCommunityMessage(params: {
       {
         mentionedUserIds: [...liveMentions, ...liveReplies],
         // serverId + railChannelId ride the UNREAD_BUMP so the client patches
-        // the right server tree + (parent, for threads) sidebar row without a
-        // query — straight off the resolved `target` (DM has neither). See
+        // the right server tree + a parent fallback for unlisted child threads
+        // without a query — straight off the resolved `target` (DM has neither). See
         // inbox-dot-ws-driven plan.
         ...(isDmTarget(target)
           ? {}

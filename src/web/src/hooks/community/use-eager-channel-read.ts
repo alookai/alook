@@ -5,6 +5,12 @@ import { useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type { ServersResponse } from "@/hooks/community/use-servers"
+import {
+  patchForumSidebarUnread,
+  removeForumSidebarUnreadChild,
+  setForumSidebarParentUnreadBase,
+  type ForumSidebarQueryData,
+} from "@/hooks/community/use-forum-sidebar-threads"
 
 /**
  * Eager "mark this channel/thread read on open."
@@ -62,6 +68,20 @@ export function useEagerChannelRead({
       .then(() => {
         // Always refresh the inbox feeds — the mass mark-read cleared them.
         void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
+
+        // Keep the local canonical attribution in step with the successful
+        // read even on a direct/deep-link mount (where no sidebar click ran).
+        // Otherwise a loaded child that later expires from the projection
+        // could incorrectly re-light its parent from stale local ownership.
+        if (serverId && isChildChannel) {
+          removeForumSidebarUnreadChild(queryClient, serverId, channelId)
+          queryClient.setQueriesData<ForumSidebarQueryData>(
+            { queryKey: communityKeys.forumSidebarThreads(serverId) },
+            (data) => patchForumSidebarUnread(data, channelId, false),
+          )
+        } else if (serverId) {
+          setForumSidebarParentUnreadBase(queryClient, serverId, channelId, false)
+        }
 
         // The rail mention badge (`server.mentions`) only needs refreshing when
         // this server actually carries mentions the PUT may have cleared. Read

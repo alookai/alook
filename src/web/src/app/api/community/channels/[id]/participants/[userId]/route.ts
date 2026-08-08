@@ -2,7 +2,8 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, isThread } from "@alook/shared"
+import { queries, WS_EVENTS, isThread } from "@alook/shared"
+import { broadcastToUserSafe } from "@/lib/community/fanout"
 import { requireChannelAccess } from "@/lib/community/permissions"
 
 /**
@@ -36,5 +37,11 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
 
   const removed = await queries.communityThread.removeThreadParticipant(db, channelId, targetUserId)
   if (!removed) return writeError("participant not found", 404)
+  await broadcastToUserSafe(targetUserId, {
+    type: WS_EVENTS.CHANNEL_MEMBER_REMOVE,
+    serverId: access.value.channel.serverId,
+    channelId,
+    userId: targetUserId,
+  })
   return new Response(null, { status: 204 })
 })

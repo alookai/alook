@@ -20,6 +20,12 @@ export const communityKeys = {
   servers: () => [...communityKeys.all, "servers"] as const,
   server: (serverId: string) =>
     [...communityKeys.servers(), serverId] as const,
+  forumSidebarThreads: (serverId: string) =>
+    [...communityKeys.server(serverId), "forum-sidebar-threads"] as const,
+  forumSidebarThreadsView: (serverId: string, retainId: string | null) =>
+    [...communityKeys.forumSidebarThreads(serverId), retainId] as const,
+  forumSidebarUnreadFallbacks: (serverId: string) =>
+    [...communityKeys.server(serverId), "forum-sidebar-unread-fallbacks"] as const,
 
   // ── Server-scoped resources ─────────────────────────────────────────────
   members: (serverId: string) =>
@@ -67,6 +73,8 @@ export const communityKeys = {
     [...communityKeys.all, "channel", channelId, "pins"] as const,
   threads: (channelId: string) =>
     [...communityKeys.all, "channel", channelId, "threads"] as const,
+  forumActivityFeed: (channelId: string, tag: string | null) =>
+    [...communityKeys.threads(channelId), "activity", tag] as const,
   forumTags: (channelId: string) =>
     [...communityKeys.all, "channel", channelId, "forum-tags"] as const,
   // #3: the viewer's `communityReadState` row for a single channel, fetched

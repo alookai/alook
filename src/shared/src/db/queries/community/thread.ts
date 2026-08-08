@@ -1,9 +1,16 @@
-import { and, asc, eq, inArray, lte, sql } from "drizzle-orm";
-import { communityChannel, communityChannelMember } from "../../community-schema";
+import { and, asc, desc, eq, gt, inArray, isNotNull, lt, lte, or, sql } from "drizzle-orm";
+import { communityChannel, communityChannelMember, communityMessageTag } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
 import { chunk, maxRowsPerInsert, D1_MAX_IN_PARAMS } from "../_chunk";
 import { type ParticipantSource } from "../../../constants/community";
+
+// SQLite's default TEXT ordering is BINARY. These values are ASCII ids / ISO
+// timestamps, so JS code-unit comparison matches the database byte order while
+// localeCompare does not (notably for case-sensitive nanoids such as A vs a).
+function compareSqliteBinary(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
 
 // The NOTIFICATION set for a child thread — relation='notify' rows
 // on `community_channel_member` (formerly the standalone
@@ -127,38 +134,50 @@ export async function listParticipantsForChannels(
   limitPerChannel?: number
 ) {
   if (channelIds.length === 0) return [];
+  // D1 caps each statement at 100 bind parameters. Both variants below bind
+  // every channel id plus fixed predicates (and the ranked variant also binds
+  // the per-channel limit), so hydrate in safe chunks. De-duplicate first so
+  // an id repeated across chunk boundaries cannot duplicate participant rows.
+  const channelIdChunks = chunk([...new Set(channelIds)], D1_MAX_IN_PARAMS);
   if (limitPerChannel !== undefined) {
-    const ranked = db
-      .select({
-        channelId: communityChannelMember.channelId,
-        userId: communityChannelMember.userId,
-        addedAt: communityChannelMember.addedAt,
-        userName: user.name,
-        userImage: user.image,
-        participantCount: sql<number>`count(*) over (partition by ${communityChannelMember.channelId})`.as("participant_count"),
-        rank: sql<number>`row_number() over (partition by ${communityChannelMember.channelId} order by ${communityChannelMember.addedAt}, ${communityChannelMember.userId})`.as("participant_rank"),
-      })
-      .from(communityChannelMember)
-      .innerJoin(user, eq(user.id, communityChannelMember.userId))
-      .where(and(
-        inArray(communityChannelMember.channelId, channelIds),
-        eq(communityChannelMember.relation, "notify")
-      ))
-      .as("ranked_participants");
-    return db
-      .select({
-        channelId: ranked.channelId,
-        userId: ranked.userId,
-        addedAt: ranked.addedAt,
-        userName: ranked.userName,
-        userImage: ranked.userImage,
-        participantCount: ranked.participantCount,
-      })
-      .from(ranked)
-      .where(lte(ranked.rank, limitPerChannel))
-      .orderBy(asc(ranked.channelId), asc(ranked.addedAt), asc(ranked.userId));
+    const batches = await Promise.all(channelIdChunks.map((ids) => {
+      const ranked = db
+        .select({
+          channelId: communityChannelMember.channelId,
+          userId: communityChannelMember.userId,
+          addedAt: communityChannelMember.addedAt,
+          userName: user.name,
+          userImage: user.image,
+          participantCount: sql<number>`count(*) over (partition by ${communityChannelMember.channelId})`.as("participant_count"),
+          rank: sql<number>`row_number() over (partition by ${communityChannelMember.channelId} order by ${communityChannelMember.addedAt}, ${communityChannelMember.userId})`.as("participant_rank"),
+        })
+        .from(communityChannelMember)
+        .innerJoin(user, eq(user.id, communityChannelMember.userId))
+        .where(and(
+          inArray(communityChannelMember.channelId, ids),
+          eq(communityChannelMember.relation, "notify")
+        ))
+        .as("ranked_participants");
+      return db
+        .select({
+          channelId: ranked.channelId,
+          userId: ranked.userId,
+          addedAt: ranked.addedAt,
+          userName: ranked.userName,
+          userImage: ranked.userImage,
+          participantCount: ranked.participantCount,
+        })
+        .from(ranked)
+        .where(lte(ranked.rank, limitPerChannel))
+        .orderBy(asc(ranked.channelId), asc(ranked.addedAt), asc(ranked.userId));
+    }));
+    return batches.flat().sort((a, b) =>
+      compareSqliteBinary(a.channelId, b.channelId) ||
+      compareSqliteBinary(a.addedAt, b.addedAt) ||
+      compareSqliteBinary(a.userId, b.userId)
+    );
   }
-  return db
+  const batches = await Promise.all(channelIdChunks.map((ids) => db
     .select({
       channelId: communityChannelMember.channelId,
       userId: communityChannelMember.userId,
@@ -170,10 +189,11 @@ export async function listParticipantsForChannels(
     .innerJoin(user, eq(user.id, communityChannelMember.userId))
     .where(
       and(
-        inArray(communityChannelMember.channelId, channelIds),
+        inArray(communityChannelMember.channelId, ids),
         eq(communityChannelMember.relation, "notify")
       )
-    );
+    )));
+  return batches.flat();
 }
 
 export async function isThreadParticipant(
@@ -270,4 +290,212 @@ export async function listParticipatingThreadIds(
     )
   ).flat();
   return rows.map((r) => r.channelId);
+}
+
+export type ForumActivityCursor = { activityAt: string; id: string };
+
+export async function listForumThreadsByActivity(
+  db: Database,
+  params: {
+    parentChannelId: string;
+    tag?: string;
+    cursor?: ForumActivityCursor;
+    limit: number;
+  }
+) {
+  const activityAt = sql<string>`coalesce(${communityChannel.lastMessageAt}, ${communityChannel.createdAt})`;
+  const conditions = [
+    eq(communityChannel.parentChannelId, params.parentChannelId),
+    eq(communityChannel.type, "thread"),
+    eq(communityChannel.archived, 0),
+    isNotNull(communityChannel.parentMessageId),
+  ];
+  if (params.cursor) {
+    conditions.push(or(
+      lt(activityAt, params.cursor.activityAt),
+      and(
+        eq(activityAt, params.cursor.activityAt),
+        lt(communityChannel.id, params.cursor.id)
+      )
+    )!);
+  }
+
+  const select = {
+    id: communityChannel.id,
+    serverId: communityChannel.serverId,
+    categoryId: communityChannel.categoryId,
+    name: communityChannel.name,
+    type: communityChannel.type,
+    topic: communityChannel.topic,
+    position: communityChannel.position,
+    parentChannelId: communityChannel.parentChannelId,
+    creatorId: communityChannel.creatorId,
+    messageCount: communityChannel.messageCount,
+    archived: communityChannel.archived,
+    parentMessageId: communityChannel.parentMessageId,
+    lastMessageAt: communityChannel.lastMessageAt,
+    createdAt: communityChannel.createdAt,
+    activityAt: activityAt.as("activity_at"),
+  } as const;
+
+  if (params.tag) {
+    return db
+      .select(select)
+      .from(communityChannel)
+      .innerJoin(
+        communityMessageTag,
+        and(
+          eq(communityMessageTag.messageId, communityChannel.parentMessageId),
+          eq(communityMessageTag.tag, params.tag)
+        )
+      )
+      .where(and(...conditions))
+      .orderBy(desc(activityAt), desc(communityChannel.id))
+      .limit(params.limit);
+  }
+
+  return db
+    .select(select)
+    .from(communityChannel)
+    .where(and(...conditions))
+    .orderBy(desc(activityAt), desc(communityChannel.id))
+    .limit(params.limit);
+}
+
+/**
+ * Viewer-participating forum posts for the nested server sidebar. The caller
+ * supplies only forum ids that already passed the viewer's top-level visibility
+ * gate; notify membership narrows that trusted set to posts the viewer follows.
+ * The rolling activity window and row_number limit are applied per forum in SQL.
+ *
+ * `retainId` is the currently open post. If it is a valid participating post
+ * under one of the visible forums, keep it even outside the rolling window or
+ * top-N and let it displace that forum's final ordinary row.
+ */
+export async function listParticipatingForumThreads(
+  db: Database,
+  params: {
+    parentChannelIds: string[];
+    userId: string;
+    activeAfter: string;
+    limitPerParent: number;
+    retainId?: string;
+  }
+) {
+  const parentChannelIds = [...new Set(params.parentChannelIds)];
+  if (parentChannelIds.length === 0 || params.limitPerParent < 1) return [];
+
+  const activityAt = sql<string>`coalesce(${communityChannel.lastMessageAt}, ${communityChannel.createdAt})`;
+  const select = {
+    id: communityChannel.id,
+    serverId: communityChannel.serverId,
+    categoryId: communityChannel.categoryId,
+    name: communityChannel.name,
+    type: communityChannel.type,
+    topic: communityChannel.topic,
+    position: communityChannel.position,
+    parentChannelId: communityChannel.parentChannelId,
+    creatorId: communityChannel.creatorId,
+    messageCount: communityChannel.messageCount,
+    archived: communityChannel.archived,
+    parentMessageId: communityChannel.parentMessageId,
+    lastMessageAt: communityChannel.lastMessageAt,
+    createdAt: communityChannel.createdAt,
+    activityAt: activityAt.as("activity_at"),
+  } as const;
+
+  const batches = await Promise.all(
+    chunk(parentChannelIds, D1_MAX_IN_PARAMS).map((parentIds) => {
+      const ranked = db
+        .select({
+          ...select,
+          rank: sql<number>`row_number() over (partition by ${communityChannel.parentChannelId} order by ${activityAt} desc, ${communityChannel.id} desc)`.as("sidebar_rank"),
+        })
+        .from(communityChannel)
+        .innerJoin(
+          communityChannelMember,
+          and(
+            eq(communityChannelMember.channelId, communityChannel.id),
+            eq(communityChannelMember.userId, params.userId),
+            eq(communityChannelMember.relation, "notify"),
+          ),
+        )
+        .where(and(
+          inArray(communityChannel.parentChannelId, parentIds),
+          eq(communityChannel.type, "thread"),
+          eq(communityChannel.archived, 0),
+          isNotNull(communityChannel.parentMessageId),
+          gt(activityAt, params.activeAfter),
+        ))
+        .as("ranked_sidebar_threads");
+
+      return db
+        .select({
+          id: ranked.id,
+          serverId: ranked.serverId,
+          categoryId: ranked.categoryId,
+          name: ranked.name,
+          type: ranked.type,
+          topic: ranked.topic,
+          position: ranked.position,
+          parentChannelId: ranked.parentChannelId,
+          creatorId: ranked.creatorId,
+          messageCount: ranked.messageCount,
+          archived: ranked.archived,
+          parentMessageId: ranked.parentMessageId,
+          lastMessageAt: ranked.lastMessageAt,
+          createdAt: ranked.createdAt,
+          activityAt: ranked.activityAt,
+        })
+        .from(ranked)
+        .where(lte(ranked.rank, params.limitPerParent))
+        .orderBy(asc(ranked.parentChannelId), desc(ranked.activityAt), desc(ranked.id));
+    }),
+  );
+  let rows = batches.flat();
+
+  if (params.retainId) {
+    // Scope the retained lookup inside the same caller-authorized parent set,
+    // rather than fetching an arbitrary id first and masking it in JS. Chunking
+    // preserves that structural scope without exceeding D1's bind ceiling.
+    const retained = (await Promise.all(
+      chunk(parentChannelIds, D1_MAX_IN_PARAMS).map((parentIds) => db
+        .select(select)
+        .from(communityChannel)
+        .innerJoin(
+          communityChannelMember,
+          and(
+            eq(communityChannelMember.channelId, communityChannel.id),
+            eq(communityChannelMember.userId, params.userId),
+            eq(communityChannelMember.relation, "notify"),
+          ),
+        )
+        .where(and(
+          eq(communityChannel.id, params.retainId!),
+          inArray(communityChannel.parentChannelId, parentIds),
+          eq(communityChannel.type, "thread"),
+          eq(communityChannel.archived, 0),
+          isNotNull(communityChannel.parentMessageId),
+        ))
+        .limit(1)),
+    )).flat()[0];
+
+    if (
+      retained?.parentChannelId &&
+      !rows.some((row) => row.id === retained.id)
+    ) {
+      const parentId = retained.parentChannelId;
+      const otherParents = rows.filter((row) => row.parentChannelId !== parentId);
+      const ordinary = rows
+        .filter((row) => row.parentChannelId === parentId)
+        .slice(0, params.limitPerParent - 1);
+      rows = [...otherParents, ...ordinary, retained];
+    }
+  }
+
+  return rows.sort((a, b) =>
+    compareSqliteBinary(a.parentChannelId ?? "", b.parentChannelId ?? "") ||
+    compareSqliteBinary(b.activityAt, a.activityAt) ||
+    compareSqliteBinary(b.id, a.id)
+  );
 }

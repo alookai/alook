@@ -5,6 +5,11 @@ import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type { UploadedAttachment } from "@/hooks/community/mutations/uploads"
 import type { MentionType } from "@alook/shared"
+import {
+  removeForumSidebarThread,
+  removeForumSidebarUnreadChild,
+  type ForumSidebarQueryData,
+} from "@/hooks/community/use-forum-sidebar-threads"
 
 export type CreateForumThreadArgs = {
   nonce: string
@@ -45,6 +50,7 @@ export function useCreateForumThread() {
     onSuccess: (data, args) => {
       void data
       void queryClient.invalidateQueries({ queryKey: communityKeys.channelMessages(args.channelId) })
+      void queryClient.invalidateQueries({ queryKey: communityKeys.threads(args.channelId) })
     },
   })
 }
@@ -81,12 +87,14 @@ export function useUpdatePostTags() {
       // This is required when the edited
       // post loses the currently-selected tag and must leave that result set.
       void queryClient.invalidateQueries({ queryKey: communityKeys.channelMessages(args.forumChannelId) })
+      void queryClient.invalidateQueries({ queryKey: communityKeys.threads(args.forumChannelId) })
       void queryClient.invalidateQueries({ queryKey: communityKeys.forumTags(args.forumChannelId) })
     },
   })
 }
 
 export type DeleteForumThreadArgs = {
+  serverId: string
   // The parent forum channel — the cache key the post list lives under.
   forumChannelId: string
   // The post channel being deleted.
@@ -107,6 +115,12 @@ export function useDeleteForumThread() {
     },
     onSuccess: (_data, args) => {
       void queryClient.invalidateQueries({ queryKey: communityKeys.channelMessages(args.forumChannelId) })
+      void queryClient.invalidateQueries({ queryKey: communityKeys.threads(args.forumChannelId) })
+      removeForumSidebarUnreadChild(queryClient, args.serverId, args.threadId)
+      queryClient.setQueriesData<ForumSidebarQueryData>(
+        { queryKey: communityKeys.forumSidebarThreads(args.serverId) },
+        (data) => removeForumSidebarThread(data, args.threadId),
+      )
     },
   })
 }

@@ -1,4 +1,4 @@
-import { ListChevronsUpDown, MessagesSquare } from "lucide-react"
+import { Hash, ListChevronsUpDown } from "lucide-react"
 import { ChannelIcon } from "./channel-icon"
 
 /**
@@ -23,7 +23,7 @@ export function getEntityIcon(kind: EntityKind | undefined): IconComponent {
     case "forum":
       return ListChevronsUpDown
     case "thread":
-      return MessagesSquare
+      return Hash
     default:
       return ChannelIcon
   }
@@ -36,7 +36,7 @@ export function getEntityIcon(kind: EntityKind | undefined): IconComponent {
  *
  *   text | undefined   → ChannelIcon (the custom slash glyph)
  *   forum              → ListChevronsUpDown
- *   thread             → MessagesSquare
+ *   thread             → Hash
  *
  * Accepts `className` only — matching `ChannelIcon` — so both `size-*` and
  * `text-*` call sites keep working.
@@ -46,7 +46,7 @@ export function EntityIcon({ kind, className }: { kind: EntityKind | undefined; 
     case "forum":
       return <ListChevronsUpDown className={className} />
     case "thread":
-      return <MessagesSquare className={className} />
+      return <Hash className={className} />
     default:
       return <ChannelIcon className={className} />
   }

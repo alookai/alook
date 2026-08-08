@@ -85,12 +85,22 @@ export type ServerDetail = {
   icon: string | null
   ownerId: string
   categories: Category[]
+  /** Canonical unread ownership for participating children of forum channels. */
+  forumUnreadState?: ForumUnreadState
 }
+
+type ForumUnreadState = Record<string, {
+  /** The forum channel's own unread contribution, excluding child posts. */
+  baseUnread: boolean
+  /** Every canonically unread participating child, loaded in the sidebar or not. */
+  childIds: string[]
+}>
 
 type RawChannel = Channel & { categoryId: string | null }
 type UnreadResponse = {
   stale?: boolean
   channelIds: string[]
+  childChannels?: Array<{ id: string; parentChannelId: string }>
 }
 
 export const serverQueryFn = (serverId: string) => async (): Promise<ServerDetail> => {
@@ -104,7 +114,30 @@ export const serverQueryFn = (serverId: string) => async (): Promise<ServerDetai
   const server = serverData.servers.find((row) => row.id === serverId)
   if (!server) throw new Error("server not found")
   const unreadIds = new Set(unreadData.channelIds)
-  const channels = channelData.channels.map((channel) => ({ ...channel, active: false, unread: unreadIds.has(channel.id) }))
+  const forumParentIds = new Set(
+    channelData.channels.filter((channel) => channel.type === "forum").map((channel) => channel.id),
+  )
+  const forumUnreadState: ForumUnreadState = Object.fromEntries(
+    [...forumParentIds].map((parentChannelId) => [parentChannelId, {
+      baseUnread: unreadIds.has(parentChannelId),
+      childIds: (unreadData.childChannels ?? [])
+        .filter((child) => child.parentChannelId === parentChannelId)
+        .map((child) => child.id),
+    }]),
+  )
+  const channels = channelData.channels.map((channel) => {
+    const forumUnread = forumUnreadState[channel.id]
+    return {
+      ...channel,
+      active: false,
+      // Until the sidebar projection arrives, every canonical unread child is
+      // necessarily hidden. Its parent owns the cold-boot fallback dot; the
+      // sidebar hook migrates loaded children to their own rows immediately.
+      unread: forumUnread
+        ? forumUnread.baseUnread || forumUnread.childIds.length > 0
+        : unreadIds.has(channel.id),
+    }
+  })
   const categories: Category[] = categoryData.categories.map((category) => ({
     ...category,
     channels: channels.filter((channel) => channel.categoryId === category.id),
@@ -120,6 +153,7 @@ export const serverQueryFn = (serverId: string) => async (): Promise<ServerDetai
     icon: server.icon,
     ownerId: server.ownerId,
     categories,
+    forumUnreadState,
   }
 }
 

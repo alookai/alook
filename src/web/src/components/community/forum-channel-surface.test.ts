@@ -150,6 +150,7 @@ describe("ForumChannelSurface ownership", () => {
     }, expect.any(Object))
     expect(mocks.deleteForumThread).toHaveBeenCalledWith({
       forumChannelId: "forum_1",
+      serverId: "srv_1",
       threadId: "post_1",
     }, expect.any(Object))
     expect(renderer!.root.findByProps({ "data-manage-dialog": true })).toBeTruthy()
