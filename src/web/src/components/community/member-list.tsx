@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input"
 import { Avatar } from "./avatar"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { toastApiError } from "@/lib/api/client"
+import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "@/hooks/community/virtualizer-react-options"
 import { hasStatus } from "./status-presets"
 import { tid } from "@/lib/community/testids"
 import type { Member, Role, OpenProfile, MemberManageContext } from "./_types"
@@ -144,6 +145,7 @@ export function MemberList({
   // TanStack Virtual returns unstable function refs — React Compiler skips memoization.
   // eslint-disable-next-line react-hooks/incompatible-library -- library limitation
   const rowVirtualizer = useVirtualizer({
+    ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
     count: items.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: (index) => (items[index]?.kind === "header" ? HEADER_HEIGHT : ROW_HEIGHT),
@@ -260,7 +262,8 @@ export function MemberList({
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto thin-scrollbar">
           <div className="px-4 py-4">
             <div
-              style={{ height: rowVirtualizer.getTotalSize(), position: "relative", width: "100%" }}
+              ref={rowVirtualizer.containerRef}
+              style={{ position: "relative", width: "100%" }}
             >
               {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                 const item = items[virtualRow.index]
@@ -275,7 +278,6 @@ export function MemberList({
                       top: 0,
                       left: 0,
                       width: "100%",
-                      transform: `translateY(${virtualRow.start}px)`,
                     }}
                   >
                     {item.kind === "header" ? (

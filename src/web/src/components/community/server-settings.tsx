@@ -21,6 +21,7 @@ import { SlugHint } from "./slug-hint"
 import { previewSlug } from "@/lib/community/slug-preview"
 import { tid } from "@/lib/community/testids"
 import { useInvites, useAuditLog } from "@/hooks/community/use-server-panels"
+import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "@/hooks/community/virtualizer-react-options"
 import type { SettingsSection, Member, Role, InviteRow, AuditEntry, OpenProfile } from "./_types"
 import { isServerOwner } from "./_types"
 import {
@@ -248,6 +249,7 @@ function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoad
   // TanStack Virtual returns unstable function refs — React Compiler skips memoization.
   // eslint-disable-next-line react-hooks/incompatible-library -- library limitation
   const rowVirtualizer = useVirtualizer({
+    ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
     count: members.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => SETTINGS_ROW_HEIGHT,
@@ -294,7 +296,7 @@ function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoad
         {query ? `${members.length} matches` : `${shownCount} members`}
       </div>
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto thin-scrollbar">
-        <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative", width: "100%" }}>
+        <div ref={rowVirtualizer.containerRef} style={{ position: "relative", width: "100%" }}>
           {rowVirtualizer.getVirtualItems().map((virtualRow) => {
             const m = members[virtualRow.index]
             return (
@@ -308,7 +310,6 @@ function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoad
                   top: 0,
                   left: 0,
                   width: "100%",
-                  transform: `translateY(${virtualRow.start}px)`,
                   paddingBottom: 8,
                 }}
               >
