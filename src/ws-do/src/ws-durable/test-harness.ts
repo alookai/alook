@@ -1,6 +1,17 @@
 import { vi } from "vitest"
 import { createMockCtx, createMockWebSocket } from "../__mocks__/cf"
 
+const loggerMocks = vi.hoisted(() => ({
+  mockLogDebug: vi.fn(),
+  mockLogInfo: vi.fn(),
+  mockLogWarn: vi.fn(),
+  mockLogError: vi.fn(),
+}))
+export const mockLogDebug = loggerMocks.mockLogDebug
+const mockLogInfo = loggerMocks.mockLogInfo
+export const mockLogWarn = loggerMocks.mockLogWarn
+const mockLogError = loggerMocks.mockLogError
+
 // --- Cloudflare Workers globals that don't exist in Node ---
 
 // Replace the global Response with one that allows status 101 and a webSocket property
@@ -128,10 +139,10 @@ export const mockToSummary = vi.fn((row: any) => ({
 
 vi.mock("@alook/shared", () => {
   const noopLogger = {
-    debug: () => { },
-    info: () => { },
-    warn: () => { },
-    error: () => { },
+    debug: mockLogDebug,
+    info: mockLogInfo,
+    warn: mockLogWarn,
+    error: mockLogError,
     child: () => noopLogger,
   }
   // Bare-minimum safeParse stubs — the DO only calls `.safeParse(msg)` and
