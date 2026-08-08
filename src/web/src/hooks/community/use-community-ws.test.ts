@@ -1809,46 +1809,6 @@ describe("useCommunityWs — typing.start honours focus (no DM leak)", () => {
     ])
   })
 
-  it("stores the name the typing event carries (fixes 'Unknown member' when the typer isn't in the loaded roster)", async () => {
-    await mountHook()
-    const { useCommunityStore } = await import("@/stores/community")
-    useCommunityStore.getState().subscribe({ channelId: "ch_1" })
-    refCounter = 0
-    stateCounter = 0
-    callbackCounter = 0
-    await mountHook()
-
-    const event: CommunityTypingStart = {
-      type: "community:typing.start",
-      channelId: "ch_1",
-      userId: "u_other",
-      name: "Alice",
-      discriminator: "0001",
-    }
-    capturedOnMessage!(event)
-
-    // The name rides the event → the consumer renders it directly, no roster
-    // lookup, so a typer outside the loaded roster page is no longer "Unknown".
-    expect(useCommunityStore.getState().typingByScope.get("ch:ch_1")?.get("u_other")).toBe("Alice")
-  })
-
-  it("stores null when the typing event carries no name (older server → consumer falls back to roster)", async () => {
-    await mountHook()
-    const { useCommunityStore } = await import("@/stores/community")
-    useCommunityStore.getState().subscribe({ channelId: "ch_1" })
-    refCounter = 0
-    stateCounter = 0
-    callbackCounter = 0
-    await mountHook()
-
-    capturedOnMessage!({
-      type: "community:typing.start",
-      channelId: "ch_1",
-      userId: "u_other",
-    } as CommunityTypingStart)
-
-    expect(useCommunityStore.getState().typingByScope.get("ch:ch_1")?.get("u_other")).toBeNull()
-  })
 })
 
 // ── Typing scope isolation (per-conversation, no cross-leak) ────────────────

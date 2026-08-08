@@ -13,7 +13,6 @@ import {
   patchCacheUpdate,
   type MembersEnvelope,
 } from "@/hooks/community/use-server-members"
-import type { MessagesPage } from "@/hooks/community/use-messages"
 import type {
   CommunityWsEvent,
   CommunityMessageCreate,
@@ -50,8 +49,7 @@ import type {
   CommunityMachineUpdated,
   CommunityMachineRemoved,
 } from "@alook/shared"
-import { isCommunityEvent, TYPING_INDICATOR_TIMEOUT_MS, TYPING_INDICATOR_THROTTLE_MS } from "@alook/shared"
-import type { Msg } from "@/components/community/_types"
+import { isCommunityEvent, TYPING_INDICATOR_THROTTLE_MS } from "@alook/shared"
 import { avatarInitial } from "@/lib/community/avatar"
 import { projectCommunityMessageCreate } from "@/lib/community/message-wire"
 import type { CanonicalMessage } from "@/lib/community/message-stream"
@@ -69,6 +67,21 @@ import {
   setForumSidebarParentUnreadBase,
   type ForumSidebarQueryData,
 } from "@/hooks/community/use-forum-sidebar-threads"
+import {
+  applyReactionToCache,
+  applyReactionToMessage,
+  findCachedMessage,
+  patchApprovalInCache,
+  patchAuthorNameInCache,
+  patchMessageContentInCache,
+  removeThreadFromCache,
+  type PageCache,
+} from "@/hooks/community/community-ws/cache"
+import {
+  applyTypingIndicator,
+  clearTypingIndicator,
+  typingScopeKey,
+} from "@/hooks/community/community-ws/typing"
 
 /**
  * Community WebSocket handler.
@@ -132,150 +145,6 @@ export type CommunityWsCallbacks = {
   onCategory?: (event: CommunityCategoryCreate | CommunityCategoryUpdate | CommunityCategoryDelete | CommunityCategoryReorder) => void
   onMention?: (event: CommunityMentionCreate) => void
   onMachine?: (event: CommunityMachineCreated | CommunityMachineStatus | CommunityMachineUpdated | CommunityMachineRemoved) => void
-}
-
-// ── Cache patch helpers ───────────────────────────────────────────────────
-
-type PageCache = InfiniteData<MessagesPage>
-
-/**
- * Patch every cached message authored by `userId` to the renamed
- * `authorName` — `authorName` is a snapshot field written at send time
- * (`communityMessage` doesn't store it; the live JOIN is `message.ts`'s
- * `authorName: user.name`), so nothing else updates already-loaded message
- * rows after a self-rename. Only touches rows that are actually cached in
- * this client (open/previously-open channels & DMs) — a channel never
- * loaded this session picks up the new name for free on its first real
- * fetch, since that IS the live JOIN.
- */
-function patchAuthorNameInCache(cache: PageCache | undefined, userId: string, newName: string): PageCache | undefined {
-  if (!cache) return cache
-  let touched = false
-  const pages = cache.pages.map((p) => {
-    if (!p.messages.some((m) => m.authorId === userId)) return p
-    touched = true
-    return {
-      ...p,
-      messages: p.messages.map((m) => (m.authorId === userId ? { ...m, authorName: newName } : m)),
-    }
-  })
-  if (!touched) return cache
-  return { ...cache, pages }
-}
-
-/**
- * Patch the `approval` payload of a single cached message — the client-side
- * effect of a `MESSAGE_UPDATED` event. The card re-renders in its new
- * state (approved/denied/superseded/waiting) without a refetch.
- */
-function patchApprovalInCache(
-  cache: PageCache | undefined,
-  messageId: string,
-  approval: Msg["approval"],
-): PageCache | undefined {
-  if (!cache) return cache
-  let touched = false
-  const pages = cache.pages.map((p) => {
-    if (!p.messages.some((m) => m.id === messageId)) return p
-    touched = true
-    return {
-      ...p,
-      messages: p.messages.map((m) => (m.id === messageId ? { ...m, approval } : m)),
-    }
-  })
-  if (!touched) return cache
-  return { ...cache, pages }
-}
-
-function patchMessageContentInCache(cache: PageCache | undefined, messageId: string, content: string): PageCache | undefined {
-  if (!cache) return cache
-  let touched = false
-  const pages = cache.pages.map((page) => ({
-    ...page,
-    messages: page.messages.map((message) => {
-      if (message.id !== messageId) return message
-      touched = true
-      return { ...message, content }
-    }),
-  }))
-  return touched ? { ...cache, pages } : cache
-}
-
-function removeThreadFromCache(cache: PageCache | undefined, threadId: string): PageCache | undefined {
-  if (!cache) return cache
-  let touched = false
-  const pages = cache.pages.map((page) => {
-    const messages = page.messages.filter((message) => message.thread?.id !== threadId)
-    if (messages.length === page.messages.length) return page
-    touched = true
-    return { ...page, messages }
-  })
-  return touched ? { ...cache, pages } : cache
-}
-
-function applyReactionToCache(
-  cache: PageCache | undefined,
-  event: CommunityReactionAdd | CommunityReactionRemove,
-  viewerUserId: string | null,
-): PageCache | undefined {
-  if (!cache) return cache
-  let touched = false
-  const pages = cache.pages.map((p) => {
-    if (!p.messages.some((m) => m.id === event.messageId)) return p
-    touched = true
-    return {
-      ...p,
-      messages: p.messages.map((message) =>
-        message.id === event.messageId
-          ? applyReactionToMessage(message, event, viewerUserId)
-          : message),
-    }
-  })
-  if (!touched) return cache
-  return { ...cache, pages }
-}
-
-function applyReactionToMessage(
-  message: Msg,
-  event: CommunityReactionAdd | CommunityReactionRemove,
-  viewerUserId: string | null,
-): Msg {
-  const reactions = (message.reactions ?? []).map((reaction) => ({
-    ...reaction,
-    userIds: [...(reaction.userIds ?? [])],
-  }))
-  if (event.type === "community:reaction.add") {
-    const existing = reactions.find((reaction) => reaction.emoji === event.emoji)
-    if (existing) {
-      if (!existing.userIds.includes(event.userId)) existing.userIds.push(event.userId)
-      existing.count = existing.userIds.length
-      if (viewerUserId && event.userId === viewerUserId) existing.me = true
-    } else {
-      reactions.push({
-        emoji: event.emoji,
-        count: 1,
-        me: !!viewerUserId && event.userId === viewerUserId,
-        userIds: [event.userId],
-      })
-    }
-  } else {
-    const index = reactions.findIndex((reaction) => reaction.emoji === event.emoji)
-    if (index !== -1) {
-      reactions[index].userIds = reactions[index].userIds.filter((id) => id !== event.userId)
-      reactions[index].count = reactions[index].userIds.length
-      if (viewerUserId && event.userId === viewerUserId) reactions[index].me = false
-      if (reactions[index].count <= 0) reactions.splice(index, 1)
-    }
-  }
-  return { ...message, reactions }
-}
-
-function findCachedMessage(cache: PageCache | undefined, messageId: string): Msg | undefined {
-  for (const page of cache?.pages ?? []) {
-    const message = page.messages.find((row) => row.id === messageId)
-    if (message) return message
-  }
-  return undefined
 }
 
 // ── Public hook ────────────────────────────────────────────────────────────
@@ -1459,93 +1328,4 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
     unsubscribe,
     sendTyping,
   }
-}
-
-// ── Typing indicator helpers ─────────────────────────────────────────────────
-
-/**
- * The conversation scope key an event belongs to. Every event carries a single
- * `channelId` now (a DM is a channel), so the `dm:` / `ch:` prefix — which the
- * DM page (`dm:<id>`) and channel page (`ch:<id>`) read via
- * `useTypingUsersForScope` — is derived from the subscription: if the event's
- * channelId is the focused DM channel, it's a `dm:` scope; otherwise `ch:`.
- * Threads collapse to `ch:<channelId>`.
- */
-function typingScopeKey(
-  e: { channelId: string },
-  sub: { channelId?: string; dmConversationId?: string },
-): string {
-  return e.channelId === sub.dmConversationId ? `dm:${e.channelId}` : `ch:${e.channelId}`
-}
-
-// Timer map key: one auto-expire timer per (scope, user) pair.
-const timerKey = (scopeKey: string, userId: string) => `${scopeKey}|${userId}`
-
-/**
- * Add userId to a conversation scope's typing set and start (or extend) an
- * auto-expire timer. The timer removes the user from THAT scope after
- * `TYPING_INDICATOR_TIMEOUT_MS` if no follow-up typing event arrives.
- * No-ops the set write when the user is already typing in the scope (rule 2 —
- * typing.start re-fires every ~3s).
- */
-function applyTypingIndicator(scopeKey: string, userId: string, name: string | null) {
-  useCommunityStore.setState((state) => {
-    const tKey = timerKey(scopeKey, userId)
-    const existing = state.typingTimers.get(tKey)
-    if (existing) clearTimeout(existing)
-    const timer = setTimeout(() => {
-      useCommunityStore.setState((s) => removeTypingUser(s, scopeKey, userId))
-    }, TYPING_INDICATOR_TIMEOUT_MS)
-    const nextTimers = new Map(state.typingTimers)
-    nextTimers.set(tKey, timer)
-
-    const current = state.typingByScope.get(scopeKey)
-    // Already typing here with the same known name — only the timer refreshed,
-    // leave the name map alone (avoids a needless re-render). Otherwise (new
-    // typer, or a name we didn't have before) write the entry.
-    if (current?.has(userId) && current.get(userId) === name) {
-      return { typingTimers: nextTimers }
-    }
-    const nextByScope = new Map(state.typingByScope)
-    nextByScope.set(scopeKey, new Map(current ?? []).set(userId, name))
-    return { typingByScope: nextByScope, typingTimers: nextTimers }
-  })
-}
-
-/**
- * Immediately remove userId from a scope's typing set and cancel its pending
- * timer. Called when the user sends a message — sending is an implicit
- * typing.stop, and waiting for the 8s timeout leaves a ghost indicator hanging
- * under the message that just arrived.
- */
-function clearTypingIndicator(scopeKey: string, userId: string) {
-  useCommunityStore.setState((state) => {
-    const tKey = timerKey(scopeKey, userId)
-    const existing = state.typingTimers.get(tKey)
-    if (!existing && !state.typingByScope.get(scopeKey)?.has(userId)) return {}
-    if (existing) clearTimeout(existing)
-    return removeTypingUser(state, scopeKey, userId)
-  })
-}
-
-/**
- * Pure state patch: drop userId from `scopeKey`'s typing map (deleting the
- * scope key when it empties, to avoid unbounded Map growth) and its
- * `(scope, user)` timer. Shared by the auto-expire timer and the explicit clear.
- */
-function removeTypingUser(
-  state: { typingByScope: Map<string, Map<string, string | null>>; typingTimers: Map<string, ReturnType<typeof setTimeout>> },
-  scopeKey: string,
-  userId: string,
-): Partial<{ typingByScope: Map<string, Map<string, string | null>>; typingTimers: Map<string, ReturnType<typeof setTimeout>> }> {
-  const nextTimers = new Map(state.typingTimers)
-  nextTimers.delete(timerKey(scopeKey, userId))
-  const current = state.typingByScope.get(scopeKey)
-  if (!current?.has(userId)) return { typingTimers: nextTimers }
-  const nextMap = new Map(current)
-  nextMap.delete(userId)
-  const nextByScope = new Map(state.typingByScope)
-  if (nextMap.size === 0) nextByScope.delete(scopeKey)
-  else nextByScope.set(scopeKey, nextMap)
-  return { typingByScope: nextByScope, typingTimers: nextTimers }
 }
