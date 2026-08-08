@@ -48,7 +48,6 @@ import {
 } from "@/hooks/community/community-ws/presence-machine-events"
 import { reconcileCommunityWsReconnect } from "@/hooks/community/community-ws/reconnect"
 import type {
-  CommunityWsCallbacks,
   CommunityWsHandlerContext,
   Subscription,
   UseCommunityWsOptions,
@@ -57,7 +56,6 @@ import type { CommunityWsEvent } from "@alook/shared"
 import { isCommunityEvent, TYPING_INDICATOR_THROTTLE_MS } from "@alook/shared"
 
 export type {
-  CommunityWsCallbacks,
   Subscription,
   UseCommunityWsOptions,
 } from "@/hooks/community/community-ws/handler-context"
@@ -91,10 +89,6 @@ const INBOX_INVALIDATE_DEBOUNCE_MS = 500
 
 // ── Public hook ────────────────────────────────────────────────────────────
 
-// Overload for the new call-site: `useCommunityWs()` with no args — the hook
-// runs cache reconciliation and returns `{ subscribe, unsubscribe, sendTyping }`.
-// The legacy signature `useCommunityWs({ onMessage, ... })` still works during
-// the God-context migration; callbacks fire in addition to cache patches.
 // Module-level slot for the currently-active WS `send`. The root-mounted
 // `useCommunityWs` writes into this on connect so free helpers below can
 // dispatch typing events without needing to re-mount the hook (which would
@@ -150,13 +144,11 @@ export function communityWsResetTypingThrottle(target: { channelId: string }) {
   useCommunityStore.getState().lastTypingSent.delete(key)
 }
 
-export function useCommunityWs(options?: UseCommunityWsOptions) {
+export function useCommunityWs(options?: UseCommunityWsOptions): void {
   const queryClient = useQueryClient()
   const viewerUserIdRef = useRef<string | null>(options?.viewerUserId ?? null)
-  const callbacksRef = useRef<CommunityWsCallbacks>(options ?? {})
   useEffect(() => {
     viewerUserIdRef.current = options?.viewerUserId ?? null
-    callbacksRef.current = options ?? {}
   })
 
   // #3: the previous WS-driven auto-mark-read (a `useMarkChannelRead()` call
@@ -192,7 +184,6 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
       const communityStore = useCommunityStore.getState()
       const sub = communityStore.subscription
       const wsStore = useCommunityWsStore.getState()
-      const cbs = callbacksRef.current
       // A DM is a channel now — every message/typing/reaction event carries a
       // single `channelId`. The subscription still tracks two slots so the
       // handler can route a DM channel's events into the `dmMessages` cache vs
@@ -208,7 +199,6 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
         communityStore,
         wsStore,
         sub,
-        cbs,
         viewerUserIdRef,
         matchesFocus,
         scheduleInboxInvalidate,
@@ -269,7 +259,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
         case "community:message.edited":
           return handleMessageEdited(event, context)
         case "community:presence.update":
-          return handlePresenceUpdate(event, context)
+          return handlePresenceUpdate(event)
         case "community:status.update":
           return handleStatusUpdate(event)
         case "community:bot.audit_event":
@@ -320,40 +310,6 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
     }
   }, [send])
 
-  // ── Public methods ───────────────────────────────────────────────────────
-
-  /** Subscribe to a channel/thread/DM (writes to the Zustand store). */
-  const subscribe = useCallback((target: Subscription) => {
-    useCommunityStore.getState().subscribe(target)
-  }, [])
-
-  const unsubscribe = useCallback(() => {
-    useCommunityStore.getState().unsubscribe()
-  }, [])
-
-  /**
-   * Send a typing indicator. Client-side throttled per channelId (a DM is a
-   * channel now). The DO also applies server-side dedup.
-   */
-  const sendTyping = useCallback(
-    (target: { channelId: string }) => {
-      const key = target.channelId
-      if (!key) return
-
-      const now = Date.now()
-      const map = useCommunityStore.getState().lastTypingSent
-      const lastSent = map.get(key) || 0
-      if (now - lastSent < TYPING_INDICATOR_THROTTLE_MS) return
-
-      // Mutate the map in place — no equality change, no re-render (nothing
-      // subscribes to it). Keeping it in the store keeps the lifetime tied
-      // to `reset()` on sign-out.
-      map.set(key, now)
-      send({ type: "community:typing.start", channelId: key })
-    },
-    [send],
-  )
-
   // Cleanup: flush the inbox debounce if the hook unmounts mid-window so the
   // parent surface doesn't leave a scheduled fetch dangling.
   useEffect(() => {
@@ -364,10 +320,4 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
       }
     }
   }, [])
-
-  return {
-    subscribe,
-    unsubscribe,
-    sendTyping,
-  }
 }

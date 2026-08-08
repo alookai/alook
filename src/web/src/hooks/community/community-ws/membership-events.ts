@@ -75,7 +75,7 @@ export function handleChannelMemberEvent(
 
 function finishMemberEvent(
   event: CommunityMemberJoin | CommunityMemberLeave | CommunityMemberUpdate,
-  { queryClient, cbs }: MembershipEventContext,
+  { queryClient }: MembershipEventContext,
 ) {
   // Membership just changed → the invite dialog's "friends who aren't
   // in this server" list is stale. Cheap invalidation because the
@@ -85,7 +85,6 @@ function finishMemberEvent(
       queryKey: communityKeys.invitableFriends(event.serverId),
     })
   }
-  cbs.onMember?.(event)
 }
 
 export function handleMemberJoin(

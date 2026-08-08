@@ -126,16 +126,15 @@ type FriendEvent =
   | CommunityFriendBlock
 
 export function handleFriendEvent(
-  event: FriendEvent,
-  { queryClient, cbs }: SocialEventContext,
+  _event: FriendEvent,
+  { queryClient }: SocialEventContext,
 ) {
   void queryClient.invalidateQueries({ queryKey: communityKeys.friends() })
-  cbs.onFriend?.(event)
 }
 
 export function handleMentionCreate(
-  event: CommunityMentionCreate,
-  { queryClient, cbs }: SocialEventContext,
+  _event: CommunityMentionCreate,
+  { queryClient }: SocialEventContext,
 ) {
   void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
   // The server rail badge counts unread mentions per server; refresh
@@ -147,5 +146,4 @@ export function handleMentionCreate(
   // staleTime: Infinity those carry). With an active bot in the server,
   // every mention.create would otherwise storm-refetch all of them.
   void queryClient.invalidateQueries({ queryKey: communityKeys.servers(), exact: true })
-  cbs.onMention?.(event)
 }

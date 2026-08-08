@@ -34,7 +34,7 @@ import type { StructureTreeEventContext } from "@/hooks/community/community-ws/h
 
 export function handleChildChannelCreate(
   event: CommunityChildChannelCreate,
-  { queryClient, cbs }: StructureTreeEventContext,
+  { queryClient }: StructureTreeEventContext,
 ) {
   // Cheap invalidate for the child-thread lists. The parent
   // messages list also needs an update because the parent message's
@@ -105,12 +105,11 @@ export function handleChildChannelCreate(
   if (event.parentMessageId && !openerCached) {
     void queryClient.invalidateQueries({ queryKey: parentMessagesKey })
   }
-  cbs.onChildChannel?.(event)
 }
 
 export function handleChildChannelUpdate(
   event: CommunityChildChannelUpdate,
-  { queryClient, cbs }: StructureTreeEventContext,
+  { queryClient }: StructureTreeEventContext,
 ) {
   // Cheap invalidate for the child-thread lists. The parent
   // messages list also needs an update because the parent message's
@@ -201,12 +200,11 @@ export function handleChildChannelUpdate(
       }
     }
   }
-  cbs.onChildChannel?.(event)
 }
 
 export function handleServerUpdate(
   event: CommunityServerUpdate,
-  { queryClient, cbs }: StructureTreeEventContext,
+  { queryClient }: StructureTreeEventContext,
 ) {
   queryClient.setQueryData<ServerDetail | undefined>(
     communityKeys.server(event.serverId),
@@ -244,12 +242,11 @@ export function handleServerUpdate(
         }
         : prev,
   )
-  cbs.onServer?.(event)
 }
 
 export function handleServerDelete(
   event: CommunityServerDelete,
-  { queryClient, cbs }: StructureTreeEventContext,
+  { queryClient }: StructureTreeEventContext,
 ) {
   // Refresh the rail LIST only (drop the deleted server). `exact`
   // so this doesn't cascade-refetch every other server's nested
@@ -266,7 +263,6 @@ export function handleServerDelete(
     store.setCurrentServerId(null)
     store.setCurrentChannelId(null)
   }
-  cbs.onServer?.(event)
 }
 
 type ChannelEvent =
@@ -277,7 +273,7 @@ type ChannelEvent =
 
 export function handleChannelEvent(
   event: ChannelEvent,
-  { queryClient, cbs }: StructureTreeEventContext,
+  { queryClient }: StructureTreeEventContext,
 ) {
   // #3: on channel.delete, evict every channel-scoped cache before
   // invalidating the server. Without this the messages/pins/threads/
@@ -321,7 +317,6 @@ export function handleChannelEvent(
     }
   }
   void queryClient.invalidateQueries({ queryKey: communityKeys.server(event.serverId) })
-  cbs.onChannel?.(event)
 }
 
 type CategoryEvent =
@@ -332,10 +327,9 @@ type CategoryEvent =
 
 export function handleCategoryEvent(
   event: CategoryEvent,
-  { queryClient, cbs }: StructureTreeEventContext,
+  { queryClient }: StructureTreeEventContext,
 ) {
   void queryClient.invalidateQueries({ queryKey: communityKeys.server(event.serverId) })
-  cbs.onCategory?.(event)
 }
 
 export function handleInviteCreate(

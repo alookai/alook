@@ -13,7 +13,7 @@ type CommunityTypingStop = Extract<
 
 export function handleTypingStart(
   event: CommunityTypingStart,
-  { viewerUserIdRef, matchesFocus, sub, cbs }: TypingEventContext,
+  { viewerUserIdRef, matchesFocus, sub }: TypingEventContext,
 ) {
   const userId = event.userId
   const viewerId = viewerUserIdRef.current
@@ -21,7 +21,6 @@ export function handleTypingStart(
   // Focus check: only surface typing for the currently-viewed target.
   if (!matchesFocus(event)) return
   applyTypingIndicator(typingScopeKey(event, sub), userId, event.name ?? null)
-  cbs.onTyping?.(event)
 }
 
 export function handleTypingStop(

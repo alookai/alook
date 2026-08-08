@@ -33,20 +33,6 @@ describe("useCommunityWs — presence → Zustand store, no cache", () => {
     expect(spy).not.toHaveBeenCalled()
   })
 
-  it("fires the legacy presence callback exactly once", async () => {
-    const onPresence = vi.fn()
-    await mountHook({ onPresence })
-    const event: CommunityPresenceUpdate = {
-      type: "community:presence.update",
-      userId: "u_callback",
-      online: false,
-    }
-
-    capturedOnMessage!(event)
-
-    expect(onPresence).toHaveBeenCalledOnce()
-    expect(onPresence).toHaveBeenCalledWith(event)
-  })
 })
 describe("useCommunityWs — status.update → Zustand store, no cache", () => {
   it("status.update writes to useCommunityWsStore only", async () => {

@@ -8,6 +8,7 @@ import {
   capturedQueryClient,
   cleanupCommunityWsHarness,
   flushEffects,
+  getStableSend,
   mountHook,
   resetCommunityWsHarness,
   resetHookInstance,
@@ -29,6 +30,53 @@ describe("useCommunityWs — non-community events bail", () => {
     expect(invalidateSpy).not.toHaveBeenCalled()
   })
 })
+
+describe("useCommunityWs — public helper contracts", () => {
+  it("returns void after mounting the single root transport", async () => {
+    expect(await mountHook({ viewerUserId: "u_viewer" })).toBeUndefined()
+  })
+
+  it("free subscribe/unsubscribe helpers preserve then clear both subscription slots", async () => {
+    const { communityWsSubscribe, communityWsUnsubscribe } = await import("./use-community-ws")
+    const { useCommunityStore } = await import("@/stores/community")
+    const target = { channelId: "ch_contract", dmConversationId: "dm_contract" }
+
+    communityWsSubscribe(target)
+    expect(useCommunityStore.getState().subscription).toEqual(target)
+
+    communityWsUnsubscribe()
+    expect(useCommunityStore.getState().subscription.channelId).toBeUndefined()
+    expect(useCommunityStore.getState().subscription.dmConversationId).toBeUndefined()
+  })
+
+  it("free typing helpers no-op before mount, throttle, and send again after reset", async () => {
+    const { communityWsResetTypingThrottle, communityWsSendTyping } = await import("./use-community-ws")
+    const target = { channelId: "ch_typing_contract" }
+
+    communityWsSendTyping(target)
+    expect(getStableSend()).not.toHaveBeenCalled()
+
+    await mountHook()
+    flushEffects()
+    const send = getStableSend()
+    communityWsSendTyping(target)
+    communityWsSendTyping(target)
+    expect(send).toHaveBeenCalledOnce()
+    expect(send).toHaveBeenNthCalledWith(1, {
+      type: "community:typing.start",
+      channelId: "ch_typing_contract",
+    })
+
+    communityWsResetTypingThrottle(target)
+    communityWsSendTyping(target)
+    expect(send).toHaveBeenCalledTimes(2)
+    expect(send).toHaveBeenNthCalledWith(2, {
+      type: "community:typing.start",
+      channelId: "ch_typing_contract",
+    })
+  })
+})
+
 describe("useCommunityWs — double-mount detection", () => {
   it("owns exactly one useUserWs call for one hook mount", async () => {
     await mountHook()

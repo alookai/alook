@@ -41,9 +41,7 @@ export function handleMessageCreate(
     communityStore,
     wsStore,
     sub,
-    cbs,
     viewerUserIdRef,
-    matchesFocus,
     scheduleInboxInvalidate,
   }: MessageEventContext,
 ) {
@@ -130,16 +128,13 @@ export function handleMessageCreate(
   // pointer must stay put; the WS handler cannot know whether the
   // incoming message is on screen.
 
-  // Legacy callback fanout — cache patches above are authoritative.
-  cbs.onAnyMessage?.(event)
-  if (matchesFocus(event)) cbs.onMessage?.(event)
 }
 
 type ReactionEvent = CommunityReactionAdd | CommunityReactionRemove
 
 export function handleReactionEvent(
   event: ReactionEvent,
-  { queryClient, viewerUserIdRef, sub, cbs, matchesFocus }: MessageEventContext,
+  { queryClient, viewerUserIdRef, sub }: MessageEventContext,
 ) {
   const viewerId = viewerUserIdRef.current
   // A reaction event carries only `channelId` with no channel-vs-DM
@@ -190,15 +185,13 @@ export function handleReactionEvent(
       })
     }
   }
-  if (matchesFocus(event)) cbs.onReaction?.(event)
 }
 
 export function handlePinEvent(
   event: CommunityPinAdd | CommunityPinRemove,
-  { queryClient, cbs, matchesFocus }: MessageEventContext,
+  { queryClient }: MessageEventContext,
 ) {
   void queryClient.invalidateQueries({ queryKey: communityKeys.pins(event.channelId) })
-  if (matchesFocus(event)) cbs.onPin?.(event)
 }
 
 export function handleMessageUpdated(

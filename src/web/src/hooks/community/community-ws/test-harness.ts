@@ -85,6 +85,10 @@ export function setStableSend(send: ReturnType<typeof vi.fn>) {
   stableSend = send
 }
 
+export function getStableSend() {
+  return stableSend
+}
+
 function resetHarnessState() {
   resetHookInstance()
   pendingEffects = []

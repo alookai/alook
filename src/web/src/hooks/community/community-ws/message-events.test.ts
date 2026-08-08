@@ -370,21 +370,6 @@ describe("useCommunityWs — message.create", () => {
     }
   })
 
-  it("fires the legacy message callbacks exactly once for a focused first-seen message", async () => {
-    const onAnyMessage = vi.fn()
-    const onMessage = vi.fn()
-    const { useCommunityStore } = await import("@/stores/community")
-    useCommunityStore.getState().subscribe({ channelId: "ch_1" })
-
-    await mountHook({ viewerUserId: "u_me", onAnyMessage, onMessage })
-    const event = messageCreate("ch_1", "m_callbacks")
-    capturedOnMessage!(event)
-
-    expect(onAnyMessage).toHaveBeenCalledOnce()
-    expect(onAnyMessage).toHaveBeenCalledWith(event)
-    expect(onMessage).toHaveBeenCalledOnce()
-    expect(onMessage).toHaveBeenCalledWith(event)
-  })
 })
 describe("useCommunityWs — reactions", () => {
   it("patches the message row's reactions in the channel cache", async () => {

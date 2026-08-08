@@ -15,12 +15,8 @@ import type { MachinesResponse } from "@/hooks/community/use-machines"
 import type { PresenceMachineEventContext } from "@/hooks/community/community-ws/handler-context"
 
 // Presence has no query cache; write to the WS store.
-export function handlePresenceUpdate(
-  event: CommunityPresenceUpdate,
-  { cbs }: PresenceMachineEventContext,
-) {
+export function handlePresenceUpdate(event: CommunityPresenceUpdate) {
   useCommunityWsStore.getState().setPresence(event.userId, event.online)
-  cbs.onPresence?.(event)
 }
 
 // Status uses the same WS-store overlay pattern as presence.
@@ -44,7 +40,7 @@ export function handleBotAuditEvent(event: CommunityBotAuditEvent) {
 
 export function handleMachineCreated(
   event: CommunityMachineCreated,
-  { queryClient, cbs }: PresenceMachineEventContext,
+  { queryClient }: PresenceMachineEventContext,
 ) {
   queryClient.setQueryData<MachinesResponse | undefined>(
     communityKeys.machines(),
@@ -58,12 +54,11 @@ export function handleMachineCreated(
     },
   )
   useCommunityStore.getState().setPendingMachineTokenId(event.tokenId)
-  cbs.onMachine?.(event)
 }
 
 export function handleMachineStatus(
   event: CommunityMachineStatus,
-  { queryClient, cbs }: PresenceMachineEventContext,
+  { queryClient }: PresenceMachineEventContext,
 ) {
   queryClient.setQueryData<MachinesResponse | undefined>(
     communityKeys.machines(),
@@ -79,12 +74,11 @@ export function handleMachineStatus(
         }
         : prev,
   )
-  cbs.onMachine?.(event)
 }
 
 export function handleMachineUpdated(
   event: CommunityMachineUpdated,
-  { queryClient, cbs }: PresenceMachineEventContext,
+  { queryClient }: PresenceMachineEventContext,
 ) {
   queryClient.setQueryData<MachinesResponse | undefined>(
     communityKeys.machines(),
@@ -97,17 +91,15 @@ export function handleMachineUpdated(
       return { ...prev, machines: next }
     },
   )
-  cbs.onMachine?.(event)
 }
 
 export function handleMachineRemoved(
   event: CommunityMachineRemoved,
-  { queryClient, cbs }: PresenceMachineEventContext,
+  { queryClient }: PresenceMachineEventContext,
 ) {
   queryClient.setQueryData<MachinesResponse | undefined>(
     communityKeys.machines(),
     (prev) =>
       prev ? { ...prev, machines: prev.machines.filter((m) => m.id !== event.machineId) } : prev,
   )
-  cbs.onMachine?.(event)
 }
