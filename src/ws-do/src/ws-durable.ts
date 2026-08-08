@@ -3,8 +3,6 @@ import {
   createDb,
   queries,
   createLogger,
-  COMMUNITY_MACHINE_HEARTBEAT_MS,
-  COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS,
   HostReadyMessageSchema,
   SessionErrorFrameSchema,
   AgentActivityMessageSchema,
@@ -27,10 +25,8 @@ import {
   RUNTIME_ERROR_KEY,
 } from "./ws-durable/internal"
 import type {
-  CommunityMachineConnectionState,
   CommunityMachineHandle,
   CommunityMachineIdentity,
-  ConnectionState,
   ResetTrigger,
   RestartAttribution,
   WsDurableContext,
@@ -51,6 +47,15 @@ import {
   notifyUserDO,
   sendPresenceSnapshot,
 } from "./ws-durable/presence-typing"
+import {
+  acceptCommunityMachineWebSocket,
+  handleMachineControlFetch,
+} from "./ws-durable/machine-control"
+import {
+  handleCommunityMachineClose,
+  handleMachineAlarm,
+  scheduleHeartbeatAlarm,
+} from "./ws-durable/machine-lifecycle"
 
 /**
  * Order-normalized JSON for comparing two runtime lists. Includes `status`
@@ -101,90 +106,17 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     const userResponse = await handleUserFetch(this.domainContext(), request, url)
     if (userResponse) return userResponse
 
-    if (url.pathname === "/force-close" && request.method === "POST") {
-      const closed = await this.forceCloseCommunityMachine()
-      return new Response(JSON.stringify({ closed }), {
-        headers: { "Content-Type": "application/json" },
-      })
-    }
-
-    if (url.pathname === "/push" && request.method === "POST") {
-      // Forward a bot:* frame (or any host-command frame) to the connected
-      // daemon. Best-effort — if the daemon isn't connected, drops silently.
-      // Cold-start warmup on reconnect re-syncs authoritative state.
-      const body = await request.text()
-      // Reset/nap/reset_all frames pass through here on their way to the daemon.
-      // Persist attribution only when at least one daemon socket received them.
-      // Starting the storage write before yielding keeps a fast completion
-      // behind the Durable Object input gate.
-      const sent = this.forwardToCommunityMachine(body)
-      if (sent > 0) await this.recordPendingRestarts(body)
-      return new Response(JSON.stringify({ sent }), {
-        headers: { "Content-Type": "application/json" },
-      })
-    }
-
-    if (
-      request.method === "POST" &&
-      (url.pathname === "/push-model-switch" || url.pathname === "/push-provider-switch")
-    ) {
-      let payload: unknown
-      try {
-        payload = await request.json()
-      } catch {
-        return new Response(JSON.stringify({ sent: 0 }), { status: 400 })
-      }
-      if (!payload || typeof payload !== "object") {
-        return new Response(JSON.stringify({ sent: 0 }), { status: 400 })
-      }
-      const raw = payload as Record<string, unknown>
-      const { agentId, config, launchId, from, to } = raw
-      if (
-        typeof agentId !== "string" || agentId.length === 0 ||
-        typeof launchId !== "string" || launchId.length === 0 ||
-        !config || typeof config !== "object"
-      ) {
-        return new Response(JSON.stringify({ sent: 0 }), { status: 400 })
-      }
-      const providerSwitch = url.pathname === "/push-provider-switch"
-      if (
-        providerSwitch
-          ? typeof from !== "string" || from.length === 0 || typeof to !== "string" || to.length === 0
-          : (from !== null && typeof from !== "string") || (to !== null && typeof to !== "string")
-      ) {
-        return new Response(JSON.stringify({ sent: 0 }), { status: 400 })
-      }
-      const frame = JSON.stringify({
-        type: providerSwitch ? "agent:reset" : "agent:model_switch",
-        agentId,
-        config,
-        launchId,
-      })
-      const sent = this.forwardToCommunityMachine(frame)
-      if (sent > 0) {
-        const attribution: RestartAttribution = providerSwitch
-          ? { kind: "provider_switch", from: from as string, to: to as string }
-          : { kind: "model_switch", from: from as string | null, to: to as string | null }
-        await this.ctx.storage.put<RestartAttribution>(restartPendingKey(launchId), attribution)
-      }
-      return new Response(JSON.stringify({ sent }), {
-        headers: { "Content-Type": "application/json" },
-      })
-    }
-
-    if (url.pathname === "/forward-agent-wake" && request.method === "POST") {
-      // Forward an `agent:wake` frame to the connected daemon and clear
-      // any lastRuntimeError overlay optimistically (with a fan-out) so the
-      // web card stops rendering the stale error immediately. If the daemon
-      // replies with another `session.error`, the overlay is re-stashed on
-      // the next inbound frame.
-      const body = await request.text()
-      const sent = this.forwardToCommunityMachine(body)
-      await this.clearRuntimeErrorOverlay().catch(() => { })
-      return new Response(JSON.stringify({ sent }), {
-        headers: { "Content-Type": "application/json" },
-      })
-    }
+    const machineResponse = await handleMachineControlFetch(
+      this.domainContext(),
+      request,
+      url,
+      {
+        recordPendingRestarts: (body) => this.recordPendingRestarts(body),
+        clearRuntimeErrorOverlay: () => this.clearRuntimeErrorOverlay(),
+        fanOutMachineUpdated: (userId, machineId) => this.fanOutMachineUpdated(userId, machineId),
+      },
+    )
+    if (machineResponse) return machineResponse
 
     if (request.headers.get("Upgrade") !== "websocket") {
       return new Response("Expected WebSocket", { status: 426 })
@@ -197,113 +129,10 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     // ctx.storage for the rest of the connection's life.
     const authHeader = request.headers.get("Authorization")
     if (authHeader?.startsWith("Bearer cmk_")) {
-      return this.acceptCommunityMachine(authHeader.slice(7).trim())
+      return acceptCommunityMachineWebSocket(this.domainContext(), authHeader.slice(7).trim())
     }
 
     return acceptUserWebSocket(this.domainContext())
-  }
-
-  private async acceptCommunityMachine(bearer: string): Promise<Response> {
-    // Look up by full sha256 hash. Cached identity in ctx.storage lets every
-    // subsequent frame skip D1 entirely. On network flake the DB throws —
-    // reject with 503 so the daemon reconnects via the normal path.
-    const db = createDb(this.env.DB)
-    const hash = await queries.communityMachine.hashCredential(bearer)
-    let auth: {
-      credentialId: string
-      userId: string
-      machineId: string
-      credentialHash: string
-      doName: string
-    } | null = null
-    try {
-      auth = await queries.communityMachine.findCredentialByHash(db, hash)
-    } catch (err) {
-      log.warn("community machine auth lookup threw", { err: String(err) })
-      return new Response("auth lookup unavailable", { status: 503 })
-    }
-    if (!auth) {
-      // 401 BEFORE `acceptWebSocket` — no socket enters ready state, no
-      // alarm scheduled, no ctx.storage writes.
-      return new Response("credential revoked or unknown", { status: 401 })
-    }
-
-    const pair = new WebSocketPair()
-    const [client, server] = Object.values(pair)
-    this.ctx.acceptWebSocket(server)
-
-    server.serializeAttachment({
-      type: "community-machine",
-      machineId: auth.machineId,
-      userId: auth.userId,
-      authenticated: true,
-    } as ConnectionState)
-
-    const identity: CommunityMachineIdentity = {
-      userId: auth.userId,
-      machineId: auth.machineId,
-      credentialHash: auth.credentialHash,
-    }
-    await this.ctx.storage.put(IDENTITY_KEY, identity)
-    // Write the offline-detection handle at accept, BEFORE arming the alarm,
-    // so `alarm()` can always resolve identity even if `ready` never lands.
-    await this.ctx.storage.put<CommunityMachineHandle>(HANDLE_KEY, {
-      userId: auth.userId,
-      machineId: auth.machineId,
-    })
-
-    // Note: do NOT setWebSocketAutoResponse — the daemon uses WS-protocol
-    // pings, which CF runtime answers transparently.
-    await this.scheduleHeartbeatAlarm()
-
-    return new Response(null, { status: 101, webSocket: client })
-  }
-
-  /**
-   * Close every community-machine attachment and drop cached identity /
-   * runtime-error state, then fan out a `machine.updated` clearing the
-   * lastRuntimeError overlay. Called via /force-close from the web-side
-   * revoke path (which resolves the DO name from `credential.do_name`).
-   */
-  private async forceCloseCommunityMachine(): Promise<number> {
-    const identity = await this.ctx.storage.get<CommunityMachineIdentity>(IDENTITY_KEY)
-    let closed = 0
-    for (const ws of this.ctx.getWebSockets()) {
-      const s = ws.deserializeAttachment() as ConnectionState
-      if (s?.type === "community-machine") {
-        try {
-          ws.send(JSON.stringify({ type: "error", code: "AUTH_REJECTED" }))
-          ws.close(1008, "Revoked")
-          closed++
-        } catch { /* ok */ }
-      }
-    }
-    // Drop cached state so a future accept-then-reject leaves nothing behind.
-    await this.ctx.storage.delete(IDENTITY_KEY)
-    await this.ctx.storage.delete(HANDLE_KEY)
-    const hadError = (await this.ctx.storage.get(RUNTIME_ERROR_KEY)) !== undefined
-    await this.ctx.storage.delete(RUNTIME_ERROR_KEY)
-    // If we knew the user, clear any stale lastRuntimeError overlay from the
-    // web card by re-fanning the summary with no overlay.
-    if (identity && hadError) {
-      await this.fanOutMachineUpdated(identity.userId, identity.machineId).catch(() => { })
-    }
-    return closed
-  }
-
-  private rejectCommunityMachine(ws: WebSocket, reason: string): void {
-    try {
-      ws.send(JSON.stringify({ type: "error", code: "AUTH_REJECTED", reason }))
-    } catch { /* ok */ }
-    try { ws.close(1008, "Unauthorized") } catch { /* ok */ }
-  }
-
-  private async scheduleHeartbeatAlarm(): Promise<void> {
-    const current = await this.ctx.storage.getAlarm()
-    const want = Date.now() + COMMUNITY_MACHINE_HEARTBEAT_MS
-    if (current == null || current > want) {
-      await this.ctx.storage.setAlarm(want)
-    }
   }
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
@@ -319,148 +148,12 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     await handleWebSocketClose(
       this.domainContext(),
       ws,
-      (state) => this.handleCommunityMachineClose(state),
+      (state) => handleCommunityMachineClose(this.domainContext(), state),
     )
-  }
-
-  private async handleCommunityMachineClose(state: CommunityMachineConnectionState): Promise<void> {
-    log.info("community machine websocket closed", { machineId: state.machineId, userId: state.userId })
-    const identity = await this.ctx.storage.get<CommunityMachineIdentity>(IDENTITY_KEY)
-    if (!identity) return
-    try {
-      const db = createDb(this.env.DB)
-      const flipped = await queries.communityMachine.markMachineOffline(db, {
-        userId: identity.userId,
-        machineId: identity.machineId,
-        credentialHash: identity.credentialHash,
-      })
-      if (flipped) {
-        await this.notifyUserDO(identity.userId, {
-          type: WS_EVENTS.MACHINE_STATUS,
-          machineId: identity.machineId,
-          status: "offline",
-          lastSeenAt: flipped.lastSeenAt ?? new Date().toISOString(),
-        }).catch(() => { })
-        await this.ctx.storage.deleteAlarm()
-        await this.ctx.storage.delete(HANDLE_KEY)
-        await this.ctx.storage.delete(IDENTITY_KEY)
-      } else {
-        await this.ctx.storage.setAlarm(Date.now() + COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS)
-      }
-    } catch (err) {
-      log.warn("markMachineOffline failed on webSocketClose", { err: String(err) })
-      await this.ctx.storage.setAlarm(Date.now() + COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS)
-    }
   }
 
   async alarm(): Promise<void> {
-    const sockets = this.ctx.getWebSockets()
-    const liveMachines: Array<{ userId: string; machineId: string }> = []
-    for (const ws of sockets) {
-      const s = ws.deserializeAttachment() as ConnectionState
-      if (s?.type === "community-machine" && s.authenticated) {
-        liveMachines.push({ userId: s.userId, machineId: s.machineId })
-      }
-    }
-
-    if (liveMachines.length > 0) {
-      // Connection still live — refresh last_seen_at, then defense-in-depth:
-      // opportunistically flip status='offline' → 'online' if the row is
-      // stale-offline (e.g. hibernated across a deploy). Broadcast only on a
-      // real transition; the steady state (status already online) is a no-op.
-      const db = createDb(this.env.DB)
-      const identity = await this.ctx.storage.get<CommunityMachineIdentity>(IDENTITY_KEY)
-      for (const m of liveMachines) {
-        try {
-          await queries.communityMachine.touchMachineHeartbeat(db, m.userId, m.machineId)
-        } catch { /* ok */ }
-        if (identity && identity.userId === m.userId && identity.machineId === m.machineId) {
-          try {
-            const backfilled = await queries.communityMachine.markMachineOnlineIfOffline(db, {
-              userId: identity.userId,
-              machineId: identity.machineId,
-              credentialHash: identity.credentialHash,
-            })
-            if (backfilled) {
-              await this.notifyUserDO(identity.userId, {
-                type: WS_EVENTS.MACHINE_STATUS,
-                machineId: identity.machineId,
-                status: "online",
-                lastSeenAt: backfilled.lastSeenAt ?? new Date().toISOString(),
-              }).catch(() => { })
-            }
-          } catch (err) {
-            log.warn("markMachineOnlineIfOffline (alarm live-WS) failed", { err: String(err) })
-          }
-        }
-      }
-      await this.ctx.storage.setAlarm(Date.now() + COMMUNITY_MACHINE_HEARTBEAT_MS)
-      return
-    }
-
-    // No live community-machine WS — flip the row to offline if it's stale,
-    // otherwise reschedule the alarm to the exact moment the row goes stale.
-    const stored = await this.ctx.storage.get<CommunityMachineHandle>(HANDLE_KEY)
-    if (!stored) return
-    const identity = await this.ctx.storage.get<CommunityMachineIdentity>(IDENTITY_KEY)
-    const db = createDb(this.env.DB)
-    const machine = await queries.communityMachine.getMachineByIdForUser(
-      db,
-      stored.userId,
-      stored.machineId
-    )
-    if (!machine) {
-      // Row was deleted — drop the handle so we don't keep waking up forever.
-      await this.ctx.storage.delete(HANDLE_KEY)
-      await this.ctx.storage.delete(IDENTITY_KEY)
-      return
-    }
-    const lastSeen = machine.lastSeenAt ? Date.parse(machine.lastSeenAt) : 0
-    const elapsed = Date.now() - lastSeen
-    if (elapsed >= COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS) {
-      // Stale enough — flip status='online' → 'offline' via the credential-scoped
-      // query, broadcast only on real transition. If no identity is cached (e.g.
-      // storage was wiped mid-lifecycle), fall back to a plain broadcast so the
-      // UI still surfaces the transition even if the DB write skipped.
-      if (identity) {
-        try {
-          const flipped = await queries.communityMachine.markMachineOffline(db, {
-            userId: identity.userId,
-            machineId: identity.machineId,
-            credentialHash: identity.credentialHash,
-          })
-          if (flipped) {
-            await this.notifyUserDO(stored.userId, {
-              type: WS_EVENTS.MACHINE_STATUS,
-              machineId: stored.machineId,
-              status: "offline",
-              lastSeenAt: flipped.lastSeenAt ?? new Date().toISOString(),
-            }).catch(() => { })
-          }
-        } catch (err) {
-          log.warn("markMachineOffline (alarm stale-flip) failed", { err: String(err) })
-        }
-      } else {
-        // Identity was wiped mid-lifecycle but HANDLE_KEY still points at a
-        // real row that is now stale. We can't run the credential-scoped
-        // UPDATE, but the UI should still see the offline transition —
-        // otherwise the machine chip stays green until reload. Broadcast
-        // using the row's own lastSeenAt.
-        await this.notifyUserDO(stored.userId, {
-          type: WS_EVENTS.MACHINE_STATUS,
-          machineId: stored.machineId,
-          status: "offline",
-          lastSeenAt: machine.lastSeenAt ?? new Date().toISOString(),
-        }).catch(() => { })
-      }
-      // In either branch, this DO's presence lifecycle is done. Drop storage
-      // so a future connection on the same DO name starts clean.
-      await this.ctx.storage.delete(HANDLE_KEY)
-      await this.ctx.storage.delete(IDENTITY_KEY)
-      return
-    }
-    // Not stale yet — wake up again precisely when it will be.
-    await this.ctx.storage.setAlarm(Date.now() + (COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS - elapsed))
+    await handleMachineAlarm(this.domainContext())
   }
 
   /**
@@ -993,7 +686,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         }).catch(() => { })
       }
 
-      await this.scheduleHeartbeatAlarm()
+      await scheduleHeartbeatAlarm(this.domainContext())
     } catch (err) {
       log.warn("ws_frame_dropped", {
         category: "ws_frame_dropped",
@@ -1020,26 +713,6 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       at: string
     }>(RUNTIME_ERROR_KEY)
     return overlay ? { ...base, lastRuntimeError: overlay } : base
-  }
-
-  /**
-   * Send a frame to the connected community-machine daemon (if any). Used by
-   * `agent:wake` forwarding (minimal-wake-queue-unread-notice plan §3) — the
-   * `alook-wake-worker` consumer POSTs an already-built `agent:wake`
-   * `HostCommand` to `/forward-agent-wake`, which routes here.
-   */
-  private forwardToCommunityMachine(message: string): number {
-    let sent = 0
-    for (const ws of this.ctx.getWebSockets()) {
-      const state = ws.deserializeAttachment() as ConnectionState
-      if (state?.type === "community-machine" && state.authenticated) {
-        try {
-          ws.send(message)
-          sent++
-        } catch { /* ok */ }
-      }
-    }
-    return sent
   }
 
   /**
