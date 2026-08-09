@@ -15,7 +15,7 @@ import { ImageCropDialog } from "@/components/community/image-crop-dialog";
 import { validateIconSourceFile } from "@/lib/community/image-crop";
 import { toast } from "sonner";
 import { type AvatarDraft, isPhotoAvatarUrl } from "./photo";
-import { BoringAvatar } from "./boring-avatar";
+import { GeneratedAvatar } from "./generated-avatar";
 import { serializeBeamSeed, parseBeamSeed } from "@/lib/avatar/seed-url";
 import { useIsMobile } from "@/hooks/use-mobile";
 
@@ -31,10 +31,7 @@ function randomSeed(): string {
 }
 
 /**
- * Dual-mode ("Generate" | "Photo") bot avatar picker. "Generate" is a beam
- * avatar with a shuffle button (boring-avatars has no editable model); the
- * chosen seed persists as `avatar:beam:{seed}`. `AvatarPickerDialog` (the
- * workspace-agent picker) is the single-mode variant.
+ * Dual-mode generated or photo bot avatar picker. Generated choices persist as `avatar:beam:{seed}`.
  */
 export function BotAvatarPickerDialog({ image, onChange }: BotAvatarPickerDialogProps) {
   const [open, setOpen] = useState(false);
@@ -137,7 +134,7 @@ export function BotAvatarPickerDialog({ image, onChange }: BotAvatarPickerDialog
               <img src={triggerPreview} alt="" className="size-20 rounded-2xl object-cover" />
             ) : (
               <span className="block size-20 overflow-hidden rounded-2xl">
-                <BoringAvatar seed={seed} size={80} className="size-full" />
+                <GeneratedAvatar seed={seed} size={80} className="size-full" />
               </span>
             )}
           </DialogTrigger>
@@ -166,7 +163,7 @@ export function BotAvatarPickerDialog({ image, onChange }: BotAvatarPickerDialog
             <TabsContent value="generate">
               <div className="flex flex-col items-center gap-3 py-6">
                 <span className="block size-32 overflow-hidden rounded-full">
-                  <BoringAvatar seed={seed} size={128} className="size-full" />
+                  <GeneratedAvatar seed={seed} size={128} className="size-full" />
                 </span>
                 <Button type="button" variant="secondary" size="sm" onClick={shuffle}>
                   <Shuffle className="size-3.5" />

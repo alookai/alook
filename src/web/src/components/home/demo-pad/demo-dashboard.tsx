@@ -6,7 +6,7 @@ import { MessageCluster } from "@/components/chat-primitives/message-cluster";
 import { PresenceLine } from "@/components/agent-chat/presence-line";
 import { EmailCard } from "@/components/agent-chat/event-cards/email-card";
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
-import { BoringAvatar } from "@/components/avatar/boring-avatar";
+import { GeneratedAvatar } from "@/components/avatar/generated-avatar";
 import { Logo } from "@/components/logo";
 import { cn } from "@/lib/utils";
 
@@ -69,7 +69,7 @@ export function DemoDashboard({ state, config, className }: { state: DashboardSt
                     : "ring-transparent hover:ring-border/60",
                 )}
               >
-                <BoringAvatar seed={a.seed} size={32} />
+                <GeneratedAvatar seed={a.seed} size={32} />
               </div>
             );
           })}

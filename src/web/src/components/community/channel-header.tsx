@@ -15,7 +15,7 @@ import { ChannelIcon } from "./channel-icon"
 import { EntityIcon } from "./entity-icon"
 import { SlugHint } from "./slug-hint"
 import { previewSlug } from "@/lib/community/slug-preview"
-import { MarbleBackground } from "@/components/avatar"
+import { SeededBackdrop } from "@/components/avatar"
 import type { RightPanel } from "./_types"
 import { CreateDialogShell } from "./create-dialog-shell"
 
@@ -173,14 +173,12 @@ function ServerCrumb({ id, name, icon, size = 5, className = "" }: { id: string;
   const initialTextCls = size === 7 ? "text-base" : size === 6 ? "text-sm" : "text-xs"
   return (
     <span
-      // No icon → the same deterministic marble fallback used by the rail
-      // (`sortable-server.tsx`) and folder rows, so a server reads as "the
-      // same server" everywhere it shows up, not a flat generic tile here.
+      // The deterministic fallback matches the rail and folder rows.
       className={`relative grid shrink-0 place-items-center overflow-hidden rounded-md ${icon ? `font-semibold ${iconTextCls} bg-secondary text-foreground` : `font-brand font-bold ${initialTextCls} text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.35)]`} ${sizeCls} ${className}`}
       aria-label={name}
       title={name}
     >
-      {icon ? <img src={icon} alt="" className="size-full object-cover" /> : <><MarbleBackground seed={id} /><span className="relative -translate-x-px [-webkit-text-stroke:0.5px_currentColor]">{avatarInitial(name)}</span></>}
+      {icon ? <img src={icon} alt="" className="size-full object-cover" /> : <><SeededBackdrop variant="icon" seed={id} /><span className="relative -translate-x-px [-webkit-text-stroke:0.5px_currentColor]">{avatarInitial(name)}</span></>}
     </span>
   )
 }

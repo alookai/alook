@@ -1,6 +1,6 @@
 import type React from "react"
 import { Avatar as UiAvatar, AvatarImage, AvatarFallback, AvatarBadge } from "@/components/ui/avatar"
-import { BoringAvatar } from "@/components/avatar"
+import { GeneratedAvatar } from "@/components/avatar"
 import { parseBeamSeed } from "@/lib/avatar/seed-url"
 import { avatarInitial } from "@/lib/community/avatar"
 import type { Presence } from "./_types"
@@ -49,7 +49,7 @@ export function Avatar({ label, seed, src, size = 40, dim = false, presence, rin
 
   // Priority: image URL > beam (from stored seed or id) > single letter. Radix
   // `AvatarFallback` renders whenever no `AvatarImage` is present, so we must
-  // NOT emit it when we've already drawn a beam via `<span><BoringAvatar/></span>`
+  // NOT emit it when we've already drawn a beam via `<span><GeneratedAvatar/></span>`
   // — otherwise both stack on top of each other (the "two-avatar-in-one-place" bug).
   return (
     <UiAvatar
@@ -65,14 +65,14 @@ export function Avatar({ label, seed, src, size = 40, dim = false, presence, rin
         </>
       ) : beamSeed ? (
         <span className="size-full rounded-full overflow-hidden">
-          {/* rounded-full must live on BoringAvatar's OWN wrapper (which carries
+          {/* rounded-full must live on GeneratedAvatar's OWN wrapper (which carries
               overflow-hidden), not only on this outer span: the beam SVG has a
               `<g transform>`, and WebKit/Safari does not clip a transformed
               descendant to an ancestor's border-radius — so an outer-only
               radius leaks the beam's square background as a rounded-square
               (the pinned-panel "clipped avatar" bug, WebKit-only). Every other
-              BoringAvatar caller co-locates the radius on it for this reason. */}
-          <BoringAvatar seed={beamSeed} size={size} className="size-full rounded-full" />
+              GeneratedAvatar caller co-locates the radius on it for this reason. */}
+          <GeneratedAvatar seed={beamSeed} size={size} className="size-full rounded-full" />
         </span>
       ) : (
         <AvatarFallback className="font-medium" style={{ fontSize: size * 0.4 }}>

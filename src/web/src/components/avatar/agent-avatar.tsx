@@ -1,6 +1,6 @@
 "use client";
 
-import { BoringAvatar } from "./boring-avatar";
+import { GeneratedAvatar } from "./generated-avatar";
 import { resolveAvatar } from "@/lib/avatar/resolve";
 
 export function AgentAvatar({ name, avatarUrl, seed, size = 32 }: { name?: string | null; avatarUrl?: string | null; seed?: string | null; size?: number }) {
@@ -17,5 +17,5 @@ export function AgentAvatar({ name, avatarUrl, seed, size = 32 }: { name?: strin
       />
     );
   }
-  return <BoringAvatar seed={resolved.seed} size={size} className="rounded-full shrink-0" />;
+  return <GeneratedAvatar seed={resolved.seed} size={size} className="rounded-full shrink-0" />;
 }

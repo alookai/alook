@@ -3,7 +3,7 @@
 import { useId, useRef, useState } from "react"
 import { ImagePlus } from "lucide-react"
 import { toast } from "sonner"
-import { MarbleBackground } from "@/components/avatar"
+import { SeededBackdrop } from "@/components/avatar"
 import { Button } from "@/components/ui/button"
 import { avatarInitial } from "@/lib/community/avatar"
 import { validateIconSourceFile } from "@/lib/community/image-crop"
@@ -141,7 +141,7 @@ export function CreateServerDialog({ onClose, onCreateServer }: {
                 <img src={iconPreview} alt="" className="size-full object-cover" />
               ) : (
                 <>
-                  <MarbleBackground seed={previewSeed} />
+                  <SeededBackdrop variant="icon" seed={previewSeed} />
                   {initial ? (
                     <span className="relative -translate-x-0.5 font-brand text-[2rem] font-bold leading-none [-webkit-text-stroke:0.5px_currentColor]">
                       {initial}

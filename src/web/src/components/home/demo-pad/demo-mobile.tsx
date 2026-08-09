@@ -3,7 +3,7 @@
 import { ArrowUp, Home, CalendarDays, CircleDot } from "lucide-react";
 import { MessageBubble } from "@/components/chat-primitives/message-bubble";
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
-import { BoringAvatar } from "@/components/avatar/boring-avatar";
+import { GeneratedAvatar } from "@/components/avatar/generated-avatar";
 import { Logo } from "@/components/logo";
 import { cn } from "@/lib/utils";
 import type { DashboardState, DashboardConfig } from "./demo-dashboard";
@@ -35,7 +35,7 @@ export function DemoMobile({ state, config, className }: { state: DashboardState
                   isActive && "shadow-[inset_0_0_0_1.5px_hsl(var(--primary))]",
                 )}
               >
-                <BoringAvatar seed={a.seed} size={16} />
+                <GeneratedAvatar seed={a.seed} size={16} />
               </div>
             );
           })}

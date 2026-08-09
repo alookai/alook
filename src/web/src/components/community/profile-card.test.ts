@@ -1,5 +1,23 @@
 import { describe, it, expect } from "vitest"
-import { resolveCardStatus } from "./profile-card"
+import { resolveCardStatus, resolveProfileBackdropSeed } from "./profile-card"
+import { serializeBeamSeed } from "@/lib/avatar/seed-url"
+
+describe("resolveProfileBackdropSeed", () => {
+  it("uses the stored generated seed so Shuffle changes face and backdrop together", () => {
+    expect(resolveProfileBackdropSeed(serializeBeamSeed("shuffle-seed"), "user-id", "Renamed"))
+      .toBe("shuffle-seed")
+  })
+
+  it("uses the stable identity fallback when no avatar is stored", () => {
+    expect(resolveProfileBackdropSeed(null, "user-id", "Renamed"))
+      .toBe("user-id")
+  })
+
+  it("keeps photo backdrops stable on identity instead of sampling the image", () => {
+    expect(resolveProfileBackdropSeed("https://cdn.example.com/photo.png", "user-id", "Renamed"))
+      .toBe("user-id")
+  })
+})
 
 describe("resolveCardStatus — WS overlay wins over row seed", () => {
   it("uses the overlay entry when one exists", () => {

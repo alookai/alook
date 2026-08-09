@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { MarkdownEditor } from "@/components/ui/markdown-editor";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Trash2 } from "lucide-react";
-import { BoringAvatar } from "@/components/avatar";
+import { GeneratedAvatar } from "@/components/avatar";
 import { resolveAvatar } from "@/lib/avatar/resolve";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
@@ -110,7 +110,7 @@ export function LinkSidecar({
     if (resolved.kind === "photo") {
       return <img src={resolved.url} alt={agent.name} className="shrink-0 rounded-xl object-cover" style={{ width: 32, height: 32 }} />;
     }
-    return <BoringAvatar seed={resolved.seed} size={32} className="shrink-0 rounded-xl" />;
+    return <GeneratedAvatar seed={resolved.seed} size={32} className="shrink-0 rounded-xl" />;
   };
 
   return (

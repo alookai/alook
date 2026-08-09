@@ -4,12 +4,8 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { Avatar } from "./avatar"
 import { serializeBeamSeed } from "@/lib/avatar/seed-url"
 
-// React's `useId` embeds a per-render counter (`_R_1_`, `_R_2_`, …) into the
-// SVG mask/gradient ids, so two independent renders never match byte-for-byte
-// even when the derived avatar is identical. Strip those so equality checks
-// compare the derived avatar, not the render ordinal.
 function normalize(html: string): string {
-  return html.replace(/_R_[0-9a-z]+_/g, "_ID_").replace(/\bmarble_[0-9a-z]+\b/g, "id").replace(/#[0-9a-z]+_ID_/g, "#_ID_")
+  return html.replace(/_R_[0-9a-z]+_/g, "_ID_").replace(/#[0-9a-z]+_ID_/g, "#_ID_")
 }
 
 function render(props: Parameters<typeof Avatar>[0]): string {

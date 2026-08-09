@@ -3,7 +3,7 @@
 import Image from "next/image"
 import Link from "next/link"
 import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react"
-import { BoringAvatar } from "@/components/avatar"
+import { GeneratedAvatar } from "@/components/avatar"
 import { ProfileCard } from "@/components/community/profile-card"
 import { ProviderLogo } from "@/components/provider-logo"
 import { HeroSection } from "./hero-section"
@@ -358,7 +358,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
                 className={`${styles.closingCompanion} ${companion.className}`}
                 aria-hidden="true"
               >
-                <BoringAvatar seed={companion.seed} size="100%" className={styles.closingAvatar} />
+                <GeneratedAvatar seed={companion.seed} size="100%" className={styles.closingAvatar} />
               </span>
             ))}
             <Link

@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/tooltip";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { NumberTicker } from "@/components/ui/number-ticker";
-import { MarbleBackground } from "@/components/avatar";
+import { SeededBackdrop } from "@/components/avatar";
 import { tid } from "@/lib/community/testids";
 import type { Server } from "./_types";
 
@@ -129,7 +129,7 @@ function SortableServerImpl({
             />
           ) : (
             <>
-              <MarbleBackground seed={server.id} />
+              <SeededBackdrop variant="icon" seed={server.id} />
               <span className="relative -translate-x-0.5 [-webkit-text-stroke:0.5px_currentColor]">
                 {server.initial}
               </span>

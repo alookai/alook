@@ -10,7 +10,7 @@ import { isPresenceOnline } from "@alook/shared"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { BoringAvatar } from "@/components/avatar"
+import { GeneratedAvatar } from "@/components/avatar"
 import {
   AlertDialog,
   AlertDialogContent,
@@ -237,7 +237,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
               {onboardingState === null ? (
                 <span className="community-guide-me-orbit" aria-hidden="true">
                   <span className="community-guide-me-avatar">
-                    <BoringAvatar
+                    <GeneratedAvatar
                       seed={guideAvatarSeed}
                       size={24}
                       className="rounded-full ring-2 ring-background shadow-sm"

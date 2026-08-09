@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { BoringAvatar } from "./boring-avatar";
+import { GeneratedAvatar } from "./generated-avatar";
 import { resolveAvatar } from "@/lib/avatar/resolve";
 
 // beam is a static SVG with no animatable internal parts, so only the
@@ -55,7 +55,7 @@ export function AnimatedAvatar({ seed, avatarUrl, size, className, isHovered, is
       {resolved.kind === "photo" ? (
         <img src={resolved.url} alt="" className={`object-cover align-middle ${className ?? ""}`} style={{ width: size, height: size }} />
       ) : (
-        <BoringAvatar seed={resolved.seed} size={size} className={className} />
+        <GeneratedAvatar seed={resolved.seed} size={size} className={className} />
       )}
     </div>
   );

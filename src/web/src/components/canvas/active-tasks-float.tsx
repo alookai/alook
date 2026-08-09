@@ -6,7 +6,7 @@ import { X } from "lucide-react";
 import { useAgentContext } from "@/contexts/agent-context";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { BoringAvatar } from "@/components/avatar";
+import { GeneratedAvatar } from "@/components/avatar";
 import { resolveAvatar } from "@/lib/avatar/resolve";
 import type { WorkspaceActiveTask } from "@/lib/api";
 import { relativeTime } from "@/lib/time";
@@ -17,7 +17,7 @@ function AgentAvatar({ name, avatarUrl, seed, size = 20 }: { name?: string; avat
   if (resolved.kind === "photo") {
     return <img src={resolved.url} alt={name ?? ""} className="rounded-full shrink-0 object-cover" style={{ width: size, height: size }} />;
   }
-  return <BoringAvatar seed={resolved.seed} size={size} className="rounded-full shrink-0" />;
+  return <GeneratedAvatar seed={resolved.seed} size={size} className="rounded-full shrink-0" />;
 }
 
 function TaskRow({

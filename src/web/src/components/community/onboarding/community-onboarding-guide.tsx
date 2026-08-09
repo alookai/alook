@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
-import { BoringAvatar } from "@/components/avatar";
+import { GeneratedAvatar } from "@/components/avatar";
 import { Button } from "@/components/ui/button";
 import { driver, type Driver } from "driver.js";
 import { isPresenceOnline, type CommunityMachineSummary } from "@alook/shared";
@@ -635,7 +635,7 @@ export function CommunityOnboardingGuide() {
         : null}
       {targetAvatarContainer
         ? createPortal(
-            <BoringAvatar
+            <GeneratedAvatar
               seed={state.guideAvatarSeed ?? "alook-guide"}
               size={28}
               className="rounded-full ring-2 ring-background shadow-md"

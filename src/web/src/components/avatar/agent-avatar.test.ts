@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { AgentAvatar } from "./agent-avatar"
-import { BoringAvatar } from "./boring-avatar"
+import { GeneratedAvatar } from "./generated-avatar"
 import { serializeBeamSeed } from "@/lib/avatar/seed-url"
 
 // A legacy procedural config value (the format the removed engine used to
@@ -8,7 +8,7 @@ import { serializeBeamSeed } from "@/lib/avatar/seed-url"
 const LEGACY_CONFIG = 'avatar:{"shape":"book","eye":"happy","nose":"dash","bg":1}'
 
 type ImgEl = { type: "img"; props: { src: string; alt: string; style: { width: number; height: number } } }
-type BeamEl = { type: typeof BoringAvatar; props: { seed: string; size: number } }
+type BeamEl = { type: typeof GeneratedAvatar; props: { seed: string; size: number } }
 
 describe("AgentAvatar", () => {
   it("renders an <img> for a photo URL (https)", () => {
@@ -30,20 +30,20 @@ describe("AgentAvatar", () => {
 
   it("renders beam with the stored seed for a avatar:beam value", () => {
     const el = AgentAvatar({ name: "Bot", avatarUrl: serializeBeamSeed("seed-123"), seed: "agent-1", size: 32 }) as unknown as BeamEl
-    expect(el.type).toBe(BoringAvatar)
+    expect(el.type).toBe(GeneratedAvatar)
     expect(el.props.seed).toBe("seed-123")
     expect(el.props.size).toBe(32)
   })
 
   it("ignores a legacy avatar:{shape…} config and beams by the fallback seed", () => {
     const el = AgentAvatar({ name: "Bot", avatarUrl: LEGACY_CONFIG, seed: "agent-1", size: 32 }) as unknown as BeamEl
-    expect(el.type).toBe(BoringAvatar)
+    expect(el.type).toBe(GeneratedAvatar)
     expect(el.props.seed).toBe("agent-1")
   })
 
   it("beams by the id seed when avatarUrl is null", () => {
     const el = AgentAvatar({ name: "Zara", avatarUrl: null, seed: "agent-9", size: 32 }) as unknown as BeamEl
-    expect(el.type).toBe(BoringAvatar)
+    expect(el.type).toBe(GeneratedAvatar)
     expect(el.props.seed).toBe("agent-9")
   })
 

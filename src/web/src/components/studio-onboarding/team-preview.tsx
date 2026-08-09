@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { RefreshCw } from "lucide-react";
-import { BoringAvatar } from "@/components/avatar";
+import { GeneratedAvatar } from "@/components/avatar";
 import { resolveAvatar } from "@/lib/avatar/resolve";
 import {
   Select,
@@ -75,7 +75,7 @@ export function TeamPreview({
                 {resolved.kind === "photo" ? (
                   <img src={resolved.url} alt={m.name} className="size-9 rounded-xl object-cover shrink-0" />
                 ) : (
-                  <BoringAvatar seed={resolved.seed} size={36} className="rounded-xl shrink-0" />
+                  <GeneratedAvatar seed={resolved.seed} size={36} className="rounded-xl shrink-0" />
                 )}
                 <div className="flex flex-col items-start gap-1">
                   <span className="text-sm font-medium">{m.name}</span>

@@ -16,7 +16,7 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { GitBranch, RefreshCw } from "lucide-react";
-import { BoringAvatar } from "@/components/avatar";
+import { GeneratedAvatar } from "@/components/avatar";
 import { resolveAvatar } from "@/lib/avatar/resolve";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
@@ -78,7 +78,7 @@ function AgentAvatar({ name, avatarUrl, seed, size = 14 }: { name?: string; avat
   if (resolved.kind === "photo") {
     return <img src={resolved.url} alt={name ?? ""} className="rounded-full shrink-0 object-cover" style={{ width: size, height: size }} />;
   }
-  return <BoringAvatar seed={resolved.seed} size={size} className="rounded-full shrink-0" />;
+  return <GeneratedAvatar seed={resolved.seed} size={size} className="rounded-full shrink-0" />;
 }
 
 function TraceRow({ trace, slug }: { trace: TraceListItem; slug: string }) {

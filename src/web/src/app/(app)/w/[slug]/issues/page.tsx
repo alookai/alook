@@ -12,7 +12,7 @@ import type { TaskApi } from "@alook/shared";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { BoringAvatar } from "@/components/avatar";
+import { GeneratedAvatar } from "@/components/avatar";
 import { resolveAvatar } from "@/lib/avatar/resolve";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -42,7 +42,7 @@ function AgentAvatar({ agent, size = 24 }: { agent?: Agent | null; size?: number
   if (resolved.kind === "photo") {
     return <img src={resolved.url} alt={agent?.name ?? ""} className="shrink-0 rounded-full object-cover" style={{ width: size, height: size }} />;
   }
-  return <BoringAvatar seed={resolved.seed} size={size} className="shrink-0 rounded-full" />;
+  return <GeneratedAvatar seed={resolved.seed} size={size} className="shrink-0 rounded-full" />;
 }
 
 function IssueCard({

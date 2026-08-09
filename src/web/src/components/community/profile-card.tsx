@@ -5,7 +5,8 @@ import { MessagesSquare, Shield } from "lucide-react"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Badge } from "@/components/ui/badge"
 import { Avatar } from "./avatar"
-import { MarbleBackground } from "@/components/avatar"
+import { SeededBackdrop } from "@/components/avatar"
+import { resolveAvatar } from "@/lib/avatar/resolve"
 import { StatusEditor, hasStatus } from "./status-editor"
 import type { Profile } from "./_types"
 import type { Breakpoint } from "@/hooks/use-mobile"
@@ -28,6 +29,16 @@ export function resolveCardStatus(
 ): { emoji: string | null; text: string | null } {
   if (overlay) return { emoji: overlay.emoji, text: overlay.text }
   return { emoji: seedEmoji ?? null, text: seedText ?? null }
+}
+
+export function resolveProfileBackdropSeed(
+  avatar: string | null | undefined,
+  userId: string | null | undefined,
+  name: string,
+): string {
+  const fallbackSeed = userId ?? name
+  const resolved = resolveAvatar(avatar, fallbackSeed)
+  return resolved.kind === "beam" ? resolved.seed : fallbackSeed
 }
 
 // Profile card — popover anchored at the click point on desktop, bottom sheet on mobile.
@@ -58,6 +69,7 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
   const mobile = bp === "mobile"
   const liveStatus = useCommunityWsStore((s) => (data.userId ? s.userStatuses.get(data.userId) : undefined))
   const { emoji: statusEmoji, text: statusText } = resolveCardStatus(liveStatus, initialStatusEmoji, initialStatusText)
+  const backdropSeed = resolveProfileBackdropSeed(data.avatar, data.userId, data.name)
   const close = () => setOpen(false)
   const send = () => {
     const text = msg.trim()
@@ -69,10 +81,8 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
   }
   const card = (
     <>
-      {/* banner — seeded marble fill, clipped by the wide-bar container
-          (object-fit doesn't apply to an inline <svg>, so the SVG fills 100%). */}
       <div className="relative -m-2 mb-0 h-16 overflow-hidden rounded-t-lg">
-        <MarbleBackground seed={data.userId ?? data.name} />
+        <SeededBackdrop variant="profile" seed={backdropSeed} />
       </div>
       <div className="px-2 pb-2">
         {/* `pl-4` — the card body below has its own `p-4`, so its text sits

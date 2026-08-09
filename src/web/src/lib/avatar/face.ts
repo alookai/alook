@@ -1,7 +1,6 @@
-// Generated "beam" face renderer — the richer replacement for boring-avatars'
-// fixed beam geometry. Ported from the approved design prototype (Alli). Same
-// 36-unit canvas, same PRNG + auto-contrast ink as the lib's beam, so it reads
-// as "more of the same face", not a new style. The feature vocabulary grew:
+import { avatarHash, avatarThemeFromSeed } from "./theme"
+
+// Generated face renderer from the approved design prototype. The feature vocabulary is:
 //   11 grounded shapes · 21 eyes · 22 mouths.
 // Each seed picks its shape/eye/mouth deterministically (INDEPENDENTLY), so a
 // given id always renders the same face and never flickers across renames.
@@ -10,8 +9,6 @@
 // possible future hat. Hats do not exist in the product today, so this reserve
 // follows the QA-approved avatar geometry — the geometry must never be retuned
 // to satisfy a speculative accessory constraint (Gus, uiux#609–612).
-//
-// `beam` only. Marble (server/channel icons, banner) stays on the lib.
 
 const C = 36
 const CX = 18
@@ -22,57 +19,12 @@ const CX = 18
 const CYh = 23.5
 export const FACE_HAT_LINE = 4
 
-// boring-avatars PRNG helpers (verbatim from the lib bundle, so the base
-// transform matches the lib's beam feel exactly).
-function hashSeed(name: string): number {
-  let r = 0
-  for (let i = 0; i < name.length; i++) {
-    r = (r << 5) - r + name.charCodeAt(i)
-    r = r & r
-  }
-  return Math.abs(r)
-}
 const digit = (n: number, p: number): number => Math.floor((n / Math.pow(10, p)) % 10)
 const unit = (n: number, m: number, p?: number): number => {
   const a = n % m
   return p && digit(n, p) % 2 === 0 ? -a : a
 }
-const pick = (n: number, arr: readonly string[], off = 0): string => arr[(n + off) % arr.length]
-
-// Perceived luminance (0–255), the same weighting the lib uses for faceColor.
-function luminance(hex: string): number {
-  const h = hex.replace("#", "")
-  const r = parseInt(h.substr(0, 2), 16)
-  const g = parseInt(h.substr(2, 2), 16)
-  const b = parseInt(h.substr(4, 2), 16)
-  return (r * 299 + g * 587 + b * 114) / 1000
-}
-
-// Contrasting ink color — same luminance rule the lib uses for faceColor.
-export function ink(hex: string): string {
-  return luminance(hex) >= 128 ? "#000000" : "#ffffff"
-}
-
-// Pick the palette color with the greatest luminance distance from `wrapper`,
-// for use as the background. The lib's beam uses a fixed offset (bg =
-// palette[(i+13)%len]) which can land wrapper + bg on two near-luminance
-// colors — a face that melts into its background (the low-contrast bug Gus
-// hit on the all-light idx-6 palette). Max-distance guarantees the face reads
-// against the bg for every seed/palette. Deterministic: pure function of
-// wrapper + palette, so faces stay stable and never flicker.
-function farthestByLuminance(wrapper: string, palette: readonly string[]): string {
-  const wl = luminance(wrapper)
-  let best = palette[0]
-  let bestDist = -1
-  for (const c of palette) {
-    const d = Math.abs(luminance(c) - wl)
-    if (d > bestDist) {
-      bestDist = d
-      best = c
-    }
-  }
-  return best
-}
+export { avatarInk as ink } from "./theme"
 
 // Grounded wrapper shapes from the approved component review (uiux#591–593).
 // Their lower half shares a sturdy, almost-straight body and a broad rounded
@@ -172,11 +124,12 @@ export const FACE_VOCABULARY = {
 // Render a generated beam face to an SVG string for the given seed + palette.
 // Feature choice is deterministic on the seed hash; the head is placed in the
 // lower band so the top ~20% stays clear for a hat.
-export function renderFaceSvg(seed: string, palette: readonly string[]): string {
-  const i = hashSeed(seed)
-  const wrapper = pick(i, palette)
-  const bg = farthestByLuminance(wrapper, palette)
-  const c = ink(wrapper)
+export function renderFaceSvg(seed: string): string {
+  const i = avatarHash(seed)
+  const theme = avatarThemeFromSeed(seed)
+  const wrapper = theme.face
+  const bg = theme.background
+  const c = theme.ink
 
   // INDEPENDENT feature selection via radix slicing of the hash. The old code
   // used i%len for shape but digit(i,4)%6 / digit(i,5)%6 for eye/mouth — a

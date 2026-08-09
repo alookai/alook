@@ -5,7 +5,7 @@ import { CSS } from "@dnd-kit/utilities"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from "@/components/ui/context-menu"
 import { RailIndicator } from "./rail-indicator"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
-import { MarbleBackground } from "@/components/avatar"
+import { SeededBackdrop } from "@/components/avatar"
 import type { FolderServer } from "./_types"
 
 export function RailFolder({
@@ -53,7 +53,7 @@ export function RailFolder({
                       s.icon ? "bg-card text-muted-foreground" : "text-white [text-shadow:0_1px_1px_rgb(0_0_0/0.35)]",
                     ].join(" ")}
                   >
-                    {s.icon ? <img src={s.icon} alt={s.name} className="size-full object-cover" /> : <><MarbleBackground seed={s.id} /><span className="relative">{s.initial}</span></>}
+                    {s.icon ? <img src={s.icon} alt={s.name} className="size-full object-cover" /> : <><SeededBackdrop variant="icon" seed={s.id} /><span className="relative">{s.initial}</span></>}
                   </span>
                 ) : (
                   <span key={i} className="aspect-square rounded-sm bg-card/50" />

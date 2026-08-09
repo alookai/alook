@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Shuffle } from "lucide-react";
-import { BoringAvatar } from "./boring-avatar";
+import { GeneratedAvatar } from "./generated-avatar";
 import { serializeBeamSeed, parseBeamSeed } from "@/lib/avatar/seed-url";
 
 interface AvatarPickerDialogProps {
@@ -17,9 +17,7 @@ function randomSeed(): string {
 }
 
 /**
- * Beam avatar picker: a preview + a "shuffle" button that rerolls the seed.
- * boring-avatars has no editable model (shape/eye/nose), so "generate" is just
- * a fresh random seed; the chosen seed persists as `avatar:beam:{seed}`.
+ * Generated avatar picker: a preview and Shuffle control that rerolls the stored seed.
  */
 export function AvatarPickerDialog({ value, onChange }: AvatarPickerDialogProps) {
   const [seed, setSeed] = useState<string>(() => parseBeamSeed(value) ?? randomSeed());
@@ -34,7 +32,7 @@ export function AvatarPickerDialog({ value, onChange }: AvatarPickerDialogProps)
     <div className="flex flex-col items-center gap-3">
       <div className="rounded-2xl bg-background p-2 shadow-sm border border-border">
         <span className="block size-20 overflow-hidden rounded-2xl">
-          <BoringAvatar seed={seed} size={80} className="size-full" />
+          <GeneratedAvatar seed={seed} size={80} className="size-full" />
         </span>
       </div>
       <button

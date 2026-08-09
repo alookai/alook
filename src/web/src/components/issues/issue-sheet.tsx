@@ -43,7 +43,7 @@ import { formatSize } from "@/components/agent-chat/artifact-sheet";
 import { isTerminalIssueStatus, toAlookAddress } from "@alook/shared";
 import type { TraceTask } from "@/lib/api";
 import { updateIssue } from "@/lib/api";
-import { BoringAvatar } from "@/components/avatar";
+import { GeneratedAvatar } from "@/components/avatar";
 import { resolveAvatar } from "@/lib/avatar/resolve";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Kbd } from "@/components/ui/kbd";
@@ -72,7 +72,7 @@ function AgentAvatar({ agent, size = 24 }: { agent?: Agent | null; size?: number
   if (resolved.kind === "photo") {
     return <img src={resolved.url} alt={agent?.name ?? ""} className="shrink-0 rounded-full object-cover" style={{ width: size, height: size }} />;
   }
-  return <BoringAvatar seed={resolved.seed} size={size} className="shrink-0 rounded-full" />;
+  return <GeneratedAvatar seed={resolved.seed} size={size} className="shrink-0 rounded-full" />;
 }
 
 function AgentIdentity({ agent, size = 24 }: { agent: Agent; size?: number }) {
