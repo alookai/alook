@@ -34,4 +34,13 @@ describe("resolveAvatar", () => {
     expect(resolveAvatar(null, "id_1")).toEqual({ kind: "beam", seed: "id_1" })
     expect(resolveAvatar(undefined, "id_1")).toEqual({ kind: "beam", seed: "id_1" })
   })
+
+  it("returns a plain fallback when no stable seed exists", () => {
+    expect(resolveAvatar(null)).toEqual({ kind: "fallback" })
+    expect(resolveAvatar("display name")).toEqual({ kind: "fallback" })
+  })
+
+  it("honors an explicitly provided empty fallback seed", () => {
+    expect(resolveAvatar(null, "")).toEqual({ kind: "beam", seed: "" })
+  })
 })

@@ -129,7 +129,7 @@ function SortableServerImpl({
             />
           ) : (
             <>
-              <SeededBackdrop variant="icon" seed={server.id} />
+              <SeededBackdrop seed={server.id} />
               <span className="relative -translate-x-0.5 [-webkit-text-stroke:0.5px_currentColor]">
                 {server.initial}
               </span>

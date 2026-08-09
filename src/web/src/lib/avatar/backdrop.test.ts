@@ -22,14 +22,14 @@ describe("renderSeededBackdropSvg", () => {
       second: "translate(2 -2) rotate(258 40 40) scale(1.4)",
     },
   ])("matches boring-avatars 2.0.4 marble fixtures for $seed", ({ seed, colors, first, second }) => {
-    const svg = renderSeededBackdropSvg(seed, "icon")
+    const svg = renderSeededBackdropSvg(seed)
     expect(svg).toContain(`<rect width="80" height="80" fill="${colors[0]}"/>`)
     expect(svg).toContain(`fill="${colors[1]}" transform="${first}"`)
     expect(svg).toContain(`fill="${colors[2]}" transform="${second}"`)
   })
 
   it("keeps the upstream 80px marble composition and stretching behavior", () => {
-    const svg = renderSeededBackdropSvg("profile-id", "profile")
+    const svg = renderSeededBackdropSvg("profile-id")
     expect(svg).toContain('viewBox="0 0 80 80"')
     expect(svg).toContain('preserveAspectRatio="none"')
     expect(svg.match(/<path /g)).toHaveLength(2)
@@ -39,18 +39,15 @@ describe("renderSeededBackdropSvg", () => {
     expect(svg).not.toContain("fill-opacity")
   })
 
-  it("is deterministic while keeping profile and icon geometry visually identical", () => {
-    const icon = renderSeededBackdropSvg("stable-id", "icon")
-    const profile = renderSeededBackdropSvg("stable-id", "profile")
-    expect(renderSeededBackdropSvg("stable-id", "icon")).toBe(icon)
-    expect(icon).not.toBe(profile)
-    expect(icon.replace(/alook-marble-\d+/g, "id")).toBe(profile.replace(/alook-marble-\d+/g, "id"))
+  it("is deterministic regardless of where the backdrop is placed", () => {
+    const svg = renderSeededBackdropSvg("stable-id")
+    expect(renderSeededBackdropSvg("stable-id")).toBe(svg)
   })
 
   it("varies the upstream color and transform data across seeds", () => {
     const normalizeIds = (svg: string) => svg.replace(/alook-marble-\d+/g, "id")
-    expect(normalizeIds(renderSeededBackdropSvg("server-a", "icon"))).not.toBe(
-      normalizeIds(renderSeededBackdropSvg("server-b", "icon")),
+    expect(normalizeIds(renderSeededBackdropSvg("server-a"))).not.toBe(
+      normalizeIds(renderSeededBackdropSvg("server-b")),
     )
   })
 })

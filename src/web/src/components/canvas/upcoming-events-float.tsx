@@ -6,18 +6,9 @@ import { CalendarDays, X } from "lucide-react";
 import { useAgentContext } from "@/contexts/agent-context";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { GeneratedAvatar } from "@/components/avatar";
-import { resolveAvatar } from "@/lib/avatar/resolve";
+import { AgentAvatar } from "@/components/avatar";
 import { listCalendarEvents } from "@/lib/api";
 import type { CalendarEvent } from "@alook/shared";
-
-function AgentAvatar({ name, avatarUrl, seed, size = 20 }: { name?: string; avatarUrl?: string | null; seed?: string; size?: number }) {
-  const resolved = resolveAvatar(avatarUrl, seed || name || "?");
-  if (resolved.kind === "photo") {
-    return <img src={resolved.url} alt={name ?? ""} className="rounded-full shrink-0 object-cover" style={{ width: size, height: size }} />;
-  }
-  return <GeneratedAvatar seed={resolved.seed} size={size} className="rounded-full shrink-0" />;
-}
 
 interface AgentEventSummary {
   agentId: string;

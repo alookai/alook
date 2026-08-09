@@ -53,4 +53,23 @@ describe("AgentAvatar", () => {
     const empty = AgentAvatar({}) as unknown as BeamEl
     expect(empty.props.seed).toBe("?")
   })
+
+  it("applies one caller-owned shape consistently to photos and generated avatars", () => {
+    const photo = AgentAvatar({
+      name: "Bot",
+      avatarUrl: "/api/avatar",
+      className: "rounded-xl",
+      alt: "",
+    }) as unknown as ImgEl & { props: { className: string; alt: string } }
+    const generated = AgentAvatar({
+      name: "Bot",
+      seed: "bot-id",
+      className: "rounded-xl",
+    }) as unknown as BeamEl & { props: { className: string } }
+    expect(photo.props.className).toContain("rounded-xl")
+    expect(photo.props.className).not.toContain("rounded-full")
+    expect(photo.props.alt).toBe("")
+    expect(generated.props.className).toContain("rounded-xl")
+    expect(generated.props.className).not.toContain("rounded-full")
+  })
 })

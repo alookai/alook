@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Camera, Shuffle } from "lucide-react";
 import {
   Dialog,
@@ -14,76 +14,24 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ImageCropDialog } from "@/components/community/image-crop-dialog";
 import { validateIconSourceFile } from "@/lib/community/image-crop";
 import { toast } from "sonner";
-import { type AvatarDraft, isPhotoAvatarUrl } from "./photo";
+import { type AvatarDraft } from "@/lib/avatar/model";
 import { GeneratedAvatar } from "./generated-avatar";
-import { serializeBeamSeed, parseBeamSeed } from "@/lib/avatar/seed-url";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useAvatarDraftPicker, type AvatarPickerTab } from "./use-avatar-draft-picker";
 
 interface BotAvatarPickerDialogProps {
   image: string | null;
   onChange: (draft: AvatarDraft) => void;
 }
 
-type PhotoDraft = { file: File | null; previewUrl: string };
-
-function randomSeed(): string {
-  return crypto.randomUUID();
-}
-
 /**
  * Dual-mode generated or photo bot avatar picker. Generated choices persist as `avatar:beam:{seed}`.
  */
 export function BotAvatarPickerDialog({ image, onChange }: BotAvatarPickerDialogProps) {
-  const [open, setOpen] = useState(false);
   const isMobile = useIsMobile();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingCropSrc, setPendingCropSrc] = useState<{ src: string; fileName: string } | null>(null);
-
-  // A photo is anything that's a real URL (http/https/leading-`/`) or a
-  // session-local `blob:` preview — NOT a `avatar:beam:{seed}` value, which is
-  // the procedural (generated) case.
-  const isPhoto = (url: string | null) => !!url && !parseBeamSeed(url) && (isPhotoAvatarUrl(url) || url.startsWith("blob:"));
-
-  const [tab, setTab] = useState<"generate" | "photo">(isPhoto(image) ? "photo" : "generate");
-  const [seed, setSeed] = useState<string>(() => parseBeamSeed(image) ?? randomSeed());
-  const [photoDraft, setPhotoDraft] = useState<PhotoDraft | null>(
-    () => (isPhoto(image) ? { file: null, previewUrl: image! } : null),
-  );
-  const [activeKind, setActiveKind] = useState<"procedural" | "photo">(
-    isPhoto(image) ? "photo" : "procedural",
-  );
-
-  // Keep the trigger preview honest when `image` changes from outside this
-  // component. Idempotent against this component's own `onChange` echoes.
-  useEffect(() => {
-    const nowPhoto = isPhoto(image);
-    setSeed(parseBeamSeed(image) ?? randomSeed());
-    setPhotoDraft((prev) =>
-      nowPhoto
-        ? prev && prev.previewUrl === image
-          ? prev
-          : { file: null, previewUrl: image! }
-        : null,
-    );
-    setActiveKind(nowPhoto ? "photo" : "procedural");
-  }, [image]);
-
-  const shuffle = () => {
-    const next = randomSeed();
-    setSeed(next);
-    setActiveKind("procedural");
-    onChange({ kind: "procedural", image: serializeBeamSeed(next) });
-  };
-
-  const emitForTab = (nextTab: "generate" | "photo", currentSeed: string, photo: PhotoDraft | null) => {
-    if (nextTab === "photo" && photo) {
-      setActiveKind("photo");
-      onChange({ kind: "photo", file: photo.file, previewUrl: photo.previewUrl });
-    } else {
-      setActiveKind("procedural");
-      onChange({ kind: "procedural", image: serializeBeamSeed(currentSeed) });
-    }
-  };
+  const picker = useAvatarDraftPicker(image, onChange);
 
   const pickPhoto = () => fileInputRef.current?.click();
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -98,29 +46,11 @@ export function BotAvatarPickerDialog({ image, onChange }: BotAvatarPickerDialog
     setPendingCropSrc({ src: URL.createObjectURL(file), fileName: file.name });
   };
 
-  const triggerPreview = activeKind === "photo" ? photoDraft?.previewUrl : null;
+  const triggerPreview = picker.activeKind === "photo" ? picker.photoDraft?.previewUrl : null;
 
   return (
     <>
-      <Dialog
-        open={open}
-        onOpenChange={(nextOpen) => {
-          if (nextOpen) {
-            const nowPhoto = isPhoto(image);
-            setSeed(parseBeamSeed(image) ?? randomSeed());
-            if (nowPhoto) {
-              setPhotoDraft((prev) =>
-                prev && prev.previewUrl === image ? prev : { file: null, previewUrl: image! },
-              );
-            } else {
-              setPhotoDraft(null);
-            }
-            setTab(nowPhoto ? "photo" : "generate");
-            setActiveKind(nowPhoto ? "photo" : "procedural");
-          }
-          setOpen(nextOpen);
-        }}
-      >
+      <Dialog open={picker.open} onOpenChange={picker.onOpenChange}>
         <div className="flex justify-center">
           <DialogTrigger
             render={
@@ -134,7 +64,7 @@ export function BotAvatarPickerDialog({ image, onChange }: BotAvatarPickerDialog
               <img src={triggerPreview} alt="" className="size-20 rounded-2xl object-cover" />
             ) : (
               <span className="block size-20 overflow-hidden rounded-2xl">
-                <GeneratedAvatar seed={seed} size={80} className="size-full" />
+                <GeneratedAvatar seed={picker.seed} size={80} className="size-full" />
               </span>
             )}
           </DialogTrigger>
@@ -149,11 +79,9 @@ export function BotAvatarPickerDialog({ image, onChange }: BotAvatarPickerDialog
             <DialogTitle>Choose Avatar</DialogTitle>
           </DialogHeader>
           <Tabs
-            value={tab}
+            value={picker.tab}
             onValueChange={(v) => {
-              const nextTab = v as "generate" | "photo";
-              setTab(nextTab);
-              emitForTab(nextTab, seed, photoDraft);
+              picker.selectTab(v as AvatarPickerTab);
             }}
           >
             <TabsList className="mx-auto">
@@ -163,9 +91,9 @@ export function BotAvatarPickerDialog({ image, onChange }: BotAvatarPickerDialog
             <TabsContent value="generate">
               <div className="flex flex-col items-center gap-3 py-6">
                 <span className="block size-32 overflow-hidden rounded-full">
-                  <GeneratedAvatar seed={seed} size={128} className="size-full" />
+                  <GeneratedAvatar seed={picker.seed} size={128} className="size-full" />
                 </span>
-                <Button type="button" variant="secondary" size="sm" onClick={shuffle}>
+                <Button type="button" variant="secondary" size="sm" onClick={picker.shuffle}>
                   <Shuffle className="size-3.5" />
                   Shuffle
                 </Button>
@@ -185,14 +113,14 @@ export function BotAvatarPickerDialog({ image, onChange }: BotAvatarPickerDialog
                   onClick={pickPhoto}
                   className="grid size-32 place-items-center overflow-hidden rounded-full border-2 border-dashed border-input text-muted-foreground hover:border-primary hover:text-foreground"
                 >
-                  {photoDraft ? (
-                    <img src={photoDraft.previewUrl} alt="" className="size-full object-cover" />
+                  {picker.photoDraft ? (
+                    <img src={picker.photoDraft.previewUrl} alt="" className="size-full object-cover" />
                   ) : (
                     <Camera className="size-8" />
                   )}
                 </button>
                 <Button type="button" variant="secondary" size="sm" onClick={pickPhoto}>
-                  {photoDraft ? "Change photo" : "Upload Photo"}
+                  {picker.photoDraft ? "Change photo" : "Upload Photo"}
                 </Button>
               </div>
             </TabsContent>
@@ -200,7 +128,7 @@ export function BotAvatarPickerDialog({ image, onChange }: BotAvatarPickerDialog
           {isMobile && (
             <button
               type="button"
-              onClick={() => setOpen(false)}
+              onClick={picker.close}
               className="w-full rounded-xl bg-primary py-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
             >
               Done
@@ -215,12 +143,10 @@ export function BotAvatarPickerDialog({ image, onChange }: BotAvatarPickerDialog
           maskShape="circle"
           onCropped={(file) => {
             const previewUrl = URL.createObjectURL(file);
-            if (photoDraft?.previewUrl.startsWith("blob:")) {
-              URL.revokeObjectURL(photoDraft.previewUrl);
+            if (picker.photoDraft?.previewUrl.startsWith("blob:")) {
+              URL.revokeObjectURL(picker.photoDraft.previewUrl);
             }
-            setPhotoDraft({ file, previewUrl });
-            setActiveKind("photo");
-            onChange({ kind: "photo", file, previewUrl });
+            picker.selectPhoto({ file, previewUrl });
             URL.revokeObjectURL(pendingCropSrc.src);
             setPendingCropSrc(null);
           }}

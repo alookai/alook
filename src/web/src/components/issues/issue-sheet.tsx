@@ -43,8 +43,7 @@ import { formatSize } from "@/components/agent-chat/artifact-sheet";
 import { isTerminalIssueStatus, toAlookAddress } from "@alook/shared";
 import type { TraceTask } from "@/lib/api";
 import { updateIssue } from "@/lib/api";
-import { GeneratedAvatar } from "@/components/avatar";
-import { resolveAvatar } from "@/lib/avatar/resolve";
+import { AgentAvatar } from "@/components/avatar";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Kbd } from "@/components/ui/kbd";
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea";
@@ -67,19 +66,11 @@ function statusLabel(status: string) {
 
 // --- Sub-components ---
 
-function AgentAvatar({ agent, size = 24 }: { agent?: Agent | null; size?: number }) {
-  const resolved = resolveAvatar(agent?.avatar_url, agent?.id || agent?.name || "?");
-  if (resolved.kind === "photo") {
-    return <img src={resolved.url} alt={agent?.name ?? ""} className="shrink-0 rounded-full object-cover" style={{ width: size, height: size }} />;
-  }
-  return <GeneratedAvatar seed={resolved.seed} size={size} className="shrink-0 rounded-full" />;
-}
-
 function AgentIdentity({ agent, size = 24 }: { agent: Agent; size?: number }) {
   const email = agent.email_handle ? toAlookAddress(agent.email_handle) : "";
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <AgentAvatar agent={agent} size={size} />
+      <AgentAvatar name={agent.name} avatarUrl={agent.avatar_url} seed={agent.id} size={size} />
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <div className="truncate text-xs font-medium">{agent.name}</div>
         {email ? <div className="truncate text-[11px] text-muted-foreground">{email}</div> : null}
@@ -441,7 +432,7 @@ export function IssueSheet({
                           isRunning ? "border-emerald-500/30 bg-emerald-500/10" : "border-border/60 bg-muted/30"
                         )}>
                           <div className="flex items-center gap-2 text-xs">
-                            {t.agent && <AgentAvatar agent={{ avatar_url: t.agent.avatarUrl, name: t.agent.name } as Agent} size={16} />}
+                            {t.agent && <AgentAvatar name={t.agent.name} avatarUrl={t.agent.avatarUrl} seed={t.agent.name || "?"} size={16} />}
                             <span className={isRunning ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}>
                               {t.agent?.name ?? "Agent"} {isRunning ? "is working" : "— queued"}
                             </span>

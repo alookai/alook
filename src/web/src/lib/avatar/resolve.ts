@@ -6,19 +6,26 @@
  * `avatar:{shape…}` config that we deliberately no longer honor — falls back
  * to an id-seeded beam.
  */
-import { isPhotoAvatarUrl } from "@/components/avatar/photo"
+import { isPhotoAvatarUrl } from "./model"
 import { parseBeamSeed } from "./seed-url"
 
 export type ResolvedAvatar =
   | { kind: "photo"; url: string }
   | { kind: "beam"; seed: string }
 
+export type AvatarResolution = ResolvedAvatar | { kind: "fallback" }
+
+export function resolveAvatar(value: string | null | undefined, fallbackSeed: string): ResolvedAvatar
 export function resolveAvatar(
   value: string | null | undefined,
-  fallbackSeed: string,
-): ResolvedAvatar {
+  fallbackSeed?: string,
+): AvatarResolution
+export function resolveAvatar(
+  value: string | null | undefined,
+  fallbackSeed?: string,
+): AvatarResolution {
   if (isPhotoAvatarUrl(value)) return { kind: "photo", url: value! }
   const beamSeed = parseBeamSeed(value)
   if (beamSeed) return { kind: "beam", seed: beamSeed }
-  return { kind: "beam", seed: fallbackSeed }
+  return fallbackSeed !== undefined ? { kind: "beam", seed: fallbackSeed } : { kind: "fallback" }
 }

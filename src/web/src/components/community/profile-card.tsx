@@ -82,7 +82,7 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
   const card = (
     <>
       <div className="relative -m-2 mb-0 h-16 overflow-hidden rounded-t-lg">
-        <SeededBackdrop variant="profile" seed={backdropSeed} />
+        <SeededBackdrop seed={backdropSeed} />
       </div>
       <div className="px-2 pb-2">
         {/* `pl-4` — the card body below has its own `p-4`, so its text sits

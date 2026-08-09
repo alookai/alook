@@ -1,7 +1,5 @@
 import { avatarHash, avatarThemeFromSeed } from "./theme"
 
-export type SeededBackdropVariant = "profile" | "icon"
-
 const MARBLE_SIZE = 80
 const MARBLE_LAYERS = 3
 
@@ -34,9 +32,9 @@ function marbleLayersFromSeed(seed: string) {
   })
 }
 
-export function renderSeededBackdropSvg(seed: string, variant: SeededBackdropVariant): string {
+export function renderSeededBackdropSvg(seed: string): string {
   const layers = marbleLayersFromSeed(seed)
-  const id = `alook-marble-${avatarHash(`${seed}:${variant}`)}`
+  const id = `alook-marble-${avatarHash(seed)}`
   const maskId = `${id}-mask`
   const filterId = `${id}-filter`
 

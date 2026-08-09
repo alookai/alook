@@ -178,7 +178,7 @@ function ServerCrumb({ id, name, icon, size = 5, className = "" }: { id: string;
       aria-label={name}
       title={name}
     >
-      {icon ? <img src={icon} alt="" className="size-full object-cover" /> : <><SeededBackdrop variant="icon" seed={id} /><span className="relative -translate-x-px [-webkit-text-stroke:0.5px_currentColor]">{avatarInitial(name)}</span></>}
+      {icon ? <img src={icon} alt="" className="size-full object-cover" /> : <><SeededBackdrop seed={id} /><span className="relative -translate-x-px [-webkit-text-stroke:0.5px_currentColor]">{avatarInitial(name)}</span></>}
     </span>
   )
 }

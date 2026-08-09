@@ -38,7 +38,7 @@ export function ServerIcon({
         <img src={icon} alt={name} className="size-full object-cover" />
       ) : (
         <>
-          <SeededBackdrop variant="icon" seed={id} />
+          <SeededBackdrop seed={id} />
           <span className="relative -translate-x-0.5 [-webkit-text-stroke:0.5px_currentColor]">{initial}</span>
         </>
       )}

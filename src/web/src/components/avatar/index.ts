@@ -1,4 +1,4 @@
-export { type AvatarDraft, isPhotoAvatarUrl } from "./photo";
+export { type AvatarDraft, isPhotoAvatarUrl } from "@/lib/avatar/model";
 
 export { GeneratedAvatar } from "./generated-avatar";
 export { SeededBackdrop } from "./seeded-backdrop";

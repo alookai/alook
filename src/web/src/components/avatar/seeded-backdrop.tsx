@@ -1,11 +1,11 @@
-import { renderSeededBackdropSvg, type SeededBackdropVariant } from "@/lib/avatar/backdrop"
+import { renderSeededBackdropSvg } from "@/lib/avatar/backdrop"
 
-export function SeededBackdrop({ seed, variant }: { seed: string; variant: SeededBackdropVariant }) {
+export function SeededBackdrop({ seed }: { seed: string }) {
   return (
     <span
       aria-hidden
       className="pointer-events-none absolute inset-0 [&>svg]:block [&>svg]:size-full"
-      dangerouslySetInnerHTML={{ __html: renderSeededBackdropSvg(seed, variant) }}
+      dangerouslySetInnerHTML={{ __html: renderSeededBackdropSvg(seed) }}
     />
   )
 }

@@ -12,8 +12,7 @@ import type { TaskApi } from "@alook/shared";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { GeneratedAvatar } from "@/components/avatar";
-import { resolveAvatar } from "@/lib/avatar/resolve";
+import { AgentAvatar } from "@/components/avatar";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -35,14 +34,6 @@ const COLUMNS = [
 function formatDate(value: string | null) {
   if (!value) return "";
   return new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-}
-
-function AgentAvatar({ agent, size = 24 }: { agent?: Agent | null; size?: number }) {
-  const resolved = resolveAvatar(agent?.avatar_url, agent?.id || agent?.name || "?");
-  if (resolved.kind === "photo") {
-    return <img src={resolved.url} alt={agent?.name ?? ""} className="shrink-0 rounded-full object-cover" style={{ width: size, height: size }} />;
-  }
-  return <GeneratedAvatar seed={resolved.seed} size={size} className="shrink-0 rounded-full" />;
 }
 
 function IssueCard({
@@ -112,7 +103,7 @@ function IssueCard({
               <span className="flex items-center">
                 {threadAgents.slice(0, 3).map((a, i) => (
                   <span key={a.id} className={cn("rounded-full border-2 border-background", i > 0 && "-ml-2")}>
-                    <AgentAvatar agent={a} size={16} />
+                    <AgentAvatar name={a.name} avatarUrl={a.avatar_url} seed={a.id} size={16} />
                   </span>
                 ))}
                 {threadAgents.length > 3 && (
@@ -123,7 +114,7 @@ function IssueCard({
               </span>
             ) : agent ? (
               <span className="flex items-center gap-1 truncate">
-                <AgentAvatar agent={agent} size={14} />
+                <AgentAvatar name={agent.name} avatarUrl={agent.avatar_url} seed={agent.id} size={14} />
                 <span className="truncate">{agent.name}</span>
               </span>
             ) : (

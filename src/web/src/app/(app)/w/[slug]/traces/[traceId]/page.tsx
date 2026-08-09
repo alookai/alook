@@ -9,8 +9,7 @@ import { getTrace, type TraceTask } from "@/lib/api";
 import { trackThreadViewed } from "@/lib/analytics";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft } from "lucide-react";
-import { GeneratedAvatar } from "@/components/avatar";
-import { resolveAvatar } from "@/lib/avatar/resolve";
+import { AgentAvatar } from "@/components/avatar";
 
 function relativeTime(dateStr: string): string {
   const date = new Date(dateStr);
@@ -64,14 +63,6 @@ const STATUS_LABELS: Record<string, string> = {
   cancelled: "Cancelled",
   superseded: "Cancelled",
 };
-
-function AgentAvatar({ name, avatarUrl, seed, size = 14 }: { name?: string; avatarUrl?: string | null; seed?: string; size?: number }) {
-  const resolved = resolveAvatar(avatarUrl, seed || name || "?");
-  if (resolved.kind === "photo") {
-    return <img src={resolved.url} alt={name ?? ""} className="rounded-full shrink-0 object-cover" style={{ width: size, height: size }} />;
-  }
-  return <GeneratedAvatar seed={resolved.seed} size={size} className="rounded-full shrink-0" />;
-}
 
 interface TreeNode extends TraceTask {
   children: TreeNode[];

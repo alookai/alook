@@ -12,8 +12,7 @@ import { Button } from "@/components/ui/button";
 import { MarkdownEditor } from "@/components/ui/markdown-editor";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Trash2 } from "lucide-react";
-import { GeneratedAvatar } from "@/components/avatar";
-import { resolveAvatar } from "@/lib/avatar/resolve";
+import { AgentAvatar } from "@/components/avatar";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 const DEBOUNCE_MS = 500;
@@ -106,11 +105,7 @@ export function LinkSidecar({
 
   const renderAvatar = (agent: Agent | undefined) => {
     if (!agent) return null;
-    const resolved = resolveAvatar(agent.avatar_url, agent.id || agent.name || "?");
-    if (resolved.kind === "photo") {
-      return <img src={resolved.url} alt={agent.name} className="shrink-0 rounded-xl object-cover" style={{ width: 32, height: 32 }} />;
-    }
-    return <GeneratedAvatar seed={resolved.seed} size={32} className="shrink-0 rounded-xl" />;
+    return <AgentAvatar name={agent.name} avatarUrl={agent.avatar_url} seed={agent.id} size={32} className="rounded-xl" />;
   };
 
   return (

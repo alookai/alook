@@ -3,7 +3,7 @@ import { SeededBackdrop } from "./seeded-backdrop"
 
 describe("SeededBackdrop", () => {
   it("fills its positioned parent with the requested native SVG variant", () => {
-    const profile = SeededBackdrop({ seed: "profile", variant: "profile" }) as unknown as {
+    const profile = SeededBackdrop({ seed: "profile" }) as unknown as {
       props: { "aria-hidden": boolean; className: string; dangerouslySetInnerHTML: { __html: string } }
     }
     expect(profile.props["aria-hidden"]).toBe(true)

@@ -4,8 +4,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { RefreshCw } from "lucide-react";
-import { GeneratedAvatar } from "@/components/avatar";
-import { resolveAvatar } from "@/lib/avatar/resolve";
+import { AgentAvatar } from "@/components/avatar";
 import {
   Select,
   SelectTrigger,
@@ -67,16 +66,11 @@ export function TeamPreview({
         )}
       >
         {members.map((m, i) => {
-          const resolved = resolveAvatar(m.avatarUrl, m.name || "?");
           return (
             <Card key={i} size="sm" className="flex flex-col px-3 py-4 gap-2 h-full">
               {/* Header: avatar + name/badge */}
               <div className="flex items-center gap-2">
-                {resolved.kind === "photo" ? (
-                  <img src={resolved.url} alt={m.name} className="size-9 rounded-xl object-cover shrink-0" />
-                ) : (
-                  <GeneratedAvatar seed={resolved.seed} size={36} className="rounded-xl shrink-0" />
-                )}
+                <AgentAvatar name={m.name} avatarUrl={m.avatarUrl} seed={m.name || "?"} size={36} className="rounded-xl" />
                 <div className="flex flex-col items-start gap-1">
                   <span className="text-sm font-medium">{m.name}</span>
                   <span className="text-[10px] text-muted-foreground bg-muted/60 px-2 py-1 rounded">

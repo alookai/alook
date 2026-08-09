@@ -141,7 +141,7 @@ export function CreateServerDialog({ onClose, onCreateServer }: {
                 <img src={iconPreview} alt="" className="size-full object-cover" />
               ) : (
                 <>
-                  <SeededBackdrop variant="icon" seed={previewSeed} />
+                  <SeededBackdrop seed={previewSeed} />
                   {initial ? (
                     <span className="relative -translate-x-0.5 font-brand text-[2rem] font-bold leading-none [-webkit-text-stroke:0.5px_currentColor]">
                       {initial}

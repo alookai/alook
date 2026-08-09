@@ -53,7 +53,7 @@ export function RailFolder({
                       s.icon ? "bg-card text-muted-foreground" : "text-white [text-shadow:0_1px_1px_rgb(0_0_0/0.35)]",
                     ].join(" ")}
                   >
-                    {s.icon ? <img src={s.icon} alt={s.name} className="size-full object-cover" /> : <><SeededBackdrop variant="icon" seed={s.id} /><span className="relative">{s.initial}</span></>}
+                    {s.icon ? <img src={s.icon} alt={s.name} className="size-full object-cover" /> : <><SeededBackdrop seed={s.id} /><span className="relative">{s.initial}</span></>}
                   </span>
                 ) : (
                   <span key={i} className="aspect-square rounded-sm bg-card/50" />
