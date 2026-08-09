@@ -14,7 +14,7 @@ import {
 } from "@alook/shared"
 import type { MentionType } from "@alook/shared"
 import type { Database } from "@alook/shared"
-import { fanOutToChannel, resolveChannelRecipients } from "./fanout"
+import { broadcastToUserSafe, fanOutToChannel, resolveChannelRecipients } from "./fanout"
 import { dispatchMessageNotify } from "./notify"
 import { mapMessageForWs } from "./message-payload"
 import { attachmentUrl } from "./storage"
@@ -691,6 +691,7 @@ export async function createCommunityMessage(params: {
   // parent CHILD_CHANNEL_UPDATE tick), which merely coincides with participant-set
   // for today's types — a future type could have a parent but server reach, or
   // participant reach without a parent, so the two rules stay separate.
+  let joinedParticipantUserIds: string[] = []
   if (reachIsParticipantSet(target.kind) && !skipMentions) {
     const rows: { userId: string; source: typeof PARTICIPANT_SOURCE.SPOKE | typeof PARTICIPANT_SOURCE.MENTION }[] = [
       { userId: authorId, source: PARTICIPANT_SOURCE.SPOKE },
@@ -704,7 +705,8 @@ export async function createCommunityMessage(params: {
       if (id !== authorId) rows.push({ userId: id, source: PARTICIPANT_SOURCE.MENTION })
     }
     // One bulk insert (author + mentioned) instead of N+1 sequential inserts.
-    await queries.communityThread.addThreadParticipants(db, target.channelId, rows)
+    joinedParticipantUserIds =
+      await queries.communityThread.addThreadParticipants(db, target.channelId, rows) ?? []
   }
 
   // Mention/reply ROW writes are persistence, not broadcast — they run inline
@@ -778,6 +780,19 @@ export async function createCommunityMessage(params: {
     // pipeline resolves each recipient's effective level (a DM's level is
     // self-contained, defaulting to `all`).
     const recipients = await resolveChannelRecipients(db, target.channelId)
+
+    // Normal message fan-out excludes the author because their optimistic row
+    // is reconciled from the POST response. If this send newly enrolled them
+    // in a thread's notify set, send a membership event directly so their own
+    // open Members drawer and sidebar participation state also refresh.
+    if (joinedParticipantUserIds.includes(authorId) && !isDmTarget(target)) {
+      void broadcastToUserSafe(authorId, {
+        type: WS_EVENTS.CHANNEL_MEMBER_ADD,
+        serverId: target.serverId,
+        channelId: target.channelId,
+        userId: authorId,
+      })
+    }
 
     fanOutToChannel(
       target.channelId,

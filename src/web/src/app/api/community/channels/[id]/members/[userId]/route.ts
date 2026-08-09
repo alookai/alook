@@ -37,14 +37,12 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   const isSelf = targetUserId === ctx.userId
   if (!isSelf && !access.value.isCreator) return writeError("forbidden", 403)
 
-  const removed = await queries.communityChannel.deleteChannelMember(db, channelId, targetUserId)
+  const removed = await queries.communityChannel.deleteChannelMemberAndChildParticipants(
+    db,
+    channelId,
+    targetUserId,
+  )
   if (!removed) return writeError("member not found", 404)
-
-  // A removed member loses access to every child unit (a channel's/forum's
-  // threads); drop their leftover participant (notify) rows across
-  // those children so fan-out stops pushing new post/thread messages they can no
-  // longer read. A later mention/speak (which requires access) re-adds them.
-  await queries.communityThread.removeParticipantFromChildChannels(db, channelId, targetUserId)
 
   const event = {
     type: WS_EVENTS.CHANNEL_MEMBER_REMOVE,

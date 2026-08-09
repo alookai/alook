@@ -6,11 +6,10 @@ vi.mock("@opennextjs/cloudflare", () => ({
 }))
 
 const mockResolveChannelAccessContext = vi.fn()
-const mockDeleteChannelMember = vi.fn()
+const mockDeleteChannelMemberAndChildParticipants = vi.fn()
 const mockGetPrivateChannelAudienceUserIds = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
 const mockLogAudit = vi.fn()
-const mockRemoveParticipantFromChildChannels = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
@@ -21,11 +20,9 @@ vi.mock("@alook/shared", async () => {
     queries: {
       communityChannel: {
         resolveChannelAccessContext: (...a: unknown[]) => mockResolveChannelAccessContext(...a),
-        deleteChannelMember: (...a: unknown[]) => mockDeleteChannelMember(...a),
+        deleteChannelMemberAndChildParticipants: (...a: unknown[]) =>
+          mockDeleteChannelMemberAndChildParticipants(...a),
         getPrivateChannelAudienceUserIds: (...a: unknown[]) => mockGetPrivateChannelAudienceUserIds(...a),
-      },
-      communityThread: {
-        removeParticipantFromChildChannels: (...a: unknown[]) => mockRemoveParticipantFromChildChannels(...a),
       },
     },
   }
@@ -77,17 +74,19 @@ describe("DELETE /channels/[id]/members/[userId]", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockResolveChannelAccessContext.mockResolvedValue(managerCtx())
-    mockDeleteChannelMember.mockResolvedValue({ id: "cm1" })
+    mockDeleteChannelMemberAndChildParticipants.mockResolvedValue({ id: "cm1" })
     mockGetPrivateChannelAudienceUserIds.mockResolvedValue(["u1"])
   })
 
   it("creator/admin removes a member", async () => {
     const res = await DELETE(req(), ctx)
     expect(res.status).toBe(204)
-    expect(mockDeleteChannelMember).toHaveBeenCalledWith(expect.anything(), "c1", "u2")
+    expect(mockDeleteChannelMemberAndChildParticipants).toHaveBeenCalledWith(
+      expect.anything(),
+      "c1",
+      "u2",
+    )
     expect(mockBroadcastToUserSafe).toHaveBeenCalled()
-    // A removed channel member also loses their child-thread notify rows.
-    expect(mockRemoveParticipantFromChildChannels).toHaveBeenCalledWith(expect.anything(), "c1", "u2")
   })
 
   it("removing a FORUM member cascades: drops their participant rows across posts", async () => {
@@ -101,10 +100,11 @@ describe("DELETE /channels/[id]/members/[userId]", () => {
       { params: { id: "f1", userId: "u2" } } as any,
     )
     expect(res.status).toBe(204)
-    expect(mockDeleteChannelMember).toHaveBeenCalledWith(expect.anything(), "f1", "u2")
-    // The ex-member's leftover notify rows on the forum's posts are cleaned so
-    // fan-out stops pushing new-post messages they can no longer read.
-    expect(mockRemoveParticipantFromChildChannels).toHaveBeenCalledWith(expect.anything(), "f1", "u2")
+    expect(mockDeleteChannelMemberAndChildParticipants).toHaveBeenCalledWith(
+      expect.anything(),
+      "f1",
+      "u2",
+    )
   })
 
   it("cannot remove the creator (400)", async () => {
@@ -113,7 +113,7 @@ describe("DELETE /channels/[id]/members/[userId]", () => {
       { params: { id: "c1", userId: "u1" } } as any,
     )
     expect(res.status).toBe(400)
-    expect(mockDeleteChannelMember).not.toHaveBeenCalled()
+    expect(mockDeleteChannelMemberAndChildParticipants).not.toHaveBeenCalled()
   })
 
   it("rejects a non-creator removing someone else (403)", async () => {
@@ -138,7 +138,11 @@ describe("DELETE /channels/[id]/members/[userId]", () => {
       { params: { id: "c1", userId: "u1" } } as any,
     )
     expect(res.status).toBe(204)
-    expect(mockDeleteChannelMember).toHaveBeenCalledWith(expect.anything(), "c1", "u1")
+    expect(mockDeleteChannelMemberAndChildParticipants).toHaveBeenCalledWith(
+      expect.anything(),
+      "c1",
+      "u1",
+    )
   })
 
   it("creator cannot self-leave their own channel (400)", async () => {
@@ -149,6 +153,6 @@ describe("DELETE /channels/[id]/members/[userId]", () => {
       { params: { id: "c1", userId: "u1" } } as any,
     )
     expect(res.status).toBe(400)
-    expect(mockDeleteChannelMember).not.toHaveBeenCalled()
+    expect(mockDeleteChannelMemberAndChildParticipants).not.toHaveBeenCalled()
   })
 })

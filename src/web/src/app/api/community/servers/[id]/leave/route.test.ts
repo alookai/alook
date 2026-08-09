@@ -6,11 +6,11 @@ vi.mock("@opennextjs/cloudflare", () => ({
 }))
 
 const mockGetMember = vi.fn()
-const mockRemoveMember = vi.fn()
-const mockRemoveOwnerBotsFromServer = vi.fn()
+const mockRemoveMemberAndOwnerBots = vi.fn()
 const mockListOwnerBotsInServer = vi.fn()
 const mockLogAudit = vi.fn()
 const mockFanOut = vi.fn()
+const mockBroadcastToUserSafe = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
@@ -21,9 +21,8 @@ vi.mock("@alook/shared", async () => {
     queries: {
       communityMember: {
         getMember: (...a: unknown[]) => mockGetMember(...a),
-        removeMember: (...a: unknown[]) => mockRemoveMember(...a),
+        removeMemberAndOwnerBots: (...a: unknown[]) => mockRemoveMemberAndOwnerBots(...a),
         listOwnerBotsInServer: (...a: unknown[]) => mockListOwnerBotsInServer(...a),
-        removeOwnerBotsFromServer: (...a: unknown[]) => mockRemoveOwnerBotsFromServer(...a),
       },
     },
   }
@@ -39,6 +38,7 @@ vi.mock("@/lib/community/audit", async () => {
 
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToServerMembers: (...a: unknown[]) => mockFanOut(...a),
+  broadcastToUserSafe: (...a: unknown[]) => mockBroadcastToUserSafe(...a),
 }))
 
 vi.mock("@/lib/middleware/auth", () => ({
@@ -70,10 +70,10 @@ describe("POST /api/community/servers/[id]/leave", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockGetMember.mockResolvedValue({ id: "mem_1", userId: "u1", role: "member" })
-    mockRemoveMember.mockResolvedValue(true)
+    mockRemoveMemberAndOwnerBots.mockResolvedValue({ id: "mem_1" })
     mockListOwnerBotsInServer.mockResolvedValue([])
-    mockRemoveOwnerBotsFromServer.mockResolvedValue(undefined)
     mockFanOut.mockResolvedValue(undefined)
+    mockBroadcastToUserSafe.mockResolvedValue(undefined)
   })
 
   it("returns 204 and audits member_leave with the target member's id", async () => {
@@ -96,7 +96,7 @@ describe("POST /api/community/servers/[id]/leave", () => {
     const res = await POST(postReq(), ctx)
     expect(res.status).toBe(403)
     expect(mockLogAudit).not.toHaveBeenCalled()
-    expect(mockRemoveMember).not.toHaveBeenCalled()
+    expect(mockRemoveMemberAndOwnerBots).not.toHaveBeenCalled()
   })
 
   it("returns 400 when the owner tries to leave (and does not audit)", async () => {
@@ -105,7 +105,7 @@ describe("POST /api/community/servers/[id]/leave", () => {
     const res = await POST(postReq(), ctx)
     expect(res.status).toBe(400)
     expect(mockLogAudit).not.toHaveBeenCalled()
-    expect(mockRemoveMember).not.toHaveBeenCalled()
+    expect(mockRemoveMemberAndOwnerBots).not.toHaveBeenCalled()
   })
 
   it("bulk-removes owner bots in one call instead of getMember loops", async () => {
@@ -113,8 +113,9 @@ describe("POST /api/community/servers/[id]/leave", () => {
 
     const res = await POST(postReq(), ctx)
     expect(res.status).toBe(204)
-    expect(mockRemoveOwnerBotsFromServer).toHaveBeenCalledWith(
+    expect(mockRemoveMemberAndOwnerBots).toHaveBeenCalledWith(
       expect.anything(),
+      "mem_1",
       "s1",
       ["bot_1", "bot_2"],
     )

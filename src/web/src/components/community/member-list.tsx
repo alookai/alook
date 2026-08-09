@@ -114,7 +114,7 @@ export function MemberList({
   manageContext?: MemberManageContext
   myRole?: Role
   onOpenProfile?: OpenProfile
-  onSetRole?: (name: string, role: Role) => void
+  onSetRole?: (memberId: string, role: Role) => void
   onKick?: (memberId: string) => Promise<unknown> | void
 }) {
   // Kick target stores BOTH the display name (for the confirm title) and the
@@ -148,6 +148,10 @@ export function MemberList({
     ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
     count: items.length,
     getScrollElement: () => scrollRef.current,
+    // React also keys these rows by `item.key`. Keep TanStack Virtual on the
+    // same identity axis so an insert/re-group does not leave a reused DOM
+    // node registered under its old numeric index in direct-DOM mode.
+    getItemKey: (index) => items[index]?.key ?? index,
     estimateSize: (index) => (items[index]?.kind === "header" ? HEADER_HEIGHT : ROW_HEIGHT),
     overscan: 8,
   })
@@ -337,7 +341,7 @@ function MemberRow({
   // `#0042` discriminator is worth showing.
   showDiscriminator: boolean
   onOpenProfile?: OpenProfile
-  onSetRole?: (name: string, role: Role) => void
+  onSetRole?: (memberId: string, role: Role) => void
   // Opens the server-kick confirm — receives the member so the caller can key
   // the DELETE on the member row id (not the display name).
   onKick: (mem: Member) => void
@@ -416,7 +420,7 @@ function MemberRow({
           </ContextMenuSubTrigger>
           <ContextMenuSubContent>
             {SETTABLE_ROLES.map((r) => (
-              <ContextMenuItem key={r} onClick={() => onSetRole?.(mem.name, r)}>
+              <ContextMenuItem key={r} onClick={() => onSetRole?.(mem.id, r)}>
                 <span className="flex-1">{capitalize(r)}</span>
                 {mem.role === r && <Check className="size-4" />}
               </ContextMenuItem>

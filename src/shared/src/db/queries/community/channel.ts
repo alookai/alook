@@ -565,6 +565,42 @@ export async function deleteChannelMember(
 }
 
 /**
+ * Atomically removes an access row and all notify rows below that access
+ * unit. The child cleanup uses a subquery so the batch has no read/write gap.
+ */
+export async function deleteChannelMemberAndChildParticipants(
+  db: Database,
+  channelId: string,
+  userId: string,
+) {
+  const removeAccess = db
+    .delete(communityChannelMember)
+    .where(
+      and(
+        eq(communityChannelMember.channelId, channelId),
+        eq(communityChannelMember.userId, userId),
+        eq(communityChannelMember.relation, "access"),
+      ),
+    )
+    .returning();
+  const childIds = db
+    .select({ id: communityChannel.id })
+    .from(communityChannel)
+    .where(eq(communityChannel.parentChannelId, channelId));
+  const removeChildParticipants = db
+    .delete(communityChannelMember)
+    .where(
+      and(
+        inArray(communityChannelMember.channelId, childIds),
+        eq(communityChannelMember.userId, userId),
+        eq(communityChannelMember.relation, "notify"),
+      ),
+    );
+  const results = (await db.batch([removeAccess, removeChildParticipants] as any)) as any[];
+  return (results[0] as Array<typeof communityChannelMember.$inferSelect>)[0] ?? null;
+}
+
+/**
  * ACCESS members explicitly added to a channel, joined to `user` for display.
  * Scoped to one channel id — cross-channel ids never resolve. Notify rows
  * (child-thread participants) are excluded.

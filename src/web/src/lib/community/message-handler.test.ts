@@ -640,6 +640,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
 
   it("thread: author joins as 'spoke'; a non-audience mention is dropped (no channel auto-add)", async () => {
     mockGetMessage.mockResolvedValue(messageRow({ content: "hey @Bob", channelId: "t1" }))
+    mockAddThreadParticipants.mockResolvedValueOnce(["author_1"])
 
     await createCommunityMessage({
       db: {} as never,
@@ -657,6 +658,12 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     // and NEVER auto-added to the channel roster.
     expect(mockCreateChannelMember).not.toHaveBeenCalled()
     expect(mockCreateMentions).not.toHaveBeenCalled()
+    expect(mockBroadcastToUserSafe).toHaveBeenCalledWith("author_1", {
+      type: "community:channel.member_add",
+      serverId: "srv_1",
+      channelId: "t1",
+      userId: "author_1",
+    })
   })
 
   it("thread: an in-audience @mention joins as a participant + gets a mention row", async () => {

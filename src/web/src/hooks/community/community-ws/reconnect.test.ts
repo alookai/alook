@@ -55,6 +55,11 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
           k[3] === "messages",
       ),
     ).toBe(true)
+    expect(
+      invalidatedKeys.some(
+        (k) => JSON.stringify(k) === JSON.stringify(communityKeys.channelMembers("ch_focus")),
+      ),
+    ).toBe(true)
     // Read-state snapshot MUST NOT be invalidated: the snapshot hook latches
     // its first value (gcTime: 0, frozen ref) so a refetch can't move the
     // "New" divider — it only flips `isFetching` back to true, which the
@@ -110,6 +115,11 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
           k[0] === "community" &&
           k[1] === "servers" &&
           k[2] === "srv_open",
+      ),
+    ).toBe(true)
+    expect(
+      invalidatedKeys.some(
+        (k) => JSON.stringify(k) === JSON.stringify(communityKeys.members("srv_open")),
       ),
     ).toBe(true)
   })

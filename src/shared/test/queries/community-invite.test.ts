@@ -1,119 +1,99 @@
-import { describe, it, expect, vi } from "vitest";
-import * as invite from "../../src/db/queries/community/invite";
+import Sqlite from "better-sqlite3";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createInvite, useInvite } from "../../src/db/queries/community/invite";
 
-/**
- * Build a mock db chain that records the order of high-level operations
- * (`select`, `update`, `insert`) into `ops`. Each terminal method
- * (`.where(...)` on selects, `.returning()` on updates/inserts) resolves
- * with the next queued row set from `rowsQueue`.
- */
-function createOrderTrackingDb(rowsQueue: any[][]) {
-  const ops: string[] = [];
-  const chain: any = {};
-  const takeRows = () => Promise.resolve(rowsQueue.shift() ?? []);
+describe("community invite quota consumption", () => {
+  let sqlite: Sqlite.Database;
+  let db: ReturnType<typeof drizzle>;
 
-  chain.select = vi.fn(() => {
-    ops.push("select");
-    return chain;
-  });
-  chain.from = vi.fn(() => chain);
-  chain.where = vi.fn(() => takeRows());
-  chain.limit = vi.fn(() => takeRows());
-
-  chain.insert = vi.fn(() => {
-    ops.push("insert");
-    return chain;
-  });
-  chain.values = vi.fn(() => chain);
-  chain.returning = vi.fn(() => takeRows());
-
-  chain.update = vi.fn(() => {
-    ops.push("update");
-    return chain;
-  });
-  chain.set = vi.fn(() => chain);
-
-  // For update() the terminal method is `.where(...)` — Drizzle's update
-  // builder awaits at `.where()`. Handle both shapes by returning a
-  // then-able chain that also is awaitable.
-  return { chain, ops };
-}
-
-describe("useInvite — counter does not increment until member insert succeeds", () => {
-  it("runs member INSERT before invite UPDATE (uses ← uses+1)", async () => {
-    // Sequence of `.where()`/`.returning()` results, in call order:
-    //   1. select invite by token → the invite row
-    //   2. insert communityServerMember → returning the inserted row
-    //   3. update communityServerInvite (increment uses) — resolves as
-    //      Drizzle's update-chain terminal
-    //   4. select user (hydration) → user row
-    const inviteRow = {
-      id: "inv_1",
-      token: "tok",
-      serverId: "srv_1",
-      maxUses: null,
-      uses: 0,
-      expiresAt: null,
-    };
-    const memberRow = { id: "mem_1", serverId: "srv_1", userId: "u_1", role: "member" };
-    const userRow = { name: "Alice", image: null, discriminator: "0001" };
-
-    const { chain, ops } = createOrderTrackingDb([
-      [inviteRow],
-      [memberRow],
-      [], // update .where(...) result — no rows returned needed
-      [userRow],
-    ]);
-
-    const result = await invite.useInvite(chain, "tok", "u_1");
-    expect(result).not.toBeNull();
-    // The load-bearing ordering assertion: insert must come before update.
-    const insertIdx = ops.indexOf("insert");
-    const updateIdx = ops.indexOf("update");
-    expect(insertIdx).toBeGreaterThanOrEqual(0);
-    expect(updateIdx).toBeGreaterThan(insertIdx);
+  beforeEach(() => {
+    sqlite = new Sqlite(":memory:");
+    sqlite.exec(`
+      CREATE TABLE user (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        image TEXT,
+        discriminator TEXT
+      );
+      CREATE TABLE community_server_invite (
+        id TEXT PRIMARY KEY,
+        server_id TEXT NOT NULL,
+        created_by TEXT,
+        token TEXT NOT NULL UNIQUE,
+        max_uses INTEGER,
+        uses INTEGER DEFAULT 0,
+        expires_at TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE community_server_member (
+        id TEXT PRIMARY KEY,
+        server_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        role TEXT DEFAULT 'member',
+        rail_order INTEGER DEFAULT 0,
+        joined_at TEXT NOT NULL,
+        UNIQUE(server_id, user_id)
+      );
+    `);
+    db = drizzle(sqlite);
+    // better-sqlite3's Drizzle adapter has transactions but no D1-style batch.
+    // Execute the generated statements in one native SQLite transaction so the
+    // query's all-or-nothing quota contract is exercised against real SQL.
+    (db as any).batch = (statements: Array<{ toSQL: () => { sql: string; params: unknown[] } }>) =>
+      sqlite.transaction(() =>
+        statements.map((statement) => {
+          const query = statement.toSQL();
+          const prepared = sqlite.prepare(query.sql);
+          return prepared.reader
+            ? prepared.all(...query.params)
+            : prepared.run(...query.params);
+        }),
+      )();
+    sqlite.prepare("INSERT INTO user (id, name, discriminator) VALUES (?, ?, ?)").run("u1", "One", "0001");
+    sqlite.prepare("INSERT INTO user (id, name, discriminator) VALUES (?, ?, ?)").run("u2", "Two", "0002");
   });
 
-  it("does NOT run the invite UPDATE if the member INSERT throws (UNIQUE 'already a member')", async () => {
-    const inviteRow = {
-      id: "inv_1",
-      token: "tok",
-      serverId: "srv_1",
-      maxUses: 3,
-      uses: 0,
-      expiresAt: null,
-    };
+  afterEach(() => sqlite.close());
 
-    const ops: string[] = [];
-    const chain: any = {};
-    const rowsQueue: any[][] = [[inviteRow]];
-    chain.select = vi.fn(() => {
-      ops.push("select");
-      return chain;
-    });
-    chain.from = vi.fn(() => chain);
-    chain.where = vi.fn(() => Promise.resolve(rowsQueue.shift() ?? []));
-    chain.limit = vi.fn(() => Promise.resolve(rowsQueue.shift() ?? []));
-    chain.insert = vi.fn(() => {
-      ops.push("insert");
-      return chain;
-    });
-    chain.values = vi.fn(() => chain);
-    chain.returning = vi.fn(() =>
-      Promise.reject(
-        Object.assign(new Error("UNIQUE constraint failed"), { code: "SQLITE_CONSTRAINT_UNIQUE" }),
-      ),
-    );
-    chain.update = vi.fn(() => {
-      ops.push("update");
-      return chain;
-    });
-    chain.set = vi.fn(() => chain);
+  function seedInvite(maxUses: number | null = 1) {
+    sqlite.prepare(`
+      INSERT INTO community_server_invite
+        (id, server_id, created_by, token, max_uses, uses, created_at)
+      VALUES ('iv1', 's1', 'owner', 'token1', ?, 0, '2026-01-01T00:00:00.000Z')
+    `).run(maxUses);
+  }
 
-    await expect(invite.useInvite(chain, "tok", "u_dup")).rejects.toThrow(/UNIQUE/);
-    expect(ops).toContain("insert");
-    // The critical invariant: no UPDATE happened, so `uses` was not
-    // incremented on the failed join attempt.
-    expect(ops).not.toContain("update");
+  it("admits only one member for the final finite use", async () => {
+    seedInvite(1);
+    await expect(useInvite(db as never, "token1", "u1")).resolves.not.toBeNull();
+    await expect(useInvite(db as never, "token1", "u2")).resolves.toBeNull();
+
+    expect(sqlite.prepare("SELECT uses FROM community_server_invite WHERE id='iv1'").get())
+      .toEqual({ uses: 1 });
+    expect(sqlite.prepare("SELECT user_id FROM community_server_member ORDER BY user_id").all())
+      .toEqual([{ user_id: "u1" }]);
+  });
+
+  it("rolls the counter back when the membership UNIQUE constraint rejects", async () => {
+    seedInvite(null);
+    await useInvite(db as never, "token1", "u1");
+    await expect(useInvite(db as never, "token1", "u1")).rejects.toThrow();
+
+    expect(sqlite.prepare("SELECT uses FROM community_server_invite WHERE id='iv1'").get())
+      .toEqual({ uses: 1 });
+  });
+
+  it("enforces the active invite cap inside the insert statement", async () => {
+    seedInvite(null);
+
+    await expect(createInvite(db as never, {
+      serverId: "s1",
+      createdBy: "u1",
+      maxActive: 1,
+    })).resolves.toBeNull();
+
+    expect(sqlite.prepare("SELECT count(*) AS count FROM community_server_invite WHERE server_id='s1'").get())
+      .toEqual({ count: 1 });
   });
 });

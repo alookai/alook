@@ -82,12 +82,16 @@ describe("useSetMemberRole — optimistic + rollback", () => {
     })
     apiFetchMock.mockRejectedValueOnce(new Error("boom"))
     const mod = await load()
+    const received: MemberOverlayEvent[] = []
+    const unsub = mod.shared.subscribeMemberOverlayEvents((ev) => received.push(ev))
     mod.useSetMemberRole()
     await runMutation({ serverId: "srv_1", memberId: "mem_1", role: "admin" }).catch(() => {})
+    unsub()
     const cache = capturedQc.getQueryData<{ pages: { members: { role: string }[] }[] }>(
       communityKeys.members("srv_1"),
     )
     expect(cache?.pages[0].members[0].role).toBe("member")
+    expect(received).toContainEqual({ type: "refresh", serverId: "srv_1" })
   })
 
   it("dispatches a member-overlay 'role' event so search results mirror the change", async () => {
@@ -98,7 +102,12 @@ describe("useSetMemberRole — optimistic + rollback", () => {
     mod.useSetMemberRole()
     await runMutation({ serverId: "srv_1", memberId: "mem_1", role: "admin" })
     unsub()
-    expect(received).toContainEqual({ type: "role", memberId: "mem_1", role: "admin" })
+    expect(received).toContainEqual({
+      type: "role",
+      serverId: "srv_1",
+      memberId: "mem_1",
+      role: "admin",
+    })
   })
 })
 
@@ -119,12 +128,16 @@ describe("useKickMember — optimistic + rollback", () => {
     })
     apiFetchMock.mockRejectedValueOnce(new Error("boom"))
     const mod = await load()
+    const received: MemberOverlayEvent[] = []
+    const unsub = mod.shared.subscribeMemberOverlayEvents((ev) => received.push(ev))
     mod.useKickMember()
     await runMutation({ serverId: "srv_1", memberId: "mem_1" }).catch(() => {})
+    unsub()
     const cache = capturedQc.getQueryData<{ pages: { members: { id: string }[] }[] }>(
       communityKeys.members("srv_1"),
     )
     expect(cache?.pages[0].members).toHaveLength(1)
+    expect(received).toContainEqual({ type: "refresh", serverId: "srv_1" })
   })
 
   it("dispatches a member-overlay 'kick' event so search results drop the row", async () => {
@@ -135,6 +148,6 @@ describe("useKickMember — optimistic + rollback", () => {
     mod.useKickMember()
     await runMutation({ serverId: "srv_1", memberId: "mem_1" })
     unsub()
-    expect(received).toContainEqual({ type: "kick", memberId: "mem_1" })
+    expect(received).toContainEqual({ type: "kick", serverId: "srv_1", memberId: "mem_1" })
   })
 })

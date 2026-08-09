@@ -1,4 +1,7 @@
 import { describe, it, expect } from "vitest"
+import fs from "node:fs"
+import path from "node:path"
+import { fileURLToPath } from "node:url"
 import { computeDuplicateNames, hasMemberMenu } from "./member-list"
 import type { Member } from "./_types"
 
@@ -62,5 +65,16 @@ describe("hasMemberMenu", () => {
   it("is true when the viewer can manage a non-owner", () => {
     expect(hasMemberMenu(true, "member")).toBe(true)
     expect(hasMemberMenu(true, "admin")).toBe(true)
+  })
+})
+
+describe("member action identity contract", () => {
+  it("sends the stable member id, never the display name, to role mutations", () => {
+    const source = fs.readFileSync(
+      path.join(path.dirname(fileURLToPath(import.meta.url)), "member-list.tsx"),
+      "utf8",
+    )
+    expect(source).toContain("onSetRole?.(mem.id, r)")
+    expect(source).not.toContain("onSetRole?.(mem.name, r)")
   })
 })

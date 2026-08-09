@@ -8,6 +8,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 const mockResolveChannelAccessContext = vi.fn()
 const mockListThreadParticipants = vi.fn()
 const mockAddThreadParticipant = vi.fn()
+const mockListThreadParticipantUserIds = vi.fn()
 const mockResolveScopeMemberUserIds = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
 
@@ -26,6 +27,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityThread: {
         listThreadParticipants: (...a: unknown[]) => mockListThreadParticipants(...a),
+        listThreadParticipantUserIds: (...a: unknown[]) => mockListThreadParticipantUserIds(...a),
         addThreadParticipant: (...a: unknown[]) => mockAddThreadParticipant(...a),
       },
     },
@@ -81,6 +83,7 @@ describe("POST /channels/[id]/participants", () => {
     // Parent-channel audience (same source the read gate/fan-out uses).
     mockResolveScopeMemberUserIds.mockResolvedValue(["u1", "u2"])
     mockAddThreadParticipant.mockResolvedValue({ id: "tp1" })
+    mockListThreadParticipantUserIds.mockResolvedValue(["u1", "u2", "u3"])
   })
 
   it("any participant adds a parent-channel member as a participant", async () => {
@@ -89,7 +92,11 @@ describe("POST /channels/[id]/participants", () => {
     expect(mockAddThreadParticipant).toHaveBeenCalledWith(expect.anything(), {
       threadChannelId: "t1", userId: "u2", source: "added",
     })
-    expect(mockBroadcastToUserSafe).toHaveBeenCalled()
+    expect(mockBroadcastToUserSafe).toHaveBeenCalledTimes(3)
+    expect(mockBroadcastToUserSafe).toHaveBeenCalledWith("u3", expect.objectContaining({
+      type: "community:channel.member_add",
+      userId: "u2",
+    }))
   })
 
   it("a non-creator participant can still add (no creator gate)", async () => {

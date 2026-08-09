@@ -209,17 +209,21 @@ describe("addThreadParticipants — bulk", () => {
   });
 
   it("inserts one row per (userId, source) pair with onConflictDoNothing", async () => {
-    const values = vi.fn(() => ({ onConflictDoNothing: vi.fn(() => Promise.resolve()) }));
+    const returning = vi.fn(() => Promise.resolve([{ userId: "u1" }, { userId: "u2" }]));
+    const values = vi.fn(() => ({
+      onConflictDoNothing: vi.fn(() => ({ returning })),
+    }));
     const chain: any = { insert: vi.fn(() => ({ values })) };
-    await threadQueries.addThreadParticipants(chain, "t1", [
+    await expect(threadQueries.addThreadParticipants(chain, "t1", [
       { userId: "u1", source: "spoke" },
       { userId: "u2", source: "mention" },
-    ]);
+    ])).resolves.toEqual(["u1", "u2"]);
     expect(chain.insert).toHaveBeenCalledTimes(1); // single bulk insert, not N
     expect(values).toHaveBeenCalledWith([
       { channelId: "t1", userId: "u1", relation: "notify", source: "spoke" },
       { channelId: "t1", userId: "u2", relation: "notify", source: "mention" },
     ]);
+    expect(returning).toHaveBeenCalledTimes(1);
   });
 });
 

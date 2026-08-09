@@ -252,6 +252,7 @@ function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoad
     ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
     count: members.length,
     getScrollElement: () => scrollRef.current,
+    getItemKey: (index) => members[index]?.id ?? index,
     estimateSize: () => SETTINGS_ROW_HEIGHT,
     overscan: 8,
   })

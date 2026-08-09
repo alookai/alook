@@ -324,13 +324,13 @@ describe("member overlay bus", () => {
   it("delivers dispatched events to subscribers, and unsubscribe stops delivery", () => {
     const received: MemberOverlayEvent[] = []
     const unsub = subscribeMemberOverlayEvents((ev) => received.push(ev))
-    dispatchMemberOverlayEvent({ type: "kick", memberId: "mem_1" })
-    dispatchMemberOverlayEvent({ type: "role", memberId: "mem_1", role: "admin" })
+    dispatchMemberOverlayEvent({ type: "kick", serverId: "srv_1", memberId: "mem_1" })
+    dispatchMemberOverlayEvent({ type: "role", serverId: "srv_1", memberId: "mem_1", role: "admin" })
     expect(received).toHaveLength(2)
-    expect(received[0]).toEqual({ type: "kick", memberId: "mem_1" })
-    expect(received[1]).toEqual({ type: "role", memberId: "mem_1", role: "admin" })
+    expect(received[0]).toEqual({ type: "kick", serverId: "srv_1", memberId: "mem_1" })
+    expect(received[1]).toEqual({ type: "role", serverId: "srv_1", memberId: "mem_1", role: "admin" })
     unsub()
-    dispatchMemberOverlayEvent({ type: "kick", memberId: "mem_2" })
+    dispatchMemberOverlayEvent({ type: "kick", serverId: "srv_1", memberId: "mem_2" })
     expect(received).toHaveLength(2)
   })
 
@@ -345,7 +345,7 @@ describe("member overlay bus", () => {
         overlay = overlay.filter((x) => x.id !== ev.memberId)
       }
     })
-    dispatchMemberOverlayEvent({ type: "kick", memberId: "mem_2" })
+    dispatchMemberOverlayEvent({ type: "kick", serverId: "srv_1", memberId: "mem_2" })
     expect(overlay?.map((x) => x.id)).toEqual(["mem_1", "mem_3"])
     unsub()
   })

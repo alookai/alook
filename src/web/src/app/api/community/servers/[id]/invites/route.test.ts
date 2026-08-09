@@ -6,7 +6,6 @@ vi.mock("@opennextjs/cloudflare", () => ({
 }))
 
 const mockGetMember = vi.fn()
-const mockListServerInvites = vi.fn()
 const mockCreateInvite = vi.fn()
 const mockLogAction = vi.fn()
 const mockFanOut = vi.fn()
@@ -27,7 +26,6 @@ vi.mock("@alook/shared", async () => {
     queries: {
       communityMember: { getMember: (...a: unknown[]) => mockGetMember(...a) },
       communityInvite: {
-        listServerInvites: (...a: unknown[]) => mockListServerInvites(...a),
         createInvite: (...a: unknown[]) => mockCreateInvite(...a),
       },
       communityAuditLog: {
@@ -73,7 +71,6 @@ describe("POST /api/community/servers/[id]/invites", () => {
     vi.clearAllMocks()
     // Admin caller by default.
     mockGetMember.mockResolvedValue({ id: "mem_1", userId: "u1", role: "admin" })
-    mockListServerInvites.mockResolvedValue([])
     mockCreateInvite.mockResolvedValue({
       id: "inv_1",
       token: "tok_1",
@@ -92,6 +89,13 @@ describe("POST /api/community/servers/[id]/invites", () => {
     expect(res.status).toBe(201)
     const body = (await res.json()) as { invite: { id: string } }
     expect(body.invite.id).toBe("inv_1")
+    expect(mockCreateInvite).toHaveBeenCalledWith(expect.anything(), {
+      serverId: "s1",
+      createdBy: "u1",
+      maxUses: undefined,
+      expiresAt: undefined,
+      maxActive: 50,
+    })
 
     expect(mockLogAction).toHaveBeenCalledTimes(1)
     expect(mockLogAction).toHaveBeenCalledWith(expect.anything(), {
@@ -101,6 +105,16 @@ describe("POST /api/community/servers/[id]/invites", () => {
       targetType: "invite",
       targetId: "inv_1",
     })
+  })
+
+  it("returns 409 when the atomic insert reports the active invite cap", async () => {
+    mockCreateInvite.mockResolvedValue(null)
+
+    const res = await POST(postReq({}), ctx)
+
+    expect(res.status).toBe(409)
+    expect(mockLogAction).not.toHaveBeenCalled()
+    expect(mockFanOut).not.toHaveBeenCalled()
   })
 
   it("still returns 201 when the audit write rejects (regression for the awaited outlier)", async () => {

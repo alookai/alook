@@ -242,22 +242,39 @@ export async function fanOutStatusUpdate(
 /**
  * Fan out an event to all members of a server.
  */
-export async function fanOutToServerMembers(
+export function fanOutToServerMembers(
   serverId: string,
   event: BroadcastableEvent,
   opts?: { excludeUserId?: string }
 ): Promise<void> {
   try {
-    const { env } = getCloudflareContext()
+    const { env, ctx } = getCloudflareContext()
     const db = getDb((env as Env).DB)
-    const userIds = await getServerMemberUserIds(db, serverId)
-    await broadcastToRecipients(userIds, event, opts?.excludeUserId)
+    // Register the whole recipient-resolution + broadcast chain immediately.
+    // Most mutation routes intentionally fire-and-forget this helper; without
+    // an outer waitUntil the worker may finish after the D1 await but before
+    // broadcastToUsers gets a chance to register its own lifetime promise.
+    const work = (async () => {
+      try {
+        const userIds = await getServerMemberUserIds(db, serverId)
+        await broadcastToRecipients(userIds, event, opts?.excludeUserId)
+      } catch (err) {
+        log.warn("fanout_to_server_members_failed", {
+          eventType: event.type,
+          targetId: serverId,
+          err: String(err),
+        })
+      }
+    })()
+    try { ctx.waitUntil(work) } catch { /* non-CF test/runtime context */ }
+    return work
   } catch (err) {
     log.warn("fanout_to_server_members_failed", {
       eventType: event.type,
       targetId: serverId,
       err: String(err),
     })
+    return Promise.resolve()
   }
 }
 

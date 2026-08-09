@@ -34,6 +34,31 @@ export async function removeMember(db: Database, memberId: string) {
   return rows[0] ?? null;
 }
 
+/**
+ * Removes a server member and the owner's in-server bots in one D1 batch.
+ * The target delete is scoped by both ids so a stale/cross-server member id
+ * cannot make the cascade appear successful.
+ */
+export async function removeMemberAndOwnerBots(
+  db: Database,
+  memberId: string,
+  serverId: string,
+  botUserIds: string[],
+) {
+  const removeTarget = db
+    .delete(communityServerMember)
+    .where(
+      and(
+        eq(communityServerMember.id, memberId),
+        eq(communityServerMember.serverId, serverId),
+      ),
+    )
+    .returning();
+  const removeBots = removeOwnerBotsFromServerStatement(db, serverId, botUserIds);
+  const results = (await db.batch([removeTarget, removeBots] as any)) as any[];
+  return (results[0] as Array<typeof communityServerMember.$inferSelect>)[0] ?? null;
+}
+
 export async function updateRole(db: Database, memberId: string, role: string) {
   const rows = await db
     .update(communityServerMember)

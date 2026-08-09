@@ -62,13 +62,14 @@ export async function addThreadParticipants(
   threadChannelId: string,
   rows: { userId: string; source: ThreadParticipantSource }[]
 ) {
-  if (rows.length === 0) return;
+  if (rows.length === 0) return [];
   // communityChannelMember emits 6 bind params/row (id $defaultFn, channel_id,
   // user_id, relation, source, added_at $defaultFn; added_by is an unsupplied
   // literal null, not a param), so cap at floor(100/6)=16 rows for D1's 100-param
   // limit. `onConflictDoNothing` adds no VALUES params.
+  const insertedUserIds: string[] = [];
   for (const batch of chunk(rows, maxRowsPerInsert(6))) {
-    await db
+    const inserted = await db
       .insert(communityChannelMember)
       .values(
         batch.map((r) => ({
@@ -78,8 +79,11 @@ export async function addThreadParticipants(
           source: r.source,
         }))
       )
-      .onConflictDoNothing({ target: [...NOTIFY_CONFLICT_TARGET] });
+      .onConflictDoNothing({ target: [...NOTIFY_CONFLICT_TARGET] })
+      .returning({ userId: communityChannelMember.userId });
+    for (const row of inserted) insertedUserIds.push(row.userId);
   }
+  return insertedUserIds;
 }
 
 // The NOTIFY set: every participant userId. This is what thread fan-out /

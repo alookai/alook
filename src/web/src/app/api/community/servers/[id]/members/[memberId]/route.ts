@@ -10,7 +10,7 @@ import {
   ASSIGNABLE_ROLES,
   WS_EVENTS,
 } from "@alook/shared"
-import { fanOutToServerMembers } from "@/lib/community/fanout"
+import { broadcastToUserSafe, fanOutToServerMembers } from "@/lib/community/fanout"
 import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "@/lib/community/audit"
 import { requireServerAdmin } from "@/lib/community/permissions"
 
@@ -112,10 +112,13 @@ export const DELETE = withAuth(async (_req, ctx) => {
     )
   }
 
-  const removed = await queries.communityMember.removeMember(db, memberId)
+  const removed = await queries.communityMember.removeMemberAndOwnerBots(
+    db,
+    memberId,
+    serverId,
+    botIdsToCascade,
+  )
   if (!removed) return writeError("member not found", 404)
-
-  await queries.communityMember.removeOwnerBotsFromServer(db, serverId, botIdsToCascade)
 
   logAudit(db, {
     serverId,
@@ -140,18 +143,28 @@ export const DELETE = withAuth(async (_req, ctx) => {
     })
   }
 
-  fanOutToServerMembers(serverId, {
+  const targetLeaveEvent = {
     type: WS_EVENTS.MEMBER_LEAVE,
     serverId,
     userId: target.userId,
-  })
-  for (const botId of botIdsToCascade) {
-    fanOutToServerMembers(serverId, {
+  } as const
+  const botLeaveEvents = botIdsToCascade.map((botId) => ({
       type: WS_EVENTS.MEMBER_LEAVE,
       serverId,
       userId: botId,
-    })
-  }
+  } as const))
+
+  // The server-wide fan-out resolves recipients after the membership delete,
+  // so the removed identities are no longer in that set. Send them directly
+  // as well: their other tabs/daemons need the event to eject stale access.
+  await Promise.all([
+    fanOutToServerMembers(serverId, targetLeaveEvent),
+    broadcastToUserSafe(target.userId, targetLeaveEvent),
+    ...botLeaveEvents.flatMap((event) => [
+      fanOutToServerMembers(serverId, event),
+      broadcastToUserSafe(event.userId, event),
+    ]),
+  ])
 
   return new Response(null, { status: 204 })
 })

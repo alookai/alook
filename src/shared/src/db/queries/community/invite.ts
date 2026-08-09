@@ -1,4 +1,5 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, exists, gt, isNull, lt, or, sql } from "drizzle-orm";
+import { nanoid } from "nanoid";
 import {
   communityServerInvite,
   communityServerMember,
@@ -13,8 +14,43 @@ export async function createInvite(
     createdBy: string;
     maxUses?: number;
     expiresAt?: string;
+    maxActive?: number;
   }
 ) {
+  if (data.maxActive !== undefined) {
+    const id = nanoid();
+    const token = nanoid(10);
+    const createdAt = new Date().toISOString();
+    const rows = await db
+      .insert(communityServerInvite)
+      .select(
+        db
+          .select({
+            id: sql<string>`${id}`.as("id"),
+            serverId: sql<string>`${data.serverId}`.as("server_id"),
+            createdBy: sql<string>`${data.createdBy}`.as("created_by"),
+            token: sql<string>`${token}`.as("token"),
+            maxUses: sql<number | null>`${data.maxUses ?? null}`.as("max_uses"),
+            uses: sql<number>`0`.as("uses"),
+            expiresAt: sql<string | null>`${data.expiresAt ?? null}`.as("expires_at"),
+            createdAt: sql<string>`${createdAt}`.as("created_at"),
+          })
+          .from(sql`(select 1)`)
+          .where(
+            lt(
+              sql<number>`(
+                select count(*)
+                from ${communityServerInvite}
+                where ${communityServerInvite.serverId} = ${data.serverId}
+              )`,
+              data.maxActive,
+            ),
+          ),
+      )
+      .returning();
+    return rows[0] ?? null;
+  }
+
   const rows = await db
     .insert(communityServerInvite)
     .values({
@@ -24,7 +60,7 @@ export async function createInvite(
       expiresAt: data.expiresAt ?? null,
     })
     .returning();
-  return rows[0]!;
+  return rows[0] ?? null;
 }
 
 export async function getInvite(db: Database, inviteId: string) {
@@ -76,26 +112,62 @@ export async function useInvite(
     return null;
   }
 
-  // Insert new server member FIRST — the `(serverId, userId)` UNIQUE
-  // constraint may reject this ("already a member") or D1 may transiently
-  // fail. Incrementing `uses` before the insert would burn an invite slot
-  // on every rejected attempt (bots retrying a failed join can exhaust
-  // `maxUses` without a single successful join).
-  const memberRows = await db
+  // Consume capacity and create membership in one D1 batch. The INSERT itself
+  // re-checks expiry/quota inside the write transaction, so two users racing
+  // for the last use cannot both join. The UPDATE is gated on this request's
+  // freshly-minted member id; a zero-row INSERT therefore cannot burn a use.
+  // Conversely, a UNIQUE membership failure aborts the batch and rolls the
+  // counter back, preserving the route's "Already a member" branch.
+  const memberId = nanoid();
+  const joinedAt = now;
+  const insertMember = db
     .insert(communityServerMember)
-    .values({
-      serverId: invite.serverId,
-      userId,
-      role: "member",
-    })
+    .select(
+      db
+        .select({
+          id: sql<string>`${memberId}`.as("id"),
+          serverId: communityServerInvite.serverId,
+          userId: sql<string>`${userId}`.as("user_id"),
+          role: sql<string>`${"member"}`.as("role"),
+          railOrder: sql<number>`0`.as("rail_order"),
+          joinedAt: sql<string>`${joinedAt}`.as("joined_at"),
+        })
+        .from(communityServerInvite)
+        .where(
+          and(
+            eq(communityServerInvite.id, invite.id),
+            or(
+              isNull(communityServerInvite.expiresAt),
+              gt(communityServerInvite.expiresAt, now),
+            ),
+            or(
+              isNull(communityServerInvite.maxUses),
+              lt(
+                sql<number>`coalesce(${communityServerInvite.uses}, 0)`,
+                communityServerInvite.maxUses,
+              ),
+            ),
+          ),
+        ),
+    )
     .returning();
-  const insertedMember = memberRows[0]!;
-
-  // Atomic increment uses — only after the insert has committed.
-  await db
+  const incrementUse = db
     .update(communityServerInvite)
-    .set({ uses: sql`${communityServerInvite.uses} + 1` })
-    .where(eq(communityServerInvite.id, invite.id));
+    .set({ uses: sql`coalesce(${communityServerInvite.uses}, 0) + 1` })
+    .where(
+      and(
+        eq(communityServerInvite.id, invite.id),
+        exists(
+          db
+            .select({ id: communityServerMember.id })
+            .from(communityServerMember)
+            .where(eq(communityServerMember.id, memberId)),
+        ),
+      ),
+    );
+  const batchResults = (await db.batch([insertMember, incrementUse] as any)) as any[];
+  const insertedMember = (batchResults[0] as Array<typeof communityServerMember.$inferSelect>)[0];
+  if (!insertedMember) return null;
 
   // Join the joined-user row so WS listeners can render name/avatar without
   // waiting for the next /members refetch.

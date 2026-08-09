@@ -12,6 +12,7 @@ import {
   patchCacheJoin,
   patchCacheLeave,
   patchCacheUpdate,
+  dispatchMemberOverlayEvent,
   type MembersEnvelope,
 } from "@/hooks/community/use-server-members"
 import {
@@ -116,6 +117,7 @@ export function handleMemberJoin(
     key,
     (cache) => patchCacheJoin(cache, event),
   )
+  dispatchMemberOverlayEvent({ type: "refresh", serverId: event.serverId })
   finishMemberEvent(event, context)
 }
 
@@ -129,6 +131,11 @@ export function handleMemberLeave(
     key,
     (cache) => patchCacheLeave(cache, event),
   )
+  dispatchMemberOverlayEvent({
+    type: "leave",
+    serverId: event.serverId,
+    userId: event.userId,
+  })
   // If the leaver is the viewer (kick from another tab / owner
   // cascade), the viewer's server rail is stale — invalidate it
   // so the layout's eject effect can detect the drop and route
@@ -160,6 +167,11 @@ export function handleMemberUpdate(
     key,
     (cache) => patchCacheUpdate(cache, event),
   )
+  dispatchMemberOverlayEvent({
+    type: "update",
+    serverId: event.serverId,
+    event,
+  })
   // A self-rename carries `userId` + `changes.nickname` — patch
   // every cached message list's `authorName` snapshot for that
   // author. A role-only change has no `userId`/`nickname`, so

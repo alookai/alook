@@ -219,13 +219,14 @@ export function patchCacheRole(
 //
 // The bus below lets mutations broadcast overlay-affecting events without
 // coupling to the hook instance. `useServerMembers` subscribes and mirror-
-// patches its `searchResults` state; if there's no active search the events
+// patches its search overlay state; if there's no active search the events
 // are a no-op.
 export type MemberOverlayEvent =
-  | { type: "kick"; memberId: string }
-  | { type: "role"; memberId: string; role: CommunityRole }
-  | { type: "update"; event: CommunityMemberUpdate }
-  | { type: "leave"; userId: string }
+  | { type: "kick"; serverId: string; memberId: string }
+  | { type: "role"; serverId: string; memberId: string; role: CommunityRole }
+  | { type: "update"; serverId: string; event: CommunityMemberUpdate }
+  | { type: "leave"; serverId: string; userId: string }
+  | { type: "refresh"; serverId: string }
 
 const memberOverlayBus =
   typeof EventTarget !== "undefined" ? new EventTarget() : null
@@ -263,7 +264,6 @@ export type UseServerMembers = {
   loadMore: () => void
   reset: () => void
   refresh: () => void
-  handleMemberEvent: (event: CommunityMemberJoin | CommunityMemberLeave | CommunityMemberUpdate) => void
   searchMembers: (q: string) => void
   // Optimistic-UI hooks for the caller's role/kick mutations. The server
   // fans out MEMBER_UPDATE / MEMBER_LEAVE on success; these keep the local
@@ -283,11 +283,10 @@ export type UseServerMembers = {
  *   (no pagination, no cursor) and we don't want to blow away cursor state
  *   when the user starts typing.
  *
- * WS events flow through `handleMemberEvent`, which patches the cache
- * directly via `queryClient.setQueryData`. Callers of `applyRoleChange` /
- * `applyKick` do the same for optimistic mutations. Search-view state is
- * patched in parallel so the visible list stays consistent while the user
- * is searching.
+ * WS events patch the shared paged cache in `community-ws/membership-events`
+ * and notify the overlay bus above. Optimistic mutations use the same cache
+ * helpers. Search-view state is patched or re-fetched in parallel so it
+ * cannot diverge from the paged view.
  */
 export function useServerMembers(serverId: string | null): UseServerMembers {
   const enabled = !!serverId
@@ -319,16 +318,20 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
     enabled,
     // WS `member.join/leave/update` live-patch this roster cache, so a remount
     // doesn't need to refetch — this is a once-per-server seed. staleTime:
-    // Infinity stops the per-channel-switch refetch; refetchOnReconnect
-    // backstops the socket-gap case (the WS reconnect handler does not re-seed
-    // the member roster), so events missed while offline can't leave it
-    // permanently stale.
+    // Infinity stops the per-channel-switch refetch. Browser network reconnect
+    // and the explicit WS reconnect reconciler both re-seed this query so an
+    // event missed during a socket-only gap cannot leave it permanently stale.
     staleTime: Infinity,
     refetchOnReconnect: true,
   })
 
   // ── Search state ────────────────────────────────────────────────────────
-  const [searchResults, setSearchResults] = useState<Member[] | null>(null)
+  const [searchOverlay, setSearchOverlay] = useState<{
+    serverId: string | null
+    members: Member[]
+  } | null>(null)
+  const activeSearchQuery = useRef("")
+  const searchActive = useRef(false)
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Monotonic sequence so out-of-order responses drop old results silently.
   const searchSeq = useRef(0)
@@ -351,7 +354,9 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
   }, [infinite])
 
   const reset = useCallback(() => {
-    setSearchResults(null)
+    activeSearchQuery.current = ""
+    searchActive.current = false
+    setSearchOverlay(null)
     if (searchTimer.current) {
       clearTimeout(searchTimer.current)
       searchTimer.current = null
@@ -371,45 +376,15 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
   // serverId so they don't need explicit teardown — TanStack Query GC's them
   // and enable=false stops any in-flight fetch).
   useEffect(() => {
-    setSearchResults(null)
+    activeSearchQuery.current = ""
+    searchActive.current = false
+    setSearchOverlay(null)
     if (searchTimer.current) {
       clearTimeout(searchTimer.current)
       searchTimer.current = null
     }
     searchSeq.current += 1
   }, [serverId])
-
-  const handleMemberEvent = useCallback(
-    (event: CommunityMemberJoin | CommunityMemberLeave | CommunityMemberUpdate) => {
-      if (!enabled) return
-      if (event.type === "community:member.join") {
-        queryClient.setQueryData<MembersPageCache | undefined>(queryKey, (cache) =>
-          patchCacheJoin(cache, event),
-        )
-        return
-      }
-      if (event.type === "community:member.leave") {
-        queryClient.setQueryData<MembersPageCache | undefined>(queryKey, (cache) =>
-          patchCacheLeave(cache, event),
-        )
-        // Keep the search overlay consistent so the visible list matches.
-        setSearchResults((prev) =>
-          prev === null ? null : prev.filter((m) => m.userId !== event.userId),
-        )
-        return
-      }
-      // member.update
-      queryClient.setQueryData<MembersPageCache | undefined>(queryKey, (cache) =>
-        patchCacheUpdate(cache, event),
-      )
-      setSearchResults((prev) =>
-        prev === null
-          ? null
-          : applyUpdateEvent(prev, event),
-      )
-    },
-    [enabled, queryClient, queryKey],
-  )
 
   const runSearch = useCallback(
     async (q: string, seq: number) => {
@@ -421,10 +396,10 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
         )
         // Guard against out-of-order responses.
         if (searchSeq.current !== seq) return
-        setSearchResults(data.members)
+        setSearchOverlay({ serverId, members: data.members })
       } catch (e) {
         if (searchSeq.current === seq) {
-          setSearchResults([])
+          setSearchOverlay({ serverId, members: [] })
           toastApiError(e, "Search failed")
         }
       }
@@ -441,9 +416,13 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
       }
       searchSeq.current += 1
       if (trimmed.length === 0) {
-        setSearchResults(null)
+        activeSearchQuery.current = ""
+        searchActive.current = false
+        setSearchOverlay(null)
         return
       }
+      activeSearchQuery.current = trimmed
+      searchActive.current = true
       const seq = searchSeq.current
       searchTimer.current = setTimeout(() => {
         searchTimer.current = null
@@ -459,8 +438,15 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
       queryClient.setQueryData<MembersPageCache | undefined>(queryKey, (cache) =>
         patchCacheRole(cache, memberId, role),
       )
-      setSearchResults((prev) =>
-        prev === null ? null : prev.map((m) => (m.id === memberId ? { ...m, role } : m)),
+      setSearchOverlay((prev) =>
+        prev === null
+          ? null
+          : {
+              ...prev,
+              members: prev.members.map((m) =>
+                m.id === memberId ? { ...m, role } : m,
+              ),
+            },
       )
     },
     [enabled, queryClient, queryKey],
@@ -472,8 +458,10 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
       queryClient.setQueryData<MembersPageCache | undefined>(queryKey, (cache) =>
         patchCacheKick(cache, memberId),
       )
-      setSearchResults((prev) =>
-        prev === null ? null : prev.filter((m) => m.id !== memberId),
+      setSearchOverlay((prev) =>
+        prev === null
+          ? null
+          : { ...prev, members: prev.members.filter((m) => m.id !== memberId) },
       )
     },
     [enabled, queryClient, queryKey],
@@ -487,40 +475,68 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
     }
   }, [])
 
-  // Mirror-patch the search overlay from mutation-side events. Member ids are
-  // server-scoped so a filter/map by memberId is safe regardless of which
-  // server currently owns the overlay.
+  const refreshSearchOverlay = useCallback(() => {
+    if (!searchActive.current) return
+    const q = activeSearchQuery.current
+    if (!q) return
+    searchSeq.current += 1
+    const seq = searchSeq.current
+    void runSearch(q, seq)
+  }, [runSearch])
+
+  // Mirror-patch the search overlay from mutation and WS events. Every event
+  // carries serverId so a transitioning hook cannot patch results retained
+  // from another server. Nickname/join/rollback events re-run the active
+  // search because they can change whether a row matches at all.
   useEffect(() => {
     return subscribeMemberOverlayEvents((ev) => {
-      setSearchResults((prev) => {
+      if (ev.serverId !== serverId) return
+      if (ev.type === "refresh") {
+        refreshSearchOverlay()
+        return
+      }
+      if (ev.type === "update" && ev.event.changes.nickname !== undefined) {
+        refreshSearchOverlay()
+        return
+      }
+      setSearchOverlay((prev) => {
         if (prev === null) return prev
         switch (ev.type) {
           case "kick":
-            return prev.filter((m) => m.id !== ev.memberId)
+            return { ...prev, members: prev.members.filter((m) => m.id !== ev.memberId) }
           case "role":
-            return prev.map((m) => (m.id === ev.memberId ? { ...m, role: ev.role } : m))
+            return {
+              ...prev,
+              members: prev.members.map((m) =>
+                m.id === ev.memberId ? { ...m, role: ev.role } : m,
+              ),
+            }
           case "update":
-            return applyUpdateEvent(prev, ev.event)
+            return { ...prev, members: applyUpdateEvent(prev.members, ev.event) }
           case "leave":
-            return prev.filter((m) => m.userId !== ev.userId)
+            return { ...prev, members: prev.members.filter((m) => m.userId !== ev.userId) }
           default:
             return prev
         }
       })
     })
-  }, [])
+  }, [refreshSearchOverlay, serverId])
+
+  // A server switch renders before the cleanup effect above runs. Never expose
+  // the previous server's local search overlay during that transition frame.
+  const isSearchingCurrentServer =
+    searchOverlay !== null && searchOverlay.serverId === serverId
 
   return {
-    members: searchResults ?? pagedMembers,
+    members: isSearchingCurrentServer ? searchOverlay.members : pagedMembers,
     loading: infinite.isPending && enabled,
     loadingMore: infinite.isFetchingNextPage,
     hasMore,
     total,
-    isSearching: searchResults !== null,
+    isSearching: isSearchingCurrentServer,
     loadMore,
     reset,
     refresh,
-    handleMemberEvent,
     searchMembers,
     applyRoleChange,
     applyKick,

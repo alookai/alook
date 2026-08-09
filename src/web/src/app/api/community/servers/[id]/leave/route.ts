@@ -2,7 +2,7 @@ import { withAuth } from "@/lib/middleware/auth"
 import { writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries, isServerOwner, WS_EVENTS } from "@alook/shared"
-import { fanOutToServerMembers } from "@/lib/community/fanout"
+import { broadcastToUserSafe, fanOutToServerMembers } from "@/lib/community/fanout"
 import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "@/lib/community/audit"
 import { requireServerMember } from "@/lib/community/permissions"
 
@@ -30,8 +30,13 @@ export const POST = withAuth(async (_req, ctx) => {
     ctx.userId,
   )
 
-  await queries.communityMember.removeMember(db, member.id)
-  await queries.communityMember.removeOwnerBotsFromServer(db, serverId, botIdsToCascade)
+  const removed = await queries.communityMember.removeMemberAndOwnerBots(
+    db,
+    member.id,
+    serverId,
+    botIdsToCascade,
+  )
+  if (!removed) return writeError("member not found", 404)
 
   logAudit(db, {
     serverId,
@@ -51,18 +56,25 @@ export const POST = withAuth(async (_req, ctx) => {
     })
   }
 
-  fanOutToServerMembers(serverId, {
+  const viewerLeaveEvent = {
     type: WS_EVENTS.MEMBER_LEAVE,
     serverId,
     userId: ctx.userId,
-  })
-  for (const botId of botIdsToCascade) {
-    fanOutToServerMembers(serverId, {
+  } as const
+  const botLeaveEvents = botIdsToCascade.map((botId) => ({
       type: WS_EVENTS.MEMBER_LEAVE,
       serverId,
       userId: botId,
-    })
-  }
+  } as const))
+
+  await Promise.all([
+    fanOutToServerMembers(serverId, viewerLeaveEvent),
+    broadcastToUserSafe(ctx.userId, viewerLeaveEvent),
+    ...botLeaveEvents.flatMap((event) => [
+      fanOutToServerMembers(serverId, event),
+      broadcastToUserSafe(event.userId, event),
+    ]),
+  ])
 
   return new Response(null, { status: 204 })
 })

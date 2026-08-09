@@ -72,21 +72,19 @@ export const POST = withAuth(async (req, ctx) => {
     }
   }
 
-  // Cap active invites per server to bound token-table growth + enumeration risk.
-  const existing = await queries.communityInvite.listServerInvites(db, serverId)
-  if (existing.length >= MAX_ACTIVE_INVITES_PER_SERVER) {
-    return writeError(
-      `server has reached the active invite cap (${MAX_ACTIVE_INVITES_PER_SERVER}); revoke an existing invite first`,
-      409,
-    )
-  }
-
   const invite = await queries.communityInvite.createInvite(db, {
     serverId,
     createdBy: ctx.userId,
     maxUses: body.maxUses,
     expiresAt: body.expiresAt,
+    maxActive: MAX_ACTIVE_INVITES_PER_SERVER,
   })
+  if (!invite) {
+    return writeError(
+      `server has reached the active invite cap (${MAX_ACTIVE_INVITES_PER_SERVER}); revoke an existing invite first`,
+      409,
+    )
+  }
 
   logAudit(db, {
     serverId,

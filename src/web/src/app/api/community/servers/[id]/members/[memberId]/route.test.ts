@@ -13,11 +13,11 @@ const mockGetMember = vi.fn()
 const mockGetMemberById = vi.fn()
 const mockListMembers = vi.fn()
 const mockUpdateRole = vi.fn()
-const mockRemoveMember = vi.fn()
-const mockRemoveOwnerBotsFromServer = vi.fn()
+const mockRemoveMemberAndOwnerBots = vi.fn()
 const mockListOwnerBotsInServer = vi.fn()
 const mockLogAudit = vi.fn()
 const mockFanOut = vi.fn()
+const mockBroadcastToUserSafe = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
@@ -31,8 +31,7 @@ vi.mock("@alook/shared", async () => {
         getMemberById: (...a: unknown[]) => mockGetMemberById(...a),
         listMembers: (...a: unknown[]) => mockListMembers(...a),
         updateRole: (...a: unknown[]) => mockUpdateRole(...a),
-        removeMember: (...a: unknown[]) => mockRemoveMember(...a),
-        removeOwnerBotsFromServer: (...a: unknown[]) => mockRemoveOwnerBotsFromServer(...a),
+        removeMemberAndOwnerBots: (...a: unknown[]) => mockRemoveMemberAndOwnerBots(...a),
         listOwnerBotsInServer: (...a: unknown[]) => mockListOwnerBotsInServer(...a),
       },
       user: {
@@ -57,6 +56,7 @@ vi.mock("@/lib/community/audit", async () => {
 
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToServerMembers: (...a: unknown[]) => mockFanOut(...a),
+  broadcastToUserSafe: (...a: unknown[]) => mockBroadcastToUserSafe(...a),
 }))
 
 vi.mock("@/lib/middleware/auth", () => ({
@@ -119,6 +119,7 @@ describe("PATCH /api/community/servers/[id]/members/[memberId]", () => {
       role: "admin",
     })
     mockFanOut.mockResolvedValue(undefined)
+    mockBroadcastToUserSafe.mockResolvedValue(undefined)
   })
 
   it("succeeds and calls getMemberById exactly once, listMembers zero times", async () => {
@@ -190,10 +191,10 @@ describe("DELETE /api/community/servers/[id]/members/[memberId]", () => {
       userEmail: "t@x.com",
       userImage: null,
     })
-    mockRemoveMember.mockResolvedValue({ id: "mem_target" })
+    mockRemoveMemberAndOwnerBots.mockResolvedValue({ id: "mem_target" })
     mockListOwnerBotsInServer.mockResolvedValue([])
-    mockRemoveOwnerBotsFromServer.mockResolvedValue(undefined)
     mockFanOut.mockResolvedValue(undefined)
+    mockBroadcastToUserSafe.mockResolvedValue(undefined)
   })
 
   it("succeeds and calls getMemberById exactly once, listMembers zero times", async () => {
@@ -204,18 +205,27 @@ describe("DELETE /api/community/servers/[id]/members/[memberId]", () => {
     expect(mockGetMemberById).toHaveBeenCalledWith(expect.anything(), "mem_target", { serverId: "srv_1" })
     expect(mockListMembers).not.toHaveBeenCalled()
 
-    expect(mockRemoveMember).toHaveBeenCalledWith(expect.anything(), "mem_target")
+    expect(mockRemoveMemberAndOwnerBots).toHaveBeenCalledWith(
+      expect.anything(),
+      "mem_target",
+      "srv_1",
+      [],
+    )
     expect(mockLogAudit).toHaveBeenCalledTimes(1)
     // Broadcast payload uses target.userId — proves the scoped helper's row
     // is what the fan-out reads.
     expect(mockFanOut).toHaveBeenCalledWith("srv_1", expect.objectContaining({ userId: "u_target" }))
+    expect(mockBroadcastToUserSafe).toHaveBeenCalledWith(
+      "u_target",
+      expect.objectContaining({ type: "community:member.leave", userId: "u_target" }),
+    )
   })
 
   it("returns 404 when the target member is not scoped to this server", async () => {
     mockGetMemberById.mockResolvedValue(null)
     const res = await DELETE(deleteReq(), ctx)
     expect(res.status).toBe(404)
-    expect(mockRemoveMember).not.toHaveBeenCalled()
+    expect(mockRemoveMemberAndOwnerBots).not.toHaveBeenCalled()
     expect(mockListMembers).not.toHaveBeenCalled()
   })
 
@@ -231,7 +241,7 @@ describe("DELETE /api/community/servers/[id]/members/[memberId]", () => {
     })
     const res = await DELETE(deleteReq(), ctx)
     expect(res.status).toBe(403)
-    expect(mockRemoveMember).not.toHaveBeenCalled()
+    expect(mockRemoveMemberAndOwnerBots).not.toHaveBeenCalled()
   })
 
   it("returns 403 when an admin tries to kick another admin (owner-only)", async () => {
@@ -246,7 +256,7 @@ describe("DELETE /api/community/servers/[id]/members/[memberId]", () => {
     })
     const res = await DELETE(deleteReq(), ctx)
     expect(res.status).toBe(403)
-    expect(mockRemoveMember).not.toHaveBeenCalled()
+    expect(mockRemoveMemberAndOwnerBots).not.toHaveBeenCalled()
   })
 
   it("bulk-removes cascaded owner bots after kicking a human member", async () => {
@@ -254,10 +264,15 @@ describe("DELETE /api/community/servers/[id]/members/[memberId]", () => {
 
     const res = await DELETE(deleteReq(), ctx)
     expect(res.status).toBe(204)
-    expect(mockRemoveOwnerBotsFromServer).toHaveBeenCalledWith(
+    expect(mockRemoveMemberAndOwnerBots).toHaveBeenCalledWith(
       expect.anything(),
+      "mem_target",
       "srv_1",
       ["bot_1"],
+    )
+    expect(mockBroadcastToUserSafe).toHaveBeenCalledWith(
+      "bot_1",
+      expect.objectContaining({ type: "community:member.leave", userId: "bot_1" }),
     )
   })
 })

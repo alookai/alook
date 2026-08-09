@@ -51,11 +51,17 @@ export function useSetMemberRole() {
       // is in flight (and after — the server won't fan out a MEMBER_UPDATE
       // to the acting client, so this is the only source of truth for the
       // overlay).
-      dispatchMemberOverlayEvent({ type: "role", memberId: args.memberId, role: args.role })
+      dispatchMemberOverlayEvent({
+        type: "role",
+        serverId: args.serverId,
+        memberId: args.memberId,
+        role: args.role,
+      })
       return { snapshot }
     },
     onError: (_err, args, ctx) => {
       if (ctx?.snapshot) queryClient.setQueryData(communityKeys.members(args.serverId), ctx.snapshot)
+      dispatchMemberOverlayEvent({ type: "refresh", serverId: args.serverId })
     },
   })
 }
@@ -80,11 +86,16 @@ export function useKickMember() {
         patchCacheKick(cache, args.memberId),
       )
       // Mirror the removal onto any active search overlay.
-      dispatchMemberOverlayEvent({ type: "kick", memberId: args.memberId })
+      dispatchMemberOverlayEvent({
+        type: "kick",
+        serverId: args.serverId,
+        memberId: args.memberId,
+      })
       return { snapshot }
     },
     onError: (_err, args, ctx) => {
       if (ctx?.snapshot) queryClient.setQueryData(communityKeys.members(args.serverId), ctx.snapshot)
+      dispatchMemberOverlayEvent({ type: "refresh", serverId: args.serverId })
     },
   })
 }

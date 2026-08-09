@@ -150,6 +150,31 @@ describe("fanOutToServerMembers", () => {
     )
   })
 
+  it("registers recipient resolution with waitUntil before the D1 read settles", async () => {
+    const waitUntil = vi.fn()
+    mockGetCloudflareContext.mockImplementation(() => ({
+      env: { DB: {} },
+      ctx: { waitUntil },
+    }))
+    let release!: (ids: string[]) => void
+    mockListMemberUserIds.mockReturnValue(new Promise<string[]>((resolve) => {
+      release = resolve
+    }))
+
+    const work = fanOutToServerMembers("srv_1", {
+      type: WS_EVENTS.MEMBER_UPDATE,
+      serverId: "srv_1",
+      memberId: "m1",
+      changes: { role: "admin" },
+    })
+
+    expect(waitUntil).toHaveBeenCalledWith(work)
+    expect(mockBroadcastToUsers).not.toHaveBeenCalled()
+    release(["u1"])
+    await work
+    expect(mockBroadcastToUsers).toHaveBeenCalledTimes(1)
+  })
+
   it("fanOutToChannel resolves recipients via the shared channel recipient resolver", async () => {
     mockResolveChannelRecipientUserIds.mockResolvedValue(["u1", "u2"])
 

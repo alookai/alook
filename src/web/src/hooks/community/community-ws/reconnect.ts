@@ -48,6 +48,12 @@ export function reconcileCommunityWsReconnect(queryClient: QueryClient) {
     void queryClient.invalidateQueries({
       queryKey: communityKeys.channelMessages(sub.channelId),
     })
+    // Channel/thread rosters are live-patched from membership/message events.
+    // A socket gap can miss those patches even while navigator.onLine remains
+    // true, so TanStack's refetchOnReconnect is not a sufficient backstop.
+    void queryClient.invalidateQueries({
+      queryKey: communityKeys.channelMembers(sub.channelId),
+    })
   }
   if (sub.dmConversationId) {
     void queryClient.invalidateQueries({
@@ -75,6 +81,10 @@ export function reconcileCommunityWsReconnect(queryClient: QueryClient) {
   if (currentServerId) {
     void queryClient.invalidateQueries({
       queryKey: communityKeys.server(currentServerId),
+      exact: true,
+    })
+    void queryClient.invalidateQueries({
+      queryKey: communityKeys.members(currentServerId),
       exact: true,
     })
     void invalidateForumSidebarBaseExact(queryClient, currentServerId)

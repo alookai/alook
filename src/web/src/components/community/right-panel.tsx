@@ -41,7 +41,7 @@ export function RightPanelContent({
   showSearchInput?: boolean
   onOpenThread: (id: string) => void
   onOpenProfile?: OpenProfile
-  onSetRole?: (name: string, role: Role) => void
+  onSetRole?: (memberId: string, role: Role) => void
   onKickMember?: (memberId: string) => Promise<unknown> | void
   myRole?: Role
   // Jump to a pinned message by its per-channel seq — routes through the same

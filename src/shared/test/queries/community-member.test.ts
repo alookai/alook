@@ -38,6 +38,35 @@ describe("community/member exports", () => {
   it("exports listMembersPaginated", () => {
     expect(typeof memberQueries.listMembersPaginated).toBe("function");
   });
+  it("exports the atomic member + owner-bot removal", () => {
+    expect(typeof memberQueries.removeMemberAndOwnerBots).toBe("function");
+  });
+});
+
+describe("removeMemberAndOwnerBots", () => {
+  it("batches the target and bot deletes and returns the removed target", async () => {
+    const targetStatement: any = {};
+    targetStatement.where = vi.fn(() => targetStatement);
+    targetStatement.returning = vi.fn(() => targetStatement);
+    const botsStatement: any = {};
+    botsStatement.where = vi.fn(() => botsStatement);
+    const db: any = {
+      delete: vi
+        .fn()
+        .mockReturnValueOnce(targetStatement)
+        .mockReturnValueOnce(botsStatement),
+      batch: vi.fn().mockResolvedValue([[{ id: "mem_1" }], { rowsAffected: 2 }]),
+    };
+
+    await expect(memberQueries.removeMemberAndOwnerBots(
+      db,
+      "mem_1",
+      "srv_1",
+      ["bot_1", "bot_2"],
+    )).resolves.toEqual({ id: "mem_1" });
+
+    expect(db.batch).toHaveBeenCalledWith([targetStatement, botsStatement]);
+  });
 });
 
 describe("listMemberUserIds", () => {

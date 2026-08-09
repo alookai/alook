@@ -72,6 +72,35 @@ describe("canSeePrivateChannel — shared rule", () => {
   })
 })
 
+describe("deleteChannelMemberAndChildParticipants", () => {
+  it("batches access removal with child notify cleanup", async () => {
+    const accessStatement: any = {};
+    accessStatement.where = vi.fn(() => accessStatement);
+    accessStatement.returning = vi.fn(() => accessStatement);
+    const notifyStatement: any = {};
+    notifyStatement.where = vi.fn(() => notifyStatement);
+    const selectStatement: any = {};
+    selectStatement.from = vi.fn(() => selectStatement);
+    selectStatement.where = vi.fn(() => selectStatement);
+    const db: any = {
+      delete: vi
+        .fn()
+        .mockReturnValueOnce(accessStatement)
+        .mockReturnValueOnce(notifyStatement),
+      select: vi.fn(() => selectStatement),
+      batch: vi.fn().mockResolvedValue([[{ id: "cm1" }], { rowsAffected: 3 }]),
+    };
+
+    await expect(channelQueries.deleteChannelMemberAndChildParticipants(
+      db,
+      "c1",
+      "u2",
+    )).resolves.toEqual({ id: "cm1" });
+
+    expect(db.batch).toHaveBeenCalledWith([accessStatement, notifyStatement]);
+  });
+});
+
 describe("getChannelForMember — private visibility", () => {
   // Every queue leads with `[]` — the new `type='dm'` probe returns no row for
   // a non-DM channel, then the original server-member → private-category flow

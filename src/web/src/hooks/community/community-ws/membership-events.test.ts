@@ -3,6 +3,10 @@ import type { CommunityMemberJoin, CommunityMemberLeave, CommunityMemberUpdate }
 import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
 import { communityKeys } from "@/lib/query-keys"
 import {
+  subscribeMemberOverlayEvents,
+  type MemberOverlayEvent,
+} from "@/hooks/community/use-server-members"
+import {
   capturedOnMessage,
   capturedQueryClient,
   cleanupCommunityWsHarness,
@@ -68,6 +72,34 @@ describe("useCommunityWs — member events", () => {
     }>(communityKeys.members("srv_1"))
     expect(cache?.pages[0].members.map((m) => m.userId)).toEqual(["u_1"])
     expect(cache?.pages[0].total).toBe(1)
+  })
+
+  it("forwards WS membership changes onto the server-scoped search overlay bus", async () => {
+    await mountHook()
+    const received: MemberOverlayEvent[] = []
+    const unsubscribe = subscribeMemberOverlayEvents((event) => received.push(event))
+
+    capturedOnMessage!({
+      type: "community:member.leave",
+      serverId: "srv_1",
+      userId: "u_gone",
+    } satisfies CommunityMemberLeave)
+    capturedOnMessage!({
+      type: "community:member.update",
+      serverId: "srv_1",
+      memberId: "mem_1",
+      changes: { role: "admin" },
+    } satisfies CommunityMemberUpdate)
+    unsubscribe()
+
+    expect(received).toEqual([
+      { type: "leave", serverId: "srv_1", userId: "u_gone" },
+      {
+        type: "update",
+        serverId: "srv_1",
+        event: expect.objectContaining({ memberId: "mem_1" }),
+      },
+    ])
   })
 
   it("a self-rename (member.update with userId + changes.nickname) patches authorName in every cached channel/DM message list", async () => {

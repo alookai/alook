@@ -54,7 +54,7 @@ export function CommunityPanelSheet({
   threadsLoading?: boolean
   onOpenThread: (id: string) => void
   onOpenProfile?: OpenProfile
-  onSetRole?: (name: string, role: Role) => void
+  onSetRole?: (memberId: string, role: Role) => void
   onKickMember?: (memberId: string) => Promise<unknown> | void
   myRole?: Role
   onJumpToMessage?: (seq: number) => void

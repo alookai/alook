@@ -37,11 +37,17 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
 
   const removed = await queries.communityThread.removeThreadParticipant(db, channelId, targetUserId)
   if (!removed) return writeError("participant not found", 404)
-  await broadcastToUserSafe(targetUserId, {
+  const event = {
     type: WS_EVENTS.CHANNEL_MEMBER_REMOVE,
     serverId: access.value.channel.serverId,
     channelId,
     userId: targetUserId,
-  })
+  } as const
+  const remaining = await queries.communityThread.listThreadParticipantUserIds(db, channelId)
+  await Promise.all(
+    [...new Set([...remaining, targetUserId])].map((userId) =>
+      broadcastToUserSafe(userId, event),
+    ),
+  )
   return new Response(null, { status: 204 })
 })

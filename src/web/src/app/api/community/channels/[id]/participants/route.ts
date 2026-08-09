@@ -65,15 +65,20 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     source: PARTICIPANT_SOURCE.ADDED,
   })
 
-  // Notify the added user so their inbox/thread view reflects the new
-  // participation. Only on a genuinely-new row (null = already a participant).
+  // Notify the full participant set so every open Members drawer refreshes,
+  // not just the target and the actor's optimistic mutation. Only on a
+  // genuinely-new row (null = already a participant).
   if (created) {
-    void broadcastToUserSafe(targetUserId, {
+    const event = {
       type: WS_EVENTS.CHANNEL_MEMBER_ADD,
       serverId: channel.serverId,
       channelId,
       userId: targetUserId,
-    })
+    } as const
+    const recipients = await queries.communityThread.listThreadParticipantUserIds(db, channelId)
+    await Promise.all(
+      [...new Set(recipients)].map((userId) => broadcastToUserSafe(userId, event)),
+    )
   }
 
   return writeJSON({ ok: true }, 201)
