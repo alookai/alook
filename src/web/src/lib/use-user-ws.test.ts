@@ -215,6 +215,34 @@ describe("useUserWs", () => {
     expect(onMsg).not.toHaveBeenCalled()
   })
 
+  it("opens the access gate only after auth.ok", async () => {
+    setupTokenFetch()
+
+    const onAuthenticated = vi.fn()
+    await mountHook(vi.fn(), { onAuthenticated, requestDaemonStatusOnAuth: false })
+
+    const ws = MockWebSocket.instances[0]
+    ws.simulateOpen()
+    expect(onAuthenticated).not.toHaveBeenCalled()
+
+    ws.simulateMessage({ type: "auth.ok" })
+    expect(onAuthenticated).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not reopen access when a stale socket delivers auth.ok after cleanup", async () => {
+    setupTokenFetch()
+
+    const onAuthenticated = vi.fn()
+    await mountHook(vi.fn(), { onAuthenticated, requestDaemonStatusOnAuth: false })
+    const ws = MockWebSocket.instances[0]
+    ws.simulateOpen()
+    effectCleanup?.()
+
+    ws.simulateMessage({ type: "auth.ok" })
+
+    expect(onAuthenticated).not.toHaveBeenCalled()
+  })
+
   it("uses the latest option on the original socket without changing connect identity", async () => {
     setupTokenFetch()
 

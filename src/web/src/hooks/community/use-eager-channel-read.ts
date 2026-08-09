@@ -6,10 +6,9 @@ import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type { ServersResponse } from "@/hooks/community/use-servers"
 import {
-  patchForumSidebarUnread,
+  patchForumSidebarUnreadExact,
   removeForumSidebarUnreadChild,
   setForumSidebarParentUnreadBase,
-  type ForumSidebarQueryData,
 } from "@/hooks/community/use-forum-sidebar-threads"
 
 /**
@@ -75,10 +74,7 @@ export function useEagerChannelRead({
         // could incorrectly re-light its parent from stale local ownership.
         if (serverId && isChildChannel) {
           removeForumSidebarUnreadChild(queryClient, serverId, channelId)
-          queryClient.setQueriesData<ForumSidebarQueryData>(
-            { queryKey: communityKeys.forumSidebarThreads(serverId) },
-            (data) => patchForumSidebarUnread(data, channelId, false),
-          )
+          patchForumSidebarUnreadExact(queryClient, serverId, channelId, false)
         } else if (serverId) {
           setForumSidebarParentUnreadBase(queryClient, serverId, channelId, false)
         }

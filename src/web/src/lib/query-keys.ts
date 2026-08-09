@@ -21,9 +21,19 @@ export const communityKeys = {
   server: (serverId: string) =>
     [...communityKeys.servers(), serverId] as const,
   forumSidebarThreads: (serverId: string) =>
-    [...communityKeys.server(serverId), "forum-sidebar-threads"] as const,
-  forumSidebarThreadsView: (serverId: string, retainId: string | null) =>
-    [...communityKeys.forumSidebarThreads(serverId), retainId] as const,
+    [...communityKeys.server(serverId), "forum-sidebar-base"] as const,
+  forumSidebarRetainedRoot: (serverId: string) =>
+    [...communityKeys.server(serverId), "forum-sidebar-retained"] as const,
+  forumSidebarRetained: (serverId: string, childId: string) =>
+    [...communityKeys.forumSidebarRetainedRoot(serverId), childId] as const,
+  channelMetaRoot: (serverId: string) =>
+    [...communityKeys.server(serverId), "channel-meta"] as const,
+  channelMeta: (serverId: string, channelId: string) =>
+    [...communityKeys.channelMetaRoot(serverId), channelId] as const,
+  forumOpenerHintRoot: (serverId: string) =>
+    [...communityKeys.server(serverId), "forum-opener-hint"] as const,
+  forumOpenerHint: (serverId: string, messageId: string) =>
+    [...communityKeys.forumOpenerHintRoot(serverId), messageId] as const,
   forumSidebarUnreadFallbacks: (serverId: string) =>
     [...communityKeys.server(serverId), "forum-sidebar-unread-fallbacks"] as const,
 

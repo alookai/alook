@@ -142,7 +142,7 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
     })
     capturedQueryClient.setQueryData(communityKeys.pins("ch_dead"), { pins: [{ id: "p" }] })
     capturedQueryClient.setQueryData(communityKeys.threads("ch_dead"), { threads: [{ id: "t" }] })
-    const sidebarKey = communityKeys.forumSidebarThreadsView("srv_1", null)
+    const sidebarKey = communityKeys.forumSidebarThreads("srv_1")
     capturedQueryClient.setQueryData(sidebarKey, forumSidebarFixture(["ch_dead"]))
 
     const event: CommunityChannelDelete = {
@@ -278,8 +278,19 @@ describe("useCommunityWs — child_create patches parent thread badge with count
 
   it("child_update removes archived sidebar rows and invalidates on reopen", async () => {
     await mountHook()
-    const key = communityKeys.forumSidebarThreadsView("s1", null)
+    const { useCommunityStore } = await import("@/stores/community")
+    const key = communityKeys.forumSidebarThreads("s1")
+    capturedQueryClient.setQueryData(communityKeys.server("s1"), {
+      id: "s1",
+      categories: [{ id: "cat_1", channels: [{ id: "forum_1", type: "forum" }] }],
+    })
     capturedQueryClient.setQueryData(key, forumSidebarFixture(["ch_thread"]))
+    useCommunityStore.getState().setCurrentChannelId("ch_thread")
+    useCommunityStore.getState().setCurrentChannelMeta({
+      name: "Private title",
+      parentChannelId: "forum_1",
+      parentMessageId: "opener-ch_thread",
+    })
 
     capturedOnMessage!({
       type: "community:channel.child_update",
@@ -288,6 +299,7 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       changes: { archived: true },
     } satisfies CommunityChildChannelUpdate)
     expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(key)?.threads).toEqual([])
+    expect(useCommunityStore.getState().currentChannelMeta).toBeNull()
 
     capturedOnMessage!({
       type: "community:channel.child_update",
@@ -296,6 +308,68 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       changes: { archived: false },
     } satisfies CommunityChildChannelUpdate)
     expect(capturedQueryClient.getQueryState(key)?.isInvalidated).toBe(true)
+  })
+
+  it("clears active child metadata synchronously on channel.delete", async () => {
+    await mountHook()
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().setCurrentChannelId("ch_dead")
+    useCommunityStore.getState().setCurrentChannelMeta({
+      name: "Private title",
+      parentChannelId: "forum_1",
+    })
+
+    capturedOnMessage!({
+      type: "community:channel.delete",
+      serverId: "srv_1",
+      channelId: "ch_dead",
+      parentChannelId: "forum_1",
+    } satisfies CommunityChannelDelete)
+
+    expect(useCommunityStore.getState().currentChannelMeta).toBeNull()
+  })
+
+  it("does not touch forum resources for ordinary text-thread updates", async () => {
+    await mountHook()
+    const baseKey = communityKeys.forumSidebarThreads("s1")
+    const retainedKey = communityKeys.forumSidebarRetained("s1", "forum_post")
+    const metaKey = communityKeys.channelMeta("s1", "text_thread")
+    const hintKey = communityKeys.forumOpenerHint("s1", "forum_opener")
+    capturedQueryClient.setQueryData(communityKeys.server("s1"), {
+      id: "s1",
+      categories: [{ id: "cat_1", channels: [{ id: "text_parent", type: "text" }] }],
+    })
+    capturedQueryClient.setQueryData(baseKey, forumSidebarFixture())
+    capturedQueryClient.setQueryData(retainedKey, { id: "forum_post" })
+    capturedQueryClient.setQueryData(metaKey, { id: "text_thread", parentChannelId: "text_parent" })
+    capturedQueryClient.setQueryData(hintKey, { id: "forum_opener", content: "Forum title" })
+    const before = [
+      capturedQueryClient.getQueryData(baseKey),
+      capturedQueryClient.getQueryData(retainedKey),
+      capturedQueryClient.getQueryData(metaKey),
+      capturedQueryClient.getQueryData(hintKey),
+    ]
+
+    for (const changes of [
+      { archived: true },
+      { archived: false },
+      { lastMessageAt: "2026-08-09T00:00:00.000Z" },
+    ]) {
+      capturedOnMessage!({
+        type: "community:channel.child_update",
+        parentChannelId: "text_parent",
+        channelId: "text_thread",
+        changes,
+      } satisfies CommunityChildChannelUpdate)
+    }
+
+    expect(capturedQueryClient.getQueryState(baseKey)?.isInvalidated).toBe(false)
+    expect([
+      capturedQueryClient.getQueryData(baseKey),
+      capturedQueryClient.getQueryData(retainedKey),
+      capturedQueryClient.getQueryData(metaKey),
+      capturedQueryClient.getQueryData(hintKey),
+    ]).toEqual(before)
   })
 
   it("child_update keeps newer thread fields from the current base row when refreshing fallback", async () => {
@@ -435,6 +509,10 @@ describe("useCommunityWs — server.delete resets store when focused server dies
     const { useCommunityStore } = await import("@/stores/community")
     useCommunityStore.getState().setCurrentServerId("srv_doomed")
     useCommunityStore.getState().setCurrentChannelId("ch_1")
+    useCommunityStore.getState().setCurrentChannelMeta({
+      name: "Private title",
+      parentChannelId: "private_parent",
+    })
 
     const event: CommunityServerDelete = {
       type: "community:server.delete",
@@ -444,6 +522,7 @@ describe("useCommunityWs — server.delete resets store when focused server dies
 
     expect(useCommunityStore.getState().currentServerId).toBeNull()
     expect(useCommunityStore.getState().currentChannelId).toBeNull()
+    expect(useCommunityStore.getState().currentChannelMeta).toBeNull()
   })
 
   it("does NOT touch the store when a different server is deleted", async () => {

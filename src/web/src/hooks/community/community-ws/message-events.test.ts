@@ -22,10 +22,18 @@ import {
 beforeEach(resetCommunityWsHarness)
 afterEach(cleanupCommunityWsHarness)
 
+function seedParent(serverId: string, parentId: string, type: "forum" | "text") {
+  capturedQueryClient.setQueryData(communityKeys.server(serverId), {
+    id: serverId,
+    categories: [{ id: "cat_1", channels: [{ id: parentId, type }] }],
+  })
+}
+
 describe("useCommunityWs — message.create", () => {
   it("patches a loaded forum-sidebar child activity without a refetch", async () => {
     await mountHook()
-    const key = communityKeys.forumSidebarThreadsView("srv_1", null)
+    seedParent("srv_1", "forum_1", "forum")
+    const key = communityKeys.forumSidebarThreads("srv_1")
     capturedQueryClient.setQueryData(key, forumSidebarFixture())
     const invalidateSpy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     const event = {
@@ -47,7 +55,8 @@ describe("useCommunityWs — message.create", () => {
 
   it("invalidates the forum-sidebar collection when the active child is not loaded", async () => {
     await mountHook()
-    const key = communityKeys.forumSidebarThreadsView("srv_1", null)
+    seedParent("srv_1", "forum_1", "forum")
+    const key = communityKeys.forumSidebarThreads("srv_1")
     capturedQueryClient.setQueryData(key, forumSidebarFixture([]))
 
     capturedOnMessage!({
@@ -57,6 +66,86 @@ describe("useCommunityWs — message.create", () => {
     } satisfies CommunityMessageCreate)
 
     expect(capturedQueryClient.getQueryState(key)?.isInvalidated).toBe(true)
+  })
+
+  it.each([false, true])(
+    "invalidates canonical base for a retained-only child (active=%s) so it survives route exit",
+    async (active) => {
+      if (active) {
+        const { useCommunityStore } = await import("@/stores/community")
+        useCommunityStore.getState().subscribe({ channelId: "post_retained" })
+      }
+      await mountHook()
+      seedParent("srv_1", "forum_1", "forum")
+      const key = communityKeys.forumSidebarThreads("srv_1")
+      const retainedKey = communityKeys.forumSidebarRetained("srv_1", "post_retained")
+      capturedQueryClient.setQueryData(key, forumSidebarFixture([]))
+      capturedQueryClient.setQueryData(
+        retainedKey,
+        forumSidebarFixture(["post_retained"]).threads[0],
+      )
+
+      capturedOnMessage!({
+        ...messageCreate("post_retained"),
+        serverId: "srv_1",
+        parentChannelId: "forum_1",
+      } satisfies CommunityMessageCreate)
+
+      expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>["threads"][number]>(
+        retainedKey,
+      )).toMatchObject({
+        activityAt: "2026-07-03T00:00:00.000Z",
+        expiresAt: "2026-07-06T00:00:00.000Z",
+      })
+      expect(capturedQueryClient.getQueryState(key)?.isInvalidated).toBe(true)
+
+      capturedQueryClient.setQueryData(key, forumSidebarFixture(["post_retained"]))
+      expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(key)
+        ?.threads.some((thread) => thread.id === "post_retained")).toBe(true)
+    },
+  )
+
+  it("does not touch forum resources for ordinary text-thread create or opener edit", async () => {
+    await mountHook()
+    seedParent("s1", "text_parent", "text")
+    const baseKey = communityKeys.forumSidebarThreads("s1")
+    const retainedKey = communityKeys.forumSidebarRetained("s1", "forum_post")
+    const metaKey = communityKeys.channelMeta("s1", "text_thread")
+    const hintKey = communityKeys.forumOpenerHint("s1", "forum_opener")
+    capturedQueryClient.setQueryData(baseKey, forumSidebarFixture())
+    capturedQueryClient.setQueryData(retainedKey, { id: "forum_post" })
+    capturedQueryClient.setQueryData(metaKey, {
+      id: "text_thread",
+      parentChannelId: "text_parent",
+    })
+    capturedQueryClient.setQueryData(hintKey, { id: "forum_opener", content: "Forum title" })
+    const before = [
+      capturedQueryClient.getQueryData(baseKey),
+      capturedQueryClient.getQueryData(retainedKey),
+      capturedQueryClient.getQueryData(metaKey),
+      capturedQueryClient.getQueryData(hintKey),
+    ]
+
+    capturedOnMessage!({
+      ...messageCreate("text_thread"),
+      serverId: "s1",
+      parentChannelId: "text_parent",
+    } satisfies CommunityMessageCreate)
+    capturedOnMessage!({
+      type: "community:message.edited",
+      channelId: "text_thread",
+      messageId: "text_opener",
+      content: "Text title",
+      parentChannelId: "text_parent",
+    } satisfies CommunityMessageEdited)
+
+    expect(capturedQueryClient.getQueryState(baseKey)?.isInvalidated).toBe(false)
+    expect([
+      capturedQueryClient.getQueryData(baseKey),
+      capturedQueryClient.getQueryData(retainedKey),
+      capturedQueryClient.getQueryData(metaKey),
+      capturedQueryClient.getQueryData(hintKey),
+    ]).toEqual(before)
   })
 
   it("writes the channel overlay and leaves the base cache untouched when focused", async () => {
@@ -573,6 +662,7 @@ describe("useCommunityWs — DM message.create", () => {
 describe("useCommunityWs — message edit refreshes forum opener summary", () => {
   it("invalidates the parent thread list for an opener edit, but not for an ordinary reply", async () => {
     await mountHook()
+    seedParent("s1", "forum_1", "forum")
     const invalidateSpy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     const opener: CommunityMessageEdited = {
       type: "community:message.edited",
@@ -590,7 +680,7 @@ describe("useCommunityWs — message edit refreshes forum opener summary", () =>
     const forumPage = { pages: [{ messages: [{ id: "opener_1", content: "old title" }] }], pageParams: [null] }
     capturedQueryClient.setQueryData(allKey, forumPage)
     capturedQueryClient.setQueryData(bugKey, forumPage)
-    const sidebarKey = communityKeys.forumSidebarThreadsView("s1", null)
+    const sidebarKey = communityKeys.forumSidebarThreads("s1")
     capturedQueryClient.setQueryData(sidebarKey, forumSidebarFixture())
     capturedOnMessage!(opener)
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: communityKeys.channelMessages("forum_1") })

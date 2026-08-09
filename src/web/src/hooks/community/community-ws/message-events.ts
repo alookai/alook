@@ -13,10 +13,12 @@ import type { CanonicalMessage } from "@/lib/community/message-stream"
 import { useCommunityStore } from "@/stores/community"
 import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
 import {
+  getForumSidebarBase,
   hasForumSidebarThread,
-  patchForumSidebarActivity,
-  patchForumSidebarTitle,
-  type ForumSidebarQueryData,
+  isForumSidebarParent,
+  invalidateForumSidebarBaseExact,
+  patchForumSidebarActivityExact,
+  patchForumSidebarTitleExact,
 } from "@/hooks/community/use-forum-sidebar-threads"
 import {
   applyReactionToCache,
@@ -75,22 +77,24 @@ export function handleMessageCreate(
   // message reaches every notify member even when muted; use its
   // explicit server/parent metadata to re-rank a loaded row without a
   // GET, or refetch when the active post is currently absent/expired.
-  if (event.serverId && event.parentChannelId) {
-    const key = communityKeys.forumSidebarThreads(event.serverId)
-    const cached = queryClient.getQueriesData<ForumSidebarQueryData>({ queryKey: key })
-    const loaded = cached.some(([, data]) => hasForumSidebarThread(data, event.channelId))
-    if (loaded) {
-      queryClient.setQueriesData<ForumSidebarQueryData>(
-        { queryKey: key },
-        (data) => patchForumSidebarActivity(
-          data,
-          event.channelId,
-          event.parentChannelId!,
-          event.message.createdAt,
-        ),
-      )
-    } else {
-      void queryClient.invalidateQueries({ queryKey: key })
+  if (
+    event.serverId &&
+    event.parentChannelId &&
+    isForumSidebarParent(queryClient, event.serverId, event.parentChannelId)
+  ) {
+    const canonical = hasForumSidebarThread(
+      getForumSidebarBase(queryClient, event.serverId),
+      event.channelId,
+    )
+    patchForumSidebarActivityExact(
+      queryClient,
+      event.serverId,
+      event.channelId,
+      event.parentChannelId,
+      event.message.createdAt,
+    )
+    if (!canonical) {
+      void invalidateForumSidebarBaseExact(queryClient, event.serverId)
     }
   }
 
@@ -281,11 +285,8 @@ export function handleMessageEdited(
       queryKey: communityKeys.channelMessages(event.parentChannelId),
     })
     const serverId = useCommunityStore.getState().currentServerId
-    if (serverId) {
-      queryClient.setQueriesData<ForumSidebarQueryData>(
-        { queryKey: communityKeys.forumSidebarThreads(serverId) },
-        (data) => patchForumSidebarTitle(data, event.channelId, event.content),
-      )
+    if (serverId && isForumSidebarParent(queryClient, serverId, event.parentChannelId)) {
+      patchForumSidebarTitleExact(queryClient, serverId, event.channelId, event.content)
     }
   }
 }

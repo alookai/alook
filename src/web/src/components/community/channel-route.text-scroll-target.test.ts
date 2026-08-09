@@ -101,6 +101,9 @@ vi.mock("@/contexts/community/current-user", () => ({
 vi.mock("@/hooks/community/use-channel-route-model", () => ({
   useChannelRouteModel: () => mockRouteModel,
 }))
+vi.mock("@/hooks/community/use-forum-opener-hint", () => ({
+  useForumOpenerHint: () => ({ data: null, isLoading: false }),
+}))
 vi.mock("@/hooks/community/use-server-members", () => ({
   useServerMembers: () => ({
     members: [],

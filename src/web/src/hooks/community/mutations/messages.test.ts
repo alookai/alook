@@ -137,6 +137,13 @@ function sidebarData(threadId = "post_1") {
   }
 }
 
+function seedParent(type: "forum" | "text", parentId = "forum_1") {
+  capturedQc.setQueryData(communityKeys.server("s1"), {
+    id: "s1",
+    categories: [{ id: "cat_1", channels: [{ id: parentId, type }] }],
+  })
+}
+
 beforeEach(() => {
   apiFetchMock.mockReset()
   toastMock.mockReset()
@@ -202,7 +209,8 @@ describe("useEditMessage", () => {
   })
 
   it("patches a loaded forum-sidebar title after the opener edit succeeds", async () => {
-    const sidebarKey = communityKeys.forumSidebarThreadsView("s1", "post_1")
+    seedParent("forum")
+    const sidebarKey = communityKeys.forumSidebarThreads("s1")
     capturedQc.setQueryData(sidebarKey, sidebarData())
     apiFetchMock.mockResolvedValueOnce(undefined)
     const mod = await loadMod()
@@ -263,7 +271,8 @@ describe("useSendMessage — happy path", () => {
   })
 
   it("re-ranks a loaded participating forum thread from the canonical send timestamp", async () => {
-    const sidebarKey = communityKeys.forumSidebarThreadsView("s1", "post_1")
+    seedParent("forum")
+    const sidebarKey = communityKeys.forumSidebarThreads("s1")
     capturedQc.setQueryData(sidebarKey, sidebarData())
     apiFetchMock.mockResolvedValueOnce({ message: postedMessage("server_id_1", 9) })
     const mod = await loadMod()
@@ -285,7 +294,8 @@ describe("useSendMessage — happy path", () => {
   })
 
   it("invalidates the sidebar collection when a just-enrolled thread is not loaded", async () => {
-    const sidebarKey = communityKeys.forumSidebarThreadsView("s1", null)
+    seedParent("forum")
+    const sidebarKey = communityKeys.forumSidebarThreads("s1")
     const empty = { ...sidebarData(), threads: [] }
     capturedQc.setQueryData(sidebarKey, empty)
     apiFetchMock.mockResolvedValueOnce({ message: postedMessage("server_id_1", 9) })
@@ -301,6 +311,43 @@ describe("useSendMessage — happy path", () => {
     })
 
     expect(capturedQc.getQueryState(sidebarKey)?.isInvalidated).toBe(true)
+  })
+
+  it("does not touch forum resources when sending in an ordinary text thread", async () => {
+    seedParent("text", "text_parent")
+    const baseKey = communityKeys.forumSidebarThreads("s1")
+    const retainedKey = communityKeys.forumSidebarRetained("s1", "forum_post")
+    const metaKey = communityKeys.channelMeta("s1", "text_thread")
+    const hintKey = communityKeys.forumOpenerHint("s1", "forum_opener")
+    capturedQc.setQueryData(baseKey, sidebarData())
+    capturedQc.setQueryData(retainedKey, { id: "forum_post" })
+    capturedQc.setQueryData(metaKey, { id: "text_thread", parentChannelId: "text_parent" })
+    capturedQc.setQueryData(hintKey, { id: "forum_opener", content: "Forum title" })
+    const before = [
+      capturedQc.getQueryData(baseKey),
+      capturedQc.getQueryData(retainedKey),
+      capturedQc.getQueryData(metaKey),
+      capturedQc.getQueryData(hintKey),
+    ]
+    apiFetchMock.mockResolvedValueOnce({ message: postedMessage("server_id_1", 9) })
+    const mod = await loadMod()
+    mod.useSendMessage()
+
+    await runMutation({
+      serverId: "s1",
+      channelId: "text_thread",
+      forumParentChannelId: "text_parent",
+      content: "hi",
+      author: { id: "u_me", name: "me", avatar: "M" },
+    })
+
+    expect(capturedQc.getQueryState(baseKey)?.isInvalidated).toBe(false)
+    expect([
+      capturedQc.getQueryData(baseKey),
+      capturedQc.getQueryData(retainedKey),
+      capturedQc.getQueryData(metaKey),
+      capturedQc.getQueryData(hintKey),
+    ]).toEqual(before)
   })
 })
 

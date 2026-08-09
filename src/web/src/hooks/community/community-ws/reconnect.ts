@@ -1,6 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 import { useCommunityStore } from "@/stores/community"
+import { invalidateForumSidebarBaseExact } from "@/hooks/community/use-forum-sidebar-threads"
 
 /**
  * Machines are WS-live-patched with no query refetch (see `use-machines.ts`)
@@ -74,6 +75,17 @@ export function reconcileCommunityWsReconnect(queryClient: QueryClient) {
   if (currentServerId) {
     void queryClient.invalidateQueries({
       queryKey: communityKeys.server(currentServerId),
+      exact: true,
+    })
+    void invalidateForumSidebarBaseExact(queryClient, currentServerId)
+    queryClient.removeQueries({
+      queryKey: communityKeys.forumSidebarRetainedRoot(currentServerId),
+    })
+    queryClient.removeQueries({
+      queryKey: communityKeys.channelMetaRoot(currentServerId),
+    })
+    queryClient.removeQueries({
+      queryKey: communityKeys.forumOpenerHintRoot(currentServerId),
     })
   }
   // Bot audit logs are WS-live-patched into the React Query cache; if

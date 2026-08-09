@@ -116,6 +116,7 @@ async function resetStore() {
   useCommunityStore.getState().setCurrentServerId("s1")
   const { useCommunityWsStore } = await import("@/stores/community/ws")
   useCommunityWsStore.getState().reset()
+  useCommunityWsStore.getState().markAccessConnected()
   useMessageStreamStore.getState().resetAll()
   const mod = await import("../use-community-ws")
   mod._resetActiveSend_forTesting()
@@ -169,19 +170,20 @@ export function forumSidebarFixture(ids = ["post_1"]) {
       parentChannelId: "forum_1",
       parentMessageId: `opener-${id}`,
       activityAt: "2026-08-01T00:00:00.000Z",
-      expiresAt: "2026-08-04T00:00:00.000Z",
+      expiresAt: "2099-08-04T00:00:00.000Z",
       unread: false,
     })),
     included: { parentMessages: ids.map((id) => ({ id: `opener-${id}`, content: `title-${id}` })) },
     serverNow: "2026-08-01T00:00:00.000Z",
     serverClockOffsetMs: 0,
+    verifiedEpoch: 0,
     threads: ids.map((id) => ({
       id,
       parentChannelId: "forum_1",
       parentMessageId: `opener-${id}`,
       title: `title-${id}`,
       activityAt: "2026-08-01T00:00:00.000Z",
-      expiresAt: "2026-08-04T00:00:00.000Z",
+      expiresAt: "2099-08-04T00:00:00.000Z",
       unread: false,
     })),
   }

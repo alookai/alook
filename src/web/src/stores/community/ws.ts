@@ -49,6 +49,8 @@ export type BotAuditEventEntry = {
 type UserStatus = { emoji: string | null; text: string | null }
 
 export type CommunityWsStoreState = {
+  accessEpoch: number
+  accessConnected: boolean
   /**
    * Everyone online right now — human or bot. The server pushes
    * `community:presence.update` identically for both (see
@@ -98,6 +100,8 @@ export type CommunityWsStoreState = {
   markSeenMessage: (id: string) => void
   setUserStatus: (userId: string, emoji: string | null, text: string | null) => void
   resetUserStatuses: () => void
+  markAccessDisconnected: () => void
+  markAccessConnected: () => void
   pushBotAuditEvent: (event: BotAuditEventEntry) => void
   reset: () => void
 }
@@ -105,7 +109,10 @@ export type CommunityWsStoreState = {
 const initialState = (): Pick<
   CommunityWsStoreState,
   "onlineUserIds" | "seenMessageIds" | "userStatuses" | "botAuditEvents"
+  | "accessEpoch" | "accessConnected"
 > => ({
+  accessEpoch: 0,
+  accessConnected: false,
   onlineUserIds: new Set(),
   seenMessageIds: new Set(),
   userStatuses: new Map(),
@@ -173,6 +180,13 @@ export const useCommunityWsStore = create<CommunityWsStoreState>((set, get) => (
     if (get().userStatuses.size === 0) return
     set({ userStatuses: new Map() })
   },
+
+  markAccessDisconnected: () => set((state) => ({
+    accessEpoch: state.accessEpoch + 1,
+    accessConnected: false,
+  })),
+
+  markAccessConnected: () => set({ accessConnected: true }),
 
   pushBotAuditEvent: (event) => {
     const current = get().botAuditEvents

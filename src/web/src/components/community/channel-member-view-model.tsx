@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from "react"
 import { toast } from "sonner"
+import { isForum } from "@alook/shared"
 import { AddMembersDialog } from "@/components/community/add-members-dialog"
 import type { CommunityPanelSheet } from "@/components/community/community-panel-sheet"
 import type { Member, Role } from "@/components/community/_types"
@@ -42,7 +43,7 @@ export type ChannelMemberPanelProps = Pick<
 type ServerModel = {
   categories?: Array<{
     private?: number | boolean
-    channels: Array<{ id: string }>
+    channels: Array<{ id: string; type?: string }>
   }>
 } | null | undefined
 
@@ -135,8 +136,25 @@ export function useChannelMemberViewModel({
   )
   const addChannelMemberMut = useAddChannelMember(channelId)
   const removeChannelMemberMut = useRemoveChannelMember(channelId)
-  const addThreadParticipantMut = useAddThreadParticipant(channelId)
-  const removeThreadParticipantMut = useRemoveThreadParticipant(channelId, serverId, currentUser.id)
+  const parentChannel = currentChannelMeta?.parentChannelId
+    ? currentServer?.categories
+      ?.flatMap((category) => category.channels)
+      .find((channel) => channel.id === currentChannelMeta.parentChannelId)
+    : null
+  const forumSidebarServerId = isChildChannel && isForum(parentChannel?.type)
+    ? serverId
+    : undefined
+  const addThreadParticipantMut = useAddThreadParticipant(
+    channelId,
+    forumSidebarServerId,
+    currentUser.id,
+  )
+  const removeThreadParticipantMut = useRemoveThreadParticipant(
+    channelId,
+    serverId,
+    currentUser.id,
+    !!forumSidebarServerId,
+  )
   const setMemberRoleMut = useSetMemberRole()
   const kickMemberMut = useKickMember()
 

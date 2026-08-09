@@ -1,11 +1,12 @@
 "use client"
 
-import { useEffect } from "react"
-import { keepPreviousData, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
+import { useEffect, useMemo, useRef } from "react"
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { patchChannelUnread } from "@/hooks/community/server-detail-cache"
 import type { ServerDetail } from "@/hooks/community/use-servers"
+import { useCommunityWsStore } from "@/stores/community/ws"
 
 export type ForumSidebarThread = {
   id: string
@@ -26,17 +27,82 @@ export type SidebarThreadEnvelope = {
     activityAt: string
     expiresAt: string
     unread: boolean
+    serverId?: string
+    type?: string
+    creatorId?: string | null
+    archived?: boolean | number
+    lastMessageAt?: string | null
+    createdAt?: string
   }>
+  canonicalChannels?: SidebarThreadEnvelope["channels"]
+  retainedChannel?: SidebarThreadEnvelope["channels"][number] | null
   included: {
     parentMessages: Array<{ id: string; content: string }>
   }
   serverNow: string
 }
 
-export type ForumSidebarQueryData = SidebarThreadEnvelope & {
+export type ForumSidebarQueryData = {
   threads: ForumSidebarThread[]
-  /** Server clock minus client clock, captured when this envelope arrived. */
+  verifiedEpoch: number
+  serverNow: string
   serverClockOffsetMs: number
+}
+
+export type ChildChannelMeta = {
+  id: string
+  serverId: string
+  name: string
+  type: string
+  parentChannelId: string
+  parentMessageId: string
+  creatorId: string | null
+  archived: boolean
+  activityAt: string
+  verifiedEpoch: number
+}
+
+export type ForumOpenerHint = { id: string; content: string }
+
+export type NormalizedForumSidebarEnvelope = {
+  base: ForumSidebarQueryData
+  retained: ForumSidebarThread | null
+  channelMetas: Record<string, ChildChannelMeta>
+  openerHints: Record<string, ForumOpenerHint>
+}
+
+export function resolveForumSidebarRouteCandidate(
+  channelId: string | null,
+  topLevelChannelIds: Iterable<string> | null,
+) {
+  if (!channelId || !topLevelChannelIds) return null
+  return new Set(topLevelChannelIds).has(channelId) ? null : channelId
+}
+
+type InflightDelta = {
+  activity: Map<string, { parentChannelId: string; activityAt: string }>
+  titles: Map<string, string>
+  unread: Map<string, boolean>
+  removed: Set<string>
+}
+
+type InflightRecord = {
+  promise: Promise<NormalizedForumSidebarEnvelope>
+  delta: InflightDelta
+  candidate: string | null
+  controller: AbortController
+  signals: Set<AbortSignal>
+  abortTimer: ReturnType<typeof setTimeout> | null
+}
+
+const inflight = new Map<string, InflightRecord>()
+
+function recordInflightDelta(
+  serverId: string,
+  update: (delta: InflightDelta) => void,
+) {
+  const record = inflight.get(serverId)
+  if (record) update(record.delta)
 }
 
 export type ForumSidebarUnreadFallbackState = Record<string, {
@@ -45,6 +111,7 @@ export type ForumSidebarUnreadFallbackState = Record<string, {
 }>
 
 const SIDEBAR_ACTIVITY_WINDOW_MS = 72 * 60 * 60 * 1000
+const STRICT_MODE_ABORT_GRACE_MS = 50
 
 function parentUnread(cache: ServerDetail | undefined, parentChannelId: string): boolean {
   return !!cache?.categories.some((category) =>
@@ -245,7 +312,7 @@ export function patchForumSidebarActivity(
   return { ...data, threads }
 }
 
-export function patchForumSidebarTitle(
+function patchForumSidebarTitle(
   data: ForumSidebarQueryData | undefined,
   threadId: string,
   title: string,
@@ -293,8 +360,531 @@ export function projectForumSidebarThreads(data: SidebarThreadEnvelope): ForumSi
   })
 }
 
-export function useForumSidebarThreads(serverId: string, retainId: string | null) {
+function projectChannels(
+  channels: SidebarThreadEnvelope["channels"],
+  parentMessages: SidebarThreadEnvelope["included"]["parentMessages"],
+): ForumSidebarThread[] {
+  return projectForumSidebarThreads({
+    channels,
+    included: { parentMessages },
+    serverNow: "",
+  })
+}
+
+function childMeta(
+  channel: SidebarThreadEnvelope["channels"][number],
+): ChildChannelMeta | null {
+  if (
+    !channel.serverId || !channel.type || !channel.parentChannelId ||
+    !channel.parentMessageId
+  ) return null
+  return {
+    id: channel.id,
+    serverId: channel.serverId,
+    name: channel.name,
+    type: channel.type,
+    parentChannelId: channel.parentChannelId,
+    parentMessageId: channel.parentMessageId,
+    creatorId: channel.creatorId ?? null,
+    archived: channel.archived === true || channel.archived === 1,
+    activityAt: channel.activityAt,
+    verifiedEpoch: -1,
+  }
+}
+
+export function normalizeForumSidebarEnvelope(
+  envelope: SidebarThreadEnvelope,
+  retainId: string | null,
+  serverClockOffsetOverride?: number,
+): NormalizedForumSidebarEnvelope {
+  const canonicalChannels = envelope.canonicalChannels ?? envelope.channels
+  const threads = projectChannels(canonicalChannels, envelope.included.parentMessages)
+  const serverNowMs = Date.parse(envelope.serverNow)
+  const base: ForumSidebarQueryData = {
+    threads,
+    serverNow: envelope.serverNow,
+    verifiedEpoch: -1,
+    serverClockOffsetMs: serverClockOffsetOverride ??
+      (Number.isFinite(serverNowMs) ? serverNowMs - Date.now() : 0),
+  }
+  const retainedChannel = retainId && envelope.retainedChannel?.id === retainId
+    ? envelope.retainedChannel
+    : null
+  const retained = retainedChannel
+    ? projectChannels([retainedChannel], envelope.included.parentMessages)[0] ?? null
+    : null
+  const channelMetas: Record<string, ChildChannelMeta> = {}
+  for (const channel of retainedChannel
+    ? [...canonicalChannels, retainedChannel]
+    : canonicalChannels) {
+    const meta = childMeta(channel)
+    if (meta) channelMetas[meta.id] = meta
+  }
+  const openerHints = Object.fromEntries(
+    envelope.included.parentMessages.map(({ id, content }) => [id, { id, content }]),
+  )
+  return { base, retained, channelMetas, openerHints }
+}
+
+export function deriveForumSidebarProjection(
+  base: ForumSidebarQueryData | undefined,
+  activeExtra: ForumSidebarThread | null | undefined,
+  ownership: ServerDetail["forumUnreadState"] | undefined,
+  nowMs = Date.now(),
+  limitPerParent = 5,
+) {
+  if (!base) return { threads: [] as ForumSidebarThread[], parentUnread: {} as Record<string, boolean> }
+  const serverNowMs = nowMs + base.serverClockOffsetMs
+  let threads = base.threads.filter((thread) => {
+    const expiresAt = Date.parse(thread.expiresAt)
+    return !Number.isFinite(expiresAt) || expiresAt > serverNowMs
+  })
+  if (activeExtra && !threads.some((thread) => thread.id === activeExtra.id)) {
+    const siblings = threads.filter((thread) => thread.parentChannelId === activeExtra.parentChannelId)
+    const otherParents = threads.filter((thread) => thread.parentChannelId !== activeExtra.parentChannelId)
+    threads = [...otherParents, ...siblings.slice(0, Math.max(0, limitPerParent - 1)), activeExtra]
+      .sort((a, b) => {
+        if (a.parentChannelId !== b.parentChannelId) return a.parentChannelId < b.parentChannelId ? -1 : 1
+        if (a.activityAt !== b.activityAt) return a.activityAt > b.activityAt ? -1 : 1
+        return a.id === b.id ? 0 : a.id > b.id ? -1 : 1
+      })
+  }
+  const renderedIds = new Set(threads.map((thread) => thread.id))
+  threads = threads.map((thread) => ({
+    ...thread,
+    unread: ownership?.[thread.parentChannelId]?.childIds.includes(thread.id) ?? thread.unread,
+  }))
+  const parentUnread: Record<string, boolean> = {}
+  for (const [parentId, state] of Object.entries(ownership ?? {})) {
+    parentUnread[parentId] = state.baseUnread || state.childIds.some((id) => !renderedIds.has(id))
+  }
+  return { threads, parentUnread }
+}
+
+export function getForumSidebarBase(queryClient: QueryClient, serverId: string) {
+  return queryClient.getQueryData<ForumSidebarQueryData>(
+    communityKeys.forumSidebarThreads(serverId),
+  )
+}
+
+function getForumSidebarRetained(
+  queryClient: QueryClient,
+  serverId: string,
+  childId: string,
+) {
+  return queryClient.getQueryData<ForumSidebarThread | null>(
+    communityKeys.forumSidebarRetained(serverId, childId),
+  )
+}
+
+export function hasProjectedForumSidebarThread(
+  queryClient: QueryClient,
+  serverId: string,
+  childId: string,
+  activeChildId: string | null | undefined,
+) {
+  const access = useCommunityWsStore.getState()
+  const base = getForumSidebarBase(queryClient, serverId)
+  if (
+    !access.accessConnected ||
+    !base ||
+    base.verifiedEpoch !== access.accessEpoch
+  ) return false
+  const activeExtra = activeChildId
+    ? getForumSidebarRetained(queryClient, serverId, activeChildId)
+    : null
+  const ownership = queryClient.getQueryData<ServerDetail>(
+    communityKeys.server(serverId),
+  )?.forumUnreadState
+  return deriveForumSidebarProjection(base, activeExtra, ownership)
+    .threads.some((thread) => thread.id === childId)
+}
+
+export function isKnownNonForumSidebarChannel(
+  queryClient: QueryClient,
+  serverId: string,
+  channelId: string,
+) {
+  const server = queryClient.getQueryData<ServerDetail>(communityKeys.server(serverId))
+  const topLevel = server?.categories
+    .flatMap((category) => category.channels)
+    .find((channel) => channel.id === channelId)
+  if (topLevel) return topLevel.type !== "forum"
+  const meta = queryClient.getQueryData<ChildChannelMeta>(
+    communityKeys.channelMeta(serverId, channelId),
+  )
+  if (!meta) return false
+  const parent = server?.categories
+    .flatMap((category) => category.channels)
+    .find((channel) => channel.id === meta.parentChannelId)
+  return !!parent && parent.type !== "forum"
+}
+
+export function isForumSidebarParent(
+  queryClient: QueryClient,
+  serverId: string,
+  parentChannelId: string,
+) {
+  return queryClient.getQueryData<ServerDetail>(communityKeys.server(serverId))
+    ?.categories.some((category) => category.channels.some(
+      (channel) => channel.id === parentChannelId && channel.type === "forum",
+    )) ?? false
+}
+
+function patchRetained(
+  queryClient: QueryClient,
+  serverId: string,
+  childId: string,
+  patch: (thread: ForumSidebarThread) => ForumSidebarThread,
+) {
+  queryClient.setQueryData<ForumSidebarThread | null | undefined>(
+    communityKeys.forumSidebarRetained(serverId, childId),
+    (thread) => thread ? patch(thread) : thread,
+  )
+}
+
+export function patchForumSidebarActivityExact(
+  queryClient: QueryClient,
+  serverId: string,
+  childId: string,
+  parentChannelId: string,
+  activityAt: string,
+) {
+  recordInflightDelta(serverId, (delta) => {
+    delta.activity.set(childId, { parentChannelId, activityAt })
+  })
+  queryClient.setQueryData<ForumSidebarQueryData | undefined>(
+    communityKeys.forumSidebarThreads(serverId),
+    (data) => patchForumSidebarActivity(data, childId, parentChannelId, activityAt),
+  )
+  patchRetained(queryClient, serverId, childId, (thread) => ({
+    ...thread,
+    activityAt,
+    expiresAt: new Date(Date.parse(activityAt) + SIDEBAR_ACTIVITY_WINDOW_MS).toISOString(),
+  }))
+  queryClient.setQueryData<ChildChannelMeta | undefined>(
+    communityKeys.channelMeta(serverId, childId),
+    (meta) => meta ? { ...meta, activityAt } : meta,
+  )
+}
+
+export function patchForumSidebarTitleExact(
+  queryClient: QueryClient,
+  serverId: string,
+  childId: string,
+  title: string,
+) {
+  recordInflightDelta(serverId, (delta) => {
+    delta.titles.set(childId, title)
+  })
+  queryClient.setQueryData<ForumSidebarQueryData | undefined>(
+    communityKeys.forumSidebarThreads(serverId),
+    (data) => patchForumSidebarTitle(data, childId, title),
+  )
+  patchRetained(queryClient, serverId, childId, (thread) => ({ ...thread, title }))
+  const meta = queryClient.getQueryData<ChildChannelMeta>(communityKeys.channelMeta(serverId, childId))
+  if (meta) {
+    queryClient.setQueryData<ForumOpenerHint | undefined>(
+      communityKeys.forumOpenerHint(serverId, meta.parentMessageId),
+      (hint) => hint ? { ...hint, content: title } : hint,
+    )
+  }
+}
+
+export function patchForumSidebarUnreadExact(
+  queryClient: QueryClient,
+  serverId: string,
+  childId: string,
+  unread: boolean,
+) {
+  recordInflightDelta(serverId, (delta) => {
+    delta.unread.set(childId, unread)
+  })
+  queryClient.setQueryData<ForumSidebarQueryData | undefined>(
+    communityKeys.forumSidebarThreads(serverId),
+    (data) => patchForumSidebarUnread(data, childId, unread),
+  )
+  patchRetained(queryClient, serverId, childId, (thread) => ({ ...thread, unread }))
+}
+
+export function removeForumSidebarThreadExact(
+  queryClient: QueryClient,
+  serverId: string,
+  childId: string,
+) {
+  const meta = queryClient.getQueryData<ChildChannelMeta>(
+    communityKeys.channelMeta(serverId, childId),
+  )
+  const parentMessageId = meta?.parentMessageId ??
+    getForumSidebarRetained(queryClient, serverId, childId)?.parentMessageId ??
+    getForumSidebarBase(queryClient, serverId)?.threads
+      .find((thread) => thread.id === childId)?.parentMessageId
+  recordInflightDelta(serverId, (delta) => {
+    delta.removed.add(childId)
+  })
+  queryClient.setQueryData<ForumSidebarQueryData | undefined>(
+    communityKeys.forumSidebarThreads(serverId),
+    (data) => removeForumSidebarThread(data, childId),
+  )
+  queryClient.removeQueries({
+    queryKey: communityKeys.forumSidebarRetained(serverId, childId),
+    exact: true,
+  })
+  queryClient.removeQueries({
+    queryKey: communityKeys.channelMeta(serverId, childId),
+    exact: true,
+  })
+  if (parentMessageId) {
+    queryClient.removeQueries({
+      queryKey: communityKeys.forumOpenerHint(serverId, parentMessageId),
+      exact: true,
+    })
+  }
+}
+
+export function removeForumSidebarChildrenForParent(
+  queryClient: QueryClient,
+  serverId: string,
+  parentChannelId: string,
+) {
+  const childIds = new Set(
+    getForumSidebarBase(queryClient, serverId)?.threads
+      .filter((thread) => thread.parentChannelId === parentChannelId)
+      .map((thread) => thread.id) ?? [],
+  )
+  for (const [, meta] of queryClient.getQueriesData<ChildChannelMeta>({
+    queryKey: communityKeys.channelMetaRoot(serverId),
+  })) {
+    if (meta?.parentChannelId === parentChannelId) childIds.add(meta.id)
+  }
+  for (const [, thread] of queryClient.getQueriesData<ForumSidebarThread | null>({
+    queryKey: communityKeys.forumSidebarRetainedRoot(serverId),
+  })) {
+    if (thread?.parentChannelId === parentChannelId) childIds.add(thread.id)
+  }
+  for (const childId of childIds) {
+    removeForumSidebarUnreadChild(queryClient, serverId, childId)
+    removeForumSidebarThreadExact(queryClient, serverId, childId)
+  }
+}
+
+export function invalidateForumSidebarBaseExact(queryClient: QueryClient, serverId: string) {
+  const pending = inflight.get(serverId)
+  if (pending) {
+    if (pending.abortTimer !== null) globalThis.clearTimeout(pending.abortTimer)
+    pending.controller.abort()
+    inflight.delete(serverId)
+  }
+  const queryKey = communityKeys.forumSidebarThreads(serverId)
+  void queryClient.cancelQueries({ queryKey, exact: true })
+  return queryClient.invalidateQueries({
+    queryKey,
+    exact: true,
+  })
+}
+
+export function grantForumSidebarChild(
+  queryClient: QueryClient,
+  serverId: string,
+  childId: string,
+) {
+  recordInflightDelta(serverId, (delta) => {
+    delta.removed.delete(childId)
+  })
+  void queryClient.cancelQueries({
+    queryKey: communityKeys.forumSidebarRetained(serverId, childId),
+    exact: true,
+  })
+  queryClient.removeQueries({
+    queryKey: communityKeys.forumSidebarRetained(serverId, childId),
+    exact: true,
+  })
+  queryClient.removeQueries({
+    queryKey: communityKeys.channelMeta(serverId, childId),
+    exact: true,
+  })
+  return invalidateForumSidebarBaseExact(queryClient, serverId)
+}
+
+function sidebarUrl(serverId: string, retainId: string | null) {
+  const params = new URLSearchParams({
+    type: "thread",
+    parentType: "forum",
+    participating: "true",
+    activeWithin: "72h",
+    limitPerParent: "5",
+    include: "parentMessage",
+  })
+  if (retainId) params.set("retainId", retainId)
+  return `/api/community/servers/${serverId}/channels?${params.toString()}`
+}
+
+function attachInflightSignal(
+  serverId: string,
+  record: InflightRecord,
+  signal?: AbortSignal,
+) {
+  if (!signal || record.signals.has(signal)) return
+  if (record.abortTimer !== null) {
+    globalThis.clearTimeout(record.abortTimer)
+    record.abortTimer = null
+  }
+  record.signals.add(signal)
+  const release = () => {
+    record.signals.delete(signal)
+    if (record.signals.size > 0 || record.abortTimer !== null) return
+    record.abortTimer = globalThis.setTimeout(() => {
+      record.abortTimer = null
+      if (inflight.get(serverId) === record && record.signals.size === 0) {
+        record.controller.abort()
+      }
+    }, STRICT_MODE_ABORT_GRACE_MS)
+  }
+  if (signal.aborted) release()
+  else signal.addEventListener("abort", release, { once: true })
+}
+
+function fetchForumSidebar(serverId: string, retainId: string | null, signal?: AbortSignal) {
+  const pending = inflight.get(serverId)
+  if (pending?.candidate === retainId && !pending.controller.signal.aborted) {
+    attachInflightSignal(serverId, pending, signal)
+    return pending.promise
+  }
+  if (pending) {
+    if (pending.abortTimer !== null) globalThis.clearTimeout(pending.abortTimer)
+    pending.controller.abort()
+    inflight.delete(serverId)
+  }
+  const controller = new AbortController()
+  const delta: InflightDelta = {
+    activity: new Map(),
+    titles: new Map(),
+    unread: new Map(),
+    removed: new Set(),
+  }
+  const request = apiFetch<SidebarThreadEnvelope>(sidebarUrl(serverId, retainId), {
+    signal: controller.signal,
+  })
+    .then((envelope) => normalizeForumSidebarEnvelope(envelope, retainId))
+    .then((normalized) => {
+      let base: ForumSidebarQueryData | undefined = normalized.base
+      let retained = normalized.retained
+      const channelMetas = { ...normalized.channelMetas }
+      const openerHints = { ...normalized.openerHints }
+      for (const [childId, update] of delta.activity) {
+        base = patchForumSidebarActivity(
+          base,
+          childId,
+          update.parentChannelId,
+          update.activityAt,
+        )
+        if (retained?.id === childId) {
+          retained = {
+            ...retained,
+            activityAt: update.activityAt,
+            expiresAt: new Date(
+              Date.parse(update.activityAt) + SIDEBAR_ACTIVITY_WINDOW_MS,
+            ).toISOString(),
+          }
+        }
+        if (channelMetas[childId]) {
+          channelMetas[childId] = {
+            ...channelMetas[childId],
+            activityAt: update.activityAt,
+          }
+        }
+      }
+      for (const [childId, title] of delta.titles) {
+        base = patchForumSidebarTitle(base, childId, title)
+        if (retained?.id === childId) retained = { ...retained, title }
+        const meta = channelMetas[childId]
+        if (meta && openerHints[meta.parentMessageId]) {
+          openerHints[meta.parentMessageId] = {
+            ...openerHints[meta.parentMessageId],
+            content: title,
+          }
+        }
+      }
+      for (const [childId, unread] of delta.unread) {
+        base = patchForumSidebarUnread(base, childId, unread)
+        if (retained?.id === childId) retained = { ...retained, unread }
+      }
+      for (const childId of delta.removed) {
+        const meta = channelMetas[childId]
+        if (meta) delete openerHints[meta.parentMessageId]
+        delete channelMetas[childId]
+        base = removeForumSidebarThread(base, childId)
+        if (retained?.id === childId) retained = null
+      }
+      return {
+        ...normalized,
+        base: base ?? normalized.base,
+        retained,
+        channelMetas,
+        openerHints,
+      }
+    })
+    .finally(() => {
+      const current = inflight.get(serverId)
+      if (current?.promise !== request) return
+      if (current.abortTimer !== null) globalThis.clearTimeout(current.abortTimer)
+      inflight.delete(serverId)
+    })
+  const record: InflightRecord = {
+    promise: request,
+    delta,
+    candidate: retainId,
+    controller,
+    signals: new Set(),
+    abortTimer: null,
+  }
+  inflight.set(serverId, record)
+  attachInflightSignal(serverId, record, signal)
+  return request
+}
+
+function seedForumSidebarResources(
+  queryClient: QueryClient,
+  serverId: string,
+  normalized: NormalizedForumSidebarEnvelope,
+  verifiedEpoch: number,
+  retainId: string | null,
+) {
+  if (
+    retainId &&
+    !normalized.retained &&
+    !hasForumSidebarThread(normalized.base, retainId)
+  ) {
+    removeForumSidebarUnreadChild(queryClient, serverId, retainId)
+    removeForumSidebarThreadExact(queryClient, serverId, retainId)
+  }
+  for (const meta of Object.values(normalized.channelMetas)) {
+    queryClient.setQueryData(
+      communityKeys.channelMeta(serverId, meta.id),
+      { ...meta, verifiedEpoch },
+    )
+  }
+  for (const hint of Object.values(normalized.openerHints)) {
+    queryClient.setQueryData(communityKeys.forumOpenerHint(serverId, hint.id), hint)
+  }
+}
+
+function throwIfConsumerAborted(signal: AbortSignal) {
+  if (!signal.aborted) return
+  const error = new Error("Aborted")
+  error.name = "AbortError"
+  throw error
+}
+
+export function useForumSidebarThreads(
+  serverId: string,
+  retainId: string | null,
+  enabled = true,
+) {
   const queryClient = useQueryClient()
+  const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
+  const accessConnected = useCommunityWsStore((state) => state.accessConnected)
+  const previousRetainId = useRef(retainId)
   // Observe (without fetching) the already-canonical ServerDetail cache so a
   // fresh `/unreads` result re-runs attribution even when the sidebar rows did
   // not change. This is essential for access/archive/participation removal:
@@ -305,43 +895,77 @@ export function useForumSidebarThreads(serverId: string, retainId: string | null
     enabled: false,
   })
   const query = useQuery({
-    queryKey: communityKeys.forumSidebarThreadsView(serverId, retainId),
-    enabled: !!serverId,
-    // `retainId` is part of the key because the server may return an otherwise
-    // expired/non-top-five active thread. Keep the prior projection visible
-    // while that neighboring view loads so route changes never collapse the
-    // sidebar to an empty list for a frame.
-    placeholderData: keepPreviousData,
-    queryFn: async () => {
-      const params = new URLSearchParams({
-        type: "thread",
-        parentType: "forum",
-        participating: "true",
-        activeWithin: "72h",
-        limitPerParent: "5",
-        include: "parentMessage",
-      })
-      if (retainId) params.set("retainId", retainId)
-      const envelope = await apiFetch<SidebarThreadEnvelope>(
-        `/api/community/servers/${serverId}/channels?${params.toString()}`,
-      )
-      const serverNowMs = Date.parse(envelope.serverNow)
-      return {
-        ...envelope,
-        threads: projectForumSidebarThreads(envelope),
-        serverClockOffsetMs: Number.isFinite(serverNowMs) ? serverNowMs - Date.now() : 0,
-      } satisfies ForumSidebarQueryData
+    queryKey: communityKeys.forumSidebarThreads(serverId),
+    enabled: !!serverId && enabled,
+    staleTime: Infinity,
+    queryFn: async ({ signal }) => {
+      const requestEpoch = useCommunityWsStore.getState().accessEpoch
+      const normalized = await fetchForumSidebar(serverId, retainId, signal)
+      throwIfConsumerAborted(signal)
+      seedForumSidebarResources(queryClient, serverId, normalized, requestEpoch, retainId)
+      if (retainId) {
+        queryClient.setQueryData(
+          communityKeys.forumSidebarRetained(serverId, retainId),
+          normalized.retained,
+        )
+      }
+      return { ...normalized.base, verifiedEpoch: requestEpoch }
     },
   })
+  useEffect(() => {
+    if (previousRetainId.current === retainId) return
+    previousRetainId.current = retainId
+    if (query.fetchStatus !== "fetching") return
+    if (inflight.get(serverId)?.candidate === retainId) return
+    void queryClient.cancelQueries({
+      queryKey: communityKeys.forumSidebarThreads(serverId),
+      exact: true,
+    }).then(() => invalidateForumSidebarBaseExact(queryClient, serverId))
+  }, [query.fetchStatus, queryClient, retainId, serverId])
+  useEffect(() => {
+    if (!retainId) return
+    const canonical = query.data?.threads.find((thread) => thread.id === retainId)
+    if (!canonical) return
+    const key = communityKeys.forumSidebarRetained(serverId, retainId)
+    if (queryClient.getQueryState(key)?.status === "success") return
+    queryClient.setQueryData(key, canonical)
+  }, [query.data, queryClient, retainId, serverId])
+  const retainedKey = communityKeys.forumSidebarRetained(serverId, retainId ?? "__none__")
+  const retainedState = queryClient.getQueryState<ForumSidebarThread | null>(retainedKey)
+  const retainIsCanonical = !!retainId && hasForumSidebarThread(query.data, retainId)
+  const retainedQuery = useQuery<ForumSidebarThread | null>({
+    queryKey: retainedKey,
+    enabled: enabled && !!retainId && query.isSuccess && query.fetchStatus === "idle" &&
+      !retainIsCanonical && retainedState?.status !== "success",
+    staleTime: Infinity,
+    gcTime: 5 * 60 * 1000,
+    queryFn: async ({ signal }) => {
+      const requestEpoch = useCommunityWsStore.getState().accessEpoch
+      const normalized = await fetchForumSidebar(serverId, retainId, signal)
+      throwIfConsumerAborted(signal)
+      seedForumSidebarResources(queryClient, serverId, normalized, requestEpoch, retainId)
+      queryClient.setQueryData(
+        communityKeys.forumSidebarThreads(serverId),
+        { ...normalized.base, verifiedEpoch: requestEpoch },
+      )
+      return normalized.retained
+    },
+  })
+  const baseIsVerified = accessConnected && query.data?.verifiedEpoch === accessEpoch
+  const projection = useMemo(() => deriveForumSidebarProjection(
+    baseIsVerified ? query.data : undefined,
+    baseIsVerified ? retainedQuery.data : null,
+    serverDetailQuery.data?.forumUnreadState,
+  ), [baseIsVerified, query.data, retainedQuery.data, serverDetailQuery.data?.forumUnreadState])
 
   useEffect(() => {
     if (!query.data) return
     reconcileForumSidebarUnreadFallbacks(
       queryClient,
       serverId,
-      query.data.threads.map((thread) => thread.id),
+      projection.threads.map((thread) => thread.id),
     )
-  }, [query.data, queryClient, serverDetailQuery.data?.forumUnreadState, serverId])
+  }, [projection.threads, query.data, queryClient, serverDetailQuery.data?.forumUnreadState, serverId])
 
   // Expire rows against the server's clock without polling. The currently
   // retained route is deliberately excluded: it remains visible until the
@@ -351,19 +975,32 @@ export function useForumSidebarThreads(serverId: string, retainId: string | null
     if (!data) return
     const serverNowMs = Date.now() + data.serverClockOffsetMs
     const nextExpiry = data.threads
-      .filter((thread) => thread.id !== retainId)
       .map((thread) => Date.parse(thread.expiresAt))
       .filter((expiresAt) => Number.isFinite(expiresAt))
       .sort((a, b) => a - b)[0]
     if (nextExpiry === undefined) return
     const timeout = globalThis.setTimeout(() => {
-      void queryClient.invalidateQueries({ queryKey: communityKeys.forumSidebarThreads(serverId) })
+      const current = getForumSidebarBase(queryClient, serverId)
+      const currentServerNow = Date.now() + (current?.serverClockOffsetMs ?? 0)
+      for (const thread of current?.threads ?? []) {
+        if (Date.parse(thread.expiresAt) > currentServerNow) continue
+        if (thread.id === retainId) {
+          queryClient.setQueryData<ForumSidebarQueryData | undefined>(
+            communityKeys.forumSidebarThreads(serverId),
+            (value) => removeForumSidebarThread(value, thread.id),
+          )
+        } else {
+          removeForumSidebarThreadExact(queryClient, serverId, thread.id)
+        }
+      }
+      void invalidateForumSidebarBaseExact(queryClient, serverId)
     }, Math.max(0, nextExpiry - serverNowMs) + 25)
     return () => globalThis.clearTimeout(timeout)
   }, [query.data, queryClient, retainId, serverId])
 
   return {
     ...query,
-    threads: query.data?.threads ?? [],
+    threads: projection.threads,
+    parentUnread: projection.parentUnread,
   }
 }

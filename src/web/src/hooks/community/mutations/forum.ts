@@ -6,9 +6,8 @@ import { communityKeys } from "@/lib/query-keys"
 import type { UploadedAttachment } from "@/hooks/community/mutations/uploads"
 import type { MentionType } from "@alook/shared"
 import {
-  removeForumSidebarThread,
+  removeForumSidebarThreadExact,
   removeForumSidebarUnreadChild,
-  type ForumSidebarQueryData,
 } from "@/hooks/community/use-forum-sidebar-threads"
 
 export type CreateForumThreadArgs = {
@@ -117,10 +116,7 @@ export function useDeleteForumThread() {
       void queryClient.invalidateQueries({ queryKey: communityKeys.channelMessages(args.forumChannelId) })
       void queryClient.invalidateQueries({ queryKey: communityKeys.threads(args.forumChannelId) })
       removeForumSidebarUnreadChild(queryClient, args.serverId, args.threadId)
-      queryClient.setQueriesData<ForumSidebarQueryData>(
-        { queryKey: communityKeys.forumSidebarThreads(args.serverId) },
-        (data) => removeForumSidebarThread(data, args.threadId),
-      )
+      removeForumSidebarThreadExact(queryClient, args.serverId, args.threadId)
     },
   })
 }

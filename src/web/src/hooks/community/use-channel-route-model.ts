@@ -1,14 +1,20 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
+import { useQueryClient } from "@tanstack/react-query"
 import { isForum as isForumType } from "@alook/shared"
 import { useServer } from "./use-servers"
 import { useCommunityStore, useCurrentChannelMeta } from "@/stores/community"
-import { apiFetch, toastApiError } from "@/lib/api/client"
+import { toastApiError } from "@/lib/api/client"
 import { isDefinitiveChildMetaFailure } from "@/components/community/eject-server"
 import { clearLastChannel, getLastChannel } from "@/lib/community/last-channel"
 import { communityWsSubscribe, communityWsUnsubscribe } from "./use-community-ws"
+import { useChildChannelMeta } from "./use-child-channel-meta"
+import {
+  removeForumSidebarThreadExact,
+  removeForumSidebarUnreadChild,
+} from "./use-forum-sidebar-threads"
 
 type Server = ReturnType<typeof useServer>["server"]
 type ChannelMeta = ReturnType<typeof useCurrentChannelMeta>
@@ -23,7 +29,7 @@ export function buildChannelRouteModel(
   const channel = channels.find((candidate) => candidate.id === channelId) ?? null
   const isChild = !channel && !!server?.categories
   const metaSettled = !isChild || (metaState?.channelId === channelId && metaState.settled)
-  const channelMeta = !isChild || metaState?.channelId === channelId ? currentChannelMeta : null
+  const channelMeta = !isChild || metaSettled ? currentChannelMeta : null
   const parent = channelMeta?.parentChannelId
     ? channels.find((candidate) => candidate.id === channelMeta.parentChannelId) ?? null
     : null
@@ -43,12 +49,24 @@ export function buildChannelRouteModel(
 
 export function useChannelRouteModel(serverId: string, serverParam: string, channelId: string) {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const { server } = useServer(serverId)
   const currentChannelMeta = useCurrentChannelMeta()
-  const [metaState, setMetaState] = useState<{ channelId: string; settled: boolean } | null>(null)
+  const topLevelChannel = server?.categories
+    ?.flatMap((category) => category.channels)
+    .some((candidate) => candidate.id === channelId)
+  const isChild = !!server?.categories && !topLevelChannel
+  const metaQuery = useChildChannelMeta(serverId, channelId, isChild)
   const model = useMemo(
-    () => buildChannelRouteModel(server, currentChannelMeta, channelId, metaState),
-    [channelId, currentChannelMeta, metaState, server],
+    () => buildChannelRouteModel(
+      server,
+      currentChannelMeta,
+      channelId,
+      isChild
+        ? { channelId, settled: metaQuery.isVerified }
+        : { channelId, settled: true },
+    ),
+    [channelId, currentChannelMeta, isChild, metaQuery.isVerified, server],
   )
   useEffect(() => {
     useCommunityStore.getState().setCurrentChannelId(channelId)
@@ -56,33 +74,26 @@ export function useChannelRouteModel(serverId: string, serverParam: string, chan
   }, [channelId])
   useEffect(() => {
     communityWsSubscribe({ channelId })
-    if (!model.isChild) {
-      setMetaState({ channelId, settled: true })
+    return () => communityWsUnsubscribe()
+  }, [channelId])
+  useEffect(() => {
+    if (!isChild) {
       useCommunityStore.getState().setCurrentChannelMeta(null)
-      return () => communityWsUnsubscribe()
+      return
     }
-    setMetaState({ channelId, settled: false })
-    let active = true
-    apiFetch<{ name: string; parentChannelId: string | null; parentMessageId: string | null; creatorId: string | null }>(`/api/community/channels/${channelId}`)
-      .then((data) => {
-        if (!active) return
-        useCommunityStore.getState().setCurrentChannelMeta(data)
-        setMetaState({ channelId, settled: true })
-      })
-      .catch((error) => {
-        if (!active) return
-        useCommunityStore.getState().setCurrentChannelMeta(null)
-        if (isDefinitiveChildMetaFailure(error)) {
-          if (getLastChannel(serverId) === channelId) clearLastChannel(serverId)
-          router.replace(`/c/channels/${serverParam}`)
-        } else {
-          toastApiError(error, "Failed to load thread")
-        }
-      })
-    return () => {
-      active = false
-      communityWsUnsubscribe()
+    if (metaQuery.data && metaQuery.isVerified) {
+      useCommunityStore.getState().setCurrentChannelMeta(metaQuery.data)
+    } else if (metaQuery.error || metaQuery.data?.archived) {
+      useCommunityStore.getState().setCurrentChannelMeta(null)
+      if (metaQuery.data?.archived || isDefinitiveChildMetaFailure(metaQuery.error)) {
+        removeForumSidebarUnreadChild(queryClient, serverId, channelId)
+        removeForumSidebarThreadExact(queryClient, serverId, channelId)
+        if (getLastChannel(serverId) === channelId) clearLastChannel(serverId)
+        router.replace(`/c/channels/${serverParam}`)
+      } else {
+        toastApiError(metaQuery.error, "Failed to load thread")
+      }
     }
-  }, [channelId, model.isChild, router, serverId, serverParam])
+  }, [channelId, isChild, metaQuery.data, metaQuery.error, metaQuery.isVerified, queryClient, router, serverId, serverParam])
   return model
 }

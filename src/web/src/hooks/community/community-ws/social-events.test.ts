@@ -8,6 +8,7 @@ import { getMessageOverlay } from "@/stores/community/message-stream"
 import { communityKeys } from "@/lib/query-keys"
 import type { ServerDetail } from "../use-servers"
 import {
+  deriveForumSidebarProjection,
   patchForumSidebarUnread,
   reconcileForumSidebarUnreadFallbacks,
   type ForumSidebarQueryData,
@@ -29,7 +30,7 @@ beforeEach(resetCommunityWsHarness)
 afterEach(cleanupCommunityWsHarness)
 
 describe("useCommunityWs — message.create patches channel unread in the open server's cache", () => {
-  function serverDetailFixture(channelId: string) {
+  function serverDetailFixture(channelId: string, type = "text") {
     return {
       id: "srv_open",
       name: "Server",
@@ -37,7 +38,7 @@ describe("useCommunityWs — message.create patches channel unread in the open s
       icon: null,
       ownerId: "u_owner",
       categories: [
-        { id: "cat_A", name: "Category A", channels: [{ id: channelId, name: "random", active: false, unread: false }] },
+        { id: "cat_A", name: "Category A", channels: [{ id: channelId, name: "random", type, active: false, unread: false }] },
       ],
     }
   }
@@ -59,7 +60,7 @@ describe("useCommunityWs — message.create patches channel unread in the open s
   it("routes a child unread.bump to its loaded forum-sidebar row instead of the parent forum", async () => {
     await mountHook({ viewerUserId: "u_me" })
     capturedQueryClient.setQueryData(communityKeys.server("srv_open"), serverDetailFixture("forum_1"))
-    const sidebarKey = communityKeys.forumSidebarThreadsView("srv_open", null)
+    const sidebarKey = communityKeys.forumSidebarThreads("srv_open")
     capturedQueryClient.setQueryData(sidebarKey, forumSidebarFixture())
 
     capturedOnMessage!(unreadBump("post_1", "u_me", {
@@ -77,11 +78,71 @@ describe("useCommunityWs — message.create patches channel unread in the open s
     )?.forumUnreadState?.forum_1?.childIds).toEqual(["post_1"])
   })
 
+  it("keeps an inactive retained-only child on the parent fallback, then transfers it on the activation render", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const serverKey = communityKeys.server("srv_open")
+    const baseKey = communityKeys.forumSidebarThreads("srv_open")
+    const retainedKey = communityKeys.forumSidebarRetained("srv_open", "post_extra")
+    capturedQueryClient.setQueryData(serverKey, serverDetailFixture("forum_1", "forum"))
+    capturedQueryClient.setQueryData(baseKey, forumSidebarFixture([
+      "post_1", "post_2", "post_3", "post_4", "post_5",
+    ]))
+    capturedQueryClient.setQueryData(retainedKey, {
+      ...forumSidebarFixture(["post_extra"]).threads[0],
+    })
+
+    capturedOnMessage!(unreadBump("post_extra", "u_me", {
+      serverId: "srv_open",
+      railChannelId: "forum_1",
+    }))
+
+    expect(capturedQueryClient.getQueryData<ServerDetail>(serverKey)
+      ?.categories[0]?.channels[0]?.unread).toBe(true)
+    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>["threads"][number]>(
+      retainedKey,
+    )?.unread).toBe(false)
+
+    const ownership = capturedQueryClient.getQueryData<ServerDetail>(serverKey)?.forumUnreadState
+    const active = deriveForumSidebarProjection(
+      capturedQueryClient.getQueryData(baseKey),
+      capturedQueryClient.getQueryData(retainedKey),
+      ownership,
+    )
+    expect(active.threads.find((thread) => thread.id === "post_extra")?.unread).toBe(true)
+    expect(active.parentUnread.forum_1).toBe(false)
+  })
+
+  it("keeps a canonical fifth child on the parent fallback when an active extra displaces it", async () => {
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "post_extra" })
+    await mountHook({ viewerUserId: "u_me" })
+    const serverKey = communityKeys.server("srv_open")
+    const baseKey = communityKeys.forumSidebarThreads("srv_open")
+    capturedQueryClient.setQueryData(serverKey, serverDetailFixture("forum_1", "forum"))
+    capturedQueryClient.setQueryData(baseKey, forumSidebarFixture([
+      "post_1", "post_2", "post_3", "post_4", "post_5",
+    ]))
+    capturedQueryClient.setQueryData(
+      communityKeys.forumSidebarRetained("srv_open", "post_extra"),
+      forumSidebarFixture(["post_extra"]).threads[0],
+    )
+
+    capturedOnMessage!(unreadBump("post_5", "u_me", {
+      serverId: "srv_open",
+      railChannelId: "forum_1",
+    }))
+
+    expect(capturedQueryClient.getQueryData<ServerDetail>(serverKey)
+      ?.categories[0]?.channels[0]?.unread).toBe(true)
+    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(baseKey)
+      ?.threads.find((thread) => thread.id === "post_5")?.unread).toBe(false)
+  })
+
   it("falls back to the parent forum dot when the child has no locatable sidebar row", async () => {
     await mountHook({ viewerUserId: "u_me" })
     capturedQueryClient.setQueryData(communityKeys.server("srv_open"), serverDetailFixture("forum_1"))
     capturedQueryClient.setQueryData(
-      communityKeys.forumSidebarThreadsView("srv_open", null),
+      communityKeys.forumSidebarThreads("srv_open"),
       forumSidebarFixture([]),
     )
 
@@ -103,8 +164,8 @@ describe("useCommunityWs — message.create patches channel unread in the open s
   it("moves message.create → unread.bump fallback ownership to the refetched child", async () => {
     await mountHook({ viewerUserId: "u_me" })
     const serverKey = communityKeys.server("srv_open")
-    const sidebarKey = communityKeys.forumSidebarThreadsView("srv_open", null)
-    capturedQueryClient.setQueryData(serverKey, serverDetailFixture("forum_1"))
+    const sidebarKey = communityKeys.forumSidebarThreads("srv_open")
+    capturedQueryClient.setQueryData(serverKey, serverDetailFixture("forum_1", "forum"))
     capturedQueryClient.setQueryData(sidebarKey, forumSidebarFixture([]))
 
     capturedOnMessage!({

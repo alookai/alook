@@ -35,12 +35,12 @@ import {
 import { clearLastChannel } from "@/lib/community/last-channel"
 import { usePresence } from "@/hooks/community/use-server-panels"
 import {
-  patchForumSidebarUnread,
+  patchForumSidebarUnreadExact,
   removeForumSidebarUnreadChild,
+  resolveForumSidebarRouteCandidate,
   setForumSidebarParentUnreadBase,
   useForumSidebarThreads,
   type ForumSidebarThread,
-  type ForumSidebarQueryData,
 } from "@/hooks/community/use-forum-sidebar-threads"
 import { useCommunityWsStore, useOnlineUserIds } from "@/stores/community/ws"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
@@ -66,6 +66,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const params = useParams<{ serverId: string; channelId?: string }>()
   const searchParams = useSearchParams()
   const serverId = decodeURIComponent(params.serverId)
+  const routeChannelId = params.channelId ? decodeURIComponent(params.channelId) : null
   const hasChannel = !!params.channelId
 
   const router = useRouter()
@@ -112,7 +113,16 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       .find((channel) => channel.id === currentChannelMeta.parentChannelId)
     return isForum(parent?.type) ? currentChannelId : null
   }, [currentChannelId, currentChannelMeta?.parentChannelId, currentServer])
-  const forumSidebar = useForumSidebarThreads(serverId, activeForumThreadId)
+  const sidebarRouteCandidate = useMemo(() => {
+    const topLevelIds = currentServer?.categories
+      ?.flatMap((category) => category.channels.map((channel) => channel.id)) ?? null
+    return resolveForumSidebarRouteCandidate(routeChannelId, topLevelIds)
+  }, [routeChannelId, currentServer])
+  const forumSidebar = useForumSidebarThreads(
+    serverId,
+    sidebarRouteCandidate,
+    !!currentServer?.categories,
+  )
   const forumThreadsByParent = useMemo(() => {
     const grouped: Record<string, ForumSidebarThread[]> = {}
     for (const thread of forumSidebar.threads) {
@@ -249,7 +259,14 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     )
   }, [searchParams, serverId, router, hasChannel, currentServer, params.channelId])
 
-  const categories = currentServer?.categories ?? []
+  const categories = useMemo(() => (currentServer?.categories ?? []).map((category) => ({
+    ...category,
+    channels: category.channels.map((channel) =>
+      forumSidebar.parentUnread[channel.id] === undefined
+        ? channel
+        : { ...channel, unread: forumSidebar.parentUnread[channel.id] },
+    ),
+  })), [currentServer?.categories, forumSidebar.parentUnread])
   const channelTree = useChannelTree(categories)
 
   const goHome = useCallback(() => {
@@ -309,10 +326,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     markSwitch("channel", id)
     router.push(`/c/channels/${serverId}/${id}`)
     removeForumSidebarUnreadChild(queryClient, serverId, id)
-    queryClient.setQueriesData<ForumSidebarQueryData>(
-      { queryKey: communityKeys.forumSidebarThreads(serverId) },
-      (data) => patchForumSidebarUnread(data, id, false),
-    )
+    patchForumSidebarUnreadExact(queryClient, serverId, id, false)
     if (bp === "mobile") setMobileZone("messages")
   }, [bp, queryClient, router, serverId])
 

@@ -200,7 +200,7 @@ describe("useDeleteForumThread", () => {
 
     capturedQc.setQueryData(communityKeys.channelMessages("forum_1"), { pages: [], pageParams: [] })
     capturedQc.setQueryData(communityKeys.forumActivityFeed("forum_1", null), { pages: [], pageParams: [] })
-    const sidebarKey = communityKeys.forumSidebarThreadsView("server_1", "p2")
+    const sidebarKey = communityKeys.forumSidebarThreads("server_1")
     capturedQc.setQueryData(sidebarKey, {
       channels: [], included: { parentMessages: [] }, serverNow: "2026-08-08T00:00:00.000Z",
       serverClockOffsetMs: 0,

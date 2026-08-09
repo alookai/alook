@@ -75,6 +75,53 @@ describe("useLeaveServer — optimistic + rollback", () => {
     const cache = capturedQc.getQueryData<{ servers: { id: string }[] }>(communityKeys.servers())
     expect(cache?.servers).toHaveLength(1)
   })
+
+  it.each(["leave", "delete"] as const)(
+    "%s success clears the server subtree, stream, and current private route",
+    async (operation) => {
+      apiFetchMock.mockResolvedValueOnce(undefined)
+      const mod = await load()
+      const { useCommunityStore } = await import("@/stores/community")
+      const { useMessageStreamStore } = await import("@/stores/community/message-stream")
+      useCommunityStore.getState().reset()
+      useCommunityStore.getState().setCurrentServerId("srv_1")
+      useCommunityStore.getState().setCurrentChannelId("private_child")
+      useCommunityStore.getState().setCurrentChannelMeta({
+        name: "Private title",
+        parentChannelId: "private_parent",
+      })
+      useMessageStreamStore.getState().dispatch(
+        { kind: "channel", id: "private_child", serverId: "srv_1" },
+        {
+          type: "wsMessage",
+          message: {
+            id: "message_1",
+            type: "chat",
+            authorId: "user_1",
+            authorName: "User",
+            content: "Private content",
+          },
+        },
+      )
+      capturedQc.setQueryData(communityKeys.server("srv_1"), {
+        id: "srv_1",
+        categories: [],
+      })
+      if (operation === "leave") mod.useLeaveServer()
+      else mod.useDeleteServer()
+
+      await runMutation({ serverId: "srv_1" })
+
+      expect(useCommunityStore.getState()).toMatchObject({
+        currentServerId: null,
+        currentChannelId: null,
+        currentChannelMeta: null,
+      })
+      expect(capturedQc.getQueryState(communityKeys.server("srv_1"))).toBeUndefined()
+      expect([...useMessageStreamStore.getState().entries.values()]
+        .some((entry) => entry.scope.serverId === "srv_1")).toBe(false)
+    },
+  )
 })
 
 describe("useUpdateServer — rollback on both caches", () => {

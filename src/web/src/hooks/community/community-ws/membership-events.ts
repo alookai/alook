@@ -7,6 +7,7 @@ import type {
 } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
+import { useCommunityStore } from "@/stores/community"
 import {
   patchCacheJoin,
   patchCacheLeave,
@@ -14,9 +15,11 @@ import {
   type MembersEnvelope,
 } from "@/hooks/community/use-server-members"
 import {
-  removeForumSidebarThread,
+  grantForumSidebarChild,
+  isKnownNonForumSidebarChannel,
+  removeForumSidebarChildrenForParent,
+  removeForumSidebarThreadExact,
   removeForumSidebarUnreadChild,
-  type ForumSidebarQueryData,
 } from "@/hooks/community/use-forum-sidebar-threads"
 import { patchAuthorNameInCache, type PageCache } from "@/hooks/community/community-ws/cache"
 import type { MembershipEventContext } from "@/hooks/community/community-ws/handler-context"
@@ -38,7 +41,24 @@ export function handleChannelMemberEvent(
     event.type === "community:channel.member_remove" &&
     event.userId === viewerUserIdRef.current
   ) {
-    removeForumSidebarUnreadChild(queryClient, event.serverId, event.channelId)
+    const nonForum = isKnownNonForumSidebarChannel(
+      queryClient,
+      event.serverId,
+      event.channelId,
+    )
+    if (!nonForum) {
+      removeForumSidebarUnreadChild(queryClient, event.serverId, event.channelId)
+      removeForumSidebarChildrenForParent(queryClient, event.serverId, event.channelId)
+      removeForumSidebarThreadExact(queryClient, event.serverId, event.channelId)
+    } else {
+      queryClient.removeQueries({
+        queryKey: communityKeys.channelMeta(event.serverId, event.channelId),
+        exact: true,
+      })
+    }
+    if (useCommunityStore.getState().currentChannelId === event.channelId) {
+      useCommunityStore.getState().setCurrentChannelMeta(null)
+    }
     useMessageStreamStore.getState().removeScope({
       kind: "channel",
       id: event.channelId,
@@ -47,19 +67,18 @@ export function handleChannelMemberEvent(
     queryClient.removeQueries({ queryKey: communityKeys.channelMessages(event.channelId) })
     queryClient.removeQueries({ queryKey: communityKeys.pins(event.channelId) })
     queryClient.removeQueries({ queryKey: communityKeys.threads(event.channelId) })
-    queryClient.setQueriesData<ForumSidebarQueryData>(
-      { queryKey: communityKeys.forumSidebarThreads(event.serverId) },
-      (data) => removeForumSidebarThread(data, event.channelId),
-    )
   } else if (
     event.type === "community:channel.member_add" &&
     event.userId === viewerUserIdRef.current
   ) {
-    void queryClient.invalidateQueries({
-      queryKey: communityKeys.forumSidebarThreads(event.serverId),
-    })
+    if (!isKnownNonForumSidebarChannel(queryClient, event.serverId, event.channelId)) {
+      void grantForumSidebarChild(queryClient, event.serverId, event.channelId)
+    }
   }
-  void queryClient.invalidateQueries({ queryKey: communityKeys.server(event.serverId) })
+  void queryClient.invalidateQueries({
+    queryKey: communityKeys.server(event.serverId),
+    exact: true,
+  })
   // Refetch the channel roster so an open private-channel Members drawer
   // (and the manage-members dialog) reflect the add/remove live.
   void queryClient.invalidateQueries({ queryKey: communityKeys.channelMembers(event.channelId) })
@@ -116,6 +135,13 @@ export function handleMemberLeave(
   // the user away from the now-forbidden URL.
   if (event.userId === viewerUserIdRef.current) {
     useMessageStreamStore.getState().removeServer(event.serverId)
+    queryClient.removeQueries({ queryKey: communityKeys.server(event.serverId) })
+    const store = useCommunityStore.getState()
+    if (store.currentServerId === event.serverId) {
+      store.setCurrentChannelMeta(null)
+      store.setCurrentChannelId(null)
+      store.setCurrentServerId(null)
+    }
     // Rail LIST only (the layout's eject effect reads it to route the
     // kicked viewer away). `exact` so a kick doesn't cascade-refetch
     // every server's nested detail subtree.

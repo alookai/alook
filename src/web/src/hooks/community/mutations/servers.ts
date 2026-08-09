@@ -5,6 +5,8 @@ import { apiFetch, readUploadError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { avatarInitial } from "@/lib/community/avatar"
 import type { ServersResponse, ServerDetail } from "@/hooks/community/use-servers"
+import { useCommunityStore } from "@/stores/community"
+import { useMessageStreamStore } from "@/stores/community/message-stream"
 
 /**
  * Server-scoped mutations. `create`/`join` invalidate the rail; `leave`/`delete`
@@ -69,6 +71,15 @@ export function useJoinServer() {
 
 export type LeaveServerArgs = { serverId: string }
 
+function clearDepartedServer(serverId: string) {
+  useMessageStreamStore.getState().removeServer(serverId)
+  const store = useCommunityStore.getState()
+  if (store.currentServerId !== serverId) return
+  store.setCurrentChannelMeta(null)
+  store.setCurrentChannelId(null)
+  store.setCurrentServerId(null)
+}
+
 export function useLeaveServer() {
   const queryClient = useQueryClient()
   return useMutation<void, Error, LeaveServerArgs, { snapshot: ServersResponse | undefined }>({
@@ -86,6 +97,10 @@ export function useLeaveServer() {
     },
     onError: (_err, _args, ctx) => {
       if (ctx?.snapshot) queryClient.setQueryData(communityKeys.servers(), ctx.snapshot)
+    },
+    onSuccess: (_data, args) => {
+      queryClient.removeQueries({ queryKey: communityKeys.server(args.serverId) })
+      clearDepartedServer(args.serverId)
     },
   })
 }
@@ -107,6 +122,10 @@ export function useDeleteServer() {
     },
     onError: (_err, _args, ctx) => {
       if (ctx?.snapshot) queryClient.setQueryData(communityKeys.servers(), ctx.snapshot)
+    },
+    onSuccess: (_data, args) => {
+      queryClient.removeQueries({ queryKey: communityKeys.server(args.serverId) })
+      clearDepartedServer(args.serverId)
     },
   })
 }

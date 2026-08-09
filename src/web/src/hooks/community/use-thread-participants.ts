@@ -3,10 +3,11 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
+import { useCommunityStore } from "@/stores/community"
 import {
-  removeForumSidebarThread,
+  grantForumSidebarChild,
+  removeForumSidebarThreadExact,
   removeForumSidebarUnreadChild,
-  type ForumSidebarQueryData,
 } from "@/hooks/community/use-forum-sidebar-threads"
 
 // The participant READ hook was retired: the post/thread member panel now reads
@@ -16,7 +17,11 @@ import {
 // channelMembers cache the panel now reads (NOT the old threadParticipants key).
 
 /** Any participant adds a parent-channel member to the thread/post. */
-export function useAddThreadParticipant(channelId: string) {
+export function useAddThreadParticipant(
+  channelId: string,
+  serverId?: string,
+  viewerUserId?: string,
+) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (userId: string) =>
@@ -24,14 +29,22 @@ export function useAddThreadParticipant(channelId: string) {
         method: "POST",
         body: JSON.stringify({ userId }),
       }),
-    onSuccess: () => {
+    onSuccess: (_data, userId) => {
       void qc.invalidateQueries({ queryKey: communityKeys.channelMembers(channelId) })
+      if (serverId && userId === viewerUserId) {
+        void grantForumSidebarChild(qc, serverId, channelId)
+      }
     },
   })
 }
 
 /** Leave a thread/post (remove your own participation, or the creator removes someone). */
-export function useRemoveThreadParticipant(channelId: string, serverId?: string, viewerUserId?: string) {
+export function useRemoveThreadParticipant(
+  channelId: string,
+  serverId?: string,
+  viewerUserId?: string,
+  forumSidebar = !!serverId,
+) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (userId: string) =>
@@ -42,11 +55,18 @@ export function useRemoveThreadParticipant(channelId: string, serverId?: string,
     onSuccess: (_data, userId) => {
       void qc.invalidateQueries({ queryKey: communityKeys.channelMembers(channelId) })
       if (serverId && userId === viewerUserId) {
-        removeForumSidebarUnreadChild(qc, serverId, channelId)
-        qc.setQueriesData<ForumSidebarQueryData>(
-          { queryKey: communityKeys.forumSidebarThreads(serverId) },
-          (data) => removeForumSidebarThread(data, channelId),
-        )
+        if (forumSidebar) {
+          removeForumSidebarUnreadChild(qc, serverId, channelId)
+          removeForumSidebarThreadExact(qc, serverId, channelId)
+        } else {
+          qc.removeQueries({
+            queryKey: communityKeys.channelMeta(serverId, channelId),
+            exact: true,
+          })
+        }
+        if (useCommunityStore.getState().currentChannelId === channelId) {
+          useCommunityStore.getState().setCurrentChannelMeta(null)
+        }
       }
     },
   })

@@ -383,7 +383,9 @@ export async function listParticipatingForumThreads(
   }
 ) {
   const parentChannelIds = [...new Set(params.parentChannelIds)];
-  if (parentChannelIds.length === 0 || params.limitPerParent < 1) return [];
+  if (parentChannelIds.length === 0 || params.limitPerParent < 1) {
+    return { canonical: [], retained: null };
+  }
 
   const activityAt = sql<string>`coalesce(${communityChannel.lastMessageAt}, ${communityChannel.createdAt})`;
   const select = {
@@ -452,13 +454,14 @@ export async function listParticipatingForumThreads(
         .orderBy(asc(ranked.parentChannelId), desc(ranked.activityAt), desc(ranked.id));
     }),
   );
-  let rows = batches.flat();
+  const rows = batches.flat();
+  let retained: (typeof rows)[number] | null = null;
 
   if (params.retainId) {
     // Scope the retained lookup inside the same caller-authorized parent set,
     // rather than fetching an arbitrary id first and masking it in JS. Chunking
     // preserves that structural scope without exceeding D1's bind ceiling.
-    const retained = (await Promise.all(
+    retained = (await Promise.all(
       chunk(parentChannelIds, D1_MAX_IN_PARAMS).map((parentIds) => db
         .select(select)
         .from(communityChannel)
@@ -478,24 +481,15 @@ export async function listParticipatingForumThreads(
           isNotNull(communityChannel.parentMessageId),
         ))
         .limit(1)),
-    )).flat()[0];
-
-    if (
-      retained?.parentChannelId &&
-      !rows.some((row) => row.id === retained.id)
-    ) {
-      const parentId = retained.parentChannelId;
-      const otherParents = rows.filter((row) => row.parentChannelId !== parentId);
-      const ordinary = rows
-        .filter((row) => row.parentChannelId === parentId)
-        .slice(0, params.limitPerParent - 1);
-      rows = [...otherParents, ...ordinary, retained];
-    }
+    )).flat()[0] ?? null;
   }
 
-  return rows.sort((a, b) =>
-    compareSqliteBinary(a.parentChannelId ?? "", b.parentChannelId ?? "") ||
-    compareSqliteBinary(b.activityAt, a.activityAt) ||
-    compareSqliteBinary(b.id, a.id)
-  );
+  return {
+    canonical: rows.sort((a, b) =>
+      compareSqliteBinary(a.parentChannelId ?? "", b.parentChannelId ?? "") ||
+      compareSqliteBinary(b.activityAt, a.activityAt) ||
+      compareSqliteBinary(b.id, a.id)
+    ),
+    retained,
+  };
 }

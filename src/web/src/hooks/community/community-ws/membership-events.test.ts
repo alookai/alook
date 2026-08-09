@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import type { CommunityMemberJoin, CommunityMemberUpdate } from "@alook/shared"
+import type { CommunityMemberJoin, CommunityMemberLeave, CommunityMemberUpdate } from "@alook/shared"
 import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
 import { communityKeys } from "@/lib/query-keys"
 import {
@@ -15,6 +15,35 @@ beforeEach(resetCommunityWsHarness)
 afterEach(cleanupCommunityWsHarness)
 
 describe("useCommunityWs — member events", () => {
+  it("clears the active private route immediately when the viewer leaves the server", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().setCurrentServerId("srv_1")
+    useCommunityStore.getState().setCurrentChannelId("private_child")
+    useCommunityStore.getState().setCurrentChannelMeta({
+      name: "Private title",
+      parentChannelId: "private_parent",
+    })
+    capturedQueryClient.setQueryData(communityKeys.server("srv_1"), {
+      id: "srv_1",
+      categories: [],
+    })
+
+    capturedOnMessage!({
+      type: "community:member.leave",
+      serverId: "srv_1",
+      userId: "u_me",
+      memberId: "member_me",
+    } satisfies CommunityMemberLeave)
+
+    expect(useCommunityStore.getState()).toMatchObject({
+      currentServerId: null,
+      currentChannelId: null,
+      currentChannelMeta: null,
+    })
+    expect(capturedQueryClient.getQueryState(communityKeys.server("srv_1"))).toBeUndefined()
+  })
+
   it("patches the members cache with a join event", async () => {
     await mountHook()
     capturedQueryClient.setQueryData(communityKeys.members("srv_1"), {
@@ -169,8 +198,15 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
 
   it("adds/removes the viewer's participating child in the forum sidebar", async () => {
     await mountHook({ viewerUserId: "u_me" })
-    const key = communityKeys.forumSidebarThreadsView("srv_1", null)
+    const { useCommunityStore } = await import("@/stores/community")
+    const key = communityKeys.forumSidebarThreads("srv_1")
     capturedQueryClient.setQueryData(key, forumSidebarFixture())
+    useCommunityStore.getState().setCurrentChannelId("post_1")
+    useCommunityStore.getState().setCurrentChannelMeta({
+      name: "Private forum title",
+      parentChannelId: "forum_1",
+      parentMessageId: "opener-post_1",
+    })
 
     capturedOnMessage!({
       type: "community:channel.member_remove",
@@ -179,6 +215,7 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
       userId: "u_me",
     })
     expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(key)?.threads).toEqual([])
+    expect(useCommunityStore.getState().currentChannelMeta).toBeNull()
 
     capturedQueryClient.setQueryData(key, forumSidebarFixture([]))
     capturedOnMessage!({
@@ -188,5 +225,69 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
       userId: "u_me",
     })
     expect(capturedQueryClient.getQueryState(key)?.isInvalidated).toBe(true)
+  })
+
+  it("does not touch forum resources for a known ordinary text child", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const { useCommunityStore } = await import("@/stores/community")
+    const baseKey = communityKeys.forumSidebarThreads("srv_1")
+    const retainedKey = communityKeys.forumSidebarRetained("srv_1", "forum_post")
+    const metaKey = communityKeys.channelMeta("srv_1", "text_thread")
+    const hintKey = communityKeys.forumOpenerHint("srv_1", "forum_opener")
+    capturedQueryClient.setQueryData(communityKeys.server("srv_1"), {
+      id: "srv_1",
+      categories: [{
+        id: "cat_1",
+        channels: [{ id: "text_parent", type: "text" }],
+      }],
+    })
+    capturedQueryClient.setQueryData(baseKey, forumSidebarFixture())
+    capturedQueryClient.setQueryData(retainedKey, { id: "forum_post" })
+    capturedQueryClient.setQueryData(metaKey, {
+      id: "text_thread",
+      serverId: "srv_1",
+      parentChannelId: "text_parent",
+      parentMessageId: "text_opener",
+      type: "thread",
+    })
+    capturedQueryClient.setQueryData(hintKey, { id: "forum_opener", content: "Forum title" })
+    const before = {
+      base: capturedQueryClient.getQueryData(baseKey),
+      retained: capturedQueryClient.getQueryData(retainedKey),
+      meta: capturedQueryClient.getQueryData(metaKey),
+      hint: capturedQueryClient.getQueryData(hintKey),
+    }
+
+    capturedOnMessage!({
+      type: "community:channel.member_add",
+      serverId: "srv_1",
+      channelId: "text_thread",
+      userId: "u_me",
+    })
+
+    expect(capturedQueryClient.getQueryData(baseKey)).toBe(before.base)
+    expect(capturedQueryClient.getQueryState(baseKey)?.isInvalidated).toBe(false)
+    expect(capturedQueryClient.getQueryData(retainedKey)).toBe(before.retained)
+    expect(capturedQueryClient.getQueryData(metaKey)).toBe(before.meta)
+    expect(capturedQueryClient.getQueryData(hintKey)).toBe(before.hint)
+
+    useCommunityStore.getState().setCurrentChannelId("text_thread")
+    useCommunityStore.getState().setCurrentChannelMeta({
+      name: "Private title",
+      parentChannelId: "text_parent",
+    })
+    capturedOnMessage!({
+      type: "community:channel.member_remove",
+      serverId: "srv_1",
+      channelId: "text_thread",
+      userId: "u_me",
+    })
+
+    expect(capturedQueryClient.getQueryData(baseKey)).toBe(before.base)
+    expect(capturedQueryClient.getQueryState(baseKey)?.isInvalidated).toBe(false)
+    expect(capturedQueryClient.getQueryData(retainedKey)).toBe(before.retained)
+    expect(capturedQueryClient.getQueryState(metaKey)).toBeUndefined()
+    expect(capturedQueryClient.getQueryData(hintKey)).toBe(before.hint)
+    expect(useCommunityStore.getState().currentChannelMeta).toBeNull()
   })
 })

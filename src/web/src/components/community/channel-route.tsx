@@ -23,7 +23,7 @@ import {
 } from "@/stores/community"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import { useChannelRouteModel } from "@/hooks/community/use-channel-route-model"
-import { useMessage } from "@/hooks/community/use-message"
+import { useForumOpenerHint } from "@/hooks/community/use-forum-opener-hint"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
 import { useSetChannelNotif } from "@/hooks/community/mutations"
 
@@ -65,17 +65,19 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
     isForumPostChild,
     isNotifyUnit,
   } = routeModel
-  const { message: forumPostOpener, isLoading: forumPostOpenerLoading } = useMessage(
-    isForumPostChild ? currentChannelMeta?.parentMessageId : null,
+  const forumPostOpener = useForumOpenerHint(
+    serverId,
+    currentChannelMeta?.parentMessageId,
+    isForumPostChild && routeModel.routeHydrated,
   )
   const channelName = useMemo(() => resolveChannelDisplayName({
-    forumPostTitle: isForumPostChild ? forumPostOpener?.content : null,
+    forumPostTitle: isForumPostChild ? forumPostOpener.data?.content : null,
     topLevelName: channelInServer?.name,
     childChannelName: isForumPostChild ? null : currentChannelMeta?.name,
     forumListName: null,
     threadListName: null,
     fallback: isForumPostChild ? "Post" : "channel",
-  }), [channelInServer, currentChannelMeta, forumPostOpener, isForumPostChild])
+  }), [channelInServer, currentChannelMeta, forumPostOpener.data?.content, isForumPostChild])
   const memberViewModel = useChannelMemberViewModel({
     serverId,
     channelId,
@@ -143,7 +145,7 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
   const channelHydrated =
     currentChannelId === channelId &&
     routeModel.routeHydrated &&
-    (!isForumPostChild || !forumPostOpenerLoading)
+    (!isForumPostChild || !forumPostOpener.isLoading)
   if (!channelHydrated) {
     if (isForum) {
       return (

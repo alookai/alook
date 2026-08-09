@@ -70,14 +70,15 @@ describe("GET /api/community/servers/[id]/channels — human resource", () => {
       { id: "forum_visible", serverId: "server_1", name: "Forum", type: "forum" },
       { id: "text_visible", serverId: "server_1", name: "General", type: "text" },
     ])
-    mockListParticipatingForumThreads.mockResolvedValue([{
+    const thread = {
       id: "thread_1",
       serverId: "server_1",
       parentChannelId: "forum_visible",
       parentMessageId: "message_1",
       type: "thread",
       activityAt: "2026-08-08T11:00:00.000Z",
-    }])
+    }
+    mockListParticipatingForumThreads.mockResolvedValue({ canonical: [thread], retained: thread })
     mockGetMessagesByIds.mockResolvedValue([{ id: "message_1", content: "Current title" }])
     mockListUnreadChannels.mockResolvedValue([{ channelId: "thread_1" }])
 
@@ -100,10 +101,62 @@ describe("GET /api/community/servers/[id]/channels — human resource", () => {
           expiresAt: "2026-08-11T11:00:00.000Z",
           unread: true,
         })],
+        canonicalChannels: [expect.objectContaining({
+          id: "thread_1",
+          expiresAt: "2026-08-11T11:00:00.000Z",
+          unread: true,
+        })],
+        retainedChannel: expect.objectContaining({
+          id: "thread_1",
+          expiresAt: "2026-08-11T11:00:00.000Z",
+          unread: true,
+        }),
         included: { parentMessages: [{ id: "message_1", content: "Current title" }] },
         serverNow: "2026-08-08T12:00:00.000Z",
       })
       expect(mockListUnreadChannels).toHaveBeenCalledWith(expect.anything(), "user_1", ["thread_1"])
+      expect(mockGetMessagesByIds).toHaveBeenCalledWith(expect.anything(), ["message_1"])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("keeps canonical order intact and builds legacy retain order with binary comparison", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-08-08T12:00:00.000Z"))
+    mockGetMember.mockResolvedValue({ id: "member_1", role: "member" })
+    mockListServerChannelsForViewer.mockResolvedValue([
+      { id: "forum_visible", serverId: "server_1", name: "Forum", type: "forum" },
+    ])
+    const row = (id: string) => ({
+      id,
+      serverId: "server_1",
+      parentChannelId: "forum_visible",
+      parentMessageId: `message_${id}`,
+      type: "thread",
+      activityAt: "2026-08-08T11:00:00.000Z",
+    })
+    mockListParticipatingForumThreads.mockResolvedValue({
+      canonical: [row("z"), row("a")],
+      retained: row("ä"),
+    })
+    mockGetMessagesByIds.mockResolvedValue([
+      { id: "message_z", content: "Z" },
+      { id: "message_a", content: "A" },
+      { id: "message_ä", content: "Retained" },
+    ])
+
+    try {
+      const response = await GET(
+        new NextRequest("http://localhost/api/community/servers/server_1/channels?type=thread&parentType=forum&participating=true&activeWithin=72h&limitPerParent=2&retainId=ä&include=parentMessage"),
+        { params: { id: "server_1" } } as never,
+      )
+      const body = await response.json() as {
+        channels: Array<{ id: string }>
+        canonicalChannels: Array<{ id: string }>
+      }
+      expect(body.canonicalChannels.map((channel) => channel.id)).toEqual(["z", "a"])
+      expect(body.channels.map((channel) => channel.id)).toEqual(["ä", "z"])
     } finally {
       vi.useRealTimers()
     }

@@ -20,6 +20,8 @@ export type WsMessageIncoming = WsMessage & { [key: string]: unknown }
 
 export type UseUserWsOptions = {
   onReconnect?: () => void
+  onDisconnect?: () => void
+  onAuthenticated?: () => void
   requestDaemonStatusOnAuth?: boolean
 }
 
@@ -31,6 +33,8 @@ export function useUserWs(
   const reconnectDelay = useRef(WS_RECONNECT_INIT)
   const onMessageRef = useRef(onMessage)
   const onReconnectRef = useRef(options?.onReconnect)
+  const onDisconnectRef = useRef(options?.onDisconnect)
+  const onAuthenticatedRef = useRef(options?.onAuthenticated)
   const requestDaemonStatusOnAuthRef = useRef(options?.requestDaemonStatusOnAuth ?? true)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const hasConnectedBeforeRef = useRef(false)
@@ -46,6 +50,11 @@ export function useUserWs(
   useEffect(() => {
     onReconnectRef.current = options?.onReconnect
   }, [options?.onReconnect])
+
+  useEffect(() => {
+    onDisconnectRef.current = options?.onDisconnect
+    onAuthenticatedRef.current = options?.onAuthenticated
+  }, [options?.onAuthenticated, options?.onDisconnect])
 
   useEffect(() => {
     requestDaemonStatusOnAuthRef.current = options?.requestDaemonStatusOnAuth ?? true
@@ -106,6 +115,7 @@ export function useUserWs(
     wsRef.current = ws
 
     ws.onopen = () => {
+      if (ws !== wsRef.current || generation !== connectionGenerationRef.current) return
       reconnectDelay.current = WS_RECONNECT_INIT
       ws.send(JSON.stringify({ type: "auth", token: authToken }))
 
@@ -128,10 +138,12 @@ export function useUserWs(
     }
 
     ws.onmessage = (e) => {
+      if (ws !== wsRef.current || generation !== connectionGenerationRef.current) return
       lastMessageAtRef.current = Date.now()
       try {
         const msg = JSON.parse(e.data)
         if (msg.type === "auth.ok") {
+          onAuthenticatedRef.current?.()
           if (requestDaemonStatusOnAuthRef.current) {
             ws.send(JSON.stringify({ type: "check_daemon_status" }))
           }
@@ -145,6 +157,7 @@ export function useUserWs(
 
     ws.onclose = () => {
       if (ws !== wsRef.current) return
+      onDisconnectRef.current?.()
       if (pingIntervalRef.current) { clearInterval(pingIntervalRef.current); pingIntervalRef.current = null }
       if (livenessIntervalRef.current) { clearInterval(livenessIntervalRef.current); livenessIntervalRef.current = null }
       scheduleReconnect(generation)

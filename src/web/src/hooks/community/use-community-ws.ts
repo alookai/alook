@@ -288,6 +288,8 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
   }, [queryClient])
   const { send } = useUserWs(handleMessage, {
     onReconnect: handleReconnect,
+    onDisconnect: useCommunityWsStore.getState().markAccessDisconnected,
+    onAuthenticated: useCommunityWsStore.getState().markAccessConnected,
     requestDaemonStatusOnAuth: false,
   })
 

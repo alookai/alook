@@ -20,10 +20,13 @@ import { useCommunityStore } from "@/stores/community"
 import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
 import type { ServersResponse, ServerDetail } from "@/hooks/community/use-servers"
 import {
-  patchForumSidebarActivity,
-  removeForumSidebarThread,
+  grantForumSidebarChild,
+  isForumSidebarParent,
+  isKnownNonForumSidebarChannel,
+  patchForumSidebarActivityExact,
+  removeForumSidebarChildrenForParent,
+  removeForumSidebarThreadExact,
   removeForumSidebarUnreadChild,
-  type ForumSidebarQueryData,
 } from "@/hooks/community/use-forum-sidebar-threads"
 import {
   findCachedMessage,
@@ -122,26 +125,35 @@ export function handleChildChannelUpdate(
   // indicator if the update carries them.
   const changes = event.changes
   const sidebarServerId = useCommunityStore.getState().currentServerId
-  if (sidebarServerId) {
-    const sidebarKey = communityKeys.forumSidebarThreads(sidebarServerId)
+  if (
+    sidebarServerId &&
+    isForumSidebarParent(queryClient, sidebarServerId, event.parentChannelId)
+  ) {
     if (changes.archived === true) {
       removeForumSidebarUnreadChild(queryClient, sidebarServerId, event.channelId)
-      queryClient.setQueriesData<ForumSidebarQueryData>(
-        { queryKey: sidebarKey },
-        (data) => removeForumSidebarThread(data, event.channelId),
-      )
+      removeForumSidebarThreadExact(queryClient, sidebarServerId, event.channelId)
     } else if (changes.archived === false) {
-      void queryClient.invalidateQueries({ queryKey: sidebarKey })
+      void grantForumSidebarChild(queryClient, sidebarServerId, event.channelId)
     } else if (changes.lastMessageAt) {
-      queryClient.setQueriesData<ForumSidebarQueryData>(
-        { queryKey: sidebarKey },
-        (data) => patchForumSidebarActivity(
-          data,
-          event.channelId,
-          event.parentChannelId,
-          changes.lastMessageAt!,
-        ),
+      patchForumSidebarActivityExact(
+        queryClient,
+        sidebarServerId,
+        event.channelId,
+        event.parentChannelId,
+        changes.lastMessageAt,
       )
+    }
+  }
+  if (
+    changes.archived === true &&
+    useCommunityStore.getState().currentChannelId === event.channelId
+  ) {
+    useCommunityStore.getState().setCurrentChannelMeta(null)
+    if (sidebarServerId) {
+      queryClient.removeQueries({
+        queryKey: communityKeys.channelMeta(sidebarServerId, event.channelId),
+        exact: true,
+      })
     }
   }
   if (changes.messageCount !== undefined || changes.name !== undefined) {
@@ -260,8 +272,9 @@ export function handleServerDelete(
   const store = useCommunityStore.getState()
   useMessageStreamStore.getState().removeServer(event.serverId)
   if (store.currentServerId === event.serverId) {
-    store.setCurrentServerId(null)
+    store.setCurrentChannelMeta(null)
     store.setCurrentChannelId(null)
+    store.setCurrentServerId(null)
   }
 }
 
@@ -281,7 +294,24 @@ export function handleChannelEvent(
   // subsequent same-id revive (rare, but the server can reuse ids)
   // would surface stale rows.
   if (event.type === "community:channel.delete") {
-    removeForumSidebarUnreadChild(queryClient, event.serverId, event.channelId)
+    const nonForum = isKnownNonForumSidebarChannel(
+      queryClient,
+      event.serverId,
+      event.channelId,
+    )
+    if (!nonForum) {
+      removeForumSidebarUnreadChild(queryClient, event.serverId, event.channelId)
+      removeForumSidebarChildrenForParent(queryClient, event.serverId, event.channelId)
+      removeForumSidebarThreadExact(queryClient, event.serverId, event.channelId)
+    } else {
+      queryClient.removeQueries({
+        queryKey: communityKeys.channelMeta(event.serverId, event.channelId),
+        exact: true,
+      })
+    }
+    if (useCommunityStore.getState().currentChannelId === event.channelId) {
+      useCommunityStore.getState().setCurrentChannelMeta(null)
+    }
     useMessageStreamStore.getState().removeScope({
       kind: "channel",
       id: event.channelId,
@@ -296,10 +326,6 @@ export function handleChannelEvent(
     queryClient.removeQueries({
       queryKey: communityKeys.threads(event.channelId),
     })
-    queryClient.setQueriesData<ForumSidebarQueryData>(
-      { queryKey: communityKeys.forumSidebarThreads(event.serverId) },
-      (data) => removeForumSidebarThread(data, event.channelId),
-    )
     // When a child thread is deleted, refresh the
     // PARENT's list so the deleted card disappears from the feed on
     // every client. Absent on older events / top-level channels.
@@ -316,7 +342,10 @@ export function handleChannelEvent(
       })
     }
   }
-  void queryClient.invalidateQueries({ queryKey: communityKeys.server(event.serverId) })
+  void queryClient.invalidateQueries({
+    queryKey: communityKeys.server(event.serverId),
+    exact: true,
+  })
 }
 
 type CategoryEvent =
@@ -329,7 +358,10 @@ export function handleCategoryEvent(
   event: CategoryEvent,
   { queryClient }: StructureTreeEventContext,
 ) {
-  void queryClient.invalidateQueries({ queryKey: communityKeys.server(event.serverId) })
+  void queryClient.invalidateQueries({
+    queryKey: communityKeys.server(event.serverId),
+    exact: true,
+  })
 }
 
 export function handleInviteCreate(

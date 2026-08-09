@@ -114,6 +114,40 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     ).toBe(true)
   })
 
+  it("drops every inactive retained/meta/hint access result before reconnect validation", async () => {
+    await mountHook()
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().setCurrentServerId("srv_open")
+    capturedQueryClient.setQueryData(
+      communityKeys.forumSidebarRetained("srv_open", "post-a"),
+      { id: "post-a" },
+    )
+    capturedQueryClient.setQueryData(
+      communityKeys.forumSidebarRetained("srv_open", "post-b"),
+      null,
+    )
+    capturedQueryClient.setQueryData(
+      communityKeys.channelMeta("srv_open", "post-a"),
+      { id: "post-a", verifiedEpoch: 0 },
+    )
+    capturedQueryClient.setQueryData(
+      communityKeys.forumOpenerHint("srv_open", "opener-a"),
+      { id: "opener-a", content: "private title" },
+    )
+
+    capturedOnReconnect!()
+
+    expect(capturedQueryClient.getQueriesData({
+      queryKey: communityKeys.forumSidebarRetainedRoot("srv_open"),
+    })).toEqual([])
+    expect(capturedQueryClient.getQueriesData({
+      queryKey: communityKeys.channelMetaRoot("srv_open"),
+    })).toEqual([])
+    expect(capturedQueryClient.getQueriesData({
+      queryKey: communityKeys.forumOpenerHintRoot("srv_open"),
+    })).toEqual([])
+  })
+
   it("invalidates the focused DM's messages on reconnect, but NOT its read-state snapshot", async () => {
     const { useCommunityStore } = await import("@/stores/community")
     useCommunityStore.getState().subscribe({ dmConversationId: "dm_focus" })

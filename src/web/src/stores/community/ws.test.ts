@@ -11,6 +11,20 @@ beforeEach(() => {
 })
 
 describe("useCommunityWsStore", () => {
+  it("fails closed until the websocket is authenticated and advances epochs on disconnect", () => {
+    expect(useCommunityWsStore.getState()).toMatchObject({
+      accessConnected: false,
+      accessEpoch: 0,
+    })
+    useCommunityWsStore.getState().markAccessConnected()
+    expect(useCommunityWsStore.getState().accessConnected).toBe(true)
+    useCommunityWsStore.getState().markAccessDisconnected()
+    expect(useCommunityWsStore.getState()).toMatchObject({
+      accessConnected: false,
+      accessEpoch: 1,
+    })
+  })
+
   it("starts with empty presence + seen sets", () => {
     const s = useCommunityWsStore.getState()
     expect(s.onlineUserIds.size).toBe(0)

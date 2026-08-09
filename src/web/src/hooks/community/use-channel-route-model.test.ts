@@ -42,6 +42,18 @@ describe("buildChannelRouteModel", () => {
     expect(model.routeHydrated).toBe(false)
   })
 
+  it("does not expose same-route cached metadata before the current access epoch settles", () => {
+    const stale = { name: "private title", parentChannelId: "forum1", parentMessageId: "m1", creatorId: "u1" }
+    const model = buildChannelRouteModel(server, stale, "post-a", {
+      channelId: "post-a",
+      settled: false,
+    })
+    expect(model.currentChannelMeta).toBeNull()
+    expect(model.parent).toBeNull()
+    expect(model.isForumPostChild).toBe(false)
+    expect(model.routeHydrated).toBe(false)
+  })
+
   it("derives the child subtype only after that child's metadata settles", () => {
     const meta = { name: "B", parentChannelId: "forum1", parentMessageId: "m2", creatorId: "u2" }
     const model = buildChannelRouteModel(server, meta, "post-b", { channelId: "post-b", settled: true })

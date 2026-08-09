@@ -12,11 +12,10 @@ import { useCommunityStore } from "@/stores/community"
 import { patchChannelUnread } from "@/hooks/community/server-detail-cache"
 import type { ServersResponse, ServerDetail } from "@/hooks/community/use-servers"
 import {
-  hasForumSidebarThread,
-  patchForumSidebarUnread,
+  hasProjectedForumSidebarThread,
+  patchForumSidebarUnreadExact,
   recordForumSidebarChildUnread,
   setForumSidebarParentUnreadBase,
-  type ForumSidebarQueryData,
 } from "@/hooks/community/use-forum-sidebar-threads"
 import type { SocialEventContext } from "@/hooks/community/community-ws/handler-context"
 
@@ -42,12 +41,13 @@ export function handleUnreadBump(
   const railChannelId = event.railChannelId ?? event.channelId
   const targetServerId =
     event.serverId ?? useCommunityStore.getState().currentServerId
-  const sidebarKey = targetServerId
-    ? communityKeys.forumSidebarThreads(targetServerId)
-    : null
-  const hasChildSidebarRow = !!sidebarKey && event.channelId !== railChannelId &&
-    queryClient.getQueriesData<ForumSidebarQueryData>({ queryKey: sidebarKey })
-      .some(([, data]) => hasForumSidebarThread(data, event.channelId))
+  const hasChildSidebarRow = !!targetServerId && event.channelId !== railChannelId &&
+    hasProjectedForumSidebarThread(
+      queryClient,
+      targetServerId,
+      event.channelId,
+      sub.channelId,
+    )
   const sidebarChannelId = hasChildSidebarRow ? event.channelId : railChannelId
   // Suppress the dot for the channel the viewer is actually looking at
   // (its unread clears on read anyway) — compare against the ROW being
@@ -58,11 +58,8 @@ export function handleUnreadBump(
     // — previously only the open server was patched, so cross-server
     // bumps never lit. Absent serverId (DM bump / older frame) → fall
     // back to the currently-open server (backward-compatible).
-    if (hasChildSidebarRow && sidebarKey) {
-      queryClient.setQueriesData<ForumSidebarQueryData>(
-        { queryKey: sidebarKey },
-        (data) => patchForumSidebarUnread(data, event.channelId, true),
-      )
+    if (hasChildSidebarRow && targetServerId) {
+      patchForumSidebarUnreadExact(queryClient, targetServerId, event.channelId, true)
       recordForumSidebarChildUnread(
         queryClient,
         targetServerId!,

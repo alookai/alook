@@ -145,7 +145,8 @@ describe("listForumThreadsByActivity against real SQLite", () => {
       activeAfter: "2026-08-08T03:00:00.000Z",
       limitPerParent: 2,
     });
-    expect(recent.map((row) => row.id)).toEqual(["t_new", "t_tie_b", "foreign"]);
+    expect(recent.canonical.map((row) => row.id)).toEqual(["t_new", "t_tie_b", "foreign"]);
+    expect(recent.retained).toBeNull();
 
     const retained = await threadQueries.listParticipatingForumThreads(db as never, {
       parentChannelIds: ["forum_1", "forum_2"],
@@ -154,7 +155,8 @@ describe("listForumThreadsByActivity against real SQLite", () => {
       limitPerParent: 2,
       retainId: "t_created",
     });
-    expect(retained.map((row) => row.id)).toEqual(["t_new", "t_created", "foreign"]);
+    expect(retained.canonical.map((row) => row.id)).toEqual(["t_new", "t_tie_b", "foreign"]);
+    expect(retained.retained?.id).toBe("t_created");
 
     const outOfScopeRetained = await threadQueries.listParticipatingForumThreads(db as never, {
       parentChannelIds: ["forum_1"],
@@ -163,7 +165,8 @@ describe("listForumThreadsByActivity against real SQLite", () => {
       limitPerParent: 2,
       retainId: "foreign",
     });
-    expect(outOfScopeRetained.map((row) => row.id)).toEqual(["t_new", "t_tie_b"]);
+    expect(outOfScopeRetained.canonical.map((row) => row.id)).toEqual(["t_new", "t_tie_b"]);
+    expect(outOfScopeRetained.retained).toBeNull();
   });
 });
 

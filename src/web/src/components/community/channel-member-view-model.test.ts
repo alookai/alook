@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   removeChannelMember: vi.fn(),
   addThreadParticipant: vi.fn(),
   removeThreadParticipant: vi.fn(),
+  addThreadHookArgs: [] as unknown[][],
+  removeThreadHookArgs: [] as unknown[][],
   setMemberRole: vi.fn(),
   kickMember: vi.fn(),
 }))
@@ -43,8 +45,14 @@ vi.mock("@/hooks/community/use-channel-members", () => ({
   useRemoveChannelMember: () => ({ mutateAsync: mocks.removeChannelMember }),
 }))
 vi.mock("@/hooks/community/use-thread-participants", () => ({
-  useAddThreadParticipant: () => ({ mutateAsync: mocks.addThreadParticipant }),
-  useRemoveThreadParticipant: () => ({ mutateAsync: mocks.removeThreadParticipant }),
+  useAddThreadParticipant: (...args: unknown[]) => {
+    mocks.addThreadHookArgs.push(args)
+    return { mutateAsync: mocks.addThreadParticipant }
+  },
+  useRemoveThreadParticipant: (...args: unknown[]) => {
+    mocks.removeThreadHookArgs.push(args)
+    return { mutateAsync: mocks.removeThreadParticipant }
+  },
 }))
 vi.mock("@/hooks/community/mutations", () => ({
   useSetMemberRole: () => ({ mutate: mocks.setMemberRole }),
@@ -133,7 +141,37 @@ describe("useChannelMemberViewModel", () => {
     mocks.removeChannelMember.mockResolvedValue({})
     mocks.addThreadParticipant.mockResolvedValue({})
     mocks.removeThreadParticipant.mockResolvedValue({})
+    mocks.addThreadHookArgs = []
+    mocks.removeThreadHookArgs = []
     mocks.kickMember.mockResolvedValue({})
+  })
+
+  it("scopes forum sidebar participant mutations only to children of a forum", () => {
+    const child = (parentType: string) => props({
+      channelId: "thread_1",
+      currentServer: {
+        categories: [{
+          private: false,
+          channels: [{ id: "parent_1", type: parentType }],
+        }],
+      },
+      channelInServer: null,
+      currentChannelMeta: { name: "Thread", parentChannelId: "parent_1" },
+      isChildChannel: true,
+      isNotifyUnit: true,
+    })
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(renderHarness(child("text")))
+    })
+    expect(mocks.addThreadHookArgs.at(-1)).toEqual(["thread_1", undefined, "viewer_1"])
+    expect(mocks.removeThreadHookArgs.at(-1)).toEqual(["thread_1", "server_1", "viewer_1", false])
+
+    act(() => {
+      renderer!.update(renderHarness(child("forum")))
+    })
+    expect(mocks.addThreadHookArgs.at(-1)).toEqual(["thread_1", "server_1", "viewer_1"])
+    expect(mocks.removeThreadHookArgs.at(-1)).toEqual(["thread_1", "server_1", "viewer_1", true])
   })
 
   afterEach(() => {

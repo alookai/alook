@@ -5,6 +5,10 @@ import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { buildServerChannelGroups } from "@/lib/community/list-channels"
 import { requireServerMember } from "@/lib/community/permissions"
 
+function compareBinary(left: string, right: string): number {
+  return left === right ? 0 : left < right ? -1 : 1
+}
+
 /**
  * GET /api/community/servers/[id]/channels — single-server channel list. Human
  * callers receive the visible top-level tree, with one strict participating
@@ -57,13 +61,19 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
     const serverNow = new Date().toISOString()
     const windowMs = 72 * 60 * 60 * 1000
     const activeAfter = new Date(Date.parse(serverNow) - windowMs).toISOString()
-    const rows = await queries.communityThread.listParticipatingForumThreads(db, {
+    const projection = await queries.communityThread.listParticipatingForumThreads(db, {
       parentChannelIds: forumIds,
       userId: ctx.actor.userId,
       activeAfter,
       limitPerParent,
       ...(retainId ? { retainId } : {}),
     })
+    const rows = [...new Map(
+      (projection.retained
+        ? [...projection.canonical, projection.retained]
+        : projection.canonical)
+        .map((channel) => [channel.id, channel] as const),
+    ).values()]
     const parentMessageIds = rows
       .map((channel) => channel.parentMessageId)
       .filter((id): id is string => !!id)
@@ -72,12 +82,38 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
       queries.communityInbox.listUnreadChannels(db, ctx.actor.userId, rows.map((channel) => channel.id)),
     ])
     const unreadIds = new Set(unreadRows.map((row) => row.channelId))
-    const channels = rows.map((channel) => ({
+    const projectChannel = (channel: (typeof rows)[number]) => ({
       ...channel,
       expiresAt: new Date(Date.parse(channel.activityAt) + windowMs).toISOString(),
       unread: unreadIds.has(channel.id),
-    }))
-    return NextResponse.json({ channels, included: { parentMessages }, serverNow })
+    })
+    const canonicalChannels = projection.canonical.map(projectChannel)
+    const retainedChannel = projection.retained ? projectChannel(projection.retained) : null
+    let channels = canonicalChannels
+    if (
+      retainedChannel?.parentChannelId &&
+      !canonicalChannels.some((channel) => channel.id === retainedChannel.id)
+    ) {
+      const parentId = retainedChannel.parentChannelId
+      channels = [
+        ...canonicalChannels.filter((channel) => channel.parentChannelId !== parentId),
+        ...canonicalChannels
+          .filter((channel) => channel.parentChannelId === parentId)
+          .slice(0, limitPerParent - 1),
+        retainedChannel,
+      ].sort((a, b) =>
+        compareBinary(a.parentChannelId ?? "", b.parentChannelId ?? "") ||
+        compareBinary(b.activityAt, a.activityAt) ||
+        compareBinary(b.id, a.id)
+      )
+    }
+    return NextResponse.json({
+      channels,
+      canonicalChannels,
+      retainedChannel,
+      included: { parentMessages },
+      serverNow,
+    })
   }
 
   const botUserId = ctx.actor.userId
