@@ -7,10 +7,12 @@ import {
   findMountScrollTargetIndex,
   extractScrollAnchorMessages,
   NEAR_BOTTOM_PX,
+  shouldAdjustMessageScrollPosition,
   type ScrollAnchorState,
   type ScrollAnchorMessage,
 } from "./use-scroll-anchor"
 import type { FlatItem } from "@/components/community/message-list-items"
+import type { VirtualItem } from "@tanstack/react-virtual"
 
 const msgs = (...ids: string[]): ScrollAnchorMessage[] => ids.map((id) => ({ id }))
 
@@ -215,6 +217,54 @@ describe("decideScrollAction — self-send / peer-follow (both hand-rolled — f
 describe("NEAR_BOTTOM_PX", () => {
   it("is the single shared threshold, reused for both isAtEnd checks and the virtualizer's own scrollEndThreshold config", () => {
     expect(NEAR_BOTTOM_PX).toBe(100)
+  })
+})
+
+describe("shouldAdjustMessageScrollPosition", () => {
+  const item: VirtualItem = {
+    key: "message:12",
+    index: 12,
+    start: 800,
+    end: 900,
+    size: 100,
+    lane: 0,
+  }
+
+  function instance(overrides: Partial<Parameters<typeof shouldAdjustMessageScrollPosition>[2]> = {}) {
+    return {
+      itemSizeCache: new Map(),
+      scrollAdjustments: 0,
+      scrollDirection: null,
+      scrollOffset: 1_000,
+      ...overrides,
+    }
+  }
+
+  it("does not compensate a first measurement while the user scrolls upward", () => {
+    expect(shouldAdjustMessageScrollPosition(item, 96, instance({ scrollDirection: "backward" }))).toBe(false)
+  })
+
+  it("keeps first-measurement compensation above the fold while idle or scrolling forward", () => {
+    expect(shouldAdjustMessageScrollPosition(item, 96, instance())).toBe(true)
+    expect(shouldAdjustMessageScrollPosition(item, 96, instance({ scrollDirection: "forward" }))).toBe(true)
+  })
+
+  it("keeps remeasurement compensation only for rows entirely above the fold", () => {
+    const measured = new Map([[item.key, item.size]])
+    expect(shouldAdjustMessageScrollPosition(item, 20, instance({ itemSizeCache: measured }))).toBe(true)
+    expect(shouldAdjustMessageScrollPosition(
+      { ...item, end: 1_040 },
+      20,
+      instance({ itemSizeCache: measured }),
+    )).toBe(false)
+  })
+
+  it("includes pending virtualizer adjustments in the effective fold offset", () => {
+    expect(shouldAdjustMessageScrollPosition(
+      { ...item, start: 1_020, end: 1_120 },
+      20,
+      instance({ scrollAdjustments: 40 }),
+    )).toBe(true)
   })
 })
 

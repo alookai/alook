@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useRef } from "react"
-import { useVirtualizer, type ReactVirtualizer } from "@tanstack/react-virtual"
+import { useVirtualizer, type ReactVirtualizer, type VirtualItem } from "@tanstack/react-virtual"
 import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "./virtualizer-react-options"
 import { estimateRowHeight, computeBelowCount, type FlatItem } from "@/components/community/message-list-items"
 
@@ -39,6 +39,37 @@ import { estimateRowHeight, computeBelowCount, type FlatItem } from "@/component
 // cosmetic: `scrollEndThreshold` independently gates the library's native
 // `resizeItem` above-viewport compensation (defaults to 1px otherwise).
 export const NEAR_BOTTOM_PX = 100
+
+type SizeAdjustmentVirtualizer = Pick<
+  ReactVirtualizer<HTMLDivElement, Element>,
+  "itemSizeCache" | "scrollAdjustments" | "scrollDirection" | "scrollOffset"
+>
+
+/**
+ * Keep TanStack Virtual's normal estimate-to-measurement anchoring except
+ * while the user is actively scrolling upward. Its default first-measure
+ * branch compensates every row whose estimated top is above the fold,
+ * including rows that have just entered the overscan window during a
+ * backward scroll. With variable-height messages that correction pushes
+ * scrollTop downward by the estimate delta and repeatedly cancels wheel
+ * input — visible as the NEW-divider view shuddering and refusing to move.
+ *
+ * Re-measurements retain the library's narrower "entirely above the fold"
+ * rule, and forward/idle first measurements retain the original rule, so
+ * image growth, prepend anchoring, and normal downward navigation keep their
+ * existing compensation behavior.
+ */
+export function shouldAdjustMessageScrollPosition(
+  item: VirtualItem,
+  _delta: number,
+  instance: SizeAdjustmentVirtualizer,
+): boolean {
+  if (instance.scrollDirection === "backward") return false
+
+  const offset = (instance.scrollOffset ?? 0) + instance.scrollAdjustments
+  const isFirstMeasure = !instance.itemSizeCache.has(item.key)
+  return isFirstMeasure ? item.start < offset : item.end <= offset
+}
 
 export interface ScrollAnchorMessage {
   id: string
@@ -384,6 +415,10 @@ export function useScrollAnchor({
     scrollMargin: heroHeight,
     overscan: 8,
   })
+  // virtual-core exposes this predicate on the instance (and `resizeItem`
+  // reads it there), not through VirtualizerOptions. Assign during render so
+  // it is already installed when React attaches row refs in the commit.
+  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = shouldAdjustMessageScrollPosition
 
   // Whether the viewer was within NEAR_BOTTOM_PX of the end BEFORE this
   // commit's append — the semantics `decideScrollAction` documents for its
