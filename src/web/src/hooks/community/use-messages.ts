@@ -169,6 +169,7 @@ type MessagesReturn = Omit<UseInfiniteQueryResult<PageCache, Error>, "isLoading"
   fetchOlder: () => void
   fetchNewer: () => void
   jumpToPresent: () => void
+  presentVersion: number
   // Legacy alias — mirrors `hasMoreOlder`. Kept so consumers not yet migrated
   // off the older-only API still compile until every call site is updated.
   hasMore: boolean
@@ -203,6 +204,12 @@ type ChannelMessagesOpts = MessagesOpts & {
   serverId: string
 }
 
+type PresentOverride = {
+  attemptId: number
+  phase: "requested" | "present"
+  viewKey: string
+}
+
 // Shared pagination + reducer used by both channel and DM hooks. Kept inline
 // as a hook because both variants need the same TanStack setup — factoring
 // out a plain function would leak query internals; a hook stays clean.
@@ -224,11 +231,19 @@ function useMessagesInner(
   // Jump target wins over the read pointer for the initial anchor window.
   const anchorId = opts?.anchorMessageId ?? opts?.lastReadMessageId ?? null
   const enabled = !!scopeId && anchorResolved
-
-  // Force-newest override — flipped by `jumpToPresent`. Held in state so
-  // React re-renders with the new options before the reset fires (see the
-  // useEffect below). Cleared once the first newest page arrives.
-  const [forceNewest, setForceNewest] = useState(false)
+  const viewKey = useMemo(
+    () => JSON.stringify([queryKey, opts?.anchorMessageId ?? null]),
+    [queryKey, opts?.anchorMessageId],
+  )
+  const attemptIdRef = useRef(0)
+  const snapshotRef = useRef<{
+    attemptId: number
+    data: PageCache | undefined
+    viewKey: string
+  } | null>(null)
+  const [presentOverride, setPresentOverride] = useState<PresentOverride | null>(null)
+  const forceNewest = presentOverride?.viewKey === viewKey
+  const jumpPending = forceNewest && presentOverride?.phase === "requested"
 
   const initialPageParam = useMemo<MessagesPageParam>(() => {
     if (forceNewest) return { mode: "newest" }
@@ -277,7 +292,7 @@ function useMessagesInner(
     // persisted pageParam can replace or discard the existing history.
     staleTime: (cachedQuery) => cachedWindowNeedsAnchor(
       (cachedQuery.state.data as PageCache | undefined)?.pages,
-      anchorId,
+      forceNewest ? null : anchorId,
     ) ? Infinity : 0,
   })
 
@@ -291,25 +306,47 @@ function useMessagesInner(
     }
   }, [scopeId])
 
-  // Two-phase reset: setForceNewest triggers a render that updates
-  // `initialPageParam` to newest. THIS effect fires on that render and
-  // actually clears the query, so the refetch reads the newest-mode options
-  // rather than the pre-flip anchor options.
   useEffect(() => {
-    if (!forceNewest) return
-    void queryClient.resetQueries({ queryKey })
-  }, [forceNewest, queryClient, queryKey])
+    setPresentOverride((current) => current?.viewKey === viewKey ? current : null)
+  }, [viewKey])
 
-  // Clear the flag once a newest-shape page lands — anchor pages carry
-  // `hasMoreOlder`/`hasMoreNewer`; legacy newest carries `hasMore`. If the
-  // first cached page reads as legacy, the jump succeeded.
   useEffect(() => {
-    if (!forceNewest) return
+    if (!jumpPending || !presentOverride) return
+    snapshotRef.current = {
+      attemptId: presentOverride.attemptId,
+      data: queryClient.getQueryData<PageCache>(queryKey),
+      viewKey,
+    }
+    void queryClient.resetQueries({ queryKey, exact: true })
+  }, [jumpPending, presentOverride, queryClient, queryKey, viewKey])
+
+  useEffect(() => {
+    if (!jumpPending || !presentOverride) return
     const first = query.data?.pages[0]
     if (!first) return
     const isNewestShape = first.hasMore !== undefined && first.hasMoreOlder === undefined
-    if (isNewestShape) setForceNewest(false)
-  }, [forceNewest, query.data])
+    if (!isNewestShape) return
+    snapshotRef.current = null
+    setPresentOverride((current) =>
+      current?.attemptId === presentOverride.attemptId
+        ? { ...current, phase: "present" }
+        : current)
+  }, [jumpPending, presentOverride, query.data])
+
+  useEffect(() => {
+    if (!jumpPending || !presentOverride || !query.isError) return
+    const snapshot = snapshotRef.current
+    if (
+      snapshot?.attemptId === presentOverride.attemptId
+      && snapshot.viewKey === viewKey
+      && snapshot.data
+    ) {
+      queryClient.setQueryData<PageCache>(queryKey, snapshot.data)
+    }
+    snapshotRef.current = null
+    setPresentOverride((current) =>
+      current?.attemptId === presentOverride.attemptId ? null : current)
+  }, [jumpPending, presentOverride, query.isError, queryClient, queryKey, viewKey])
 
   // Fix 3 — anchor re-validation.
   //
@@ -339,6 +376,7 @@ function useMessagesInner(
   const anchorResetKeyRef = useRef<string | null>(null)
   useEffect(() => {
     if (!enabled) return
+    if (forceNewest) return
     if (!anchorId) return
     if (query.isFetching) return
     if (query.isPending) return
@@ -411,6 +449,7 @@ function useMessagesInner(
       })
   }, [
     enabled,
+    forceNewest,
     anchorId,
     scopeId,
     query.data,
@@ -459,8 +498,14 @@ function useMessagesInner(
   }, [query])
 
   const jumpToPresent = useCallback(() => {
-    setForceNewest(true)
-  }, [])
+    if (!enabled || forceNewest) return
+    attemptIdRef.current += 1
+    setPresentOverride({
+      attemptId: attemptIdRef.current,
+      phase: "requested",
+      viewKey,
+    })
+  }, [enabled, forceNewest, viewKey])
 
   return {
     ...query,
@@ -488,10 +533,13 @@ function useMessagesInner(
     hasMoreOlder,
     hasMoreNewer,
     isFetchingOlder: query.isFetchingNextPage,
-    isFetchingNewer: query.isFetchingPreviousPage,
+    isFetchingNewer: query.isFetchingPreviousPage || jumpPending,
     fetchOlder,
     fetchNewer,
     jumpToPresent,
+    presentVersion: forceNewest && presentOverride?.phase === "present"
+      ? presentOverride.attemptId
+      : 0,
     hasMore: hasMoreOlder,
   }
 }
@@ -506,12 +554,18 @@ export function useMessages(
   channelId: string | null,
   opts: ChannelMessagesOpts,
 ): MessagesReturn {
-  const baseKey = communityKeys.channelMessages(channelId ?? "__none__")
-  const queryKey = opts.tag ? [...baseKey, "tag", opts.tag] as const : baseKey
+  const queryKey = useMemo(() => {
+    const baseKey = communityKeys.channelMessages(channelId ?? "__none__")
+    return opts.tag ? [...baseKey, "tag", opts.tag] as const : baseKey
+  }, [channelId, opts.tag])
+  const queryFn = useMemo(
+    () => channelMessagesQueryFn(channelId ?? "__none__", opts.tag),
+    [channelId, opts.tag],
+  )
   const base = useMessagesInner(
     channelId,
     queryKey,
-    channelMessagesQueryFn(channelId ?? "__none__", opts?.tag),
+    queryFn,
     opts,
   )
   const scope = useMemo<MessageScope>(() => ({
@@ -548,11 +602,18 @@ export function useDmMessages(
   dmId: string | null,
   opts?: MessagesOpts,
 ): MessagesReturn {
-  const queryKey = communityKeys.dmMessages(dmId ?? "__none__")
+  const queryKey = useMemo(
+    () => communityKeys.dmMessages(dmId ?? "__none__"),
+    [dmId],
+  )
+  const queryFn = useMemo(
+    () => dmMessagesQueryFn(dmId ?? "__none__"),
+    [dmId],
+  )
   const base = useMessagesInner(
     dmId,
     queryKey,
-    dmMessagesQueryFn(dmId ?? "__none__"),
+    queryFn,
     opts,
   )
   const scope = useMemo<MessageScope>(() => ({

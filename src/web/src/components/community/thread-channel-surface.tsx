@@ -230,6 +230,7 @@ export function ThreadChannelSurface({
                 isFetchingNewer={controller.feed.isFetchingNewer}
                 onLoadNewer={controller.feed.fetchNewer}
                 onJumpToPresent={controller.feed.jumpToPresent}
+                presentVersion={controller.feed.presentVersion}
                 unreadCount={controller.feed.unreadCount}
               />
               <div data-onboarding-target="channel-composer" className="shrink-0">

@@ -327,6 +327,7 @@ export function useScrollAnchor({
   newDividerBefore,
   initialScrollReady,
   hasMoreNewer,
+  presentVersion,
   viewerUserId,
   heroHeight,
   heroMeasured,
@@ -335,6 +336,7 @@ export function useScrollAnchor({
   newDividerBefore?: string
   initialScrollReady: boolean
   hasMoreNewer?: boolean
+  presentVersion?: number
   viewerUserId?: string
   // Current measured height (px) of the non-virtualized hero block that
   // renders above the virtualized range (the "Beginning of the channel…"
@@ -359,6 +361,7 @@ export function useScrollAnchor({
   const scrollRef = useRef<HTMLDivElement>(null)
   const stateRef = useRef<ScrollAnchorState>(createScrollAnchorState())
   const messages = extractScrollAnchorMessages(items)
+  const tailId = messages[messages.length - 1]?.id ?? null
 
   // eslint-disable-next-line react-hooks/incompatible-library -- library limitation, same as member-list.tsx
   const virtualizer = useVirtualizer({
@@ -436,6 +439,20 @@ export function useScrollAnchor({
     // secondary `messages` dep, avoiding a re-derivation-triggered re-fire.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, newDividerBefore, initialScrollReady, heroMeasured, hasMoreNewer, viewerUserId, virtualizer])
+
+  const consumedPresentVersionRef = useRef(0)
+  useLayoutEffect(() => {
+    if (!presentVersion || !tailId || hasMoreNewer) return
+    if (consumedPresentVersionRef.current === presentVersion) return
+    consumedPresentVersionRef.current = presentVersion
+    stateRef.current = {
+      didInitialScroll: true,
+      didDividerConverge: true,
+      lastTailId: tailId,
+    }
+    wasAtEndRef.current = true
+    virtualizer.scrollToEnd()
+  }, [hasMoreNewer, presentVersion, tailId, virtualizer])
 
   // Hero-swap compensation — NOT delegated to `scrollMargin` (verified it
   // never triggers a `scrollOffset` write on its own). Tracks the hero's

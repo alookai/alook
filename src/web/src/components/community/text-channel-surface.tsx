@@ -129,6 +129,7 @@ export function TextChannelSurface({
                 isFetchingNewer={feed.isFetchingNewer}
                 onLoadNewer={feed.fetchNewer}
                 onJumpToPresent={feed.jumpToPresent}
+                presentVersion={feed.presentVersion}
                 unreadCount={feed.unreadCount}
               />
               <div data-onboarding-target="channel-composer" className="shrink-0">

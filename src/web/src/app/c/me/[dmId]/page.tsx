@@ -101,6 +101,7 @@ function DmView() {
     fetchOlder: fetchOlderMessages,
     fetchNewer: fetchNewerMessages,
     jumpToPresent,
+    presentVersion,
     latestSeq,
   } = useDmMessages(dmId, {
     lastReadMessageId: readSnapshotFetching
@@ -398,6 +399,7 @@ function DmView() {
           isFetchingNewer={isFetchingNewerMessages}
           onLoadNewer={fetchNewerMessages}
           onJumpToPresent={jumpToPresent}
+          presentVersion={presentVersion}
           unreadCount={unreadCount}
           hero={
             <>

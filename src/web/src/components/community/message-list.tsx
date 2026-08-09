@@ -27,7 +27,7 @@ export function MessageList({
   resolveUserName, scrollToMessageId, hero, variant = "channel", onScrollRoot, viewerUserId, initialScrollReady = true,
   onScrollTargetConsumed,
   hasMore, isFetchingOlder, onLoadOlder,
-  hasMoreNewer, isFetchingNewer, onLoadNewer, onJumpToPresent, unreadCount,
+  hasMoreNewer, isFetchingNewer, onLoadNewer, onJumpToPresent, presentVersion, unreadCount,
 }: {
   channel: string
   messages: Msg[]
@@ -96,6 +96,7 @@ export function MessageList({
   // window, clicking jumps back to the present. Falls back to the DOM
   // `belowCount` scroll-to-bottom when we're already tail-attached.
   onJumpToPresent?: () => void
+  presentVersion?: number
   // Server-derived unread count (`latestSeq - viewerLastReadSeq`). Drives
   // the `↓ N` badge when `hasMoreNewer` is true — DOM math can't see rows
   // that haven't been fetched yet.
@@ -219,6 +220,7 @@ export function MessageList({
     newDividerBefore,
     initialScrollReady: scrollAnchorReady,
     hasMoreNewer,
+    presentVersion,
     viewerUserId,
     heroHeight,
     heroMeasured,
