@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createMockWebSocket } from "../__mocks__/cf"
+import { handleUpgrade } from "../routes/upgrade"
 import {
   CFResponse,
   cleanupHarness,
@@ -39,6 +40,7 @@ import {
   mockListThreadParticipantUserIds,
   mockMarkMachineOffline,
   mockMarkMachineOnlineIfOffline,
+  mockLogWarn,
   mockReconcileBotActivityFromRunningAgents,
   mockResolveScopeMemberUserIds,
   mockStubFetch,
@@ -87,7 +89,12 @@ describe("WebSocketDurableObject", () => {
 
       const acceptCall = (ctx.acceptWebSocket as ReturnType<typeof vi.fn>).mock.calls[0]
       const serverWs = acceptCall[0]
-      expect(serverWs.deserializeAttachment()).toEqual({ type: "user", userId: "", authenticated: false })
+      expect(serverWs.deserializeAttachment()).toEqual({
+        type: "user",
+        userId: "",
+        targetUserId: "u1",
+        authenticated: false,
+      })
     })
   })
 
@@ -98,13 +105,25 @@ describe("WebSocketDurableObject", () => {
       mockGetValidSessionWithIdentity.mockResolvedValue({ userId: "user-42", name: "Ana", discriminator: "0012" })
 
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "", authenticated: false })
+      ws.serializeAttachment({
+        type: "user",
+        userId: "",
+        targetUserId: "user-42",
+        authenticated: false,
+      })
 
       await durable.webSocketMessage(ws as any, JSON.stringify({ type: "auth", token: "valid-token" }))
 
       expect(mockGetValidSessionWithIdentity).toHaveBeenCalledWith({}, "valid-token")
       expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "auth.ok" }))
-      expect(ws.deserializeAttachment()).toEqual({ type: "user", userId: "user-42", authenticated: true, name: "Ana", discriminator: "0012" })
+      expect(ws.deserializeAttachment()).toEqual({
+        type: "user",
+        userId: "user-42",
+        targetUserId: "user-42",
+        authenticated: true,
+        name: "Ana",
+        discriminator: "0012",
+      })
     })
 
     it("first authenticated user connection broadcasts online presence and starts a snapshot", async () => {
@@ -119,7 +138,12 @@ describe("WebSocketDurableObject", () => {
         ),
       )
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "", authenticated: false })
+      ws.serializeAttachment({
+        type: "user",
+        userId: "",
+        targetUserId: "user-42",
+        authenticated: false,
+      })
 
       await durable.webSocketMessage(ws as any, JSON.stringify({ type: "auth", token: "valid-token" }))
       await flushAsyncWork()
@@ -138,7 +162,12 @@ describe("WebSocketDurableObject", () => {
       existing.serializeAttachment({ type: "user", userId: "user-42", authenticated: true })
       ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([existing])
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "", authenticated: false })
+      ws.serializeAttachment({
+        type: "user",
+        userId: "",
+        targetUserId: "user-42",
+        authenticated: false,
+      })
 
       await durable.webSocketMessage(ws as any, JSON.stringify({ type: "auth", token: "valid-token" }))
       await flushAsyncWork()
@@ -146,6 +175,122 @@ describe("WebSocketDurableObject", () => {
       const requests = mockStubFetch.mock.calls.map(([request]) => request as Request)
       expect(requests.some((request) => request.method === "POST" && request.url.endsWith("/broadcast"))).toBe(false)
       expect(requests.some((request) => request.method === "GET" && request.url.includes("/check-user-online"))).toBe(true)
+    })
+
+    it("closes an attacker token before auth.ok across router and victim-target DO", async () => {
+      const { durable, ctx, env } = createDO()
+      mockGetValidSessionWithIdentity.mockResolvedValue({
+        userId: "attacker",
+        name: "Attacker",
+        discriminator: "0066",
+      })
+      ;(env.WS_DO.get as ReturnType<typeof vi.fn>).mockReturnValue({
+        fetch: (request: Request) => durable.fetch(request),
+      })
+      const request = new Request("http://localhost/?userId=victim", {
+        headers: { Upgrade: "websocket" },
+      })
+      const requestLog = { info: vi.fn() }
+
+      await handleUpgrade({
+        request,
+        env,
+        url: new URL(request.url),
+        traceId: "trace-pr0",
+        log: { child: vi.fn(() => requestLog) } as any,
+      })
+      const accepted = (ctx.acceptWebSocket as ReturnType<typeof vi.fn>).mock.calls[0][0]
+
+      await durable.webSocketMessage(
+        accepted,
+        JSON.stringify({ type: "auth", token: "attacker-session-token" }),
+      )
+      await flushAsyncWork()
+
+      expect(accepted.close).toHaveBeenCalledWith(1008, "Unauthorized")
+      expect(accepted.send).not.toHaveBeenCalled()
+      expect(mockGetCoMemberUserIds).not.toHaveBeenCalled()
+      expect(mockStubFetch).not.toHaveBeenCalled()
+      expect(env.WS_DO.idFromName).toHaveBeenCalledWith("user:victim")
+      expect(mockLogWarn).toHaveBeenCalledWith("user websocket target mismatch", {
+        source: "auth",
+        targetUserId: "victim",
+        authenticatedUserId: "attacker",
+      })
+      expect(JSON.stringify(mockLogWarn.mock.calls)).not.toContain("attacker-session-token")
+    })
+
+    it("invalidates a historical authenticated mismatch before re-auth close", async () => {
+      const { durable, ctx } = createDO()
+      mockGetValidSessionWithIdentity.mockResolvedValue({
+        userId: "attacker",
+        name: "Attacker",
+        discriminator: "0066",
+      })
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "attacker", authenticated: true })
+      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([ws])
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "auth", token: "attacker-session-token" }),
+      )
+
+      expect(ws.deserializeAttachment()).toEqual({
+        type: "user",
+        userId: "attacker",
+        authenticated: false,
+      })
+      expect(ws.close).toHaveBeenCalledWith(1008, "Unauthorized")
+
+      await durable.webSocketClose(ws as any)
+      await flushAsyncWork()
+
+      expect(mockGetCoMemberUserIds).not.toHaveBeenCalled()
+      expect(mockStubFetch).not.toHaveBeenCalled()
+    })
+
+    it("keeps a correctly bound socket authenticated until mismatch close handling", async () => {
+      const { durable, ctx } = createDO()
+      mockGetValidSessionWithIdentity.mockResolvedValue({
+        userId: "attacker",
+        name: "Attacker",
+        discriminator: "0066",
+      })
+      mockGetCoMemberUserIds.mockResolvedValue(["friend-1"])
+      mockStubFetch.mockResolvedValue(
+        new (globalThis.Response as any)(JSON.stringify({ sent: 1 })),
+      )
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "user",
+        userId: "victim",
+        targetUserId: "victim",
+        authenticated: true,
+      })
+      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([ws])
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "auth", token: "attacker-session-token" }),
+      )
+
+      expect(ws.deserializeAttachment()).toEqual({
+        type: "user",
+        userId: "victim",
+        targetUserId: "victim",
+        authenticated: true,
+      })
+
+      await durable.webSocketClose(ws as any)
+      await flushAsyncWork()
+
+      const [request] = mockStubFetch.mock.calls[0] as [Request]
+      expect(await request.clone().json()).toEqual({
+        type: "community:presence.update",
+        userId: "victim",
+        online: false,
+      })
     })
 
     it("closes with 1008 on invalid token", async () => {

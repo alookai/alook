@@ -6,6 +6,7 @@ import {
   type RouterHandler,
   type RouterTestContext,
 } from "./test-harness"
+import { INTERNAL_USER_TARGET_HEADER } from "../internal-user-broadcast"
 
 const sharedMocks = getSharedMocks()
 const mockHashCredential = sharedMocks.hashCredential
@@ -73,6 +74,7 @@ describe("ws-do router", () => {
       expect(doMock.idFromName).toHaveBeenCalledWith("user:owner_1")
       const stubReq = doMock.stubFetch.mock.calls[0][0] as Request
       expect(stubReq.url).toBe("http://internal/broadcast")
+      expect(stubReq.headers.get(INTERNAL_USER_TARGET_HEADER)).toBe("owner_1")
       const body = JSON.parse(await stubReq.text()) as Record<string, unknown>
       // Matches the shape ws-durable.ts emits for daemon-originating frames.
       expect(body.type).toBe("community:bot.audit_event")

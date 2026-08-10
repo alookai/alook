@@ -1,4 +1,5 @@
 import type { RouterContext } from "../router-context"
+import { createInternalUserBroadcastRequest } from "../internal-user-broadcast"
 
 const maxBulkUserIds = 1000
 const bulkBatchSize = 40
@@ -40,10 +41,7 @@ async function broadcastToBulkTarget(
 ): Promise<BulkTargetResult> {
   const doId = env.WS_DO.idFromName("user:" + userId)
   const stub = env.WS_DO.get(doId)
-  const response = await stub.fetch(new Request("http://internal/broadcast", {
-    method: "POST",
-    body: messageBody,
-  }))
+  const response = await stub.fetch(createInternalUserBroadcastRequest(userId, messageBody))
   if (!response.ok) return { ok: false, failureKind: "non-ok", status: response.status }
 
   let payload: unknown
@@ -87,7 +85,9 @@ export async function handleUserBroadcast({ request, env, url, traceId, log }: R
 
   const doId = env.WS_DO.idFromName("user:" + userId)
   const stub = env.WS_DO.get(doId)
-  return stub.fetch(new Request("http://internal/broadcast", { method: "POST", body: request.body, duplex: "half" } as RequestInit))
+  return stub.fetch(
+    createInternalUserBroadcastRequest(userId, request.body, request.headers, true),
+  )
 }
 
 export async function handleUsersBroadcast({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {

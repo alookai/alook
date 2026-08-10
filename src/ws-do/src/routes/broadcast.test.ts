@@ -6,6 +6,7 @@ import {
   type RouterHandler,
   type RouterTestContext,
 } from "./test-harness"
+import { INTERNAL_USER_TARGET_HEADER } from "../internal-user-broadcast"
 
 const sharedMocks = getSharedMocks()
 const mockHashCredential = sharedMocks.hashCredential
@@ -80,11 +81,12 @@ describe("ws-do router", () => {
       expect(await res.text()).toBe("daemon-ok")
     })
 
-    it("forwards POST /broadcast/user/:userId to correct DO instance", async () => {
+    it("forwards POST /broadcast/user/:userId with a router-owned target marker", async () => {
       doMock.stubFetch.mockResolvedValue(new Response("ok"))
       const body = JSON.stringify({ type: "runtime.status", daemonId: "d1", workspaceId: "w1", status: "online" })
       const req = new Request("http://localhost/broadcast/user/user-123", {
         method: "POST",
+        headers: { [INTERNAL_USER_TARGET_HEADER]: "attacker-spoof" },
         body,
       })
 
@@ -96,6 +98,7 @@ describe("ws-do router", () => {
       const stubReq = doMock.stubFetch.mock.calls[0][0] as Request
       expect(stubReq.url).toBe("http://internal/broadcast")
       expect(stubReq.method).toBe("POST")
+      expect(stubReq.headers.get(INTERNAL_USER_TARGET_HEADER)).toBe("user-123")
       expect(await stubReq.text()).toBe(body)
       expect(res.status).toBe(200)
     })
@@ -205,6 +208,9 @@ describe("ws-do router", () => {
         "http://internal/broadcast",
       ])
       expect(internalRequests.map((internal) => internal.method)).toEqual(["POST", "POST"])
+      expect(internalRequests.map((internal) => (
+        internal.headers.get(INTERNAL_USER_TARGET_HEADER)
+      ))).toEqual(["u2", "u3"])
       await expect(Promise.all(internalRequests.map((internal) => internal.text()))).resolves.toEqual([
         JSON.stringify({ type: "event", value: 7 }),
         JSON.stringify({ type: "event", value: 7 }),
