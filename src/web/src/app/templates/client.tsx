@@ -107,6 +107,9 @@ export function TemplatesClient({
 
       {/* Grid */}
       <div className="mx-auto max-w-4xl px-6 pb-20">
+        <h2 className="mb-3 text-xs uppercase tracking-widest font-mono text-muted-foreground">
+          {activeCategory === "All" ? "All templates" : activeCategory}
+        </h2>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {filtered.map((template) => (
             <TemplateCard
