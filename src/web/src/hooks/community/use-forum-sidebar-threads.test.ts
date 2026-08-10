@@ -6,6 +6,7 @@ import { communityKeys } from "@/lib/query-keys"
 import {
   deriveForumSidebarProjection,
   grantForumSidebarChild,
+  hasForumSidebarOwnershipEvidence,
   invalidateForumSidebarBaseExact,
   patchForumSidebarActivityExact,
   patchForumSidebarTitleExact,
@@ -538,6 +539,113 @@ describe("forum sidebar Stage B resources", () => {
     expect(resolveForumSidebarRouteCandidate("general", ["general", "forum"])).toBeNull()
     expect(resolveForumSidebarRouteCandidate("post-1", ["general", "forum"])).toBe("post-1")
     expect(resolveForumSidebarRouteCandidate("post-1", null)).toBeNull()
+  })
+
+  it("requires positive forum ownership evidence", () => {
+    const queryClient = new QueryClient()
+    expect(hasForumSidebarOwnershipEvidence(queryClient, "server-1", "child-1"))
+      .toBe(false)
+
+    const detail = serverDetail(false)
+    detail.categories[0]!.channels.push({
+      id: "general-1",
+      name: "General",
+      type: "text",
+      active: false,
+      unread: false,
+      muted: false,
+    })
+    queryClient.setQueryData(communityKeys.server("server-1"), detail)
+    queryClient.setQueryData(communityKeys.channelMeta("server-1", "child-1"), {
+      id: "child-1",
+      serverId: "server-1",
+      name: "Thread",
+      type: "thread",
+      parentChannelId: "general-1",
+      parentMessageId: "message-1",
+      creatorId: "user-1",
+      archived: false,
+      activityAt: "2026-08-08T00:00:00.000Z",
+      verifiedEpoch: 0,
+    })
+    queryClient.setQueryData(
+      communityKeys.forumSidebarRetained("server-1", "child-1"),
+      projectForumSidebarThreads(envelope(["child-1"]))[0],
+    )
+    expect(hasForumSidebarOwnershipEvidence(queryClient, "server-1", "child-1"))
+      .toBe(false)
+
+    queryClient.setQueryData(communityKeys.channelMeta("server-1", "child-1"), {
+      ...queryClient.getQueryData<ChildChannelMeta>(
+        communityKeys.channelMeta("server-1", "child-1"),
+      )!,
+      parentChannelId: "forum-1",
+    })
+    expect(hasForumSidebarOwnershipEvidence(queryClient, "server-1", "child-1"))
+      .toBe(true)
+  })
+
+  it("settles an omitted text-thread candidate without deleting exact metadata", async () => {
+    apiFetchMock.mockResolvedValue({
+      ...envelope([]),
+      canonicalChannels: [],
+      retainedChannel: null,
+    })
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const detail = serverDetail(false)
+    detail.categories[0]!.channels.push({
+      id: "general-1",
+      name: "General",
+      type: "text",
+      active: false,
+      unread: false,
+      muted: false,
+    })
+    queryClient.setQueryData(communityKeys.server("server-1"), detail)
+    let renderer: TestRenderer.ReactTestRenderer
+    const tree = (retainId: string | null) => React.createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      React.createElement(Capture, { retainId, onRender: () => undefined }),
+    )
+    await act(async () => {
+      renderer = TestRenderer.create(tree(null))
+    })
+    await waitFor(() => queryClient.getQueryState(
+      communityKeys.forumSidebarThreads("server-1"),
+    )?.status === "success")
+    const meta: ChildChannelMeta = {
+      id: "thread-1",
+      serverId: "server-1",
+      name: "Thread",
+      type: "thread",
+      parentChannelId: "general-1",
+      parentMessageId: "message-1",
+      creatorId: "user-1",
+      archived: false,
+      activityAt: "2026-08-08T00:00:00.000Z",
+      verifiedEpoch: 0,
+    }
+    queryClient.setQueryData(communityKeys.channelMeta("server-1", "thread-1"), meta)
+
+    await act(async () => {
+      renderer!.update(tree("thread-1"))
+    })
+    await waitFor(() => queryClient.getQueryState(
+      communityKeys.forumSidebarRetained("server-1", "thread-1"),
+    )?.status === "success")
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    })
+
+    expect(apiFetchMock).toHaveBeenCalledTimes(2)
+    expect(queryClient.getQueryData(
+      communityKeys.channelMeta("server-1", "thread-1"),
+    )).toEqual(meta)
+    expect(queryClient.getQueryData(
+      communityKeys.forumSidebarRetained("server-1", "thread-1"),
+    )).toBeNull()
+    renderer!.unmount()
   })
 
   it("uses one cold combined request and seeds sibling resources before base settles", async () => {

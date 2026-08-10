@@ -531,6 +531,24 @@ export function isForumSidebarParent(
     )) ?? false
 }
 
+export function hasForumSidebarOwnershipEvidence(
+  queryClient: QueryClient,
+  serverId: string,
+  childId: string,
+) {
+  if (isKnownNonForumSidebarChannel(queryClient, serverId, childId)) return false
+  if (hasForumSidebarThread(getForumSidebarBase(queryClient, serverId), childId)) return true
+  if (getForumSidebarRetained(queryClient, serverId, childId)) return true
+  const server = queryClient.getQueryData<ServerDetail>(communityKeys.server(serverId))
+  if (Object.values(server?.forumUnreadState ?? {}).some(
+    (state) => state.childIds.includes(childId),
+  )) return true
+  const meta = queryClient.getQueryData<ChildChannelMeta>(
+    communityKeys.channelMeta(serverId, childId),
+  )
+  return !!meta && isForumSidebarParent(queryClient, serverId, meta.parentChannelId)
+}
+
 function patchRetained(
   queryClient: QueryClient,
   serverId: string,
@@ -853,7 +871,8 @@ function seedForumSidebarResources(
   if (
     retainId &&
     !normalized.retained &&
-    !hasForumSidebarThread(normalized.base, retainId)
+    !hasForumSidebarThread(normalized.base, retainId) &&
+    hasForumSidebarOwnershipEvidence(queryClient, serverId, retainId)
   ) {
     removeForumSidebarUnreadChild(queryClient, serverId, retainId)
     removeForumSidebarThreadExact(queryClient, serverId, retainId)
