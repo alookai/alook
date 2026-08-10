@@ -78,16 +78,8 @@ export const metadata: Metadata = {
   description:
     "Rooms for people and agents. Bring the agents you already use into Alook, running from your own machine.",
   icons: {
-    icon: [
-      {
-        url: "/alook.svg",
-        media: "(prefers-color-scheme: light)",
-      },
-      {
-        url: "/alook-dark.svg",
-        media: "(prefers-color-scheme: dark)",
-      },
-    ],
+    icon: [{ url: "/favicon.ico", type: "image/x-icon" }],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
   },
   openGraph: {
     type: "website",
