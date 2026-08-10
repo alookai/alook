@@ -1,10 +1,22 @@
 import { describe, it, expect } from "vitest";
 import { isCommunityEvent, WS_EVENTS } from "../src/community-ws-events";
 import type {
+  CommunityMessageEdited,
   CommunityMachineCreated,
   CommunityMachineUpdated,
   CommunityMachineSummary,
 } from "../src/community-ws-events";
+
+describe("CommunityMessageEdited address contract", () => {
+  it("supports forum opener, ordinary server, and DM edits", () => {
+    const events: CommunityMessageEdited[] = [
+      { type: "community:message.edited", channelId: "post", parentChannelId: "forum", serverId: "server", messageId: "opener", content: "new" },
+      { type: "community:message.edited", channelId: "text", serverId: "server", messageId: "message", content: "new" },
+      { type: "community:message.edited", channelId: "dm", messageId: "message", content: "new" },
+    ];
+    expect(events).toHaveLength(3);
+  });
+});
 
 describe("isCommunityEvent", () => {
   it("accepts every exact event declared by WS_EVENTS", () => {

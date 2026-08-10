@@ -41,6 +41,8 @@ type IncludedParticipant = {
 }
 
 export type ForumActivityPage = {
+  serverId: string
+  parentType: string
   threads: ActivityThread[]
   included: {
     parentMessages: IncludedMessage[]
@@ -96,7 +98,7 @@ export function mapForumActivityPages(pages: ForumActivityPage[]): ForumThread[]
       const first = firstByChannel.get(thread.id)
       byId.set(thread.id, {
         id: thread.id,
-        name: opener?.content.trim() || thread.name?.trim() || "Post",
+        name: opener?.content.trim() ? opener.content : thread.name?.trim() || "Post",
         messageCount: thread.messageCount ?? 0,
         lastMessageAt: thread.activityAt,
         parent: {

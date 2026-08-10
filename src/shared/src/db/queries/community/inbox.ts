@@ -297,6 +297,79 @@ export async function listUnreadForumOpeners(
   }));
 }
 
+/**
+ * Resolve canonical forum opener metadata for an already-authorized set of
+ * unread child channels. The caller owns visibility, participation, and mute
+ * filtering; this query only validates the child → forum → opener structure.
+ */
+export async function listForumOpenersByChildIds(
+  db: Database,
+  childIds: string[]
+): Promise<UnreadForumOpenerRow[]> {
+  if (childIds.length === 0) return [];
+
+  const childChannel = aliasedTable(communityChannel, "forum_inbox_child_lookup");
+  const parentForum = aliasedTable(communityChannel, "forum_inbox_parent_lookup");
+  const rows = (
+    await Promise.all(
+      chunk(childIds, D1_MAX_IN_PARAMS).map((ids) =>
+        db
+          .select({
+            forumChannelId: parentForum.id,
+            openerMessageId: communityMessage.id,
+            openerContent: communityMessage.content,
+            openerSeq: communityMessage.seq,
+            childChannelId: childChannel.id,
+            childName: childChannel.name,
+            createdAt: communityMessage.createdAt,
+          })
+          .from(childChannel)
+          .innerJoin(
+            parentForum,
+            and(
+              eq(parentForum.id, childChannel.parentChannelId),
+              eq(parentForum.type, "forum")
+            )
+          )
+          .innerJoin(
+            communityMessage,
+            and(
+              eq(communityMessage.id, childChannel.parentMessageId),
+              eq(communityMessage.channelId, parentForum.id)
+            )
+          )
+          .where(
+            and(
+              inArray(childChannel.id, ids),
+              eq(childChannel.type, "thread"),
+              eq(childChannel.archived, 0),
+              eq(parentForum.archived, 0)
+            )
+          )
+      )
+    )
+  ).flat();
+
+  rows.sort(
+    (a, b) =>
+      b.createdAt.localeCompare(a.createdAt) ||
+      b.openerSeq - a.openerSeq ||
+      b.openerMessageId.localeCompare(a.openerMessageId)
+  );
+
+  return rows.map((row) => ({
+    forumChannelId: row.forumChannelId,
+    openerMessageId: row.openerMessageId,
+    childChannelId: row.childChannelId,
+    title:
+      row.openerContent.trim().length > 0
+        ? row.openerContent
+        : row.childName?.trim() || "Thread",
+    createdAt: row.createdAt,
+    openerSeq: row.openerSeq,
+  }));
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // DM unreads
 // ──────────────────────────────────────────────────────────────────────────────

@@ -9,6 +9,7 @@ import { ChannelIcon } from "./channel-icon"
 import { EmptyState } from "./empty-state"
 import { formatRelativeTime } from "./format-time"
 import type { Marked, Mention, UnreadDm, UnreadServer } from "./_types"
+import { tid } from "@/lib/community/testids"
 
 function MentionBadge({ count }: { count: number }) {
   if (count <= 0) return null
@@ -66,6 +67,7 @@ function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenForumThread, o
               {c.children.map((child) => (
                 <button
                   key={child.channelId}
+                  data-testid={tid.inboxUnreadChild(child.channelId)}
                   onClick={() => {
                     if (child.openerMessageId) {
                       onOpenForumThread(s.serverId, c.channelId, child.channelId, child.openerMessageId)

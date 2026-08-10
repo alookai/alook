@@ -10,6 +10,7 @@ const mockUpdateOwnMessageContent = vi.fn()
 const mockGetMessagesByIdsInScope = vi.fn()
 const mockGetChannelForMember = vi.fn()
 const mockGetChannelType = vi.fn()
+const mockGetChannel = vi.fn()
 const mockGetThreadChannelByParentMessage = vi.fn()
 const mockGetDM = vi.fn()
 const mockGetDMPeer = vi.fn()
@@ -38,6 +39,7 @@ vi.mock("@alook/shared", async () => {
       communityChannel: {
         getChannelForMember: (...a: unknown[]) => mockGetChannelForMember(...a),
         getChannelType: (...a: unknown[]) => mockGetChannelType(...a),
+        getChannel: (...a: unknown[]) => mockGetChannel(...a),
         getThreadChannelByParentMessage: (...a: unknown[]) => mockGetThreadChannelByParentMessage(...a),
       },
       communityMessage: {
@@ -101,6 +103,7 @@ describe("GET /api/community/messages/[id]", () => {
     mockGetMessagesByIdsInScope.mockResolvedValue([])
     // Default: a normal (non-DM) channel → server-scoped member gate.
     mockGetChannelType.mockResolvedValue("text")
+    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1", type: "text" })
   })
 
   it("returns the hydrated payload for a channel message when caller is a server member", async () => {
@@ -384,7 +387,7 @@ describe("PATCH /api/community/messages/[id]", () => {
       messageId: "m1", authorId: "u1", content: "new",
     })
     expect(mockFanOutToChannel).toHaveBeenCalledWith("c1", {
-      type: "community:message.edited", channelId: "c1", messageId: "m1", content: "new",
+      type: "community:message.edited", channelId: "c1", messageId: "m1", content: "new", serverId: "s1",
     })
   })
 
@@ -398,16 +401,23 @@ describe("PATCH /api/community/messages/[id]", () => {
   it("resolves a real parent-forum opener to its child and omits parent data for replies", async () => {
     // Production shape: opener m1 belongs to the parent forum c1; the child
     // post row points back to it through parentMessageId.
-    mockGetChannelType.mockResolvedValue("forum")
+    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1", type: "forum" })
     mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "forum", parentChannelId: null })
-    mockGetThreadChannelByParentMessage.mockResolvedValue({ id: "post_1", type: "thread", parentChannelId: "c1", parentMessageId: "m1" })
+    mockGetThreadChannelByParentMessage.mockResolvedValue({ id: "post_1", serverId: "s1", type: "thread", parentChannelId: "c1", parentMessageId: "m1" })
     const res = await PATCH(editReq("new"), { params: { id: "m1" } } as any)
     expect(res.status).toBe(200)
     expect(mockGetThreadChannelByParentMessage).toHaveBeenCalledWith(expect.anything(), "c1", "m1")
-    expect(mockFanOutToChannel).toHaveBeenCalledWith("c1", expect.objectContaining({ parentChannelId: "c1" }))
+    expect(mockFanOutToChannel).toHaveBeenCalledWith("c1", {
+      type: "community:message.edited",
+      channelId: "post_1",
+      parentChannelId: "c1",
+      serverId: "s1",
+      messageId: "m1",
+      content: "new",
+    })
 
     mockFanOutToChannel.mockClear()
-    mockGetChannelType.mockResolvedValue("thread")
+    mockGetChannel.mockResolvedValue({ id: "post_1", serverId: "s1", type: "thread" })
     mockGetMessage.mockResolvedValue({ id: "reply_1", channelId: "post_1", authorId: "u1", content: "old" })
     mockGetChannelForMember.mockResolvedValue({ id: "post_1", serverId: "s1", type: "thread", parentChannelId: "c1" })
     mockUpdateOwnMessageContent.mockResolvedValue({ id: "reply_1", channelId: "post_1", content: "new" })
@@ -418,6 +428,24 @@ describe("PATCH /api/community/messages/[id]", () => {
       { params: { id: "reply_1" } } as any,
     )
     expect(mockFanOutToChannel.mock.calls[0]?.[1]).not.toHaveProperty("parentChannelId")
+    expect(mockFanOutToChannel.mock.calls[0]?.[1]).toMatchObject({ serverId: "s1" })
+  })
+
+  it("keeps DM edit events free of server identity", async () => {
+    mockGetChannel.mockResolvedValue({ id: "dm_1", serverId: "dm-server", type: "dm" })
+    mockGetMessage.mockResolvedValue({ id: "m1", channelId: "dm_1", authorId: "u1", content: "old" })
+    mockUpdateOwnMessageContent.mockResolvedValue({ id: "m1", channelId: "dm_1", content: "new" })
+    mockGetDM.mockResolvedValue({ id: "dm_1", channelId: "dm_1" })
+    mockGetDMPeer.mockResolvedValue({ otherUserId: "u2" })
+
+    const res = await PATCH(editReq("new"), { params: { id: "m1" } } as any)
+    expect(res.status).toBe(200)
+    expect(mockFanOutToChannel).toHaveBeenCalledWith("dm_1", {
+      type: "community:message.edited",
+      channelId: "dm_1",
+      messageId: "m1",
+      content: "new",
+    })
   })
 
   it("rejects bot credentials and empty content", async () => {

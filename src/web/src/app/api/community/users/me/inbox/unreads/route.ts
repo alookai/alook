@@ -71,11 +71,24 @@ export const GET = withAuth(async (req, ctx) => {
           )
           .map((row) => row.channelId),
       )]
-      const forumOpeners = await queries.communityInbox.listUnreadForumOpeners(
-        db,
-        ctx.userId,
-        forumParentIds,
-      )
+      const unreadForumChildIds = [...new Set(
+        unread
+          .filter(
+            (row) =>
+              !!row.parentChannelId &&
+              !mutedServers.has(row.serverId) &&
+              !mutedChannels.has(row.parentChannelId) &&
+              !mutedChannels.has(row.channelId),
+          )
+          .map((row) => row.channelId),
+      )]
+      const [directForumOpeners, childForumOpeners] = await Promise.all([
+        queries.communityInbox.listUnreadForumOpeners(db, ctx.userId, forumParentIds),
+        queries.communityInbox.listForumOpenersByChildIds(db, unreadForumChildIds),
+      ])
+      const forumOpeners = [...new Map(
+        [...directForumOpeners, ...childForumOpeners].map((row) => [row.childChannelId, row]),
+      ).values()]
       return { unread, settings, mentions, unreadDms, forumOpeners }
     },
     { unread: [], settings: [], mentions: [], unreadDms: [], forumOpeners: [] },
@@ -123,6 +136,7 @@ export const GET = withAuth(async (req, ctx) => {
 
   const parents = new Map<string, ParentNode>()
   const childrenByParent = new Map<string, Map<string, UnreadChild>>()
+  const unreadByChannelId = new Map(unread.map((row) => [row.channelId, row]))
 
   for (const row of unread) {
     if (!row.serverId || !row.channelId || !row.serverName || !row.channelName) continue
@@ -167,7 +181,10 @@ export const GET = withAuth(async (req, ctx) => {
   for (const opener of forumOpeners) {
     if (mutedChannels.has(opener.childChannelId)) continue
     const parent = parents.get(opener.forumChannelId)
-    if (!parent || mutedServers.has(parent.serverId) || mutedChannels.has(parent.channelId)) continue
+    const unreadChild = unreadByChannelId.get(opener.childChannelId)
+    if (!parent && unreadChild?.parentChannelId !== opener.forumChannelId) continue
+    const serverId = parent?.serverId ?? unreadChild?.serverId
+    if (!serverId || mutedServers.has(serverId) || mutedChannels.has(opener.forumChannelId)) continue
 
     const children = childrenByParent.get(opener.forumChannelId) ?? new Map<string, UnreadChild>()
     const existing = children.get(opener.childChannelId)

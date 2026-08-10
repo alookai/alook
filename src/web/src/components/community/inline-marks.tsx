@@ -65,11 +65,13 @@ export function ChannelPill({
   serverPrefix,
   muted,
   seqSuffix,
+  testId,
 }: {
   children?: React.ReactNode
   onClick?: (e: React.MouseEvent) => void
   serverPrefix?: string
   muted?: boolean
+  testId?: string
   // A message ref (`/server/channel#N`): render the whole thing as ONE pill —
   // channel name + `#N` inside — with a leading `#` glyph (instead of the `/`
   // channel glyph) so it reads as "a message in general", one clickable unit.
@@ -99,12 +101,12 @@ export function ChannelPill({
   )
   if (onClick) {
     return (
-      <button type="button" onClick={onClick} title={title} className={className}>
+      <button type="button" onClick={onClick} title={title} className={className} data-testid={testId}>
         {content}
       </button>
     )
   }
-  return <span title={title} className={className}>{content}</span>
+  return <span title={title} className={className} data-testid={testId}>{content}</span>
 }
 
 // Server-ref pill — same icon/shape/on-off pattern as `ChannelPill` (reuses

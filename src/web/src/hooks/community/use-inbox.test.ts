@@ -18,8 +18,27 @@ describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
     const qc = new QueryClient()
     const key = communityKeys.inboxUnreads()
     await qc.fetchQuery({ queryKey: key, queryFn: inboxUnreadsQueryFn })
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/users/me/inbox/unreads")
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/community/users/me/inbox/unreads",
+      { signal: expect.any(AbortSignal) },
+    )
     expect(qc.getQueryData(key)).toEqual({ servers: [], dms: [] })
+  })
+
+  it("aborts an in-flight unread read when the exact query is cancelled", async () => {
+    let signal: AbortSignal | undefined
+    apiFetchMock.mockImplementationOnce((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
+      signal = init.signal as AbortSignal
+      signal.addEventListener("abort", () => reject(new Error("aborted")))
+    }))
+    const { inboxUnreadsQueryFn } = await import("./use-inbox")
+    const qc = new QueryClient()
+    const key = communityKeys.inboxUnreads()
+    const pending = qc.fetchQuery({ queryKey: key, queryFn: inboxUnreadsQueryFn }).catch(() => undefined)
+    await vi.waitFor(() => expect(signal).toBeDefined())
+    await qc.cancelQueries({ queryKey: key, exact: true })
+    expect(signal?.aborted).toBe(true)
+    await pending
   })
 })
 

@@ -78,15 +78,26 @@ export type CommunityMessageUpdated = {
   approval: FriendApprovalPayload
 }
 
-export type CommunityMessageEdited = {
+type CommunityMessageEditedBase = {
   type: "community:message.edited"
   channelId: string
   messageId: string
   content: string
-  // Present only when this message is the child channel's opener. Consumers
-  // use it to refresh the parent forum/thread summary; ordinary replies omit it.
-  parentChannelId?: string
 }
+
+export type CommunityMessageEdited = CommunityMessageEditedBase & (
+  | {
+      // Forum opener address: the edited message lives in the parent forum,
+      // while channelId names the child post whose title must reconcile.
+      parentChannelId: string
+      serverId: string
+    }
+  | {
+      parentChannelId?: never
+      // Ordinary server edits may carry their server identity. DM edits omit it.
+      serverId?: string
+    }
+)
 
 export type CommunityReactionAdd = {
   type: "community:reaction.add"

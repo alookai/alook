@@ -39,6 +39,8 @@ describe("mapForumActivityPages", () => {
   it("joins included resources, deduplicates pages, and keeps latest activity first", () => {
     const pages: ForumActivityPage[] = [
       {
+        serverId: "server_1",
+        parentType: "forum",
         threads: [
           {
             id: "t2",
@@ -63,7 +65,7 @@ describe("mapForumActivityPages", () => {
         ],
         included: {
           parentMessages: [
-            { id: "m2", channelId: "forum_1", content: "Opener title", authorId: "u2", authorName: "Alice", authorImage: null },
+            { id: "m2", channelId: "forum_1", content: "  Opener title  ", authorId: "u2", authorName: "Alice", authorImage: null },
           ],
           firstMessages: [{ channelId: "t2", content: "First reply preview" }],
           tags: [{ messageId: "m2", tag: "bug" }, { messageId: "m2", tag: "help" }],
@@ -76,6 +78,8 @@ describe("mapForumActivityPages", () => {
         nextCursor: "next",
       },
       {
+        serverId: "server_1",
+        parentType: "forum",
         threads: [
           {
             id: "t2",
@@ -96,7 +100,7 @@ describe("mapForumActivityPages", () => {
     const result = mapForumActivityPages(pages)
     expect(result.map((thread) => thread.id)).toEqual(["t2", "t1"])
     expect(result[0]).toMatchObject({
-      name: "Opener title",
+      name: "  Opener title  ",
       authorId: "u2",
       authorAvatar: "A",
       preview: "First reply preview",

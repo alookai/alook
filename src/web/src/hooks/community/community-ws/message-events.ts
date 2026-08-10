@@ -18,8 +18,8 @@ import {
   isForumSidebarParent,
   invalidateForumSidebarBaseExact,
   patchForumSidebarActivityExact,
-  patchForumSidebarTitleExact,
 } from "@/hooks/community/use-forum-sidebar-threads"
+import { reconcileForumOpenerTitle } from "@/hooks/community/forum-opener-title-reconciliation"
 import {
   applyReactionToCache,
   applyReactionToMessage,
@@ -255,6 +255,16 @@ export function handleMessageEdited(
   event: CommunityMessageEdited,
   { queryClient }: MessageEventContext,
 ) {
+  if (event.parentChannelId) {
+    void reconcileForumOpenerTitle(queryClient, {
+      serverId: event.serverId,
+      forumChannelId: event.parentChannelId,
+      childChannelId: event.channelId,
+      openerMessageId: event.messageId,
+      content: event.content,
+    })
+    return
+  }
   queryClient.setQueryData<{ content: string }>(
     communityKeys.message(event.messageId),
     (message) => message ? { ...message, content: event.content } : message,
@@ -275,18 +285,5 @@ export function handleMessageEdited(
       messageId: event.messageId,
       content: event.content,
     })
-  }
-  if (event.parentChannelId) {
-    queryClient.setQueriesData<PageCache>(
-      { queryKey: communityKeys.channelMessages(event.parentChannelId) },
-      (cache) => patchMessageContentInCache(cache, event.messageId, event.content),
-    )
-    void queryClient.invalidateQueries({
-      queryKey: communityKeys.channelMessages(event.parentChannelId),
-    })
-    const serverId = useCommunityStore.getState().currentServerId
-    if (serverId && isForumSidebarParent(queryClient, serverId, event.parentChannelId)) {
-      patchForumSidebarTitleExact(queryClient, serverId, event.channelId, event.content)
-    }
   }
 }

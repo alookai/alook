@@ -18,7 +18,12 @@ const EMPTY_PINS: readonly Msg[] = Object.freeze([])
  * WS (`community:channel.child_create`) can invalidate the thread list only
  * — without touching messages.
  */
-export type ThreadsResponse = { threads: Thread[] }
+export type ThreadsResponse = {
+  threads: Thread[]
+  serverId: string
+  parentType: string
+  parentChannelId: string
+}
 
 type RawThread = {
   id: string
@@ -41,30 +46,40 @@ type BatchMessage = {
 }
 type ParticipantRow = { channelId: string; userId: string; userName: string | null; userImage: string | null; addedAt: string; participantCount?: number }
 
-async function loadThreadResources(channelId: string, tag?: string | null) {
+async function loadThreadResources(channelId: string, tag?: string | null, signal?: AbortSignal) {
   const query = tag ? `?tag=${encodeURIComponent(tag)}` : ""
-  const { threads } = await apiFetch<{ threads: RawThread[] }>(`/api/community/channels/${channelId}/threads${query}`)
+  const { threads, parentType, serverId } = await apiFetch<{
+    threads: RawThread[]
+    parentType: string
+    serverId: string
+  }>(
+    `/api/community/channels/${channelId}/threads${query}`,
+    { signal },
+  )
   const openerIds = threads.map((thread) => thread.parentMessageId).filter((id): id is string => !!id)
   const threadIds = threads.map((thread) => thread.id)
   const [messageBatch, tagBatch, participantBatch] = await Promise.all([
     apiFetch<{ messages: BatchMessage[]; firstMessages: BatchMessage[] }>("/api/community/messages/batch", {
       method: "POST",
       body: JSON.stringify({ channelId, ids: openerIds, firstInChannelIds: threadIds }),
+      signal,
     }),
     apiFetch<{ tags: { messageId: string; tag: string }[] }>("/api/community/messages/tags/batch", {
       method: "POST",
       body: JSON.stringify({ channelId, messageIds: openerIds }),
+      signal,
     }),
     apiFetch<{ participants: ParticipantRow[] }>("/api/community/channels/participants/batch", {
       method: "POST",
       body: JSON.stringify({ parentChannelId: channelId, channelIds: threadIds }),
+      signal,
     }),
   ])
-  return { threads, openerIds, ...messageBatch, ...tagBatch, ...participantBatch }
+  return { threads, parentType, serverId, openerIds, ...messageBatch, ...tagBatch, ...participantBatch }
 }
 
-export const threadsQueryFn = (channelId: string) => async () => {
-  const data = await loadThreadResources(channelId)
+export const threadsQueryFn = (channelId: string) => async ({ signal }: { signal?: AbortSignal } = {}) => {
+  const data = await loadThreadResources(channelId, null, signal)
   const openerMap = new Map(data.messages.map((message) => [message.id, message]))
   const firstMap = new Map(data.firstMessages.map((message) => [message.channelId, message]))
   return {
@@ -73,13 +88,21 @@ export const threadsQueryFn = (channelId: string) => async () => {
       const first = firstMap.get(thread.id)
       return {
         id: thread.id,
-        name: thread.name,
+        name: data.parentType === "forum"
+          ? opener?.content.trim()
+            ? opener.content
+            : thread.name.trim() || "Post"
+          : thread.name,
         messageCount: thread.messageCount ?? 0,
         lastMessageAt: thread.lastMessageAt ?? thread.createdAt,
         parent: { authorName: opener?.authorName ?? "", text: (opener?.content ?? first?.content ?? "").slice(0, 100) },
         ...(opener ? { parentSeq: opener.seq } : {}),
+        ...(thread.parentMessageId ? { openerMessageId: thread.parentMessageId } : {}),
       }
     }),
+    parentType: data.parentType,
+    serverId: data.serverId,
+    parentChannelId: channelId,
   }
 }
 

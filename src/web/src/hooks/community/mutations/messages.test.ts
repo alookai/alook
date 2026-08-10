@@ -85,7 +85,7 @@ async function runMutation<Args>(args: Args) {
   const ctx = cfg.onMutate ? await cfg.onMutate(args) : undefined
   try {
     const data = cfg.mutationFn ? await cfg.mutationFn(args) : undefined
-    cfg.onSuccess?.(data, args, ctx)
+    await cfg.onSuccess?.(data, args, ctx)
     return { data, ctx }
   } catch (err) {
     cfg.onError?.(err, args, ctx)
@@ -191,21 +191,25 @@ describe("useEditMessage", () => {
     expect(capturedQc.getQueryData<{ content: string }>(messageKey)?.content).toBe("New title")
   })
 
-  it("invalidates every forum summary variant after an opener edit", async () => {
-    const root = communityKeys.channelMessages("forum_1")
-    const bug = [...root, "tag", "bug"] as const
-    capturedQc.setQueryData(root, { pages: [], pageParams: [] })
-    capturedQc.setQueryData(bug, { pages: [], pageParams: [] })
+  it("invalidates only the exact Inbox and base threads reads after an opener edit", async () => {
+    const threads = communityKeys.threads("forum_1")
+    const activity = communityKeys.forumActivityFeed("forum_1", "bug")
+    const inbox = communityKeys.inboxUnreads()
+    capturedQc.setQueryData(threads, { serverId: "s1", parentType: "forum", parentChannelId: "forum_1", threads: [] })
+    capturedQc.setQueryData(activity, { pages: [], pageParams: [] })
+    capturedQc.setQueryData(inbox, { servers: [], dms: [] })
     apiFetchMock.mockResolvedValueOnce(undefined)
     const mod = await loadMod()
     mod.useEditMessage()
 
     await runMutation({
-      serverId: "s1", channelId: "forum_1", messageId: "opener_1", content: "new", forumChannelId: "forum_1",
+      serverId: "s1", channelId: "forum_1", messageId: "opener_1", content: "new",
+      forumChannelId: "forum_1", forumThreadId: "post_1",
     })
 
-    expect(capturedQc.getQueryState(root)?.isInvalidated).toBe(true)
-    expect(capturedQc.getQueryState(bug)?.isInvalidated).toBe(true)
+    expect(capturedQc.getQueryState(threads)?.isInvalidated).toBe(true)
+    expect(capturedQc.getQueryState(inbox)?.isInvalidated).toBe(true)
+    expect(capturedQc.getQueryState(activity)?.isInvalidated).toBe(false)
   })
 
   it("patches a loaded forum-sidebar title after the opener edit succeeds", async () => {

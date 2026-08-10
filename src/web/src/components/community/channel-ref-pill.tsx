@@ -7,6 +7,7 @@ import { resolveChannelRefBase, type ResolvedChannelRef } from "@/lib/community/
 import { useChannelRefDirectory } from "@/hooks/community/use-channel-ref-directory"
 import { useThreads } from "@/hooks/community/use-channel-panels"
 import { useCommunityStore, useUiHandlers } from "@/stores/community"
+import { tid } from "@/lib/community/testids"
 
 export type ChannelRefPillView =
   | { kind: "plain"; text: string }
@@ -175,7 +176,12 @@ export function ChannelRefPill({ children }: { children?: React.ReactNode }) {
 
   return (
     <>
-      <ChannelPill serverPrefix={view.serverPrefix} onClick={onClick} seqSuffix={view.messageSuffix}>
+      <ChannelPill
+        serverPrefix={view.serverPrefix}
+        onClick={onClick}
+        seqSuffix={view.messageSuffix}
+        testId={tid.channelRefPill(view.href.channelId)}
+      >
         {view.label}
       </ChannelPill>
       {/* The `/#N` thread-root suffix stays a detached plain span — it names the
