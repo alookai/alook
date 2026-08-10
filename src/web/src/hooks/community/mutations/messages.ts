@@ -33,8 +33,8 @@ import {
   invalidateForumSidebarBaseExact,
   isForumSidebarParent,
   patchForumSidebarActivityExact,
-  patchForumSidebarTitleExact,
 } from "@/hooks/community/use-forum-sidebar-threads"
+import { reconcileForumOpenerTitle } from "@/hooks/community/forum-opener-title-reconciliation"
 import { isBlocked, type MentionType } from "@alook/shared"
 
 /**
@@ -132,16 +132,15 @@ export function useEditMessage() {
       }
       queryClient.setQueryData(context.messageKey, context.previousMessage)
     },
-    onSuccess: (_data, variables) => {
-      if (variables.forumChannelId) void queryClient.invalidateQueries({ queryKey: communityKeys.channelMessages(variables.forumChannelId) })
-      if (variables.forumThreadId) {
-        patchForumSidebarTitleExact(
-          queryClient,
-          variables.serverId,
-          variables.forumThreadId,
-          variables.content,
-        )
-      }
+    onSuccess: async (_data, variables) => {
+      if (!variables.forumChannelId || !variables.forumThreadId) return
+      await reconcileForumOpenerTitle(queryClient, {
+        serverId: variables.serverId,
+        forumChannelId: variables.forumChannelId,
+        childChannelId: variables.forumThreadId,
+        openerMessageId: variables.messageId,
+        content: variables.content,
+      })
     },
   })
 }

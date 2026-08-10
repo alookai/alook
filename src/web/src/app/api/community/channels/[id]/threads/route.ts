@@ -85,6 +85,8 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     ])
 
     return writeJSON({
+      serverId: access.value.channel.serverId,
+      parentType: access.value.channel.type,
       threads,
       included: { parentMessages, firstMessages, tags, participants },
       hasMore,
@@ -106,5 +108,9 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   // Plain nested collection representation. View-specific parent previews,
   // first messages, tags, participants, and creator presentation are composed
   // by consumers through the generic batch resource reads.
-  return writeJSON({ threads: childChannels })
+  return writeJSON({
+    serverId: access.value.channel.serverId,
+    parentType: access.value.channel.type,
+    threads: childChannels,
+  })
 })

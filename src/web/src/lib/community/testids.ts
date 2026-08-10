@@ -40,4 +40,6 @@ export const tid = {
   forumThreadDeleteBtn: (id: string) => `community-forum-post-delete-btn-${id}`,
   forumThreadAvatars: (id: string) => `community-forum-post-avatars-${id}`,
   forumTagChip: (tag: string) => `community-forum-tag-chip-${tag}`,
+  inboxUnreadChild: (id: string) => `community-inbox-unread-child-${id}`,
+  channelRefPill: (id: string) => `community-channel-ref-pill-${id}`,
 } as const

@@ -137,6 +137,9 @@ describe("GET /api/community/channels/[id]/threads", () => {
     expect(res.status).toBe(200)
     const body = await res.json() as { threads: Array<{ id: string; parentMessageId: string | null }> }
 
+    expect((body as typeof body & { parentType: string }).parentType).toBe("forum")
+    expect((body as typeof body & { serverId: string }).serverId).toBe("s1")
+
     expect(body.threads).toEqual([
       { id: "t-A", name: "A", type: "thread", messageCount: 3, lastMessageAt: "2026-06-30T01:00:00.000Z", createdAt: "2026-06-30T00:00:00.000Z", parentMessageId: "msg-p", creatorId: null },
       { id: "t-B", name: "B", type: "thread", messageCount: 2, lastMessageAt: null, createdAt: "2026-06-30T00:00:00.000Z", parentMessageId: null, creatorId: "u-b" },
@@ -191,6 +194,8 @@ describe("GET /api/community/channels/[id]/threads", () => {
     const body = await res.json()
     expect(body.threads.map((thread: { id: string }) => thread.id)).toEqual(["t3", "t2"])
     expect(body).toMatchObject({
+      parentType: "forum",
+      serverId: "s1",
       hasMore: true,
       included: {
         parentMessages: [{ id: "m3" }, { id: "m2" }],

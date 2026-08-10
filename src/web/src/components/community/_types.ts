@@ -167,6 +167,9 @@ export type Thread = {
   // parent message (omitted only for legacy rootless threads).
   // Used by `channel-ref-pill.tsx` to match a `/server/channel/#N` ref.
   parentSeq?: number
+  // Stable opener identity used to reconcile forum-title edits without
+  // accidentally patching a same-named or re-rooted child.
+  openerMessageId?: string
 }
 
 export type ForumThread = Thread & {

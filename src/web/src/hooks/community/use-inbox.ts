@@ -34,8 +34,11 @@ const EMPTY_MARKED: readonly Marked[] = Object.freeze([])
 
 export type UnreadsResponse = { servers: UnreadServer[]; dms: UnreadDm[] }
 
-export const inboxUnreadsQueryFn = () =>
-  apiFetch<UnreadsResponse & { stale?: boolean }>("/api/community/users/me/inbox/unreads").then(throwIfStale)
+export const inboxUnreadsQueryFn = ({ signal }: { signal?: AbortSignal } = {}) =>
+  apiFetch<UnreadsResponse & { stale?: boolean }>(
+    "/api/community/users/me/inbox/unreads",
+    { signal },
+  ).then(throwIfStale)
 
 export function useInboxUnreads(): UseQueryResult<UnreadsResponse> & {
   servers: UnreadServer[]

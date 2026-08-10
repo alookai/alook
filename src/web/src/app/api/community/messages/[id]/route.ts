@@ -74,7 +74,8 @@ export const PATCH = withCommunityActor(async (req: NextRequest, ctx) => {
   const message = await queries.communityMessage.getMessage(db, messageId)
   if (!message) return writeError("message not found", 404)
 
-  const channelType = await queries.communityChannel.getChannelType(db, message.channelId)
+  const channel = await queries.communityChannel.getChannel(db, message.channelId)
+  const channelType = channel?.type ?? null
   const access = channelType === "dm"
     ? await requireDMAccess(db, message.channelId, ctx.actor.userId)
     : await requireChannelMember(db, message.channelId, ctx.actor.userId)
@@ -93,13 +94,17 @@ export const PATCH = withCommunityActor(async (req: NextRequest, ctx) => {
   const openerThread = channelType === "forum"
     ? await queries.communityChannel.getThreadChannelByParentMessage(db, message.channelId, messageId)
     : null
-  const parentChannelId = openerThread?.type === "thread" ? message.channelId : undefined
+  const isForumOpener = openerThread?.type === "thread"
   await fanOutToChannel(message.channelId, {
     type: WS_EVENTS.MESSAGE_EDITED,
-    channelId: message.channelId,
+    channelId: isForumOpener ? openerThread.id : message.channelId,
     messageId,
     content,
-    ...(parentChannelId ? { parentChannelId } : {}),
+    ...(isForumOpener
+      ? { parentChannelId: message.channelId, serverId: openerThread.serverId }
+      : channelType !== "dm" && channel?.serverId
+        ? { serverId: channel.serverId }
+        : {}),
   })
   return writeJSON({ message: updated })
 })

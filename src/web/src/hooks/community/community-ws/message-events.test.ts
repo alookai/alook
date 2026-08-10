@@ -667,28 +667,37 @@ describe("useCommunityWs — message edit refreshes forum opener summary", () =>
     const opener: CommunityMessageEdited = {
       type: "community:message.edited",
       channelId: "post_1",
-      messageId: "opener_1",
+      messageId: "opener-post_1",
       content: "new title",
       parentChannelId: "forum_1",
+      serverId: "s1",
     }
-    capturedQueryClient.setQueryData(communityKeys.message("opener_1"), {
-      id: "opener_1",
+    capturedQueryClient.setQueryData(communityKeys.message("opener-post_1"), {
+      id: "opener-post_1",
       content: "old title",
     })
     const allKey = communityKeys.channelMessages("forum_1")
     const bugKey = [...allKey, "tag", "bug"] as const
-    const forumPage = { pages: [{ messages: [{ id: "opener_1", content: "old title" }] }], pageParams: [null] }
+    const forumPage = { pages: [{ messages: [{ id: "opener-post_1", content: "old title" }] }], pageParams: [null] }
     capturedQueryClient.setQueryData(allKey, forumPage)
     capturedQueryClient.setQueryData(bugKey, forumPage)
     const sidebarKey = communityKeys.forumSidebarThreads("s1")
     capturedQueryClient.setQueryData(sidebarKey, forumSidebarFixture())
+    capturedQueryClient.setQueryData(communityKeys.threads("forum_1"), {
+      parentType: "forum",
+      serverId: "s1",
+      parentChannelId: "forum_1",
+      threads: [{ id: "post_1", name: "old title", openerMessageId: "opener-post_1" }],
+    })
     capturedOnMessage!(opener)
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: communityKeys.channelMessages("forum_1") })
-    expect(capturedQueryClient.getQueryState(allKey)?.isInvalidated).toBe(true)
-    expect(capturedQueryClient.getQueryState(bugKey)?.isInvalidated).toBe(true)
+    await vi.waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: communityKeys.threads("forum_1"), exact: true,
+    }))
+    expect(capturedQueryClient.getQueryState(allKey)?.isInvalidated).toBe(false)
+    expect(capturedQueryClient.getQueryState(bugKey)?.isInvalidated).toBe(false)
     expect(capturedQueryClient.getQueryData<{ pages: { messages: { content: string }[] }[] }>(allKey)?.pages[0].messages[0].content).toBe("new title")
     expect(capturedQueryClient.getQueryData<{ pages: { messages: { content: string }[] }[] }>(bugKey)?.pages[0].messages[0].content).toBe("new title")
-    expect(capturedQueryClient.getQueryData<{ content: string }>(communityKeys.message("opener_1"))?.content).toBe("new title")
+    expect(capturedQueryClient.getQueryData<{ content: string }>(communityKeys.message("opener-post_1"))?.content).toBe("new title")
     expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(sidebarKey)?.threads[0].title)
       .toBe("new title")
 
