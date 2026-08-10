@@ -90,7 +90,10 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       return acceptCommunityMachineWebSocket(this.domainContext(), authHeader.slice(7).trim())
     }
 
-    return acceptUserWebSocket(this.domainContext())
+    return acceptUserWebSocket(
+      this.domainContext(),
+      url.searchParams.get("userId") ?? undefined,
+    )
   }
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {

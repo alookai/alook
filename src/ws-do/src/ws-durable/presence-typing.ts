@@ -5,6 +5,7 @@ import {
   WS_EVENTS,
 } from "@alook/shared"
 import type { UserConnectionState, WsDurableContext } from "./internal"
+import { createInternalUserBroadcastRequest } from "../internal-user-broadcast"
 
 export function handleClientTypingStart(
   context: WsDurableContext,
@@ -66,10 +67,9 @@ export async function notifyUserDO(
     const userDoId = context.env.WS_DO.idFromName("user:" + userId)
     const userStub = context.env.WS_DO.get(userDoId)
     try {
-      await userStub.fetch(new Request("http://internal/broadcast", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      }))
+      await userStub.fetch(
+        createInternalUserBroadcastRequest(userId, JSON.stringify(payload)),
+      )
     } catch (err) {
       context.log.error("notifyUserDO: owner notify failed", { err: String(err), userId })
     }
@@ -131,10 +131,9 @@ export async function fanOutTyping(
       batch.map((userId) => {
         const doId = context.env.WS_DO.idFromName("user:" + userId)
         const stub = context.env.WS_DO.get(doId)
-        return stub.fetch(new Request("http://internal/broadcast", {
-          method: "POST",
-          body: event,
-        })).catch(() => { })
+        return stub.fetch(
+          createInternalUserBroadcastRequest(userId, event),
+        ).catch(() => { })
       })
     )
   }
@@ -171,10 +170,9 @@ export async function fanOutTypingStop(
       batch.map((userId) => {
         const doId = context.env.WS_DO.idFromName("user:" + userId)
         const stub = context.env.WS_DO.get(doId)
-        return stub.fetch(new Request("http://internal/broadcast", {
-          method: "POST",
-          body,
-        })).catch(() => { })
+        return stub.fetch(
+          createInternalUserBroadcastRequest(userId, body),
+        ).catch(() => { })
       })
     )
   }
@@ -202,10 +200,7 @@ export async function broadcastToAudience(
       batch.map((memberId) => {
         const doId = context.env.WS_DO.idFromName("user:" + memberId)
         const stub = context.env.WS_DO.get(doId)
-        return stub.fetch(new Request("http://internal/broadcast", {
-          method: "POST",
-          body,
-        }))
+        return stub.fetch(createInternalUserBroadcastRequest(memberId, body))
       })
     )
   }

@@ -1,5 +1,6 @@
 import { WS_EVENTS } from "@alook/shared"
 import type { RouterContext } from "../router-context"
+import { createInternalUserBroadcastRequest } from "../internal-user-broadcast"
 
 export async function handleAuditBroadcast({ request, env, url, log }: RouterContext): Promise<Response | null> {
   // POST /internal/broadcast-bot-audit-event — the wake-worker calls this
@@ -65,11 +66,11 @@ export async function handleAuditBroadcast({ request, env, url, log }: RouterCon
   const stub = env.WS_DO.get(doId)
   try {
     await stub.fetch(
-      new Request("http://internal/broadcast", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(frame),
-      }),
+      createInternalUserBroadcastRequest(
+        b.ownerUserId,
+        JSON.stringify(frame),
+        new Headers({ "content-type": "application/json" }),
+      ),
     )
   } catch (err) {
     log.warn("internal_broadcast_bot_audit_event_failed", {

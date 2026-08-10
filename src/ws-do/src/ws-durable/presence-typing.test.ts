@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { readFileSync } from "node:fs"
 import { createMockWebSocket } from "../__mocks__/cf"
+import { INTERNAL_USER_TARGET_HEADER } from "../internal-user-broadcast"
 import {
   CFResponse,
   cleanupHarness,
@@ -40,6 +41,7 @@ import {
   mockListThreadParticipantUserIds,
   mockMarkMachineOffline,
   mockMarkMachineOnlineIfOffline,
+  mockLogWarn,
   mockReconcileBotActivityFromRunningAgents,
   mockResolveScopeMemberUserIds,
   mockResolveChannelRecipientUserIds,
@@ -71,6 +73,7 @@ describe("WebSocketDurableObject", () => {
 
       const req = new Request("http://internal/broadcast", {
         method: "POST",
+        headers: { [INTERNAL_USER_TARGET_HEADER]: "u1" },
         body: JSON.stringify({ type: "runtime.status", daemonId: "d1", workspaceId: "w1", status: "online" }),
       })
 
@@ -90,6 +93,7 @@ describe("WebSocketDurableObject", () => {
 
       const req = new Request("http://internal/broadcast", {
         method: "POST",
+        headers: { [INTERNAL_USER_TARGET_HEADER]: "u1" },
         body: '{"type":"test"}',
       })
 
@@ -111,6 +115,7 @@ describe("WebSocketDurableObject", () => {
 
       const req = new Request("http://internal/broadcast", {
         method: "POST",
+        headers: { [INTERNAL_USER_TARGET_HEADER]: "u1" },
         body: '{"type":"test"}',
       })
 
@@ -119,6 +124,81 @@ describe("WebSocketDurableObject", () => {
       expect(wsOpen.send).toHaveBeenCalled()
       expect(wsClosed.send).toHaveBeenCalled()
       expect(await res.json()).toEqual({ sent: 1 })
+    })
+
+    it("sweeps an authenticated historical mismatch before sending", async () => {
+      const { durable, ctx } = createDO()
+      const attacker = createMockWebSocket()
+      attacker.serializeAttachment({ type: "user", userId: "attacker", authenticated: true })
+      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([attacker])
+
+      const res = await durable.fetch(new Request("http://internal/broadcast", {
+        method: "POST",
+        headers: { [INTERNAL_USER_TARGET_HEADER]: "victim" },
+        body: '{"type":"private.event"}',
+      }))
+
+      expect(await res.json()).toEqual({ sent: 0 })
+      expect(attacker.send).not.toHaveBeenCalled()
+      expect(attacker.deserializeAttachment()).toEqual({
+        type: "user",
+        userId: "attacker",
+        authenticated: false,
+      })
+      expect(attacker.close).toHaveBeenCalledWith(1008, "Unauthorized")
+      expect(mockLogWarn).toHaveBeenCalledWith("historical user websocket target mismatch", {
+        source: "broadcast",
+        targetUserId: "victim",
+        authenticatedUserId: "attacker",
+      })
+
+      await durable.webSocketClose(attacker as any)
+      await flushAsyncWork()
+
+      expect(mockGetCoMemberUserIds).not.toHaveBeenCalled()
+      expect(mockStubFetch).not.toHaveBeenCalled()
+    })
+
+    it("sends only to the matching user while sweeping mixed historical sockets", async () => {
+      const { durable, ctx } = createDO()
+      const victim = createMockWebSocket()
+      victim.serializeAttachment({ type: "user", userId: "victim", authenticated: true })
+      const attacker = createMockWebSocket()
+      attacker.serializeAttachment({ type: "user", userId: "attacker", authenticated: true })
+      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([attacker, victim])
+
+      const res = await durable.fetch(new Request("http://internal/broadcast", {
+        method: "POST",
+        headers: { [INTERNAL_USER_TARGET_HEADER]: "victim" },
+        body: '{"type":"private.event"}',
+      }))
+
+      expect(await res.json()).toEqual({ sent: 1 })
+      expect(victim.send).toHaveBeenCalledWith('{"type":"private.event"}')
+      expect(victim.close).not.toHaveBeenCalled()
+      expect(attacker.send).not.toHaveBeenCalled()
+      expect(attacker.close).toHaveBeenCalledWith(1008, "Unauthorized")
+    })
+
+    it("keeps markerless daemon broadcasts working", async () => {
+      const { durable, ctx } = createDO()
+      const daemon = createMockWebSocket()
+      daemon.serializeAttachment({
+        type: "daemon",
+        daemonId: "daemon-1",
+        userId: "owner-1",
+        authenticated: true,
+      })
+      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([daemon])
+
+      const res = await durable.fetch(new Request("http://internal/broadcast", {
+        method: "POST",
+        body: '{"type":"command"}',
+      }))
+
+      expect(await res.json()).toEqual({ sent: 1 })
+      expect(daemon.send).toHaveBeenCalledWith('{"type":"command"}')
+      expect(daemon.close).not.toHaveBeenCalled()
     })
   })
 
@@ -193,7 +273,7 @@ describe("WebSocketDurableObject", () => {
       expect(mockIsBotOnline).not.toHaveBeenCalled()
     })
 
-    it("falls back to the live-socket check when userId is missing entirely", async () => {
+    it("fails closed and sweeps user sockets when userId is missing entirely", async () => {
       const { durable, ctx } = createDO()
       const wsAuth = createMockWebSocket()
       wsAuth.serializeAttachment({ type: "user", userId: "u1", authenticated: true })
@@ -201,8 +281,40 @@ describe("WebSocketDurableObject", () => {
 
       const res = await durable.fetch(new Request("http://internal/check-user-online"))
 
-      expect(await res.json()).toEqual({ online: true })
+      expect(await res.json()).toEqual({ online: false })
+      expect(wsAuth.deserializeAttachment()).toEqual({
+        type: "user",
+        userId: "u1",
+        authenticated: false,
+      })
+      expect(wsAuth.close).toHaveBeenCalledWith(1008, "Unauthorized")
       expect(mockGetUserInternal).not.toHaveBeenCalled()
+    })
+
+    it("sweeps a historical mismatch and never reports the victim online", async () => {
+      const { durable, ctx } = createDO()
+      mockGetUserInternal.mockResolvedValue({ isBot: false } as any)
+      const attacker = createMockWebSocket()
+      attacker.serializeAttachment({ type: "user", userId: "attacker", authenticated: true })
+      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([attacker])
+
+      const res = await durable.fetch(
+        new Request("http://internal/check-user-online?userId=victim"),
+      )
+
+      expect(await res.json()).toEqual({ online: false })
+      expect(attacker.deserializeAttachment()).toEqual({
+        type: "user",
+        userId: "attacker",
+        authenticated: false,
+      })
+      expect(attacker.close).toHaveBeenCalledWith(1008, "Unauthorized")
+
+      await durable.webSocketClose(attacker as any)
+      await flushAsyncWork()
+
+      expect(mockGetCoMemberUserIds).not.toHaveBeenCalled()
+      expect(mockStubFetch).not.toHaveBeenCalled()
     })
 
     it("degrades to { online: false, stale: true } when D1 throws on the bot-online lookup", async () => {
@@ -318,7 +430,12 @@ describe("WebSocketDurableObject", () => {
         }),
       }))
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "", authenticated: false })
+      ws.serializeAttachment({
+        type: "user",
+        userId: "",
+        targetUserId: "user-1",
+        authenticated: false,
+      })
 
       await durable.webSocketMessage(ws as any, JSON.stringify({ type: "auth", token: "valid-token" }))
       await flushAsyncWork()

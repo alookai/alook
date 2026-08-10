@@ -10,6 +10,7 @@ import {
   notifyUserDO,
   sendPresenceSnapshot,
 } from "./presence-typing"
+import { getInternalUserTarget } from "../internal-user-broadcast"
 
 export async function handleUserFetch(
   context: WsDurableContext,
@@ -18,7 +19,7 @@ export async function handleUserFetch(
 ): Promise<Response | null> {
   if (url.pathname === "/broadcast" && request.method === "POST") {
     const body = await request.text()
-    const sent = broadcast(context, body)
+    const sent = broadcast(context, body, getInternalUserTarget(request))
     return new Response(JSON.stringify({ sent }), {
       headers: { "Content-Type": "application/json" },
     })
@@ -36,10 +37,16 @@ export async function handleUserFetch(
 
   if (url.pathname === "/check-user-online") {
     const targetUserId = url.searchParams.get("userId")
-    const hasAuthUser = context.ctx.getWebSockets().some(ws => {
-      const s = ws.deserializeAttachment() as ConnectionState
-      return s?.type === "user" && s.authenticated
-    })
+    let hasAuthUser = false
+    for (const ws of context.ctx.getWebSockets()) {
+      const state = ws.deserializeAttachment() as ConnectionState
+      if (state?.type !== "user" || !state.authenticated) continue
+      if (targetUserId && state.userId === targetUserId) {
+        hasAuthUser = true
+      } else {
+        invalidateMismatchedUserSocket(context, ws, state, targetUserId, "online-check")
+      }
+    }
     if (hasAuthUser) {
       return new Response(JSON.stringify({ online: true }), {
         headers: { "Content-Type": "application/json" },
@@ -78,13 +85,21 @@ export async function handleUserFetch(
   return null
 }
 
-export function acceptUserWebSocket(context: WsDurableContext): Response {
+export function acceptUserWebSocket(
+  context: WsDurableContext,
+  targetUserId?: string,
+): Response {
   const pair = new WebSocketPair()
   const [client, server] = Object.values(pair)
 
   context.ctx.acceptWebSocket(server)
 
-  server.serializeAttachment({ type: "user", userId: "", authenticated: false } as ConnectionState)
+  server.serializeAttachment({
+    type: "user",
+    userId: "",
+    targetUserId,
+    authenticated: false,
+  } as ConnectionState)
 
   context.ctx.setWebSocketAutoResponse(
     new WebSocketRequestResponsePair("ping", "pong")
@@ -146,8 +161,32 @@ export async function handleWebSocketMessage(
       return
     }
     const { userId, name, discriminator } = identity
+    const targetUserId = state?.type === "user" ? state.targetUserId : undefined
+    if (!targetUserId || userId !== targetUserId) {
+      if (
+        state?.type === "user"
+        && state.authenticated
+        && (!state.targetUserId || state.userId !== state.targetUserId)
+      ) {
+        ws.serializeAttachment({ ...state, authenticated: false } as ConnectionState)
+      }
+      context.log.warn("user websocket target mismatch", {
+        source: "auth",
+        targetUserId: targetUserId ?? null,
+        authenticatedUserId: userId,
+      })
+      ws.close(1008, "Unauthorized")
+      return
+    }
     const wasOnline = countAuthenticatedUserConnections(context, userId) > 0
-    ws.serializeAttachment({ type: "user", userId, authenticated: true, name, discriminator } as ConnectionState)
+    ws.serializeAttachment({
+      type: "user",
+      userId,
+      targetUserId,
+      authenticated: true,
+      name,
+      discriminator,
+    } as ConnectionState)
     context.log.info("websocket authenticated", { userId })
     ws.send(JSON.stringify({ type: "auth.ok" }))
     if (!wasOnline) {
@@ -213,18 +252,47 @@ export async function handleWebSocketError(
   try { ws.close(1011, "Internal error") } catch { }
 }
 
-function broadcast(context: WsDurableContext, message: string): number {
+function broadcast(
+  context: WsDurableContext,
+  message: string,
+  targetUserId: string | null,
+): number {
   let sent = 0
   for (const ws of context.ctx.getWebSockets()) {
     const state = ws.deserializeAttachment() as ConnectionState
-    if (state.authenticated) {
-      try {
-        ws.send(message)
-        sent++
-      } catch { }
+    if (!state?.authenticated) continue
+    if (state.type === "user") {
+      if (!targetUserId || state.userId !== targetUserId) {
+        invalidateMismatchedUserSocket(context, ws, state, targetUserId, "broadcast")
+        continue
+      }
+    } else if (targetUserId) {
+      continue
     }
+    try {
+      ws.send(message)
+      sent++
+    } catch { }
   }
   return sent
+}
+
+function invalidateMismatchedUserSocket(
+  context: WsDurableContext,
+  ws: WebSocket,
+  state: Extract<ConnectionState, { type: "user" }>,
+  targetUserId: string | null,
+  source: "broadcast" | "online-check",
+): void {
+  ws.serializeAttachment({ ...state, authenticated: false } as ConnectionState)
+  context.log.warn("historical user websocket target mismatch", {
+    source,
+    targetUserId,
+    authenticatedUserId: state.userId,
+  })
+  try {
+    ws.close(1008, "Unauthorized")
+  } catch { }
 }
 
 function countAuthenticatedUserConnections(context: WsDurableContext, userId: string): number {

@@ -1,7 +1,14 @@
 import type { Logger } from "@alook/shared"
 
 export type ConnectionState =
-  | { type: "user"; userId: string; authenticated: boolean; name?: string; discriminator?: string }
+  | {
+    type: "user"
+    userId: string
+    targetUserId?: string
+    authenticated: boolean
+    name?: string
+    discriminator?: string
+  }
   | { type: "daemon"; daemonId: string; userId: string; authenticated: boolean }
   | {
     type: "community-machine"
