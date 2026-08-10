@@ -1,5 +1,5 @@
 import { test, expect } from "./_fixtures/community-fixture"
-import { sendMessage } from "./_fixtures/actions"
+import { composerEditable, sendMessage } from "./_fixtures/actions"
 import { seedServer, seedChannel, seedMessage } from "./_fixtures/seed"
 
 // Journey 9 — threads. Creating a thread from a message surfaces a thread
@@ -22,12 +22,23 @@ test.describe.serial("threads", () => {
 
   test("creating a thread from a message shows a thread indicator on the parent", async ({ asUser }) => {
     const { page } = await asUser("alice")
+    const requests: string[] = []
+    page.on("request", (request) => requests.push(request.url()))
     await page.goto(`/c/channels/${serverId}/${channelId}`)
     await page.waitForURL(new RegExp(channelId), { timeout: 20_000 , waitUntil: "commit" })
 
     // The seeded parent message renders (real id, not a racy optimistic row).
     const row = page.getByText("thread parent", { exact: false }).first()
     await expect(row).toBeVisible({ timeout: 20_000 })
+
+    const threadMessagesLoaded = page.waitForResponse((response) => {
+      const url = new URL(response.url())
+      return response.request().method() === "GET" &&
+        url.pathname.startsWith("/api/community/channels/") &&
+        url.pathname.endsWith("/messages") &&
+        url.pathname !== `/api/community/channels/${channelId}/messages` &&
+        response.ok()
+    })
 
     // Open the message's more-menu → Create Thread. Retry the open since the
     // hover toolbar can close between the hover and the menu click.
@@ -39,11 +50,31 @@ test.describe.serial("threads", () => {
 
     // Thread creation navigates off the parent channel into the thread child.
     await page.waitForURL((url) => !url.pathname.endsWith(`/${channelId}`), { timeout: 20_000, waitUntil: "commit" })
+    const threadId = new URL(page.url()).pathname.split("/").at(-1)!
+    const threadMessagesResponse = await threadMessagesLoaded
+    expect(new URL(threadMessagesResponse.url()).pathname).toBe(`/api/community/channels/${threadId}/messages`)
+    await expect(composerEditable(page)).toBeVisible()
 
     // The thread is usable: a reply posts and appears in the thread view.
     const reply = `first reply ${Date.now()}`
     await sendMessage(page, reply)
     await expect(page.getByText(reply, { exact: false }).first()).toBeVisible({ timeout: 15_000 })
+
+    const exactChannelRequests = requests.filter((requestUrl) =>
+      new URL(requestUrl).pathname === `/api/community/channels/${threadId}`
+    ).length
+    const retainedSidebarRequests = requests.filter((requestUrl) => {
+      const url = new URL(requestUrl)
+      return url.pathname === `/api/community/servers/${serverId}/channels` &&
+        url.searchParams.get("retainId") === threadId
+    }).length
+    await test.info().attach("thread-route-request-counts", {
+      body: JSON.stringify({ exactChannelRequests, retainedSidebarRequests }),
+      contentType: "application/json",
+    })
+    console.log(`thread-route requests exact=${exactChannelRequests} retained=${retainedSidebarRequests}`)
+    expect(exactChannelRequests).toBeLessThanOrEqual(3)
+    expect(retainedSidebarRequests).toBeLessThanOrEqual(3)
 
     // Back on the parent channel, the message now carries a thread indicator.
     await page.goto(`/c/channels/${serverId}/${channelId}`)
