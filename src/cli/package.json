@@ -57,7 +57,7 @@
     "@alook/shared": "workspace:*",
     "@types/bun": "^1.3.14",
     "eslint": "^9.39.5",
-    "knip": "^6.31.0",
+    "knip": "^6.32.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.66.0",
     "vitest": "^4.1.10"
