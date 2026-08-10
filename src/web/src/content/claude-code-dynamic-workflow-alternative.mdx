@@ -1,18 +1,20 @@
 export const metadata = {
   slug: "claude-code-dynamic-workflow-alternative",
-  title: "Open Source Alternative to Claude Code Dynamic Workflow: Email-Based Agent Coordination",
+  title: "OpenCode Dynamic Workflow: Claude Code vs Email Coordination",
   date: "2026-06-01",
+  dateModified: "2026-08-10",
   author: "Alook Team",
   excerpt:
-    "Claude Code dynamic workflows suit one-shot parallel tasks. Email-based agent coordination adds persistent context, multi-day handoffs, and team visibility.",
+    "OpenCode dynamic workflow needs often mean durable coordination. Claude Code stays in-session; email coordination spans OpenCode, Codex, and Claude Code.",
   readingTime: "4 min read",
+  image: "/blog/claude-code-dynamic-workflow-alternative/seo-team.png",
 };
 
-Claude Code shipped dynamic workflows last week. Write JavaScript, run 100+ agents, keep working.
+If you searched for an **OpenCode dynamic workflow**, start here: Claude Code’s dynamic workflows run inside Claude Code. They are strong for huge parallel jobs in one session. OpenCode does not inherit that same in-session workflow engine. Teams that run OpenCode (or mix OpenCode with Codex and Claude Code) usually need a separate coordination path when work must last more than one sitting.
 
-Great if you stay in one Claude Code session and work alone.
+Claude Code dynamic workflows: write JavaScript, run many agents, keep working in that session. Great if you stay in one Claude Code session and work alone.
 
-We built something different at Alook because we needed agents that remember things tomorrow and can hand off work to teammates. After testing both for a month, I can tell you exactly when each one breaks.
+Alook took a different path because agent work often needs to survive overnight and move between people. Dynamic workflows and email-style coordination solve different jobs.
 
 ## Dynamic Workflows Do One Thing Really Well
 
@@ -31,15 +33,21 @@ Launch 50 to 500 agents at once. They all run in parallel while you keep working
 
 ## Then You End the Session
 
-I audited a codebase with dynamic workflows. Spent $47 in tokens, saved six hours of manual work. Great trade.
+A large dynamic-workflow run can still be a good trade for a one-shot audit. The limit shows up the next day.
 
-Next day I wanted to run it again with a small change. I had to start from scratch because exiting Claude Code ended the session. Resume works within the same session — completed agents return cached results when you pause and resume from `/workflows` — but a new session starts the workflow fresh. I tried to hand it to a colleague who handles our security reviews. Couldn't. The run was tied to my session.
+Resume works within the same session: completed agents can return cached results when you pause and resume from `/workflows`. A new session starts the workflow fresh. You cannot hand the live run to a teammate as a shared, ongoing job. The work stays tied to that Claude Code session.
 
-Dynamic workflows run through Claude Code on Anthropic's infrastructure (or your API/Bedrock/Foundry setup). They require a paid Claude plan, API access, or an equivalent hosted integration — not a single $20 Pro tier alone.
+Dynamic workflows run through Claude Code on Anthropic's infrastructure (or your API/Bedrock/Foundry setup). They require a paid Claude plan, API access, or an equivalent hosted integration. A single low-tier consumer plan alone is often not enough for this class of run.
 
-## We Went with Email Instead
+## OpenCode dynamic workflow vs Claude Code dynamic workflows
 
-Sounds primitive. Agents literally email each other. That's also why it works across sessions, across weeks, and across teammates.
+**Claude Code dynamic workflows** orchestrate many agents inside one Claude Code session with JavaScript. They shine when the whole job finishes before you close that session.
+
+**OpenCode** is a supported local runtime in Alook’s coordination layer today, alongside Codex and Claude Code. If your question is how to get multi-step agent work with OpenCode that lasts across days, you usually need email-style or room-style coordination rather than Claude Code’s session-bound workflow runner.
+
+## We went with email instead
+
+Sounds primitive. Agents literally email each other. That is also why it works across sessions, across weeks, and across teammates.
 
 Alook does this. While dynamic workflows only work in Claude Code, Alook connects to Codex, OpenCode, and Claude Code today. Cursor, Hermes, and OpenClaw are listed as coming soon.
 
@@ -61,9 +69,9 @@ Each agent has a separate workspace. No shared state bugs. Everything logs to `.
 
 Our SEO program works like this. Monday: Rosanna finds keywords. Wednesday: Vera writes posts. Friday: Oralla ships them. Following week: Kai reports numbers. Adjust based on data. Repeat.
 
-The agents remember. Vera references keyword research from two weeks ago. Oralla knows which deployment patterns worked. Kai tracks trends across months. Try keeping that context alive in one browser tab.
+The agents keep durable references. Vera can cite keyword research from earlier weeks. Oralla can reuse deployment patterns that already worked. Kai can track trends across months. That kind of continuity is hard to keep in one browser tab.
 
-May numbers: 3 articles live, 173 impressions, 41 clicks, 23.70% CTR. Not massive but real. System logged 87 tasks over 18 days. Each one searchable.
+In May 2026, our SEO program logged 3 published articles, 173 impressions, 41 clicks, and a 23.70% CTR in Search Console, with 87 tasks recorded over 18 days. Small numbers, but each task stayed searchable in the timeline.
 
 ## When Each One Wins
 
@@ -80,7 +88,7 @@ May numbers: 3 articles live, 173 impressions, 41 clicks, 23.70% CTR. Not massiv
 
 ## Audit 500 Files or Run a Program?
 
-Need to check 500 API endpoints for auth bugs? Dynamic workflow. Write the script, 100 agents take 5 endpoints each, done in 20 minutes for $30. Manual would take two days.
+Need to check hundreds of API endpoints for auth bugs right now? Dynamic workflow. Script the fan-out, let many agents each take a slice, get a merged report in one session.
 
 Building a content program? Email coordination. Research accumulates. Writing improves based on what worked. Deployment follows a checklist that evolves. Analytics inform next week's topics. You can't script that ahead of time because you don't know what you'll learn.
 
@@ -109,25 +117,26 @@ Donia emails the right agent. You see it happen in the activity feed.
 
 ![Email activity feed](/blog/claude-code-dynamic-workflow-alternative/email-inbox.png)
 
-Real workflow from last week:
-- Me: "Write API rate limiting best practices post"
+Illustrative handoff shape:
+
+- You: "Write API rate limiting best practices post"
 - Donia → Rosanna: "Research rate limiting approaches"
-- Rosanna → Donia: "Found 5 patterns with tradeoffs" (3 hours later)
+- Rosanna → Donia: "Found patterns with tradeoffs" (hours later)
 - Donia → Vera: "Write post from attached research"
-- Vera → Donia: "Draft attached, 1,200 words" (next morning)
-- Donia → Me: "Post ready for review"
+- Vera → Donia: "Draft attached" (next morning)
+- Donia → you: "Post ready for review"
 
-Everything saved. Search it later. Agents reference it next time.
+Everything saved. Search it later. Agents can reference it next time.
 
-## I Ran the Same Audit Both Ways
+## Same job, two coordination styles
 
-Security audit of our auth system.
+Suppose you need a security pass over an auth surface.
 
-Dynamic workflow: 5 minutes writing JavaScript. 100 agents, 18 minutes runtime. $31. Complete coverage report.
+**Dynamic workflow:** write the orchestration script, fan out many agents in one session, get a broad coverage report before you close the window. Strong when breadth matters more than multi-day continuity.
 
-Email coordination: 10 minutes explaining the task. One agent, 4 hours (I did other work). $8. Found fewer issues but explained each one. When I ran it again two weeks later, it remembered the previous patterns and specifically checked if we'd regressed.
+**Email coordination:** brief one agent, let it work asynchronously, review findings when ready. A later pass can reuse prior notes and check for regressions because the thread and timeline persist. Strong when explanation and follow-up matter more than raw fan-out speed.
 
-Speed isn't the difference. Coverage versus understanding is.
+Speed is not the only difference. Coverage versus durable understanding is.
 
 ## You Probably Want Both
 
@@ -135,6 +144,6 @@ Claude Code dynamic workflows demolish single-session parallel work. Migrations,
 
 Email coordination handles everything that unfolds over time. Programs that run for months. Work that moves between people. Context that matters next week.
 
-They solve different problems. We use email coordination to run our product team. When someone needs to audit 500 files, they trigger a dynamic workflow. Results come back through email for the next person.
+They solve different problems. We use email-style coordination to run our product team. When someone needs a large one-shot audit, they can still trigger a dynamic workflow, then bring results back into the durable thread for the next person.
 
 **About Alook:** Open-source agent coordination platform. Self-hosted option. Works with Codex/OpenCode/Claude Code. [GitHub](https://github.com/alookai/alook) | [Docs](https://github.com/alookai/alook/blob/main/AGENTS.md)
