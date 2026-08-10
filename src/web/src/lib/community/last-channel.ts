@@ -10,6 +10,12 @@
 // mirroring `composer-draft.ts` — any failure degrades to "no memory", i.e.
 // exactly today's default-channel behavior, never a throw.
 
+import {
+  clearNavigationMemory,
+  readNavigationMemory,
+  writeNavigationMemory,
+} from "./navigation-memory"
+
 const PREFIX = "community:lastChannel:"
 
 export function lastChannelKey(serverId: string): string {
@@ -17,22 +23,11 @@ export function lastChannelKey(serverId: string): string {
 }
 
 export function getLastChannel(serverId: string): string | null {
-  if (typeof window === "undefined") return null
-  try {
-    return localStorage.getItem(lastChannelKey(serverId))
-  } catch {
-    return null
-  }
+  return readNavigationMemory(lastChannelKey(serverId))
 }
 
 export function setLastChannel(serverId: string, channelId: string): void {
-  if (typeof window === "undefined") return
-  try {
-    localStorage.setItem(lastChannelKey(serverId), channelId)
-  } catch {
-    // Best-effort: private-mode / quota failures just mean no memory this
-    // session, which falls back to the default channel — never surface it.
-  }
+  writeNavigationMemory(lastChannelKey(serverId), channelId)
 }
 
 /**
@@ -44,12 +39,7 @@ export function setLastChannel(serverId: string, channelId: string): void {
  * setters; a failure just means the stale id lingers, never a throw.
  */
 export function clearLastChannel(serverId: string): void {
-  if (typeof window === "undefined") return
-  try {
-    localStorage.removeItem(lastChannelKey(serverId))
-  } catch {
-    /* best-effort — see setLastChannel */
-  }
+  clearNavigationMemory(lastChannelKey(serverId))
 }
 
 /**

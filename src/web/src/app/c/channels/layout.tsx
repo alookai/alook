@@ -33,6 +33,7 @@ import {
   runAuthoritativeServerEject,
 } from "@/components/community/eject-server"
 import { clearLastChannel } from "@/lib/community/last-channel"
+import { getLastMeLeaf, pickMeLandingLocation } from "@/lib/community/last-me-location"
 import { usePresence } from "@/hooks/community/use-server-panels"
 import {
   patchForumSidebarUnreadExact,
@@ -271,7 +272,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
 
   const goHome = useCallback(() => {
     setMobileZone("nav")
-    router.push("/c/me")
+    router.push(pickMeLandingLocation(getLastMeLeaf()))
   }, [router])
   const goServer = useCallback(() => { setMobileZone("nav") }, [])
 
