@@ -828,6 +828,48 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     })
   })
 
+  it("does not await a pending notify work on the normal delivery path", async () => {
+    mockGetMessage.mockResolvedValue(messageRow({ content: "hello" }))
+    mockResolveChannelRecipients.mockResolvedValueOnce(["author_1", "cara_1"])
+    mockDispatchMessageNotify.mockReturnValueOnce(new Promise<void>(() => {}))
+
+    const result = await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+      body: { content: "hello" },
+    })
+
+    expect(result.ok).toBe(true)
+    expect(mockDispatchMessageNotify).toHaveBeenCalledWith(
+      {},
+      { authorName: "Author" },
+      { id: "msg_1", channelId: "c1" },
+      ["cara_1"],
+      expect.objectContaining({ mentionedUserIds: [] }),
+    )
+  })
+
+  it("starts notify only when a deferred broadcast thunk is invoked", async () => {
+    mockGetMessage.mockResolvedValue(messageRow({ content: "hello" }))
+    mockResolveChannelRecipients.mockResolvedValueOnce(["author_1", "cara_1"])
+    mockDispatchMessageNotify.mockReturnValueOnce(new Promise<void>(() => {}))
+
+    const result = await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+      body: { content: "hello" },
+      deferBroadcast: true,
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(mockDispatchMessageNotify).not.toHaveBeenCalled()
+    await expect(result.broadcast?.()).resolves.toBeUndefined()
+    expect(mockDispatchMessageNotify).toHaveBeenCalledTimes(1)
+  })
+
   it("suppressBroadcast (migration-backfill mode): STRUCTURAL core runs (enroll + mention rows), real-time delivery shell is fully dropped", async () => {
     // The existing-data migration's atomic primitive needs a create that
     // persists the message + enrolls participants + writes mention rows but
@@ -859,6 +901,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     })
     // Real-time delivery shell FULLY dropped: no WS fan-out of any kind.
     expect(mockFanOutToChannel).not.toHaveBeenCalled()
+    expect(mockDispatchMessageNotify).not.toHaveBeenCalled()
     // ...and no deferred thunk handed back either (unlike deferBroadcast).
     expect(result.ok).toBe(true)
     if (result.ok) expect(result.broadcast).toBeUndefined()

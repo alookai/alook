@@ -32,11 +32,63 @@
  * where "mentioned" = personal @ ∪ @everyone ∪ reply-to-me (the caller's full
  * mention set — @everyone counts, no split; Gener #28).
  */
+import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries, WS_EVENTS, createLogger } from "@alook/shared"
-import type { Database, NotificationLevelValue } from "@alook/shared"
+import type { Database, NotificationLevelValue, WsMessage } from "@alook/shared"
 import { broadcastToUser } from "../broadcast"
 
 const log = createLogger({ service: "community-notify" })
+const notifyMaxActive = 3
+
+type NotifyLeafTask = {
+  kind: "mention" | "unread"
+  userId: string
+  event: WsMessage
+}
+
+type BoundedSettleResult = {
+  results: PromiseSettledResult<void>[]
+  maxActive: number
+}
+
+export async function settleNotifyTasks<T>(
+  tasks: readonly T[],
+  run: (task: T, index: number) => Promise<void>,
+): Promise<BoundedSettleResult> {
+  const results = new Array<PromiseSettledResult<void>>(tasks.length)
+  let nextIndex = 0
+  let active = 0
+  let maxActive = 0
+
+  const workers = Array.from(
+    { length: Math.min(notifyMaxActive, tasks.length) },
+    async () => {
+      while (nextIndex < tasks.length) {
+        const index = nextIndex
+        nextIndex += 1
+        active += 1
+        maxActive = Math.max(maxActive, active)
+        try {
+          await run(tasks[index], index)
+          results[index] = { status: "fulfilled", value: undefined }
+        } catch (reason) {
+          results[index] = { status: "rejected", reason }
+        } finally {
+          active -= 1
+        }
+      }
+    },
+  )
+
+  await Promise.all(workers)
+  return { results, maxActive }
+}
+
+function safeLog(write: () => void): void {
+  try {
+    write()
+  } catch {}
+}
 
 export interface MessageNotifyContext {
   /**
@@ -76,7 +128,7 @@ export function shouldDeliver(level: NotificationLevelValue, wasMentioned: boole
  *   expansion ∪ reply targets), already author-excluded — @everyone counts as a
  *   mention (Gener #28), no carve-out.
  */
-export async function dispatchMessageNotify(
+async function runMessageNotify(
   db: Database,
   ctx: MessageNotifyContext,
   message: { id: string; channelId: string },
@@ -92,54 +144,111 @@ export async function dispatchMessageNotify(
     railChannelId?: string
   },
 ): Promise<void> {
+  const startedAt = Date.now()
   try {
     const { channelId } = message
-    const mentioned = new Set(opts.mentionedUserIds)
+    const recipientIds = [...new Set(recipients)]
+    const mentionedIds = [...new Set(opts.mentionedUserIds)]
+    const mentioned = new Set(mentionedIds)
 
-    const everyone = [...new Set([...recipients, ...opts.mentionedUserIds])]
+    const everyone = [...new Set([...recipientIds, ...mentionedIds])]
     const levels = await queries.communityNotificationSetting.resolveEffectiveLevelForUsers(
       db,
       everyone,
       channelId,
     )
     const levelOf = (userId: string): NotificationLevelValue => levels.get(userId) ?? "all"
+    const tasks: NotifyLeafTask[] = []
 
-    // MENTION_CREATE live push — only to mentioned recipients whose level
-    // delivers. A `nothing` mentioned recipient gets NO push, but their mention
-    // ROW is still written by the caller.
-    for (const userId of mentioned) {
+    for (const userId of mentionedIds) {
       if (!shouldDeliver(levelOf(userId), true)) continue
-      broadcastToUser(userId, {
-        type: WS_EVENTS.MENTION_CREATE,
+      tasks.push({
+        kind: "mention",
         userId,
-        messageId: message.id,
-        channelId,
-        authorName: ctx.authorName,
-      }).catch(() => {})
+        event: {
+          type: WS_EVENTS.MENTION_CREATE,
+          userId,
+          messageId: message.id,
+          channelId,
+          authorName: ctx.authorName,
+        },
+      })
     }
 
-    // Per-user UNREAD_BUMP badge — per-recipient (A muted, B not), so it rides a
-    // per-user event, not a flag on the shared MESSAGE_CREATE payload.
-    for (const userId of recipients) {
+    for (const userId of recipientIds) {
       const isMention = mentioned.has(userId)
       if (!shouldDeliver(levelOf(userId), isMention)) continue
-      broadcastToUser(userId, {
-        type: WS_EVENTS.UNREAD_BUMP,
+      tasks.push({
+        kind: "unread",
         userId,
-        channelId,
-        // serverId + railChannelId let the client patch the RIGHT server tree
-        // and the right (parent, for threads) sidebar row; isMention splits
-        // +mention vs +unread. All optional — a client on an older frame falls
-        // back to channelId + current-server behavior.
-        ...(opts.serverId !== undefined ? { serverId: opts.serverId } : {}),
-        ...(opts.railChannelId !== undefined ? { railChannelId: opts.railChannelId } : {}),
-        isMention,
-      }).catch(() => {})
+        event: {
+          type: WS_EVENTS.UNREAD_BUMP,
+          userId,
+          channelId,
+          ...(opts.serverId !== undefined ? { serverId: opts.serverId } : {}),
+          ...(opts.railChannelId !== undefined ? { railChannelId: opts.railChannelId } : {}),
+          isMention,
+        },
+      })
     }
+
+    const { results, maxActive } = await settleNotifyTasks(
+      tasks,
+      (task) => broadcastToUser(task.userId, task.event),
+    )
+    let mentionSuccess = 0
+    let mentionFailure = 0
+    let unreadSuccess = 0
+    let unreadFailure = 0
+
+    for (const [index, result] of results.entries()) {
+      const succeeded = result.status === "fulfilled"
+      if (tasks[index].kind === "mention") {
+        if (succeeded) mentionSuccess += 1
+        else mentionFailure += 1
+      } else if (succeeded) {
+        unreadSuccess += 1
+      } else {
+        unreadFailure += 1
+      }
+    }
+
+    safeLog(() => log.info("dispatch_message_notify_complete", {
+      messageId: message.id,
+      recipientCount: recipientIds.length,
+      mentionedCount: mentionedIds.length,
+      leafTaskCount: tasks.length,
+      mentionSuccess,
+      mentionFailure,
+      unreadSuccess,
+      unreadFailure,
+      maxActive,
+      durationMs: Date.now() - startedAt,
+    }))
   } catch (err) {
-    log.warn("dispatch_message_notify_failed", {
+    safeLog(() => log.warn("dispatch_message_notify_failed", {
       messageId: message.id,
       err: String(err),
-    })
+      durationMs: Date.now() - startedAt,
+    }))
   }
+}
+
+export function dispatchMessageNotify(
+  db: Database,
+  ctx: MessageNotifyContext,
+  message: { id: string; channelId: string },
+  recipients: string[],
+  opts: {
+    mentionedUserIds: string[]
+    serverId?: string
+    railChannelId?: string
+  },
+): Promise<void> {
+  const work = runMessageNotify(db, ctx, message, recipients, opts)
+  try {
+    const cloudflareContext = getCloudflareContext()
+    cloudflareContext.ctx.waitUntil(work)
+  } catch {}
+  return work
 }
