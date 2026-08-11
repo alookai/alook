@@ -28,7 +28,7 @@ test.describe.serial("eject, navigation & logout", () => {
   })
 
   test("logout clears the session", async ({ asUser }) => {
-    const { page } = await asUser("bob")
+    const { page } = await asUser("logout")
     await page.goto("/c")
     await page.waitForURL(/\/c/, { timeout: 20_000 , waitUntil: "commit" })
 
