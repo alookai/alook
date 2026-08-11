@@ -1,6 +1,15 @@
 "use client"
 import { useEffect, useRef, useCallback } from "react"
-import type { WsMessage } from "@alook/shared"
+import {
+  COMMUNITY_BROWSER_EVENT_MAX_BYTES,
+  isCommunityEventCandidate,
+  isCommunityEventType,
+  type WsMessage,
+} from "@alook/shared"
+import {
+  trackCommunityWsFrameDropped,
+  type CommunityWsFrameDropReason,
+} from "@/lib/analytics"
 import { isLocalMode, WS_DO_PORT_DEFAULT } from "@/lib/utils"
 
 const isLocal = isLocalMode()
@@ -19,10 +28,48 @@ const WS_RECONNECT_MAX = Number(process.env.NEXT_PUBLIC_WS_RECONNECT_MAX_DELAY_M
 export type WsMessageIncoming = WsMessage & { [key: string]: unknown }
 
 export type UseUserWsOptions = {
-  onReconnect?: () => void
-  onDisconnect?: () => void
-  onAuthenticated?: () => void
+  onReconnect?: (info: { reconnectDurationMs: number }) => void | Promise<void>
+  onDisconnect?: () => void | Promise<void>
+  onAuthenticated?: () => void | Promise<void>
   requestDaemonStatusOnAuth?: boolean
+}
+
+function runLifecycleCallback(
+  name: "authenticated" | "disconnect" | "reconnect",
+  callback: (() => void | Promise<void>) | undefined,
+) {
+  if (!callback) return
+  try {
+    const result = callback()
+    if (result && typeof result.then === "function") {
+      void result.catch(() => {
+        console.warn("[ws] lifecycle callback rejected", { callback: name })
+      })
+    }
+  } catch {
+    console.warn("[ws] lifecycle callback threw", { callback: name })
+  }
+}
+
+function reportDroppedFrame(
+  reason: CommunityWsFrameDropReason,
+  value?: Record<string, unknown>,
+  byteCount?: number,
+) {
+  const rawType = value?.type
+  const type = isCommunityEventType(rawType) ? rawType : "unknown"
+  const rawVersion = value?.contractVersion
+  const contractVersion = typeof rawVersion === "number" && Number.isSafeInteger(rawVersion)
+    ? rawVersion
+    : undefined
+  const metadata = {
+    reason,
+    type,
+    ...(contractVersion === undefined ? {} : { contractVersion }),
+    ...(byteCount === undefined ? {} : { byteCount }),
+  }
+  console.warn("[ws] frame dropped", { event: "community_ws_frame_dropped", ...metadata })
+  trackCommunityWsFrameDropped(metadata)
 }
 
 export function useUserWs(
@@ -37,7 +84,9 @@ export function useUserWs(
   const onAuthenticatedRef = useRef(options?.onAuthenticated)
   const requestDaemonStatusOnAuthRef = useRef(options?.requestDaemonStatusOnAuth ?? true)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const hasConnectedBeforeRef = useRef(false)
+  const hasAuthenticatedBeforeRef = useRef(false)
+  const authenticatedGenerationRef = useRef<number | null>(null)
+  const disconnectedAtRef = useRef<number | null>(null)
   const lastMessageAtRef = useRef(0)
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const livenessIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -119,11 +168,6 @@ export function useUserWs(
       reconnectDelay.current = WS_RECONNECT_INIT
       ws.send(JSON.stringify({ type: "auth", token: authToken }))
 
-      if (hasConnectedBeforeRef.current) {
-        onReconnectRef.current?.()
-      }
-      hasConnectedBeforeRef.current = true
-
       lastMessageAtRef.current = Date.now()
       pingIntervalRef.current = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
@@ -140,24 +184,78 @@ export function useUserWs(
     ws.onmessage = (e) => {
       if (ws !== wsRef.current || generation !== connectionGenerationRef.current) return
       lastMessageAtRef.current = Date.now()
+      if (typeof e.data !== "string") {
+        reportDroppedFrame("invalid-json")
+        return
+      }
+      let parsed: unknown
       try {
-        const msg = JSON.parse(e.data)
-        if (msg.type === "auth.ok") {
-          onAuthenticatedRef.current?.()
-          if (requestDaemonStatusOnAuthRef.current) {
-            ws.send(JSON.stringify({ type: "check_daemon_status" }))
-          }
+        parsed = JSON.parse(e.data)
+      } catch {
+        reportDroppedFrame("invalid-json")
+        return
+      }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        reportDroppedFrame("non-object")
+        return
+      }
+      const msg = parsed as Record<string, unknown>
+      if (typeof msg.type !== "string" || msg.type.length === 0) {
+        reportDroppedFrame("missing-type", msg)
+        return
+      }
+      if (msg.type === "auth.ok") {
+        if (authenticatedGenerationRef.current === generation) {
+          reportDroppedFrame("duplicate-auth-ok", msg)
           return
         }
+        authenticatedGenerationRef.current = generation
+        const isReconnect = hasAuthenticatedBeforeRef.current
+        hasAuthenticatedBeforeRef.current = true
+        const reconnectDurationMs = disconnectedAtRef.current === null
+          ? 0
+          : Math.max(0, Date.now() - disconnectedAtRef.current)
+        disconnectedAtRef.current = null
+        runLifecycleCallback("authenticated", onAuthenticatedRef.current)
+        if (isReconnect) {
+          runLifecycleCallback("reconnect", () =>
+            onReconnectRef.current?.({ reconnectDurationMs }))
+        }
+        if (requestDaemonStatusOnAuthRef.current) {
+          ws.send(JSON.stringify({ type: "check_daemon_status" }))
+        }
+        return
+      }
+      if (authenticatedGenerationRef.current !== generation) {
+        reportDroppedFrame("pre-auth-frame", msg)
+        return
+      }
+      if (isCommunityEventCandidate(msg)) {
+        const byteCount = new TextEncoder().encode(e.data).byteLength
+        if (byteCount > COMMUNITY_BROWSER_EVENT_MAX_BYTES) {
+          reportDroppedFrame("oversized", msg, byteCount)
+          return
+        }
+      }
+      try {
         onMessageRef.current(msg as WsMessageIncoming)
-      } catch {}
+      } catch {
+        console.warn("[ws] message callback threw", {
+          type: /^[a-z0-9_.:-]+$/i.test(msg.type) && msg.type.length <= 96 ? msg.type : "unknown",
+        })
+      }
     }
 
     ws.onerror = () => {}
 
     ws.onclose = () => {
       if (ws !== wsRef.current) return
-      onDisconnectRef.current?.()
+      const wasAuthenticated = authenticatedGenerationRef.current === generation
+      if (wasAuthenticated) {
+        authenticatedGenerationRef.current = null
+        disconnectedAtRef.current ??= Date.now()
+        runLifecycleCallback("disconnect", onDisconnectRef.current)
+      }
       if (pingIntervalRef.current) { clearInterval(pingIntervalRef.current); pingIntervalRef.current = null }
       if (livenessIntervalRef.current) { clearInterval(livenessIntervalRef.current); livenessIntervalRef.current = null }
       scheduleReconnect(generation)

@@ -3,9 +3,28 @@ import {
   queries,
   withD1Retry,
   WS_EVENTS,
+  encodeCommunityBrowserEvent,
+  isCommunityEventCandidate,
 } from "@alook/shared"
 import type { UserConnectionState, WsDurableContext } from "./internal"
-import { createInternalUserBroadcastRequest } from "../internal-user-broadcast"
+import { createInternalBrowserBroadcastRequest } from "../internal-user-broadcast"
+import {
+  logCommunityBrowserEventRejected,
+  normalizeCommunityBrowserEvent,
+} from "../community-browser-event-ingress"
+
+function normalizeBrowserPayload(
+  context: WsDurableContext,
+  payload: unknown,
+): { ok: true; payload: unknown } | { ok: false } {
+  if (!isCommunityEventCandidate(payload)) return { ok: true, payload }
+  const normalized = normalizeCommunityBrowserEvent(payload)
+  if (!normalized.ok) {
+    logCommunityBrowserEventRejected(context.log, "ws-do-producer", normalized)
+    return { ok: false }
+  }
+  return { ok: true, payload: normalized.event }
+}
 
 export function handleClientTypingStart(
   context: WsDurableContext,
@@ -44,13 +63,13 @@ export function handleClientTypingStart(
     }
   }
 
-  const event = JSON.stringify({
+  const event = {
     type: WS_EVENTS.TYPING_START,
     channelId: typingMsg.channelId,
     userId: state.userId,
     name: state.name,
     discriminator: state.discriminator,
-  })
+  }
 
   fanOutTyping(context, state.userId, typingMsg.channelId, event).catch((err) => {
     context.log.warn("community:typing.start fan-out failed", { err: String(err) })
@@ -63,19 +82,22 @@ export async function notifyUserDO(
   userId: string,
   payload: unknown,
 ): Promise<void> {
+  const normalized = normalizeBrowserPayload(context, payload)
+  if (!normalized.ok) return
+  const outboundPayload = normalized.payload
   try {
     const userDoId = context.env.WS_DO.idFromName("user:" + userId)
     const userStub = context.env.WS_DO.get(userDoId)
     try {
       await userStub.fetch(
-        createInternalUserBroadcastRequest(userId, JSON.stringify(payload)),
+        createInternalBrowserBroadcastRequest(userId, outboundPayload),
       )
     } catch (err) {
       context.log.error("notifyUserDO: owner notify failed", { err: String(err), userId })
     }
 
     try {
-      const status = machineStatusPayload(payload)
+      const status = machineStatusPayload(outboundPayload)
       if (!status) return
       const db = createDb(context.env.DB)
       const bots = await queries.communityBot.listBotsForMachine(db, status.machineId)
@@ -104,9 +126,12 @@ export async function fanOutTyping(
   context: WsDurableContext,
   senderUserId: string,
   channelId?: string,
-  event?: string,
+  event?: unknown,
 ): Promise<void> {
   if (!event || !channelId) return
+  const normalized = normalizeBrowserPayload(context, event)
+  if (!normalized.ok) return
+  const outboundEvent = normalized.payload
   const db = createDb(context.env.DB)
   let recipientUserIds: string[] = []
 
@@ -132,7 +157,7 @@ export async function fanOutTyping(
         const doId = context.env.WS_DO.idFromName("user:" + userId)
         const stub = context.env.WS_DO.get(doId)
         return stub.fetch(
-          createInternalUserBroadcastRequest(userId, event),
+          createInternalBrowserBroadcastRequest(userId, outboundEvent),
         ).catch(() => { })
       })
     )
@@ -159,11 +184,11 @@ export async function fanOutTypingStop(
   )
   recipientUserIds = recipientUserIds.filter((id) => id !== senderUserId)
   if (recipientUserIds.length === 0) return
-  const body = JSON.stringify({
+  const event = {
     type: WS_EVENTS.TYPING_STOP,
     channelId,
     userId: senderUserId,
-  })
+  }
   for (let i = 0; i < recipientUserIds.length; i += context.subrequestBatchSize) {
     const batch = recipientUserIds.slice(i, i + context.subrequestBatchSize)
     await Promise.all(
@@ -171,7 +196,7 @@ export async function fanOutTypingStop(
         const doId = context.env.WS_DO.idFromName("user:" + userId)
         const stub = context.env.WS_DO.get(doId)
         return stub.fetch(
-          createInternalUserBroadcastRequest(userId, body),
+          createInternalBrowserBroadcastRequest(userId, event),
         ).catch(() => { })
       })
     )
@@ -191,16 +216,18 @@ export async function broadcastToAudience(
   userId: string,
   payload: unknown,
 ): Promise<void> {
+  const normalized = normalizeBrowserPayload(context, payload)
+  if (!normalized.ok) return
+  const outboundPayload = normalized.payload
   const audience = await getPresenceAudience(context, userId)
   if (audience.length === 0) return
-  const body = JSON.stringify(payload)
   for (let i = 0; i < audience.length; i += context.subrequestBatchSize) {
     const batch = audience.slice(i, i + context.subrequestBatchSize)
     await Promise.allSettled(
       batch.map((memberId) => {
         const doId = context.env.WS_DO.idFromName("user:" + memberId)
         const stub = context.env.WS_DO.get(doId)
-        return stub.fetch(createInternalUserBroadcastRequest(memberId, body))
+        return stub.fetch(createInternalBrowserBroadcastRequest(memberId, outboundPayload))
       })
     )
   }
@@ -254,6 +281,11 @@ export async function sendPresenceSnapshot(
     }
   }
   for (const id of onlineIds) {
-    ws.send(JSON.stringify({ type: WS_EVENTS.PRESENCE_UPDATE, userId: id, online: true }))
+    const encoded = encodeCommunityBrowserEvent({
+      type: WS_EVENTS.PRESENCE_UPDATE,
+      userId: id,
+      online: true,
+    })
+    if (encoded.ok) ws.send(encoded.body)
   }
 }

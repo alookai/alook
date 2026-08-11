@@ -125,7 +125,7 @@ describe("WebSocketDurableObject", () => {
       function auditBroadcast() {
         return mockStubFetch.mock.calls
           .map((c: any[]) => c[0] as Request)
-          .find((r: Request) => r.url.endsWith("/broadcast"))
+          .find((r: Request) => r.url.endsWith("/community-broadcast"))
       }
 
       it("single reset: agent_session writes session_reset audit + stamps awake in lockstep + broadcasts", async () => {
@@ -151,6 +151,7 @@ describe("WebSocketDurableObject", () => {
         expect(call).toBeDefined()
         const body = JSON.parse(await (call!).clone().text()) as Record<string, unknown>
         expect(body).toEqual({
+          contractVersion: 1,
           type: "community:bot.audit_event",
           botId: "bot_1",
           id: "bae_reset",
@@ -333,7 +334,7 @@ describe("WebSocketDurableObject", () => {
         expect(mockInsertBotAuditSessionReset).not.toHaveBeenCalled()
         const broadcasts = mockStubFetch.mock.calls
           .map((c: any[]) => c[0] as Request)
-          .filter((r: Request) => r.url.endsWith("/broadcast"))
+          .filter((r: Request) => r.url.endsWith("/community-broadcast"))
         expect(broadcasts).toHaveLength(1)
         const body = JSON.parse(await broadcasts[0]!.clone().text()) as Record<string, unknown>
         expect(body.kind).toBe("provider_changed")

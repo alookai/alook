@@ -126,13 +126,13 @@ export async function handleTypingFrame(
     write: async (binding) => {
       // Membership is enforced by `fanOutTyping`; the binding already carries
       // the bot display identity, avoiding another roster query per heartbeat.
-      const event = JSON.stringify({
+      const event = {
         type: WS_EVENTS.TYPING_START,
         channelId,
         userId: agentId,
         name: binding.name,
         discriminator: binding.discriminator,
-      })
+      }
       await fanOutTyping(context, agentId, channelId, event)
     },
   })

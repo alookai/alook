@@ -6,54 +6,19 @@ import { useUserWs } from "@/lib/use-user-ws"
 import { useCommunityStore } from "@/stores/community"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { communityKeys } from "@/lib/query-keys"
-import {
-  handleMessageCreate,
-  handleMessageEdited,
-  handleMessageUpdated,
-  handlePinEvent,
-  handleReactionEvent,
-} from "@/hooks/community/community-ws/message-events"
-import {
-  handleTypingStart,
-  handleTypingStop,
-} from "@/hooks/community/community-ws/typing-events"
-import {
-  handleCategoryEvent,
-  handleChannelEvent,
-  handleChildChannelCreate,
-  handleChildChannelUpdate,
-  handleInviteCreate,
-  handleServerDelete,
-  handleServerUpdate,
-} from "@/hooks/community/community-ws/structure-tree-events"
-import {
-  handleChannelMemberEvent,
-  handleMemberJoin,
-  handleMemberLeave,
-  handleMemberUpdate,
-} from "@/hooks/community/community-ws/membership-events"
-import {
-  handleFriendEvent,
-  handleMentionCreate,
-  handleUnreadBump,
-} from "@/hooks/community/community-ws/social-events"
-import {
-  handleBotAuditEvent,
-  handleMachineCreated,
-  handleMachineRemoved,
-  handleMachineStatus,
-  handleMachineUpdated,
-  handlePresenceUpdate,
-  handleStatusUpdate,
-} from "@/hooks/community/community-ws/presence-machine-events"
 import { reconcileCommunityWsReconnect } from "@/hooks/community/community-ws/reconnect"
+import { dispatchCommunityWsEvent } from "@/hooks/community/community-ws/registry"
 import type {
   CommunityWsHandlerContext,
   Subscription,
   UseCommunityWsOptions,
 } from "@/hooks/community/community-ws/handler-context"
-import type { CommunityWsEvent } from "@alook/shared"
-import { isCommunityEvent, TYPING_INDICATOR_THROTTLE_MS } from "@alook/shared"
+import {
+  decodeCommunityBrowserEvent,
+  isCommunityEventType,
+  TYPING_INDICATOR_THROTTLE_MS,
+} from "@alook/shared"
+import { trackCommunityWsFrameDropped } from "@/lib/analytics"
 
 export type {
   Subscription,
@@ -179,8 +144,25 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
 
   const handleMessage = useCallback(
     (msg: { type: string;[key: string]: unknown }) => {
-      if (!isCommunityEvent(msg)) return
-      const event = msg as CommunityWsEvent
+      if (!msg.type.startsWith("community:")) return
+      const decoded = decodeCommunityBrowserEvent(msg)
+      if (!decoded.ok) {
+        const metadata = {
+          reason: decoded.reason,
+          type: isCommunityEventType(msg.type) ? msg.type : "unknown",
+          ...(typeof msg.contractVersion === "number"
+            && Number.isSafeInteger(msg.contractVersion)
+            ? { contractVersion: msg.contractVersion }
+            : {}),
+        } as const
+        console.warn("[ws] frame dropped", {
+          event: "community_ws_frame_dropped",
+          ...metadata,
+        })
+        trackCommunityWsFrameDropped(metadata)
+        return
+      }
+      const event = decoded.event
       const communityStore = useCommunityStore.getState()
       const sub = communityStore.subscription
       const wsStore = useCommunityWsStore.getState()
@@ -204,87 +186,13 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
         scheduleInboxInvalidate,
       }
 
-      switch (event.type) {
-        case "community:message.create":
-          return handleMessageCreate(event, context)
-        case "community:unread.bump":
-          return handleUnreadBump(event, context)
-        case "community:reaction.add":
-        case "community:reaction.remove":
-          return handleReactionEvent(event, context)
-        case "community:pin.add":
-        case "community:pin.remove":
-          return handlePinEvent(event, context)
-        case "community:typing.start":
-          return handleTypingStart(event, context)
-        case "community:typing.stop":
-          return handleTypingStop(event, context)
-        case "community:channel.child_create":
-          return handleChildChannelCreate(event, context)
-        case "community:channel.child_update":
-          return handleChildChannelUpdate(event, context)
-        case "community:server.update":
-          return handleServerUpdate(event, context)
-        case "community:server.delete":
-          return handleServerDelete(event, context)
-        case "community:channel.create":
-        case "community:channel.update":
-        case "community:channel.delete":
-        case "community:channel.reorder":
-          return handleChannelEvent(event, context)
-        case "community:category.create":
-        case "community:category.update":
-        case "community:category.delete":
-        case "community:category.reorder":
-          return handleCategoryEvent(event, context)
-        case "community:channel.member_add":
-        case "community:channel.member_remove":
-          return handleChannelMemberEvent(event, context)
-        case "community:member.join":
-          return handleMemberJoin(event, context)
-        case "community:member.leave":
-          return handleMemberLeave(event, context)
-        case "community:member.update":
-          return handleMemberUpdate(event, context)
-        case "community:invite.create":
-          return handleInviteCreate(event, context)
-        case "community:friend.request":
-        case "community:friend.accept":
-        case "community:friend.reject":
-        case "community:friend.remove":
-        case "community:friend.block":
-          return handleFriendEvent(event, context)
-        case "community:message.updated":
-          return handleMessageUpdated(event, context)
-        case "community:message.edited":
-          return handleMessageEdited(event, context)
-        case "community:presence.update":
-          return handlePresenceUpdate(event)
-        case "community:status.update":
-          return handleStatusUpdate(event)
-        case "community:bot.audit_event":
-          return handleBotAuditEvent(event)
-        case "community:mention.create":
-          return handleMentionCreate(event, context)
-        case "community:machine.created":
-          return handleMachineCreated(event, context)
-        case "community:machine.status":
-          return handleMachineStatus(event, context)
-        case "community:machine.updated":
-          return handleMachineUpdated(event, context)
-        case "community:machine.removed":
-          return handleMachineRemoved(event, context)
-        default: {
-          const unhandledEvent: never = event
-          return unhandledEvent
-        }
-      }
+      dispatchCommunityWsEvent(event, context)
     },
     [queryClient, scheduleInboxInvalidate],
   )
 
-  const handleReconnect = useCallback(() => {
-    reconcileCommunityWsReconnect(queryClient)
+  const handleReconnect = useCallback(async ({ reconnectDurationMs }: { reconnectDurationMs: number }) => {
+    await reconcileCommunityWsReconnect(queryClient, reconnectDurationMs)
   }, [queryClient])
   const { send } = useUserWs(handleMessage, {
     onReconnect: handleReconnect,

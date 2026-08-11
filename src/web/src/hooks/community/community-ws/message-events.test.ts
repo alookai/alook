@@ -65,7 +65,9 @@ describe("useCommunityWs — message.create", () => {
       parentChannelId: "forum_1",
     } satisfies CommunityMessageCreate)
 
-    expect(capturedQueryClient.getQueryState(key)?.isInvalidated).toBe(true)
+    await vi.waitFor(() => {
+      expect(capturedQueryClient.getQueryState(key)?.isInvalidated).toBe(true)
+    })
   })
 
   it.each([false, true])(
@@ -97,7 +99,9 @@ describe("useCommunityWs — message.create", () => {
         activityAt: "2026-07-03T00:00:00.000Z",
         expiresAt: "2026-07-06T00:00:00.000Z",
       })
-      expect(capturedQueryClient.getQueryState(key)?.isInvalidated).toBe(true)
+      await vi.waitFor(() => {
+        expect(capturedQueryClient.getQueryState(key)?.isInvalidated).toBe(true)
+      })
 
       capturedQueryClient.setQueryData(key, forumSidebarFixture(["post_retained"]))
       expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(key)

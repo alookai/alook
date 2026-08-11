@@ -3,6 +3,7 @@ import { TYPING_INDICATOR_TIMEOUT_MS } from "@alook/shared"
 import { useCommunityStore } from "@/stores/community"
 import {
   applyTypingIndicator,
+  clearAllTypingIndicators,
   clearTypingIndicator,
   typingScopeKey,
 } from "./typing"
@@ -76,5 +77,21 @@ describe("community WS typing helpers", () => {
     clearTypingIndicator("dm:dm_1", "u_2")
     expect(useCommunityStore.getState().typingByScope.get("dm:dm_1")).toBeUndefined()
     expect(useCommunityStore.getState().typingTimers.has("dm:dm_1|u_2")).toBe(false)
+  })
+
+  it("cancels every timer before clearing all scopes and is idempotent", () => {
+    applyTypingIndicator("ch:one", "u_1", "One")
+    applyTypingIndicator("dm:two", "u_2", "Two")
+    const clear = vi.spyOn(globalThis, "clearTimeout")
+
+    clearAllTypingIndicators()
+
+    expect(clear).toHaveBeenCalledTimes(2)
+    expect(useCommunityStore.getState().typingByScope.size).toBe(0)
+    expect(useCommunityStore.getState().typingTimers.size).toBe(0)
+    clearAllTypingIndicators()
+    expect(clear).toHaveBeenCalledTimes(2)
+    vi.advanceTimersByTime(TYPING_INDICATOR_TIMEOUT_MS)
+    expect(useCommunityStore.getState().typingByScope.size).toBe(0)
   })
 })

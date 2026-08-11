@@ -15,6 +15,7 @@ const mockGetActiveDoNamesForMachine = sharedMocks.getActiveDoNamesForMachine
 const loggerMocks = {
   child: sharedMocks.loggerChild,
   debug: sharedMocks.loggerDebug,
+  warn: sharedMocks.loggerWarn,
 }
 
 describe("ws-do router", () => {
@@ -73,7 +74,7 @@ describe("ws-do router", () => {
       expect(res.status).toBe(204)
       expect(doMock.idFromName).toHaveBeenCalledWith("user:owner_1")
       const stubReq = doMock.stubFetch.mock.calls[0][0] as Request
-      expect(stubReq.url).toBe("http://internal/broadcast")
+      expect(stubReq.url).toBe("http://internal/community-broadcast")
       expect(stubReq.headers.get(INTERNAL_USER_TARGET_HEADER)).toBe("owner_1")
       const body = JSON.parse(await stubReq.text()) as Record<string, unknown>
       // Matches the shape ws-durable.ts emits for daemon-originating frames.
@@ -83,6 +84,7 @@ describe("ws-do router", () => {
       expect(body.kind).toBe("wake_trigger")
       expect(body.createdAt).toBe(payload.createdAt)
       expect(body.payload).toEqual(payload.payload)
+      expect(body.contractVersion).toBe(1)
     })
 
     it("400s on invalid JSON", async () => {
@@ -119,6 +121,34 @@ describe("ws-do router", () => {
       })
       const res = await handler.fetch(req, env as any)
       expect(res.status).toBe(400)
+    })
+
+    it("rejects an oversized audit event before Durable Object access", async () => {
+      const res = await handler.fetch(new Request(
+        "http://localhost/internal/broadcast-bot-audit-event",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            botId: "bot_1",
+            ownerUserId: "owner_1",
+            id: "evt_large",
+            kind: "thinking",
+            payload: { text: "x".repeat(70_000) },
+            createdAt: "2026-07-23T00:00:00.000Z",
+          }),
+        },
+      ), env as any)
+
+      expect(res.status).toBe(400)
+      expect(doMock.stubFetch).not.toHaveBeenCalled()
+      expect(loggerMocks.warn).toHaveBeenCalledWith("community_browser_event_rejected", {
+        route: "ws-do-producer",
+        reason: "oversized",
+        type: "community:bot.audit_event",
+        byteCount: expect.any(Number),
+      })
+      expect(JSON.stringify(loggerMocks.warn.mock.calls)).not.toContain("owner_1")
+      expect(JSON.stringify(loggerMocks.warn.mock.calls)).not.toContain("evt_large")
     })
 
     it("503s and never broadcasts when the DO fetch throws", async () => {

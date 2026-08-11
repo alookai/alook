@@ -32,22 +32,25 @@ const sharedMocks = vi.hoisted(() => {
   }
 })
 
-vi.mock("@alook/shared", () => ({
-  WS_EVENTS: {
-    BOT_AUDIT_EVENT: "community:bot.audit_event",
-  },
-  createDb: () => ({}),
-  createLogger: () => sharedMocks.logger,
-  queries: {
-    communityMachine: {
-      hashCredential: (bearer: string) => sharedMocks.hashCredential(bearer),
-      doNameFromHash: (hash: string) => sharedMocks.doNameFromHash(hash),
-      getActiveDoNamesForMachine: (db: unknown, machineId: string) => (
-        sharedMocks.getActiveDoNamesForMachine(db, machineId)
-      ),
+vi.mock("@alook/shared", async () => {
+  const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
+  return {
+    ...actual,
+    createDb: () => ({}),
+    createLogger: () => sharedMocks.logger,
+    queries: {
+      ...actual.queries,
+      communityMachine: {
+        ...actual.queries.communityMachine,
+        hashCredential: (bearer: string) => sharedMocks.hashCredential(bearer),
+        doNameFromHash: (hash: string) => sharedMocks.doNameFromHash(hash),
+        getActiveDoNamesForMachine: (db: unknown, machineId: string) => (
+          sharedMocks.getActiveDoNamesForMachine(db, machineId)
+        ),
+      },
     },
-  },
-}))
+  }
+})
 
 export interface RouterTestContext {
   doMock: ReturnType<typeof createMockDONamespace>

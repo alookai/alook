@@ -66,6 +66,15 @@ export function clearTypingIndicator(scopeKey: string, userId: string) {
   })
 }
 
+export function clearAllTypingIndicators() {
+  const state = useCommunityStore.getState()
+  state.typingTimers.forEach((timer) => clearTimeout(timer))
+  useCommunityStore.setState({
+    typingByScope: new Map(),
+    typingTimers: new Map(),
+  })
+}
+
 /**
  * Pure state patch: drop userId from `scopeKey`'s typing map (deleting the
  * scope key when it empties, to avoid unbounded Map growth) and its

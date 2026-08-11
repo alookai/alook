@@ -30,6 +30,9 @@ import {
   trackTemplatesBrowsed,
   trackSettingsUpdated,
   trackCanvasLayoutChanged,
+  trackCommunityWsFrameDropped,
+  trackCommunityWsReconcileComplete,
+  trackCommunityWsReconcileFailure,
 } from "./analytics"
 
 describe("analytics utility", () => {
@@ -237,6 +240,58 @@ describe("analytics utility", () => {
       expect(mockSendGTMEvent).toHaveBeenCalledWith({
         event: "canvas_layout_changed",
         layout_type: "tree",
+      })
+    })
+  })
+
+  describe("community WebSocket runtime contract", () => {
+    it("reports only bounded frame metadata", () => {
+      trackCommunityWsFrameDropped({
+        reason: "oversized",
+        type: "community:message.create",
+        contractVersion: 1,
+        byteCount: 65_537,
+      })
+      expect(mockSendGTMEvent).toHaveBeenCalledWith({
+        event: "community_ws_frame_dropped",
+        reason: "oversized",
+        type: "community:message.create",
+        contractVersion: 1,
+        byteCount: 65_537,
+      })
+    })
+
+    it("reports aggregate reconciliation completion", () => {
+      trackCommunityWsReconcileComplete({
+        policyCount: 12,
+        successCount: 11,
+        failureCount: 1,
+        durationMs: 25,
+        reconnectDurationMs: 1_500,
+      })
+      expect(mockSendGTMEvent).toHaveBeenCalledWith({
+        event: "community_ws_reconcile_complete",
+        policyCount: 12,
+        successCount: 11,
+        failureCount: 1,
+        durationMs: 25,
+        reconnectDurationMs: 1_500,
+      })
+    })
+
+    it("reports policy failures without raw errors or identifiers", () => {
+      trackCommunityWsReconcileFailure({
+        policy: "machines",
+        reason: "async-rejection",
+        payload: "private",
+        userId: "user-1",
+        token: "secret",
+        error: "raw error",
+      } as never)
+      expect(mockSendGTMEvent).toHaveBeenCalledWith({
+        event: "community_ws_reconcile_failure",
+        policy: "machines",
+        reason: "async-rejection",
       })
     })
   })

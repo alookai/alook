@@ -37,7 +37,6 @@ describe("useCommunityWs — member events", () => {
       type: "community:member.leave",
       serverId: "srv_1",
       userId: "u_me",
-      memberId: "member_me",
     } satisfies CommunityMemberLeave)
 
     expect(useCommunityStore.getState()).toMatchObject({
@@ -256,7 +255,9 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
       channelId: "post_2",
       userId: "u_me",
     })
-    expect(capturedQueryClient.getQueryState(key)?.isInvalidated).toBe(true)
+    await vi.waitFor(() => {
+      expect(capturedQueryClient.getQueryState(key)?.isInvalidated).toBe(true)
+    })
   })
 
   it("does not touch forum resources for a known ordinary text child", async () => {

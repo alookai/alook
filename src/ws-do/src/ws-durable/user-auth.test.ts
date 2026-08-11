@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createMockWebSocket } from "../__mocks__/cf"
 import { handleUpgrade } from "../routes/upgrade"
+import { INTERNAL_USER_TARGET_HEADER } from "../internal-user-broadcast"
 import {
   CFResponse,
   cleanupHarness,
@@ -55,6 +56,58 @@ import {
 describe("WebSocketDurableObject", () => {
   beforeEach(() => resetHarness())
   afterEach(() => cleanupHarness())
+
+  describe("fetch — strict community broadcast", () => {
+    const event = {
+      type: "community:status.update",
+      userId: "user-42",
+      statusEmoji: null,
+      statusText: "ready",
+      contractVersion: 1,
+    }
+
+    it("delivers a validated self-event to the authenticated target socket", async () => {
+      const { durable, ctx } = createDO()
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "user-42", authenticated: true })
+      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([ws])
+
+      const res = await durable.fetch(new Request("http://internal/community-broadcast", {
+        method: "POST",
+        headers: { [INTERNAL_USER_TARGET_HEADER]: encodeURIComponent("user-42") },
+        body: JSON.stringify(event),
+      }))
+
+      expect(res.status).toBe(200)
+      await expect(res.json()).resolves.toEqual({ sent: 1 })
+      expect(ws.send).toHaveBeenCalledWith(JSON.stringify(event))
+    })
+
+    it("normalizes legacy and rejects invalid or oversized frames before socket delivery", async () => {
+      const { durable, ctx } = createDO()
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "user-42", authenticated: true })
+      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([ws])
+      const request = (body: string) => new Request("http://internal/community-broadcast", {
+        method: "POST",
+        headers: { [INTERNAL_USER_TARGET_HEADER]: "user-42" },
+        body,
+      })
+
+      expect((await durable.fetch(request(JSON.stringify({
+        ...event,
+        contractVersion: undefined,
+      })))).status).toBe(200)
+      expect(ws.send).toHaveBeenCalledWith(JSON.stringify(event))
+      ws.send.mockClear()
+      expect((await durable.fetch(request(JSON.stringify({
+        ...event,
+        extra: true,
+      })))).status).toBe(400)
+      expect((await durable.fetch(request("x".repeat(65_537)))).status).toBe(400)
+      expect(ws.send).not.toHaveBeenCalled()
+    })
+  })
 
 
   describe("fetch — WebSocket upgrade", () => {
@@ -149,7 +202,7 @@ describe("WebSocketDurableObject", () => {
       await flushAsyncWork()
 
       const requests = mockStubFetch.mock.calls.map(([request]) => request as Request)
-      expect(requests.some((request) => request.method === "POST" && request.url.endsWith("/broadcast"))).toBe(true)
+      expect(requests.some((request) => request.method === "POST" && request.url.endsWith("/community-broadcast"))).toBe(true)
       expect(requests.some((request) => request.method === "GET" && request.url.includes("/check-user-online"))).toBe(true)
     })
 
@@ -290,6 +343,7 @@ describe("WebSocketDurableObject", () => {
         type: "community:presence.update",
         userId: "victim",
         online: false,
+        contractVersion: 1,
       })
     })
 
@@ -610,6 +664,7 @@ describe("WebSocketDurableObject", () => {
         type: "community:presence.update",
         userId: "user-1",
         online: false,
+        contractVersion: 1,
       })
     })
 

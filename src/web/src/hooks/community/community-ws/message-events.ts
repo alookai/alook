@@ -256,6 +256,7 @@ export function handleMessageEdited(
   { queryClient }: MessageEventContext,
 ) {
   if (event.parentChannelId) {
+    if (!event.serverId) return
     void reconcileForumOpenerTitle(queryClient, {
       serverId: event.serverId,
       forumChannelId: event.parentChannelId,

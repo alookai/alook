@@ -362,12 +362,13 @@ describe("useForumSidebarThreads", () => {
 
     act(() => vi.advanceTimersByTime((72 * 60 * 60 * 1000) + 24))
     expect(invalidateSpy).not.toHaveBeenCalled()
-    act(() => vi.advanceTimersByTime(1))
+    await act(async () => { await vi.advanceTimersByTimeAsync(1) })
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: communityKeys.forumSidebarThreads("server-1"),
       exact: true,
+      refetchType: "active",
     })
-    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(1) })
     expect(queryClient.getQueryData<ForumSidebarQueryData>(key)?.threads).toEqual([])
     expect(JSON.stringify(queryClient.getQueryData(key))).not.toContain("thread-1")
     expect(queryClient.getQueryState(
@@ -1167,19 +1168,28 @@ describe("forum sidebar Stage B resources", () => {
       )
     })
     await waitFor(() => apiFetchMock.mock.calls.length === 1)
+    let reconnectWork!: Promise<void>
     await act(async () => {
       useCommunityWsStore.getState().markAccessDisconnected()
       useCommunityWsStore.getState().markAccessConnected()
-      void invalidateForumSidebarBaseExact(queryClient, "server-1")
+      reconnectWork = invalidateForumSidebarBaseExact(queryClient, "server-1")
     })
     await waitFor(() => apiFetchMock.mock.calls.length === 2)
+    expect(queryClient.getQueryState(
+      communityKeys.forumSidebarThreads("server-1"),
+    )?.fetchStatus).toBe("fetching")
 
     await act(async () => resolveSecond?.(envelope(["epoch-1"])))
+    await reconnectWork
     await waitFor(() => queryClient.getQueryData<ForumSidebarQueryData>(
       communityKeys.forumSidebarThreads("server-1"),
     )?.threads[0]?.id === "epoch-1")
     await act(async () => resolveFirst?.(envelope(["epoch-0"])))
 
+    expect(apiFetchMock).toHaveBeenCalledTimes(2)
+    expect(queryClient.getQueryState(
+      communityKeys.forumSidebarThreads("server-1"),
+    )?.fetchStatus).toBe("idle")
     expect(queryClient.getQueryData<ForumSidebarQueryData>(
       communityKeys.forumSidebarThreads("server-1"),
     )).toMatchObject({

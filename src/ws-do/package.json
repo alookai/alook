@@ -6,7 +6,8 @@
     "dev": "wrangler dev --persist-to ../web/.wrangler/state",
     "deploy": "wrangler deploy",
     "knip": "knip",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json"
   },
   "dependencies": {
     "@alook/shared": "workspace:*"

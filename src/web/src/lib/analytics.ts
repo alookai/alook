@@ -147,6 +147,85 @@ export function trackCommunityOnboardingSkipped(
   sendGTMEvent({ event: "community_onboarding_skipped", stage });
 }
 
+export type CommunityWsFrameDropReason =
+  | "oversized"
+  | "invalid-json"
+  | "non-object"
+  | "missing-type"
+  | "wrong-family"
+  | "unknown-community-type"
+  | "unsupported-version"
+  | "invalid-payload"
+  | "invalid-target"
+  | "too-many-targets"
+  | "pre-auth-frame"
+  | "duplicate-auth-ok"
+
+export type CommunityWsReconcilePolicy =
+  | "focused-messages"
+  | "focused-channel-roster"
+  | "focused-pins"
+  | "focused-threads"
+  | "inbox-dms"
+  | "all-cached-servers"
+  | "friends"
+  | "presence-overlay"
+  | "status-overlay"
+  | "ephemeral-typing"
+  | "machines"
+  | "bot-audits"
+
+function sendCommunityWsGTMEvent(payload: Record<string, unknown>) {
+  try {
+    sendGTMEvent(payload)
+  } catch {
+    return
+  }
+}
+
+export function trackCommunityWsFrameDropped(params: {
+  reason: CommunityWsFrameDropReason
+  type: string
+  contractVersion?: number
+  byteCount?: number
+}) {
+  sendCommunityWsGTMEvent({
+    event: "community_ws_frame_dropped",
+    reason: params.reason,
+    type: params.type,
+    ...(params.contractVersion === undefined ? {} : { contractVersion: params.contractVersion }),
+    ...(params.byteCount === undefined ? {} : { byteCount: params.byteCount }),
+  });
+}
+
+export function trackCommunityWsReconcileComplete(params: {
+  policyCount: number
+  successCount: number
+  failureCount: number
+  durationMs: number
+  reconnectDurationMs: number
+}) {
+  sendCommunityWsGTMEvent({
+    event: "community_ws_reconcile_complete",
+    policyCount: params.policyCount,
+    successCount: params.successCount,
+    failureCount: params.failureCount,
+    durationMs: params.durationMs,
+    reconnectDurationMs: params.reconnectDurationMs,
+  });
+}
+
+export function trackCommunityWsReconcileFailure(params: {
+  policy: CommunityWsReconcilePolicy
+  reason: "sync-throw" | "async-rejection" | "unknown"
+}) {
+  sendCommunityWsGTMEvent({
+    event: "community_ws_reconcile_failure",
+    policy: params.policy,
+    reason: params.reason,
+  });
+}
+
 // ─── P3 — Page-Level Behavior ───────────────────────────────────────────────
 
 export function trackLandingCtaClicked(params: { cta_name: string }) {
