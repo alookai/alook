@@ -129,7 +129,7 @@ test.describe.serial("DM presence stability on refresh", () => {
       return body.online?.includes(userId("alice")) ?? false
     }, { timeout: 20_000 }).toBe(true)
 
-    await bob.page.goto(`/c/me/${dmId}`)
+    await gotoAfterUserWsAuth(bob.page, `/c/me/${dmId}`)
     await bob.page.waitForURL(new RegExp(dmId), { timeout: 20_000, waitUntil: "commit" })
 
     const aliceDot = bob.page.getByTestId(tid.dmRow(dmId)).locator("[data-slot='avatar-badge']")
