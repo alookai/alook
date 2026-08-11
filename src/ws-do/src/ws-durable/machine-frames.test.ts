@@ -103,7 +103,7 @@ describe("WebSocketDurableObject", () => {
         // Fan-out went to the user DO with the overlay attached.
         expect(mockStubFetch).toHaveBeenCalled()
         const call = mockStubFetch.mock.calls.find((c: any[]) =>
-          (c[0] as Request).url.endsWith("/broadcast")
+          (c[0] as Request).url.endsWith("/community-broadcast")
         )
         const body = JSON.parse(await (call![0] as Request).clone().text()) as {
           type: string
@@ -262,13 +262,13 @@ describe("WebSocketDurableObject", () => {
         await durable.webSocketMessage(ws as any, frame)
 
         expect(mockReconcileBotActivityFromRunningAgents).toHaveBeenCalledWith(expect.anything(), "cm_1", [])
-        const activityCalls = mockStubFetch.mock.calls.filter((c: any[]) => (c[0] as Request).url.endsWith("/broadcast"))
+        const activityCalls = mockStubFetch.mock.calls.filter((c: any[]) => (c[0] as Request).url.endsWith("/community-broadcast"))
         const bodies = await Promise.all(activityCalls.map((c: any[]) => (c[0] as Request).clone().text()))
         const parsed = bodies.map((b) => JSON.parse(b)).filter((b) => b.type === "community:status.update")
         expect(parsed).toEqual(
           expect.arrayContaining([
-            { type: "community:status.update", userId: "bot_1", statusEmoji: "💤", statusText: "Idle" },
-            { type: "community:status.update", userId: "bot_2", statusEmoji: "💤", statusText: "Idle" },
+            { contractVersion: 1, type: "community:status.update", userId: "bot_1", statusEmoji: "💤", statusText: "Idle" },
+            { contractVersion: 1, type: "community:status.update", userId: "bot_2", statusEmoji: "💤", statusText: "Idle" },
           ])
         )
       })
@@ -305,7 +305,7 @@ describe("WebSocketDurableObject", () => {
         const frame = JSON.stringify({ type: "ready", runtimeReport: [], runningAgents: [] })
         await durable.webSocketMessage(ws as any, frame)
 
-        const activityCalls = mockStubFetch.mock.calls.filter((c: any[]) => (c[0] as Request).url.endsWith("/broadcast"))
+        const activityCalls = mockStubFetch.mock.calls.filter((c: any[]) => (c[0] as Request).url.endsWith("/community-broadcast"))
         const bodies = await Promise.all(activityCalls.map((c: any[]) => (c[0] as Request).clone().text()))
         const parsed = bodies.map((b) => JSON.parse(b)).filter((b) => b.type === "community:status.update")
         expect(parsed).toEqual([])

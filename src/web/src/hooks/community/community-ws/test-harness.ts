@@ -53,7 +53,7 @@ vi.mock("@tanstack/react-query", async () => {
 })
 
 export let capturedOnMessage: ((msg: unknown) => void) | null = null
-export let capturedOnReconnect: (() => void) | null = null
+export let capturedOnReconnect: ((info: { reconnectDurationMs: number }) => void | Promise<void>) | null = null
 export let capturedUseUserWsOptions: UseUserWsOptions | undefined
 let stableSend: ReturnType<typeof vi.fn> = vi.fn()
 export let useUserWsCallCount = 0

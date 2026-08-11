@@ -1,580 +1,540 @@
-/**
- * TypeScript types for all community WebSocket events.
- *
- * Convention: every event type starts with "community:" prefix.
- * The server fans events to each recipient's per-user DO via POST /broadcast/user/<userId>.
- * The client filters events based on its focused subscription (channelId).
- */
+import { z } from "zod"
+import { CommunityMachineRuntimeSchema } from "./schemas"
 
-import type { ChannelType } from "./utils/community-roles"
-import type { MentionType } from "./utils/community-mentions"
+const string = z.string()
+const nullableString = string.nullable()
+const channelTypeSchema = z.enum(["text", "forum"])
+const mentionTypeSchema = z.literal("everyone")
 
-// ── Message events ────────────────────────────────────────────────────────────
+const friendApprovalProfileSchema = z.strictObject({
+  id: string,
+  name: string,
+  discriminator: string,
+  image: nullableString,
+})
 
-export type CommunityMessageCreate = {
-  type: "community:message.create"
-  channelId: string
-  /** Present for server-channel messages; lets server-scoped collections react without unread state. */
-  serverId?: string
-  /** Present when channelId is a child thread/post. */
-  parentChannelId?: string
-  message: {
-    id: string
-    seq: number
-    authorId: string
-    authorName: string
-    authorAvatar?: string
-    content: string
-    type: "chat" | "system"
-    // Only ever set alongside `type: "system"` — distinguishes a
-    // thread-creation system message from a bare/other-origin system row
-    // (`systemKind` omitted). See `mapMessageForWs`'s `splitType`.
-    systemKind?: "thread"
-    mentionType?: MentionType | null
-    replyToId?: string | null
-    replyTo?: { id: string; authorName: string; text: string; deleted?: boolean }
-    embeds?: unknown[]
-    attachments?: {
-      id: string
-      filename: string
-      url: string
-      contentType?: string
-      size?: number
-      width?: number | null
-      height?: number | null
-    }[]
-    createdAt: string
-    /**
-     * The sender's CLIENT-PROVIDED idempotency nonce, echoed back so the
-     * sender's client can match this broadcast against its optimistic row and
-     * update it in place (tempId→id) instead of inserting a duplicate — the
-     * optimistic row and the echo otherwise share no key (the echo carries the
-     * server id; the optimistic row a `temp_` id). Present ONLY when the client
-     * supplied a nonce (i.e. only when there is an optimistic row to match).
-     * The server-side `srv:`-prefixed fallback nonce is deliberately NEVER put
-     * here: it is a content fingerprint (existence/content-correlation leak on
-     * the broadcast wire) AND a fallback send has no client optimistic row to
-     * match, so it is structurally unneeded. Absent = no client nonce (nothing
-     * to reconcile) — a plain random opaque token when present, safe to fan out.
-     */
-    clientNonce?: string
-    /** Present only on a friend-approval card (DM channels). Client renders the card when set. */
-    approval?: FriendApprovalPayload
-  }
+export const FriendApprovalPayloadSchema = z.strictObject({
+  friendshipId: string,
+  status: z.enum(["pending", "approved", "denied", "superseded", "cancelled"]),
+  waitingOn: z.enum(["you", "other-owner", "addressee"]).nullable(),
+  otherProfile: friendApprovalProfileSchema,
+  botProfile: friendApprovalProfileSchema,
+  waitingOnProfile: friendApprovalProfileSchema.nullable().optional(),
+})
+
+const messageAttachmentSchema = z.strictObject({
+  id: string,
+  filename: string,
+  url: string,
+  contentType: string.optional(),
+  size: z.number().optional(),
+  width: z.number().nullable().optional(),
+  height: z.number().nullable().optional(),
+})
+
+const messageSchema = z.strictObject({
+  id: string,
+  seq: z.number(),
+  authorId: string,
+  authorName: string,
+  authorAvatar: string.optional(),
+  content: string,
+  type: z.enum(["chat", "system"]),
+  systemKind: z.literal("thread").optional(),
+  mentionType: mentionTypeSchema.nullable().optional(),
+  replyToId: nullableString.optional(),
+  replyTo: z.strictObject({
+    id: string,
+    authorName: string,
+    text: string,
+    deleted: z.boolean().optional(),
+  }).optional(),
+  embeds: z.array(z.unknown()).optional(),
+  attachments: z.array(messageAttachmentSchema).optional(),
+  createdAt: string,
+  clientNonce: string.optional(),
+  approval: FriendApprovalPayloadSchema.optional(),
+})
+
+const communityMessageCreateSchema = z.strictObject({
+  type: z.literal("community:message.create"),
+  channelId: string,
+  serverId: string.optional(),
+  parentChannelId: string.optional(),
+  message: messageSchema,
+})
+
+const communityMessageUpdatedSchema = z.strictObject({
+  type: z.literal("community:message.updated"),
+  channelId: string,
+  messageId: string,
+  approval: FriendApprovalPayloadSchema,
+})
+
+const communityMessageEditedSchema = z.strictObject({
+  type: z.literal("community:message.edited"),
+  channelId: string,
+  messageId: string,
+  content: string,
+  parentChannelId: string.optional(),
+  serverId: string.optional(),
+}).refine((event) => event.parentChannelId === undefined || event.serverId !== undefined)
+
+const communityReactionAddSchema = z.strictObject({
+  type: z.literal("community:reaction.add"),
+  channelId: string,
+  messageId: string,
+  userId: string,
+  emoji: string,
+})
+
+const communityReactionRemoveSchema = z.strictObject({
+  type: z.literal("community:reaction.remove"),
+  channelId: string,
+  messageId: string,
+  userId: string,
+  emoji: string,
+})
+
+const communityPinAddSchema = z.strictObject({
+  type: z.literal("community:pin.add"),
+  channelId: string,
+  messageId: string,
+})
+
+const communityPinRemoveSchema = z.strictObject({
+  type: z.literal("community:pin.remove"),
+  channelId: string,
+  messageId: string,
+})
+
+const typingFields = {
+  channelId: string,
+  userId: string,
+  name: string.optional(),
+  discriminator: string.optional(),
 }
 
-/**
- * A message's friend-approval card changed state (approve / deny / supersede /
- * accept). Fanned to every DM-channel peer whose channel contains a message
- * with the friendship's id so first-hop and second-hop cards (J3), and a
- * superseded card and its replacement, rehydrate without a refetch. Folded from
- * the old `community:dm.message_updated` — now keyed by `channelId` (the DM's
- * channel id). `approval` is the fresh per-recipient projection.
- */
-export type CommunityMessageUpdated = {
-  type: "community:message.updated"
-  channelId: string
-  messageId: string
-  approval: FriendApprovalPayload
-}
+const communityTypingStartSchema = z.strictObject({
+  type: z.literal("community:typing.start"),
+  ...typingFields,
+})
 
-type CommunityMessageEditedBase = {
-  type: "community:message.edited"
-  channelId: string
-  messageId: string
-  content: string
-}
+const communityTypingStopSchema = z.strictObject({
+  type: z.literal("community:typing.stop"),
+  ...typingFields,
+})
 
-export type CommunityMessageEdited = CommunityMessageEditedBase & (
-  | {
-      // Forum opener address: the edited message lives in the parent forum,
-      // while channelId names the child post whose title must reconcile.
-      parentChannelId: string
-      serverId: string
-    }
-  | {
-      parentChannelId?: never
-      // Ordinary server edits may carry their server identity. DM edits omit it.
-      serverId?: string
-    }
+const communityChildChannelCreateSchema = z.strictObject({
+  type: z.literal("community:channel.child_create"),
+  parentChannelId: string,
+  channel: z.strictObject({
+    id: string,
+    name: string,
+    type: z.literal("thread"),
+    creatorId: string.optional(),
+    createdAt: string,
+  }),
+  parentMessageId: string.optional(),
+})
+
+const communityChildChannelUpdateSchema = z.strictObject({
+  type: z.literal("community:channel.child_update"),
+  parentChannelId: string,
+  channelId: string,
+  changes: z.strictObject({
+    name: string.optional(),
+    archived: z.boolean().optional(),
+    tags: z.array(string).nullable().optional(),
+    lastMessageAt: string.optional(),
+    messageCount: z.number().optional(),
+  }),
+})
+
+const communityServerUpdateSchema = z.strictObject({
+  type: z.literal("community:server.update"),
+  serverId: string,
+  changes: z.strictObject({
+    name: string.optional(),
+    description: string.optional(),
+    icon: nullableString.optional(),
+  }),
+})
+
+const communityServerDeleteSchema = z.strictObject({
+  type: z.literal("community:server.delete"),
+  serverId: string,
+})
+
+const communityChannelCreateSchema = z.strictObject({
+  type: z.literal("community:channel.create"),
+  serverId: string,
+  channel: z.strictObject({
+    id: string,
+    name: string,
+    type: channelTypeSchema,
+    categoryId: nullableString.optional(),
+    topic: string.optional(),
+    position: z.number(),
+    createdAt: string,
+  }),
+})
+
+const communityChannelUpdateSchema = z.strictObject({
+  type: z.literal("community:channel.update"),
+  serverId: string,
+  channelId: string,
+  changes: z.strictObject({
+    name: string.optional(),
+    topic: string.optional(),
+    categoryId: nullableString.optional(),
+    type: channelTypeSchema.optional(),
+  }),
+})
+
+const communityChannelDeleteSchema = z.strictObject({
+  type: z.literal("community:channel.delete"),
+  serverId: string,
+  channelId: string,
+  parentChannelId: nullableString.optional(),
+})
+
+const positionedIdSchema = z.strictObject({ id: string, position: z.number() })
+
+const communityChannelReorderSchema = z.strictObject({
+  type: z.literal("community:channel.reorder"),
+  serverId: string,
+  channels: z.array(positionedIdSchema),
+})
+
+const communityChannelMemberAddSchema = z.strictObject({
+  type: z.literal("community:channel.member_add"),
+  serverId: string,
+  channelId: string,
+  userId: string,
+})
+
+const communityChannelMemberRemoveSchema = z.strictObject({
+  type: z.literal("community:channel.member_remove"),
+  serverId: string,
+  channelId: string,
+  userId: string,
+})
+
+const communityCategoryCreateSchema = z.strictObject({
+  type: z.literal("community:category.create"),
+  serverId: string,
+  category: z.strictObject({
+    id: string,
+    name: string,
+    position: z.number(),
+    private: z.boolean(),
+  }),
+})
+
+const communityCategoryUpdateSchema = z.strictObject({
+  type: z.literal("community:category.update"),
+  serverId: string,
+  categoryId: string,
+  changes: z.strictObject({
+    name: string.optional(),
+    position: z.number().optional(),
+    private: z.boolean().optional(),
+  }),
+})
+
+const communityCategoryDeleteSchema = z.strictObject({
+  type: z.literal("community:category.delete"),
+  serverId: string,
+  categoryId: string,
+})
+
+const communityCategoryReorderSchema = z.strictObject({
+  type: z.literal("community:category.reorder"),
+  serverId: string,
+  categories: z.array(positionedIdSchema),
+})
+
+const communityMemberJoinSchema = z.strictObject({
+  type: z.literal("community:member.join"),
+  serverId: string,
+  member: z.strictObject({
+    id: string,
+    userId: string,
+    name: string,
+    discriminator: string,
+    avatar: string.optional(),
+    role: string,
+    joinedAt: string,
+  }),
+})
+
+const communityMemberLeaveSchema = z.strictObject({
+  type: z.literal("community:member.leave"),
+  serverId: string,
+  userId: string,
+})
+
+const communityMemberUpdateSchema = z.strictObject({
+  type: z.literal("community:member.update"),
+  serverId: string,
+  memberId: string,
+  userId: string.optional(),
+  changes: z.strictObject({
+    role: string.optional(),
+    nickname: nullableString.optional(),
+  }),
+})
+
+const communityFriendRequestSchema = z.strictObject({
+  type: z.literal("community:friend.request"),
+  friendship: z.strictObject({
+    id: string,
+    requesterId: string,
+    addresseeId: string,
+    status: z.literal("pending"),
+    createdAt: string,
+  }),
+})
+
+const friendshipIdFields = { friendshipId: string }
+
+const communityFriendAcceptSchema = z.strictObject({
+  type: z.literal("community:friend.accept"),
+  ...friendshipIdFields,
+})
+
+const communityFriendRejectSchema = z.strictObject({
+  type: z.literal("community:friend.reject"),
+  ...friendshipIdFields,
+})
+
+const communityFriendRemoveSchema = z.strictObject({
+  type: z.literal("community:friend.remove"),
+  ...friendshipIdFields,
+})
+
+const communityFriendBlockSchema = z.strictObject({
+  type: z.literal("community:friend.block"),
+  userId: string,
+})
+
+const communityInviteCreateSchema = z.strictObject({
+  type: z.literal("community:invite.create"),
+  serverId: string,
+  invite: z.strictObject({
+    id: string,
+    token: string,
+    maxUses: z.number().nullable().optional(),
+    uses: z.number().nullable().optional(),
+    expiresAt: nullableString.optional(),
+    createdAt: string,
+  }),
+})
+
+const communityMentionCreateSchema = z.strictObject({
+  type: z.literal("community:mention.create"),
+  userId: string,
+  messageId: string,
+  channelId: string.optional(),
+  authorName: string,
+})
+
+const communityUnreadBumpSchema = z.strictObject({
+  type: z.literal("community:unread.bump"),
+  userId: string,
+  channelId: string,
+  serverId: string.optional(),
+  railChannelId: string.optional(),
+  isMention: z.boolean().optional(),
+})
+
+const communityPresenceUpdateSchema = z.strictObject({
+  type: z.literal("community:presence.update"),
+  userId: string,
+  online: z.boolean(),
+})
+
+const communityStatusUpdateSchema = z.strictObject({
+  type: z.literal("community:status.update"),
+  userId: string,
+  statusEmoji: nullableString,
+  statusText: nullableString,
+})
+
+const machineRuntimeSchema = CommunityMachineRuntimeSchema.strict()
+
+export const CommunityMachineSummarySchema = z.strictObject({
+  id: string,
+  hostname: string,
+  displayName: string,
+  platform: string,
+  arch: string,
+  osRelease: string,
+  daemonVersion: string,
+  lastSeenAt: nullableString,
+  status: z.enum(["online", "offline"]),
+  availableRuntimes: z.array(machineRuntimeSchema),
+  lastRuntimeError: z.strictObject({
+    requested: string,
+    available: z.array(string),
+    at: string,
+  }).optional(),
+  createdAt: string,
+  updatedAt: string,
+})
+
+const communityMachineCreatedSchema = z.strictObject({
+  type: z.literal("community:machine.created"),
+  machine: CommunityMachineSummarySchema,
+  tokenId: string,
+})
+
+const communityMachineStatusSchema = z.strictObject({
+  type: z.literal("community:machine.status"),
+  machineId: string,
+  status: z.enum(["online", "offline"]),
+  lastSeenAt: string,
+})
+
+const communityMachineUpdatedSchema = z.strictObject({
+  type: z.literal("community:machine.updated"),
+  machine: CommunityMachineSummarySchema,
+})
+
+const communityMachineRemovedSchema = z.strictObject({
+  type: z.literal("community:machine.removed"),
+  machineId: string,
+})
+
+const communityBotAuditEventSchema = z.strictObject({
+  type: z.literal("community:bot.audit_event"),
+  botId: string,
+  id: string,
+  kind: z.enum(["cli_invocation", "tool_call", "thinking", "wake_trigger", "session_reset", "nap", "model_changed", "provider_changed", "error"]),
+  payload: z.unknown(),
+  sessionId: nullableString.optional(),
+  launchId: nullableString.optional(),
+  createdAt: string,
+}).refine((event) => Object.prototype.hasOwnProperty.call(event, "payload"))
+
+const CommunityWsEventDiscriminatedSchema = z.discriminatedUnion("type", [
+  communityMessageCreateSchema,
+  communityMessageUpdatedSchema,
+  communityMessageEditedSchema,
+  communityReactionAddSchema,
+  communityReactionRemoveSchema,
+  communityPinAddSchema,
+  communityPinRemoveSchema,
+  communityTypingStartSchema,
+  communityTypingStopSchema,
+  communityChildChannelCreateSchema,
+  communityChildChannelUpdateSchema,
+  communityServerUpdateSchema,
+  communityServerDeleteSchema,
+  communityChannelCreateSchema,
+  communityChannelUpdateSchema,
+  communityChannelDeleteSchema,
+  communityChannelReorderSchema,
+  communityChannelMemberAddSchema,
+  communityChannelMemberRemoveSchema,
+  communityCategoryCreateSchema,
+  communityCategoryUpdateSchema,
+  communityCategoryDeleteSchema,
+  communityCategoryReorderSchema,
+  communityMemberJoinSchema,
+  communityMemberLeaveSchema,
+  communityMemberUpdateSchema,
+  communityFriendRequestSchema,
+  communityFriendAcceptSchema,
+  communityFriendRejectSchema,
+  communityFriendRemoveSchema,
+  communityFriendBlockSchema,
+  communityInviteCreateSchema,
+  communityMentionCreateSchema,
+  communityUnreadBumpSchema,
+  communityPresenceUpdateSchema,
+  communityStatusUpdateSchema,
+  communityMachineCreatedSchema,
+  communityMachineStatusSchema,
+  communityMachineUpdatedSchema,
+  communityMachineRemovedSchema,
+  communityBotAuditEventSchema,
+])
+
+type InferredCommunityWsEvent = z.infer<typeof CommunityWsEventDiscriminatedSchema>
+type InferredCommunityMessageEdited = Extract<
+  InferredCommunityWsEvent,
+  { type: "community:message.edited" }
+>
+type CommunityMessageEditedOutput = Omit<
+  InferredCommunityMessageEdited,
+  "parentChannelId" | "serverId"
+> & (
+  | { parentChannelId: string; serverId: string }
+  | { parentChannelId?: never; serverId?: string }
+)
+type CommunityWsEventOutput =
+  | Exclude<InferredCommunityWsEvent, InferredCommunityMessageEdited>
+  | CommunityMessageEditedOutput
+
+export const CommunityWsEventSchema = CommunityWsEventDiscriminatedSchema.transform(
+  (event): CommunityWsEventOutput => event as CommunityWsEventOutput,
 )
 
-export type CommunityReactionAdd = {
-  type: "community:reaction.add"
-  channelId: string
-  messageId: string
-  userId: string
-  emoji: string
-}
-
-export type CommunityReactionRemove = {
-  type: "community:reaction.remove"
-  channelId: string
-  messageId: string
-  userId: string
-  emoji: string
-}
-
-export type CommunityPinAdd = {
-  type: "community:pin.add"
-  channelId: string
-  messageId: string
-}
-
-export type CommunityPinRemove = {
-  type: "community:pin.remove"
-  channelId: string
-  messageId: string
-}
-
-export type CommunityTypingStart = {
-  type: "community:typing.start"
-  channelId: string
-  userId: string
-  // Sender's display name + discriminator, stamped server-side at fan-out from
-  // already-known identity (connection state for humans, bot binding for bots)
-  // — never a per-event DB lookup. Optional so an older client ignores it and
-  // falls back to roster resolution; present, it lets the client render the
-  // name without depending on whether the typer is in the loaded roster page
-  // (the "Unknown member is typing" bug when they aren't).
-  name?: string
-  discriminator?: string
-}
-
-/**
- * Explicit "stop typing" event. Fired by the daemon's bot-typing pipeline
- * when a bot's turn ends, so the pill disappears immediately instead of
- * dangling until the client's 8s auto-expire. Keyed by `channelId` (a DM is
- * a channel now).
- */
-export type CommunityTypingStop = {
-  type: "community:typing.stop"
-  channelId: string
-  userId: string
-  name?: string
-  discriminator?: string
-}
-
-// ── Child channel events (threads) ────────────────────────────────────────────
-
-export type CommunityChildChannelCreate = {
-  type: "community:channel.child_create"
-  parentChannelId: string
-  channel: {
-    id: string
-    name: string
-    type: "thread"
-    creatorId?: string
-    createdAt: string
-  }
-  parentMessageId?: string
-}
-
-export type CommunityChildChannelUpdate = {
-  type: "community:channel.child_update"
-  parentChannelId: string
-  channelId: string
-  changes: {
-    name?: string
-    archived?: boolean
-    tags?: string[] | null
-    lastMessageAt?: string
-    messageCount?: number
-  }
-}
-
-// ── Server events ─────────────────────────────────────────────────────────────
-
-export type CommunityServerUpdate = {
-  type: "community:server.update"
-  serverId: string
-  changes: {
-    name?: string
-    description?: string
-    icon?: string | null
-  }
-}
-
-export type CommunityServerDelete = {
-  type: "community:server.delete"
-  serverId: string
-}
-
-// ── Channel events ────────────────────────────────────────────────────────────
-
-export type CommunityChannelCreate = {
-  type: "community:channel.create"
-  serverId: string
-  channel: {
-    id: string
-    name: string
-    type: ChannelType
-    categoryId?: string | null
-    topic?: string
-    position: number
-    createdAt: string
-  }
-}
-
-export type CommunityChannelUpdate = {
-  type: "community:channel.update"
-  serverId: string
-  channelId: string
-  changes: {
-    name?: string
-    topic?: string
-    categoryId?: string | null
-    type?: ChannelType
-  }
-}
-
-export type CommunityChannelDelete = {
-  type: "community:channel.delete"
-  serverId: string
-  channelId: string
-  // The parent channel, when the deleted channel is a child (thread). Lets
-  // clients invalidate the parent's post/thread list so the deleted card
-  // disappears from the feed. Optional and additive — older events without
-  // it still work (the handler simply skips the parent invalidate).
-  parentChannelId?: string | null
-}
-
-export type CommunityChannelReorder = {
-  type: "community:channel.reorder"
-  serverId: string
-  channels: { id: string; position: number }[]
-}
-
-// ── Channel-member events (private-category channels) ─────────────────────────
-//
-// Sent to the affected user (so their sidebar gains/loses the channel) and to
-// the existing channel members. The client invalidates the server-detail tree
-// on receipt; the removed user additionally evicts that channel's caches.
-
-export type CommunityChannelMemberAdd = {
-  type: "community:channel.member_add"
-  serverId: string
-  channelId: string
-  userId: string
-}
-
-export type CommunityChannelMemberRemove = {
-  type: "community:channel.member_remove"
-  serverId: string
-  channelId: string
-  userId: string
-}
-
-// ── Category events ───────────────────────────────────────────────────────────
-
-export type CommunityCategoryCreate = {
-  type: "community:category.create"
-  serverId: string
-  category: {
-    id: string
-    name: string
-    position: number
-    private: boolean
-  }
-}
-
-export type CommunityCategoryUpdate = {
-  type: "community:category.update"
-  serverId: string
-  categoryId: string
-  changes: {
-    name?: string
-    position?: number
-    private?: boolean
-  }
-}
-
-export type CommunityCategoryDelete = {
-  type: "community:category.delete"
-  serverId: string
-  categoryId: string
-}
-
-export type CommunityCategoryReorder = {
-  type: "community:category.reorder"
-  serverId: string
-  categories: { id: string; position: number }[]
-}
-
-// ── Member events ─────────────────────────────────────────────────────────────
-
-export type CommunityMemberJoin = {
-  type: "community:member.join"
-  serverId: string
-  member: {
-    id: string
-    userId: string
-    name: string
-    // 4-digit discriminator (`"0042"`) — required. NOT NULL column; the row
-    // becomes a roster `Member` via `applyJoinEvent`, which feeds the mention
-    // popup, so the tag must always be present.
-    discriminator: string
-    avatar?: string
-    role: string
-    joinedAt: string
-  }
-}
-
-export type CommunityMemberLeave = {
-  type: "community:member.leave"
-  serverId: string
-  userId: string
-}
-
-export type CommunityMemberUpdate = {
-  type: "community:member.update"
-  serverId: string
-  memberId: string
-  // Present alongside `changes.nickname` on a self-rename broadcast — lets
-  // clients patch `authorId`-keyed message caches (which don't have
-  // `memberId`, a server-scoped id) by the renamed user's actual userId.
-  // Absent on a role-only change, which never touches cached message rows.
-  userId?: string
-  changes: {
-    role?: string
-    nickname?: string | null
-  }
-}
-
-// ── Friend events ─────────────────────────────────────────────────────────────
-
-export type CommunityFriendRequest = {
-  type: "community:friend.request"
-  friendship: {
-    id: string
-    requesterId: string
-    addresseeId: string
-    status: "pending"
-    createdAt: string
-  }
-}
-
-export type CommunityFriendAccept = {
-  type: "community:friend.accept"
-  friendshipId: string
-}
-
-export type CommunityFriendReject = {
-  type: "community:friend.reject"
-  friendshipId: string
-}
-
-export type CommunityFriendRemove = {
-  type: "community:friend.remove"
-  friendshipId: string
-}
-
-export type CommunityFriendBlock = {
-  type: "community:friend.block"
-  userId: string
-}
-
-// ── Friend-approval card payload ───────────────────────────────────────────────
-//
-// Projected per-viewer for a friend-approval DM card (see
-// plans/agent-friendship-approval-gate.md §DM card payload). Presence of this
-// object on a DM message is the client-side discriminator for rendering the
-// card — the message `type` stays "default". No `isBot` on any profile: the
-// projections go through `getUserPublic`, and `botProfile` is the reader's own
-// bot. No `kind` discriminator — `join_server` cards are a follow-up.
-
-export type FriendApprovalProfile = {
-  id: string
-  name: string
-  discriminator: string
-  image: string | null
-}
-
-export type FriendApprovalPayload = {
-  friendshipId: string
-  // 'cancelled' — the requester withdrew a still-pending request (distinct from
-  // 'superseded', which is a newer request replacing this one).
-  status: "pending" | "approved" | "denied" | "superseded" | "cancelled"
-  // Per-viewer projection. 'you' while this viewer's owner-approval is pending;
-  // 'other-owner' after this viewer approved but a downstream owner is next
-  // (J3); 'addressee' after this viewer approved and the human addressee must
-  // still accept (J2); null for terminal states.
-  waitingOn: "you" | "other-owner" | "addressee" | null
-  // The other party — never the DM owner's own bot.
-  otherProfile: FriendApprovalProfile
-  // The DM owner's bot (also the DM peer). Leak-safe (reader's own bot).
-  botProfile: FriendApprovalProfile
-  // The person the card is currently waiting on, when waitingOn is
-  // 'other-owner' or 'addressee'; null for 'you' and terminal states.
-  waitingOnProfile?: FriendApprovalProfile | null
-}
-
-// ── Invite events ────────────────────────────────────────────────────────────
-
-export type CommunityInviteCreate = {
-  type: "community:invite.create"
-  serverId: string
-  invite: {
-    id: string
-    token: string
-    maxUses?: number | null
-    uses?: number | null
-    expiresAt?: string | null
-    createdAt: string
-  }
-}
-
-// ── Mention events ───────────────────────────────────────────────────────────
-
-export type CommunityMentionCreate = {
-  type: "community:mention.create"
-  userId: string
-  messageId: string
-  channelId?: string
-  authorName: string
-}
-
-// Per-user unread/badge signal. Unlike MESSAGE_CREATE (a single broadcast to
-// every recipient), the badge is per-recipient — user A may be muted while user
-// B is not for the same message — so it rides a per-user event, gated by the
-// recipient's effective notification level in the notify pipeline. The client's
-// MESSAGE_CREATE handler no longer bumps the badge itself (it only appends
-// content); the badge is bumped only on this event.
-export type CommunityUnreadBump = {
-  type: "community:unread.bump"
-  userId: string
-  /** The channel the message actually landed in (a thread bump = the thread's
-   * id). Clients with a loaded child row may badge it directly; otherwise use
-   * `railChannelId` as the locatable fallback. */
-  channelId: string
-  /**
-   * The server whose tree/rail badge to patch (inbox-dot-ws-driven plan). Lets
-   * the client patch the RIGHT server — without it the client only patched the
-   * currently-open server, so an other-server message's dot never lit. Absent
-   * on a DM bump or an older server frame → client falls back to the
-   * current-server behavior (backward-compatible).
-   */
-  serverId?: string
-  /**
-   * The always-locatable fallback row = `parentChannelId ?? channelId`, computed
-   * server-side. A participating forum thread may now have its own nested row;
-   * when it does not, this parent fallback keeps the unread signal visible.
-   * Absent → client falls back to `channelId`.
-   */
-  railChannelId?: string
-  /**
-   * Whether this recipient was mentioned by the message — decides +mention vs
-   * +unread on the rail badge and which inbox feed the count lands in.
-   * Per-recipient; known at emit time from the mention set. */
-  isMention?: boolean
-}
-
-// ── Presence events ───────────────────────────────────────────────────────────
-
-export type CommunityPresenceUpdate = {
-  type: "community:presence.update"
-  userId: string
-  online: boolean
-}
-
-export type CommunityStatusUpdate = {
-  type: "community:status.update"
-  userId: string
-  statusEmoji: string | null
-  statusText: string | null
-}
-
-// ── Machine events ────────────────────────────────────────────────────────────
-
-/**
- * One CLI runtime detected on a community-paired machine.
- * Canonical schema + type live in `./schemas.ts`; re-exported here for
- * historical import paths.
- */
-export type { CommunityMachineRuntime } from "./schemas"
-import type { CommunityMachineRuntime } from "./schemas"
-
-export type CommunityMachineSummary = {
-  id: string
-  hostname: string
-  displayName: string
-  platform: string
-  arch: string
-  osRelease: string
-  daemonVersion: string
-  lastSeenAt: string | null
-  status: "online" | "offline"
-  /** Agent CLIs detected on the host — always present, possibly empty. */
-  availableRuntimes: CommunityMachineRuntime[]
-  /**
-   * Last runtime error reported by the daemon. Optional overlay; undefined
-   * means "no known error." Optimistically cleared when the DO forwards a
-   * subsequent `agent:wake` frame to the daemon.
-   */
-  lastRuntimeError?: {
-    requested: string
-    available: string[]
-    at: string
-  }
-  createdAt: string
-  updatedAt: string
-}
-
-export type CommunityMachineCreated = {
-  type: "community:machine.created"
-  machine: CommunityMachineSummary
-  tokenId: string
-}
-
-export type CommunityMachineStatus = {
-  type: "community:machine.status"
-  machineId: string
-  status: "online" | "offline"
-  lastSeenAt: string
-}
-
-export type CommunityMachineUpdated = {
-  type: "community:machine.updated"
-  machine: CommunityMachineSummary
-}
-
-export type CommunityMachineRemoved = {
-  type: "community:machine.removed"
-  machineId: string
-}
-
-// ── Bot audit-log events ─────────────────────────────────────────────────────
-//
-// Owner-only fan-out. When a daemon reports a bot activity event
-// (cli_invocation | tool_call | thinking), ws-do inserts it into
-// community_bot_activity_event and delivers a single frame to the bot owner's
-// per-user DO. Non-owners never see these frames.
-
-export type CommunityBotAuditEvent = {
-  type: "community:bot.audit_event"
-  botId: string
-  id: string
-  kind: "cli_invocation" | "tool_call" | "thinking" | "wake_trigger" | "session_reset" | "nap" | "model_changed" | "provider_changed" | "error"
-  payload: unknown
-  sessionId?: string | null
-  launchId?: string | null
-  createdAt: string
-}
-
-// ── Bot events ────────────────────────────────────────────────────────────────
-//
-// Server → daemon frames. Colon-namespaced to match the existing HostCommand
-// convention (`agent:wake` / `agent:stop`). Delivered to the specific
-// machine's daemon connection via the WS Durable Object.
+export type CommunityWsEvent = z.infer<typeof CommunityWsEventSchema>
+export type CommunityMessageCreate = Extract<CommunityWsEvent, { type: "community:message.create" }>
+export type CommunityMessageUpdated = Extract<CommunityWsEvent, { type: "community:message.updated" }>
+export type CommunityMessageEdited = Extract<CommunityWsEvent, { type: "community:message.edited" }>
+export type CommunityReactionAdd = Extract<CommunityWsEvent, { type: "community:reaction.add" }>
+export type CommunityReactionRemove = Extract<CommunityWsEvent, { type: "community:reaction.remove" }>
+export type CommunityPinAdd = Extract<CommunityWsEvent, { type: "community:pin.add" }>
+export type CommunityPinRemove = Extract<CommunityWsEvent, { type: "community:pin.remove" }>
+export type CommunityTypingStart = Extract<CommunityWsEvent, { type: "community:typing.start" }>
+export type CommunityTypingStop = Extract<CommunityWsEvent, { type: "community:typing.stop" }>
+export type CommunityChildChannelCreate = Extract<CommunityWsEvent, { type: "community:channel.child_create" }>
+export type CommunityChildChannelUpdate = Extract<CommunityWsEvent, { type: "community:channel.child_update" }>
+export type CommunityServerUpdate = Extract<CommunityWsEvent, { type: "community:server.update" }>
+export type CommunityServerDelete = Extract<CommunityWsEvent, { type: "community:server.delete" }>
+export type CommunityChannelCreate = Extract<CommunityWsEvent, { type: "community:channel.create" }>
+export type CommunityChannelUpdate = Extract<CommunityWsEvent, { type: "community:channel.update" }>
+export type CommunityChannelDelete = Extract<CommunityWsEvent, { type: "community:channel.delete" }>
+export type CommunityChannelReorder = Extract<CommunityWsEvent, { type: "community:channel.reorder" }>
+export type CommunityChannelMemberAdd = Extract<CommunityWsEvent, { type: "community:channel.member_add" }>
+export type CommunityChannelMemberRemove = Extract<CommunityWsEvent, { type: "community:channel.member_remove" }>
+export type CommunityCategoryCreate = Extract<CommunityWsEvent, { type: "community:category.create" }>
+export type CommunityCategoryUpdate = Extract<CommunityWsEvent, { type: "community:category.update" }>
+export type CommunityCategoryDelete = Extract<CommunityWsEvent, { type: "community:category.delete" }>
+export type CommunityCategoryReorder = Extract<CommunityWsEvent, { type: "community:category.reorder" }>
+export type CommunityMemberJoin = Extract<CommunityWsEvent, { type: "community:member.join" }>
+export type CommunityMemberLeave = Extract<CommunityWsEvent, { type: "community:member.leave" }>
+export type CommunityMemberUpdate = Extract<CommunityWsEvent, { type: "community:member.update" }>
+export type CommunityFriendRequest = Extract<CommunityWsEvent, { type: "community:friend.request" }>
+export type CommunityFriendAccept = Extract<CommunityWsEvent, { type: "community:friend.accept" }>
+export type CommunityFriendReject = Extract<CommunityWsEvent, { type: "community:friend.reject" }>
+export type CommunityFriendRemove = Extract<CommunityWsEvent, { type: "community:friend.remove" }>
+export type CommunityFriendBlock = Extract<CommunityWsEvent, { type: "community:friend.block" }>
+export type CommunityInviteCreate = Extract<CommunityWsEvent, { type: "community:invite.create" }>
+export type CommunityMentionCreate = Extract<CommunityWsEvent, { type: "community:mention.create" }>
+export type CommunityUnreadBump = Extract<CommunityWsEvent, { type: "community:unread.bump" }>
+export type CommunityPresenceUpdate = Extract<CommunityWsEvent, { type: "community:presence.update" }>
+export type CommunityStatusUpdate = Extract<CommunityWsEvent, { type: "community:status.update" }>
+export type CommunityMachineCreated = Extract<CommunityWsEvent, { type: "community:machine.created" }>
+export type CommunityMachineStatus = Extract<CommunityWsEvent, { type: "community:machine.status" }>
+export type CommunityMachineUpdated = Extract<CommunityWsEvent, { type: "community:machine.updated" }>
+export type CommunityMachineRemoved = Extract<CommunityWsEvent, { type: "community:machine.removed" }>
+export type CommunityBotAuditEvent = Extract<CommunityWsEvent, { type: "community:bot.audit_event" }>
+export type CommunityMachineSummary = z.infer<typeof CommunityMachineSummarySchema>
+export type CommunityMachineRuntime = CommunityMachineSummary["availableRuntimes"][number]
+export type FriendApprovalPayload = z.infer<typeof FriendApprovalPayloadSchema>
+export type FriendApprovalProfile = FriendApprovalPayload["otherProfile"]
 
 export type BotAddedFrame = {
   type: "bot:added"
   botId: string
   name: string
-  /** 4-digit tag (`computeDiscriminator`) — pairs with `name` for the bot's global handle. */
   discriminator: string
   description?: string
-  /** The owning user's name + discriminator — pairs into the owner's global handle. */
   ownerName: string
   ownerDiscriminator: string
 }
@@ -583,67 +543,15 @@ export type BotUpdatedFrame = {
   type: "bot:updated"
   botId: string
   name: string
-  /** 4-digit tag (`computeDiscriminator`) — pairs with `name` for the bot's global handle. */
   discriminator: string
   description?: string
-  /** The owning user's name + discriminator — pairs into the owner's global handle. */
   ownerName: string
   ownerDiscriminator: string
 }
 
-export type BotRemovedFrame = {
-  type: "bot:removed"
-  botId: string
-}
-
+export type BotRemovedFrame = { type: "bot:removed"; botId: string }
 export type CommunityBotHostFrame = BotAddedFrame | BotUpdatedFrame | BotRemovedFrame
 
-// ── Union type ────────────────────────────────────────────────────────────────
-
-export type CommunityWsEvent =
-  | CommunityMessageCreate
-  | CommunityMessageUpdated
-  | CommunityMessageEdited
-  | CommunityReactionAdd
-  | CommunityReactionRemove
-  | CommunityPinAdd
-  | CommunityPinRemove
-  | CommunityTypingStart
-  | CommunityTypingStop
-  | CommunityChildChannelCreate
-  | CommunityChildChannelUpdate
-  | CommunityServerUpdate
-  | CommunityServerDelete
-  | CommunityChannelCreate
-  | CommunityChannelUpdate
-  | CommunityChannelDelete
-  | CommunityChannelReorder
-  | CommunityChannelMemberAdd
-  | CommunityChannelMemberRemove
-  | CommunityCategoryCreate
-  | CommunityCategoryUpdate
-  | CommunityCategoryDelete
-  | CommunityCategoryReorder
-  | CommunityInviteCreate
-  | CommunityMemberJoin
-  | CommunityMemberLeave
-  | CommunityMemberUpdate
-  | CommunityFriendRequest
-  | CommunityFriendAccept
-  | CommunityFriendReject
-  | CommunityFriendRemove
-  | CommunityFriendBlock
-  | CommunityPresenceUpdate
-  | CommunityStatusUpdate
-  | CommunityMentionCreate
-  | CommunityUnreadBump
-  | CommunityMachineCreated
-  | CommunityMachineStatus
-  | CommunityMachineUpdated
-  | CommunityMachineRemoved
-  | CommunityBotAuditEvent
-
-/** Constant map of every community WS event type string. */
 export const WS_EVENTS = {
   MESSAGE_CREATE: "community:message.create",
   MESSAGE_UPDATED: "community:message.updated",
@@ -686,18 +594,161 @@ export const WS_EVENTS = {
   MACHINE_UPDATED: "community:machine.updated",
   MACHINE_REMOVED: "community:machine.removed",
   BOT_AUDIT_EVENT: "community:bot.audit_event",
-} as const
+} as const satisfies Record<string, CommunityWsEvent["type"]>
 
 type DeclaredCommunityEventType = (typeof WS_EVENTS)[keyof typeof WS_EVENTS]
-type ExactCommunityEventType = Exclude<CommunityWsEvent["type"], DeclaredCommunityEventType> extends never
-  ? Exclude<DeclaredCommunityEventType, CommunityWsEvent["type"]> extends never
-    ? CommunityWsEvent["type"]
+type MissingDeclaredEvent = Exclude<CommunityWsEvent["type"], DeclaredCommunityEventType>
+type ExtraDeclaredEvent = Exclude<DeclaredCommunityEventType, CommunityWsEvent["type"]>
+const exactCommunityEventTypes: MissingDeclaredEvent extends never
+  ? ExtraDeclaredEvent extends never
+    ? true
     : never
-  : never
+  : never = true
+void exactCommunityEventTypes
 
-const COMMUNITY_EVENT_TYPES: ReadonlySet<string> = new Set<ExactCommunityEventType>(Object.values(WS_EVENTS))
+const COMMUNITY_EVENT_TYPES: ReadonlySet<string> = new Set(Object.values(WS_EVENTS))
 
-/** Type guard: is this a community WS event? */
+export const COMMUNITY_BROWSER_EVENT_CONTRACT_VERSION = 1 as const
+export const COMMUNITY_BROWSER_EVENT_MAX_BYTES = 65_536
+export const COMMUNITY_USER_TARGET_MAX_BYTES = 128
+export const COMMUNITY_USER_TARGET_PATH_PREFIX = "u:"
+export const COMMUNITY_BULK_BODY_MAX_BYTES = 837_347
+
+export type CommunityBrowserEventEnvelopeV1 = CommunityWsEvent & {
+  contractVersion: typeof COMMUNITY_BROWSER_EVENT_CONTRACT_VERSION
+}
+
+export type CommunityBrowserEventFailureReason =
+  | "oversized"
+  | "invalid-json"
+  | "non-object"
+  | "missing-type"
+  | "wrong-family"
+  | "unknown-community-type"
+  | "unsupported-version"
+  | "invalid-payload"
+  | "invalid-target"
+  | "too-many-targets"
+  | "pre-auth-frame"
+  | "duplicate-auth-ok"
+
+export type CommunityBrowserEventDecodeResult =
+  | { ok: true; event: CommunityWsEvent; sourceVersion: 0 | 1 }
+  | {
+      ok: false
+      reason: CommunityBrowserEventFailureReason
+      type: CommunityWsEvent["type"] | "unknown"
+      contractVersion?: number
+    }
+
+export type CommunityBrowserEventEncodeResult =
+  | {
+      ok: true
+      event: CommunityBrowserEventEnvelopeV1
+      body: string
+      byteLength: number
+    }
+  | {
+      ok: false
+      reason: "invalid-payload" | "oversized"
+      type: CommunityWsEvent["type"] | "unknown"
+      byteLength?: number
+    }
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+export function utf8ByteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength
+}
+
+export function isCommunityEventType(value: unknown): value is CommunityWsEvent["type"] {
+  return typeof value === "string" && COMMUNITY_EVENT_TYPES.has(value)
+}
+
+export function isCommunityEventCandidate(value: unknown): value is Record<string, unknown> & { type: string } {
+  return isRecord(value) && typeof value.type === "string" && value.type.startsWith("community:")
+}
+
 export function isCommunityEvent(msg: { type: string }): msg is CommunityWsEvent {
-  return COMMUNITY_EVENT_TYPES.has(msg.type)
+  return isCommunityEventType(msg.type)
+}
+
+function isWellFormedUnicode(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const codeUnit = value.charCodeAt(index)
+    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+      const next = value.charCodeAt(index + 1)
+      if (!Number.isInteger(next) || next < 0xdc00 || next > 0xdfff) return false
+      index += 1
+    } else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
+      return false
+    }
+  }
+  return true
+}
+
+export function isValidCommunityUserTarget(value: unknown): value is string {
+  return typeof value === "string"
+    && value.length > 0
+    && isWellFormedUnicode(value)
+    && utf8ByteLength(value) <= COMMUNITY_USER_TARGET_MAX_BYTES
+}
+
+export function encodeCommunityUserTargetPathSegment(target: string): string {
+  return `${COMMUNITY_USER_TARGET_PATH_PREFIX}${encodeURIComponent(target)}`
+}
+
+export function decodeCommunityBrowserEvent(value: unknown): CommunityBrowserEventDecodeResult {
+  if (!isRecord(value)) return { ok: false, reason: "non-object", type: "unknown" }
+  if (typeof value.type !== "string" || value.type.length === 0) {
+    return { ok: false, reason: "missing-type", type: "unknown" }
+  }
+  if (!value.type.startsWith("community:")) {
+    return { ok: false, reason: "wrong-family", type: "unknown" }
+  }
+  if (!isCommunityEventType(value.type)) {
+    return { ok: false, reason: "unknown-community-type", type: "unknown" }
+  }
+
+  const hasVersion = Object.prototype.hasOwnProperty.call(value, "contractVersion")
+  const rawVersion = value.contractVersion
+  if (hasVersion && rawVersion !== COMMUNITY_BROWSER_EVENT_CONTRACT_VERSION) {
+    return {
+      ok: false,
+      reason: "unsupported-version",
+      type: value.type,
+      ...(typeof rawVersion === "number" && Number.isSafeInteger(rawVersion)
+        ? { contractVersion: rawVersion }
+        : {}),
+    }
+  }
+
+  const eventValue = hasVersion
+    ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== "contractVersion"))
+    : value
+  const parsed = CommunityWsEventSchema.safeParse(eventValue)
+  if (!parsed.success) return { ok: false, reason: "invalid-payload", type: value.type }
+  return {
+    ok: true,
+    event: parsed.data,
+    sourceVersion: hasVersion ? 1 : 0,
+  }
+}
+
+export function encodeCommunityBrowserEvent(value: unknown): CommunityBrowserEventEncodeResult {
+  const parsed = CommunityWsEventSchema.safeParse(value)
+  const type = isRecord(value) && isCommunityEventType(value.type) ? value.type : "unknown"
+  if (!parsed.success) return { ok: false, reason: "invalid-payload", type }
+  const event = {
+    ...parsed.data,
+    contractVersion: COMMUNITY_BROWSER_EVENT_CONTRACT_VERSION,
+  } satisfies CommunityBrowserEventEnvelopeV1
+  const body = JSON.stringify(event)
+  const byteLength = utf8ByteLength(body)
+  if (byteLength > COMMUNITY_BROWSER_EVENT_MAX_BYTES) {
+    return { ok: false, reason: "oversized", type: parsed.data.type, byteLength }
+  }
+  return { ok: true, event, body, byteLength }
 }

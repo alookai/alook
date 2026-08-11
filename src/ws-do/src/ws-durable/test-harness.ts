@@ -145,7 +145,8 @@ export const mockToSummary = vi.fn((row: any) => ({
   updatedAt: row.updatedAt ?? "",
 }))
 
-vi.mock("@alook/shared", () => {
+vi.mock("@alook/shared", async () => {
+  const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
   const noopLogger = {
     debug: mockLogDebug,
     info: mockLogInfo,
@@ -278,6 +279,7 @@ vi.mock("@alook/shared", () => {
     },
   }
   return {
+    ...actual,
     // Real WS event-type strings the DO reads at runtime (#5 T2 — ws-do
     // broadcasts now use WS_EVENTS.* instead of raw literals). Values match
     // @alook/shared so the event assertions still hold.

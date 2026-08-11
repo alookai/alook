@@ -307,7 +307,9 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       channelId: "ch_thread",
       changes: { archived: false },
     } satisfies CommunityChildChannelUpdate)
-    expect(capturedQueryClient.getQueryState(key)?.isInvalidated).toBe(true)
+    await vi.waitFor(() => {
+      expect(capturedQueryClient.getQueryState(key)?.isInvalidated).toBe(true)
+    })
   })
 
   it("clears active child metadata synchronously on channel.delete", async () => {

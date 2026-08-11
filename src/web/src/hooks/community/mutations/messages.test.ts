@@ -314,7 +314,9 @@ describe("useSendMessage — happy path", () => {
       author: { id: "u_me", name: "me", avatar: "M" },
     })
 
-    expect(capturedQc.getQueryState(sidebarKey)?.isInvalidated).toBe(true)
+    await vi.waitFor(() => {
+      expect(capturedQc.getQueryState(sidebarKey)?.isInvalidated).toBe(true)
+    })
   })
 
   it("does not touch forum resources when sending in an ordinary text thread", async () => {

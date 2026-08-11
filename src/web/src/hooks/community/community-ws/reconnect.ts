@@ -1,110 +1,249 @@
-import type { QueryClient } from "@tanstack/react-query"
+import type { QueryClient, QueryKey } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 import { useCommunityStore } from "@/stores/community"
+import { useCommunityWsStore } from "@/stores/community/ws"
 import { invalidateForumSidebarBaseExact } from "@/hooks/community/use-forum-sidebar-threads"
+import { clearAllTypingIndicators } from "@/hooks/community/community-ws/typing"
+import { communityWsReconnectPolicies } from "@/hooks/community/community-ws/registry"
+import {
+  trackCommunityWsReconcileComplete,
+  trackCommunityWsReconcileFailure,
+  type CommunityWsReconcilePolicy,
+} from "@/lib/analytics"
 
-/**
- * Machines are WS-live-patched with no query refetch (see `use-machines.ts`)
- * — but that only works while THIS browser tab's own socket stays connected.
- * If the socket drops and an offline→online transition happens while it's
- * down, the event never arrives and the card is stuck stale until a full
- * page reload. Mirror `AgentProvider`'s reconnect pattern
- * (`contexts/agent-context.tsx`): resync the machines query on every
- * reconnect so a missed transition self-corrects within the reconnect
- * window instead of requiring a manual reload.
- *
- * Same rationale for the focused channel/DM message stream after Commit C:
- * the IDB persister rehydrates the cache from the last session, but the
- * socket may have dropped WS `message.create` events while we were offline
- * (or the tab was suspended). Invalidating the focused scope's message
- * query on reconnect fires a top-up refetch — TanStack re-runs every
- * page's `pageParam`, so anchor windows and newest-tail windows both
- * catch up without any client-side `?since` bookkeeping.
- *
- * Do NOT invalidate the read-state SNAPSHOT here. The snapshot hook
- * (`useChannelReadStateSnapshot`, `gcTime: 0`) latches its first resolved
- * value in a ref and deliberately never updates it during a mount — that
- * freeze is what keeps the "New" divider pinned while the watermark
- * advances. Re-fetching it can't move the divider (the ref ignores the new
- * value), but it DOES flip the hook's `isFetching` back to true, which the
- * channel/DM pages read as `lastReadMessageId: undefined` →
- * `useMessages.isLoading: true` → the whole view drops back to the loading
- * skeleton. Because `onReconnect` fires once even on a fresh page load (a
- * StrictMode / refresh double-connect makes the socket's second open run
- * it ~1.5s in), that surfaced as a SECOND skeleton flash mid-mount —
- * "skeleton → content → skeleton → scroll to the top hero" (the empty
- * round-trip also burned the message list's one-shot mount-scroll gate;
- * see `use-scroll-anchor.ts`'s re-arm-on-empty branch). Verified via live
- * Playwright page-level trace: the second skeleton window lines up exactly
- * with `readSnapshotFetching` going true at t≈1.75s. The message-query
- * invalidation below is the legitimate top-up and keeps its data on
- * screen; the divider is already correct from the first (frozen) snapshot,
- * so nothing here needs the snapshot refetched.
- */
-export function reconcileCommunityWsReconnect(queryClient: QueryClient) {
-  queryClient.invalidateQueries({ queryKey: communityKeys.machines() })
-  const sub = useCommunityStore.getState().subscription
-  if (sub.channelId) {
-    void queryClient.invalidateQueries({
-      queryKey: communityKeys.channelMessages(sub.channelId),
-    })
-    // Channel/thread rosters are live-patched from membership/message events.
-    // A socket gap can miss those patches even while navigator.onLine remains
-    // true, so TanStack's refetchOnReconnect is not a sufficient backstop.
-    void queryClient.invalidateQueries({
-      queryKey: communityKeys.channelMembers(sub.channelId),
-    })
+const EXACT_SERVER_QUERY_FAMILIES = new Set([
+  "forum-sidebar-base",
+  "forum-sidebar-unread-fallbacks",
+  "members",
+  "presence",
+  "audit-log",
+  "invites",
+  "invitable-friends",
+])
+
+const DERIVED_SERVER_QUERY_FAMILIES = new Set([
+  "forum-sidebar-retained",
+  "channel-meta",
+  "forum-opener-hint",
+])
+
+type ServerQueryKey = readonly ["community", "servers", string, ...unknown[]]
+
+function isServerQueryPrefix(key: QueryKey, serverId?: string): key is ServerQueryKey {
+  return key[0] === "community"
+    && key[1] === "servers"
+    && typeof key[2] === "string"
+    && key[2] !== "__none__"
+    && (serverId === undefined || key[2] === serverId)
+}
+
+function isRecognizedServerQueryKey(key: QueryKey): key is ServerQueryKey {
+  if (!isServerQueryPrefix(key)) return false
+  if (key.length === 3) return true
+  if (key.length === 4) {
+    return typeof key[3] === "string" && EXACT_SERVER_QUERY_FAMILIES.has(key[3])
   }
-  if (sub.dmConversationId) {
-    void queryClient.invalidateQueries({
-      queryKey: communityKeys.dmMessages(sub.dmConversationId),
-    })
-    // A DM message may have arrived while offline; the DM sidebar preview /
-    // unread flag is only reconciled on `message.create`, none of which land
-    // during the gap. Top it up on reconnect.
-    void queryClient.invalidateQueries({ queryKey: communityKeys.dms() })
+  return key.length === 5
+    && typeof key[3] === "string"
+    && DERIVED_SERVER_QUERY_FAMILIES.has(key[3])
+    && typeof key[4] === "string"
+    && key[4].length > 0
+}
+
+function isDerivedServerAccessQueryKey(key: QueryKey, serverId: string) {
+  if (!isServerQueryPrefix(key, serverId)) return false
+  if (key.length === 4) return key[3] === "forum-sidebar-unread-fallbacks"
+  return key.length === 5
+    && typeof key[3] === "string"
+    && DERIVED_SERVER_QUERY_FAMILIES.has(key[3])
+    && typeof key[4] === "string"
+    && key[4].length > 0
+}
+
+function cachedServerIds(queryKeys: readonly QueryKey[]) {
+  const serverIds = new Set<string>()
+  for (const key of queryKeys) {
+    if (isRecognizedServerQueryKey(key)) serverIds.add(key[2])
   }
-  // Inbox counts also need a refetch — unreads and mentions could have
-  // grown while offline and the live invalidator only fires on incoming
-  // `message.create` events, none of which arrive while the socket is
-  // down.
-  void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
-  // Sidebar unread dots + rail mention badges are now driven by the live
-  // `unread.bump` patch (inbox-dot-ws-driven plan) — no switch-refetch backs
-  // them anymore. A bump dropped during the socket gap would leave the dot /
-  // rail badge stale forever, so re-seed both on reconnect: the rail LIST
-  // (`servers()`, mention counts) and the open server's detail tree
-  // (`server(currentServerId)`, channel dots). `exact` on the list so it
-  // doesn't cascade-refetch every server's nested detail subtree.
-  void queryClient.invalidateQueries({ queryKey: communityKeys.servers(), exact: true })
-  const currentServerId = useCommunityStore.getState().currentServerId
-  if (currentServerId) {
-    void queryClient.invalidateQueries({
-      queryKey: communityKeys.server(currentServerId),
-      exact: true,
-    })
-    void queryClient.invalidateQueries({
-      queryKey: communityKeys.members(currentServerId),
-      exact: true,
-    })
-    void invalidateForumSidebarBaseExact(queryClient, currentServerId)
-    queryClient.removeQueries({
-      queryKey: communityKeys.forumSidebarRetainedRoot(currentServerId),
-    })
-    queryClient.removeQueries({
-      queryKey: communityKeys.channelMetaRoot(currentServerId),
-    })
-    queryClient.removeQueries({
-      queryKey: communityKeys.forumOpenerHintRoot(currentServerId),
-    })
-  }
-  // Bot audit logs are WS-live-patched into the React Query cache; if
-  // the socket dropped, any events emitted during the gap never entered
-  // the store's ring and so never made it into the cache. Invalidating
-  // all bot audit-log pages on reconnect lets an open modal catch up.
-  void queryClient.invalidateQueries({
-    queryKey: [...communityKeys.all, "bot"],
-    // Fuzzy prefix match — communityKeys.botAuditLog is [all, "bot", botId, "audit-log"].
-    exact: false,
+  return [...serverIds]
+}
+
+async function reconcileCachedServer(queryClient: QueryClient, serverId: string) {
+  queryClient.removeQueries({
+    predicate: (query) => isDerivedServerAccessQueryKey(query.queryKey, serverId),
   })
+
+  const settled = await Promise.allSettled([
+    queryClient.invalidateQueries({
+      queryKey: communityKeys.server(serverId),
+      exact: true,
+      refetchType: "active",
+    }),
+    queryClient.invalidateQueries({
+      queryKey: communityKeys.members(serverId),
+      exact: true,
+      refetchType: "active",
+    }),
+    queryClient.invalidateQueries({
+      queryKey: communityKeys.presence(serverId),
+      exact: true,
+      refetchType: "active",
+    }),
+    queryClient.invalidateQueries({
+      queryKey: communityKeys.invites(serverId),
+      exact: true,
+      refetchType: "active",
+    }),
+    invalidateForumSidebarBaseExact(queryClient, serverId),
+  ])
+  if (settled.some((result) => result.status === "rejected")) {
+    throw new Error("server reconciliation failed")
+  }
+}
+
+function policyExecutors(queryClient: QueryClient): Record<CommunityWsReconcilePolicy, () => void | Promise<void>> {
+  const sub = useCommunityStore.getState().subscription
+  const queryKeys = queryClient.getQueryCache().getAll().map((query) => query.queryKey)
+  return {
+    "focused-messages": async () => {
+      const operations: Promise<unknown>[] = []
+      if (sub.channelId) {
+        operations.push(queryClient.invalidateQueries({
+          queryKey: communityKeys.channelMessages(sub.channelId),
+          refetchType: "active",
+        }))
+      }
+      if (sub.dmConversationId) {
+        operations.push(queryClient.invalidateQueries({
+          queryKey: communityKeys.dmMessages(sub.dmConversationId),
+          refetchType: "active",
+        }))
+      }
+      const settled = await Promise.allSettled(operations)
+      if (settled.some((result) => result.status === "rejected")) throw new Error("focused messages failed")
+    },
+    "focused-channel-roster": async () => {
+      if (!sub.channelId) return
+      const settled = await Promise.allSettled([
+        queryClient.invalidateQueries({
+          queryKey: communityKeys.channelMembers(sub.channelId),
+          refetchType: "active",
+        }),
+        queryClient.invalidateQueries({
+          queryKey: communityKeys.channelAddableMembers(sub.channelId),
+          refetchType: "active",
+        }),
+      ])
+      if (settled.some((result) => result.status === "rejected")) throw new Error("focused roster failed")
+    },
+    "focused-pins": async () => {
+      const channelId = sub.channelId ?? sub.dmConversationId
+      if (!channelId) return
+      await queryClient.invalidateQueries({ queryKey: communityKeys.pins(channelId), refetchType: "active" })
+    },
+    "focused-threads": async () => {
+      if (!sub.channelId) return
+      const settled = await Promise.allSettled([
+        queryClient.invalidateQueries({ queryKey: communityKeys.threads(sub.channelId), refetchType: "active" }),
+        queryClient.invalidateQueries({ queryKey: communityKeys.threadParticipants(sub.channelId), refetchType: "active" }),
+      ])
+      if (settled.some((result) => result.status === "rejected")) throw new Error("focused threads failed")
+    },
+    "inbox-dms": async () => {
+      const settled = await Promise.allSettled([
+        queryClient.invalidateQueries({ queryKey: communityKeys.inbox(), refetchType: "active" }),
+        queryClient.invalidateQueries({ queryKey: communityKeys.dms(), refetchType: "active" }),
+      ])
+      if (settled.some((result) => result.status === "rejected")) throw new Error("inbox reconciliation failed")
+    },
+    "all-cached-servers": async () => {
+      const serverIds = cachedServerIds(queryKeys)
+      const settled = await Promise.allSettled([
+        queryClient.invalidateQueries({
+          queryKey: communityKeys.servers(),
+          exact: true,
+          refetchType: "active",
+        }),
+        ...serverIds.map((serverId) => reconcileCachedServer(queryClient, serverId)),
+      ])
+      if (settled.some((result) => result.status === "rejected")) throw new Error("cached server reconciliation failed")
+    },
+    "friends": async () => {
+      await queryClient.invalidateQueries({ queryKey: communityKeys.friends(), refetchType: "active" })
+    },
+    "presence-overlay": () => useCommunityWsStore.getState().resetPresence(),
+    "status-overlay": () => useCommunityWsStore.getState().resetUserStatuses(),
+    "ephemeral-typing": clearAllTypingIndicators,
+    "machines": async () => {
+      await queryClient.invalidateQueries({ queryKey: communityKeys.machines(), refetchType: "active" })
+    },
+    "bot-audits": async () => {
+      await queryClient.invalidateQueries({
+        queryKey: [...communityKeys.all, "bot"],
+        exact: false,
+        refetchType: "active",
+      })
+    },
+  }
+}
+
+async function executePolicy(
+  policy: CommunityWsReconcilePolicy,
+  executor: () => void | Promise<void>,
+) {
+  let result: void | Promise<void>
+  try {
+    result = executor()
+  } catch {
+    trackCommunityWsReconcileFailure({ policy, reason: "sync-throw" })
+    return false
+  }
+  try {
+    await result
+    return true
+  } catch {
+    trackCommunityWsReconcileFailure({ policy, reason: "async-rejection" })
+    return false
+  }
+}
+
+export type CommunityWsReconcileSummary = {
+  policyCount: number
+  successCount: number
+  failureCount: number
+  durationMs: number
+  reconnectDurationMs: number
+}
+
+export async function reconcileCommunityWsReconnect(
+  queryClient: QueryClient,
+  reconnectDurationMs = 0,
+): Promise<CommunityWsReconcileSummary> {
+  const startedAt = Date.now()
+  const executors = policyExecutors(queryClient)
+  const resetPolicies = new Set<CommunityWsReconcilePolicy>([
+    "presence-overlay",
+    "status-overlay",
+  ])
+  const resetResults = communityWsReconnectPolicies
+    .filter((policy) => resetPolicies.has(policy))
+    .map((policy) => executePolicy(policy, executors[policy]))
+  const authoritativeResults = communityWsReconnectPolicies
+    .filter((policy) => !resetPolicies.has(policy))
+    .map((policy) => executePolicy(policy, executors[policy]))
+  const settled = await Promise.allSettled(
+    [...resetResults, ...authoritativeResults],
+  )
+  const successCount = settled.filter(
+    (result) => result.status === "fulfilled" && result.value,
+  ).length
+  const summary = {
+    policyCount: settled.length,
+    successCount,
+    failureCount: settled.length - successCount,
+    durationMs: Math.max(0, Date.now() - startedAt),
+    reconnectDurationMs,
+  }
+  trackCommunityWsReconcileComplete(summary)
+  return summary
 }

@@ -1,6 +1,22 @@
 import type { RouterContext } from "../router-context"
-import { createInternalUserBroadcastRequest } from "../internal-user-broadcast"
+import {
+  COMMUNITY_BULK_BODY_MAX_BYTES,
+  isValidCommunityUserTarget,
+} from "@alook/shared"
+import {
+  createInternalCommunityUserBroadcastRequest,
+  createInternalUserBroadcastRequest,
+} from "../internal-user-broadcast"
 import { settleInBatches } from "../settle-in-batches"
+import {
+  decodeCommunityTargetPathSegment,
+  invalidCommunityBrowserEventResponse,
+  logCommunityBrowserEventRejected,
+  normalizeCommunityBrowserEvent,
+  readBoundedJsonRequest,
+  readCommunityBrowserEventRequest,
+  type CommunityBrowserEventIngressFailure,
+} from "../community-browser-event-ingress"
 
 const maxBulkUserIds = 1000
 const bulkBatchSize = 40
@@ -31,6 +47,26 @@ function isBulkBroadcastBody(value: unknown): value is BulkBroadcastBody {
     && (typeof value.excludeUserId !== "string" || value.excludeUserId.length === 0)
   ) return false
   return true
+}
+
+function isStrictBulkBroadcastBody(value: unknown): value is BulkBroadcastBody {
+  if (!isRecord(value)) return false
+  const keys = Object.keys(value)
+  if (keys.some((key) => key !== "userIds" && key !== "message" && key !== "excludeUserId")) return false
+  if (!Array.isArray(value.userIds) || value.userIds.length > maxBulkUserIds) return false
+  if (value.userIds.some((userId) => !isValidCommunityUserTarget(userId))) return false
+  if (
+    Object.prototype.hasOwnProperty.call(value, "excludeUserId")
+    && !isValidCommunityUserTarget(value.excludeUserId)
+  ) return false
+  return isRecord(value.message)
+}
+
+function strictFailure(
+  reason: CommunityBrowserEventIngressFailure["reason"],
+  byteCount?: number,
+): CommunityBrowserEventIngressFailure {
+  return { ok: false, reason, type: "unknown", ...(byteCount === undefined ? {} : { byteCount }) }
 }
 
 function invalidBulkRequest(): Response {
@@ -65,6 +101,27 @@ async function broadcastToBulkTarget(
   return { ok: true, sent: payload.sent }
 }
 
+async function broadcastCommunityToBulkTarget(
+  env: Env,
+  userId: string,
+  messageBody: string,
+): Promise<BulkTargetResult> {
+  const doId = env.WS_DO.idFromName("user:" + userId)
+  const stub = env.WS_DO.get(doId)
+  const response = await stub.fetch(createInternalCommunityUserBroadcastRequest(userId, messageBody))
+  if (!response.ok) return { ok: false, failureKind: "non-ok", status: response.status }
+  let payload: unknown
+  try {
+    payload = await response.json()
+  } catch {
+    return { ok: false, failureKind: "invalid-json", status: response.status }
+  }
+  if (!isRecord(payload) || typeof payload.sent !== "number" || !Number.isInteger(payload.sent) || payload.sent < 0) {
+    return { ok: false, failureKind: "invalid-sent", status: response.status }
+  }
+  return { ok: true, sent: payload.sent }
+}
+
 export async function handleDaemonBroadcast({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {
   const daemonBroadcast = url.pathname.match(/^\/broadcast\/daemon\/(.+)$/)
   if (!daemonBroadcast || request.method !== "POST") return null
@@ -91,6 +148,27 @@ export async function handleUserBroadcast({ request, env, url, traceId, log }: R
   return stub.fetch(
     createInternalUserBroadcastRequest(userId, request.body, request.headers, true),
   )
+}
+
+export async function handleCommunityUserBroadcast({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {
+  const match = url.pathname.match(/^\/broadcast\/community\/user\/([^/]+)$/)
+  if (!match || request.method !== "POST") return null
+  const target = decodeCommunityTargetPathSegment(match[1])
+  if (!target.ok) {
+    logCommunityBrowserEventRejected(log, "strict-single", target)
+    return invalidCommunityBrowserEventResponse(target)
+  }
+  const event = await readCommunityBrowserEventRequest(request)
+  if (!event.ok) {
+    logCommunityBrowserEventRejected(log, "strict-single", event)
+    return invalidCommunityBrowserEventResponse(event)
+  }
+
+  const reqLog = log.child({ traceId, userId: target.target })
+  reqLog.debug("broadcasting community event to user")
+  const doId = env.WS_DO.idFromName("user:" + target.target)
+  const stub = env.WS_DO.get(doId)
+  return stub.fetch(createInternalCommunityUserBroadcastRequest(target.target, event.body))
 }
 
 export async function handleUsersBroadcast({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {
@@ -165,6 +243,111 @@ export async function handleUsersBroadcast({ request, env, url, traceId, log }: 
   }
 
   reqLog.info("bulk user broadcast complete", {
+    targetCount: targetUserIds.length,
+    resultCount: results.length,
+    successCount,
+    failureCount,
+    failureCounts,
+    sent,
+    maxActive,
+    batchSize: bulkBatchSize,
+    batchCount: Math.ceil(targetUserIds.length / bulkBatchSize),
+    durationMs: Date.now() - startedAt,
+  })
+  return Response.json({ sent })
+}
+
+export async function handleCommunityUsersBroadcast({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {
+  if (url.pathname !== "/broadcast/community/users" || request.method !== "POST") return null
+  const parsed = await readBoundedJsonRequest(request, COMMUNITY_BULK_BODY_MAX_BYTES)
+  if (!parsed.ok) {
+    logCommunityBrowserEventRejected(log, "strict-bulk", parsed)
+    return invalidCommunityBrowserEventResponse(parsed)
+  }
+  if (!isRecord(parsed.value)) {
+    const failure = strictFailure("non-object", parsed.byteCount)
+    logCommunityBrowserEventRejected(log, "strict-bulk", failure)
+    return invalidCommunityBrowserEventResponse(failure)
+  }
+  const body = parsed.value
+  if (!Array.isArray(body.userIds)) {
+    const failure = strictFailure("invalid-payload", parsed.byteCount)
+    logCommunityBrowserEventRejected(log, "strict-bulk", failure)
+    return invalidCommunityBrowserEventResponse(failure)
+  }
+  if (body.userIds.length > maxBulkUserIds) {
+    const failure = strictFailure("too-many-targets", parsed.byteCount)
+    logCommunityBrowserEventRejected(log, "strict-bulk", failure, body.userIds.length)
+    return invalidCommunityBrowserEventResponse(failure)
+  }
+  if (!isStrictBulkBroadcastBody(body)) {
+    const failure = strictFailure(
+      body.userIds.some((target) => !isValidCommunityUserTarget(target))
+        || (Object.prototype.hasOwnProperty.call(body, "excludeUserId") && !isValidCommunityUserTarget(body.excludeUserId))
+        ? "invalid-target"
+        : "invalid-payload",
+      parsed.byteCount,
+    )
+    logCommunityBrowserEventRejected(log, "strict-bulk", failure, body.userIds.length)
+    return invalidCommunityBrowserEventResponse(failure)
+  }
+  const event = normalizeCommunityBrowserEvent(body.message)
+  if (!event.ok) {
+    logCommunityBrowserEventRejected(log, "strict-bulk", event, body.userIds.length)
+    return invalidCommunityBrowserEventResponse(event)
+  }
+
+  const uniqueUserIds = [...new Set(body.userIds)]
+  const targetUserIds = body.excludeUserId === undefined
+    ? uniqueUserIds
+    : uniqueUserIds.filter((userId) => userId !== body.excludeUserId)
+  const reqLog = log.child({
+    traceId,
+    rawCount: body.userIds.length,
+    uniqueCount: uniqueUserIds.length,
+    targetCount: targetUserIds.length,
+    excludedCount: uniqueUserIds.length - targetUserIds.length,
+  })
+  reqLog.debug("broadcasting community event to users")
+
+  const startedAt = Date.now()
+  let active = 0
+  let maxActive = 0
+  const results = await settleInBatches(
+    targetUserIds,
+    async (userId) => {
+      active += 1
+      maxActive = Math.max(maxActive, active)
+      try {
+        return await broadcastCommunityToBulkTarget(env, userId, event.body)
+      } finally {
+        active -= 1
+      }
+    },
+    bulkBatchSize,
+  )
+  let sent = 0
+  let successCount = 0
+  let failureCount = 0
+  const failureCounts: Record<BulkFailureKind, number> = {
+    throw: 0,
+    "non-ok": 0,
+    "invalid-json": 0,
+    "invalid-sent": 0,
+  }
+  for (const result of results) {
+    if (result.status === "rejected") {
+      failureCount += 1
+      failureCounts.throw += 1
+    } else if (!result.value.ok) {
+      failureCount += 1
+      failureCounts[result.value.failureKind] += 1
+    } else {
+      successCount += 1
+      sent += result.value.sent
+    }
+  }
+  reqLog.info("community bulk user broadcast complete", {
     targetCount: targetUserIds.length,
     resultCount: results.length,
     successCount,

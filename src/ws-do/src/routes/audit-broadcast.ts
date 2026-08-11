@@ -1,6 +1,11 @@
-import { WS_EVENTS } from "@alook/shared"
+import {
+  WS_EVENTS,
+  encodeCommunityBrowserEvent,
+  isValidCommunityUserTarget,
+} from "@alook/shared"
 import type { RouterContext } from "../router-context"
-import { createInternalUserBroadcastRequest } from "../internal-user-broadcast"
+import { createInternalCommunityUserBroadcastRequest } from "../internal-user-broadcast"
+import { logCommunityBrowserEventRejected } from "../community-browser-event-ingress"
 
 export async function handleAuditBroadcast({ request, env, url, log }: RouterContext): Promise<Response | null> {
   // POST /internal/broadcast-bot-audit-event — the wake-worker calls this
@@ -48,28 +53,40 @@ export async function handleAuditBroadcast({ request, env, url, log }: RouterCon
   // browser understands are broadcastable. An unknown `kind` reaches the
   // owner UI as an untyped row (bot-activity-row.tsx renders it verbatim),
   // so reject at the boundary instead.
-  const AUDIT_KINDS = new Set(["cli_invocation", "tool_call", "thinking", "wake_trigger", "session_reset", "model_changed"])
-  if (!AUDIT_KINDS.has(b.kind)) {
+  const AUDIT_KINDS = ["cli_invocation", "tool_call", "thinking", "wake_trigger", "session_reset", "model_changed"] as const
+  if (!(AUDIT_KINDS as readonly string[]).includes(b.kind)) {
     return new Response("invalid kind", { status: 400 })
+  }
+  if (!isValidCommunityUserTarget(b.ownerUserId)) {
+    return new Response("invalid target", { status: 400 })
   }
   const frame = {
     type: WS_EVENTS.BOT_AUDIT_EVENT,
     botId: b.botId,
     id: b.id,
-    kind: b.kind,
+    kind: b.kind as (typeof AUDIT_KINDS)[number],
     payload: b.payload,
     sessionId: typeof b.sessionId === "string" ? b.sessionId : null,
     launchId: typeof b.launchId === "string" ? b.launchId : null,
     createdAt: b.createdAt,
   }
+  const encoded = encodeCommunityBrowserEvent(frame)
+  if (!encoded.ok) {
+    logCommunityBrowserEventRejected(log, "ws-do-producer", {
+      ok: false,
+      reason: encoded.reason,
+      type: encoded.type,
+      ...(encoded.byteLength === undefined ? {} : { byteCount: encoded.byteLength }),
+    })
+    return new Response("invalid browser event", { status: 400 })
+  }
   const doId = env.WS_DO.idFromName("user:" + b.ownerUserId)
   const stub = env.WS_DO.get(doId)
   try {
     await stub.fetch(
-      createInternalUserBroadcastRequest(
+      createInternalCommunityUserBroadcastRequest(
         b.ownerUserId,
-        JSON.stringify(frame),
-        new Headers({ "content-type": "application/json" }),
+        encoded.body,
       ),
     )
   } catch (err) {

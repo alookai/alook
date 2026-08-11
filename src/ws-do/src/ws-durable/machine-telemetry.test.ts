@@ -91,7 +91,7 @@ describe("WebSocketDurableObject", () => {
           statusEmoji: "⚡",
           statusText: "Working on it",
         })
-        const call = mockStubFetch.mock.calls.find((c: any[]) => (c[0] as Request).url.endsWith("/broadcast"))
+        const call = mockStubFetch.mock.calls.find((c: any[]) => (c[0] as Request).url.endsWith("/community-broadcast"))
         expect(call).toBeDefined()
         const body = JSON.parse(await (call![0] as Request).clone().text()) as {
           type: string
@@ -100,6 +100,7 @@ describe("WebSocketDurableObject", () => {
           statusText: string
         }
         expect(body).toEqual({
+          contractVersion: 1,
           type: "community:status.update",
           userId: "bot_1",
           statusEmoji: "⚡",
@@ -324,7 +325,7 @@ describe("WebSocketDurableObject", () => {
         })
         await durable.webSocketMessage(ws as any, frame)
 
-        const call = mockStubFetch.mock.calls.find((c: any[]) => (c[0] as Request).url.endsWith("/broadcast"))
+        const call = mockStubFetch.mock.calls.find((c: any[]) => (c[0] as Request).url.endsWith("/community-broadcast"))
         expect(call).toBeDefined()
         const body = JSON.parse(await (call![0] as Request).clone().text()) as {
           type: string
@@ -336,6 +337,7 @@ describe("WebSocketDurableObject", () => {
         // Bot path carries name/discriminator from the binding (getBotBindingWithOwner's
         // existing join) so the client renders the bot's name without a roster lookup.
         expect(body).toEqual({
+          contractVersion: 1,
           type: "community:typing.start",
           userId: "bot_1",
           channelId: "dm_1",
@@ -447,7 +449,7 @@ describe("WebSocketDurableObject", () => {
         })
         await durable.webSocketMessage(ws as any, frame)
 
-        const call = mockStubFetch.mock.calls.find((c: any[]) => (c[0] as Request).url.endsWith("/broadcast"))
+        const call = mockStubFetch.mock.calls.find((c: any[]) => (c[0] as Request).url.endsWith("/community-broadcast"))
         expect(call).toBeDefined()
         const body = JSON.parse(await (call![0] as Request).clone().text()) as {
           type: string
@@ -455,13 +457,14 @@ describe("WebSocketDurableObject", () => {
           channelId: string
         }
         expect(body).toEqual({
+          contractVersion: 1,
           type: "community:typing.stop",
           userId: "bot_1",
           channelId: "dm_1",
         })
         // Sender exclusion: only the peer (peer_1) is targeted — a single
         // /broadcast call, addressed via the peer's user DO.
-        expect(mockStubFetch.mock.calls.filter((c: any[]) => (c[0] as Request).url.endsWith("/broadcast"))).toHaveLength(1)
+        expect(mockStubFetch.mock.calls.filter((c: any[]) => (c[0] as Request).url.endsWith("/community-broadcast"))).toHaveLength(1)
       })
     })
 
@@ -522,7 +525,7 @@ describe("WebSocketDurableObject", () => {
         // Owner is notified via notifyUserDO — request goes to `user:owner_1`
         // and the payload carries the full audit event including createdAt
         // stamped server-side.
-        const call = mockStubFetch.mock.calls.find((c: any[]) => (c[0] as Request).url.endsWith("/broadcast"))
+        const call = mockStubFetch.mock.calls.find((c: any[]) => (c[0] as Request).url.endsWith("/community-broadcast"))
         expect(call).toBeDefined()
         const body = JSON.parse(await (call![0] as Request).clone().text()) as {
           type: string
@@ -533,6 +536,7 @@ describe("WebSocketDurableObject", () => {
           createdAt: string
         }
         expect(body).toEqual({
+          contractVersion: 1,
           type: "community:bot.audit_event",
           botId: "bot_1",
           id: "bae_abc",

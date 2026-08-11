@@ -686,7 +686,7 @@ export function removeForumSidebarChildrenForParent(
   }
 }
 
-export function invalidateForumSidebarBaseExact(queryClient: QueryClient, serverId: string) {
+export async function invalidateForumSidebarBaseExact(queryClient: QueryClient, serverId: string) {
   const pending = inflight.get(serverId)
   if (pending) {
     if (pending.abortTimer !== null) globalThis.clearTimeout(pending.abortTimer)
@@ -694,10 +694,11 @@ export function invalidateForumSidebarBaseExact(queryClient: QueryClient, server
     inflight.delete(serverId)
   }
   const queryKey = communityKeys.forumSidebarThreads(serverId)
-  void queryClient.cancelQueries({ queryKey, exact: true })
-  return queryClient.invalidateQueries({
+  await queryClient.cancelQueries({ queryKey, exact: true })
+  await queryClient.invalidateQueries({
     queryKey,
     exact: true,
+    refetchType: "active",
   })
 }
 

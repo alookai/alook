@@ -173,7 +173,9 @@ describe("useCommunityWs — message.create patches channel unread in the open s
       serverId: "srv_open",
       parentChannelId: "forum_1",
     } satisfies CommunityMessageCreate)
-    expect(capturedQueryClient.getQueryState(sidebarKey)?.isInvalidated).toBe(true)
+    await vi.waitFor(() => {
+      expect(capturedQueryClient.getQueryState(sidebarKey)?.isInvalidated).toBe(true)
+    })
 
     capturedOnMessage!(unreadBump("post_new", "u_me", {
       serverId: "srv_open",

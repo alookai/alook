@@ -26,6 +26,12 @@ vi.mock("@alook/shared", async () => {
 
 import { wsDoFetch, broadcastToUser, broadcastToUsers } from "./broadcast"
 
+const communityEvent = {
+  type: "community:presence.update",
+  userId: "event-user",
+  online: true,
+} as const
+
 const originalFetch = globalThis.fetch
 const mockFetch = vi.fn<(...args: unknown[]) => Promise<Response>>()
 
@@ -244,6 +250,84 @@ describe("broadcastToUser", () => {
     expect(mockFetch).not.toHaveBeenCalled()
     expect(mockWarn).not.toHaveBeenCalled()
   })
+
+  it.each(["用户/one", ".", "..", "%2E"])(
+    "encodes and routes community events through the framed strict user endpoint for %j",
+    async (target) => {
+    const bindingFetch = vi.fn(async () => Response.json({ sent: 1 }))
+    mockGetCloudflareContext.mockReturnValue({
+      env: makeEnv(bindingFetch),
+      ctx: { waitUntil: mockCtxWaitUntil },
+    })
+
+    await broadcastToUser(target, communityEvent)
+
+    expect(String(bindingFetch.mock.calls[0]?.[0])).toBe(
+      `http://internal/broadcast/community/user/u:${encodeURIComponent(target)}`,
+    )
+    expect(JSON.parse(String(bindingFetch.mock.calls[0]?.[1]?.body))).toEqual({
+      ...communityEvent,
+      contractVersion: 1,
+    })
+    },
+  )
+
+  it("rejects invalid community targets and payloads before transport", async () => {
+    const bindingFetch = vi.fn(async () => Response.json({ sent: 1 }))
+    mockGetCloudflareContext.mockReturnValue({
+      env: makeEnv(bindingFetch),
+      ctx: { waitUntil: mockCtxWaitUntil },
+    })
+
+    await expect(broadcastToUser("x".repeat(129), communityEvent)).rejects.toThrow(
+      "invalid community broadcast target",
+    )
+    await expect(broadcastToUser("u1", {
+      type: "community:presence.update",
+      userId: "event-user",
+    } as any)).rejects.toThrow("invalid community event")
+    await expect(broadcastToUser("u1", {
+      type: "community:future",
+      payload: "private",
+    } as any)).rejects.toThrow("invalid community event")
+    expect(bindingFetch).not.toHaveBeenCalled()
+  })
+
+  it.each(["\ud800", "\udfff"])(
+    "rejects malformed Unicode target %# through the Promise without escaping or transport",
+    async (target) => {
+      const bindingFetch = vi.fn(async () => Response.json({ sent: 1 }))
+      mockGetCloudflareContext.mockReturnValue({
+        env: makeEnv(bindingFetch),
+        ctx: { waitUntil: mockCtxWaitUntil },
+      })
+      let work!: Promise<void>
+
+      expect(() => {
+        work = broadcastToUser(target, communityEvent)
+      }).not.toThrow()
+      await expect(work).rejects.toThrow("invalid community broadcast target")
+      expect(bindingFetch).not.toHaveBeenCalled()
+      expect(mockFetch).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each([
+    { type: "task.updated", taskId: "t1", agentId: "a1", status: "running" },
+    { type: "email.received", agentId: "a1" },
+    { type: "runtime.status", daemonId: "d1", status: "online" },
+  ] as const)("preserves generic $type serialization and route selection", async (message) => {
+    const bindingFetch = vi.fn(async () => Response.json({ sent: 1 }))
+    mockGetCloudflareContext.mockReturnValue({
+      env: makeEnv(bindingFetch),
+      ctx: { waitUntil: mockCtxWaitUntil },
+    })
+
+    await broadcastToUser("generic-user", message)
+
+    expect(String(bindingFetch.mock.calls[0]?.[0])).toBe("http://internal/broadcast/user/generic-user")
+    expect(bindingFetch.mock.calls[0]?.[1]?.body).toBe(JSON.stringify(message))
+  })
 })
 
 describe("broadcastToUsers", () => {
@@ -272,11 +356,25 @@ describe("broadcastToUsers", () => {
     return { promise, resolve, reject }
   }
 
+  it("keeps non-community bulk events on the generic bulk route unchanged", async () => {
+    const bindingFetch = vi.fn(async () => Response.json({ sent: 2 }))
+    setBinding(bindingFetch)
+    const message = { type: "task.updated", taskId: "t1", agentId: "a1", status: "running" } as const
+
+    await broadcastToUsers(["u1", "u2"], message)
+
+    expect(String(bindingFetch.mock.calls[0]?.[0])).toBe("http://internal/broadcast/users")
+    expect(JSON.parse(String(bindingFetch.mock.calls[0]?.[1]?.body))).toEqual({
+      userIds: ["u1", "u2"],
+      message,
+    })
+  })
+
   it("does not call transport for an empty post-filter audience and logs zero completion", async () => {
     const bindingFetch = vi.fn(async () => new Response("unused"))
     setBinding(bindingFetch)
 
-    await expect(broadcastToUsers(["u1", "u1"], { type: "community:member.update" } as any, "u1"))
+    await expect(broadcastToUsers(["u1", "u1"], communityEvent, "u1"))
       .resolves.toBeUndefined()
 
     expect(bindingFetch).not.toHaveBeenCalled()
@@ -311,7 +409,7 @@ describe("broadcastToUsers", () => {
     })
     setBinding(bindingFetch)
     const userIds = Array.from({ length: targetCount }, (_, index) => `u${index}`)
-    const message = { type: "community:member.update", serverId: "s1" } as any
+    const message = communityEvent
 
     await broadcastToUsers(userIds, message)
 
@@ -320,7 +418,7 @@ describe("broadcastToUsers", () => {
     expect(bodies.flatMap((body) => body.userIds)).toEqual(userIds)
     expect(bodies.every((body) => body.excludeUserId === undefined)).toBe(true)
     expect(bindingFetch.mock.calls.every((call) => (
-      String(call[0]) === "http://internal/broadcast/users"
+      String(call[0]) === "http://internal/broadcast/community/users"
       && call[1]?.method === "POST"
       && JSON.stringify(call[1]?.headers) === JSON.stringify({ "Content-Type": "application/json" })
     ))).toBe(true)
@@ -356,7 +454,7 @@ describe("broadcastToUsers", () => {
       expected[1000],
       "excluded-user",
     ]
-    const message = { type: "community:channel.update" } as any
+    const message = communityEvent
 
     await broadcastToUsers(userIds, message, "excluded-user")
 
@@ -384,7 +482,7 @@ describe("broadcastToUsers", () => {
     setBinding(bindingFetch)
     const work = broadcastToUsers(
       Array.from({ length: 4001 }, (_, index) => `u${index}`),
-      { type: "community:server.update" } as any,
+      communityEvent,
     )
     const lifetime = mockCtxWaitUntil.mock.calls[0]?.[0] as Promise<void>
     let lifetimeSettled = false
@@ -425,7 +523,7 @@ describe("broadcastToUsers", () => {
     setBinding(bindingFetch)
     const work = broadcastToUsers(
       Array.from({ length: 4001 }, (_, index) => `u${index}`),
-      { type: "community:server.update" } as any,
+      communityEvent,
     )
 
     await expect(work).rejects.toThrow("broadcast failed for 1 of 5 chunks")
@@ -460,7 +558,12 @@ describe("broadcastToUsers", () => {
 
     await broadcastToUsers(
       ["sensitive-user-id"],
-      { type: "community:server.update", token: "private-token-value" } as any,
+      {
+        type: "community:status.update",
+        userId: "event-user",
+        statusEmoji: null,
+        statusText: "private-token-value",
+      },
     )
 
     const newLogCalls = [...mockInfo.mock.calls, ...mockWarn.mock.calls]
@@ -492,11 +595,11 @@ describe("broadcastToUsers", () => {
     mockFetch.mockResolvedValue(new Response(JSON.stringify({ sent: 2 }), { status: 200 }))
     setBinding(bindingFetch)
 
-    await broadcastToUsers(["u1", "u2"], { type: "community:member.update" } as any)
+    await broadcastToUsers(["u1", "u2"], communityEvent)
 
     expect(bindingFetch).toHaveBeenCalledTimes(1)
     expect(mockFetch).toHaveBeenCalledTimes(1)
-    expect(String(mockFetch.mock.calls[0]?.[0])).toBe("http://dev-ws:8789/broadcast/users")
+    expect(String(mockFetch.mock.calls[0]?.[0])).toBe("http://dev-ws:8789/broadcast/community/users")
   })
 
   it("falls back exactly once after one binding throw", async () => {
@@ -506,7 +609,7 @@ describe("broadcastToUsers", () => {
     mockFetch.mockResolvedValue(new Response(JSON.stringify({ sent: 2 }), { status: 200 }))
     setBinding(bindingFetch)
 
-    await broadcastToUsers(["u1", "u2"], { type: "community:member.update" } as any)
+    await broadcastToUsers(["u1", "u2"], communityEvent)
 
     expect(bindingFetch).toHaveBeenCalledTimes(1)
     expect(mockFetch).toHaveBeenCalledTimes(1)

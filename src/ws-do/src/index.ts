@@ -1,5 +1,11 @@
 import { handleAuditBroadcast } from "./routes/audit-broadcast"
-import { handleDaemonBroadcast, handleUserBroadcast, handleUsersBroadcast } from "./routes/broadcast"
+import {
+  handleCommunityUserBroadcast,
+  handleCommunityUsersBroadcast,
+  handleDaemonBroadcast,
+  handleUserBroadcast,
+  handleUsersBroadcast,
+} from "./routes/broadcast"
 import { handleMachinePush, handleMachineWake } from "./routes/community-machine-delivery"
 import {
   handleMachineBatchReset,
@@ -36,6 +42,10 @@ export default {
     }
 
     response = await handleDaemonBroadcast(context)
+    if (response) return response
+    response = await handleCommunityUserBroadcast(context)
+    if (response) return response
+    response = await handleCommunityUsersBroadcast(context)
     if (response) return response
     response = await handleUserBroadcast(context)
     if (response) return response

@@ -1,3 +1,8 @@
+import {
+  encodeCommunityBrowserEvent,
+  isCommunityEventCandidate,
+} from "@alook/shared"
+
 export const INTERNAL_USER_TARGET_HEADER = "x-alook-internal-user-target"
 
 export function createInternalUserBroadcastRequest(
@@ -21,7 +26,44 @@ export function createInternalUserBroadcastRequest(
   return new Request("http://internal/broadcast", init)
 }
 
+export function createInternalCommunityUserBroadcastRequest(
+  targetUserId: string,
+  body: BodyInit | null,
+): Request {
+  const headers = new Headers({
+    "content-type": "application/json",
+    [INTERNAL_USER_TARGET_HEADER]: encodeURIComponent(targetUserId),
+  })
+  return new Request("http://internal/community-broadcast", {
+    method: "POST",
+    headers,
+    body,
+  })
+}
+
+export function createInternalBrowserBroadcastRequest(
+  targetUserId: string,
+  payload: unknown,
+): Request {
+  if (isCommunityEventCandidate(payload)) {
+    const encoded = encodeCommunityBrowserEvent(payload)
+    if (!encoded.ok) throw new Error(`invalid community event: ${encoded.reason}`)
+    return createInternalCommunityUserBroadcastRequest(targetUserId, encoded.body)
+  }
+  return createInternalUserBroadcastRequest(targetUserId, JSON.stringify(payload))
+}
+
 export function getInternalUserTarget(request: Request): string | null {
   const targetUserId = request.headers.get(INTERNAL_USER_TARGET_HEADER)?.trim()
   return targetUserId || null
+}
+
+export function getInternalCommunityUserTarget(request: Request): string | null {
+  const encoded = request.headers.get(INTERNAL_USER_TARGET_HEADER)?.trim()
+  if (!encoded) return null
+  try {
+    return decodeURIComponent(encoded)
+  } catch {
+    return null
+  }
 }

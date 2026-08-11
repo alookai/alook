@@ -1,6 +1,13 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import type { WsMessage, DaemonPushMessage } from "@alook/shared"
-import { DEV_WS_DO_URL, createLogger } from "@alook/shared"
+import {
+  COMMUNITY_BULK_BODY_MAX_BYTES,
+  DEV_WS_DO_URL,
+  createLogger,
+  encodeCommunityBrowserEvent,
+  encodeCommunityUserTargetPathSegment,
+  isValidCommunityUserTarget,
+} from "@alook/shared"
 import { fetchViaBindingOrDevFallback } from "./dev-binding-fetch"
 
 const log = createLogger({ service: "broadcast" })
@@ -122,6 +129,16 @@ async function runBroadcastToUsers(
   const targetUserIds = excludeUserId === undefined
     ? uniqueUserIds
     : uniqueUserIds.filter((userId) => userId !== excludeUserId)
+  const community = message.type.startsWith("community:")
+  if (community && (
+    targetUserIds.some((userId) => !isValidCommunityUserTarget(userId)) ||
+    (excludeUserId !== undefined && !isValidCommunityUserTarget(excludeUserId))
+  )) {
+    throw new Error("invalid community broadcast target")
+  }
+  const encoded = community ? encodeCommunityBrowserEvent(message) : null
+  if (encoded && !encoded.ok) throw new Error(`invalid community event: ${encoded.reason}`)
+  const wireMessage = encoded?.event ?? message
   const chunks: string[][] = []
 
   for (let start = 0; start < targetUserIds.length; start += bulkBroadcastMaxUserIds) {
@@ -136,8 +153,8 @@ async function runBroadcastToUsers(
       const chunkNumber = index + 1
       try {
         const result = await doSend(
-          "/broadcast/users",
-          JSON.stringify({ userIds: chunk, message, ...(excludeUserId === undefined ? {} : { excludeUserId }) }),
+          community ? "/broadcast/community/users" : "/broadcast/users",
+          serializeBulkBroadcast(chunk, wireMessage, excludeUserId, community),
           { label: `${target}:chunk:${chunkNumber}/${chunks.length}`, type: message.type },
         )
         safeLog(() => log.info("broadcast_users_chunk_complete", {
@@ -199,11 +216,40 @@ async function runBroadcastToUsers(
 }
 
 export function broadcastToUser(userId: string, message: WsMessage): Promise<void> {
+  if (message.type.startsWith("community:")) {
+    if (!isValidCommunityUserTarget(userId)) {
+      return Promise.reject(new Error("invalid community broadcast target"))
+    }
+    const encoded = encodeCommunityBrowserEvent(message)
+    if (!encoded.ok) return Promise.reject(new Error(`invalid community event: ${encoded.reason}`))
+    return sendBroadcast(
+      `/broadcast/community/user/${encodeCommunityUserTargetPathSegment(userId)}`,
+      encoded.body,
+      { label: userId, type: message.type },
+    )
+  }
   return sendBroadcast(
     `/broadcast/user/${userId}`,
     JSON.stringify(message),
     { label: userId, type: message.type },
   )
+}
+
+function serializeBulkBroadcast(
+  userIds: string[],
+  message: unknown,
+  excludeUserId: string | undefined,
+  strictCommunity: boolean,
+) {
+  const body = JSON.stringify({
+    userIds,
+    message,
+    ...(excludeUserId === undefined ? {} : { excludeUserId }),
+  })
+  if (strictCommunity && new TextEncoder().encode(body).byteLength > COMMUNITY_BULK_BODY_MAX_BYTES) {
+    throw new Error("community bulk broadcast body too large")
+  }
+  return body
 }
 
 export function broadcastToUsers(

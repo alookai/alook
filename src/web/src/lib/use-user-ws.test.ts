@@ -23,6 +23,7 @@ class MockWebSocket {
   // Helpers for tests
   simulateOpen() { this.onopen?.() }
   simulateMessage(data: unknown) { this.onmessage?.({ data: JSON.stringify(data) }) }
+  simulateRawMessage(data: string) { this.onmessage?.({ data }) }
   simulateClose() { this.onclose?.() }
 }
 
@@ -302,6 +303,7 @@ describe("useUserWs", () => {
 
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
 
     // Deliver a message — should go to cb1
     ws.simulateMessage({ type: "test", data: "hello" })
@@ -494,5 +496,183 @@ describe("useUserWs", () => {
 
     expect(MockWebSocket.instances).toHaveLength(0)
     expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it("drops application frames until auth.ok commits the connection generation", async () => {
+    setupTokenFetch()
+    const onMessage = vi.fn()
+    await mountHook(onMessage, { requestDaemonStatusOnAuth: false })
+    const ws = MockWebSocket.instances[0]
+    ws.simulateOpen()
+
+    ws.simulateMessage({ type: "task.updated", taskId: "before" })
+    expect(onMessage).not.toHaveBeenCalled()
+
+    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "task.updated", taskId: "after" })
+    expect(onMessage).toHaveBeenCalledWith({ type: "task.updated", taskId: "after" })
+  })
+
+  it("does not report an access disconnect for a socket that never authenticated", async () => {
+    setupTokenFetch()
+    const onDisconnect = vi.fn()
+    await mountHook(vi.fn(), { onDisconnect, requestDaemonStatusOnAuth: false })
+    const ws = MockWebSocket.instances[0]
+    ws.simulateOpen()
+
+    ws.simulateClose()
+
+    expect(onDisconnect).not.toHaveBeenCalled()
+  })
+
+  it("does not classify a replacement for an unauthenticated failed generation as reconnect", async () => {
+    setupTokenFetch()
+    const onReconnect = vi.fn()
+    await mountHook(vi.fn(), { onReconnect, requestDaemonStatusOnAuth: false })
+    const first = MockWebSocket.instances[0]
+    first.simulateOpen()
+    first.simulateClose()
+    setupTokenFetch()
+    await vi.advanceTimersByTimeAsync(2_000)
+    const replacement = MockWebSocket.instances.at(-1)!
+    replacement.simulateOpen()
+    replacement.simulateMessage({ type: "auth.ok" })
+
+    expect(onReconnect).not.toHaveBeenCalled()
+  })
+
+  it("drops malformed envelopes without logging frame contents and stays usable", async () => {
+    setupTokenFetch()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const onMessage = vi.fn()
+    await mountHook(onMessage, { requestDaemonStatusOnAuth: false })
+    const ws = MockWebSocket.instances[0]
+    ws.simulateOpen()
+
+    ws.simulateRawMessage('{"sentinel-token":"private"')
+    ws.simulateMessage(null)
+    ws.simulateMessage([])
+    ws.simulateMessage({})
+    ws.simulateMessage({ type: "" })
+    expect(onMessage).not.toHaveBeenCalled()
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("sentinel-token")
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("private")
+
+    ws.simulateMessage({ type: "auth.ok" })
+    const valid = { type: "email.received", agentId: "agent-1" }
+    ws.simulateMessage(valid)
+    expect(onMessage).toHaveBeenCalledWith(valid)
+  })
+
+  it("consumes duplicate auth.ok frames once per generation", async () => {
+    setupTokenFetch()
+    const onAuthenticated = vi.fn()
+    await mountHook(vi.fn(), { onAuthenticated, requestDaemonStatusOnAuth: false })
+    const ws = MockWebSocket.instances[0]
+    ws.simulateOpen()
+
+    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok" })
+
+    expect(onAuthenticated).toHaveBeenCalledTimes(1)
+  })
+
+  it("fires reconnect only after replacement authentication and passes gap duration", async () => {
+    setupTokenFetch()
+    const onReconnect = vi.fn()
+    await mountHook(vi.fn(), { onReconnect, requestDaemonStatusOnAuth: false })
+    const first = MockWebSocket.instances[0]
+    first.simulateOpen()
+    first.simulateMessage({ type: "auth.ok" })
+    expect(onReconnect).not.toHaveBeenCalled()
+
+    vi.setSystemTime(new Date("2026-08-11T08:00:00.000Z"))
+    first.simulateClose()
+    setupTokenFetch()
+    await vi.advanceTimersByTimeAsync(2_000)
+    const replacement = MockWebSocket.instances.at(-1)!
+    replacement.simulateOpen()
+    expect(onReconnect).not.toHaveBeenCalled()
+
+    replacement.simulateMessage({ type: "auth.ok" })
+    expect(onReconnect).toHaveBeenCalledTimes(1)
+    expect(onReconnect).toHaveBeenCalledWith({ reconnectDurationMs: 2_000 })
+  })
+
+  it("commits auth before callbacks and preserves authenticated → reconnect → status order", async () => {
+    setupTokenFetch()
+    const trace: string[] = []
+    const onMessage = vi.fn(() => trace.push("message"))
+    const onAuthenticated = vi.fn(() => trace.push("authenticated"))
+    const onReconnect = vi.fn(() => trace.push("reconnect"))
+    await mountHook(onMessage, { onAuthenticated, onReconnect })
+    const first = MockWebSocket.instances[0]
+    first.simulateOpen()
+    first.simulateMessage({ type: "auth.ok" })
+    trace.length = 0
+    first.simulateClose()
+    setupTokenFetch()
+    await vi.advanceTimersByTimeAsync(2_000)
+    const replacement = MockWebSocket.instances.at(-1)!
+    const originalSend = replacement.send.bind(replacement)
+    replacement.send = (data: string) => {
+      originalSend(data)
+      if (data === JSON.stringify({ type: "check_daemon_status" })) trace.push("status")
+    }
+    replacement.simulateOpen()
+    replacement.simulateMessage({ type: "auth.ok" })
+    replacement.simulateMessage({ type: "task.updated", taskId: "after-auth" })
+
+    expect(trace).toEqual(["authenticated", "reconnect", "status", "message"])
+  })
+
+  it("isolates synchronous throws and asynchronous rejections from lifecycle callbacks", async () => {
+    setupTokenFetch()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const onAuthenticated = vi.fn(() => { throw new Error("secret sync error") })
+    const onDisconnect = vi.fn(() => Promise.reject(new Error("secret async error")))
+    const onReconnect = vi.fn(() => Promise.reject(new Error("secret reconnect error")))
+    await mountHook(vi.fn(), {
+      onAuthenticated,
+      onDisconnect,
+      onReconnect,
+      requestDaemonStatusOnAuth: true,
+    })
+    const ws = MockWebSocket.instances[0]
+    ws.simulateOpen()
+
+    expect(() => ws.simulateMessage({ type: "auth.ok" })).not.toThrow()
+    expect(ws.sent).toContain(JSON.stringify({ type: "check_daemon_status" }))
+    expect(() => ws.simulateClose()).not.toThrow()
+    setupTokenFetch()
+    await vi.advanceTimersByTimeAsync(2_000)
+    const replacement = MockWebSocket.instances.at(-1)!
+    replacement.simulateOpen()
+    expect(() => replacement.simulateMessage({ type: "auth.ok" })).not.toThrow()
+    expect(replacement.sent).toContain(JSON.stringify({ type: "check_daemon_status" }))
+    await flushPromises()
+    expect(warn.mock.calls.flat()).not.toContain("secret sync error")
+    expect(warn.mock.calls.flat()).not.toContain("secret async error")
+    expect(warn.mock.calls.flat()).not.toContain("secret reconnect error")
+  })
+
+  it("caps community frames without imposing the cap on generic frames", async () => {
+    setupTokenFetch()
+    const onMessage = vi.fn()
+    await mountHook(onMessage, { requestDaemonStatusOnAuth: false })
+    const ws = MockWebSocket.instances[0]
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+
+    const oversizedCommunity = JSON.stringify({
+      type: "community:message.create",
+      payload: "x".repeat(65_536),
+    })
+    ws.simulateRawMessage(oversizedCommunity)
+    expect(onMessage).not.toHaveBeenCalled()
+
+    const generic = { type: "task.updated", payload: "x".repeat(65_536) }
+    ws.simulateMessage(generic)
+    expect(onMessage).toHaveBeenCalledWith(generic)
   })
 })

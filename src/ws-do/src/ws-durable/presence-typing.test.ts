@@ -377,7 +377,7 @@ describe("WebSocketDurableObject", () => {
       expect(env.WS_DO.idFromName).toHaveBeenCalledWith("user:friend-c")
       expect(mockStubFetch).toHaveBeenCalledTimes(1)
       const [req] = mockStubFetch.mock.calls[0] as [Request]
-      expect(req.url).toBe("http://internal/broadcast")
+      expect(req.url).toBe("http://internal/community-broadcast")
     })
 
     it("broadcastPresence no-ops (no fetches) when co-members and friends are both empty", async () => {
@@ -403,7 +403,7 @@ describe("WebSocketDurableObject", () => {
       await (durable as unknown as PresenceInternals).sendPresenceSnapshot(ws as any, "user-1")
 
       expect(ws.send).toHaveBeenCalledWith(
-        JSON.stringify({ type: "community:presence.update", userId: "friend-c", online: true }),
+        JSON.stringify({ type: "community:presence.update", userId: "friend-c", online: true, contractVersion: 1 }),
       )
     })
 
@@ -442,7 +442,7 @@ describe("WebSocketDurableObject", () => {
 
       expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "auth.ok" }))
       expect(ws.send).toHaveBeenCalledWith(
-        JSON.stringify({ type: "community:presence.update", userId: "online", online: true }),
+        JSON.stringify({ type: "community:presence.update", userId: "online", online: true, contractVersion: 1 }),
       )
       expect(ws.send).toHaveBeenCalledTimes(2)
     })
@@ -501,6 +501,8 @@ describe("WebSocketDurableObject", () => {
       expect(requests).toHaveLength(3)
       expect(requests.filter((r) => r.body.includes('"userId":"bot-1"') && r.body.includes('"online":true'))).toHaveLength(1)
       expect(requests.filter((r) => r.body.includes('"userId":"bot-2"') && r.body.includes('"online":true'))).toHaveLength(1)
+      expect(requests.every((request) => request.url === "http://internal/community-broadcast")).toBe(true)
+      expect(requests.every((request) => JSON.parse(request.body).contractVersion === 1)).toBe(true)
     })
 
     it("broadcasts online: false for every bound bot on a machine-offline transition", async () => {
@@ -535,7 +537,7 @@ describe("WebSocketDurableObject", () => {
         lastSeenAt: "2026-01-01T00:00:00.000Z",
       })
 
-      expect(mockStubFetch).toHaveBeenCalledTimes(1) // owner notify only
+      expect(mockStubFetch).toHaveBeenCalledTimes(1)
     })
 
     it("does not call listBotsForMachine for a payload that isn't a community:machine.status transition", async () => {
@@ -548,7 +550,14 @@ describe("WebSocketDurableObject", () => {
       })
 
       expect(mockListBotsForMachine).not.toHaveBeenCalled()
-      expect(mockStubFetch).toHaveBeenCalledTimes(1) // owner notify only
+      expect(mockStubFetch).not.toHaveBeenCalled()
+      expect(mockLogWarn).toHaveBeenCalledWith("community_browser_event_rejected", {
+        route: "ws-do-producer",
+        reason: "invalid-payload",
+        type: "community:machine.updated",
+      })
+      expect(JSON.stringify(mockLogWarn.mock.calls)).not.toContain("owner-1")
+      expect(JSON.stringify(mockLogWarn.mock.calls)).not.toContain("m1")
     })
 
     it("does not throw and skips the bot fan-out on a malformed/non-object payload", async () => {
@@ -557,6 +566,23 @@ describe("WebSocketDurableObject", () => {
         (durable as unknown as NotifyInternals).notifyUserDO("owner-1", "not-an-object")
       ).resolves.toBeUndefined()
       expect(mockListBotsForMachine).not.toHaveBeenCalled()
+    })
+
+    it("keeps runtime.status on the generic internal door without changing bytes", async () => {
+      const { durable } = createDO()
+      mockStubFetch.mockClear()
+      const payload = {
+        type: "runtime.status",
+        daemonId: "daemon-1",
+        workspaceId: "workspace-1",
+        status: "online",
+      }
+
+      await (durable as unknown as NotifyInternals).notifyUserDO("owner-1", payload)
+
+      const request = mockStubFetch.mock.calls[0][0] as Request
+      expect(request.url).toBe("http://internal/broadcast")
+      expect(await request.json()).toEqual(payload)
     })
 
     it("resolves cleanly when the owner-notify stub fetch rejects — the whole method is under try/catch, callers never see the throw", async () => {
@@ -849,6 +875,7 @@ describe("WebSocketDurableObject", () => {
         type: "community:typing.start",
         channelId: "chan-1",
         userId: "sender-1",
+        contractVersion: 1,
       })
     })
 

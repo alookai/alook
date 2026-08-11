@@ -1,4 +1,9 @@
-import { createDb, queries, readOrStale } from "@alook/shared"
+import {
+  createDb,
+  isValidCommunityUserTarget,
+  queries,
+  readOrStale,
+} from "@alook/shared"
 import type {
   CommunityMachineConnectionState,
   ConnectionState,
@@ -10,13 +15,39 @@ import {
   notifyUserDO,
   sendPresenceSnapshot,
 } from "./presence-typing"
-import { getInternalUserTarget } from "../internal-user-broadcast"
+import {
+  getInternalCommunityUserTarget,
+  getInternalUserTarget,
+} from "../internal-user-broadcast"
+import {
+  invalidCommunityBrowserEventResponse,
+  logCommunityBrowserEventRejected,
+  readCommunityBrowserEventRequest,
+} from "../community-browser-event-ingress"
 
 export async function handleUserFetch(
   context: WsDurableContext,
   request: Request,
   url: URL,
 ): Promise<Response | null> {
+  if (url.pathname === "/community-broadcast" && request.method === "POST") {
+    const targetUserId = getInternalCommunityUserTarget(request)
+    if (!isValidCommunityUserTarget(targetUserId)) {
+      const failure = { ok: false, reason: "invalid-target", type: "unknown" } as const
+      logCommunityBrowserEventRejected(context.log, "target-do", failure)
+      return invalidCommunityBrowserEventResponse(failure)
+    }
+    const event = await readCommunityBrowserEventRequest(request)
+    if (!event.ok) {
+      logCommunityBrowserEventRejected(context.log, "target-do", event)
+      return invalidCommunityBrowserEventResponse(event)
+    }
+    const sent = broadcast(context, event.body, targetUserId)
+    return new Response(JSON.stringify({ sent }), {
+      headers: { "Content-Type": "application/json" },
+    })
+  }
+
   if (url.pathname === "/broadcast" && request.method === "POST") {
     const body = await request.text()
     const sent = broadcast(context, body, getInternalUserTarget(request))

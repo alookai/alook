@@ -7,6 +7,14 @@ import {
   type RouterTestContext,
 } from "./test-harness"
 import { INTERNAL_USER_TARGET_HEADER } from "../internal-user-broadcast"
+import {
+  COMMUNITY_BROWSER_EVENT_MAX_BYTES,
+  COMMUNITY_BULK_BODY_MAX_BYTES,
+  encodeCommunityBrowserEvent,
+  encodeCommunityUserTargetPathSegment,
+  utf8ByteLength,
+} from "@alook/shared"
+import { communityWsEventFixtures } from "../../../shared/test/community-ws-events.fixtures"
 
 const sharedMocks = getSharedMocks()
 const mockHashCredential = sharedMocks.hashCredential
@@ -25,6 +33,44 @@ function makeBulkRequest(body: string): Request {
     headers: { "Content-Type": "application/json", "X-Trace-Id": "trace-bulk" },
     body,
   })
+}
+
+const communityPresenceEvent = {
+  type: "community:presence.update",
+  userId: "presence-user",
+  online: true,
+  contractVersion: 1,
+}
+
+function maximumAuditEnvelope() {
+  let low = 0
+  let high = COMMUNITY_BROWSER_EVENT_MAX_BYTES
+  let best: Record<string, unknown> | null = null
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2)
+    const encoded = encodeCommunityBrowserEvent({
+      ...communityWsEventFixtures["community:bot.audit_event"],
+      payload: { padding: "x".repeat(mid) },
+    })
+    if (encoded.ok) {
+      best = encoded.event
+      low = mid + 1
+    } else {
+      high = mid - 1
+    }
+  }
+  if (!best) throw new Error("missing maximum audit envelope")
+  return best
+}
+
+function worstEscapingTarget(index: number) {
+  const chars = Array.from({ length: 128 }, () => "\u0000")
+  let cursor = index
+  for (let offset = 1; offset <= 4; offset += 1) {
+    chars[chars.length - offset] = String.fromCharCode(cursor % 8)
+    cursor = Math.floor(cursor / 8)
+  }
+  return chars.join("")
 }
 
 describe("ws-do router", () => {
@@ -101,6 +147,179 @@ describe("ws-do router", () => {
       expect(stubReq.headers.get(INTERNAL_USER_TARGET_HEADER)).toBe("user-123")
       expect(await stubReq.text()).toBe(body)
       expect(res.status).toBe(200)
+    })
+
+    it("keeps the generic user door byte-transparent regardless of a spoofed family header", async () => {
+      doMock.stubFetch.mockResolvedValue(new Response("ok"))
+      const body = JSON.stringify({ type: "community:unknown", secret: "generic-legacy-byte-contract" })
+      const res = await handler.fetch(new Request("http://localhost/broadcast/user/user-123", {
+        method: "POST",
+        headers: { "x-alook-ws-message-type": "community" },
+        body,
+      }), env as any)
+
+      expect(res.status).toBe(200)
+      const internal = doMock.stubFetch.mock.calls[0][0] as Request
+      expect(internal.url).toBe("http://internal/broadcast")
+      expect(await internal.text()).toBe(body)
+    })
+
+    it.each(["用户/space value", ".", "..", "%2E"])(
+      "validates and forwards framed strict community target %j without URL dot normalization",
+      async (target) => {
+      doMock.stubFetch.mockImplementation(async () => Response.json({ sent: 1 }))
+      const req = new Request(
+        `http://localhost/broadcast/community/user/${encodeCommunityUserTargetPathSegment(target)}`,
+        { method: "POST", body: JSON.stringify(communityPresenceEvent) },
+      )
+
+      const res = await handler.fetch(req, env as any)
+
+      expect(res.status).toBe(200)
+      expect(doMock.idFromName).toHaveBeenCalledWith(`user:${target}`)
+      const internal = doMock.stubFetch.mock.calls[0][0] as Request
+      expect(internal.url).toBe("http://internal/community-broadcast")
+      expect(internal.headers.get(INTERNAL_USER_TARGET_HEADER)).toBe(encodeURIComponent(target))
+      await expect(internal.json()).resolves.toEqual(communityPresenceEvent)
+      },
+    )
+
+    it.each([
+      ["unknown event", { type: "community:unknown", contractVersion: 1 }],
+      ["extra event field", { ...communityPresenceEvent, secret: "nope" }],
+    ])("rejects a %s before Durable Object access", async (_label, event) => {
+      const res = await handler.fetch(new Request(
+        "http://localhost/broadcast/community/user/u:user-1",
+        { method: "POST", body: JSON.stringify(event) },
+      ), env as any)
+
+      expect(res.status).toBe(400)
+      expect(doMock.stubFetch).not.toHaveBeenCalled()
+    })
+
+    it("normalizes a legacy event to v1 before Durable Object access", async () => {
+      doMock.stubFetch.mockResolvedValue(Response.json({ sent: 1 }))
+      const { contractVersion: _, ...legacy } = communityPresenceEvent
+      const res = await handler.fetch(new Request(
+        "http://localhost/broadcast/community/user/u:user-1",
+        { method: "POST", body: JSON.stringify(legacy) },
+      ), env as any)
+
+      expect(res.status).toBe(200)
+      const internal = doMock.stubFetch.mock.calls[0][0] as Request
+      await expect(internal.json()).resolves.toEqual(communityPresenceEvent)
+    })
+
+    it("rejects malformed target escapes and generic bodies on the strict route", async () => {
+      const malformedTarget = await handler.fetch(new Request(
+        "http://localhost/broadcast/community/user/u:%zz",
+        { method: "POST", body: JSON.stringify(communityPresenceEvent) },
+      ), env as any)
+      const spoofedGeneric = await handler.fetch(new Request(
+        "http://localhost/broadcast/community/user/u:user-1",
+        {
+          method: "POST",
+          headers: { "x-alook-ws-message-type": "generic" },
+          body: JSON.stringify({ type: "task.updated", taskId: "t1" }),
+        },
+      ), env as any)
+
+      expect(malformedTarget.status).toBe(400)
+      await expect(malformedTarget.json()).resolves.toEqual({
+        error: "Invalid community browser event",
+        reason: "invalid-target",
+      })
+      expect(spoofedGeneric.status).toBe(400)
+      await expect(spoofedGeneric.json()).resolves.toEqual({
+        error: "Invalid community browser event",
+        reason: "wrong-family",
+      })
+      expect(doMock.stubFetch).not.toHaveBeenCalled()
+    })
+
+    it("rejects an oversized strict community frame before Durable Object access", async () => {
+      const res = await handler.fetch(new Request(
+        "http://localhost/broadcast/community/user/u:user-1",
+        { method: "POST", body: "x".repeat(65_537) },
+      ), env as any)
+
+      expect(res.status).toBe(400)
+      expect(doMock.stubFetch).not.toHaveBeenCalled()
+    })
+
+    it("validates, dedupes, and forwards strict community bulk broadcasts", async () => {
+      doMock.stubFetch.mockResolvedValue(Response.json({ sent: 1 }))
+      const res = await handler.fetch(new Request(
+        "http://localhost/broadcast/community/users",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            userIds: ["u2", "u1", "u2"],
+            excludeUserId: "u1",
+            message: communityPresenceEvent,
+          }),
+        },
+      ), env as any)
+
+      await expect(res.json()).resolves.toEqual({ sent: 1 })
+      expect(doMock.idFromName).toHaveBeenCalledWith("user:u2")
+      const internal = doMock.stubFetch.mock.calls[0][0] as Request
+      expect(internal.url).toBe("http://internal/community-broadcast")
+      await expect(internal.json()).resolves.toEqual(communityPresenceEvent)
+    })
+
+    it("accepts the exact worst-case 837,347-byte strict bulk body", async () => {
+      doMock.stubFetch.mockImplementation(async () => Response.json({ sent: 1 }))
+      const body = JSON.stringify({
+        userIds: Array.from({ length: 1000 }, (_, index) => worstEscapingTarget(index)),
+        message: maximumAuditEnvelope(),
+        excludeUserId: worstEscapingTarget(1000),
+      })
+      expect(utf8ByteLength(body)).toBe(COMMUNITY_BULK_BODY_MAX_BYTES)
+
+      const res = await handler.fetch(new Request(
+        "http://localhost/broadcast/community/users",
+        { method: "POST", body },
+      ), env as any)
+
+      expect(res.status).toBe(200)
+      await expect(res.json()).resolves.toEqual({ sent: 1000 })
+      expect(doMock.stubFetch).toHaveBeenCalledTimes(1000)
+    })
+
+    it.each([
+      ["too many raw targets", { userIds: Array.from({ length: 1001 }, () => "u"), message: communityPresenceEvent }],
+      ["oversized target", { userIds: ["x".repeat(129)], message: communityPresenceEvent }],
+      ["extra outer field", { userIds: ["u1"], message: communityPresenceEvent, extra: true }],
+    ])("rejects strict community bulk with %s", async (_label, body) => {
+      const res = await handler.fetch(new Request(
+        "http://localhost/broadcast/community/users",
+        { method: "POST", body: JSON.stringify(body) },
+      ), env as any)
+
+      expect(res.status).toBe(400)
+      expect(doMock.stubFetch).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      ["unpaired high surrogate target", { userIds: ["\ud800"], message: communityPresenceEvent }],
+      ["unpaired low surrogate target", { userIds: ["\udfff"], message: communityPresenceEvent }],
+      ["unpaired high surrogate exclusion", { userIds: ["u1"], excludeUserId: "\ud800", message: communityPresenceEvent }],
+      ["unpaired low surrogate exclusion", { userIds: ["u1"], excludeUserId: "\udfff", message: communityPresenceEvent }],
+    ])("rejects %s as invalid-target before namespace access", async (_label, body) => {
+      const res = await handler.fetch(new Request(
+        "http://localhost/broadcast/community/users",
+        { method: "POST", body: JSON.stringify(body) },
+      ), env as any)
+
+      expect(res.status).toBe(400)
+      await expect(res.json()).resolves.toEqual({
+        error: "Invalid community browser event",
+        reason: "invalid-target",
+      })
+      expect(doMock.idFromName).not.toHaveBeenCalled()
+      expect(doMock.get).not.toHaveBeenCalled()
+      expect(doMock.stubFetch).not.toHaveBeenCalled()
     })
 
     it.each([
