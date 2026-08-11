@@ -40,10 +40,15 @@ import { estimateRowHeight, computeBelowCount, type FlatItem } from "@/component
 // `resizeItem` above-viewport compensation (defaults to 1px otherwise).
 export const NEAR_BOTTOM_PX = 100
 
-type SizeAdjustmentVirtualizer = Pick<
-  ReactVirtualizer<HTMLDivElement, Element>,
-  "itemSizeCache" | "scrollAdjustments" | "scrollDirection" | "scrollOffset"
->
+// Structural fields used by `shouldAdjustMessageScrollPosition`. Do not
+// `Pick<>` them from Virtualizer — `scrollAdjustments` / `itemSizeCache` are
+// private on current @tanstack/virtual-core and break `tsc`.
+type SizeAdjustmentVirtualizer = {
+  itemSizeCache: { has: (key: VirtualItem["key"]) => boolean }
+  scrollAdjustments: number
+  scrollDirection: "forward" | "backward" | null
+  scrollOffset: number | null
+}
 
 /**
  * Keep TanStack Virtual's normal estimate-to-measurement anchoring except
@@ -418,7 +423,10 @@ export function useScrollAnchor({
   // virtual-core exposes this predicate on the instance (and `resizeItem`
   // reads it there), not through VirtualizerOptions. Assign during render so
   // it is already installed when React attaches row refs in the commit.
-  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = shouldAdjustMessageScrollPosition
+  // Cast: our helper takes a structural subset; Virtualizer keeps some of
+  // those fields private in the public type.
+  virtualizer.shouldAdjustScrollPositionOnItemSizeChange =
+    shouldAdjustMessageScrollPosition as unknown as typeof virtualizer.shouldAdjustScrollPositionOnItemSizeChange
 
   // Whether the viewer was within NEAR_BOTTOM_PX of the end BEFORE this
   // commit's append — the semantics `decideScrollAction` documents for its
