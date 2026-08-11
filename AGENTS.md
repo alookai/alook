@@ -47,7 +47,7 @@ This triggers:
 ### E2E UI (browser tests)
 Playwright browser E2E for the web UI lives in `src/web/src/test/e2e-ui/`. The `e2e-ui.yml` workflow starts for every PR and merge-queue check, then runs the browser matrix only when the diff touches `src/web`/`src/shared`/`src/ws-do`; blog-only and unrelated changes finish through the lightweight scope and gate jobs. The workflow also supports scheduled and manual full runs, but does not run after pushes to `main`. It is deliberately NOT tied to the release chain: a `release:` bump only changes version numbers, so gating there would test nothing, and the production web app deploys via Cloudflare's own Git integration (outside GitHub Actions) which a workflow gate can't block anyway. Run locally with `pnpm test:e2e-ui` (backs up and restores your local `.wrangler/state`).
 
-> Branch protection may require the stable `UI E2E Gate` check. Do not require the individual `UI Playwright E2E (n/3)` matrix jobs, because skipped shards are expected for changes outside the UI scope.
+> Branch protection may require the stable `UI E2E Gate` check. Do not require the individual `UI Playwright E2E (n/N)` matrix jobs, because skipped shards are expected for changes outside the UI scope.
 
 ## Plan-driven Development
 - You must make a markdown plan at `plans/` before you implement any my request, otherwise I will reject your implementation.
