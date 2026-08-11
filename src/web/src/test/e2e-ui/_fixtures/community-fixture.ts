@@ -21,7 +21,7 @@ export const test = base.extend<{ asUser: AsUser }>({
       return { context, page }
     }
     await provide(factory)
-    for (const c of opened) await c.close()
+    await Promise.all(opened.map((context) => context.close()))
   },
 })
 

@@ -25,6 +25,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       run_ui_e2e: ${{ steps.scope.outputs.run_ui_e2e }}
+      e2e_matrix: ${{ steps.scope.outputs.e2e_matrix }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -38,17 +39,17 @@ jobs:
           args=(--base "$BASE_SHA" --head "$HEAD_SHA" --output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY")
           if [[ "$FORCE_FULL" == "true" ]]; then args+=(--force-full); fi
           node scripts/ci/changed-scopes.mjs "${args[@]}"
+          node scripts/ci/e2e-shards.mjs --output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
 
   e2e-ui:
-    name: UI Playwright E2E (${{ matrix.shard }}/2)
+    name: UI Playwright E2E (${{ matrix.shard }}/${{ matrix.total }})
     needs: scope
     if: needs.scope.outputs.run_ui_e2e == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
       fail-fast: false
-      matrix:
-        shard: [1, 2]
+      matrix: ${{ fromJSON(needs.scope.outputs.e2e_matrix) }}
     env:
       BETTER_AUTH_SECRET: ci-e2e-ui-secret
       BETTER_AUTH_URL: http://localhost:3000
@@ -64,7 +65,29 @@ jobs:
       - run: printf 'BETTER_AUTH_SECRET=ci-e2e-ui-secret\nBETTER_AUTH_URL=http://localhost:3000\nDEVICE_CLIENT_IDS=e2e-test-client\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\n' > src/web/.dev.vars
       - working-directory: src/web
         run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm --filter @alook/web exec playwright test --shard=${{ matrix.shard }}/2
+      - env:
+          E2E_SPECS: ${{ toJSON(matrix.specs) }}
+        run: |
+          mapfile -t specs < <(node -e 'for (const spec of JSON.parse(process.env.E2E_SPECS)) console.log(spec)')
+          pnpm --filter @alook/web exec playwright test "${specs[@]}"
+      - if: ${{ !cancelled() && matrix.shard == 1 }}
+        run: |
+          test_package=$(realpath src/web/node_modules/@playwright/test)
+          test_node_modules=$(dirname "$(dirname "$test_package")")
+          playwright_package=$(realpath "$test_node_modules/playwright")
+          playwright_node_modules=$(dirname "$playwright_package")
+          core_package=$(realpath "$playwright_node_modules/playwright-core")
+          runtime=src/web/playwright-merge-runtime/node_modules
+          mkdir -p "$runtime/@playwright"
+          cp -R "$test_package" "$runtime/@playwright/test"
+          cp -R "$playwright_package" "$runtime/playwright"
+          cp -R "$core_package" "$runtime/playwright-core"
+      - if: ${{ !cancelled() && matrix.shard == 1 }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: playwright-merge-runtime
+          path: src/web/playwright-merge-runtime/
+          retention-days: 1
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -85,24 +108,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: blob-report-*
           path: all-blob-reports
           merge-multiple: true
-      - working-directory: src/web
-        run: pnpm exec playwright merge-reports --reporter html ../../all-blob-reports
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: playwright-merge-runtime
+          path: playwright-merge-runtime
+      - run: node playwright-merge-runtime/node_modules/@playwright/test/cli.js merge-reports --reporter html all-blob-reports
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: playwright-report
-          path: src/web/playwright-report/
+          path: playwright-report/
           retention-days: 14
 
   ui-e2e-gate:

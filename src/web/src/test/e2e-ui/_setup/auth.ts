@@ -1,4 +1,4 @@
-import { chromium } from "@playwright/test"
+import type { Browser } from "@playwright/test"
 import { WEB_URL } from "./paths"
 import { emailFor, type SeededUser, type UserKey } from "./users"
 
@@ -8,6 +8,7 @@ import { emailFor, type SeededUser, type UserKey } from "./users"
 // is email-only — `handleDevSignIn` signs in with DEV_PASSWORD and
 // auto-registers on first use. Captures storageState + the seeded userId.
 export async function loginAndSaveState(
+  browser: Browser,
   key: UserKey,
   stamp: string,
   storageStatePath: string,
@@ -16,7 +17,6 @@ export async function loginAndSaveState(
   // Dev sign-up derives the display name from the email local-part
   // (`handleDevSignIn`: `name: email.split("@")[0]`), so mirror that here.
   const name = email.split("@")[0]
-  const browser = await chromium.launch()
   const context = await browser.newContext()
   const page = await context.newPage()
   try {
@@ -44,6 +44,6 @@ export async function loginAndSaveState(
     await context.storageState({ path: storageStatePath })
     return { key, email, name, userId: me.userId, storageState: storageStatePath }
   } finally {
-    await browser.close()
+    await context.close()
   }
 }
