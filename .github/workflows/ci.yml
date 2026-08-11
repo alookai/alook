@@ -3,25 +3,76 @@ name: CI
 on:
   push:
     branches: [main]
-    paths-ignore: ["**/*.md"]
   pull_request:
     branches: [main]
-    paths-ignore: ["**/*.md"]
+  merge_group:
+    types: [checks_requested]
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  quality:
-    name: Typecheck & Lint
+  scope:
+    name: Change Scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      blog_only: ${{ steps.scope.outputs.blog_only }}
+      run_code_checks: ${{ steps.scope.outputs.run_code_checks }}
+      run_windows: ${{ steps.scope.outputs.run_windows }}
+      run_e2e: ${{ steps.scope.outputs.run_e2e }}
+      run_rust: ${{ steps.scope.outputs.run_rust }}
+      run_lighthouse: ${{ steps.scope.outputs.run_lighthouse }}
+      run_knip: ${{ steps.scope.outputs.run_knip }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - id: scope
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event.before }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          FORCE_FULL: ${{ github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+        run: |
+          args=(--base "$BASE_SHA" --head "$HEAD_SHA" --output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY")
+          if [[ "$FORCE_FULL" == "true" ]]; then args+=(--force-full); fi
+          node scripts/ci/changed-scopes.mjs "${args[@]}"
+
+  blog-content:
+    name: Blog Content
+    needs: scope
+    if: needs.scope.outputs.blog_only == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: oven-sh/setup-bun@v2
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @alook/web validate:blog
+      - run: pnpm build --filter=@alook/web
+
+  quality:
+    name: Typecheck & Lint
+    needs: scope
+    if: needs.scope.outputs.run_code_checks == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
           cache: pnpm
@@ -32,39 +83,49 @@ jobs:
 
   knip:
     name: Dead Code Detection (knip)
-    # Non-blocking: reports unused code but does not fail the PR.
-    # To switch to blocking mode, remove `continue-on-error: true` below.
+    needs: scope
+    if: needs.scope.outputs.run_knip == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     continue-on-error: true
-    strategy:
-      fail-fast: false
-      matrix:
-        module: [app, cli, email-worker, shared, wake-worker, web, ws-do]
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: "knip: ${{ matrix.module }}"
-        run: pnpm --filter "./src/${{ matrix.module }}" run knip
+      - run: pnpm knip
 
-  test:
-    name: Tests (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+  test-linux:
+    name: Tests (ubuntu-latest)
+    needs: scope
+    if: needs.scope.outputs.run_code_checks == 'true'
+    runs-on: ubuntu-latest
     timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: oven-sh/setup-bun@v2
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+
+  test-windows:
+    name: Tests (windows-latest)
+    needs: scope
+    if: needs.scope.outputs.run_windows == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
           cache: pnpm
@@ -73,22 +134,23 @@ jobs:
 
   e2e:
     name: E2E Tests
-    if: github.event_name == 'pull_request'
+    needs: scope
+    if: needs.scope.outputs.run_e2e == 'true' && github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
       BETTER_AUTH_SECRET: ci-e2e-secret
       BETTER_AUTH_URL: http://localhost:3000
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: oven-sh/setup-bun@v2
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Create .dev.vars for local bindings
+      - name: Create local bindings
         run: printf 'BETTER_AUTH_SECRET=ci-e2e-secret\nBETTER_AUTH_URL=http://localhost:3000\nDEVICE_CLIENT_IDS=e2e-test-client\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\n' > src/web/.dev.vars
       - run: pnpm run db:migrate
       - name: Start dev servers
@@ -97,29 +159,20 @@ jobs:
           pnpm --filter @alook/ws-do dev &
           pnpm --filter @alook/web dev &
           pnpm --filter @alook/wake-worker dev &
-      - name: Wait for services to be ready
+      - name: Wait for services
         run: |
           wait_for() {
-            local url=$1 name=$2 timeout=60 elapsed=0
-            echo "Waiting for $name ($url)..."
+            local url=$1 timeout=60 elapsed=0
             until curl -sf "$url" > /dev/null 2>&1; do
               sleep 2
               elapsed=$((elapsed + 2))
-              if [ $elapsed -ge $timeout ]; then
-                echo "WARN: $name not ready after ${timeout}s"
-                return 1
-              fi
+              if [ $elapsed -ge $timeout ]; then return 1; fi
             done
-            echo "$name ready (${elapsed}s)"
-            return 0
           }
-
-          # First attempt
-          if ! wait_for http://localhost:8787/health "email-worker" || \
-             ! wait_for http://localhost:8789/health "ws-do" || \
-             ! wait_for http://localhost:3000/api/health "web app" || \
-             ! wait_for http://localhost:8790/health "wake-worker"; then
-            echo "Some services failed to start, restarting..."
+          if ! wait_for http://localhost:8787/health email-worker || \
+             ! wait_for http://localhost:8789/health ws-do || \
+             ! wait_for http://localhost:3000/api/health web || \
+             ! wait_for http://localhost:8790/health wake-worker; then
             pkill -f "wrangler" || true
             pkill -f "next" || true
             sleep 3
@@ -127,11 +180,10 @@ jobs:
             pnpm --filter @alook/ws-do dev &
             pnpm --filter @alook/web dev &
             pnpm --filter @alook/wake-worker dev &
-            # Second attempt — fail hard
-            wait_for http://localhost:8787/health "email-worker" || exit 1
-            wait_for http://localhost:8789/health "ws-do" || exit 1
-            wait_for http://localhost:3000/api/health "web app" || exit 1
-            wait_for http://localhost:8790/health "wake-worker" || exit 1
+            wait_for http://localhost:8787/health email-worker
+            wait_for http://localhost:8789/health ws-do
+            wait_for http://localhost:3000/api/health web
+            wait_for http://localhost:8790/health wake-worker
           fi
       - run: pnpm test:e2e
       - run: pnpm --filter @alook/cli run test:integration
@@ -139,13 +191,15 @@ jobs:
 
   build:
     name: Build
+    needs: scope
+    if: needs.scope.outputs.run_code_checks == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: oven-sh/setup-bun@v2
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
           cache: pnpm
@@ -154,20 +208,21 @@ jobs:
 
   coverage:
     name: Coverage
-    if: github.event_name == 'pull_request' || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release:'))
+    needs: scope
+    if: needs.scope.outputs.run_code_checks == 'true' && (github.event_name != 'push' || startsWith(github.event.head_commit.message, 'release:'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: oven-sh/setup-bun@v2
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm vitest run --coverage --coverage.reporter=json --coverage.reporter=text
-      - uses: codecov/codecov-action@v7
+      - uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage/coverage-final.json
@@ -175,47 +230,82 @@ jobs:
 
   desktop-rust:
     name: Desktop Rust (test + machete)
+    needs: scope
+    if: needs.scope.outputs.run_rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
       run:
         working-directory: src/desktop/src-tauri
     env:
-      RUSTFLAGS: "-D warnings"
+      RUSTFLAGS: -D warnings
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: src/desktop/src-tauri
-      - name: Install system dependencies
-        run: |
+      - run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev
       - run: cargo test
-      - name: Install cargo-machete
-        run: cargo install cargo-machete --locked
+      - run: cargo install cargo-machete --locked
       - run: cargo machete
 
   lighthouse:
     name: Lighthouse SEO
-    if: github.event_name == 'pull_request'
+    needs: scope
+    if: needs.scope.outputs.run_lighthouse == 'true' && github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
       BETTER_AUTH_SECRET: ci-lighthouse-secret
       BETTER_AUTH_URL: http://localhost:3000
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: oven-sh/setup-bun@v2
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Create .dev.vars
-        run: printf 'BETTER_AUTH_SECRET=ci-lighthouse-secret\nBETTER_AUTH_URL=http://localhost:3000\nDEVICE_CLIENT_IDS=e2e-test-client\n' > src/web/.dev.vars
-      - name: Lighthouse CI
-        working-directory: src/web
+      - run: printf 'BETTER_AUTH_SECRET=ci-lighthouse-secret\nBETTER_AUTH_URL=http://localhost:3000\nDEVICE_CLIENT_IDS=e2e-test-client\n' > src/web/.dev.vars
+      - working-directory: src/web
         run: npx @lhci/cli autorun --config=lighthouserc.json && node scripts/print-lighthouse-scores.mjs
+
+  ci-gate:
+    name: CI Gate
+    if: always()
+    needs:
+      - scope
+      - blog-content
+      - quality
+      - knip
+      - test-linux
+      - test-windows
+      - e2e
+      - build
+      - coverage
+      - desktop-rust
+      - lighthouse
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CI_GATE_RESULTS: >-
+        [
+          {"name":"scope","expected":true,"result":"${{ needs.scope.result }}"},
+          {"name":"blog-content","expected":${{ needs.scope.outputs.blog_only == 'true' }},"result":"${{ needs.blog-content.result }}"},
+          {"name":"quality","expected":${{ needs.scope.outputs.run_code_checks == 'true' }},"result":"${{ needs.quality.result }}"},
+          {"name":"knip","expected":${{ needs.scope.outputs.run_knip == 'true' }},"result":"${{ needs.knip.result }}"},
+          {"name":"test-linux","expected":${{ needs.scope.outputs.run_code_checks == 'true' }},"result":"${{ needs.test-linux.result }}"},
+          {"name":"test-windows","expected":${{ needs.scope.outputs.run_windows == 'true' }},"result":"${{ needs.test-windows.result }}"},
+          {"name":"e2e","expected":${{ needs.scope.outputs.run_e2e == 'true' && github.event_name != 'push' }},"result":"${{ needs.e2e.result }}"},
+          {"name":"build","expected":${{ needs.scope.outputs.run_code_checks == 'true' }},"result":"${{ needs.build.result }}"},
+          {"name":"coverage","expected":${{ needs.scope.outputs.run_code_checks == 'true' && (github.event_name != 'push' || startsWith(github.event.head_commit.message, 'release:')) }},"result":"${{ needs.coverage.result }}"},
+          {"name":"desktop-rust","expected":${{ needs.scope.outputs.run_rust == 'true' }},"result":"${{ needs.desktop-rust.result }}"},
+          {"name":"lighthouse","expected":${{ needs.scope.outputs.run_lighthouse == 'true' && github.event_name != 'push' }},"result":"${{ needs.lighthouse.result }}"}
+        ]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - run: node scripts/ci/assert-gate.mjs
