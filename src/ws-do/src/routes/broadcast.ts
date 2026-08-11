@@ -1,5 +1,6 @@
 import type { RouterContext } from "../router-context"
 import { createInternalUserBroadcastRequest } from "../internal-user-broadcast"
+import { settleInBatches } from "../settle-in-batches"
 
 const maxBulkUserIds = 1000
 const bulkBatchSize = 40
@@ -13,6 +14,8 @@ type BulkBroadcastBody = {
 type BulkTargetResult =
   | { ok: true; sent: number }
   | { ok: false; failureKind: "non-ok" | "invalid-json" | "invalid-sent"; status: number }
+
+type BulkFailureKind = "throw" | "non-ok" | "invalid-json" | "invalid-sent"
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -115,38 +118,63 @@ export async function handleUsersBroadcast({ request, env, url, traceId, log }: 
   reqLog.debug("broadcasting to users")
 
   const messageBody = JSON.stringify(body.message)
+  const startedAt = Date.now()
+  let active = 0
+  let maxActive = 0
   let successCount = 0
   let failureCount = 0
   let sent = 0
+  const failureCounts: Record<BulkFailureKind, number> = {
+    throw: 0,
+    "non-ok": 0,
+    "invalid-json": 0,
+    "invalid-sent": 0,
+  }
 
-  for (let start = 0; start < targetUserIds.length; start += bulkBatchSize) {
-    const batch = targetUserIds.slice(start, start + bulkBatchSize)
-    const results = await Promise.allSettled(
-      batch.map((userId) => broadcastToBulkTarget(env, userId, messageBody)),
-    )
-    for (const [index, result] of results.entries()) {
-      const userId = batch[index]
-      if (result.status === "rejected") {
-        failureCount += 1
-        reqLog.warn("bulk user broadcast target failed", {
-          userId,
-          failureKind: "throw",
-          err: String(result.reason),
-        })
-      } else if (!result.value.ok) {
-        failureCount += 1
-        reqLog.warn("bulk user broadcast target failed", {
-          userId,
-          failureKind: result.value.failureKind,
-          status: result.value.status,
-        })
-      } else {
-        successCount += 1
-        sent += result.value.sent
-      }
+  const results = await settleInBatches(targetUserIds, async (userId) => {
+    active += 1
+    maxActive = Math.max(maxActive, active)
+    try {
+      return await broadcastToBulkTarget(env, userId, messageBody)
+    } finally {
+      active -= 1
+    }
+  }, bulkBatchSize)
+
+  for (const [index, result] of results.entries()) {
+    const userId = targetUserIds[index]
+    if (result.status === "rejected") {
+      failureCount += 1
+      failureCounts.throw += 1
+      reqLog.warn("bulk user broadcast target failed", {
+        userId,
+        failureKind: "throw",
+      })
+    } else if (!result.value.ok) {
+      failureCount += 1
+      failureCounts[result.value.failureKind] += 1
+      reqLog.warn("bulk user broadcast target failed", {
+        userId,
+        failureKind: result.value.failureKind,
+        status: result.value.status,
+      })
+    } else {
+      successCount += 1
+      sent += result.value.sent
     }
   }
 
-  reqLog.info("bulk user broadcast complete", { successCount, failureCount, sent })
+  reqLog.info("bulk user broadcast complete", {
+    targetCount: targetUserIds.length,
+    resultCount: results.length,
+    successCount,
+    failureCount,
+    failureCounts,
+    sent,
+    maxActive,
+    batchSize: bulkBatchSize,
+    batchCount: Math.ceil(targetUserIds.length / bulkBatchSize),
+    durationMs: Date.now() - startedAt,
+  })
   return Response.json({ sent })
 }

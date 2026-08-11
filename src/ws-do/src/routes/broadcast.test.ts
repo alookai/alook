@@ -164,6 +164,26 @@ describe("ws-do router", () => {
       await expect(res.json()).resolves.toEqual({ sent: 0 })
       expect(doMock.idFromName).not.toHaveBeenCalled()
       expect(doMock.stubFetch).not.toHaveBeenCalled()
+      expect(loggerMocks.info).toHaveBeenCalledWith(
+        "bulk user broadcast complete",
+        expect.objectContaining({
+          targetCount: 0,
+          resultCount: 0,
+          successCount: 0,
+          failureCount: 0,
+          failureCounts: {
+            throw: 0,
+            "non-ok": 0,
+            "invalid-json": 0,
+            "invalid-sent": 0,
+          },
+          sent: 0,
+          maxActive: 0,
+          batchSize: 40,
+          batchCount: 0,
+          durationMs: expect.any(Number),
+        }),
+      )
     })
 
     it("returns sent zero when exclusion removes the only unique target", async () => {
@@ -252,6 +272,20 @@ describe("ws-do router", () => {
         expect(maximum).toBe(Math.min(targetCount, 40))
         if (targetCount > 40) expect(startedAfterCompleted[40]).toBe(40)
         if (targetCount > 80) expect(startedAfterCompleted[80]).toBe(80)
+        expect(loggerMocks.info).toHaveBeenCalledWith(
+          "bulk user broadcast complete",
+          expect.objectContaining({
+            targetCount,
+            resultCount: targetCount,
+            successCount: targetCount,
+            failureCount: 0,
+            sent: targetCount,
+            maxActive: Math.min(targetCount, 40),
+            batchSize: 40,
+            batchCount: Math.ceil(targetCount / 40),
+            durationMs: expect.any(Number),
+          }),
+        )
       },
     )
 
@@ -284,7 +318,23 @@ describe("ws-do router", () => {
       )
       expect(loggerMocks.info).toHaveBeenCalledWith(
         "bulk user broadcast complete",
-        expect.objectContaining({ successCount: 2, failureCount: 4, sent: 5 }),
+        expect.objectContaining({
+          targetCount: 6,
+          resultCount: 6,
+          successCount: 2,
+          failureCount: 4,
+          failureCounts: {
+            throw: 1,
+            "non-ok": 1,
+            "invalid-json": 1,
+            "invalid-sent": 1,
+          },
+          sent: 5,
+          maxActive: 6,
+          batchSize: 40,
+          batchCount: 1,
+          durationMs: expect.any(Number),
+        }),
       )
     })
   })
