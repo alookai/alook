@@ -2,7 +2,11 @@ import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 
-const workflow = readFileSync(resolve(import.meta.dirname, "../../.github/workflows/e2e-ui.yml"), "utf8")
+const workflowRoot = resolve(import.meta.dirname, "../../.github/workflows")
+const workflow = readFileSync(resolve(workflowRoot, "e2e-ui.yml"), "utf8")
+const ciWorkflow = readFileSync(resolve(workflowRoot, "ci.yml"), "utf8")
+const publishWorkflows = ["publish-app.yml", "publish-cli.yml", "publish-daemon.yml"]
+  .map((name) => readFileSync(resolve(workflowRoot, name), "utf8"))
 
 describe("E2E UI workflow", () => {
   it("runs before merge without running on main pushes", () => {
@@ -13,5 +17,20 @@ describe("E2E UI workflow", () => {
 
   it("uploads service logs when a Playwright shard fails", () => {
     expect(workflow).toContain("src/web/e2e-service-logs/")
+  })
+
+  it("does not install Bun for Node-only browser tests", () => {
+    expect(workflow).not.toContain("oven-sh/setup-bun")
+  })
+})
+
+describe("Bun workflow setup", () => {
+  it("installs Bun only in the CI build job and pins every retained setup", () => {
+    expect(ciWorkflow.match(/oven-sh\/setup-bun/g)).toHaveLength(1)
+    expect(ciWorkflow).toContain("bun-version: 1.3.11")
+    for (const publishWorkflow of publishWorkflows) {
+      expect(publishWorkflow).toContain("oven-sh/setup-bun")
+      expect(publishWorkflow).toContain("bun-version: 1.3.11")
+    }
   })
 })
