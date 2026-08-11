@@ -1,6 +1,30 @@
-import type { Browser } from "@playwright/test"
+import type { Browser, Page } from "@playwright/test"
 import { WEB_URL } from "./paths"
 import { emailFor, type SeededUser, type UserKey } from "./users"
+
+async function signIn(page: Page, email: string): Promise<void> {
+  const attempts = [`${WEB_URL}/c`, `${WEB_URL}/sign-in?redirect=/c`]
+  let lastError: unknown
+
+  for (const url of attempts) {
+    await page.goto(url, { waitUntil: "load" })
+    try {
+      const emailInput = page.getByRole("textbox", { name: "Email" })
+      await emailInput.waitFor({ state: "visible", timeout: 15_000 })
+      await emailInput.fill(email)
+      await page.getByRole("button", { name: "Sign in", exact: true }).click()
+      await page.waitForURL((current) => !current.pathname.startsWith("/sign-in"), {
+        timeout: 15_000,
+        waitUntil: "commit",
+      })
+      return
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  throw lastError
+}
 
 // Drives the real dev sign-in UI: navigating to /c first makes
 // middleware redirect to /sign-in?redirect=/c, so post-login lands
@@ -20,17 +44,7 @@ export async function loginAndSaveState(
   const context = await browser.newContext()
   const page = await context.newPage()
   try {
-    await page.goto(`${WEB_URL}/c`)
-    await page.waitForURL(/\/sign-in/, { timeout: 30_000 , waitUntil: "commit" })
-
-    await page.getByRole("textbox", { name: "Email" }).fill(email)
-    await page.getByRole("button", { name: "Sign in", exact: true }).click()
-
-    // Land somewhere authenticated — community shell or the default workspace.
-    await page.waitForURL((url) => !url.pathname.startsWith("/sign-in"), {
-      timeout: 30_000,
-      waitUntil: "commit",
-    })
+    await signIn(page, email)
 
     // Resolve the seeded userId via the authenticated community profile API,
     // reusing the session cookie the login just established.

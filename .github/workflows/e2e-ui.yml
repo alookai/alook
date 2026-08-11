@@ -63,8 +63,20 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: printf 'BETTER_AUTH_SECRET=ci-e2e-ui-secret\nBETTER_AUTH_URL=http://localhost:3000\nDEVICE_CLIENT_IDS=e2e-test-client\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\n' > src/web/.dev.vars
+      - id: playwright-version
+        working-directory: src/web
+        run: |
+          node -p '"version=" + require("./node_modules/@playwright/test/package.json").version' >> "$GITHUB_OUTPUT"
+      - id: playwright-browser-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright-version.outputs.version }}
       - working-directory: src/web
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm exec playwright install-deps chromium
+      - if: steps.playwright-browser-cache.outputs.cache-hit != 'true'
+        working-directory: src/web
+        run: pnpm exec playwright install chromium
       - env:
           E2E_SPECS: ${{ toJSON(matrix.specs) }}
         run: |

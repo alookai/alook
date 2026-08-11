@@ -1,4 +1,5 @@
 import { test, expect, userId } from "./_fixtures/community-fixture"
+import type { Page, WebSocket } from "@playwright/test"
 import { tid } from "./_fixtures/testids"
 import {
   seedServer,
@@ -9,6 +10,38 @@ import {
   seedDm,
   seedDmMessage,
 } from "./_fixtures/seed"
+
+async function gotoAfterUserWsAuth(page: Page, url: string): Promise<void> {
+  const frameHandlers = new Map<WebSocket, (event: { payload: string | Buffer }) => void>()
+  let cleanup = () => {}
+  const authenticated = new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("user WebSocket did not authenticate")), 20_000)
+    const onWebSocket = (socket: WebSocket) => {
+      const onFrame = (event: { payload: string | Buffer }) => {
+        try {
+          const message = JSON.parse(event.payload.toString()) as { type?: string }
+          if (message.type !== "auth.ok") return
+          cleanup()
+          resolve()
+        } catch {}
+      }
+      frameHandlers.set(socket, onFrame)
+      socket.on("framereceived", onFrame)
+    }
+    cleanup = () => {
+      clearTimeout(timer)
+      page.off("websocket", onWebSocket)
+      for (const [socket, handler] of frameHandlers) socket.off("framereceived", handler)
+    }
+    page.on("websocket", onWebSocket)
+  })
+
+  try {
+    await Promise.all([page.goto(url, { waitUntil: "commit" }), authenticated])
+  } finally {
+    cleanup()
+  }
+}
 
 // Journey 14 — forum-post notify scope, per-post tags, post-card participant
 // avatars, and DM presence stability. Covers the batch that made forum posts
@@ -117,7 +150,7 @@ test.describe.serial("DM presence stability on refresh", () => {
   test("peer stays online after the viewer refreshes the DM view", async ({ asUser }) => {
     // Alice stays connected (her page holds a live WS connection → she's online).
     const alice = await asUser("alice")
-    await alice.page.goto("/c/me")
+    await gotoAfterUserWsAuth(alice.page, "/c/me")
     await alice.page.waitForURL(/\/c\/me/, { timeout: 20_000, waitUntil: "commit" })
 
     const bob = await asUser("bob")
