@@ -247,55 +247,250 @@ describe("broadcastToUser", () => {
 })
 
 describe("broadcastToUsers", () => {
-  it("sends one bulk service-binding request with the exact shared payload and exclusion", async () => {
-    const bindingFetch = vi.fn(async () =>
-      new Response(JSON.stringify({ sent: 2 }), { status: 200 }),
-    )
-    const env = makeEnv(bindingFetch)
+  function setBinding(bindingFetch: (...args: unknown[]) => Promise<Response>): void {
     mockGetCloudflareContext.mockReturnValue({
-      env,
+      env: makeEnv(bindingFetch),
       ctx: { waitUntil: mockCtxWaitUntil },
     })
-    const message = { type: "community:message.create", channelId: "c1" } as any
+  }
 
-    await broadcastToUsers(["u1", "u2", "u3"], message, "u1")
+  function bodiesOf(bindingFetch: ReturnType<typeof vi.fn>): Array<{
+    userIds: string[]
+    message: Record<string, unknown>
+    excludeUserId?: string
+  }> {
+    return bindingFetch.mock.calls.map((call) => JSON.parse(String(call[1]?.body)))
+  }
 
-    expect(bindingFetch).toHaveBeenCalledTimes(1)
+  function deferred<T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void
+    let reject!: (reason?: unknown) => void
+    const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+      resolve = resolvePromise
+      reject = rejectPromise
+    })
+    return { promise, resolve, reject }
+  }
+
+  it("does not call transport for an empty post-filter audience and logs zero completion", async () => {
+    const bindingFetch = vi.fn(async () => new Response("unused"))
+    setBinding(bindingFetch)
+
+    await expect(broadcastToUsers(["u1", "u1"], { type: "community:member.update" } as any, "u1"))
+      .resolves.toBeUndefined()
+
+    expect(bindingFetch).not.toHaveBeenCalled()
     expect(mockFetch).not.toHaveBeenCalled()
-    expect(String(bindingFetch.mock.calls[0]?.[0])).toBe("http://internal/broadcast/users")
-    expect(bindingFetch.mock.calls[0]?.[1]).toEqual(expect.objectContaining({
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userIds: ["u1", "u2", "u3"], message, excludeUserId: "u1" }),
-    }))
+    expect(mockCtxWaitUntil).toHaveBeenCalledTimes(1)
+    expect(mockInfo).toHaveBeenCalledWith(
+      "broadcast_users_complete",
+      expect.objectContaining({
+        inputCount: 2,
+        uniqueCount: 1,
+        excludedCount: 1,
+        targetCount: 0,
+        chunkCount: 0,
+        transportSuccessChunkCount: 0,
+        transportFailureChunkCount: 0,
+        sent: 0,
+        maxActive: 0,
+        durationMs: expect.any(Number),
+      }),
+    )
   })
 
-  it("omits excludeUserId from the body when it is absent", async () => {
-    const bindingFetch = vi.fn(async () =>
-      new Response(JSON.stringify({ sent: 1 }), { status: 200 }),
-    )
-    const env = makeEnv(bindingFetch)
-    mockGetCloudflareContext.mockReturnValue({
-      env,
-      ctx: { waitUntil: mockCtxWaitUntil },
+  it.each([
+    [1, [1]],
+    [1000, [1000]],
+    [1001, [1000, 1]],
+    [2001, [1000, 1000, 1]],
+  ])("chunks %i targets into valid ordered requests", async (targetCount, expectedSizes) => {
+    const bindingFetch = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { userIds: string[] }
+      return Response.json({ sent: body.userIds.length })
     })
-    const message = { type: "community:member.update" } as any
+    setBinding(bindingFetch)
+    const userIds = Array.from({ length: targetCount }, (_, index) => `u${index}`)
+    const message = { type: "community:member.update", serverId: "s1" } as any
 
-    await broadcastToUsers(["u1"], message)
+    await broadcastToUsers(userIds, message)
 
-    const body = JSON.parse(String(bindingFetch.mock.calls[0]?.[1]?.body))
-    expect(body).toEqual({ userIds: ["u1"], message })
-    expect(body).not.toHaveProperty("excludeUserId")
+    const bodies = bodiesOf(bindingFetch)
+    expect(bodies.map((body) => body.userIds.length)).toEqual(expectedSizes)
+    expect(bodies.flatMap((body) => body.userIds)).toEqual(userIds)
+    expect(bodies.every((body) => body.excludeUserId === undefined)).toBe(true)
+    expect(bindingFetch.mock.calls.every((call) => (
+      String(call[0]) === "http://internal/broadcast/users"
+      && call[1]?.method === "POST"
+      && JSON.stringify(call[1]?.headers) === JSON.stringify({ "Content-Type": "application/json" })
+    ))).toBe(true)
+    expect(mockInfo).toHaveBeenCalledWith(
+      "broadcast_users_complete",
+      expect.objectContaining({
+        target: `users:${targetCount}`,
+        targetCount,
+        chunkCount: expectedSizes.length,
+        transportSuccessChunkCount: expectedSizes.length,
+        transportFailureChunkCount: 0,
+        sent: targetCount,
+        maxActive: Math.min(expectedSizes.length, 3),
+        durationMs: expect.any(Number),
+      }),
+    )
+  })
+
+  it("dedupes in first-seen order before exclusion and never reintroduces excluded duplicates across chunks", async () => {
+    const bindingFetch = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { userIds: string[] }
+      return Response.json({ sent: body.userIds.length })
+    })
+    setBinding(bindingFetch)
+    const expected = Array.from({ length: 1001 }, (_, index) => `target-${index}`)
+    const userIds = [
+      expected[0],
+      "excluded-user",
+      expected[0],
+      ...expected.slice(1, 1000),
+      "excluded-user",
+      expected[500],
+      expected[1000],
+      "excluded-user",
+    ]
+    const message = { type: "community:channel.update" } as any
+
+    await broadcastToUsers(userIds, message, "excluded-user")
+
+    const bodies = bodiesOf(bindingFetch)
+    expect(bodies.map((body) => body.userIds.length)).toEqual([1000, 1])
+    expect(bodies.flatMap((body) => body.userIds)).toEqual(expected)
+    expect(bodies.every((body) => body.excludeUserId === "excluded-user")).toBe(true)
+    expect(bodies.flatMap((body) => body.userIds)).not.toContain("excluded-user")
+  })
+
+  it("starts at most three chunks and registers the whole aggregate lifetime", async () => {
+    const gates = Array.from({ length: 5 }, () => deferred<Response>())
+    let started = 0
+    let active = 0
+    let observedMaxActive = 0
+    const bindingFetch = vi.fn(async () => {
+      const index = started
+      started += 1
+      active += 1
+      observedMaxActive = Math.max(observedMaxActive, active)
+      const response = await gates[index].promise
+      active -= 1
+      return response
+    })
+    setBinding(bindingFetch)
+    const work = broadcastToUsers(
+      Array.from({ length: 4001 }, (_, index) => `u${index}`),
+      { type: "community:server.update" } as any,
+    )
+    const lifetime = mockCtxWaitUntil.mock.calls[0]?.[0] as Promise<void>
+    let lifetimeSettled = false
+    void lifetime.then(() => {
+      lifetimeSettled = true
+    })
+
+    expect(started).toBe(3)
+    expect(observedMaxActive).toBe(3)
+    expect(lifetimeSettled).toBe(false)
+
+    gates[1].resolve(Response.json({ sent: 1000 }))
+    await vi.waitFor(() => expect(started).toBe(4))
+    expect(observedMaxActive).toBe(3)
+    expect(lifetimeSettled).toBe(false)
+
+    gates[0].resolve(Response.json({ sent: 1000 }))
+    await vi.waitFor(() => expect(started).toBe(5))
+    expect(observedMaxActive).toBe(3)
+
+    gates[2].resolve(Response.json({ sent: 1000 }))
+    gates[3].resolve(Response.json({ sent: 1000 }))
+    gates[4].resolve(Response.json({ sent: 1 }))
+    await expect(work).resolves.toBeUndefined()
+    await expect(lifetime).resolves.toBeUndefined()
+    expect(lifetimeSettled).toBe(true)
+  })
+
+  it("isolates a failed chunk, continues later chunks, logs transport counts, then rejects", async () => {
+    let callIndex = 0
+    const bindingFetch = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      const index = callIndex
+      callIndex += 1
+      if (index === 1) return new Response("bad request", { status: 400 })
+      const body = JSON.parse(String(init?.body)) as { userIds: string[] }
+      return Response.json({ sent: body.userIds.length })
+    })
+    setBinding(bindingFetch)
+    const work = broadcastToUsers(
+      Array.from({ length: 4001 }, (_, index) => `u${index}`),
+      { type: "community:server.update" } as any,
+    )
+
+    await expect(work).rejects.toThrow("broadcast failed for 1 of 5 chunks")
+
+    expect(bindingFetch).toHaveBeenCalledTimes(5)
+    expect(bodiesOf(bindingFetch).map((body) => body.userIds.length)).toEqual([1000, 1000, 1000, 1000, 1])
+    expect(mockWarn).toHaveBeenCalledWith(
+      "broadcast_users_chunk_complete",
+      expect.objectContaining({
+        target: "users:4001",
+        chunkNumber: 2,
+        chunkCount: 5,
+        chunkSize: 1000,
+        transportStatus: "failure",
+        durationMs: expect.any(Number),
+      }),
+    )
+    expect(mockInfo).toHaveBeenCalledWith(
+      "broadcast_users_complete",
+      expect.objectContaining({
+        transportSuccessChunkCount: 4,
+        transportFailureChunkCount: 1,
+        sent: 3001,
+        maxActive: 3,
+      }),
+    )
+  })
+
+  it("logs only safe target and chunk metadata, not user ids or message secrets", async () => {
+    const bindingFetch = vi.fn(async () => Response.json({ sent: 1 }))
+    setBinding(bindingFetch)
+
+    await broadcastToUsers(
+      ["sensitive-user-id"],
+      { type: "community:server.update", token: "private-token-value" } as any,
+    )
+
+    const newLogCalls = [...mockInfo.mock.calls, ...mockWarn.mock.calls]
+      .filter(([message]) => String(message).startsWith("broadcast_users_"))
+    const serialized = JSON.stringify(newLogCalls)
+    expect(serialized).not.toContain("sensitive-user-id")
+    expect(serialized).not.toContain("private-token-value")
+    expect(serialized).not.toContain("userIds")
+    expect(newLogCalls).toEqual(expect.arrayContaining([
+      ["broadcast_users_chunk_complete", expect.objectContaining({
+        target: "users:1",
+        chunkNumber: 1,
+        chunkCount: 1,
+        chunkSize: 1,
+        transportStatus: "success",
+        sent: 1,
+        durationMs: expect.any(Number),
+      })],
+      ["broadcast_users_complete", expect.objectContaining({
+        target: "users:1",
+        transportSuccessChunkCount: 1,
+        transportFailureChunkCount: 0,
+      })],
+    ]))
   })
 
   it("falls back exactly once after one binding 5xx", async () => {
     const bindingFetch = vi.fn(async () => new Response("boom", { status: 502 }))
     mockFetch.mockResolvedValue(new Response(JSON.stringify({ sent: 2 }), { status: 200 }))
-    const env = makeEnv(bindingFetch)
-    mockGetCloudflareContext.mockReturnValue({
-      env,
-      ctx: { waitUntil: mockCtxWaitUntil },
-    })
+    setBinding(bindingFetch)
 
     await broadcastToUsers(["u1", "u2"], { type: "community:member.update" } as any)
 
@@ -309,11 +504,7 @@ describe("broadcastToUsers", () => {
       throw new Error("binding down")
     })
     mockFetch.mockResolvedValue(new Response(JSON.stringify({ sent: 2 }), { status: 200 }))
-    const env = makeEnv(bindingFetch)
-    mockGetCloudflareContext.mockReturnValue({
-      env,
-      ctx: { waitUntil: mockCtxWaitUntil },
-    })
+    setBinding(bindingFetch)
 
     await broadcastToUsers(["u1", "u2"], { type: "community:member.update" } as any)
 
