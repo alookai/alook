@@ -130,6 +130,7 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = request.nextUrl;
     const title = searchParams.get("title") || "Rooms for people and agents.";
+    const logoUrl = new URL("/alook.svg", request.url).toString();
 
     const fontData = await loadFont();
 
@@ -156,6 +157,13 @@ export async function GET(request: NextRequest) {
             }}
           >
             <div style={{ display: "flex", alignItems: "center", marginBottom: 32 }}>
+              <img
+                src={logoUrl}
+                width={120}
+                height={120}
+                alt=""
+                style={{ borderRadius: 28, marginRight: 24 }}
+              />
               <span style={{ fontSize: 32, fontWeight: 600, color: "#3d3428" }}>
                 alook.ai
               </span>

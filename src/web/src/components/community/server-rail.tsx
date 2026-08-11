@@ -8,6 +8,7 @@ import {
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable"
 import { restrictToVerticalAxis } from "@dnd-kit/modifiers"
 import { RailIcon } from "./rail-icon"
+import { AnimatedAlookLogo } from "./animated-alook-logo"
 import { tid } from "@/lib/community/testids"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -85,7 +86,7 @@ export const ServerRail = memo(function ServerRail({
   }, [folders])
 
   return (
-    <nav aria-label="Server navigation" className="flex w-14 shrink-0 flex-col items-center gap-2 pt-1 pb-2 overflow-y-auto overflow-x-clip thin-scrollbar" style={bottomInset ? { paddingBottom: bottomInset } : undefined}>
+    <nav aria-label="Server navigation" className="flex w-14 shrink-0 flex-col items-center gap-2 pt-2 pb-2 overflow-y-auto overflow-x-clip thin-scrollbar" style={bottomInset ? { paddingBottom: bottomInset } : undefined}>
       <Tooltip>
         <TooltipTrigger render={<div className="group relative flex w-full justify-center" />}>
           <span className={[
@@ -94,13 +95,13 @@ export const ServerRail = memo(function ServerRail({
           ].join(" ")} />
           <button
             onClick={onHome}
-            className="grid size-10 shrink-0 place-items-center rounded-[20px] transition-all duration-150 hover:scale-110 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            aria-label="Home"
+            className="group/alook grid size-10 shrink-0 place-items-center rounded-[20px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           >
-            <img src="/alook.svg" alt="Alook" draggable={false} className="size-8 select-none dark:hidden" />
-            <img src="/alook-dark.svg" alt="Alook" draggable={false} className="hidden size-8 select-none dark:block" />
+            <AnimatedAlookLogo className="size-10" />
           </button>
         </TooltipTrigger>
-        <TooltipContent side="right" sideOffset={8}>Direct Messages</TooltipContent>
+        <TooltipContent side="right" sideOffset={8}>Home</TooltipContent>
       </Tooltip>
       <div className="w-6 border-t border-border/50 my-1" />
       {serversLoading && servers.length === 0 && folders.length === 0 ? (

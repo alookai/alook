@@ -57,12 +57,7 @@ export function ConnectTile({ idPrefix = "ot-connect" }: { idPrefix?: string }) 
           so the dot rides right on the line; equal length, gap at both ends. */}
       <line className="ot-art" x1="83.7" y1="56.3" x2="70.1" y2="76.8" opacity="0.28" />
       <line className="ot-art" x1="116.3" y1="56.3" x2="129.9" y2="76.8" opacity="0.28" />
-      {/* Alook hub (top) — neutral foreground color, like the logo everywhere else */}
-      <g className="ot-alook ot-center text-foreground">
-        <svg x="83" y="15" width="34" height="34" viewBox="3 5 22 22">
-          <use href={`#${id.alook}`} />
-        </svg>
-      </g>
+      <image className="ot-alook ot-center" href="/alook.svg" x="83" y="15" width="34" height="34" />
       {/* your computer (bottom-left) */}
       <g className="ot-machine ot-center">
         <svg x="40" y="79" width="34" height="34" viewBox="0 0 24 24">

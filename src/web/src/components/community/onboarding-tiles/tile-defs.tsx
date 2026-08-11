@@ -17,7 +17,6 @@ export function tileIds(p: string) {
     book: `${p}-ic-book`,
     layers: `${p}-ic-layers`,
     clock: `${p}-ic-clock`,
-    alook: `${p}-ic-alook`,
     phone: `${p}-ic-phone`,
     faceA: `${p}-face-a`,
     faceB: `${p}-face-b`,
@@ -66,14 +65,6 @@ export function TileDefs({ idPrefix }: { idPrefix: string }) {
       <g id={id.clock}>
         <circle className="ot-art" cx="12" cy="12" r="10" />
         <path className="ot-art" d="M12 6v6l4 2" />
-      </g>
-
-      {/* Alook logo mark (public/alook.svg) — nested-svg viewBox 3 5 22 22 */}
-      <g id={id.alook}>
-        <rect x="4" y="6" width="18" height="18" rx="3" fill="currentColor" opacity="0.4" />
-        <rect x="6" y="8" width="18" height="18" rx="3" fill="currentColor" />
-        <rect x="9.5" y="13" width="11" height="9" rx="2" fill="var(--card)" />
-        <path d="M 10 13.5 Q 15 18.5 20 13.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
       </g>
 
       {/* Real beam faces (renderFaceSvg). faceA = existing agent, faceB = new bot. */}
