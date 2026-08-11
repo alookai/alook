@@ -1,5 +1,6 @@
 import { test, expect, userId } from "./_fixtures/community-fixture"
 import { tid } from "./_fixtures/testids"
+import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 import {
   seedServer,
   seedChannel,
@@ -117,11 +118,18 @@ test.describe.serial("DM presence stability on refresh", () => {
   test("peer stays online after the viewer refreshes the DM view", async ({ asUser }) => {
     // Alice stays connected (her page holds a live WS connection → she's online).
     const alice = await asUser("alice")
-    await alice.page.goto("/c/me")
+    await gotoAfterUserWsAuth(alice.page, "/c/me")
     await alice.page.waitForURL(/\/c\/me/, { timeout: 20_000, waitUntil: "commit" })
 
     const bob = await asUser("bob")
-    await bob.page.goto(`/c/me/${dmId}`)
+    await expect.poll(async () => {
+      const response = await bob.page.request.get(`/api/community/servers/${serverId}/presence`)
+      if (!response.ok()) return false
+      const body = await response.json() as { online?: string[] }
+      return body.online?.includes(userId("alice")) ?? false
+    }, { timeout: 20_000 }).toBe(true)
+
+    await gotoAfterUserWsAuth(bob.page, `/c/me/${dmId}`)
     await bob.page.waitForURL(new RegExp(dmId), { timeout: 20_000, waitUntil: "commit" })
 
     const aliceDot = bob.page.getByTestId(tid.dmRow(dmId)).locator("[data-slot='avatar-badge']")

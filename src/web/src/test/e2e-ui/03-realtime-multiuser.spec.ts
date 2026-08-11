@@ -1,6 +1,6 @@
 import { test, expect } from "./_fixtures/community-fixture"
 import { tid } from "./_fixtures/testids"
-import { sendMessage, expectMessageVisible, composerEditable } from "./_fixtures/actions"
+import { sendMessage, expectMessageVisible, composerEditable, gotoAfterUserWsAuth } from "./_fixtures/actions"
 import { seedServer, seedChannel, seedJoinServer } from "./_fixtures/seed"
 
 // Journey 3 — multi-user realtime. Alice and Bob are both online in the same
@@ -53,8 +53,8 @@ test.describe.serial("multi-user realtime", () => {
   test("Bob sees Alice's typing indicator, which clears after her message", async ({ asUser }) => {
     const alice = await asUser("alice")
     const bob = await asUser("bob")
-    await alice.page.goto(`/c/channels/${serverId}/${channelId}`)
-    await bob.page.goto(`/c/channels/${serverId}/${channelId}`)
+    await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${channelId}`)
+    await gotoAfterUserWsAuth(bob.page, `/c/channels/${serverId}/${channelId}`)
     await bob.page.waitForURL(new RegExp(channelId), { timeout: 20_000 , waitUntil: "commit" })
 
     // Gate on Bob's WS subscription being LIVE before testing the typing
@@ -84,7 +84,14 @@ test.describe.serial("multi-user realtime", () => {
 
     // Alice sends; her typing indicator clears on Bob's side (assert
     // presence→absence, not an exact duration).
+    const finalMessagePromise = alice.page.waitForResponse((response) => {
+      return response.request().method() === "POST"
+        && new URL(response.url()).pathname === `/api/community/channels/${channelId}/messages`
+    })
     await alice.page.keyboard.press("Enter")
+    const finalMessage = await finalMessagePromise
+    expect(finalMessage.status()).toBe(201)
+    await expectMessageVisible(bob.page, "typing…")
     await expect(bob.page.getByTestId(tid.typingIndicator)).toBeHidden({ timeout: 15_000 })
   })
 })

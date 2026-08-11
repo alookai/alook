@@ -1,69 +1,154 @@
 name: E2E UI
 
-# Playwright browser E2E for the web UI (community today; extends to the full
-# UI over time). Runs on PRs that touch the web app, so UI regressions are
-# caught BEFORE merge — the right gate point (a `release:` bump only changes
-# version numbers, so gating there catches nothing). Keeps main green under a
-# PR-only workflow; releases inherit that green state.
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
-    paths:
-      - "src/web/**"
-      - "src/shared/**"
-      - "src/ws-do/**"
-      - ".github/workflows/e2e-ui.yml"
+  merge_group:
+    types: [checks_requested]
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
-  group: e2e-ui-${{ github.ref }}
+  group: e2e-ui-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  scope:
+    name: UI Change Scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run_ui_e2e: ${{ steps.scope.outputs.run_ui_e2e }}
+      e2e_matrix: ${{ steps.scope.outputs.e2e_matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - id: scope
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event.before }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          FORCE_FULL: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+        run: |
+          args=(--base "$BASE_SHA" --head "$HEAD_SHA" --output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY")
+          if [[ "$FORCE_FULL" == "true" ]]; then args+=(--force-full); fi
+          node scripts/ci/changed-scopes.mjs "${args[@]}"
+          node scripts/ci/e2e-shards.mjs --output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+
   e2e-ui:
-    name: UI Playwright E2E
+    name: UI Playwright E2E (${{ matrix.shard }}/${{ matrix.total }})
+    needs: scope
+    if: needs.scope.outputs.run_ui_e2e == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.scope.outputs.e2e_matrix) }}
     env:
-      # next dev (development) is required — the dev email+password sign-in
-      # form and better-auth emailAndPassword are only enabled when NOT prod.
       BETTER_AUTH_SECRET: ci-e2e-ui-secret
       BETTER_AUTH_URL: http://localhost:3000
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: oven-sh/setup-bun@v2
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-
-      - name: Create .dev.vars for local bindings
-        run: printf 'BETTER_AUTH_SECRET=ci-e2e-ui-secret\nBETTER_AUTH_URL=http://localhost:3000\nDEVICE_CLIENT_IDS=e2e-test-client\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\n' > src/web/.dev.vars
-
-      - name: Install Playwright Chromium
+      - run: printf 'BETTER_AUTH_SECRET=ci-e2e-ui-secret\nBETTER_AUTH_URL=http://localhost:3000\nDEVICE_CLIENT_IDS=e2e-test-client\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\n' > src/web/.dev.vars
+      - id: playwright-version
         working-directory: src/web
-        run: pnpm exec playwright install --with-deps chromium
+        run: |
+          node -p '"version=" + require("./node_modules/@playwright/test/package.json").version' >> "$GITHUB_OUTPUT"
+      - id: playwright-browser-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright-version.outputs.version }}
+      - working-directory: src/web
+        run: pnpm exec playwright install-deps chromium
+      - if: steps.playwright-browser-cache.outputs.cache-hit != 'true'
+        working-directory: src/web
+        run: pnpm exec playwright install chromium
+      - env:
+          E2E_SPECS: ${{ toJSON(matrix.specs) }}
+        run: |
+          mapfile -t specs < <(node -e 'for (const spec of JSON.parse(process.env.E2E_SPECS)) console.log(spec)')
+          pnpm --filter @alook/web exec playwright test "${specs[@]}"
+      - if: ${{ !cancelled() && matrix.shard == 1 }}
+        run: |
+          test_package=$(realpath src/web/node_modules/@playwright/test)
+          test_node_modules=$(dirname "$(dirname "$test_package")")
+          playwright_package=$(realpath "$test_node_modules/playwright")
+          playwright_node_modules=$(dirname "$playwright_package")
+          core_package=$(realpath "$playwright_node_modules/playwright-core")
+          runtime=src/web/playwright-merge-runtime/node_modules
+          mkdir -p "$runtime/@playwright"
+          cp -R "$test_package" "$runtime/@playwright/test"
+          cp -R "$playwright_package" "$runtime/playwright"
+          cp -R "$core_package" "$runtime/playwright-core"
+      - if: ${{ !cancelled() && matrix.shard == 1 }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: playwright-merge-runtime
+          path: src/web/playwright-merge-runtime/
+          retention-days: 1
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: blob-report-${{ matrix.shard }}
+          path: src/web/blob-report/
+          retention-days: 1
+      - if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: playwright-artifacts-${{ matrix.shard }}
+          path: src/web/test-results/
+          retention-days: 14
 
-      # global-setup runs db:reset, starts dev:web + dev:ws (fail-fast on ws
-      # health), and logs in the test users — so this single step drives the
-      # whole suite. Run from the repo root via the root alias (delegates to
-      # --filter @alook/web, which sets cwd so the Playwright config resolves).
-      - name: Run UI E2E
-        run: pnpm test:e2e-ui
-
-      - name: Upload Playwright report
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7
+  merge-reports:
+    name: Merge Playwright Reports
+    needs: [scope, e2e-ui]
+    if: ${{ !cancelled() && needs.scope.outputs.run_ui_e2e == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: blob-report-*
+          path: all-blob-reports
+          merge-multiple: true
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: playwright-merge-runtime
+          path: playwright-merge-runtime
+      - run: node playwright-merge-runtime/node_modules/@playwright/test/cli.js merge-reports --reporter html all-blob-reports
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: playwright-report
-          path: src/web/playwright-report/
-          retention-days: 30
+          path: playwright-report/
+          retention-days: 14
 
-      - name: Upload traces & videos
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: playwright-artifacts
-          path: src/web/test-results/
-          retention-days: 30
+  ui-e2e-gate:
+    name: UI E2E Gate
+    if: always()
+    needs: [scope, e2e-ui, merge-reports]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CI_GATE_RESULTS: >-
+        [
+          {"name":"scope","expected":true,"result":"${{ needs.scope.result }}"},
+          {"name":"e2e-ui","expected":${{ needs.scope.outputs.run_ui_e2e == 'true' }},"result":"${{ needs.e2e-ui.result }}"},
+          {"name":"merge-reports","expected":${{ needs.scope.outputs.run_ui_e2e == 'true' }},"result":"${{ needs.merge-reports.result }}"}
+        ]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - run: node scripts/ci/assert-gate.mjs

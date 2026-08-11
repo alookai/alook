@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync, rmSync } from "fs"
 import { resolve } from "path"
+import { chromium } from "@playwright/test"
 import { AUTH_DIR, MANIFEST_PATH } from "./paths"
 import { loginAndSaveState } from "./auth"
 import { resetDb, startServices, backupState, REUSE_EXISTING } from "./services"
@@ -22,9 +23,14 @@ export default async function globalSetup(): Promise<void> {
   const stamp = `${process.pid.toString(36)}${Math.floor(process.hrtime()[1] / 1e3).toString(36)}`
 
   const users = {} as Record<UserKey, SeededUser>
-  for (const key of USER_KEYS) {
-    const statePath = resolve(AUTH_DIR, `${key}.json`)
-    users[key] = await loginAndSaveState(key, stamp, statePath)
+  const browser = await chromium.launch()
+  try {
+    for (const key of USER_KEYS) {
+      const statePath = resolve(AUTH_DIR, `${key}.json`)
+      users[key] = await loginAndSaveState(browser, key, stamp, statePath)
+    }
+  } finally {
+    await browser.close()
   }
 
   const manifest: RunManifest & { servicePids: number[]; restoreState: boolean } = {
