@@ -1,4 +1,44 @@
 import type { RouterContext } from "../router-context"
+import { settleInBatches } from "../settle-in-batches"
+
+const presenceBatchSize = 40
+
+type BatchPresenceTargetResult =
+  | { kind: "online" }
+  | { kind: "offline" }
+  | { kind: "stale" }
+  | { kind: "non-ok"; status: number }
+  | { kind: "invalid-json"; status: number }
+  | { kind: "invalid-body"; status: number }
+
+type BatchPresenceFailureKind = "throw" | "non-ok" | "invalid-json" | "invalid-body"
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+async function checkBatchPresenceTarget(env: Env, userId: string): Promise<BatchPresenceTargetResult> {
+  const doId = env.WS_DO.idFromName("user:" + userId)
+  const stub = env.WS_DO.get(doId)
+  const response = await stub.fetch(
+    new Request(`http://internal/check-user-online?userId=${encodeURIComponent(userId)}`),
+  )
+  if (!response.ok) return { kind: "non-ok", status: response.status }
+
+  let data: unknown
+  try {
+    data = await response.json()
+  } catch {
+    return { kind: "invalid-json", status: response.status }
+  }
+  if (
+    !isRecord(data)
+    || typeof data.online !== "boolean"
+    || (data.stale !== undefined && typeof data.stale !== "boolean")
+  ) return { kind: "invalid-body", status: response.status }
+  if (data.stale) return { kind: "stale" }
+  return data.online ? { kind: "online" } : { kind: "offline" }
+}
 
 export async function handleBatchPresence({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {
   // Bulk presence: fan out one DO fetch per id and return the online subset.
@@ -22,29 +62,70 @@ export async function handleBatchPresence({ request, env, url, traceId, log }: R
   const reqLog = log.child({ traceId, count: ids.length })
   reqLog.debug("bulk presence check")
 
-  if (ids.length === 0) return Response.json({ online: [] })
-
-  const results = await Promise.allSettled(
-    ids.map((id) => {
-      const doId = env.WS_DO.idFromName("user:" + id)
-      const stub = env.WS_DO.get(doId)
-      return stub.fetch(
-        new Request(`http://internal/check-user-online?userId=${encodeURIComponent(id)}`),
-      )
-    }),
-  )
-  const online: string[] = []
-  for (let i = 0; i < results.length; i++) {
-    const r = results[i]
-    if (r.status !== "fulfilled" || !r.value.ok) continue
+  const startedAt = Date.now()
+  let active = 0
+  let maxActive = 0
+  const results = await settleInBatches(ids, async (id) => {
+    active += 1
+    maxActive = Math.max(maxActive, active)
     try {
-      const data = await r.value.json() as { online?: boolean; stale?: boolean }
-      // Skip stale responses — a fail-closed `online:false` from D1 must
-      // not be surfaced as authoritative offline to fan-out callers.
-      if (data.stale) continue
-      if (data.online) online.push(ids[i])
-    } catch { /* skip */ }
+      return await checkBatchPresenceTarget(env, id)
+    } finally {
+      active -= 1
+    }
+  }, presenceBatchSize)
+  const online: string[] = []
+  let offlineCount = 0
+  let staleCount = 0
+  let failureCount = 0
+  const failureCounts: Record<BatchPresenceFailureKind, number> = {
+    throw: 0,
+    "non-ok": 0,
+    "invalid-json": 0,
+    "invalid-body": 0,
   }
+  for (const [index, result] of results.entries()) {
+    if (result.status === "rejected") {
+      failureCount += 1
+      failureCounts.throw += 1
+      reqLog.warn("bulk_presence_target_failed", {
+        userId: ids[index],
+        failureKind: "throw",
+      })
+      continue
+    }
+
+    if (result.value.kind === "online") {
+      online.push(ids[index])
+    } else if (result.value.kind === "offline") {
+      offlineCount += 1
+    } else if (result.value.kind === "stale") {
+      staleCount += 1
+    } else {
+      failureCount += 1
+      failureCounts[result.value.kind] += 1
+      reqLog.warn("bulk_presence_target_failed", {
+        userId: ids[index],
+        failureKind: result.value.kind,
+        status: result.value.status,
+      })
+    }
+  }
+
+  reqLog.info("bulk_presence_check_complete", {
+    targetCount: ids.length,
+    resultCount: results.length,
+    successCount: online.length + offlineCount,
+    onlineCount: online.length,
+    offlineCount,
+    staleCount,
+    failureCount,
+    failureCounts,
+    maxActive,
+    batchSize: presenceBatchSize,
+    batchCount: Math.ceil(ids.length / presenceBatchSize),
+    durationMs: Date.now() - startedAt,
+  })
   return Response.json({ online })
 }
 
