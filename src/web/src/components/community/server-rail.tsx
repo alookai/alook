@@ -95,12 +95,13 @@ export const ServerRail = memo(function ServerRail({
           ].join(" ")} />
           <button
             onClick={onHome}
+            aria-label="Home"
             className="group/alook grid size-10 shrink-0 place-items-center rounded-[20px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           >
             <AnimatedAlookLogo className="size-10" />
           </button>
         </TooltipTrigger>
-        <TooltipContent side="right" sideOffset={8}>Direct Messages</TooltipContent>
+        <TooltipContent side="right" sideOffset={8}>Home</TooltipContent>
       </Tooltip>
       <div className="w-6 border-t border-border/50 my-1" />
       {serversLoading && servers.length === 0 && folders.length === 0 ? (
