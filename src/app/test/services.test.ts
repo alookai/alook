@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdirSync, existsSync, rmSync, writeFileSync } from "fs";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
+import { mkdirSync, existsSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
@@ -13,6 +13,15 @@ vi.mock("../src/lib/constants.js", () => ({
 }));
 
 describe("services", () => {
+  // Windows CI can spend >15s on the cold Vitest transform of services.ts
+  // (pulls @alook/shared). Warm the graph once so per-test dynamic imports
+  // hit the transform cache instead of timing out.
+  beforeAll(async () => {
+    await import("../src/lib/pid.js");
+    await import("../src/lib/services.js");
+    vi.resetModules();
+  }, 60_000);
+
   beforeEach(() => {
     mkdirSync(testDir, { recursive: true });
   });
@@ -28,7 +37,7 @@ describe("services", () => {
     it("returns false when no pid file exists", async () => {
       const { isRunning } = await import("../src/lib/services.js");
       expect(isRunning()).toBe(false);
-    }, 15_000);
+    });
 
     it("returns false when all pids are dead", async () => {
       const { writePids } = await import("../src/lib/pid.js");
