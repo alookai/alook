@@ -82,7 +82,10 @@ export function MessageShareDialog({ m, open, onClose }: {
     // differs machine-to-machine ("fine on mine, blurry/wrong on theirs"). Awaiting
     // the specific face (then the global ready signal) closes that race.
     try {
-      if (document.fonts?.load) await document.fonts.load('16px "Caveat"')
+      const caveatFont = getComputedStyle(document.documentElement)
+        .getPropertyValue("--font-caveat")
+        .trim()
+      if (document.fonts?.load && caveatFont) await document.fonts.load(`16px ${caveatFont}`)
       await document.fonts?.ready
     } catch {
       // Font API unavailable / load rejected — proceed; worst case is the

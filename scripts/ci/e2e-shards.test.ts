@@ -61,13 +61,14 @@ describe("planE2eShards", () => {
 
 describe("createE2eMatrix", () => {
   it("emits shell-safe repo-local spec arguments", () => {
-    const matrix = createE2eMatrix(["a.spec.ts", "nested/b.spec.ts"])
+    const matrix = createE2eMatrix(["a.spec.ts", "nested/b.spec.ts", "c.spec.ts"])
     const argumentsList = matrix.include.flatMap((entry) => entry.specs)
 
     expect(argumentsList.sort()).toEqual([
       "src/test/e2e-ui/a.spec.ts",
+      "src/test/e2e-ui/c.spec.ts",
       "src/test/e2e-ui/nested/b.spec.ts",
     ])
-    expect(matrix.include.every((entry) => entry.total === 2)).toBe(true)
+    expect(matrix.include.every((entry) => entry.total === E2E_SHARD_COUNT)).toBe(true)
   })
 })

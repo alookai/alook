@@ -1,18 +1,11 @@
 import { ImageResponse } from "next/og";
 import type { NextRequest } from "next/server";
 
-const FONT_URL =
-  "https://fonts.gstatic.com/s/dmsans/v17/rP2tp2ywxg089UriI5-g4vlH9VoD8CmcqZG40F9JadbnoEwAfJtRSW3z.ttf";
-
-let fontCache: ArrayBuffer | null = null;
-
 async function loadFont(): Promise<ArrayBuffer | null> {
-  if (fontCache) return fontCache;
   try {
-    const res = await fetch(FONT_URL);
+    const res = await fetch(new URL("../fonts/dm-sans-600.ttf", import.meta.url));
     if (!res.ok) return null;
-    fontCache = await res.arrayBuffer();
-    return fontCache;
+    return await res.arrayBuffer();
   } catch {
     return null;
   }

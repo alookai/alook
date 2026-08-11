@@ -1,57 +1,12 @@
 import type { Metadata, Viewport } from "next";
-import {
-  DM_Sans,
-  DM_Mono,
-  Instrument_Serif,
-  Caveat,
-  VT323,
-  Literata,
-} from "next/font/google";
 import { GoogleTagManager } from "@next/third-parties/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ToasterProvider } from "@/components/toaster-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { MockNetworkBanner } from "@/components/mock-network-banner";
 import { TauriThemeSync } from "@/components/tauri-theme-sync";
+import { caveat, dmMono, dmSans, instrumentSerif, literata, vt323 } from "./fonts";
 import "./globals.css";
-
-const dmSans = DM_Sans({
-  variable: "--font-dm-sans",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800", "900"],
-});
-
-const dmMono = DM_Mono({
-  variable: "--font-dm-mono",
-  subsets: ["latin"],
-  weight: ["400"],
-});
-
-const instrumentSerif = Instrument_Serif({
-  variable: "--font-instrument-serif",
-  subsets: ["latin"],
-  weight: ["400"],
-  style: ["normal", "italic"],
-});
-
-const caveat = Caveat({
-  variable: "--font-caveat",
-  subsets: ["latin"],
-  weight: ["700"],
-});
-
-const vt323 = VT323({
-  variable: "--font-vt323",
-  subsets: ["latin"],
-  weight: ["400"],
-});
-
-const literata = Literata({
-  variable: "--font-literata",
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
-});
-
 
 const SITE_URL = "https://alook.ai";
 const OG_IMAGE_URL = "/og?title=Rooms%20for%20people%20and%20agents";
@@ -128,8 +83,6 @@ export default function RootLayout({
         <link rel="manifest" href="/manifest.json" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <script dangerouslySetInnerHTML={{ __html: `
           document.addEventListener('gesturestart', function(e) { e.preventDefault(); });
         `}} />

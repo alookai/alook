@@ -1,8 +1,6 @@
 name: E2E UI
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
   merge_group:
@@ -110,7 +108,9 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: playwright-artifacts-${{ matrix.shard }}
-          path: src/web/test-results/
+          path: |
+            src/web/test-results/
+            src/web/e2e-service-logs/
           retention-days: 14
 
   merge-reports:

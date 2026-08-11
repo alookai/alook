@@ -47,6 +47,26 @@ describe("classifyPaths", () => {
     expect(result.run_e2e).toBe(true)
   })
 
+  it("routes CLI and daemon integration test changes through Linux E2E", () => {
+    for (const path of [
+      "tests/integration/cli/session-resume.test.ts",
+      "tests/integration/daemon/control-plane.test.ts",
+    ]) {
+      const result = classifyPaths([path])
+      expect(result.full).toBe(false)
+      expect(result.run_e2e).toBe(true)
+    }
+  })
+
+  it("only accepts top-level MDX posts for the blog fast path", () => {
+    const result = classifyPaths(["src/web/src/content/nested/example.mdx"])
+
+    expect(result.blog_only).toBe(false)
+    expect(result.run_code_checks).toBe(true)
+    expect(result.run_ui_e2e).toBe(true)
+    expect(result.run_lighthouse).toBe(true)
+  })
+
   it("routes desktop-only changes through Rust without UI E2E", () => {
     const result = classifyPaths(["src/desktop/src-tauri/src/lib.rs"])
 
@@ -59,6 +79,7 @@ describe("classifyPaths", () => {
     expect(classifyPaths([".github/dependabot.yml"]).full).toBe(true)
     expect(classifyPaths(["scripts/bump-version.mjs"]).full).toBe(true)
     expect(classifyPaths(["pnpm-lock.yaml"]).full).toBe(true)
+    expect(classifyPaths(["src/future-package/src/index.ts"]).full).toBe(true)
     expect(classifyPaths(["unexpected/file.txt"]).full).toBe(true)
     expect(classifyPaths([]).full).toBe(true)
   })

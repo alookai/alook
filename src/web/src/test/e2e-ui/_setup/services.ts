@@ -1,7 +1,7 @@
 import { spawn, spawnSync, type ChildProcess } from "child_process"
-import { cpSync, existsSync, rmSync } from "fs"
+import { closeSync, cpSync, existsSync, mkdirSync, openSync, rmSync } from "fs"
 import { resolve } from "path"
-import { REPO_ROOT, WEB_URL, WS_URL } from "./paths"
+import { REPO_ROOT, SERVICE_LOG_DIR, WEB_URL, WS_URL } from "./paths"
 
 export interface ManagedService {
   name: string
@@ -104,12 +104,17 @@ function killPortOrphans(ports: number[]): void {
 }
 
 function startService(name: string, filter: string, healthUrl: string): ManagedService {
-  const proc = spawn("pnpm", ["--filter", filter, "dev"], {
-    cwd: REPO_ROOT,
-    stdio: "ignore",
-    detached: true,
-  })
-  return { name, proc, healthUrl }
+  const logFd = openSync(resolve(SERVICE_LOG_DIR, `${name}.log`), "a")
+  try {
+    const proc = spawn("pnpm", ["--filter", filter, "dev"], {
+      cwd: REPO_ROOT,
+      stdio: ["ignore", logFd, logFd],
+      detached: true,
+    })
+    return { name, proc, healthUrl }
+  } finally {
+    closeSync(logFd)
+  }
 }
 
 // Starts web (:3000) + ws-do (:8789). Realtime journeys REQUIRE ws-do, so a
@@ -119,8 +124,7 @@ function startService(name: string, filter: string, healthUrl: string): ManagedS
 // (which only proves the process is up) doesn't mean `/c/channels/...` is
 // compiled. The first spec to hit a route then eats multi-second cold-compile
 // time and its `waitForURL` can time out. Pre-hit the hot routes so they're
-// warm before any spec runs. Best-effort: any response (even a redirect to
-// /sign-in) has already triggered compilation, so status is ignored.
+// warm before any spec runs.
 async function warmUpRoutes(): Promise<void> {
   // Include the DYNAMIC route segments the first specs land on — `next dev`
   // compiles per route *file*, not per id, so a placeholder id triggers the
@@ -129,11 +133,12 @@ async function warmUpRoutes(): Promise<void> {
   // server-root page also runs a data-gated redirect, so warming its chunk is
   // what keeps that first `waitForURL` from eating cold-compile time.
   const routes = ["/c", "/sign-in", "/c/me", "/c/channels/warmup", "/c/channels/warmup/warmup"]
-  await Promise.all(
-    routes.map((path) =>
-      fetch(`${WEB_URL}${path}`, { redirect: "manual" }).catch(() => {}),
-    ),
-  )
+  await Promise.all(routes.map(async (path) => {
+    const response = await fetch(`${WEB_URL}${path}`, { redirect: "manual" })
+    if (response.status >= 500) {
+      throw new Error(`Route warm-up failed (${response.status} ${path})`)
+    }
+  }))
 }
 
 export async function startServices(): Promise<ManagedService[]> {
@@ -151,6 +156,8 @@ export async function startServices(): Promise<ManagedService[]> {
   killPortOrphans(ports)
   // Give the OS a moment to release the sockets before we bind them.
   await new Promise((r) => setTimeout(r, 1000))
+  rmSync(SERVICE_LOG_DIR, { recursive: true, force: true })
+  mkdirSync(SERVICE_LOG_DIR, { recursive: true })
 
   const services = [
     startService("web", "@alook/web", webHealth),
