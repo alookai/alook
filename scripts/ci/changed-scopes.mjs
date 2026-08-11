@@ -3,7 +3,7 @@ import { appendFileSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-const BLOG_CONTENT = /^src\/web\/src\/content\/.*\.mdx$/
+const BLOG_CONTENT = /^src\/web\/src\/content\/[^/]+\.mdx$/
 const BLOG_ASSET = /^src\/web\/public\/blog(?:\/|$)/
 const MARKDOWN = /(?:^|\/)\w[^/]*\.md$/i
 const WORKFLOW = /^\.github\/workflows\//
@@ -16,13 +16,21 @@ const GLOBAL_PATHS = new Set([
   "vitest.config.ts",
 ])
 const KNOWN_ROOTS = [
-  ".github/",
   ".claude/",
   ".openai/",
   "docs/",
-  "scripts/",
-  "src/",
-  "tests/",
+  "src/app/",
+  "src/cli/",
+  "src/daemon/",
+  "src/desktop/",
+  "src/email-worker/",
+  "src/shared/",
+  "src/wake-worker/",
+  "src/web/",
+  "src/ws-do/",
+  "tests/integration/cli/",
+  "tests/integration/daemon/",
+  "tests/utils/",
 ]
 
 function normalizePath(path) {
@@ -80,6 +88,7 @@ export function classifyPaths(inputPaths, options = {}) {
         path.startsWith("src/ws-do/")
     )
   const app = full || paths.some((path) => path.startsWith("src/app/"))
+  const integration = full || paths.some((path) => path.startsWith("tests/integration/"))
   const codeChanged =
     full || paths.some((path) => !isMarkdownPath(path) && !isBlogPath(path))
   const runCodeChecks = codeChanged && !effectiveBlogOnly && !effectiveDocsOnly
@@ -92,7 +101,7 @@ export function classifyPaths(inputPaths, options = {}) {
     workflow_changed: workflowChanged,
     run_code_checks: runCodeChecks,
     run_windows: runCodeChecks && (full || cli || daemon || shared),
-    run_e2e: runCodeChecks && (full || web || shared || cli || daemon || worker),
+    run_e2e: runCodeChecks && (full || web || shared || cli || daemon || worker || integration),
     run_ui_e2e: !effectiveBlogOnly && runCodeChecks && (full || web || shared || wsDo),
     run_rust: runCodeChecks && (full || desktop),
     run_lighthouse: runCodeChecks && (full || web),

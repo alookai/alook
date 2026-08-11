@@ -3,6 +3,7 @@ import {
   isValidCommunityUserTarget,
   queries,
   readOrStale,
+  withD1Retry,
 } from "@alook/shared"
 import type {
   CommunityMachineConnectionState,
@@ -348,7 +349,10 @@ async function validateToken(
   token: string,
 ): Promise<{ userId: string; name: string; discriminator: string } | null> {
   const db = createDb(context.env.DB)
-  return queries.session.getValidSessionWithIdentity(db, token)
+  return withD1Retry(
+    () => queries.session.getValidSessionWithIdentity(db, token),
+    { route: "ws-do:user-auth-session" },
+  )
 }
 
 async function validateMachineToken(

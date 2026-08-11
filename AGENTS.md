@@ -45,9 +45,9 @@ This triggers:
 - **CF Workers** → each module redeploys when its own `package.json` changes
 
 ### E2E UI (browser tests)
-Playwright browser E2E for the web UI lives in `src/web/src/test/e2e-ui/` and runs via `e2e-ui.yml` **on PRs that touch `src/web`/`src/shared`/`src/ws-do`** — regressions are caught before merge, keeping main green. It is deliberately NOT tied to the release chain: a `release:` bump only changes version numbers, so gating there would test nothing, and the production web app deploys via Cloudflare's own Git integration (outside GitHub Actions) which a workflow gate can't block anyway. Run locally with `pnpm test:e2e-ui` (backs up and restores your local `.wrangler/state`).
+Playwright browser E2E for the web UI lives in `src/web/src/test/e2e-ui/`. The `e2e-ui.yml` workflow starts for every PR and merge-queue check, then runs the browser matrix only when the diff touches `src/web`/`src/shared`/`src/ws-do`; blog-only and unrelated changes finish through the lightweight scope and gate jobs. The workflow also supports scheduled and manual full runs, but does not run after pushes to `main`. It is deliberately NOT tied to the release chain: a `release:` bump only changes version numbers, so gating there would test nothing, and the production web app deploys via Cloudflare's own Git integration (outside GitHub Actions) which a workflow gate can't block anyway. Run locally with `pnpm test:e2e-ui` (backs up and restores your local `.wrangler/state`).
 
-> **Don't mark "UI Playwright E2E" as a required status check** in branch protection as-is. Because it uses a `paths:` filter, a PR that doesn't touch those paths never starts the job, and a required check that never runs leaves the PR pending forever. Keep it advisory, or add an always-runs skip-job with the same check name first.
+> Branch protection may require the stable `UI E2E Gate` check. Do not require the individual `UI Playwright E2E (n/N)` matrix jobs, because skipped shards are expected for changes outside the UI scope.
 
 ## Plan-driven Development
 - You must make a markdown plan at `plans/` before you implement any my request, otherwise I will reject your implementation.

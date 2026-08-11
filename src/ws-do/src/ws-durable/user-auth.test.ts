@@ -50,6 +50,7 @@ import {
   mockTouchMachineHeartbeat,
   mockUpdateProfile,
   mockUpsertMachineByMachineId,
+  mockWithD1Retry,
   resetHarness
 } from "./test-harness"
 
@@ -177,6 +178,36 @@ describe("WebSocketDurableObject", () => {
         name: "Ana",
         discriminator: "0012",
       })
+    })
+
+    it("retries a transient session lookup before authenticating", async () => {
+      const { durable } = createDO()
+      mockGetValidSessionWithIdentity
+        .mockRejectedValueOnce(new Error("SQLITE_BUSY"))
+        .mockResolvedValueOnce({ userId: "user-42", name: "Ana", discriminator: "0012" })
+      mockWithD1Retry.mockImplementation(async (fn) => {
+        try {
+          return await fn()
+        } catch {
+          return fn()
+        }
+      })
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "user",
+        userId: "",
+        targetUserId: "user-42",
+        authenticated: false,
+      })
+
+      await durable.webSocketMessage(ws as any, JSON.stringify({ type: "auth", token: "valid-token" }))
+
+      expect(mockWithD1Retry).toHaveBeenCalledWith(expect.any(Function), {
+        route: "ws-do:user-auth-session",
+      })
+      expect(mockGetValidSessionWithIdentity).toHaveBeenCalledTimes(2)
+      expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "auth.ok" }))
+      expect(ws.close).not.toHaveBeenCalled()
     })
 
     it("first authenticated user connection broadcasts online presence and starts a snapshot", async () => {
@@ -358,6 +389,7 @@ describe("WebSocketDurableObject", () => {
 
       expect(ws.close).toHaveBeenCalledWith(1008, "Unauthorized")
       expect(ws.send).not.toHaveBeenCalled()
+      expect(mockGetValidSessionWithIdentity).toHaveBeenCalledTimes(1)
     })
 
     it("closes with 1008 when auth message has no token", async () => {

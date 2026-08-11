@@ -3,7 +3,7 @@ import { relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 export const E2E_SPEC_ROOT = "src/web/src/test/e2e-ui"
-export const E2E_SHARD_COUNT = 2
+export const E2E_SHARD_COUNT = 5
 export const DEFAULT_SPEC_SECONDS = 60
 
 export const SPEC_SECONDS = {
