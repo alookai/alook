@@ -2,6 +2,7 @@ export const metadata = {
   slug: "run-ai-agent-team-that-stays-on-track",
   title: "How to Run an AI Agent Team That Stays on Track",
   date: "2026-07-29",
+  dateModified: "2026-08-11",
   author: "Alook Team",
   excerpt:
     "More agents help only when jobs stay clear, ownership stays named, and results stay easy to review. These operating rules keep a team usable day after day.",
@@ -28,6 +29,22 @@ export const jsonLd = [
         acceptedAnswer: {
           "@type": "Answer",
           text: "Actions that send, spend, publish, change prices, create legal commitments, or make irreversible production changes should wait for a human decision.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "What should an AI agent handoff include?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "A useful handoff names the objective, the current state, the artifact produced so far, the checks already run, the open questions, and the requested next action. The next owner should not have to reconstruct a thread to know what to do.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "What should happen when an AI agent hits an exception?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "The workflow should pause, return the exception with context, and route it to the person or role that owns the decision. Silent guessing is worse than a visible stop.",
         },
       },
       {
@@ -123,6 +140,21 @@ Require a short verification path. Depending on the work, that might be:
 
 The next reviewer should not have to reconstruct a day of chat to work out whether the task is complete. If they do, the handoff is still unfinished.
 
+## Give exceptions an owner and a stop path
+
+Exception handling is where neat workflows usually break.
+
+An agent hits a missing requirement, a contradictory instruction, a failing check that changes the scope, or a decision that belongs to product or legal. That is not the moment to "be helpful" and guess through it.
+
+Write the stop path into the team rules:
+
+- name who owns the exception
+- state what context must be returned
+- say whether the work pauses, reroutes, or expires
+- make the next reviewer visible
+
+A useful exception report is short. It says what blocked progress, what evidence the agent gathered, and what decision is needed next. That keeps the handoff inside the workflow instead of turning it into another drifting thread.
+
 ## Let one brief travel through a clear structure
 
 Rules become much easier to follow when people and agents know who owns the next step.
@@ -157,6 +189,12 @@ Start with two to four roles that have clear jobs. Add another role when a real 
 
 **What should always stay behind human approval?**  
 Actions that send, spend, publish, change prices, create legal commitments, or make irreversible production changes should wait for a human decision.
+
+**What should an AI agent handoff include?**  
+Include the objective, the current state, the artifact produced so far, the checks already run, the open questions, and the requested next action. The next owner should not have to reconstruct a thread to know what to do.
+
+**What should happen when an AI agent hits an exception?**  
+Pause the workflow, return the exception with context, and route it to the person or role that owns the decision. Silent guessing is worse than a visible stop.
 
 **Do I need Alook to use these rules?**  
 No. These rules work with any agent stack. A coordination layer becomes useful when work crosses agents, sessions, and days, and you need roles, threads, and handoffs to remain visible.
