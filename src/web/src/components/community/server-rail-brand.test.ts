@@ -8,6 +8,7 @@ describe("ServerRail Home brand mark", () => {
     expect(source).toContain('import { AnimatedAlookLogo } from "./animated-alook-logo"')
     expect(source).toContain('<AnimatedAlookLogo className="size-10" />')
     expect(source).toContain('aria-label="Home"')
+    expect(source).toContain('data-testid={tid.homeButton}')
     expect(source).toContain('<TooltipContent side="right" sideOffset={8}>Home</TooltipContent>')
     expect(source).not.toContain('>Direct Messages</TooltipContent>')
     expect(source).toContain("group/alook grid size-10")
