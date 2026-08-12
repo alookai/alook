@@ -107,6 +107,35 @@ describe("landing content contract", () => {
     expect(landingStyles).not.toMatch(/\.footer\s*\{[\s\S]*?border-top:/)
   })
 
+  it("keeps product-demo labels out of the homepage heading tree", () => {
+    const root = webRoot()
+    const shellSource = readFileSync(path.join(root, "src/components/home/landing-shell-motion.tsx"), "utf8")
+    const dmHeaderSource = readFileSync(path.join(root, "src/components/community/dm-header.tsx"), "utf8")
+    const pairMachineSource = readFileSync(
+      path.join(root, "src/components/community/machines/pair-machine-sheet.tsx"),
+      "utf8",
+    )
+
+    expect(shellSource).not.toMatch(/<h[1-6]\b/)
+    expect(shellSource.match(/<DmHeader dm=\{DMS\[0\]\} titleAs="div" \/>/g)).toHaveLength(2)
+    expect(shellSource).toContain('headingAs="div"')
+    expect(dmHeaderSource).toContain('titleAs: Title = "h1"')
+    expect(dmHeaderSource).toContain(
+      'font-heading text-base font-medium leading-[1.15] tracking-[-0.015em]',
+    )
+    expect(pairMachineSource).toContain('headingAs = "h3"')
+    expect(pairMachineSource).toContain(
+      'font-heading text-sm font-medium leading-tight tracking-[-0.015em]',
+    )
+  })
+
+  it("requires every Lighthouse SEO audit to pass", () => {
+    const root = webRoot()
+    const config = JSON.parse(readFileSync(path.join(root, "lighthouserc.json"), "utf8"))
+
+    expect(config.ci.assert.assertions["categories:seo"]).toEqual(["error", { minScore: 1 }])
+  })
+
   it("promotes the approved landing while preserving the legacy route", () => {
     const root = webRoot()
     const rootRoute = readFileSync(path.join(root, "src/app/page.tsx"), "utf8")

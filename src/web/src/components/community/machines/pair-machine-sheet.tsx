@@ -150,6 +150,7 @@ export function PairMachineSteps({
   step2MotionTarget,
   step1ClassName,
   step2ClassName,
+  headingAs = "h3",
 }: {
   command: string
   generating: boolean
@@ -159,14 +160,15 @@ export function PairMachineSteps({
   step2MotionTarget?: string
   step1ClassName?: string
   step2ClassName?: string
+  headingAs?: "h3" | "div"
 }) {
   return (
     <>
       <div data-motion-target={step1MotionTarget} className={step1ClassName}>
-        <Step1 command={command} generating={generating} onCopy={onCopy} />
+        <Step1 command={command} generating={generating} onCopy={onCopy} headingAs={headingAs} />
       </div>
       <div data-motion-target={step2MotionTarget} className={step2ClassName}>
-        <Step2 ready={Boolean(command)} connectedHostname={connectedHostname} />
+        <Step2 ready={Boolean(command)} connectedHostname={connectedHostname} headingAs={headingAs} />
       </div>
     </>
   )
@@ -176,16 +178,20 @@ function Step1({
   command,
   generating,
   onCopy,
+  headingAs: Heading,
 }: {
   command: string
   generating: boolean
   onCopy: () => void
+  headingAs: "h3" | "div"
 }) {
   return (
     <section className="flex flex-col gap-3">
       <header className="flex items-center gap-2">
         <Marker n={1} done={!generating} />
-        <h3 className="text-sm font-medium text-foreground">Run this on your machine</h3>
+        <Heading className="font-heading text-sm font-medium leading-tight tracking-[-0.015em] text-foreground">
+          Run this on your machine
+        </Heading>
       </header>
       <p className="text-sm text-muted-foreground">
         Open a terminal on the computer you want to connect, paste the command,
@@ -218,16 +224,20 @@ function Step1({
 function Step2({
   ready,
   connectedHostname,
+  headingAs: Heading,
 }: {
   ready: boolean
   connectedHostname: string | null
+  headingAs: "h3" | "div"
 }) {
   if (connectedHostname) {
     return (
       <section className="flex flex-col gap-3">
         <header className="flex items-center gap-2">
           <Marker n={2} done />
-          <h3 className="text-sm font-medium text-foreground">Connected</h3>
+          <Heading className="font-heading text-sm font-medium leading-tight tracking-[-0.015em] text-foreground">
+            Connected
+          </Heading>
         </header>
         <div className="flex flex-col gap-1 text-sm">
           <span className="flex items-center gap-2">
@@ -245,14 +255,14 @@ function Step2({
     <section className="flex flex-col gap-3">
       <header className="flex items-center gap-2">
         <Marker n={2} muted={!ready} spinning={ready} />
-        <h3
+        <Heading
           className={[
-            "text-sm font-medium",
+            "font-heading text-sm font-medium leading-tight tracking-[-0.015em]",
             ready ? "text-foreground" : "text-muted-foreground",
           ].join(" ")}
         >
           Waiting for the daemon…
-        </h3>
+        </Heading>
       </header>
     </section>
   )
