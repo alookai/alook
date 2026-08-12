@@ -1,3 +1,5 @@
+import { pathToFileURL } from "node:url";
+
 interface CloudflareEnvelope {
   success?: unknown;
   result?: unknown;
@@ -100,7 +102,8 @@ async function main(): Promise<void> {
   if (!result.ok) process.exitCode = 1;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+const invokedPath = process.argv[1];
+if (invokedPath && import.meta.url === pathToFileURL(invokedPath).href) {
   void main().catch(() => {
     process.stderr.write("bug-report R2 preflight failed closed\n");
     process.stdout.write(`${JSON.stringify({ ok: false, checks: failedChecks() })}\n`);

@@ -69,7 +69,7 @@ describe("B2d read-only bug-report R2 preflight", () => {
     const secretMarker = "PREFLIGHT_SECRET_MUST_NOT_LEAK";
     const packageManagerCli = process.env.npm_execpath;
     if (!packageManagerCli) throw new Error("npm_execpath is required to invoke the package CLI");
-    const child = spawnSync(process.execPath, [packageManagerCli, "preflight:bug-reports"], {
+    const child = spawnSync(process.execPath, [packageManagerCli, "run", "preflight:bug-reports"], {
       cwd: packageRoot,
       encoding: "utf8",
       env: {
