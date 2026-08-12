@@ -112,6 +112,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Run daemon tests in isolation
+        env:
+          VITEST_MAX_WORKERS: 1
         run: pnpm --filter @alook/daemon test
       - name: Run remaining workspace tests
         run: pnpm turbo run test --filter='!@alook/daemon'
@@ -133,6 +135,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Run daemon tests in isolation
+        env:
+          VITEST_MAX_WORKERS: 1
         run: pnpm --filter @alook/daemon test
       - name: Run remaining workspace tests
         run: pnpm turbo run test --filter='!@alook/daemon'
