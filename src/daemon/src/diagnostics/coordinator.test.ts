@@ -211,7 +211,7 @@ describe("B2c durable diagnostic coordinator", () => {
         const archiveStat = lstatSync(archivePath(harness.machineDir));
         expect(archiveStat.isFile()).toBe(true);
         expect(archiveStat.isSymbolicLink()).toBe(false);
-        expect(archiveStat.mode & 0o777).toBe(0o600);
+        if (process.platform !== "win32") expect(archiveStat.mode & 0o777).toBe(0o600);
         expect(readFileSync(archivePath(harness.machineDir))).toEqual(archiveBytes);
         expect(meta).toEqual({ reportId: "dbr_report_1", sizeBytes: archiveBytes.length, sha256 });
         inspectedBeforeFirstByte = true;
