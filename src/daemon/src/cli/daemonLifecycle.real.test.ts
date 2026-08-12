@@ -95,11 +95,29 @@ function readOwner(baseDir: string): { pid: number; machineId: string; ownerToke
   return JSON.parse(fs.readFileSync(pidfile(baseDir), "utf8"));
 }
 
+function readCheckpoint(checkpointFile: string): { parentPid: number; childPid: number } | undefined {
+  try {
+    return JSON.parse(fs.readFileSync(checkpointFile, "utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
 function daemonLogRecords(baseDir: string): Array<{ message: string; fields: Record<string, unknown> }> {
   return fs.readFileSync(path.join(path.dirname(pidfile(baseDir)), "daemon.log"), "utf8")
     .trimEnd()
     .split("\n")
     .map((line) => JSON.parse(line));
+}
+
+function daemonIsReady(baseDir: string): boolean {
+  const logPath = path.join(path.dirname(pidfile(baseDir)), "daemon.log");
+  if (!fs.existsSync(pidfile(baseDir)) || !fs.existsSync(logPath)) return false;
+  try {
+    return daemonLogRecords(baseDir).some((record) => record.message === "daemon up");
+  } catch {
+    return false;
+  }
 }
 
 function alive(pid: number): boolean {
@@ -197,7 +215,7 @@ describe("daemon lifecycle real processes", () => {
     const baseDir = makeBaseDir();
     const foreground = spawnCli(cliArgs(baseDir, true));
     const foregroundResult = collect(foreground);
-    await waitFor(() => fs.existsSync(pidfile(baseDir)) && fs.existsSync(path.join(path.dirname(pidfile(baseDir)), "daemon.log")));
+    await waitFor(() => daemonIsReady(baseDir));
     const owner = readOwner(baseDir);
     expect(owner.pid).toBe(foreground.pid);
     const contender = await runCli(cliArgs(baseDir));
@@ -232,7 +250,7 @@ describe("daemon lifecycle real processes", () => {
     const second = spawnCli(cliArgs(foregroundBase, true));
     const firstResult = collect(first);
     const secondResult = collect(second);
-    await waitFor(() => fs.existsSync(pidfile(foregroundBase)));
+    await waitFor(() => daemonIsReady(foregroundBase));
     const foregroundOwner = readOwner(foregroundBase);
     expect([first.pid, second.pid]).toContain(foregroundOwner.pid);
     process.kill(foregroundOwner.pid, "SIGTERM");
@@ -316,8 +334,9 @@ describe("daemon lifecycle real processes", () => {
         ALOOK_DAEMON_TEST_CHECKPOINT_FILE: checkpointFile,
       });
       const parentResult = collect(parent);
-      await waitFor(() => fs.existsSync(checkpointFile));
-      const state = JSON.parse(fs.readFileSync(checkpointFile, "utf8")) as { parentPid: number; childPid: number };
+      await waitFor(() => readCheckpoint(checkpointFile) !== undefined);
+      const state = readCheckpoint(checkpointFile);
+      if (!state) throw new Error("checkpoint was not readable after becoming ready");
       process.kill(state.parentPid, "SIGKILL");
       await parentResult;
 
