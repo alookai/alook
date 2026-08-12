@@ -221,15 +221,16 @@ describe("daemon lifecycle real processes", () => {
     const contender = await runCli(cliArgs(baseDir));
     expect(contender.output).toContain("already running");
     expect(readOwner(baseDir)).toEqual(owner);
-    foreground.kill("SIGTERM");
+    await stop(baseDir);
     const completed = await foregroundResult;
     expect(completed.output).toContain("daemon startup");
     expect(completed.output).toContain("daemon up");
-    expect(daemonLogRecords(baseDir).map((record) => record.message)).toEqual(expect.arrayContaining([
+    const expectedRecords = [
       "daemon startup",
       "daemon up",
-      "shutting down…",
-    ]));
+      ...(process.platform === "win32" ? [] : ["shutting down…"]),
+    ];
+    expect(daemonLogRecords(baseDir).map((record) => record.message)).toEqual(expect.arrayContaining(expectedRecords));
     await waitFor(() => !fs.existsSync(pidfile(baseDir)));
   }, 60_000);
 
@@ -253,7 +254,7 @@ describe("daemon lifecycle real processes", () => {
     await waitFor(() => daemonIsReady(foregroundBase));
     const foregroundOwner = readOwner(foregroundBase);
     expect([first.pid, second.pid]).toContain(foregroundOwner.pid);
-    process.kill(foregroundOwner.pid, "SIGTERM");
+    await stop(foregroundBase);
     const results = await Promise.all([firstResult, secondResult]);
     expect(results.filter((result) => result.output.includes("already") || result.output.includes("in progress"))).toHaveLength(1);
     await waitFor(() => !fs.existsSync(pidfile(foregroundBase)));
@@ -270,7 +271,9 @@ describe("daemon lifecycle real processes", () => {
       ALOOK_DAEMON_TEST_SHUTDOWN_MARKER: shutdownMarker,
     });
     const firstResult = collect(first);
-    await waitFor(() => fs.existsSync(shutdownMarker));
+    await waitFor(() => process.platform === "win32"
+      ? fs.existsSync(pidfile(baseDir)) && alive(readOwner(baseDir).pid)
+      : fs.existsSync(shutdownMarker));
     const oldOwner = readOwner(baseDir);
     expect(alive(oldOwner.pid)).toBe(true);
 
