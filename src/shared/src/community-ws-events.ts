@@ -26,6 +26,7 @@ const messageAttachmentSchema = z.strictObject({
   id: string,
   filename: string,
   url: string,
+  thumbnailUrl: string.optional(),
   contentType: string.optional(),
   size: z.number().optional(),
   width: z.number().nullable().optional(),

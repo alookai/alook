@@ -149,6 +149,7 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
     expect(res.headers.get("Content-Type")).toBe("image/png")
     expect(res.headers.get("Content-Length")).toBe("10")
     expect(res.headers.get("X-Alook-Filename")).toBe(encodeURIComponent("a.png"))
+    expect(res.headers.get("Cache-Control")).toBeNull()
   })
 
   it("bot: percent-encodes non-ASCII filenames per RFC 5987", async () => {
@@ -171,7 +172,7 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
     expect(res.status).toBe(200)
     expect(res.headers.get("Content-Type")).toBe("image/png")
     expect(res.headers.get("Content-Disposition")).toBe("inline")
-    expect(res.headers.get("Cache-Control")).toBeTruthy()
+    expect(res.headers.get("Cache-Control")).toBe("private, max-age=31536000, immutable")
     // Human arm never emits the bot download header.
     expect(res.headers.get("X-Alook-Filename")).toBeNull()
   })

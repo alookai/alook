@@ -21,7 +21,7 @@ import { tid } from "@/lib/community/testids"
 import { avatarInitial } from "@/lib/community/avatar"
 import { displayName } from "@/lib/community/display-name"
 import { stripInlineMarkup } from "@alook/shared"
-import type { RenderMsg, OpenProfile } from "./_types"
+import type { ImagePreview, RenderMsg, OpenProfile } from "./_types"
 import { attachmentAspectRatio } from "./attachment-layout"
 
 // Whether the "Share as Image" action is offered for a message. Share is
@@ -62,7 +62,7 @@ function MessageImpl({
   onEdit?: () => void
   onRetry?: () => void
   onDismiss?: () => void
-  onPreviewImage?: (name: string) => void
+  onPreviewImage?: (image: ImagePreview) => void
   onDownloadFile?: (name: string) => void
   highlighted?: boolean
   resolveUserName?: (userId: string) => string
@@ -251,17 +251,19 @@ function MessageImpl({
                 if (a.kind === "image") return (
                   <button
                     key={i}
-                    onClick={() => onPreviewImage?.(a.url)}
+                    onClick={() => onPreviewImage?.({ originalUrl: a.url, thumbnailUrl: a.thumbnailUrl, name: a.name })}
                     className="block w-fit max-w-full overflow-hidden rounded-lg border border-border transition-colors hover:border-primary/40"
                   >
                     <img
-                      src={a.url}
+                      data-testid={tid.messageImage(m.id, i)}
+                      src={a.thumbnailUrl ?? a.url}
                       alt={a.name}
                       width={a.width}
                       height={a.height}
                       className="block h-auto w-auto max-h-75 max-w-full rounded-lg object-contain"
                       style={{ aspectRatio: attachmentAspectRatio(a.width, a.height) }}
                       onLoad={onImageLoad}
+                      loading="lazy"
                     />
                   </button>
                 )

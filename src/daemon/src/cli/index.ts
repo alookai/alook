@@ -23,7 +23,10 @@ import { parseRef } from "../server/contract.js";
 import { proxyServerApiFromEnv } from "./proxyServerApi.js";
 import { daemonRunFromIpc, daemonStart, daemonStop, daemonList, daemonStatus, type DaemonInfo } from "./daemonStart.js";
 import { parseInviteToken } from "@alook/shared/lib/invite-link";
-import { MAX_EMOJI_BYTES } from "@alook/shared/constants/community";
+import {
+  MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES,
+  MAX_EMOJI_BYTES,
+} from "@alook/shared/constants/community";
 import { nowLocalISO, toLocalISO } from "../util/localTime.js";
 
 /**
@@ -428,10 +431,41 @@ async function cmdAttachmentUpload(opts: Record<string, unknown>): Promise<unkno
   const filename = pathMod.basename(filePath);
   const contentType = contentTypeFromFilename(filename);
 
+  let thumbnail: { data: Uint8Array; filename: string; contentType: string } | undefined;
+  let width: number | undefined;
+  let height: number | undefined;
+  if (["image/png", "image/jpeg", "image/webp", "image/gif"].includes(contentType)) {
+    try {
+      const { default: sharp } = await import("sharp");
+      const image = sharp(bytes, { failOn: "error" });
+      const metadata = await image.metadata();
+      if (metadata.width && metadata.height) {
+        width = metadata.width;
+        height = metadata.height;
+      }
+      const jpeg = await image
+        .resize({ width: 200, height: 200, fit: "inside", withoutEnlargement: true })
+        .jpeg({ quality: 70 })
+        .toBuffer();
+      if (jpeg.byteLength <= MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES) {
+        thumbnail = {
+          data: new Uint8Array(jpeg),
+          filename: "thumbnail.jpg",
+          contentType: "image/jpeg",
+        };
+      }
+    } catch {
+      // Thumbnailing is an optimization. Corrupt/unsupported images still upload.
+    }
+  }
+
   const result = await api.attachmentUpload({
     agentId: agent,
     target,
     file: { data: new Uint8Array(bytes), filename, contentType },
+    ...(thumbnail ? { thumbnail } : {}),
+    ...(width !== undefined ? { width } : {}),
+    ...(height !== undefined ? { height } : {}),
   });
   return result;
 }

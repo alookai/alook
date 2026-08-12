@@ -1187,6 +1187,7 @@ export const CommunityAgentAttachmentUploadResponseSchema = z.object({
   filename: z.string(),
   contentType: z.string(),
   size: z.number(),
+  hasThumbnail: z.boolean().optional(),
 });
 export type CommunityAgentAttachmentUploadResponse = z.infer<
   typeof CommunityAgentAttachmentUploadResponseSchema

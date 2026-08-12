@@ -30,13 +30,13 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=20.9"
   },
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target node --format esm --external commander --external ws && bun build src/cli/index.ts --outdir dist/cli --target node --format esm --external commander --external ws && node scripts/prepare-dist.mjs",
+    "build": "bun build src/index.ts --outdir dist --target node --format esm --external commander --external ws --external sharp && bun build src/cli/index.ts --outdir dist/cli --target node --format esm --external commander --external ws --external sharp && node scripts/prepare-dist.mjs",
     "prepack": "pnpm run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -47,6 +47,7 @@
   },
   "dependencies": {
     "commander": "^15.0.0",
+    "sharp": "^0.35.0",
     "ws": "^8.21.2"
   },
   "devDependencies": {

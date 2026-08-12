@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 
 const mockCreateMessage = vi.fn()
 const mockGetMessage = vi.fn()
+const mockGetMessageByAuthorAndNonce = vi.fn()
 const mockGetMessageInScope = vi.fn()
 const mockHardDeleteMessage = vi.fn()
 const mockGetUserInternal = vi.fn()
@@ -33,6 +34,7 @@ vi.mock("@alook/shared", async () => {
       communityMessage: {
         createMessage: (...a: unknown[]) => mockCreateMessage(...a),
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
+        getMessageByAuthorAndNonce: (...a: unknown[]) => mockGetMessageByAuthorAndNonce(...a),
         getMessageInScope: (...a: unknown[]) => mockGetMessageInScope(...a),
         hardDeleteMessage: (...a: unknown[]) => mockHardDeleteMessage(...a),
       },
@@ -88,6 +90,7 @@ vi.mock("../broadcast", () => ({
 
 import {
   createCommunityMessage,
+  getCommunityMessageReplay,
   isDmTarget,
   isThreadTarget,
   isChannelTarget,
@@ -357,6 +360,7 @@ describe("createCommunityMessage — attachment width/height reach the live WS b
         targetId: "c1",
         filename: "photo.png",
         r2Key: "channel/c1/uuid/photo.png",
+        thumbnailR2Key: "channel/c1/uuid/photo.png.thumbnail.jpg",
         contentType: "image/png",
         size: 1000,
         width: 1920,
@@ -378,7 +382,11 @@ describe("createCommunityMessage — attachment width/height reach the live WS b
     const [, event] = mockFanOutToChannel.mock.calls[0]!
     expect(event).toMatchObject({ serverId: "srv_1" })
     expect(event.message.attachments).toEqual([
-      expect.objectContaining({ width: 1920, height: 1080 }),
+      expect.objectContaining({
+        width: 1920,
+        height: 1080,
+        thumbnailUrl: "/api/community/channels/c1/attachments/att_1/thumbnail",
+      }),
     ])
   })
 
@@ -811,6 +819,70 @@ describe("createCommunityMessage — attachment reservation-first flow (agent pa
     mockListByMessageIds.mockResolvedValue([])
   })
 
+  const replayAttachment = {
+    id: "att_thumbnail",
+    messageId: "msg_replay",
+    targetId: "c1",
+    filename: "photo.png",
+    r2Key: "private-original-key",
+    thumbnailR2Key: "private-thumbnail-key",
+    contentType: "image/png",
+    size: 100,
+    width: 640,
+    height: 480,
+    position: 0,
+  }
+
+  it("hydrates thumbnail URLs for a same-nonce precheck replay", async () => {
+    mockGetMessageByAuthorAndNonce.mockResolvedValue(
+      messageRow({ id: "msg_replay", clientNonce: "nonce_replay" }),
+    )
+    mockListByMessageIds.mockResolvedValue([replayAttachment])
+
+    const replay = await getCommunityMessageReplay({
+      db: {} as never,
+      authorId: "author_1",
+      channelId: "c1",
+      clientNonce: "nonce_replay",
+    })
+
+    expect(replay?.attachments).toEqual([
+      expect.objectContaining({
+        id: "att_thumbnail",
+        url: "/api/community/channels/c1/attachments/att_thumbnail",
+        thumbnailUrl: "/api/community/channels/c1/attachments/att_thumbnail/thumbnail",
+      }),
+    ])
+  })
+
+  it("hydrates thumbnail URLs when an insert-race recovers the committed nonce", async () => {
+    mockGetMessageByAuthorAndNonce
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(messageRow({ id: "msg_replay", clientNonce: "nonce_race" }))
+    mockCreateMessage.mockRejectedValue(
+      Object.assign(new Error("UNIQUE constraint failed"), {
+        code: "SQLITE_CONSTRAINT_UNIQUE",
+      }),
+    )
+    mockListByMessageIds.mockResolvedValue([replayAttachment])
+
+    const replay = await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+      body: { content: "retry after unknown commit" },
+      clientNonce: "nonce_race",
+    })
+
+    expect(replay).toEqual(expect.objectContaining({
+      ok: true,
+      deduped: true,
+      attachments: [expect.objectContaining({
+        thumbnailUrl: "/api/community/channels/c1/attachments/att_thumbnail/thumbnail",
+      })],
+    }))
+  })
+
   it("reservation-mismatch → unreserve partial, hard-delete the orphan message, generic 400", async () => {
     mockCreateMessage.mockResolvedValue({ id: "msg_preminted" })
     mockReserveAttachmentsForMessage.mockResolvedValue(["att_1"]) // only 1 of 2 reserved
@@ -999,6 +1071,7 @@ describe("createCommunityMessage — attachment reservation-first flow (agent pa
         filename: "photo.png",
         targetId: "c1",
         r2Key: "channel/c1/uuid/photo.png",
+        thumbnailR2Key: "channel/c1/uuid/photo.png.thumbnail.jpg",
         contentType: "image/png",
         size: 100,
         width: null,
@@ -1025,6 +1098,7 @@ describe("createCommunityMessage — attachment reservation-first flow (agent pa
         // id-addressed render URL (attachments fold) — served by the canonical
         // channels/{targetId}/attachments/{attachmentId} door.
         url: "/api/community/channels/c1/attachments/att_1",
+        thumbnailUrl: "/api/community/channels/c1/attachments/att_1/thumbnail",
       }),
     ])
     expect(mockUnreserveAttachments).not.toHaveBeenCalled()

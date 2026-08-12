@@ -17,7 +17,7 @@ import type { Database } from "@alook/shared"
 import { broadcastToUserSafe, fanOutToChannel, resolveChannelRecipients } from "./fanout"
 import { dispatchMessageNotify } from "./notify"
 import { mapMessageForWs } from "./message-payload"
-import { attachmentUrl } from "./storage"
+import { attachmentThumbnailUrl, attachmentUrl } from "./storage"
 
 const log = createLogger({ service: "community-message-handler" })
 
@@ -78,6 +78,7 @@ type CreatedAttachment = {
   id: string
   filename: string
   url: string
+  thumbnailUrl?: string
   contentType: string | null
   size: number | null
   width?: number | null
@@ -90,6 +91,7 @@ async function hydrateStoredAttachments(db: Database, messageId: string): Promis
     id: row.id,
     filename: row.filename,
     url: attachmentUrl(row.targetId, row.id),
+    ...(row.thumbnailR2Key ? { thumbnailUrl: attachmentThumbnailUrl(row.targetId, row.id) } : {}),
     contentType: row.contentType,
     size: row.size,
     width: row.width,
@@ -512,6 +514,7 @@ export async function createCommunityMessage(params: {
       id: r.id,
       filename: r.filename,
       url: attachmentUrl(r.targetId, r.id),
+      ...(r.thumbnailR2Key ? { thumbnailUrl: attachmentThumbnailUrl(r.targetId, r.id) } : {}),
       contentType: r.contentType,
       size: r.size,
       width: r.width,
@@ -712,6 +715,7 @@ export async function createCommunityMessage(params: {
       id: a.id,
       filename: a.filename,
       url: a.url,
+      thumbnailUrl: a.thumbnailUrl,
       contentType: a.contentType ?? undefined,
       size: a.size ?? undefined,
       width: a.width ?? undefined,

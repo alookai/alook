@@ -9,7 +9,7 @@ import { Avatar } from "@/components/community/avatar"
 import { MessageList } from "@/components/community/message-list"
 import { MessageContextSheet } from "@/components/community/message-context-sheet"
 import { Composer, ComposerSkeleton, type SendAttachment } from "@/components/community/composer"
-import type { OpenProfile } from "@/components/community/_types"
+import type { ImagePreview, OpenProfile } from "@/components/community/_types"
 import {
   useCommunityStore,
   useCurrentChannelId,
@@ -292,8 +292,8 @@ function DmView() {
         { type: "dismissFailed", nonce: m.clientNonce },
       )
     },
-    onPreviewImage: (url: string) => {
-      uiHandlers.previewImage?.(url)
+    onPreviewImage: (image: ImagePreview) => {
+      uiHandlers.previewImage?.(image)
     },
     onDownloadFile: (url: string) => {
       const a = document.createElement("a")

@@ -63,6 +63,9 @@ export function useDmMessageSender() {
             filename: local.file.name,
             contentType: local.file.type,
             size: local.file.size,
+            ...(attachment.kind === "image" && attachment.thumbnailUrl !== undefined
+              ? { hasThumbnail: true }
+              : {}),
             width: local.width,
             height: local.height,
           }
@@ -76,6 +79,7 @@ export function useDmMessageSender() {
           uploadFileAsync({
             target: { dmId },
             file: upload.file,
+            thumbnailBlob: upload.thumbnailBlob,
             width: upload.width,
             height: upload.height,
           }).catch((error) => {
@@ -134,6 +138,7 @@ export function useDmMessageSender() {
           if (!attachment.previewObjectUrl) createdPreviewUrls.push(previewObjectUrl)
           return {
             file: attachment.file,
+            thumbnailBlob: attachment.thumbnailBlob,
             previewObjectUrl,
             width: attachment.width,
             height: attachment.height,

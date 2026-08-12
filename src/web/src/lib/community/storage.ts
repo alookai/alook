@@ -1,3 +1,5 @@
+export const ATTACHMENT_PRIVATE_IMMUTABLE_CACHE = "private, max-age=31536000, immutable"
+
 /**
  * Sanitize a filename component that will be embedded into an R2 key. Strips
  * `..`, replaces `/` and any C0 / DEL control character with `_`, and caps
@@ -27,6 +29,14 @@ export function sanitizeAttachmentFilename(input: string): string {
  */
 export function attachmentUrl(targetId: string, attachmentId: string): string {
   return `/api/community/channels/${targetId}/attachments/${attachmentId}`
+}
+
+export function attachmentThumbnailUrl(targetId: string, attachmentId: string): string {
+  return `${attachmentUrl(targetId, attachmentId)}/thumbnail`
+}
+
+export function buildAttachmentThumbnailKey(originalKey: string): string {
+  return `${originalKey}.thumbnail.jpg`
 }
 
 // R2 storage key builders

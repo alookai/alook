@@ -19,7 +19,7 @@ import { requireServerMember, requireChannelMember } from "@/lib/community/permi
 import { requireMessageBearingSurface } from "@/lib/community/channel-write-guard"
 import { guardDmOpen } from "@/lib/community/dm-guard"
 import { createCommunityMessage, type IncomingMessageBody } from "@/lib/community/message-handler"
-import { attachmentUrl } from "@/lib/community/storage"
+import { attachmentThumbnailUrl, attachmentUrl } from "@/lib/community/storage"
 
 const log = createLogger({ service: "community-create-channels" })
 
@@ -340,8 +340,14 @@ export async function createMessageWithThread(params: {
     // bound to the deduped reply (whole command previously succeeded).
     const storedAttachments = await queries.communityAttachment.listMessageAttachments(db, messageId)
     const toCreatedAttachment = (row: (typeof storedAttachments)[number]) => ({
-      ...row,
+      id: row.id,
+      filename: row.filename,
       url: attachmentUrl(row.targetId, row.id),
+      ...(row.thumbnailR2Key ? { thumbnailUrl: attachmentThumbnailUrl(row.targetId, row.id) } : {}),
+      contentType: row.contentType,
+      size: row.size,
+      width: row.width,
+      height: row.height,
     })
     return {
       ok: true,

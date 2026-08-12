@@ -27,8 +27,13 @@ export const tid = {
   botAvatarPickerTrigger: "community-bot-avatar-picker-trigger",
 
   forumTagDialog: "community-forum-tag-dialog",
+  imageLightbox: "community-image-lightbox",
+  imageLightboxThumbnail: "community-image-lightbox-thumbnail",
+  imageLightboxOriginal: "community-image-lightbox-original",
 
   message: (id: string) => `community-message-${id}`,
+  messageImage: (id: string, index: number) => `community-message-image-${id}-${index}`,
+  threadOpenerImage: (index: number) => `community-thread-opener-image-${index}`,
   channelRow: (id: string) => `community-channel-row-${id}`,
   serverIcon: (id: string) => `community-server-icon-${id}`,
   dmRow: (id: string) => `community-dm-row-${id}`,

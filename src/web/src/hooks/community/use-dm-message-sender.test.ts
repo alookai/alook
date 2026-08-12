@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
 import { materializeMessageStream } from "@/lib/community/message-stream"
 import { MESSAGE_PREVIEW_LENGTH } from "@alook/shared"
+import { buildAttachmentUploadFormData } from "./mutations/uploads"
 
 vi.mock("react", () => ({
   useCallback: (fn: Function) => fn,
@@ -93,6 +94,42 @@ describe("useDmMessageSender", () => {
     const intent = getMessageOverlay({ kind: "dm", id: "dm_1" }).outboxByNonce.get("fresh_nonce")
     expect(intent?.uploadStatus).toBe("failed")
     expect(intent?.status).toBe("failed")
+  })
+
+  it("retries a failed DM upload with the identical thumbnail Blob in multipart", async () => {
+    const thumbnailBlob = new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], { type: "image/jpeg" })
+    uploadMock
+      .mockRejectedValueOnce(new Error("upload failed"))
+      .mockResolvedValueOnce({
+        id: "att_thumb",
+        filename: "photo.png",
+        contentType: "image/png",
+        size: 8,
+        hasThumbnail: true,
+      })
+    postMock.mockResolvedValueOnce({ message: { id: "server_thumb", seq: 10 } })
+    const { useDmMessageSender } = await import("./use-dm-message-sender")
+    const sender = useDmMessageSender()
+    const file = new File(["original"], "photo.png", { type: "image/png" })
+    const receipt = sender.accept({
+      dmId: "dm_1",
+      content: "photo",
+      attachments: [{ file, thumbnailBlob, previewObjectUrl: "blob:thumbnail", width: 640, height: 480 }],
+      author: { id: "u_me", name: "Me", avatar: "M" },
+    })
+
+    if (!receipt.accepted) throw new Error("expected accepted receipt")
+    await expect(receipt.committed).resolves.toEqual({ ok: false, error: expect.any(Error) })
+    await expect(sender.retry("dm_1", "fresh_nonce")).resolves.toEqual({
+      ok: true,
+      message: { id: "server_thumb", seq: 10 },
+    })
+
+    expect(uploadMock).toHaveBeenCalledTimes(2)
+    for (const [args] of uploadMock.mock.calls) {
+      expect(args.thumbnailBlob).toBe(thumbnailBlob)
+      expect((buildAttachmentUploadFormData(args).get("thumbnail") as File).size).toBe(4)
+    }
   })
 
   it("retries the same nonce and reports network failure without emitting a terminal event itself", async () => {

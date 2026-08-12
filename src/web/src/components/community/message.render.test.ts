@@ -144,6 +144,7 @@ describe("Message image attachment layout", () => {
     })
 
     const image = renderer!.root.findByType("img")
+    expect(image.props.src).toBe("/portrait.png")
     expect(image.props).toMatchObject({ width: 396, height: 702 })
     expect(image.props.className).toContain("h-auto")
     expect(image.props.className).toContain("w-auto")
@@ -151,6 +152,28 @@ describe("Message image attachment layout", () => {
     expect(image.props.className).toContain("max-w-full")
     expect(image.parent?.props.className).toContain("w-fit")
     expect(image.parent?.props.className).toContain("max-w-full")
+  })
+
+  it("loads the canonical thumbnail in-list and opens the original identity on click", () => {
+    const onPreviewImage = vi.fn()
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(makeTree({
+        m: baseMsg({ attachments: [{
+          kind: "image", name: "photo.png", url: "/original", thumbnailUrl: "/thumbnail",
+          width: 640, height: 480,
+        }] }),
+        onOpenThread: vi.fn(),
+        onPreviewImage,
+      }), { createNodeMock: () => genericMock })
+    })
+    const image = renderer!.root.findByType("img")
+    expect(image.props.src).toBe("/thumbnail")
+    expect(image.props.loading).toBe("lazy")
+    act(() => image.parent!.props.onClick())
+    expect(onPreviewImage).toHaveBeenCalledWith({
+      originalUrl: "/original", thumbnailUrl: "/thumbnail", name: "photo.png",
+    })
   })
 })
 

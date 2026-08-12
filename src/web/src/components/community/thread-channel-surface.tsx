@@ -14,7 +14,7 @@ import { MessageChannelController } from "@/components/community/message-channel
 import { MessageContextSheet } from "@/components/community/message-context-sheet"
 import { MessageList } from "@/components/community/message-list"
 import { ThreadOpener } from "@/components/community/thread-opener"
-import type { OpenProfile, RightPanel } from "@/components/community/_types"
+import type { ImagePreview, OpenProfile, RightPanel } from "@/components/community/_types"
 import type { ChannelMemberPanelProps } from "@/components/community/channel-member-view-model"
 
 const ignoreNestedThread = () => {}
@@ -71,7 +71,7 @@ export function ThreadChannelSurface({
   manageMembersDialog: ReactNode
   uiHandlers: {
     navigate?: (serverId: string, channelId: string) => void
-    previewImage?: (url: string) => void
+    previewImage?: (image: ImagePreview) => void
   }
   onOpenChild: (childId: string) => void
   onOpenProfile: OpenProfile
@@ -154,7 +154,7 @@ export function ThreadChannelSurface({
     <ThreadOpener
       parentMessageId={parentMessageId}
       onOpenProfile={onOpenProfile}
-      onPreviewImage={(url) => uiHandlers.previewImage?.(url)}
+      onPreviewImage={(image) => uiHandlers.previewImage?.(image)}
       onDownloadFile={(url) => {
         const link = document.createElement("a")
         link.href = url

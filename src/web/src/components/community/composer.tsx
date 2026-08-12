@@ -1,6 +1,6 @@
 "use client"
 
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react"
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { FileIcon, ImageIcon, PlusCircle, Smile, Upload, Users, X } from "lucide-react"
 import { useEditor, EditorContent, type JSONContent } from "@tiptap/react"
@@ -38,7 +38,13 @@ import {
   type ChannelRefPopupState,
 } from "@/lib/community/channel-ref-extension"
 
-export type SendAttachment = { file: File; previewObjectUrl?: string; width?: number; height?: number }
+export type SendAttachment = {
+  file: File
+  thumbnailBlob?: Blob
+  previewObjectUrl?: string
+  width?: number
+  height?: number
+}
 
 // Pure mapping from `useFileAttachments`'s pending-file state to `onSend`'s
 // attachments argument. Extracted so the width/height threading through
@@ -47,6 +53,7 @@ export function pendingFilesToSendAttachments(pendingFiles: PendingFile[]): Send
   if (pendingFiles.length === 0) return undefined
   return pendingFiles.map((pf) => ({
     file: pf.file,
+    thumbnailBlob: pf.thumbnailBlob ?? undefined,
     previewObjectUrl: pf.thumbnailUrl ?? undefined,
     width: pf.width,
     height: pf.height,
@@ -178,6 +185,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     pendingFiles,
     setPendingFiles,
     transferPendingFiles,
+    awaitPendingFiles,
     addPendingFiles,
     fileInputRef,
     handleFileSelect,
@@ -192,12 +200,24 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   })
   const typingTimer = useRef<NodeJS.Timeout | null>(null)
   const sendRef = useRef<() => void>(() => {})
+  const sendInFlightRef = useRef<Promise<void> | null>(null)
+  const lifecycleVersionRef = useRef(0)
 
   // Draft cache key, held in a ref so the editor's `onUpdate` closure (captured
   // once at build) always persists under the current scope. Restore is
   // suppressed via this flag so hydrating the editor doesn't fire `onTyping`.
   const draftKeyRef = useRef(draftKey)
-  useEffect(() => { draftKeyRef.current = draftKey }, [draftKey])
+  const sendScopeRef = useRef<string | null>(null)
+  const sendScopeVersionRef = useRef(0)
+  useLayoutEffect(() => {
+    const nextScope = `${context}\u0000${channel}\u0000${draftKey ?? ""}`
+    if (sendScopeRef.current !== nextScope) {
+      sendScopeRef.current = nextScope
+      sendScopeVersionRef.current++
+    }
+    draftKeyRef.current = draftKey
+  }, [channel, context, draftKey])
+  useLayoutEffect(() => () => { lifecycleVersionRef.current++ }, [])
   const restoringDraftRef = useRef(false)
 
   const [mentionPopup, setMentionPopup] = useState<MentionPopupState>(EMPTY_MENTION_STATE)
@@ -443,39 +463,54 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   }, [pendingFiles, editor])
 
   const send = () => {
-    if (!editor || (editor.isEmpty && pendingFiles.length === 0)) return
-    // Block separator `\n\n` — paragraph breaks serialize as a markdown blank
-    // line (a real paragraph), while in-paragraph hard breaks serialize as a
-    // single `\n` (HardBreak's `renderText`). `remark-breaks` on render turns
-    // the single `\n` into `<br>` and the blank line into a new paragraph, so
-    // the compose → send → render round-trip preserves both newline levels.
-    const markdown = editor.isEmpty ? "" : editor.getText({ blockSeparator: "\n\n" }).trim()
-    const mentionType = detectMentionType(markdown)
-    const attachments = pendingFilesToSendAttachments(pendingFiles)
-    if (sendContract === "accepted") {
-      if (!onAcceptSend?.(markdown, attachments, mentionType)) return
-    } else {
-      void onDeferredSubmit?.(markdown, attachments, mentionType)
-    }
-    // In forumThreadBody mode the parent needs to await mutation success before
-    // clearing — otherwise a failed create wipes the user's typed content.
-    // Reset is delegated to the parent via `resetAfterSubmit()` on the ref.
-    if (isForumThreadBody) return
-    editor.commands.clearContent()
-    if (draftKeyRef.current) clearComposerDraft(draftKeyRef.current)
-    transferPendingFiles()
-    setMentionPopup(EMPTY_MENTION_STATE)
-    setChannelRefPopup(EMPTY_CHANNEL_REF_STATE)
+    if (!editor || sendInFlightRef.current) return
+    const attemptScopeVersion = sendScopeVersionRef.current
+    const attemptLifecycle = lifecycleVersionRef.current
+    const attempt = (async () => {
+      const preparedFiles = await awaitPendingFiles()
+      if (
+        lifecycleVersionRef.current !== attemptLifecycle ||
+        sendScopeVersionRef.current !== attemptScopeVersion
+      ) return
+      if (editor.isEmpty && preparedFiles.length === 0) return
+      // Block separator `\n\n` — paragraph breaks serialize as a markdown blank
+      // line (a real paragraph), while in-paragraph hard breaks serialize as a
+      // single `\n` (HardBreak's `renderText`). `remark-breaks` on render turns
+      // the single `\n` into `<br>` and the blank line into a new paragraph, so
+      // the compose → send → render round-trip preserves both newline levels.
+      const markdown = editor.isEmpty ? "" : editor.getText({ blockSeparator: "\n\n" }).trim()
+      const mentionType = detectMentionType(markdown)
+      const attachments = pendingFilesToSendAttachments([...preparedFiles])
+      if (sendContract === "accepted") {
+        if (!onAcceptSend?.(markdown, attachments, mentionType)) return
+      } else {
+        await onDeferredSubmit?.(markdown, attachments, mentionType)
+      }
+      // In forumThreadBody mode the parent needs to await mutation success before
+      // clearing — otherwise a failed create wipes the user's typed content.
+      // Reset is delegated to the parent via `resetAfterSubmit()` on the ref.
+      if (isForumThreadBody) return
+      editor.commands.clearContent()
+      if (draftKeyRef.current) clearComposerDraft(draftKeyRef.current)
+      transferPendingFiles()
+      setMentionPopup(EMPTY_MENTION_STATE)
+      setChannelRefPopup(EMPTY_CHANNEL_REF_STATE)
+    })()
+    sendInFlightRef.current = attempt
+    void attempt.then(() => {
+      if (sendInFlightRef.current === attempt) sendInFlightRef.current = null
+    }, () => {
+      if (sendInFlightRef.current === attempt) sendInFlightRef.current = null
+    })
   }
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     sendRef.current = send
   })
 
   useImperativeHandle(ref, () => ({
     focusEditor: () => { editor?.commands.focus("end") },
     submitNow: () => {
-      if (!editor || (editor.isEmpty && pendingFiles.length === 0)) return
       send()
     },
     resetAfterSubmit: () => {

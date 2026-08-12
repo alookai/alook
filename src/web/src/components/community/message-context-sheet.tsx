@@ -18,7 +18,7 @@ import { DateDivider } from "./dividers"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import { useUiHandlers } from "@/stores/community"
 import { usePinMessage, useUnpinMessage, useCreateThread, useToggleMark } from "@/hooks/community/mutations"
-import type { Msg, OpenProfile, Reaction, RenderMsg } from "./_types"
+import type { ImagePreview, Msg, OpenProfile, Reaction, RenderMsg } from "./_types"
 import type { MessagesPage } from "@/hooks/community/use-messages"
 
 export type ReplyTarget = { id: string; authorName: string; text: string }
@@ -316,8 +316,8 @@ export function MessageContextSheet({
     onOpenChange(false)
   }, [type, router, routeParams, onOpenChange])
 
-  const onPreviewImage = useCallback((url: string) => {
-    uiHandlers.previewImage?.(url)
+  const onPreviewImage = useCallback((image: ImagePreview) => {
+    uiHandlers.previewImage?.(image)
   }, [uiHandlers])
 
   const onDownloadFile = useCallback((url: string) => {
@@ -469,7 +469,7 @@ function ContextRows({
   onPin?: (id: string) => void
   onMark?: (id: string) => void
   onCreateThread?: (id: string) => void
-  onPreviewImage: (url: string) => void
+  onPreviewImage: (image: ImagePreview) => void
   onDownloadFile: (url: string) => void
 }) {
   // Single-message share from the peek sheet. The sheet has no select-mode

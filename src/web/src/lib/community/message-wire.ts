@@ -97,6 +97,7 @@ export function projectCommunityMessageCreate(
         kind: "image" as const,
         name: attachment.filename,
         url: attachment.url,
+        ...(attachment.thumbnailUrl ? { thumbnailUrl: attachment.thumbnailUrl } : {}),
         width: attachment.width ?? undefined,
         height: attachment.height ?? undefined,
       }

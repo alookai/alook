@@ -26,11 +26,13 @@ const mockGetChannelForMember = vi.fn()
 const mockGetDM = vi.fn()
 const mockGetDMBetween = vi.fn()
 const mockCreatePendingAttachment = vi.fn()
+const mockLogError = vi.fn()
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
   return {
     ...actual,
+    createLogger: () => ({ error: (...args: unknown[]) => mockLogError(...args) }),
     queries: {
       ...actual.queries,
       communityMachine: { findActiveAgentRunnerKeyByBearer: (...a: unknown[]) => mockFindActiveAgentRunnerKeyByBearer(...a) },
@@ -84,10 +86,12 @@ describe("POST /api/community/channels/[id]/attachments — bot arm (folds attac
       filename: "hi.png",
       contentType: "image/png",
       size: 10,
+      hasThumbnail: false,
     })
     mockHandleAttachmentUpload.mockResolvedValue({
       ok: true,
       r2Key: "channel/c1/uuid/hi.png",
+      thumbnailR2Key: null,
       filename: "hi.png",
       contentType: "image/png",
       size: 10,
@@ -119,6 +123,7 @@ describe("POST /api/community/channels/[id]/attachments — bot arm (folds attac
       filename: "hi.png",
       contentType: "image/png",
       size: 10,
+      hasThumbnail: false,
     })
     // No leaked internals.
     expect(body.url).toBeUndefined()
@@ -139,6 +144,31 @@ describe("POST /api/community/channels/[id]/attachments — bot arm (folds attac
     }))
   })
 
+  it("persists thumbnail key and dimensions, returning hasThumbnail true", async () => {
+    mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1" }])
+    mockResolveChannelByNameForMember.mockResolvedValue([
+      { id: "c1", serverId: "srv_1", parentChannelId: null },
+    ])
+    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "srv_1", parentChannelId: null })
+    mockHandleAttachmentUpload.mockResolvedValue({
+      ok: true,
+      r2Key: "channel/c1/uuid/hi.png",
+      thumbnailR2Key: "channel/c1/uuid/hi.png.thumbnail.jpg",
+      filename: "hi.png",
+      contentType: "image/png",
+      size: 10,
+      width: 640,
+      height: 480,
+    })
+    const response = await POST(botReq("/studio#0042/general", { Authorization: "Bearer crk_abc" }), botCtx)
+    expect(await response.json()).toMatchObject({ hasThumbnail: true })
+    expect(mockCreatePendingAttachment).toHaveBeenCalledWith({}, expect.objectContaining({
+      thumbnailR2Key: "channel/c1/uuid/hi.png.thumbnail.jpg",
+      width: 640,
+      height: 480,
+    }))
+  })
+
   it("createPendingAttachment throws → 500 JSON envelope, R2 delete fired with r2Key", async () => {
     mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1" }])
     mockResolveChannelByNameForMember.mockResolvedValue([
@@ -151,6 +181,56 @@ describe("POST /api/community/channels/[id]/attachments — bot arm (folds attac
     expect(res.status).toBe(500)
     expect(await res.json()).toEqual({ error: "internal error", code: "internal" })
     expect(mockR2Delete).toHaveBeenCalledWith("channel/c1/uuid/hi.png")
+  })
+
+  it("D1 failure after a thumbnail upload deletes both objects together", async () => {
+    mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1" }])
+    mockResolveChannelByNameForMember.mockResolvedValue([
+      { id: "c1", serverId: "srv_1", parentChannelId: null },
+    ])
+    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "srv_1", parentChannelId: null })
+    mockHandleAttachmentUpload.mockResolvedValue({
+      ok: true,
+      r2Key: "original-key",
+      thumbnailR2Key: "thumbnail-key",
+      filename: "hi.png",
+      contentType: "image/png",
+      size: 10,
+    })
+    mockCreatePendingAttachment.mockRejectedValueOnce(new Error("d1"))
+    expect((await POST(botReq("/studio#0042/general", { Authorization: "Bearer crk_abc" }), botCtx)).status).toBe(500)
+    expect(mockR2Delete).toHaveBeenCalledWith(["original-key", "thumbnail-key"])
+  })
+
+  it("redacts object keys when compensation cleanup also fails", async () => {
+    mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1" }])
+    mockResolveChannelByNameForMember.mockResolvedValue([
+      { id: "c1", serverId: "srv_1", parentChannelId: null },
+    ])
+    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "srv_1", parentChannelId: null })
+    mockHandleAttachmentUpload.mockResolvedValue({
+      ok: true,
+      r2Key: "secret-original-key",
+      thumbnailR2Key: "secret-thumbnail-key",
+      filename: "hi.png",
+      contentType: "image/png",
+      size: 10,
+    })
+    mockCreatePendingAttachment.mockRejectedValueOnce(new Error("d1"))
+    mockR2Delete.mockRejectedValueOnce(new Error("cleanup failed"))
+
+    const response = await POST(
+      botReq("/studio#0042/general", { Authorization: "Bearer crk_abc" }),
+      botCtx,
+    )
+
+    expect(response.status).toBe(500)
+    const cleanupLog = mockLogError.mock.calls.find(
+      ([event]) => event === "attachment_route_r2_cleanup_failed",
+    )
+    expect(cleanupLog?.[1]).toEqual(expect.objectContaining({ objectCount: 2 }))
+    expect(JSON.stringify(cleanupLog)).not.toContain("secret-original-key")
+    expect(JSON.stringify(cleanupLog)).not.toContain("secret-thumbnail-key")
   })
 
   it("pre-R2 throw (resolveTargetForMember errors) → 500 JSON, R2 delete NOT called", async () => {

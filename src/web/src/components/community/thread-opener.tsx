@@ -9,7 +9,8 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { NumberTicker } from "@/components/ui/number-ticker"
 import { avatarInitial } from "@/lib/community/avatar"
 import { useMessage } from "@/hooks/community/use-message"
-import type { OpenProfile } from "./_types"
+import { tid } from "@/lib/community/testids"
+import type { ImagePreview, OpenProfile } from "./_types"
 
 // Thread opener — the parent message the thread was created from, pinned at
 // the top of the thread's message list. Deliberately styled like a REGULAR
@@ -34,7 +35,7 @@ export function ThreadOpener({
 }: {
   parentMessageId: string
   onOpenProfile?: OpenProfile
-  onPreviewImage?: (url: string) => void
+  onPreviewImage?: (image: ImagePreview) => void
   onDownloadFile?: (url: string) => void
   // Jump to the parent message in its channel. When provided, a hover-revealed
   // "Jump" button appears in the opener's top-right.
@@ -109,16 +110,18 @@ export function ThreadOpener({
                 if (a.kind === "image") return (
                   <button
                     key={i}
-                    onClick={() => onPreviewImage?.(a.url)}
+                    onClick={() => onPreviewImage?.({ originalUrl: a.url, thumbnailUrl: a.thumbnailUrl, name: a.name })}
                     className="block w-fit max-w-full overflow-hidden rounded-lg border border-border transition-colors hover:border-primary/40"
                   >
                     <img
-                      src={a.url}
+                      data-testid={tid.threadOpenerImage(i)}
+                      src={a.thumbnailUrl ?? a.url}
                       alt={a.name}
                       width={a.width}
                       height={a.height}
                       className="block h-auto w-auto max-h-75 max-w-full rounded-lg object-contain"
                       style={{ aspectRatio: attachmentAspectRatio(a.width, a.height) }}
+                      loading="lazy"
                     />
                   </button>
                 )

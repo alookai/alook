@@ -44,8 +44,8 @@ export type MessageRow = {
 
 type ReplyTargetRow = { id: string; authorName: string; content: string | null }
 
-type UiAttachment = { kind: "image" | "file"; name: string; url: string; size?: string; width?: number; height?: number }
-type WsAttachment = { id: string; filename: string; url: string; contentType?: string; size?: number; width?: number; height?: number }
+type UiAttachment = { kind: "image" | "file"; name: string; url: string; thumbnailUrl?: string; size?: string; width?: number; height?: number }
+type WsAttachment = { id: string; filename: string; url: string; thumbnailUrl?: string; contentType?: string; size?: number; width?: number; height?: number }
 type UiReaction = { emoji: string; count: number; me: boolean; userIds: string[] }
 
 type ReplyPreview = { id: string; authorName: string; text: string; deleted?: boolean }
@@ -180,6 +180,7 @@ export function mapMessageForWs(row: MessageRow, ctx: WsMessageContext) {
             id: a.id,
             filename: a.filename,
             url: a.url,
+            thumbnailUrl: a.thumbnailUrl,
             contentType: a.contentType,
             size: a.size,
             width: a.width,

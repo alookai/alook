@@ -16,10 +16,12 @@ vi.mock("@/lib/db", () => ({ getDb: (...a: unknown[]) => mockGetDb(...a) }))
 
 const mockGetChannelType = vi.fn()
 const mockCreatePendingAttachment = vi.fn()
+const mockLogError = vi.fn()
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
   return {
     ...actual,
+    createLogger: () => ({ error: (...args: unknown[]) => mockLogError(...args) }),
     queries: {
       ...actual.queries,
       communityChannel: {
@@ -51,8 +53,8 @@ import {
 } from "./upload"
 import { MAX_ATTACHMENT_SIZE_BYTES, MAX_SERVER_ICON_SIZE_BYTES } from "@alook/shared"
 
-function envWithR2(put: ReturnType<typeof vi.fn>) {
-  return { COMMUNITY_MEDIA: { put } } as unknown as Env
+function envWithR2(put: ReturnType<typeof vi.fn>, del = vi.fn().mockResolvedValue(undefined)) {
+  return { COMMUNITY_MEDIA: { put, delete: del } } as unknown as Env
 }
 
 /**
@@ -79,6 +81,15 @@ function reqWithFile(file: unknown | null): NextRequest {
       Object.defineProperty(real, "get", { value: () => null })
     }
     return real
+  }) as typeof req.formData
+  return req
+}
+
+function reqWithUpload(file: unknown, thumbnail: unknown, width = "640", height = "480"): NextRequest {
+  const req = new NextRequest("http://localhost/u", { method: "POST" })
+  req.formData = (async () => {
+    const values: Record<string, unknown> = { file, thumbnail, width, height }
+    return { get: (key: string) => values[key] ?? null } as unknown as FormData
   }) as typeof req.formData
   return req
 }
@@ -120,6 +131,88 @@ describe("handleAttachmentUpload", () => {
     expect(options.customMetadata).toMatchObject({ uploader: "user" })
   })
 
+  it("stores a validated JPEG thumbnail beside the original with matching provenance", async () => {
+    const put = vi.fn().mockResolvedValue(undefined)
+    const file = fakeFile("hi.png", "image/png", 10)
+    const thumbnail = {
+      ...fakeFile("thumbnail.jpg", "image/jpeg", 4),
+      arrayBuffer: async () => Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]).buffer,
+    }
+    const res = await handleAttachmentUpload(
+      reqWithUpload(file, thumbnail), envWithR2(put), "channel", "c1", USER_TAG,
+    )
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+    expect(res.thumbnailR2Key).toBe(`${res.r2Key}.thumbnail.jpg`)
+    expect(res).toMatchObject({ width: 640, height: 480 })
+    expect(put).toHaveBeenCalledTimes(2)
+    expect(put.mock.calls[0]?.[2]?.customMetadata).toMatchObject({ variant: "original" })
+    expect(put.mock.calls[1]).toEqual([
+      res.thumbnailR2Key,
+      thumbnail,
+      expect.objectContaining({
+        httpMetadata: { contentType: "image/jpeg" },
+        customMetadata: expect.objectContaining({ uploader: "user", variant: "thumbnail" }),
+      }),
+    ])
+  })
+
+  it("rejects malformed supplied thumbnails before either R2 put", async () => {
+    const put = vi.fn()
+    const thumbnail = {
+      ...fakeFile("thumbnail.jpg", "image/jpeg", 4),
+      arrayBuffer: async () => Uint8Array.from([0, 1, 2, 3]).buffer,
+    }
+    const res = await handleAttachmentUpload(
+      reqWithUpload(fakeFile("hi.png", "image/png", 10), thumbnail),
+      envWithR2(put), "channel", "c1", USER_TAG,
+    )
+    expect(res.ok).toBe(false)
+    expect(put).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    {
+      label: "non-raster original",
+      file: fakeFile("doc.pdf", "application/pdf", 10),
+      thumbnail: { ...fakeFile("thumbnail.jpg", "image/jpeg", 4), arrayBuffer: async () => Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]).buffer },
+    },
+    {
+      label: "wrong thumbnail MIME",
+      file: fakeFile("photo.png", "image/png", 10),
+      thumbnail: { ...fakeFile("thumbnail.png", "image/png", 4), arrayBuffer: async () => Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]).buffer },
+    },
+    {
+      label: "oversized thumbnail",
+      file: fakeFile("photo.png", "image/png", 10),
+      thumbnail: { ...fakeFile("thumbnail.jpg", "image/jpeg", 50 * 1024 + 1), arrayBuffer: async () => new ArrayBuffer(0) },
+    },
+  ])("rejects $label before either R2 put", async ({ file, thumbnail }) => {
+    const put = vi.fn()
+    const res = await handleAttachmentUpload(
+      reqWithUpload(file, thumbnail), envWithR2(put), "channel", "c1", USER_TAG,
+    )
+    expect(res.ok).toBe(false)
+    if (res.ok) return
+    expect(res.response.status).toBe(400)
+    expect(put).not.toHaveBeenCalled()
+  })
+
+  it("deletes the original when the thumbnail put fails", async () => {
+    const put = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("r2 thumbnail"))
+    const del = vi.fn().mockResolvedValue(undefined)
+    const thumbnail = {
+      ...fakeFile("thumbnail.jpg", "image/jpeg", 4),
+      arrayBuffer: async () => Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]).buffer,
+    }
+    await expect(handleAttachmentUpload(
+      reqWithUpload(fakeFile("hi.png", "image/png", 10), thumbnail),
+      envWithR2(put, del), "channel", "c1", USER_TAG,
+    )).rejects.toThrow("r2 thumbnail")
+    expect(del).toHaveBeenCalledOnce()
+    expect(del.mock.calls[0]?.[0]).toMatch(/\/hi\.png$/)
+  })
+
   it("stamps customMetadata.uploader=bot + bot_user_id when the caller is a bot", async () => {
     const put = vi.fn().mockResolvedValue(undefined)
     const file = fakeFile("hi.png", "image/png", 10)
@@ -129,7 +222,11 @@ describe("handleAttachmentUpload", () => {
     })
     expect(res.ok).toBe(true)
     const [, , options] = put.mock.calls[0]
-    expect(options.customMetadata).toEqual({ uploader: "bot", bot_user_id: "bot_ada" })
+    expect(options.customMetadata).toEqual({
+      uploader: "bot",
+      bot_user_id: "bot_ada",
+      variant: "original",
+    })
   })
 
   it("passes a known-length File body to R2", async () => {
@@ -543,5 +640,49 @@ describe("runAttachmentUpload", () => {
     )
     expect(res.status).toBe(413)
     expect(put).not.toHaveBeenCalled()
+  })
+
+  it("deletes the original and thumbnail when the human pending-row insert fails", async () => {
+    surfaceChannel("text")
+    mockCreatePendingAttachment.mockRejectedValueOnce(new Error("d1"))
+    const put = vi.fn().mockResolvedValue(undefined)
+    const del = vi.fn().mockResolvedValue(undefined)
+    const thumbnail = {
+      ...fakeFile("thumbnail.jpg", "image/jpeg", 4),
+      arrayBuffer: async () => Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]).buffer,
+    }
+    const response = await runAttachmentUpload(
+      reqWithUpload(fakeFile("hi.png", "image/png", 10), thumbnail),
+      ctxWith(envWithR2(put, del), { id: "c1" }),
+    )
+    expect(response.status).toBe(500)
+    expect(del).toHaveBeenCalledOnce()
+    const keys = del.mock.calls[0]?.[0] as string[]
+    expect(keys).toHaveLength(2)
+    expect(keys[1]).toBe(`${keys[0]}.thumbnail.jpg`)
+  })
+
+  it("redacts object keys when human compensation cleanup also fails", async () => {
+    surfaceChannel("text")
+    mockCreatePendingAttachment.mockRejectedValueOnce(new Error("d1"))
+    const put = vi.fn().mockResolvedValue(undefined)
+    const del = vi.fn().mockRejectedValueOnce(new Error("cleanup failed"))
+    const thumbnail = {
+      ...fakeFile("thumbnail.jpg", "image/jpeg", 4),
+      arrayBuffer: async () => Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]).buffer,
+    }
+
+    const response = await runAttachmentUpload(
+      reqWithUpload(fakeFile("hi.png", "image/png", 10), thumbnail),
+      ctxWith(envWithR2(put, del), { id: "c1" }),
+    )
+
+    expect(response.status).toBe(500)
+    const keys = del.mock.calls[0]?.[0] as string[]
+    const cleanupLog = mockLogError.mock.calls.find(
+      ([event]) => event === "attachment_upload_r2_cleanup_failed",
+    )
+    expect(cleanupLog?.[1]).toEqual(expect.objectContaining({ objectCount: 2 }))
+    for (const key of keys) expect(JSON.stringify(cleanupLog)).not.toContain(key)
   })
 })

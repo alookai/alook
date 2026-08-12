@@ -54,6 +54,7 @@ describe("Composer committed send lifecycle", () => {
   let pendingFiles: PendingFile[]
   let clearContent: ReturnType<typeof vi.fn>
   let transferPendingFiles: ReturnType<typeof vi.fn>
+  let awaitPendingFiles: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     firstEditorOptions = undefined
@@ -62,6 +63,7 @@ describe("Composer committed send lifecycle", () => {
     pendingFiles = []
     clearContent = vi.fn()
     transferPendingFiles = vi.fn(() => pendingFiles)
+    awaitPendingFiles = vi.fn(async () => pendingFiles)
 
     const editor = {
       isEmpty: false,
@@ -87,6 +89,7 @@ describe("Composer committed send lifecycle", () => {
       pendingFiles,
       setPendingFiles: vi.fn(),
       transferPendingFiles,
+      awaitPendingFiles,
       addPendingFiles: vi.fn(),
       fileInputRef: { current: null },
       handleFileSelect: vi.fn(),
@@ -181,5 +184,197 @@ describe("Composer committed send lifecycle", () => {
     )
     expect(clearContent).toHaveBeenCalledOnce()
     expect(transferPendingFiles).toHaveBeenCalledOnce()
+  })
+
+  it("waits for same-tick file preparation and sends once with the exact thumbnail Blob", async () => {
+    let releasePreparation!: () => void
+    const preparation = new Promise<void>((resolve) => { releasePreparation = resolve })
+    const file = new File(["original"], "photo.png", { type: "image/png" })
+    const thumbnailBlob = new Blob(["thumbnail"], { type: "image/jpeg" })
+    const prepared = [{
+      file,
+      thumbnailUrl: "blob:thumbnail",
+      thumbnailBlob,
+      width: 640,
+      height: 480,
+    }]
+    awaitPendingFiles.mockImplementationOnce(async () => {
+      await preparation
+      pendingFiles = prepared
+      return prepared
+    })
+    const accept = vi.fn(() => true)
+    await act(async () => {
+      TestRenderer.create(React.createElement(Composer, {
+        channel: "general",
+        context: "channel",
+        members: [],
+        sendContract: "accepted",
+        onAcceptSend: accept,
+        draftKey: "server/channel",
+      } satisfies ComposerProps))
+    })
+
+    const immediateEnter = () => firstEditorOptions!.editorProps.handleKeyDown({} as never, {
+      key: "Enter",
+      shiftKey: false,
+      isComposing: false,
+      preventDefault: vi.fn(),
+    } as unknown as KeyboardEvent)
+    await act(async () => {
+      expect(immediateEnter()).toBe(true)
+      expect(immediateEnter()).toBe(true)
+      await Promise.resolve()
+    })
+    expect(accept).not.toHaveBeenCalled()
+
+    await act(async () => {
+      releasePreparation()
+      await preparation
+      await Promise.resolve()
+    })
+    expect(accept).toHaveBeenCalledOnce()
+    expect(accept).toHaveBeenCalledWith("latest draft", [{
+      file,
+      thumbnailBlob,
+      previewObjectUrl: "blob:thumbnail",
+      width: 640,
+      height: 480,
+    }], undefined)
+    expect(accept.mock.calls[0][1]?.[0].thumbnailBlob).toBe(thumbnailBlob)
+    expect(clearContent).toHaveBeenCalledOnce()
+    expect(transferPendingFiles).toHaveBeenCalledOnce()
+  })
+
+  it("cancels a pending send across an A → B → A scope cycle", async () => {
+    let releasePreparation!: () => void
+    const preparation = new Promise<void>((resolve) => { releasePreparation = resolve })
+    const file = new File(["original"], "photo.png", { type: "image/png" })
+    awaitPendingFiles.mockImplementationOnce(async () => {
+      await preparation
+      return [{ file, thumbnailUrl: null, thumbnailBlob: null }]
+    })
+    const accept = vi.fn(() => true)
+    const props = (draftKey: string) => ({
+      channel: draftKey,
+      context: "channel" as const,
+      members: [],
+      sendContract: "accepted" as const,
+      onAcceptSend: accept,
+      draftKey,
+    })
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(Composer, props("server/one")))
+    })
+    await act(async () => {
+      firstEditorOptions!.editorProps.handleKeyDown({} as never, {
+        key: "Enter", shiftKey: false, isComposing: false, preventDefault: vi.fn(),
+      } as unknown as KeyboardEvent)
+      await Promise.resolve()
+    })
+    await act(async () => {
+      renderer.update(React.createElement(Composer, props("server/two")))
+    })
+    await act(async () => {
+      renderer.update(React.createElement(Composer, props("server/one")))
+    })
+    await act(async () => {
+      releasePreparation()
+      await preparation
+      await Promise.resolve()
+    })
+
+    expect(accept).not.toHaveBeenCalled()
+    expect(clearContent).not.toHaveBeenCalled()
+    expect(transferPendingFiles).not.toHaveBeenCalled()
+  })
+
+  it("does not route an old pending file into a new scope without a fresh Enter", async () => {
+    let releaseOld!: () => void
+    const oldPreparation = new Promise<void>((resolve) => { releaseOld = resolve })
+    const oldFile = new File(["old"], "old.png", { type: "image/png" })
+    awaitPendingFiles.mockImplementationOnce(async () => {
+      await oldPreparation
+      pendingFiles = [{ file: oldFile, thumbnailUrl: null, thumbnailBlob: null }]
+      return pendingFiles
+    })
+    const accept = vi.fn(() => true)
+    const props = (draftKey: string) => ({
+      channel: draftKey,
+      context: "channel" as const,
+      members: [],
+      sendContract: "accepted" as const,
+      onAcceptSend: accept,
+      draftKey,
+    })
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(Composer, props("server/one")))
+    })
+    const enter = () => firstEditorOptions!.editorProps.handleKeyDown({} as never, {
+      key: "Enter", shiftKey: false, isComposing: false, preventDefault: vi.fn(),
+    } as unknown as KeyboardEvent)
+    await act(async () => {
+      enter()
+      await Promise.resolve()
+    })
+    await act(async () => {
+      renderer.update(React.createElement(Composer, props("server/two")))
+    })
+    await act(async () => {
+      enter()
+      await Promise.resolve()
+    })
+    expect(accept).not.toHaveBeenCalled()
+    await act(async () => {
+      releaseOld()
+      await oldPreparation
+      await Promise.resolve()
+    })
+    expect(accept).not.toHaveBeenCalled()
+    await act(async () => {
+      enter()
+      await Promise.resolve()
+    })
+    expect(accept).toHaveBeenCalledOnce()
+    expect(accept.mock.calls[0][1]).toEqual([expect.objectContaining({ file: oldFile })])
+  })
+
+  it("cancels a pending send before layout unmount completes", async () => {
+    let releasePreparation!: () => void
+    const preparation = new Promise<void>((resolve) => { releasePreparation = resolve })
+    const file = new File(["old"], "old.png", { type: "image/png" })
+    awaitPendingFiles.mockImplementationOnce(async () => {
+      await preparation
+      return [{ file, thumbnailUrl: null, thumbnailBlob: null }]
+    })
+    const accept = vi.fn(() => true)
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(Composer, {
+        channel: "general",
+        context: "channel",
+        members: [],
+        sendContract: "accepted",
+        onAcceptSend: accept,
+      } satisfies ComposerProps))
+    })
+    await act(async () => {
+      firstEditorOptions!.editorProps.handleKeyDown({} as never, {
+        key: "Enter", shiftKey: false, isComposing: false, preventDefault: vi.fn(),
+      } as unknown as KeyboardEvent)
+      await Promise.resolve()
+    })
+    act(() => renderer.unmount())
+    await act(async () => {
+      releasePreparation()
+      await preparation
+      await Promise.resolve()
+    })
+
+    expect(accept).not.toHaveBeenCalled()
+    expect(clearContent).not.toHaveBeenCalled()
+    expect(transferPendingFiles).not.toHaveBeenCalled()
   })
 })

@@ -66,7 +66,7 @@ async function handleBotAttachmentUpload(
 
   // Track any R2 blob written before the D1 insert throws so the catch below
   // can best-effort delete it. Hoisted here so the try/catch can see it.
-  let r2KeyToCleanUp: string | null = null
+  let r2KeysToCleanUp: string[] = []
 
   try {
     const target = req.nextUrl.searchParams.get("target")
@@ -101,15 +101,18 @@ async function handleBotAttachmentUpload(
 
     // R2 blob is committed — remember its key so the D1-throw path can
     // compensate.
-    r2KeyToCleanUp = result.r2Key
+    r2KeysToCleanUp = [result.r2Key, ...(result.thumbnailR2Key ? [result.thumbnailR2Key] : [])]
 
     const row = await queries.communityAttachment.createPendingAttachment(db, {
       uploaderId: botUserId,
       targetId,
       r2Key: result.r2Key,
+      thumbnailR2Key: result.thumbnailR2Key,
       filename: result.filename,
       contentType: result.contentType,
       size: result.size,
+      width: result.width,
+      height: result.height,
     })
 
     return NextResponse.json({
@@ -117,18 +120,21 @@ async function handleBotAttachmentUpload(
       filename: row.filename,
       contentType: result.contentType || "application/octet-stream",
       size: result.size,
+      hasThumbnail: result.thumbnailR2Key !== null,
     })
   } catch (err) {
     let r2KeyCleaned = false
-    if (r2KeyToCleanUp !== null) {
+    if (r2KeysToCleanUp.length > 0) {
       try {
-        await ctx.env.COMMUNITY_MEDIA.delete(r2KeyToCleanUp)
+        await ctx.env.COMMUNITY_MEDIA.delete(
+          r2KeysToCleanUp.length === 1 ? r2KeysToCleanUp[0]! : r2KeysToCleanUp,
+        )
         r2KeyCleaned = true
       } catch (cleanupErr) {
         log.error("attachment_route_r2_cleanup_failed", {
           route: "channels/[id]/attachments",
           botUserId,
-          r2Key: r2KeyToCleanUp,
+          objectCount: r2KeysToCleanUp.length,
           cleanupErr: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
         })
       }

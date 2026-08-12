@@ -16,7 +16,7 @@ import { useScrollAnchor } from "@/hooks/community/use-scroll-anchor"
 import { flattenMessageItems } from "./message-list-items"
 import { VirtualRows } from "./virtual-cursor-list"
 import { useVirtualCursorSentinel } from "@/hooks/community/use-virtual-cursor-sentinel"
-import type { Msg, OpenProfile } from "./_types"
+import type { ImagePreview, Msg, OpenProfile } from "./_types"
 
 // Channel message list — welcome hero, date dividers, messages (with the NEW divider),
 // and typing indicator. Data via props.
@@ -47,7 +47,7 @@ export function MessageList({
   onEdit?: (id: string) => void
   onRetry?: (id: string) => void
   onDismiss?: (id: string) => void
-  onPreviewImage?: (name: string) => void
+  onPreviewImage?: (image: ImagePreview) => void
   onDownloadFile?: (name: string) => void
   resolveUserName?: (userId: string) => string
   scrollToMessageId?: string | null

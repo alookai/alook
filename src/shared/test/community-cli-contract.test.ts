@@ -9,6 +9,15 @@ import {
   HostCommandSchema,
   type HostCommand,
 } from "../src/community-cli-contract";
+import { CommunityAgentAttachmentUploadResponseSchema } from "../src/schemas";
+
+describe("attachment thumbnail upload contract", () => {
+  it("accepts the optional server-confirmed hasThumbnail flag", () => {
+    expect(CommunityAgentAttachmentUploadResponseSchema.parse({
+      id: "a1", filename: "photo.png", contentType: "image/png", size: 10, hasThumbnail: true,
+    })).toMatchObject({ hasThumbnail: true });
+  });
+});
 
 describe("parseRef", () => {
   it('parses "/studio#0042/general" as a plain channel ref', () => {

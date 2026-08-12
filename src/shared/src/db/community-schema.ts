@@ -391,8 +391,8 @@ export const communityReaction = sqliteTable(
 //
 // `messageId` is nullable — pending rows created by the agent
 // `attachment upload` command exist before the send that links them. The
-// human-composer path always writes with `messageId` set at insert time (see
-// message-handler.ts). `position` is stamped 0-indexed at link time in the
+// human and bot uploads both create pending rows first; send reserves them by
+// id and sets `messageId`. `position` is stamped 0-indexed at link time in the
 // caller-specified order; NULL on pending rows.
 export const communityAttachment = sqliteTable(
   "community_attachment",
@@ -404,6 +404,7 @@ export const communityAttachment = sqliteTable(
     uploaderId: text("uploader_id").notNull(),
     targetId: text("target_id").notNull(),
     r2Key: text("r2_key").notNull(),
+    thumbnailR2Key: text("thumbnail_r2_key"),
     filename: text("filename").notNull(),
     contentType: text("content_type"),
     size: integer("size"),

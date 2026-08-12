@@ -2,7 +2,7 @@
 
 import { memo, useCallback } from "react"
 import { Message } from "./message"
-import type { RenderMsg, OpenProfile } from "./_types"
+import type { ImagePreview, RenderMsg, OpenProfile } from "./_types"
 
 // A thin, memoized per-row wrapper between the virtualized list and `Message`.
 //
@@ -32,7 +32,7 @@ export interface MessageRowProps {
   onRetryId?: (id: string) => void
   onDismissId?: (id: string) => void
   onJumpToId?: (id: string) => void
-  onPreviewImage?: (name: string) => void
+  onPreviewImage?: (image: ImagePreview) => void
   onDownloadFile?: (name: string) => void
   resolveUserName?: (userId: string) => string
   onImageLoad?: () => void

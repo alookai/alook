@@ -183,7 +183,11 @@ describe("createMessageWithThread (phase2 forum≡thread — atomic-by-compensat
     mockGetThreadChannelByParentMessage.mockResolvedValue({
       id: "th_1", creatorId: "u1", createdAt: "t0", name: "Title",
     })
-    mockListMessageAttachments.mockResolvedValue([])
+    mockListMessageAttachments.mockResolvedValue([{
+      id: "att_1", targetId: "forum_1", filename: "photo.png",
+      contentType: "image/png", size: 10, width: 640, height: 480,
+      thumbnailR2Key: "original.thumbnail.jpg",
+    }])
 
     const res = await createMessageWithThread({
       db: {} as any,
@@ -199,6 +203,9 @@ describe("createMessageWithThread (phase2 forum≡thread — atomic-by-compensat
       ok: true,
       deduped: true,
       thread: expect.objectContaining({ id: "th_1" }),
+      attachments: [expect.objectContaining({
+        thumbnailUrl: "/api/community/channels/forum_1/attachments/att_1/thumbnail",
+      })],
     }))
     expect(mockCreateCommunityMessage).toHaveBeenCalledTimes(1)
     expect(mockCreateChannel).not.toHaveBeenCalled()

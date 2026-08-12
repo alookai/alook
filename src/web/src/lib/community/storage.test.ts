@@ -4,6 +4,9 @@ import {
   buildUserAvatarKey,
   buildBotAvatarKey,
   attachmentUrl,
+  attachmentThumbnailUrl,
+  buildAttachmentThumbnailKey,
+  ATTACHMENT_PRIVATE_IMMUTABLE_CACHE,
   sanitizeAttachmentFilename,
   userAvatarUrl,
   botAvatarUrl,
@@ -87,4 +90,22 @@ describe("attachmentUrl", () => {
   it("builds the id-addressed canonical attachments-door URL from targetId + attachmentId", () => {
     expect(attachmentUrl("c1", "att_1")).toBe("/api/community/channels/c1/attachments/att_1")
   })
+})
+
+describe("attachment thumbnail addressing", () => {
+  it("builds sibling canonical URLs", () => {
+    expect(attachmentThumbnailUrl("c1", "att_1")).toBe(
+      "/api/community/channels/c1/attachments/att_1/thumbnail",
+    )
+  })
+
+  it("uses a reserved suffix on the complete original key", () => {
+    expect(buildAttachmentThumbnailKey("channel/c1/id/thumbnail.jpg")).toBe(
+      "channel/c1/id/thumbnail.jpg.thumbnail.jpg",
+    )
+  })
+})
+
+it("uses a private immutable cache policy for authorized attachment bytes", () => {
+  expect(ATTACHMENT_PRIVATE_IMMUTABLE_CACHE).toBe("private, max-age=31536000, immutable")
 })

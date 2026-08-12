@@ -11,6 +11,7 @@ import { apiFetch, toastApiError } from "@/lib/api/client"
 import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import { isInlineAttachmentContentType } from "@/lib/community/attachment-content-type"
+import { attachmentThumbnailUrl, attachmentUrl } from "@/lib/community/storage"
 import {
   projectPostedMessage,
   type PostedMessage,
@@ -152,7 +153,7 @@ export function useEditMessage() {
  */
 export function toAttachmentVm(
   channelId: string,
-  a: { id: string; filename: string; contentType: string; size: number; width?: number; height?: number },
+  a: { id: string; filename: string; contentType: string; size: number; hasThumbnail?: boolean; width?: number; height?: number },
 ): Attachment {
   // Reserve-by-id (route/disc step 2b): the server no longer returns a `url` for
   // a fresh upload — it returns the attachment `id`. The display URL is
@@ -160,9 +161,16 @@ export function toAttachmentVm(
   // and derived HERE client-side, matching what the server's read path emits via
   // `attachmentUrl`. This keeps the optimistic row's image src identical to the
   // reconciled row that arrives over WS.
-  const url = `/api/community/channels/${channelId}/attachments/${a.id}`
+  const url = attachmentUrl(channelId, a.id)
   const isImage = isInlineAttachmentContentType(a.contentType)
-  if (isImage) return { kind: "image", name: a.filename, url, width: a.width, height: a.height }
+  if (isImage) return {
+    kind: "image",
+    name: a.filename,
+    url,
+    ...(a.hasThumbnail ? { thumbnailUrl: attachmentThumbnailUrl(channelId, a.id) } : {}),
+    width: a.width,
+    height: a.height,
+  }
   return {
     kind: "file",
     name: a.filename,
@@ -202,7 +210,7 @@ export type SendMessageArgs = {
   // sent to the server (in an id array); the rest drive the optimistic VM
   // (whose url is derived client-side from `id`). No `url` field — the upload
   // no longer returns one.
-  attachments?: { id: string; filename: string; contentType: string; size: number; width?: number; height?: number }[]
+  attachments?: { id: string; filename: string; contentType: string; size: number; hasThumbnail?: boolean; width?: number; height?: number }[]
   author: { id: string; name: string; avatar: string }
   // Idempotency nonce. Omitted on a fresh send (the hook mints one); the
   // retry-pill caller passes the failed row's nonce back so the resend reuses

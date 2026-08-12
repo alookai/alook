@@ -1004,6 +1004,86 @@ describe("message emoji", () => {
 });
 
 describe("message attachment upload", () => {
+  it("generates a bounded JPEG thumbnail and sends original dimensions", async () => {
+    const fs = await import("node:fs")
+    const os = await import("node:os")
+    const path = await import("node:path")
+    const { default: sharp } = await import("sharp")
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "alook-thumbnail-upload-"))
+    const file = path.join(dir, "source.png")
+    fs.writeFileSync(file, await sharp({
+      create: { width: 640, height: 480, channels: 3, background: "#336699" },
+    }).png().toBuffer())
+    const uploadSpy = vi.fn(async (req: Parameters<ServerApi["attachmentUpload"]>[0]) => ({
+      id: "att_image",
+      filename: req.file.filename,
+      contentType: req.file.contentType ?? "application/octet-stream",
+      size: req.file.data instanceof Uint8Array ? req.file.data.byteLength : req.file.data.size,
+      hasThumbnail: req.thumbnail !== undefined,
+    }))
+    setApiForTesting(stubApi({ attachmentUpload: uploadSpy }))
+    try {
+      await main(["message", "attachment", "upload", "--target", "/demo#0042/general", "--file", file])
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+    const request = uploadSpy.mock.calls[0]![0]
+    expect(request).toMatchObject({ width: 640, height: 480 })
+    expect(request.thumbnail?.contentType).toBe("image/jpeg")
+    expect(request.thumbnail?.data).toBeInstanceOf(Uint8Array)
+    const bytes = request.thumbnail!.data as Uint8Array
+    expect(bytes.byteLength).toBeLessThanOrEqual(50 * 1024)
+    expect([...bytes.slice(0, 2)]).toEqual([0xff, 0xd8])
+    expect([...bytes.slice(-2)]).toEqual([0xff, 0xd9])
+    expect(parseEnvelope(cap.lines())).toMatchObject({ success: { hasThumbnail: true } })
+  })
+
+  it.each(["jpg", "webp", "gif"])("generates a thumbnail for valid .%s raster input", async (extension) => {
+    const fs = await import("node:fs")
+    const os = await import("node:os")
+    const path = await import("node:path")
+    const { default: sharp } = await import("sharp")
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "alook-raster-matrix-"))
+    const file = path.join(dir, `source.${extension}`)
+    let pipeline = sharp({ create: { width: 32, height: 24, channels: 3, background: "#123456" } })
+    pipeline = extension === "jpg" ? pipeline.jpeg() : extension === "webp" ? pipeline.webp() : pipeline.gif()
+    fs.writeFileSync(file, await pipeline.toBuffer())
+    const uploadSpy = vi.fn(async () => ({
+      id: "att", filename: `source.${extension}`, contentType: "image/test", size: 1, hasThumbnail: true,
+    }))
+    setApiForTesting(stubApi({ attachmentUpload: uploadSpy }))
+    try {
+      await main(["message", "attachment", "upload", "--target", "/demo#0042/general", "--file", file])
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+    expect(uploadSpy.mock.calls[0]![0]).toMatchObject({ width: 32, height: 24 })
+    expect(uploadSpy.mock.calls[0]![0].thumbnail?.contentType).toBe("image/jpeg")
+  })
+
+  it("uploads corrupt declared raster input without thumbnail or dimensions", async () => {
+    const fs = await import("node:fs")
+    const os = await import("node:os")
+    const path = await import("node:path")
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "alook-corrupt-image-"))
+    const file = path.join(dir, "corrupt.png")
+    fs.writeFileSync(file, "not an image")
+    const uploadSpy = vi.fn(async () => ({
+      id: "att", filename: "corrupt.png", contentType: "image/png", size: 12, hasThumbnail: false,
+    }))
+    setApiForTesting(stubApi({ attachmentUpload: uploadSpy }))
+    try {
+      await main(["message", "attachment", "upload", "--target", "/demo#0042/general", "--file", file])
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+    const request = uploadSpy.mock.calls[0]![0]
+    expect(request.thumbnail).toBeUndefined()
+    expect(request.width).toBeUndefined()
+    expect(request.height).toBeUndefined()
+    expect(parseEnvelope(cap.lines())).toMatchObject({ success: { hasThumbnail: false } })
+  })
+
   it.each([
     { extension: "html", contentType: "text/html" },
     { extension: "htm", contentType: "text/html" },

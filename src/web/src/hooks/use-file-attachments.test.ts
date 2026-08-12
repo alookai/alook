@@ -94,4 +94,34 @@ describe("useFileAttachments — PendingFile width/height", () => {
     expect(hook.current.pendingFiles).toEqual([])
     expect(URL.revokeObjectURL).not.toHaveBeenCalled()
   })
+
+  it("registers preparation synchronously and returns a fresh stable snapshot", async () => {
+    let resolveThumbnail!: (value: { blob: Blob; width: number; height: number }) => void
+    generateThumbnailMock.mockReturnValueOnce(new Promise((resolve) => { resolveThumbnail = resolve }))
+    const hook = await renderCapture()
+    const file = new File(["original"], "photo.png", { type: "image/png" })
+    const thumbnailBlob = new Blob(["thumbnail"], { type: "image/jpeg" })
+
+    let addPromise!: Promise<void>
+    let snapshotPromise!: Promise<readonly PendingFile[]>
+    await act(async () => {
+      addPromise = hook.current.addPendingFiles([file])
+      snapshotPromise = hook.current.awaitPendingFiles()
+      await Promise.resolve()
+    })
+    let settled = false
+    void snapshotPromise.then(() => { settled = true })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    await act(async () => {
+      resolveThumbnail({ blob: thumbnailBlob, width: 640, height: 480 })
+      await addPromise
+    })
+    const snapshot = await snapshotPromise
+    expect(snapshot).toHaveLength(1)
+    expect(snapshot[0].file).toBe(file)
+    expect(snapshot[0].thumbnailBlob).toBe(thumbnailBlob)
+    expect(hook.current.pendingFiles[0]).toBe(snapshot[0])
+  })
 })

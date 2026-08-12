@@ -448,9 +448,18 @@ describe("message stream monotonic visibility", () => {
 
 describe("attachment ownership effects", () => {
   const retryFile = { name: "notes.txt", size: 1024, type: "text/plain" } as File
+  const retryThumbnail = new Blob(["thumbnail"], { type: "image/jpeg" })
+  const settledAttachments: NonNullable<Msg["attachments"]> = [{
+    kind: "image",
+    name: "photo.png",
+    url: "/media/photo",
+    thumbnailUrl: "/media/photo/thumbnail",
+    width: 320,
+    height: 240,
+  }]
   const attachedIntent = () => intent("files", 1, {
     localUploads: [
-      { file: retryFile, previewObjectUrl: "blob:a", width: 640, height: 480 },
+      { file: retryFile, thumbnailBlob: retryThumbnail, previewObjectUrl: "blob:a", width: 640, height: 480 },
       { file: { name: "photo.png", size: 2048, type: "image/png" } as File, previewObjectUrl: "blob:b", width: 320, height: 240 },
       { file: { name: "copy.txt", size: 1024, type: "text/plain" } as File, previewObjectUrl: "blob:a" },
     ],
@@ -468,6 +477,8 @@ describe("attachment ownership effects", () => {
 
     const retried = state.outboxByNonce.get("files")
     expect(retried?.localUploads[0].file).toBe(retryFile)
+    expect(retried?.localUploads[0].thumbnailBlob).toBe(retryThumbnail)
+    expect(getOutboxRetryPayload(state, "files")?.localUploads[0].thumbnailBlob).toBe(retryThumbnail)
     expect(retried?.localUploads[0].previewObjectUrl).toBe("blob:a")
     expect(retried?.localUploads[0].width).toBe(640)
     expect(retried?.localUploads[0].height).toBe(480)
@@ -507,6 +518,103 @@ describe("attachment ownership effects", () => {
     const replay = apply(cleared.state, { type: "wsMessage", message: canonical("mf", 20, "files") })
     expect(replay.effects).toEqual([])
     expect(ids([], replay.state)).toEqual(["mf"])
+  })
+
+  it.each([
+    ["POST ack then base", (state: MessageOverlayState) => {
+      const acked = apply(state, ack("files", "mf", 20))
+      return apply(acked.state, {
+        type: "baseChanged",
+        messages: [canonical("mf", 20, "files")],
+      }).state
+    }],
+    ["WS then base", (state: MessageOverlayState) => {
+      const ws = apply(state, {
+        type: "wsMessage",
+        message: canonical("mf", 20, "files", { attachments: settledAttachments }),
+      })
+      return apply(ws.state, {
+        type: "baseChanged",
+        messages: [canonical("mf", 20, "files")],
+      }).state
+    }],
+    ["base before POST ack", (state: MessageOverlayState) => {
+      const based = apply(state, {
+        type: "baseChanged",
+        messages: [canonical("mf", 20, "files")],
+      })
+      return apply(based.state, ack("files", "mf", 20)).state
+    }],
+  ])("preserves settled attachments through a lagging canonical %s", (_label, arrange) => {
+    let state = submit(emptyMessageOverlay(), attachedIntent())
+    state = apply(state, {
+      type: "uploadSettled",
+      nonce: "files",
+      attachments: settledAttachments,
+    }).state
+
+    const converged = arrange(state)
+    const laggingBase = canonical("mf", 20, "files")
+
+    expect(converged.outboxByNonce.size).toBe(0)
+    expect(converged.liveById.get("mf")?.attachments).toEqual(settledAttachments)
+    expect(materializeMessageStream([laggingBase], converged)[0]?.attachments).toEqual(
+      settledAttachments,
+    )
+  })
+
+  it("lets an explicit canonical empty attachment list replace prior attachments", () => {
+    let state = apply(emptyMessageOverlay(), {
+      type: "wsMessage",
+      message: canonical("mf", 20, "files", { attachments: settledAttachments }),
+    }).state
+
+    const emptyCanonical = canonical("mf", 20, "files", { attachments: [] })
+    state = apply(state, {
+      type: "baseChanged",
+      messages: [emptyCanonical],
+    }).state
+
+    expect(state.liveById.get("mf")?.attachments).toEqual([])
+    expect(materializeMessageStream([emptyCanonical], state)[0]?.attachments).toEqual([])
+  })
+
+  it("lets explicit canonical attachments replace prior attachments", () => {
+    const replacement: NonNullable<Msg["attachments"]> = [{
+      kind: "file",
+      name: "canonical.txt",
+      url: "/media/canonical",
+      size: "2 KB",
+    }]
+    let state = apply(emptyMessageOverlay(), {
+      type: "wsMessage",
+      message: canonical("mf", 20, "files", { attachments: settledAttachments }),
+    }).state
+
+    const replacementCanonical = canonical("mf", 20, "files", {
+      attachments: replacement,
+    })
+    state = apply(state, {
+      type: "baseChanged",
+      messages: [replacementCanonical],
+    }).state
+
+    expect(state.liveById.get("mf")?.attachments).toEqual(replacement)
+    expect(materializeMessageStream([replacementCanonical], state)[0]?.attachments).toEqual(
+      replacement,
+    )
+  })
+
+  it("preserves attachments when materialization reconciles a matching nonce under a new id", () => {
+    const state = apply(emptyMessageOverlay(), {
+      type: "wsMessage",
+      message: canonical("ws-id", 20, "files", { attachments: settledAttachments }),
+    }).state
+    const laggingBase = canonical("base-id", 20, "files")
+
+    expect(materializeMessageStream([laggingBase], state)).toEqual([
+      expect.objectContaining({ id: "base-id", attachments: settledAttachments }),
+    ])
   })
 
   it("revokes once when WS wins before ack, while postFail keeps previews owned", () => {

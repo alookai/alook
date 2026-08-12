@@ -95,6 +95,7 @@ export function CreateForumThread({
             const res = await uploadFile.mutateAsync({
               target: { channelId: forumChannelId },
               file: att.file,
+              thumbnailBlob: att.thumbnailBlob,
               width: att.width,
               height: att.height,
             })

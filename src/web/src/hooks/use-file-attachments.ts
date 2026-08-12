@@ -33,18 +33,14 @@ export function useFileAttachments(opts: UseFileAttachmentsOptions = {}) {
   });
   const [pendingFiles, _setPendingFiles] = useState<PendingFile[]>([]);
   const pendingFilesRef = useRef(pendingFiles);
-  useEffect(() => {
-    pendingFilesRef.current = pendingFiles;
-  });
+  const preparationTailRef = useRef<Promise<void>>(Promise.resolve());
 
   const setPendingFiles = useCallback((next: PendingFile[] | ((prev: PendingFile[]) => PendingFile[])) => {
-    _setPendingFiles((prev) => {
-      const nextVal = typeof next === "function" ? next(prev) : next;
-      if (nextVal.length === 0 && prev.length > 0) {
-        revokeThumbnailUrls(prev);
-      }
-      return nextVal;
-    });
+    const prev = pendingFilesRef.current;
+    const nextVal = typeof next === "function" ? next(prev) : next;
+    if (nextVal.length === 0 && prev.length > 0) revokeThumbnailUrls(prev);
+    pendingFilesRef.current = nextVal;
+    _setPendingFiles(nextVal);
   }, []);
 
   const transferPendingFiles = useCallback(() => {
@@ -61,33 +57,48 @@ export function useFileAttachments(opts: UseFileAttachmentsOptions = {}) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const addPendingFiles = useCallback(async (files: File[]) => {
-    const { maxFileSize: maxSize } = optsRef.current;
-    const valid: File[] = [];
-    for (const file of files) {
-      if (file.size > maxSize) {
-        const mb = Math.floor(maxSize / 1024 / 1024);
-        toast.error(`"${file.name}" exceeds ${mb} MB limit`);
-        continue;
+    const prior = preparationTailRef.current;
+    const preparation = prior.then(async () => {
+      const { maxFileSize: maxSize } = optsRef.current;
+      const valid: File[] = [];
+      for (const file of files) {
+        if (file.size > maxSize) {
+          const mb = Math.floor(maxSize / 1024 / 1024);
+          toast.error(`"${file.name}" exceeds ${mb} MB limit`);
+          continue;
+        }
+        valid.push(file);
       }
-      valid.push(file);
+      if (valid.length === 0) return;
+
+      const pending: PendingFile[] = await Promise.all(
+        valid.map(async (file) => {
+          const thumbnail = await generateThumbnail(file);
+          const thumbnailUrl = thumbnail ? URL.createObjectURL(thumbnail.blob) : null;
+          return {
+            file,
+            thumbnailUrl,
+            thumbnailBlob: thumbnail?.blob ?? null,
+            width: thumbnail?.width,
+            height: thumbnail?.height,
+          };
+        }),
+      );
+
+      const next = [...pendingFilesRef.current, ...pending];
+      pendingFilesRef.current = next;
+      _setPendingFiles(next);
+    });
+    preparationTailRef.current = preparation.catch(() => {});
+    await preparation;
+  }, []);
+
+  const awaitPendingFiles = useCallback(async (): Promise<readonly PendingFile[]> => {
+    while (true) {
+      const tail = preparationTailRef.current;
+      await tail;
+      if (tail === preparationTailRef.current) return pendingFilesRef.current;
     }
-    if (valid.length === 0) return;
-
-    const pending: PendingFile[] = await Promise.all(
-      valid.map(async (file) => {
-        const thumbnail = await generateThumbnail(file);
-        const thumbnailUrl = thumbnail ? URL.createObjectURL(thumbnail.blob) : null;
-        return {
-          file,
-          thumbnailUrl,
-          thumbnailBlob: thumbnail?.blob ?? null,
-          width: thumbnail?.width,
-          height: thumbnail?.height,
-        };
-      }),
-    );
-
-    _setPendingFiles((prev) => [...prev, ...pending]);
   }, []);
 
   const handleFileSelect = useCallback(
@@ -101,11 +112,12 @@ export function useFileAttachments(opts: UseFileAttachmentsOptions = {}) {
   );
 
   const removePendingFile = useCallback((index: number) => {
-    _setPendingFiles((prev) => {
-      const removed = prev[index];
-      if (removed?.thumbnailUrl) URL.revokeObjectURL(removed.thumbnailUrl);
-      return prev.filter((_, i) => i !== index);
-    });
+    const prev = pendingFilesRef.current;
+    const removed = prev[index];
+    if (removed?.thumbnailUrl) URL.revokeObjectURL(removed.thumbnailUrl);
+    const next = prev.filter((_, i) => i !== index);
+    pendingFilesRef.current = next;
+    _setPendingFiles(next);
   }, []);
 
   const [dragging, setDragging] = useState(false);
@@ -149,6 +161,7 @@ export function useFileAttachments(opts: UseFileAttachmentsOptions = {}) {
     pendingFiles,
     setPendingFiles,
     transferPendingFiles,
+    awaitPendingFiles,
     fileInputRef,
     addPendingFiles,
     handleFileSelect,

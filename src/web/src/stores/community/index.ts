@@ -72,7 +72,7 @@ type CommunitySubscription = {
 }
 
 type CommunityUiHandlers = {
-  previewImage?: (url: string) => void
+  previewImage?: (image: import("@/components/community/_types").ImagePreview) => void
   openProfile?: (name: string, e: React.MouseEvent, discriminator?: string, userId?: string) => void
   goBackMobile?: () => void
   // Jump to message `seq` within the CURRENT channel/DM — the page registers

@@ -218,6 +218,7 @@ export type AgentAttachmentUploadResult = {
   filename: string;
   contentType: string;
   size: number;
+  hasThumbnail?: boolean;
 };
 
 export type AgentAttachmentDownloadResult = {
@@ -352,6 +353,9 @@ export interface AttachmentUploadRequest {
   agentId: AgentId;
   target: ChannelRef;
   file: FileHandle;
+  thumbnail?: FileHandle;
+  width?: number;
+  height?: number;
 }
 
 export interface AttachmentDownloadRequest {

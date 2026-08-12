@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import {
   MAX_ATTACHMENT_SIZE_BYTES,
+  MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES,
   MAX_SERVER_ICON_SIZE_BYTES,
   ALLOWED_ICON_MIME_TYPES,
   queries,
@@ -12,8 +13,10 @@ import { requireMessageSurfaceAccess } from "./permissions"
 import { writeError, writeJSON } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import type { AuthContext } from "@/lib/middleware/auth"
+import { isInlineAttachmentContentType } from "./attachment-content-type"
 import {
   buildMediaKey,
+  buildAttachmentThumbnailKey,
   buildServerIconKey,
   buildUserAvatarKey,
   buildBotAvatarKey,
@@ -46,6 +49,7 @@ export type UploadResult = UploadOk | UploadErr
 type AttachmentUploadOk = {
   ok: true
   r2Key: string
+  thumbnailR2Key: string | null
   filename: string
   contentType: string
   size: number
@@ -85,7 +89,18 @@ function mimeAllowed(contentType: string, allowed: readonly string[]): boolean {
  * has none). This is the SINGLE source of an attachment's dimensions: they are
  * written onto the pending row at upload time and never re-supplied on send.
  */
-type ParsedUpload = { file: File; width?: number; height?: number }
+type ParsedUpload = {
+  file: File
+  thumbnail?: File
+  width?: number
+  height?: number
+}
+
+function isFileLike(value: FormDataEntryValue | null): value is File {
+  return value !== null && typeof value !== "string" &&
+    typeof value.name === "string" && typeof value.type === "string" &&
+    typeof value.size === "number" && typeof value.arrayBuffer === "function"
+}
 
 function parseDimension(raw: FormDataEntryValue | null): number | undefined {
   if (typeof raw !== "string") return undefined
@@ -100,10 +115,15 @@ async function readFile(req: NextRequest): Promise<ParsedUpload | UploadErr> {
   } catch {
     return { ok: false, response: writeError("invalid form data", 400) }
   }
-  const file = formData.get("file") as File | null
-  if (!file) return { ok: false, response: writeError("no file provided", 400) }
+  const file = formData.get("file")
+  if (!isFileLike(file)) return { ok: false, response: writeError("no file provided", 400) }
+  const thumbnailEntry = formData.get("thumbnail")
+  if (thumbnailEntry !== null && !isFileLike(thumbnailEntry)) {
+    return { ok: false, response: writeError("invalid thumbnail", 400) }
+  }
   return {
     file,
+    ...(isFileLike(thumbnailEntry) ? { thumbnail: thumbnailEntry } : {}),
     width: parseDimension(formData.get("width")),
     height: parseDimension(formData.get("height")),
   }
@@ -132,7 +152,7 @@ export async function handleAttachmentUpload(
 ): Promise<AttachmentUploadResult> {
   const parsed = await readFile(req)
   if ("ok" in parsed && parsed.ok === false) return parsed
-  const { file, width, height } = parsed as ParsedUpload
+  const { file, thumbnail, width, height } = parsed as ParsedUpload
 
   if (file.size > MAX_ATTACHMENT_SIZE_BYTES) {
     return {
@@ -145,20 +165,66 @@ export async function handleAttachmentUpload(
   }
   const contentType = file.type || "application/octet-stream"
 
+  if (thumbnail) {
+    if (!isInlineAttachmentContentType(contentType)) {
+      return { ok: false, response: writeError("thumbnail requires a supported raster image", 400) }
+    }
+    if (thumbnail.type !== "image/jpeg") {
+      return { ok: false, response: writeError("thumbnail must be image/jpeg", 400) }
+    }
+    if (thumbnail.size > MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES) {
+      return { ok: false, response: writeError("thumbnail too large", 400) }
+    }
+    const signature = new Uint8Array(await thumbnail.arrayBuffer())
+    if (
+      signature.length < 4 ||
+      signature[0] !== 0xff ||
+      signature[1] !== 0xd8 ||
+      signature.at(-2) !== 0xff ||
+      signature.at(-1) !== 0xd9
+    ) {
+      return { ok: false, response: writeError("invalid jpeg thumbnail", 400) }
+    }
+  }
+
   const fileId = crypto.randomUUID()
   const key = buildMediaKey(kind, targetId, fileId, file.name)
 
+  const customMetadata = {
+    uploader: uploaderTag.uploader,
+    bot_user_id: uploaderTag.uploader === "bot" ? uploaderTag.uploaderUserId : "",
+  }
+
   await env.COMMUNITY_MEDIA.put(key, file, {
     httpMetadata: { contentType },
-    customMetadata: {
-      uploader: uploaderTag.uploader,
-      bot_user_id: uploaderTag.uploader === "bot" ? uploaderTag.uploaderUserId : "",
-    },
+    customMetadata: { ...customMetadata, variant: "original" },
   })
+
+  let thumbnailR2Key: string | null = null
+  if (thumbnail) {
+    thumbnailR2Key = buildAttachmentThumbnailKey(key)
+    try {
+      await env.COMMUNITY_MEDIA.put(thumbnailR2Key, thumbnail, {
+        httpMetadata: { contentType: "image/jpeg" },
+        customMetadata: { ...customMetadata, variant: "thumbnail" },
+      })
+    } catch (err) {
+      try {
+        await env.COMMUNITY_MEDIA.delete(key)
+      } catch (cleanupErr) {
+        log.error("attachment_thumbnail_put_cleanup_failed", {
+          uploader: uploaderTag.uploader,
+          cleanupErr: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+        })
+      }
+      throw err
+    }
+  }
 
   return {
     ok: true,
     r2Key: key,
+    thumbnailR2Key,
     filename: file.name,
     contentType,
     size: file.size,
@@ -335,14 +401,14 @@ export async function runAttachmentUpload(
 
   // Track any R2 blob written before the D1 insert throws so the catch can
   // best-effort delete it (mirrors the bot upload route's orphan-cleanup).
-  let r2KeyToCleanUp: string | null = null
+  let r2KeysToCleanUp: string[] = []
   try {
     const result = await handleAttachmentUpload(req, ctx.env, kind, id, {
       uploader: "user",
       uploaderUserId: ctx.userId,
     })
     if (!result.ok) return result.response
-    r2KeyToCleanUp = result.r2Key
+    r2KeysToCleanUp = [result.r2Key, ...(result.thumbnailR2Key ? [result.thumbnailR2Key] : [])]
 
     // Reserve-by-id (route/disc step 2b): the human composer now mirrors the
     // bot flow — the upload creates a PENDING row (messageId = NULL) and returns
@@ -357,6 +423,7 @@ export async function runAttachmentUpload(
       uploaderId: ctx.userId,
       targetId: id,
       r2Key: result.r2Key,
+      thumbnailR2Key: result.thumbnailR2Key,
       filename: result.filename,
       contentType: result.contentType,
       size: result.size,
@@ -369,18 +436,21 @@ export async function runAttachmentUpload(
       filename: row.filename,
       contentType: result.contentType,
       size: result.size,
+      hasThumbnail: result.thumbnailR2Key !== null,
       ...(result.width !== undefined ? { width: result.width } : {}),
       ...(result.height !== undefined ? { height: result.height } : {}),
     })
   } catch (err) {
-    if (r2KeyToCleanUp !== null) {
+    if (r2KeysToCleanUp.length > 0) {
       try {
-        await ctx.env.COMMUNITY_MEDIA.delete(r2KeyToCleanUp)
+        await ctx.env.COMMUNITY_MEDIA.delete(
+          r2KeysToCleanUp.length === 1 ? r2KeysToCleanUp[0]! : r2KeysToCleanUp,
+        )
       } catch (cleanupErr) {
         log.error("attachment_upload_r2_cleanup_failed", {
           route: "channels/[id]/attachments",
           userId: ctx.userId,
-          r2Key: r2KeyToCleanUp,
+          objectCount: r2KeysToCleanUp.length,
           cleanupErr: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
         })
       }

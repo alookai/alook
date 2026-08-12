@@ -506,6 +506,29 @@ describe("createProxyServerApi — callUpload via parseJsonResponse", () => {
     expect(u.searchParams.get("target")).toBe("/demo#1234/general");
     expect(seen[0].init?.method).toBe("POST");
   });
+
+  it("includes thumbnail and dimensions in the canonical multipart body", async () => {
+    let form: FormData | undefined;
+    const fetchImpl: FetchLike = vi.fn(async (_url: string, init?: RequestInit) => {
+      form = init?.body as FormData;
+      return jsonBody(JSON.stringify({
+        id: "att_1", filename: "x.png", contentType: "image/png", size: 3, hasThumbnail: true,
+      }), { status: 200 });
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const out = await api.attachmentUpload({
+      agentId: "a1",
+      target: "/demo#1234/general",
+      file: { data: new Uint8Array([1, 2, 3]), filename: "x.png", contentType: "image/png" },
+      thumbnail: { data: new Uint8Array([0xff, 0xd8, 0xff, 0xd9]), filename: "thumbnail.jpg", contentType: "image/jpeg" },
+      width: 640,
+      height: 480,
+    });
+    expect(out.hasThumbnail).toBe(true);
+    expect((form!.get("thumbnail") as File).type).toBe("image/jpeg");
+    expect(form!.get("width")).toBe("640");
+    expect(form!.get("height")).toBe("480");
+  });
 });
 
 describe("createProxyServerApi — callDownload", () => {

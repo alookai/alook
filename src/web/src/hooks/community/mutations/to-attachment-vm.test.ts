@@ -9,6 +9,20 @@ import { toAttachmentVm } from "./messages"
 // The image branch must carry width/height through — a silent-drop site flagged
 // in plans/attachment-image-dimensions.md's plan review.
 describe("toAttachmentVm", () => {
+  it("derives the canonical thumbnail URL only from server confirmation", () => {
+    expect(toAttachmentVm("c1", {
+      id: "att_1", filename: "a.png", contentType: "image/png", size: 1000, hasThumbnail: true,
+    })).toMatchObject({
+      thumbnailUrl: "/api/community/channels/c1/attachments/att_1/thumbnail",
+    })
+    expect(toAttachmentVm("c1", {
+      id: "att_1", filename: "a.png", contentType: "image/png", size: 1000, hasThumbnail: false,
+    })).not.toHaveProperty("thumbnailUrl")
+    expect(toAttachmentVm("c1", {
+      id: "att_1", filename: "a.png", contentType: "image/png", size: 1000,
+    })).not.toHaveProperty("thumbnailUrl")
+  })
+
   it("carries width/height through on an image attachment + derives the id-addressed url", () => {
     const result = toAttachmentVm("c1", {
       id: "att_1",

@@ -78,8 +78,10 @@ export type Category = {
 
 // ── Messages ───────────────────────────────────────────────────────────────
 export type Attachment =
-  | { kind: "image"; name: string; url: string; width?: number; height?: number }
+  | { kind: "image"; name: string; url: string; thumbnailUrl?: string; width?: number; height?: number }
   | { kind: "file"; name: string; url: string; size: string }
+
+export type ImagePreview = { originalUrl: string; thumbnailUrl?: string; name: string }
 
 type Embed = {
   provider?: string

@@ -35,6 +35,13 @@ export const communityWsEventFixtures = {
       authorName: "Author",
       content: "hello",
       type: "chat",
+      attachments: [{
+        id: "attachment-1",
+        filename: "photo.png",
+        url: "/api/community/channels/channel-1/attachments/attachment-1",
+        thumbnailUrl: "/api/community/channels/channel-1/attachments/attachment-1/thumbnail",
+        contentType: "image/png",
+      }],
       createdAt: "2026-01-01T00:00:00.000Z",
     },
   },

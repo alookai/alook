@@ -55,6 +55,18 @@ describe("buildSinceResponse", () => {
 // optional on the output shape, so we assert on the actual returned object
 // rather than relying on the declared type to catch a missing field.
 describe("groupAttachments", () => {
+  it("projects a canonical thumbnail URL only when the row declares one", () => {
+    const result = groupAttachments([
+      { id: "att1", messageId: "m1", targetId: "c1", filename: "a.png", r2Key: "original", thumbnailR2Key: "thumb", contentType: "image/png", size: 1000 },
+      { id: "att2", messageId: "m2", targetId: "c1", filename: "legacy.png", r2Key: "legacy", thumbnailR2Key: null, contentType: "image/png", size: 1000 },
+    ])
+    expect(result.m1?.[0]).toMatchObject({
+      url: "/api/community/channels/c1/attachments/att1",
+      thumbnailUrl: "/api/community/channels/c1/attachments/att1/thumbnail",
+    })
+    expect(result.m2?.[0]).not.toHaveProperty("thumbnailUrl")
+  })
+
   it("projects width/height onto an image-kind entry when present on the row", () => {
     const result = groupAttachments([
       { id: "att1", messageId: "m1", targetId: "c1", filename: "a.png", r2Key: "channel/c1/uuid/a.png", contentType: "image/png", size: 1000, width: 1920, height: 1080 },

@@ -12,6 +12,7 @@ export type MessageScope =
 
 type LocalUploadInput = Readonly<{
   file: File
+  thumbnailBlob?: Blob
   previewObjectUrl?: string
   width?: number
   height?: number
@@ -144,6 +145,16 @@ function upsertLiveCanonical(
   liveById.set(message.id, { ...message, failed: false })
 }
 
+function mergeCanonicalAttachments(
+  current: Pick<Msg, "attachments">,
+  canonical: CanonicalMessage,
+): CanonicalMessage {
+  if (canonical.attachments !== undefined || !current.attachments?.length) {
+    return canonical
+  }
+  return { ...canonical, attachments: current.attachments }
+}
+
 function materializeIntent(intent: OutboxIntent): Msg {
   return {
     ...intent.message,
@@ -195,6 +206,18 @@ function upsertMaterialized(
   byId.set(message.id, entry)
 }
 
+function findMaterializedMatch(
+  byId: ReadonlyMap<string, MaterializedEntry>,
+  idByIdentity: ReadonlyMap<string, string>,
+  message: Msg,
+): MaterializedEntry | undefined {
+  const exact = byId.get(message.id)
+  if (exact) return exact
+  const identity = compoundIdentity(message)
+  const matchedId = identity ? idByIdentity.get(identity) : undefined
+  return matchedId ? byId.get(matchedId) : undefined
+}
+
 function materializedOrder(a: MaterializedEntry, b: MaterializedEntry): number {
   const aSeq = a.message.seq
   const bSeq = b.message.seq
@@ -220,8 +243,8 @@ export function materializeMessageStream(
   const byId = new Map<string, MaterializedEntry>()
   const idByIdentity = new Map<string, string>()
 
-  // Later sources replace earlier presentation for the same id/nonce:
-  // optimistic outbox < complete WS row < complete base row.
+  // Later sources replace earlier presentation for the same id/nonce. An
+  // omitted attachment projection cannot erase richer presentation state.
   for (const intent of overlay.outboxByNonce.values()) {
     upsertMaterialized(byId, idByIdentity, {
       message: materializeIntent(intent),
@@ -232,7 +255,12 @@ export function materializeMessageStream(
     upsertMaterialized(byId, idByIdentity, { message })
   }
   for (const message of baseMessages) {
-    upsertMaterialized(byId, idByIdentity, { message })
+    const current = findMaterializedMatch(byId, idByIdentity, message)
+    upsertMaterialized(byId, idByIdentity, {
+      message: current
+        ? mergeCanonicalAttachments(current.message, message)
+        : message,
+    })
   }
 
   return [...byId.values()].sort(materializedOrder).map((entry) => entry.message)
@@ -436,7 +464,9 @@ export function reduceMessageOverlay(
         const identity = compoundIdentity(message)
         const canonical = baseById.get(message.id)
           ?? (identity ? baseByIdentity.get(identity) : undefined)
-        if (canonical) upsertLiveCanonical(liveById, canonical)
+        if (canonical) {
+          upsertLiveCanonical(liveById, mergeCanonicalAttachments(message, canonical))
+        }
       }
       for (const [nonce, intent] of outboxByNonce) {
         const canonicalById = intent.serverMessageId
@@ -453,7 +483,10 @@ export function reduceMessageOverlay(
             : undefined
         if (!canonical) continue
         outboxByNonce.delete(nonce)
-        upsertLiveCanonical(liveById, canonical)
+        upsertLiveCanonical(
+          liveById,
+          mergeCanonicalAttachments(intent.message, canonical),
+        )
         effects.push(...revokeEffects(intent))
       }
       trimLiveDeltas(liveById)

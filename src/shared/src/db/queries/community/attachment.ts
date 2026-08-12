@@ -18,6 +18,7 @@ export async function createPendingAttachment(
     uploaderId: string;
     targetId: string;
     r2Key: string;
+    thumbnailR2Key?: string | null;
     filename: string;
     contentType?: string | null;
     size?: number | null;
@@ -33,6 +34,7 @@ export async function createPendingAttachment(
       uploaderId: data.uploaderId,
       targetId: data.targetId,
       r2Key: data.r2Key,
+      thumbnailR2Key: data.thumbnailR2Key ?? null,
       filename: data.filename,
       position: null,
       contentType: data.contentType ?? null,

@@ -46,8 +46,9 @@ export async function gotoAfterUserWsAuth(page: Page, url: string): Promise<void
 // correct, non-flaky signal.
 
 // Create a server through the rail. `openViaAddButton` clicks the "+" (the
-// empty-list auto-dialog covers the first-server case separately). Waits for
-// the URL to settle on a channel of the new server, then returns its id.
+// empty-list auto-dialog covers the first-server case separately). The product
+// first navigates to the server root; if its default-channel redirect lags,
+// select the rendered default channel explicitly before returning.
 export async function createServer(page: Page, name: string, opts?: { autoDialog?: boolean }): Promise<string> {
   if (!opts?.autoDialog) {
     await page.getByTestId(tid.serverAdd).click()
@@ -55,11 +56,22 @@ export async function createServer(page: Page, name: string, opts?: { autoDialog
   await page.getByLabel("Server name").fill(name)
   await page.getByTestId(tid.createServerSubmit).click()
 
-  // Land on the new server's default channel.
-  await page.waitForURL(/\/c\/channels\/[^/]+\/[^/]+/, { timeout: 45_000, waitUntil: "commit" })
-  const m = page.url().match(/\/c\/channels\/([^/]+)\//)
+  await page.waitForURL(/\/c\/channels\/[^/]+(?:\/[^/]+)?$/, {
+    timeout: 45_000,
+    waitUntil: "commit",
+  })
+  const m = page.url().match(/\/c\/channels\/([^/]+)/)
   if (!m) throw new Error(`createServer: no serverId in URL ${page.url()}`)
-  return m[1]
+  const serverId = m[1]
+  if (new URL(page.url()).pathname === `/c/channels/${serverId}`) {
+    const channelRowPrefix = tid.channelRow("")
+    await page.locator(`[data-testid^="${channelRowPrefix}"]`).first().click()
+    await page.waitForURL(new RegExp(`/c/channels/${serverId}/[^/]+$`), {
+      timeout: 45_000,
+      waitUntil: "commit",
+    })
+  }
+  return serverId
 }
 
 // Create a channel inside the named category via its "+" button. Returns the

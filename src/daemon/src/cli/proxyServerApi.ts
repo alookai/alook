@@ -127,6 +127,15 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
         ? new Blob([new Uint8Array(req.file.data)], { type: blobType })
         : req.file.data;
     form.append("file", bytes as Blob, req.file.filename);
+    if (req.thumbnail) {
+      const thumbnailType = req.thumbnail.contentType ?? "image/jpeg";
+      const thumbnailBytes = req.thumbnail.data instanceof Uint8Array
+        ? new Blob([new Uint8Array(req.thumbnail.data)], { type: thumbnailType })
+        : req.thumbnail.data;
+      form.append("thumbnail", thumbnailBytes as Blob, req.thumbnail.filename);
+    }
+    if (req.width !== undefined) form.append("width", String(req.width));
+    if (req.height !== undefined) form.append("height", String(req.height));
     // Canonical attachments door: POST channels/{id}/attachments. The bot holds
     // a REF (not an id), so it uses the `resolve` placeholder id and carries the
     // ref on `?target=` (kept — Gener #68); the door's bot arm resolves it

@@ -46,6 +46,7 @@ describe("ThreadOpener image attachment layout", () => {
     })
 
     const image = renderer!.root.findByType("img")
+    expect(image.props.src).toBe("/portrait.png")
     expect(image.props).toMatchObject({ width: 396, height: 702 })
     expect(image.props.className).toContain("h-auto")
     expect(image.props.className).toContain("w-auto")
@@ -53,5 +54,31 @@ describe("ThreadOpener image attachment layout", () => {
     expect(image.props.className).toContain("max-w-full")
     expect(image.parent?.props.className).toContain("w-fit")
     expect(image.parent?.props.className).toContain("max-w-full")
+  })
+
+  it("uses thumbnailUrl for the list image and passes the original on click", () => {
+    const onPreviewImage = vi.fn()
+    useMessageMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      message: {
+        id: "opener_1", type: "chat", authorId: "u1", authorName: "Alice",
+        content: "Photo", createdAt: "2026-08-08T00:00:00.000Z",
+        attachments: [{ kind: "image", name: "photo.png", url: "/original", thumbnailUrl: "/thumbnail" }],
+      },
+    })
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(ThreadOpener, { parentMessageId: "opener_1", onPreviewImage }),
+        { createNodeMock: () => genericMock },
+      )
+    })
+    const image = renderer!.root.findByType("img")
+    expect(image.props).toMatchObject({ src: "/thumbnail", loading: "lazy" })
+    act(() => image.parent!.props.onClick())
+    expect(onPreviewImage).toHaveBeenCalledWith({
+      originalUrl: "/original", thumbnailUrl: "/thumbnail", name: "photo.png",
+    })
   })
 })

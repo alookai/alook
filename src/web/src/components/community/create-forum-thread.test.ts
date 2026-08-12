@@ -3,9 +3,12 @@
  * mounts a real tiptap editor (needs DOM); everything else here is pure JSX
  * that renderToStaticMarkup can walk.
  */
-import { describe, it, expect, vi } from "vitest"
+import { beforeEach, describe, it, expect, vi } from "vitest"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
+import TestRenderer, { act } from "react-test-renderer"
+
+const uploadMock = vi.hoisted(() => vi.fn())
 
 vi.mock("./composer", () => ({
   Composer: (props: Record<string, unknown>) =>
@@ -16,12 +19,14 @@ vi.mock("./composer", () => ({
       "data-has-deferred-submit": String(typeof props.onDeferredSubmit === "function"),
       "data-hide-emoji": String(!!props.hideEmoji),
       "data-placeholder": (props.placeholder as string) ?? "",
+      onSubmit: props.onDeferredSubmit,
+      onDirty: props.onDirty,
     }),
 }))
 
 vi.mock("@/hooks/community/mutations/uploads", () => ({
-  useUploadFile: () => ({ mutateAsync: vi.fn() }),
-  zipUploadResultsWithDimensions: () => [],
+  useUploadFile: () => ({ mutateAsync: uploadMock }),
+  zipUploadResultsWithDimensions: (results: unknown[]) => results,
 }))
 
 import { CreateForumThread } from "./create-forum-thread"
@@ -39,6 +44,7 @@ function render(over: Partial<Parameters<typeof CreateForumThread>[0]> = {}) {
 }
 
 describe("CreateForumThread — copy + structure", () => {
+  beforeEach(() => uploadMock.mockReset())
   it("renders the region role + label so keyboard/SR users land in a named region", () => {
     const html = render()
     expect(html).toContain('role="region"')
@@ -97,5 +103,50 @@ describe("CreateForumThread — copy + structure", () => {
   it("renders the X cancel button with the correct aria-label", () => {
     const html = render()
     expect(html).toContain('aria-label="Cancel post"')
+  })
+
+  it("keeps server hasThumbnail in the forum upload cache across create retry", async () => {
+    const onCreatePost = vi.fn()
+      .mockRejectedValueOnce(new Error("create failed"))
+      .mockResolvedValueOnce(undefined)
+    uploadMock.mockResolvedValue({
+      id: "att_thumb",
+      filename: "photo.png",
+      contentType: "image/png",
+      size: 8,
+      hasThumbnail: true,
+    })
+    const file = new File(["original"], "photo.png", { type: "image/png" })
+    const thumbnailBlob = new Blob(["thumbnail"], { type: "image/jpeg" })
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(createElement(CreateForumThread, {
+        forumChannelId: "cha_forum",
+        members: [],
+        onCancel: () => {},
+        onCreatePost,
+      }))
+    })
+    const input = renderer!.root.findByType("input")
+    const composer = () => renderer!.root.findByProps({ "data-testid": "mock-composer" })
+    act(() => {
+      input.props.onChange({ target: { value: "Post" } })
+      composer().props.onDirty(true)
+    })
+    const attachments = [{ file, thumbnailBlob, width: 640, height: 480 }]
+
+    await act(async () => {
+      await composer().props.onSubmit("photo", attachments, undefined)
+    })
+    await act(async () => {
+      await composer().props.onSubmit("photo", attachments, undefined)
+    })
+
+    expect(uploadMock).toHaveBeenCalledTimes(1)
+    expect(uploadMock).toHaveBeenCalledWith(expect.objectContaining({ thumbnailBlob }))
+    expect(onCreatePost).toHaveBeenCalledTimes(2)
+    for (const [post] of onCreatePost.mock.calls) {
+      expect(post.attachments).toEqual([expect.objectContaining({ hasThumbnail: true })])
+    }
   })
 })

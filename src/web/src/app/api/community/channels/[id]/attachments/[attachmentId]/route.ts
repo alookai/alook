@@ -1,8 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { queries, createLogger, CACHE_IMMUTABLE } from "@alook/shared"
+import { createLogger } from "@alook/shared"
 import { getDb } from "@/lib/db"
-import { withCommunityActor, type CommunityActor } from "@/lib/middleware/community-actor"
-import { requireChannelMember, requireDMAccess } from "@/lib/community/permissions"
+import { withCommunityActor } from "@/lib/middleware/community-actor"
+import { authorizeAttachment } from "@/lib/community/attachment-authorization"
+import { ATTACHMENT_PRIVATE_IMMUTABLE_CACHE } from "@/lib/community/storage"
 
 const log = createLogger({ service: "community-attachments-download" })
 
@@ -93,7 +94,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
         "Content-Disposition": isImage
           ? "inline"
           : `attachment; filename="${row.filename}"`,
-        "Cache-Control": CACHE_IMMUTABLE,
+        "Cache-Control": ATTACHMENT_PRIVATE_IMMUTABLE_CACHE,
       },
     })
   } catch (err) {
@@ -106,48 +107,3 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
     return NextResponse.json({ error: "internal error", code: "internal" }, { status: 500 })
   }
 })
-
-type AuthzOk = {
-  ok: true
-  row: NonNullable<Awaited<ReturnType<typeof queries.communityAttachment.getAttachmentById>>>
-}
-
-/**
- * Confused-deputy-safe attachment authorization. Returns the row ONLY when the
- * caller may read it, deriving scope from the row's own channel — the path
- * `[id]` is never consulted. Both actor arms run the identical gate:
- *   - pending row (messageId = NULL) → only the uploading actor (round-trip).
- *   - persisted row → resolve the row's message → its channel → membership /
- *     DM access.
- * Any deny collapses to `{ ok: false }` so the caller can render a uniform 404.
- */
-async function authorizeAttachment(
-  actor: CommunityActor,
-  db: ReturnType<typeof getDb>,
-  attachmentId: string,
-): Promise<AuthzOk | { ok: false }> {
-  const userId = actor.userId
-  const row = await queries.communityAttachment.getAttachmentById(db, attachmentId)
-  if (!row) return { ok: false }
-
-  if (row.messageId === null) {
-    // Pending row — only the uploading actor may see it (round-trip verify).
-    if (row.uploaderId !== userId) return { ok: false }
-    return { ok: true, row }
-  }
-
-  // Persisted row — resolve target scope FROM THE ROW, then run the standard
-  // membership gate. Any non-ok collapses to a generic deny so a prober can't
-  // tell "not a member" from "row doesn't exist".
-  const message = await queries.communityMessage.getMessage(db, row.messageId)
-  if (!message) return { ok: false }
-  const channelType = await queries.communityChannel.getChannelType(db, message.channelId)
-  if (channelType === "dm") {
-    const gate = await requireDMAccess(db, message.channelId, userId)
-    if (!gate.ok) return { ok: false }
-  } else {
-    const gate = await requireChannelMember(db, message.channelId, userId)
-    if (!gate.ok) return { ok: false }
-  }
-  return { ok: true, row }
-}

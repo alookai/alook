@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { MessageChannelController } from "./message-channel-controller"
 import type { MessageChannelControllerValue } from "./message-channel-controller"
 import type { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
+import { buildAttachmentUploadFormData } from "@/hooks/community/mutations/uploads"
+import { useMessageStreamStore } from "@/stores/community/message-stream"
 
 const mutationMocks = vi.hoisted(() => ({
   sendMessage: vi.fn(),
@@ -22,7 +24,10 @@ vi.mock("next/navigation", () => ({
 }))
 vi.mock("sonner", () => ({ toast: vi.fn() }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: vi.fn(), toastApiError: vi.fn() }))
-vi.mock("@alook/shared", () => ({ deriveThreadName: () => "thread" }))
+vi.mock("@alook/shared", () => ({
+  deriveThreadName: () => "thread",
+  MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES: 50 * 1024,
+}))
 vi.mock("@/stores/community", () => {
   const state = {
     pendingReply: null,
@@ -50,6 +55,7 @@ vi.mock("@/hooks/community/mutations", () => ({
   useUploadFile: () => ({ mutateAsync: mutationMocks.uploadFile }),
   zipUploadResultsWithDimensions: () => [],
   sendNonce: () => "nonce_1",
+  tempMessageId: () => "temp_1",
 }))
 vi.mock("@/hooks/community/use-community-ws", () => ({
   communityWsSendTyping: vi.fn(),
@@ -122,6 +128,7 @@ function ControllerProbe({ controller }: { controller: MessageChannelControllerV
 describe("MessageChannelController scroll target ownership", () => {
   beforeEach(() => {
     vi.useFakeTimers()
+    useMessageStreamStore.getState().resetAll()
   })
 
   afterEach(() => {
@@ -235,5 +242,55 @@ describe("MessageChannelController scroll target ownership", () => {
 
     expect(latestOpenPinned).toHaveBeenCalledTimes(1)
     expect(firstOpenPinned).not.toHaveBeenCalled()
+  })
+
+  it("retries a failed channel upload with the identical thumbnail Blob in multipart", async () => {
+    const thumbnailBlob = new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], { type: "image/jpeg" })
+    const file = new File(["original"], "photo.png", { type: "image/png" })
+    mutationMocks.uploadFile
+      .mockRejectedValueOnce(new Error("upload failed"))
+      .mockResolvedValueOnce({
+        id: "att_thumb",
+        filename: "photo.png",
+        contentType: "image/png",
+        size: 8,
+        hasThumbnail: true,
+      })
+    mutationMocks.sendMessage.mockResolvedValueOnce({ message: { id: "server_thumb", seq: 10 } })
+    let renderer: TestRenderer.ReactTestRenderer
+
+    act(() => {
+      renderer = TestRenderer.create(renderController(feed()))
+    })
+    const firstController = renderer!.root.findByType(ControllerProbe).props.controller as MessageChannelControllerValue
+    await act(async () => {
+      firstController.acceptMessage("photo", [{
+        file,
+        thumbnailBlob,
+        previewObjectUrl: "blob:thumbnail",
+        width: 640,
+        height: 480,
+      }])
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    act(() => {
+      renderer!.update(renderController(feed({
+        messages: [{ id: "temp_1", clientNonce: "nonce_1", type: "chat", content: "photo" }],
+      })))
+    })
+    const retriedController = renderer!.root.findByType(ControllerProbe).props.controller as MessageChannelControllerValue
+    await act(async () => {
+      retriedController.messageActions.onRetry("temp_1")
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(mutationMocks.uploadFile).toHaveBeenCalledTimes(2)
+    for (const [args] of mutationMocks.uploadFile.mock.calls) {
+      expect(args.thumbnailBlob).toBe(thumbnailBlob)
+      expect((buildAttachmentUploadFormData(args).get("thumbnail") as File).size).toBe(4)
+    }
   })
 })

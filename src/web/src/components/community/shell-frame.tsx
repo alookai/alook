@@ -28,7 +28,7 @@ import { ProfileCard } from "./profile-card"
 import { ImageLightbox } from "./image-lightbox"
 import { ImageCropDialog } from "./image-crop-dialog"
 import { validateIconSourceFile } from "@/lib/community/image-crop"
-import type { Marked, MobileZone, Profile, View } from "./_types"
+import type { ImagePreview, Marked, MobileZone, Profile, View } from "./_types"
 import { resolveProfileTarget, buildSelfProfile } from "./profile-lookup"
 import { resolveProfilePresence } from "@/lib/community/presence"
 import { avatarInitial } from "@/lib/community/avatar"
@@ -178,7 +178,7 @@ export function ShellFrame({
     initialStatusEmoji: string | null
     initialStatusText: string | null
   } | null>(null)
-  const [preview, setPreview] = useState<string | null>(null)
+  const [preview, setPreview] = useState<ImagePreview | null>(null)
   const [pendingAvatarCrop, setPendingAvatarCrop] = useState<{ src: string; fileName: string } | null>(null)
 
   // Rail wiring — universal, since navigation is URL-driven and doesn't
@@ -426,7 +426,7 @@ export function ShellFrame({
     [currentUser, members, friends, queryClient, onlineUserIds],
   )
 
-  const previewImage = useCallback((url: string) => setPreview(url), [])
+  const previewImage = useCallback((image: ImagePreview) => setPreview(image), [])
   const goBackMobile = useCallback(() => setMobileZone("nav"), [setMobileZone])
   // Navigate for channel/server-ref pills. They live deep in the memoized
   // Streamdown message tree where a subtree `useRouter().push` is a no-op; the
@@ -733,7 +733,7 @@ export function ShellFrame({
           </div>
         </div>
         {profile && <ProfileCard key={`${profile.data.userId ?? profile.data.name}:${profile.x}:${profile.y}`} data={profile.data} x={profile.x} y={profile.y} bp={bp} onClose={() => setProfile(null)} onMessage={profileMessage} isSelf={!!profile.data.userId && profile.data.userId === currentUser.id} onUpdateStatus={updateOwnStatus} initialStatusEmoji={profile.initialStatusEmoji} initialStatusText={profile.initialStatusText} />}
-        {preview && <ImageLightbox src={preview} onClose={() => setPreview(null)} />}
+        {preview && <ImageLightbox image={preview} onClose={() => setPreview(null)} />}
         {userSettingsDialog}
         {avatarCropDialog}
         {extraDialogs}
@@ -758,7 +758,7 @@ export function ShellFrame({
         </div>
       )}
       {profile && <ProfileCard key={`${profile.data.userId ?? profile.data.name}:${profile.x}:${profile.y}`} data={profile.data} x={profile.x} y={profile.y} bp={bp} onClose={() => setProfile(null)} onMessage={profileMessage} isSelf={!!profile.data.userId && profile.data.userId === currentUser.id} onUpdateStatus={updateOwnStatus} />}
-      {preview && <ImageLightbox src={preview} onClose={() => setPreview(null)} />}
+      {preview && <ImageLightbox image={preview} onClose={() => setPreview(null)} />}
       {userSettingsDialog}
       {avatarCropDialog}
       {extraDialogs}

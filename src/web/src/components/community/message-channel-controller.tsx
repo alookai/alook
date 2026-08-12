@@ -6,7 +6,7 @@ import { toast } from "sonner"
 import { deriveThreadName, type MentionType } from "@alook/shared"
 import { apiFetch, toastApiError } from "@/lib/api/client"
 import { avatarInitial } from "@/lib/community/avatar"
-import type { Msg } from "@/components/community/_types"
+import type { ImagePreview, Msg } from "@/components/community/_types"
 import type { SendAttachment } from "@/components/community/composer"
 import type { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
 import {
@@ -46,7 +46,7 @@ type Viewer = {
 
 type MessageUiHandlers = {
   navigate?: (serverId: string, channelId: string) => void
-  previewImage?: (url: string) => void
+  previewImage?: (image: ImagePreview) => void
 }
 
 export function MessageChannelController({
@@ -241,6 +241,9 @@ export function MessageChannelController({
               filename: local.file.name,
               contentType: local.file.type,
               size: local.file.size,
+              ...(attachment.kind === "image" && attachment.thumbnailUrl !== undefined
+                ? { hasThumbnail: true }
+                : {}),
               width: local.width,
               height: local.height,
             }
@@ -253,6 +256,7 @@ export function MessageChannelController({
             uploadFileAsync({
               target: { channelId },
               file: upload.file,
+              thumbnailBlob: upload.thumbnailBlob,
               width: upload.width,
               height: upload.height,
             }).catch((error) => {
@@ -368,7 +372,7 @@ export function MessageChannelController({
         nonce: message.clientNonce,
       })
     },
-    onPreviewImage: (url: string) => actionContext.current.uiHandlers.previewImage?.(url),
+    onPreviewImage: (image: ImagePreview) => actionContext.current.uiHandlers.previewImage?.(image),
     onDownloadFile: (url: string) => {
       const link = document.createElement("a")
       link.href = url
@@ -414,6 +418,7 @@ export function MessageChannelController({
         if (!attachment.previewObjectUrl) createdPreviewUrls.push(previewObjectUrl)
         return {
           file: attachment.file,
+          thumbnailBlob: attachment.thumbnailBlob,
           previewObjectUrl,
           width: attachment.width,
           height: attachment.height,
@@ -504,7 +509,7 @@ export type MessageChannelControllerValue = {
     onEdit: (id: string) => void
     onRetry: (id: string) => void
     onDismiss: (id: string) => void
-    onPreviewImage: (url: string) => void
+    onPreviewImage: (image: ImagePreview) => void
     onDownloadFile: (url: string) => void
   }
   threadActions: Omit<MessageChannelControllerValue["messageActions"], "onCreateThread"> & {
