@@ -564,6 +564,40 @@ describe("useUserWs", () => {
     expect(onMessage).toHaveBeenCalledWith(valid)
   })
 
+  it("consumes the raw pong liveness response without reporting a dropped frame", async () => {
+    setupTokenFetch()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const onMessage = vi.fn()
+    await mountHook(onMessage, { requestDaemonStatusOnAuth: false })
+    const ws = MockWebSocket.instances[0]
+    ws.simulateOpen()
+    warn.mockClear()
+
+    ws.simulateRawMessage("pong")
+
+    expect(onMessage).not.toHaveBeenCalled()
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it("refreshes the liveness deadline when a raw pong arrives", async () => {
+    setupTokenFetch()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const ws = MockWebSocket.instances[0]
+    ws.simulateOpen()
+    warn.mockClear()
+
+    await vi.advanceTimersByTimeAsync(29_000)
+    ws.simulateRawMessage("pong")
+    await vi.advanceTimersByTimeAsync(29_000)
+
+    expect(ws.closed).toBe(false)
+    expect(warn).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(ws.closed).toBe(true)
+  })
+
   it("consumes duplicate auth.ok frames once per generation", async () => {
     setupTokenFetch()
     const onAuthenticated = vi.fn()

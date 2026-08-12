@@ -11,6 +11,7 @@ const sharedMocks = getSharedMocks()
 const mockHashCredential = sharedMocks.hashCredential
 const mockDoNameFromHash = sharedMocks.doNameFromHash
 const mockGetActiveDoNamesForMachine = sharedMocks.getActiveDoNamesForMachine
+const mockWithD1Retry = sharedMocks.withD1Retry
 const loggerMocks = {
   child: sharedMocks.loggerChild,
   debug: sharedMocks.loggerDebug,
@@ -106,6 +107,8 @@ describe("ws-do router", () => {
     beforeEach(() => {
       mockGetActiveDoNamesForMachine.mockReset()
       mockGetActiveDoNamesForMachine.mockResolvedValue([])
+      mockWithD1Retry.mockReset()
+      mockWithD1Retry.mockImplementation(async (fn) => fn())
     })
 
     it("zero active doNames → { sent: 0 } without touching any DO", async () => {
@@ -235,6 +238,63 @@ describe("ws-do router", () => {
       })
       const res = await handler.fetch(req, env as any)
 
+      expect(res.status).toBe(503)
+      expect(await res.json()).toEqual({ error: "failed to resolve machine" })
+      expect(doMock.stubFetch).not.toHaveBeenCalled()
+    })
+
+    it("retries a transient SQLITE_BUSY lookup before forwarding the wake", async () => {
+      mockGetActiveDoNamesForMachine
+        .mockRejectedValueOnce(new Error("SQLITE_BUSY_SNAPSHOT: database is locked"))
+        .mockResolvedValueOnce(["do-abc"])
+      mockWithD1Retry.mockImplementation(async (fn) => {
+        try {
+          return await fn()
+        } catch {
+          return fn()
+        }
+      })
+      doMock.stubFetch.mockResolvedValue(new Response(JSON.stringify({ sent: 1 }), { status: 200 }))
+
+      const res = await handler.fetch(new Request(
+        "http://localhost/community-machine/by-id/machine-1/forward-agent-wake",
+        { method: "POST", body: JSON.stringify({ type: "agent:wake" }) },
+      ), env as any)
+
+      expect(mockGetActiveDoNamesForMachine).toHaveBeenCalledTimes(2)
+      expect(mockWithD1Retry).toHaveBeenCalledWith(expect.any(Function), {
+        route: "ws-do:agent-wake-machine-resolution",
+      })
+      expect(doMock.stubFetch).toHaveBeenCalledTimes(1)
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ sent: 1 })
+    })
+
+    it("maps exhausted SQLITE_BUSY retries to the existing 503 response", async () => {
+      mockGetActiveDoNamesForMachine.mockRejectedValue(
+        new Error("SQLITE_BUSY_SNAPSHOT: database is locked"),
+      )
+      mockWithD1Retry.mockImplementation(async (fn) => {
+        let lastError: unknown
+        for (let attempt = 0; attempt < 4; attempt++) {
+          try {
+            return await fn()
+          } catch (error) {
+            lastError = error
+          }
+        }
+        throw lastError
+      })
+
+      const res = await handler.fetch(new Request(
+        "http://localhost/community-machine/by-id/machine-1/forward-agent-wake",
+        { method: "POST", body: JSON.stringify({ type: "agent:wake" }) },
+      ), env as any)
+
+      expect(mockGetActiveDoNamesForMachine).toHaveBeenCalledTimes(4)
+      expect(mockWithD1Retry).toHaveBeenCalledWith(expect.any(Function), {
+        route: "ws-do:agent-wake-machine-resolution",
+      })
       expect(res.status).toBe(503)
       expect(await res.json()).toEqual({ error: "failed to resolve machine" })
       expect(doMock.stubFetch).not.toHaveBeenCalled()

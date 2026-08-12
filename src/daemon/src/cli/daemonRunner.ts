@@ -159,7 +159,11 @@ async function buildRunnerDiagnosticBundle(args: {
       droppedRows[row.source === "daemon_log" ? "daemon_log" : "fsm"] += 1;
       continue;
     }
-    events.push(projected as DiagnosticEventRow);
+    events.push({
+      ...projected,
+      recordType: projected.recordType,
+      timeMs: row.timeMs,
+    });
   }
 
   return buildDiagnosticBundle({

@@ -3,7 +3,7 @@
   "version": "0.1.2",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node ../../scripts/dev-with-wrangler-registry.mjs ../../.wrangler/registry next dev",
     "build": "tsx scripts/validate-blog-assets.ts && next build",
     "validate:blog": "tsx scripts/validate-blog-assets.ts",
     "preflight:bug-reports": "tsx scripts/preflight-bug-reports.ts",

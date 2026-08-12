@@ -1,4 +1,4 @@
-import { queries } from "@alook/shared"
+import { queries, withD1Retry } from "@alook/shared"
 import type { RouterContext } from "../router-context"
 
 export async function handleMachinePush({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {
@@ -71,7 +71,10 @@ export async function handleMachineWake({ request, env, url, traceId, log }: Rou
   try {
     const shared = await import("@alook/shared")
     const db = shared.createDb((env as unknown as { DB: D1Database }).DB)
-    doNames = await queries.communityMachine.getActiveDoNamesForMachine(db, machineId)
+    doNames = await withD1Retry(
+      () => queries.communityMachine.getActiveDoNamesForMachine(db, machineId),
+      { route: "ws-do:agent-wake-machine-resolution" },
+    )
   } catch (err) {
     reqLog.error("failed to resolve machine doNames for agent wake", { err })
     return Response.json({ error: "failed to resolve machine" }, { status: 503 })

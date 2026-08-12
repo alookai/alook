@@ -144,31 +144,12 @@ describe("BotList — bug-report feature entry", () => {
     bugReportDialogMock.mockReset()
   })
 
-  it.each([
-    ["absent", undefined],
-    ["disabled", { bugReports: false }],
-    ["malformed", { bugReports: "true" }],
-  ])("hides Report a problem when the top-level feature is %s", (_label, features) => {
-    const bots = [bot({})]
-    useBotsMock.mockReturnValue({
-      bots,
-      isLoading: false,
-      data: features === undefined ? { bots } : { bots, features },
-    })
-
-    const renderer = render()
-    expect(
-      renderer.root.findAll((node) => node.props?.["data-testid"] === "bot-report-problem-item"),
-    ).toHaveLength(0)
-    expect(bugReportDialogMock).not.toHaveBeenCalled()
-  })
-
-  it("renders exactly one Report a problem action per bot when enabled", () => {
+  it("always renders exactly one Report a problem action per bot", () => {
     const bots = [bot({ id: "b1" }), bot({ id: "b2", name: "Maya" })]
     useBotsMock.mockReturnValue({
       bots,
       isLoading: false,
-      data: { bots, features: { bugReports: true } },
+      data: { bots },
     })
 
     const renderer = render()
@@ -176,6 +157,16 @@ describe("BotList — bug-report feature entry", () => {
       (node) => node.props?.["data-testid"] === "bot-report-problem-item",
     )
     expect(reportItems).toHaveLength(2)
+    expect(renderer.root
+      .findAll((node) => ["bot-reset-session-item", "bot-report-problem-item"]
+        .includes(node.props?.["data-testid"]))
+      .map((node) => node.props["data-testid"]))
+      .toEqual([
+        "bot-reset-session-item",
+        "bot-report-problem-item",
+        "bot-reset-session-item",
+        "bot-report-problem-item",
+      ])
     expect(reportItems.map((item) => item.props.children).join(" ")).toContain("Report a problem")
     expect(bugReportDialogMock).not.toHaveBeenCalled()
 

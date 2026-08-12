@@ -147,6 +147,34 @@ describe("B2c bounded gzip NDJSON bundle", () => {
     expect(encoded).not.toMatch(/\/Users\/|\/home\/|daemon\.log|fsm-trace\.jsonl|Error:|stack/);
   });
 
+  it("makes invalid internal event timestamps visible in the footer", async () => {
+    const api = await loadSubject();
+    const outputPath = join(tempDir(), "invalid-event-time.ndjson.gz");
+    const missingTime = event("fsm", "missing", 1500);
+    Reflect.deleteProperty(missingTime, "timeMs");
+    await api.buildDiagnosticBundle({
+      outputPath,
+      header: header(),
+      status: null,
+      events: [
+        event("fsm", "nan", Number.NaN),
+        event("fsm", "fractional", 1500.5),
+        event("fsm", "negative", -1),
+        missingTime,
+      ],
+      sourceDroppedRows: { fsm: 3 },
+    });
+
+    const rows = decode(outputPath).rows;
+    expect(rows.map((row) => row.recordType)).toEqual(["bundle_header", "bundle_footer"]);
+    expect(rows.at(-1)).toMatchObject({
+      counts: { status: 0, daemon_log: 0, fsm: 0 },
+      droppedRows: { fsm: 7 },
+      warnings: ["invalid_timestamp"],
+      missingSources: [],
+    });
+  });
+
   it("evicts globally oldest complete rows so newer FSM beats older daemon rows", async () => {
     const api = await loadSubject();
     const outputPath = join(tempDir(), "fsm-wins.ndjson.gz");

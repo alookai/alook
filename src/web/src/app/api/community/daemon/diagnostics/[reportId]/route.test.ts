@@ -20,7 +20,7 @@ vi.mock("@/lib/middleware/community-daemon-auth", () => ({
         return NextResponse.json({ error: "unauthorized" }, { status: 401 });
       }
       return handler(request, {
-        env: { DB: {}, BUG_REPORTS: { privateBucket: true }, BUG_REPORTS_ENABLED: "false" },
+        env: { DB: {}, BUG_REPORTS: { privateBucket: true } },
         machineId: "cm_original",
         userId: "owner_1",
         credentialId: "cred_1",
@@ -74,7 +74,7 @@ describe("PATCH /api/community/daemon/diagnostics/:reportId", () => {
     expect(fail).not.toHaveBeenCalled();
   });
 
-  it.each(DAEMON_FAILURE_CODES)("accepts daemon failure code %s while the creation flag is false", async (failureCode) => {
+  it.each(DAEMON_FAILURE_CODES)("accepts daemon failure code %s for an existing report", async (failureCode) => {
     const api = await loadSubject();
     const response = await api.PATCH(request({ status: "failed", failureCode }), context);
 

@@ -3,7 +3,7 @@
   "version": "0.1.2",
   "private": true,
   "scripts": {
-    "dev": "wrangler dev --persist-to ../web/.wrangler/state",
+    "dev": "node ../../scripts/dev-with-wrangler-registry.mjs ../../.wrangler/registry wrangler dev --persist-to ../web/.wrangler/state",
     "deploy": "wrangler deploy",
     "knip": "knip",
     "test": "vitest run",

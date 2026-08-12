@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
+import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import {
   DiagnosticReportFailureCodeSchema,
@@ -11,7 +12,17 @@ import {
 
 export const BUG_REPORT_POLL_INTERVAL_MS = 1_000
 
-export type BugReportFailureCode = DiagnosticReportFailureCode
+const CLIENT_ERROR_CODES = [
+  "rate_limited",
+  "target_unavailable",
+  "nonce_conflict",
+  "network_error",
+] as const
+
+type BugReportClientErrorCode = (typeof CLIENT_ERROR_CODES)[number]
+
+export type BugReportUiErrorCode = DiagnosticReportFailureCode | BugReportClientErrorCode
+
 export type BugReportPhase =
   | "confirm"
   | "submitting"
@@ -25,7 +36,7 @@ export type OwnerBugReport = {
   status: "pending" | "uploaded" | "failed"
   deadlineAt: number
   completedAt: number | null
-  failureCode: BugReportFailureCode | null
+  failureCode: DiagnosticReportFailureCode | null
   objectExpired: boolean
 }
 
@@ -36,7 +47,7 @@ export type BugReportState = {
   reportId: string | null
   deadlineAt: number | null
   completedAt: number | null
-  failureCode: BugReportFailureCode | null
+  errorCode: BugReportUiErrorCode | null
   objectExpired: boolean
 }
 
@@ -47,19 +58,23 @@ export const initialBugReportState: BugReportState = {
   reportId: null,
   deadlineAt: null,
   completedAt: null,
-  failureCode: null,
+  errorCode: null,
   objectExpired: false,
 }
 
-type BugReportAction =
+type CreateBugReportFailureAction =
   | { type: "create_error" }
+  | { type: "create_rejected"; code: BugReportClientErrorCode }
+
+type BugReportAction =
+  | CreateBugReportFailureAction
   | { type: "poll_error" }
   | { type: "invalid_payload" }
   | { type: "deadline" }
   | { type: "created"; delivery: "accepted" | "unknown"; report: OwnerBugReport }
   | { type: "status"; report: OwnerBugReport }
 
-const failureMessages: Record<BugReportFailureCode, string> = {
+const errorMessages: Record<BugReportUiErrorCode, string> = {
   offline: "Bring the daemon online, then try again.",
   timeout: "Collection timed out. Try again.",
   upload_conflict: "The report could not be uploaded safely. Try again.",
@@ -72,23 +87,47 @@ const failureMessages: Record<BugReportFailureCode, string> = {
   bundle_too_large: "The diagnostic bundle was too large to upload.",
   upload_failed: "The report upload failed. Try again.",
   internal_error: "The report could not be completed. Try again.",
+  rate_limited: "You can send another report in a minute.",
+  target_unavailable: "Diagnostics aren't available for this bot right now.",
+  nonce_conflict: "That report already belongs to another bot. Try again.",
+  network_error: "Unable to connect — check your network",
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-function isFailureCode(value: unknown): value is BugReportFailureCode {
+function isServerFailureCode(value: unknown): value is DiagnosticReportFailureCode {
   return DiagnosticReportFailureCodeSchema.safeParse(value).success
+}
+
+function isClientErrorCode(value: unknown): value is BugReportClientErrorCode {
+  return typeof value === "string"
+    && (CLIENT_ERROR_CODES as readonly string[]).includes(value)
+}
+
+function isUiErrorCode(value: unknown): value is BugReportUiErrorCode {
+  return isClientErrorCode(value) || isServerFailureCode(value)
+}
+
+export function createActionFromApiError(error: unknown): CreateBugReportFailureAction {
+  if (error instanceof ApiError) {
+    if (error.isNetworkError || error.status === 0) {
+      return { type: "create_rejected", code: "network_error" }
+    }
+    if (error.isRateLimit) return { type: "create_rejected", code: "rate_limited" }
+    if (error.status === 404) return { type: "create_rejected", code: "target_unavailable" }
+    if (error.status === 409) return { type: "create_rejected", code: "nonce_conflict" }
+  }
+  return { type: "create_error" }
+}
+
+function isCreateRejectedTerminal(code: BugReportClientErrorCode): boolean {
+  return code === "rate_limited" || code === "nonce_conflict"
 }
 
 function isTimestamp(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
-}
-
-export function bugReportsFeatureEnabled(value: unknown): boolean {
-  if (!isRecord(value) || !isRecord(value.features)) return false
-  return value.features.bugReports === true
 }
 
 export function buildBugReportCreateRequest(agentId: string, clientNonce: string) {
@@ -119,10 +158,10 @@ export function projectOwnerBugReport(value: unknown): OwnerBugReport | null {
   if (value.completedAt !== null && value.completedAt !== undefined && !isTimestamp(value.completedAt)) {
     return null
   }
-  if (value.failureCode !== null && value.failureCode !== undefined && !isFailureCode(value.failureCode)) {
+  if (value.failureCode !== null && value.failureCode !== undefined && !isServerFailureCode(value.failureCode)) {
     return null
   }
-  if (value.status === "failed" && !isFailureCode(value.failureCode)) return null
+  if (value.status === "failed" && !isServerFailureCode(value.failureCode)) return null
   if (value.status !== "failed" && value.failureCode !== null && value.failureCode !== undefined) {
     return null
   }
@@ -137,8 +176,8 @@ export function projectOwnerBugReport(value: unknown): OwnerBugReport | null {
   }
 }
 
-export function bugReportFailureMessage(code: unknown): string {
-  return isFailureCode(code) ? failureMessages[code] : failureMessages.internal_error
+export function bugReportErrorMessage(code: unknown): string {
+  return isUiErrorCode(code) ? errorMessages[code] : errorMessages.internal_error
 }
 
 export function startBugReportAttempt(
@@ -147,7 +186,7 @@ export function startBugReportAttempt(
 ): BugReportState {
   if (state.phase === "submitting" || state.phase === "collecting") return state
   if (!state.terminal && state.clientNonce) {
-    return { ...state, phase: "submitting", failureCode: null }
+    return { ...state, phase: "submitting", errorCode: null }
   }
   return {
     ...initialBugReportState,
@@ -162,7 +201,7 @@ function stateForReport(state: BugReportState, report: OwnerBugReport): BugRepor
     reportId: report.reportId,
     deadlineAt: report.deadlineAt,
     completedAt: report.completedAt,
-    failureCode: report.failureCode,
+    errorCode: report.failureCode,
     objectExpired: report.objectExpired,
   }
   if (report.status === "pending") {
@@ -183,13 +222,21 @@ export function bugReportReducer(state: BugReportState, action: BugReportAction)
     return stateForReport(state, action.report)
   }
   if (action.type === "create_error") {
-    return { ...state, phase: "failed", terminal: false, failureCode: "internal_error" }
+    return { ...state, phase: "failed", terminal: false, errorCode: "internal_error" }
+  }
+  if (action.type === "create_rejected") {
+    return {
+      ...state,
+      phase: "failed",
+      terminal: isCreateRejectedTerminal(action.code),
+      errorCode: action.code,
+    }
   }
   if (action.type === "invalid_payload") {
-    return { ...state, phase: "failed", terminal: true, failureCode: "internal_error" }
+    return { ...state, phase: "failed", terminal: true, errorCode: "internal_error" }
   }
   if (action.type === "deadline") {
-    return { ...state, phase: "timeout", terminal: true, failureCode: "timeout" }
+    return { ...state, phase: "timeout", terminal: true, errorCode: "timeout" }
   }
   return state
 }
@@ -254,8 +301,8 @@ export function useBotBugReport({ agentId, open }: { agentId: string; open: bool
         ? "accepted"
         : "unknown"
       apply({ type: "created", delivery, report })
-    } catch {
-      apply({ type: "create_error" })
+    } catch (error) {
+      apply(createActionFromApiError(error))
     }
   }, [agentId, apply, replaceState])
 
@@ -311,6 +358,11 @@ export function useBotBugReport({ agentId, open }: { agentId: string; open: bool
       exact: true,
     })
   }, [open, queryClient, reportId])
+
+  useEffect(() => {
+    if (open || !state.terminal) return
+    replaceState(initialBugReportState)
+  }, [open, replaceState, state.terminal])
 
   useEffect(() => {
     if (!reportId) return

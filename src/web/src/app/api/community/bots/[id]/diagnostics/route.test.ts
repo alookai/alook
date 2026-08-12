@@ -5,12 +5,8 @@ const createOrGet = vi.fn();
 const failPending = vi.fn();
 const getForOwner = vi.fn();
 const pushDiagnostic = vi.fn();
-const featureEnabled = vi.fn();
 
 vi.mock("@/lib/db", () => ({ getDb: () => ({}) }));
-vi.mock("@/lib/community/diagnostic-feature", () => ({
-  isBugReportsEnabled: (...args: unknown[]) => featureEnabled(...args),
-}));
 vi.mock("@/lib/community/diagnostic-report-push", () => ({
   pushDiagnosticReportToMachine: (...args: unknown[]) => pushDiagnostic(...args),
 }));
@@ -18,7 +14,7 @@ vi.mock("@/lib/middleware/auth", () => ({
   withAuth: (handler: any) => async (req: NextRequest, context?: any) => {
     const params = context?.params instanceof Promise ? await context.params : context?.params;
     return handler(req, {
-      env: { DB: {}, BUG_REPORTS_ENABLED: "true" },
+      env: { DB: {} },
       userId: "owner_1",
       email: "owner@example.test",
       params,
@@ -92,21 +88,8 @@ describe("POST /api/community/bots/:id/diagnostics", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.spyOn(Date, "now").mockReturnValue(NOW);
-    featureEnabled.mockReturnValue(true);
     createOrGet.mockResolvedValue({ kind: "created", report: row() });
     pushDiagnostic.mockResolvedValue({ kind: "delivered", sent: 1 });
-  });
-
-  it("does zero DB and zero WS work while creation is disabled", async () => {
-    featureEnabled.mockReturnValue(false);
-
-    const response = await POST(request(), context);
-
-    expect(response.status).toBe(404);
-    expect(createOrGet).not.toHaveBeenCalled();
-    expect(pushDiagnostic).not.toHaveBeenCalled();
-    expect(failPending).not.toHaveBeenCalled();
-    expect(getForOwner).not.toHaveBeenCalled();
   });
 
   it.each([

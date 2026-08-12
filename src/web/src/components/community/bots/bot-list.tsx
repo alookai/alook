@@ -47,7 +47,6 @@ import {
   updateCommunityOnboardingResources,
   useCommunityOnboarding,
 } from "@/lib/community-onboarding"
-import { bugReportsFeatureEnabled } from "@/hooks/community/use-bot-bug-report"
 import { tid } from "@/lib/community/testids"
 
 /**
@@ -81,7 +80,6 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
   const searchParams = useSearchParams()
   const botsQuery = useBots()
   const { bots, isLoading } = botsQuery
-  const bugReportsEnabled = bugReportsFeatureEnabled(botsQuery.data)
   const { machines, isLoading: machinesLoading } = useMachines()
   // Presence read: single API for humans + bots, server-pushed identically
   // (see plans/community-account-debt-fixes.md Fix 3 — the owner is always
@@ -523,22 +521,20 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                               >
                                 <span className="size-4" aria-hidden /> Edit
                               </DropdownMenuItem>
-                              {bugReportsEnabled && (
-                                <DropdownMenuItem
-                                  data-testid={tid.botReportProblemItem}
-                                  onClick={() => {
-                                    setBugReportBot({ id: bot.id, name: bot.name })
-                                    setBugReportOpen(true)
-                                  }}
-                                >
-                                  <span className="size-4" aria-hidden /> Report a problem
-                                </DropdownMenuItem>
-                              )}
                               <DropdownMenuItem
                                 data-testid={`bot-reset-session-item`}
                                 onClick={() => setConfirmReset(bot)}
                               >
                                 <RotateCcw className="size-4" /> Reset
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                data-testid={tid.botReportProblemItem}
+                                onClick={() => {
+                                  setBugReportBot({ id: bot.id, name: bot.name })
+                                  setBugReportOpen(true)
+                                }}
+                              >
+                                <span className="size-4" aria-hidden /> Report a problem
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 variant="destructive"
@@ -573,7 +569,7 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
         open={activityOpen}
         onOpenChange={setActivityOpen}
       />
-      {bugReportsEnabled && bugReportBot && (
+      {bugReportBot && (
         <BugReportDialog
           key={bugReportBot.id}
           bot={bugReportBot}

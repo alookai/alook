@@ -20,7 +20,7 @@ vi.mock("@/lib/middleware/community-daemon-auth", () => ({
         return NextResponse.json({ error: "unauthorized" }, { status: 401 });
       }
       return handler(request, {
-        env: { DB: {}, BUG_REPORTS: { privateBucket: true }, BUG_REPORTS_ENABLED: "false" },
+        env: { DB: {}, BUG_REPORTS: { privateBucket: true } },
         machineId: "cm_original",
         userId: "owner_1",
         credentialId: "cred_1",
@@ -79,7 +79,7 @@ describe("PUT /api/community/daemon/diagnostics/:reportId/bundle", () => {
     expect(upload).not.toHaveBeenCalled();
   });
 
-  it("ignores the false creation flag and drains an existing report for the authenticated machine", async () => {
+  it("uploads an existing report for the authenticated machine", async () => {
     const api = await loadSubject();
     const response = await api.PUT(request(), context);
 

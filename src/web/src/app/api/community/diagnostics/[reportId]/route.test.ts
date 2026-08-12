@@ -9,7 +9,7 @@ vi.mock("@/lib/middleware/auth", () => ({
   withAuth: (handler: any) => async (req: NextRequest, context?: any) => {
     const params = context?.params instanceof Promise ? await context.params : context?.params;
     return handler(req, {
-      env: { DB: {}, BUG_REPORTS_ENABLED: "false" },
+      env: { DB: {} },
       userId: "owner_1",
       email: "owner@example.test",
       params,
@@ -78,7 +78,7 @@ describe("GET /api/community/diagnostics/:reportId", () => {
     expect(timeoutPending).not.toHaveBeenCalled();
   });
 
-  it("scopes the read by immutable owner even while the creation flag is false", async () => {
+  it("scopes an existing report read by immutable owner", async () => {
     getForOwner.mockResolvedValue(row({ deadlineAt: NOW + 1 }));
 
     const response = await GET(request, context);

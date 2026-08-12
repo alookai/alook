@@ -139,7 +139,12 @@ export async function buildDiagnosticBundle(args: {
   };
 
   for await (const row of asAsync(args.events)) {
-    if ((row.recordType !== "daemon_log" && row.recordType !== "fsm") || !Number.isSafeInteger(row.timeMs)) continue;
+    if (row.recordType !== "daemon_log" && row.recordType !== "fsm") continue;
+    if (!Number.isSafeInteger(row.timeMs) || row.timeMs < 0) {
+      droppedRows[row.recordType] = (droppedRows[row.recordType] ?? 0) + 1;
+      if (!warnings.includes("invalid_timestamp")) warnings.push("invalid_timestamp");
+      continue;
+    }
     const serialized = line(row);
     retained.push({ row, bytes: serialized });
     retainedBytes += serialized.byteLength;

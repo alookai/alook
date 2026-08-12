@@ -52,7 +52,7 @@ interface DiagnosticUploadModule {
     bucket: R2Port;
     queries: QueryPort;
     now: () => number;
-    fixedLengthStream: (sizeBytes: number) => {
+    fixedLengthStream?: (sizeBytes: number) => {
       readable: ReadableStream<Uint8Array>;
       writable: WritableStream<Uint8Array>;
     };
@@ -71,6 +71,8 @@ interface DiagnosticUploadModule {
     }): Promise<UploadResult>;
   };
 }
+
+const fixedLengthBodies = new WeakSet<ReadableStream<Uint8Array>>();
 
 async function loadSubject(): Promise<DiagnosticUploadModule> {
   return vi.importActual<DiagnosticUploadModule>("./diagnostic-upload.js");
@@ -143,8 +145,36 @@ function strictFixedLengthFactory(calls: number[]) {
         if (seen !== expected) throw new Error("fixed length underflow");
       },
     });
+    fixedLengthBodies.add(transform.readable);
     return transform;
   };
+}
+
+function bodyToBytes(body: ReadableStream<Uint8Array> | ArrayBuffer | ArrayBufferView): Promise<Uint8Array> {
+  if (body instanceof ArrayBuffer) return Promise.resolve(new Uint8Array(body));
+  if (ArrayBuffer.isView(body)) {
+    return Promise.resolve(new Uint8Array(body.buffer, body.byteOffset, body.byteLength));
+  }
+  if (!(body instanceof ReadableStream) || !fixedLengthBodies.has(body)) {
+    return Promise.reject(new TypeError("R2 put rejected non-fixed-length stream"));
+  }
+  return (async () => {
+    const chunks: Uint8Array[] = [];
+    const reader = body.getReader();
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(next.value);
+    }
+    const total = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return bytes;
+  })();
 }
 
 function queryFake() {
@@ -165,7 +195,11 @@ function queryFake() {
 function r2Fake() {
   const objects = new Map<string, { body: Uint8Array; sha256: string }>();
   const claims = new Map<string, Promise<void>>();
-  const put = vi.fn(async (key: string, body: ReadableStream<Uint8Array>, options: Record<string, unknown>) => {
+  const put = vi.fn(async (
+    key: string,
+    body: ReadableStream<Uint8Array> | ArrayBuffer | ArrayBufferView,
+    options: Record<string, unknown>,
+  ) => {
     const existingClaim = claims.get(key);
     const isWinner = !objects.has(key) && existingClaim === undefined;
     let releaseClaim: (() => void) | undefined;
@@ -173,15 +207,8 @@ function r2Fake() {
       claims.set(key, new Promise<void>((resolve) => { releaseClaim = resolve; }));
     }
     try {
-      const chunks: Uint8Array[] = [];
-      const reader = body.getReader();
-      while (true) {
-        const next = await reader.read();
-        if (next.done) break;
-        chunks.push(next.value);
-      }
-      const merged = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
-      const checksum = createHash("sha256").update(merged).digest("hex");
+      const bytes = await bodyToBytes(body);
+      const checksum = createHash("sha256").update(bytes).digest("hex");
       expect((options.sha256 as ArrayBuffer).byteLength).toBe(32);
       const claimed = Buffer.from(options.sha256 as ArrayBuffer).toString("hex");
       if (checksum !== claimed) throw new Error("R2 checksum mismatch");
@@ -189,7 +216,7 @@ function r2Fake() {
         await existingClaim;
         return null;
       }
-      objects.set(key, { body: merged, sha256: checksum });
+      objects.set(key, { body: bytes, sha256: checksum });
       return { key };
     } finally {
       if (isWinner) {
@@ -213,6 +240,116 @@ function r2Fake() {
 
 describe("B2d diagnostic upload service", () => {
   beforeEach(() => vi.restoreAllMocks());
+
+  it("Node/default path buffers a fixed-length body when FixedLengthStream is missing", async () => {
+    const api = await loadSubject();
+    const host = globalThis as { FixedLengthStream?: unknown };
+    const previous = host.FixedLengthStream;
+    Reflect.deleteProperty(host, "FixedLengthStream");
+
+    try {
+      const queries = queryFake();
+      const bucket = r2Fake();
+      const service = api.createDiagnosticUploadService({
+        bucket,
+        queries,
+        now: () => NOW,
+      });
+      await expect(service.upload({
+        reportId: REPORT_ID,
+        machineId: MACHINE_ID,
+        sizeBytes: 6,
+        sha256: SHA256,
+        body: bytes(),
+      })).resolves.toEqual({ kind: "terminal", status: "uploaded" });
+      expect(bucket.put.mock.calls[0]![1]).toBeInstanceOf(Uint8Array);
+      expect((bucket.put.mock.calls[0]![1] as Uint8Array).byteLength).toBe(6);
+      expect(queries.finalize).toHaveBeenCalledTimes(1);
+    } finally {
+      if (previous === undefined) Reflect.deleteProperty(host, "FixedLengthStream");
+      else host.FixedLengthStream = previous;
+    }
+  });
+
+  it.each([
+    ["under length", "bun", 6, SHA256],
+    ["over length", "bundled!", 6, SHA256],
+    ["same-length wrong SHA", "nope!!", 6, SHA256],
+  ] as const)(
+    "Node/default path rejects %s before R2 put",
+    async (_label, payload, sizeBytes, sha256) => {
+      const api = await loadSubject();
+      const host = globalThis as { FixedLengthStream?: unknown };
+      const previous = host.FixedLengthStream;
+      Reflect.deleteProperty(host, "FixedLengthStream");
+
+      try {
+        const queries = queryFake();
+        const bucket = r2Fake();
+        const service = api.createDiagnosticUploadService({
+          bucket,
+          queries,
+          now: () => NOW,
+        });
+        await expect(service.upload({
+          reportId: REPORT_ID,
+          machineId: MACHINE_ID,
+          sizeBytes,
+          sha256,
+          body: bytes(payload),
+        })).resolves.toEqual({ kind: "terminal", status: "failed" });
+        expect(bucket.put).not.toHaveBeenCalled();
+        expect(queries.fail).toHaveBeenCalledWith(expect.objectContaining({
+          failureCode: "invalid_upload",
+        }));
+      } finally {
+        if (previous === undefined) Reflect.deleteProperty(host, "FixedLengthStream");
+        else host.FixedLengthStream = previous;
+      }
+    },
+  );
+
+  it("default factory prefers globalThis.FixedLengthStream when present (Workers)", async () => {
+    const api = await loadSubject();
+    const host = globalThis as {
+      FixedLengthStream?: new (n: number) => {
+        readable: ReadableStream<Uint8Array>;
+        writable: WritableStream<Uint8Array>;
+      };
+    };
+    const previous = host.FixedLengthStream;
+    const calls: number[] = [];
+    host.FixedLengthStream = class {
+      readable: ReadableStream<Uint8Array>;
+      writable: WritableStream<Uint8Array>;
+      constructor(expected: number) {
+        const pair = strictFixedLengthFactory(calls)(expected);
+        this.readable = pair.readable;
+        this.writable = pair.writable;
+      }
+    };
+
+    try {
+      const queries = queryFake();
+      const bucket = r2Fake();
+      const service = api.createDiagnosticUploadService({
+        bucket,
+        queries,
+        now: () => NOW,
+      });
+      await expect(service.upload({
+        reportId: REPORT_ID,
+        machineId: MACHINE_ID,
+        sizeBytes: 6,
+        sha256: SHA256,
+        body: bytes(),
+      })).resolves.toEqual({ kind: "terminal", status: "uploaded" });
+      expect(calls).toEqual([6]);
+    } finally {
+      if (previous === undefined) Reflect.deleteProperty(host, "FixedLengthStream");
+      else host.FixedLengthStream = previous;
+    }
+  });
 
   it("authorizes the immutable machine snapshot before R2 and streams a fixed-length conditional Standard object", async () => {
     const api = await loadSubject();

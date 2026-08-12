@@ -34,7 +34,7 @@ function render(overrides: Record<string, unknown> = {}) {
         phase: "confirm",
         isSubmitting: false,
         reportId: null,
-        failureCode: null,
+        errorCode: null,
         onConfirm,
         onOpenChange,
         ...overrides,
@@ -61,36 +61,16 @@ describe("BugReportDialog", () => {
     vi.unstubAllGlobals()
   })
 
-  it("discloses allowlisted sources, exclusions, retention, and runtime-stderr residual risk before submit", () => {
+  it("explains the report in plain language before submit", () => {
     const renderer = render()
     const copy = text(renderer)
 
-    for (const allowed of ["daemon", "FSM", "status"]) expect(copy).toContain(allowed)
+    expect(copy).toContain("only program logs needed to diagnose the problem")
+    expect(copy).toContain("We won’t read or upload your agent’s local chat history or files.")
     expect(copy).toContain("7 days")
-    expect(copy).toContain("doesn’t actively read")
-    for (const excluded of [
-      "messages",
-      "prompts",
-      "responses",
-      "thinking",
-      "tool payloads",
-      "working directory",
-      "context timeline",
-      "memory",
-      "todo",
-      "AGENTS",
-      "raw runtime",
-      "environment variables",
-    ]) expect(copy).toContain(excluded)
-    for (const residual of [
-      "runtime stderr",
-      "user content",
-      "provider responses",
-      "paths",
-      "sensitive content",
-    ]) expect(copy).toContain(residual)
-    expect(copy).toContain("best-effort")
-    expect(copy).toContain("not a general PII guarantee")
+    for (const jargon of ["daemon", "FSM", "PII", "stderr", "allowlisted"]) {
+      expect(copy).not.toContain(jargon)
+    }
     expect(renderer.root.findAllByType("input")).toHaveLength(0)
     expect(renderer.root.findAllByType("textarea")).toHaveLength(0)
     expect(onConfirm).not.toHaveBeenCalled()
@@ -99,11 +79,61 @@ describe("BugReportDialog", () => {
   it("submits only from explicit confirmation and disables repeat confirmation", () => {
     const renderer = render()
     const submit = renderer.root.findByProps({ "data-testid": "bot-report-problem-submit" })
+    expect(submit.props.children).toBe("Confirm")
     act(() => submit.props.onClick())
     expect(onConfirm).toHaveBeenCalledTimes(1)
 
     const pending = render({ isSubmitting: true })
     expect(pending.root.findByProps({ "data-testid": "bot-report-problem-submit" }).props.disabled).toBe(true)
+  })
+
+  it("offers only Close after the report is uploaded", () => {
+    const renderer = render({ phase: "uploaded", reportId: "dbr_test123" })
+
+    expect(renderer.root.findAllByProps({
+      "data-testid": "bot-report-problem-submit",
+    })).toHaveLength(0)
+    expect(text(renderer)).toContain("Close")
+    expect(text(renderer)).not.toContain("Report another problem")
+    expect(onConfirm).not.toHaveBeenCalled()
+  })
+
+  it("offers Close + Try again after timeout, never Report another problem", () => {
+    const renderer = render({ phase: "timeout", reportId: "dbr_test123" })
+    const submit = renderer.root.findByProps({ "data-testid": "bot-report-problem-submit" })
+    expect(submit.props.children).toBe("Try again")
+    expect(text(renderer)).toContain("Close")
+    expect(text(renderer)).not.toContain("Report another problem")
+  })
+
+  it("shows rate-limit title + body with Close only — no Try again that rehits the bucket", () => {
+    const renderer = render({
+      phase: "failed",
+      reportId: null,
+      errorCode: "rate_limited",
+    })
+    expect(text(renderer)).toContain("A report was sent recently")
+    expect(text(renderer)).toContain("You can send another report in a minute.")
+    expect(text(renderer)).not.toContain("Report failed")
+    expect(text(renderer)).toContain("Close")
+    expect(text(renderer)).not.toContain("Try again")
+    expect(renderer.root.findAllByProps({ "data-testid": "bot-report-problem-submit" })).toHaveLength(0)
+  })
+
+  it.each([
+    ["network_error", "Unable to connect — check your network"],
+    ["target_unavailable", "Diagnostics aren't available for this bot right now."],
+    ["nonce_conflict", "That report already belongs to another bot. Try again."],
+  ] as const)("shows semantic %s copy with Close + Try again", (errorCode, copy) => {
+    const renderer = render({
+      phase: "failed",
+      reportId: null,
+      errorCode,
+    })
+    expect(text(renderer)).toContain(copy)
+    expect(text(renderer)).toContain("Close")
+    expect(renderer.root.findByProps({ "data-testid": "bot-report-problem-submit" }).props.children)
+      .toBe("Try again")
   })
 
   it.each([
@@ -115,7 +145,7 @@ describe("BugReportDialog", () => {
     const renderer = render({
       phase,
       reportId: "dbr_test123",
-      failureCode: phase === "failed" ? "offline" : null,
+      errorCode: phase === "failed" ? "offline" : null,
     })
     expect(renderer.root.findByProps({ "data-testid": "bot-report-problem-status" })).toBeTruthy()
     expect(text(renderer)).toContain(expected)
@@ -125,7 +155,7 @@ describe("BugReportDialog", () => {
     const renderer = render({
       phase: "failed",
       reportId: "dbr_offline",
-      failureCode: "offline",
+      errorCode: "offline",
       errorDetail: "Bearer secret at /Users/private should leak",
     })
     expect(text(renderer)).toContain("Bring the daemon online")

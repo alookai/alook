@@ -188,6 +188,7 @@ export function useUserWs(
         reportDroppedFrame("invalid-json")
         return
       }
+      if (e.data === "pong") return
       let parsed: unknown
       try {
         parsed = JSON.parse(e.data)

@@ -12,9 +12,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import {
-  bugReportFailureMessage,
-  type BugReportFailureCode,
+  bugReportErrorMessage,
   type BugReportPhase,
+  type BugReportUiErrorCode,
   useBotBugReport,
 } from "@/hooks/community/use-bot-bug-report"
 import { tid } from "@/lib/community/testids"
@@ -27,7 +27,7 @@ type DialogViewProps = {
   phase: BugReportPhase
   isSubmitting: boolean
   reportId: string | null
-  failureCode: BugReportFailureCode | null
+  errorCode: BugReportUiErrorCode | null
   onConfirm: () => void | Promise<void>
   onOpenChange: (open: boolean) => void
 }
@@ -36,7 +36,8 @@ type BugReportDialogProps =
   | (Pick<DialogViewProps, "bot" | "open" | "onOpenChange"> & { phase?: never })
   | DialogViewProps
 
-function statusTitle(phase: BugReportPhase): string {
+function statusTitle(phase: BugReportPhase, errorCode: BugReportUiErrorCode | null): string {
+  if (phase === "failed" && errorCode === "rate_limited") return "A report was sent recently"
   if (phase === "collecting") return "Collecting diagnostics"
   if (phase === "uploaded") return "Report uploaded"
   if (phase === "timeout") return "Collection timed out"
@@ -78,15 +79,15 @@ function ReportIdCopy({ reportId }: { reportId: string }) {
 }
 
 function BugReportDialogView(props: DialogViewProps) {
-  const terminal = props.phase === "uploaded" || props.phase === "timeout"
   const status = props.phase !== "confirm" && props.phase !== "submitting"
-  const submitLabel = props.phase === "failed"
+  const submitLabel = props.phase === "failed" || props.phase === "timeout"
     ? "Try again"
-    : terminal
-      ? "Report another problem"
-      : props.isSubmitting
-        ? "Submitting…"
-        : "Confirm and collect"
+    : props.isSubmitting
+      ? "Submitting…"
+      : "Confirm"
+  const showSubmit = props.phase !== "collecting"
+    && props.phase !== "uploaded"
+    && !(props.phase === "failed" && props.errorCode === "rate_limited")
 
   return (
     <AlertDialog open={props.open} onOpenChange={props.onOpenChange}>
@@ -95,16 +96,12 @@ function BugReportDialogView(props: DialogViewProps) {
           <AlertDialogTitle>Report a problem with {props.bot.name}?</AlertDialogTitle>
           <AlertDialogDescription className="space-y-3 text-left">
             <span className="block">
-              The report includes allowlisted daemon, FSM, and status diagnostics and is retained for 7 days.
+              We’ll upload only program logs needed to diagnose the problem.
             </span>
             <span className="block">
-              It doesn’t actively read messages, prompts, responses, thinking, tool payloads, your working directory,
-              context timeline, memory, todo, AGENTS, raw runtime data, or environment variables.
+              We won’t read or upload your agent’s local chat history or files.
             </span>
-            <span className="block">
-              Target runtime stderr may still contain user content, provider responses, paths, or other sensitive content
-              despite best-effort scrubbing. This is not a general PII guarantee.
-            </span>
+            <span className="block">Reports are deleted after 7 days.</span>
           </AlertDialogDescription>
         </AlertDialogHeader>
 
@@ -113,10 +110,10 @@ function BugReportDialogView(props: DialogViewProps) {
             data-testid={tid.botReportProblemStatus}
             className="rounded-md bg-muted/60 px-3 py-2 text-sm"
           >
-            <p className="font-medium text-foreground">{statusTitle(props.phase)}</p>
+            <p className="font-medium text-foreground">{statusTitle(props.phase, props.errorCode)}</p>
             {props.phase === "failed" && (
               <p className="mt-1 text-muted-foreground">
-                {bugReportFailureMessage(props.failureCode)}
+                {bugReportErrorMessage(props.errorCode)}
               </p>
             )}
             {props.reportId && (
@@ -127,7 +124,7 @@ function BugReportDialogView(props: DialogViewProps) {
 
         <AlertDialogFooter>
           <AlertDialogCancel>Close</AlertDialogCancel>
-          {props.phase !== "collecting" && (
+          {showSubmit && (
             <Button
               data-testid={tid.botReportProblemSubmit}
               disabled={props.isSubmitting}
@@ -155,7 +152,7 @@ function ConnectedBugReportDialog({
       phase={state.phase}
       isSubmitting={state.phase === "submitting"}
       reportId={state.reportId}
-      failureCode={state.failureCode}
+      errorCode={state.errorCode}
       onConfirm={confirm}
       onOpenChange={onOpenChange}
     />

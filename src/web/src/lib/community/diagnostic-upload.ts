@@ -43,10 +43,12 @@ export interface DiagnosticUploadQueryPort {
   timeout(input: { reportId: string; ownerUserId: string; nowMs: number }): Promise<ReportRow | null>;
 }
 
+type R2PutBody = ReadableStream<Uint8Array> | ArrayBuffer | ArrayBufferView;
+
 interface R2Port {
   put(
     key: string,
-    body: ReadableStream<Uint8Array>,
+    body: R2PutBody,
     options: R2PutOptions,
   ): Promise<R2Object | object | null>;
   head(key: string): Promise<Pick<R2Object, "size" | "checksums"> | null>;
@@ -57,6 +59,60 @@ type FixedLengthFactory = (sizeBytes: number) => {
   readable: ReadableStream<Uint8Array>;
   writable: WritableStream<Uint8Array>;
 };
+
+type FixedLengthStreamCtor = new (
+  expectedLength: number | bigint,
+) => {
+  readable: ReadableStream<Uint8Array>;
+  writable: WritableStream<Uint8Array>;
+};
+
+function hasNativeFixedLengthStream(): boolean {
+  return typeof (globalThis as typeof globalThis & {
+    FixedLengthStream?: FixedLengthStreamCtor;
+  }).FixedLengthStream === "function";
+}
+
+function createFixedLengthStream(sizeBytes: number): {
+  readable: ReadableStream<Uint8Array>;
+  writable: WritableStream<Uint8Array>;
+} {
+  const GlobalFixedLengthStream = (globalThis as typeof globalThis & {
+    FixedLengthStream?: FixedLengthStreamCtor;
+  }).FixedLengthStream;
+  if (typeof GlobalFixedLengthStream !== "function") {
+    throw new TypeError("FixedLengthStream is not available");
+  }
+  return new GlobalFixedLengthStream(sizeBytes);
+}
+
+async function readExactBody(
+  body: ReadableStream<Uint8Array>,
+  sizeBytes: number,
+  sha256: string,
+): Promise<{ kind: "ok"; bytes: Uint8Array } | { kind: "invalid" } | { kind: "error" }> {
+  const reader = body.getReader();
+  const hash = createHash("sha256");
+  const bytes = new Uint8Array(sizeBytes);
+  let seen = 0;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      if (seen + next.value.byteLength > sizeBytes) {
+        await reader.cancel().catch(() => {});
+        return { kind: "invalid" };
+      }
+      bytes.set(next.value, seen);
+      seen += next.value.byteLength;
+      hash.update(next.value);
+    }
+    if (seen !== sizeBytes || hash.digest("hex") !== sha256) return { kind: "invalid" };
+    return { kind: "ok", bytes };
+  } catch {
+    return { kind: "error" };
+  }
+}
 
 function exactSha256Bytes(hex: string): ArrayBuffer | null {
   if (!/^[0-9a-f]{64}$/.test(hex)) return null;
@@ -115,8 +171,12 @@ export function createDiagnosticUploadService(args: {
   fixedLengthStream?: FixedLengthFactory;
 }) {
   const now = args.now ?? Date.now;
-  const fixedLengthStream: FixedLengthFactory = args.fixedLengthStream
-    ?? ((sizeBytes) => new FixedLengthStream(sizeBytes));
+
+  const resolveStreamFactory = (): FixedLengthFactory | null => {
+    if (args.fixedLengthStream) return args.fixedLengthStream;
+    if (hasNativeFixedLengthStream()) return createFixedLengthStream;
+    return null;
+  };
 
   const convergeFailure = async (input: {
     reportId: string;
@@ -243,66 +303,7 @@ export function createDiagnosticUploadService(args: {
       }
 
       const r2Key = `bug-reports/${report.ownerUserId}/${input.reportId}.ndjson.gz`;
-      const fixed = fixedLengthStream(input.sizeBytes);
-      const writer = fixed.writable.getWriter();
-      const reader = input.body.getReader();
-      const hash = createHash("sha256");
-      let seen = 0;
-      let localInvalid = false;
-      let destinationFailed = false;
-      let destinationDetached = false;
-      let pumpFinished = false;
-
-      const pump = (async () => {
-        try {
-          while (true) {
-            const next = await reader.read();
-            if (next.done) break;
-            seen += next.value.byteLength;
-            if (seen > input.sizeBytes) {
-              localInvalid = true;
-              await reader.cancel().catch(() => {});
-              break;
-            }
-            hash.update(next.value);
-            if (!destinationFailed && !destinationDetached) {
-              try {
-                await writer.write(next.value);
-              } catch {
-                if (!destinationDetached) destinationFailed = true;
-              }
-            }
-          }
-          if (!localInvalid && (seen !== input.sizeBytes || hash.digest("hex") !== input.sha256)) {
-            localInvalid = true;
-          }
-        } catch {
-          localInvalid = true;
-        }
-
-        try {
-          if (destinationDetached) {
-            // The destination settled before source validation completed. Its
-            // settlement handler already released the writer.
-          } else if (localInvalid || destinationFailed) {
-            try {
-              await writer.abort();
-            } catch {
-              destinationFailed = true;
-            }
-          } else {
-            try {
-              await writer.close();
-            } catch {
-              destinationFailed = true;
-            }
-          }
-        } finally {
-          pumpFinished = true;
-        }
-      })();
-
-      const put = Promise.resolve(args.bucket.put(r2Key, fixed.readable, {
+      const putOptions = {
         onlyIf: { etagDoesNotMatch: "*" },
         sha256: sha256Bytes,
         storageClass: "Standard",
@@ -310,40 +311,126 @@ export function createDiagnosticUploadService(args: {
           contentType: "application/x-ndjson",
           contentEncoding: "gzip",
         },
-      })).then(async (result) => {
-        if (!pumpFinished) {
-          destinationDetached = true;
+      } as const;
+
+      let createdByThisRequest = false;
+      let destinationFailed = false;
+      const streamFactory = resolveStreamFactory();
+
+      if (streamFactory) {
+        const fixed = streamFactory(input.sizeBytes);
+        const writer = fixed.writable.getWriter();
+        const reader = input.body.getReader();
+        const hash = createHash("sha256");
+        let seen = 0;
+        let localInvalid = false;
+        let destinationDetached = false;
+        let pumpFinished = false;
+
+        const pump = (async () => {
           try {
-            await writer.abort();
+            while (true) {
+              const next = await reader.read();
+              if (next.done) break;
+              seen += next.value.byteLength;
+              if (seen > input.sizeBytes) {
+                localInvalid = true;
+                await reader.cancel().catch(() => {});
+                break;
+              }
+              hash.update(next.value);
+              if (!destinationFailed && !destinationDetached) {
+                try {
+                  await writer.write(next.value);
+                } catch {
+                  if (!destinationDetached) destinationFailed = true;
+                }
+              }
+            }
+            if (!localInvalid && (seen !== input.sizeBytes || hash.digest("hex") !== input.sha256)) {
+              localInvalid = true;
+            }
           } catch {
-            destinationFailed = true;
+            localInvalid = true;
           }
+
+          try {
+            if (destinationDetached) {
+              // The destination settled before source validation completed. Its
+              // settlement handler already released the writer.
+            } else if (localInvalid || destinationFailed) {
+              try {
+                await writer.abort();
+              } catch {
+                destinationFailed = true;
+              }
+            } else {
+              try {
+                await writer.close();
+              } catch {
+                destinationFailed = true;
+              }
+            }
+          } finally {
+            pumpFinished = true;
+          }
+        })();
+
+        const put = Promise.resolve(args.bucket.put(r2Key, fixed.readable, putOptions)).then(
+          async (result) => {
+            if (!pumpFinished) {
+              destinationDetached = true;
+              try {
+                await writer.abort();
+              } catch {
+                destinationFailed = true;
+              }
+            }
+            return result;
+          },
+          async (error) => {
+            destinationDetached = true;
+            try {
+              await writer.abort(error);
+            } catch {
+              destinationFailed = true;
+            }
+            throw error;
+          },
+        );
+
+        const [pumpResult, putResult] = await Promise.allSettled([pump, put]);
+        if (localInvalid) {
+          return convergeFailure({
+            reportId: input.reportId,
+            machineId: input.machineId,
+            failureCode: "invalid_upload",
+            nowMs,
+          });
         }
-        return result;
-      }, async (error) => {
-        destinationDetached = true;
+        if (pumpResult.status === "rejected" || putResult.status === "rejected") {
+          return { kind: "retryable" };
+        }
+        createdByThisRequest = putResult.value !== null;
+      } else {
+        const buffered = await readExactBody(input.body, input.sizeBytes, input.sha256);
+        if (buffered.kind === "invalid") {
+          return convergeFailure({
+            reportId: input.reportId,
+            machineId: input.machineId,
+            failureCode: "invalid_upload",
+            nowMs,
+          });
+        }
+        if (buffered.kind === "error") return { kind: "retryable" };
         try {
-          await writer.abort(error);
+          const putResult = await args.bucket.put(r2Key, buffered.bytes, putOptions);
+          createdByThisRequest = putResult !== null;
         } catch {
-          destinationFailed = true;
+          return { kind: "retryable" };
         }
-        throw error;
-      });
-
-      const [pumpResult, putResult] = await Promise.allSettled([pump, put]);
-      if (localInvalid) {
-        return convergeFailure({
-          reportId: input.reportId,
-          machineId: input.machineId,
-          failureCode: "invalid_upload",
-          nowMs,
-        });
-      }
-      if (pumpResult.status === "rejected" || putResult.status === "rejected") {
-        return { kind: "retryable" };
       }
 
-      const createdByThisRequest = putResult.value !== null;
       if (createdByThisRequest && destinationFailed) return { kind: "retryable" };
       if (!createdByThisRequest) {
         let head: Awaited<ReturnType<R2Port["head"]>>;

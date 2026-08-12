@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { gunzipSync } from "node:zlib";
 import type { PreparedDaemon } from "./daemonRunner";
 import {
   createDaemonProcessLogger,
@@ -10,6 +11,7 @@ import {
   logDaemonUp,
   runPreparedDaemon,
 } from "./daemonRunner";
+import { createRotatingFileSink } from "../util/rotatingFileSink";
 
 const runnerDaemonHarness = vi.hoisted(() => {
   const create = vi.fn();
@@ -280,6 +282,128 @@ describe("daemon runner logger", () => {
         command.reportId,
         "diagnostics_unavailable",
       );
+    } finally {
+      removeNewProcessListeners(listenersBefore);
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it("preserves projected FSM timestamps through the runner bundle seam", async () => {
+    resetDiagnosticHarness();
+    vi.useFakeTimers();
+    const listenersBefore = processListenerSnapshot();
+    const daemonHarness = installDaemonHarness(dir);
+    const traceSink = createRotatingFileSink(path.join(dir, "fsm-trace.jsonl"), 1024 * 1024, {
+      mode: 0o600,
+      hardMaxBytes: true,
+    });
+    daemonHarness.fsmTraceSource.openSnapshot.mockImplementation(() => traceSink.openSnapshot());
+    const eventTime = 1_700_000_001_000;
+    traceSink.write(JSON.stringify({
+      recordKind: "turn_span",
+      agentId: "bot_1",
+      event: "turn_begin",
+      effects: [],
+      nowMs: eventTime + 1,
+      timeIso: new Date(eventTime + 1).toISOString(),
+      traceTurnId: "turn-1",
+      daemonTurnOrdinal: 1,
+      spawnOrdinal: 1,
+      turnOrdinal: 1,
+      launchIdSnapshot: null,
+    }));
+    traceSink.write(JSON.stringify({
+      recordKind: "fsm",
+      agentId: "bot_1",
+      event: "register",
+      status: "idle",
+      turnActive: false,
+      inbox: 0,
+      lastDeliverAt: null,
+      lastProgressAt: eventTime,
+      idleSince: eventTime,
+      resetting: false,
+      resettingSince: null,
+      stoppingSince: null,
+      apmPhase: "idle",
+      effects: [],
+      nowMs: eventTime,
+      timeIso: new Date(eventTime).toISOString(),
+      sinceProgressMs: 0,
+      sinceDeliverMs: null,
+      sinceStoppingMs: null,
+    }));
+    fs.writeFileSync(path.join(dir, "status.json"), JSON.stringify({
+      writtenAt: eventTime,
+      agents: [{
+        agentId: "bot_1",
+        status: "idle",
+        derivedActivity: "idle",
+        turnActive: false,
+        inbox: 0,
+        sinceProgressMs: 0,
+        stoppingSince: null,
+      }],
+    }));
+    const readyError = new Error("stop after ready receipt");
+
+    try {
+      await expect(runPreparedDaemon(preparedDaemon(dir), {
+        foreground: false,
+        releaseOwnership: vi.fn(),
+        onReady: () => { throw readyError; },
+      })).rejects.toBe(readyError);
+
+      const coordinatorArgs = runnerDiagnosticHarness.createCoordinator.mock.calls[0]?.[0] as {
+        buildBundle: (args: {
+          command: {
+            type: "diagnostics:collect";
+            reportId: string;
+            agentId: string;
+            fromMs: number;
+            deadlineAt: number;
+          };
+          outputPath: string;
+        }) => Promise<unknown>;
+      };
+      const outputPath = path.join(dir, "runner-report.ndjson.gz");
+      await coordinatorArgs.buildBundle({
+        command: {
+          type: "diagnostics:collect",
+          reportId: "dbr_0123456789abcdef",
+          agentId: "bot_1",
+          fromMs: eventTime - 1,
+          deadlineAt: eventTime + 87_000_000,
+        },
+        outputPath,
+      });
+      const rows = gunzipSync(fs.readFileSync(outputPath)).toString("utf8")
+        .trimEnd()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+
+      const fsmRows = rows.filter((row) => row.recordType === "fsm");
+      expect(fsmRows).toEqual([
+        expect.objectContaining({
+          recordKind: "fsm",
+          agentId: "bot_1",
+          event: "register",
+          nowMs: eventTime,
+          timeMs: eventTime,
+        }),
+        expect.objectContaining({
+          recordKind: "turn_span",
+          agentId: "bot_1",
+          event: "turn_begin",
+          nowMs: eventTime + 1,
+          timeMs: eventTime + 1,
+        }),
+      ]);
+      expect(rows.at(-1)).toMatchObject({
+        recordType: "bundle_footer",
+        counts: { status: 1, fsm: 2 },
+      });
     } finally {
       removeNewProcessListeners(listenersBefore);
       vi.clearAllTimers();

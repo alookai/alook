@@ -29,7 +29,6 @@ declare namespace Cloudflare {
     BETTER_AUTH_SECRET: string
     BETTER_AUTH_URL: string
     CACHE_KV: KVNamespace
-    BUG_REPORTS_ENABLED?: string
     RUNTIME_MODEL_OPTIONS?: string
     MIN_CLI_VERSION?: string
   }

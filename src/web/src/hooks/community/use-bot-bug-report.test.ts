@@ -2,14 +2,15 @@ import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import {
   BUG_REPORT_POLL_INTERVAL_MS,
-  bugReportFailureMessage,
-  bugReportsFeatureEnabled,
+  bugReportErrorMessage,
   buildBugReportCreateRequest,
   buildBugReportStatusRequest,
   bugReportReducer,
+  createActionFromApiError,
   initialBugReportState,
   projectOwnerBugReport,
   shouldPollBugReport,
@@ -97,14 +98,6 @@ afterEach(() => {
 })
 
 describe("bug-report frontend adapter", () => {
-  it("enables the entry only for an exact top-level true capability", () => {
-    expect(bugReportsFeatureEnabled(undefined)).toBe(false)
-    expect(bugReportsFeatureEnabled({ bots: [], features: {} })).toBe(false)
-    expect(bugReportsFeatureEnabled({ bots: [], features: { bugReports: false } })).toBe(false)
-    expect(bugReportsFeatureEnabled({ bots: [], features: { bugReports: "true" } })).toBe(false)
-    expect(bugReportsFeatureEnabled({ bots: [], features: { bugReports: true } })).toBe(true)
-  })
-
   it("locks the POST and GET owner-route shapes without a real route", () => {
     expect(buildBugReportCreateRequest("bot_1", "00000000-0000-4000-8000-000000000001")).toEqual({
       path: "/api/community/bots/bot_1/diagnostics",
@@ -163,11 +156,11 @@ describe("bug-report frontend adapter", () => {
     ["upload_failed", "The report upload failed. Try again."],
     ["internal_error", "The report could not be completed. Try again."],
   ])("maps %s to fixed safe copy", (code, expected) => {
-    expect(bugReportFailureMessage(code)).toBe(expected)
+    expect(bugReportErrorMessage(code)).toBe(expected)
   })
 
   it("uses one fixed generic message for unknown codes instead of reflecting arbitrary detail", () => {
-    expect(bugReportFailureMessage("Bearer secret /Users/private")).toBe(
+    expect(bugReportErrorMessage("Bearer secret /Users/private")).toBe(
       "The report could not be completed. Try again.",
     )
   })
@@ -184,6 +177,87 @@ describe("bug-report client state", () => {
     const doubleConfirm = startBugReportAttempt(first, randomUUID)
     expect(randomUUID).toHaveBeenCalledTimes(1)
     expect(doubleConfirm).toEqual(first)
+  })
+
+  it.each([
+    [0, "network_error", false, "Unable to connect — check your network"],
+    [404, "target_unavailable", false, "Diagnostics aren't available for this bot right now."],
+    [409, "nonce_conflict", true, "That report already belongs to another bot. Try again."],
+    [429, "rate_limited", true, "You can send another report in a minute."],
+  ] as const)("maps create HTTP %s to semantic %s (terminal=%s)", (status, code, terminal, message) => {
+    const action = createActionFromApiError(new ApiError("server detail must not leak", status))
+    expect(action).toEqual({ type: "create_rejected", code })
+
+    const started = {
+      ...initialBugReportState,
+      phase: "submitting" as const,
+      clientNonce: "nonce-create",
+    }
+    const failed = bugReportReducer(started, action)
+    expect(failed).toMatchObject({
+      phase: "failed",
+      terminal,
+      errorCode: code,
+      clientNonce: "nonce-create",
+    })
+    expect(bugReportErrorMessage(code)).toBe(message)
+  })
+
+  it.each([
+    [500, "Something went wrong — please try again"],
+    [502, "upstream"],
+  ] as const)("maps create HTTP %s to unknown internal_error", (status, msg) => {
+    const action = createActionFromApiError(new ApiError(msg, status))
+    expect(action).toEqual({ type: "create_error" })
+    expect(bugReportReducer({
+      ...initialBugReportState,
+      phase: "submitting",
+      clientNonce: "nonce-unknown",
+    }, action)).toMatchObject({
+      phase: "failed",
+      terminal: false,
+      errorCode: "internal_error",
+    })
+  })
+
+  it("maps non-ApiError create failures to unknown internal_error", () => {
+    expect(createActionFromApiError(new TypeError("connection dropped"))).toEqual({
+      type: "create_error",
+    })
+  })
+
+  it.each([
+    ["network_error", false, "nonce-create"],
+    ["target_unavailable", false, "nonce-create"],
+    ["nonce_conflict", true, "nonce-new"],
+    ["rate_limited", true, "nonce-new"],
+  ] as const)("create %s retry nonce: reuse=%s", (code, expectNewNonce, expectedNonce) => {
+    const failed = bugReportReducer({
+      ...initialBugReportState,
+      phase: "submitting",
+      clientNonce: "nonce-create",
+    }, { type: "create_rejected", code })
+    const randomUUID = vi.fn(() => "nonce-new")
+    const retry = startBugReportAttempt(failed, randomUUID)
+    if (expectNewNonce) {
+      expect(randomUUID).toHaveBeenCalledTimes(1)
+    } else {
+      expect(randomUUID).not.toHaveBeenCalled()
+    }
+    expect(retry.clientNonce).toBe(expectedNonce)
+  })
+
+  it("never projects client request codes onto OwnerBugReport.failureCode", () => {
+    for (const code of ["rate_limited", "target_unavailable", "nonce_conflict", "network_error"]) {
+      expect(projectOwnerBugReport({
+        reportId: "dbr_clientcode123",
+        status: "failed",
+        deadlineAt: 5_000,
+        completedAt: 1_000,
+        failureCode: code,
+        objectExpired: false,
+      })).toBeNull()
+    }
   })
 
   it("reuses the nonce after an ambiguous POST failure and adopts an existing pending id", () => {
@@ -279,7 +353,7 @@ describe("bug-report client state", () => {
       terminal: true,
       clientNonce: "nonce-old",
       reportId: "dbr_old",
-      failureCode: "offline",
+      errorCode: "offline",
     }
     const randomUUID = vi.fn(() => "nonce-new")
     const next = startBugReportAttempt(failed, randomUUID)
@@ -322,6 +396,176 @@ describe("useBotBugReport", () => {
 
     resolveCreate({ report: { ...pendingReport(), status: "uploaded", completedAt: 2_000 } })
     await flushMicrotasks()
+    renderer.unmount()
+  })
+
+  it("starts fresh after a completed report is closed and reopened", async () => {
+    apiFetchMock.mockResolvedValueOnce({
+      delivery: "accepted",
+      report: { ...pendingReport(), status: "uploaded", completedAt: 2_000 },
+    })
+
+    const hook = renderBugReportHook()
+    await act(async () => {
+      await hook.result.current.confirm()
+    })
+    expect(hook.result.current.state).toMatchObject({
+      phase: "uploaded",
+      terminal: true,
+      reportId: "dbr_pending",
+    })
+
+    hook.setOpen(false)
+    expect(hook.result.current.state).toEqual(initialBugReportState)
+
+    hook.setOpen(true)
+    expect(hook.result.current.state).toEqual(initialBugReportState)
+    expect(apiFetchMock).toHaveBeenCalledTimes(1)
+    hook.renderer.unmount()
+  })
+
+  it.each([
+    [
+      "uploaded",
+      {
+        delivery: "accepted",
+        report: { ...pendingReport(), status: "uploaded" as const, completedAt: 2_000 },
+      },
+      { phase: "uploaded", reportId: "dbr_pending" },
+    ],
+    [
+      "failed",
+      {
+        delivery: "accepted",
+        report: {
+          ...pendingReport(),
+          status: "failed" as const,
+          failureCode: "collection_failed" as const,
+          completedAt: 2_000,
+        },
+      },
+      { phase: "failed", reportId: "dbr_pending", errorCode: "collection_failed" },
+    ],
+  ] as const)("resets when create resolves %s after the dialog already closed", async (_label, envelope, expected) => {
+    let resolveCreate!: (value: unknown) => void
+    apiFetchMock
+      .mockImplementationOnce(
+        () => new Promise((resolve) => {
+          resolveCreate = resolve
+        }),
+      )
+      .mockResolvedValueOnce(envelope)
+
+    const hook = renderBugReportHook()
+    await act(async () => {
+      void hook.result.current.confirm()
+    })
+    expect(hook.result.current.state.phase).toBe("submitting")
+
+    hook.setOpen(false)
+    expect(hook.result.current.state.phase).toBe("submitting")
+
+    await act(async () => {
+      resolveCreate(envelope)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(hook.result.current.state).toEqual(initialBugReportState)
+
+    hook.setOpen(true)
+    expect(hook.result.current.state).toEqual(initialBugReportState)
+    await act(async () => {
+      await hook.result.current.confirm()
+    })
+    expect(hook.result.current.state).toMatchObject(expected)
+    expect(apiFetchMock.mock.calls.filter(([, init]) =>
+      (init as RequestInit | undefined)?.method === "POST",
+    )).toHaveLength(2)
+    hook.renderer.unmount()
+  })
+
+  it("keeps the same collecting report across close/reopen and resumes GET without a new POST", async () => {
+    apiFetchMock
+      .mockResolvedValueOnce({ delivery: "accepted", report: pendingReport() })
+      .mockResolvedValue({ report: pendingReport() })
+
+    const hook = renderBugReportHook()
+    await act(async () => {
+      await hook.result.current.confirm()
+    })
+    await flushMicrotasks()
+    expect(hook.result.current.state).toMatchObject({
+      phase: "collecting",
+      reportId: "dbr_pending",
+      clientNonce: "00000000-0000-4000-8000-000000000001",
+      terminal: false,
+    })
+    const postsBeforeClose = apiFetchMock.mock.calls.filter(([, init]) =>
+      (init as RequestInit | undefined)?.method === "POST",
+    ).length
+    expect(postsBeforeClose).toBe(1)
+    const getsBeforeClose = apiFetchMock.mock.calls.filter(([, init]) =>
+      (init as RequestInit | undefined)?.method === "GET",
+    ).length
+    expect(getsBeforeClose).toBeGreaterThanOrEqual(1)
+
+    hook.setOpen(false)
+    expect(hook.result.current.state).toMatchObject({
+      phase: "collecting",
+      reportId: "dbr_pending",
+      clientNonce: "00000000-0000-4000-8000-000000000001",
+    })
+    const getsWhileClosed = apiFetchMock.mock.calls.filter(([, init]) =>
+      (init as RequestInit | undefined)?.method === "GET",
+    ).length
+
+    hook.setOpen(true)
+    await flushMicrotasks()
+    await vi.waitFor(() => {
+      const getsAfterReopen = apiFetchMock.mock.calls.filter(([, init]) =>
+        (init as RequestInit | undefined)?.method === "GET",
+      ).length
+      expect(getsAfterReopen).toBeGreaterThan(getsWhileClosed)
+    })
+
+    await act(async () => {
+      await hook.result.current.confirm()
+    })
+    await flushMicrotasks()
+
+    const postsAfterReopen = apiFetchMock.mock.calls.filter(([, init]) =>
+      (init as RequestInit | undefined)?.method === "POST",
+    )
+    expect(postsAfterReopen).toHaveLength(1)
+    expect(globalThis.crypto.randomUUID).toHaveBeenCalledTimes(1)
+    expect(hook.result.current.state).toMatchObject({
+      phase: "collecting",
+      reportId: "dbr_pending",
+      clientNonce: "00000000-0000-4000-8000-000000000001",
+    })
+    hook.renderer.unmount()
+  })
+
+  it.each([
+    [0, "network_error", false],
+    [404, "target_unavailable", false],
+    [409, "nonce_conflict", true],
+    [429, "rate_limited", true],
+  ] as const)("keeps create HTTP %s as %s instead of wiping to internal_error", async (status, code, terminal) => {
+    apiFetchMock.mockRejectedValueOnce(new ApiError("server detail must not leak", status))
+
+    const { renderer, result } = renderBugReportHook()
+    await act(async () => {
+      await result.current.confirm()
+    })
+    expect(result.current.state).toMatchObject({
+      phase: "failed",
+      terminal,
+      errorCode: code,
+    })
+    expect(bugReportErrorMessage(result.current.state.errorCode)).not.toBe(
+      bugReportErrorMessage("internal_error"),
+    )
     renderer.unmount()
   })
 
@@ -510,9 +754,9 @@ describe("useBotBugReport", () => {
     expect(hook.result.current.state).toMatchObject({
       phase: "failed",
       terminal: true,
-      failureCode: "internal_error",
+      errorCode: "internal_error",
     })
-    expect(bugReportFailureMessage(hook.result.current.state.failureCode)).toBe(
+    expect(bugReportErrorMessage(hook.result.current.state.errorCode)).toBe(
       "The report could not be completed. Try again.",
     )
     expect(JSON.stringify(hook.result.current.state)).not.toMatch(

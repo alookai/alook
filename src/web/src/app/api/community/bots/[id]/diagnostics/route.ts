@@ -4,7 +4,6 @@ import {
   queries,
 } from "@alook/shared";
 import { getDb } from "@/lib/db";
-import { isBugReportsEnabled } from "@/lib/community/diagnostic-feature";
 import { pushDiagnosticReportToMachine } from "@/lib/community/diagnostic-report-push";
 import {
   projectOwnerDiagnosticReport,
@@ -26,10 +25,6 @@ function reportEnvelope(
 }
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
-  if (!isBugReportsEnabled(ctx.env)) {
-    return writeError("diagnostic reports are unavailable", 404);
-  }
-
   const [body, bodyError] = await parseBody(req, DiagnosticReportCreateRequestSchema);
   if (bodyError) return bodyError;
   const agentId = ctx.params?.id as string;
