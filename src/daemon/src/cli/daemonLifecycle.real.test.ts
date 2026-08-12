@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { daemonStart } from "./daemonStart";
 
 const packageRoot = fileURLToPath(new URL("../..", import.meta.url));
-const tsxCli = createRequire(import.meta.url).resolve("tsx/cli");
+const tsxLoader = createRequire(import.meta.url).resolve("tsx");
 const cli = path.join(packageRoot, "src", "cli", "index.ts");
 const secret = "cmk_B0_REAL_PROCESS_SECRET";
 const machineId = "cm_machine_real_123456";
@@ -52,7 +52,7 @@ function cliArgs(baseDir: string, foreground = false): string[] {
 }
 
 function spawnCli(args: string[], env: NodeJS.ProcessEnv = {}): ChildProcess {
-  const child = spawn(process.execPath, [tsxCli, ...args], {
+  const child = spawn(process.execPath, ["--import", tsxLoader, ...args], {
     cwd: packageRoot,
     env: { ...process.env, ...env },
     stdio: ["ignore", "pipe", "pipe"],
@@ -105,6 +105,11 @@ function daemonLogRecords(baseDir: string): Array<{ message: string; fields: Rec
 function alive(pid: number): boolean {
   try {
     process.kill(pid, 0);
+  } catch {
+    return false;
+  }
+  if (process.platform === "win32") return true;
+  try {
     const state = execFileSync("ps", ["-p", String(pid), "-o", "stat="], { encoding: "utf8" }).trim();
     return state.length > 0 && !state.startsWith("Z");
   } catch {
@@ -112,19 +117,16 @@ function alive(pid: number): boolean {
   }
 }
 
-function isDescendant(pid: number, ancestor: number): boolean {
-  let current = pid;
-  for (let depth = 0; depth < 8; depth++) {
-    if (current === ancestor) return true;
-    try {
-      const parent = Number(execFileSync("ps", ["-p", String(current), "-o", "ppid="], { encoding: "utf8" }).trim());
-      if (!Number.isInteger(parent) || parent <= 1) return false;
-      current = parent;
-    } catch {
-      return false;
-    }
+function processDescription(pid: number): string {
+  if (process.platform === "win32") {
+    return execFileSync("powershell.exe", [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      `(Get-CimInstance Win32_Process -Filter 'ProcessId = ${pid}').CommandLine`,
+    ], { encoding: "utf8" });
   }
-  return false;
+  return execFileSync("ps", ["eww", "-p", String(pid), "-o", "command="], { encoding: "utf8" });
 }
 
 async function stop(baseDir: string): Promise<void> {
@@ -161,7 +163,7 @@ describe("daemon lifecycle real processes", () => {
     expect(alive(owner.pid)).toBe(true);
     expect(owner).toMatchObject({ machineId });
     expect(JSON.stringify(owner)).not.toContain(secret);
-    expect(execFileSync("ps", ["eww", "-p", String(owner.pid), "-o", "command="], { encoding: "utf8" })).not.toContain(secret);
+    expect(processDescription(owner.pid)).not.toContain(secret);
     const daemonDir = path.dirname(pidfile(baseDir));
     const logPath = path.join(daemonDir, "daemon.log");
     expect(fs.readFileSync(logPath, "utf8")).not.toContain(secret);
@@ -197,7 +199,7 @@ describe("daemon lifecycle real processes", () => {
     const foregroundResult = collect(foreground);
     await waitFor(() => fs.existsSync(pidfile(baseDir)) && fs.existsSync(path.join(path.dirname(pidfile(baseDir)), "daemon.log")));
     const owner = readOwner(baseDir);
-    expect(isDescendant(owner.pid, foreground.pid!)).toBe(true);
+    expect(owner.pid).toBe(foreground.pid);
     const contender = await runCli(cliArgs(baseDir));
     expect(contender.output).toContain("already running");
     expect(readOwner(baseDir)).toEqual(owner);
@@ -232,10 +234,7 @@ describe("daemon lifecycle real processes", () => {
     const secondResult = collect(second);
     await waitFor(() => fs.existsSync(pidfile(foregroundBase)));
     const foregroundOwner = readOwner(foregroundBase);
-    expect([
-      isDescendant(foregroundOwner.pid, first.pid!),
-      isDescendant(foregroundOwner.pid, second.pid!),
-    ].filter(Boolean)).toHaveLength(1);
+    expect([first.pid, second.pid]).toContain(foregroundOwner.pid);
     process.kill(foregroundOwner.pid, "SIGTERM");
     const results = await Promise.all([firstResult, secondResult]);
     expect(results.filter((result) => result.output.includes("already") || result.output.includes("in progress"))).toHaveLength(1);

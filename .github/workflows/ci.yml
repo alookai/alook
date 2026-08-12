@@ -111,7 +111,12 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test
+      - name: Run daemon tests in isolation
+        run: pnpm --filter @alook/daemon test
+      - name: Run remaining workspace tests
+        run: pnpm turbo run test --filter='!@alook/daemon'
+      - name: Run CI script tests
+        run: pnpm vitest run --project ci-scripts
 
   test-windows:
     name: Tests (windows-latest)
@@ -127,7 +132,12 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test
+      - name: Run daemon tests in isolation
+        run: pnpm --filter @alook/daemon test
+      - name: Run remaining workspace tests
+        run: pnpm turbo run test --filter='!@alook/daemon'
+      - name: Run CI script tests
+        run: pnpm vitest run --project ci-scripts
 
   e2e:
     name: E2E Tests
