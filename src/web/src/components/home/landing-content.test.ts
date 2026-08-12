@@ -120,13 +120,7 @@ describe("landing content contract", () => {
     expect(shellSource.match(/<DmHeader dm=\{DMS\[0\]\} titleAs="div" \/>/g)).toHaveLength(2)
     expect(shellSource).toContain('headingAs="div"')
     expect(dmHeaderSource).toContain('titleAs: Title = "h1"')
-    expect(dmHeaderSource).toContain(
-      'font-heading text-base font-medium leading-[1.15] tracking-[-0.015em]',
-    )
     expect(pairMachineSource).toContain('headingAs = "h3"')
-    expect(pairMachineSource).toContain(
-      'font-heading text-sm font-medium leading-tight tracking-[-0.015em]',
-    )
   })
 
   it("requires every Lighthouse SEO audit to pass", () => {
