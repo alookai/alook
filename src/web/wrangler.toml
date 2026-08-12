@@ -62,6 +62,10 @@ bucket_name = "alook-emails"
 binding = "COMMUNITY_MEDIA"
 bucket_name = "alook-community-media"
 
+[[r2_buckets]]
+binding = "BUG_REPORTS"
+bucket_name = "alook-bug-reports"
+
 # WS Durable Object is in a separate worker — access via Service Binding
 [[services]]
 binding = "WS_DO_WORKER"

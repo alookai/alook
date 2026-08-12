@@ -24,7 +24,7 @@
  */
 import { homedir } from "os";
 import { appendFileSync, mkdirSync } from "node:fs";
-import { createRotatingFileSink } from "../util/rotatingFileSink.js";
+import { createRotatingFileSink, type RotatingFileSink } from "../util/rotatingFileSink.js";
 import { createTraceSampler, DEFAULT_TRACE_FILE_MAX_BYTES } from "../util/traceSampler.js";
 import { writeStatusFile } from "../util/statusFile.js";
 import { WsControlChannel } from "../server/wsControlChannel.js";
@@ -291,6 +291,11 @@ export interface CreateDaemonOptions {
   handleDiagnosticCommand?: (command: DiagnosticCollectCommand) => void | Promise<void>;
   /** Fixed-code failure callback used when diagnostics is not available. */
   reportDiagnosticFailure?: (failure: DiagnosticFailureReport) => void | Promise<void>;
+  /** Supplies only the bounded default FSM snapshot source and status snapshot path. */
+  onDiagnosticSources?: (sources: {
+    fsmTraceSource: Pick<RotatingFileSink, "openSnapshot"> | null;
+    statusFilePath: string | undefined;
+  }) => void;
 }
 
 export interface RunningDaemon {
@@ -669,6 +674,37 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   // command dispatch, so runtime code always sees a populated cell.
   let router: AgentRouter | null = null;
 
+  const diagnosticTrace = (() => {
+    const overridePath = process.env.ALOOK_FSM_TRACE;
+    if (overridePath) {
+      return {
+        source: null,
+        onFsmTransition: (rec: ManagerTraceRecord) => {
+          try {
+            appendFileSync(overridePath, JSON.stringify(rec) + "\n");
+          } catch {
+            /* never let tracing break the daemon */
+          }
+        },
+      };
+    }
+    if (!opts.fsmTraceDir) return { source: null };
+    try {
+      mkdirSync(opts.fsmTraceDir, { recursive: true });
+    } catch {
+      /* best-effort: if the dir can't be made, sink writes just no-op */
+    }
+    const source = createRotatingFileSink(
+      `${opts.fsmTraceDir}/fsm-trace.jsonl`,
+      DEFAULT_TRACE_FILE_MAX_BYTES,
+    );
+    const sampler = createTraceSampler((rec) => source.write(JSON.stringify(rec)));
+    return {
+      source,
+      onFsmTransition: (rec: ManagerTraceRecord) => sampler.offer(rec),
+    };
+  })();
+
   const manager = new AgentProcessManager({
     // Wrap the caller's driverFor to short-circuit dispatch to a known-unhealthy
     // runtime. If the router flags the runtime as unhealthy we throw
@@ -752,43 +788,9 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     //   - `ALOOK_FSM_TRACE=<path>` OVERRIDE: unbounded single-file append at
     //     that path (deep-investigation mode; takes precedence over the
     //     default). Content is FSM metadata only (no PII) — safe to default on.
-    ...(() => {
-      const overridePath = process.env.ALOOK_FSM_TRACE;
-      if (overridePath) {
-        return {
-          onFsmTransition: (rec: ManagerTraceRecord) => {
-            try {
-              appendFileSync(overridePath, JSON.stringify(rec) + "\n");
-            } catch {
-              /* never let tracing break the daemon */
-            }
-          },
-        };
-      }
-      if (opts.fsmTraceDir) {
-        try {
-          mkdirSync(opts.fsmTraceDir, { recursive: true });
-        } catch {
-          /* best-effort: if the dir can't be made, sink writes just no-op */
-        }
-        const sink = createRotatingFileSink(
-          `${opts.fsmTraceDir}/fsm-trace.jsonl`,
-          DEFAULT_TRACE_FILE_MAX_BYTES,
-        );
-        // Heartbeat sampler between the manager and the sink (batch T4): folds
-        // redundant unchanged-state ticks + progress/runtime_signal noise so the
-        // bounded two-generation file retains ~16.73h at the executable N=8
-        // operational envelope.
-        // Transitions and watchdog-fired (effects-carrying) frames are never
-        // dropped. The ALOOK_FSM_TRACE override above is unbounded → unsampled,
-        // for full-fidelity deep dives.
-        const sampler = createTraceSampler((rec) => sink.write(JSON.stringify(rec)));
-        return {
-          onFsmTransition: (rec: ManagerTraceRecord) => sampler.offer(rec),
-        };
-      }
-      return {};
-    })(),
+    ...(diagnosticTrace.onFsmTransition
+      ? { onFsmTransition: diagnosticTrace.onFsmTransition }
+      : {}),
     // Only the "pi" runtime declares `Driver.createSession` today (in-process
     // SDK, no child process) — this is only ever consulted for that case.
     sdkDriverDepsFor: (ctx) => createPiSdkDriverDeps(ctx),
@@ -815,6 +817,10 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     statusTimer = setInterval(writeStatus, STATUS_WRITE_INTERVAL_MS);
     statusTimer.unref?.();
   }
+  opts.onDiagnosticSources?.({
+    fsmTraceSource: diagnosticTrace.source,
+    statusFilePath: opts.statusFilePath,
+  });
 
   router = new AgentRouter({
     manager,

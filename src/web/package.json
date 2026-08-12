@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "tsx scripts/validate-blog-assets.ts && next build",
     "validate:blog": "tsx scripts/validate-blog-assets.ts",
+    "preflight:bug-reports": "tsx scripts/preflight-bug-reports.ts",
     "start": "next start",
     "lint": "eslint src/",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",

@@ -1,8 +1,19 @@
+interface RuntimeEnv {
+  ENCRYPTION_KEY: string
+  AUTH_OTP_RATE_LIMIT_MAX?: string
+  AUTH_OTP_RATE_LIMIT_WINDOW_SEC?: string
+  DEVICE_CLIENT_IDS?: string
+  NODE_ENV?: string
+  DEV_WS_DO_URL?: string
+  DEV_WAKE_WORKER_URL?: string
+}
+
 declare namespace Cloudflare {
-  interface Env {
+  interface Env extends RuntimeEnv {
     DB: D1Database
     EMAIL_BUCKET: R2Bucket
     COMMUNITY_MEDIA: R2Bucket
+    BUG_REPORTS: R2Bucket
     WS_DO_WORKER: Fetcher
     EMAIL_WORKER: Fetcher
     WAKE_QUEUE: Queue<import("@alook/shared").WakePayload>
@@ -17,18 +28,16 @@ declare namespace Cloudflare {
     GOOGLE_CLIENT_SECRET: string
     BETTER_AUTH_SECRET: string
     BETTER_AUTH_URL: string
-    ENCRYPTION_KEY: string
     CACHE_KV: KVNamespace
-    AUTH_OTP_RATE_LIMIT_MAX?: string
-    AUTH_OTP_RATE_LIMIT_WINDOW_SEC?: string
     BUG_REPORTS_ENABLED?: string
     RUNTIME_MODEL_OPTIONS?: string
     MIN_CLI_VERSION?: string
-    DEVICE_CLIENT_IDS?: string
-    NODE_ENV?: string
-    DEV_WS_DO_URL?: string
-    DEV_WAKE_WORKER_URL?: string
   }
 }
 
 type Env = CloudflareEnv
+
+// Wrangler 4.119 emits CloudflareEnv from config bindings directly. Merge the
+// app's non-config runtime variables above back into that generated interface.
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+interface CloudflareEnv extends RuntimeEnv {}

@@ -1,7 +1,21 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { WebSocket } from "ws";
+import type { DiagnosticCollectCommand, DiagnosticReportFailureCode } from "@alook/shared";
 import { createDaemon } from "../daemon/createDaemon.js";
+import {
+  buildDiagnosticBundle,
+  createDiagnosticHttpTransport,
+  createDiagnosticReportCoordinator,
+  mergeChronologicalSnapshotRows,
+  projectDaemonLogRow,
+  projectFsmTraceRow,
+  projectStatusRow,
+  readPinnedJsonFile,
+  readSnapshotJsonLines,
+  type DiagnosticEventRow,
+  type SnapshotReadResult,
+} from "../diagnostics/index.js";
 import { getDriver, listRuntimeIds } from "../drivers/index.js";
 import type { RuntimeInfo } from "../discovery.js";
 import { createLogger, type Logger } from "../logger.js";
@@ -12,6 +26,8 @@ import { createRotatingFileSink, type RotatingFileSink } from "../util/rotatingF
 const CAPABILITIES = ["send", "read", "mentions", "tasks", "reactions", "server", "channels", "knowledge", "attach", "friend"];
 export const DAEMON_LOG_MAX_BYTES = 8 * 1024 * 1024;
 const DAEMON_ERROR_MESSAGE_MAX_CHARS = 512;
+const DIAGNOSTIC_MAX_LINE_BYTES = 128 * 1024;
+const DIAGNOSTIC_MAX_STATUS_BYTES = 1024 * 1024;
 
 export interface PreparedDaemon {
   machineId: string;
@@ -83,6 +99,88 @@ function safeDaemonError(error: unknown): { errorClass: string; error: string } 
   return { errorClass, error: scrubbed };
 }
 
+function diagnosticTimestamp(source: "daemon_log" | "fsm_trace", value: Record<string, unknown>): number | null {
+  if (source === "fsm_trace") {
+    return typeof value.nowMs === "number" && Number.isSafeInteger(value.nowMs) ? value.nowMs : null;
+  }
+  if (typeof value.time !== "string") return null;
+  const parsed = Date.parse(value.time);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
+async function diagnosticRows(args: {
+  source: Pick<RotatingFileSink, "openSnapshot"> | null;
+  sourceName: "daemon_log" | "fsm_trace";
+  fromMs: number;
+}): Promise<SnapshotReadResult> {
+  if (!args.source) return { rows: [], warnings: ["source_unavailable"], droppedRows: 0 };
+  return readSnapshotJsonLines({
+    source: args.source,
+    sourceName: args.sourceName,
+    fromMs: args.fromMs,
+    maxLineBytes: DIAGNOSTIC_MAX_LINE_BYTES,
+    timestampOf: (value) => diagnosticTimestamp(args.sourceName, value),
+  });
+}
+
+async function buildRunnerDiagnosticBundle(args: {
+  command: DiagnosticCollectCommand;
+  outputPath: string;
+  machineId: string;
+  daemonLogSource: Pick<RotatingFileSink, "openSnapshot">;
+  fsmTraceSource: Pick<RotatingFileSink, "openSnapshot"> | null;
+  statusFilePath: string | undefined;
+  now: () => number;
+}) {
+  const [daemon, fsm, statusRead] = await Promise.all([
+    diagnosticRows({ source: args.daemonLogSource, sourceName: "daemon_log", fromMs: args.command.fromMs }),
+    diagnosticRows({ source: args.fsmTraceSource, sourceName: "fsm_trace", fromMs: args.command.fromMs }),
+    args.statusFilePath
+      ? readPinnedJsonFile({ path: args.statusFilePath, maxBytes: DIAGNOSTIC_MAX_STATUS_BYTES })
+      : Promise.resolve({ value: null, warnings: ["source_unavailable"] as const }),
+  ]);
+  const warnings: string[] = [...daemon.warnings, ...fsm.warnings, ...statusRead.warnings];
+  if (daemon.warnings.includes("source_unavailable")) warnings.push("daemon_log_missing");
+  if (fsm.warnings.includes("source_unavailable")) warnings.push("fsm_trace_missing");
+  const status = projectStatusRow(statusRead.value, args.command.agentId);
+  if (!status) warnings.push("status_missing");
+
+  const droppedRows = {
+    daemon_log: daemon.droppedRows,
+    fsm: fsm.droppedRows,
+    status: statusRead.value !== null && !status ? 1 : 0,
+  };
+  const events: DiagnosticEventRow[] = [];
+  for (const row of mergeChronologicalSnapshotRows([daemon.rows, fsm.rows])) {
+    const projected = row.source === "daemon_log"
+      ? projectDaemonLogRow(row.value, args.command.agentId)
+      : projectFsmTraceRow(row.value, args.command.agentId);
+    if (!projected || (projected.recordType !== "daemon_log" && projected.recordType !== "fsm")) {
+      droppedRows[row.source === "daemon_log" ? "daemon_log" : "fsm"] += 1;
+      continue;
+    }
+    events.push(projected as DiagnosticEventRow);
+  }
+
+  return buildDiagnosticBundle({
+    outputPath: args.outputPath,
+    header: {
+      recordType: "bundle_header",
+      schemaVersion: 1,
+      reportId: args.command.reportId,
+      agentId: args.command.agentId,
+      machineId: args.machineId,
+      capturedAt: args.now(),
+      fromMs: args.command.fromMs,
+      deadlineAt: args.command.deadlineAt,
+    },
+    status,
+    events,
+    sourceWarnings: warnings,
+    sourceDroppedRows: droppedRows,
+  });
+}
+
 export function createDaemonProcessLogger(
   daemonDir: string,
   foreground: boolean,
@@ -130,10 +228,46 @@ export async function runPreparedDaemon(
     opts.releaseOwnership();
     throw error;
   }
-  const { logger: log, logPath } = processLogger;
+  const { logger: log, logPath, sink: daemonLogSource } = processLogger;
   let shuttingDown = false;
   let daemon: Awaited<ReturnType<typeof createDaemon>> | null = null;
+  const diagnosticLifecycle: {
+    coordinator: ReturnType<typeof createDiagnosticReportCoordinator> | null;
+  } = { coordinator: null };
+  const diagnosticTransport = createDiagnosticHttpTransport({
+    serverUrl: prepared.serverUrl,
+    machineKey: prepared.machineKey,
+  });
   const keepAlive = setInterval(() => {}, 24 * 60 * 60 * 1000);
+
+  const reportDiagnosticFailure = async (failure: {
+    reportId: string;
+    failureCode: DiagnosticReportFailureCode;
+  }): Promise<void> => {
+    await diagnosticTransport.fail(failure.reportId, failure.failureCode);
+  };
+
+  const handleDiagnosticCommand = async (command: DiagnosticCollectCommand): Promise<void> => {
+    try {
+      if (!diagnosticLifecycle.coordinator) {
+        await reportDiagnosticFailure({
+          reportId: command.reportId,
+          failureCode: "diagnostics_unavailable",
+        });
+        return;
+      }
+      await diagnosticLifecycle.coordinator.collect(command);
+    } catch (error) {
+      const failureCode: DiagnosticReportFailureCode =
+        error !== null
+          && typeof error === "object"
+          && "code" in error
+          && error.code === "bundle_too_large"
+          ? "bundle_too_large"
+          : "collection_failed";
+      await reportDiagnosticFailure({ reportId: command.reportId, failureCode });
+    }
+  };
 
   const testShutdownDelay = async (): Promise<void> => {
     if (process.env.NODE_ENV !== "test") return;
@@ -148,7 +282,11 @@ export async function runPreparedDaemon(
     if (process.env.NODE_ENV === "test" && process.env.ALOOK_DAEMON_TEST_STOP_REJECT === "1") {
       throw new Error("test teardown failed cmk_B0_FATAL_SECRET");
     }
-    await daemon?.stop();
+    try {
+      await diagnosticLifecycle.coordinator?.shutdown();
+    } finally {
+      await daemon?.stop();
+    }
   };
 
   const shutdown = async (exitCode: number): Promise<never> => {
@@ -210,6 +348,39 @@ export async function runPreparedDaemon(
       osRelease: prepared.osRelease,
       daemonVersion: prepared.daemonVersion,
       logger: log,
+      handleDiagnosticCommand,
+      reportDiagnosticFailure,
+      onDiagnosticSources: ({ fsmTraceSource, statusFilePath }) => {
+        if (diagnosticLifecycle.coordinator) return;
+        diagnosticLifecycle.coordinator = createDiagnosticReportCoordinator({
+          machineDir: prepared.daemonDir,
+          buildBundle: ({ command, outputPath }) => buildRunnerDiagnosticBundle({
+            command,
+            outputPath,
+            machineId: prepared.machineId,
+            daemonLogSource,
+            fsmTraceSource,
+            statusFilePath,
+            now: Date.now,
+          }),
+          transport: diagnosticTransport,
+          now: Date.now,
+          sleep: (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)),
+          scheduleRetry: (delayMs, task) => {
+            const timer = setTimeout(() => {
+              void task().catch((error) => {
+                log.warn("diagnostic retry failed", safeDaemonError(error));
+              });
+            }, delayMs);
+            timer.unref?.();
+            return () => clearTimeout(timer);
+          },
+          retry: { maxAttemptsPerRound: 3, baseDelayMs: 250, maxDelayMs: 30_000 },
+          logger: {
+            warn: (message, fields) => log.warn(message, fields),
+          },
+        });
+      },
       onAuthRejected: () => {
         log.error("machine key rejected by server — is it correct / has it expired?");
         void shutdown(1);
@@ -217,9 +388,16 @@ export async function runPreparedDaemon(
     });
   } catch (error) {
     clearInterval(keepAlive);
+    await diagnosticLifecycle.coordinator?.shutdown().catch(() => {});
     log.error("daemon runner initialization failed", safeDaemonError(error));
     opts.releaseOwnership();
     throw error;
+  }
+
+  if (diagnosticLifecycle.coordinator) {
+    void diagnosticLifecycle.coordinator.recover().catch((error: unknown) => {
+      log.warn("diagnostic recovery failed", safeDaemonError(error));
+    });
   }
 
   logDaemonUp(log, daemon.proxyUrl, prepared.wsUrl);

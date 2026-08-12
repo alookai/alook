@@ -139,6 +139,40 @@ function factory(sockets: FakeSocket[]) {
 }
 
 describe("createDaemon", () => {
+  it("supplies only the canonical default FSM snapshot source and status path", async () => {
+    const sockets: FakeSocket[] = [];
+    const root = mkdtempSync(join(tmpdir(), "daemon-diagnostic-sources-"));
+    startupSweepDirs.push(root);
+    const onDiagnosticSources = vi.fn();
+    vi.stubEnv("ALOOK_FSM_TRACE", "");
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ bots: [] })));
+
+    const daemon = await createDaemon({
+      machineKey: "cmk_diagnostics_sources",
+      serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as any,
+      runtimeReport: [],
+      driverFor: () => fakeDriver,
+      capabilities: [],
+      fsmTraceDir: root,
+      statusFilePath: join(root, "status.json"),
+      onDiagnosticSources,
+    } as Parameters<typeof createDaemon>[0]);
+
+    try {
+      expect(onDiagnosticSources).toHaveBeenCalledOnce();
+      const sources = onDiagnosticSources.mock.calls[0]![0] as Record<string, unknown>;
+      expect(Object.keys(sources).sort()).toEqual(["fsmTraceSource", "statusFilePath"]);
+      expect(sources.statusFilePath).toBe(join(root, "status.json"));
+      expect(sources.fsmTraceSource).toEqual(expect.objectContaining({
+        openSnapshot: expect.any(Function),
+      }));
+    } finally {
+      await daemon.stop();
+    }
+  });
+
   it("consumes diagnostics before Router and invokes the injected handler once", async () => {
     const sockets: FakeSocket[] = [];
     const routerEntry = spyOnRouterCommandEntry();
