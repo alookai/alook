@@ -2,7 +2,7 @@ export const metadata = {
   slug: "claude-code-and-codex-same-team",
   title: "How to Bring Claude Code and Codex Into the Same Team",
   date: "2026-07-22",
-  dateModified: "2026-08-10",
+  dateModified: "2026-08-12",
   author: "Alook Team",
   excerpt:
     "Use Claude Code and Codex as one coordinated team. Roles, handoffs, shared status, and a coordination layer that connects separate coding-agent sessions.",
@@ -17,6 +17,30 @@ export const jsonLd = [
     "@context": "https://schema.org",
     "@type": "FAQPage",
     mainEntity: [
+      {
+        "@type": "Question",
+        name: "How do you use Claude and Codex together?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Use both runtimes against the same repository, give each a stable role such as implementer or reviewer, move code through Git, and pass structured handoffs with branch, decisions, checks run, and the next action. Add a coordination layer when those handoffs must survive closed CLI sessions.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "Codex vs Claude Code: which should you use?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Neither wins every job. Pick by task, subscription, and habit. Many teams keep both: one runtime implements on a branch while the other reviews the diff. The comparison is about role fit, not a universal ranking.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "Can Claude Code delegate to Codex?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Yes, when you treat delegation as a structured handoff, not automatic chat sync. Claude Code finishes a scoped slice, packages objective, branch, files changed, decisions, and open questions, then Codex picks up review or the next step. Git carries code; the handoff carries intent.",
+        },
+      },
       {
         "@type": "Question",
         name: "Can you use Claude Code and Codex together?",
@@ -95,7 +119,7 @@ export const jsonLd = [
 
 ![Illustration of two separate coding-agent runtimes (Builder and Reviewer) connected by a gold coordination layer with handoffs and human merge approval](/blog/claude-code-and-codex-same-team/hero.webp)
 
-Yes, you can use Claude Code and Codex together on the same repository. They will not share one brain or one chat history. Turning them into one team means stable roles, structured handoffs, shared status, and a human approval boundary for merge and release.
+Yes, you can use Claude Code and Codex together on the same repository. They will not share one brain or one chat history. If you want to know how to use Claude and Codex together as one team, start with stable roles, structured handoffs, shared status, and a human approval boundary for merge and release—not a shared chat session.
 
 You might use Claude Code to implement a feature and Codex to review the diff. Or the other way around. The friction shows up when work has to cross from one runtime into the other. Unless you design for that crossing, you become the hidden router between sessions.
 
@@ -218,7 +242,7 @@ That list overlaps with the handoff minimum in [shared context between agents](/
 
 ## Running Claude Code and Codex through Alook
 
-[Alook](https://alook.ai) is an open-source, self-hosted platform that connects local AI coding agents into a coordinated team. Public documentation and the [GitHub repository](https://github.com/alookai/alook) state support for Claude Code, Codex, and OpenCode today, with additional runtimes listed as coming soon.
+[Alook](https://alook.ai) is an open-source, self-hosted platform that connects local AI coding agents into a coordinated team. Public documentation and the [GitHub repository](https://github.com/alookai/alook) list Claude Code, Codex, Cursor, OpenCode, and Pi as supported local runtimes today.
 
 ### When Alook fits
 
@@ -284,10 +308,22 @@ Alook does not replace either runtime. It sits between them so you stop being th
 
 Alook is a coordination layer, not a merged IDE. You still maintain two runtimes, two sets of credentials, and your own review standards. Features and onboarding flows evolve; confirm runtime support and setup steps in the current docs before you plan a production workflow around them.
 
-To explore templates and roles, see [Alook templates](https://alook.ai/templates). For broader team design, see [how to build an AI agent team](/blog/ai-agent-team) and [how to delegate tasks to AI agents](/blog/how-to-delegate-tasks-to-ai-agents).
+To explore templates and roles, see [Alook templates](https://alook.ai/templates). For broader team design, see [AI agent orchestration](/blog/ai-agent-orchestration), [how to build an AI agent team](/blog/ai-agent-team), and [how to delegate tasks to AI agents](/blog/how-to-delegate-tasks-to-ai-agents).
 
 
 ## Claude Code and Codex FAQ
+
+### How do you use Claude and Codex together?
+
+Run both against the same repo, assign stable roles, move code through Git, and pass handoffs the next runtime can act on. When sessions close, add identities, threads, or task records so review findings and implementation updates do not depend on you pasting between terminals.
+
+### Codex vs Claude Code: which should you use?
+
+Neither wins every job. Pick by task, subscription, and habit. Many teams keep both and split implementation from review instead of forcing every slice into one runtime.
+
+### Can Claude Code delegate to Codex?
+
+Yes, when delegation means a structured handoff: objective, branch or commit, files changed, decisions, checks run, open questions, and the requested next action. Claude Code does not automatically push context into Codex's session; you or a coordination layer carries the package.
 
 ### Can you use Claude Code and Codex together?
 
@@ -308,6 +344,22 @@ There is no universal winner. Pick by job, subscription, and habit. Many teams k
 ### What is a Claude Code handoff to Codex?
 
 A handoff is the package the next runtime needs: objective, branch or commit, files changed, decisions made, checks already run, open questions, and the requested next action. Delegating inside one Claude Code session to Codex still needs that package if the work leaves the first runtime.
+
+### Can Claude Code and Codex work on the same repository?
+
+Yes. Branches, commits, and pull requests are the usual shared surface. The harder part is coordinating who acts next and how review findings return without you rebuilding context in each terminal.
+
+### Does Alook replace Claude Code or Codex?
+
+No. Alook coordinates roles, handoffs, and visibility across runtimes. Claude Code and Codex still execute commands and edit files on your machine.
+
+### Do Claude Code and Codex agents need to run on the same machine?
+
+Not necessarily. Each connected runtime needs repository access and a handoff that carries enough context for the next agent to act. Confirm machine pairing and daemon setup in current Alook docs for your layout.
+
+### Can Alook be self-hosted?
+
+Yes. Alook is open source under Apache 2.0. Self-host from GitHub or register at alook.ai and connect your local runtime.
 
 ## When keeping them separate is simpler
 
