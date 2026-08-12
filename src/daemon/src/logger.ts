@@ -44,6 +44,16 @@ export interface LoggerOptions {
   /** Injectable sinks (tests). Default stdout/stderr. */
   out?: (line: string) => void;
   err?: (line: string) => void;
+  /** Structured sink shared by the root logger and every child logger. */
+  record?: (record: LogRecord) => void;
+}
+
+export interface LogRecord {
+  time: string;
+  header: string;
+  level: LogLevel;
+  message: string;
+  fields: Record<string, unknown>;
 }
 
 const DEFAULT_HEADER = "@alook/daemon";
@@ -72,16 +82,42 @@ function formatData(data: unknown[]): string {
   return " " + parts.join(" ");
 }
 
+function recordFields(data: unknown[]): Record<string, unknown> {
+  const fields: Record<string, unknown> = {};
+  let positional = 0;
+  for (const value of data) {
+    if (value instanceof Error) {
+      fields.error = value.message;
+      continue;
+    }
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+      for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+        fields[key] = entry;
+      }
+      continue;
+    }
+    fields[`arg${positional++}`] = value;
+  }
+  return fields;
+}
+
 export function createLogger(options: LoggerOptions = {}): Logger {
   const header = options.header ?? DEFAULT_HEADER;
   const minRank = LEVEL_RANK[options.level ?? envLevel() ?? "info"];
   const now = options.now ?? (() => new Date().toISOString());
   const out = options.out ?? ((line) => process.stdout.write(line + "\n"));
   const err = options.err ?? ((line) => process.stderr.write(line + "\n"));
+  const record = options.record;
 
   const emit = (level: LogLevel, message: string, data: unknown[]): void => {
     if (LEVEL_RANK[level] < minRank) return;
-    const line = `${now()} ${header} ${level.toUpperCase().padEnd(5)} ${message}${formatData(data)}`;
+    const time = now();
+    const line = `${time} ${header} ${level.toUpperCase().padEnd(5)} ${message}${formatData(data)}`;
+    try {
+      record?.({ time, header, level, message, fields: recordFields(data) });
+    } catch {
+      // Logging must never terminate the daemon.
+    }
     (level === "warn" || level === "error" ? err : out)(line);
   };
 

@@ -21,7 +21,7 @@ import { pathToFileURL } from "node:url";
 import type { ServerApi, Cursor, Message } from "../server/contract.js";
 import { parseRef } from "../server/contract.js";
 import { proxyServerApiFromEnv } from "./proxyServerApi.js";
-import { daemonStart, daemonStop, daemonList, daemonStatus, type DaemonInfo } from "./daemonStart.js";
+import { daemonRunFromIpc, daemonStart, daemonStop, daemonList, daemonStatus, type DaemonInfo } from "./daemonStart.js";
 import { parseInviteToken } from "@alook/shared/lib/invite-link";
 import { MAX_EMOJI_BYTES } from "@alook/shared/constants/community";
 import { nowLocalISO, toLocalISO } from "../util/localTime.js";
@@ -880,6 +880,7 @@ function buildProgram(): Command {
     .option("--server-url <url>", "server HTTP URL (or ALOOK_SERVER_URL env)")
     .option("--ws-url <url>", "server WebSocket URL (or ALOOK_SERVER_WS_URL env)")
     .option("--base-dir <path>", "data directory for agent workspaces and pidfile (or ALOOK_DATA_DIR env)")
+    .option("--foreground", "run in the current process and tee daemon logs to the terminal")
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })
     .action(async function (this: Command) {
@@ -889,7 +890,16 @@ function buildProgram(): Command {
         serverUrl: localOpts.serverUrl as string | undefined,
         wsUrl: localOpts.wsUrl as string | undefined,
         baseDir: localOpts.baseDir as string | undefined,
+        foreground: localOpts.foreground === true,
       });
+    });
+
+  daemon
+    .command("run", { hidden: true })
+    .exitOverride()
+    .configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async () => {
+      await daemonRunFromIpc();
     });
 
   daemon

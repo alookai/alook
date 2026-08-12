@@ -35,7 +35,7 @@ describe("daemonStop — event-loop friendly (no spin loop)", () => {
     // where the event lags behind the OS process actually being gone).
     const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
 
-    const id = "abc123def456";
+    const id = "cm_abc123def456";
     const daemonsDir = path.join(baseDir, "daemons");
     // Per-key subdir layout (C0): pidfile is daemons/<id>/daemon.pid.
     fs.mkdirSync(path.join(daemonsDir, id), { recursive: true });
@@ -76,8 +76,55 @@ describe("daemonStop — event-loop friendly (no spin loop)", () => {
     expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
   }, 15_000);
 
+  it("keeps ownership through SIGKILL until a SIGTERM-ignoring process is dead", async () => {
+    const child = spawn(
+      process.execPath,
+      ["-e", "process.on('SIGTERM',()=>{});process.stdout.write('ready');setInterval(()=>{},1000)"],
+      { stdio: ["ignore", "pipe", "ignore"] },
+    );
+    await new Promise<void>((resolve) => child.stdout!.once("data", () => resolve()));
+    const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+    const id = "cm_sigkill_test_1";
+    const dir = path.join(baseDir, "daemons", id);
+    fs.mkdirSync(dir, { recursive: true });
+    pidfile = path.join(dir, "daemon.pid");
+    fs.writeFileSync(pidfile, JSON.stringify({ pid: child.pid, key: "cmk_test_key" }));
+
+    await daemonStop({ id, baseDir });
+
+    expect(() => process.kill(child.pid!, 0)).toThrow();
+    expect(fs.existsSync(pidfile)).toBe(false);
+    await exited;
+  }, 15_000);
+
   it("stop with an unknown id is a no-op (no throw), points at `daemon list`", async () => {
     // No pidfile for this id → graceful message, no crash.
     await expect(daemonStop({ id: "deadbeef0000", baseDir })).resolves.toBeUndefined();
+  });
+
+  it.each([
+    "../outside",
+    "/tmp/outside",
+    "cm_bad\\segment",
+    `cm_${"a".repeat(65)}`,
+  ])("rejects an unsafe id before resolving a pidfile: %s", async (id) => {
+    await expect(daemonStop({ id, baseDir })).rejects.toThrow("invalid daemon id");
+  });
+
+  it("does not read or signal a pid from a traversal-selected pidfile", async () => {
+    const child = spawn(process.execPath, ["-e", "setInterval(()=>{}, 1000)"], { stdio: "ignore" });
+    const outsideName = `${path.basename(baseDir)}-outside`;
+    const outsideDir = path.join(path.dirname(baseDir), outsideName);
+    const outsidePidfile = path.join(outsideDir, "daemon.pid");
+    fs.mkdirSync(outsideDir, { recursive: true });
+    fs.writeFileSync(outsidePidfile, JSON.stringify({ pid: child.pid, key: "cmk_outside" }));
+    try {
+      await expect(daemonStop({ id: `../../${outsideName}`, baseDir })).rejects.toThrow("invalid daemon id");
+      expect(() => process.kill(child.pid!, 0)).not.toThrow();
+      expect(fs.readFileSync(outsidePidfile, "utf8")).toContain("cmk_outside");
+    } finally {
+      child.kill("SIGKILL");
+      fs.rmSync(outsideDir, { recursive: true, force: true });
+    }
   });
 });

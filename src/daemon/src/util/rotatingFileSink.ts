@@ -24,11 +24,32 @@
  * onFsmTransition callback, after the reduce), and keeping it sync avoids
  * interleaving/ordering hazards a per-line async write would add.
  */
-import { appendFileSync, chmodSync, statSync, renameSync, existsSync } from "node:fs";
+import {
+  appendFileSync,
+  chmodSync,
+  closeSync,
+  constants,
+  existsSync,
+  fstatSync,
+  lstatSync,
+  openSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+} from "node:fs";
+
+export interface RotatingFileSnapshot {
+  files: Array<{ path: string; fd: number; size: number }>;
+  close(): void;
+}
 
 export interface RotatingFileSink {
+  /** Tightens every existing generation before a caller starts using the sink. */
+  secure(): boolean;
   /** Append one already-serialized line (a trailing newline is added). */
   write(line: string): void;
+  /** Opens rotated then active synchronously and pins each generation's size. */
+  openSnapshot(): RotatingFileSnapshot;
 }
 
 export interface RotatingFileSinkOptions {
@@ -37,7 +58,7 @@ export interface RotatingFileSinkOptions {
   /** Rotate before a write that would make the active generation exceed maxBytes. */
   hardMaxBytes?: boolean;
   /** Best-effort observability for callers that need to surface sink failure. */
-  onError?: (info: { operation: "stat" | "rotate" | "append" | "chmod"; error: unknown }) => void;
+  onError?: (info: { operation: "stat" | "rotate" | "append" | "chmod" | "oversize" | "oversize_generation" | "unsafe_generation" | "snapshot"; error: unknown }) => void;
 }
 
 /**
@@ -53,7 +74,7 @@ export function createRotatingFileSink(
   maxBytes: number,
   opts: RotatingFileSinkOptions = {},
 ): RotatingFileSink {
-  const report = (operation: "stat" | "rotate" | "append" | "chmod", error: unknown): void => {
+  const report = (operation: "stat" | "rotate" | "append" | "chmod" | "oversize" | "oversize_generation" | "unsafe_generation" | "snapshot", error: unknown): void => {
     try {
       opts.onError?.({ operation, error });
     } catch {
@@ -61,10 +82,25 @@ export function createRotatingFileSink(
     }
   };
 
-  const secureActive = (): boolean => {
-    if (opts.mode === undefined || !existsSync(path)) return true;
+  const secureGeneration = (filePath: string): boolean => {
+    if (!existsSync(filePath)) return true;
     try {
-      chmodSync(path, opts.mode);
+      const stat = lstatSync(filePath);
+      if (!stat.isFile()) {
+        if (opts.mode === undefined && !opts.hardMaxBytes) return true;
+        report("unsafe_generation", new Error("log generation is not a regular file"));
+        return false;
+      }
+      if (opts.mode !== undefined) chmodSync(filePath, opts.mode);
+      if (opts.hardMaxBytes && maxBytes > 0 && stat.size > maxBytes) {
+        try {
+          unlinkSync(filePath);
+        } catch (error) {
+          report("oversize_generation", error);
+          return false;
+        }
+        report("oversize_generation", new Error(`removed generation larger than ${maxBytes} bytes`));
+      }
       return true;
     } catch (error) {
       report("chmod", error);
@@ -76,6 +112,7 @@ export function createRotatingFileSink(
     try {
       // Overwrite any prior `.1` — we only keep one generation back.
       renameSync(path, `${path}.1`);
+      if (opts.mode !== undefined) chmodSync(`${path}.1`, opts.mode);
       return true;
     } catch (error) {
       report("rotate", error);
@@ -93,16 +130,24 @@ export function createRotatingFileSink(
     }
   };
 
-  return {
+  const sink: RotatingFileSink = {
+    secure(): boolean {
+      return secureGeneration(`${path}.1`) && secureGeneration(path);
+    },
     write(line: string): void {
       try {
-        if (!secureActive()) return;
+        if (!sink.secure()) return;
         const serialized = line + "\n";
+        const serializedBytes = Buffer.byteLength(serialized, "utf8");
+        if (opts.hardMaxBytes && maxBytes > 0 && serializedBytes > maxBytes) {
+          report("oversize", new Error(`record exceeds ${maxBytes} bytes`));
+          return;
+        }
         const measuredBytes = currentSize();
         if (measuredBytes === null && opts.hardMaxBytes) return;
         const currentBytes = measuredBytes ?? 0;
         const shouldRotate = maxBytes > 0 && (opts.hardMaxBytes
-          ? currentBytes > 0 && currentBytes + Buffer.byteLength(serialized, "utf8") > maxBytes
+          ? currentBytes > 0 && currentBytes + serializedBytes > maxBytes
           : currentBytes >= maxBytes);
         if (shouldRotate && !rotate() && opts.hardMaxBytes) return;
         appendFileSync(path, serialized, opts.mode === undefined ? undefined : { mode: opts.mode });
@@ -111,5 +156,42 @@ export function createRotatingFileSink(
         /* never let tracing break the daemon */
       }
     },
+    openSnapshot(): RotatingFileSnapshot {
+      const files: RotatingFileSnapshot["files"] = [];
+      try {
+        for (const candidate of [`${path}.1`, path]) {
+          if (!existsSync(candidate)) continue;
+          if (!secureGeneration(candidate)) continue;
+          const noFollow = "O_NOFOLLOW" in constants ? constants.O_NOFOLLOW : 0;
+          const fd = openSync(candidate, constants.O_RDONLY | noFollow);
+          try {
+            const stat = fstatSync(fd);
+            if (!stat.isFile()) throw new Error("snapshot source is not a regular file");
+            files.push({ path: candidate, fd, size: stat.size });
+          } catch (error) {
+            closeSync(fd);
+            throw error;
+          }
+        }
+      } catch (error) {
+        for (const file of files) {
+          try { closeSync(file.fd); } catch { /* best effort */ }
+        }
+        report("snapshot", error);
+        return { files: [], close: () => {} };
+      }
+      let closed = false;
+      return {
+        files,
+        close(): void {
+          if (closed) return;
+          closed = true;
+          for (const file of files) {
+            try { closeSync(file.fd); } catch { /* best effort */ }
+          }
+        },
+      };
+    },
   };
+  return sink;
 }

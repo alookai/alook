@@ -39,7 +39,7 @@ describe("daemonList — C3 fields", () => {
   });
 
   it("prunes a dead daemon's pidfile and reports nothing alive for it", () => {
-    const dir = path.join(baseDir, "daemons", "deadone00000");
+    const dir = path.join(baseDir, "daemons", "dead00000000");
     fs.mkdirSync(dir, { recursive: true });
     // pid 1 is init — process.kill(1, 0) from a normal user throws EPERM, which
     // isProcessAlive treats as... alive. Use a pid that's almost certainly dead.
@@ -48,7 +48,7 @@ describe("daemonList — C3 fields", () => {
     fs.writeFileSync(pidfile, JSON.stringify({ pid: deadPid, key: "cmk_x" }));
 
     const list = daemonList({ baseDir });
-    const dead = list.find((d) => d.id === "deadone00000");
+    const dead = list.find((d) => d.id === "dead00000000");
     if (dead) {
       expect(dead.alive).toBe(false);
       expect(dead.agents).toBeNull(); // no live agents attributed to a dead daemon
@@ -174,11 +174,19 @@ describe("daemonList — C0 per-daemon subdir layout + multi-daemon isolation", 
     const dir = path.join(baseDir, "daemons");
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, "straystray00.pid"), JSON.stringify({ pid: process.pid, key: "cmk_stray" }));
-    writeDaemon("newnewnewnew", process.pid, 2, Date.now());
+    writeDaemon("eeeeeeeeeeee", process.pid, 2, Date.now());
 
     const list = daemonList({ baseDir });
     expect(list.find((d) => d.id === "straystray00")).toBeUndefined(); // flat file ignored
-    expect(list.find((d) => d.id === "newnewnewnew")?.agents).toBe(2); // only subdir daemons
+    expect(list.find((d) => d.id === "eeeeeeeeeeee")?.agents).toBe(2); // only subdir daemons
+  });
+
+  it("ignores directories whose names are neither current nor legacy daemon ids", () => {
+    writeDaemon("not-a-daemon-id", process.pid, 2, Date.now());
+    writeDaemon("abcdefabcdef", process.pid, 1, Date.now());
+
+    const list = daemonList({ baseDir });
+    expect(list.map((row) => row.id)).toEqual(["abcdefabcdef"]);
   });
 });
 
@@ -200,7 +208,7 @@ describe("daemonList — C0.1 machineId anchor (cmt_ rotation doesn't drift)", (
   };
 
   it("two reconnect generations (different cmt_, same machineId) → ONE dir, ONE row (the C0.1 regression)", () => {
-    const MACHINE_ID = "mach_stable01";
+    const MACHINE_ID = "cm_machine_stable01";
     // First pairing: cmt_ token A.
     writeGeneration(MACHINE_ID, "cmt_tokenAAAA");
     // Reconnect mints a fresh cmt_ (token B) bound to the SAME machineId — the
@@ -212,14 +220,14 @@ describe("daemonList — C0.1 machineId anchor (cmt_ rotation doesn't drift)", (
     const rows = list.filter((d) => d.id === MACHINE_ID);
     expect(rows).toHaveLength(1); // no drift: still one daemon dir
     // Only one subdir exists on disk (not two hash dirs).
-    expect(fs.readdirSync(path.join(baseDir, "daemons")).filter((f) => f.startsWith("mach_"))).toEqual([MACHINE_ID]);
+    expect(fs.readdirSync(path.join(baseDir, "daemons")).filter((f) => f.startsWith("cm_"))).toEqual([MACHINE_ID]);
   });
 
   it("the list id IS the machineId (stable, long-term stop-able) — not a per-token hash", () => {
-    writeGeneration("mach_stable01", "cmt_whatever");
-    const row = daemonList({ baseDir }).find((d) => d.id === "mach_stable01");
+    writeGeneration("cm_machine_stable01", "cmt_whatever");
+    const row = daemonList({ baseDir }).find((d) => d.id === "cm_machine_stable01");
     expect(row).toBeTruthy();
-    expect(row!.id).toBe("mach_stable01"); // the subdir name = machineId
+    expect(row!.id).toBe("cm_machine_stable01"); // the subdir name = machineId
     // A pidfile `key` breadcrumb (the volatile token) never leaks into the id/output.
     expect(JSON.stringify(row)).not.toContain("cmt_");
   });

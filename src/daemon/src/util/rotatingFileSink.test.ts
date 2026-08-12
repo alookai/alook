@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { chmodSync, mkdtempSync, mkdirSync, rmSync, existsSync, statSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, readSync, rmSync, existsSync, statSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRotatingFileSink } from "./rotatingFileSink";
@@ -101,6 +101,24 @@ describe("createRotatingFileSink (batch E1 — bounded default trace backing)", 
     expect(readFileSync(path, "utf8")).toBe("old\nnew\n");
   });
 
+  it("secures pre-existing broad active and rotated generations before appending", () => {
+    const path = join(dir, "daemon.log");
+    const rotatedPath = `${path}.1`;
+    writeFileSync(path, "active-old\n");
+    writeFileSync(rotatedPath, "rotated-old\n");
+    chmodSync(path, 0o644);
+    chmodSync(rotatedPath, 0o644);
+    vi.mocked(chmodSync).mockClear();
+    const sink = createRotatingFileSink(path, 100, { mode: 0o600, hardMaxBytes: true });
+
+    sink.write("new");
+
+    expectSecureMode(path, 0o600);
+    expectSecureMode(rotatedPath, 0o600);
+    expect(readFileSync(path, "utf8")).toBe("active-old\nnew\n");
+    expect(readFileSync(rotatedPath, "utf8")).toBe("rotated-old\n");
+  });
+
   it("drops a secure-mode write when chmod fails", () => {
     const path = join(dir, "runtime-raw-events-a1.jsonl");
     writeFileSync(path, "old\n");
@@ -117,6 +135,49 @@ describe("createRotatingFileSink (batch E1 — bounded default trace backing)", 
 
     expect(readFileSync(path, "utf8")).toBe("old\n");
     expect(failures.map(({ operation }) => operation)).toEqual(["chmod"]);
+  });
+
+  it("fails closed when a pre-existing rotated generation cannot be secured", () => {
+    const path = join(dir, "daemon.log");
+    const rotatedPath = `${path}.1`;
+    writeFileSync(path, "active\n");
+    writeFileSync(rotatedPath, "rotated\n");
+    const failures: Array<{ operation: string; error: unknown }> = [];
+    vi.mocked(chmodSync).mockImplementationOnce(() => {
+      throw new Error("rotated chmod failed");
+    });
+    const sink = createRotatingFileSink(path, 100, {
+      mode: 0o600,
+      hardMaxBytes: true,
+      onError: (info) => failures.push(info),
+    });
+
+    sink.write("secret");
+
+    expect(readFileSync(path, "utf8")).toBe("active\n");
+    expect(readFileSync(rotatedPath, "utf8")).toBe("rotated\n");
+    expect(failures.map(({ operation }) => operation)).toEqual(["chmod"]);
+  });
+
+  it("omits a snapshot generation that cannot be secured", () => {
+    const path = join(dir, "daemon.log");
+    const rotatedPath = `${path}.1`;
+    writeFileSync(path, "active\n");
+    writeFileSync(rotatedPath, "rotated\n");
+    const failures: Array<{ operation: string; error: unknown }> = [];
+    vi.mocked(chmodSync).mockImplementationOnce(() => {
+      throw new Error("rotated chmod failed");
+    });
+    const sink = createRotatingFileSink(path, 100, {
+      mode: 0o600,
+      onError: (info) => failures.push(info),
+    });
+
+    const snapshot = sink.openSnapshot();
+
+    expect(snapshot.files.map((file) => file.path)).toEqual([path]);
+    expect(failures.map(({ operation }) => operation)).toEqual(["chmod"]);
+    snapshot.close();
   });
 
   it("reports a write failure without throwing", () => {
@@ -145,7 +206,7 @@ describe("createRotatingFileSink (batch E1 — bounded default trace backing)", 
     expect(readFileSync(path, "utf8")).toContain("latest\n");
   });
 
-  it("drops a hard-capped write when its required rotation fails", () => {
+  it("drops a hard-capped write when the rotated path is not a regular file", () => {
     const failures: Array<{ operation: string; error: unknown }> = [];
     const path = join(dir, "runtime-raw-events-a1.jsonl");
     const sink = createRotatingFileSink(path, 20, {
@@ -156,8 +217,59 @@ describe("createRotatingFileSink (batch E1 — bounded default trace backing)", 
     mkdirSync(`${path}.1`);
 
     expect(() => sink.write("secret")).not.toThrow();
-    expect(failures.map(({ operation }) => operation)).toEqual(["rotate"]);
+    expect(failures.map(({ operation }) => operation)).toEqual(["unsafe_generation"]);
     expect(readFileSync(path, "utf8")).toBe(`${"a".repeat(19)}\n`);
     expect(statSync(path).size).toBeLessThanOrEqual(20);
+  });
+
+  it("drops a single record larger than the hard cap", () => {
+    const failures: Array<{ operation: string }> = [];
+    const path = join(dir, "daemon.log");
+    const sink = createRotatingFileSink(path, 20, {
+      hardMaxBytes: true,
+      onError: (info) => failures.push(info),
+    });
+    sink.write("x".repeat(20));
+    expect(existsSync(path)).toBe(false);
+    expect(failures).toEqual([expect.objectContaining({ operation: "oversize" })]);
+  });
+
+  it("removes pre-existing generations above the hard cap during secure preflight", () => {
+    const path = join(dir, "daemon.log");
+    writeFileSync(path, "active is too large");
+    writeFileSync(`${path}.1`, "rotated is too large");
+    const failures: Array<{ operation: string }> = [];
+    const sink = createRotatingFileSink(path, 8, {
+      mode: 0o600,
+      hardMaxBytes: true,
+      onError: (info) => failures.push(info),
+    });
+
+    expect(sink.secure()).toBe(true);
+
+    expect(existsSync(path)).toBe(false);
+    expect(existsSync(`${path}.1`)).toBe(false);
+    expect(failures.map(({ operation }) => operation)).toEqual([
+      "oversize_generation",
+      "oversize_generation",
+    ]);
+  });
+
+  it("opens a stable rotated + active snapshot with pinned sizes", () => {
+    const path = join(dir, "daemon.log");
+    const sink = createRotatingFileSink(path, 8, { hardMaxBytes: true, mode: 0o600 });
+    sink.write("old");
+    sink.write("newer");
+    const snapshot = sink.openSnapshot();
+    sink.write("tail");
+    expect(snapshot.files.map((file) => file.path)).toEqual([`${path}.1`, path]);
+    const contents = snapshot.files.map((file) => {
+      const buffer = Buffer.alloc(file.size);
+      readSync(file.fd, buffer, 0, file.size, 0);
+      return buffer.toString("utf8");
+    });
+    expect(contents).toEqual(["old\n", "newer\n"]);
+    snapshot.close();
+    expect(() => snapshot.close()).not.toThrow();
   });
 });

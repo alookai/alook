@@ -1,25 +1,20 @@
 /**
  * `alook daemon start|stop|list` — daemon lifecycle commands.
  *
- * Multiple daemons can run on one physical machine — each machine key represents
- * one logical machine on the server side. Per-key pidfiles at
- * `<baseDir>/daemons/<keyHash>.pid` prevent the same key from starting twice.
+ * Multiple daemons can run on one physical machine. Each server-issued machine
+ * identity owns one private directory and pidfile under `<baseDir>/daemons/`.
  */
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
 import * as os from "os";
 import { homedir } from "os";
-import { WebSocket } from "ws";
-import { createDaemon } from "../daemon/createDaemon.js";
 import type { DaemonStatusSnapshot } from "../util/statusFile.js";
-import { getDriver, listRuntimeIds } from "../drivers/index.js";
 import { resolveAlookCliPathWithFallback, detectRuntimes, type RuntimeInfo } from "../discovery.js";
 import { createLogger } from "../logger.js";
-import { UnknownRuntimeError } from "../manager/agentRouter.js";
 import { readDaemonVersion } from "../version.js";
-
-const CAPABILITIES = ["send", "read", "mentions", "tasks", "reactions", "server", "channels", "knowledge", "attach", "friend"];
+import { runPreparedDaemon, type DaemonReadyReceipt, type PreparedDaemon } from "./daemonRunner.js";
+import { spawn, type ChildProcess } from "node:child_process";
 
 /**
  * Grace window for a daemon to exit on SIGTERM before we escalate to SIGKILL.
@@ -28,10 +23,14 @@ const CAPABILITIES = ["send", "read", "mentions", "tasks", "reactions", "server"
  * window has to contain those.
  */
 const STOP_GRACE_MS = 5000;
+const STOP_KILL_GRACE_MS = 2_000;
 /** How often `daemonStop` polls `isProcessAlive` while waiting on SIGTERM. */
 const POLL_MS = 100;
-/** How many hex chars of the machine-key SHA-256 make up the pidfile name (= the list/stop `id`). */
-const MACHINE_KEY_HASH_PREFIX_LEN = 12;
+const START_RECEIPT_TIMEOUT_MS = 15_000;
+const RUNNER_TERM_GRACE_MS = 2_000;
+const RUNNER_KILL_GRACE_MS = 2_000;
+const MACHINE_ID_PATTERN = /^cm_[A-Za-z0-9_-]{8,64}$/;
+const LEGACY_DAEMON_ID_PATTERN = /^[a-f0-9]{12}$/;
 
 function resolveDefaultBaseDir(): string {
   const root = process.env.ALOOK_PROJECT_ROOT || path.join(homedir(), ".alook");
@@ -43,12 +42,8 @@ export const DEFAULT_BASE_DIR = resolveDefaultBaseDir();
 const log = createLogger({ header: "@alook/daemon" });
 
 /* ------------------------------------------------------------------ */
-/* Per-key pidfile helpers                                              */
+/* Per-machine pidfile helpers                                          */
 /* ------------------------------------------------------------------ */
-
-function keyHash(machineKey: string): string {
-  return crypto.createHash("sha256").update(machineKey).digest("hex").slice(0, MACHINE_KEY_HASH_PREFIX_LEN);
-}
 
 function daemonsDir(baseDir: string): string {
   return path.join(baseDir, "daemons");
@@ -69,7 +64,21 @@ function daemonsDir(baseDir: string): string {
  * plans/daemon-c01-machineid-anchor.md.
  */
 function daemonDirById(baseDir: string, id: string): string {
-  return path.join(daemonsDir(baseDir), id);
+  return path.join(daemonsDir(baseDir), validateDaemonId(id));
+}
+
+function validateMachineId(machineId: string): string {
+  if (!MACHINE_ID_PATTERN.test(machineId)) throw new Error("invalid machine identity returned by server");
+  return machineId;
+}
+
+function isDaemonId(id: string): boolean {
+  return MACHINE_ID_PATTERN.test(id) || LEGACY_DAEMON_ID_PATTERN.test(id);
+}
+
+function validateDaemonId(id: string): string {
+  if (!isDaemonId(id)) throw new Error("invalid daemon id");
+  return id;
 }
 
 function pidfilePathById(baseDir: string, id: string): string {
@@ -81,17 +90,6 @@ function statusFilePathById(baseDir: string, id: string): string {
   return path.join(daemonDirById(baseDir, id), "status.json");
 }
 
-/**
- * A `cmk_` paste with no persisted credential file has no machineId to anchor
- * on yet. It's a STABLE key (unlike a one-time `cmt_`), so hashing it is a
- * safe fallback id that won't drift across reconnects — the drift bug was
- * `cmt_`-only. Once the server confirms identity and a credential file lands,
- * subsequent starts resolve the real machineId.
- */
-function fallbackIdForStableKey(machineKey: string): string {
-  return keyHash(machineKey);
-}
-
 function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -101,42 +99,155 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
-function readPidFile(filePath: string): { pid: number; key: string } | null {
-  if (!fs.existsSync(filePath)) return null;
+async function waitForPidExit(pid: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isProcessAlive(pid)) return true;
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+  }
+  return !isProcessAlive(pid);
+}
+
+export interface DaemonPidFile {
+  pid: number;
+  machineId?: string;
+  startedAt?: string;
+  ownerToken?: string;
+  key?: string;
+}
+
+function parsePidFileContent(raw: string): DaemonPidFile | null {
   try {
-    const content = JSON.parse(fs.readFileSync(filePath, "utf8"));
-    if (typeof content.pid === "number" && typeof content.key === "string") return content;
+    const content = JSON.parse(raw);
+    if (!Number.isInteger(content.pid) || content.pid <= 0) return null;
+    if (
+      typeof content.machineId === "string" &&
+      typeof content.startedAt === "string" &&
+      typeof content.ownerToken === "string"
+    ) {
+      return {
+        pid: content.pid,
+        machineId: content.machineId,
+        startedAt: content.startedAt,
+        ownerToken: content.ownerToken,
+      };
+    }
+    if (typeof content.key === "string") return { pid: content.pid, key: content.key };
   } catch { /* malformed */ }
   return null;
 }
 
-function writePidFile(filePath: string, pid: number, machineKey: string): void {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify({ pid, key: machineKey }));
-}
-
-/**
- * Acquire the FINAL per-daemon lock, keyed on the stable id (machineId). Rejects
- * a double-start if a live process already holds this id's pidfile. `key` is
- * stored in the pidfile only as a human breadcrumb; the LOCK identity is the id.
- */
-function acquireLock(baseDir: string, id: string, key: string): string {
-  const pf = pidfilePathById(baseDir, id);
-  const existing = readPidFile(pf);
-  if (existing && isProcessAlive(existing.pid)) {
-    log.error(`daemon '${id}' already running (pid ${existing.pid}). Stop it first or remove ${pf}`);
-    process.exit(1);
-  }
-  writePidFile(pf, process.pid, key);
-  return pf;
-}
-
-function releaseLock(pf: string): void {
+export function readPidFile(filePath: string): DaemonPidFile | null {
+  if (!fs.existsSync(filePath)) return null;
   try {
-    const content = readPidFile(pf);
-    if (content && content.pid === process.pid) {
-      fs.unlinkSync(pf);
+    return parsePidFileContent(fs.readFileSync(filePath, "utf8"));
+  } catch { /* malformed */ }
+  return null;
+}
+
+function ensurePrivateDir(dir: string): void {
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  fs.chmodSync(dir, 0o700);
+}
+
+function writeExclusive(filePath: string, value: Record<string, unknown>): void {
+  const dir = path.dirname(filePath);
+  ensurePrivateDir(dir);
+  const tempPath = path.join(
+    dir,
+    `.${path.basename(filePath)}.${process.pid}.${crypto.randomBytes(12).toString("hex")}.tmp`,
+  );
+  let fd: number | null = fs.openSync(tempPath, "wx", 0o600);
+  try {
+    fs.writeFileSync(fd, JSON.stringify(value));
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = null;
+    fs.chmodSync(tempPath, 0o600);
+    fs.linkSync(tempPath, filePath);
+    const dirFd = fs.openSync(dir, "r");
+    try {
+      fs.fsyncSync(dirFd);
+    } finally {
+      fs.closeSync(dirFd);
     }
+  } finally {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch { /* best effort */ }
+    }
+    try { fs.unlinkSync(tempPath); } catch { /* best effort */ }
+  }
+}
+
+function secureExistingFile(filePath: string): void {
+  if (!fs.existsSync(filePath)) return;
+  const stat = fs.lstatSync(filePath);
+  if (!stat.isFile()) throw new Error("unsafe daemon ownership file type");
+  fs.chmodSync(filePath, 0o600);
+}
+
+function removeOwnedFile(filePath: string, pid: number, ownerToken: string): void {
+  try {
+    const content = readPidFile(filePath);
+    if (content?.pid === pid && content.ownerToken === ownerToken) {
+      fs.unlinkSync(filePath);
+    }
+  } catch { /* best effort */ }
+}
+
+function removePidFileIfMatches(filePath: string, expected: DaemonPidFile): void {
+  if (expected.ownerToken) {
+    removeOwnedFile(filePath, expected.pid, expected.ownerToken);
+    return;
+  }
+  try {
+    const current = readPidFile(filePath);
+    if (current?.pid === expected.pid && current.key === expected.key) fs.unlinkSync(filePath);
+  } catch { /* best effort */ }
+}
+
+function malformedPidHint(raw: string): number | null {
+  const match = raw.match(/"pid"\s*:\s*(\d+)/);
+  if (!match) return null;
+  const pid = Number(match[1]);
+  return Number.isInteger(pid) && pid > 0 ? pid : null;
+}
+
+function clearStaleOwnership(filePath: string, liveError: (pid: number) => Error): void {
+  if (!fs.existsSync(filePath)) return;
+  const valid = readPidFile(filePath);
+  if (valid) {
+    if (isProcessAlive(valid.pid)) throw liveError(valid.pid);
+    removePidFileIfMatches(filePath, valid);
+    return;
+  }
+
+  let raw: string;
+  let before: fs.Stats;
+  try {
+    before = fs.statSync(filePath);
+    raw = fs.readFileSync(filePath, "utf8");
+    const afterRead = fs.statSync(filePath);
+    if (
+      afterRead.dev !== before.dev ||
+      afterRead.ino !== before.ino ||
+      afterRead.size !== before.size ||
+      afterRead.mtimeMs !== before.mtimeMs
+    ) return;
+  } catch {
+    return;
+  }
+  const pid = malformedPidHint(raw);
+  if (pid && isProcessAlive(pid)) throw liveError(pid);
+  try {
+    const current = fs.statSync(filePath);
+    if (
+      current.dev !== before.dev ||
+      current.ino !== before.ino ||
+      current.size !== before.size ||
+      current.mtimeMs !== before.mtimeMs
+    ) return;
+    fs.unlinkSync(filePath);
   } catch { /* best effort */ }
 }
 
@@ -150,15 +261,66 @@ function releaseLock(pf: string): void {
 function coarseStartLockPath(baseDir: string): string {
   return path.join(daemonsDir(baseDir), ".start.lock");
 }
-function acquireCoarseLock(baseDir: string): string {
+function acquireCoarseLock(baseDir: string, ownerToken: string): string {
   const lf = coarseStartLockPath(baseDir);
-  const existing = readPidFile(lf);
-  if (existing && isProcessAlive(existing.pid)) {
-    log.error(`another daemon start is in progress on this machine (pid ${existing.pid}). Wait for it, or remove ${lf}`);
-    process.exit(1);
-  }
-  writePidFile(lf, process.pid, "coarse-start-lock");
+  ensurePrivateDir(path.dirname(lf));
+  secureExistingFile(lf);
+  clearStaleOwnership(lf, (pid) => new Error(`another daemon start is in progress on this machine (pid ${pid})`));
+  writeExclusive(lf, { pid: process.pid, machineId: "coarse", startedAt: new Date().toISOString(), ownerToken });
   return lf;
+}
+
+function acquireLaunchLock(baseDir: string, machineId: string, ownerToken: string): string {
+  const daemonDir = daemonDirById(baseDir, machineId);
+  ensurePrivateDir(daemonDir);
+  const lockPath = path.join(daemonDir, "daemon.launch.lock");
+  const finalPath = pidfilePathById(baseDir, machineId);
+  secureExistingFile(lockPath);
+  secureExistingFile(finalPath);
+  clearStaleOwnership(finalPath, (pid) => new Error(`daemon '${machineId}' already running (pid ${pid})`));
+  clearStaleOwnership(lockPath, (pid) => new Error(`daemon '${machineId}' start already in progress (pid ${pid})`));
+  writeExclusive(lockPath, { pid: process.pid, machineId, startedAt: new Date().toISOString(), ownerToken });
+  return lockPath;
+}
+
+function commitFinalPidfile(
+  baseDir: string,
+  machineId: string,
+  pid: number,
+  startedAt: string,
+  ownerToken: string,
+): string {
+  const filePath = pidfilePathById(baseDir, machineId);
+  writeExclusive(filePath, { pid, machineId, startedAt, ownerToken });
+  return filePath;
+}
+
+function legacyPidfileCandidates(baseDir: string): string[] {
+  const dir = daemonsDir(baseDir);
+  if (!fs.existsSync(dir)) return [];
+  const candidates: string[] = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      candidates.push(path.join(dir, entry.name, "daemon.pid"));
+    } else if (entry.isFile() && entry.name.endsWith(".pid")) {
+      candidates.push(path.join(dir, entry.name));
+    }
+  }
+  return candidates;
+}
+
+function reconcileLegacyMachineKeyOwnership(baseDir: string, machineKey: string): void {
+  for (const candidate of legacyPidfileCandidates(baseDir)) {
+    const owner = readPidFile(candidate);
+    if (!owner?.key || owner.key !== machineKey) continue;
+    secureExistingFile(candidate);
+    const current = readPidFile(candidate);
+    if (!current?.key || current.key !== machineKey) continue;
+    if (isProcessAlive(current.pid)) {
+      throw new Error(`legacy daemon already running (pid ${current.pid})`);
+    }
+    removePidFileIfMatches(candidate, current);
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -172,9 +334,9 @@ export interface DaemonListOpts {
 export interface DaemonInfo {
   /**
    * The daemon's addressing id, shown to humans and passed to `daemon stop
-   * <id>`. It is the pidfile's keyHash name — NOT the machine key (a credential
-   * that must never enter the human operation path, red line 2). list shows it,
-   * stop eats it → the two compose (the whole point of C3).
+   * <id>`. It is the server-issued machine id — NOT the machine key (a
+   * credential that must never enter the human operation path). list shows it,
+   * stop accepts it, so the two compose.
    */
   id: string;
   pid: number;
@@ -208,7 +370,7 @@ export function daemonList(opts: DaemonListOpts): DaemonInfo[] {
     const alive = isProcessAlive(data.pid);
     if (!alive) {
       // Prune the stale pidfile (subdir daemon.pid or legacy flat).
-      try { fs.unlinkSync(pidfile); } catch { /* ok */ }
+      removePidFileIfMatches(pidfile, data);
     }
     // Per-daemon status: read THIS daemon's own snapshot (C0), not a global one.
     let agents: number | null = null;
@@ -226,9 +388,9 @@ export function daemonList(opts: DaemonListOpts): DaemonInfo[] {
   };
 
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    // Per-key subdir layout (C0): daemons/<id>/daemon.pid + status.json. Each
+    // Per-machine subdir layout: daemons/<id>/daemon.pid + status.json. Each
     // daemon has its own directory; id = the directory name.
-    if (entry.isDirectory()) {
+    if (entry.isDirectory() && isDaemonId(entry.name)) {
       const id = entry.name;
       pushRow(id, path.join(dir, id, "daemon.pid"), path.join(dir, id, "status.json"));
     }
@@ -304,13 +466,17 @@ function daemonStatusFromFile(statusPath: string, nowMs: number): DaemonStatusRe
   }
 }
 
-/** The subdir ids of daemons that have a per-key status file (C0). */
+/** The subdir ids of daemons that have a per-machine status file. */
 function daemonIdsWithStatus(baseDir: string): string[] {
   const dir = daemonsDir(baseDir);
   if (!fs.existsSync(dir)) return [];
   const ids: string[] = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (entry.isDirectory() && fs.existsSync(path.join(dir, entry.name, "status.json"))) {
+    if (
+      entry.isDirectory() &&
+      isDaemonId(entry.name) &&
+      fs.existsSync(path.join(dir, entry.name, "status.json"))
+    ) {
       ids.push(entry.name);
     }
   }
@@ -320,7 +486,7 @@ function daemonIdsWithStatus(baseDir: string): string[] {
 export function daemonStatus(opts: DaemonStatusOpts): DaemonStatusResult {
   const baseDir = opts.baseDir || process.env.ALOOK_DATA_DIR || DEFAULT_BASE_DIR;
   const nowMs = (opts.now ?? (() => Date.now()))();
-  // Explicit id → that daemon's per-key status.
+  // Explicit id → that daemon's per-machine status.
   if (opts.id) {
     return daemonStatusFromFile(statusFilePathById(baseDir, opts.id), nowMs);
   }
@@ -340,7 +506,7 @@ export function daemonStatus(opts: DaemonStatusOpts): DaemonStatusResult {
 /* ------------------------------------------------------------------ */
 
 export interface DaemonStopOpts {
-  /** The id shown in `daemon list` (= the daemon's subdir name / keyHash). */
+  /** The id shown in `daemon list` (= the daemon's machine-id subdir name). */
   id: string;
   baseDir?: string;
 }
@@ -361,25 +527,30 @@ async function stopByPidfile(pf: string, notFoundHint: string): Promise<void> {
   }
   if (!isProcessAlive(data.pid)) {
     log.info(`stale pidfile (pid ${data.pid} is not running) — removing`);
-    try { fs.unlinkSync(pf); } catch { /* ok */ }
+    removePidFileIfMatches(pf, data);
     return;
   }
 
   log.info(`sending SIGTERM to daemon (pid ${data.pid})…`);
-  process.kill(data.pid, "SIGTERM");
-
-  const deadline = Date.now() + STOP_GRACE_MS;
-  while (Date.now() < deadline && isProcessAlive(data.pid)) {
-    await new Promise((r) => setTimeout(r, POLL_MS));
+  try {
+    process.kill(data.pid, "SIGTERM");
+  } catch (error) {
+    if (isProcessAlive(data.pid)) throw error;
   }
 
-  if (isProcessAlive(data.pid)) {
+  if (!await waitForPidExit(data.pid, STOP_GRACE_MS)) {
     log.error(`daemon (pid ${data.pid}) did not exit in ${STOP_GRACE_MS / 1000}s — sending SIGKILL`);
-    process.kill(data.pid, "SIGKILL");
-  } else {
-    log.info("daemon stopped");
+    try {
+      process.kill(data.pid, "SIGKILL");
+    } catch (error) {
+      if (isProcessAlive(data.pid)) throw error;
+    }
+    if (!await waitForPidExit(data.pid, STOP_KILL_GRACE_MS)) {
+      throw new Error(`daemon (pid ${data.pid}) is still running after SIGKILL`);
+    }
   }
-  try { fs.unlinkSync(pf); } catch { /* ok */ }
+  log.info("daemon stopped");
+  removePidFileIfMatches(pf, data);
 }
 
 export async function daemonStop(opts: DaemonStopOpts): Promise<void> {
@@ -402,6 +573,7 @@ export interface DaemonStartOpts {
   serverUrl?: string;
   wsUrl?: string;
   baseDir?: string;
+  foreground?: boolean;
 }
 
 /**
@@ -411,11 +583,14 @@ export interface DaemonStartOpts {
  * files accumulate on disk.
  */
 export function credentialFilePathByMachineId(baseDir: string, machineId: string): string {
-  return path.join(daemonsDir(baseDir), `${machineId}.credential.json`);
+  return path.join(daemonsDir(baseDir), `${validateMachineId(machineId)}.credential.json`);
 }
 
 function readCredentialFile(filePath: string): { credential: string; machineId: string } | null {
   if (!fs.existsSync(filePath)) return null;
+  const stat = fs.lstatSync(filePath);
+  if (!stat.isFile()) throw new Error("unsafe daemon credential file type");
+  fs.chmodSync(filePath, 0o600);
   try {
     const content = JSON.parse(fs.readFileSync(filePath, "utf8"));
     if (
@@ -430,8 +605,32 @@ function readCredentialFile(filePath: string): { credential: string; machineId: 
 }
 
 function writeCredentialFile(filePath: string, credential: string, machineId: string): void {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify({ credential, machineId }), { mode: 0o600 });
+  const dir = path.dirname(filePath);
+  ensurePrivateDir(dir);
+  const tempPath = path.join(
+    dir,
+    `.${path.basename(filePath)}.${process.pid}.${crypto.randomBytes(12).toString("hex")}.tmp`,
+  );
+  let fd: number | null = fs.openSync(tempPath, "wx", 0o600);
+  try {
+    fs.writeFileSync(fd, JSON.stringify({ credential, machineId }));
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = null;
+    fs.chmodSync(tempPath, 0o600);
+    fs.renameSync(tempPath, filePath);
+    const dirFd = fs.openSync(dir, "r");
+    try {
+      fs.fsyncSync(dirFd);
+    } finally {
+      fs.closeSync(dirFd);
+    }
+  } finally {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch { /* best effort */ }
+    }
+    try { fs.unlinkSync(tempPath); } catch { /* best effort */ }
+  }
 }
 
 /**
@@ -488,77 +687,53 @@ async function activatePairingToken(
   return { credential: json.credential, machineId: json.machineId };
 }
 
-export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
+async function resolveMachineIdentity(serverUrl: string, credential: string): Promise<string> {
+  const response = await fetch(`${serverUrl}/api/community/daemon/identity`, {
+    headers: { authorization: `Bearer ${credential}` },
+  });
+  const body = await response.json().catch(() => ({})) as { machineId?: string; error?: string };
+  if (!response.ok || typeof body.machineId !== "string" || body.machineId.length === 0) {
+    throw new Error(body.error ?? `identity failed (${response.status})`);
+  }
+  return body.machineId;
+}
+
+interface PreparedStart {
+  prepared: PreparedDaemon;
+  launchLockPath: string;
+}
+
+async function prepareDaemonStart(opts: DaemonStartOpts): Promise<PreparedStart> {
   const serverUrl = opts.serverUrl || process.env.ALOOK_SERVER_URL;
   const wsUrl = opts.wsUrl || process.env.ALOOK_SERVER_WS_URL;
-
-  if (!serverUrl) {
-    log.error("Server URL required — pass --server-url or set ALOOK_SERVER_URL");
-    process.exit(2);
+  if (!serverUrl) throw new Error("Server URL required — pass --server-url or set ALOOK_SERVER_URL");
+  if (!wsUrl) throw new Error("WebSocket URL required — pass --ws-url or set ALOOK_SERVER_WS_URL");
+  if (!opts.machineKey.startsWith("cmt_") && !opts.machineKey.startsWith("cmk_")) {
+    throw new Error("invalid machine key format — expected `cmt_` or `cmk_`");
   }
-  if (!wsUrl) {
-    log.error("WebSocket URL required — pass --ws-url or set ALOOK_SERVER_WS_URL");
-    process.exit(2);
-  }
-
   const baseDir = opts.baseDir || process.env.ALOOK_DATA_DIR || DEFAULT_BASE_DIR;
-
-  // Two-stage locking (C0.1): the daemon dir/pidfile anchor on the stable
-  // machineId, which for a `cmt_` start isn't known until after async
-  // /activate. So a `cmt_` start takes a COARSE baseDir lock now (blocks a
-  // concurrent local start during the activate window), then hands off to the
-  // FINAL machineId lock once activate returns — acquire-final-THEN-release-
-  // coarse, so there's never an unlocked instant (Claudette 架构#499). A `cmk_`
-  // start can resolve machineId up front (credential-file lookup) → one-step
-  // final lock, no coarse stage. `coarsePf`/`pf` track which locks are held so
-  // any early-exit path releases them.
-  const isPairingStart = opts.machineKey.startsWith("cmt_");
-  const coarsePf = isPairingStart ? acquireCoarseLock(baseDir) : null;
-  let pf: string | null = null;
-
-  const agentCliPath = resolveAlookCliPathWithFallback() ?? process.argv[1];
-
-  // Detect installed agent CLIs. The list is reported to the server on
-  // `ready` so the machine card can show a chip per CLI (with version).
-  // We report EVERY runtime we know about (healthy AND unhealthy) so the
-  // /community machine card can surface broken installs, not just missing
-  // ones. Filtering to healthy-only happens on the reader side (bot picker,
-  // server-side bots-POST validator).
-  const runtimeDetections: RuntimeInfo[] = await detectRuntimes();
-  const healthyRuntimeIds = runtimeDetections.filter((r) => r.status === "healthy").map((r) => r.id);
-  log.info(
-    healthyRuntimeIds.length === 0
-      ? "no agent CLIs detected"
-      : `detected agent CLIs: ${healthyRuntimeIds.join(", ")}`
-  );
-  const unhealthyIds = runtimeDetections
-    .filter((r) => r.status === "unhealthy")
-    .map((r) => `${r.id}(${r.lastError ?? "unknown"})`);
-  if (unhealthyIds.length > 0) log.info(`unhealthy runtimes: ${unhealthyIds.join(", ")}`);
-
-  const runtimeReport = runtimeDetections.map((r) => ({
-    id: r.id,
-    version: r.version,
-    status: r.status,
-    lastError: r.lastError,
-    lastErrorAt: r.lastErrorAt,
-  }));
-
-  // Resolve the actual credential the daemon will dial with. Ordering:
-  //   1. --machine-key starts with `cmt_` — POST /activate, get {cmk_, machineId},
-  //      write file at <daemonsDir>/<machineId>.credential.json.
-  //   2. --machine-key starts with `cmk_` — scan on-disk credential files for
-  //      one whose stored credential matches; if found, reuse. Otherwise this
-  //      is a fresh paste with no machineId to key the file on — dial with
-  //      the plaintext but skip persistence until the server confirms
-  //      identity on the next boot.
-  //   3. else → exit(2) "invalid machine key format".
-  let dialingCredential: string;
-  // The stable per-daemon id (machineId when known) that anchors the dir/lock.
-  let daemonIdentity: string;
-  if (opts.machineKey.startsWith("cmt_")) {
-    log.info("activating pairing token…");
-    try {
+  const ownerToken = crypto.randomBytes(24).toString("base64url");
+  const persisted = opts.machineKey.startsWith("cmk_")
+    ? findExistingCredentialForBearer(baseDir, opts.machineKey)
+    : null;
+  let coarseLockPath: string | null = null;
+  let launchLockPath: string | null = null;
+  try {
+    let machineKey = persisted?.credential;
+    let machineId = persisted ? validateMachineId(persisted.machineId) : undefined;
+    if (machineKey && machineId) {
+      launchLockPath = acquireLaunchLock(baseDir, machineId, ownerToken);
+    } else {
+      coarseLockPath = acquireCoarseLock(baseDir, ownerToken);
+      if (opts.machineKey.startsWith("cmk_")) {
+        reconcileLegacyMachineKeyOwnership(baseDir, opts.machineKey);
+      }
+    }
+    const runtimeReport: RuntimeInfo[] = await detectRuntimes();
+    const healthyRuntimeIds = runtimeReport
+      .filter((runtime) => runtime.status === "healthy")
+      .map((runtime) => runtime.id);
+    if (opts.machineKey.startsWith("cmt_")) {
       const activated = await activatePairingToken(
         serverUrl,
         opts.machineKey,
@@ -569,124 +744,232 @@ export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
         readDaemonVersion(),
         runtimeReport,
       );
-      dialingCredential = activated.credential;
-      writeCredentialFile(
-        credentialFilePathByMachineId(baseDir, activated.machineId),
-        dialingCredential,
-        activated.machineId
-      );
-      // Now the stable machineId is known → acquire the FINAL lock, THEN drop
-      // the coarse lock (overlap, no unlocked instant — C0.1 invariant). The
-      // machineId lock is the real double-start backstop: two different cmt_
-      // for the same machine both resolve here to the same machineId, so the
-      // second start is rejected regardless of which token it used.
-      daemonIdentity = activated.machineId;
-      pf = acquireLock(baseDir, daemonIdentity, dialingCredential);
-      if (coarsePf) releaseLock(coarsePf);
-      log.info("pairing token activated — credential persisted");
-    } catch (err) {
-      log.error(`activation failed: ${err instanceof Error ? err.message : String(err)}`);
-      if (coarsePf) releaseLock(coarsePf);
-      process.exit(1);
-    }
-  } else if (opts.machineKey.startsWith("cmk_")) {
-    const match = findExistingCredentialForBearer(baseDir, opts.machineKey);
-    if (match) {
-      dialingCredential = match.credential;
-      // Persisted credential → stable machineId is known up front. One-step
-      // final lock, no coarse stage needed.
-      daemonIdentity = match.machineId;
-      log.info("using persisted daemon credential");
+      machineKey = activated.credential;
+      machineId = validateMachineId(activated.machineId);
     } else {
-      // No file → dial with the pasted credential; if it works the server
-      // owns identity anyway. We don't persist since we can't derive the
-      // filename without machineId. `cmk_` is a STABLE key (not a one-time
-      // token), so hashing it is a non-drifting fallback id until a credential
-      // file lands and a later start resolves the real machineId.
-      dialingCredential = opts.machineKey;
-      daemonIdentity = fallbackIdForStableKey(opts.machineKey);
-      log.info("dialing with provided cmk_ (no on-disk record)");
+      machineKey ??= opts.machineKey;
+      machineId ??= validateMachineId(await resolveMachineIdentity(serverUrl, opts.machineKey));
     }
-    pf = acquireLock(baseDir, daemonIdentity, dialingCredential);
-  } else {
-    log.error("invalid machine key format — expected `cmt_` (pairing token) or `cmk_` (credential)");
-    if (coarsePf) releaseLock(coarsePf);
-    process.exit(2);
+    writeCredentialFile(credentialFilePathByMachineId(baseDir, machineId), machineKey, machineId);
+    launchLockPath ??= acquireLaunchLock(baseDir, machineId, ownerToken);
+    if (coarseLockPath) removeOwnedFile(coarseLockPath, process.pid, ownerToken);
+    const startedAt = new Date().toISOString();
+    return {
+      launchLockPath,
+      prepared: {
+        machineId,
+        machineKey,
+        serverUrl,
+        wsUrl,
+        baseDir,
+        daemonDir: daemonDirById(baseDir, machineId),
+        statusFilePath: statusFilePathById(baseDir, machineId),
+        agentCliPath: resolveAlookCliPathWithFallback() ?? process.argv[1],
+        runtimeReport,
+        healthyRuntimeIds,
+        hostname: os.hostname(),
+        platform: process.platform,
+        arch: process.arch,
+        osRelease: os.release(),
+        daemonVersion: readDaemonVersion(),
+        ownerToken,
+        startedAt,
+      },
+    };
+  } catch (error) {
+    if (launchLockPath) removeOwnedFile(launchLockPath, process.pid, ownerToken);
+    if (coarseLockPath) removeOwnedFile(coarseLockPath, process.pid, ownerToken);
+    throw error;
+  }
+}
+
+function runnerArguments(): string[] {
+  const command = process.env.ALOOK_DAEMON_PACKAGE_WRAPPER === "1" ? ["run"] : ["daemon", "run"];
+  return [...process.execArgv, process.argv[1]!, ...command];
+}
+
+function spawnBlockedRunner(): ChildProcess {
+  return spawn(process.execPath, runnerArguments(), {
+    detached: true,
+    stdio: ["ignore", "ignore", "ignore", "ipc"],
+  });
+}
+
+function testCheckpoint(name: string, childPid: number): void {
+  if (process.env.NODE_ENV !== "test" || process.env.ALOOK_DAEMON_TEST_PAUSE_AT !== name) return;
+  const checkpointFile = process.env.ALOOK_DAEMON_TEST_CHECKPOINT_FILE;
+  if (!checkpointFile) return;
+  fs.writeFileSync(checkpointFile, JSON.stringify({ name, parentPid: process.pid, childPid }), { mode: 0o600 });
+  const view = new Int32Array(new SharedArrayBuffer(4));
+  while (!fs.existsSync(`${checkpointFile}.continue`)) Atomics.wait(view, 0, 0, 25);
+}
+
+function sendPrepared(child: ChildProcess, prepared: PreparedDaemon): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (!child.send) {
+      reject(new Error("daemon child has no IPC channel"));
+      return;
+    }
+    child.send({ type: "daemon:prepared", prepared }, (error) => error ? reject(error) : resolve());
+  });
+}
+
+function waitForReceipt(child: ChildProcess, prepared: PreparedDaemon): Promise<DaemonReadyReceipt> {
+  return new Promise((resolve, reject) => {
+    const settle = (error?: Error, receipt?: DaemonReadyReceipt): void => {
+      clearTimeout(timeout);
+      child.removeAllListeners("message");
+      child.removeAllListeners("exit");
+      child.removeAllListeners("error");
+      if (error) reject(error);
+      else resolve(receipt!);
+    };
+    const configuredTestTimeout = process.env.NODE_ENV === "test"
+      ? Number(process.env.ALOOK_DAEMON_TEST_RECEIPT_TIMEOUT_MS)
+      : NaN;
+    const receiptTimeoutMs = Number.isFinite(configuredTestTimeout) && configuredTestTimeout > 0
+      ? configuredTestTimeout
+      : START_RECEIPT_TIMEOUT_MS;
+    const timeout = setTimeout(
+      () => settle(new Error(`daemon start timed out; inspect ${path.join(prepared.daemonDir, "daemon.log")}`)),
+      receiptTimeoutMs,
+    );
+    child.on("message", (message: unknown) => {
+      const accepted = message as { type?: string; pid?: number; machineId?: string };
+      if (accepted.type === "daemon:accepted") {
+        if (accepted.pid !== child.pid || accepted.machineId !== prepared.machineId) {
+          settle(new Error("daemon child returned an invalid prepared acknowledgment"));
+          return;
+        }
+        testCheckpoint("after_ipc_send", child.pid!);
+        return;
+      }
+      const receipt = message as DaemonReadyReceipt;
+      if (receipt?.pid !== child.pid || receipt.machineId !== prepared.machineId || receipt.startedAt !== prepared.startedAt) {
+        settle(new Error("daemon child returned an invalid start receipt"));
+        return;
+      }
+      settle(undefined, receipt);
+    });
+    child.once("exit", (code, signal) => {
+      settle(new Error(`daemon child exited before ready (${signal ?? code}); inspect ${path.join(prepared.daemonDir, "daemon.log")}`));
+    });
+    child.once("error", (error) => settle(error));
+  });
+}
+
+function waitForChildExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const finish = (exited: boolean): void => {
+      clearTimeout(timeout);
+      child.removeListener("exit", onExit);
+      resolve(exited);
+    };
+    const onExit = (): void => finish(true);
+    const timeout = setTimeout(() => finish(child.exitCode !== null || child.signalCode !== null), timeoutMs);
+    child.once("exit", onExit);
+    if (child.exitCode !== null || child.signalCode !== null) finish(true);
+  });
+}
+
+async function terminateRunnerAndWait(child: ChildProcess): Promise<void> {
+  try { child.kill("SIGTERM"); } catch { /* exit observation below is authoritative */ }
+  if (await waitForChildExit(child, RUNNER_TERM_GRACE_MS)) return;
+  try { child.kill("SIGKILL"); } catch { /* exit observation below is authoritative */ }
+  if (await waitForChildExit(child, RUNNER_KILL_GRACE_MS)) return;
+  throw new Error(`daemon child ${child.pid ?? "unknown"} did not exit after SIGKILL`);
+}
+
+export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
+  const { prepared, launchLockPath } = await prepareDaemonStart(opts);
+  const finalPidfile = pidfilePathById(prepared.baseDir, prepared.machineId);
+  if (opts.foreground) {
+    try {
+      commitFinalPidfile(prepared.baseDir, prepared.machineId, process.pid, prepared.startedAt, prepared.ownerToken);
+      return await runPreparedDaemon(prepared, {
+        foreground: true,
+        onReady: () => removeOwnedFile(launchLockPath, process.pid, prepared.ownerToken),
+        releaseOwnership: () => removeOwnedFile(finalPidfile, process.pid, prepared.ownerToken),
+      });
+    } finally {
+      removeOwnedFile(finalPidfile, process.pid, prepared.ownerToken);
+      removeOwnedFile(launchLockPath, process.pid, prepared.ownerToken);
+    }
   }
 
-  const daemon = await createDaemon({
-    machineKey: dialingCredential,
-    serverUrl,
-    serverWsUrl: wsUrl,
-    webSocketFactory: (url, headers) => new WebSocket(url, { headers }),
-    runtimeReport,
-    // Pick the driver for the runtime the agent actually asked for. The
-    // request is a hard requirement — if the runtime isn't detected on this
-    // host we throw `UnknownRuntimeError`, which `agentRouter` catches and
-    // forwards to the server as a `session.error{code:"runtime_not_available"}`
-    // so the machine card surfaces the mismatch instead of silently launching
-    // a different runtime.
-    // driverFor throws UnknownRuntimeError for a runtime the daemon does not
-    // know about at all. The router additionally short-circuits dispatch when
-    // a KNOWN runtime is currently unhealthy — see AgentRouter wiring in
-    // createDaemon. Both throws land in the same catch block in agentRouter
-    // and surface as bot_runtime_missing + runtime_not_available.
-    driverFor: (_agentId, runtimeConfig) => {
-      const requested = runtimeConfig?.runtime;
-      // Validate against the FULL registry, NOT the advertised subset:
-      // `runtimeReport`/`detectRuntimes` now advertises only SELECTABLE_RUNTIMES
-      // (what a user may pick when creating a bot), but a bot created BEFORE a
-      // runtime was hidden must still resolve its driver on wake (hide, not
-      // delete). "Can this run" (registry) and "can a user select it"
-      // (advertised) are different questions — this gate is the former.
-      const known: string[] = listRuntimeIds();
-      if (!requested || !known.includes(requested)) {
-        throw new UnknownRuntimeError(requested, healthyRuntimeIds);
+  const child = spawnBlockedRunner();
+  if (!child.pid) {
+    removeOwnedFile(launchLockPath, process.pid, prepared.ownerToken);
+    throw new Error("failed to spawn daemon child");
+  }
+  try {
+    testCheckpoint("after_spawn_before_final", child.pid);
+    commitFinalPidfile(prepared.baseDir, prepared.machineId, child.pid, prepared.startedAt, prepared.ownerToken);
+    testCheckpoint("after_final_before_ipc", child.pid);
+    const receiptPromise = waitForReceipt(child, prepared);
+    await sendPrepared(child, prepared);
+    const receipt = await receiptPromise;
+    removeOwnedFile(launchLockPath, process.pid, prepared.ownerToken);
+    child.unref();
+    log.info(`daemon started in background (pid ${receipt.pid}); log ${receipt.logPath}`);
+  } catch (error) {
+    await terminateRunnerAndWait(child);
+    removeOwnedFile(finalPidfile, child.pid, prepared.ownerToken);
+    removeOwnedFile(launchLockPath, process.pid, prepared.ownerToken);
+    throw error;
+  }
+}
+
+export async function daemonRunFromIpc(ipc: typeof process = process): Promise<never> {
+  if (typeof ipc.send !== "function") throw new Error("daemon run requires parent IPC");
+  if (!ipc.connected) throw new Error("daemon parent disconnected before prepared payload");
+  return await new Promise<never>((_resolve, reject) => {
+    let received = false;
+    ipc.once("disconnect", () => {
+      if (!received) reject(new Error("daemon parent disconnected before prepared payload"));
+    });
+    ipc.once("message", (message: unknown) => {
+      received = true;
+      const payload = message as { type?: string; prepared?: PreparedDaemon };
+      const prepared = payload.prepared;
+      payload.prepared = undefined;
+      if (payload.type !== "daemon:prepared" || !prepared) {
+        reject(new Error("invalid daemon prepared payload"));
+        return;
       }
-      // `requested` was just checked to be in the registry, so it's a valid
-      // RuntimeId — cast to satisfy the typed factory map.
-      return getDriver(requested as Parameters<typeof getDriver>[0]);
-    },
-    capabilities: CAPABILITIES,
-    agentCliPath,
-    workingDirectoryBase: baseDir,
-    // Default-on bounded FSM trace + periodic status snapshot both live in THIS
-    // daemon's per-key subdir `daemons/<keyHash>/` (batch C0), NOT a shared
-    // <baseDir> path — so multiple daemons on one baseDir never interleave their
-    // traces or clobber each other's status.json, and each daemon's trace gets
-    // its OWN rotation budget (restoring T4's ≥12h-per-daemon retention). The
-    // ALOOK_FSM_TRACE env override (createDaemon) still wins for deep dives.
-    fsmTraceDir: daemonDirById(baseDir, daemonIdentity),
-    statusFilePath: statusFilePathById(baseDir, daemonIdentity),
-    hostname: os.hostname(),
-    platform: process.platform,
-    arch: process.arch,
-    osRelease: os.release(),
-    daemonVersion: readDaemonVersion(),
-    logger: log,
-    onAuthRejected: () => {
-      log.error("machine key rejected by server — is it correct / has it expired?");
-      if (pf) releaseLock(pf);
-      process.exit(1);
-    },
+      const finalPidfile = pidfilePathById(prepared.baseDir, prepared.machineId);
+      const owner = readPidFile(finalPidfile);
+      if (owner?.pid !== ipc.pid || owner.machineId !== prepared.machineId || owner.ownerToken !== prepared.ownerToken) {
+        reject(new Error("daemon ownership validation failed"));
+        return;
+      }
+      sendIpcBestEffort(ipc, { type: "daemon:accepted", pid: ipc.pid, machineId: prepared.machineId });
+      void runPreparedDaemon(prepared, {
+        foreground: false,
+        onReady: (receipt) => {
+          if (process.env.NODE_ENV === "test" && process.env.ALOOK_DAEMON_TEST_SKIP_READY === "1") return;
+          sendIpcBestEffort(ipc, receipt, true);
+        },
+        releaseOwnership: () => {
+          const marker = process.env.ALOOK_DAEMON_TEST_RELEASE_MARKER;
+          if (process.env.NODE_ENV === "test" && marker) fs.appendFileSync(marker, `${ipc.pid}\n`, { mode: 0o600 });
+          removeOwnedFile(finalPidfile, ipc.pid, prepared.ownerToken);
+        },
+      }).catch(reject);
+    });
   });
+}
 
-  log.info(`daemon up — proxy at ${daemon.proxyUrl}, dialing ${wsUrl}`);
-
-  // Event-driven "control plane OPEN" — was previously a 200ms setInterval
-  // polling `daemon.isOpen()`. `onOpen` fires on every (re)connect including
-  // the first one, so we log on subsequent reconnects too.
-  daemon.onOpen(() => log.info("control plane OPEN"));
-
-  const shutdown = async () => {
-    log.info("shutting down…");
-    if (pf) releaseLock(pf);
-    await daemon.stop();
-    process.exit(0);
+function sendIpcBestEffort(ipc: typeof process, message: unknown, disconnectAfter = false): void {
+  if (!ipc.connected || typeof ipc.send !== "function") return;
+  const disconnect = (): void => {
+    if (!disconnectAfter) return;
+    try { ipc.disconnect?.(); } catch { /* parent notification is best effort */ }
   };
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
-
-  // Keep the process alive.
-  await new Promise(() => {});
+  try {
+    ipc.send(message, () => disconnect());
+  } catch {
+    disconnect();
+  }
 }

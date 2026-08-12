@@ -155,7 +155,7 @@ src/
   credentials/
     credentialProxy.ts           # CredentialBroker (mint/revoke/check per-voucher vouchers) + local key-swapping proxy
 scripts/
-  daemon.ts                      # DAEMON process: thin launcher — wraps `alook daemon start` for local dev
+  daemon.ts                      # local entry: delegates to the canonical `alook daemon` parser
 ```
 
 ## Host orchestration (manager + server)
@@ -311,11 +311,15 @@ curl -s -X POST http://localhost:3000/api/community/daemon/activate \
   -d '{"hostname":"my-laptop","platform":"darwin","arch":"arm64"}'
 # → { "credential": "cmk_…", "machineId": "cm_…", "expiresAt": null }
 
-# 3. Start the daemon with that credential:
-ALOOK_MACHINE_KEY=cmk_… \
-ALOOK_SERVER_URL=http://localhost:3000 \
-ALOOK_SERVER_WS_URL=ws://localhost:8789 \
-pnpm run daemon
+# 3. Start it detached (the default):
+pnpm run daemon -- start --machine-key cmk_… \
+  --server-url http://localhost:3000 \
+  --ws-url ws://localhost:8789
+
+# Keep it attached for local debugging:
+pnpm run daemon -- start --foreground --machine-key cmk_… \
+  --server-url http://localhost:3000 \
+  --ws-url ws://localhost:8789
 ```
 
 A bot bound to this machine (via the community UI/API) can now be woken by

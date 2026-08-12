@@ -10,6 +10,25 @@ function capture() {
 const FIXED = () => "2026-06-25T12:00:00.000Z";
 
 describe("createLogger", () => {
+  it("emits a nested structured record whose envelope cannot be spoofed", () => {
+    const records: unknown[] = [];
+    const log = createLogger({
+      header: "root",
+      now: FIXED,
+      out: () => {},
+      record: (record) => records.push(record),
+    }).child("child");
+    log.info("line\nmessage", { header: "fake", level: "error", agentId: "a1" });
+    expect(records).toEqual([{
+      time: "2026-06-25T12:00:00.000Z",
+      header: "root:child",
+      level: "info",
+      message: "line\nmessage",
+      fields: { header: "fake", level: "error", agentId: "a1" },
+    }]);
+    expect(JSON.stringify(records[0]).split("\n")).toHaveLength(1);
+  });
+
   it("emits `<iso> @alook/daemon <LEVEL> <message>` by default", () => {
     const c = capture();
     const log = createLogger({ now: FIXED, ...c.sink });

@@ -1,4 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
+const mockDaemonStart = vi.hoisted(() => vi.fn(async () => {}));
+const mockDaemonRunFromIpc = vi.hoisted(() => vi.fn(async () => new Promise<never>(() => {})));
+vi.mock("./daemonStart", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./daemonStart")>(),
+  daemonStart: mockDaemonStart,
+  daemonRunFromIpc: mockDaemonRunFromIpc,
+}));
 import { main, setApiForTesting, decodeTextEscapes } from "./index";
 import type { ServerApi } from "../server/contract";
 
@@ -69,6 +77,30 @@ afterEach(() => {
     if (savedProxyEnv[k] === undefined) delete process.env[k];
     else process.env[k] = savedProxyEnv[k];
   }
+});
+
+describe("daemon command contract", () => {
+  it("starts in background by default and forwards foreground explicitly", async () => {
+    await main(["daemon", "start", "--machine-key", "cmk_test", "--server-url", "http://server", "--ws-url", "ws://server"]);
+    expect(mockDaemonStart).toHaveBeenLastCalledWith(expect.objectContaining({
+      machineKey: "cmk_test",
+      foreground: false,
+    }));
+    await main(["daemon", "start", "--foreground", "--machine-key", "cmk_test", "--server-url", "http://server", "--ws-url", "ws://server"]);
+    expect(mockDaemonStart).toHaveBeenLastCalledWith(expect.objectContaining({
+      machineKey: "cmk_test",
+      foreground: true,
+    }));
+  });
+
+  it("keeps missing and unknown arguments in the canonical Commander parser", async () => {
+    await main(["daemon", "start"]);
+    expect(parseEnvelope(cap.lines())).toEqual(expect.objectContaining({ error: expect.stringContaining("--machine-key") }));
+    cap.restore();
+    cap = captureStdout();
+    await main(["daemon", "wat"]);
+    expect(parseEnvelope(cap.lines())).toEqual(expect.objectContaining({ error: expect.stringContaining("unknown command") }));
+  });
 });
 
 describe("envelope contract", () => {

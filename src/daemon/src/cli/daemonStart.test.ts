@@ -16,7 +16,7 @@ describe("daemonStart — credentialFilePath by machineId", () => {
   });
 
   it("derives path from machineId, not from the CLI arg", () => {
-    const machineId = "cm_abc123";
+    const machineId = "cm_abc12345";
     const p1 = credentialFilePathByMachineId(baseDir, machineId);
     const p2 = credentialFilePathByMachineId(baseDir, machineId);
     expect(p1).toBe(p2);
@@ -24,7 +24,7 @@ describe("daemonStart — credentialFilePath by machineId", () => {
   });
 
   it("same machineId produces the same path across two rotates — no orphaned files", () => {
-    const machineId = "cm_abc123";
+    const machineId = "cm_abc12345";
     const p = credentialFilePathByMachineId(baseDir, machineId);
     fs.mkdirSync(path.dirname(p), { recursive: true });
     fs.writeFileSync(p, JSON.stringify({ credential: "cmk_first", machineId }), { mode: 0o600 });
@@ -33,6 +33,17 @@ describe("daemonStart — credentialFilePath by machineId", () => {
     expect(files).toEqual([`${machineId}.credential.json`]);
     const parsed = JSON.parse(fs.readFileSync(p, "utf8"));
     expect(parsed).toEqual({ credential: "cmk_second", machineId });
+  });
+
+  it.each([
+    "../outside",
+    "/tmp/outside",
+    "cm_bad\\segment",
+    `cm_${"a".repeat(65)}`,
+  ])("rejects an unsafe machine id inside the exported path builder: %s", (machineId) => {
+    expect(() => credentialFilePathByMachineId(baseDir, machineId)).toThrow(
+      "invalid machine identity returned by server",
+    );
   });
 });
 
@@ -46,7 +57,7 @@ describe("daemonStatus — reads snapshot + always flags freshness (batch E2)", 
   });
 
   // Per-key layout (C0): status lives at daemons/<id>/status.json.
-  const ID = "d0d0d0d0d0d0";
+  const ID = "cm_status_test_123";
   const daemonSubdir = () => path.join(baseDir, "daemons", ID);
   const writeSnap = (writtenAt: number) => {
     const dir = daemonSubdir();
@@ -114,5 +125,25 @@ describe("daemonStatus — reads snapshot + always flags freshness (batch E2)", 
     expect(r.found).toBe(false);
     expect(r.ambiguous).toBe(true);
     expect(r.availableIds?.sort()).toEqual(["aaaaaaaaaaaa", "bbbbbbbbbbbb"]);
+  });
+
+  it.each([
+    "../outside",
+    "/tmp/outside",
+    "cm_bad\\segment",
+    `cm_${"a".repeat(65)}`,
+  ])("rejects an unsafe explicit id before status-file access: %s", (id) => {
+    expect(() => daemonStatus({ id, baseDir, now: () => 1000 })).toThrow("invalid daemon id");
+  });
+
+  it("ignores unsafe directory names when auto-selecting status", () => {
+    writeSnap(1000);
+    const unsafeDir = path.join(baseDir, "daemons", "not-a-daemon-id");
+    fs.mkdirSync(unsafeDir, { recursive: true });
+    fs.writeFileSync(path.join(unsafeDir, "status.json"), JSON.stringify({ writtenAt: 1000, agents: [] }));
+    const r = daemonStatus({ baseDir, now: () => 1000 });
+    expect(r.found).toBe(true);
+    expect(r.ambiguous).toBeUndefined();
+    expect(r.agents[0]?.agentId).toBe("a1");
   });
 });
