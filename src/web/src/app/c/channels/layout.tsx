@@ -91,15 +91,10 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       }),
     [membersHook.members, onlineUserIds, currentUser.id, userStatuses],
   )
-  // Gate admin-only fetches on `isAdmin` so regular members don't fire
-  // audit-log 403s and don't waste bandwidth on the invites feed they can't
-  // see. `myMember` comes from the raw (not enriched) members list so this
-  // stays stable across presence ticks.
+  // `myMember` comes from the raw (not enriched) members list so this stays
+  // stable across presence ticks.
   const myMember = membersHook.members.find((m) => m.userId === currentUser.id)
   const isAdmin = canManageServer(myMember?.role)
-  // invites + audit-log are no longer fetched here (W-LAZY, necessity plan):
-  // they're admin-only, low-frequency panel data, so ServerSettings fetches
-  // them itself only when their tab opens — never eagerly on server entry.
   const presence = usePresence(serverId)
   const { online: initialOnline } = presence
   const notifs = useNotificationSettings()

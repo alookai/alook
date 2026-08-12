@@ -11,7 +11,6 @@ const mockGetMember = vi.fn();
 const mockGetMessage = vi.fn();
 const mockPinMessage = vi.fn();
 const mockListPins = vi.fn();
-const mockLogAction = vi.fn();
 const mockFanOut = vi.fn();
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
@@ -32,14 +31,10 @@ vi.mock("@alook/shared", async () => {
         pinMessage: (...a: unknown[]) => mockPinMessage(...a),
         listPins: (...a: unknown[]) => mockListPins(...a),
       },
-      communityAuditLog: { logAction: (...a: unknown[]) => mockLogAction(...a) },
     },
   };
 });
 
-vi.mock("@/lib/community/audit", () => ({
-  logAudit: (...a: unknown[]) => mockLogAction(...a),
-}));
 
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToChannel: (...a: unknown[]) => mockFanOut(...a),
@@ -85,7 +80,6 @@ describe("POST /api/community/channels/[id]/pins", () => {
     mockGetMember.mockResolvedValue({ userId: "u1", role: "admin" });
     mockGetMessage.mockResolvedValue({ id: "m1", channelId: "c1" });
     mockFanOut.mockResolvedValue(undefined);
-    mockLogAction.mockResolvedValue(undefined);
   });
 
   it("pins a message and returns 201", async () => {

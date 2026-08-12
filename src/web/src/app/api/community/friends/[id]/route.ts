@@ -4,7 +4,6 @@ import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeError } from "@/lib/middleware/helpers"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
-import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "@/lib/community/audit"
 
 export const DELETE = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
@@ -54,13 +53,6 @@ export const DELETE = withAuth(async (_req, ctx) => {
     const { row, broadcasts } = await queries.communityFriendship.cancelPendingRequest(db, id)
     if (row) {
       for (const b of broadcasts) broadcastToUserSafe(b.userId, b.event)
-      logAudit(db, {
-        serverId: null,
-        actorId: ctx.userId,
-        action: COMMUNITY_AUDIT_ACTIONS.BOT_FRIEND_CANCELLED,
-        targetType: "friendship",
-        targetId: id,
-      })
     }
     return new NextResponse(null, { status: 204 })
   }

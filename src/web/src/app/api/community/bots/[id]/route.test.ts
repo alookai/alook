@@ -11,7 +11,6 @@ const mockGetUserPublic = vi.fn()
 const mockPushBotEventToMachine = vi.fn()
 const mockPushAgentModelSwitchToMachine = vi.fn()
 const mockPushAgentProviderSwitchToMachine = vi.fn()
-const mockLogAudit = vi.fn()
 const mockLogError = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
@@ -59,10 +58,6 @@ vi.mock("@/lib/broadcast", () => ({
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToServerMembers: vi.fn(),
 }))
-vi.mock("@/lib/community/audit", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/community/audit")>("@/lib/community/audit")
-  return { ...actual, logAudit: (...a: unknown[]) => mockLogAudit(...a) }
-})
 
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: (handler: any) => async (req: any, ctx?: any) => {
@@ -313,15 +308,11 @@ describe("PATCH /api/community/bots/[id]", () => {
     expect(mockUpdateBotModel).toHaveBeenCalledWith(expect.anything(), "b1", "u1", null)
   })
 
-  it("name AND model changed: both bot:updated and model_switch pushed; fields include both", async () => {
+  it("name AND model changed: both bot:updated and model_switch are pushed", async () => {
     const res = await PATCH(patchReq({ name: "New", model: "claude-sonnet-4-6" }), ctx)
     expect(res.status).toBe(200)
     expect(mockPushBotEventToMachine).toHaveBeenCalledWith(expect.anything(), "mac1", expect.objectContaining({ type: "bot:updated" }))
     expect(mockPushAgentModelSwitchToMachine).toHaveBeenCalled()
-    const auditCall = mockLogAudit.mock.calls.at(-1)?.[1] as { changes: string }
-    const fields = JSON.parse(auditCall.changes).fields as string[]
-    expect(fields).toContain("name")
-    expect(fields).toContain("model")
   })
 
   it("model on an antigravity bot → 400", async () => {

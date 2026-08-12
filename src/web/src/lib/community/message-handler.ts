@@ -18,7 +18,6 @@ import { broadcastToUserSafe, fanOutToChannel, resolveChannelRecipients } from "
 import { dispatchMessageNotify } from "./notify"
 import { mapMessageForWs } from "./message-payload"
 import { attachmentUrl } from "./storage"
-import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "./audit"
 
 const log = createLogger({ service: "community-message-handler" })
 
@@ -166,7 +165,7 @@ export async function createCommunityMessage(params: {
   authorId: string
   target: MessageTarget
   body: IncomingMessageBody
-  /** Provenance tag threaded into the bot-authored audit row's `changes` (plan §10). */
+  /** Provenance tag included in diagnostics when a requested reply target is out of scope. */
   source?: "cli" | "daemon-http" | "web"
   /**
    * CAS guard for the agent-send race fix
@@ -528,34 +527,6 @@ export async function createCommunityMessage(params: {
     // createMessage just inserted this row; getMessage returning null means
     // the DB is gone — surface that to the caller instead of inventing data.
     throw new Error("message not found after insert")
-  }
-
-  // Bot-authored audit (plan §10) — moved here from individual call sites
-  // (the daemon bot-message route used to log this itself) so EVERY caller,
-  // present and future (the CLI `send` route included), gets it for free
-  // with no duplicate-call risk. There's no standalone `isBot()` helper in
-  // the repo; this mirrors the check the daemon route did before its own
-  // `logAudit` call was removed. Fire-and-forget — `logAudit` already
-  // swallows its own errors.
-  const author = await withD1Retry(
-    () => queries.user.getUserInternal(db, authorId),
-    { route: "message-handler:author-lookup" },
-  )
-  if (author?.isBot === true) {
-    logAudit(db, {
-      serverId: isDmTarget(target) ? null : target.serverId,
-      actorId: authorId,
-      action: COMMUNITY_AUDIT_ACTIONS.MESSAGE_AUTHORED_AS_BOT,
-      targetType: "message",
-      targetId: row.id,
-      changes: JSON.stringify({
-        botId: authorId,
-        target: target.kind,
-        targetId: target.channelId,
-        messageId: row.id,
-        source: source ?? "web",
-      }),
-    })
   }
 
   // Reply target for mention broadcasts. Scoped at the query level (not a

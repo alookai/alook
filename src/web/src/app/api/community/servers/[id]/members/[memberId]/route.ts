@@ -11,7 +11,6 @@ import {
   WS_EVENTS,
 } from "@alook/shared"
 import { broadcastToUserSafe, fanOutToServerMembers } from "@/lib/community/fanout"
-import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "@/lib/community/audit"
 import { requireServerAdmin } from "@/lib/community/permissions"
 
 export const PATCH = withAuth(async (req: NextRequest, ctx) => {
@@ -52,14 +51,6 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   const updated = await queries.communityMember.updateRole(db, memberId, body.role)
   if (!updated) return writeError("member not found", 404)
 
-  logAudit(db, {
-    serverId,
-    actorId: ctx.userId,
-    action: "member_role_update",
-    targetType: "member",
-    targetId: memberId,
-    changes: JSON.stringify({ role: body.role }),
-  })
 
   fanOutToServerMembers(serverId, {
     type: WS_EVENTS.MEMBER_UPDATE,
@@ -119,29 +110,6 @@ export const DELETE = withAuth(async (_req, ctx) => {
     botIdsToCascade,
   )
   if (!removed) return writeError("member not found", 404)
-
-  logAudit(db, {
-    serverId,
-    actorId: ctx.userId,
-    action: targetIsBot ? COMMUNITY_AUDIT_ACTIONS.BOT_REMOVED_FROM_SERVER : "member_kick",
-    targetType: targetIsBot ? "user" : "member",
-    targetId: targetIsBot ? target.userId : memberId,
-    changes: JSON.stringify(
-      targetIsBot
-        ? { botId: target.userId, serverId, kind: "kicked" }
-        : { userId: target.userId },
-    ),
-  })
-  for (const botId of botIdsToCascade) {
-    logAudit(db, {
-      serverId,
-      actorId: ctx.userId,
-      action: COMMUNITY_AUDIT_ACTIONS.BOT_REMOVED_FROM_SERVER,
-      targetType: "user",
-      targetId: botId,
-      changes: JSON.stringify({ botId, serverId, kind: "owner_left_cascade" }),
-    })
-  }
 
   const targetLeaveEvent = {
     type: WS_EVENTS.MEMBER_LEAVE,

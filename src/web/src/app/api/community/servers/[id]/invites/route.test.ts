@@ -7,9 +7,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 
 const mockGetMember = vi.fn()
 const mockCreateInvite = vi.fn()
-const mockLogAction = vi.fn()
 const mockFanOut = vi.fn()
-const mockWarn = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
@@ -17,19 +15,10 @@ vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
   return {
     ...actual,
-    createLogger: () => ({
-      info: vi.fn(),
-      warn: (...a: unknown[]) => mockWarn(...a),
-      error: vi.fn(),
-      debug: vi.fn(),
-    }),
     queries: {
       communityMember: { getMember: (...a: unknown[]) => mockGetMember(...a) },
       communityInvite: {
         createInvite: (...a: unknown[]) => mockCreateInvite(...a),
-      },
-      communityAuditLog: {
-        logAction: (...a: unknown[]) => mockLogAction(...a),
       },
     },
   }
@@ -80,10 +69,9 @@ describe("POST /api/community/servers/[id]/invites", () => {
       createdAt: "2026-07-02T00:00:00.000Z",
     })
     mockFanOut.mockResolvedValue(undefined)
-    mockLogAction.mockResolvedValue(undefined)
   })
 
-  it("returns 201 with the invite and calls audit log", async () => {
+  it("returns 201 with the invite", async () => {
     const res = await POST(postReq({}), ctx)
 
     expect(res.status).toBe(201)
@@ -97,14 +85,6 @@ describe("POST /api/community/servers/[id]/invites", () => {
       maxActive: 50,
     })
 
-    expect(mockLogAction).toHaveBeenCalledTimes(1)
-    expect(mockLogAction).toHaveBeenCalledWith(expect.anything(), {
-      serverId: "s1",
-      actorId: "u1",
-      action: "invite_create",
-      targetType: "invite",
-      targetId: "inv_1",
-    })
   })
 
   it("returns 409 when the atomic insert reports the active invite cap", async () => {
@@ -113,30 +93,7 @@ describe("POST /api/community/servers/[id]/invites", () => {
     const res = await POST(postReq({}), ctx)
 
     expect(res.status).toBe(409)
-    expect(mockLogAction).not.toHaveBeenCalled()
     expect(mockFanOut).not.toHaveBeenCalled()
-  })
-
-  it("still returns 201 when the audit write rejects (regression for the awaited outlier)", async () => {
-    // Before the fix this call was `await queries.communityAuditLog.logAction(...)`
-    // and would 500 the request. logAudit is fire-and-forget — the response
-    // must succeed and the failure lands in log.warn.
-    mockLogAction.mockRejectedValue(new Error("audit db offline"))
-
-    const res = await POST(postReq({}), ctx)
-
-    expect(res.status).toBe(201)
-    // Flush the microtask queue so logAudit's `.catch` runs.
-    await new Promise((r) => setTimeout(r, 0))
-    expect(mockWarn).toHaveBeenCalledWith(
-      "audit_write_failed",
-      expect.objectContaining({
-        action: "invite_create",
-        serverId: "s1",
-        targetType: "invite",
-        targetId: "inv_1",
-      }),
-    )
   })
 
   it("still returns 201 when fan-out rejects (route calls helper without await/.catch)", async () => {

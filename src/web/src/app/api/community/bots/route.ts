@@ -9,7 +9,6 @@ import {
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers"
-import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "@/lib/community/audit"
 import { pushBotEventToMachine } from "@/lib/community/bot-push"
 
 export const GET = withAuth(async (_req, ctx) => {
@@ -108,60 +107,16 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     for (const sibling of siblings) {
       if (sibling.id === created.botId) continue
       try {
-        const res = await queries.communityFriendship.ensureSiblingBotFriendship(db, {
+        await queries.communityFriendship.ensureSiblingBotFriendship(db, {
           botA: created.botId,
           botB: sibling.id,
         })
-        if (res.blocked) {
-          logAudit(db, {
-            serverId: null,
-            actorId: ctx.userId,
-            action: COMMUNITY_AUDIT_ACTIONS.BOT_SIBLING_FRIENDSHIP_BACKFILL_FAILED,
-            targetType: "user",
-            targetId: created.botId,
-            changes: JSON.stringify({
-              newBotId: created.botId,
-              ownerId: ctx.userId,
-              siblingId: sibling.id,
-              reason: "blocked",
-            }),
-          })
-        }
-      } catch (err) {
-        logAudit(db, {
-          serverId: null,
-          actorId: ctx.userId,
-          action: COMMUNITY_AUDIT_ACTIONS.BOT_SIBLING_FRIENDSHIP_BACKFILL_FAILED,
-          targetType: "user",
-          targetId: created.botId,
-          changes: JSON.stringify({
-            newBotId: created.botId,
-            ownerId: ctx.userId,
-            siblingId: sibling.id,
-            error: err instanceof Error ? err.message : String(err),
-          }),
-        })
-      }
+      } catch {}
     }
   } catch {
     // listBotsForOwner failed — the bot is still usable; siblings reconcile
     // via the CLI. Nothing user-visible to fail here.
   }
-
-  // Audit — no serverId context (bot is created out-of-server). Queryable
-  // via idx_audit_log_actor_created.
-  logAudit(db, {
-    serverId: null,
-    actorId: ctx.userId,
-    action: COMMUNITY_AUDIT_ACTIONS.BOT_CREATED,
-    targetType: "user",
-    targetId: created.botId,
-    changes: JSON.stringify({
-      botId: created.botId,
-      machineId: body.machineId,
-      runtime: body.runtime,
-    }),
-  })
 
   // Best-effort WS push — daemon may be offline. Cold-start warmup re-syncs
   // authoritative state on reconnect.

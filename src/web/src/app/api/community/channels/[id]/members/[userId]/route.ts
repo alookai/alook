@@ -4,7 +4,6 @@ import { writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries, WS_EVENTS, isThread } from "@alook/shared"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
-import { logAudit } from "@/lib/community/audit"
 import { requireChannelAccess } from "@/lib/community/permissions"
 
 /**
@@ -56,14 +55,6 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
     [...new Set([...recipients, targetUserId])].map((uid) => broadcastToUserSafe(uid, event))
   )
 
-  logAudit(db, {
-    serverId: channel.serverId,
-    actorId: ctx.userId,
-    action: "channel_member_remove",
-    targetType: "channel",
-    targetId: channelId,
-    changes: JSON.stringify({ userId: targetUserId }),
-  })
 
   return new Response(null, { status: 204 })
 })

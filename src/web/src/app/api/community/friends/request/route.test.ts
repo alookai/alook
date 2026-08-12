@@ -9,7 +9,6 @@ const isBlocked = vi.fn()
 const sendRequest = vi.fn()
 const ensureSiblingBotFriendship = vi.fn()
 const broadcastToUser = vi.fn()
-const mockLogAudit = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
@@ -63,10 +62,6 @@ vi.mock("@/lib/broadcast", () => ({
   broadcastToUser: (...a: unknown[]) => broadcastToUser(...a),
 }))
 
-vi.mock("@/lib/community/audit", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/community/audit")>("@/lib/community/audit")
-  return { ...actual, logAudit: (...a: unknown[]) => mockLogAudit(...a) }
-})
 
 import { POST } from "./route"
 

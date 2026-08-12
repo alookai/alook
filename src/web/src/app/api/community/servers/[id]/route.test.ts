@@ -3,7 +3,6 @@ import { NextRequest } from "next/server"
 
 const mockGetMember = vi.fn()
 const mockUpdateServer = vi.fn()
-const mockLogAction = vi.fn()
 const mockFanOut = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
@@ -22,9 +21,6 @@ vi.mock("@alook/shared", async () => {
       communityMember: { getMember: (...a: unknown[]) => mockGetMember(...a) },
       communityServer: {
         updateServer: (...a: unknown[]) => mockUpdateServer(...a),
-      },
-      communityAuditLog: {
-        logAction: (...a: unknown[]) => mockLogAction(...a),
       },
     },
   }
@@ -67,7 +63,6 @@ describe("PATCH /api/community/servers/[id]", () => {
     vi.clearAllMocks()
     mockGetMember.mockResolvedValue({ id: "mem_1", userId: "u1", role: "owner" })
     mockFanOut.mockResolvedValue(undefined)
-    mockLogAction.mockResolvedValue(undefined)
   })
 
   it("normalizes a spaced rename via slugify before calling updateServer", async () => {

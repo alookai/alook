@@ -14,7 +14,6 @@ const removeFriend = vi.fn()
 const cancelPendingRequest = vi.fn()
 const getUserInternal = vi.fn()
 const broadcastToUserSafe = vi.fn()
-const logAudit = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
@@ -35,10 +34,6 @@ vi.mock("@alook/shared", async () => {
   }
 })
 
-vi.mock("@/lib/community/audit", () => ({
-  logAudit: (...a: unknown[]) => logAudit(...a),
-  COMMUNITY_AUDIT_ACTIONS: { BOT_FRIEND_CANCELLED: "community.bot.friend_cancelled" },
-}))
 
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
@@ -140,7 +135,7 @@ describe("DELETE — one path per role", () => {
     expect(cancelPendingRequest).not.toHaveBeenCalled()
   })
 
-  it("requester cancels a gated pending request → soft-cancel + rehydrate owner's card + audit", async () => {
+  it("requester cancels a gated pending request → soft-cancel + rehydrate owner's card", async () => {
     // Human→bot request gated on the bot's owner: an actionable Approve/Deny
     // card is sitting in the owner's DM. Withdrawing must flip that card, not
     // orphan it. See plans/friend-cancel-card-cleanup.md.
@@ -159,9 +154,6 @@ describe("DELETE — one path per role", () => {
     expect(removeFriend).not.toHaveBeenCalled()
     // Owner's card rehydrates; the bot (no session) gets nothing.
     expect(broadcastToUserSafe).toHaveBeenCalledWith("owner_carol", expect.objectContaining({ type: "community:dm.message_updated" }))
-    expect(logAudit).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      action: "community.bot.friend_cancelled", actorId: "u_alice", targetId: "fr_1",
-    }))
   })
 
   it("the bot's owner cancels a pending row their bot created → soft-cancel", async () => {
@@ -188,7 +180,7 @@ describe("DELETE — one path per role", () => {
     expect(broadcastToUserSafe).toHaveBeenCalledWith("u_zoe", expect.objectContaining({ friendshipId: "fr_1" }))
   })
 
-  it("cancelPendingRequest no-ops (row already gone) → still 204, no broadcast/audit", async () => {
+  it("cancelPendingRequest no-ops (row already gone) → still 204 with no broadcast", async () => {
     getFriendship.mockResolvedValue({
       id: "fr_1", requesterId: "u_alice", addresseeId: "bot_yara", status: "pending", needsOwnerApproval: "owner_carol",
     })
@@ -196,7 +188,6 @@ describe("DELETE — one path per role", () => {
     const res = await deleteFriend(reqAs("u_alice"), ctx)
     expect(res.status).toBe(204)
     expect(broadcastToUserSafe).not.toHaveBeenCalled()
-    expect(logAudit).not.toHaveBeenCalled()
   })
 
   it("target-owner may NOT DELETE an inbound pending (uses owner-decision) → 403", async () => {

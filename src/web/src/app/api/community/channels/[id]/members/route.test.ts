@@ -14,7 +14,6 @@ const mockGetUsersByIds = vi.fn()
 const mockResolveScopeMembers = vi.fn()
 const mockGetMembersByUserIds = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
-const mockLogAudit = vi.fn()
 const mockAddThreadParticipants = vi.fn()
 const mockListThreadParticipants = vi.fn()
 const mockListThreadParticipantUserIds = vi.fn()
@@ -72,10 +71,6 @@ vi.mock("@alook/shared", async () => {
 vi.mock("@/lib/community/fanout", () => ({
   broadcastToUserSafe: (...a: unknown[]) => mockBroadcastToUserSafe(...a),
 }))
-vi.mock("@/lib/community/audit", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/community/audit")>("@/lib/community/audit")
-  return { ...actual, logAudit: (...a: unknown[]) => mockLogAudit(...a) }
-})
 
 // Dual-actor: crk_ bearer → bot (folded channelMember), else human.
 vi.mock("@/lib/middleware/community-actor", () => ({

@@ -50,42 +50,6 @@ describe("useInvites / invitesQueryFn", () => {
   })
 })
 
-describe("useAuditLog / auditLogQueryFn", () => {
-  it("maps snake_case actions into space-separated display strings", async () => {
-    apiFetchMock.mockResolvedValueOnce({
-      entries: [
-        {
-          log: { action: "channel_delete", targetType: "channel", targetId: "ch_1", createdAt: "t" },
-          actor: { name: "Alice" },
-        },
-        {
-          log: { action: "member_kick", targetType: "member", targetId: "u_1", createdAt: "t" },
-          actor: null,
-        },
-      ],
-    })
-    const { auditLogQueryFn } = await import("./use-server-panels")
-    const data = await auditLogQueryFn("srv_1")()
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/srv_1/audit-log")
-    expect(data.entries[0]).toEqual({
-      actor: "Alice",
-      action: "channel delete",
-      target: "channel",
-      createdAt: "t",
-    })
-    expect(data.entries[1].actor).toBe("System")
-  })
-
-  it("populates queryClient at communityKeys.auditLog(serverId)", async () => {
-    apiFetchMock.mockResolvedValueOnce({ entries: [] })
-    const { auditLogQueryFn } = await import("./use-server-panels")
-    const qc = new QueryClient()
-    const key = communityKeys.auditLog("srv_1")
-    await qc.fetchQuery({ queryKey: key, queryFn: auditLogQueryFn("srv_1") })
-    expect(qc.getQueryData(key)).toEqual({ entries: [] })
-  })
-})
-
 describe("usePresence / presenceQueryFn", () => {
   it("returns the online id list from the presence endpoint", async () => {
     apiFetchMock.mockResolvedValueOnce({ online: ["u_1", "u_2"], truncated: false, limit: 1000 })

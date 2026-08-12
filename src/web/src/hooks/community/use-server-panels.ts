@@ -3,7 +3,7 @@
 import { useQuery, keepPreviousData, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import type { InviteRow, AuditEntry } from "@/components/community/_types"
+import type { InviteRow } from "@/components/community/_types"
 
 class StaleReadError extends Error {
   constructor() { super("stale D1 read"); this.name = "StaleReadError" }
@@ -33,7 +33,6 @@ export type InvitesResponse = { invites: InviteRow[] }
 
 // Frozen empty fallbacks — see `use-servers.ts` for the rationale.
 const EMPTY_INVITES: readonly InviteRow[] = Object.freeze([])
-const EMPTY_AUDIT_ENTRIES: readonly AuditEntry[] = Object.freeze([])
 
 export const invitesQueryFn = (serverId: string) => async (): Promise<InvitesResponse> => {
   const data = await apiFetch<{ invites: RawInvite[] }>(
@@ -75,58 +74,6 @@ export function useInvites(
   return {
     ...query,
     invites: query.data?.invites ?? (EMPTY_INVITES as InviteRow[]),
-  }
-}
-
-/**
- * Fetches paginated audit-log entries. This hook returns the first page only;
- * the settings tab doesn't currently virtualise it — a future step can swap
- * this to `useInfiniteQuery` if larger pages are needed.
- */
-type RawAuditRow = {
-  log: { action: string; targetType: string; targetId: string; createdAt: string }
-  actor: { name: string | null } | null
-}
-
-export type AuditLogResponse = { entries: AuditEntry[] }
-
-export const auditLogQueryFn = (serverId: string) => async (): Promise<AuditLogResponse> => {
-  const data = await apiFetch<{ entries: RawAuditRow[] }>(
-    `/api/community/servers/${serverId}/audit-log`,
-  )
-  const entries: AuditEntry[] = data.entries.map((e) => ({
-    actor: e.actor?.name ?? "System",
-    action: e.log.action.replace(/_/g, " "),
-    target: e.log.targetType,
-    createdAt: e.log.createdAt,
-  }))
-  return { entries }
-}
-
-/**
- * The audit-log endpoint is admin-only (returns 403 for regular members).
- * Every server switch would otherwise fire two 403s (retry=1) for non-admin
- * members. Pass `isAdmin` to gate the fetch; the settings tab that renders
- * this data is admin-only anyway.
- */
-export function useAuditLog(
-  serverId: string | null,
-  isAdmin: boolean = true,
-): UseQueryResult<AuditLogResponse> & { entries: AuditEntry[] } {
-  const enabled = !!serverId && isAdmin
-  const query = useQuery({
-    queryKey: enabled ? communityKeys.auditLog(serverId!) : communityKeys.auditLog("__none__"),
-    queryFn: enabled
-      ? auditLogQueryFn(serverId!)
-      : (() => Promise.reject(new Error("disabled"))),
-    enabled,
-    // Not WS-live — audit rows aren't patched into this cache. A short
-    // staleTime avoids a re-fetch on every settings-tab remount.
-    staleTime: 60_000,
-  })
-  return {
-    ...query,
-    entries: query.data?.entries ?? (EMPTY_AUDIT_ENTRIES as AuditEntry[]),
   }
 }
 

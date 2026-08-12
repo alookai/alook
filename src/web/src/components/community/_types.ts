@@ -25,7 +25,6 @@ export type SettingsSection =
   | "members"
   | "invites"
   | "notifications"
-  | "audit"
 
 // ── Servers / rail ───────────────────────────────────────────────────────────
 export type Server = {
@@ -294,13 +293,6 @@ export type InviteRow = {
   creatorId: string | null
 }
 
-
-export type AuditEntry = {
-  actor: string
-  action: string
-  target: string
-  createdAt: string // ISO timestamp
-}
 
 // ── Mentions / inbox ─────────────────────────────────────────────────────────
 export type Mention = {

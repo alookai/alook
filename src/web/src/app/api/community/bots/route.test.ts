@@ -6,7 +6,6 @@ const mockGetMachineForOwner = vi.fn()
 const mockCreateBot = vi.fn()
 const mockGetUserPublic = vi.fn()
 const mockPushBotEventToMachine = vi.fn()
-const mockLogAudit = vi.fn()
 const mockListBotsForOwner = vi.fn()
 const mockGetBotDailyActivityForOwner = vi.fn()
 
@@ -38,10 +37,6 @@ vi.mock("@alook/shared", async () => {
 vi.mock("@/lib/community/bot-push", () => ({
   pushBotEventToMachine: (...a: unknown[]) => mockPushBotEventToMachine(...a),
 }))
-vi.mock("@/lib/community/audit", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/community/audit")>("@/lib/community/audit")
-  return { ...actual, logAudit: (...a: unknown[]) => mockLogAudit(...a) }
-})
 
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: (handler: any) => async (req: any, ctx?: any) => {

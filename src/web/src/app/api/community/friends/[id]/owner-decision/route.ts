@@ -4,7 +4,6 @@ import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
-import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "@/lib/community/audit"
 
 /**
  * POST /api/community/friends/[id]/owner-decision — body `{ decision }`. The
@@ -45,17 +44,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     await broadcastToUserSafe(b.userId, b.event)
   }
 
-  logAudit(db, {
-    serverId: null,
-    actorId: ctx.userId,
-    action:
-      body.decision === "approve"
-        ? COMMUNITY_AUDIT_ACTIONS.BOT_FRIEND_APPROVED_BY_OWNER
-        : COMMUNITY_AUDIT_ACTIONS.BOT_FRIEND_DENIED_BY_OWNER,
-    targetType: "friendship",
-    targetId: id,
-    changes: JSON.stringify({ friendshipId: id, decision: body.decision }),
-  })
 
   return writeJSON({ status: result.friendship.status, friendshipId: id })
 })

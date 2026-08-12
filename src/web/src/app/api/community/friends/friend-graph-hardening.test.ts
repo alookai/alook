@@ -54,10 +54,6 @@ vi.mock("@/lib/middleware/helpers", async () => {
 
 vi.mock("@/lib/community/fanout", () => ({ broadcastToUserSafe: vi.fn() }))
 vi.mock("@/lib/community/permissions", () => ({ requireNotBlocked: vi.fn(async () => ({ ok: true })) }))
-vi.mock("@/lib/community/audit", () => ({
-  logAudit: vi.fn(),
-  COMMUNITY_AUDIT_ACTIONS: new Proxy({}, { get: (_t, p) => String(p) }),
-}))
 
 import { POST as requestPost } from "./request/route"
 import { POST as acceptPost } from "./[id]/accept/route"

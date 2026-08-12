@@ -4,18 +4,16 @@ import { queries, ROLES, WS_EVENTS, isUniqueConstraintError } from "@alook/share
 import type { CommunityMemberJoin } from "@alook/shared"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { fanOutToServerMembers, broadcastToUserSafe } from "@/lib/community/fanout"
-import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "@/lib/community/audit"
 
 /**
  * POST /api/community/invites/[token]/join — the unified join route (plan §4
  * FOLD, §9 phase 4). Serves both a human (session/al_) and a bot (crk_) via
  * `withCommunityActor`; the old /agent/joinServer folds in here (batch1
- * cab6c3e7 did the same fold). Only three things branch on `actor.kind`:
+ * cab6c3e7 did the same fold). Two things branch on `actor.kind`:
  *   1. owner-gate — a bot may only consume an invite created by ITS OWN owner
  *      (checked BEFORE useInvite, so a foreign/dead-creator invite is never
  *      consumed by a rejected attempt); a human joins any valid invite.
- *   2. audit action — BOT_JOINED_VIA_INVITE vs member_join.
- *   3. owner broadcast — the bot's owner isn't necessarily a member of the
+ *   2. owner broadcast — the bot's owner isn't necessarily a member of the
  *      joined server, so fanOutToServerMembers won't reach them; send the
  *      MEMBER_JOIN directly (dedup-safe on re-delivery).
  * Response is a superset (Fork C): `{ member, serverId, server }` — the human
@@ -63,13 +61,6 @@ export const POST = withCommunityActor(async (_req, ctx) => {
     return writeError("Invalid or expired invite", 400)
   }
 
-  logAudit(db, {
-    serverId: result.invite.serverId,
-    actorId: actor.userId,
-    action: actor.kind === "bot" ? COMMUNITY_AUDIT_ACTIONS.BOT_JOINED_VIA_INVITE : "member_join",
-    targetType: "invite",
-    targetId: result.invite.id,
-  })
 
   const memberEvent: CommunityMemberJoin = {
     type: WS_EVENTS.MEMBER_JOIN,

@@ -9,7 +9,6 @@ import {
   WS_EVENTS,
 } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
-import { logAudit } from "@/lib/community/audit"
 import { requireServerAdmin } from "@/lib/community/permissions"
 
 export const PATCH = withAuth(async (req: NextRequest, ctx) => {
@@ -70,14 +69,6 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     changes,
   })
 
-  logAudit(db, {
-    serverId,
-    actorId: ctx.userId,
-    action: "category_update",
-    targetType: "category",
-    targetId: categoryId,
-    changes: JSON.stringify(changes),
-  })
 
   return writeJSON(updated)
 })
@@ -112,13 +103,6 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
     categoryId,
   })
 
-  logAudit(db, {
-    serverId,
-    actorId: ctx.userId,
-    action: "category_delete",
-    targetType: "category",
-    targetId: categoryId,
-  })
 
   return new Response(null, { status: 204 })
 })

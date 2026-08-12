@@ -3,7 +3,6 @@ import { writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries, isServerOwner, WS_EVENTS } from "@alook/shared"
 import { broadcastToUserSafe, fanOutToServerMembers } from "@/lib/community/fanout"
-import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "@/lib/community/audit"
 import { requireServerMember } from "@/lib/community/permissions"
 
 export const POST = withAuth(async (_req, ctx) => {
@@ -37,24 +36,6 @@ export const POST = withAuth(async (_req, ctx) => {
     botIdsToCascade,
   )
   if (!removed) return writeError("member not found", 404)
-
-  logAudit(db, {
-    serverId,
-    actorId: ctx.userId,
-    action: "member_leave",
-    targetType: "member",
-    targetId: member.id,
-  })
-  for (const botId of botIdsToCascade) {
-    logAudit(db, {
-      serverId,
-      actorId: ctx.userId,
-      action: COMMUNITY_AUDIT_ACTIONS.BOT_REMOVED_FROM_SERVER,
-      targetType: "user",
-      targetId: botId,
-      changes: JSON.stringify({ botId, serverId, kind: "owner_left_cascade" }),
-    })
-  }
 
   const viewerLeaveEvent = {
     type: WS_EVENTS.MEMBER_LEAVE,

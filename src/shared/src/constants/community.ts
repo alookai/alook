@@ -3,8 +3,6 @@ export const DEFAULT_MESSAGE_PAGE_SIZE = 50
 export const MAX_MESSAGE_PAGE_SIZE = 100
 export const DEFAULT_MEMBERS_PAGE_SIZE = 100
 export const MAX_MEMBERS_PAGE_SIZE = 200
-export const DEFAULT_AUDIT_LOG_PAGE_SIZE = 50
-export const MAX_AUDIT_LOG_PAGE_SIZE = 100
 export const DEFAULT_USER_SEARCH_LIMIT = 20
 
 // Length limits — names, descriptions, profile text

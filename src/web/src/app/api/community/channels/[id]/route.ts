@@ -14,7 +14,6 @@ import {
   slugify,
 } from "@alook/shared"
 import { fanOutToServerMembers, fanOutToChannel, broadcastToUserSafe } from "@/lib/community/fanout"
-import { logAudit } from "@/lib/community/audit"
 import { requireChannelAccess, requireChannelMember } from "@/lib/community/permissions"
 
 /**
@@ -136,14 +135,6 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     })
   }
 
-  logAudit(db, {
-    serverId: channel.serverId,
-    actorId: ctx.userId,
-    action: "channel_update",
-    targetType: "channel",
-    targetId: channelId,
-    changes: JSON.stringify(changes),
-  })
 
   return writeJSON(updated)
 })
@@ -198,13 +189,6 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
     await fanOutToServerMembers(channel.serverId, event)
   }
 
-  logAudit(db, {
-    serverId: channel.serverId,
-    actorId: ctx.userId,
-    action: "channel_delete",
-    targetType: "channel",
-    targetId: channelId,
-  })
 
   return new Response(null, { status: 204 })
 })

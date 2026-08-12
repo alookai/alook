@@ -9,7 +9,6 @@ const mockResolveChannelAccessContext = vi.fn()
 const mockDeleteChannelMemberAndChildParticipants = vi.fn()
 const mockGetPrivateChannelAudienceUserIds = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
-const mockLogAudit = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
@@ -31,10 +30,6 @@ vi.mock("@alook/shared", async () => {
 vi.mock("@/lib/community/fanout", () => ({
   broadcastToUserSafe: (...a: unknown[]) => mockBroadcastToUserSafe(...a),
 }))
-vi.mock("@/lib/community/audit", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/community/audit")>("@/lib/community/audit")
-  return { ...actual, logAudit: (...a: unknown[]) => mockLogAudit(...a) }
-})
 
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {

@@ -15,7 +15,6 @@ const mockListMembers = vi.fn()
 const mockUpdateRole = vi.fn()
 const mockRemoveMemberAndOwnerBots = vi.fn()
 const mockListOwnerBotsInServer = vi.fn()
-const mockLogAudit = vi.fn()
 const mockFanOut = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
 
@@ -46,13 +45,6 @@ vi.mock("@alook/shared", async () => {
   }
 })
 
-vi.mock("@/lib/community/audit", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/community/audit")>("@/lib/community/audit")
-  return {
-    ...actual,
-    logAudit: (...a: unknown[]) => mockLogAudit(...a),
-  }
-})
 
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToServerMembers: (...a: unknown[]) => mockFanOut(...a),
@@ -132,7 +124,6 @@ describe("PATCH /api/community/servers/[id]/members/[memberId]", () => {
     expect(mockListMembers).not.toHaveBeenCalled()
 
     expect(mockUpdateRole).toHaveBeenCalledWith(expect.anything(), "mem_target", "admin")
-    expect(mockLogAudit).toHaveBeenCalledTimes(1)
     expect(mockFanOut).toHaveBeenCalledTimes(1)
   })
 
@@ -211,7 +202,6 @@ describe("DELETE /api/community/servers/[id]/members/[memberId]", () => {
       "srv_1",
       [],
     )
-    expect(mockLogAudit).toHaveBeenCalledTimes(1)
     // Broadcast payload uses target.userId — proves the scoped helper's row
     // is what the fan-out reads.
     expect(mockFanOut).toHaveBeenCalledWith("srv_1", expect.objectContaining({ userId: "u_target" }))

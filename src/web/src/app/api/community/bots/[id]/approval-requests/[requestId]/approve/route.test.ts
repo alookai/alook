@@ -5,7 +5,6 @@ const mockGetApprovalRequest = vi.fn()
 const mockGetMember = vi.fn()
 const mockAddMember = vi.fn()
 const mockResolveApprovalRequest = vi.fn()
-const mockLogAudit = vi.fn()
 const mockFanOut = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
@@ -28,13 +27,6 @@ vi.mock("@alook/shared", async () => {
   }
 })
 
-vi.mock("@/lib/community/audit", () => ({
-  logAudit: (...a: unknown[]) => mockLogAudit(...a),
-  COMMUNITY_AUDIT_ACTIONS: {
-    BOT_JOIN_APPROVED: "bot_join_approved",
-    BOT_ADDED_TO_SERVER: "bot_added_to_server",
-  },
-}))
 
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToServerMembers: (...a: unknown[]) => mockFanOut(...a),

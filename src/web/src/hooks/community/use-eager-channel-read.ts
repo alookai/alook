@@ -87,7 +87,7 @@ export function useEagerChannelRead({
         // The badge count lives in the `servers()` LIST query — NOT in
         // `server(serverId)` (that's the detail: categories/channels, no
         // count). So refresh `servers()` and, critically, with `exact: true`:
-        // members/presence/invites/audit-log/server(id) are all nested under
+        // members/presence/invites/server(id) are all nested under
         // `servers()` in the key hierarchy, and a non-exact invalidate
         // prefix-matches and force-refetches that whole subtree (overriding
         // their staleTime: Infinity). `exact` refreshes only the badge list.

@@ -6,7 +6,6 @@ import { queries, WS_EVENTS } from "@alook/shared"
 import { fanOutToChannel } from "@/lib/community/fanout"
 import { requireServerAdmin } from "@/lib/community/permissions"
 import { requirePinnableSurface } from "@/lib/community/channel-write-guard"
-import { logAudit } from "@/lib/community/audit"
 
 export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
@@ -33,13 +32,6 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
     messageId,
   }, { excludeUserId: ctx.userId })
 
-  logAudit(db, {
-    serverId: channel.serverId,
-    actorId: ctx.userId,
-    action: "pin_remove",
-    targetType: "message",
-    targetId: messageId,
-  })
 
   return new Response(null, { status: 204 })
 })

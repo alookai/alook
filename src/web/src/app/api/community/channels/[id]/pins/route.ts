@@ -6,7 +6,6 @@ import { queries, isUniqueConstraintError, WS_EVENTS } from "@alook/shared"
 import { fanOutToChannel } from "@/lib/community/fanout"
 import { requireChannelMember, requireServerAdmin } from "@/lib/community/permissions"
 import { requirePinnableSurface } from "@/lib/community/channel-write-guard"
-import { logAudit } from "@/lib/community/audit"
 import { avatarInitial } from "@/lib/community/avatar"
 
 export const GET = withAuth(async (_req: NextRequest, ctx) => {
@@ -87,13 +86,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     messageId: body.messageId,
   }, { excludeUserId: ctx.userId })
 
-  logAudit(db, {
-    serverId: channel.serverId,
-    actorId: ctx.userId,
-    action: "pin_add",
-    targetType: "message",
-    targetId: body.messageId,
-  })
 
   return writeJSON(pin, 201)
 })

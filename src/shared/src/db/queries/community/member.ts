@@ -334,7 +334,7 @@ export async function getMember(db: Database, serverId: string, userId: string) 
 // Scope-first single-member lookup. `WHERE id = ? AND server_id = ?` — cross
 // server memberIds never resolve, so callers don't need to post-check
 // ownership. Return shape mirrors `listMembers` (joined against `user` so
-// downstream broadcasts/audit calls have `userName` etc without a second
+// downstream broadcasts have `userName` etc without a second
 // round-trip).
 export async function getMemberById(
   db: Database,
