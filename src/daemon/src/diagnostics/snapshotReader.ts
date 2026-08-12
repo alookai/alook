@@ -1,4 +1,4 @@
-import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from "node:fs";
 import type { RotatingFileSink } from "../util/rotatingFileSink.js";
 import type {
   SnapshotReadResult,
@@ -185,6 +185,12 @@ export async function readPinnedJsonFile(args: {
   let fd: number | null = null;
   try {
     const noFollow = "O_NOFOLLOW" in constants ? constants.O_NOFOLLOW : 0;
+    if (process.platform === "win32" || noFollow === 0) {
+      const preopenStat = lstatSync(args.path);
+      if (!preopenStat.isFile() || preopenStat.isSymbolicLink()) {
+        return { value: null, warnings: ["source_unavailable"] };
+      }
+    }
     fd = openSync(args.path, constants.O_RDONLY | noFollow);
     const stat = fstatSync(fd);
     if (!stat.isFile()) return { value: null, warnings: ["source_unavailable"] };

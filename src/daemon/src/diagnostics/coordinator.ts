@@ -60,7 +60,7 @@ type Sidecar = CollectingSidecar | ReadySidecar;
 
 interface FsOps {
   randomSuffix(): string;
-  open(path: string, flags: "wx" | "r", mode?: number): number;
+  open(path: string, flags: "wx" | "r" | "r+", mode?: number): number;
   write(fd: number, bytes: Uint8Array): void;
   fsync(fd: number): void;
   close(fd: number): void;
@@ -304,7 +304,7 @@ export function createDiagnosticReportCoordinator(args: {
     const temp = join(dir, `.${command.reportId}.archive.${fsOps.randomSuffix()}.tmp`);
     const artifact = await args.buildBundle({ command, outputPath: temp });
     checkpoint("archive_temp_written");
-    const fd = fsOps.open(artifact.path, "r");
+    const fd = fsOps.open(artifact.path, "r+");
     try { fsOps.fsync(fd); checkpoint("archive_temp_fsynced"); } finally { fsOps.close(fd); }
     fsOps.rename(artifact.path, archivePath(command.reportId));
     if (process.platform !== "win32") chmodSync(archivePath(command.reportId), 0o600);

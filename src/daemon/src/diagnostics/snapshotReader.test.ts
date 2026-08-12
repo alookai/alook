@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import {
   appendFileSync,
   closeSync,
+  constants,
   existsSync,
   mkdtempSync,
   openSync,
@@ -18,6 +19,18 @@ import {
   createRotatingFileSink,
   type RotatingFileSink,
 } from "../util/rotatingFileSink.js";
+
+const fsMocks = vi.hoisted(() => ({
+  lstatSync: vi.fn(),
+  actualLstatSync: null as null | typeof import("node:fs").lstatSync,
+}));
+
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  fsMocks.actualLstatSync = actual.lstatSync;
+  fsMocks.lstatSync.mockImplementation(actual.lstatSync);
+  return { ...actual, lstatSync: fsMocks.lstatSync };
+});
 
 type SnapshotSourceName = "daemon_log" | "fsm_trace";
 type SnapshotWarningCode =
@@ -78,6 +91,9 @@ function tempDir(): string {
 afterEach(() => {
   for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
   dirs.clear();
+  fsMocks.lstatSync.mockReset();
+  fsMocks.lstatSync.mockImplementation(fsMocks.actualLstatSync!);
+  vi.restoreAllMocks();
 });
 
 describe("B2c snapshot reader", () => {
@@ -315,4 +331,42 @@ describe("B2c snapshot reader", () => {
       warnings: ["line_too_long"],
     });
   });
+
+  it("prechecks and rejects a symlink on Windows without reading its target", async () => {
+    vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    const api = await loadSubject();
+    const dir = tempDir();
+    const targetPath = join(dir, "target.json");
+    const linkPath = join(dir, "status-link.json");
+    writeFileSync(targetPath, JSON.stringify({ secret: "must-not-be-read" }));
+    symlinkSync(targetPath, linkPath);
+
+    await expect(api.readPinnedJsonFile({ path: linkPath, maxBytes: 1024 })).resolves.toEqual({
+      value: null,
+      warnings: ["source_unavailable"],
+    });
+    expect(fsMocks.lstatSync).toHaveBeenCalledWith(linkPath);
+  });
+
+  it.runIf("O_NOFOLLOW" in constants && constants.O_NOFOLLOW !== 0)(
+    "uses reliable non-Windows O_NOFOLLOW without fallback lstat",
+    async () => {
+      vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+      fsMocks.lstatSync.mockImplementation(() => {
+        throw new Error("fallback lstat must not run");
+      });
+      const api = await loadSubject();
+      const dir = tempDir();
+      const targetPath = join(dir, "target.json");
+      const linkPath = join(dir, "status-link.json");
+      writeFileSync(targetPath, JSON.stringify({ secret: "must-not-be-read" }));
+      symlinkSync(targetPath, linkPath);
+
+      await expect(api.readPinnedJsonFile({ path: linkPath, maxBytes: 1024 })).resolves.toEqual({
+        value: null,
+        warnings: ["source_unavailable"],
+      });
+      expect(fsMocks.lstatSync).not.toHaveBeenCalled();
+    },
+  );
 });

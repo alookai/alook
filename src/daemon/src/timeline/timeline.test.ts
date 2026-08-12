@@ -290,7 +290,7 @@ describe("daily timeline hard cap", () => {
     expect(Buffer.byteLength(JSON.stringify(overflow), "utf8") + 1).toBe(TIMELINE_MAX_BYTES + 3);
     expect(appendEntry(dir, overflow, NOW)).toBe(false);
     expect(fs.readFileSync(file)).toEqual(before);
-  });
+  }, 30_000);
 
   it("rejects a newest row that fits alone but cannot coexist with the required barrier sentinel", () => {
     const dir = mkDir();

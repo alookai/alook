@@ -16,7 +16,7 @@ import {
   writeSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { Readable } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DiagnosticCollectCommand, DiagnosticReportFailureCode } from "@alook/shared";
@@ -71,7 +71,7 @@ interface CoordinatorModule {
     checkpoint?: (point: CrashPoint) => void;
     fsOps?: {
       randomSuffix(): string;
-      open(path: string, flags: "wx" | "r", mode?: number): number;
+      open(path: string, flags: "wx" | "r" | "r+", mode?: number): number;
       write(fd: number, bytes: Uint8Array): void;
       fsync(fd: number): void;
       close(fd: number): void;
@@ -289,7 +289,7 @@ describe("B2c durable diagnostic coordinator", () => {
     let suffix = 0;
     const fsOps = {
       randomSuffix: vi.fn(() => `nonce-${++suffix}`),
-      open: vi.fn((path: string, flags: "wx" | "r", mode?: number) => {
+      open: vi.fn((path: string, flags: "wx" | "r" | "r+", mode?: number) => {
         operations.push({ op: "open", path, flags, mode });
         return openSync(path, flags, mode);
       }),
@@ -331,9 +331,26 @@ describe("B2c durable diagnostic coordinator", () => {
     const exclusiveOpens = operations.filter((operation) => operation.op === "open" && operation.flags === "wx");
     expect(exclusiveOpens).toHaveLength(2);
     expect(exclusiveOpens.every((operation) => operation.mode === 0o600)).toBe(true);
+    const archiveOpen = operations.find((operation) => operation.op === "open" && operation.flags === "r+");
+    expect(archiveOpen?.path).toBe(bundleTemps[0]);
+    const archiveOpenIndex = operations.indexOf(archiveOpen!);
+    expect(operations.slice(archiveOpenIndex, archiveOpenIndex + 4).map(({ op }) => op)).toEqual([
+      "open",
+      "fsync",
+      "close",
+      "rename",
+    ]);
+    expect(harness.uploaded).toEqual([{
+      meta: {
+        reportId: "dbr_report_1",
+        sizeBytes: bytes.length,
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+      },
+      bytes,
+    }]);
     const tempPaths = [...exclusiveOpens.map((operation) => operation.path!), ...bundleTemps];
     expect(new Set(tempPaths).size).toBe(tempPaths.length);
-    expect(tempPaths.every((path) => join(path, "..") !== path && path.startsWith(`${diagnosticsDir(harness.machineDir)}/`))).toBe(true);
+    expect(tempPaths.every((path) => dirname(path) === diagnosticsDir(harness.machineDir))).toBe(true);
 
     const names = operations.map((operation) => operation.op);
     let cursor = 0;
@@ -356,7 +373,7 @@ describe("B2c durable diagnostic coordinator", () => {
     let firstExclusivePath: string | null = null;
     const fsOps = {
       randomSuffix: vi.fn(() => suffixes.shift() ?? `fresh-${Date.now()}`),
-      open: vi.fn((path: string, flags: "wx" | "r", mode?: number) => {
+      open: vi.fn((path: string, flags: "wx" | "r" | "r+", mode?: number) => {
         if (flags === "wx" && firstExclusivePath === null) {
           firstExclusivePath = path;
           symlinkSync(outside, path);
