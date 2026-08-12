@@ -67,8 +67,9 @@ describe("B2d read-only bug-report R2 preflight", () => {
   it("runs the package CLI fail-closed without credentials", () => {
     const packageRoot = fileURLToPath(new URL("..", import.meta.url));
     const secretMarker = "PREFLIGHT_SECRET_MUST_NOT_LEAK";
-    const pnpmExecutable = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-    const child = spawnSync(pnpmExecutable, ["preflight:bug-reports"], {
+    const packageManagerCli = process.env.npm_execpath;
+    if (!packageManagerCli) throw new Error("npm_execpath is required to invoke the package CLI");
+    const child = spawnSync(process.execPath, [packageManagerCli, "preflight:bug-reports"], {
       cwd: packageRoot,
       encoding: "utf8",
       env: {
