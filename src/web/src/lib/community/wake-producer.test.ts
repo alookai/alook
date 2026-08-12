@@ -206,9 +206,10 @@ describe("enqueueBotWakes", () => {
     expect(mockQueueSend).toHaveBeenCalledTimes(1)
   })
 
-  it("drops (does NOT throw or collapse the batch) when a single candidate's gate check rejects", async () => {
+  it("retains a candidate when its producer prefilter rejects without collapsing the batch", async () => {
     // Regression guard: a transient D1 blip on ONE candidate's gate check
-    // must not wipe every wake for the message — `allSettled`, not `all`.
+    // must not permanently lose that candidate. The consumer performs the
+    // authoritative access check and will retry transient failures there.
     mockFindWakeCandidates.mockResolvedValue([
       { botUserId: "bot_ok_1", name: "a", machineId: "m1", runtime: "claude" },
       { botUserId: "bot_flaky", name: "b", machineId: "m2", runtime: "codex" },
@@ -229,6 +230,7 @@ describe("enqueueBotWakes", () => {
     const [payloads] = mockQueueSend.mock.calls[0]!
     expect(payloads).toEqual([
       { messageId: "msg_1", botUserId: "bot_ok_1" },
+      { messageId: "msg_1", botUserId: "bot_flaky" },
       { messageId: "msg_1", botUserId: "bot_ok_2" },
     ])
   })

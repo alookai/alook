@@ -2,6 +2,8 @@ import { createLogger, createDb, dispatchOneUnreadWake } from "@alook/shared"
 import type { WakePayload, Database } from "@alook/shared"
 
 const log = createLogger({ service: "wake-worker" })
+const DEV_HTTP_MAX_ATTEMPTS = 3
+const DEV_HTTP_RETRY_DELAYS_MS = [25, 100] as const
 
 /**
  * Resolve ONE wake candidate via `dispatchOneUnreadWake` and log its
@@ -9,8 +11,8 @@ const log = createLogger({ service: "wake-worker" })
  * traffic) and `fetch()` (dev-only stand-in for the local Cloudflare Queue,
  * see its doc comment) — so the log lines and interpretation logic exist
  * exactly once regardless of which entrypoint received the item. Throws
- * propagate untouched; each caller decides retry (queue) vs best-effort
- * (dev HTTP shim) on its own.
+ * propagate untouched; each caller applies its own retry contract (Queue
+ * retry/DLQ versus bounded in-process retries for the dev HTTP shim).
  */
 async function resolveAndLog(db: Database, env: Env, item: WakePayload) {
   const result = await dispatchOneUnreadWake(db, env, item)
@@ -24,6 +26,55 @@ async function resolveAndLog(db: Database, env: Env, item: WakePayload) {
     log.info("wake_delivered_nowhere", { botUserId: item.botUserId, machineId: result.machineId })
   }
   return result
+}
+
+function dedupeWakePayloads(payloads: WakePayload[]): WakePayload[] {
+  const seen = new Map<string, Set<string>>()
+  return payloads.filter((item) => {
+    let botIds = seen.get(item.messageId)
+    if (!botIds) {
+      botIds = new Set<string>()
+      seen.set(item.messageId, botIds)
+    }
+    if (botIds.has(item.botUserId)) return false
+    botIds.add(item.botUserId)
+    return true
+  })
+}
+
+async function waitForDevHttpRetry(delayMs: number): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, delayMs))
+}
+
+async function resolveDevHttpCandidate(db: Database, env: Env, item: WakePayload): Promise<boolean> {
+  for (let attempt = 1; attempt <= DEV_HTTP_MAX_ATTEMPTS; attempt++) {
+    try {
+      await resolveAndLog(db, env, item)
+      return true
+    } catch (err) {
+      if (attempt === DEV_HTTP_MAX_ATTEMPTS) {
+        log.warn("dev_http_wake_dispatch_exhausted", {
+          botUserId: item.botUserId,
+          messageId: item.messageId,
+          attempts: attempt,
+          err: String(err),
+        })
+        return false
+      }
+
+      const delayMs = DEV_HTTP_RETRY_DELAYS_MS[attempt - 1]!
+      log.warn("dev_http_wake_dispatch_retrying", {
+        botUserId: item.botUserId,
+        messageId: item.messageId,
+        attempt,
+        delayMs,
+        err: String(err),
+      })
+      await waitForDevHttpRetry(delayMs)
+    }
+  }
+
+  return false
 }
 
 export default {
@@ -68,8 +119,11 @@ export default {
    * `resolveAndLog`/`dispatchOneUnreadWake` real orchestration `queue()`
    * does, including the real D1 read and the real forward to `alook-ws-do`
    * — this is the actual worker process handling actual wake candidates,
-   * not a simulation of it. Best-effort: no queue infra backs this, so one
-   * candidate's failure is logged but never blocks siblings or the response.
+   * not a simulation of it. There is no durable queue behind this dev path:
+   * candidates get bounded in-process retries and exhausted stable keys are
+   * returned visibly as a 207 partial result. A partial result is deliberately
+   * not a 5xx because the caller's binding/HTTP fallback would otherwise
+   * replay the full batch and duplicate already-successful siblings.
    */
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url)
@@ -87,13 +141,13 @@ export default {
     }
 
     const db = createDb(env.DB)
-    const results = await Promise.allSettled(payloads.map((p) => resolveAndLog(db, env, p)))
-    for (let i = 0; i < results.length; i++) {
-      const r = results[i]!
-      if (r.status === "rejected") {
-        log.warn("dev_http_wake_dispatch_failed", { botUserId: payloads[i]!.botUserId, messageId: payloads[i]!.messageId, err: String(r.reason) })
-      }
-    }
+    const uniquePayloads = dedupeWakePayloads(payloads)
+    const results = await Promise.all(
+      uniquePayloads.map(async (item) => ({ item, resolved: await resolveDevHttpCandidate(db, env, item) })),
+    )
+    const failed = results.filter((result) => !result.resolved).map((result) => result.item)
+    if (failed.length > 0) return Response.json({ failed }, { status: 207 })
+
     return new Response(null, { status: 202 })
   },
 }

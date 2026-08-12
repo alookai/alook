@@ -113,9 +113,9 @@ async function doEnqueueBotWakes(env: Env, opts: EnqueueBotWakesOpts): Promise<v
   //
   // `allSettled` (not `all`): a transient D1 blip on ONE candidate's gate
   // check must not collapse the whole batch's enqueue. Rejected legs are
-  // treated as "gate indeterminate" — we drop just that candidate (the
-  // queue consumer re-runs the same gate at consume time anyway) rather
-  // than losing every wake for the message.
+  // treated as "gate indeterminate" and retained because this check is only
+  // a producer-side prefilter. The consumer re-runs the same gate
+  // authoritatively and fails closed/retries if that check is unavailable.
   const scope: { channelId: string } = { channelId }
   const gateResults = await Promise.allSettled(
     candidates.map((c) => queries.communityMember.canBotReadWakeScope(db, c.botUserId, scope))
@@ -124,7 +124,7 @@ async function doEnqueueBotWakes(env: Env, opts: EnqueueBotWakesOpts): Promise<v
     const r = gateResults[i]!
     if (r.status === "rejected") {
       log.warn("wake_gate_check_failed", { botUserId: c.botUserId, err: String(r.reason) })
-      return false
+      return true
     }
     return r.value
   })

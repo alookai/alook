@@ -99,6 +99,49 @@ describe("createDevHttpWakeTransport", () => {
     expect(mockGlobalFetch).toHaveBeenCalledTimes(1)
   })
 
+  it("does not replay a processed batch through HTTP fallback when the binding reports partial candidate exhaustion", async () => {
+    const bindingFetch = vi.fn(async () => Response.json(
+      { failed: [{ messageId: "msg_1", botUserId: "bot1" }] },
+      { status: 207 },
+    ))
+    mockGlobalFetch.mockResolvedValue(new Response(null, { status: 202 }))
+    const transport = createDevHttpWakeTransport(makeEnv(bindingFetch))
+
+    await expect(transport.send(payloads)).rejects.toThrow(/partial.*1 candidate/i)
+
+    expect(bindingFetch).toHaveBeenCalledTimes(1)
+    expect(mockGlobalFetch).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { name: "non-JSON body", body: "not json" },
+    { name: "missing botUserId", body: JSON.stringify({ failed: [{ messageId: "msg_1" }] }) },
+    { name: "unexpected top-level field", body: JSON.stringify({ failed: [], extra: true }) },
+    { name: "empty failed list", body: JSON.stringify({ failed: [] }) },
+    { name: "candidate outside the sent batch", body: JSON.stringify({ failed: [{ messageId: "other", botUserId: "bot1" }] }) },
+    { name: "duplicate failed tuple", body: JSON.stringify({ failed: [payloads[0], payloads[0]] }) },
+  ])("fails closed without fallback for an invalid 207 response: $name", async ({ body }) => {
+    const bindingFetch = vi.fn(async () => new Response(body, { status: 207 }))
+    mockGlobalFetch.mockResolvedValue(new Response(null, { status: 202 }))
+    const transport = createDevHttpWakeTransport(makeEnv(bindingFetch))
+
+    await expect(transport.send(payloads)).rejects.toThrow(/invalid partial response/i)
+
+    expect(bindingFetch).toHaveBeenCalledTimes(1)
+    expect(mockGlobalFetch).not.toHaveBeenCalled()
+  })
+
+  it("still falls back to HTTP when the binding returns a worker-level 5xx", async () => {
+    const bindingFetch = vi.fn(async () => new Response("worker unavailable", { status: 503 }))
+    mockGlobalFetch.mockResolvedValue(new Response(null, { status: 202 }))
+    const transport = createDevHttpWakeTransport(makeEnv(bindingFetch))
+
+    await expect(transport.send(payloads)).resolves.toBeUndefined()
+
+    expect(bindingFetch).toHaveBeenCalledTimes(1)
+    expect(mockGlobalFetch).toHaveBeenCalledTimes(1)
+  })
+
   it("throws when both the binding and the HTTP fallback respond non-OK (caller logs, dev-only best effort)", async () => {
     const bindingFetch = vi.fn(async () => new Response("boom", { status: 500 }))
     mockGlobalFetch.mockResolvedValue(new Response("still bad", { status: 500 }))

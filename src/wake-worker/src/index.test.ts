@@ -150,21 +150,68 @@ describe("wake-worker dev-only HTTP entrypoint (fetch)", () => {
     expect(res.status).toBe(202)
   })
 
-  it("still returns 202 when one candidate rejects — siblings are unaffected, failure is only logged", async () => {
-    mockDispatchOneUnreadWake
-      .mockResolvedValueOnce({ outcome: "sent" })
-      .mockRejectedValueOnce(new Error("D1 exploded"))
+  it("deduplicates candidates by stable messageId + botUserId within one request", async () => {
+    mockDispatchOneUnreadWake.mockResolvedValue({ outcome: "sent" })
+    const first = { messageId: "msg:one", botUserId: "bot" }
+    const delimiterCollision = { messageId: "msg", botUserId: "one:bot" }
+
+    const res = await handler.fetch!(makeRequest("POST", [first, delimiterCollision, first]), env)
+
+    expect(res.status).toBe(202)
+    expect(mockDispatchOneUnreadWake).toHaveBeenCalledTimes(2)
+    expect(mockDispatchOneUnreadWake).toHaveBeenCalledWith({ __db: true }, env, first)
+    expect(mockDispatchOneUnreadWake).toHaveBeenCalledWith({ __db: true }, env, delimiterCollision)
+  })
+
+  it("retries only a transiently failing candidate while a healthy sibling is dispatched once", async () => {
+    const attempts = new Map<string, number>()
+    mockDispatchOneUnreadWake.mockImplementation(async (_db: unknown, _env: unknown, item: { botUserId: string }) => {
+      const attempt = (attempts.get(item.botUserId) ?? 0) + 1
+      attempts.set(item.botUserId, attempt)
+      if (item.botUserId === "bot_flaky" && attempt === 1) throw new Error("D1 exploded")
+      return { outcome: "sent" }
+    })
 
     const res = await handler.fetch!(
       makeRequest("POST", [
-        { messageId: "msg1", botUserId: "bot1" },
-        { messageId: "msg2", botUserId: "bot2" },
+        { messageId: "msg1", botUserId: "bot_flaky" },
+        { messageId: "msg1", botUserId: "bot_healthy" },
       ]),
       env,
     )
 
     expect(res.status).toBe(202)
-    expect(mockDispatchOneUnreadWake).toHaveBeenCalledTimes(2)
+    expect(attempts).toEqual(new Map([
+      ["bot_flaky", 2],
+      ["bot_healthy", 1],
+    ]))
+  })
+
+  it("returns 207 with failed stable keys after bounded retries are exhausted without redispatching a healthy sibling", async () => {
+    const attempts = new Map<string, number>()
+    mockDispatchOneUnreadWake.mockImplementation(async (_db: unknown, _env: unknown, item: { botUserId: string }) => {
+      const attempt = (attempts.get(item.botUserId) ?? 0) + 1
+      attempts.set(item.botUserId, attempt)
+      if (item.botUserId === "bot_flaky") throw new Error("D1 stayed down")
+      return { outcome: "sent" }
+    })
+
+    const res = await handler.fetch!(
+      makeRequest("POST", [
+        { messageId: "msg1", botUserId: "bot_flaky" },
+        { messageId: "msg1", botUserId: "bot_healthy" },
+      ]),
+      env,
+    )
+
+    expect(res.status).toBe(207)
+    expect(await res.json()).toEqual({
+      failed: [{ messageId: "msg1", botUserId: "bot_flaky" }],
+    })
+    expect(attempts).toEqual(new Map([
+      ["bot_flaky", 3],
+      ["bot_healthy", 1],
+    ]))
   })
 
   it("returns 400 on invalid JSON body", async () => {
@@ -199,12 +246,10 @@ describe("wake-worker dev-only HTTP entrypoint (fetch)", () => {
  * entrypoints so a future change that special-cases one of them (instead of
  * `resolveAndLog`) fails a test here, not just in production later.
  *
- * What this table deliberately does NOT assert as equivalent — and never
- * will, see plans/minimal-wake-queue-unread-notice.md — is
- * retry-on-transient-failure: `queue()` retries via Cloudflare's
- * backoff/DLQ; `fetch()` has no queue infra behind it, so a rejection is
- * just logged. That's covered by the entrypoint-specific `describe` blocks
- * above, not here.
+ * Queue infrastructure and dev HTTP use different retry mechanisms, but
+ * both must preserve sibling isolation and surface exhausted transient
+ * failures instead of silently swallowing them. Entry-point-specific retry
+ * details are covered by the `describe` blocks above.
  */
 const RESOLUTION_SCENARIOS = [
   { name: "sent", outcome: { outcome: "sent" as const } },
@@ -235,7 +280,7 @@ describe("wake-worker queue() vs fetch() — same resolution for the same candid
     expect(fetchCallArgs).toEqual(queueCallArgs)
   })
 
-  it("both entrypoints let a sibling's success/skip proceed when one candidate throws", async () => {
+  it("both entrypoints let a sibling proceed when one candidate has a transient failure", async () => {
     const items = [
       { messageId: "msg1", botUserId: "bot1" },
       { messageId: "msg2", botUserId: "bot2" },
@@ -248,9 +293,18 @@ describe("wake-worker queue() vs fetch() — same resolution for the same candid
     expect(msgs[1]!.ack).toHaveBeenCalledTimes(1)
 
     vi.clearAllMocks()
-    mockDispatchOneUnreadWake.mockRejectedValueOnce(new Error("boom")).mockResolvedValueOnce({ outcome: "sent" })
+    const attempts = new Map<string, number>()
+    mockDispatchOneUnreadWake.mockImplementation(async (_db: unknown, _env: unknown, item: { botUserId: string }) => {
+      const attempt = (attempts.get(item.botUserId) ?? 0) + 1
+      attempts.set(item.botUserId, attempt)
+      if (item.botUserId === "bot1" && attempt === 1) throw new Error("boom")
+      return { outcome: "sent" }
+    })
     const res = await handler.fetch!(new Request("http://internal/", { method: "POST", body: JSON.stringify(items) }), env)
     expect(res.status).toBe(202)
-    expect(mockDispatchOneUnreadWake).toHaveBeenCalledTimes(2)
+    expect(attempts).toEqual(new Map([
+      ["bot1", 2],
+      ["bot2", 1],
+    ]))
   })
 })
