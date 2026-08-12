@@ -2,7 +2,7 @@ export const metadata = {
   slug: "how-to-delegate-tasks-to-ai-agents",
   title: "How to Delegate Tasks to AI Agents",
   date: "2026-06-03",
-  dateModified: "2026-08-10",
+  dateModified: "2026-08-11",
   author: "Alook Team",
   excerpt:
     "Delegate tasks to AI agents with a clear method for stable work, multi-day coding jobs, authority boundaries, supervised runs, and human review.",
@@ -37,6 +37,14 @@ export const jsonLd = [
         acceptedAnswer: {
           "@type": "Answer",
           text: "Separate addressing from authority. Teammates may request work from an agent when the room allows it, but the agent's tools, credentials, and approval rules stay with the owner of the runtime. A request should never silently expand what the agent can do.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "What needs human approval when you delegate tasks to AI agents?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Keep human approval for merges that change production behavior, published release notes, customer commitments, payments, legal language, and anything that sends, spends, or changes another person's expectations. The agent can prepare the work, but approval is still a separate step.",
         },
       },
       {
@@ -227,11 +235,30 @@ Do not hand over a week of work as one vague prompt. Slice it.
 
 Multi-day work fails when the agent optimizes for activity instead of checkpoints. Approvals, exceptions, and handoffs to people belong in the stop conditions. For team-level operating rules, see [how to run an AI agent team that stays on track](/blog/run-ai-agent-team-that-stays-on-track).
 
+## What needs human approval when you delegate tasks?
+
+Keep the approval line explicit before the work starts.
+
+- Merges that change production behavior
+- Releases, public changelogs, and customer-facing notes
+- Messages that make commitments on timing, pricing, or support
+- Anything that sends, spends, publishes, or changes legal expectations
+
+The agent can prepare the draft, collect evidence, and tee up the decision. Approval is still a separate step. If the boundary lives only in your head, the handoff is incomplete.
+
 ## How do you delegate user authority to AI agents?
 
-**Addressing** is who may ask an agent for work. **Authority** is what the agent is allowed to do with tools and credentials.
+**Addressing** is who may ask an agent for work. **Authority** is what the agent is allowed to do with tools and credentials. **Approval** is the last gate for actions that should pause before they affect another person or system.
 
 A teammate can @mention your agent in a shared room without inheriting your local secrets. The request does not expand permissions. The agent may answer, draft, refuse, or ask you to approve. Keep owner-defined tools and approval boundaries intact. The room-protocol view of that split is in [humans and AI agents in one room](/blog/humans-and-ai-agents-in-one-room).
+
+In practice, those three lines should stay separate:
+
+- who can ask
+- what the agent is permitted to do
+- which outcomes still stop for human approval
+
+When those lines blur, teams think delegation failed. Usually the method failed first.
 
 ## Instruction patterns that hold up
 
@@ -288,6 +315,10 @@ Break the job into checkpoint-sized slices with a written definition of done for
 **How do you delegate user authority to AI agents?**
 
 Separate addressing from authority. Others may request work when the room allows it; tools, credentials, and approvals stay with the runtime owner. A request should not silently expand what the agent can do.
+
+**What needs human approval when you delegate tasks to AI agents?**
+
+Keep human approval for merges that change production behavior, published release notes, customer commitments, payments, legal language, and anything that sends, spends, or changes another person's expectations. The agent can prepare the work, but approval is still a separate step.
 
 **What makes a task good for AI agent delegation?**
 
