@@ -2,10 +2,11 @@ export const metadata = {
   slug: "run-ai-agent-team-that-stays-on-track",
   title: "How to Run an AI Agent Team That Stays on Track",
   date: "2026-07-29",
+  dateModified: "2026-08-12",
   author: "Alook Team",
   excerpt:
-    "More agents help only when jobs stay clear, ownership stays named, and results stay easy to review. These operating rules keep a team usable day after day.",
-  readingTime: "6 min read",
+    "Keep an AI agent team on track with clear jobs, proof of work, approval gates, and an always-on runtime that still waits for human review.",
+  readingTime: "7 min read",
   image: "/blog/run-ai-agent-team-that-stays-on-track/hero.webp",
 };
 
@@ -32,6 +33,38 @@ export const jsonLd = [
       },
       {
         "@type": "Question",
+        name: "What counts as proof of work for an AI agent?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Proof of work is a reviewable artifact: a pull request, test output, screenshot, dated note, or deploy link that shows what changed and what remains open. A long chat thread is activity, not proof.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "What is an always-on AI agent runtime?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "An always-on runtime keeps agents available across hours and days so scheduled work, email, and catch-up can continue after a chat session closes. Always-on does not mean unsupervised. High-impact actions still wait for approval.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "What should an AI agent handoff include?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "A useful handoff names the objective, the current state, the artifact produced so far, the checks already run, the open questions, and the requested next action. The next owner should not have to reconstruct a thread to know what to do.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "What should happen when an AI agent hits an exception?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "The workflow should pause, return the exception with context, and route it to the person or role that owns the decision. Silent guessing is worse than a visible stop.",
+        },
+      },
+      {
+        "@type": "Question",
         name: "Do I need Alook to use these rules?",
         acceptedAnswer: {
           "@type": "Answer",
@@ -42,11 +75,11 @@ export const jsonLd = [
   },
 ];
 
-You give three agents the same project on Monday. By Wednesday, one has drafted a plan, another has started a different version, and a third has reopened a question the group settled on Monday afternoon. The work is moving. Nobody can say where it is going.
+An AI agent team stays on track when each role has one clear job, handoffs leave proof of work a person can review, high-impact actions wait for approval, and an always-on runtime does not become unsupervised work. The fix is usually a short set of operating rules, not another agent.
 
-This is a common second-stage problem with agent teams. The first problem is getting useful work out of an agent. The next one is keeping several pieces of useful work from becoming a pile of drafts, old conclusions, and unanswered requests.
+You can see the failure mode quickly. Give three agents the same project on Monday. By Wednesday, one has drafted a plan, another has started a different version, and a third has reopened a question the group settled on Monday afternoon. The work is moving. Nobody can say where it is going.
 
-The answer is rarely another agent. It is a few operating rules that keep the team clear, owned, and easy to review.
+That second-stage mess is common once agents start producing useful drafts. Useful output without ownership, reviewable artifacts, and a stop path turns into old conclusions and unanswered requests.
 
 ![Agent team workflow moving from noisy drafts to clear jobs, named ownership, and easy review](/blog/run-ai-agent-team-that-stays-on-track/hero.webp)
 
@@ -123,6 +156,40 @@ Require a short verification path. Depending on the work, that might be:
 
 The next reviewer should not have to reconstruct a day of chat to work out whether the task is complete. If they do, the handoff is still unfinished.
 
+## What counts as proof of work for an AI agent
+
+That is the difference between activity and **proof of work**. A useful agent result should leave something a person can inspect quickly: the artifact, the checks, the remaining questions, and the requested next action. "Still working" is not proof. Neither is a transcript dump.
+
+Proof can be small. A pull request with checks run. A screenshot. A dated note with sources. A deploy link plus what remains open. The test is whether a reviewer can judge the result without rereading the whole thread.
+
+## Always-on runtime is not unsupervised runtime
+
+An always-on AI agent runtime keeps the team available after a chat window closes. Scheduled checks can fire. Agent email can wait in the inbox. A local daemon can pick work back up when the machine is online.
+
+That is useful. It is not the same as letting agents spend, publish, or merge without you.
+
+Keep the distinction explicit:
+
+- **Always-on** means the runtime can continue work across hours and days.
+- **Unsupervised** means high-impact actions proceed without a human gate.
+
+Approval still sits in front of customer commitments, payments, legal language, and production changes. For the email-native handoff pattern behind that runtime, see [how to build an AI agent team](/blog/ai-agent-team).
+
+## Give exceptions an owner and a stop path
+
+Exception handling is where neat workflows usually break.
+
+An agent hits a missing requirement, a contradictory instruction, a failing check that changes the scope, or a decision that belongs to product or legal. That is not the moment to "be helpful" and guess through it.
+
+Write the stop path into the team rules:
+
+- name who owns the exception
+- state what context must be returned
+- say whether the work pauses, reroutes, or expires
+- make the next reviewer visible
+
+A useful exception report is short. It says what blocked progress, what evidence the agent gathered, and what decision is needed next. That keeps the handoff inside the workflow instead of turning it into another drifting thread.
+
 ## Let one brief travel through a clear structure
 
 Rules become much easier to follow when people and agents know who owns the next step.
@@ -133,7 +200,7 @@ Rules become much easier to follow when people and agents know who owns the next
 
 The full walkthrough, including the org chart and screenshots, is in [How to Build an AI Agent Team](/blog/ai-agent-team). The practical lesson here is smaller: a team does not need every agent talking to every other agent. Clear reporting lines reduce the number of places a task can disappear.
 
-That is the kind of structure Alook is built to hold for agents that run on your own machine: roles, email-native threads, task handoffs, and a history you can inspect later. You can take the open-source, self-hosted route through [GitHub](https://github.com/alookai/alook). Or register at [alook.ai](https://alook.ai), then connect the local agents and runtime you already use. In both paths, the agents continue to run in your environment.
+That is the kind of structure Alook is built to hold for agents that run on your own machine: roles, email-native threads, task handoffs, an always-on local runtime, and a history you can inspect later. You can take the open-source, self-hosted route through [GitHub](https://github.com/alookai/alook). Or register at [alook.ai](https://alook.ai), then connect the local agents and runtime you already use. In both paths, the agents continue to run in your environment.
 
 ## Keep the team usable
 
@@ -148,7 +215,7 @@ An agent team stays on track when you can answer six questions without reading e
 
 More agents can give you more coverage. They also create more places for a decision to blur. Start with work that is clear enough to check, keep the approval boundary obvious, and add complexity only after the current handoff feels routine.
 
-Related: [How to Build an AI Agent Team](/blog/ai-agent-team) · [How to Keep Context Across Multiple Coding Agent Sessions](/blog/keep-context-across-coding-agent-sessions) · [How to Delegate Tasks to AI Agents](/blog/how-to-delegate-tasks-to-ai-agents)
+Related: [How to Build an AI Agent Team](/blog/ai-agent-team) · [How to Build a One-Person Company With AI Agents](/blog/personal-ai-company) · [How to Keep Context Across Multiple Coding Agent Sessions](/blog/keep-context-across-coding-agent-sessions) · [How to Delegate Tasks to AI Agents](/blog/how-to-delegate-tasks-to-ai-agents)
 
 ## FAQ
 
@@ -157,6 +224,18 @@ Start with two to four roles that have clear jobs. Add another role when a real 
 
 **What should always stay behind human approval?**  
 Actions that send, spend, publish, change prices, create legal commitments, or make irreversible production changes should wait for a human decision.
+
+**What counts as proof of work for an AI agent?**  
+A reviewable artifact: a pull request, test output, screenshot, dated note, or deploy link that shows what changed and what remains open. A long chat thread is activity, not proof.
+
+**What is an always-on AI agent runtime?**  
+It keeps agents available across hours and days so scheduled work, email, and catch-up can continue after a chat session closes. Always-on does not mean unsupervised. High-impact actions still wait for approval.
+
+**What should an AI agent handoff include?**  
+Include the objective, the current state, the artifact produced so far, the checks already run, the open questions, and the requested next action. The next owner should not have to reconstruct a thread to know what to do.
+
+**What should happen when an AI agent hits an exception?**  
+Pause the workflow, return the exception with context, and route it to the person or role that owns the decision. Silent guessing is worse than a visible stop.
 
 **Do I need Alook to use these rules?**  
 No. These rules work with any agent stack. A coordination layer becomes useful when work crosses agents, sessions, and days, and you need roles, threads, and handoffs to remain visible.
