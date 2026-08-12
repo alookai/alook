@@ -1,8 +1,141 @@
-import { sqliteTable, text, index, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { user } from "./schema";
 import type { CommunityMachineRuntime } from "../community-ws-events";
+
+export const DIAGNOSTIC_REPORT_FAILURE_CODES = [
+  "offline",
+  "timeout",
+  "upload_conflict",
+  "invalid_upload",
+  "diagnostics_unavailable",
+  "collector_busy",
+  "bot_not_bound",
+  "collection_failed",
+  "local_artifact_invalid",
+  "bundle_too_large",
+  "upload_failed",
+  "internal_error",
+] as const;
+
+export type DiagnosticReportFailureCode =
+  (typeof DIAGNOSTIC_REPORT_FAILURE_CODES)[number];
+
+export type DiagnosticReportStatus = "pending" | "uploaded" | "failed";
+
+// community_diagnostic_report — immutable authorization and collection
+// snapshot for one owner-requested diagnostic bundle. Deliberately has no
+// foreign keys: bot soft-delete, unbind, and machine deletion must not erase
+// or pin the audit/status record after the atomic create snapshot is taken.
+export const communityDiagnosticReport = sqliteTable(
+  "community_diagnostic_report",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => "dbr_" + nanoid()),
+    ownerUserId: text("owner_user_id").notNull(),
+    agentId: text("agent_id").notNull(),
+    machineId: text("machine_id").notNull(),
+    clientNonce: text("client_nonce").notNull(),
+    rateBucket: integer("rate_bucket").notNull(),
+    status: text("status").$type<DiagnosticReportStatus>().notNull().default("pending"),
+    failureCode: text("failure_code").$type<DiagnosticReportFailureCode>(),
+    fromMs: integer("from_ms").notNull(),
+    createdAt: integer("created_at").notNull(),
+    deadlineAt: integer("deadline_at").notNull(),
+    completedAt: integer("completed_at"),
+    r2Key: text("r2_key"),
+    sha256: text("sha256"),
+    sizeBytes: integer("size_bytes"),
+    uploadedAt: integer("uploaded_at"),
+    objectExpiresAt: integer("object_expires_at"),
+  },
+  (t) => [
+    index("idx_community_diagnostic_report_owner_created").on(
+      t.ownerUserId,
+      t.createdAt
+    ),
+    index("idx_community_diagnostic_report_machine_status_deadline").on(
+      t.machineId,
+      t.status,
+      t.deadlineAt
+    ),
+    uniqueIndex("uq_community_diagnostic_report_owner_nonce").on(
+      t.ownerUserId,
+      t.clientNonce
+    ),
+    uniqueIndex("uq_community_diagnostic_report_owner_agent_pending")
+      .on(t.ownerUserId, t.agentId)
+      .where(sql`status = 'pending'`),
+    uniqueIndex("uq_community_diagnostic_report_owner_rate_bucket").on(
+      t.ownerUserId,
+      t.rateBucket
+    ),
+    check(
+      "ck_community_diagnostic_report_id",
+      sql`length(${t.id}) > 4 AND substr(${t.id}, 1, 4) = 'dbr_' AND ${t.id} NOT GLOB '*[^A-Za-z0-9_-]*'`
+    ),
+    check(
+      "ck_community_diagnostic_report_nonce",
+      sql`length(${t.clientNonce}) BETWEEN 16 AND 64 AND ${t.clientNonce} NOT GLOB '*[^A-Za-z0-9_-]*'`
+    ),
+    check(
+      "ck_community_diagnostic_report_required_epochs",
+      sql`typeof(${t.fromMs}) = 'integer' AND ${t.fromMs} BETWEEN 0 AND 9007199254740991
+        AND typeof(${t.createdAt}) = 'integer' AND ${t.createdAt} BETWEEN 0 AND 9007199254740991
+        AND typeof(${t.deadlineAt}) = 'integer' AND ${t.deadlineAt} BETWEEN 0 AND 9007199254740991
+        AND ${t.fromMs} = ${t.createdAt} - 86400000
+        AND ${t.deadlineAt} = ${t.createdAt} + 600000`
+    ),
+    check(
+      "ck_community_diagnostic_report_rate_bucket",
+      sql`typeof(${t.rateBucket}) = 'integer'
+        AND ${t.rateBucket} BETWEEN 0 AND 9007199254740991
+        AND ${t.rateBucket} = CAST(${t.createdAt} / 60000 AS INTEGER)`
+    ),
+    check(
+      "ck_community_diagnostic_report_nullable_epochs",
+      sql`(${t.completedAt} IS NULL OR (typeof(${t.completedAt}) = 'integer' AND ${t.completedAt} BETWEEN 0 AND 9007199254740991))
+        AND (${t.uploadedAt} IS NULL OR (typeof(${t.uploadedAt}) = 'integer' AND ${t.uploadedAt} BETWEEN 0 AND 9007199254740991))
+        AND (${t.objectExpiresAt} IS NULL OR (typeof(${t.objectExpiresAt}) = 'integer' AND ${t.objectExpiresAt} BETWEEN 0 AND 9007199254740991))`
+    ),
+    check(
+      "ck_community_diagnostic_report_size",
+      sql`${t.sizeBytes} IS NULL OR (typeof(${t.sizeBytes}) = 'integer' AND ${t.sizeBytes} BETWEEN 1 AND 10485760)`
+    ),
+    check(
+      "ck_community_diagnostic_report_sha256",
+      sql`${t.sha256} IS NULL OR (length(${t.sha256}) = 64 AND ${t.sha256} NOT GLOB '*[^0-9a-f]*')`
+    ),
+    check(
+      "ck_community_diagnostic_report_state",
+      sql`(
+          ${t.status} = 'pending'
+          AND ${t.failureCode} IS NULL AND ${t.completedAt} IS NULL
+          AND ${t.r2Key} IS NULL AND ${t.sha256} IS NULL AND ${t.sizeBytes} IS NULL
+          AND ${t.uploadedAt} IS NULL AND ${t.objectExpiresAt} IS NULL
+        ) OR (
+          ${t.status} = 'failed'
+          AND ${t.failureCode} IN ('offline', 'timeout', 'upload_conflict', 'invalid_upload', 'diagnostics_unavailable', 'collector_busy', 'bot_not_bound', 'collection_failed', 'local_artifact_invalid', 'bundle_too_large', 'upload_failed', 'internal_error')
+          AND ${t.completedAt} IS NOT NULL
+          AND ${t.completedAt} >= ${t.createdAt}
+          AND ${t.r2Key} IS NULL AND ${t.sha256} IS NULL AND ${t.sizeBytes} IS NULL
+          AND ${t.uploadedAt} IS NULL AND ${t.objectExpiresAt} IS NULL
+        ) OR (
+          ${t.status} = 'uploaded'
+          AND ${t.failureCode} IS NULL AND ${t.completedAt} IS NOT NULL
+          AND ${t.completedAt} >= ${t.createdAt}
+          AND ${t.r2Key} IS NOT NULL
+          AND ${t.r2Key} = 'bug-reports/' || ${t.ownerUserId} || '/' || ${t.id} || '.ndjson.gz'
+          AND ${t.sha256} IS NOT NULL AND ${t.sizeBytes} IS NOT NULL
+          AND ${t.uploadedAt} IS NOT NULL AND ${t.objectExpiresAt} IS NOT NULL
+          AND ${t.completedAt} = ${t.uploadedAt}
+          AND ${t.objectExpiresAt} = ${t.uploadedAt} + 604800000
+        )`
+    ),
+  ]
+);
 
 // community_machine_token — pairing tokens. The id IS the user-visible
 // token string (cmt_<nanoid(32)>). machine_id is set on reconnect tokens
