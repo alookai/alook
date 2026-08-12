@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
+import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonStart } from "./daemonStart";
 
 const packageRoot = fileURLToPath(new URL("../..", import.meta.url));
-const tsx = path.join(packageRoot, "node_modules", ".bin", "tsx");
+const tsxCli = createRequire(import.meta.url).resolve("tsx/cli");
 const cli = path.join(packageRoot, "src", "cli", "index.ts");
 const secret = "cmk_B0_REAL_PROCESS_SECRET";
 const machineId = "cm_machine_real_123456";
@@ -51,7 +52,7 @@ function cliArgs(baseDir: string, foreground = false): string[] {
 }
 
 function spawnCli(args: string[], env: NodeJS.ProcessEnv = {}): ChildProcess {
-  const child = spawn(tsx, args, {
+  const child = spawn(process.execPath, [tsxCli, ...args], {
     cwd: packageRoot,
     env: { ...process.env, ...env },
     stdio: ["ignore", "pipe", "pipe"],
