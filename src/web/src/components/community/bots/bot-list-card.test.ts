@@ -8,6 +8,7 @@ import type { BotSummary } from "@/hooks/community/use-bots"
 // assert is the presence/absence of `data-testid="bot-card-model"` and its text.
 
 const useBotsMock = vi.fn()
+const bugReportDialogMock = vi.fn()
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -37,6 +38,12 @@ function passthrough(name: string) {
 vi.mock("./create-bot-sheet", () => ({ CreateBotSheet: passthrough("create-sheet") }))
 vi.mock("./edit-bot-sheet", () => ({ EditBotSheet: passthrough("edit-sheet") }))
 vi.mock("./bot-activity-modal", () => ({ BotActivityModal: passthrough("activity-modal") }))
+vi.mock("./bug-report-dialog", () => ({
+  BugReportDialog: (props: { bot: Pick<BotSummary, "id" | "name"> }) => {
+    bugReportDialogMock(props)
+    return React.createElement("div", { "data-mock": "bug-report-dialog" })
+  },
+}))
 vi.mock("@/components/avatar", () => ({ AgentAvatar: () => React.createElement("span", {}) }))
 vi.mock("@/components/provider-logo", () => ({ ProviderLogo: () => React.createElement("span", {}) }))
 vi.mock("@/components/ui/dropdown-menu", () => ({
@@ -128,5 +135,53 @@ describe("BotList — card model segment", () => {
     act(() => expand.props.onClick())
     expect(renderer.root.findAll((node) => node.props.hidden === true)).toHaveLength(0)
     expect(modelSegments(renderer)).toEqual(["local default"])
+  })
+})
+
+describe("BotList — bug-report feature entry", () => {
+  beforeEach(() => {
+    useBotsMock.mockReset()
+    bugReportDialogMock.mockReset()
+  })
+
+  it.each([
+    ["absent", undefined],
+    ["disabled", { bugReports: false }],
+    ["malformed", { bugReports: "true" }],
+  ])("hides Report a problem when the top-level feature is %s", (_label, features) => {
+    const bots = [bot({})]
+    useBotsMock.mockReturnValue({
+      bots,
+      isLoading: false,
+      data: features === undefined ? { bots } : { bots, features },
+    })
+
+    const renderer = render()
+    expect(
+      renderer.root.findAll((node) => node.props?.["data-testid"] === "bot-report-problem-item"),
+    ).toHaveLength(0)
+    expect(bugReportDialogMock).not.toHaveBeenCalled()
+  })
+
+  it("renders exactly one Report a problem action per bot when enabled", () => {
+    const bots = [bot({ id: "b1" }), bot({ id: "b2", name: "Maya" })]
+    useBotsMock.mockReturnValue({
+      bots,
+      isLoading: false,
+      data: { bots, features: { bugReports: true } },
+    })
+
+    const renderer = render()
+    const reportItems = renderer.root.findAll(
+      (node) => node.props?.["data-testid"] === "bot-report-problem-item",
+    )
+    expect(reportItems).toHaveLength(2)
+    expect(reportItems.map((item) => item.props.children).join(" ")).toContain("Report a problem")
+    expect(bugReportDialogMock).not.toHaveBeenCalled()
+
+    act(() => reportItems[1]!.props.onClick())
+    expect(bugReportDialogMock).toHaveBeenCalledWith(
+      expect.objectContaining({ bot: { id: "b2", name: "Maya" } }),
+    )
   })
 })

@@ -6,4 +6,11 @@ describe("community QA selectors", () => {
     expect(tid.inboxUnreadChild("post_1")).toBe("community-inbox-unread-child-post_1")
     expect(tid.channelRefPill("post_1")).toBe("community-channel-ref-pill-post_1")
   })
+
+  it("exposes only the four stable My Bots bug-report flow selectors", () => {
+    expect(tid.botReportProblemItem).toBe("bot-report-problem-item")
+    expect(tid.botReportProblemDialog).toBe("bot-report-problem-dialog")
+    expect(tid.botReportProblemSubmit).toBe("bot-report-problem-submit")
+    expect(tid.botReportProblemStatus).toBe("bot-report-problem-status")
+  })
 })

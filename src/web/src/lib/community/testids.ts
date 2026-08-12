@@ -20,6 +20,10 @@ export const tid = {
   machinePairCopy: "community-machine-pair-copy",
   homeButton: "community-home-button",
   alookLogo: "community-alook-logo",
+  botReportProblemItem: "bot-report-problem-item",
+  botReportProblemDialog: "bot-report-problem-dialog",
+  botReportProblemSubmit: "bot-report-problem-submit",
+  botReportProblemStatus: "bot-report-problem-status",
 
   forumTagDialog: "community-forum-tag-dialog",
 

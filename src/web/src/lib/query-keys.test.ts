@@ -122,6 +122,17 @@ describe("communityKeys", () => {
     ])
   })
 
+  it("keeps report polling specific to one report and outside the bots-list cache", () => {
+    expect(communityKeys.bugReport("dbr_1")).toEqual([
+      "community",
+      "bug-report",
+      "dbr_1",
+    ])
+    expect(communityKeys.bugReport("dbr_1")).not.toEqual(communityKeys.bots())
+    expect(communityKeys.bugReport("dbr_1").slice(0, 2)).not.toEqual(communityKeys.bots())
+    expect(communityKeys.bugReport("dbr_1")).not.toEqual(communityKeys.bugReport("dbr_2"))
+  })
+
   it("returns a distinct new tuple each call (no shared mutable arrays)", () => {
     const a = communityKeys.channelMessages("c1")
     const b = communityKeys.channelMessages("c1")

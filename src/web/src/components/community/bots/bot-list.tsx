@@ -37,6 +37,7 @@ import { useOnlineUserIds } from "@/stores/community/ws"
 import { CreateBotSheet } from "./create-bot-sheet"
 import { EditBotSheet } from "./edit-bot-sheet"
 import { BotActivityModal } from "./bot-activity-modal"
+import { BugReportDialog } from "./bug-report-dialog"
 import { CreateTile } from "@/components/community/onboarding-tiles/create-tile"
 import { AgentHelpGallery } from "@/components/community/onboarding-tiles/agent-help-gallery"
 import {
@@ -46,6 +47,8 @@ import {
   updateCommunityOnboardingResources,
   useCommunityOnboarding,
 } from "@/lib/community-onboarding"
+import { bugReportsFeatureEnabled } from "@/hooks/community/use-bot-bug-report"
+import { tid } from "@/lib/community/testids"
 
 /**
  * BotList — the /c/me/bots surface.
@@ -76,7 +79,9 @@ function BotCardSkeleton() {
 export function BotList({ onBack }: { onBack?: () => void } = {}) {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { bots, isLoading } = useBots()
+  const botsQuery = useBots()
+  const { bots, isLoading } = botsQuery
+  const bugReportsEnabled = bugReportsFeatureEnabled(botsQuery.data)
   const { machines, isLoading: machinesLoading } = useMachines()
   // Presence read: single API for humans + bots, server-pushed identically
   // (see plans/community-account-debt-fixes.md Fix 3 — the owner is always
@@ -94,6 +99,8 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
   const [editOpen, setEditOpen] = useState(false)
   const [activityBot, setActivityBot] = useState<BotSummary | null>(null)
   const [activityOpen, setActivityOpen] = useState(false)
+  const [bugReportBot, setBugReportBot] = useState<Pick<BotSummary, "id" | "name"> | null>(null)
+  const [bugReportOpen, setBugReportOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<BotSummary | null>(null)
   const [confirmReset, setConfirmReset] = useState<BotSummary | null>(null)
   // Batch "reset all agents on this machine" confirm — keyed by machineId so the
@@ -516,6 +523,17 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                               >
                                 <span className="size-4" aria-hidden /> Edit
                               </DropdownMenuItem>
+                              {bugReportsEnabled && (
+                                <DropdownMenuItem
+                                  data-testid={tid.botReportProblemItem}
+                                  onClick={() => {
+                                    setBugReportBot({ id: bot.id, name: bot.name })
+                                    setBugReportOpen(true)
+                                  }}
+                                >
+                                  <span className="size-4" aria-hidden /> Report a problem
+                                </DropdownMenuItem>
+                              )}
                               <DropdownMenuItem
                                 data-testid={`bot-reset-session-item`}
                                 onClick={() => setConfirmReset(bot)}
@@ -555,6 +573,14 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
         open={activityOpen}
         onOpenChange={setActivityOpen}
       />
+      {bugReportsEnabled && bugReportBot && (
+        <BugReportDialog
+          key={bugReportBot.id}
+          bot={bugReportBot}
+          open={bugReportOpen}
+          onOpenChange={setBugReportOpen}
+        />
+      )}
       <AlertDialog
         open={!!confirmDelete}
         onOpenChange={(open) => !open && setConfirmDelete(null)}

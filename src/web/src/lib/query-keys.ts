@@ -125,6 +125,8 @@ export const communityKeys = {
 
   // ── Bots ────────────────────────────────────────────────────────────────
   bots: () => [...communityKeys.all, "bots"] as const,
+  bugReport: (reportId: string) =>
+    [...communityKeys.all, "bug-report", reportId] as const,
   botAuditLog: (botId: string) =>
     [...communityKeys.all, "bot", botId, "audit-log"] as const,
 
