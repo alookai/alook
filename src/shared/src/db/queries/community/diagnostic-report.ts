@@ -8,9 +8,11 @@ import {
 } from "../../community-machine-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
+import {
+  DIAGNOSTIC_REPORT_COLLECTION_WINDOW_MS,
+  DIAGNOSTIC_REPORT_DEADLINE_WINDOW_MS,
+} from "../../../diagnostics-contract";
 
-const COLLECTION_WINDOW_MS = 86_400_000;
-const DEADLINE_WINDOW_MS = 600_000;
 const OBJECT_RETENTION_MS = 604_800_000;
 const diagnosticOwner = alias(user, "diagnostic_owner");
 
@@ -56,8 +58,8 @@ async function tryInsertPendingDiagnosticReport(
   input: CreateDiagnosticReportInput,
   reportId: string
 ): Promise<DiagnosticReportRow | null> {
-  const fromMs = input.nowMs - COLLECTION_WINDOW_MS;
-  const deadlineAt = input.nowMs + DEADLINE_WINDOW_MS;
+  const fromMs = input.nowMs - DIAGNOSTIC_REPORT_COLLECTION_WINDOW_MS;
+  const deadlineAt = input.nowMs + DIAGNOSTIC_REPORT_DEADLINE_WINDOW_MS;
   const rateBucket = Math.floor(input.nowMs / 60_000);
 
   const liveTarget = db
@@ -215,10 +217,10 @@ export async function createOrGetPendingDiagnosticReport(
   input: CreateDiagnosticReportInput
 ): Promise<CreateDiagnosticReportResult> {
   assertSafeEpoch(input.nowMs);
-  if (input.nowMs < COLLECTION_WINDOW_MS) {
+  if (input.nowMs < DIAGNOSTIC_REPORT_COLLECTION_WINDOW_MS) {
     throw new RangeError("nowMs is too early for the diagnostic collection window");
   }
-  if (!Number.isSafeInteger(input.nowMs + DEADLINE_WINDOW_MS)) {
+  if (!Number.isSafeInteger(input.nowMs + DIAGNOSTIC_REPORT_DEADLINE_WINDOW_MS)) {
     throw new RangeError("diagnostic deadline exceeds the safe integer range");
   }
 

@@ -1,5 +1,14 @@
-import { describe, it, expect } from "vitest";
-import { parseRef, formatRef, formatCanonicalRef, formatSeq, parseSeq, DM_SERVER } from "../src/community-cli-contract";
+import { describe, it, expect, expectTypeOf } from "vitest";
+import {
+  parseRef,
+  formatRef,
+  formatCanonicalRef,
+  formatSeq,
+  parseSeq,
+  DM_SERVER,
+  HostCommandSchema,
+  type HostCommand,
+} from "../src/community-cli-contract";
 
 describe("parseRef", () => {
   it('parses "/studio#0042/general" as a plain channel ref', () => {
@@ -267,5 +276,30 @@ describe("formatCanonicalRef", () => {
     expect(formatCanonicalRef({ type: "text", serverHandle: "studio#0042" })).toBeNull(); // no name
     expect(formatCanonicalRef({ type: "thread", serverHandle: "studio#0042", parentName: "g" })).toBeNull(); // no rootSeq
     expect(formatCanonicalRef({ type: "dm" })).toBeNull(); // no peerSegment
+  });
+});
+
+describe("HostCommand diagnostics contract", () => {
+  it("keeps the diagnostics arm in the HostCommand type and runtime schema", () => {
+    type DiagnosticCommand = {
+      type: "diagnostics:collect";
+      reportId: string;
+      agentId: string;
+      fromMs: number;
+      deadlineAt: number;
+    };
+    expectTypeOf<Extract<HostCommand, { type: "diagnostics:collect" }>>()
+      .toEqualTypeOf<DiagnosticCommand>();
+
+    const command: DiagnosticCommand = {
+      type: "diagnostics:collect",
+      reportId: "dbr_0123456789abcdef",
+      agentId: "bot_1",
+      fromMs: 1_700_000_000_000,
+      deadlineAt: 1_700_087_000_000,
+    };
+    expect(HostCommandSchema.safeParse(command)).toEqual(
+      expect.objectContaining({ success: true }),
+    );
   });
 });

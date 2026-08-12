@@ -21,6 +21,7 @@ declare namespace Cloudflare {
     CACHE_KV: KVNamespace
     AUTH_OTP_RATE_LIMIT_MAX?: string
     AUTH_OTP_RATE_LIMIT_WINDOW_SEC?: string
+    BUG_REPORTS_ENABLED?: string
     RUNTIME_MODEL_OPTIONS?: string
     MIN_CLI_VERSION?: string
     DEVICE_CLIENT_IDS?: string

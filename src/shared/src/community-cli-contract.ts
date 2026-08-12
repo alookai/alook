@@ -27,6 +27,8 @@ import type { RuntimeConfig } from "./runtime-config";
 import type { ChannelType, StoredChannelType } from "./utils/community-roles";
 import { CHANNEL_TRAITS } from "./utils/community-roles";
 import { parseNameAndTag } from "./lib/discriminator";
+import { DiagnosticCollectCommandSchema } from "./diagnostics-contract";
+import type { DiagnosticCollectCommand } from "./diagnostics-contract";
 
 /* ------------------------------------------------------------------ */
 /* Identifiers                                                         */
@@ -793,7 +795,8 @@ export type HostCommand =
   | {
     type: "bot:removed";
     botId: AgentId;
-  };
+  }
+  | DiagnosticCollectCommand;
 
 /**
  * Runtime descriptor carried by every `ready` frame. `status` defaults to
@@ -1429,6 +1432,7 @@ export const HostCommandSchema = z.discriminatedUnion("type", [
     type: z.literal("bot:removed"),
     botId: z.string().min(1),
   }),
+  DiagnosticCollectCommandSchema,
 ]);
 
 // Z2 — type↔schema lockstep. The `[T] extends [U]` tuple-wrap defeats union

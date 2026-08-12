@@ -1,4 +1,4 @@
-import { createDb, queries } from "@alook/shared"
+import { createDb, DiagnosticCollectCommandSchema, queries } from "@alook/shared"
 import {
   HANDLE_KEY,
   IDENTITY_KEY,
@@ -94,6 +94,23 @@ export async function handleMachineControlFetch(
     const body = await request.text()
     const sent = forwardToCommunityMachine(context, body)
     await hooks.clearRuntimeErrorOverlay().catch(() => { })
+    return new Response(JSON.stringify({ sent }), {
+      headers: { "Content-Type": "application/json" },
+    })
+  }
+
+  if (url.pathname === "/forward-diagnostics-collect" && request.method === "POST") {
+    let raw: unknown
+    try {
+      raw = await request.json()
+    } catch {
+      return new Response(JSON.stringify({ sent: 0 }), { status: 400 })
+    }
+    const command = DiagnosticCollectCommandSchema.safeParse(raw)
+    if (!command.success) {
+      return new Response(JSON.stringify({ sent: 0 }), { status: 400 })
+    }
+    const sent = forwardToCommunityMachine(context, JSON.stringify(command.data))
     return new Response(JSON.stringify({ sent }), {
       headers: { "Content-Type": "application/json" },
     })

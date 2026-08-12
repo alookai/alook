@@ -67,6 +67,10 @@ export type {
   CreateMachineTokenResponse,
 } from "./api-types";
 
+// Diagnostic report contract (neutral schemas/constants shared by HTTP, WS,
+// daemon, and the D1 query layer).
+export * from "./diagnostics-contract";
+
 // Constants
 export {
   AgentStatus,

@@ -7,6 +7,7 @@ import {
   handleUsersBroadcast,
 } from "./routes/broadcast"
 import { handleMachinePush, handleMachineWake } from "./routes/community-machine-delivery"
+import { handleMachineDiagnostics } from "./routes/community-machine-diagnostics"
 import {
   handleMachineBatchReset,
   handleMachineForceClose,
@@ -60,6 +61,8 @@ export default {
     response = await handleMachinePush(context)
     if (response) return response
     response = await handleMachineWake(context)
+    if (response) return response
+    response = await handleMachineDiagnostics(context)
     if (response) return response
     response = await handleMachineReset(context)
     if (response) return response

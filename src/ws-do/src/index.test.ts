@@ -85,6 +85,7 @@ describe("ws-do router", () => {
         "handleSinglePresence",
         "handleMachinePush",
         "handleMachineWake",
+        "handleMachineDiagnostics",
         "handleMachineReset",
         "handleMachineBatchReset",
         "handleMachineModelSwitch",

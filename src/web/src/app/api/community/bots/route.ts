@@ -10,6 +10,7 @@ import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers"
 import { pushBotEventToMachine } from "@/lib/community/bot-push"
+import { projectBugReportsFeature } from "@/lib/community/diagnostic-feature"
 
 export const GET = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
@@ -28,7 +29,10 @@ export const GET = withAuth(async (_req, ctx) => {
     ...bot,
     dailyActivity: activityByBot.get(bot.id) ?? [],
   }))
-  return writeJSON({ bots: withActivity })
+  return writeJSON({
+    bots: withActivity,
+    features: projectBugReportsFeature(ctx.env),
+  })
 })
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {

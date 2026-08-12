@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { WsControlChannel } from "./wsControlChannel";
+import { describe, it, expect, vi } from "vitest";
+import { WS_CONTROL_COMMAND_CONSUMED, WsControlChannel } from "./wsControlChannel";
 import type { WebSocketLike, HostReady, AgentSessionReport, HostCommand } from "./contract";
 import type { Logger } from "../logger";
 
@@ -556,6 +556,81 @@ describe("WsControlChannel — downlink HostCommand validation (convergence #6)"
     sockets[0].emit("message", JSON.stringify(frame));
     expect(received).toHaveLength(1);
     expect((received[0] as typeof realReset).config).toEqual(frame.config);
+  });
+
+  it("stops listener broadcast synchronously only for the server-owned consume sentinel", async () => {
+    const { ch, sockets } = makeChannel();
+    const consumedSecond = vi.fn();
+    ch.onCommand(() => WS_CONTROL_COMMAND_CONSUMED);
+    ch.onCommand(consumedSecond);
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
+    ch.connect();
+    sockets[0].emit("open");
+
+    sockets[0].emit("message", JSON.stringify(realStop));
+
+    expect(consumedSecond).not.toHaveBeenCalled();
+
+    const normal = makeChannel();
+    const first = vi.fn(async () => {});
+    const second = vi.fn();
+    normal.ch.onCommand(first);
+    normal.ch.onCommand(second);
+    normal.ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
+    normal.ch.connect();
+    normal.sockets[0].emit("open");
+    normal.sockets[0].emit("message", JSON.stringify(realStop));
+    await Promise.resolve();
+
+    expect(first).toHaveBeenCalledOnce();
+    expect(second).toHaveBeenCalledOnce();
+  });
+
+  it("dispatches one exact diagnostics command field-for-field", () => {
+    const command = {
+      type: "diagnostics:collect",
+      reportId: "dbr_0123456789abcdef",
+      agentId: "bot_1",
+      fromMs: 1_700_000_000_000,
+      deadlineAt: 1_700_087_000_000,
+    } as const;
+    const { sockets, received } = driven();
+
+    sockets[0].emit("message", JSON.stringify(command));
+
+    expect(received).toEqual([command]);
+  });
+
+  it("drops diagnostics commands with missing or unknown top-level fields", () => {
+    for (const command of [
+      {
+        type: "diagnostics:collect",
+        agentId: "bot_1",
+        fromMs: 1_700_000_000_000,
+        deadlineAt: 1_700_087_000_000,
+      },
+      {
+        type: "diagnostics:collect",
+        reportId: "dbr_0123456789abcdef",
+        agentId: "bot_1",
+        fromMs: 1_700_000_000_000,
+        deadlineAt: 1_700_087_000_000,
+        objectKey: "attacker-controlled",
+      },
+    ]) {
+      const logger = stubLogger();
+      const { ch, sockets } = makeChannel({ logger });
+      const received: HostCommand[] = [];
+      ch.onCommand((value) => received.push(value));
+      ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
+      ch.connect();
+      sockets[0].emit("open");
+
+      sockets[0].emit("message", JSON.stringify(command));
+
+      expect(received).toEqual([]);
+      expect(logger.calls.warn.some(([message]) => message === "dropped malformed HostCommand frame")).toBe(true);
+    }
   });
 });
 

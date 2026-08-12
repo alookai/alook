@@ -41,6 +41,16 @@ export type { WebSocketLike, WebSocketFactory } from "./contract.js";
 
 export type ControlChannelStatus = "idle" | "connecting" | "open" | "reconnecting" | "closed";
 
+/**
+ * A synchronous, channel-owned dispatch result used by a pre-router consumer
+ * to claim one command. Promises never consume: the decision must be visible
+ * before the dispatcher advances to the next FIFO listener.
+ */
+export const WS_CONTROL_COMMAND_CONSUMED = Symbol("ws-control-command-consumed");
+type CommandListener = (
+  cmd: HostCommand,
+) => void | Promise<void> | typeof WS_CONTROL_COMMAND_CONSUMED;
+
 /** Heartbeat: how often we ping the server WebSocket. */
 const DEFAULT_PING_INTERVAL_MS = 15_000;
 /** Heartbeat: how long we wait for a pong before declaring the socket dead. */
@@ -140,7 +150,7 @@ export class WsControlChannel implements HostControlChannel {
   private statusValue: ControlChannelStatus = "idle";
   // Multiple listeners so consumers can layer behavior (e.g. bot-cache pre-hook
   // + AgentRouter's real handler) without monkey-patching this class.
-  private commandCbs: Array<(cmd: HostCommand) => void | Promise<void>> = [];
+  private commandCbs: CommandListener[] = [];
   private resyncHooks: Array<() => void> = [];
   private ws: WebSocketLike | null = null;
   private attempt = 0;
@@ -181,7 +191,7 @@ export class WsControlChannel implements HostControlChannel {
    * run in FIFO order on each inbound frame. This lets a pre-hook (bot cache)
    * observe frames before the AgentRouter's dispatcher without wrapping them.
    */
-  onCommand(cb: (cmd: HostCommand) => void | Promise<void>): void {
+  onCommand(cb: CommandListener): void {
     this.commandCbs.push(cb);
   }
 
@@ -399,7 +409,9 @@ export class WsControlChannel implements HostControlChannel {
       // listener that throws would surface as an unhandled promise rejection
       // and, under Node ≥15 defaults, could terminate the daemon.
       try {
-        Promise.resolve(cb(cmd)).catch((err: unknown) => {
+        const result = cb(cmd);
+        if (result === WS_CONTROL_COMMAND_CONSUMED) break;
+        Promise.resolve(result).catch((err: unknown) => {
           this.log.warn("command listener threw", { type: cmd.type, err: describeErr(err) });
         });
       } catch (err) {

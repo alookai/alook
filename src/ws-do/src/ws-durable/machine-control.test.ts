@@ -295,6 +295,59 @@ describe("WebSocketDurableObject", () => {
         expect(ws.send).toHaveBeenCalledWith(body)
       })
 
+      it("strictly parses and forwards only the exact diagnostics HostCommand", async () => {
+        const { durable, getWebSockets } = createDO()
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({
+          type: "community-machine",
+          machineId: "cm_1",
+          userId: "u_1",
+          authenticated: true,
+        })
+        getWebSockets.mockReturnValue([ws])
+        const payload = {
+          type: "diagnostics:collect",
+          reportId: "dbr_0123456789abcdef",
+          agentId: "bot_1",
+          fromMs: 1_700_000_000_000,
+          deadlineAt: 1_700_087_000_000,
+        }
+
+        const response = await durable.fetch(new Request("http://internal/forward-diagnostics-collect", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        }))
+
+        expect(response.status).toBe(200)
+        await expect(response.json()).resolves.toEqual({ sent: 1 })
+        expect(ws.send).toHaveBeenCalledOnce()
+        expect(JSON.parse(ws.send.mock.calls[0]![0] as string)).toEqual(payload)
+      })
+
+      it.each([
+        ["malformed JSON", "{"],
+        ["missing field", JSON.stringify({ type: "diagnostics:collect", agentId: "bot_1" })],
+        ["unknown field", JSON.stringify({
+          type: "diagnostics:collect",
+          reportId: "dbr_0123456789abcdef",
+          agentId: "bot_1",
+          fromMs: 1_700_000_000_000,
+          deadlineAt: 1_700_087_000_000,
+          machineId: "cm_injected",
+        })],
+      ])("rejects diagnostics %s before reading sockets", async (_label, body) => {
+        const { durable, getWebSockets } = createDO()
+
+        const response = await durable.fetch(new Request("http://internal/forward-diagnostics-collect", {
+          method: "POST",
+          body,
+        }))
+
+        expect(response.status).toBe(400)
+        expect(getWebSockets).not.toHaveBeenCalled()
+      })
+
       it("best-effort force-close counts only sockets whose send and close both complete", async () => {
         const { durable, getWebSockets } = createDO()
         const sendFails = createMockWebSocket()

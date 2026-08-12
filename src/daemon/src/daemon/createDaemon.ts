@@ -40,6 +40,11 @@ import type { Driver, LaunchContext } from "../types.js";
 import type { RuntimeConfig } from "../runtimeConfig.js";
 import type { UnreadNotice, HostCommand } from "../server/contract.js";
 import { formatHandle } from "@alook/shared/lib/discriminator";
+import type { DiagnosticCollectCommand } from "@alook/shared";
+import {
+  createDiagnosticsCommandListener,
+  type DiagnosticFailureReport,
+} from "./diagnosticsCommand.js";
 
 // Cold-start warmup backoff schedule (ms).
 const WARMUP_BACKOFF_MS = [250, 500, 1000, 2000, 4000] as const;
@@ -282,6 +287,10 @@ export interface CreateDaemonOptions {
    * exactly one logger tree instead of two independent ones.
    */
   logger?: Logger;
+  /** B2b interception seam; B2c supplies the local collector/uploader. */
+  handleDiagnosticCommand?: (command: DiagnosticCollectCommand) => void | Promise<void>;
+  /** Fixed-code failure callback used when diagnostics is not available. */
+  reportDiagnosticFailure?: (failure: DiagnosticFailureReport) => void | Promise<void>;
 }
 
 export interface RunningDaemon {
@@ -849,10 +858,14 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       `You have unread messages in channel ${notice.channel}.`,
   });
 
-  // Register the bot-cache pre-hook. `onCommand` supports multiple listeners
-  // in FIFO order — this one runs before the AgentRouter's listener (which
-  // router.start() appends), so bot:* frames mutate the cache before the
-  // router dispatches. No monkey-patching required.
+  // Register the diagnostics consumer first: its synchronous channel-owned
+  // sentinel claims diagnostics before either the bot-cache observer or the
+  // AgentRouter can see them. The bot-cache observer remains immediately
+  // before router.start()'s listener for ordinary bot:* frames.
+  channel.onCommand(createDiagnosticsCommandListener({
+    handleDiagnosticCommand: opts.handleDiagnosticCommand,
+    reportDiagnosticFailure: opts.reportDiagnosticFailure,
+  }));
   channel.onCommand((cmd) => {
     handleBotFrame(cmd);
   });

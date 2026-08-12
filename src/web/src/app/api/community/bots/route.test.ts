@@ -9,6 +9,7 @@ const mockPushBotEventToMachine = vi.fn()
 const mockListBotsForOwner = vi.fn()
 const mockGetBotDailyActivityForOwner = vi.fn()
 const mockEnsureSiblingBotFriendship = vi.fn()
+const mockProjectBugReportsFeature = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -40,6 +41,9 @@ vi.mock("@alook/shared", async () => {
 
 vi.mock("@/lib/community/bot-push", () => ({
   pushBotEventToMachine: (...a: unknown[]) => mockPushBotEventToMachine(...a),
+}))
+vi.mock("@/lib/community/diagnostic-feature", () => ({
+  projectBugReportsFeature: (...a: unknown[]) => mockProjectBugReportsFeature(...a),
 }))
 
 vi.mock("@/lib/middleware/auth", () => ({
@@ -151,6 +155,7 @@ describe("POST /api/community/bots — model", () => {
 describe("GET /api/community/bots — heatmap activity", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockProjectBugReportsFeature.mockReturnValue({ bugReports: false })
   })
 
   it("attaches each bot's 30-day dailyActivity from the batched owner read", async () => {
@@ -185,6 +190,22 @@ describe("GET /api/community/bots — heatmap activity", () => {
     mockGetBotDailyActivityForOwner.mockResolvedValue(new Map())
     const res = await GET(getReq(), ctx)
     expect(res.status).toBe(200)
-    expect((await res.json()) as { bots: unknown[] }).toEqual({ bots: [] })
+    expect((await res.json()) as { bots: unknown[] }).toEqual({
+      bots: [],
+      features: { bugReports: false },
+    })
+  })
+
+  it("projects only the diagnostic capability boolean beside the bots", async () => {
+    mockListBotsForOwner.mockResolvedValue([])
+    mockGetBotDailyActivityForOwner.mockResolvedValue(new Map())
+    mockProjectBugReportsFeature.mockReturnValue({ bugReports: true })
+
+    const res = await GET(getReq(), ctx)
+    const body = await res.json()
+
+    expect(body).toEqual({ bots: [], features: { bugReports: true } })
+    expect(Object.keys(body.features)).toEqual(["bugReports"])
+    expect(mockProjectBugReportsFeature).toHaveBeenCalledWith(expect.objectContaining({ DB: {} }))
   })
 })

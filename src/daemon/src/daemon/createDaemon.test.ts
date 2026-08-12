@@ -10,6 +10,7 @@ import {
   emitImplicitTypingStopOnSend,
   parseRuntimeRawTraceAgentIds,
 } from "./createDaemon";
+import { AgentRouter } from "../manager/agentRouter";
 import type { Driver } from "../types";
 import type { Logger } from "../logger";
 
@@ -43,9 +44,18 @@ vi.mock("../timeline/index.js", async (importOriginal) => {
 
 const startupSweepDirs: string[] = [];
 afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   timelineSweepHarness.reset();
   for (const dir of startupSweepDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
+
+function spyOnRouterCommandEntry() {
+  return vi.spyOn(
+    AgentRouter.prototype as unknown as { onCommand(command: unknown): Promise<void> },
+    "onCommand",
+  );
+}
 
 /** Stub logger — records calls per level, and hands out tagged children that report into the same store. */
 function stubLogger(): Logger & { calls: Record<"debug" | "info" | "warn" | "error", Array<[string, string, unknown[]]>> } {
@@ -129,6 +139,100 @@ function factory(sockets: FakeSocket[]) {
 }
 
 describe("createDaemon", () => {
+  it("consumes diagnostics before Router and invokes the injected handler once", async () => {
+    const sockets: FakeSocket[] = [];
+    const routerEntry = spyOnRouterCommandEntry();
+    const handleDiagnosticCommand = vi.fn(async () => {});
+    const reportDiagnosticFailure = vi.fn(async () => {});
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/api/community/daemon/bots")) {
+        return Response.json({
+          bots: [{ id: "bot_1", name: "Bot", discriminator: "0001" }],
+        });
+      }
+      return Response.json({ woken: 0 });
+    }));
+    const daemon = await createDaemon({
+      machineKey: "cmk_diagnostics",
+      serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as any,
+      runtimeReport: [],
+      driverFor: () => fakeDriver,
+      capabilities: [],
+      handleDiagnosticCommand,
+      reportDiagnosticFailure,
+    } as Parameters<typeof createDaemon>[0]);
+    sockets[0].emit("open");
+    const command = {
+      type: "diagnostics:collect",
+      reportId: "dbr_0123456789abcdef",
+      agentId: "bot_1",
+      fromMs: 1_700_000_000_000,
+      deadlineAt: 1_700_087_000_000,
+    };
+
+    sockets[0].emit("message", JSON.stringify(command));
+
+    await vi.waitFor(() => expect(handleDiagnosticCommand).toHaveBeenCalledOnce());
+    expect(handleDiagnosticCommand).toHaveBeenCalledWith(command);
+    expect(reportDiagnosticFailure).not.toHaveBeenCalled();
+    expect(routerEntry).not.toHaveBeenCalledWith(command);
+    expect(fakeDriver.start).not.toHaveBeenCalled();
+    expect(fakeDriver.stop).not.toHaveBeenCalled();
+    await daemon.stop();
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["sync throw", vi.fn(() => { throw new Error("private sync detail"); })],
+    ["async reject", vi.fn(async () => { throw new Error("private async detail"); })],
+  ])("keeps %s diagnostics handler failure out of Router/Manager/FSM", async (_label, handler) => {
+    const sockets: FakeSocket[] = [];
+    const routerEntry = spyOnRouterCommandEntry();
+    const reportDiagnosticFailure = vi.fn(async () => {});
+    const startCalls = (fakeDriver.start as ReturnType<typeof vi.fn>).mock.calls.length;
+    const stopCalls = (fakeDriver.stop as ReturnType<typeof vi.fn>).mock.calls.length;
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      return url.includes("/api/community/daemon/bots")
+        ? Response.json({ bots: [{ id: "bot_1", name: "Bot", discriminator: "0001" }] })
+        : Response.json({ woken: 0 });
+    }));
+    const daemon = await createDaemon({
+      machineKey: "cmk_diagnostics_failure",
+      serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as any,
+      runtimeReport: [],
+      driverFor: () => fakeDriver,
+      capabilities: [],
+      handleDiagnosticCommand: handler,
+      reportDiagnosticFailure,
+    } as Parameters<typeof createDaemon>[0]);
+    sockets[0].emit("open");
+
+    sockets[0].emit("message", JSON.stringify({
+      type: "diagnostics:collect",
+      reportId: "dbr_0123456789abcdef",
+      agentId: "bot_1",
+      fromMs: 1_700_000_000_000,
+      deadlineAt: 1_700_087_000_000,
+    }));
+
+    await vi.waitFor(() => expect(reportDiagnosticFailure).toHaveBeenCalledOnce());
+    expect(reportDiagnosticFailure).toHaveBeenCalledWith({
+      reportId: "dbr_0123456789abcdef",
+      failureCode: "diagnostics_unavailable",
+    });
+    expect(JSON.stringify(reportDiagnosticFailure.mock.calls)).not.toMatch(/private|detail/);
+    expect(routerEntry).not.toHaveBeenCalledWith(expect.objectContaining({ type: "diagnostics:collect" }));
+    expect((fakeDriver.start as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(startCalls);
+    expect((fakeDriver.stop as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(stopCalls);
+    await daemon.stop();
+  });
+
   it("dials the WS control plane with Authorization: Bearer <machineKey>", async () => {
     const sockets: FakeSocket[] = [];
     const daemon = await createDaemon({

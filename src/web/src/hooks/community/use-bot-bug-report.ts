@@ -4,25 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
+import {
+  DiagnosticReportFailureCodeSchema,
+  type DiagnosticReportFailureCode,
+} from "@alook/shared"
 
 export const BUG_REPORT_POLL_INTERVAL_MS = 1_000
 
-const FAILURE_CODES = [
-  "offline",
-  "timeout",
-  "upload_conflict",
-  "invalid_upload",
-  "diagnostics_unavailable",
-  "collector_busy",
-  "bot_not_bound",
-  "collection_failed",
-  "local_artifact_invalid",
-  "bundle_too_large",
-  "upload_failed",
-  "internal_error",
-] as const
-
-export type BugReportFailureCode = (typeof FAILURE_CODES)[number]
+export type BugReportFailureCode = DiagnosticReportFailureCode
 export type BugReportPhase =
   | "confirm"
   | "submitting"
@@ -90,7 +79,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isFailureCode(value: unknown): value is BugReportFailureCode {
-  return typeof value === "string" && (FAILURE_CODES as readonly string[]).includes(value)
+  return DiagnosticReportFailureCodeSchema.safeParse(value).success
 }
 
 function isTimestamp(value: unknown): value is number {
