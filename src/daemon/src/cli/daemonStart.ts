@@ -150,6 +150,16 @@ function ensurePrivateDir(dir: string): void {
   fs.chmodSync(dir, 0o700);
 }
 
+function syncDirectory(dir: string): void {
+  if (process.platform === "win32") return;
+  const fd = fs.openSync(dir, "r");
+  try {
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 function writeExclusive(filePath: string, value: Record<string, unknown>): void {
   const dir = path.dirname(filePath);
   ensurePrivateDir(dir);
@@ -165,12 +175,7 @@ function writeExclusive(filePath: string, value: Record<string, unknown>): void 
     fd = null;
     fs.chmodSync(tempPath, 0o600);
     fs.linkSync(tempPath, filePath);
-    const dirFd = fs.openSync(dir, "r");
-    try {
-      fs.fsyncSync(dirFd);
-    } finally {
-      fs.closeSync(dirFd);
-    }
+    syncDirectory(dir);
   } finally {
     if (fd !== null) {
       try { fs.closeSync(fd); } catch { /* best effort */ }
@@ -619,12 +624,7 @@ function writeCredentialFile(filePath: string, credential: string, machineId: st
     fd = null;
     fs.chmodSync(tempPath, 0o600);
     fs.renameSync(tempPath, filePath);
-    const dirFd = fs.openSync(dir, "r");
-    try {
-      fs.fsyncSync(dirFd);
-    } finally {
-      fs.closeSync(dirFd);
-    }
+    syncDirectory(dir);
   } finally {
     if (fd !== null) {
       try { fs.closeSync(fd); } catch { /* best effort */ }

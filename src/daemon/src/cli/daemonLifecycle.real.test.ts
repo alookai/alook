@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
+import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { daemonStart } from "./daemonStart";
 
 const packageRoot = fileURLToPath(new URL("../..", import.meta.url));
-const tsx = path.join(packageRoot, "node_modules", ".bin", "tsx");
+const tsxLoader = pathToFileURL(createRequire(import.meta.url).resolve("tsx")).href;
 const cli = path.join(packageRoot, "src", "cli", "index.ts");
 const secret = "cmk_B0_REAL_PROCESS_SECRET";
 const machineId = "cm_machine_real_123456";
@@ -51,7 +52,7 @@ function cliArgs(baseDir: string, foreground = false): string[] {
 }
 
 function spawnCli(args: string[], env: NodeJS.ProcessEnv = {}): ChildProcess {
-  const child = spawn(tsx, args, {
+  const child = spawn(process.execPath, ["--import", tsxLoader, ...args], {
     cwd: packageRoot,
     env: { ...process.env, ...env },
     stdio: ["ignore", "pipe", "pipe"],
@@ -94,6 +95,14 @@ function readOwner(baseDir: string): { pid: number; machineId: string; ownerToke
   return JSON.parse(fs.readFileSync(pidfile(baseDir), "utf8"));
 }
 
+function readCheckpoint(checkpointFile: string): { parentPid: number; childPid: number } | undefined {
+  try {
+    return JSON.parse(fs.readFileSync(checkpointFile, "utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
 function daemonLogRecords(baseDir: string): Array<{ message: string; fields: Record<string, unknown> }> {
   return fs.readFileSync(path.join(path.dirname(pidfile(baseDir)), "daemon.log"), "utf8")
     .trimEnd()
@@ -101,9 +110,24 @@ function daemonLogRecords(baseDir: string): Array<{ message: string; fields: Rec
     .map((line) => JSON.parse(line));
 }
 
+function daemonIsReady(baseDir: string): boolean {
+  const logPath = path.join(path.dirname(pidfile(baseDir)), "daemon.log");
+  if (!fs.existsSync(pidfile(baseDir)) || !fs.existsSync(logPath)) return false;
+  try {
+    return daemonLogRecords(baseDir).some((record) => record.message === "daemon up");
+  } catch {
+    return false;
+  }
+}
+
 function alive(pid: number): boolean {
   try {
     process.kill(pid, 0);
+  } catch {
+    return false;
+  }
+  if (process.platform === "win32") return true;
+  try {
     const state = execFileSync("ps", ["-p", String(pid), "-o", "stat="], { encoding: "utf8" }).trim();
     return state.length > 0 && !state.startsWith("Z");
   } catch {
@@ -111,19 +135,16 @@ function alive(pid: number): boolean {
   }
 }
 
-function isDescendant(pid: number, ancestor: number): boolean {
-  let current = pid;
-  for (let depth = 0; depth < 8; depth++) {
-    if (current === ancestor) return true;
-    try {
-      const parent = Number(execFileSync("ps", ["-p", String(current), "-o", "ppid="], { encoding: "utf8" }).trim());
-      if (!Number.isInteger(parent) || parent <= 1) return false;
-      current = parent;
-    } catch {
-      return false;
-    }
+function processDescription(pid: number): string {
+  if (process.platform === "win32") {
+    return execFileSync("powershell.exe", [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      `(Get-CimInstance Win32_Process -Filter 'ProcessId = ${pid}').CommandLine`,
+    ], { encoding: "utf8" });
   }
-  return false;
+  return execFileSync("ps", ["eww", "-p", String(pid), "-o", "command="], { encoding: "utf8" });
 }
 
 async function stop(baseDir: string): Promise<void> {
@@ -160,7 +181,7 @@ describe("daemon lifecycle real processes", () => {
     expect(alive(owner.pid)).toBe(true);
     expect(owner).toMatchObject({ machineId });
     expect(JSON.stringify(owner)).not.toContain(secret);
-    expect(execFileSync("ps", ["eww", "-p", String(owner.pid), "-o", "command="], { encoding: "utf8" })).not.toContain(secret);
+    expect(processDescription(owner.pid)).not.toContain(secret);
     const daemonDir = path.dirname(pidfile(baseDir));
     const logPath = path.join(daemonDir, "daemon.log");
     expect(fs.readFileSync(logPath, "utf8")).not.toContain(secret);
@@ -194,21 +215,22 @@ describe("daemon lifecycle real processes", () => {
     const baseDir = makeBaseDir();
     const foreground = spawnCli(cliArgs(baseDir, true));
     const foregroundResult = collect(foreground);
-    await waitFor(() => fs.existsSync(pidfile(baseDir)) && fs.existsSync(path.join(path.dirname(pidfile(baseDir)), "daemon.log")));
+    await waitFor(() => daemonIsReady(baseDir));
     const owner = readOwner(baseDir);
-    expect(isDescendant(owner.pid, foreground.pid!)).toBe(true);
+    expect(owner.pid).toBe(foreground.pid);
     const contender = await runCli(cliArgs(baseDir));
     expect(contender.output).toContain("already running");
     expect(readOwner(baseDir)).toEqual(owner);
-    foreground.kill("SIGTERM");
+    await stop(baseDir);
     const completed = await foregroundResult;
     expect(completed.output).toContain("daemon startup");
     expect(completed.output).toContain("daemon up");
-    expect(daemonLogRecords(baseDir).map((record) => record.message)).toEqual(expect.arrayContaining([
+    const expectedRecords = [
       "daemon startup",
       "daemon up",
-      "shutting down…",
-    ]));
+      ...(process.platform === "win32" ? [] : ["shutting down…"]),
+    ];
+    expect(daemonLogRecords(baseDir).map((record) => record.message)).toEqual(expect.arrayContaining(expectedRecords));
     await waitFor(() => !fs.existsSync(pidfile(baseDir)));
   }, 60_000);
 
@@ -229,13 +251,10 @@ describe("daemon lifecycle real processes", () => {
     const second = spawnCli(cliArgs(foregroundBase, true));
     const firstResult = collect(first);
     const secondResult = collect(second);
-    await waitFor(() => fs.existsSync(pidfile(foregroundBase)));
+    await waitFor(() => daemonIsReady(foregroundBase));
     const foregroundOwner = readOwner(foregroundBase);
-    expect([
-      isDescendant(foregroundOwner.pid, first.pid!),
-      isDescendant(foregroundOwner.pid, second.pid!),
-    ].filter(Boolean)).toHaveLength(1);
-    process.kill(foregroundOwner.pid, "SIGTERM");
+    expect([first.pid, second.pid]).toContain(foregroundOwner.pid);
+    await stop(foregroundBase);
     const results = await Promise.all([firstResult, secondResult]);
     expect(results.filter((result) => result.output.includes("already") || result.output.includes("in progress"))).toHaveLength(1);
     await waitFor(() => !fs.existsSync(pidfile(foregroundBase)));
@@ -252,7 +271,9 @@ describe("daemon lifecycle real processes", () => {
       ALOOK_DAEMON_TEST_SHUTDOWN_MARKER: shutdownMarker,
     });
     const firstResult = collect(first);
-    await waitFor(() => fs.existsSync(shutdownMarker));
+    await waitFor(() => process.platform === "win32"
+      ? fs.existsSync(pidfile(baseDir)) && alive(readOwner(baseDir).pid)
+      : fs.existsSync(shutdownMarker));
     const oldOwner = readOwner(baseDir);
     expect(alive(oldOwner.pid)).toBe(true);
 
@@ -316,8 +337,9 @@ describe("daemon lifecycle real processes", () => {
         ALOOK_DAEMON_TEST_CHECKPOINT_FILE: checkpointFile,
       });
       const parentResult = collect(parent);
-      await waitFor(() => fs.existsSync(checkpointFile));
-      const state = JSON.parse(fs.readFileSync(checkpointFile, "utf8")) as { parentPid: number; childPid: number };
+      await waitFor(() => readCheckpoint(checkpointFile) !== undefined);
+      const state = readCheckpoint(checkpointFile);
+      if (!state) throw new Error("checkpoint was not readable after becoming ready");
       process.kill(state.parentPid, "SIGKILL");
       await parentResult;
 
