@@ -2,11 +2,11 @@ export const metadata = {
   slug: "ai-agent-team",
   title: "How to Build an AI Agent Team: Roles, Handoffs, and Oversight",
   date: "2026-06-08",
-  dateModified: "2026-07-23",
+  dateModified: "2026-08-12",
   author: "Alook Team",
   excerpt:
-    "Build an AI agent team around one reliable workflow with defined roles, structured handoffs, recorded decisions, failure paths, and human approval.",
-  readingTime: "7 min read",
+    "Build an AI agent team with roles, agent email, structured handoffs, and human approval around one reliable workflow.",
+  readingTime: "8 min read",
   image: "/blog/ai-agent-team/hero.webp",
 };
 
@@ -29,6 +29,30 @@ export const jsonLd = [
         acceptedAnswer: {
           "@type": "Answer",
           text: "Use multiple agents when a workflow has distinct stages that need different instructions, tools, context, or review. Keep one agent when the task is short, self-contained, and does not benefit from a handoff.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "What is agent email?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Agent email is a durable inbox for an AI agent, separate from a chat session. It lets people and other agents send instructions, handoffs, and replies that stay attached to the work after a session closes.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "Why do AI agents need their own email address?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "A dedicated address makes the agent addressable, keeps human-to-agent and agent-to-agent work in one thread, and preserves decisions after a chat window closes. Without it, the founder becomes the copy-paste layer between sessions.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "Are AI agent departments the same as AI agent roles?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Not exactly. Departments are grouping labels such as research, engineering, or ops. Roles are the actual jobs inside those groups. Start with roles and handoffs. Add department labels only when several agents share a reporting line.",
         },
       },
       {
@@ -61,13 +85,11 @@ export const jsonLd = [
 
 ![AI agent team workflow: Owner, Orchestrator, Specialists, handoff artifact, Reviewer, and human approval](/blog/ai-agent-team/hero.webp)
 
-*Clear roles, structured handoffs, and human oversight — a conceptual workflow, not a product screenshot.*
+*Clear roles, structured handoffs, and human oversight. A conceptual workflow, not a product screenshot.*
 
-An AI agent team is a group of agents with defined roles working on one shared workflow. One agent might investigate an issue. Another prepares a change. A review step checks the result before anything moves forward.
+An AI agent team is a group of agents with defined roles on one shared workflow. Each role owns a stage, passes a structured result to the next step, and stays inside access and approval boundaries set by a person.
 
-Clear ownership and reliable handoffs matter more than stacking agents.
-
-You still set the goal, control access, and approve the decisions that can hurt customers or production. The agents handle scoped work inside those boundaries. If those boundaries stay fuzzy, more agents only multiply the mess.
+One agent might investigate an issue. Another prepares a change. A review step checks the result before anything moves forward. Clear ownership and reliable handoffs matter more than stacking agents. If those boundaries stay fuzzy, more agents only multiply the mess.
 
 ## What is an AI agent team?
 
@@ -83,6 +105,39 @@ Take a bug that needs a draft pull request. One useful shape looks like this:
 These are workflow roles, not job titles. The same agent can own more than one role when the work is simple. Separate agents help when stages need different permissions, instructions, or review standards.
 
 Want a harder test? Ask whether two stages would still make sense if each one used a different tool set.
+
+## AI agent departments vs roles
+
+Search language sometimes calls this an **agent company** with departments: research, engineering, growth, ops. That map can help later. It is a poor first design.
+
+A department is a grouping label. A role is a job with inputs, outputs, and limits. "Engineering" is too broad to evaluate. "Prepare a draft PR from this reproducible bug report" is not.
+
+If you want a small org chart, keep it tiny:
+
+- one owner or CEO-facing lead that receives briefs
+- one specialist that does the work
+- one reviewer or ops role that checks the result
+
+Add another department only when several agents already share a reporting line and a recurring handoff. Until then, inventing a C-suite does not make the company more real. It just multiplies places for work to disappear.
+
+For the one-person / 0-person company shape around this team, see [how to build a one-person company with AI agents](/blog/personal-ai-company).
+
+## What is agent email?
+
+Agent email is a durable inbox for an AI agent, separate from a chat session.
+
+A chat window is useful for one turn. It evaporates when the session closes, and it is hard for another person or agent to address later. A dedicated inbox gives the agent an address, a thread, and a record. People can send work. Other agents can hand off findings. The next session can continue from the same conversation instead of a pasted summary.
+
+That is why agent email matters in an agent company. It is not a novelty inbox. It is how instructions, decisions, and replies stay attached to the work after the runtime sleeps. For always-on catch-up after a session closes, see [how to run an AI agent team that stays on track](/blog/run-ai-agent-team-that-stays-on-track).
+
+Use it for:
+
+- human-to-agent briefs
+- agent-to-agent handoffs
+- approval requests that need a visible pause
+- recap threads that should survive more than one day
+
+Do not use it as a dump for every internal thought. The inbox should carry work, not chatter.
 
 ## AI agent team vs single agent
 
@@ -118,18 +173,18 @@ One agent may cover several of those jobs at first. Split them when different to
 
 A handoff needs more than a message that says “continue.” The next agent needs a contract.
 
-- **Scope** — what the current agent owns, and what it must leave alone
-- **Input** — source material, earlier decisions, and constraints the agent should use
-- **Output** — the artifact the next step expects: research brief, issue analysis, patch, test report, or approval request
-- **Completion criteria** — how the team knows the stage is finished; if a check can be written down, write it down
-- **Failure path** — what happens when information is missing, a tool fails, or review rejects the result (silent retries are not always right)
-- **Approval boundary** — which actions may proceed automatically, and which must wait for a person
+- **Scope:** what the current agent owns, and what it must leave alone
+- **Input:** source material, earlier decisions, and constraints the agent should use
+- **Output:** the artifact the next step expects: research brief, issue analysis, patch, test report, or approval request
+- **Completion criteria:** how the team knows the stage is finished; if a check can be written down, write it down
+- **Failure path:** what happens when information is missing, a tool fails, or review rejects the result (silent retries are not always right)
+- **Approval boundary:** which actions may proceed automatically, and which must wait for a person
 
 Recorded decisions help the next role, but only when that role knows how to apply them. Contracts still come first.
 
 ![Handoff contract: Scope, Input, Output, Completion criteria, Failure path, Approval boundary](/blog/ai-agent-team/handoff-contract.webp)
 
-*A handoff needs a contract — not a message that only says “continue.”*
+*A handoff needs a contract, not a message that only says “continue.”*
 
 For a deeper explanation of this coordination layer, read the guide to [AI orchestration](/blog/ai-agent-orchestration).
 
@@ -228,13 +283,19 @@ That list is incomplete on purpose.
 
 **What is an AI agent team?** It is a group of agents with defined roles that work on one shared workflow. Each role owns a stage and passes a structured result to the next step.
 
-**When should you use multiple AI agents instead of one?** Use multiple agents when stages need different instructions, tools, permissions, context, or review. Keep one agent when the task is short and self-contained — especially when a handoff would only add delay.
+**When should you use multiple AI agents instead of one?** Use multiple agents when stages need different instructions, tools, permissions, context, or review. Keep one agent when the task is short and self-contained, especially when a handoff would only add delay.
 
-**How many agents should a team have?** Start with the fewest roles needed for one reliable workflow, then add an agent only when a real handoff requires it.
+**What is agent email?** It is a durable inbox for an AI agent, separate from a chat session. People and other agents can send instructions, handoffs, and replies that stay attached to the work after a session closes.
+
+**Why do AI agents need their own email address?** A dedicated address makes the agent addressable and keeps decisions in a thread instead of a disappearing chat. Without it, the founder becomes the copy-paste layer between sessions.
+
+**Are AI agent departments the same as AI agent roles?** Not exactly. Departments are grouping labels such as research, engineering, or ops. Roles are the actual jobs. Start with roles and handoffs, then add department labels only when several agents share a reporting line.
+
+**How many agents should an AI team have?** Start with the fewest roles needed for one reliable workflow, then add an agent only when a real handoff requires it.
 
 **Which AI agents does Alook support?** Claude Code, Codex, and OpenCode are available today. Cursor, Hermes, and OpenClaw are listed as coming soon.
 
-**Does an AI agent team need human oversight?** Yes. People should approve customer commitments, financial actions, legal decisions, pricing changes, and high-risk production work. Design those gates before the agents start acting.
+**Does an AI agent team still need human oversight?** Yes. People should approve customer commitments, financial actions, legal decisions, pricing changes, and high-risk production work. Design those gates before the agents start acting.
 
 ## Start with one handoff
 
@@ -243,3 +304,10 @@ Name the artifact first.
 Choose a workflow you already understand. Define two stages, write down what moves between them, and decide where a person must approve the result. If you cannot name that artifact yet, stay on a single agent.
 
 To set up Alook for your local coding agents, run `npx @alook/app onboard`. You can also review the project on [GitHub](https://github.com/alookai/alook) or browse the current [Alook templates](https://alook.ai/templates).
+
+## Related
+
+- [How to Build a One-Person Company With AI Agents](/blog/personal-ai-company)
+- [How to Run an AI Agent Team That Stays on Track](/blog/run-ai-agent-team-that-stays-on-track)
+- [AI Orchestration: How Multiple Agents Work Together](/blog/ai-agent-orchestration)
+- [How to Delegate Tasks to AI Agents](/blog/how-to-delegate-tasks-to-ai-agents)
