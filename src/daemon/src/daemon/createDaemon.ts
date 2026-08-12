@@ -25,12 +25,12 @@
 import { homedir } from "os";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { createRotatingFileSink } from "../util/rotatingFileSink.js";
-import { createTraceSampler } from "../util/traceSampler.js";
+import { createTraceSampler, DEFAULT_TRACE_FILE_MAX_BYTES } from "../util/traceSampler.js";
 import { writeStatusFile } from "../util/statusFile.js";
 import { WsControlChannel } from "../server/wsControlChannel.js";
 import { CredentialBroker, startCredentialProxy } from "../credentials/index.js";
 import { AgentProcessManager, AgentRouter, createTypingScopeTracker } from "../manager/index.js";
-import type { TypingScopeTracker } from "../manager/index.js";
+import type { ManagerTraceRecord, TypingScopeTracker } from "../manager/index.js";
 import { UnknownBotError, BotEnrollFailedError, UnknownRuntimeError } from "../manager/agentRouter.js";
 import { createTimelineRecorder, sweepTimelineHistory } from "../timeline/index.js";
 import { resolveAlookCliPathWithFallback } from "../discovery.js";
@@ -44,17 +44,7 @@ import { formatHandle } from "@alook/shared/lib/discriminator";
 // Cold-start warmup backoff schedule (ms).
 const WARMUP_BACKOFF_MS = [250, 500, 1000, 2000, 4000] as const;
 const WARMUP_CEILING_MS = 30_000;
-/**
- * Per-file cap for the DEFAULT-ON bounded FSM trace (batch E1). The rotating
- * sink keeps the active file + one rotated generation, so total on-disk ≈
- * 2×this ≈ 16MB. RAW row rate at N≈8 agents is ~74% unchanged-state tick noise
- * → only ~2h of history unsampled; the T4 heartbeat sampler (createTraceSampler)
- * folds that noise so TRANSITION rows survive ≥12h @ N=8 in the same budget.
- * (≥12h is @ N=8 — write rate scales with agent count, so a much larger fleet
- * warrants revisiting this cap.) The `ALOOK_FSM_TRACE` override is unbounded and
- * unsampled (full-fidelity deep dives).
- */
-const FSM_TRACE_MAX_BYTES = 8 * 1024 * 1024;
+/** Per-file cap for opt-in raw runtime stdout trace (independent of FSM trace). */
 const RUNTIME_RAW_TRACE_MAX_BYTES = 8 * 1024 * 1024;
 export const RUNTIME_RAW_TRACE_AGENT_IDS_ENV = "ALOOK_RUNTIME_RAW_TRACE_AGENT_IDS";
 /** How often the daemon rewrites the `daemon status` snapshot file (batch E2). */
@@ -757,7 +747,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       const overridePath = process.env.ALOOK_FSM_TRACE;
       if (overridePath) {
         return {
-          onFsmTransition: (rec: Record<string, unknown>) => {
+          onFsmTransition: (rec: ManagerTraceRecord) => {
             try {
               appendFileSync(overridePath, JSON.stringify(rec) + "\n");
             } catch {
@@ -774,17 +764,18 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
         }
         const sink = createRotatingFileSink(
           `${opts.fsmTraceDir}/fsm-trace.jsonl`,
-          FSM_TRACE_MAX_BYTES,
+          DEFAULT_TRACE_FILE_MAX_BYTES,
         );
         // Heartbeat sampler between the manager and the sink (batch T4): folds
         // redundant unchanged-state ticks + progress/runtime_signal noise so the
-        // bounded file retains transition rows ≥12h (@ N=8) instead of ~2h.
+        // bounded two-generation file retains ~16.73h at the executable N=8
+        // operational envelope.
         // Transitions and watchdog-fired (effects-carrying) frames are never
         // dropped. The ALOOK_FSM_TRACE override above is unbounded → unsampled,
         // for full-fidelity deep dives.
         const sampler = createTraceSampler((rec) => sink.write(JSON.stringify(rec)));
         return {
-          onFsmTransition: (rec: Record<string, unknown>) => sampler.offer(rec),
+          onFsmTransition: (rec: ManagerTraceRecord) => sampler.offer(rec),
         };
       }
       return {};

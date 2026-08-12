@@ -3,16 +3,13 @@
  * useful HISTORY WINDOW instead of being flushed by routine noise
  * (plans/daemon-trace-completeness-charter.md T4).
  *
- * WHY: the default trace is size-capped (8MB×2, rotatingFileSink). Measured at
- * N≈8 agents, ~74% of all rows are UNCHANGED-STATE `tick` heartbeats (~every
- * 2s/agent) that carry no new information — they flush the information-rich
- * transition rows (exit/turn_end/reset/spawn-fail/kill) out of the window in
- * ~2h. An incident is often investigated hours later (the Blair stall-kill was
- * looked at ~3h after), so the meaningful rows must survive far longer. This
- * sampler folds the redundant heartbeats while keeping every transition and the
- * forensic anchors, lifting transition-row retention to ≥12h @ N=8 at the same
- * byte budget (see charter T4; ≥12h is @ N=8 — write rate scales with agent
- * count, so a much larger fleet needs the byte budget revisited).
+ * WHY: the default trace is capped at 32 MiB per generation (64 MiB for active
+ * + `.1`, rotatingFileSink). At the executable N=8 operational envelope, the
+ * sampler retains 8,168 rows / 4,010,728 serialized JSONL bytes per hour
+ * (3.825 MiB/h), so the two generations preserve approximately 16.73 hours.
+ * Unchanged-state heartbeats carry no new information and would otherwise flush
+ * information-rich transitions far sooner; write rate still scales with agent
+ * count, so a much larger fleet needs the byte budget revisited.
  *
  * INVARIANT (Cecilia 架构#423 ③): a row is sampleable IFF its information can be
  * fully reconstructed from the retained neighbors; otherwise it is sacrosanct.
@@ -43,8 +40,20 @@
  * `progress` stream is fully folded.
  */
 
-/** A trace record as produced by the manager's onFsmTransition callback. */
-type TraceRec = Record<string, unknown>;
+/** Sampler-visible subset of the manager's explicitly allowlisted trace rows. */
+interface TraceRec {
+  recordKind: "fsm" | "turn_span";
+  agentId: string;
+  event: string;
+  effects: string[];
+  nowMs: number;
+  status?: unknown;
+  turnActive?: unknown;
+  inbox?: unknown;
+  resetting?: unknown;
+  stoppingSince?: unknown;
+  apmPhase?: unknown;
+}
 
 export interface TraceSampler {
   /** Offer one record; the sampler emits it (and any tail-flush) or folds it. */
@@ -53,9 +62,12 @@ export interface TraceSampler {
 
 /** Streams that are throttled rather than always-emitted. */
 const SAMPLEABLE_EVENTS = new Set(["tick", "progress", "runtime_signal"]);
+const SACRED_TURN_SPAN_EVENTS = new Set(["turn_begin", "turn_end", "turn_abort"]);
 
 /** Default heartbeat throttle: at most one folded-stream row per agent per this. */
 export const DEFAULT_TRACE_SAMPLE_MS = 30_000;
+/** Cap for each generation of the default-on local FSM trace (active and `.1`). */
+export const DEFAULT_TRACE_FILE_MAX_BYTES = 32 * 1024 * 1024;
 
 interface AgentSamplerState {
   /** Last emitted tick's reconstruct-key (state fingerprint); null before first. */
@@ -141,6 +153,15 @@ export function createTraceSampler(
       }
       const s = stateFor(agentId);
       const event = rec.event;
+
+      // Lifecycle rows are explicitly sacred rather than relying on their
+      // current absence from SAMPLEABLE_EVENTS. This survives future sampler
+      // expansion and preserves the pending tick tail before the boundary.
+      if (rec.recordKind === "turn_span" && SACRED_TURN_SPAN_EVENTS.has(String(event))) {
+        flushPending(s);
+        emit(rec);
+        return;
+      }
 
       // Sacrosanct: any non-sampleable event, or ANY row carrying effects (the
       // watchdog-fired frame). Flush the pending tail first so run order + the

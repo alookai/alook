@@ -33,6 +33,7 @@ import { SdkManagedSession } from "../runtime/sdkManagedSession.js";
 import { DEFAULT_CLI_CONFIG } from "../drivers/cliTransport.js";
 import { createLogger, type Logger } from "../logger.js";
 import { nowLocalISO } from "../util/localTime.js";
+import { randomUUID } from "node:crypto";
 
 /**
  * Derived activity state reported up the control plane — NOT a raw passthrough
@@ -49,6 +50,155 @@ export interface ManagedSession {
   send(input: { text: string; mode: "busy" | "idle" }): unknown;
   stop(opts?: { reason?: string; forceAfterMs?: number }): Promise<void> | void;
   readonly currentSessionId: string | null;
+}
+
+type TraceTerminationCause = "runtime_error" | "killed_stalled" | "other";
+type TraceSpawnFailureReason = "ENOENT" | "handshake_timeout" | "pre_handshake_exit" | "spawn_threw" | "other";
+type TraceTerminationSemantics = "killed_stalled" | "idle_stop" | "force_exit" | "other";
+type TraceAbortCause =
+  | "start_threw"
+  | "start_rejected"
+  | "send_threw"
+  | "spawn_failure"
+  | "handshake_timeout"
+  | "reset"
+  | "nap"
+  | "model_switch"
+  | "requested_stop"
+  | "shutdown"
+  | "physical_exit"
+  | "terminate_stalled"
+  | "force_exit"
+  | "other";
+
+interface ActiveTurnSpan {
+  traceTurnId: string;
+  daemonTurnOrdinal: number;
+  spawnOrdinal: number;
+  turnOrdinal: number;
+  launchIdSnapshot: string | null;
+}
+
+interface ActiveSpawnState {
+  agentId: string;
+  session: ManagedSession;
+  hasEstablished: boolean;
+  hasReportedSpawnFailure: boolean;
+  suppressExitLog: boolean;
+  handshakeTimer: ReturnType<typeof setTimeout> | null;
+  torndown: boolean;
+  superseded: boolean;
+  pid: number | null;
+  spawnFailureReason: string | null;
+  terminationSemantics: string | null;
+  spawnOrdinal: number;
+  launchIdSnapshot: string | null;
+  nextTurnOrdinal: number;
+  activeSpan: ActiveTurnSpan | null;
+}
+
+interface TraceRecordBase {
+  agentId: string;
+  effects: string[];
+  nowMs: number;
+  timeIso: string;
+}
+
+interface TraceSpanMetadata {
+  traceTurnId: string;
+  daemonTurnOrdinal: number;
+  spawnOrdinal: number;
+  turnOrdinal: number;
+  launchIdSnapshot: string | null;
+}
+
+interface FsmTraceRecord extends TraceRecordBase, Partial<TraceSpanMetadata> {
+  recordKind: "fsm";
+  event: ManagerEvent["type"];
+  status: AgentStatus;
+  turnActive: boolean;
+  inbox: number;
+  lastDeliverAt: number | null;
+  lastProgressAt: number;
+  idleSince: number | null;
+  resetting: boolean;
+  resettingSince: number | null;
+  stoppingSince: number | null;
+  apmPhase: AgentState["apm"]["phase"];
+  sinceProgressMs: number;
+  sinceDeliverMs: number | null;
+  sinceStoppingMs: number | null;
+  endReason?: "errored";
+  terminationCause?: TraceTerminationCause;
+  exitCode?: number | null;
+  exitSignal?: string | null;
+  abnormal?: boolean;
+  spawnFailureReason?: TraceSpawnFailureReason;
+  terminationSemantics?: TraceTerminationSemantics;
+}
+
+type TurnSpanTraceRecord = TraceRecordBase &
+  TraceSpanMetadata &
+  (
+    | { recordKind: "turn_span"; event: "turn_begin" }
+    | {
+        recordKind: "turn_span";
+        event: "turn_end";
+        outcome: "clean" | "errored";
+        terminationCause?: TraceTerminationCause;
+      }
+    | { recordKind: "turn_span"; event: "turn_abort"; abortCause: TraceAbortCause }
+  );
+
+/** Metadata-only local trace row with an explicit privacy allowlist. */
+export type ManagerTraceRecord = FsmTraceRecord | TurnSpanTraceRecord;
+
+function normalizeTerminationCause(value: unknown): TraceTerminationCause {
+  return value === "runtime_error" || value === "killed_stalled" ? value : "other";
+}
+
+function normalizeAbortCause(value: unknown): TraceAbortCause {
+  switch (value) {
+    case "start_threw":
+    case "start_rejected":
+    case "send_threw":
+    case "spawn_failure":
+    case "handshake_timeout":
+    case "reset":
+    case "nap":
+    case "model_switch":
+    case "requested_stop":
+    case "shutdown":
+    case "physical_exit":
+    case "terminate_stalled":
+    case "force_exit":
+      return value;
+    default:
+      return "other";
+  }
+}
+
+function normalizeSpawnFailureReason(value: unknown): TraceSpawnFailureReason {
+  switch (value) {
+    case "ENOENT":
+    case "handshake_timeout":
+    case "pre_handshake_exit":
+    case "spawn_threw":
+      return value;
+    default:
+      return "other";
+  }
+}
+
+function normalizeTerminationSemantics(value: unknown): TraceTerminationSemantics {
+  switch (value) {
+    case "killed_stalled":
+    case "idle_stop":
+    case "force_exit":
+      return value;
+    default:
+      return "other";
+  }
 }
 
 /**
@@ -164,70 +314,13 @@ export interface ManagerRuntimeOpts {
    */
   onRuntimeRawLine?: (agentId: string, line: string) => void;
   /**
-   * Pure-observability FSM transition trace. Called once per `dispatch` reduce
-   * (for events carrying an agentId) with the post-reduce key fields + the
-   * effect kinds produced. Wired in `createDaemon` to append to a file when
-   * `ALOOK_FSM_TRACE` is set — lets a wedge that produces no other log be
-   * reconstructed from its FSM history. No behavior change; omit ⇒ no-op.
+   * Pure-observability FSM and turn-lifecycle trace. Each agent-scoped
+   * `dispatch` emits the post-reduce key fields + effect kinds; trace-only
+   * turn_begin/end/abort rows add lifecycle boundaries without entering the
+   * reducer. Wired in `createDaemon` when `ALOOK_FSM_TRACE` is set. No behavior
+   * change; omit ⇒ no-op.
    */
-  onFsmTransition?: (rec: {
-    agentId: string;
-    event: string;
-    status: string;
-    turnActive: boolean;
-    inbox: number;
-    lastDeliverAt: number | null;
-    lastProgressAt: number;
-    idleSince: number | null;
-    resetting: boolean;
-    resettingSince: number | null;
-    stoppingSince: number | null;
-    apmPhase: string;
-    effects: string[];
-    nowMs: number;
-    /** `nowMs - lastProgressAt` — stalled/suspectedDeaf "no progress for how long". */
-    sinceProgressMs: number;
-    /** `nowMs - lastDeliverAt` (null if never delivered) — suspectedDeaf's half. */
-    sinceDeliverMs: number | null;
-    /** `nowMs - stoppingSince` (null unless in `stopping`) — stopping-stuck backstop clock. */
-    sinceStoppingMs: number | null;
-    /**
-     * Present only on a `turn_end` that ended NON-cleanly. `endReason:"errored"`
-     * is the binary crashed-vs-clean judgement; `terminationCause` is the cause
-     * (`runtime_error` = mid-turn runtime error; `killed_stalled` = stall
-     * watchdog kill) for B2 policy branching; `errorDetail` is free-text. Absent
-     * on a clean turn_end and every non-turn_end event — makes a non-clean turn
-     * externally distinguishable from a clean nap/idle in the trace (B1 red line
-     * 7). See plans/daemon-runtime-error-rewake.md.
-     */
-    endReason?: "errored";
-    terminationCause?: "runtime_error" | "killed_stalled";
-    errorDetail?: string;
-    /**
-     * Present only on an `exit` event: the RAW PHYSICAL termination fact (T1,
-     * plans/daemon-trace-completeness-charter.md). `exitCode`/`exitSignal` = how
-     * the OS reported the death; `abnormal` = not a deliberate stop AND died on
-     * non-zero code or a signal. Makes a hard exit (segfault/OOM/external
-     * SIGKILL — no turn_end) distinguishable from a clean exit in the trace.
-     * Physical fact only; FSM semantics of the exit are a T3 layer on top.
-     */
-    exitCode?: number | null;
-    exitSignal?: string | null;
-    abnormal?: boolean;
-    /**
-     * Present on an `exit` that followed a LAUNCH failure: the reason string
-     * (same value as the web audit — ENOENT/handshake_timeout/pre_handshake_exit/
-     * spawn_threw/Node code). T2: makes a failed-to-start distinguishable from a
-     * clean exit in the trace. Absent on a normal exit.
-     */
-    spawnFailureReason?: string | null;
-    /**
-     * FSM semantic of an `exit` (T3): killed_stalled / idle_stop / force_exit.
-     * Layered on the physical fact; forensics-only, no policy reads it. Absent on
-     * a plain runtime exit.
-     */
-    terminationSemantics?: string | null;
-  }) => void;
+  onFsmTransition?: (rec: ManagerTraceRecord) => void;
   /**
    * Optional context-timeline recorder. When provided, the manager logs each
    * spawn as a "running" row, fills in the session id on session_init, and closes
@@ -592,64 +685,15 @@ export class AgentProcessManager {
    */
   private readonly thinkingBuffers = new Map<string, string>();
   /**
-   * agentId → the current spawn's per-session end-tracking flags, shared
+   * agentId → the current spawn's per-session end-tracking and trace ownership,
+   * shared
    * between `doSpawn`'s closure (turn_end / exit) and `applyEffect` (stop /
    * terminate_stalled) — see `logSessionEnded`'s `suppressExitLog` handling.
    */
-  private readonly activeSpawnState = new Map<
-    string,
-    {
-      hasEstablished: boolean;
-      hasReportedSpawnFailure: boolean;
-      suppressExitLog: boolean;
-      /** Handshake watchdog timer; cleared on first `runtime_event` or on exit. */
-      handshakeTimer: ReturnType<typeof setTimeout> | null;
-      /**
-       * Set once this spawn's teardown has run (delete from maps + dispatch
-       * `exit`). Guards against a SECOND teardown: the handshake watchdog tears
-       * down eagerly, then the killed process emits its own late `exit` — that
-       * late event must be a no-op, not a duplicate FSM `exit` that could clobber
-       * a session a fresh wake spawned in between.
-       */
-      torndown: boolean;
-      /**
-       * Set when this session has been SUPERSEDED by an intentional kill
-       * (reset / nap / model_switch) — `markResetting` flips it before the
-       * kill. The error-audit gate uses it to suppress this outgoing session's
-       * interrupted-turn death rattle while still surfacing a reborn session's
-       * genuine error (the reborn gets a fresh entry with `superseded=false`).
-       * Per-session identity, not agent-level status. See batch C reader-C fix.
-       */
-      superseded: boolean;
-      /**
-       * OS pid of this spawn's child process, recorded once `session.start()`
-       * resolves (the process exists by then; `activeSpawnState` is created at
-       * :1226 BEFORE start(), when there is no pid yet). Null for SDK in-process
-       * sessions (no OS pid). Read ONLY by `force_exit`'s no-session-handle
-       * branch: when the stopping-stuck backstop fires but `this.sessions` no
-       * longer holds the session (batch G / Hypothesis A — the map entry was
-       * gone while the OS process lived on), the pid recorded here is the only
-       * way to actually kill the orphan instead of merely warning. Never a
-       * behavioral decision input; purely the kill-target of last resort. See
-       * plans/daemon-fsm-desync.md batch F.
-       */
-      pid: number | null;
-      /**
-       * Launch-failure reason (T2) recorded by reportSpawnFailure, read by the
-       * trailing exit dispatch → trace. Same value as the web audit. Null unless
-       * this spawn failed to establish. See daemon-trace-completeness-charter T2.
-       */
-      spawnFailureReason: string | null;
-      /**
-       * Recovery-transition SEMANTIC (T3): killed_stalled / idle_stop, set in the
-       * stop/terminate_stalled applyEffect branch (split by effect.type), read by
-       * the exit listener's dispatch → trace. force_exit sets its own semantic
-       * INLINE (state already deleted by then). Null on a plain runtime exit.
-       * Forensics-only, layered on the physical exit fact. See charter T3.
-       */
-      terminationSemantics: string | null;
-    }
-  >();
+  private readonly activeSpawnState = new Map<string, ActiveSpawnState>();
+  private readonly traceProcessNonce = randomUUID();
+  private nextSpawnOrdinal = 1;
+  private nextDaemonTurnOrdinal = 1;
   /**
    * agentId → why the current turn ended NON-cleanly, buffered until the
    * trailing `turn_end` reads+clears it. Two symmetric marker points feed it
@@ -658,7 +702,8 @@ export class AgentProcessManager {
    * misread as a crash):
    *   - `runtime_error`: a runtime `error` event mid-turn, set ONLY in the
    *     `!sessionSuperseded` branch (an intentional reset/nap death-rattle never
-   *     marks). Carries the free-text `detail` for lossless fsm-trace.
+   *     marks). Free-text `detail` stays on the existing policy/audit path and
+   *     is never serialized to the local trace.
    *   - `killed_stalled`: the `terminate_stalled` effect (the stall watchdog
    *     SIGKILLing a wedged turn — Blair's actual case). By construction, no
    *     dependence on whether the runtime emits a trailing error rattle.
@@ -859,6 +904,7 @@ export class AgentProcessManager {
       rewakePrompt: opts.rewakePrompt,
       forgetSession: true,
       barrierType: opts.barrierType ?? "reset_session",
+      abortCause: opts.barrierType === "nap" ? "nap" : "reset",
       opName: "reset",
     });
   }
@@ -895,12 +941,14 @@ export class AgentProcessManager {
       rewakePrompt: string;
       forgetSession: boolean;
       barrierType?: "reset_session" | "nap";
+      abortCause: "reset" | "nap" | "model_switch";
       /** Human label for logs so a restart failure reads as reset vs model switch. */
       opName: string;
     },
   ): Promise<void> {
     this.register(agentId, { runtimeConfig: opts.runtimeConfig, launchId: opts.launchId });
     if (opts.forgetSession) this.forgetSession(agentId, opts.barrierType ?? "reset_session");
+    this.abortCurrentTurn(agentId, opts.abortCause);
     this.markResetting(agentId);
     const status = this.state.agents[agentId]?.status;
     if (status === "idle") {
@@ -964,6 +1012,7 @@ export class AgentProcessManager {
       launchId: opts.launchId,
       rewakePrompt: opts.rewakePrompt,
       forgetSession: false,
+      abortCause: "model_switch",
       opName: "model switch",
     });
   }
@@ -978,6 +1027,7 @@ export class AgentProcessManager {
   async stop(agentId: string): Promise<void> {
     const session = this.sessions.get(agentId);
     if (!session) return;
+    this.abortCurrentTurn(agentId, "requested_stop");
     await Promise.resolve(session.stop({ reason: "requested", forceAfterMs: SESSION_STOP_GRACE_MS }));
     this.sessions.delete(agentId);
   }
@@ -987,11 +1037,11 @@ export class AgentProcessManager {
       clearInterval(this.tickTimer);
       this.tickTimer = null;
     }
-    await Promise.all(
-      [...this.sessions.values()].map((s) =>
-        Promise.resolve(s.stop({ reason: "shutdown", forceAfterMs: SESSION_STOP_GRACE_MS })),
-      ),
-    );
+    const entries = [...this.sessions.entries()];
+    for (const [agentId] of entries) this.abortCurrentTurn(agentId, "shutdown");
+    await Promise.all(entries.map(([, session]) =>
+      Promise.resolve(session.stop({ reason: "shutdown", forceAfterMs: SESSION_STOP_GRACE_MS })),
+    ));
     this.sessions.clear();
   }
 
@@ -1079,10 +1129,97 @@ export class AgentProcessManager {
   /* Core dispatch: reduce → apply effects                            */
   /* --------------------------------------------------------------- */
 
-  private dispatch(event: ManagerEvent): ManagerEffect[] {
+  private emitTrace(rec: ManagerTraceRecord): void {
+    if (!this.opts.onFsmTransition) return;
+    try {
+      this.opts.onFsmTransition(rec);
+    } catch {
+      // Trace is strictly read-only. A broken sink cannot change reducer or
+      // runtime-call behavior, nor can it leave a lifecycle span half-closed.
+    }
+  }
+
+  private traceOwnerFor(agentId: string, captured?: ActiveSpawnState): ActiveSpawnState | undefined {
+    if (captured) return captured.agentId === agentId ? captured : undefined;
+    const owner = this.activeSpawnState.get(agentId);
+    return owner && this.sessions.get(agentId) === owner.session ? owner : undefined;
+  }
+
+  private openTurn(owner: ActiveSpawnState): ActiveTurnSpan {
+    if (owner.activeSpan) return owner.activeSpan;
+    const daemonTurnOrdinal = this.nextDaemonTurnOrdinal++;
+    const span: ActiveTurnSpan = {
+      traceTurnId: `${owner.launchIdSnapshot ?? this.traceProcessNonce}:${daemonTurnOrdinal}`,
+      daemonTurnOrdinal,
+      spawnOrdinal: owner.spawnOrdinal,
+      turnOrdinal: owner.nextTurnOrdinal++,
+      launchIdSnapshot: owner.launchIdSnapshot,
+    };
+    owner.activeSpan = span;
+    const nowMs = this.now();
+    this.emitTrace({
+      recordKind: "turn_span",
+      agentId: owner.agentId,
+      event: "turn_begin",
+      ...span,
+      effects: [],
+      nowMs,
+      timeIso: new Date(nowMs).toISOString(),
+    });
+    return span;
+  }
+
+  private closeTurn(
+    owner: ActiveSpawnState,
+    expectedSpan: ActiveTurnSpan | null,
+    close:
+      | { event: "turn_end"; outcome: "clean" | "errored"; terminationCause?: TraceTerminationCause }
+      | { event: "turn_abort"; abortCause: TraceAbortCause },
+  ): boolean {
+    if (!expectedSpan || owner.activeSpan !== expectedSpan) return false;
+    // Clear before invoking the sink: throw/re-entry can never close twice.
+    owner.activeSpan = null;
+    const nowMs = this.now();
+    const base = {
+      recordKind: "turn_span" as const,
+      agentId: owner.agentId,
+      ...expectedSpan,
+      effects: [],
+      nowMs,
+      timeIso: new Date(nowMs).toISOString(),
+    };
+    if (close.event === "turn_end") {
+      this.emitTrace({
+        ...base,
+        event: "turn_end",
+        outcome: close.outcome,
+        ...(close.terminationCause ? { terminationCause: close.terminationCause } : {}),
+      });
+    } else {
+      this.emitTrace({
+        ...base,
+        event: "turn_abort",
+        abortCause: normalizeAbortCause(close.abortCause),
+      });
+    }
+    return true;
+  }
+
+  private abortCurrentTurn(agentId: string, cause: TraceAbortCause): void {
+    const owner = this.traceOwnerFor(agentId);
+    if (owner) this.closeTurn(owner, owner.activeSpan, { event: "turn_abort", abortCause: cause });
+  }
+
+  private dispatch(event: ManagerEvent, capturedOwner?: ActiveSpawnState): ManagerEffect[] {
     const before = this.deriveActivitySnapshot(this.state);
     const { state, effects } = reduceManager(this.state, event);
     this.state = state;
+    const eventAgentId = (event as { agentId?: string }).agentId;
+    const closingOwner =
+      event.type === "turn_end" && eventAgentId
+        ? this.traceOwnerFor(eventAgentId, capturedOwner)
+        : undefined;
+    const closingSpan = closingOwner?.activeSpan ?? null;
     // FSM transition trace (plans/daemon-fsm-desync.md): pure observability, no
     // behavior change. Emits one record per reduce so a wedge that leaves no
     // other log (the gated_hold/send branches are the only ones that log today,
@@ -1090,14 +1227,16 @@ export class AgentProcessManager {
     // — the missing capability behind every "no log when it breaks" incident.
     // Guarded so it's a no-op unless a sink is wired (createDaemon opts).
     if (this.opts.onFsmTransition) {
-      const nowMs = this.now();
       const emit = (agentId: string): void => {
         const a = this.state.agents[agentId];
         if (!a) return;
+        const nowMs = this.now();
+        const activeSpan = this.traceOwnerFor(agentId, capturedOwner)?.activeSpan ?? null;
         // Effects this dispatch produced FOR THIS agent (effects carry agentId,
         // so a tick that terminates one wedged agent attributes correctly).
         const myEffects = effects.filter((e) => (e as { agentId?: string }).agentId === agentId).map((e) => e.type);
-        this.opts.onFsmTransition!({
+        this.emitTrace({
+          recordKind: "fsm",
           agentId,
           event: event.type,
           status: a.status,
@@ -1112,6 +1251,8 @@ export class AgentProcessManager {
           apmPhase: a.apm.phase,
           effects: myEffects,
           nowMs,
+          timeIso: new Date(nowMs).toISOString(),
+          ...(activeSpan ? activeSpan : {}),
           // Derived watchdog inputs — the ONLY way to judge, per wedge, WHY no
           // watchdog fired: `sinceProgressMs` is `stalled`/`suspectedDeaf`'s
           // "no progress for how long" (if it keeps getting reset small on a
@@ -1131,9 +1272,9 @@ export class AgentProcessManager {
           ...(event.type === "turn_end" && (event as { endReason?: "errored" }).endReason === "errored"
             ? {
                 endReason: "errored" as const,
-                terminationCause: (event as { terminationCause?: "runtime_error" | "killed_stalled" })
-                  .terminationCause,
-                errorDetail: (event as { errorDetail?: string }).errorDetail,
+                terminationCause: normalizeTerminationCause(
+                  (event as { terminationCause?: unknown }).terminationCause,
+                ),
               }
             : {}),
           // Raw physical exit fact, carried on the `exit` event (not agent
@@ -1147,21 +1288,28 @@ export class AgentProcessManager {
                 // Launch-failure reason (T2). Included only when present so a
                 // normal exit row stays free of the key.
                 ...((event as { spawnFailureReason?: string | null }).spawnFailureReason != null
-                  ? { spawnFailureReason: (event as { spawnFailureReason?: string | null }).spawnFailureReason }
+                  ? {
+                      spawnFailureReason: normalizeSpawnFailureReason(
+                        (event as { spawnFailureReason?: unknown }).spawnFailureReason,
+                      ),
+                    }
                   : {}),
                 // Recovery semantic (T3). Included only when present — a plain
                 // runtime exit has none.
                 ...((event as { terminationSemantics?: string | null }).terminationSemantics != null
-                  ? { terminationSemantics: (event as { terminationSemantics?: string | null }).terminationSemantics }
+                  ? {
+                      terminationSemantics: normalizeTerminationSemantics(
+                        (event as { terminationSemantics?: unknown }).terminationSemantics,
+                      ),
+                    }
                   : {}),
               }
             : {}),
         });
       };
-      const agentId = (event as { agentId?: string }).agentId;
-      if (agentId) {
+      if (eventAgentId) {
         // Agent-scoped event (wake / spawned / turn_end / …).
-        emit(agentId);
+        emit(eventAgentId);
       } else if (event.type === "tick") {
         // A tick carries no agentId but the reducer evaluates EVERY agent's
         // watchdogs — fan out so each agent's per-tick watchdog inputs + any
@@ -1169,6 +1317,25 @@ export class AgentProcessManager {
         // tick run and why did stalled not fire" answerable (exit-3).
         for (const id of Object.keys(this.state.agents)) emit(id);
       }
+    }
+    // Trace-only lifecycle close: never enters the reducer. It occurs after the
+    // FSM row (which still carries the active id) and before any queued effect
+    // can open the next turn.
+    if (closingOwner && closingSpan) {
+      const errored = (event as { endReason?: unknown }).endReason === "errored";
+      this.closeTurn(
+        closingOwner,
+        closingSpan,
+        errored
+          ? {
+              event: "turn_end",
+              outcome: "errored",
+              terminationCause: normalizeTerminationCause(
+                (event as { terminationCause?: unknown }).terminationCause,
+              ),
+            }
+          : { event: "turn_end", outcome: "clean" },
+      );
     }
     for (const effect of effects) this.applyEffect(effect);
     if (this.opts.onAgentActivity) {
@@ -1235,18 +1402,46 @@ export class AgentProcessManager {
         // Stamp at the moment the text hits `session.send`, not earlier —
         // between effect creation and this call the event loop can drain other
         // dispatches, and we want the timestamp to match the agent's arrival.
-        session?.send({ text: this.stampNow(this.withFooter(effect.text)), mode: effect.mode });
+        const input = { text: this.stampNow(this.withFooter(effect.text)), mode: effect.mode };
+        if (session) {
+          const owner = this.activeSpawnState.get(effect.agentId);
+          const exactOwner = owner?.session === session ? owner : undefined;
+          const associatedSpan = exactOwner
+            ? effect.mode === "idle"
+              ? this.openTurn(exactOwner)
+              : exactOwner.activeSpan
+            : null;
+          try {
+            // Deliberately do not inspect/await the return value: ManagedSession
+            // send is observationally synchronous under the existing contract.
+            session.send(input);
+          } catch (error) {
+            if (exactOwner) {
+              this.closeTurn(exactOwner, associatedSpan, {
+                event: "turn_abort",
+                abortCause: "send_threw",
+              });
+            }
+            throw error;
+          }
+        }
         this.log.info("steering message sent to running agent", { agentId: effect.agentId, mode: effect.mode });
         break;
       }
       case "stop":
       case "terminate_stalled": {
         const session = this.sessions.get(effect.agentId);
+        const spawnState = this.activeSpawnState.get(effect.agentId);
+        if (effect.type === "terminate_stalled" && spawnState) {
+          this.closeTurn(spawnState, spawnState.activeSpan, {
+            event: "turn_abort",
+            abortCause: "terminate_stalled",
+          });
+        }
         void Promise.resolve(session?.stop({ reason: effect.type, forceAfterMs: SESSION_STOP_GRACE_MS }));
         // The stop we just issued will make the underlying process emit its
         // own `exit` shortly after — suppress that follow-up log so a single
         // termination doesn't produce two contradictory "session ended" lines.
-        const spawnState = this.activeSpawnState.get(effect.agentId);
         if (spawnState) spawnState.suppressExitLog = true;
         // `terminate_stalled` is the stall watchdog SIGKILLing a wedged turn —
         // an INVOLUNTARY kill (Blair's case). Mark it by cause so the trailing
@@ -1295,6 +1490,12 @@ export class AgentProcessManager {
         //     lost the entry) has a durable data point at each real occurrence.
         const session = this.sessions.get(effect.agentId);
         const state = this.activeSpawnState.get(effect.agentId);
+        if (state) {
+          this.closeTurn(state, state.activeSpan, {
+            event: "turn_abort",
+            abortCause: "force_exit",
+          });
+        }
         if (session) {
           void Promise.resolve(session.stop({ reason: effect.reason, forceAfterMs: SESSION_STOP_GRACE_MS })).catch(() => {});
         } else if (state?.pid != null) {
@@ -1449,7 +1650,23 @@ export class AgentProcessManager {
     //     `terminate_stalled` from `applyEffect`) so the process's eventual
     //     `exit` event doesn't ALSO log a redundant/contradictory
     //     "session ended" line for the same termination.
-    const state = { hasEstablished: false, hasReportedSpawnFailure: false, suppressExitLog: false, handshakeTimer: null as ReturnType<typeof setTimeout> | null, torndown: false, superseded: false, pid: null as number | null, spawnFailureReason: null as string | null, terminationSemantics: null as string | null };
+    const state: ActiveSpawnState = {
+      agentId,
+      session,
+      hasEstablished: false,
+      hasReportedSpawnFailure: false,
+      suppressExitLog: false,
+      handshakeTimer: null,
+      torndown: false,
+      superseded: false,
+      pid: null,
+      spawnFailureReason: null,
+      terminationSemantics: null,
+      spawnOrdinal: this.nextSpawnOrdinal++,
+      launchIdSnapshot: typeof ctx.launchId === "string" && ctx.launchId.length > 0 ? ctx.launchId : null,
+      nextTurnOrdinal: 1,
+      activeSpan: null,
+    };
     this.activeSpawnState.set(agentId, state);
     const clearHandshakeTimer = () => {
       if (state.handshakeTimer) {
@@ -1463,6 +1680,10 @@ export class AgentProcessManager {
     ) => {
       if (state.hasEstablished || state.hasReportedSpawnFailure) return;
       state.hasReportedSpawnFailure = true;
+      this.closeTurn(state, state.activeSpan, {
+        event: "turn_abort",
+        abortCause: opts?.scope === "handshake_timeout" ? "handshake_timeout" : "spawn_failure",
+      });
       // Record the launch-failure reason on THIS spawn's state so the exit
       // dispatch that follows can carry it into the fsm-trace (T2 — same reason
       // string the web audit below gets, so trace and audit "say the same word":
@@ -1503,7 +1724,7 @@ export class AgentProcessManager {
       // genuine error — per-session identity, not agent-level status. A reborn
       // session gets a fresh `state` with `superseded=false`, so its startup
       // error surfaces even while the agent's reset window is still open.
-      this.onRuntimeEvent(agentId, e, driver.id, state.superseded);
+      this.onRuntimeEvent(agentId, e, driver.id, state);
     });
     // Only ChildProcessRuntimeSession emits `stderr`; SdkManagedSession
     // doesn't, so this is harmless when the session is an SDK adapter.
@@ -1539,6 +1760,10 @@ export class AgentProcessManager {
       // per-spawn flag instead.
       if (state.torndown) return;
       state.torndown = true;
+      this.closeTurn(state, state.activeSpan, {
+        event: "turn_abort",
+        abortCause: "physical_exit",
+      });
       const info = args[0] as { code?: number | null; signal?: string | null; reason?: string } | undefined;
       // A session that exits without ever emitting `runtime_event` is
       // treated as a pre-handshake failure too — covers runtimes whose
@@ -1590,7 +1815,10 @@ export class AgentProcessManager {
         // from a stale/superseded spawn must NOT drop a fresh session's marker.
         this.nonCleanEndMarker.delete(agentId);
       }
-      this.dispatch({ type: "exit", agentId, exitCode, exitSignal, abnormal, spawnFailureReason: state.spawnFailureReason, terminationSemantics: state.terminationSemantics });
+      this.dispatch(
+        { type: "exit", agentId, exitCode, exitSignal, abnormal, spawnFailureReason: state.spawnFailureReason, terminationSemantics: state.terminationSemantics },
+        state,
+      );
     });
 
     // Stamp the wake-prompt timestamp AT the last mile — right before the
@@ -1600,7 +1828,15 @@ export class AgentProcessManager {
     // difference matters on cold starts where system-prompt assembly + child
     // wiring above adds tens/hundreds of ms.
     const stampedPrompt = this.stampNow(prompt);
-    void Promise.resolve(session.start({ text: stampedPrompt, sessionId: ctx.config.sessionId }))
+    const startedSpan = this.openTurn(state);
+    let startResult: Promise<unknown>;
+    try {
+      startResult = Promise.resolve(session.start({ text: stampedPrompt, sessionId: ctx.config.sessionId }));
+    } catch (error) {
+      this.closeTurn(state, startedSpan, { event: "turn_abort", abortCause: "start_threw" });
+      throw error;
+    }
+    void startResult
       .then(() => {
         // A concurrent stop()/terminate_stalled can race this in-flight
         // start() and finish first — its `exit` handler above already
@@ -1615,7 +1851,7 @@ export class AgentProcessManager {
         // the session handle is later gone (batch F). A child-process session
         // exposes `.pid`; an SDK in-process session has none → stays null.
         state.pid = (session as { pid?: number }).pid ?? null;
-        this.dispatch({ type: "spawned", agentId, nowMs: this.now() });
+        this.dispatch({ type: "spawned", agentId, nowMs: this.now() }, state);
         // Arm the handshake watchdog. The FSM just went `running`+`turnActive`
         // optimistically (managerPolicy's `spawned`), but the process hasn't
         // proven itself — a bad model can make the CLI HANG with no exit, no
@@ -1628,6 +1864,10 @@ export class AgentProcessManager {
           state.handshakeTimer = null;
           if (state.hasEstablished || state.hasReportedSpawnFailure) return;
           if (this.sessions.get(agentId) !== session) return;
+          this.closeTurn(state, state.activeSpan, {
+            event: "turn_abort",
+            abortCause: "handshake_timeout",
+          });
           reportSpawnFailure("handshake_timeout", {
             scope: "handshake_timeout",
             message: `No response ${Math.round(this.opts.handshakeTimeoutMs / 1000)}s after launch — the runtime may be misconfigured (e.g. an invalid model).`,
@@ -1644,20 +1884,24 @@ export class AgentProcessManager {
           // T2: carry the launch-failure reason (just set by reportSpawnFailure)
           // into the FSM/trace — a handshake_timeout exit is otherwise a bare
           // exit in the trace, indistinguishable from a clean one.
-          this.dispatch({ type: "exit", agentId, spawnFailureReason: state.spawnFailureReason });
+          this.dispatch({ type: "exit", agentId, spawnFailureReason: state.spawnFailureReason }, state);
         }, this.opts.handshakeTimeoutMs);
       })
       .catch((err: unknown) => {
         // Synchronous throws inside driver.spawn() (e.g. child_process.spawn
         // throwing ENOENT before returning a subprocess) reach us here.
         // Same guard: whichever path saw the failure first names the reason.
+        this.closeTurn(state, startedSpan, {
+          event: "turn_abort",
+          abortCause: "start_rejected",
+        });
         const code =
           (err as { code?: string } | undefined)?.code ??
           "spawn_threw";
         reportSpawnFailure(String(code));
         if (this.sessions.get(agentId) === session) this.sessions.delete(agentId);
         // T2: carry the launch-failure reason into the FSM/trace (same as above).
-        this.dispatch({ type: "exit", agentId, spawnFailureReason: state.spawnFailureReason });
+        this.dispatch({ type: "exit", agentId, spawnFailureReason: state.spawnFailureReason }, state);
       });
   }
 
@@ -1726,9 +1970,20 @@ export class AgentProcessManager {
     }
   }
 
-  private onRuntimeEvent(agentId: string, e: unknown, runtimeId: string, sessionSuperseded: boolean): void {
+  private onRuntimeEvent(
+    agentId: string,
+    e: unknown,
+    runtimeId: string,
+    ownerOrSuperseded: ActiveSpawnState | boolean,
+  ): void {
     const ev = e as { kind?: string; sessionId?: string; text?: string; name?: string; input?: unknown; message?: string };
     if (!ev?.kind) return;
+    // Boolean is retained for the legacy direct unit seam; real subscribers
+    // always pass their captured per-spawn owner.
+    const owner = typeof ownerOrSuperseded === "boolean" ? undefined : ownerOrSuperseded;
+    const sessionSuperseded = typeof ownerOrSuperseded === "boolean"
+      ? ownerOrSuperseded
+      : ownerOrSuperseded.superseded;
     // A runtime-parsed `error` event (rate limit, auth failure, bad-model API
     // error, provider outage) is otherwise web-silent — the parser sees it,
     // the FSM shrugs, and the owner learns nothing. Emit an `error` audit row
@@ -1826,7 +2081,7 @@ export class AgentProcessManager {
       }
     }
     if (ev.kind === "session_init" && ev.sessionId) {
-      this.dispatch({ type: "session", agentId, sessionId: ev.sessionId });
+      this.dispatch({ type: "session", agentId, sessionId: ev.sessionId }, owner);
       this.liveSessions.set(agentId, ev.sessionId);
       this.opts.timeline?.setSession(agentId, ev.sessionId);
       this.opts.onAgentSession?.({
@@ -1848,19 +2103,21 @@ export class AgentProcessManager {
     // progress: a runtime that errors then goes quiet must still trip the
     // stall watchdog rather than reset its progress clock on the way down.
     if (ev.kind !== "internal_progress" && ev.kind !== "error") {
-      this.dispatch({ type: "progress", agentId, nowMs: this.now() });
+      this.dispatch({ type: "progress", agentId, nowMs: this.now() }, owner);
     }
     // Forward every parsed event's kind for gated-steering phase tracking
     // (tool/compaction/review boundaries). No-ops in the reducer for kinds
     // it doesn't care about, aside from the diagnostics ring buffer.
-    this.dispatch({ type: "runtime_signal", agentId, kind: ev.kind, nowMs: this.now() });
+    this.dispatch({ type: "runtime_signal", agentId, kind: ev.kind, nowMs: this.now() }, owner);
     if (ev.kind === "turn_end") {
       this.logSessionEnded(agentId, "turn_end");
       // Read+clear the non-clean-end marker set this turn by a preceding runtime
       // `error` OR a `terminate_stalled` kill (B1). Present ⇒ the turn is ending
       // NON-cleanly; carry the binary judgement (`endReason:"errored"`) + the
       // cause (`terminationCause`, for B2 policy branching) + free-text detail
-      // into the FSM so onTurnEnd + fsm-trace can tell it from a clean end.
+      // into the existing policy/audit path so onTurnEnd can tell it from a
+      // clean end. The local trace projection serializes only the fixed cause;
+      // it never serializes the free-text detail.
       const marker = this.nonCleanEndMarker.get(agentId);
       this.nonCleanEndMarker.delete(agentId);
       this.dispatch(
@@ -1874,6 +2131,7 @@ export class AgentProcessManager {
               errorDetail: marker.detail,
             }
           : { type: "turn_end", agentId, nowMs: this.now() },
+        owner,
       );
     }
   }

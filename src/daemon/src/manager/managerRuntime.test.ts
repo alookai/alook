@@ -14,6 +14,7 @@ import {
 } from "./managerRuntime.js";
 import { SdkRuntimeSession, type SdkSessionHandle } from "../runtime/sdkRuntimeSession.js";
 import type { Driver, LaunchContext, SdkDriverDeps } from "../types.js";
+import type { RuntimeConfig } from "../runtimeConfig.js";
 import type { Logger } from "../logger.js";
 
 /** Stub logger — records calls per level for assertions. */
@@ -2041,7 +2042,7 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
   // distinguishable from a clean nap/idle (red line 7). B1 only RECORDS it —
   // onTurnEnd behavior is unchanged (verified in the "clean" case below).
 
-  it("a mid-turn error then turn_end stamps endReason=errored + terminationCause=runtime_error + errorDetail (red line 6/7)", () => {
+  it("a mid-turn error then turn_end stamps fixed metadata but drops free-text errorDetail", () => {
     const recs: Record<string, unknown>[] = [];
     const { mgr, session } = makeWithTrace((r) => recs.push(r));
     mgr.deliver("a1", { seq: 1, text: "hi" });
@@ -2055,7 +2056,7 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
     expect(turnEnd).toBeTruthy();
     expect(turnEnd!.endReason).toBe("errored");
     expect(turnEnd!.terminationCause).toBe("runtime_error");
-    expect(turnEnd!.errorDetail).toBe("boom: model overloaded");
+    expect(turnEnd!.errorDetail).toBeUndefined();
   });
 
   it("a CLEAN turn_end (no preceding error/kill) carries no endReason/terminationCause/errorDetail (byte-for-byte the old row)", () => {
@@ -2613,6 +2614,657 @@ describe("T1 — abnormal-exit user audit stays gated (no nap-noise on deliberat
       expect(abnormalAudits).toHaveLength(0);
     } finally {
       vi.useRealTimers();
+    }
+  });
+});
+
+type B1TraceRow = Record<string, unknown>;
+
+const B1_RUNTIME_CONFIG: RuntimeConfig = {
+  version: 1,
+  runtime: "codex",
+  model: { kind: "named", name: "test-model" },
+  mode: { kind: "default" },
+};
+
+function b1PersistentDriver(): Driver {
+  return {
+    ...fakeDriver("codex"),
+    lifecycle: {
+      kind: "persistent",
+      start: "immediate",
+      exit: "natural",
+      inFlightWake: "queue",
+      stdin: "direct",
+    } as never,
+  } as Driver;
+}
+
+function b1GatedDriver(): Driver {
+  return {
+    ...fakeDriver("codex"),
+    lifecycle: {
+      kind: "persistent",
+      start: "immediate",
+      exit: "natural",
+      inFlightWake: "queue",
+      stdin: "gated",
+    } as never,
+  } as Driver;
+}
+
+function b1Session(order: string[], name = "s"): FakeSession {
+  const session = fakeSession();
+  session.start = vi.fn(async (input: { text: string; sessionId?: string }) => {
+    order.push(`${name}:start:${input.text}`);
+  });
+  session.send = vi.fn((input: { text: string; mode: "busy" | "idle" }) => {
+    order.push(`${name}:send:${input.mode}:${input.text}`);
+  });
+  session.stop = vi.fn((opts?: { reason?: string }) => {
+    order.push(`${name}:stop:${opts?.reason ?? ""}`);
+  });
+  return session;
+}
+
+function b1Manager(opts: {
+  trace?: (row: B1TraceRow) => void;
+  sessions?: FakeSession[];
+  driver?: Driver;
+  launchId?: string | null;
+  now?: () => number;
+  handshakeTimeoutMs?: number;
+  tickIntervalMs?: number;
+  staleThresholdMs?: number;
+  stoppingStuckThresholdMs?: number;
+  onRuntimeSpawnFailed?: (runtimeId: string, reason: string) => void;
+} = {}) {
+  const sessions = opts.sessions ?? [b1Session([])];
+  let index = 0;
+  const mgr = new AgentProcessManager({
+    driverFor: () => opts.driver ?? b1PersistentDriver(),
+    baseContextFor: () => ({
+      workingDirectory: "/tmp",
+      agentId: "a1",
+      standingPrompt: "",
+      config: {} as LaunchContext["config"],
+      credentialProxy: {} as LaunchContext["credentialProxy"],
+    }),
+    sessionFactory: () => sessions[index++]!,
+    onFsmTransition: opts.trace as never,
+    now: opts.now,
+    ...(opts.handshakeTimeoutMs !== undefined ? { handshakeTimeoutMs: opts.handshakeTimeoutMs } : {}),
+    ...(opts.tickIntervalMs !== undefined ? { tickIntervalMs: opts.tickIntervalMs } : {}),
+    ...(opts.staleThresholdMs !== undefined ? { staleThresholdMs: opts.staleThresholdMs } : {}),
+    ...(opts.stoppingStuckThresholdMs !== undefined
+      ? { stoppingStuckThresholdMs: opts.stoppingStuckThresholdMs }
+      : {}),
+    onRuntimeSpawnFailed: opts.onRuntimeSpawnFailed,
+  });
+  if (opts.launchId === null) mgr.register("a1");
+  else mgr.register("a1", { launchId: opts.launchId ?? "launch-a" });
+  return { mgr, sessions };
+}
+
+function b1SpanRows(rows: B1TraceRow[], event?: "turn_begin" | "turn_end" | "turn_abort"): B1TraceRow[] {
+  return rows.filter((row) => row.recordKind === "turn_span" && (event === undefined || row.event === event));
+}
+
+function b1CallProjection(session: FakeSession): Record<"start" | "send" | "stop", unknown[][]> {
+  const callsOf = (fn: unknown): unknown[][] =>
+    (fn as { mock: { calls: unknown[][] } }).mock.calls.map((args) => [...args]);
+  return {
+    start: callsOf(session.start),
+    send: callsOf(session.send),
+    stop: callsOf(session.stop),
+  };
+}
+
+function b1FsmEffectProjection(rows: B1TraceRow[]): Array<{
+  agentId: unknown;
+  event: unknown;
+  effects: unknown;
+}> {
+  return rows
+    // Pre-B1 rows are unstamped; B1 stamps them `fsm`. In either shape, every
+    // non-span trace row belongs to the FSM projection under comparison.
+    .filter((row) => row.recordKind !== "turn_span")
+    .map((row) => ({ agentId: row.agentId, event: row.event, effects: row.effects }));
+}
+
+describe("B1 red gate — daemon-owned turn span lifecycle", () => {
+  it("opens at the start/send last mile, reuses busy, increments persistent turn ordinal, and closes before the next begin", async () => {
+    const order: string[] = [];
+    const rows: B1TraceRow[] = [];
+    const session = b1Session(order);
+    const { mgr } = b1Manager({
+      sessions: [session],
+      trace: (row) => {
+        rows.push(row);
+        if (row.recordKind === "turn_span") order.push(`trace:${String(row.event)}:${String(row.turnOrdinal)}`);
+      },
+    });
+
+    mgr.deliver("a1", { seq: 1, text: "first" });
+    await Promise.resolve();
+    session.fire("runtime_event", { kind: "session_init", sessionId: "session-a" });
+    mgr.deliver("a1", { seq: 2, text: "busy" });
+    session.fire("runtime_event", { kind: "turn_end" });
+    mgr.deliver("a1", { seq: 3, text: "idle-second" });
+    session.fire("runtime_event", { kind: "turn_end" });
+
+    const begins = b1SpanRows(rows, "turn_begin");
+    const ends = b1SpanRows(rows, "turn_end");
+    expect(begins).toHaveLength(2);
+    expect(ends).toHaveLength(2);
+    expect(begins.map((row) => row.traceTurnId)).toEqual(["launch-a:1", "launch-a:2"]);
+    expect(begins.map((row) => row.turnOrdinal)).toEqual([1, 2]);
+    expect(rows.filter((row) => row.event === "runtime_signal" && row.traceTurnId === "launch-a:1").length).toBeGreaterThan(0);
+    expect(order.indexOf("trace:turn_begin:1")).toBeLessThan(order.indexOf("s:start:first"));
+    expect(order.indexOf("trace:turn_end:1")).toBeLessThan(order.indexOf("trace:turn_begin:2"));
+    expect(order.filter((entry) => entry.includes("send:busy:busy"))).toHaveLength(1);
+  });
+
+  it("closes the old per-turn span inside dispatch before a queued spawn effect opens the replacement", async () => {
+    const order: string[] = [];
+    const rows: B1TraceRow[] = [];
+    const first = b1Session(order, "a");
+    const second = b1Session(order, "b");
+    const { mgr } = b1Manager({
+      sessions: [first, second],
+      driver: fakeDriver("codex"),
+      trace: (row) => {
+        rows.push(row);
+        if (row.recordKind === "turn_span") order.push(`trace:${String(row.event)}:${String(row.daemonTurnOrdinal)}`);
+      },
+    });
+
+    mgr.deliver("a1", { seq: 1, text: "first" });
+    await Promise.resolve();
+    mgr.deliver("a1", { seq: 2, text: "queued" });
+    first.fire("runtime_event", { kind: "turn_end" });
+    first.fire("exit", { code: 0, reason: "runtime_exit" });
+    await Promise.resolve();
+
+    const begins = b1SpanRows(rows, "turn_begin");
+    const ends = b1SpanRows(rows, "turn_end");
+    expect(begins).toHaveLength(2);
+    expect(ends).toHaveLength(1);
+    expect(order.indexOf(`trace:turn_end:${String(ends[0]!.daemonTurnOrdinal)}`)).toBeLessThan(
+      order.indexOf(`trace:turn_begin:${String(begins[1]!.daemonTurnOrdinal)}`),
+    );
+    expect(order.filter((entry) => entry.startsWith("b:start:"))).toHaveLength(1);
+  });
+
+  it("uses the process nonce fallback only when launchId is absent", () => {
+    const rows: B1TraceRow[] = [];
+    const session = b1Session([]);
+    const { mgr } = b1Manager({ sessions: [session], launchId: null, trace: (row) => rows.push(row) });
+    mgr.deliver("a1", { seq: 1, text: "no launch" });
+
+    const begin = b1SpanRows(rows, "turn_begin")[0];
+    expect(begin).toBeTruthy();
+    expect(begin!.launchIdSnapshot).toBeNull();
+    expect(begin!.traceTurnId).toMatch(/^[0-9a-f-]+:1$/);
+    expect(begin!.daemonTurnOrdinal).toBe(1);
+    expect(begin!.spawnOrdinal).toBe(1);
+  });
+
+  it("records clean, runtime-error, and unknown turn-end outcomes with fixed semantics", async () => {
+    const cleanRows: B1TraceRow[] = [];
+    const cleanSession = b1Session([]);
+    const { mgr: cleanManager } = b1Manager({
+      sessions: [cleanSession],
+      trace: (row) => cleanRows.push(row),
+    });
+    cleanManager.deliver("a1", { seq: 1, text: "clean" });
+    await Promise.resolve();
+    cleanSession.fire("runtime_event", { kind: "session_init", sessionId: "clean-session" });
+    cleanSession.fire("runtime_event", { kind: "turn_end" });
+
+    const cleanEnd = b1SpanRows(cleanRows, "turn_end")[0];
+    expect(cleanEnd).toBeTruthy();
+    expect(cleanEnd!.outcome).toBe("clean");
+    expect(cleanEnd!.terminationCause).toBeUndefined();
+
+    const errorRows: B1TraceRow[] = [];
+    const errorSession = b1Session([]);
+    const { mgr: errorManager } = b1Manager({
+      sessions: [errorSession],
+      trace: (row) => errorRows.push(row),
+    });
+    errorManager.deliver("a1", { seq: 1, text: "error" });
+    await Promise.resolve();
+    errorSession.fire("runtime_event", { kind: "session_init", sessionId: "error-session" });
+    errorSession.fire("runtime_event", { kind: "error", message: "HOSTILE_RUNTIME_DETAIL_220b" });
+    errorSession.fire("runtime_event", { kind: "turn_end" });
+
+    const errorEnd = b1SpanRows(errorRows, "turn_end")[0];
+    expect(errorEnd).toBeTruthy();
+    expect(errorEnd!.outcome).toBe("errored");
+    expect(errorEnd!.terminationCause).toBe("runtime_error");
+
+    const unknownRows: B1TraceRow[] = [];
+    const unknownSession = b1Session([]);
+    const { mgr: unknownManager } = b1Manager({
+      sessions: [unknownSession],
+      trace: (row) => unknownRows.push(row),
+    });
+    unknownManager.deliver("a1", { seq: 1, text: "unknown" });
+    await Promise.resolve();
+    (unknownManager as unknown as { dispatch(event: unknown): void }).dispatch({
+      type: "turn_end",
+      agentId: "a1",
+      nowMs: 1,
+      endReason: "errored",
+      terminationCause: "HOSTILE_UNKNOWN_CAUSE_832a",
+    });
+
+    const unknownEnd = b1SpanRows(unknownRows, "turn_end")[0];
+    expect(unknownEnd).toBeTruthy();
+    expect(unknownEnd!.outcome).toBe("errored");
+    expect(unknownEnd!.terminationCause).toBe("other");
+    expect(JSON.stringify(unknownRows)).not.toContain("HOSTILE_UNKNOWN_CAUSE_832a");
+  });
+
+  it("annotates active tick/progress/runtime_signal rows and clears every later row after close", async () => {
+    vi.useFakeTimers();
+    try {
+      let now = 1_000;
+      const rows: B1TraceRow[] = [];
+      const session = b1Session([]);
+      const { mgr } = b1Manager({
+        sessions: [session],
+        trace: (row) => rows.push(row),
+        now: () => now,
+        tickIntervalMs: 5,
+      });
+      mgr.start();
+      mgr.deliver("a1", { seq: 1, text: "active" });
+      await Promise.resolve();
+      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      now = 1_005;
+      await vi.advanceTimersByTimeAsync(5);
+
+      const begin = b1SpanRows(rows, "turn_begin")[0];
+      expect(begin).toBeTruthy();
+      const activeId = begin!.traceTurnId;
+      for (const event of ["progress", "runtime_signal", "tick"]) {
+        expect(rows.some((row) => row.event === event && row.traceTurnId === activeId)).toBe(true);
+      }
+
+      session.fire("runtime_event", { kind: "turn_end" });
+      const close = b1SpanRows(rows, "turn_end")[0];
+      expect(close!.traceTurnId).toBe(activeId);
+      rows.length = 0;
+
+      now = 1_010;
+      await vi.advanceTimersByTimeAsync(5);
+      session.fire("runtime_event", { kind: "internal_progress" });
+      session.fire("exit", { code: 0, reason: "runtime_exit" });
+      expect(rows.some((row) => ["tick", "runtime_signal", "exit"].includes(String(row.event)))).toBe(true);
+      expect(rows.every((row) => row.traceTurnId === undefined)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("B1 red gate — strict read-only trace sink", () => {
+  async function scenario(trace?: (row: B1TraceRow) => void) {
+    const calls: string[] = [];
+    const session = b1Session(calls);
+    const { mgr } = b1Manager({ sessions: [session], trace, now: () => 1_700_000_000_000 });
+    mgr.deliver("a1", { seq: 1, text: "one" });
+    await Promise.resolve();
+    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    session.fire("runtime_event", { kind: "turn_end" });
+    mgr.deliver("a1", { seq: 2, text: "two" });
+    await mgr.stop("a1");
+    return { state: mgr.snapshot(), calls, runtimeCalls: b1CallProjection(session) };
+  }
+
+  it("absent, collecting, and throwing sinks preserve identical state and runtime calls", async () => {
+    const absent = await scenario();
+    const collected: B1TraceRow[] = [];
+    const collecting = await scenario((row) => collected.push(row));
+    const throwAfterRecording: B1TraceRow[] = [];
+    let throwing: Awaited<ReturnType<typeof scenario>> | undefined;
+    let thrown: unknown;
+    try {
+      throwing = await scenario((row) => {
+        throwAfterRecording.push(row);
+        throw new Error("trace sink exploded");
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    const collectingEffects = b1FsmEffectProjection(collected);
+    const throwingEffects = b1FsmEffectProjection(throwAfterRecording);
+    expect(collectingEffects.length).toBeGreaterThan(0);
+    expect(throwingEffects).toEqual(collectingEffects);
+    expect(thrown).toBeUndefined();
+    expect(collecting).toEqual(absent);
+    expect(throwing).toEqual(absent);
+    expect(absent.runtimeCalls.start).toHaveLength(1);
+    expect(absent.runtimeCalls.send).toHaveLength(1);
+    expect(absent.runtimeCalls.stop).toHaveLength(1);
+    expect(b1SpanRows(collected, "turn_begin").length).toBeGreaterThan(0);
+  });
+});
+
+describe("B1 red gate — exact-once terminal matrix", () => {
+  const requestedCases: Array<{
+    name: string;
+    cause: string;
+    run: (mgr: AgentProcessManager) => Promise<void>;
+  }> = [
+    { name: "requested stop", cause: "requested_stop", run: (mgr) => mgr.stop("a1") },
+    { name: "shutdown", cause: "shutdown", run: (mgr) => mgr.stopAll() },
+    {
+      name: "reset",
+      cause: "reset",
+      run: (mgr) => mgr.resetSession("a1", { runtimeConfig: B1_RUNTIME_CONFIG, launchId: "launch-b", rewakePrompt: "reset" }),
+    },
+    {
+      name: "nap",
+      cause: "nap",
+      run: (mgr) => mgr.resetSession("a1", { runtimeConfig: B1_RUNTIME_CONFIG, launchId: "launch-b", rewakePrompt: "nap", barrierType: "nap" }),
+    },
+    {
+      name: "model switch",
+      cause: "model_switch",
+      run: (mgr) => mgr.switchModel("a1", { runtimeConfig: B1_RUNTIME_CONFIG, launchId: "launch-b", rewakePrompt: "switch" }),
+    },
+  ];
+
+  for (const terminal of requestedCases) {
+    it(`${terminal.name} aborts the active span once before the existing stop path`, async () => {
+      const rows: B1TraceRow[] = [];
+      const order: string[] = [];
+      const session = b1Session(order);
+      const { mgr } = b1Manager({
+        sessions: [session],
+        trace: (row) => {
+          rows.push(row);
+          if (row.recordKind === "turn_span" && row.event === "turn_abort") {
+            order.push(`trace:turn_abort:${String(row.abortCause)}`);
+          }
+        },
+      });
+      mgr.deliver("a1", { seq: 1, text: "active" });
+      await Promise.resolve();
+      await terminal.run(mgr);
+
+      const aborts = b1SpanRows(rows, "turn_abort");
+      expect(aborts).toHaveLength(1);
+      expect(aborts[0]!.abortCause).toBe(terminal.cause);
+      const abortIndex = order.indexOf(`trace:turn_abort:${terminal.cause}`);
+      const stopIndex = order.findIndex((entry) => entry.startsWith("s:stop:"));
+      expect(abortIndex).toBeGreaterThan(-1);
+      expect(stopIndex).toBeGreaterThan(-1);
+      expect(abortIndex).toBeLessThan(stopIndex);
+    });
+  }
+
+  it("physical exit aborts once and its duplicate late exit cannot close again", () => {
+    const rows: B1TraceRow[] = [];
+    const session = b1Session([]);
+    const { mgr } = b1Manager({ sessions: [session], trace: (row) => rows.push(row) });
+    mgr.deliver("a1", { seq: 1, text: "active" });
+    session.fire("exit", { signal: "SIGKILL", reason: "runtime_exit" });
+    session.fire("exit", { signal: "SIGKILL", reason: "runtime_exit" });
+
+    const aborts = b1SpanRows(rows, "turn_abort");
+    expect(aborts).toHaveLength(1);
+    expect(aborts[0]!.abortCause).toBe("physical_exit");
+  });
+
+  it("start synchronous throw aborts once and rethrows the exact error", () => {
+    const rows: B1TraceRow[] = [];
+    const error = new Error("unique-start-sync-secret");
+    const session = b1Session([]);
+    session.start = vi.fn(() => {
+      throw error;
+    });
+    const { mgr } = b1Manager({ sessions: [session], trace: (row) => rows.push(row) });
+
+    expect(() => mgr.deliver("a1", { seq: 1, text: "active" })).toThrow(error);
+    const aborts = b1SpanRows(rows, "turn_abort");
+    expect(aborts).toHaveLength(1);
+    expect(aborts[0]!.abortCause).toBe("start_threw");
+  });
+
+  it("start promise rejection closes in the existing rejection branch exactly once", async () => {
+    const rows: B1TraceRow[] = [];
+    const session = b1Session([]);
+    session.start = vi.fn(() => Promise.reject(new Error("unique-start-reject-secret")));
+    const { mgr } = b1Manager({ sessions: [session], trace: (row) => rows.push(row) });
+    mgr.deliver("a1", { seq: 1, text: "active" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const aborts = b1SpanRows(rows, "turn_abort");
+    expect(aborts).toHaveLength(1);
+    expect(aborts[0]!.abortCause).toBe("start_rejected");
+  });
+
+  for (const mode of ["idle", "busy"] as const) {
+    it(`${mode} send synchronous throw aborts once and rethrows without another send`, async () => {
+      const rows: B1TraceRow[] = [];
+      const error = new Error(`unique-send-${mode}-secret`);
+      const session = b1Session([]);
+      const { mgr } = b1Manager({ sessions: [session], trace: (row) => rows.push(row) });
+      mgr.deliver("a1", { seq: 1, text: "first" });
+      await Promise.resolve();
+      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      if (mode === "idle") session.fire("runtime_event", { kind: "turn_end" });
+      session.send = vi.fn(() => {
+        throw error;
+      });
+
+      expect(() => mgr.deliver("a1", { seq: 2, text: "throw" })).toThrow(error);
+      expect(session.send).toHaveBeenCalledTimes(1);
+      const aborts = b1SpanRows(rows, "turn_abort");
+      expect(aborts.length).toBeGreaterThan(0);
+      expect(aborts.at(-1)!.abortCause).toBe("send_threw");
+      expect(aborts.filter((row) => row.abortCause === "send_threw")).toHaveLength(1);
+    });
+  }
+
+  it("handshake timeout aborts once before its synthetic exit", async () => {
+    vi.useFakeTimers();
+    try {
+      const rows: B1TraceRow[] = [];
+      const session = b1Session([]);
+      const { mgr } = b1Manager({
+        sessions: [session],
+        trace: (row) => rows.push(row),
+        handshakeTimeoutMs: 100,
+      });
+      mgr.deliver("a1", { seq: 1, text: "active" });
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(101);
+
+      const aborts = b1SpanRows(rows, "turn_abort");
+      expect(aborts).toHaveLength(1);
+      expect(aborts[0]!.abortCause).toBe("handshake_timeout");
+      const exit = rows.find((row) => row.recordKind === "fsm" && row.event === "exit");
+      expect(exit!.traceTurnId).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("terminate_stalled then force_exit emits one abort total", async () => {
+    vi.useFakeTimers();
+    try {
+      let now = 0;
+      const rows: B1TraceRow[] = [];
+      const session = b1Session([]);
+      session.stop = vi.fn();
+      const { mgr } = b1Manager({
+        sessions: [session],
+        driver: fakeDriver("codex"),
+        trace: (row) => rows.push(row),
+        now: () => now,
+        tickIntervalMs: 5,
+        staleThresholdMs: 50,
+        stoppingStuckThresholdMs: 50,
+      });
+      mgr.start();
+      mgr.deliver("a1", { seq: 1, text: "active" });
+      await Promise.resolve();
+      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      now = 100;
+      await vi.advanceTimersByTimeAsync(10);
+      now = 200;
+      await vi.advanceTimersByTimeAsync(60);
+
+      const aborts = b1SpanRows(rows, "turn_abort");
+      expect(aborts).toHaveLength(1);
+      expect(aborts[0]!.abortCause).toBe("terminate_stalled");
+      expect(rows.some((row) => Array.isArray(row.effects) && (row.effects as string[]).includes("force_exit"))).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("B1 red gate — stale owner isolation", () => {
+  it("old launch callbacks and a late deferred start rejection never borrow or close the replacement span", async () => {
+    const rows: B1TraceRow[] = [];
+    const first = fakeSession();
+    const second = b1Session([], "b");
+    const { mgr } = b1Manager({ sessions: [first, second], trace: (row) => rows.push(row), launchId: "launch-a" });
+    mgr.deliver("a1", { seq: 1, text: "first" });
+    await mgr.resetSession("a1", { runtimeConfig: B1_RUNTIME_CONFIG, launchId: "launch-b", rewakePrompt: "reborn" });
+    first.fire("exit", { signal: "SIGTERM", reason: "requested" });
+    await Promise.resolve();
+
+    const begins = b1SpanRows(rows, "turn_begin");
+    expect(begins).toHaveLength(2);
+    const replacementId = begins[1]!.traceTurnId;
+    rows.length = 0;
+    first.fire("runtime_event", { kind: "text", text: "late old output" });
+    first.fire("runtime_event", { kind: "turn_end" });
+    first.startRejector!(new Error("HOSTILE_LATE_START_REJECTION_19cf"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const staleRows = [...rows];
+    expect(
+      staleRows.every((row) => row.traceTurnId !== replacementId),
+      JSON.stringify(staleRows),
+    ).toBe(true);
+    expect(
+      b1SpanRows(rows).filter(
+        (row) => row.traceTurnId === replacementId && (row.event === "turn_end" || row.event === "turn_abort"),
+      ),
+    ).toHaveLength(0);
+    expect(JSON.stringify(rows)).not.toContain("HOSTILE_LATE_START_REJECTION_19cf");
+
+    second.fire("runtime_event", { kind: "turn_end" });
+    const replacementCloses = b1SpanRows(rows).filter((row) => row.traceTurnId === replacementId && (row.event === "turn_end" || row.event === "turn_abort"));
+    expect(replacementCloses).toHaveLength(1);
+  });
+});
+
+describe("B1 red gate — privacy normalization and coherent time", () => {
+  it("drops hostile prompt/error detail, normalizes unknown spawn reason, and preserves the audit callback input", () => {
+    const rows: B1TraceRow[] = [];
+    const onRuntimeSpawnFailed = vi.fn();
+    const session = b1Session([]);
+    const { mgr } = b1Manager({
+      sessions: [session],
+      trace: (row) => rows.push(row),
+      onRuntimeSpawnFailed,
+    });
+    const prompt = "UNIQUE_PROMPT_SECRET_8f26";
+    const hostileCode = "UNIQUE_RAW_REASON_SECRET_71ac";
+    mgr.deliver("a1", { seq: 1, text: prompt });
+    session.fire("error", { code: hostileCode, message: "UNIQUE_DETAIL_SECRET_5d44" });
+    session.fire("exit");
+
+    const serialized = JSON.stringify(rows);
+    expect(serialized).not.toContain(prompt);
+    expect(serialized).not.toContain(hostileCode);
+    expect(serialized).not.toContain("UNIQUE_DETAIL_SECRET_5d44");
+    expect(serialized).not.toContain("errorDetail");
+    const exit = rows.find((row) => row.event === "exit");
+    expect(exit!.spawnFailureReason).toBe("other");
+    expect(onRuntimeSpawnFailed).toHaveBeenCalledWith("codex", hostileCode);
+  });
+
+  it("drops send/response/thinking/tool and gated-hold detail at every producer boundary", async () => {
+    const rows: B1TraceRow[] = [];
+    const session = b1Session([]);
+    const { mgr } = b1Manager({
+      sessions: [session],
+      driver: b1GatedDriver(),
+      trace: (row) => rows.push(row),
+    });
+    const secrets = {
+      prompt: "HOSTILE_INITIAL_PROMPT_ea31",
+      send: "HOSTILE_SEND_TEXT_581b",
+      response: "HOSTILE_RESPONSE_TEXT_98ac",
+      thinking: "HOSTILE_THINKING_TEXT_1d7f",
+      tool: "HOSTILE_TOOL_PAYLOAD_6c23",
+      recentEvent: "HOSTILE_RECENT_EVENT_47bd",
+    };
+
+    mgr.deliver("a1", { seq: 1, text: secrets.prompt });
+    await Promise.resolve();
+    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    session.fire("runtime_event", { kind: "text", text: secrets.response });
+    session.fire("runtime_event", { kind: "thinking", text: secrets.thinking });
+    session.fire("runtime_event", {
+      kind: "tool_call",
+      name: "Read",
+      input: { file_path: secrets.tool, nested: { raw: secrets.tool } },
+    });
+    session.fire("runtime_event", { kind: secrets.recentEvent, text: secrets.response });
+    mgr.deliver("a1", { seq: 2, text: secrets.send });
+
+    expect(rows.some((row) => Array.isArray(row.effects) && (row.effects as string[]).includes("gated_hold"))).toBe(true);
+    const serialized = JSON.stringify(rows);
+    for (const secret of Object.values(secrets)) expect(serialized).not.toContain(secret);
+    expect(serialized).not.toContain("mid_turn_wake");
+    expect(serialized).not.toContain("recentEvents");
+  });
+
+  it("normalizes unknown termination semantics without leaking the raw token", async () => {
+    const rows: B1TraceRow[] = [];
+    const session = b1Session([]);
+    const { mgr } = b1Manager({ sessions: [session], trace: (row) => rows.push(row) });
+    mgr.deliver("a1", { seq: 1, text: "active" });
+    await Promise.resolve();
+    (mgr as unknown as { dispatch(event: unknown): void }).dispatch({
+      type: "exit",
+      agentId: "a1",
+      terminationSemantics: "HOSTILE_TERMINATION_SEMANTIC_03cc",
+    });
+
+    const exit = rows.find((row) => row.recordKind === "fsm" && row.event === "exit");
+    expect(exit).toBeTruthy();
+    expect(exit!.terminationSemantics).toBe("other");
+    expect(JSON.stringify(rows)).not.toContain("HOSTILE_TERMINATION_SEMANTIC_03cc");
+  });
+
+  it("derives every row timeIso from that row's single nowMs sample", () => {
+    let tick = 0;
+    const rows: B1TraceRow[] = [];
+    const session = b1Session([]);
+    const { mgr } = b1Manager({
+      sessions: [session],
+      trace: (row) => rows.push(row),
+      now: () => Date.UTC(2026, 0, 1) + tick++,
+    });
+    mgr.deliver("a1", { seq: 1, text: "time" });
+    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    session.fire("runtime_event", { kind: "turn_end" });
+
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row.timeIso).toBe(new Date(row.nowMs as number).toISOString());
     }
   });
 });

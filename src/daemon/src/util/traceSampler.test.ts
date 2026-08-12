@@ -1,12 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { createTraceSampler, DEFAULT_TRACE_SAMPLE_MS } from "./traceSampler.js";
+import * as traceSamplerModule from "./traceSampler.js";
 
 /*
  * T4 (plans/daemon-trace-completeness-charter.md) — heartbeat sampler.
  * Two acceptance conditions (Claudette 架构#421):
  *   ① retention: folding the unchanged-tick / progress / runtime_signal noise
- *      lifts transition-row retention ≥12h @ N=8 in the fixed byte budget —
- *      here proven as a reproducible fold-ratio → hours calculation.
+ *      bounds each agent's sampleable streams; the B1 fleet-budget test below
+ *      combines that rate with N=8, transition, and turn-span traffic.
  *   ② reconstruction: after sampling, a wedge is STILL reconstructable from the
  *      retained rows alone — which phase, how long, through to kill; the
  *      watchdog-fired (effects) frame with the peak sinceProgressMs survives.
@@ -34,6 +35,47 @@ function tick(agentId: string, nowMs: number, over: Partial<Rec> = {}): Rec {
     nowMs,
     sinceProgressMs: 0,
     ...over,
+  };
+}
+
+function operationalRow(
+  agentId: string,
+  event: string,
+  nowMs: number,
+  over: Partial<Rec> = {},
+): Rec {
+  return {
+    recordKind: "fsm",
+    agentId,
+    event,
+    status: "running",
+    turnActive: true,
+    inbox: 0,
+    lastDeliverAt: nowMs,
+    lastProgressAt: nowMs,
+    idleSince: null,
+    resetting: false,
+    resettingSince: null,
+    stoppingSince: null,
+    apmPhase: "idle",
+    effects: [],
+    nowMs,
+    timeIso: new Date(nowMs).toISOString(),
+    sinceProgressMs: 0,
+    sinceDeliverMs: 0,
+    sinceStoppingMs: null,
+    ...over,
+  };
+}
+
+function operationalSpanFields(agentIndex: number, turn: number): Rec {
+  const daemonTurnOrdinal = agentIndex * 60 + turn + 1;
+  return {
+    traceTurnId: `launch-${agentIndex}:${daemonTurnOrdinal}`,
+    daemonTurnOrdinal,
+    spawnOrdinal: agentIndex + 1,
+    turnOrdinal: turn + 1,
+    launchIdSnapshot: `launch-${agentIndex}`,
   };
 }
 
@@ -125,12 +167,11 @@ describe("traceSampler — ② reconstruction: a wedge is reconstructable from r
   });
 });
 
-describe("traceSampler — ① retention: fold ratio yields ≥12h @ N=8 (reproducible calc)", () => {
-  it("folding unchanged ticks + progress + runtime_signal drops enough to clear the 12h anchor", () => {
-    // Measured live baseline @ N=8 (架构#414): avg row 362B, 16MB budget (8MB×2).
-    // Raw write rate by stream (MB/h): tick 4.93 (73% unchanged), runtime_signal
-    // 0.88, progress 0.65, transitions <0.3. Simulate one agent's steady-state
-    // over a window and measure the emitted fraction of the sampleable streams.
+describe("traceSampler — ① per-agent fold-rate evidence", () => {
+  it("bounds one unchanged tick stream to at most 120 rows/hour at the 30s default", () => {
+    // Simulate one agent's steady-state over a window and measure the emitted
+    // fraction. The B1 budget test multiplies this per-agent ceiling across
+    // all three sampleable streams and all eight agents.
     const { s, out } = collect(30_000);
     const WINDOW_MS = 3600_000; // 1h
     const TICK_EVERY = 2000; // ~every 2s (matches observed)
@@ -144,12 +185,7 @@ describe("traceSampler — ① retention: fold ratio yields ≥12h @ N=8 (reprod
     emittedSampleable = out.filter((r) => r.event === "tick").length;
     // With a 30s throttle over 1h, at most ~1h/30s = 120 emitted (+edges/tail).
     expect(emittedSampleable).toBeLessThanOrEqual(125);
-    // Reproducible retention calc (documented, not verbal):
-    //   post-fold tick rate ≈ 120 rows/h; +progress(edge only)+runtime_signal
-    //   (phase edges) + transitions ≈ well under the 1.33 MB/h ceiling that 16MB
-    //   / 12h implies. 120 rows/h × 362B ≈ 0.041 MB/h for ticks alone → the tick
-    //   stream (the 4.93 MB/h bulk) collapses ~40×, so total lands under
-    //   1.33 MB/h and transition retention ≥ 16MB / (total MB/h) ≥ 12h @ N=8.
+    // One stream for one agent: 120 rows/h × 362B ≈ 0.041 MiB/h.
     const tickMBph = (emittedSampleable * 362) / 1024 / 1024;
     expect(tickMBph).toBeLessThan(0.1); // was 4.93 MB/h raw
   });
@@ -170,5 +206,167 @@ describe("traceSampler — per-agent isolation", () => {
 describe("traceSampler — constants", () => {
   it("default throttle is 30s", () => {
     expect(DEFAULT_TRACE_SAMPLE_MS).toBe(30_000);
+  });
+});
+
+describe("B1 red gate — turn-span sacred rows", () => {
+  it("preserves begin/end/abort fields and flushes a pending tick tail before each boundary", () => {
+    const { s, out } = collect(30_000);
+    s.offer(tick("a", 0));
+    s.offer(tick("a", 5_000, { sinceProgressMs: 5_000 }));
+    const begin = {
+      recordKind: "turn_span",
+      agentId: "a",
+      event: "turn_begin",
+      traceTurnId: "launch-a:1",
+      daemonTurnOrdinal: 1,
+      spawnOrdinal: 1,
+      turnOrdinal: 1,
+      nowMs: 6_000,
+      timeIso: "2026-01-01T00:00:06.000Z",
+      effects: [],
+    };
+    const end = { ...begin, event: "turn_end", nowMs: 7_000, timeIso: "2026-01-01T00:00:07.000Z" };
+    const abort = { ...begin, event: "turn_abort", nowMs: 8_000, timeIso: "2026-01-01T00:00:08.000Z", abortCause: "physical_exit" };
+    s.offer(begin);
+    s.offer(tick("a", 6_500, { sinceProgressMs: 6_500 }));
+    s.offer(end);
+    s.offer(tick("a", 7_500, { sinceProgressMs: 7_500 }));
+    s.offer(abort);
+
+    expect(out).toContainEqual(begin);
+    expect(out).toContainEqual(end);
+    expect(out).toContainEqual(abort);
+    expect(out.findIndex((row) => row.event === "tick" && row.nowMs === 5_000)).toBeLessThan(
+      out.findIndex((row) => row.event === "turn_begin"),
+    );
+    expect(out.findIndex((row) => row.event === "tick" && row.nowMs === 6_500)).toBeLessThan(
+      out.findIndex((row) => row.event === "turn_end"),
+    );
+    expect(out.findIndex((row) => row.event === "tick" && row.nowMs === 7_500)).toBeLessThan(
+      out.findIndex((row) => row.event === "turn_abort"),
+    );
+  });
+
+  it("keeps a measured one-hour N=8 operational envelope for at least 12h", () => {
+    const productionPerFileCap = Reflect.get(traceSamplerModule, "DEFAULT_TRACE_FILE_MAX_BYTES") as unknown;
+    const AGENTS = 8;
+    const TURNS_PER_AGENT_HOUR = 60;
+    const CLEAN_TURNS_PER_AGENT_HOUR = 54;
+    const FAILED_TURNS_PER_AGENT_HOUR = 6;
+    const TICK_EVERY_MS = 2_000;
+    const ACTIVE_MS_PER_TURN = 20_000;
+    // Seven named phases make six phase-change edges per turn. These edges
+    // bypass the 30s runtime_signal throttle and therefore belong in the
+    // operational upper envelope rather than the steady-stream estimate.
+    const PHASES = ["idle", "tool_wait", "idle", "compacting", "idle", "review", "idle"];
+    const BASE_EPOCH_MS = Date.UTC(2026, 0, 1);
+    const survivors: Rec[] = [];
+    const sampler = createTraceSampler(
+      (row) => survivors.push(row),
+      DEFAULT_TRACE_SAMPLE_MS,
+    );
+
+    expect(CLEAN_TURNS_PER_AGENT_HOUR + FAILED_TURNS_PER_AGENT_HOUR).toBe(
+      TURNS_PER_AGENT_HOUR,
+    );
+
+    for (let agentIndex = 0; agentIndex < AGENTS; agentIndex += 1) {
+      const agentId = `agent-${agentIndex}`;
+      for (let turn = 0; turn < TURNS_PER_AGENT_HOUR; turn += 1) {
+        const turnBaseMs = BASE_EPOCH_MS + turn * 60_000;
+        const spanFields = operationalSpanFields(agentIndex, turn);
+        sampler.offer(operationalRow(agentId, "wake", turnBaseMs, { turnActive: false }));
+        sampler.offer(operationalRow(agentId, "turn_begin", turnBaseMs + 1, {
+          recordKind: "turn_span",
+          ...spanFields,
+        }));
+
+        for (let offsetMs = 0; offsetMs < ACTIVE_MS_PER_TURN; offsetMs += TICK_EVERY_MS) {
+          const phaseIndex = Math.min(
+            Math.floor(offsetMs / TICK_EVERY_MS),
+            PHASES.length - 1,
+          );
+          sampler.offer(operationalRow(agentId, "progress", turnBaseMs + offsetMs + 100, {
+            apmPhase: PHASES[phaseIndex],
+            ...spanFields,
+          }));
+          sampler.offer(operationalRow(agentId, "runtime_signal", turnBaseMs + offsetMs + 200, {
+            apmPhase: PHASES[phaseIndex],
+            ...spanFields,
+          }));
+          sampler.offer(operationalRow(agentId, "tick", turnBaseMs + offsetMs + 300, {
+            turnActive: true,
+            apmPhase: PHASES[phaseIndex],
+            ...spanFields,
+          }));
+        }
+
+        const failed = turn % 10 === 9;
+        sampler.offer(operationalRow(
+          agentId,
+          failed ? "exit" : "turn_end",
+          turnBaseMs + ACTIVE_MS_PER_TURN + 1,
+          { turnActive: false, ...spanFields },
+        ));
+        sampler.offer(operationalRow(
+          agentId,
+          failed ? "turn_abort" : "turn_end",
+          turnBaseMs + ACTIVE_MS_PER_TURN + 2,
+          {
+            recordKind: "turn_span",
+            turnActive: false,
+            ...spanFields,
+            ...(failed ? { abortCause: "physical_exit" } : { outcome: "clean" }),
+          },
+        ));
+        for (
+          let offsetMs = ACTIVE_MS_PER_TURN;
+          offsetMs < 60_000;
+          offsetMs += TICK_EVERY_MS
+        ) {
+          sampler.offer(operationalRow(agentId, "tick", turnBaseMs + offsetMs + 300, {
+            turnActive: false,
+            apmPhase: PHASES.at(-1),
+          }));
+        }
+      }
+      // Flush the final pending idle-tick tail at the one-hour boundary.
+      sampler.offer(operationalRow(agentId, "wake", BASE_EPOCH_MS + 3_600_000, {
+        turnActive: false,
+      }));
+    }
+
+    const count = (event: string, recordKind?: string): number => survivors.filter(
+      (row) => row.event === event && (recordKind === undefined || row.recordKind === recordKind),
+    ).length;
+    const serializedBytesPerHour = survivors.reduce(
+      (total, row) => total + Buffer.byteLength(`${JSON.stringify(row)}\n`, "utf8"),
+      0,
+    );
+    for (let agentIndex = 0; agentIndex < AGENTS; agentIndex += 1) {
+      const agentRows = survivors.filter((row) => row.agentId === `agent-${agentIndex}`);
+      for (let index = 1; index < agentRows.length; index += 1) {
+        expect(agentRows[index]!.nowMs).toBeGreaterThanOrEqual(agentRows[index - 1]!.nowMs);
+      }
+    }
+
+    expect(DEFAULT_TRACE_SAMPLE_MS).toBe(30_000);
+    expect(PHASES.length - 1).toBe(6);
+    expect(count("runtime_signal")).toBe(AGENTS * TURNS_PER_AGENT_HOUR * PHASES.length);
+    expect(count("progress")).toBe(AGENTS * TURNS_PER_AGENT_HOUR);
+    // Five retained ticks per turn mechanically includes state-change edges,
+    // throttle survivors, and the pending tail flushed by the next boundary.
+    expect(count("tick")).toBe(AGENTS * TURNS_PER_AGENT_HOUR * 5);
+    expect(count("turn_begin", "turn_span")).toBe(AGENTS * TURNS_PER_AGENT_HOUR);
+    expect(count("turn_end", "turn_span")).toBe(AGENTS * CLEAN_TURNS_PER_AGENT_HOUR);
+    expect(count("turn_abort", "turn_span")).toBe(AGENTS * FAILED_TURNS_PER_AGENT_HOUR);
+    expect(survivors).toHaveLength(8_168);
+    expect(serializedBytesPerHour).toBe(4_010_728);
+
+    expect(productionPerFileCap).toBe(32 * 1024 * 1024);
+    if (typeof productionPerFileCap !== "number") return;
+    const retainedHours = (productionPerFileCap * 2) / serializedBytesPerHour;
+    expect(retainedHours).toBeGreaterThanOrEqual(12);
   });
 });
