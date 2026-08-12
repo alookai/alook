@@ -9,6 +9,7 @@ import { execSync } from "child_process";
 import { cpSync, rmSync, mkdirSync, existsSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import { BLOG_PLACEHOLDER_FILENAME, BLOG_PLACEHOLDER_SOURCE } from "./blog-placeholder";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const appRoot = join(__dirname, "..");
@@ -71,16 +72,8 @@ mkdirSync(blogContentDir, { recursive: true });
 // error (webpack only warned). Drop one draft placeholder so the glob resolves.
 // It never surfaces: getAllPosts() skips `draft: true`, and no route links it.
 writeFileSync(
-  join(blogContentDir, "_placeholder.mdx"),
-  `export const metadata = {\n` +
-    `  slug: "_placeholder",\n` +
-    `  title: "Placeholder",\n` +
-    `  date: "2020-01-01",\n` +
-    `  author: "Alook",\n` +
-    `  excerpt: "Build-time placeholder; never listed.",\n` +
-    `  readingTime: "1 min",\n` +
-    `  draft: true,\n` +
-    `};\n\nPlaceholder.\n`,
+  join(blogContentDir, BLOG_PLACEHOLDER_FILENAME),
+  BLOG_PLACEHOLDER_SOURCE,
 );
 
 try {
@@ -89,7 +82,7 @@ try {
   console.log("[bundle] Restoring blog source files...");
   try {
     // Drop the untracked placeholder, then restore the tracked content/images.
-    rmSync(join(blogContentDir, "_placeholder.mdx"), { force: true });
+    rmSync(join(blogContentDir, BLOG_PLACEHOLDER_FILENAME), { force: true });
     execSync("git checkout -- src/web/public/blog/ src/web/src/content/", {
       cwd: monoRoot,
       stdio: "inherit",
