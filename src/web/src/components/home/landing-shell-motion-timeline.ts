@@ -1,4 +1,4 @@
-export type LandingScene = "server" | "machine" | "provider" | "spaces" | "continuity"
+export type LandingScene = "server" | "machine" | "provider" | "spaces" | "identity" | "continuity"
 
 export type LandingRoom = "work" | "life" | "play"
 
@@ -10,11 +10,19 @@ export const LANDING_MACHINE_RUNTIMES = [
   "pi",
 ] as const
 
+export const LANDING_IDENTITY_MAYA = {
+  authorId: "maya",
+  authorName: "Maya",
+  authorAvatar: "avatar:beam:maya",
+  content: "I’m here.",
+} as const
+
 export const SCENE_MAX_BEAT: Record<LandingScene, number> = {
   server: 6,
   machine: 7,
   provider: 9,
   spaces: 12,
+  identity: 12,
   continuity: 14,
 }
 
@@ -102,6 +110,21 @@ const SPACES_CAMERAS = [
   { scale: 1.2, x: 610, y: 340 },
   { scale: 1.2, x: 610, y: 340 },
   { scale: 1.18, x: 650, y: 240 },
+  { scale: 1.18, x: 84, y: 250 },
+  { scale: 1.18, x: 160, y: 28 },
+  { scale: 1.18, x: 200, y: 105 },
+  { scale: 1.18, x: 650, y: 180 },
+  WIDE_CAMERA,
+]
+const IDENTITY_CAMERAS = [
+  WIDE_CAMERA,
+  { scale: 1.18, x: 160, y: 28 },
+  { scale: 1.18, x: 200, y: 105 },
+  { scale: 1.18, x: 650, y: 180 },
+  { scale: 1.18, x: 84, y: 190 },
+  { scale: 1.18, x: 160, y: 28 },
+  { scale: 1.18, x: 200, y: 105 },
+  { scale: 1.18, x: 650, y: 180 },
   { scale: 1.18, x: 84, y: 250 },
   { scale: 1.18, x: 160, y: 28 },
   { scale: 1.18, x: 200, y: 105 },
@@ -244,6 +267,37 @@ export function sceneSnapshot(scene: LandingScene, requestedBeat: number): Scene
         null,
       ][beat] ?? null,
       camera: CONTINUITY_CAMERAS[beat] ?? WIDE_CAMERA,
+    }
+  }
+  if (scene === "identity") {
+    const room = beat >= 9 ? "play" : beat >= 5 ? "life" : "work"
+    return {
+      beat,
+      visibleMessages: [3, 4, 7, 8, 11, 12].includes(beat) ? 1 : 0,
+      composerText: "",
+      machineState: "online",
+      pairSheet: "closed",
+      runtime: "claude",
+      model: null,
+      room,
+      inviteOpen: false,
+      inviteSent: false,
+      focus: [
+        null,
+        "space-server-name-work",
+        "space-channel-work",
+        "identity-message-maya",
+        "server-life",
+        "space-server-name-life",
+        "space-channel-life",
+        "identity-message-maya",
+        "server-play",
+        "space-server-name-play",
+        "space-channel-play",
+        "identity-message-maya",
+        null,
+      ][beat] ?? null,
+      camera: IDENTITY_CAMERAS[beat] ?? WIDE_CAMERA,
     }
   }
   return {

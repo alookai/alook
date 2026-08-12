@@ -219,6 +219,43 @@ describe("chatSyntaxPlugin — channelRef", () => {
     expect(refs[1]).toMatchObject({ value: "/Gus#5994/架构/#722#17" })
   })
 
+  it("keeps a full-width comma after a thread-message ref outside the pill", () => {
+    const children = paragraphChildren(parse("详情和 Cecilia 建议在 /Gus#5994/架构/#722#114，"))
+    expect(children.map((child) => child.type)).toEqual(["text", "channelRef", "text"])
+    expect(children[1]).toMatchObject({ value: "/Gus#5994/架构/#722#114" })
+    expect(children[2]).toMatchObject({ type: "text", value: "，" })
+  })
+
+  it("terminates refs at common ASCII, smart, CJK, and full-width closing punctuation", () => {
+    const terminators = [
+      ".", ",", ";", ":", "!", "?", ")", "]", "}", '"', "'", "—", "’", "”", "…",
+      "、", "。", "〉", "》", "」", "』", "】", "〕", "〗", "〙", "〛",
+      "！", "＂", "＇", "）", "，", "．", "：", "；", "？", "］", "｝",
+    ]
+
+    for (const terminator of terminators) {
+      const children = paragraphChildren(parse(`/Gus#5994/架构/#722#114${terminator}`))
+      expect(children.map((child) => child.type), terminator).toEqual(["channelRef", "text"])
+      expect(children[0], terminator).toMatchObject({ value: "/Gus#5994/架构/#722#114" })
+      expect(children[1], terminator).toMatchObject({ type: "text", value: terminator })
+    }
+  })
+
+  it("keeps hyphens and underscores inside valid ref segments", () => {
+    const children = paragraphChildren(parse("see /Gus-Team#5994/front_end-v2 now"))
+    expect(children[1]).toMatchObject({
+      type: "channelRef",
+      value: "/Gus-Team#5994/front_end-v2",
+    })
+  })
+
+  it("recognizes both refs when common punctuation is their only separator", () => {
+    for (const separator of [",", "，", "。", "）", "”"]) {
+      const children = paragraphChildren(parse(`/studio#0042/general#42${separator}/Gus#5994/架构/#722#17`))
+      expect(children.filter((child) => child.type === "channelRef"), separator).toHaveLength(2)
+    }
+  })
+
   it("leaves a channel-ref-shaped path inside inline code literal", () => {
     const children = paragraphChildren(parse("`/studio#0042/general`"))
     expect(children.map((c) => c.type)).toEqual(["inlineCode"])

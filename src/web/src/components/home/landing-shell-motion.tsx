@@ -50,6 +50,7 @@ import { serializeBeamSeed } from "@/lib/avatar/seed-url"
 import { tid } from "@/lib/community/testids"
 import {
   LANDING_MACHINE_RUNTIMES,
+  LANDING_IDENTITY_MAYA,
   SCENE_BEAT_DURATION_MS,
   SCENE_FINAL_HOLD_MS,
   SCENE_MAX_BEAT,
@@ -60,6 +61,7 @@ import {
   type SceneSnapshot,
 } from "./landing-shell-motion-timeline"
 import styles from "./landing-shell-motion.module.css"
+import { useLandingMotionPlayback } from "./use-landing-motion-playback"
 
 const SERVERS: Server[] = [
   { id: "gus", name: "Gus", initial: "G", active: true, mentions: 0, isOwner: true, icon: null },
@@ -321,6 +323,20 @@ const SPACE_MESSAGES: Record<LandingRoom, RenderMsg[]> = {
     },
   ],
 }
+
+const IDENTITY_MESSAGES: Record<LandingRoom, RenderMsg[]> = Object.fromEntries(
+  (["work", "life", "play"] as const).map((room, index) => [
+    room,
+    [{
+      id: `identity-${room}-maya`,
+      type: "chat" as const,
+      ...LANDING_IDENTITY_MAYA,
+      createdAt: `2026-08-06T06:0${index}:08.000Z`,
+      seq: 520 + index,
+      grouped: false,
+    }],
+  ]),
+) as Record<LandingRoom, RenderMsg[]>
 
 const DM_MESSAGES: RenderMsg[] = [
   {
@@ -593,6 +609,11 @@ export function LandingShellMotion({
   beat?: number
 }) {
   const [localBeat, setLocalBeat] = useState(0)
+  const {
+    targetRef: playbackRef,
+    isPlaying,
+    shouldReset,
+  } = useLandingMotionPlayback<HTMLDivElement>()
   const stageRef = useRef<HTMLDivElement>(null)
   const cameraRef = useRef<HTMLDivElement>(null)
   const [stageScale, setStageScale] = useState(1)
@@ -610,13 +631,19 @@ export function LandingShellMotion({
   }, [controlledBeat, scene, maxBeat, reducedMotion])
 
   useEffect(() => {
-    if (controlledBeat !== undefined || reducedMotion) return
+    if (controlledBeat === undefined && !reducedMotion && shouldReset) {
+      setLocalBeat(0)
+    }
+  }, [controlledBeat, reducedMotion, shouldReset])
+
+  useEffect(() => {
+    if (controlledBeat !== undefined || reducedMotion || !isPlaying) return
     const delay = beat >= maxBeat ? SCENE_FINAL_HOLD_MS : SCENE_BEAT_DURATION_MS
     const timer = window.setTimeout(() => {
       setLocalBeat((current) => (current >= maxBeat ? 0 : current + 1))
     }, delay)
     return () => window.clearTimeout(timer)
-  }, [beat, controlledBeat, maxBeat, reducedMotion])
+  }, [beat, controlledBeat, isPlaying, maxBeat, reducedMotion])
 
   useEffect(() => {
     const stage = stageRef.current
@@ -644,7 +671,7 @@ export function LandingShellMotion({
   )
 
   return (
-    <div className={styles.root}>
+    <div ref={playbackRef} className={styles.root}>
       <div
         ref={stageRef}
         className={styles.stage}
@@ -780,8 +807,9 @@ function PrototypeShell({
   const serverView =
     scene === "server" ||
     scene === "spaces" ||
+    scene === "identity" ||
     continuityRoom !== null
-  const room = scene === "spaces" ? snapshot.room : continuityRoom
+  const room = scene === "spaces" || scene === "identity" ? snapshot.room : continuityRoom
   const servers = room
     ? SPACE_SERVERS.map((server) => ({ ...server, active: server.id === room }))
     : SERVERS
@@ -821,6 +849,7 @@ function PrototypeShell({
               )}
               {scene === "provider" && <ProviderScene snapshot={snapshot} />}
               {scene === "spaces" && <SpacesScene snapshot={snapshot} />}
+              {scene === "identity" && <IdentityScene snapshot={snapshot} />}
               {scene === "continuity" && <ContinuityScene snapshot={snapshot} />}
             </div>
           </div>
@@ -1141,6 +1170,46 @@ function SpacesScene({ snapshot }: { snapshot: SceneSnapshot }) {
         />
       </div>
       <PrototypeInviteSurface snapshot={snapshot} />
+    </>
+  )
+}
+
+function IdentityScene({ snapshot }: { snapshot: SceneSnapshot }) {
+  const room = snapshot.room
+  const server = SPACE_SERVERS.find((item) => item.id === room) ?? SPACE_SERVERS[0]
+  const channel = SPACE_CHANNELS[room][0]?.channels[0]
+
+  return (
+    <>
+      <ChannelHeader
+        channel={channel?.name ?? "general"}
+        rightPanel={null}
+        onToggle={() => {}}
+        server={{ id: server.id, name: server.name, icon: server.icon ?? null }}
+      />
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="flex-1 overflow-hidden px-4 py-3">
+          {IDENTITY_MESSAGES[room].map((message, index) => (
+            <div
+              key={message.id}
+              data-visible={index < snapshot.visibleMessages}
+              className={styles.messageSlot}
+            >
+              <div
+                data-motion-target="identity-message-maya"
+                className={targetClass(snapshot, "identity-message-maya")}
+              >
+                <Message m={message} onOpenThread={() => {}} />
+              </div>
+            </div>
+          ))}
+        </div>
+        <PrototypeComposer
+          snapshot={snapshot}
+          target="identity-composer"
+          placeholder={`Message /${channel?.name ?? "general"}`}
+        />
+      </div>
     </>
   )
 }

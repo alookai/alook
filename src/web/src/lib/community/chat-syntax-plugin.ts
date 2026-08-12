@@ -47,8 +47,9 @@ import type { SpoilerNode } from "./spoiler-syntax"
 // `REF_TERM` is the single source of truth for the terminator set — used BOTH
 // as the segment-class exclusion (`REF_SEG`) and the trailing lookahead, so
 // the two can't drift out of the disjointness the boundary relies on. It
-// covers ASCII `.,;:!?)]` AND the common FULL-WIDTH CJK sentence punctuation
-// `。！？；：、）】`: a Chinese sentence ends in `。`, so `看 /Gus#0042/架构。` must
+// covers ASCII sentence/closing punctuation and the common Unicode variants
+// used by CJK prose and smart quotes. A Chinese sentence ends in `。`, so
+// `看 /Gus#0042/架构。` must
 // yield pill `/Gus#0042/架构` + literal `。`, not swallow the period — full-width
 // terminators matter MORE here since this fix targets CJK names (Blair's QA
 // flag). Kept as a string spliced into `new RegExp(...)` so the shared set is
@@ -66,7 +67,7 @@ import type { SpoilerNode } from "./spoiler-syntax"
 // matches. The trailing boundary
 // remains load-bearing so the match still ends at the exact ref. `u` flag for
 // correct astral/emoji handling.
-const REF_TERM = ".,;:!?)\\]\\u3002\\uFF01\\uFF1F\\uFF1B\\uFF1A\\u3001\\uFF09\\u3011"
+const REF_TERM = ".,;:!?)\\]}\"'\\u2014\\u2019\\u201D\\u2026\\u3001\\u3002\\u3009\\u300B\\u300D\\u300F\\u3011\\u3015\\u3017\\u3019\\u301B\\uFF01\\uFF02\\uFF07\\uFF09\\uFF0C\\uFF0E\\uFF1A\\uFF1B\\uFF1F\\uFF3D\\uFF5D"
 const REF_SEG = `[^\\s/#${REF_TERM}]+`
 const HANDLE_SEG = `${REF_SEG}#\\d{4,}`
 // `/server#disc/channel` plus an optional message/thread suffix. The suffix has two

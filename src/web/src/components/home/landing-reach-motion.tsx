@@ -11,6 +11,7 @@ import {
   SCENE_MAX_BEAT,
 } from "./landing-shell-motion-timeline"
 import styles from "./landing-reach-motion.module.css"
+import { useLandingMotionPlayback } from "./use-landing-motion-playback"
 
 function useReducedMotion() {
   const [reduced, setReduced] = useState(false)
@@ -30,22 +31,32 @@ export function LandingReachMotion() {
   const maxBeat = SCENE_MAX_BEAT.server
   const reducedMotion = useReducedMotion()
   const [beat, setBeat] = useState(0)
+  const {
+    targetRef: playbackRef,
+    isPlaying,
+    shouldReset,
+  } = useLandingMotionPlayback<HTMLDivElement>()
 
   useEffect(() => {
     setBeat(reducedMotion ? maxBeat : 0)
   }, [maxBeat, reducedMotion])
 
   useEffect(() => {
-    if (reducedMotion) return
+    if (!reducedMotion && shouldReset) setBeat(0)
+  }, [reducedMotion, shouldReset])
+
+  useEffect(() => {
+    if (reducedMotion || !isPlaying) return
     const delay = beat >= maxBeat ? SCENE_FINAL_HOLD_MS : SCENE_BEAT_DURATION_MS
     const timer = window.setTimeout(() => {
       setBeat((current) => (current >= maxBeat ? 0 : current + 1))
     }, delay)
     return () => window.clearTimeout(timer)
-  }, [beat, maxBeat, reducedMotion])
+  }, [beat, isPlaying, maxBeat, reducedMotion])
 
   return (
     <div
+      ref={playbackRef}
       className={styles.stage}
       data-testid="landing-reach-motion"
       data-beat={beat}

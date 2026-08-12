@@ -228,7 +228,14 @@ function IdentityProof() {
         <InteractiveIdentityProfileCard />
       </div>
       <div ref={sceneSlotRef} className={styles.identitySceneSlot}>
-        <ProductScene scene="spaces" />
+        <div
+          className={styles.galleryFrame}
+          role="img"
+          aria-label="Maya keeps one identity across Studio, Home, and Game Night"
+          data-testid="landing-identity-motion"
+        >
+          <LandingShellMotion scene="identity" />
+        </div>
       </div>
     </div>
   )

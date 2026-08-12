@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   LANDING_MACHINE_RUNTIMES,
+  LANDING_IDENTITY_MAYA,
   SCENE_BEAT_DURATION_MS,
   SCENE_FINAL_HOLD_MS,
   SCENE_MAX_BEAT,
@@ -9,6 +10,11 @@ import {
   sceneDurationMs,
   sceneSnapshot,
 } from "./landing-shell-motion-timeline"
+import {
+  LANDING_MOTION_VISIBILITY_THRESHOLD,
+  landingMotionVisibility,
+  shouldPlayLandingMotion,
+} from "./use-landing-motion-playback"
 
 describe("landing shell motion timeline", () => {
   it("reveals the server conversation in causal order", () => {
@@ -82,6 +88,28 @@ describe("landing shell motion timeline", () => {
     expect(sceneSnapshot("spaces", 12)).toMatchObject({ room: "play", focus: null, camera: { scale: 1 } })
   })
 
+  it("shows the same Maya identity across Studio, Home, and Game Night", () => {
+    expect(LANDING_IDENTITY_MAYA).toEqual({
+      authorId: "maya",
+      authorName: "Maya",
+      authorAvatar: "avatar:beam:maya",
+      content: "I’m here.",
+    })
+    expect(sceneSnapshot("identity", 0)).toMatchObject({ room: "work", visibleMessages: 0, focus: null })
+    expect(sceneSnapshot("identity", 1)).toMatchObject({ room: "work", visibleMessages: 0, focus: "space-server-name-work" })
+    expect(sceneSnapshot("identity", 2)).toMatchObject({ room: "work", visibleMessages: 0, focus: "space-channel-work" })
+    expect(sceneSnapshot("identity", 3)).toMatchObject({ room: "work", visibleMessages: 1, focus: "identity-message-maya" })
+    expect(sceneSnapshot("identity", 4)).toMatchObject({ room: "work", visibleMessages: 1, focus: "server-life" })
+    expect(sceneSnapshot("identity", 5)).toMatchObject({ room: "life", visibleMessages: 0, focus: "space-server-name-life" })
+    expect(sceneSnapshot("identity", 6)).toMatchObject({ room: "life", visibleMessages: 0, focus: "space-channel-life" })
+    expect(sceneSnapshot("identity", 7)).toMatchObject({ room: "life", visibleMessages: 1, focus: "identity-message-maya" })
+    expect(sceneSnapshot("identity", 8)).toMatchObject({ room: "life", visibleMessages: 1, focus: "server-play" })
+    expect(sceneSnapshot("identity", 9)).toMatchObject({ room: "play", visibleMessages: 0, focus: "space-server-name-play" })
+    expect(sceneSnapshot("identity", 10)).toMatchObject({ room: "play", visibleMessages: 0, focus: "space-channel-play" })
+    expect(sceneSnapshot("identity", 11)).toMatchObject({ room: "play", visibleMessages: 1, focus: "identity-message-maya" })
+    expect(sceneSnapshot("identity", 12)).toMatchObject({ room: "play", visibleMessages: 1, focus: null, camera: { scale: 1 } })
+  })
+
   it("turns one Gus request into two proactive exchanges discovered through unread inbox items", () => {
     expect(sceneSnapshot("continuity", 0)).toMatchObject({ room: "work", visibleMessages: 0, focus: null })
     expect(sceneSnapshot("continuity", 1)).toMatchObject({ composerText: "Alli, please move today’s priorities forward.", visibleMessages: 0, focus: "continuity-dm-composer" })
@@ -105,7 +133,7 @@ describe("landing shell motion timeline", () => {
     ).toEqual(Array.from({ length: 8 }, () => ""))
   })
 
-  it("zooms in around the cursor and returns wide in all five acts", () => {
+  it("zooms in around the cursor and returns wide in every shell act", () => {
     expect(sceneSnapshot("server", 1).camera.scale).toBe(1.22)
     expect(sceneSnapshot("server", 6).camera.scale).toBe(1)
     expect(sceneSnapshot("machine", 2).camera.scale).toBe(1.22)
@@ -116,6 +144,8 @@ describe("landing shell motion timeline", () => {
     expect(sceneSnapshot("provider", 9).camera.scale).toBe(1)
     expect(sceneSnapshot("spaces", 5).camera.scale).toBe(1.2)
     expect(sceneSnapshot("spaces", 12).camera.scale).toBe(1)
+    expect(sceneSnapshot("identity", 3).camera.scale).toBe(1.18)
+    expect(sceneSnapshot("identity", 12).camera.scale).toBe(1)
     expect(sceneSnapshot("continuity", 6).camera.scale).toBe(1.2)
     expect(sceneSnapshot("continuity", 14).camera.scale).toBe(1)
   })
@@ -125,6 +155,7 @@ describe("landing shell motion timeline", () => {
     expect(sceneSnapshot("server", 99).beat).toBe(SCENE_MAX_BEAT.server)
     expect(sceneSnapshot("machine", 99).machineState).toBe("bot-born")
     expect(sceneSnapshot("spaces", 99)).toMatchObject({ room: "play", inviteSent: true })
+    expect(sceneSnapshot("identity", 99)).toMatchObject({ room: "play", inviteOpen: false })
   })
 
   it("exposes each act's complete playback duration to gallery consumers", () => {
@@ -134,7 +165,32 @@ describe("landing shell motion timeline", () => {
     expect(sceneDurationMs("machine")).toBe(12_900)
     expect(sceneDurationMs("provider")).toBe(15_900)
     expect(sceneDurationMs("spaces")).toBe(20_400)
+    expect(sceneDurationMs("identity")).toBe(20_400)
     expect(sceneDurationMs("continuity")).toBe(23_400)
+  })
+
+  it("pauses below 30% visibility without marking the scene for reset", () => {
+    expect(LANDING_MOTION_VISIBILITY_THRESHOLD).toBe(0.3)
+    expect(landingMotionVisibility({ isIntersecting: true, intersectionRatio: 0.001 })).toBe("paused")
+    expect(landingMotionVisibility({ isIntersecting: true, intersectionRatio: 0.299 })).toBe("paused")
+    expect(shouldPlayLandingMotion({ isIntersecting: true, intersectionRatio: 0.299 })).toBe(false)
+  })
+
+  it("resets only once the frame has completely left the viewport", () => {
+    expect(landingMotionVisibility({ isIntersecting: false, intersectionRatio: 0 })).toBe("hidden")
+    expect(landingMotionVisibility({ isIntersecting: true, intersectionRatio: 0 })).toBe("hidden")
+  })
+
+  it("restarts from the reset beat after re-entering at 30% visibility", () => {
+    const visibilitySequence = [
+      landingMotionVisibility({ isIntersecting: false, intersectionRatio: 0 }),
+      landingMotionVisibility({ isIntersecting: true, intersectionRatio: 0.12 }),
+      landingMotionVisibility({ isIntersecting: true, intersectionRatio: 0.3 }),
+    ]
+
+    expect(visibilitySequence).toEqual(["hidden", "paused", "playing"])
+    expect(shouldPlayLandingMotion({ isIntersecting: true, intersectionRatio: 0.3 })).toBe(true)
+    expect(shouldPlayLandingMotion({ isIntersecting: false, intersectionRatio: 0.8 })).toBe(false)
   })
 
   it("boosts focused gallery beats while preserving wide beats", () => {
