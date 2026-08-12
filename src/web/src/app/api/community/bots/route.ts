@@ -111,7 +111,9 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
           botA: created.botId,
           botB: sibling.id,
         })
-      } catch {}
+      } catch (err) {
+        void err
+      }
     }
   } catch {
     // listBotsForOwner failed — the bot is still usable; siblings reconcile
