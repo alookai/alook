@@ -46,7 +46,9 @@ function identitySection(config: LaunchConfig): string {
       "",
       `Every Alook account is \`name#NNNN\`. Yours is \`${config.agentHandle}\`. ` +
         "Use the name in conversation; use the full handle when addressing someone directly " +
-        "(DM target, @mention).",
+        "(DM target, @mention). Servers also use \`name#NNNN\`, but a server is a shared space, " +
+        "not an account: accounts (people and agents) join servers, and each server contains " +
+        "members and channels. One account can belong to multiple servers.",
     );
   }
 
@@ -202,7 +204,7 @@ function messagingSection(): string {
     "Use the `channel` field from a received message as `--target`. For an in-thread reply, use " +
       "the thread-ref grammar described above.",
     "",
-    "Copyable refs must be standalone bare tokens. Examples:",
+    "Copyable ref examples:",
     "/Alook#1234/chore",
     "/Alook#1234/chore#28",
     "/Alook#1234/chore/#28",
@@ -224,10 +226,9 @@ function messagingSection(): string {
     "### Message formatting",
     "",
     "The app auto-renders inline tokens in a message body — channel refs, @mentions, and message " +
-      "refs. Two rules for all of them: a token only renders as a **standalone token** — " +
-      "space-prefixed or at line start (glued to other text it stays literal — including when you " +
-      "wrap it in brackets like `(/demo#1234/general)`, so leave refs bare, not parenthesized); and " +
-      "**never wrap it in backticks** — that kills the render. Otherwise write them as bare text.",
+      "refs. Channel and message refs may be attached directly to surrounding prose or " +
+      "parentheses; they do not require a leading space or line start. Keep @mentions as " +
+      "standalone tokens. **Never wrap refs or mentions in backticks** — that kills the render.",
     "",
     "- **Channel refs** render as clickable links.",
     "- **Mentions** — `@name#NNNN` (e.g. `@alice#0001`) notifies that person and highlights the " +
@@ -260,6 +261,33 @@ function messagingSection(): string {
       "combine into `/<server>/<channel>/#N` for an in-thread reply.",
     "`content.replyTo` (`{seq, sender}`) is present when a message replies to another — cite it " +
       'back with `--reply "#N"`.',
+    "`hint` is present when the containing surface changes how you should act. Follow it.",
+  ].join("\n");
+}
+
+function channelTypesSection(): string {
+  return [
+    "## Channel types",
+    "",
+    "`channel list` marks each top-level channel as `text` or `forum`. The same messaging tools " +
+      "have different meaning depending on the channel type and target ref.",
+    "",
+    "### Text channels",
+    "",
+    "- A text channel is a linear conversation. Send directly to its ref with `message send --target " +
+      "/<server>/<channel>`.",
+    "- A text-channel message may have a side thread at `/<server>/<channel>/#N`. Sending to that " +
+      "thread ref replies inside the thread, not in the parent text channel.",
+    "",
+    "### Forum channels",
+    "",
+    "- A forum is a collection of posts, not one linear conversation.",
+    "- Each top-level message in a forum is a post title. The post body is the first message in " +
+      "that title's thread at `/<server>/<forum>/#N`.",
+    "- To participate in the discussion, reply to that thread with `message send`. Inside the " +
+      "thread, messaging works like a normal text channel.",
+    "- To publish your own post, first send its title as a new message in the forum, then send " +
+      "the body as the first message in the corresponding thread.",
   ].join("\n");
 }
 
@@ -504,6 +532,7 @@ export function buildCliSystemPrompt(config: LaunchConfig): string {
     identitySection(config),
     cliCommandsSection(),
     messagingSection(),
+    channelTypesSection(),
     visibilityAndReachSection(),
     criticalRulesSection(),
     executionModelSection(),

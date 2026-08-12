@@ -58,12 +58,14 @@ export function MentionPill({
 // (rendered as a `<button>` when present, a `<span>` otherwise — same
 // on/off pattern as `MentionPill`). `serverPrefix` renders a small
 // "prefix /" segment before the name for cross-server refs. `muted` dims
-// the pill for the "still resolving" state (see `channel-ref-pill.tsx`).
+// the pill while loading or when syntax matched without a resolved target;
+// `showIcon` lets that unresolved state avoid implying a verified channel.
 export function ChannelPill({
   children,
   onClick,
   serverPrefix,
   muted,
+  showIcon = true,
   seqSuffix,
   testId,
 }: {
@@ -71,6 +73,7 @@ export function ChannelPill({
   onClick?: (e: React.MouseEvent) => void
   serverPrefix?: string
   muted?: boolean
+  showIcon?: boolean
   testId?: string
   // A message ref (`/server/channel#N`): render the whole thing as ONE pill —
   // channel name + `#N` inside — with a leading `#` glyph (instead of the `/`
@@ -89,9 +92,9 @@ export function ChannelPill({
   ].join(" ")
   const content = (
     <>
-      {/* Always the channel glyph — a message ref still points AT a channel;
-          the `#N` inside marks it as a specific message (Gus #370). */}
-      <ChannelIcon className="shrink-0 text-xs" />
+      {/* Resolved and loading refs keep the channel glyph — a message ref still
+          points AT a channel, while a syntactic-only unresolved ref hides it. */}
+      {showIcon && <ChannelIcon className="shrink-0 text-xs" />}
       {serverPrefix && (
         <span className="shrink-0 text-muted-foreground transition-colors group-hover/pill:text-primary">{serverPrefix} /</span>
       )}

@@ -159,6 +159,9 @@ export type Target =
  *   - `content` — `{ text }` today; an object (not a bare string) so future
  *                 content kinds (attachments, embeds, …) can be added without
  *                 breaking the shape.
+ *   - `hint`    — optional action guidance when the containing surface needs a
+ *                 different write target, such as moving from a forum title
+ *                 message into its discussion thread.
  *   - `time`    — ISO-8601 timestamp.
  * No `id`, no `type`.
  */
@@ -230,6 +233,8 @@ export interface Message {
   /** Sender global handle (`name#0042`), e.g. "@gustavo#4821". */
   sender: string;
   content: MessageContent;
+  /** Read-side action guidance for the message's containing surface. */
+  hint?: string;
   /** ISO-8601. */
   time: string;
 }

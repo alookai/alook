@@ -93,7 +93,7 @@ describe("toAgentMessages", () => {
     const db = createSequentialDb([
       [{ id: "thread_1", name: "thread-x", serverId: "srv_1", parentChannelId: "ch_parent", parentMessageId: "m_root" }],
       [{ id: "u_1", name: "Alice" }],
-      [{ id: "ch_parent", name: "general" }],
+      [{ id: "ch_parent", name: "general", type: "text" }],
       [{ id: "srv_1", name: "studio", discriminator: "0042" }],
       [{ id: "m_root", seq: 7 }],
     ]);
@@ -103,6 +103,45 @@ describe("toAgentMessages", () => {
       "viewer_1"
     );
     expect(msg!.channel).toBe(formatRef({ server: "studio#0042", channel: "general", threadRootSeq: 7 }));
+    expect(msg!.hint).toBeUndefined();
+  });
+
+  it("marks each top-level forum message with its lazy-created thread reply target", async () => {
+    const db = createSequentialDb([
+      [{ id: "forum_1", name: "ideas", type: "forum", serverId: "srv_1", parentChannelId: null, parentMessageId: null }],
+      [{ id: "u_1", name: "Alice", discriminator: "1234" }],
+      [{ id: "srv_1", name: "studio", discriminator: "0042" }],
+    ]);
+    const [first, second] = await agentInbox.toAgentMessages(
+      db,
+      [
+        rawMsg({ id: "m_first", channelId: "forum_1", seq: 12 }),
+        rawMsg({ id: "m_second", channelId: "forum_1", seq: 13 }),
+      ],
+      "viewer_1"
+    );
+    expect(first).toMatchObject({
+      channel: "/studio#0042/ideas",
+      hint: "This is a forum post, please reply in /studio#0042/ideas/#12.",
+    });
+    expect(second).toMatchObject({
+      channel: "/studio#0042/ideas",
+      seq: "#13",
+      hint: "This is a forum post, please reply in /studio#0042/ideas/#13.",
+    });
+  });
+
+  it("treats a forum post thread as an ordinary thread with no extra hint", async () => {
+    const db = createSequentialDb([
+      [{ id: "post_1", name: "post-x", type: "thread", serverId: "srv_1", parentChannelId: "forum_1", parentMessageId: "m_root" }],
+      [{ id: "u_1", name: "Alice", discriminator: "1234" }],
+      [{ id: "forum_1", name: "ideas", type: "forum" }],
+      [{ id: "srv_1", name: "studio", discriminator: "0042" }],
+      [{ id: "m_root", seq: 12 }],
+    ]);
+    const [msg] = await agentInbox.toAgentMessages(db, [rawMsg({ channelId: "post_1" })], "viewer_1");
+    expect(msg!.channel).toBe("/studio#0042/ideas/#12");
+    expect(msg!.hint).toBeUndefined();
   });
 
   it("hydrates a DM message, addressing the OTHER party (as a name#0042 handle) relative to viewerId", async () => {
@@ -124,6 +163,7 @@ describe("toAgentMessages", () => {
       "viewer_1"
     );
     expect(msg!.channel).toBe(formatRef({ server: DM_SERVER, channel: "Bob#9999" }));
+    expect(msg!.hint).toBeUndefined();
   });
 
   it("fails the whole delivery without leaking an id when the scope can't be resolved", async () => {

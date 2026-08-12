@@ -126,20 +126,40 @@ describe("chatSyntaxPlugin — mention", () => {
 })
 
 describe("chatSyntaxPlugin — channelRef", () => {
-  it("wraps /server/channel preceded by a space or at start-of-string", () => {
+  it("wraps /server/channel after prose, a space, or at start-of-string", () => {
     expect(paragraphChildren(parse("see /studio#0042/general"))[1]).toMatchObject({ type: "channelRef", value: "/studio#0042/general" })
     expect(paragraphChildren(parse("/studio#0042/general"))[0]).toMatchObject({ type: "channelRef", value: "/studio#0042/general" })
-  })
-
-  it("leaves text/studio#0042/general (no leading space) untouched", () => {
     const children = paragraphChildren(parse("text/studio#0042/general"))
-    expect(children).toHaveLength(1)
-    expect(children[0]).toMatchObject({ type: "text", value: "text/studio#0042/general" })
+    expect(children.map((child) => child.type)).toEqual(["text", "channelRef"])
+    expect(children[1]).toMatchObject({ type: "channelRef", value: "/studio#0042/general" })
   })
 
   it("does NOT wrap a 3+-segment docs-style path — trailing /segment fails the terminator boundary", () => {
     expect(paragraphChildren(parse("look at /api/user/123"))).toHaveLength(1)
     expect(paragraphChildren(parse("hit /docs/api/v1 first"))).toHaveLength(1)
+  })
+
+  it("does not restart a ref match at the second slash inside a path or URL", () => {
+    for (const text of [
+      "/api/studio#0042/general",
+      "/api/studio#0042/general/#5#42",
+      "https://studio#0042/general",
+      "//studio#0042/general",
+    ]) {
+      const children = paragraphChildren(parse(text))
+      expect(children.some((child) => child.type === "channelRef"), text).toBe(false)
+    }
+  })
+
+  it("still starts after non-slash prose and opening brackets", () => {
+    expect(paragraphChildren(parse("prefix/studio#0042/general"))[1]).toMatchObject({
+      type: "channelRef",
+      value: "/studio#0042/general",
+    })
+    expect(paragraphChildren(parse("see(/studio#0042/general)"))[1]).toMatchObject({
+      type: "channelRef",
+      value: "/studio#0042/general",
+    })
   })
 
   it("still wraps a 2-segment ref followed by punctuation (period, comma, close-paren)", () => {
@@ -172,13 +192,31 @@ describe("chatSyntaxPlugin — channelRef", () => {
     expect(refs[0]).toMatchObject({ type: "channelRef", value: "/studio#0042/general#42" })
   })
 
-  it("does not wrap a mid-string path as a channelRef, and a bare #N is now plain text", () => {
-    // The channelRef pass requires a leading space, so `text/.../#5#42` is NOT a
-    // channelRef. And a bare `#42` is no longer a message ref (message-ref-
-    // upgrade.md), so nothing pills — the whole run is plain text.
+  it("wraps a thread-message ref attached to prose while a bare #N stays plain text", () => {
     const children = paragraphChildren(parse("text/studio#0042/general/#5#42"))
-    expect(children.some((c) => c.type === "channelRef")).toBe(false)
-    expect(children.every((c) => c.type === "text")).toBe(true)
+    expect(children.map((child) => child.type)).toEqual(["text", "channelRef"])
+    expect(children[1]).toMatchObject({ type: "channelRef", value: "/studio#0042/general/#5#42" })
+  })
+
+  it("wraps refs inside ASCII and full-width brackets without consuming the brackets", () => {
+    const ascii = paragraphChildren(parse("see(/studio#0042/general#42)"))
+    expect(ascii.map((child) => child.type)).toEqual(["text", "channelRef", "text"])
+    expect(ascii[1]).toMatchObject({ value: "/studio#0042/general#42" })
+    expect(ascii[2]).toMatchObject({ type: "text", value: ")" })
+
+    const cjk = paragraphChildren(parse("（/Gus#5994/架构/#722#17)"))
+    expect(cjk.map((child) => child.type)).toEqual(["text", "channelRef", "text"])
+    expect(cjk[0]).toMatchObject({ type: "text", value: "（" })
+    expect(cjk[1]).toMatchObject({ value: "/Gus#5994/架构/#722#17" })
+    expect(cjk[2]).toMatchObject({ type: "text", value: ")" })
+  })
+
+  it("wraps each ref when adjacent refs are separated only by punctuation", () => {
+    const children = paragraphChildren(parse("see(/studio#0042/general#42)、（/Gus#5994/架构/#722#17)"))
+    const refs = children.filter((child) => child.type === "channelRef")
+    expect(refs).toHaveLength(2)
+    expect(refs[0]).toMatchObject({ value: "/studio#0042/general#42" })
+    expect(refs[1]).toMatchObject({ value: "/Gus#5994/架构/#722#17" })
   })
 
   it("leaves a channel-ref-shaped path inside inline code literal", () => {

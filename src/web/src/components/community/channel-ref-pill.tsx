@@ -10,8 +10,7 @@ import { useCommunityStore, useUiHandlers } from "@/stores/community"
 import { tid } from "@/lib/community/testids"
 
 export type ChannelRefPillView =
-  | { kind: "plain"; text: string }
-  | { kind: "muted"; label: string }
+  | { kind: "muted"; label: string; showIcon?: boolean }
   | {
     kind: "pill"
     label: string
@@ -40,8 +39,9 @@ export type ChannelRefPillView =
  *
  * Decision table:
  * - `resolved === null` (still loading OR genuinely unresolved) →
- *   `directoryLoading ? "muted" : "plain"` (plain text = `ref`, untouched
- *   fallback — never a broken-looking pill).
+ *   `"muted"`, labelled with the raw ref and without a channel icon. The tokenizer only calls this
+ *   component for discriminator-bearing channel/message-ref syntax, so a
+ *   syntactic match remains visibly rendered even when its target is unknown.
  * - `resolved` present, no `threadRootSeq` → `"pill"`, label =
  *   `resolved.channel.name`, `serverPrefix` set only when the ref points at
  *   a different server than the one currently open.
@@ -57,14 +57,13 @@ export type ChannelRefPillView =
 export function describeChannelRefPillView(args: {
   ref: string
   resolved: ResolvedChannelRef | null
-  directoryLoading: boolean
   thread: { id: string; name: string; parentSeq?: number } | null | undefined
   currentServerId: string | null
 }): ChannelRefPillView {
-  const { ref, resolved, directoryLoading, thread, currentServerId } = args
+  const { ref, resolved, thread, currentServerId } = args
 
   if (!resolved) {
-    return directoryLoading ? { kind: "muted", label: ref } : { kind: "plain", text: ref }
+    return { kind: "muted", label: ref, showIcon: false }
   }
 
   const serverPrefix = resolved.server.id !== currentServerId ? resolved.server.name : undefined
@@ -123,7 +122,7 @@ export function ChannelRefPill({ children }: { children?: React.ReactNode }) {
   const currentServerId = useCommunityStore((s) => s.currentServerId)
   const currentChannelId = useCommunityStore((s) => s.currentChannelId)
   const uiHandlers = useUiHandlers()
-  const { directory, isLoading: directoryLoading } = useChannelRefDirectory()
+  const { directory } = useChannelRefDirectory()
 
   // The debt record's own verification (see finding #6) confirmed the
   // network requests behind `useChannelRefDirectory`/`useThreads` already
@@ -142,13 +141,11 @@ export function ChannelRefPill({ children }: { children?: React.ReactNode }) {
   const view = describeChannelRefPillView({
     ref,
     resolved,
-    directoryLoading,
     thread,
     currentServerId,
   })
 
-  if (view.kind === "plain") return <>{view.text}</>
-  if (view.kind === "muted") return <ChannelPill muted>{view.label}</ChannelPill>
+  if (view.kind === "muted") return <ChannelPill muted showIcon={view.showIcon}>{view.label}</ChannelPill>
 
   // Click intent depends on what the ref points at (Gus #417):
   //  - A MESSAGE ref (`#N`) means "see that message's context", NOT "go to that

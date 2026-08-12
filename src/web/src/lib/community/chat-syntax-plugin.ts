@@ -57,14 +57,15 @@ import type { SpoilerNode } from "./spoiler-syntax"
 // Trailing `(?=\s|$|[REF_TERM])` boundary lookahead: a 2-segment path followed
 // by ANOTHER `/segment` (e.g. `/api/user/123` in a docs URL) must NOT match —
 // otherwise this regex would greedily take `/api/user` and orphan `/123` as
-// trailing text next to a broken pill. Leading `(?<=^|\s)` lookbehind
-// (verified empirically — a bare leading `\/` with no lookbehind would let
-// this match START mid-path, e.g. matching `/user/123` inside
-// `/api/user/123`): `" /channel-ref"` matches, `"text/channel-ref"` doesn't.
-// Both boundaries are zero-width lookaround (not capture groups) so
-// `findAndReplace` doesn't need to redistribute a leading/trailing text node
-// around the match the way the old string-splice regex's `(^|\s)` capture
-// group did. `u` flag for correct astral/emoji handling.
+// trailing text next to a broken pill. The leading guard permits a
+// discriminator-bearing ref after prose or an opening bracket, e.g.
+// `see(/Gus#5994/架构/#722#17)` and `text/Gus#5994/架构`, while preventing the
+// regex engine from restarting after an earlier slash in the same unbroken
+// path or URL (`/api/Gus#5994/架构`, `https://Gus#5994/架构`). Ref terminators
+// stop that backward scan so a second adjacent ref after punctuation still
+// matches. The trailing boundary
+// remains load-bearing so the match still ends at the exact ref. `u` flag for
+// correct astral/emoji handling.
 const REF_TERM = ".,;:!?)\\]\\u3002\\uFF01\\uFF1F\\uFF1B\\uFF1A\\u3001\\uFF09\\u3011"
 const REF_SEG = `[^\\s/#${REF_TERM}]+`
 const HANDLE_SEG = `${REF_SEG}#\\d{4,}`
@@ -77,14 +78,15 @@ const HANDLE_SEG = `${REF_SEG}#\\d{4,}`
 //                       (`/server#disc/channel/#N#M`) ref; the inner `#M` lives only
 //                       on this slash branch.
 // `REF_SEG` excludes `#`, so the 2nd segment stops at the `#` and the seq falls
-// cleanly into the suffix group. The leading `(?<=^|\s)` prefix-anchor means this
-// only ever matches a full path — never a bare `#` — which is what lets us drop
-// the old bare-`#N` MESSAGE_REF pass and root-solve the disambiguation Gus flagged.
-const CHANNEL_REF_RE = new RegExp(`(?<=^|\\s)(?:/${HANDLE_SEG}/${REF_SEG}|/\\.dm/${HANDLE_SEG})(?:#\\d+|/#\\d+(?:#\\d+)?)?(?=\\s|$|[${REF_TERM}])`, "gu")
+// cleanly into the suffix group. The discriminator-bearing full path — never a
+// bare `#` — is what lets us drop the old bare-`#N` MESSAGE_REF pass and
+// root-solve the disambiguation Gus flagged.
+const CHANNEL_REF_RE = new RegExp(`(?<!/[^\\s${REF_TERM}]*)(?:/${HANDLE_SEG}/${REF_SEG}|/\\.dm/${HANDLE_SEG})(?:#\\d+|/#\\d+(?:#\\d+)?)?(?=\\s|$|[${REF_TERM}])`, "gu")
 
-// A bare `/server` ref — one segment, no channel. Same boundary lookaround as
-// `CHANNEL_REF_RE` (leading `(?<=^|\s)`, trailing `REF_TERM`), which already
-// excludes being followed by another `/segment` — so this never double-matches
+// A bare `/server` ref — one segment, no channel. Unlike `CHANNEL_REF_RE`, this
+// intentionally keeps its leading `(?<=^|\s)` boundary; the current change is
+// scoped to channel/message refs. Its trailing `REF_TERM` boundary excludes
+// being followed by another `/segment` — so this never double-matches
 // the first segment of a genuine `/server#disc/channel` ref (that trailing boundary
 // fails when the next char is `/`, and the segment class backtracking can't
 // produce a shorter match that satisfies it either, since every character up

@@ -1,5 +1,8 @@
+import { createElement } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
 import { describe, it, expect } from "vitest"
 import { describeChannelRefPillView } from "./channel-ref-pill"
+import { ChannelPill } from "./inline-marks"
 import type { ResolvedChannelRef } from "@/lib/community/channel-ref"
 
 const server = { id: "srv_1", name: "Studio" }
@@ -10,33 +13,30 @@ function resolved(overrides: Partial<ResolvedChannelRef> = {}): ResolvedChannelR
 }
 
 describe("describeChannelRefPillView", () => {
-  it("resolved: null, directoryLoading: true → muted", () => {
+  it("resolved: null → muted", () => {
     const view = describeChannelRefPillView({
       ref: "/srv_1/chn_1",
       resolved: null,
-      directoryLoading: true,
       thread: null,
       currentServerId: "srv_1",
     })
-    expect(view).toEqual({ kind: "muted", label: "/srv_1/chn_1" })
+    expect(view).toEqual({ kind: "muted", label: "/srv_1/chn_1", showIcon: false })
   })
 
-  it("resolved: null, directoryLoading: false → plain with text equal to the original ref", () => {
+  it("resolved: null keeps the original ref as its muted label", () => {
     const view = describeChannelRefPillView({
-      ref: "/usr/bin/ls",
+      ref: "/studio#0042/general#42",
       resolved: null,
-      directoryLoading: false,
       thread: null,
       currentServerId: "srv_1",
     })
-    expect(view).toEqual({ kind: "plain", text: "/usr/bin/ls" })
+    expect(view).toEqual({ kind: "muted", label: "/studio#0042/general#42", showIcon: false })
   })
 
   it("resolved present, no threadRootSeq → pill, no serverPrefix when resolved.server.id === currentServerId", () => {
     const view = describeChannelRefPillView({
       ref: "/srv_1/chn_1",
       resolved: resolved(),
-      directoryLoading: false,
       thread: null,
       currentServerId: "srv_1",
     })
@@ -56,7 +56,6 @@ describe("describeChannelRefPillView", () => {
     const view = describeChannelRefPillView({
       ref: "/srv_1/chn_1#42",
       resolved: resolved({ seq: 42 }),
-      directoryLoading: false,
       thread: null,
       currentServerId: "srv_1",
     })
@@ -73,7 +72,6 @@ describe("describeChannelRefPillView", () => {
     const view = describeChannelRefPillView({
       ref: "/srv_1/chn_1",
       resolved: resolved(),
-      directoryLoading: false,
       thread: null,
       currentServerId: "srv_other",
     })
@@ -89,7 +87,6 @@ describe("describeChannelRefPillView", () => {
     const view = describeChannelRefPillView({
       ref: "/srv_1/chn_1/#42",
       resolved: resolved({ threadRootSeq: 42 }),
-      directoryLoading: false,
       thread: undefined,
       currentServerId: "srv_1",
     })
@@ -100,7 +97,6 @@ describe("describeChannelRefPillView", () => {
     const view = describeChannelRefPillView({
       ref: "/srv_1/chn_1/#42",
       resolved: resolved({ threadRootSeq: 42 }),
-      directoryLoading: false,
       thread: { id: "thr_1", name: "Thread about X", parentSeq: 42 },
       currentServerId: "srv_1",
     })
@@ -116,7 +112,6 @@ describe("describeChannelRefPillView", () => {
     const view = describeChannelRefPillView({
       ref: "/srv_1/chn_1/#42",
       resolved: resolved({ threadRootSeq: 42 }),
-      directoryLoading: false,
       thread: null,
       currentServerId: "srv_1",
     })
@@ -133,7 +128,6 @@ describe("describeChannelRefPillView", () => {
     const view = describeChannelRefPillView({
       ref: "/srv_1/chn_1/#42",
       resolved: resolved({ threadRootSeq: 42 }),
-      directoryLoading: false,
       thread: null,
       currentServerId: "srv_other",
     })
@@ -146,7 +140,6 @@ describe("describeChannelRefPillView", () => {
     const view = describeChannelRefPillView({
       ref: "/srv_1/chn_1/#42",
       resolved: resolved({ threadRootSeq: 42 }),
-      directoryLoading: false,
       thread: { id: "thr_1", name: "Thread about X", parentSeq: 42 },
       currentServerId: "srv_1",
     })
@@ -157,7 +150,6 @@ describe("describeChannelRefPillView", () => {
     const view = describeChannelRefPillView({
       ref: "/srv_1/chn_1/#5#42",
       resolved: resolved({ threadRootSeq: 5, seq: 42 }),
-      directoryLoading: false,
       thread: { id: "thr_1", name: "Thread about X", parentSeq: 5 },
       currentServerId: "srv_1",
     })
@@ -174,7 +166,6 @@ describe("describeChannelRefPillView", () => {
     const view = describeChannelRefPillView({
       ref: "/srv_1/chn_1/#5#42",
       resolved: resolved({ threadRootSeq: 5, seq: 42 }),
-      directoryLoading: false,
       thread: null,
       currentServerId: "srv_1",
     })
@@ -186,5 +177,18 @@ describe("describeChannelRefPillView", () => {
       threadSuffix: 5,
       messageSuffix: 42,
     })
+  })
+})
+
+describe("ChannelPill icon", () => {
+  it("shows the channel icon by default", () => {
+    const html = renderToStaticMarkup(createElement(ChannelPill, { muted: true }, "general"))
+    expect(html).toContain("<svg")
+  })
+
+  it("omits the channel icon when showIcon is false", () => {
+    const html = renderToStaticMarkup(createElement(ChannelPill, { muted: true, showIcon: false }, "/missing#0042/general"))
+    expect(html).not.toContain("<svg")
+    expect(html).toContain("/missing#0042/general")
   })
 })

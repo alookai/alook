@@ -60,7 +60,12 @@ const AGENT_MESSAGE_COLUMNS = {
 } as const;
 
 /** One entry per distinct channel needing a `ChannelRef`. */
-type ScopeInfo = { ref: string; isThread: boolean; isDm: boolean };
+type ScopeInfo = {
+  ref: string;
+  isThread: boolean;
+  isDm: boolean;
+  isForum: boolean;
+};
 
 /**
  * Batch-resolve a set of channel ids into their `ChannelRef` path strings —
@@ -225,6 +230,7 @@ async function resolveScopeRefs(
       ref,
       isThread: emitType === "thread",
       isDm,
+      isForum: storedType === "forum",
     });
   }
   return out;
@@ -280,11 +286,17 @@ export async function toAgentMessages(
     if (atts && atts.length > 0) content.attachments = atts;
     const replyTo = r.replyToId ? replyByMessageId.get(r.replyToId) : undefined;
     if (replyTo) content.replyTo = replyTo;
+    const forumReplyRef = scope.isForum ? `${channel}/${formatSeq(r.seq)}` : null;
     return {
       seq: formatSeq(r.seq),
       channel,
       sender,
       content,
+      ...(forumReplyRef
+        ? {
+            hint: `This is a forum post, please reply in ${forumReplyRef}.`,
+          }
+        : {}),
       time: r.createdAt,
     };
   });

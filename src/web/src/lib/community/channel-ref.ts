@@ -33,8 +33,8 @@ export type ResolvedChannelRef = {
  * server for UI-internal navigation.
  *
  * Returns `null` on any miss (unknown server, unknown channel, or malformed
- * ref) — this is the false-positive guard the caller (`describeChannelRefPillView`)
- * relies on to fall back to plain text instead of rendering a broken pill.
+ * ref), preventing the caller from inventing a clickable target. Syntactically
+ * matched refs still render as muted pills while unresolved.
  */
 export function resolveChannelRefBase(
   directory: ChannelRefDirectory,
