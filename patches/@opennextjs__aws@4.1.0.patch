@@ -1,0 +1,16 @@
+diff --git a/dist/overrides/converters/utils.js b/dist/overrides/converters/utils.js
+--- a/dist/overrides/converters/utils.js
++++ b/dist/overrides/converters/utils.js
+@@ -24,5 +24,11 @@ export function extractHostFromHeaders(headers) {
+  * @returns
+  */
+ export function getQueryFromSearchParams(searchParams) {
+-    return getQueryFromIterator(searchParams.entries());
++    const querystring = searchParams.toString();
++    if (querystring === "")
++        return {};
++    return getQueryFromIterator(querystring.split("&").map((part) => {
++        const [key, value] = part.split("=");
++        return [key, value];
++    }));
+ }

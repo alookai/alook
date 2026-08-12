@@ -55,6 +55,9 @@
     "wrangler": "^4.119.0"
   },
   "pnpm": {
+    "patchedDependencies": {
+      "@opennextjs/aws@4.1.0": "patches/@opennextjs__aws@4.1.0.patch"
+    },
     "onlyBuiltDependencies": [
       "better-sqlite3",
       "esbuild",
