@@ -96,6 +96,7 @@ export const ServerRail = memo(function ServerRail({
           <button
             onClick={onHome}
             aria-label="Home"
+            data-testid={tid.homeButton}
             className="group/alook grid size-10 shrink-0 place-items-center rounded-[20px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           >
             <AnimatedAlookLogo className="size-10" />

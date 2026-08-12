@@ -18,6 +18,8 @@ export const tid = {
   machinePairOpen: "community-machine-pair-open",
   machinePairCommand: "community-machine-pair-command",
   machinePairCopy: "community-machine-pair-copy",
+  homeButton: "community-home-button",
+  alookLogo: "community-alook-logo",
 
   forumTagDialog: "community-forum-tag-dialog",
 

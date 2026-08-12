@@ -40,6 +40,7 @@
     "db:migrate:remote": "pnpm --filter @alook/web exec wrangler d1 migrations apply alook-app --remote",
     "bump": "node scripts/bump-version.mjs",
     "typegrep:ws": "node scripts/lint-ws-events.mjs",
+    "logo:generate": "node scripts/generate-logo-assets.mjs",
     "prepare": "simple-git-hooks"
   },
   "simple-git-hooks": {
