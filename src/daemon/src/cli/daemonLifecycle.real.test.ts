@@ -4,11 +4,11 @@ import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { daemonStart } from "./daemonStart";
 
 const packageRoot = fileURLToPath(new URL("../..", import.meta.url));
-const tsxLoader = createRequire(import.meta.url).resolve("tsx");
+const tsxLoader = pathToFileURL(createRequire(import.meta.url).resolve("tsx")).href;
 const cli = path.join(packageRoot, "src", "cli", "index.ts");
 const secret = "cmk_B0_REAL_PROCESS_SECRET";
 const machineId = "cm_machine_real_123456";
