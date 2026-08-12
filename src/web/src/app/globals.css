@@ -360,6 +360,10 @@ body.community-onboarding-active.driver-active :is(
   --radius: 0.625rem;
   --status-online: oklch(0.72 0.19 145);
   --status-offline: oklch(0.65 0.2 25);
+  --forum-tag-text-l: 0.46;
+  --forum-tag-text-c: 0.13;
+  --forum-tag-bg-l: 0.95;
+  --forum-tag-bg-c: 0.035;
   --te: oklch(0.55 0.1 250);
   --ti: oklch(0.52 0.12 150);
   --tc: oklch(0.57 0.15 28);
@@ -408,6 +412,10 @@ body.community-onboarding-active.driver-active :is(
   --chart-5: oklch(0.27 0.01 60);
   --status-online: oklch(0.75 0.18 145);
   --status-offline: oklch(0.7 0.18 25);
+  --forum-tag-text-l: 0.8;
+  --forum-tag-text-c: 0.1;
+  --forum-tag-bg-l: 0.28;
+  --forum-tag-bg-c: 0.04;
   --te: oklch(0.72 0.08 250);
   --ti: oklch(0.75 0.12 150);
   --tc: oklch(0.72 0.14 28);
@@ -423,6 +431,11 @@ body.community-onboarding-active.driver-active :is(
   --sidebar-accent-foreground: oklch(0.93 0.006 80);
   --sidebar-border: oklch(1 0.005 80 / 10%);
   --sidebar-ring: oklch(0.55 0.01 60);
+}
+
+.forum-tag-color {
+  color: oklch(var(--forum-tag-text-l) var(--forum-tag-text-c) var(--forum-tag-hue));
+  background-color: oklch(var(--forum-tag-bg-l) var(--forum-tag-bg-c) var(--forum-tag-hue));
 }
 
 /* ── Object-mimicry card grain texture (shared) ── */

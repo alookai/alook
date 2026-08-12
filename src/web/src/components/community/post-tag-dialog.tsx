@@ -1,104 +1,120 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState, type ReactElement } from "react"
 import { X } from "lucide-react"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Input } from "@/components/ui/input"
 import { onEnterSubmit } from "@/lib/ime"
 import { tid } from "@/lib/community/testids"
+import { tagColorClassName, tagColorStyle } from "@/lib/community/tag-color"
+import { cn } from "@/lib/utils"
 
-// Per-post tag editor. Opened from the tag icon on a post card. Shows the
-// forum's existing tags (the deduped union across posts, passed as `allTags`)
-// as toggle chips, plus a free-text input to add a brand-new tag. Saving PATCHes
-// the post's tag list. There is no forum-level tag vocabulary anymore — a new
-// tag simply exists on this post and joins the union once it lands.
 export function PostTagDialog({
-  open,
-  onOpenChange,
+  trigger,
   postName,
   current,
   allTags,
   onSave,
   saving,
 }: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
+  trigger: ReactElement
   postName: string
   current: string[]
   allTags: string[]
   onSave: (tags: string[]) => void
   saving?: boolean
 }) {
+  const [open, setOpen] = useState(false)
   const [selected, setSelected] = useState<string[]>(current)
   const [draft, setDraft] = useState("")
 
-  const toggle = (t: string) =>
-    setSelected((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]))
+  useEffect(() => {
+    if (!open) setSelected(current)
+  }, [current, open])
 
-  const addDraft = () => {
-    const t = draft.trim().toLowerCase()
-    setDraft("")
-    if (!t || selected.includes(t)) return
-    setSelected((prev) => [...prev, t])
+  const toggle = (tag: string) => {
+    setSelected((previous) => previous.includes(tag)
+      ? previous.filter((candidate) => candidate !== tag)
+      : [...previous, tag])
   }
 
-  // The chip set is the union of the forum's known tags and anything selected
-  // (so a freshly-typed tag shows as an active chip too), stable-sorted.
+  const addDraft = () => {
+    const tag = draft.trim().toLowerCase()
+    setDraft("")
+    if (!tag || selected.includes(tag)) return
+    setSelected((previous) => [...previous, tag])
+  }
+
+  const close = () => {
+    setOpen(false)
+    const changed = selected.length !== current.length
+      || selected.some((tag, index) => tag !== current[index])
+    if (changed) onSave(selected)
+  }
+
   const chips = [...new Set([...allTags, ...selected])].sort()
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm" data-testid={tid.forumTagDialog}>
-        <DialogHeader>
-          <DialogTitle>Edit tags</DialogTitle>
-          <DialogDescription>Tag “{postName}” to help others find it.</DialogDescription>
-        </DialogHeader>
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen) {
+          setSelected(current)
+          setDraft("")
+          setOpen(true)
+          return
+        }
+        close()
+      }}
+    >
+      <PopoverTrigger render={trigger} />
+      <PopoverContent
+        side="bottom"
+        align="end"
+        className="w-64 space-y-3 p-3"
+        data-testid={tid.forumTagDialog}
+        aria-label={`Edit tags for ${postName}`}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <p className="text-[11px] font-medium tracking-[0.12em] text-muted-foreground">TAGS</p>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           {chips.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No tags yet. Add the first one below.</p>
-          ) : (
-            chips.map((t) => (
-              <Badge
-                key={t}
-                variant={selected.includes(t) ? "default" : "secondary"}
-                className="cursor-pointer"
-                render={<button type="button" onClick={() => toggle(t)} />}
+            <p className="text-xs text-muted-foreground">No tags yet</p>
+          ) : chips.map((tag) => {
+            const active = selected.includes(tag)
+            return (
+              <button
+                key={tag}
+                type="button"
+                style={tagColorStyle(tag)}
+                className={cn(
+                  "inline-flex items-center rounded-lg px-2 py-1 text-xs transition-opacity",
+                  tagColorClassName,
+                  active ? "opacity-100 ring-1 ring-current/20" : "opacity-55 hover:opacity-80",
+                )}
+                onClick={() => toggle(tag)}
               >
-                {`#${t}`}
-                {selected.includes(t) && <X className="ml-1 size-3" />}
-              </Badge>
-            ))
-          )}
+                #{tag}
+                {active && <X className="ml-1 size-3" />}
+              </button>
+            )
+          })}
         </div>
 
-        <div className="flex items-center gap-2">
-          <Input
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={onEnterSubmit(addDraft)}
-            placeholder="new-tag"
-            className="h-9"
-          />
-          <Button type="button" variant="secondary" size="sm" onClick={addDraft} disabled={!draft.trim()}>
-            Add
-          </Button>
-        </div>
+        <Input
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={onEnterSubmit(addDraft)}
+          placeholder="Add a tag…"
+          className="h-8 text-sm"
+          disabled={saving}
+        />
 
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button data-testid={tid.forumTagDialogSave} onClick={() => onSave(selected)} disabled={saving}>Save tags</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        <p className="text-[11px] text-muted-foreground">
+          {saving ? "Saving…" : "↵ to add · saves on close"}
+        </p>
+      </PopoverContent>
+    </Popover>
   )
 }

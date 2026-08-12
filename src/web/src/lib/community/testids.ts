@@ -20,7 +20,6 @@ export const tid = {
   machinePairCopy: "community-machine-pair-copy",
 
   forumTagDialog: "community-forum-tag-dialog",
-  forumTagDialogSave: "community-forum-tag-dialog-save",
 
   message: (id: string) => `community-message-${id}`,
   channelRow: (id: string) => `community-channel-row-${id}`,

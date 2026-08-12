@@ -46,10 +46,11 @@ test.describe.serial("forum post tags + participant avatars", () => {
     await page.getByTestId(tid.forumThreadTagBtn(threadId)).click()
     await expect(page.getByTestId(tid.forumTagDialog)).toBeVisible({ timeout: 10_000 })
     for (const t of ["alpha", "beta"]) {
-      await page.getByPlaceholder("new-tag").fill(t)
-      await page.getByRole("button", { name: "Add", exact: true }).click()
+      await page.getByPlaceholder("Add a tag…").fill(t)
+      await page.getByPlaceholder("Add a tag…").press("Enter")
     }
-    await page.getByTestId(tid.forumTagDialogSave).click()
+    await page.keyboard.press("Escape")
+    await expect(page.getByTestId(tid.forumTagDialog)).toHaveCount(0)
 
     // The card now shows the tags AND the filter bar derives them as the union.
     await expect(page.getByTestId(tid.forumTagChip("alpha"))).toBeVisible({ timeout: 15_000 })
@@ -60,9 +61,10 @@ test.describe.serial("forum post tags + participant avatars", () => {
     await page.getByTestId(tid.forumThreadTagBtn(threadId)).click()
     await expect(page.getByTestId(tid.forumTagDialog)).toBeVisible({ timeout: 10_000 })
     // The active (selected) chips carry a remove affordance; click #beta to
-    // deselect, then save.
+    // deselect, then close to save.
     await page.getByTestId(tid.forumTagDialog).getByRole("button", { name: "#beta" }).click()
-    await page.getByTestId(tid.forumTagDialogSave).click()
+    await page.keyboard.press("Escape")
+    await expect(page.getByTestId(tid.forumTagDialog)).toHaveCount(0)
 
     await expect(page.getByTestId(tid.forumTagChip("beta"))).toHaveCount(0, { timeout: 15_000 })
     await expect(page.getByTestId(tid.forumTagChip("alpha"))).toBeVisible()

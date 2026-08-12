@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
-import { ForumView } from "./forum-view"
+import { ForumView, shouldActivateForumRow } from "./forum-view"
 import { tid } from "@/lib/community/testids"
 import type { ForumThread } from "./_types"
 
@@ -16,9 +16,11 @@ function makePost(over: Partial<ForumThread> = {}): ForumThread {
     parent: { authorName: "Alice", text: "root" },
     authorId: "usr_alice",
     authorAvatar: "A",
+    openerMessageId: "msg_1",
     tags: [],
     preview: "preview text",
     participants: [{ id: "usr_alice", name: "Alice", avatar: "A" }],
+    participantCount: 1,
     ...over,
   }
 }
@@ -58,6 +60,30 @@ function renderWithDelete(
 }
 
 describe("ForumView post card header", () => {
+  it("only lets the row itself handle Enter or Space, not nested controls", () => {
+    const row = {}
+    const child = {}
+    expect(shouldActivateForumRow({ key: "Enter", target: row, currentTarget: row })).toBe(true)
+    expect(shouldActivateForumRow({ key: " ", target: row, currentTarget: row })).toBe(true)
+    expect(shouldActivateForumRow({ key: "Enter", target: child, currentTarget: row })).toBe(false)
+    expect(shouldActivateForumRow({ key: "Escape", target: row, currentTarget: row })).toBe(false)
+  })
+
+  it("renders the title and opener seq before the creator metadata", () => {
+    const html = render([makePost({ parentSeq: 42 })])
+    expect(html.indexOf("A post title")).toBeLessThan(html.indexOf(">Alice<"))
+    expect(html).toContain('<span class="opacity-60">#</span>42')
+  })
+
+  it("uses a flat hairline row instead of the old bordered card", () => {
+    const html = render([makePost()])
+    const testIdIndex = html.indexOf(tid.forumThreadCard("p1"))
+    const rowMarkup = html.slice(Math.max(0, testIdIndex - 250), testIdIndex + 350)
+    expect(rowMarkup).toContain("border-border/50")
+    expect(rowMarkup).not.toContain("bg-card")
+    expect(rowMarkup).not.toContain("rounded-lg border")
+  })
+
   it("solo post renders the creator name and no participant AvatarGroup", () => {
     const html = render([makePost()])
     expect(html).toContain(">Alice<")
@@ -78,7 +104,7 @@ describe("ForumView post card header", () => {
     expect(html).toContain(groupTid)
     expect(html.indexOf(">Alice<")).toBeGreaterThanOrEqual(0)
     expect(html.indexOf(">Alice<")).toBeLessThan(html.indexOf(groupTid))
-    expect(html.indexOf("· ")).toBeLessThan(html.indexOf(groupTid))
+    expect(html.indexOf('aria-hidden="true">·</span>')).toBeLessThan(html.indexOf(groupTid))
   })
 
   it("falls back to \"Unknown\" when the creator name is empty (deleted creator)", () => {
@@ -88,7 +114,7 @@ describe("ForumView post card header", () => {
 
   it("renders the time separator for both a solo post and a post with others", () => {
     const solo = render([makePost()])
-    expect(solo).toContain("· ")
+    expect(solo).toContain('aria-hidden="true">·</span>')
 
     const withOthers = render([
       makePost({
@@ -98,7 +124,7 @@ describe("ForumView post card header", () => {
         ],
       }),
     ])
-    expect(withOthers).toContain("· ")
+    expect(withOthers).toContain('aria-hidden="true">·</span>')
     expect(withOthers).toContain(tid.forumThreadAvatars("p1"))
   })
 
@@ -111,6 +137,14 @@ describe("ForumView post card header", () => {
     const html = render([makePost({ participants, participantCount: 6 })])
     expect(html).toContain(tid.forumThreadAvatars("p1"))
     expect(html).not.toContain(">+1<")
+  })
+
+  it("shows at most two resting tags and collapses the rest into a touch-safe +N button", () => {
+    const html = render([makePost({ tags: ["alpha", "beta", "gamma", "delta"] })])
+    expect(html).toContain("#alpha")
+    expect(html).toContain("#beta")
+    expect(html).toContain("Show 2 more tags")
+    expect(html).toContain(">+2<")
   })
 })
 

@@ -65,7 +65,7 @@ describe("mapForumActivityPages", () => {
         ],
         included: {
           parentMessages: [
-            { id: "m2", channelId: "forum_1", content: "  Opener title  ", authorId: "u2", authorName: "Alice", authorImage: null },
+            { id: "m2", channelId: "forum_1", seq: 42, content: "  Opener title  ", authorId: "u2", authorName: "Alice", authorImage: null },
           ],
           firstMessages: [{ channelId: "t2", content: "First reply preview" }],
           tags: [{ messageId: "m2", tag: "bug" }, { messageId: "m2", tag: "help" }],
@@ -101,6 +101,7 @@ describe("mapForumActivityPages", () => {
     expect(result.map((thread) => thread.id)).toEqual(["t2", "t1"])
     expect(result[0]).toMatchObject({
       name: "  Opener title  ",
+      parentSeq: 42,
       authorId: "u2",
       authorAvatar: "A",
       preview: "First reply preview",

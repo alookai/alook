@@ -24,6 +24,7 @@ type ActivityThread = {
 type IncludedMessage = {
   id: string
   channelId: string
+  seq: number
   content: string
   authorId: string
   authorName: string
@@ -108,6 +109,7 @@ export function mapForumActivityPages(pages: ForumActivityPage[]): ForumThread[]
         authorId: opener?.authorId ?? thread.creatorId ?? "",
         authorAvatar: opener?.authorImage ?? avatarInitial(opener?.authorName ?? ""),
         openerMessageId: thread.parentMessageId ?? "",
+        ...(opener ? { parentSeq: opener.seq } : {}),
         tags: thread.parentMessageId ? tagsByMessage.get(thread.parentMessageId) ?? [] : [],
         preview: (first?.content ?? "").slice(0, 100),
         participants: participantsByChannel.get(thread.id) ?? [],

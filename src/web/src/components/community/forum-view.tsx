@@ -6,10 +6,10 @@ import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "@/hooks/community/virtualiz
 import { MessagesSquare, ListChevronsUpDown, Plus, Tag, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { formatRelativeTime } from "./format-time"
-import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "./avatar"
 import { AvatarGroup, AvatarGroupCount } from "@/components/ui/avatar"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { EmptyState } from "./empty-state"
 import { CreateForumThread, type NewForumThread } from "./create-forum-thread"
 import { PostTagDialog } from "./post-tag-dialog"
@@ -18,10 +18,61 @@ import { tid } from "@/lib/community/testids"
 import type { ForumThread, Member } from "./_types"
 import { VirtualRows } from "./virtual-cursor-list"
 import { useVirtualCursorSentinel } from "@/hooks/community/use-virtual-cursor-sentinel"
+import { tagColorClassName, tagColorStyle } from "@/lib/community/tag-color"
+import { cn } from "@/lib/utils"
 
-// Max member avatars shown in a post card's AvatarGroup before collapsing to a
-// "+N" bubble. Creator is always first.
 const MAX_AVATARS = 5
+const MAX_VISIBLE_TAGS = 2
+
+export function shouldActivateForumRow(event: {
+  key: string
+  target: EventTarget | null
+  currentTarget: EventTarget | null
+}) {
+  return event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")
+}
+
+function ForumTagSummary({ tags }: { tags: string[] }) {
+  const shown = tags.slice(0, MAX_VISIBLE_TAGS)
+  const hidden = tags.slice(MAX_VISIBLE_TAGS)
+  if (shown.length === 0) return null
+
+  return (
+    <div
+      className="flex min-w-0 items-center gap-1.5 max-sm:order-last max-sm:basis-full max-sm:pl-7"
+      onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => event.stopPropagation()}
+    >
+      {shown.map((tag) => <span key={tag} className="max-w-24 truncate">#{tag}</span>)}
+      {hidden.length > 0 && (
+        <Popover>
+          <PopoverTrigger
+            render={(
+              <button
+                type="button"
+                className="shrink-0 rounded px-1 py-0.5 hover:bg-accent hover:text-foreground"
+                aria-label={`Show ${hidden.length} more tags`}
+                onClick={(event) => event.stopPropagation()}
+              >
+                +{hidden.length}
+              </button>
+            )}
+          />
+          <PopoverContent
+            side="top"
+            align="start"
+            className="flex w-52 flex-wrap gap-1.5 p-2"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {tags.map((tag) => (
+              <span key={tag} className="rounded-md bg-muted px-1.5 py-1 text-xs text-muted-foreground">#{tag}</span>
+            ))}
+          </PopoverContent>
+        </Popover>
+      )}
+    </div>
+  )
+}
 
 // Forum channel body — rendered under the shared ChannelHeader. A feed of posts;
 // each post opens as a thread. The filter bar's tag chips are DERIVED from the
@@ -66,7 +117,6 @@ export function ForumView({
   deletingPost?: string | null
 }) {
   const [composing, setComposing] = useState(false)
-  const [editingTagsFor, setEditingTagsFor] = useState<ForumThread | null>(null)
   const [deletingFor, setDeletingFor] = useState<ForumThread | null>(null)
   const newPostTriggerRef = useRef<HTMLButtonElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -76,7 +126,7 @@ export function ForumView({
     ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
     count: posts.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => 160,
+    estimateSize: () => 128,
     getItemKey: (index) => posts[index]?.id ?? index,
     overscan: 5,
     initialRect: { width: 0, height: 800 },
@@ -126,17 +176,31 @@ export function ForumView({
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
             {filterTags.length > 0 && (
               <>
-                <Badge variant={tag === "All" ? "default" : "secondary"} className="shrink-0 cursor-pointer" render={<button onClick={() => onTagChange("All")} />}>All</Badge>
+                <button
+                  type="button"
+                  className={cn(
+                    "shrink-0 rounded-lg px-2.75 py-1 text-[13px] leading-5 transition-colors",
+                    tag === "All" ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                  )}
+                  onClick={() => onTagChange("All")}
+                >
+                  All
+                </button>
                 {filterTags.map((t) => (
-                  <Badge
+                  <button
                     key={t}
-                    variant={tag === t ? "default" : "secondary"}
-                    className="shrink-0 cursor-pointer"
+                    type="button"
+                    style={tagColorStyle(t)}
+                    className={cn(
+                      "shrink-0 rounded-lg px-2.75 py-1 text-[13px] leading-5 transition-opacity",
+                      tagColorClassName,
+                      tag === t ? "opacity-100 ring-1 ring-current/20" : "opacity-70 hover:opacity-100",
+                    )}
                     data-testid={tid.forumTagChip(t)}
-                    render={<button onClick={() => onTagChange(t)} />}
+                    onClick={() => onTagChange(t)}
                   >
                     {`#${t}`}
-                  </Badge>
+                  </button>
                 ))}
               </>
             )}
@@ -147,7 +211,7 @@ export function ForumView({
         </div>
       )}
 
-      <div ref={scrollRef} role="main" className="flex-1 overflow-y-auto thin-scrollbar p-4">
+      <div ref={scrollRef} role="main" className="flex-1 overflow-y-auto thin-scrollbar px-4 py-2">
         {loading && posts.length === 0 ? (
           <ForumListSkeleton />
         ) : posts.length === 0 ? (
@@ -158,12 +222,13 @@ export function ForumView({
               items={posts}
               virtualizer={virtualizer}
               itemKey={(post) => post.id}
-              renderItem={(p) => {
+              renderItem={(p, index) => {
               const canEdit = !!onEditPostTags && (canEditPostTags?.(p) ?? false)
               const canDelete = !!onDeletePost && (canDeletePost?.(p) ?? false)
               const others = p.participants.filter((m) => m.id !== p.authorId)
               const shown = others.slice(0, MAX_AVATARS)
-              const overflow = Math.max(0, p.participantCount - 1 - shown.length)
+              const participantTotal = p.participantCount ?? others.length + 1
+              const overflow = Math.max(0, participantTotal - 1 - shown.length)
               return (
                 <div
                   key={p.id}
@@ -171,56 +236,85 @@ export function ForumView({
                   tabIndex={0}
                   data-testid={tid.forumThreadCard(p.id)}
                   onClick={() => onOpenPost(p.id)}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpenPost(p.id) } }}
-                  className="group/card mb-3 flex cursor-pointer flex-col gap-2 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:border-primary/40 hover:bg-accent/40"
+                  onKeyDown={(event) => {
+                    if (!shouldActivateForumRow(event)) return
+                    event.preventDefault()
+                    onOpenPost(p.id)
+                  }}
+                  className={cn(
+                    "group/card relative cursor-pointer rounded border-b border-border/50 px-4.5 py-3.5 text-left transition-colors hover:bg-accent/45",
+                    index === posts.length - 1 && "border-b-0",
+                  )}
                 >
-                  <div className="flex items-center gap-2">
-                    <Avatar label={p.authorAvatar} seed={p.authorId} size={24} />
-                    <span className="text-xs font-medium text-foreground" suppressHydrationWarning>{p.parent.authorName || "Unknown"}</span>
-                    <span className="text-xs text-muted-foreground" suppressHydrationWarning>· {formatRelativeTime(p.lastMessageAt)}</span>
-                    {others.length > 0 && (
-                      <>
-                        <span className="h-4 w-px shrink-0 bg-border" aria-hidden />
-                        <AvatarGroup data-testid={tid.forumThreadAvatars(p.id)}>
-                          {shown.map((m) => (
-                            <Avatar key={m.id} label={m.avatar} seed={m.id} size={24} ringColor="var(--card)" />
-                          ))}
-                          {overflow > 0 && <AvatarGroupCount className="size-6 text-[11px]">+{overflow}</AvatarGroupCount>}
-                        </AvatarGroup>
-                      </>
-                    )}
-                    {canEdit && (
-                      <button
-                        type="button"
-                        data-testid={tid.forumThreadTagBtn(p.id)}
-                        onClick={(e) => { e.stopPropagation(); setEditingTagsFor(p) }}
-                        className="ml-auto grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/card:opacity-100"
-                        aria-label="Edit tags"
-                      >
-                        <Tag className="size-4" />
-                      </button>
-                    )}
-                    {canDelete && (
+                  {(canEdit || canDelete) && (
+                    <div
+                      className="absolute right-3 top-3 z-10 flex items-center gap-1"
+                      onClick={(event) => event.stopPropagation()}
+                      onKeyDown={(event) => event.stopPropagation()}
+                    >
+                      {canEdit && (
+                        <PostTagDialog
+                          trigger={(
+                            <button
+                              type="button"
+                              data-testid={tid.forumThreadTagBtn(p.id)}
+                              onClick={(event) => event.stopPropagation()}
+                              className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 data-popup-open:opacity-100 group-hover/card:opacity-100"
+                              aria-label="Edit tags"
+                            >
+                              <Tag className="size-4" />
+                            </button>
+                          )}
+                          postName={p.name}
+                          current={p.tags}
+                          allTags={availableTags}
+                          saving={savingTagsFor === p.id}
+                          onSave={(tags) => onEditPostTags?.(p.id, tags)}
+                        />
+                      )}
+                      {canDelete && (
                       <button
                         type="button"
                         data-testid={tid.forumThreadDeleteBtn(p.id)}
                         disabled={deletingPost === p.id}
                         onClick={(e) => { e.stopPropagation(); setDeletingFor(p) }}
-                        className={`${canEdit ? "" : "ml-auto "}grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-destructive focus-visible:opacity-100 group-hover/card:opacity-100 disabled:cursor-not-allowed disabled:opacity-50`}
+                        className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-destructive focus-visible:opacity-100 group-hover/card:opacity-100 disabled:cursor-not-allowed disabled:opacity-50"
                         aria-label="Delete post"
                       >
                         <Trash2 className="size-4" />
                       </button>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap items-baseline gap-1.75 pr-14">
+                    <h3 className="max-w-full text-[15px] font-semibold leading-tight">{p.name}</h3>
+                    {p.parentSeq !== undefined && (
+                      <span className="shrink-0 font-mono text-[13px] font-medium text-muted-foreground">
+                        <span className="opacity-60">#</span>{p.parentSeq}
+                      </span>
                     )}
                   </div>
-                  <h3 className="line-clamp-1 text-[15px] font-semibold leading-tight">{p.name}</h3>
-                  <p className="line-clamp-2 text-sm text-muted-foreground">{p.preview}</p>
-                  <div className="flex items-center gap-2">
-                    {p.tags.length > 0 && p.tags.map((t) => (
-                      <Badge key={t} variant="secondary">#{t}</Badge>
-                    ))}
-                    <span className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
-                      <MessagesSquare className="size-3.5" /> {Math.max(0, p.messageCount)}
+                  <p className="mb-2.25 mt-0.75 line-clamp-2 text-[13.5px] text-muted-foreground">{p.preview}</p>
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-muted-foreground">
+                    <Avatar label={p.authorAvatar} seed={p.authorId} size={20} />
+                    <span className="shrink-0 font-medium text-foreground" suppressHydrationWarning>{p.parent.authorName || "Unknown"}</span>
+                    <span className="shrink-0" aria-hidden>·</span>
+                    <span className="shrink-0" suppressHydrationWarning>{formatRelativeTime(p.lastMessageAt)}</span>
+                    {p.tags.length > 0 && <span className="shrink-0 max-sm:hidden" aria-hidden>·</span>}
+                    <ForumTagSummary tags={p.tags} />
+                    <span className="ml-auto flex shrink-0 items-center gap-2">
+                      {others.length > 0 && (
+                        <AvatarGroup className="-space-x-1.25" data-testid={tid.forumThreadAvatars(p.id)}>
+                          {shown.map((member) => (
+                            <Avatar key={member.id} label={member.avatar} seed={member.id} size={19} ringColor="var(--background)" />
+                          ))}
+                          {overflow > 0 && <AvatarGroupCount className="size-4.75 text-[10px]">+{overflow}</AvatarGroupCount>}
+                        </AvatarGroup>
+                      )}
+                      <span className="flex items-center gap-1">
+                        <MessagesSquare className="size-3.5" /> {Math.max(0, p.messageCount)}
+                      </span>
                     </span>
                   </div>
                 </div>
@@ -231,18 +325,6 @@ export function ForumView({
           </>
         )}
       </div>
-
-      {editingTagsFor && (
-        <PostTagDialog
-          open
-          onOpenChange={(v) => { if (!v) setEditingTagsFor(null) }}
-          postName={editingTagsFor.name}
-          current={editingTagsFor.tags}
-          allTags={availableTags}
-          saving={savingTagsFor === editingTagsFor.id}
-          onSave={(tags) => { onEditPostTags?.(editingTagsFor.id, tags); setEditingTagsFor(null) }}
-        />
-      )}
 
       {deletingFor && (
         <ConfirmDialog
@@ -258,26 +340,21 @@ export function ForumView({
   )
 }
 
-// Loading placeholder for the forum post list — three card placeholders that
-// match <ForumView>'s post-card density so the filter bar above doesn't shift
-// when posts arrive.
+// Loading placeholder for the forum post list. It mirrors the flat rows so the
+// page does not flash back to the old card treatment while data is loading.
 function ForumListSkeleton() {
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col">
       {Array.from({ length: 3 }).map((_, i) => (
-        <div key={i} className="flex flex-col gap-2 rounded-lg border border-border bg-card p-4">
-          <div className="flex items-center gap-2">
-            <Skeleton className="size-6 shrink-0 rounded-full" />
-            <Skeleton className="h-3 w-40 rounded" />
-          </div>
+        <div key={i} className="flex flex-col border-b border-border/50 px-4.5 py-3.5 last:border-b-0">
           <Skeleton className="h-4 w-2/3 rounded" />
-          <div className="space-y-2">
+          <div className="mb-2.25 mt-1.25 space-y-1.5">
             <Skeleton className="h-3 w-full rounded" />
-            <Skeleton className="h-3 w-5/6 rounded" />
+            <Skeleton className="h-3 w-4/5 rounded" />
           </div>
           <div className="flex items-center gap-2">
-            <Skeleton className="h-5 w-14 rounded-full" />
-            <Skeleton className="h-5 w-12 rounded-full" />
+            <Skeleton className="size-5 rounded-full" />
+            <Skeleton className="h-3 w-28 rounded" />
             <Skeleton className="ml-auto h-3 w-10 rounded" />
           </div>
         </div>
@@ -304,7 +381,7 @@ export function ForumViewSkeleton() {
           <Skeleton className="h-8 w-25 rounded-md" />
         </div>
       </div>
-      <main className="flex-1 overflow-y-auto thin-scrollbar p-4">
+      <main className="flex-1 overflow-y-auto thin-scrollbar px-4 py-2">
         <ForumListSkeleton />
       </main>
     </>
