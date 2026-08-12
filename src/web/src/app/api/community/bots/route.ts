@@ -99,7 +99,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   // Same-owner sibling auto-friendship fanout. After createBot commits, insert a
   // real accepted community_friendship row for every existing live sibling.
   // Idempotent (ON CONFLICT DO NOTHING) so a concurrent createBot race is
-  // absorbed. A per-sibling failure is logged but never fails createBot — the
+  // absorbed. A per-sibling failure never fails createBot — the
   // bot exists and is usable; siblings can reconcile via the CLI later. See
   // plans/agent-friendship-approval-gate.md §Bot creation.
   try {
