@@ -1,24 +1,16 @@
-diff --git a/dist/core/routing/util.js b/dist/core/routing/util.js
---- a/dist/core/routing/util.js
-+++ b/dist/core/routing/util.js
-@@ -118,16 +118,16 @@ export function convertRes(res) {
-  * @__PURE__
+diff --git a/dist/overrides/converters/utils.js b/dist/overrides/converters/utils.js
+--- a/dist/overrides/converters/utils.js
++++ b/dist/overrides/converters/utils.js
+@@ -24,5 +24,11 @@ export function extractHostFromHeaders(headers) {
+  * @returns
   */
- export function convertToQueryString(query) {
--    const queryStrings = [];
-+    const searchParams = new URLSearchParams();
-     Object.entries(query).forEach(([key, value]) => {
-         if (Array.isArray(value)) {
--            value.forEach((entry) => queryStrings.push(`${key}=${entry}`));
-+            value.forEach((entry) => searchParams.append(key, entry));
-         }
-         else {
--            queryStrings.push(`${key}=${value}`);
-+            searchParams.append(key, value);
-         }
-     });
--    return queryStrings.length > 0 ? `?${queryStrings.join("&")}` : "";
-+    return searchParams.size > 0 ? `?${searchParams.toString()}` : "";
+ export function getQueryFromSearchParams(searchParams) {
+-    return getQueryFromIterator(searchParams.entries());
++    const querystring = searchParams.toString();
++    if (querystring === "")
++        return {};
++    return getQueryFromIterator(querystring.split("&").map((part) => {
++        const [key, value] = part.split("=");
++        return [key, value];
++    }));
  }
- /**
-  * Given a raw query string, returns a record with key value-array pairs
