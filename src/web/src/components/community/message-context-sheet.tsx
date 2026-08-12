@@ -383,8 +383,8 @@ export function MessageContextSheet({
             channel) for one message-side-sheet mental model. Frameless (no
             border) matches the existing quiet header. Falls back to just `#N`
             if no label was passed (older callers). */}
-        <SheetHeader className="gap-0 border-b-0 py-3">
-          <SheetTitle className="flex items-center gap-1.5 text-lg font-semibold tracking-tight">
+        <SheetHeader className="gap-0 border-b-0 py-3 pr-14 sm:pr-14">
+          <SheetTitle className="flex w-full min-w-0 items-center gap-1.5 text-lg font-semibold tracking-tight">
             {channelLabel ? (
               <>
                 <ChannelIcon className="shrink-0 text-muted-foreground" />
