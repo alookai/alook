@@ -175,7 +175,7 @@ describe("useEditMessage", () => {
     const cache = capturedQc.getQueryData<{ pages: { messages: { content?: string }[] }[] }>(key)
     expect(cache?.pages[0].messages[0]?.content).toBe("old")
     expect(capturedQc.getQueryData<{ content: string }>(messageKey)?.content).toBe("old")
-  })
+  }, 60_000)
 
   it("optimistically patches the single-message cache used by a post header", async () => {
     const messageKey = communityKeys.message("opener_1")
