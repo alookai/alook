@@ -13,6 +13,40 @@ import {
 import type { Driver } from "../types";
 import type { Logger } from "../logger";
 
+const timelineSweepHarness = vi.hoisted(() => {
+  let implementation: (workingDirectoryBase: string) => Promise<unknown> =
+    () => new Promise(() => {});
+  const calls: string[] = [];
+  return {
+    calls,
+    run: (workingDirectoryBase: string) => {
+      calls.push(workingDirectoryBase);
+      return implementation(workingDirectoryBase);
+    },
+    setImplementation: (next: (workingDirectoryBase: string) => Promise<unknown>) => {
+      implementation = next;
+    },
+    reset: () => {
+      calls.splice(0);
+      implementation = () => new Promise(() => {});
+    },
+  };
+});
+
+vi.mock("../timeline/index.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../timeline/index.js")>();
+  return {
+    ...actual,
+    sweepTimelineHistory: (workingDirectoryBase: string) => timelineSweepHarness.run(workingDirectoryBase),
+  };
+});
+
+const startupSweepDirs: string[] = [];
+afterEach(() => {
+  timelineSweepHarness.reset();
+  for (const dir of startupSweepDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
 /** Stub logger — records calls per level, and hands out tagged children that report into the same store. */
 function stubLogger(): Logger & { calls: Record<"debug" | "info" | "warn" | "error", Array<[string, string, unknown[]]>> } {
   const calls: Record<"debug" | "info" | "warn" | "error", Array<[string, string, unknown[]]>> = {
@@ -159,6 +193,64 @@ describe("createDaemon", () => {
       capabilities: [],
     });
     expect(daemon.proxyUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+/);
+    await daemon.stop();
+  });
+
+  it("starts the timeline sweep immediately without awaiting its completion", async () => {
+    const sockets: FakeSocket[] = [];
+    const workingDirectoryBase = mkdtempSync(join(tmpdir(), "timeline-startup-"));
+    startupSweepDirs.push(workingDirectoryBase);
+    let resolveSweep!: () => void;
+    timelineSweepHarness.setImplementation(() => new Promise<void>((resolve) => { resolveSweep = resolve; }));
+
+    const daemonPromise = createDaemon({
+      machineKey: "cmk_sweep",
+      serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as any,
+      runtimeReport: [],
+      driverFor: () => fakeDriver,
+      capabilities: [],
+      workingDirectoryBase,
+    });
+
+    expect(timelineSweepHarness.calls).toEqual([workingDirectoryBase]);
+    const daemon = await daemonPromise;
+    expect(timelineSweepHarness.calls).toEqual([workingDirectoryBase]);
+    resolveSweep();
+    await daemon.stop();
+  });
+
+  it("observes a rejected timeline sweep with one static safe warning and still becomes ready", async () => {
+    const sockets: FakeSocket[] = [];
+    const workingDirectoryBase = mkdtempSync(join(tmpdir(), "timeline-startup-"));
+    startupSweepDirs.push(workingDirectoryBase);
+    const logger = stubLogger();
+    timelineSweepHarness.setImplementation(() => Promise.reject(
+      new Error(`private failure at ${workingDirectoryBase}/agent-secret`),
+    ));
+
+    const daemon = await createDaemon({
+      machineKey: "cmk_sweep_reject",
+      serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as any,
+      runtimeReport: [],
+      driverFor: () => fakeDriver,
+      capabilities: [],
+      workingDirectoryBase,
+      logger,
+    });
+    await vi.waitFor(() => {
+      expect(logger.calls.warn.filter(([, message]) => message === "timeline startup sweep failed")).toHaveLength(1);
+    });
+    const warning = logger.calls.warn.find(([, message]) => message === "timeline startup sweep failed");
+    expect(warning).toEqual(["root", "timeline startup sweep failed", []]);
+    expect(JSON.stringify(warning)).not.toContain(workingDirectoryBase);
+    expect(JSON.stringify(warning)).not.toContain("private failure");
+
+    sockets[0].emit("open");
+    expect(sockets[0].sent.map((frame) => JSON.parse(frame)).some((frame) => frame.type === "ready")).toBe(true);
     await daemon.stop();
   });
 });

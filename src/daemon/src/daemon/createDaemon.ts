@@ -32,7 +32,7 @@ import { CredentialBroker, startCredentialProxy } from "../credentials/index.js"
 import { AgentProcessManager, AgentRouter, createTypingScopeTracker } from "../manager/index.js";
 import type { TypingScopeTracker } from "../manager/index.js";
 import { UnknownBotError, BotEnrollFailedError, UnknownRuntimeError } from "../manager/agentRouter.js";
-import { createTimelineRecorder } from "../timeline/index.js";
+import { createTimelineRecorder, sweepTimelineHistory } from "../timeline/index.js";
 import { resolveAlookCliPathWithFallback } from "../discovery.js";
 import { createPiSdkDriverDeps } from "../drivers/piSdkDeps.js";
 import { createLogger, type Logger } from "../logger.js";
@@ -321,7 +321,11 @@ export interface RunningDaemon {
 export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDaemon> {
   const log = opts.logger ?? createLogger({ header: "@alook/daemon" });
   const fallbackBase = (process.env.ALOOK_PROJECT_ROOT || `${homedir()}/.alook`) + "/daemon";
-  const workdirFor = (agentId: string) => `${opts.workingDirectoryBase ?? fallbackBase}/${agentId}`;
+  const workingDirectoryBase = opts.workingDirectoryBase ?? fallbackBase;
+  const workdirFor = (agentId: string) => `${workingDirectoryBase}/${agentId}`;
+  void sweepTimelineHistory(workingDirectoryBase).catch(() => {
+    log.warn("timeline startup sweep failed");
+  });
 
   // Self-healing: resolve CLI path with fallback if primary is missing
   const resolvedCliPath = resolveAlookCliPathWithFallback(opts.agentCliPath);

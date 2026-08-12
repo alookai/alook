@@ -11,14 +11,279 @@
  * deterministic — this module never calls `Date.now()`/`new Date()` implicitly
  * except behind the default param.
  */
-import { appendFileSync, readFileSync, writeFileSync, renameSync, existsSync } from "fs";
-import { join } from "path";
+import * as fs from "node:fs";
+import { randomBytes } from "node:crypto";
+import { basename, dirname, join } from "node:path";
 import { acquireLock, releaseLock, lockPathFor } from "./filelock.js";
 import type { ContextTimelineEntry, SystemEntryType } from "./types.js";
 import type { Message } from "../server/contract.js";
 import { localISOString } from "../util/localTime.js";
 
 export { localISOString };
+
+export const TIMELINE_MAX_BYTES = 1_048_576;
+export const TIMELINE_READ_CHUNK_BYTES = 65_536;
+const DATE_FILENAME_PATTERN = /^\d{4}-\d{2}-\d{2}\.jsonl$/;
+
+interface TimelineLine {
+  text: string;
+  bytes: number;
+  entry: ContextTimelineEntry;
+  barrier: boolean;
+}
+
+function isBarrier(entry: ContextTimelineEntry): boolean {
+  return entry.system?.type === "reset_session" || entry.system?.type === "nap";
+}
+
+function canonicalTimelineEntry(value: unknown): ContextTimelineEntry | null {
+  if (!value || typeof value !== "object") return null;
+  const entry = value as Partial<ContextTimelineEntry>;
+  if (entry.system) {
+    if (
+      (entry.system.type !== "reset_session" && entry.system.type !== "nap") ||
+      typeof entry.system.time !== "string"
+    ) return null;
+    return createSystemEntry(entry.system.type, entry.system.time);
+  }
+  if (entry.session_id !== null && typeof entry.session_id !== "string") return null;
+  if (entry.provider !== null && typeof entry.provider !== "string") return null;
+  if (!Array.isArray(entry.messages) || !Array.isArray(entry.agent_responses)) return null;
+  if (!entry.agent_responses.every((response) => typeof response === "string")) return null;
+  return {
+    session_id: entry.session_id,
+    messages: entry.messages,
+    agent_responses: entry.agent_responses.slice(-5),
+    provider: entry.provider,
+  };
+}
+
+function timelineLine(entry: ContextTimelineEntry): TimelineLine | null {
+  const boundedEntry = entry.system
+    ? createSystemEntry(entry.system.type, entry.system.time)
+    : { ...entry, agent_responses: entry.agent_responses.slice(-5) };
+  const text = JSON.stringify(boundedEntry);
+  const bytes = Buffer.byteLength(text, "utf8") + 1;
+  if (bytes > TIMELINE_MAX_BYTES) return null;
+  return { text, bytes, entry: boundedEntry, barrier: isBarrier(boundedEntry) };
+}
+
+function compactLines(input: readonly TimelineLine[]): TimelineLine[] {
+  let head = 0;
+  let bytes = input.reduce((total, line) => total + line.bytes, 0);
+  let latestEvictedBarrier: TimelineLine | null = null;
+  while (bytes > TIMELINE_MAX_BYTES && head < input.length) {
+    const removed = input[head++]!;
+    bytes -= removed.bytes;
+    if (removed.barrier) latestEvictedBarrier = removed;
+  }
+  let suffix = input.slice(head);
+  if (!suffix.some((line) => line.barrier) && latestEvictedBarrier) {
+    let suffixHead = 0;
+    while (latestEvictedBarrier.bytes + bytes > TIMELINE_MAX_BYTES && suffixHead < suffix.length) {
+      bytes -= suffix[suffixHead++]!.bytes;
+    }
+    suffix = [latestEvictedBarrier, ...suffix.slice(suffixHead)];
+  }
+  return suffix;
+}
+
+function isRealDirectory(path: string): boolean {
+  try {
+    return fs.lstatSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+type TimelineDirectoryState = "safe" | "missing" | "unsafe";
+
+function timelineDirectoryState(timelineDir: string): TimelineDirectoryState {
+  if (!isRealDirectory(dirname(timelineDir))) return "unsafe";
+  try {
+    return fs.lstatSync(timelineDir).isDirectory() ? "safe" : "unsafe";
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ENOENT" ? "missing" : "unsafe";
+  }
+}
+
+export function prepareTimelineDirectory(timelineDir: string): boolean {
+  const state = timelineDirectoryState(timelineDir);
+  if (state === "safe") return true;
+  if (state === "unsafe") return false;
+  try {
+    fs.mkdirSync(timelineDir);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") return false;
+  }
+  return timelineDirectoryState(timelineDir) === "safe";
+}
+
+function scanTimelineFile(filePath: string): TimelineLine[] | null {
+  let source: fs.Stats;
+  try {
+    source = fs.lstatSync(filePath);
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ENOENT" ? [] : null;
+  }
+  if (!source.isFile()) return null;
+
+  let fd: number | null = null;
+  try {
+    fd = fs.openSync(filePath, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile()) return null;
+
+    const chunk = Buffer.allocUnsafe(TIMELINE_READ_CHUNK_BYTES);
+    const newest: TimelineLine[] = [];
+    let retainedBytes = 0;
+    let overflowed = false;
+    let suffixHasBarrier = false;
+    let latestEvictedBarrier: TimelineLine | null = null;
+    let parts: Buffer[] = [];
+    let partBytes = 0;
+    let oversized = false;
+    let stop = false;
+    let discardIncompleteTail = false;
+
+    if (stat.size > 0) {
+      const last = Buffer.allocUnsafe(1);
+      fs.readSync(fd, last, 0, 1, stat.size - 1);
+      discardIncompleteTail = last[0] !== 10;
+    }
+
+    const resetPhysicalLine = (): void => {
+      parts = [];
+      partBytes = 0;
+      oversized = false;
+    };
+    const addPart = (part: Buffer): void => {
+      if (oversized) return;
+      if (partBytes + part.length > TIMELINE_MAX_BYTES) {
+        parts = [];
+        partBytes = 0;
+        oversized = true;
+        return;
+      }
+      if (part.length > 0) parts.push(Buffer.from(part));
+      partBytes += part.length;
+    };
+    const retain = (line: TimelineLine): void => {
+      if (!overflowed && retainedBytes + line.bytes <= TIMELINE_MAX_BYTES) {
+        newest.push(line);
+        retainedBytes += line.bytes;
+        if (line.barrier) suffixHasBarrier = true;
+        return;
+      }
+      overflowed = true;
+      if (suffixHasBarrier) {
+        stop = true;
+      } else if (line.barrier) {
+        latestEvictedBarrier = line;
+        stop = true;
+      }
+    };
+    const finishPhysicalLine = (part: Buffer): void => {
+      addPart(part);
+      if (discardIncompleteTail) {
+        discardIncompleteTail = false;
+        resetPhysicalLine();
+        return;
+      }
+      if (!oversized && partBytes > 0) {
+        let physical = Buffer.concat([...parts].reverse(), partBytes);
+        if (physical[physical.length - 1] === 13) physical = physical.subarray(0, -1);
+        if (physical.length > 0) {
+          try {
+            const entry = canonicalTimelineEntry(JSON.parse(physical.toString("utf8")));
+            const line = entry ? timelineLine(entry) : null;
+            if (line) retain(line);
+          } catch {
+            /* malformed historical row */
+          }
+        }
+      }
+      resetPhysicalLine();
+    };
+
+    let position = stat.size;
+    while (position > 0 && !stop) {
+      const start = Math.max(0, position - chunk.length);
+      const requested = position - start;
+      let count = 0;
+      while (count < requested) {
+        const read = fs.readSync(fd, chunk, count, requested - count, start + count);
+        if (read <= 0) break;
+        count += read;
+      }
+      if (count !== requested) return null;
+      let segmentEnd = count;
+      for (let index = count - 1; index >= 0; index--) {
+        if (chunk[index] !== 10) continue;
+        finishPhysicalLine(chunk.subarray(index + 1, segmentEnd));
+        segmentEnd = index;
+        if (stop) break;
+      }
+      if (!stop && segmentEnd > 0) addPart(chunk.subarray(0, segmentEnd));
+      position = start;
+    }
+    if (!stop && position === 0 && (parts.length > 0 || oversized) && !discardIncompleteTail) {
+      finishPhysicalLine(Buffer.alloc(0));
+    }
+
+    const sentinel = latestEvictedBarrier as TimelineLine | null;
+    if (sentinel && !suffixHasBarrier) {
+      while (newest.length > 0 && sentinel.bytes + retainedBytes > TIMELINE_MAX_BYTES) {
+        retainedBytes -= newest.pop()!.bytes;
+      }
+    }
+    const chronological = newest.reverse();
+    return sentinel && !suffixHasBarrier
+      ? [sentinel, ...chronological]
+      : chronological;
+  } catch {
+    return null;
+  } finally {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch { /* best effort */ }
+    }
+  }
+}
+
+function atomicReplaceTimeline(filePath: string, lines: readonly TimelineLine[]): boolean {
+  const tempPath = join(
+    dirname(filePath),
+    `.${basename(filePath)}.${process.pid}.${randomBytes(12).toString("hex")}.tmp`,
+  );
+  let fd: number | null = null;
+  try {
+    fd = fs.openSync(tempPath, "wx", 0o600);
+    const body = lines.map((line) => line.text).join("\n") + (lines.length > 0 ? "\n" : "");
+    fs.writeFileSync(fd, body, "utf8");
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = null;
+    fs.renameSync(tempPath, filePath);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch { /* best effort */ }
+    }
+    try { fs.unlinkSync(tempPath); } catch { /* best effort */ }
+  }
+}
+
+function writeRequiredTimeline(
+  filePath: string,
+  input: readonly TimelineLine[],
+  required: TimelineLine,
+): boolean {
+  const compacted = compactLines(input);
+  if (!compacted.includes(required)) return false;
+  return atomicReplaceTimeline(filePath, compacted);
+}
 
 /* ------------------------------------------------------------------ */
 /* Date / filename helpers (injectable clock)                          */
@@ -47,22 +312,7 @@ export function recentFilenames(maxDays: number, now: Date): string[] {
 /* ------------------------------------------------------------------ */
 
 function readJsonl(filePath: string): ContextTimelineEntry[] {
-  let content: string;
-  try {
-    content = readFileSync(filePath, "utf-8");
-  } catch {
-    return [];
-  }
-  const entries: ContextTimelineEntry[] = [];
-  for (const line of content.trimEnd().split("\n")) {
-    if (!line) continue;
-    try {
-      entries.push(JSON.parse(line) as ContextTimelineEntry);
-    } catch {
-      /* skip malformed line */
-    }
-  }
-  return entries;
+  return scanTimelineFile(filePath)?.map((line) => line.entry) ?? [];
 }
 
 export interface ReadRecentOptions {
@@ -79,6 +329,7 @@ export interface ReadRecentOptions {
  * resume helper consumes; it does NOT read files itself.
  */
 export function readRecentEntries(timelineDir: string, opts: ReadRecentOptions = {}): ContextTimelineEntry[] {
+  if (timelineDirectoryState(timelineDir) !== "safe") return [];
   const now = opts.now ?? new Date();
   const maxDays = opts.maxDays ?? 7;
   // recentFilenames is today-first; reverse to oldest-first for ascending time.
@@ -96,13 +347,16 @@ export function readRecentEntries(timelineDir: string, opts: ReadRecentOptions =
 
 /** Append a new entry to today's file. Best-effort: logs nothing, swallows lock miss. */
 export function appendEntry(timelineDir: string, entry: ContextTimelineEntry, now: Date = new Date()): boolean {
+  if (timelineDirectoryState(timelineDir) !== "safe") return false;
   const filename = filenameForDate(now);
   const filePath = join(timelineDir, filename);
   const lockPath = lockPathFor(timelineDir, filename);
   if (!acquireLock(lockPath)) return false;
   try {
-    appendFileSync(filePath, JSON.stringify(entry) + "\n");
-    return true;
+    const existing = scanTimelineFile(filePath);
+    const required = timelineLine(entry);
+    if (!existing || !required) return false;
+    return writeRequiredTimeline(filePath, [...existing, required], required);
   } catch {
     return false;
   } finally {
@@ -124,17 +378,16 @@ export function appendEntry(timelineDir: string, entry: ContextTimelineEntry, no
  * critical section. Best-effort (swallows lock miss / errors).
  */
 export function appendOrMergeEntry(timelineDir: string, entry: ContextTimelineEntry, now: Date = new Date()): boolean {
+  if (timelineDirectoryState(timelineDir) !== "safe") return false;
   const filename = filenameForDate(now);
   const filePath = join(timelineDir, filename);
   const lockPath = lockPathFor(timelineDir, filename);
   if (!acquireLock(lockPath)) return false;
   try {
-    let lines: string[] = [];
-    if (existsSync(filePath)) {
-      lines = readFileSync(filePath, "utf-8").trimEnd().split("\n").filter(Boolean);
-    }
-    if (lines.length > 0) {
-      const latest = JSON.parse(lines[lines.length - 1]) as ContextTimelineEntry;
+    const existing = scanTimelineFile(filePath);
+    if (!existing) return false;
+    if (existing.length > 0) {
+      const latest = existing[existing.length - 1]!.entry;
       const mergeable =
         !latest.system &&
         !entry.system &&
@@ -142,16 +395,19 @@ export function appendOrMergeEntry(timelineDir: string, entry: ContextTimelineEn
         latest.provider === entry.provider &&
         latest.agent_responses.length === 0;
       if (mergeable) {
-        latest.messages = [...latest.messages, ...entry.messages];
-        lines[lines.length - 1] = JSON.stringify(latest);
-        const tmpPath = join(timelineDir, `.${filename}.tmp`);
-        writeFileSync(tmpPath, lines.join("\n") + "\n");
-        renameSync(tmpPath, filePath);
-        return true;
+        const merged: ContextTimelineEntry = {
+          ...latest,
+          messages: [...latest.messages, ...entry.messages],
+          agent_responses: [...latest.agent_responses],
+        };
+        const required = timelineLine(merged);
+        if (!required) return false;
+        return writeRequiredTimeline(filePath, [...existing.slice(0, -1), required], required);
       }
     }
-    appendFileSync(filePath, JSON.stringify(entry) + "\n");
-    return true;
+    const required = timelineLine(entry);
+    if (!required) return false;
+    return writeRequiredTimeline(filePath, [...existing, required], required);
   } catch {
     return false;
   } finally {
@@ -182,6 +438,18 @@ export function updateLatestEntry(
   updater: (entry: ContextTimelineEntry) => void,
   opts: { maxDays?: number; now?: Date } = {},
 ): boolean {
+  return updateLatestEntryResult(timelineDir, updater, opts) === "updated";
+}
+
+export type UpdateLatestEntryResult = "updated" | "missing" | "rejected";
+
+export function updateLatestEntryResult(
+  timelineDir: string,
+  updater: (entry: ContextTimelineEntry) => void,
+  opts: { maxDays?: number; now?: Date } = {},
+): UpdateLatestEntryResult {
+  const directoryState = timelineDirectoryState(timelineDir);
+  if (directoryState !== "safe") return directoryState === "missing" ? "missing" : "rejected";
   const now = opts.now ?? new Date();
   const maxDays = opts.maxDays ?? 7;
   for (const filename of recentFilenames(maxDays, now)) {
@@ -190,36 +458,111 @@ export function updateLatestEntry(
     // never try to mkdir a lock dir under a timelineDir that doesn't exist (the
     // common case: a runtime event arrives before the first inbox-pull opened any
     // entry). Avoids an ENOENT from the lock's non-recursive mkdir.
-    if (!existsSync(filePath)) continue;
-    const lockPath = lockPathFor(timelineDir, filename);
-    if (!acquireLock(lockPath)) continue;
+    let source: fs.Stats;
     try {
-      let content: string;
-      try {
-        content = readFileSync(filePath, "utf-8");
-      } catch {
-        continue; // no file for this day → look at an older day
-      }
-      const lines = content.trimEnd().split("\n").filter(Boolean);
+      source = fs.lstatSync(filePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      return "rejected";
+    }
+    if (!source.isFile()) return "rejected";
+    const lockPath = lockPathFor(timelineDir, filename);
+    if (!acquireLock(lockPath)) return "rejected";
+    try {
+      const lines = scanTimelineFile(filePath);
+      if (!lines) return "rejected";
       if (lines.length === 0) continue;
-      const entries = lines.map((l) => JSON.parse(l) as ContextTimelineEntry);
       // The newest row of the newest day file is authoritative: if it's a
       // system barrier, we must NOT walk past it into a pre-barrier turn.
       // Return false and let the caller open a fresh post-barrier turn row.
-      const latest = entries[entries.length - 1];
-      if (latest.system) return false;
-      updater(latest);
-      const tmpPath = join(timelineDir, `.${filename}.tmp`);
-      writeFileSync(tmpPath, entries.map((e) => JSON.stringify(e)).join("\n") + "\n");
-      renameSync(tmpPath, filePath);
-      return true;
+      const latest = lines[lines.length - 1]!.entry;
+      if (latest.system) return "missing";
+      const updated: ContextTimelineEntry = {
+        ...latest,
+        messages: [...latest.messages],
+        agent_responses: [...latest.agent_responses],
+      };
+      try {
+        updater(updated);
+      } catch {
+        return "rejected";
+      }
+      const required = timelineLine(updated);
+      if (!required) return "rejected";
+      return writeRequiredTimeline(filePath, [...lines.slice(0, -1), required], required)
+        ? "updated"
+        : "rejected";
     } catch {
-      /* try an older day file */
+      return "rejected";
     } finally {
       releaseLock(lockPath);
     }
   }
-  return false;
+  return "missing";
+}
+
+export interface TimelineSweepOptions {
+  yieldAfterFile?: (filePath: string) => Promise<void>;
+}
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
+export async function sweepTimelineHistory(
+  workingDirectoryBase: string,
+  opts: TimelineSweepOptions = {},
+): Promise<void> {
+  const yieldAfterFile = opts.yieldAfterFile ?? (() => yieldToEventLoop());
+  if (!opts.yieldAfterFile) await yieldToEventLoop();
+  if (!isRealDirectory(workingDirectoryBase)) return;
+
+  let agentNames: string[];
+  try {
+    agentNames = fs.readdirSync(workingDirectoryBase).sort();
+  } catch {
+    return;
+  }
+  for (const agentName of agentNames) {
+    const agentDir = join(workingDirectoryBase, agentName);
+    if (!isRealDirectory(agentDir)) continue;
+    const timelineDir = join(agentDir, ".context_timeline");
+    if (!isRealDirectory(timelineDir)) continue;
+
+    let filenames: string[];
+    try {
+      filenames = fs.readdirSync(timelineDir)
+        .filter((name) => DATE_FILENAME_PATTERN.test(name))
+        .sort();
+    } catch {
+      continue;
+    }
+    for (const filename of filenames) {
+      const filePath = join(timelineDir, filename);
+      let source: fs.Stats;
+      try {
+        source = fs.lstatSync(filePath);
+      } catch {
+        continue;
+      }
+      if (!source.isFile()) continue;
+
+      try {
+        const lockPath = lockPathFor(timelineDir, filename);
+        if (acquireLock(lockPath)) {
+          try {
+            const lines = scanTimelineFile(filePath);
+            if (lines) atomicReplaceTimeline(filePath, lines);
+          } finally {
+            releaseLock(lockPath);
+          }
+        }
+      } catch {
+        /* best-effort per file */
+      }
+      await yieldAfterFile(filePath);
+    }
+  }
 }
 
 /* ------------------------------------------------------------------ */

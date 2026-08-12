@@ -3,12 +3,13 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { createTimelineRecorder } from "./recorder";
-import { readRecentEntries } from "./timeline";
+import { createTimelineEntry, filenameForDate, readRecentEntries } from "./timeline";
+import { acquireLock, lockPathFor, releaseLock } from "./filelock";
 import type { Message } from "../server/contract";
 
 const tmpDirs: string[] = [];
 function mkDir(): string {
-  const d = fs.mkdtempSync(path.join(os.tmpdir(), "recorder-"));
+  const d = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "recorder-"));
   tmpDirs.push(d);
   return d;
 }
@@ -210,6 +211,98 @@ describe("appendResponseToLatest — text-before-first-pull fallback", () => {
     expect(rows[0].session_id).toBe("sess-1");
     expect(rows[0].agent_responses).toEqual(["hello"]);
     expect(rows[0].messages).toEqual([]);
+  });
+
+  it("keeps only the latest five normal responses in FIFO order", () => {
+    const dir = mkDir();
+    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
+    rec.appendEntryForAgent("a", [msg("#1", "hello")]);
+    for (let index = 1; index <= 6; index++) rec.appendResponseToLatest("a", `r${index}`);
+    expect(readRecentEntries(dir, { now: NOW() })[0].agent_responses).toEqual(["r2", "r3", "r4", "r5", "r6"]);
+  });
+
+  it("keeps only the latest five text-before-first-pull fallback responses", () => {
+    const dir = mkDir();
+    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
+    rec.setSession("a", "sess-1");
+    for (let index = 1; index <= 6; index++) rec.appendResponseToLatest("a", `r${index}`);
+    const rows = readRecentEntries(dir, { now: NOW() });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].agent_responses).toEqual(["r2", "r3", "r4", "r5", "r6"]);
+  });
+
+  it("does not create a fallback row when the latest-day lock is busy", () => {
+    const dir = mkDir();
+    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
+    rec.appendEntryForAgent("a", [msg("#1", "hello")]);
+    const filename = filenameForDate(NOW());
+    const file = path.join(dir, filename);
+    const before = fs.readFileSync(file);
+    const lock = lockPathFor(dir, filename);
+    expect(acquireLock(lock)).toBe(true);
+    try {
+      rec.appendResponseToLatest("a", "must not fall back");
+    } finally {
+      releaseLock(lock);
+    }
+
+    expect(fs.readFileSync(file)).toEqual(before);
+    expect(readRecentEntries(dir, { now: NOW() })).toHaveLength(1);
+    expect(readRecentEntries(dir, { now: NOW() })[0].agent_responses).toEqual([]);
+  });
+});
+
+describe("recorder timeline directory safety", () => {
+  it("does not create an outside timeline through an agent-directory symlink", () => {
+    if (process.platform === "win32") return;
+    const base = mkDir();
+    const outsideAgent = mkDir();
+    const agentLink = path.join(base, "agent-link");
+    fs.symlinkSync(outsideAgent, agentLink);
+    const linkedTimeline = path.join(agentLink, ".context_timeline");
+    const rec = createTimelineRecorder({
+      timelineDirFor: () => linkedTimeline,
+      providerFor: () => "claude",
+      now: NOW,
+    });
+
+    rec.setSession("a", "outside-session");
+    rec.appendEntryForAgent("a", [msg("#1", "blocked")]);
+    rec.appendResponseToLatest("a", "blocked");
+    rec.forgetSession("a");
+
+    expect(fs.readdirSync(outsideAgent)).toEqual([]);
+  });
+
+  it("does not read or modify an existing outside timeline through an agent-directory symlink", () => {
+    if (process.platform === "win32") return;
+    const base = mkDir();
+    const outsideAgent = mkDir();
+    const outsideTimeline = path.join(outsideAgent, ".context_timeline");
+    fs.mkdirSync(outsideTimeline);
+    const file = path.join(outsideTimeline, filenameForDate(NOW()));
+    fs.writeFileSync(file, `${JSON.stringify(createTimelineEntry({
+      messages: [msg("#1", "outside")],
+      sessionId: "outside-session",
+      provider: "claude",
+    }))}\n`);
+    const before = fs.readFileSync(file);
+    const agentLink = path.join(base, "agent-link");
+    fs.symlinkSync(outsideAgent, agentLink);
+    const linkedTimeline = path.join(agentLink, ".context_timeline");
+    const rec = createTimelineRecorder({
+      timelineDirFor: () => linkedTimeline,
+      providerFor: () => "claude",
+      now: NOW,
+    });
+
+    expect(rec.resumeSessionId("a", "claude")).toBeNull();
+    rec.appendEntryForAgent("a", [msg("#1", "blocked")]);
+    rec.appendResponseToLatest("a", "blocked");
+    rec.forgetSession("a");
+
+    expect(fs.readdirSync(outsideTimeline)).toEqual([filenameForDate(NOW())]);
+    expect(fs.readFileSync(file)).toEqual(before);
   });
 });
 

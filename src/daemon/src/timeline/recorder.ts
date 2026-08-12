@@ -20,19 +20,27 @@
  * Final schema (gustavo): an entry is exactly `{session_id, messages,
  * agent_responses, provider}` — no task id / datetime / status / pid.
  */
-import { mkdirSync } from "fs";
 import {
   appendOrMergeEntry,
-  updateLatestEntry,
+  updateLatestEntryResult,
   readRecentEntries,
   createTimelineEntry,
   createSystemEntry,
   findResumableSession,
   appendEntry,
+  prepareTimelineDirectory,
 } from "./timeline.js";
 import type { Message } from "../server/contract.js";
 import type { SystemEntryType } from "./types.js";
 
+const MAX_AGENT_RESPONSES = 5;
+
+function appendAgentResponse(entry: { agent_responses: string[] }, text: string): void {
+  entry.agent_responses.push(text);
+  if (entry.agent_responses.length > MAX_AGENT_RESPONSES) {
+    entry.agent_responses.splice(0, entry.agent_responses.length - MAX_AGENT_RESPONSES);
+  }
+}
 
 /** Manager/daemon-facing recorder interface (structural, avoids a cyclic import). */
 export interface TimelineRecorderLike {
@@ -78,11 +86,7 @@ export function createTimelineRecorder(opts: TimelineRecorderOptions): TimelineR
     },
     appendEntryForAgent(agentId, messages) {
       const dir = dirFor(agentId);
-      try {
-        mkdirSync(dir, { recursive: true });
-      } catch {
-        /* best-effort; appendEntry no-ops on a missing dir */
-      }
+      if (!prepareTimelineDirectory(dir)) return;
       appendOrMergeEntry(
         dir,
         createTimelineEntry({
@@ -95,8 +99,9 @@ export function createTimelineRecorder(opts: TimelineRecorderOptions): TimelineR
     },
     appendResponseToLatest(agentId, text) {
       const dir = dirFor(agentId);
-      const updated = updateLatestEntry(dir, (e) => e.agent_responses.push(text), { now: now() });
-      if (updated) return;
+      if (!prepareTimelineDirectory(dir)) return;
+      const result = updateLatestEntryResult(dir, (entry) => appendAgentResponse(entry, text), { now: now() });
+      if (result === "updated" || result === "rejected") return;
       // No turn row exists yet (or the newest row is a system barrier) — open
       // a fresh, empty-messages turn row carrying the current session/provider
       // and stamp this response onto it. Happens whenever a `text` event
@@ -105,17 +110,12 @@ export function createTimelineRecorder(opts: TimelineRecorderOptions): TimelineR
       // line and the rewake prompt makes the agent talk before pulling. A
       // later inbox pull with real messages appends its own row (since this
       // one already has a response, `appendOrMergeEntry` won't merge into it).
-      try {
-        mkdirSync(dir, { recursive: true });
-      } catch {
-        /* best-effort */
-      }
       const entry = createTimelineEntry({
         messages: [],
         sessionId: sessionByAgent.get(agentId) ?? null,
         provider: opts.providerFor?.(agentId) ?? null,
       });
-      entry.agent_responses.push(text);
+      appendAgentResponse(entry, text);
       appendEntry(dir, entry, now());
     },
     resumeSessionId(agentId, provider) {
@@ -124,17 +124,13 @@ export function createTimelineRecorder(opts: TimelineRecorderOptions): TimelineR
     },
     forgetSession(agentId, barrierType = "reset_session") {
       const dir = dirFor(agentId);
-      try {
-        mkdirSync(dir, { recursive: true });
-      } catch {
-        /* best-effort — appendEntry handles a missing dir by returning false */
-      }
       // Kill happens BEFORE this call (see `AgentProcessManager.resetSession`),
       // so no race — clear the in-memory session map and append the barrier.
       // One `now()` sample so the system-row `time` and the day-file the row
       // is written into can't disagree on the boundary between two consecutive
       // clock reads.
       sessionByAgent.delete(agentId);
+      if (!prepareTimelineDirectory(dir)) return;
       const stamp = now();
       appendEntry(dir, createSystemEntry(barrierType, stamp.toISOString()), stamp);
     },
