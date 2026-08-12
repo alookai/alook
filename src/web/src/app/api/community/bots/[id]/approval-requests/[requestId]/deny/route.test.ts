@@ -3,7 +3,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 const mockGetBotOwnedBy = vi.fn()
 const mockGetApprovalRequest = vi.fn()
 const mockResolveApprovalRequest = vi.fn()
-const mockLogAudit = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
@@ -17,12 +16,6 @@ vi.mock("@alook/shared", () => ({
   },
 }))
 
-vi.mock("@/lib/community/audit", () => ({
-  logAudit: (...a: unknown[]) => mockLogAudit(...a),
-  COMMUNITY_AUDIT_ACTIONS: {
-    BOT_JOIN_DENIED: "bot_join_denied",
-  },
-}))
 
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: vi.fn((handler: any) => async (_req: any, ctx?: any) => {
@@ -65,7 +58,7 @@ describe("POST /api/community/bots/[id]/approval-requests/[requestId]/deny", () 
     expect(res.status).toBe(404)
   })
 
-  it("denies a pending request and writes audit", async () => {
+  it("denies a pending request", async () => {
     const res = await POST({} as any, ctx)
     expect(res.status).toBe(200)
     const body = await res.json()
@@ -75,6 +68,5 @@ describe("POST /api/community/bots/[id]/approval-requests/[requestId]/deny", () 
       "req_1",
       "denied",
     )
-    expect(mockLogAudit).toHaveBeenCalled()
   })
 })

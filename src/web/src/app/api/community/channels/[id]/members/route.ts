@@ -14,7 +14,6 @@ import {
 } from "@alook/shared"
 import type { CommunityCliServerMember as ServerMember } from "@alook/shared"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
-import { logAudit } from "@/lib/community/audit"
 import { requireChannelAccess } from "@/lib/community/permissions"
 import { resolveTargetForMember } from "@/lib/community/resolve-ref"
 import { mapMemberForApi } from "@/lib/community/member-payload"
@@ -179,14 +178,6 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   const recipients = await queries.communityChannel.getPrivateChannelAudienceUserIds(db, channelId)
   await Promise.all([...new Set([...recipients, targetUserId])].map((uid) => broadcastToUserSafe(uid, event)))
 
-  logAudit(db, {
-    serverId: channel.serverId,
-    actorId: userId,
-    action: "channel_member_add",
-    targetType: "channel",
-    targetId: channelId,
-    changes: JSON.stringify({ userId: targetUserId }),
-  })
 
   return writeJSON({ ok: true }, 201)
 })

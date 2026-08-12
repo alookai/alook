@@ -502,32 +502,7 @@ export const communityNotificationSetting = sqliteTable(
   (t) => [index("idx_notification_setting_user").on(t.userId)]
 );
 
-// 19. community_audit_log
-export const communityAuditLog = sqliteTable(
-  "community_audit_log",
-  {
-    id: text("id").primaryKey().$defaultFn(() => nanoid()),
-    // Nullable — bot-lifecycle rows (created/updated/deleted, friend approval)
-    // have no server scope. See migration 0050.
-    serverId: text("server_id").references(() => communityServer.id, {
-      onDelete: "cascade",
-    }),
-    actorId: text("actor_id").references(() => user.id, { onDelete: "set null" }),
-    action: text("action").notNull(),
-    targetType: text("target_type").notNull(),
-    targetId: text("target_id").notNull(),
-    changes: text("changes"),
-    reason: text("reason"),
-    createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
-  },
-  (t) => [
-    index("idx_audit_log_server_created").on(t.serverId, t.createdAt),
-    index("idx_audit_log_server_action").on(t.serverId, t.action),
-    index("idx_audit_log_actor_created").on(t.actorId, t.createdAt),
-  ]
-);
-
-// 20. community_bot_approval_request
+// 19. community_bot_approval_request
 // Represents pending/resolved approval workflows a bot owner sees in the
 // owner↔bot DM. After migration 0065 the ONLY live `kind` is:
 //   - "join_server": another user asked to add the bot to a server they're in

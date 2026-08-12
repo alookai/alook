@@ -137,7 +137,7 @@ export function handleMentionCreate(
   // The server rail badge counts unread mentions per server; refresh
   // it on every new mention. `exact: true` is essential: the mention
   // count lives in the `servers()` LIST query, but members/presence/
-  // invites/audit-log/server(id) are all nested UNDER `servers()` in
+  // invites/server(id) are all nested UNDER `servers()` in
   // the key hierarchy — a non-exact invalidate prefix-matches and
   // force-refetches that whole subtree (and invalidate overrides the
   // staleTime: Infinity those carry). With an active bot in the server,

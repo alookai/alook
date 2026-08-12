@@ -11,7 +11,6 @@ const mockUpdateCategory = vi.fn()
 const mockDeleteCategory = vi.fn()
 const mockHasChannels = vi.fn()
 const mockFanOut = vi.fn()
-const mockLogAudit = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
@@ -35,10 +34,6 @@ vi.mock("@/lib/community/fanout", () => ({
   fanOutToServerMembers: (...a: unknown[]) => mockFanOut(...a),
 }))
 
-vi.mock("@/lib/community/audit", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/community/audit")>("@/lib/community/audit")
-  return { ...actual, logAudit: (...a: unknown[]) => mockLogAudit(...a) }
-})
 
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
@@ -77,7 +72,6 @@ describe("PATCH /api/community/servers/[id]/categories/[catId] — unique name",
     mockGetMember.mockResolvedValue({ id: "mem_1", userId: "u1", role: "owner" })
     mockGetCategory.mockResolvedValue({ id: "cat1", serverId: "s1", creatorId: "u1" })
     mockFanOut.mockResolvedValue(undefined)
-    mockLogAudit.mockResolvedValue(undefined)
   })
 
   it("renames a category", async () => {

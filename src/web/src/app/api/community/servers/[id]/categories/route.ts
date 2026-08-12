@@ -9,7 +9,6 @@ import {
   WS_EVENTS,
 } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
-import { logAudit } from "@/lib/community/audit"
 import { requireServerAdmin, requireServerMember } from "@/lib/community/permissions"
 
 export const GET = withAuth(async (_req: NextRequest, ctx) => {
@@ -79,13 +78,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     category,
   })
 
-  logAudit(db, {
-    serverId,
-    actorId: ctx.userId,
-    action: "category_create",
-    targetType: "category",
-    targetId: category.id,
-  })
 
   return writeJSON({ category }, 201)
 })

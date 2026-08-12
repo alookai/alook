@@ -85,14 +85,6 @@ vi.mock("../broadcast", () => ({
   broadcastToUser: (...a: unknown[]) => mockBroadcastToUser(...a),
 }))
 
-const mockLogAudit = vi.fn()
-vi.mock("./audit", async () => {
-  const actual = await vi.importActual<typeof import("./audit")>("./audit")
-  return {
-    ...actual,
-    logAudit: (...a: unknown[]) => mockLogAudit(...a),
-  }
-})
 
 import {
   createCommunityMessage,
@@ -144,104 +136,6 @@ function messageRow(overrides: Partial<Record<string, unknown>> = {}) {
     ...overrides,
   }
 }
-
-describe("createCommunityMessage — audit relocation (plan §10)", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mockCreateMessage.mockResolvedValue({ id: "msg_1" })
-    mockGetMessage.mockResolvedValue(messageRow())
-    mockFanOutToChannel.mockResolvedValue(undefined)
-    mockFanOutToDM.mockResolvedValue(undefined)
-    mockBroadcastToUser.mockResolvedValue(undefined)
-  })
-
-  it("writes exactly ONE MESSAGE_AUTHORED_AS_BOT audit row for a bot author", async () => {
-    mockGetUserInternal.mockResolvedValue({ id: "author_1", isBot: true, deletedAt: null })
-
-    const result = await createCommunityMessage({
-      db: {} as never,
-      authorId: "author_1",
-      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
-      body: { content: "hello" },
-      source: "cli",
-    })
-
-    expect(result.ok).toBe(true)
-    expect(mockLogAudit).toHaveBeenCalledTimes(1)
-    expect(mockLogAudit).toHaveBeenCalledWith(
-      {},
-      expect.objectContaining({
-        serverId: "srv_1",
-        actorId: "author_1",
-        action: "community.message.authored_as_bot",
-        targetType: "message",
-        targetId: "msg_1",
-      }),
-    )
-    const [, action] = mockLogAudit.mock.calls[0]!
-    const changes = JSON.parse(action.changes)
-    expect(changes).toEqual({
-      botId: "author_1",
-      target: "channel",
-      targetId: "c1",
-      messageId: "msg_1",
-      source: "cli",
-    })
-  })
-
-  it("does not write an audit row for a human author", async () => {
-    mockGetUserInternal.mockResolvedValue({ id: "author_1", isBot: false, deletedAt: null })
-
-    await createCommunityMessage({
-      db: {} as never,
-      authorId: "author_1",
-      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
-      body: { content: "hello" },
-    })
-
-    expect(mockLogAudit).not.toHaveBeenCalled()
-  })
-
-  it("defaults source to 'web' when omitted", async () => {
-    mockGetUserInternal.mockResolvedValue({ id: "author_1", isBot: true, deletedAt: null })
-
-    await createCommunityMessage({
-      db: {} as never,
-      authorId: "author_1",
-      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
-      body: { content: "hello" },
-    })
-
-    const [, action] = mockLogAudit.mock.calls[0]!
-    expect(JSON.parse(action.changes).source).toBe("web")
-  })
-
-  it("DM target: serverId is null and targetId is the dm channelId", async () => {
-    mockGetUserInternal.mockResolvedValue({ id: "author_1", isBot: true, deletedAt: null })
-    mockGetMessage.mockResolvedValue(messageRow({ channelId: "dm_1" }))
-
-    await createCommunityMessage({
-      db: {} as never,
-      authorId: "author_1",
-      target: { kind: "dm", channelId: "dm_1", otherUserId: "u2" },
-      body: { content: "hello" },
-      source: "daemon-http",
-    })
-
-    expect(mockLogAudit).toHaveBeenCalledWith(
-      {},
-      expect.objectContaining({ serverId: null }),
-    )
-    const [, action] = mockLogAudit.mock.calls[0]!
-    expect(JSON.parse(action.changes)).toEqual({
-      botId: "author_1",
-      target: "dm",
-      targetId: "dm_1",
-      messageId: "msg_1",
-      source: "daemon-http",
-    })
-  })
-})
 
 describe("createCommunityMessage — replyToId write-path scope validation (dangling-reply / #204 bot=user)", () => {
   beforeEach(() => {
@@ -401,7 +295,6 @@ describe("createCommunityMessage — CAS race (plans/fix-agent-send-race-conditi
     expect(mockCreateMentions).not.toHaveBeenCalled()
     expect(mockFanOutToChannel).not.toHaveBeenCalled()
     expect(mockFanOutToDM).not.toHaveBeenCalled()
-    expect(mockLogAudit).not.toHaveBeenCalled()
   })
 
   it("passes expectedSeq through to createMessage when provided", async () => {

@@ -221,8 +221,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
     // first to dispatch by surface; default = the same text channel.
     mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1", type: "text", parentChannelId: null })
     mockCreateMessage.mockResolvedValue({ id: "m1" })
-    // Human author by default — `createCommunityMessage`'s bot-authored audit
-    // (plan §10) only fires when `isBot === true`, which none of these tests exercise.
+    // Human author by default.
     mockGetUserInternal.mockResolvedValue({ isBot: false, deletedAt: null })
     mockGetMessage.mockResolvedValue({
       id: "m1",

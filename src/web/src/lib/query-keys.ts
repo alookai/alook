@@ -42,8 +42,6 @@ export const communityKeys = {
     [...communityKeys.server(serverId), "members"] as const,
   presence: (serverId: string) =>
     [...communityKeys.server(serverId), "presence"] as const,
-  auditLog: (serverId: string) =>
-    [...communityKeys.server(serverId), "audit-log"] as const,
   invites: (serverId: string) =>
     [...communityKeys.server(serverId), "invites"] as const,
   invitableFriends: (serverId: string) =>

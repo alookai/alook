@@ -16,7 +16,6 @@ const EXACT_SERVER_QUERY_FAMILIES = new Set([
   "forum-sidebar-unread-fallbacks",
   "members",
   "presence",
-  "audit-log",
   "invites",
   "invitable-friends",
 ])

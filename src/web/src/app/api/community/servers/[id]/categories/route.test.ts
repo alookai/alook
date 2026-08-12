@@ -3,7 +3,6 @@ import { NextRequest } from "next/server"
 
 const mockGetMember = vi.fn()
 const mockCreateCategory = vi.fn()
-const mockLogAction = vi.fn()
 const mockFanOut = vi.fn()
 const mockFindMany = vi.fn()
 
@@ -21,9 +20,6 @@ vi.mock("@alook/shared", async () => {
       communityMember: { getMember: (...a: unknown[]) => mockGetMember(...a) },
       communityCategory: {
         createCategory: (...a: unknown[]) => mockCreateCategory(...a),
-      },
-      communityAuditLog: {
-        logAction: (...a: unknown[]) => mockLogAction(...a),
       },
     },
   }
@@ -75,7 +71,6 @@ describe("POST /api/community/servers/[id]/categories", () => {
     // Category creation is admin/owner-only in the permission model.
     mockGetMember.mockResolvedValue({ id: "mem_1", userId: "u1", role: "owner" })
     mockFanOut.mockResolvedValue(undefined)
-    mockLogAction.mockResolvedValue(undefined)
   })
 
   it("creates a category", async () => {

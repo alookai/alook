@@ -3,7 +3,6 @@ import { NextRequest } from "next/server"
 
 const mockOwnerDecideOnRow = vi.fn()
 const mockBroadcastToUser = vi.fn(async () => undefined)
-const mockLogAudit = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
@@ -20,10 +19,6 @@ vi.mock("@alook/shared", async () => {
 vi.mock("@/lib/broadcast", () => ({
   broadcastToUser: (...a: unknown[]) => mockBroadcastToUser(...a),
 }))
-vi.mock("@/lib/community/audit", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/community/audit")>("@/lib/community/audit")
-  return { ...actual, logAudit: (...a: unknown[]) => mockLogAudit(...a) }
-})
 
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
@@ -60,7 +55,7 @@ describe("POST /api/community/friends/[id]/owner-decision", () => {
     expect(mockOwnerDecideOnRow).not.toHaveBeenCalled()
   })
 
-  it("approve: relays broadcasts and writes an audit row", async () => {
+  it("approve: relays broadcasts and returns accepted status", async () => {
     mockOwnerDecideOnRow.mockResolvedValue({
       ok: true,
       friendship: { id: "fr_1", status: "accepted" },
@@ -69,7 +64,6 @@ describe("POST /api/community/friends/[id]/owner-decision", () => {
     const res = await POST(req({ decision: "approve" }), ctx)
     expect(res.status).toBe(200)
     expect(mockBroadcastToUser).toHaveBeenCalledWith("u_alice", expect.objectContaining({ type: "community:friend.accept" }))
-    expect(mockLogAudit).toHaveBeenCalled()
   })
 
   it("deny: single-owner broadcast, denied status", async () => {

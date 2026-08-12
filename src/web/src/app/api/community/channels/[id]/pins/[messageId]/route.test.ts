@@ -8,7 +8,6 @@ vi.mock("@opennextjs/cloudflare", () => ({
 const mockGetChannel = vi.fn();
 const mockGetMember = vi.fn();
 const mockUnpinMessage = vi.fn();
-const mockLogAction = vi.fn();
 const mockFanOut = vi.fn();
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
@@ -25,9 +24,6 @@ vi.mock("@alook/shared", async () => {
   };
 });
 
-vi.mock("@/lib/community/audit", () => ({
-  logAudit: (...a: unknown[]) => mockLogAction(...a),
-}));
 
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToChannel: (...a: unknown[]) => mockFanOut(...a),

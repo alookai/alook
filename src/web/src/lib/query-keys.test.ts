@@ -29,7 +29,6 @@ describe("communityKeys", () => {
 
     expect(communityKeys.members("s1")).toEqual([...server, "members"])
     expect(communityKeys.presence("s1")).toEqual([...server, "presence"])
-    expect(communityKeys.auditLog("s1")).toEqual([...server, "audit-log"])
     expect(communityKeys.invites("s1")).toEqual([...server, "invites"])
     const sidebar = [...server, "forum-sidebar-base"]
     expect(communityKeys.forumSidebarThreads("s1")).toEqual(sidebar)

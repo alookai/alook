@@ -14,7 +14,6 @@ import {
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers"
-import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "@/lib/community/audit"
 import {
   pushBotEventToMachine,
   pushAgentModelSwitchToMachine,
@@ -157,21 +156,6 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     }
   }
 
-  const changedFields: string[] = []
-  if (body.name !== undefined) changedFields.push("name")
-  if (body.description !== undefined) changedFields.push("description")
-  if (body.image !== undefined) changedFields.push("image")
-  if (runtimeChanged) changedFields.push("runtime")
-  if (modelChanged) changedFields.push("model")
-  logAudit(db, {
-    serverId: null,
-    actorId: ctx.userId,
-    action: COMMUNITY_AUDIT_ACTIONS.BOT_UPDATED,
-    targetType: "user",
-    targetId: id,
-    changes: JSON.stringify({ botId: id, fields: changedFields }),
-  })
-
   return writeJSON({
     bot: {
       id,
@@ -215,14 +199,6 @@ export const DELETE = withAuth(async (_req, ctx) => {
     })
   }
 
-  logAudit(db, {
-    serverId: null,
-    actorId: ctx.userId,
-    action: COMMUNITY_AUDIT_ACTIONS.BOT_DELETED,
-    targetType: "user",
-    targetId: id,
-    changes: JSON.stringify({ botId: id }),
-  })
 
   if (before.machineId) {
     await pushBotEventToMachine(ctx.env, before.machineId, {

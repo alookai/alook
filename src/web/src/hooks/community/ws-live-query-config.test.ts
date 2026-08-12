@@ -10,8 +10,8 @@
  * permanently stale. These tests pin that pairing so a future edit can't drop
  * the reconnect backstop while keeping the infinite staleTime.
  *
- * `useInvites` / `useAuditLog` are NOT WS-live — they get a short finite
- * staleTime instead, and must NOT be `Infinity`.
+ * `useInvites` is NOT WS-live — it gets a short finite staleTime instead,
+ * and must NOT be `Infinity`.
  *
  * The hooks are driven through a minimal react shim (the vitest env is node);
  * `useQuery` / `useInfiniteQuery` are mocked to capture the options object.
@@ -78,7 +78,7 @@ describe("WS-live queries — staleTime: Infinity + refetchOnReconnect backstop"
     const { useServer } = await import("./use-servers")
     useServer("srv_1")
     // The plain server-detail key ends at the serverId — no trailing segment
-    // like "presence"/"members"/"audit-log" — so match it exactly.
+    // like "presence"/"members" — so match it exactly.
     const cfg = queryConfigs.find(
       (c) => JSON.stringify(c.queryKey) === JSON.stringify(["community", "servers", "srv_1"]),
     )
@@ -117,11 +117,4 @@ describe("non-WS-live queries — finite staleTime, never Infinity", () => {
     expect(cfg?.staleTime).not.toBe(Infinity)
   })
 
-  it("useAuditLog uses a finite staleTime", async () => {
-    const { useAuditLog } = await import("./use-server-panels")
-    useAuditLog("srv_1", true)
-    const cfg = configFor("audit-log")
-    expect(cfg?.staleTime).toBe(60_000)
-    expect(cfg?.staleTime).not.toBe(Infinity)
-  })
 })

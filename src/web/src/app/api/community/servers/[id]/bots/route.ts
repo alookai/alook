@@ -11,7 +11,6 @@ import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers"
 import { fanOutToServerMembers, broadcastToUserSafe } from "@/lib/community/fanout"
-import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "@/lib/community/audit"
 import { createCommunityMessage } from "@/lib/community/message-handler"
 
 const log = createLogger({ service: "community-bots-server-add" })
@@ -53,14 +52,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       serverId,
       userId: botId,
       role: ROLES.MEMBER,
-    })
-    logAudit(db, {
-      serverId,
-      actorId: ctx.userId,
-      action: COMMUNITY_AUDIT_ACTIONS.BOT_ADDED_TO_SERVER,
-      targetType: "user",
-      targetId: botId,
-      changes: JSON.stringify({ botId, serverId, kind: "owner_added" }),
     })
     const bot = await queries.user.getUserSelf(db, botId)
     const joinEvent: CommunityMemberJoin = {
@@ -157,14 +148,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeJSON({ status: "pending" }, 200)
   }
 
-  logAudit(db, {
-    serverId,
-    actorId: ctx.userId,
-    action: COMMUNITY_AUDIT_ACTIONS.BOT_JOIN_REQUESTED,
-    targetType: "user",
-    targetId: botId,
-    changes: JSON.stringify({ botId, serverId, requestedByUserId: ctx.userId }),
-  })
 
   // Fan-out the DM to the owner so their DM view updates. DMs are channels
   // now — key the MESSAGE_CREATE by the DM's channel id.

@@ -15,7 +15,6 @@ import {
 } from "@alook/shared"
 import { fanOutToServerMembers, fanOutToChannel } from "@/lib/community/fanout"
 import { createWithCollisionPolicy } from "@/lib/community/create-collision"
-import { logAudit } from "@/lib/community/audit"
 import { requireServerMember, requireChannelMember } from "@/lib/community/permissions"
 import { requireMessageBearingSurface } from "@/lib/community/channel-write-guard"
 import { guardDmOpen } from "@/lib/community/dm-guard"
@@ -152,13 +151,6 @@ export async function createServerChannelForUser(
     })
   }
 
-  logAudit(db, {
-    serverId,
-    actorId: actorUserId,
-    action: "channel_create",
-    targetType: "channel",
-    targetId: channel.id,
-  })
 
   return { ok: true, value: channel }
 }

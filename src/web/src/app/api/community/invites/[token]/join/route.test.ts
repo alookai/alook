@@ -3,14 +3,10 @@ import { NextRequest } from "next/server"
 
 const mockUseInvite = vi.fn()
 const mockFanOut = vi.fn().mockResolvedValue(undefined)
-const mockLogAudit = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToServerMembers: (...a: unknown[]) => mockFanOut(...a),
-}))
-vi.mock("@/lib/community/audit", () => ({
-  logAudit: (...a: unknown[]) => mockLogAudit(...a),
 }))
 
 vi.mock("@/lib/middleware/auth", async () => {
@@ -57,7 +53,6 @@ async function callPOST(token: string) {
 beforeEach(() => {
   mockUseInvite.mockReset()
   mockFanOut.mockReset()
-  mockLogAudit.mockReset()
   mockFanOut.mockResolvedValue(undefined)
 })
 

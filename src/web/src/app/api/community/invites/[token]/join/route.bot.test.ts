@@ -24,7 +24,6 @@ const mockUseInvite = vi.fn()
 const mockGetServer = vi.fn()
 const mockFanOutToServerMembers = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
-const mockLogAudit = vi.fn()
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -48,13 +47,6 @@ vi.mock("@/lib/community/fanout", () => ({
   fanOutToServerMembers: (...a: unknown[]) => mockFanOutToServerMembers(...a),
   broadcastToUserSafe: (...a: unknown[]) => mockBroadcastToUserSafe(...a),
 }))
-vi.mock("@/lib/community/audit", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/community/audit")>("@/lib/community/audit")
-  return {
-    ...actual,
-    logAudit: (...a: unknown[]) => mockLogAudit(...a),
-  }
-})
 
 import { POST } from "./route"
 import { isUniqueConstraintError } from "@alook/shared"
@@ -124,7 +116,7 @@ describe("POST /api/community/invites/[token]/join — bot path", () => {
     expect((await res.json()).error).toBe("Already a member")
   })
 
-  it("200 superset {member, serverId, server} on success; fanOutToServerMembers excludes the bot; logAudit uses BOT_JOINED_VIA_INVITE + botUserId", async () => {
+  it("returns the server superset and excludes the bot from server fan-out", async () => {
     mockGetInviteByToken.mockResolvedValue({ id: "inv_1", serverId: "srv_1", createdBy: "owner_1" })
     mockUseInvite.mockResolvedValue({
       invite: { id: "inv_1", serverId: "srv_1" },
@@ -152,15 +144,6 @@ describe("POST /api/community/invites/[token]/join — bot path", () => {
     expect(mockBroadcastToUserSafe).toHaveBeenCalledWith(
       "owner_1",
       expect.objectContaining({ serverId: "srv_1" }),
-    )
-    expect(mockLogAudit).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        action: "community.bot.joined_via_invite",
-        actorId: "bot_1",
-        targetType: "invite",
-        targetId: "inv_1",
-      }),
     )
   })
 })

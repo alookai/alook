@@ -11,7 +11,6 @@ import {
   slugify,
 } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
-import { logAudit } from "@/lib/community/audit"
 import { requireServerAdmin } from "@/lib/community/permissions"
 
 export const PATCH = withAuth(async (req: NextRequest, ctx) => {
@@ -61,14 +60,6 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   const updated = await queries.communityServer.updateServer(db, serverId, changes)
   if (!updated) return writeError("server not found", 404)
 
-  logAudit(db, {
-    serverId,
-    actorId: ctx.userId,
-    action: "server_update",
-    targetType: "server",
-    targetId: serverId,
-    changes: JSON.stringify(changes),
-  })
 
   fanOutToServerMembers(serverId, {
     type: WS_EVENTS.SERVER_UPDATE,
@@ -99,13 +90,6 @@ export const DELETE = withAuth(async (_req, ctx) => {
   const deleted = await queries.communityServer.deleteServer(db, serverId)
   if (!deleted) return writeError("server not found", 404)
 
-  logAudit(db, {
-    serverId,
-    actorId: ctx.userId,
-    action: "server_delete",
-    targetType: "server",
-    targetId: serverId,
-  })
 
   return new Response(null, { status: 204 })
 })

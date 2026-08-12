@@ -4,7 +4,6 @@ import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
-import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "@/lib/community/audit"
 
 /**
  * Approve a pending bot approval request. After migration 0065 only the
@@ -59,25 +58,5 @@ export const POST = withAuth(async (_req, ctx) => {
     fanOutToServerMembers(request.serverId, joinEvent)
   }
   await queries.communityBot.resolveApprovalRequest(db, requestId, "approved")
-  logAudit(db, {
-    serverId: request.serverId,
-    actorId: ctx.userId,
-    action: COMMUNITY_AUDIT_ACTIONS.BOT_JOIN_APPROVED,
-    targetType: "user",
-    targetId: botId,
-    changes: JSON.stringify({ botId, serverId: request.serverId }),
-  })
-  logAudit(db, {
-    serverId: request.serverId,
-    actorId: ctx.userId,
-    action: COMMUNITY_AUDIT_ACTIONS.BOT_ADDED_TO_SERVER,
-    targetType: "user",
-    targetId: botId,
-    changes: JSON.stringify({
-      botId,
-      serverId: request.serverId,
-      kind: "friend_of_bot_added",
-    }),
-  })
   return writeJSON({ status: "approved", kind: "join_server" })
 })

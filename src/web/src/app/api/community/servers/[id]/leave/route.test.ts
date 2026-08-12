@@ -8,7 +8,6 @@ vi.mock("@opennextjs/cloudflare", () => ({
 const mockGetMember = vi.fn()
 const mockRemoveMemberAndOwnerBots = vi.fn()
 const mockListOwnerBotsInServer = vi.fn()
-const mockLogAudit = vi.fn()
 const mockFanOut = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
 
@@ -28,13 +27,6 @@ vi.mock("@alook/shared", async () => {
   }
 })
 
-vi.mock("@/lib/community/audit", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/community/audit")>("@/lib/community/audit")
-  return {
-    ...actual,
-    logAudit: (...a: unknown[]) => mockLogAudit(...a),
-  }
-})
 
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToServerMembers: (...a: unknown[]) => mockFanOut(...a),
@@ -76,35 +68,25 @@ describe("POST /api/community/servers/[id]/leave", () => {
     mockBroadcastToUserSafe.mockResolvedValue(undefined)
   })
 
-  it("returns 204 and audits member_leave with the target member's id", async () => {
+  it("returns 204 after removing the member", async () => {
     const res = await POST(postReq(), ctx)
     expect(res.status).toBe(204)
 
-    expect(mockLogAudit).toHaveBeenCalledTimes(1)
-    expect(mockLogAudit).toHaveBeenCalledWith(expect.anything(), {
-      serverId: "s1",
-      actorId: "u1",
-      action: "member_leave",
-      targetType: "member",
-      targetId: "mem_1",
-    })
   })
 
-  it("returns 403 when the user is not a member (and does not audit)", async () => {
+  it("returns 403 when the user is not a member", async () => {
     mockGetMember.mockResolvedValue(null)
 
     const res = await POST(postReq(), ctx)
     expect(res.status).toBe(403)
-    expect(mockLogAudit).not.toHaveBeenCalled()
     expect(mockRemoveMemberAndOwnerBots).not.toHaveBeenCalled()
   })
 
-  it("returns 400 when the owner tries to leave (and does not audit)", async () => {
+  it("returns 400 when the owner tries to leave", async () => {
     mockGetMember.mockResolvedValue({ id: "mem_1", userId: "u1", role: "owner" })
 
     const res = await POST(postReq(), ctx)
     expect(res.status).toBe(400)
-    expect(mockLogAudit).not.toHaveBeenCalled()
     expect(mockRemoveMemberAndOwnerBots).not.toHaveBeenCalled()
   })
 

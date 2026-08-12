@@ -3,11 +3,11 @@
 import { useEffect, useRef, useState } from "react"
 import type { LucideIcon } from "lucide-react"
 import { useVirtualizer } from "@tanstack/react-virtual"
-import { Settings, Users, Link2, Bell, ScrollText, Trash2, X, Shield, Search, Camera } from "lucide-react"
+import { Settings, Users, Link2, Bell, Trash2, X, Shield, Search, Camera } from "lucide-react"
 import { NOTIF_LEVELS, notifLevelDisplay } from "@alook/shared"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Button } from "@/components/ui/button"
-import { formatMessageTime, formatRelativeTime } from "./format-time"
+import { formatRelativeTime } from "./format-time"
 import { Input } from "@/components/ui/input"
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea"
 import { Badge, badgeVariants } from "@/components/ui/badge"
@@ -20,9 +20,9 @@ import { avatarInitial } from "@/lib/community/avatar"
 import { SlugHint } from "./slug-hint"
 import { previewSlug } from "@/lib/community/slug-preview"
 import { tid } from "@/lib/community/testids"
-import { useInvites, useAuditLog } from "@/hooks/community/use-server-panels"
+import { useInvites } from "@/hooks/community/use-server-panels"
 import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "@/hooks/community/virtualizer-react-options"
-import type { SettingsSection, Member, Role, InviteRow, AuditEntry, OpenProfile } from "./_types"
+import type { SettingsSection, Member, Role, InviteRow, OpenProfile } from "./_types"
 import { isServerOwner } from "./_types"
 import {
   SETTINGS_NAV_CLASS,
@@ -71,21 +71,15 @@ export function ServerSettings({
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
 
-  // W-LAZY (necessity plan): invites + audit-log are low-frequency, admin-only
-  // panel data — fetch them ONLY when their tab is actually open, never at
-  // mount, never via WS (Gus, 架构 #25). Gating `enabled` on the active section
-  // means opening Settings on any other tab fetches neither; switching TO the
-  // Invites / Audit tab fetches it fresh then. Previously both were eager-
-  // prefetched in the ServerLayout on every server entry.
+  // Invites are low-frequency, admin-only panel data. Fetch them only when
+  // their tab is open, never on settings mount or via WS.
   const { invites, isLoading: invitesLoading } = useInvites(serverId, section === "invites")
-  const { entries: auditLog, isLoading: auditLogLoading } = useAuditLog(serverId, section === "audit")
 
   const nav: { id: SettingsSection; label: string; icon: LucideIcon }[] = [
     { id: "overview", label: "Overview", icon: Settings },
     { id: "members", label: "Members", icon: Users },
     { id: "invites", label: "Invites", icon: Link2 },
     { id: "notifications", label: "Notifications", icon: Bell },
-    { id: "audit", label: "Audit Log", icon: ScrollText },
   ]
   return (
     <>
@@ -119,7 +113,7 @@ export function ServerSettings({
         {/* settings body */}
         <div className="flex min-w-0 flex-1 flex-col bg-background">
           <header className="flex h-12 shrink-0 items-center border-b border-border px-4">
-            <h1 className="flex-1 text-lg font-semibold capitalize">{section === "audit" ? "Audit Log" : section}</h1>
+            <h1 className="flex-1 text-lg font-semibold capitalize">{section}</h1>
             <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close settings">
               <X className="size-4" />
             </Button>
@@ -129,7 +123,6 @@ export function ServerSettings({
             <TabsContent value="members"><SettingsMembers members={members} loading={membersLoading} loadingMore={membersLoadingMore} hasMore={membersHasMore} total={membersTotal} onLoadMore={onLoadMoreMembers} onSearch={onSearchMembers} onOpenProfile={onOpenProfile} onKickMember={onKickMember} onSetRole={onSetRole} /></TabsContent>
             <TabsContent value="invites"><SettingsInvites invites={invites} loading={invitesLoading} onRevokeInvite={onRevokeInvite} onCopyInvite={onCopyInvite} /></TabsContent>
             <TabsContent value="notifications"><SettingsNotifications level={notifLevel ?? notifLevelDisplay("mentions")} onSetLevel={onSetNotifLevel} /></TabsContent>
-            <TabsContent value="audit"><SettingsAudit auditLog={auditLog} loading={auditLogLoading} /></TabsContent>
           </div>
         </div>
       </Tabs>
@@ -422,28 +415,6 @@ function SettingsNotifications({ level, onSetLevel }: { level: string; onSetLeve
   )
 }
 
-function SettingsAudit({ auditLog, loading }: { auditLog: AuditEntry[]; loading?: boolean }) {
-  if (loading && auditLog.length === 0) return <SettingsAuditSkeleton />
-  return (
-    <div className="mx-auto max-w-xl space-y-2">
-      {auditLog.length === 0 && (
-        <p className="text-sm text-muted-foreground">No audit log entries yet. Admin actions will be recorded here.</p>
-      )}
-      {auditLog.map((e, i) => (
-        <div key={i} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent">
-          <ScrollText className="size-4 shrink-0 text-muted-foreground" />
-          <div className="min-w-0 flex-1 text-sm">
-            <span className="font-medium">{e.actor}</span>{" "}
-            <span className="text-muted-foreground">{e.action}</span>{" "}
-            <span className="font-medium">{e.target}</span>
-          </div>
-          <span className="shrink-0 text-xs text-muted-foreground" suppressHydrationWarning>{formatMessageTime(e.createdAt)}</span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
 // Loading placeholders for the settings panels — match the real row heights
 // so the body doesn't shift when data lands.
 function SettingsMembersSkeleton() {
@@ -477,20 +448,6 @@ function SettingsInvitesSkeleton() {
           </div>
           <Skeleton className="h-8 w-16 rounded-md" />
           <Skeleton className="size-7 shrink-0 rounded-md" />
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function SettingsAuditSkeleton() {
-  return (
-    <div className="mx-auto max-w-xl space-y-2">
-      {Array.from({ length: 6 }).map((_, i) => (
-        <div key={i} className="flex items-center gap-3 rounded-md px-2 py-2">
-          <Skeleton className="size-4 shrink-0 rounded" />
-          <Skeleton className="h-4 flex-1 rounded" style={{ maxWidth: 360 + ((i * 37) % 80) }} />
-          <Skeleton className="h-3 w-16 shrink-0 rounded" />
         </div>
       ))}
     </div>

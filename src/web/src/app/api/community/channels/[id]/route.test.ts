@@ -17,7 +17,6 @@ const mockGetPrivateChannelAudienceUserIds = vi.fn(() => [] as string[])
 const mockFanOutToServerMembers = vi.fn()
 const mockFanOutToChannel = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
-const mockLogAudit = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
@@ -46,10 +45,6 @@ vi.mock("@/lib/community/fanout", () => ({
   fanOutToChannel: (...a: unknown[]) => mockFanOutToChannel(...a),
   broadcastToUserSafe: (...a: unknown[]) => mockBroadcastToUserSafe(...a),
 }))
-vi.mock("@/lib/community/audit", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/community/audit")>("@/lib/community/audit")
-  return { ...actual, logAudit: (...a: unknown[]) => mockLogAudit(...a) }
-})
 
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {

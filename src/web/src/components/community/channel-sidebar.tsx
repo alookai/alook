@@ -1,7 +1,7 @@
 "use client"
 
 import { Fragment, memo, useRef, useState } from "react"
-import { Settings, Users, Link2, Bell, ScrollText, ChevronDown, UserPlus } from "lucide-react"
+import { Settings, Users, Link2, Bell, ChevronDown, UserPlus } from "lucide-react"
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors,
 } from "@dnd-kit/core"
@@ -301,7 +301,6 @@ export const ChannelSidebar = memo(function ChannelSidebar({
                 <DropdownMenuItem onClick={() => onOpenSettings("members")}><Users className="size-4" /> Members</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onOpenSettings("invites")}><Link2 className="size-4" /> Invites</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onOpenSettings("notifications")}><Bell className="size-4" /> Notifications</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onOpenSettings("audit")}><ScrollText className="size-4" /> Audit Log</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (

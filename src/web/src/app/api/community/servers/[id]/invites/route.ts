@@ -11,7 +11,6 @@ import {
 } from "@alook/shared"
 import type { CommunityInviteCreate } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
-import { logAudit } from "@/lib/community/audit"
 import { requireServerMember } from "@/lib/community/permissions"
 
 export const GET = withAuth(async (_req, ctx) => {
@@ -86,13 +85,6 @@ export const POST = withAuth(async (req, ctx) => {
     )
   }
 
-  logAudit(db, {
-    serverId,
-    actorId: ctx.userId,
-    action: "invite_create",
-    targetType: "invite",
-    targetId: invite.id,
-  })
 
   const event: CommunityInviteCreate = {
     type: WS_EVENTS.INVITE_CREATE,

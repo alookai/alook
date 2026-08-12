@@ -11,7 +11,6 @@ import type { BotActor, CommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
 import { requireNotBlocked } from "@/lib/community/permissions"
-import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "@/lib/community/audit"
 
 /**
  * POST /api/community/friends/request — the friend-request door (route/disc
@@ -28,8 +27,8 @@ import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "@/lib/community/audit"
  *     is the main gate; isBot→403 is the last-line backstop. BOTH stay.
  *   - bot → handleBotFriendRequest: {username} (name#tag only), sibling-bot
  *     auto-accept, ALWAYS owner-gated (needsOwnerApproval, never dropped), lean
- *     {friendshipId,status,hint} response, audit BOT_FRIEND_REQUESTED/
- *     SUPERSEDED. Folds the flat /friendRequest bot verb (flat verb deleted at
+ *     {friendshipId,status,hint} response. Folds the flat /friendRequest bot
+ *     verb (flat verb deleted at
  *     the flat-delete step). Self-scoped: requesterId = the credential's
  *     botUserId, never a body field.
  */
@@ -104,16 +103,6 @@ async function handleHumanFriendRequest(
     // just relays them.
     for (const b of result.broadcasts) {
       await broadcastToUserSafe(b.userId, b.event)
-    }
-    for (const supersededId of result.supersededIds) {
-      logAudit(db, {
-        serverId: null,
-        actorId: actor.userId,
-        action: COMMUNITY_AUDIT_ACTIONS.BOT_FRIEND_REQUEST_SUPERSEDED,
-        targetType: "friendship",
-        targetId: supersededId,
-        changes: JSON.stringify({ supersededBy: result.friendship.id }),
-      })
     }
     if (result.kind === "auto_accepted") {
       return writeJSON(result.friendship, 200)
@@ -218,25 +207,6 @@ async function handleBotFriendRequest(
 
   for (const b of result.broadcasts) {
     await broadcastToUserSafe(b.userId, b.event)
-  }
-
-  logAudit(db, {
-    serverId: null,
-    actorId: botUserId,
-    action: COMMUNITY_AUDIT_ACTIONS.BOT_FRIEND_REQUESTED,
-    targetType: "user",
-    targetId: target.id,
-    changes: JSON.stringify({ requesterBotId: botUserId, addresseeId: target.id }),
-  })
-  for (const supersededId of result.supersededIds) {
-    logAudit(db, {
-      serverId: null,
-      actorId: botUserId,
-      action: COMMUNITY_AUDIT_ACTIONS.BOT_FRIEND_REQUEST_SUPERSEDED,
-      targetType: "friendship",
-      targetId: supersededId,
-      changes: JSON.stringify({ supersededBy: result.friendship.id }),
-    })
   }
 
   // Bot-origin sendRequest always sets needsOwnerApproval, so this is always

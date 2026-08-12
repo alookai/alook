@@ -6,9 +6,9 @@ const mockGetMachineForOwner = vi.fn()
 const mockCreateBot = vi.fn()
 const mockGetUserPublic = vi.fn()
 const mockPushBotEventToMachine = vi.fn()
-const mockLogAudit = vi.fn()
 const mockListBotsForOwner = vi.fn()
 const mockGetBotDailyActivityForOwner = vi.fn()
+const mockEnsureSiblingBotFriendship = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -28,6 +28,9 @@ vi.mock("@alook/shared", async () => {
         listBotsForOwner: (...a: unknown[]) => mockListBotsForOwner(...a),
         getBotDailyActivityForOwner: (...a: unknown[]) => mockGetBotDailyActivityForOwner(...a),
       },
+      communityFriendship: {
+        ensureSiblingBotFriendship: (...a: unknown[]) => mockEnsureSiblingBotFriendship(...a),
+      },
       user: {
         getUserPublic: (...a: unknown[]) => mockGetUserPublic(...a),
       },
@@ -38,10 +41,6 @@ vi.mock("@alook/shared", async () => {
 vi.mock("@/lib/community/bot-push", () => ({
   pushBotEventToMachine: (...a: unknown[]) => mockPushBotEventToMachine(...a),
 }))
-vi.mock("@/lib/community/audit", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/community/audit")>("@/lib/community/audit")
-  return { ...actual, logAudit: (...a: unknown[]) => mockLogAudit(...a) }
-})
 
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: (handler: any) => async (req: any, ctx?: any) => {
@@ -93,6 +92,8 @@ describe("POST /api/community/bots — model", () => {
     })
     mockCreateBot.mockResolvedValue({ botId: "b1", name: "MyBot", discriminator: "0001", description: "", image: null })
     mockGetUserPublic.mockResolvedValue({ id: "u1", name: "Owner", discriminator: "9999" })
+    mockListBotsForOwner.mockResolvedValue([{ id: "b1" }])
+    mockEnsureSiblingBotFriendship.mockResolvedValue({ blocked: false })
   })
 
   it("persists model_name and returns it in the 201 body", async () => {
@@ -115,6 +116,29 @@ describe("POST /api/community/bots — model", () => {
       expect.anything(),
       expect.objectContaining({ modelName: null }),
     )
+  })
+
+  it("keeps same-owner sibling auto-friendship after removing server audit writes", async () => {
+    mockListBotsForOwner.mockResolvedValue([{ id: "b1" }, { id: "b2" }])
+
+    const res = await POST(postReq(base()), ctx)
+
+    expect(res.status).toBe(201)
+    expect(mockEnsureSiblingBotFriendship).toHaveBeenCalledOnce()
+    expect(mockEnsureSiblingBotFriendship).toHaveBeenCalledWith(
+      expect.anything(),
+      { botA: "b1", botB: "b2" },
+    )
+  })
+
+  it("still returns 201 when sibling auto-friendship fails", async () => {
+    mockListBotsForOwner.mockResolvedValue([{ id: "b1" }, { id: "b2" }])
+    mockEnsureSiblingBotFriendship.mockRejectedValue(new Error("D1 unavailable"))
+
+    const res = await POST(postReq(base()), ctx)
+
+    expect(res.status).toBe(201)
+    expect(mockPushBotEventToMachine).toHaveBeenCalledOnce()
   })
 
   it("rejects a model on runtime antigravity with 400", async () => {

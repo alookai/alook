@@ -59,10 +59,6 @@ vi.mock("@/lib/community/fanout", () => ({
   broadcastToUserSafe: vi.fn(),
 }))
 
-vi.mock("@/lib/community/audit", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/community/audit")>("@/lib/community/audit")
-  return { ...actual, logAudit: vi.fn() }
-})
 
 const mockCreateCommunityMessage = vi.fn()
 vi.mock("@/lib/community/message-handler", () => ({
