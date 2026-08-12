@@ -25,6 +25,7 @@ export const SPEC_SECONDS = {
   "16-jump-to-present.spec.ts": 30,
   "17-forum-sidebar-stage-b.spec.ts": 35,
   "18-new-divider-scroll.spec.ts": 46,
+  "19-marketing-seo.spec.ts": 5,
 }
 
 function walk(directory) {

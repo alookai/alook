@@ -12,7 +12,7 @@
     },
     "assert": {
       "assertions": {
-        "categories:seo": ["error", { "minScore": 0.9 }],
+        "categories:seo": ["error", { "minScore": 1 }],
         "categories:accessibility": ["warn", { "minScore": 0.8 }],
         "categories:best-practices": ["warn", { "minScore": 0.8 }]
       }

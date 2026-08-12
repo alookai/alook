@@ -1218,7 +1218,7 @@ function ContinuityScene({ snapshot }: { snapshot: SceneSnapshot }) {
   if (snapshot.beat < 7) {
     return (
       <>
-        <DmHeader dm={DMS[0]} />
+        <DmHeader dm={DMS[0]} titleAs="div" />
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="flex-1 overflow-hidden px-4 py-3">
             {CONTINUITY_DM_MESSAGES.map((message, index) => (
@@ -1292,7 +1292,9 @@ function PrototypeInviteSurface({ snapshot }: { snapshot: SceneSnapshot }) {
       className={styles.inviteSurface}
     >
       <header className="border-b border-border/50 px-4 py-3">
-        <h2 className="truncate text-sm font-semibold">Invite friends to Home</h2>
+        <div className="truncate font-heading text-sm font-semibold leading-[1.2] tracking-[-0.015em]">
+          Invite friends to Home
+        </div>
       </header>
       <div className="px-4 pt-3">
         <label className="relative block">
@@ -1426,7 +1428,9 @@ function MachineScene({
               </div>
             </div>
             <div className="flex flex-col gap-1">
-              <h2 className="text-lg font-medium text-foreground">No machines yet</h2>
+              <div className="font-heading text-lg font-medium leading-[1.2] tracking-[-0.015em] text-foreground">
+                No machines yet
+              </div>
               <p className="max-w-md text-sm text-muted-foreground">
                 {introDescription ?? (
                   <>
@@ -1455,7 +1459,9 @@ function MachineScene({
         >
           <header className="flex items-center justify-between">
             <div>
-              <h1 className="text-xl font-medium text-foreground">Machines</h1>
+              <div className="font-heading text-xl font-medium leading-[1.15] tracking-[-0.015em] text-foreground">
+                Machines
+              </div>
               <p className="text-sm text-muted-foreground">
                 Your computers running the alook daemon.
               </p>
@@ -1486,7 +1492,9 @@ function MachineScene({
 
       <PrototypeSheet label="Connect a machine" open={pairOpen}>
         <SheetHeader>
-          <h2 className="font-heading text-lg leading-tight font-semibold">Connect a machine</h2>
+          <div className="font-heading text-lg leading-tight font-semibold tracking-[-0.015em]">
+            Connect a machine
+          </div>
         </SheetHeader>
           <SheetBody className="flex flex-col gap-6">
             <PairMachineSteps
@@ -1498,6 +1506,7 @@ function MachineScene({
               step2MotionTarget={step2Target}
               step1ClassName={targetClass(snapshot, "pair-step-1")}
               step2ClassName={targetClass(snapshot, step2Target)}
+              headingAs="div"
             />
           </SheetBody>
           <SheetFooter>
@@ -1550,7 +1559,9 @@ function ProviderScene({ snapshot }: { snapshot: SceneSnapshot }) {
           className={`${styles.stateLayer} flex min-w-0 flex-col gap-6 overflow-hidden p-6`}
         >
           <header>
-            <h1 className="text-xl font-medium text-foreground">My Bots</h1>
+            <div className="font-heading text-xl font-medium leading-[1.15] tracking-[-0.015em] text-foreground">
+              My Bots
+            </div>
           </header>
           <div className="max-w-lg">
             <BotCard
@@ -1566,7 +1577,7 @@ function ProviderScene({ snapshot }: { snapshot: SceneSnapshot }) {
           data-visible={dmOpen}
           className={`${styles.stateLayer} flex min-w-0 flex-col overflow-hidden`}
         >
-          <DmHeader dm={DMS[0]} />
+          <DmHeader dm={DMS[0]} titleAs="div" />
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <div className="flex-1 overflow-hidden px-4 py-3">
               {DM_MESSAGES.map((message, index) => (
@@ -1595,7 +1606,7 @@ function ProviderScene({ snapshot }: { snapshot: SceneSnapshot }) {
 
       <PrototypeSheet label="Edit Alli" open={sheetOpen}>
         <SheetHeader>
-          <h2 className="font-heading text-lg leading-tight font-semibold">Edit Alli</h2>
+          <div className="font-heading text-lg leading-tight font-semibold tracking-[-0.015em]">Edit Alli</div>
         </SheetHeader>
         <SheetBody ref={sheetBodyRef} className="flex flex-col gap-6">
           <BotFormFields
