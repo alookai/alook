@@ -29,6 +29,7 @@ import { useMachines, type MachinesResponse } from "@/hooks/community/use-machin
 import { useBots } from "@/hooks/community/use-bots"
 import { useCommunityStore, usePendingMachineTokenId } from "@/stores/community"
 import { communityKeys } from "@/lib/query-keys"
+import { tid } from "@/lib/community/testids"
 import {
   advanceCommunityOnboarding,
   readCommunityOnboardingState,
@@ -230,7 +231,11 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button data-onboarding-target="connect-machine" onClick={openPair}>
+            <Button
+              data-onboarding-target="connect-machine"
+              data-testid={tid.machinePairOpen}
+              onClick={openPair}
+            >
               Connect a machine
             </Button>
             <span className="community-guide-me">
@@ -278,7 +283,9 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
             </p>
           </div>
           <div data-onboarding-target="connect-machine" className="w-fit">
-            <Button onClick={openPair}>Connect a machine</Button>
+            <Button data-testid={tid.machinePairOpen} onClick={openPair}>
+              Connect a machine
+            </Button>
           </div>
         </header>
         <div className="flex flex-col gap-3">

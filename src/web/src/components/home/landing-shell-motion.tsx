@@ -488,7 +488,7 @@ const BOT_AVATAR_DRAFT: AvatarDraft = {
 }
 
 const PAIR_COMMAND =
-  "pnpm daemon start --machine-key cmk_demo --server-url https://alook.ai --ws-url wss://alook.ai/api/ws/community-daemon"
+  "npx @alook/daemon daemon start --machine-key cmk_demo --server-url https://alook.ai --ws-url wss://alook.ai/api/ws/community-daemon"
 
 function useReducedMotion() {
   const [reduced, setReduced] = useState(false)

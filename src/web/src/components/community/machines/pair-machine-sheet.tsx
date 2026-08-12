@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
 import { apiFetch, toastApiError } from "@/lib/api/client"
+import { tid } from "@/lib/community/testids"
 import { isLocalMode, WS_DO_PORT_DEFAULT } from "@/lib/utils"
 
 // Community daemon HTTP/WS endpoints live on the same worker + ws-do as the
@@ -31,7 +32,7 @@ function buildPairCommand(machineKey: string): string {
   const wsUrl = isLocal
     ? `ws://localhost:${WS_DO_PORT_DEFAULT}`
     : `${location.origin.replace("http", "ws")}/api/ws/community-daemon`
-  const bin = isLocal ? "pnpm daemon" : "npx @alook/daemon"
+  const bin = isLocal ? "pnpm daemon" : "npx @alook/daemon daemon"
   return `${bin} start --machine-key ${machineKey} --server-url ${location.origin} --ws-url ${wsUrl}`
 }
 
@@ -197,8 +198,11 @@ function Step1({
         </div>
       ) : (
         <div className="flex items-start gap-2 rounded-lg border bg-muted/30 p-3 font-mono text-xs">
-          <code className="flex-1 break-all">{command}</code>
+          <code data-testid={tid.machinePairCommand} className="flex-1 break-all">
+            {command}
+          </code>
           <button
+            data-testid={tid.machinePairCopy}
             onClick={onCopy}
             className="grid size-6 shrink-0 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
             aria-label="Copy command"

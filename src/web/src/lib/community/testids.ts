@@ -15,6 +15,9 @@ export const tid = {
   statusPill: "community-status-pill",
   inviteToken: "community-invite-token",
   inviteCopy: "community-invite-copy",
+  machinePairOpen: "community-machine-pair-open",
+  machinePairCommand: "community-machine-pair-command",
+  machinePairCopy: "community-machine-pair-copy",
 
   forumTagDialog: "community-forum-tag-dialog",
   forumTagDialogSave: "community-forum-tag-dialog-save",
