@@ -94,12 +94,17 @@ describe("ChannelSidebar header", () => {
     expect(html).not.toContain('aria-label="Alpha"')
   })
 
-  it("renders forum children as non-sortable nested rows with one solid 2px connector", () => {
+  it("renders forum children as non-sortable nested rows with one subtle 1.5px connector", () => {
     const html = renderForum()
     expect(html).toContain('data-testid="community-forum-sidebar-thread-post_1"')
     expect(html).toContain('data-testid="community-forum-sidebar-thread-post_2"')
     expect(html).toContain('aria-current="page"')
-    expect(html).toContain('stroke-width="2"')
+    expect(html).toContain('stroke-width="1.5"')
+    expect(html).toContain("text-muted-foreground/45")
+    expect(html).toContain("H 11")
+    expect(html).toContain("ml-4")
+    expect(html).toContain("text-xs font-medium")
+    expect(html).not.toContain("text-[13px]")
     expect(html).toContain("First post")
     expect(html).toContain("Second post")
     expect(html).toContain("bg-primary")

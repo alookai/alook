@@ -151,8 +151,8 @@ export const ChannelSidebar = memo(function ChannelSidebar({
     const branchY = (index: number) => index * rowHeight + rowHeight / 2
     const lastY = branchY(threads.length - 1)
     const connectorPath = [
-      `M 1 0 V ${lastY - 6} Q 1 ${lastY} 7 ${lastY} H 16`,
-      ...threads.slice(0, -1).map((_, index) => `M 1 ${branchY(index)} H 16`),
+      `M 1 0 V ${lastY - 6} Q 1 ${lastY} 7 ${lastY} H 11`,
+      ...threads.slice(0, -1).map((_, index) => `M 1 ${branchY(index)} H 11`),
     ].join(" ")
     return (
       <div className="relative mt-0! ml-5">
@@ -160,14 +160,14 @@ export const ChannelSidebar = memo(function ChannelSidebar({
           aria-hidden="true"
           viewBox={`0 0 16 ${threads.length * rowHeight}`}
           preserveAspectRatio="none"
-          className="pointer-events-none absolute top-0 left-0 w-4 text-muted-foreground/60"
+          className="pointer-events-none absolute top-0 left-0 w-4 text-muted-foreground/45"
           style={{ height: threads.length * rowHeight }}
         >
           <path
             d={connectorPath}
             fill="none"
             stroke="currentColor"
-            strokeWidth="2"
+            strokeWidth="1.5"
             strokeLinecap="round"
             strokeLinejoin="round"
             vectorEffect="non-scaling-stroke"
@@ -415,13 +415,13 @@ function ForumSidebarThreadRow({
           event.stopPropagation()
         }}
         className={[
-          "ml-4 flex h-7 w-[calc(100%-1rem)] min-w-0 items-center rounded-md px-2 text-left text-xs",
+          "ml-4 flex h-7 w-[calc(100%-1rem)] min-w-0 items-center rounded-md px-2 text-left text-xs font-medium",
           active
             ? "bg-sidebar-accent text-foreground"
             : muted
               ? "text-muted-foreground/50 hover:bg-sidebar-accent/60 hover:text-muted-foreground"
               : thread.unread
-                ? "font-semibold text-foreground hover:bg-sidebar-accent/60"
+                ? "text-foreground hover:bg-sidebar-accent/60"
             : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
         ].join(" ")}
       >
