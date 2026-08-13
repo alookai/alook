@@ -1,6 +1,7 @@
 import type { Msg } from "@/components/community/_types"
 import type { MentionType } from "@alook/shared"
 import { isInlineAttachmentContentType } from "@/lib/community/attachment-content-type"
+import { formatAttachmentSize } from "@/lib/community/attachment-presentation"
 
 export const MAX_LIVE_MESSAGE_DELTAS = 500
 
@@ -176,6 +177,8 @@ function localUploadAttachments(
         kind: "image",
         name: upload.file.name,
         url: upload.previewObjectUrl,
+        contentType: upload.file.type,
+        sizeBytes: upload.file.size,
         width: upload.width,
         height: upload.height,
       })
@@ -185,7 +188,9 @@ function localUploadAttachments(
       kind: "file",
       name: upload.file.name,
       url: upload.previewObjectUrl,
-      size: upload.file.size ? `${Math.round(upload.file.size / 1024)} KB` : "",
+      contentType: upload.file.type,
+      sizeBytes: upload.file.size,
+      size: formatAttachmentSize(upload.file.size),
     })
   }
   return attachments.length > 0 ? attachments : undefined

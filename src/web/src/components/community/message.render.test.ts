@@ -177,6 +177,31 @@ describe("Message image attachment layout", () => {
   })
 })
 
+describe("Message file attachment", () => {
+  it("opens previewable files through the shared attachment card", () => {
+    const onPreviewAttachment = vi.fn()
+    const file = {
+      kind: "file" as const,
+      name: "notes.md",
+      url: "/notes",
+      contentType: "text/markdown",
+      sizeBytes: 128,
+      size: "128 B",
+    }
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(makeTree({
+        m: baseMsg({ attachments: [file] }),
+        onOpenThread: vi.fn(),
+        onPreviewAttachment,
+      }), { createNodeMock: () => genericMock })
+    })
+    const card = renderer!.root.findByProps({ "data-testid": "community-attachment-card-notes.md" })
+    act(() => card.props.onClick())
+    expect(onPreviewAttachment).toHaveBeenCalledWith(file)
+  })
+})
+
 describe("Message lazy overlays", () => {
   it("does not remount the row when the pointer enters an author button", () => {
     const interactiveTarget = { closest: vi.fn(() => ({})) }

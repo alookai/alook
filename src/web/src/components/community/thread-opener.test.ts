@@ -84,4 +84,35 @@ describe("ThreadOpener image attachment layout", () => {
       originalUrl: "/original", thumbnailUrl: "/thumbnail", name: "photo.png",
     })
   })
+
+  it("uses the same previewable file card as regular messages", () => {
+    const onPreviewAttachment = vi.fn()
+    const file = {
+      kind: "file" as const,
+      name: "notes.md",
+      url: "/notes",
+      contentType: "text/markdown",
+      sizeBytes: 128,
+      size: "128 B",
+    }
+    useMessageMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      message: {
+        id: "opener_1", type: "chat", authorId: "u1", authorName: "Alice",
+        content: "Notes", createdAt: "2026-08-08T00:00:00.000Z",
+        attachments: [file],
+      },
+    })
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(ThreadOpener, { parentMessageId: "opener_1", onPreviewAttachment }),
+        { createNodeMock: () => genericMock },
+      )
+    })
+    const card = renderer!.root.findByProps({ "data-testid": "community-attachment-card-notes.md" })
+    act(() => card.props.onClick())
+    expect(onPreviewAttachment).toHaveBeenCalledWith(file)
+  })
 })

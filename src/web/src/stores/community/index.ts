@@ -73,6 +73,7 @@ type CommunitySubscription = {
 
 type CommunityUiHandlers = {
   previewImage?: (image: import("@/components/community/_types").ImagePreview) => void
+  previewAttachment?: (attachment: import("@/components/community/_types").FileAttachment) => void
   openProfile?: (name: string, e: React.MouseEvent, discriminator?: string, userId?: string) => void
   goBackMobile?: () => void
   // Jump to message `seq` within the CURRENT channel/DM — the page registers
@@ -277,6 +278,7 @@ export const useCurrentChannelMeta = () =>
  */
 const stableUiHandlers: CommunityUiHandlers = {
   previewImage: (url) => useCommunityStore.getState().uiHandlers.previewImage?.(url),
+  previewAttachment: (attachment) => useCommunityStore.getState().uiHandlers.previewAttachment?.(attachment),
   openProfile: (name, e, discriminator, userId) =>
     useCommunityStore.getState().uiHandlers.openProfile?.(name, e, discriminator, userId),
   goBackMobile: () => useCommunityStore.getState().uiHandlers.goBackMobile?.(),

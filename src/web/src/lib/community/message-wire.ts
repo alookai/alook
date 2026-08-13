@@ -2,6 +2,7 @@ import type { CommunityMessageCreate } from "@alook/shared"
 import type { Msg } from "@/components/community/_types"
 import { avatarInitial } from "@/lib/community/avatar"
 import { isInlineAttachmentContentType } from "@/lib/community/attachment-content-type"
+import { formatAttachmentSize } from "@/lib/community/attachment-presentation"
 import type { CanonicalMessage } from "@/lib/community/message-stream"
 
 type UiEmbed = NonNullable<Msg["embeds"]>[number]
@@ -97,6 +98,8 @@ export function projectCommunityMessageCreate(
         kind: "image" as const,
         name: attachment.filename,
         url: attachment.url,
+        contentType: attachment.contentType,
+        sizeBytes: attachment.size,
         ...(attachment.thumbnailUrl ? { thumbnailUrl: attachment.thumbnailUrl } : {}),
         width: attachment.width ?? undefined,
         height: attachment.height ?? undefined,
@@ -106,7 +109,9 @@ export function projectCommunityMessageCreate(
       kind: "file" as const,
       name: attachment.filename,
       url: attachment.url,
-      size: attachment.size ? `${Math.round(attachment.size / 1024)} KB` : "",
+      contentType: attachment.contentType,
+      sizeBytes: attachment.size,
+      size: formatAttachmentSize(attachment.size),
     }
   })
   const embeds = message.embeds?.flatMap((embed) => {

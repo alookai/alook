@@ -72,7 +72,7 @@ describe("groupAttachments", () => {
       { id: "att1", messageId: "m1", targetId: "c1", filename: "a.png", r2Key: "channel/c1/uuid/a.png", contentType: "image/png", size: 1000, width: 1920, height: 1080 },
     ])
     expect(result.m1).toEqual([
-      { kind: "image", name: "a.png", url: "/api/community/channels/c1/attachments/att1", width: 1920, height: 1080 },
+      { kind: "image", name: "a.png", url: "/api/community/channels/c1/attachments/att1", contentType: "image/png", sizeBytes: 1000, width: 1920, height: 1080 },
     ])
   })
 
@@ -81,7 +81,7 @@ describe("groupAttachments", () => {
       { id: "att1", messageId: "m1", targetId: "c1", filename: "a.png", r2Key: "channel/c1/uuid/a.png", contentType: "image/png", size: 1000, width: null, height: null },
     ])
     expect(result.m1).toEqual([
-      { kind: "image", name: "a.png", url: "/api/community/channels/c1/attachments/att1", width: undefined, height: undefined },
+      { kind: "image", name: "a.png", url: "/api/community/channels/c1/attachments/att1", contentType: "image/png", sizeBytes: 1000, width: undefined, height: undefined },
     ])
   })
 
@@ -90,7 +90,7 @@ describe("groupAttachments", () => {
       { id: "att1", messageId: "m1", targetId: "c1", filename: "a.pdf", r2Key: "channel/c1/uuid/a.pdf", contentType: "application/pdf", size: 2048, width: 1920, height: 1080 },
     ])
     expect(result.m1).toEqual([
-      { kind: "file", name: "a.pdf", url: "/api/community/channels/c1/attachments/att1", size: "2.0 KB" },
+      { kind: "file", name: "a.pdf", url: "/api/community/channels/c1/attachments/att1", contentType: "application/pdf", sizeBytes: 2048, size: "2.0 KB" },
     ])
   })
 
@@ -101,7 +101,7 @@ describe("groupAttachments", () => {
         { id: "att1", messageId: "m1", targetId: "c1", filename: "unsafe.img", r2Key: "channel/c1/uuid/unsafe.img", contentType, size: 2048, width: 1920, height: 1080 },
       ])
       expect(result.m1).toEqual([
-        { kind: "file", name: "unsafe.img", url: "/api/community/channels/c1/attachments/att1", size: "2.0 KB" },
+        { kind: "file", name: "unsafe.img", url: "/api/community/channels/c1/attachments/att1", contentType, sizeBytes: 2048, size: "2.0 KB" },
       ])
     },
   )
@@ -112,7 +112,7 @@ describe("groupAttachments", () => {
       { id: "att1", messageId: "m1", targetId: "c1", filename: "linked.png", r2Key: "channel/c1/uuid/linked.png", contentType: "image/png", size: 100, width: null, height: null },
     ])
     expect(result).toEqual({
-      m1: [{ kind: "image", name: "linked.png", url: "/api/community/channels/c1/attachments/att1", width: undefined, height: undefined }],
+      m1: [{ kind: "image", name: "linked.png", url: "/api/community/channels/c1/attachments/att1", contentType: "image/png", sizeBytes: 100, width: undefined, height: undefined }],
     })
   })
 })

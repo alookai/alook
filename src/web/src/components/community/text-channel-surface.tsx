@@ -13,7 +13,7 @@ import { MessageList } from "@/components/community/message-list"
 import {
   MessageChannelController,
 } from "@/components/community/message-channel-controller"
-import type { ImagePreview, OpenProfile, RightPanel } from "@/components/community/_types"
+import type { FileAttachment, ImagePreview, OpenProfile, RightPanel } from "@/components/community/_types"
 
 export function TextChannelSurface({
   channelId,
@@ -54,6 +54,7 @@ export function TextChannelSurface({
   uiHandlers: {
     navigate?: (serverId: string, channelId: string) => void
     previewImage?: (image: ImagePreview) => void
+    previewAttachment?: (attachment: FileAttachment) => void
   }
   onOpenThread: (threadId: string) => void
   onOpenProfile: OpenProfile

@@ -5,7 +5,7 @@ import { useMessageMarked } from "@/hooks/community/use-inbox"
 import type React from "react"
 import {
   MessagesSquare, UserPlus, SmilePlus, Reply,
-  MoreHorizontal, FileText, Download, X, Share, Check,
+  MoreHorizontal, X, Share, Check,
 } from "lucide-react"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent } from "@/components/ui/context-menu"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from "@/components/ui/dropdown-menu"
@@ -21,8 +21,9 @@ import { tid } from "@/lib/community/testids"
 import { avatarInitial } from "@/lib/community/avatar"
 import { displayName } from "@/lib/community/display-name"
 import { stripInlineMarkup } from "@alook/shared"
-import type { ImagePreview, RenderMsg, OpenProfile } from "./_types"
+import type { FileAttachment, ImagePreview, RenderMsg, OpenProfile } from "./_types"
 import { attachmentAspectRatio } from "./attachment-layout"
+import { AttachmentCard } from "./attachment-card"
 
 // Whether the "Share as Image" action is offered for a message. Share is
 // computed inside `Message` from the message alone (no handler is threaded in),
@@ -47,7 +48,7 @@ export function shouldActivateMessageOverlays(target: EventTarget | null): boole
 function MessageImpl({
   m, compact, pinned, onOpenThread, onOpenProfile, onJumpReply,
   onToggleReaction, onReact, onReply, onPin, onMark, onCreateThread, onCopy, onEdit, onRetry, onDismiss,
-  onPreviewImage, onDownloadFile, highlighted, resolveUserName, onImageLoad,
+  onPreviewImage, onPreviewAttachment, onDownloadFile, highlighted, resolveUserName, onImageLoad,
   selectMode, selected, onToggleSelect, onEnterSelect, onShareSingle,
   viewerUserId,
 }: {
@@ -71,7 +72,8 @@ function MessageImpl({
   onRetry?: () => void
   onDismiss?: () => void
   onPreviewImage?: (image: ImagePreview) => void
-  onDownloadFile?: (name: string) => void
+  onPreviewAttachment?: (attachment: FileAttachment) => void
+  onDownloadFile?: (url: string, name: string) => void
   highlighted?: boolean
   resolveUserName?: (userId: string) => string
   onImageLoad?: () => void
@@ -288,20 +290,7 @@ function MessageImpl({
                     />
                   </button>
                 )
-                return (
-                  <button
-                    key={i}
-                    onClick={() => onDownloadFile?.(a.url)}
-                    className="flex w-full max-w-[320px] items-center gap-3 rounded-lg border border-border bg-card p-2 text-left transition-colors hover:bg-accent"
-                  >
-                    <FileText className="size-7 shrink-0 text-muted-foreground" />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium text-primary">{a.name}</div>
-                      <div className="text-xs text-muted-foreground">{a.size}</div>
-                    </div>
-                    <Download className="size-4 shrink-0 text-muted-foreground" />
-                  </button>
-                )
+                return <AttachmentCard key={i} attachment={a} onPreview={onPreviewAttachment} onDownload={onDownloadFile} />
               })}
             </div>
           )}
@@ -529,6 +518,7 @@ function messagePropsEqual(prev: MessageProps, next: MessageProps): boolean {
     prev.onRetry === next.onRetry &&
     prev.onDismiss === next.onDismiss &&
     prev.onPreviewImage === next.onPreviewImage &&
+    prev.onPreviewAttachment === next.onPreviewAttachment &&
     prev.onDownloadFile === next.onDownloadFile &&
     prev.resolveUserName === next.resolveUserName &&
     prev.onImageLoad === next.onImageLoad &&

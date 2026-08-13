@@ -16,14 +16,14 @@ import { useScrollAnchor } from "@/hooks/community/use-scroll-anchor"
 import { flattenMessageItems } from "./message-list-items"
 import { VirtualRows } from "./virtual-cursor-list"
 import { useVirtualCursorSentinel } from "@/hooks/community/use-virtual-cursor-sentinel"
-import type { ImagePreview, Msg, OpenProfile } from "./_types"
+import type { FileAttachment, ImagePreview, Msg, OpenProfile } from "./_types"
 
 // Channel message list — welcome hero, date dividers, messages (with the NEW divider),
 // and typing indicator. Data via props.
 export function MessageList({
   channel, messages, loading, pinnedIds, newDividerBefore, typingUsers, onOpenThread, onOpenProfile,
   onToggleReaction, onReact,
-  onReply, onPin, onMark, onCreateThread, onCopy, onEdit, onRetry, onDismiss, onPreviewImage, onDownloadFile,
+  onReply, onPin, onMark, onCreateThread, onCopy, onEdit, onRetry, onDismiss, onPreviewImage, onPreviewAttachment, onDownloadFile,
   resolveUserName, scrollToMessageId, hero, variant = "channel", onScrollRoot, viewerUserId, initialScrollReady = true,
   onScrollTargetConsumed,
   hasMore, isFetchingOlder, onLoadOlder,
@@ -48,7 +48,8 @@ export function MessageList({
   onRetry?: (id: string) => void
   onDismiss?: (id: string) => void
   onPreviewImage?: (image: ImagePreview) => void
-  onDownloadFile?: (name: string) => void
+  onPreviewAttachment?: (attachment: FileAttachment) => void
+  onDownloadFile?: (url: string, name: string) => void
   resolveUserName?: (userId: string) => string
   scrollToMessageId?: string | null
   hero?: React.ReactNode
@@ -468,6 +469,7 @@ export function MessageList({
                             onDismissId={onDismiss}
                             onJumpToId={jumpTo}
                             onPreviewImage={onPreviewImage}
+                            onPreviewAttachment={onPreviewAttachment}
                             onDownloadFile={onDownloadFile}
                             resolveUserName={resolveUserName}
                             onImageLoad={onImageLoad}

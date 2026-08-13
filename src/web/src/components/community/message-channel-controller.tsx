@@ -6,7 +6,7 @@ import { toast } from "sonner"
 import { deriveThreadName, type MentionType } from "@alook/shared"
 import { apiFetch, toastApiError } from "@/lib/api/client"
 import { avatarInitial } from "@/lib/community/avatar"
-import type { ImagePreview, Msg } from "@/components/community/_types"
+import type { FileAttachment, ImagePreview, Msg } from "@/components/community/_types"
 import type { SendAttachment } from "@/components/community/composer"
 import type { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
 import {
@@ -47,6 +47,7 @@ type Viewer = {
 type MessageUiHandlers = {
   navigate?: (serverId: string, channelId: string) => void
   previewImage?: (image: ImagePreview) => void
+  previewAttachment?: (attachment: FileAttachment) => void
 }
 
 export function MessageChannelController({
@@ -373,10 +374,11 @@ export function MessageChannelController({
       })
     },
     onPreviewImage: (image: ImagePreview) => actionContext.current.uiHandlers.previewImage?.(image),
-    onDownloadFile: (url: string) => {
+    onPreviewAttachment: (attachment: FileAttachment) => actionContext.current.uiHandlers.previewAttachment?.(attachment),
+    onDownloadFile: (url: string, name: string) => {
       const link = document.createElement("a")
       link.href = url
-      link.download = url.split("/").pop() ?? "file"
+      link.download = name
       link.click()
     },
   }), [
@@ -510,7 +512,8 @@ export type MessageChannelControllerValue = {
     onRetry: (id: string) => void
     onDismiss: (id: string) => void
     onPreviewImage: (image: ImagePreview) => void
-    onDownloadFile: (url: string) => void
+    onPreviewAttachment: (attachment: FileAttachment) => void
+    onDownloadFile: (url: string, name: string) => void
   }
   threadActions: Omit<MessageChannelControllerValue["messageActions"], "onCreateThread"> & {
     onCreateThread: undefined

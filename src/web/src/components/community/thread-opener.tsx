@@ -1,6 +1,6 @@
 "use client"
 
-import { MessagesSquare, FileText, Download, ArrowUpRight } from "lucide-react"
+import { MessagesSquare, ArrowUpRight } from "lucide-react"
 import { Avatar } from "./avatar"
 import { MessageBody } from "./message-body"
 import { attachmentAspectRatio } from "./attachment-layout"
@@ -10,7 +10,8 @@ import { NumberTicker } from "@/components/ui/number-ticker"
 import { avatarInitial } from "@/lib/community/avatar"
 import { useMessage } from "@/hooks/community/use-message"
 import { tid } from "@/lib/community/testids"
-import type { ImagePreview, OpenProfile } from "./_types"
+import type { FileAttachment, ImagePreview, OpenProfile } from "./_types"
+import { AttachmentCard } from "./attachment-card"
 
 // Thread opener — the parent message the thread was created from, pinned at
 // the top of the thread's message list. Deliberately styled like a REGULAR
@@ -31,6 +32,7 @@ export function ThreadOpener({
   viewerUserId,
   onOpenProfile,
   onPreviewImage,
+  onPreviewAttachment,
   onDownloadFile,
   onJump,
 }: {
@@ -38,7 +40,8 @@ export function ThreadOpener({
   viewerUserId: string
   onOpenProfile?: OpenProfile
   onPreviewImage?: (image: ImagePreview) => void
-  onDownloadFile?: (url: string) => void
+  onPreviewAttachment?: (attachment: FileAttachment) => void
+  onDownloadFile?: (url: string, name: string) => void
   // Jump to the parent message in its channel. When provided, a hover-revealed
   // "Jump" button appears in the opener's top-right.
   onJump?: () => void
@@ -133,22 +136,7 @@ export function ThreadOpener({
                     />
                   </button>
                 )
-                return (
-                  <button
-                    key={i}
-                    onClick={() => onDownloadFile?.(a.url)}
-                    className="flex w-full max-w-[320px] items-center gap-3 rounded-lg border border-border bg-card p-2 text-left transition-colors hover:bg-accent"
-                  >
-                    <FileText className="size-7 shrink-0 text-muted-foreground" />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium text-primary">{a.name}</div>
-                      {"size" in a && a.size && (
-                        <div className="text-xs text-muted-foreground">{a.size}</div>
-                      )}
-                    </div>
-                    <Download className="size-4 shrink-0 text-muted-foreground" />
-                  </button>
-                )
+                return <AttachmentCard key={i} attachment={a} onPreview={onPreviewAttachment} onDownload={onDownloadFile} />
               })}
             </div>
           )}

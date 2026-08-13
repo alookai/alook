@@ -26,9 +26,10 @@ import { InboxPopover } from "./community-inbox-popover"
 import { UserSettings } from "./edit-profile-dialog"
 import { ProfileCard } from "./profile-card"
 import { ImageLightbox } from "./image-lightbox"
+import { AttachmentPreviewSheet } from "./attachment-preview-sheet"
 import { ImageCropDialog } from "./image-crop-dialog"
 import { validateIconSourceFile } from "@/lib/community/image-crop"
-import type { ImagePreview, Marked, MobileZone, Profile, View } from "./_types"
+import type { FileAttachment, ImagePreview, Marked, MobileZone, Profile, View } from "./_types"
 import {
   resolveProfileContextLabel,
   resolveProfileServerId,
@@ -186,6 +187,7 @@ export function ShellFrame({
     initialStatusText: string | null
   } | null>(null)
   const [preview, setPreview] = useState<ImagePreview | null>(null)
+  const [attachmentPreview, setAttachmentPreview] = useState<FileAttachment | null>(null)
   const [pendingAvatarCrop, setPendingAvatarCrop] = useState<{ src: string; fileName: string } | null>(null)
 
   // Rail wiring — universal, since navigation is URL-driven and doesn't
@@ -439,6 +441,7 @@ export function ShellFrame({
   )
 
   const previewImage = useCallback((image: ImagePreview) => setPreview(image), [])
+  const previewAttachment = useCallback((attachment: FileAttachment) => setAttachmentPreview(attachment), [])
   const goBackMobile = useCallback(() => setMobileZone("nav"), [setMobileZone])
   // Navigate for channel/server-ref pills. They live deep in the memoized
   // Streamdown message tree where a subtree `useRouter().push` is a no-op; the
@@ -454,11 +457,12 @@ export function ShellFrame({
   useEffect(() => {
     useCommunityStore.getState().registerUiHandlers({
       previewImage,
+      previewAttachment,
       openProfile,
       goBackMobile,
       navigate,
     })
-  }, [previewImage, openProfile, goBackMobile, navigate])
+  }, [previewImage, previewAttachment, openProfile, goBackMobile, navigate])
 
   // Inline self-status save from the `ProfileCard` header (see status-editor.tsx).
   // Mirrors `userSettingsDialog`'s onSave status branch exactly — both save
@@ -746,6 +750,7 @@ export function ShellFrame({
         </div>
         {profile && <ProfileCard key={`${profile.data.userId ?? profile.data.name}:${profile.x}:${profile.y}`} data={profile.data} x={profile.x} y={profile.y} bp={bp} onClose={() => setProfile(null)} onMessage={profileMessage} isSelf={!!profile.data.userId && profile.data.userId === currentUser.id} onUpdateStatus={updateOwnStatus} initialStatusEmoji={profile.initialStatusEmoji} initialStatusText={profile.initialStatusText} />}
         {preview && <ImageLightbox image={preview} onClose={() => setPreview(null)} />}
+        <AttachmentPreviewSheet attachment={attachmentPreview} open={!!attachmentPreview} onOpenChange={(open) => { if (!open) setAttachmentPreview(null) }} />
         {userSettingsDialog}
         {avatarCropDialog}
         {extraDialogs}
@@ -771,6 +776,7 @@ export function ShellFrame({
       )}
       {profile && <ProfileCard key={`${profile.data.userId ?? profile.data.name}:${profile.x}:${profile.y}`} data={profile.data} x={profile.x} y={profile.y} bp={bp} onClose={() => setProfile(null)} onMessage={profileMessage} isSelf={!!profile.data.userId && profile.data.userId === currentUser.id} onUpdateStatus={updateOwnStatus} />}
       {preview && <ImageLightbox image={preview} onClose={() => setPreview(null)} />}
+      <AttachmentPreviewSheet attachment={attachmentPreview} open={!!attachmentPreview} onOpenChange={(open) => { if (!open) setAttachmentPreview(null) }} />
       {userSettingsDialog}
       {avatarCropDialog}
       {extraDialogs}

@@ -11,6 +11,7 @@ import { apiFetch, toastApiError } from "@/lib/api/client"
 import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import { isInlineAttachmentContentType } from "@/lib/community/attachment-content-type"
+import { formatAttachmentSize } from "@/lib/community/attachment-presentation"
 import { attachmentThumbnailUrl, attachmentUrl } from "@/lib/community/storage"
 import {
   projectPostedMessage,
@@ -167,6 +168,8 @@ export function toAttachmentVm(
     kind: "image",
     name: a.filename,
     url,
+    contentType: a.contentType,
+    sizeBytes: a.size,
     ...(a.hasThumbnail ? { thumbnailUrl: attachmentThumbnailUrl(channelId, a.id) } : {}),
     width: a.width,
     height: a.height,
@@ -175,7 +178,9 @@ export function toAttachmentVm(
     kind: "file",
     name: a.filename,
     url,
-    size: a.size ? `${Math.round(a.size / 1024)} KB` : "",
+    contentType: a.contentType,
+    sizeBytes: a.size,
+    size: formatAttachmentSize(a.size),
   }
 }
 

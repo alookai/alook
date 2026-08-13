@@ -18,7 +18,7 @@ import { DateDivider } from "./dividers"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import { useUiHandlers } from "@/stores/community"
 import { usePinMessage, useUnpinMessage, useCreateThread, useToggleMark } from "@/hooks/community/mutations"
-import type { ImagePreview, Msg, OpenProfile, Reaction, RenderMsg } from "./_types"
+import type { FileAttachment, ImagePreview, Msg, OpenProfile, Reaction, RenderMsg } from "./_types"
 import type { MessagesPage } from "@/hooks/community/use-messages"
 
 export type ReplyTarget = { id: string; authorName: string; text: string }
@@ -320,10 +320,14 @@ export function MessageContextSheet({
     uiHandlers.previewImage?.(image)
   }, [uiHandlers])
 
-  const onDownloadFile = useCallback((url: string) => {
+  const onPreviewAttachment = useCallback((attachment: FileAttachment) => {
+    uiHandlers.previewAttachment?.(attachment)
+  }, [uiHandlers])
+
+  const onDownloadFile = useCallback((url: string, name: string) => {
     const a = document.createElement("a")
     a.href = url
-    a.download = url.split("/").pop() ?? "file"
+    a.download = name
     a.click()
   }, [])
 
@@ -431,6 +435,7 @@ export function MessageContextSheet({
               onMark={onMarkId}
               onCreateThread={type === "channel" ? onCreateThreadId : undefined}
               onPreviewImage={onPreviewImage}
+              onPreviewAttachment={onPreviewAttachment}
               onDownloadFile={onDownloadFile}
             />
           )}
@@ -456,6 +461,7 @@ function ContextRows({
   onMark,
   onCreateThread,
   onPreviewImage,
+  onPreviewAttachment,
   onDownloadFile,
 }: {
   rows: RenderMsg[]
@@ -473,7 +479,8 @@ function ContextRows({
   onMark?: (id: string) => void
   onCreateThread?: (id: string) => void
   onPreviewImage: (image: ImagePreview) => void
-  onDownloadFile: (url: string) => void
+  onPreviewAttachment: (attachment: FileAttachment) => void
+  onDownloadFile: (url: string, name: string) => void
 }) {
   // Single-message share from the peek sheet. The sheet has no select-mode
   // context (it's a read-only preview), so Share opens the dialog directly on
@@ -516,6 +523,7 @@ function ContextRows({
                 onCreateThreadId={onCreateThread}
                 onCopyId={onCopy}
                 onPreviewImage={onPreviewImage}
+                onPreviewAttachment={onPreviewAttachment}
                 onDownloadFile={onDownloadFile}
                 resolveUserName={resolveUserName}
                 onShareSingleId={onShareSingleId}
