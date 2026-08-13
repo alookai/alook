@@ -5,10 +5,9 @@
   ],
   "project": ["src/**/*.ts"],
   "ignoreDependencies": [
-    "citty",
-    "playwright-core",
-    "postal-mime",
-    "bun-types"
+    "@alook/daemon",
+    "sharp",
+    "ws"
   ],
   "ignoreBinaries": [
     "predev",

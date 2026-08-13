@@ -1,28 +1,11 @@
-import { execSync } from "child_process";
 import { createConnection } from "net";
 
 export function checkNodeVersion(): void {
-  const major = parseInt(process.versions.node.split(".")[0], 10);
-  if (major < 20) {
-    console.error(`Error: Node.js >= 20 required (found ${process.versions.node})`);
+  const [major, minor] = process.versions.node.split(".").map(Number);
+  if (major < 20 || (major === 20 && minor < 9)) {
+    console.error(`Error: Node.js >= 20.9 required (found ${process.versions.node})`);
     process.exit(1);
   }
-}
-
-export function checkAIRuntime(): { type: string; version: string }[] {
-  const found: { type: string; version: string }[] = [];
-  for (const type of ["claude", "codex", "opencode"]) {
-    try {
-      const check = process.platform === "win32" ? `where ${type}` : `which ${type}`;
-      execSync(check, { stdio: "ignore" });
-      let version = "";
-      try {
-        version = execSync(`${type} --version`, { encoding: "utf-8" }).trim();
-      } catch {}
-      found.push({ type, version });
-    } catch {}
-  }
-  return found;
 }
 
 export async function checkPort(port: number): Promise<boolean> {
@@ -33,18 +16,19 @@ export async function checkPort(port: number): Promise<boolean> {
   });
 }
 
-export async function checkPorts(ports: { web: number; emailWorker: number; wsDo: number }): Promise<void> {
+export async function checkPorts(ports: { web: number; emailWorker: number; wsDo: number; wakeWorker: number }): Promise<void> {
   const checks = [
     { name: "web", port: ports.web },
     { name: "email-worker", port: ports.emailWorker },
     { name: "ws-do", port: ports.wsDo },
+    { name: "wake-worker", port: ports.wakeWorker },
   ];
 
   for (const { name, port } of checks) {
     const available = await checkPort(port);
     if (!available) {
       console.error(`Error: port ${port} (${name}) is already in use.`);
-      console.error(`Use --port-web, --port-email, --port-ws to specify alternative ports.`);
+      console.error(`Use --port-web, --port-email, --port-ws, and --port-wake to specify alternative ports.`);
       process.exit(1);
     }
   }

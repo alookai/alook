@@ -21,7 +21,7 @@ import { pathToFileURL } from "node:url";
 import type { ServerApi, Cursor, Message } from "../server/contract.js";
 import { parseRef } from "../server/contract.js";
 import { proxyServerApiFromEnv } from "./proxyServerApi.js";
-import { daemonResume, daemonRunFromIpc, daemonStart, daemonStop, daemonList, daemonStatus, type DaemonInfo } from "./daemonStart.js";
+import { daemonResume, daemonRunFromIpc, daemonStart, daemonStartById, daemonStop, daemonList, daemonStatus, type DaemonInfo } from "./daemonStart.js";
 import { daemonReplace } from "./daemonUpdate.js";
 import { armMessageReminderFromEnv, parseRemindAfter } from "./messageReminderClient.js";
 import { parseInviteToken } from "@alook/shared/lib/invite-link";
@@ -998,7 +998,8 @@ function buildProgram(): Command {
   daemon
     .command("start")
     .description("start the daemon (connects to server, manages agent lifecycles)")
-    .requiredOption("--machine-key <key>", "machine key for server authentication")
+    .option("--machine-key <key>", "machine key for first-time pairing")
+    .option("--id <machineId>", "restart a previously paired machine by id")
     .option("--server-url <url>", "server HTTP URL (or ALOOK_SERVER_URL env)")
     .option("--ws-url <url>", "server WebSocket URL (or ALOOK_SERVER_WS_URL env)")
     .option("--base-dir <path>", "data directory for agent workspaces and pidfile (or ALOOK_DATA_DIR env)")
@@ -1007,8 +1008,21 @@ function buildProgram(): Command {
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })
     .action(async function (this: Command) {
       const localOpts = this.opts();
+      const machineKey = localOpts.machineKey as string | undefined;
+      const id = localOpts.id as string | undefined;
+      if ((!machineKey && !id) || (machineKey && id)) {
+        throw new CliError("daemon start requires exactly one of --machine-key <key> or --id <machineId>");
+      }
+      if (id) {
+        await daemonStartById({
+          id,
+          baseDir: localOpts.baseDir as string | undefined,
+          foreground: localOpts.foreground === true,
+        });
+        return;
+      }
       await daemonStart({
-        machineKey: localOpts.machineKey as string,
+        machineKey: machineKey!,
         serverUrl: localOpts.serverUrl as string | undefined,
         wsUrl: localOpts.wsUrl as string | undefined,
         baseDir: localOpts.baseDir as string | undefined,
@@ -1075,11 +1089,16 @@ function buildProgram(): Command {
     .command("list")
     .description("list running daemons on this machine")
     .option("--base-dir <path>", "data directory (or ALOOK_DATA_DIR env)")
+    .option("--json", "print a machine-readable JSON envelope")
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })
     .action(function (this: Command) {
       const localOpts = this.opts();
       const daemons = daemonList({ baseDir: localOpts.baseDir as string | undefined });
+      if (localOpts.json === true) {
+        printEnvelope({ success: { daemons } });
+        return;
+      }
       // `daemon list` is for a HUMAN operator — print a table, not JSON (the
       // agent-facing commands keep their JSON envelope). The ID column is what
       // you pass to `daemon stop <id>`.

@@ -68,23 +68,26 @@ describe("B2d read-only bug-report R2 preflight", () => {
     const packageRoot = fileURLToPath(new URL("..", import.meta.url));
     const secretMarker = "PREFLIGHT_SECRET_MUST_NOT_LEAK";
     const packageManagerCli = process.env.npm_execpath;
-    const childArgs = packageManagerCli
-      ? [packageManagerCli, "run", "preflight:bug-reports"]
-      : [
-          fileURLToPath(import.meta.resolve("tsx/cli")),
-          fileURLToPath(new URL("./preflight-bug-reports.ts", import.meta.url)),
-        ];
-    const child = spawnSync(process.execPath, childArgs, {
-      cwd: packageRoot,
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        CLOUDFLARE_ACCOUNT_ID: "",
-        CLOUDFLARE_API_TOKEN: "",
-        UNRELATED_PREFLIGHT_SECRET: secretMarker,
+    const child = spawnSync(
+      packageManagerCli ?? process.execPath,
+      packageManagerCli
+        ? ["run", "preflight:bug-reports"]
+        : [
+            fileURLToPath(import.meta.resolve("tsx/cli")),
+            fileURLToPath(new URL("./preflight-bug-reports.ts", import.meta.url)),
+          ],
+      {
+        cwd: packageRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          CLOUDFLARE_ACCOUNT_ID: "",
+          CLOUDFLARE_API_TOKEN: "",
+          UNRELATED_PREFLIGHT_SECRET: secretMarker,
+        },
+        timeout: 10_000,
       },
-      timeout: 10_000,
-    });
+    );
 
     expect(child.error).toBeUndefined();
     expect(child.status).toBe(1);

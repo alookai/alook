@@ -5,8 +5,7 @@ vi.mock("../src/lib/constants.js", () => ({ SELF_HOSTED_DIR: "/tmp/alook-test" }
 
 import {
   registerUser,
-  createWorkspace,
-  createMachineToken,
+  createPairingToken,
   waitForServer,
 } from "../src/lib/register.js";
 
@@ -65,40 +64,32 @@ describe("registerUser", () => {
   });
 });
 
-describe("createWorkspace", () => {
-  it("returns the created workspace", async () => {
+describe("createPairingToken", () => {
+  it("creates a community pairing token with the authenticated session", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true, status: 200, headers: new Headers(),
+      json: async () => ({ tokenId: "cmt_pair", expiresAt: "2026-08-14T02:00:00Z" }),
+    } as unknown as Response);
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await createPairingToken(BASE, "session-cookie");
+    expect(result.tokenId).toBe("cmt_pair");
+    expect(fetchMock).toHaveBeenCalledWith(`${BASE}/api/community/machines/pair`, expect.objectContaining({
+      method: "POST",
+      headers: expect.objectContaining({ Cookie: "session-cookie", Origin: BASE }),
+    }));
+  });
+
+  it("rejects an invalid pairing response", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true, status: 200, headers: new Headers(),
-      json: async () => ({ id: "w1", name: "Personal", slug: "personal" }),
+      json: async () => ({ tokenId: "al_legacy" }),
     } as unknown as Response));
-    const ws = await createWorkspace(BASE, "cookie");
-    expect(ws.id).toBe("w1");
+    await expect(createPairingToken(BASE, "cookie")).rejects.toThrow("invalid token");
   });
 
-  it("falls back to the first existing workspace when creation fails", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({ ok: false, status: 409, headers: new Headers() } as unknown as Response)
-      .mockResolvedValueOnce({ ok: true, status: 200, headers: new Headers(), json: async () => [{ id: "w-existing", name: "Old", slug: "old" }] } as unknown as Response);
-    vi.stubGlobal("fetch", fetchMock);
-    const ws = await createWorkspace(BASE, "cookie");
-    expect(ws.id).toBe("w-existing");
-  });
-});
-
-describe("createMachineToken", () => {
-  it("returns the token payload", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-      ok: true, status: 200, headers: new Headers(), json: async () => ({ token: "al_x", id: "mt1" }),
-    } as unknown as Response));
-    const tok = await createMachineToken(BASE, "cookie", "w1");
-    expect(tok.token).toBe("al_x");
-  });
-
-  it("exits when token creation fails", async () => {
+  it("surfaces pairing failures", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => "no", headers: new Headers() } as unknown as Response));
-    vi.spyOn(process, "exit").mockImplementation((() => { throw new Error("exit"); }) as never);
-    await expect(createMachineToken(BASE, "cookie", "w1")).rejects.toThrow("exit");
+    await expect(createPairingToken(BASE, "cookie")).rejects.toThrow("pairing token (500)");
   });
 });
 

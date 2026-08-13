@@ -14,30 +14,29 @@ This will:
 2. Install Alook to `~/.alook/self-hosted/`
 3. Generate secrets (`BETTER_AUTH_SECRET`, `ENCRYPTION_KEY`)
 4. Run database migrations (SQLite via Cloudflare D1 local)
-5. Start all services (web, email worker, WebSocket)
-6. Create your account and workspace
-7. Register your AI runtime and start the daemon
+5. Start all services (web, email worker, WebSocket, wake worker)
+6. Create your local account
+7. Pair this machine and start `@alook/daemon`
 8. Open the dashboard in your browser
 
 ## Commands
 
 | Command | Description |
 | --- | --- |
-| `npx @alook/app onboard` | Full setup: install, migrate, start, and register |
+| `npx @alook/app onboard` | Full setup: install, migrate, start, and pair |
 | `npx @alook/app start` | Start services from an existing installation |
 | `npx @alook/app stop` | Stop all services |
-| `npx @alook/app update` | Update to latest version, re-run migrations, then stop |
+| `npx @alook/app update` | Update services and re-run migrations |
 
-### Embedded CLI
+### Embedded daemon
 
-`@alook/app` bundles a copy of `@alook/cli` for managing the local daemon and runtime registration:
+`@alook/app` bundles the current `@alook/daemon` CLI. Pairing happens automatically during onboard; saved machine credentials remain private in the app-owned data directory.
 
 ```bash
-npx @alook/app register          # Register CLI with local server
-npx @alook/app daemon start      # Start the daemon
-npx @alook/app daemon stop       # Stop the daemon
-npx @alook/app daemon status     # Check daemon status
-npx @alook/app cli <any command> # Pass-through to @alook/cli
+npx @alook/app daemon list                   # List paired/running daemons
+npx @alook/app daemon status [machine-id]    # Check agent status
+npx @alook/app daemon stop <machine-id>      # Stop one daemon
+npx @alook/app daemon start --id <machine-id> # Restart without exposing its credential
 ```
 
 ## Options
@@ -46,6 +45,7 @@ npx @alook/app cli <any command> # Pass-through to @alook/cli
 --port-web <port>    Web server port (default: 15210)
 --port-email <port>  Email worker port (default: 15211)
 --port-ws <port>     WebSocket worker port (default: 15212)
+--port-wake <port>   Wake worker port (default: 15213)
 --skip-register      Skip account creation (onboard only)
 ```
 
@@ -53,13 +53,14 @@ npx @alook/app cli <any command> # Pass-through to @alook/cli
 
 ### Services
 
-Alook runs three local services, each in its own Wrangler dev process:
+Alook runs four local services, each in its own Wrangler dev process:
 
 | Service | Default Port | Description |
 | --- | --- | --- |
 | **Web** | 15210 | Main web app (Next.js on Wrangler) — dashboard, API, auth |
 | **Email Worker** | 15211 | Email processing worker |
 | **WebSocket (WS-DO)** | 15212 | Real-time communication via Durable Objects |
+| **Wake Worker** | 15213 | Dispatches unread-message wake events to local daemons |
 
 All services share a single SQLite database (Cloudflare D1 local mode) with state persisted at `~/.alook/self-hosted/web/.wrangler/state/`.
 
@@ -72,7 +73,9 @@ All services share a single SQLite database (Cloudflare D1 local mode) with stat
 │   └── migrations/       # SQL migration files
 ├── email-worker/         # Email worker (wrangler.toml, .dev.vars)
 ├── ws-do/                # WebSocket Durable Object worker
-├── logs/                 # Service logs (web.log, email-worker.log, ws-do.log)
+├── wake-worker/          # Agent wake dispatcher
+├── daemon/               # Private machine credentials, daemon state, and logs
+├── logs/                 # Service logs (web, email, WS, and wake workers)
 └── .pids.json            # PID tracking for running services
 ```
 
@@ -110,8 +113,8 @@ ALOOK_PROJECT_ROOT=/path/to/alook npx @alook/app onboard
 
 ## Requirements
 
-- Node.js >= 20
-- One of: `claude`, `codex`, or `opencode` CLI installed
+- Node.js >= 20.9
+- A supported agent runtime such as Claude Code, Codex, OpenCode, Pi, or Cursor
 
 ## Limitations
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Bundle script — run in CI before `npm publish` of @alook/app.
- * Builds web (opennextjs-cloudflare), email-worker, and ws-do into
+ * Builds web (opennextjs-cloudflare), email-worker, ws-do, and wake-worker into
  * pre-compiled bundles that can run with `wrangler dev --local` without
  * needing source code or node_modules.
  */
@@ -128,6 +128,21 @@ const wsToml = readFileSync(join(wsSrc, "wrangler.toml"), "utf-8");
 writeFileSync(
   join(wsDest, "wrangler.toml"),
   wsToml.replace('main = "src/index.ts"', 'main = "index.js"'),
+);
+
+// --- Build Wake Worker ---
+console.log("\n=== Building Wake Worker ===\n");
+const wakeSrc = join(monoRoot, "src", "wake-worker");
+const wakeDest = join(bundledDir, "wake-worker");
+mkdirSync(wakeDest, { recursive: true });
+
+run("npx wrangler deploy --dry-run --outdir dist", wakeSrc);
+cpSync(join(wakeSrc, "dist", "index.js"), join(wakeDest, "index.js"));
+
+const wakeToml = readFileSync(join(wakeSrc, "wrangler.toml"), "utf-8");
+writeFileSync(
+  join(wakeDest, "wrangler.toml"),
+  wakeToml.replace('main = "src/index.ts"', 'main = "index.js"'),
 );
 
 console.log("\n✓ Bundle complete at:", bundledDir);
