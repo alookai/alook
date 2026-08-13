@@ -182,7 +182,7 @@ describe("envelope contract", () => {
 });
 
 describe("channel alignment (message send)", () => {
-  it("blocked send becomes a readable error telling the agent to pull", async () => {
+  it("blocked send requires reading new messages before deciding whether to resend", async () => {
     setApiForTesting(
       stubApi({ send: async () => ({ state: "blocked", reason: "unaligned", unreadCount: 3, latestSeq: 12 }) }),
     );
@@ -193,6 +193,9 @@ describe("channel alignment (message send)", () => {
     expect(env.error).toContain("3 unread");
     expect(env.error).toContain("#12");
     expect(env.error).toContain("inbox pull");
+    expect(env.error).toContain("READ the new messages");
+    expect(env.error).toContain("before deciding");
+    expect(env.error).toContain("resend, adjust, or skip");
   });
 });
 

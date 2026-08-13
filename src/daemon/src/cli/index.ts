@@ -296,7 +296,8 @@ async function cmdMessageSend(opts: Record<string, unknown>): Promise<unknown> {
   if (res.state === "blocked") {
     throw new CliError(
       `channel not aligned: ${res.unreadCount} unread message(s) in ${channel} (latest #${res.latestSeq}). ` +
-        `Run \`alook inbox pull\` to align, then resend.`,
+        `Run \`alook inbox pull\` and READ the new messages before deciding whether to resend, ` +
+        `adjust, or skip your message.`,
     );
   }
   // `deduped` (a same-nonce retry matched the already-committed message) is a
