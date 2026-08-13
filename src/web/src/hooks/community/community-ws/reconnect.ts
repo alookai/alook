@@ -121,6 +121,15 @@ function policyExecutors(queryClient: QueryClient): Record<CommunityWsReconcileP
       const settled = await Promise.allSettled(operations)
       if (settled.some((result) => result.status === "rejected")) throw new Error("focused messages failed")
     },
+    "focused-opener": async () => {
+      const parentMessageId = useCommunityStore.getState().currentChannelMeta?.parentMessageId
+      if (!parentMessageId) return
+      await queryClient.invalidateQueries({
+        queryKey: communityKeys.message(parentMessageId),
+        exact: true,
+        refetchType: "active",
+      })
+    },
     "focused-channel-roster": async () => {
       if (!sub.channelId) return
       const settled = await Promise.allSettled([

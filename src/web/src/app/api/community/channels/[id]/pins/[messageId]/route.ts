@@ -30,7 +30,7 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
     type: WS_EVENTS.PIN_REMOVE,
     channelId,
     messageId,
-  }, { excludeUserId: ctx.userId })
+  })
 
 
   return new Response(null, { status: 204 })

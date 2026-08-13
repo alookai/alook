@@ -10,7 +10,7 @@ import {
   WS_EVENTS,
   slugify,
 } from "@alook/shared"
-import { fanOutToServerMembers } from "@/lib/community/fanout"
+import { fanOutToServerMembers, fanOutToUsers } from "@/lib/community/fanout"
 import { requireServerAdmin } from "@/lib/community/permissions"
 
 export const PATCH = withAuth(async (req: NextRequest, ctx) => {
@@ -65,7 +65,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     type: WS_EVENTS.SERVER_UPDATE,
     serverId,
     changes,
-  }, { excludeUserId: ctx.userId })
+  })
 
   return writeJSON(updated)
 })
@@ -82,14 +82,15 @@ export const DELETE = withAuth(async (_req, ctx) => {
     return writeError("only the owner can delete the server", 403)
   }
 
-  await fanOutToServerMembers(serverId, {
-    type: WS_EVENTS.SERVER_DELETE,
-    serverId,
-  }, { excludeUserId: ctx.userId })
+  const recipients = await queries.communityMember.listMemberUserIds(db, serverId)
 
   const deleted = await queries.communityServer.deleteServer(db, serverId)
   if (!deleted) return writeError("server not found", 404)
 
+  await fanOutToUsers(recipients, {
+    type: WS_EVENTS.SERVER_DELETE,
+    serverId,
+  })
 
   return new Response(null, { status: 204 })
 })

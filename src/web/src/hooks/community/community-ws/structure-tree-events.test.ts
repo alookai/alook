@@ -276,6 +276,35 @@ describe("useCommunityWs — child_create patches parent thread badge with count
     expect(cache?.pages[0].messages[0].thread?.messageCount).toBe(5)
   })
 
+  it("child_update rename patches focused child metadata and its cached channel meta", async () => {
+    await mountHook()
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().setCurrentServerId("s1")
+    useCommunityStore.getState().setCurrentChannelId("ch_thread")
+    useCommunityStore.getState().setCurrentChannelMeta({
+      name: "old",
+      parentChannelId: "ch_parent",
+      parentMessageId: "m_parent",
+    })
+    capturedQueryClient.setQueryData(communityKeys.channelMeta("s1", "ch_thread"), {
+      id: "ch_thread",
+      name: "old",
+      parentChannelId: "ch_parent",
+    })
+
+    capturedOnMessage!({
+      type: "community:channel.child_update",
+      parentChannelId: "ch_parent",
+      channelId: "ch_thread",
+      changes: { name: "new" },
+    } satisfies CommunityChildChannelUpdate)
+
+    expect(useCommunityStore.getState().currentChannelMeta?.name).toBe("new")
+    expect(capturedQueryClient.getQueryData<{ name: string }>(
+      communityKeys.channelMeta("s1", "ch_thread"),
+    )?.name).toBe("new")
+  })
+
   it("child_update removes archived sidebar rows and invalidates on reopen", async () => {
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")

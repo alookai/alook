@@ -84,7 +84,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     type: WS_EVENTS.PIN_ADD,
     channelId,
     messageId: body.messageId,
-  }, { excludeUserId: ctx.userId })
+  })
 
 
   return writeJSON(pin, 201)

@@ -10,6 +10,7 @@ import type {
 import { communityKeys } from "@/lib/query-keys"
 import { projectCommunityMessageCreate } from "@/lib/community/message-wire"
 import type { CanonicalMessage } from "@/lib/community/message-stream"
+import type { Msg } from "@/components/community/_types"
 import { useCommunityStore } from "@/stores/community"
 import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
 import {
@@ -153,6 +154,10 @@ export function handleReactionEvent(
   queryClient.setQueryData<PageCache>(
     communityKeys.dmMessages(event.channelId),
     (c) => applyReactionToCache(c, event, viewerId),
+  )
+  queryClient.setQueryData<Msg | undefined>(
+    communityKeys.message(event.messageId),
+    (message) => message ? applyReactionToMessage(message, event, viewerId) : message,
   )
   if (event.channelId === sub.channelId) {
     const serverId = useCommunityStore.getState().currentServerId

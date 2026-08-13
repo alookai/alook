@@ -125,6 +125,20 @@ export function handleChildChannelUpdate(
   // indicator if the update carries them.
   const changes = event.changes
   const sidebarServerId = useCommunityStore.getState().currentServerId
+  if (changes.name !== undefined && sidebarServerId) {
+    queryClient.setQueryData<Record<string, unknown> | undefined>(
+      communityKeys.channelMeta(sidebarServerId, event.channelId),
+      (meta) => meta ? { ...meta, name: changes.name } : meta,
+    )
+    const store = useCommunityStore.getState()
+    if (
+      store.currentChannelId === event.channelId &&
+      store.currentChannelMeta &&
+      store.currentChannelMeta.name !== changes.name
+    ) {
+      store.setCurrentChannelMeta({ ...store.currentChannelMeta, name: changes.name })
+    }
+  }
   if (
     sidebarServerId &&
     isForumSidebarParent(queryClient, sidebarServerId, event.parentChannelId)

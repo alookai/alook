@@ -118,20 +118,36 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   }
   if (!updated) return writeError("channel not found", 404)
 
+  let broadcastChanges = changes
+  if (isThread(channel.type) && channel.parentChannelId) {
+    if (changes.name !== undefined) {
+      await fanOutToChannel(channel.parentChannelId, {
+        type: WS_EVENTS.CHILD_CHANNEL_UPDATE,
+        parentChannelId: channel.parentChannelId,
+        channelId,
+        changes: { name: changes.name },
+      })
+    }
+    const remainingChanges = { ...changes }
+    delete remainingChanges.name
+    if (Object.keys(remainingChanges).length === 0) return writeJSON(updated)
+    broadcastChanges = remainingChanges
+  }
+
   const isPrivate = await queries.communityChannel.isChannelPrivate(db, channelId)
   if (isPrivate) {
     await fanOutToChannel(channelId, {
       type: WS_EVENTS.CHANNEL_UPDATE,
       serverId: channel.serverId,
       channelId,
-      changes,
+      changes: broadcastChanges,
     })
   } else {
     await fanOutToServerMembers(channel.serverId, {
       type: WS_EVENTS.CHANNEL_UPDATE,
       serverId: channel.serverId,
       channelId,
-      changes,
+      changes: broadcastChanges,
     })
   }
 

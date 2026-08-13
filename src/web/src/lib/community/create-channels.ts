@@ -213,10 +213,16 @@ export async function createThreadForUser(
   const bearing = requireMessageBearingSurface(channel.type)
   if (!bearing.ok) return { ok: false, status: bearing.status, error: bearing.error }
 
-  if (!params.name || typeof params.name !== "string") return { ok: false, status: 400, error: "name is required" }
-  const name = params.name.trim()
-  if (!name || name.length > MAX_CHANNEL_NAME_LENGTH) {
-    return { ok: false, status: 400, error: `name must be 1-${MAX_CHANNEL_NAME_LENGTH} characters` }
+  let name: string
+  if (params.name === undefined) {
+    const source = message.content?.trim() ?? ""
+    name = source ? source.slice(0, 40) : "Thread"
+  } else {
+    if (typeof params.name !== "string") return { ok: false, status: 400, error: "name is required" }
+    name = params.name.trim()
+    if (!name || name.length > MAX_CHANNEL_NAME_LENGTH) {
+      return { ok: false, status: 400, error: `name must be 1-${MAX_CHANNEL_NAME_LENGTH} characters` }
+    }
   }
 
   // Get-or-create by the root-message anchor, matching the send-path exactly
@@ -233,33 +239,30 @@ export async function createThreadForUser(
   const existingThread = await queries.communityChannel.getThreadChannelByParentMessage(db, message.channelId, messageId)
   if (existingThread) return { ok: true, value: existingThread }
 
+  let createdByThisAttempt = false
   const threadResult = await createWithCollisionPolicy(channelCreation("thread"), {
-    attempt: () => queries.communityChannel.createChannel(db, {
-      serverId: channel.serverId,
-      parentChannelId: message.channelId!,
-      parentMessageId: messageId,
-      name,
-      type: "thread",
-      creatorId: actorUserId,
-    }),
+    attempt: async () => {
+      const created = await queries.communityChannel.createChannel(db, {
+        serverId: channel.serverId,
+        parentChannelId: message.channelId!,
+        parentMessageId: messageId,
+        name,
+        type: "thread",
+        creatorId: actorUserId,
+      })
+      createdByThisAttempt = true
+      return created
+    },
     refetchWinner: () => queries.communityChannel.getThreadChannelByParentMessage(db, message.channelId!, messageId),
   })
   // get-or-create never returns a structured failure — a !ok is unreachable for
   // this policy (it creates or re-selects, else throws); map to 404 defensively.
   if (!threadResult.ok) return { ok: false, status: 404, error: "thread not found" }
   const childChannel = threadResult.value
-  // Fresh-create vs concurrent-race re-select (rare — both creators passed the
-  // probe above before either inserted, so the loser's attempt() threw and
-  // refetchWinner returned the OTHER creator's row). Only the winner whose row
-  // this actor created (creatorId === actorUserId) is a fresh create; a
-  // re-selected row was created by someone else who already ran these side
-  // effects. Keeps re-select side-effect-free on the race path too.
-  const isFreshCreate = childChannel.creatorId === actorUserId
-
   // Seed the NOTIFY set on a fresh create only: creator (spoke) + original author
   // (added, if still a member — else a private channel's thread could leak to
   // someone who lost access). Idempotent per (channel,user) via onConflictDoNothing.
-  if (isFreshCreate) {
+  if (createdByThisAttempt) {
     const seedRows: { userId: string; source: typeof PARTICIPANT_SOURCE.SPOKE | typeof PARTICIPANT_SOURCE.ADDED }[] = [
       { userId: actorUserId, source: PARTICIPANT_SOURCE.SPOKE },
     ]
@@ -269,7 +272,7 @@ export async function createThreadForUser(
     }
     await queries.communityThread.addThreadParticipants(db, childChannel.id, seedRows)
 
-    fanOutToChannel(message.channelId, {
+    await fanOutToChannel(message.channelId, {
       type: WS_EVENTS.CHILD_CHANNEL_CREATE,
       parentChannelId: message.channelId,
       channel: {
@@ -280,7 +283,7 @@ export async function createThreadForUser(
         createdAt: childChannel.createdAt,
       },
       parentMessageId: messageId,
-    }, { excludeUserId: actorUserId })
+    })
   }
 
   return { ok: true, value: childChannel }
@@ -480,7 +483,7 @@ export async function createMessageWithThread(params: {
           createdAt: childChannel.createdAt,
         },
         parentMessageId: messageId,
-      }, { excludeUserId: authorId })
+      })
     }
   }
 

@@ -12,6 +12,11 @@ const mockGetMessageByChannelAndSeq = vi.fn()
 const mockGetThreadChannelByParentMessage = vi.fn()
 const mockCreateThreadChannel = vi.fn()
 const mockIsUniqueConstraintError = vi.fn(() => false)
+const mockCreateThreadForUser = vi.fn()
+
+vi.mock("./create-channels", () => ({
+  createThreadForUser: (...a: unknown[]) => mockCreateThreadForUser(...a),
+}))
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -203,31 +208,30 @@ describe("resolveTargetForMember", () => {
       expect(res).toEqual({ error: 404, message: "thread not found" })
     })
 
-    it("creates the thread channel when missing and createThreadIfMissing is true", async () => {
+    it("delegates missing-thread creation to the canonical thread helper", async () => {
       mockGetMessageByChannelAndSeq.mockResolvedValue({ id: "msg_1" })
       mockGetThreadChannelByParentMessage.mockResolvedValue(null)
-      mockCreateThreadChannel.mockResolvedValue({ id: "thread_new" })
+      mockCreateThreadForUser.mockResolvedValue({ ok: true, value: { id: "thread_new" } })
       const res = await resolveTargetForMember(db, "u_1", "/studio#0042/general/#7", { createThreadIfMissing: true })
       expect(res).toEqual({ kind: "channel", channelId: "thread_new" })
-      expect(mockCreateThreadChannel).toHaveBeenCalledWith(db, "ch_1", "msg_1", "u_1")
+      expect(mockCreateThreadForUser).toHaveBeenCalledWith(db, {
+        messageId: "msg_1",
+        actorUserId: "u_1",
+      })
     })
 
-    it("on a lost create race (unique constraint), re-selects the winning thread", async () => {
+    it("returns the winning thread selected by the canonical helper", async () => {
       mockGetMessageByChannelAndSeq.mockResolvedValue({ id: "msg_1" })
-      mockGetThreadChannelByParentMessage
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce({ id: "thread_winner" })
-      mockCreateThreadChannel.mockRejectedValue(new Error("unique constraint failed"))
-      mockIsUniqueConstraintError.mockReturnValue(true)
+      mockGetThreadChannelByParentMessage.mockResolvedValue(null)
+      mockCreateThreadForUser.mockResolvedValue({ ok: true, value: { id: "thread_winner" } })
       const res = await resolveTargetForMember(db, "u_1", "/studio#0042/general/#7", { createThreadIfMissing: true })
       expect(res).toEqual({ kind: "channel", channelId: "thread_winner" })
     })
 
-    it("rethrows non-unique-constraint errors from createThreadChannel", async () => {
+    it("rethrows failures from the canonical thread helper", async () => {
       mockGetMessageByChannelAndSeq.mockResolvedValue({ id: "msg_1" })
       mockGetThreadChannelByParentMessage.mockResolvedValue(null)
-      mockCreateThreadChannel.mockRejectedValue(new Error("boom"))
-      mockIsUniqueConstraintError.mockReturnValue(false)
+      mockCreateThreadForUser.mockRejectedValue(new Error("boom"))
       await expect(
         resolveTargetForMember(db, "u_1", "/studio#0042/general/#7", { createThreadIfMissing: true })
       ).rejects.toThrow("boom")

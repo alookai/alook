@@ -105,6 +105,26 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     ).toBe(true)
   })
 
+  it("invalidates the focused thread opener's single-message query on reconnect", async () => {
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().setCurrentChannelMeta({
+      name: "thread",
+      parentChannelId: "ch_parent",
+      parentMessageId: "m_opener",
+    })
+    capturedQueryClient.setQueryData(communityKeys.message("m_opener"), { id: "m_opener" })
+    await mountHook()
+    const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+
+    await capturedOnReconnect!({ reconnectDurationMs: 0 })
+
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: communityKeys.message("m_opener"),
+      exact: true,
+      refetchType: "active",
+    })
+  })
+
   it("re-seeds the rail list + open server's detail on reconnect (inbox-dot-ws-driven ②)", async () => {
     // Sidebar dots + rail mention badges are now driven by the live
     // `unread.bump` patch, with no switch-refetch backing them. A bump dropped
@@ -313,8 +333,8 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const summary = await reconcileCommunityWsReconnect(capturedQueryClient, 900)
 
     expect(summary).toMatchObject({
-      policyCount: 12,
-      successCount: 11,
+      policyCount: 13,
+      successCount: 12,
       failureCount: 1,
       reconnectDurationMs: 900,
     })
@@ -344,7 +364,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const summary = await reconcileCommunityWsReconnect(capturedQueryClient, 10)
     useCommunityWsStore.setState({ resetPresence: originalResetPresence })
 
-    expect(summary).toMatchObject({ policyCount: 12, successCount: 11, failureCount: 1 })
+    expect(summary).toMatchObject({ policyCount: 13, successCount: 12, failureCount: 1 })
     expect(telemetry.failure).toHaveBeenCalledWith({
       policy: "presence-overlay",
       reason: "sync-throw",

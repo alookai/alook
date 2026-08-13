@@ -21,7 +21,7 @@ export function UserBar({ user, onOpenProfile, onEditProfile, inbox, hasUnread, 
   onInboxOpenChange?: (open: boolean) => void
 }) {
   return (
-    <div className="shrink-0 px-3 pb-3 pt-0">
+    <div data-testid="community-user-bar" className="shrink-0 px-3 pb-3 pt-0">
       <div className="flex h-12 items-center gap-3 rounded-xl bg-muted px-4 ring-1 ring-border/40">
         <Inner user={user} onOpenProfile={onOpenProfile} onEditProfile={onEditProfile} inbox={inbox} hasUnread={hasUnread} inboxOpen={inboxOpen} onInboxOpenChange={onInboxOpenChange} />
       </div>
@@ -39,14 +39,14 @@ function Inner({ user, onOpenProfile, onEditProfile, inbox, hasUnread, inboxOpen
   onInboxOpenChange?: (open: boolean) => void
 }) {
   return (
-    <div className="flex flex-1 items-center gap-2">
+    <div className="flex min-w-0 flex-1 items-center gap-2">
       <button onClick={(e) => onOpenProfile?.(user.name, e, undefined, user.id)} className="shrink-0 rounded-full focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
         <Avatar label={user.avatar} seed={user.id} size={28} presence={resolveProfilePresence(true, user.id, EMPTY_ONLINE_SET)} ringColor="var(--muted)" />
       </button>
       <button onClick={(e) => onOpenProfile?.(user.name, e, undefined, user.id)} className="min-w-0 flex-1 text-left rounded focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
-        <div className="truncate text-sm font-medium leading-tight">{user.name}</div>
+        <div data-testid="community-user-bar-name" className="truncate text-sm font-medium leading-tight">{user.name}</div>
       </button>
-      <div className="flex items-center gap-1">
+      <div className="flex shrink-0 items-center gap-1">
         {inbox && (
           <Popover open={inboxOpen} onOpenChange={onInboxOpenChange}>
             <PopoverTrigger

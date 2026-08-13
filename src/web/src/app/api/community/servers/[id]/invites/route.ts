@@ -99,7 +99,7 @@ export const POST = withAuth(async (req, ctx) => {
     },
   }
 
-  fanOutToServerMembers(serverId, event, { excludeUserId: ctx.userId })
+  fanOutToServerMembers(serverId, event)
 
   return writeJSON({ invite }, 201)
 })

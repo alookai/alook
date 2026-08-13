@@ -194,13 +194,6 @@ export async function createCommunityMessage(params: {
    */
   skipWake?: boolean
   /**
-   * Fan out `MESSAGE_CREATE` WITHOUT `excludeUserId`, so the author also
-   * receives the event. The thread_created system message needs this — its
-   * creator has no optimistic client row and must get the WS broadcast to see
-   * it without a refresh.
-   */
-  includeAuthorInFanout?: boolean
-  /**
    * Reserve-by-id attachment path (the ONLY attachment path — human web and bot
    * both use it, route/disc step 2b). Pending attachment ids the caller has
    * already validated against (uploader, target). When present, the handler
@@ -275,7 +268,6 @@ export async function createCommunityMessage(params: {
     messageType,
     skipMentions,
     skipWake,
-    includeAuthorInFanout,
     deferBroadcast,
     suppressBroadcast,
     attachmentIds,
@@ -740,10 +732,6 @@ export async function createCommunityMessage(params: {
       channelId: row.channelId,
     }
 
-  // `includeAuthorInFanout` fans out MESSAGE_CREATE without `excludeUserId`
-  // (thread_created: the creator has no optimistic row and needs the event).
-  const fanoutExclude = includeAuthorInFanout ? undefined : authorId
-
   // All WS side effects live here so `deferBroadcast` can hand them back as a
   // thunk instead of firing them inline.
   const doBroadcast = async (): Promise<void> => {
@@ -756,10 +744,9 @@ export async function createCommunityMessage(params: {
     // self-contained, defaulting to `all`).
     const recipients = await resolveChannelRecipients(db, target.channelId)
 
-    // Normal message fan-out excludes the author because their optimistic row
-    // is reconciled from the POST response. If this send newly enrolled them
-    // in a thread's notify set, send a membership event directly so their own
-    // open Members drawer and sidebar participation state also refresh.
+    // If this send newly enrolled the author in a thread's notify set, send a
+    // membership event directly so their open Members drawer and sidebar
+    // participation state also refresh.
     if (joinedParticipantUserIds.includes(authorId) && !isDmTarget(target)) {
       void broadcastToUserSafe(authorId, {
         type: WS_EVENTS.CHANNEL_MEMBER_ADD,
@@ -783,7 +770,7 @@ export async function createCommunityMessage(params: {
         message: messagePayload,
       },
       {
-        excludeUserId: fanoutExclude,
+        excludeWakeUserId: authorId,
         recipients,
         wakeMessageRow,
         mentionedUserIds: [...liveMentions, ...liveReplies],
@@ -834,7 +821,6 @@ export async function createCommunityMessage(params: {
                 updated?.lastMessageAt ?? new Date().toISOString(),
             },
           },
-          { excludeUserId: fanoutExclude },
         ).catch(() => { })
       }
     }

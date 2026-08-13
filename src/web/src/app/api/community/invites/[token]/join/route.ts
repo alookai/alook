@@ -76,11 +76,7 @@ export const POST = withCommunityActor(async (_req, ctx) => {
     },
   }
 
-  fanOutToServerMembers(
-    result.invite.serverId,
-    memberEvent,
-    { excludeUserId: actor.userId },
-  )
+  fanOutToServerMembers(result.invite.serverId, memberEvent)
 
   // A bot's OWNER isn't necessarily a member of the joined server, so the
   // member-scoped fan-out above never reaches them; send the same event

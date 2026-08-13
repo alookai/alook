@@ -73,6 +73,35 @@ describe("useCommunityWs — member events", () => {
     expect(cache?.pages[0].total).toBe(1)
   })
 
+  it("refreshes rail and server detail only when the joining member is the viewer", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+    const event = {
+      type: "community:member.join",
+      serverId: "srv_new",
+      member: {
+        id: "mem_me",
+        userId: "u_me",
+        name: "Me",
+        discriminator: "0001",
+        role: "member",
+        joinedAt: "2026-08-14T00:00:00.000Z",
+      },
+    } satisfies CommunityMemberJoin
+
+    capturedOnMessage!(event)
+
+    expect(spy).toHaveBeenCalledWith({ queryKey: communityKeys.servers(), exact: true })
+    expect(spy).toHaveBeenCalledWith({ queryKey: communityKeys.server("srv_new"), exact: true })
+
+    spy.mockClear()
+    capturedOnMessage!({
+      ...event,
+      member: { ...event.member, id: "mem_peer", userId: "u_peer" },
+    })
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: communityKeys.servers(), exact: true })
+  })
+
   it("forwards WS membership changes onto the server-scoped search overlay bus", async () => {
     await mountHook()
     const received: MemberOverlayEvent[] = []

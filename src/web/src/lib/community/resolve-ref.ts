@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server"
-import { queries, parseRef, DM_SERVER, parseNameAndTag, channelCreation, withD1Retry } from "@alook/shared"
+import { queries, parseRef, DM_SERVER, parseNameAndTag, withD1Retry } from "@alook/shared"
 import type { Database } from "@alook/shared"
 import { guardDmOpen } from "./dm-guard"
-import { createWithCollisionPolicy } from "./create-collision"
+import { createThreadForUser } from "./create-channels"
 
 export type TargetResolution =
   | { kind: "channel"; channelId: string }
@@ -143,22 +143,16 @@ export async function resolveTargetForMember(
     return { error: 404, message: "thread not found" }
   }
 
-  // Thread create via the shared trait-keyed collision policy (B4): thread's
-  // creation trait is get-or-create — a concurrent create that loses the race on
-  // the parent_message_id anchor (unique index, migration 0052) re-selects the
-  // winner rather than making a second thread. Top-level channels
-  // (reject-on-collision) use the same dispatch with a different collision
-  // contract; only these callbacks (the thread channel-shape + its anchor
-  // refetch) are thread-specific. DM's identity-collision is a different key
-  // space and is NOT wired here.
-  const threadResult = await createWithCollisionPolicy(channelCreation("thread"), {
-    attempt: () => queries.communityChannel.createThreadChannel(db, channel.id, rootMessage.id, userId),
-    refetchWinner: () => queries.communityChannel.getThreadChannelByParentMessage(db, channel.id, rootMessage.id),
+  const threadResult = await createThreadForUser(db, {
+    messageId: rootMessage.id,
+    actorUserId: userId,
   })
-  // get-or-create never returns a structured failure (it creates or re-selects
-  // the winner, else throws) — a `!ok` here is unreachable for this policy;
-  // map it to a 404 rather than widen TargetResolution's error union to 409.
-  if (!threadResult.ok) return { error: 404, message: "thread not found" }
+  if (!threadResult.ok) {
+    const status = threadResult.status === 400 || threadResult.status === 403
+      ? threadResult.status
+      : 404
+    return { error: status, message: threadResult.error }
+  }
   return { kind: "channel", channelId: threadResult.value.id }
 }
 
