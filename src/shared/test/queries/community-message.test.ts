@@ -16,6 +16,21 @@ describe("community/message exports", () => {
   });
 });
 
+describe("getMessageIdentityByChannelAndSeq", () => {
+  it("projects only message identity for channel-scoped resolution", async () => {
+    const db = createSelectMock([{ id: "m_42", channelId: "ch_1" }]);
+    await expect(messageQueries.getMessageIdentityByChannelAndSeq(
+      db,
+      { channelId: "ch_1" },
+      42,
+    )).resolves.toEqual({ id: "m_42", channelId: "ch_1" });
+    expect(db.select).toHaveBeenCalledWith({
+      id: communityMessage.id,
+      channelId: communityMessage.channelId,
+    });
+  });
+});
+
 describe("updateOwnMessageContent", () => {
   it("guards the UPDATE by both message id and author id", async () => {
     const chain: any = {};

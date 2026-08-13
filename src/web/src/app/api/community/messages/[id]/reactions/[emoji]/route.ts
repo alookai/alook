@@ -9,73 +9,20 @@ import {
   WS_EVENTS,
 } from "@alook/shared"
 import type { Database } from "@alook/shared"
-import type { CommunityActor } from "@/lib/middleware/community-actor"
 import { fanOutToChannel, fanOutToDM } from "@/lib/community/fanout"
 import {
   requireChannelMember,
   requireDMAccess,
 } from "@/lib/community/permissions"
 import { requireReactableSurface } from "@/lib/community/channel-write-guard"
-import { resolveTargetForMember } from "@/lib/community/resolve-ref"
+import { resolveMessageRefForBot } from "@/lib/community/resolve-message-ref"
 
 // A bot addresses by ref-in-body (`{ channel, seq }`, the folded `reactAdd`
 // verb); the path `[id]` is then the `resolve` placeholder (a ref carries `/`
 // and can't sit in a path segment). A human/web caller puts the real messageId
 // in the path.
-const REF_PLACEHOLDER_ID = "resolve"
-
 type AccessOk = { ok: true; channelId: string; isDm: boolean }
 type AccessErr = { ok: false; status: 400 | 401 | 403 | 404; error: string }
-
-type MsgIdOk = { ok: true; messageId: string }
-type MsgIdErr = { ok: false; status: number; error: string }
-
-/**
- * Resolve the target messageId for a reaction, one addressing input per actor:
- *  - human/web: real messageId in the path (unchanged — byte-identical to pre-
- *    5c; `authorizeReaction` below then re-resolves the message → channel and
- *    keeps the 403/404 split web needs).
- *  - bot/CLI: ref-in-body `{ channel, seq }` (the folded `reactAdd`). The ref
- *    goes through `resolveTargetForMember` FIRST (member-scoped inner-join, so
- *    an unreachable channel yields ZERO rows → 404 BEFORE any message lookup),
- *    then the channel-scoped `getMessageByChannelAndSeq` (a seq absent in that
- *    channel → 404). So a bot NEVER sees the mask's 403 for a known-but-non-
- *    member channel — it 404s at resolve first (①-C uniform existence-mask; the
- *    403 leak 5c newly exposed by opening this route to bot credentials,
- *    Blondie/Aigneis #294/#295). Reaction is add-only for bots (no
- *    create-if-missing — a ref to a nonexistent DM/thread 404s, never creates).
- */
-async function resolveReactionMessageId(
-  db: Database,
-  actor: CommunityActor,
-  ctx: { params?: { id?: string } },
-  raw: unknown,
-): Promise<MsgIdOk | MsgIdErr> {
-  if (actor.kind === "bot") {
-    const body = (raw ?? {}) as { channel?: unknown; seq?: unknown }
-    const ref = typeof body.channel === "string" ? body.channel : ""
-    const seq = typeof body.seq === "number" ? body.seq : NaN
-    if (!ref) return { ok: false, status: 400, error: "channel ref required" }
-    if (!Number.isInteger(seq) || seq <= 0) return { ok: false, status: 400, error: "valid seq required" }
-
-    const resolved = await resolveTargetForMember(db, actor.userId, ref, {
-      createDmIfMissing: false,
-      createThreadIfMissing: false,
-      callerKind: "bot",
-    })
-    if ("error" in resolved) return { ok: false, status: resolved.error, error: resolved.message }
-
-    const message = await queries.communityMessage.getMessageByChannelAndSeq(db, { channelId: resolved.channelId }, seq)
-    if (!message) return { ok: false, status: 404, error: "message not found" }
-    return { ok: true, messageId: message.id }
-  }
-
-  const pathId = ctx.params?.id
-  if (typeof pathId !== "string" || !pathId || pathId === REF_PLACEHOLDER_ID) {
-    return { ok: false, status: 400, error: "missing message id" }
-  }
-  return { ok: true, messageId: pathId }
-}
 
 /**
  * Resolve the message and verify the caller can react.
@@ -137,9 +84,20 @@ export const PUT = withCommunityActor(async (req: NextRequest, ctx) => {
       return writeError("invalid JSON body", 400)
     }
   }
-  const msgId = await resolveReactionMessageId(db, ctx.actor, ctx, raw)
-  if (!msgId.ok) return writeError(msgId.error, msgId.status)
-  const messageId = msgId.messageId
+  let messageId = ctx.params?.id
+  if (ctx.actor.kind === "bot") {
+    const target = await resolveMessageRefForBot(
+      db,
+      ctx.actor.userId,
+      raw,
+      { requireSurfaceAccess: false },
+    )
+    if (!target.ok) return writeError(target.error, target.status)
+    messageId = target.messageId
+  }
+  if (!messageId || messageId === "resolve") {
+    return writeError("missing message id", 400)
+  }
 
   const access = await authorizeReaction(db, messageId, userId)
   if (!access.ok) return writeError(access.error, access.status)

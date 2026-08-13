@@ -772,6 +772,26 @@ export async function getMessageByChannelAndSeq(
 }
 
 /**
+ * Channel-scoped identity lookup for operations that address a message but do
+ * not project it. In particular, blocked-DM mark cleanup must not hydrate
+ * unreadable message content into the process just to resolve its id.
+ */
+export async function getMessageIdentityByChannelAndSeq(
+  db: Database,
+  target: { channelId: string },
+  seq: number
+): Promise<{ id: string; channelId: string } | null> {
+  const rows = await db
+    .select({
+      id: communityMessage.id,
+      channelId: communityMessage.channelId,
+    })
+    .from(communityMessage)
+    .where(and(eq(communityMessage.channelId, target.channelId), eq(communityMessage.seq, seq)));
+  return rows[0] ?? null;
+}
+
+/**
  * Lean by-id lookup for the unread-wake rebuild path
  * (`buildUnreadWakeCommand`, plan §8/minimal-wake-queue-unread-notice). NO
  * author join and NO message-body selection — a missing/deleted author row

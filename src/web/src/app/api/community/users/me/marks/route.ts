@@ -1,4 +1,4 @@
-import { withAuth } from "@/lib/middleware/auth"
+import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
@@ -6,6 +6,7 @@ import {
   DEFAULT_INBOX_PAGE_SIZE,
   MAX_INBOX_PAGE_SIZE,
   readOrStale,
+  withD1Retry,
 } from "@alook/shared"
 import { parseBoundedInt } from "@/lib/community/messages"
 import { avatarInitial } from "@/lib/community/avatar"
@@ -17,8 +18,52 @@ import { avatarInitial } from "@/lib/community/avatar"
 // three to navigate: serverId/channelId locate the channel, m.seq jumps to the
 // message (a marked message is usually outside the loaded window, so a
 // seq-less scroll would silently no-op).
-export const GET = withAuth(async (req, ctx) => {
+export const GET = withCommunityActor(async (req, ctx) => {
   const db = getDb(ctx.env.DB)
+  const userId = ctx.actor.userId
+
+  if (ctx.actor.kind === "bot") {
+    const visibleChannelIds = await withD1Retry(
+      () => queries.communityAgentInbox.listAccessVisibleChannelIdsForUser(db, userId),
+      { route: "community/users/me/marks:visibility" },
+    )
+    const rows = await withD1Retry(
+      () => queries.communityMessageMark.listMarksForUser(db, userId, { visibleChannelIds }),
+      { route: "community/users/me/marks:list" },
+    )
+    const attachmentRows = await withD1Retry(
+      () => queries.communityAttachment.listByMessageIds(db, rows.map((row) => row.message.id)),
+      { route: "community/users/me/marks:attachments" },
+    )
+    const attachmentsByMessageId = new Map<string, Array<{
+      id: string
+      filename: string
+      contentType: string | null
+      size: number | null
+    }>>()
+    for (const attachment of attachmentRows) {
+      if (!attachment.messageId) continue
+      const list = attachmentsByMessageId.get(attachment.messageId) ?? []
+      list.push({
+        id: attachment.id,
+        filename: attachment.filename,
+        contentType: attachment.contentType,
+        size: attachment.size,
+      })
+      attachmentsByMessageId.set(attachment.messageId, list)
+    }
+    const marked = await withD1Retry(
+      () => queries.communityAgentInbox.toAgentMessages(
+        db,
+        rows.map((row) => row.message),
+        userId,
+        attachmentsByMessageId,
+      ),
+      { route: "community/users/me/marks:hydrate" },
+    )
+    return writeJSON({ marked })
+  }
+
   const url = new URL(req.url)
   const limit = parseBoundedInt(
     url.searchParams.get("limit"),
@@ -38,14 +83,11 @@ export const GET = withAuth(async (req, ctx) => {
       // The Marked tab spans DMs as well as server channels. DM channels carry
       // server_id = NULL, so they're absent from listVisibleChannelIdsForUser
       // (which walks server memberships) — union in the user's DM channels so a
-      // marked DM message isn't silently filtered out. Access-membership is the
-      // DM visibility gate in both helpers, so no cross-user leak.
-      const [serverChannelIds, dmChannelIds] = await Promise.all([
-        queries.communityChannel.listVisibleChannelIdsForUser(db, ctx.userId),
-        queries.communityDm.listDmChannelIdsForUser(db, ctx.userId),
-      ])
-      const visibleChannelIds = [...serverChannelIds, ...dmChannelIds]
-      const rows = await queries.communityMessageMark.listMarksForUser(db, ctx.userId, {
+      // marked DM message isn't silently filtered out. The shared helper also
+      // excludes DMs blocked in either direction, so no stale body can leak.
+      const visibleChannelIds = await queries.communityAgentInbox
+        .listAccessVisibleChannelIdsForUser(db, userId)
+      const rows = await queries.communityMessageMark.listMarksForUser(db, userId, {
         limit,
         visibleChannelIds,
       })

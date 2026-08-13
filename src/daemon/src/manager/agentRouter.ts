@@ -122,8 +122,8 @@ function defaultFormatUnreadNoticeText(notice: UnreadNotice): string {
  * spawn. Wording rationale:
  *   - "reset by your owner" tells the agent this is an intentional external
  *     action, not a crash — avoids self-questioning.
- *   - `@todo.md` / `@memory.md` are the standing-prompt-established
- *     persistent notes.
+ *   - `@memory.md` and the context timeline are the standing-prompt-established
+ *     durable context sources; server-side message marks carry open work.
  *   - `.context_timeline` is the daemon-written per-agent JSONL under the
  *     workdir; the walker's `reset_session` barrier only blocks resume, not
  *     the on-disk history — the agent CAN read pre-reset turn contents.
@@ -132,8 +132,9 @@ function defaultFormatUnreadNoticeText(notice: UnreadNotice): string {
  */
 const REWAKE_PROMPT =
   "Your session was reset by your owner. Prior conversation context is gone. " +
-  "Read @todo.md, @memory.md, and your .context_timeline for anything unfinished, " +
-  "then pull your inbox to catch up on unread messages before doing anything else.";
+  "Read @memory.md and your .context_timeline for durable context, then pull your inbox " +
+  "before doing anything else. If it reports marked messages, run `$ALOOK_CLI message mark list` " +
+  "and resume that outstanding work.";
 
 /**
  * Rewake prompt for `agent:model_switch`. Unlike `REWAKE_PROMPT`, the session
@@ -155,9 +156,9 @@ function buildNapRewakePrompt(handoff: string): string {
     "You took a nap: you reset your own session, so prior conversation context " +
     "is gone. Before sleeping you left yourself this handoff —\n\n" +
     handoff.trim() +
-    "\n\nThen read @todo.md, @memory.md, and your .context_timeline for anything " +
-    "unfinished, and pull your inbox to catch up on unread messages before doing " +
-    "anything else."
+    "\n\nThen read @memory.md and your .context_timeline for durable context, and pull " +
+    "your inbox before doing anything else. If it reports marked messages, run `$ALOOK_CLI " +
+    "message mark list` and resume that outstanding work."
   );
 }
 

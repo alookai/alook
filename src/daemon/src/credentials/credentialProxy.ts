@@ -259,6 +259,11 @@ export const DEFAULT_CAPABILITY_RESOLVER: CapabilityResolver = (method, pathname
   const isMessagesDoor = /\/channels\/[^/]+\/messages(\/|$|\?)/.test(pathname)
   if (isMessagesDoor) return method === "GET" ? "read" : "send";
   if (/\/messages\/[^/]+\/reactions\//.test(pathname)) return "send";
+  if (
+    (method === "PUT" || method === "DELETE")
+    && /\/messages\/[^/]+\/marks(\/|$|\?)/.test(pathname)
+  ) return "send";
+  if (method === "GET" && /\/users\/me\/marks(\/|$|\?)/.test(pathname)) return "read";
   // Single-message hydrate door GET messages/{id} (folds the `resolve` verb — a
   // read). Matched AFTER the message-keyed write doors above so their more
   // specific `/reactions|/threads` sub-paths win first.
@@ -386,7 +391,6 @@ export async function startCredentialProxy(
     const outHeaders: http.OutgoingHttpHeaders = { ...req.headers };
     delete outHeaders["authorization"];
     delete outHeaders["host"];
-    delete outHeaders["content-length"]; // recomputed by the upstream client
     outHeaders["authorization"] = `Bearer ${reg.runnerKey}`;
     outHeaders[broker.headerNames.agentId.toLowerCase()] = reg.agentId;
     outHeaders[broker.headerNames.client.toLowerCase()] = broker.clientLabel;

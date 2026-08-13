@@ -300,6 +300,8 @@ export interface InboxPullResponse {
   messages: Message[];
   /** Whether more unread remain beyond `max`. */
   hasMore: boolean;
+  /** Number of the caller's currently visible marked messages. */
+  markedCount: number;
 }
 
 export interface AckRequest {
@@ -387,6 +389,15 @@ export type SendResponse =
 export interface CommunityAgentReactAddResponse {
   ok: true;
   duplicate?: boolean;
+}
+
+export interface MessageMarkRequest {
+  channel: ChannelRef;
+  seq: Seq;
+}
+
+export interface MessageMarkListResponse {
+  marked: Message[];
 }
 
 /**
@@ -641,6 +652,12 @@ export interface ServerApi {
 
   /** React to a message with a single emoji. Duplicates are idempotent (`duplicate:true`, no fan-out). */
   reactAdd(req: { channel: ChannelRef; seq: Seq; emoji: string }): Promise<CommunityAgentReactAddResponse>;
+
+  markSet(req: MessageMarkRequest): Promise<void>;
+
+  markRemove(req: MessageMarkRequest): Promise<void>;
+
+  listMarks(req: { agentId: AgentId }): Promise<MessageMarkListResponse>;
 
   /**
    * Send a friend request to `username` (`name#0042`). Owner-gated for human /

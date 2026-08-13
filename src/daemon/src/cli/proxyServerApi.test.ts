@@ -178,6 +178,42 @@ describe("createProxyServerApi — reactAdd (retargeted to the canonical reactio
   });
 });
 
+describe("createProxyServerApi — message marks", () => {
+  it("uses the canonical mark resource for set/remove and strips internal identity", async () => {
+    const seen: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
+      seen.push({ url, init });
+      return jsonBody(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const target = { channel: "/demo#1234/general", seq: 42 };
+    await api.markSet(target);
+    await api.markRemove(target);
+
+    expect(seen.map((call) => [call.url, call.init?.method])).toEqual([
+      ["http://proxy.test/api/community/messages/resolve/marks", "PUT"],
+      ["http://proxy.test/api/community/messages/resolve/marks", "DELETE"],
+    ]);
+    expect(JSON.parse(String(seen[0].init?.body))).toEqual(target);
+    expect(JSON.parse(String(seen[1].init?.body))).toEqual(target);
+  });
+
+  it("GETs the caller-scoped aggregate list without a body", async () => {
+    const seen: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
+      seen.push({ url, init });
+      return jsonBody(JSON.stringify({ marked: [] }), { status: 200 });
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    await expect(api.listMarks({ agentId: "ignored" })).resolves.toEqual({ marked: [] });
+    expect(seen[0]).toMatchObject({
+      url: "http://proxy.test/api/community/users/me/marks",
+      init: { method: "GET" },
+    });
+    expect(seen[0].init?.body).toBeUndefined();
+  });
+});
+
 describe("createProxyServerApi — send (retargeted to the canonical messages door)", () => {
   it("POSTs the canonical door with ref-in-body; replyToSeq retained, agentId stripped", async () => {
     const seen: Array<{ url: string; init?: RequestInit }> = [];
@@ -331,7 +367,7 @@ describe("createProxyServerApi — inbox trinity pull/snapshot/ack (retargeted t
     const seen: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
       seen.push({ url, init });
-      return jsonBody(JSON.stringify({ messages: [], hasMore: false }), { status: 200 });
+      return jsonBody(JSON.stringify({ messages: [], hasMore: false, markedCount: 0 }), { status: 200 });
     });
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
     await api.inboxPull({ agentId: "a1" as never, max: 10 });

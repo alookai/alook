@@ -4,8 +4,9 @@ import { NextRequest } from "next/server"
 const mockListMarksForUser = vi.fn()
 const mockGetChannelsByIds = vi.fn()
 const mockGetServersByIds = vi.fn()
-const mockListVisibleChannelIds = vi.fn()
-const mockListDmChannelIds = vi.fn()
+const mockListAccessVisibleChannelIds = vi.fn()
+const mockToAgentMessages = vi.fn()
+const mockListByMessageIds = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -21,12 +22,15 @@ vi.mock("@alook/shared", async () => {
       communityMessageMark: {
         listMarksForUser: (...args: unknown[]) => mockListMarksForUser(...args),
       },
+      communityAgentInbox: {
+        listAccessVisibleChannelIdsForUser: (...args: unknown[]) => mockListAccessVisibleChannelIds(...args),
+        toAgentMessages: (...args: unknown[]) => mockToAgentMessages(...args),
+      },
+      communityAttachment: {
+        listByMessageIds: (...args: unknown[]) => mockListByMessageIds(...args),
+      },
       communityChannel: {
         getChannelsByIds: (...args: unknown[]) => mockGetChannelsByIds(...args),
-        listVisibleChannelIdsForUser: (...args: unknown[]) => mockListVisibleChannelIds(...args),
-      },
-      communityDm: {
-        listDmChannelIdsForUser: (...args: unknown[]) => mockListDmChannelIds(...args),
       },
       communityServer: {
         getServersByIds: (...args: unknown[]) => mockGetServersByIds(...args),
@@ -39,6 +43,20 @@ vi.mock("@/lib/middleware/auth", () => ({
   withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
     const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
     return handler(req, { env: { DB: {} }, userId: "u1", email: "u@t.com", params })
+  }),
+}))
+
+vi.mock("@/lib/middleware/community-actor", () => ({
+  withCommunityActor: vi.fn((handler: any) => async (req: any, ctx?: any) => {
+    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
+    const bot = req.headers.get("x-test-actor") === "bot"
+    return handler(req, {
+      env: { DB: {} },
+      actor: bot
+        ? { kind: "bot", userId: "bot_1", ownerUserId: "u1", machineId: "machine_1" }
+        : { kind: "human", userId: "u1", email: "u@t.com" },
+      params,
+    })
   }),
 }))
 
@@ -57,8 +75,9 @@ describe("GET /api/community/users/me/marks", () => {
     vi.clearAllMocks()
     mockGetChannelsByIds.mockResolvedValue([])
     mockGetServersByIds.mockResolvedValue([])
-    mockListVisibleChannelIds.mockResolvedValue(["c1"])
-    mockListDmChannelIds.mockResolvedValue([])
+    mockListAccessVisibleChannelIds.mockResolvedValue(["c1"])
+    mockListByMessageIds.mockResolvedValue([])
+    mockToAgentMessages.mockResolvedValue([])
   })
 
   it("scopes the query to the viewer's visible channels (no leak of left private channels)", async () => {
@@ -72,8 +91,7 @@ describe("GET /api/community/users/me/marks", () => {
     // DM channels carry server_id=NULL and are absent from
     // listVisibleChannelIdsForUser — without the union a marked DM message would
     // be silently dropped from the Marked tab (Gus /Gus/working #1025).
-    mockListVisibleChannelIds.mockResolvedValue(["c1"])
-    mockListDmChannelIds.mockResolvedValue(["dm1"])
+    mockListAccessVisibleChannelIds.mockResolvedValue(["c1", "dm1"])
     mockListMarksForUser.mockResolvedValue([])
     await GET(new NextRequest("http://localhost/api/community/users/me/marks"))
     const opts = mockListMarksForUser.mock.calls[0][2]
@@ -119,5 +137,41 @@ describe("GET /api/community/users/me/marks", () => {
     const body = await res.json()
     expect(body.limit).toBe(200) // MAX_INBOX_PAGE_SIZE
     expect(mockListMarksForUser).toHaveBeenCalledWith({}, "u1", { limit: 200, visibleChannelIds: ["c1"] })
+  })
+
+  it("bot list is self-scoped, unbounded, attachment-batched, and agent-projected", async () => {
+    const message = {
+      id: "m1", authorId: "u-alice", channelId: "c1", seq: 42,
+      content: "task", createdAt: "2026-06-25T09:00:00Z", replyToId: "m0",
+    }
+    mockListMarksForUser.mockResolvedValue([{ mark: { id: "mk1", channelId: "c1" }, message, author: {} }])
+    mockListByMessageIds.mockResolvedValue([{ id: "att1", messageId: "m1", filename: "proof.png", contentType: "image/png", size: 12 }])
+    mockToAgentMessages.mockResolvedValue([{ seq: "#42", channel: "/s#0001/c", content: { text: "task" } }])
+
+    const res = await GET(new NextRequest("http://localhost/api/community/users/me/marks?limit=1", {
+      headers: { "x-test-actor": "bot" },
+    }))
+    expect(await res.json()).toEqual({
+      marked: [{ seq: "#42", channel: "/s#0001/c", content: { text: "task" } }],
+    })
+    expect(mockListMarksForUser).toHaveBeenCalledWith({}, "bot_1", {
+      visibleChannelIds: ["c1"],
+    })
+    expect(mockListByMessageIds).toHaveBeenCalledOnce()
+    expect(mockListByMessageIds).toHaveBeenCalledWith({}, ["m1"])
+    expect(mockToAgentMessages).toHaveBeenCalledWith(
+      {},
+      [message],
+      "bot_1",
+      expect.any(Map),
+    )
+  })
+
+  it("bot list fails strictly when its marks query fails", async () => {
+    mockListMarksForUser.mockRejectedValue(new Error("D1 hard failure"))
+    const request = new NextRequest("http://localhost/api/community/users/me/marks", {
+      headers: { "x-test-actor": "bot" },
+    })
+    await expect(GET(request)).rejects.toThrow("D1 hard failure")
   })
 })

@@ -5,7 +5,8 @@ const mockMarkMessage = vi.fn()
 const mockUnmarkMessage = vi.fn()
 const mockIsMessageMarked = vi.fn()
 const mockGetMessage = vi.fn()
-const mockRequireChannelMember = vi.fn()
+const mockRequireMessageSurfaceAccess = vi.fn()
+const mockResolveMessageRefForBot = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -31,11 +32,33 @@ vi.mock("@alook/shared", async () => {
 })
 
 vi.mock("@/lib/community/permissions", () => ({
-  requireChannelMember: (...args: unknown[]) => mockRequireChannelMember(...args),
+  requireMessageSurfaceAccess: (...args: unknown[]) => mockRequireMessageSurfaceAccess(...args),
+}))
+
+vi.mock("@/lib/community/resolve-message-ref", () => ({
+  resolveMessageRefForBot: (...args: unknown[]) => mockResolveMessageRefForBot(...args),
+}))
+
+vi.mock("@/lib/middleware/community-actor", () => ({
+  withCommunityActor: vi.fn((handler: any) => async (req: any, ctx?: any) => {
+    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
+    const bot = req.headers.get("x-test-actor") === "bot"
+    return handler(req, {
+      env: { DB: {} },
+      actor: bot
+        ? { kind: "bot", userId: "bot_1", ownerUserId: "u1", machineId: "machine_1" }
+        : { kind: "human", userId: "u1", email: "u@t.com" },
+      params,
+    })
+  }),
 }))
 
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
+    if (req.headers.get("authorization")?.startsWith("Bearer crk_")) {
+      const { NextResponse } = require("next/server")
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 })
+    }
     const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
     return handler(req, { env: { DB: {} }, userId: "u1", email: "u@t.com", params })
   }),
@@ -60,13 +83,24 @@ function putReq(body: unknown) {
   })
 }
 
+function botReq(method: "PUT" | "DELETE", body: unknown) {
+  return new NextRequest("http://localhost/api/community/messages/resolve/marks", {
+    method,
+    headers: { "x-test-actor": "bot" },
+    body: JSON.stringify(body),
+  })
+}
+
 // PUT = toggle-on. messageId in the path, channelId in the body (the
 // membership + belongs-to-channel gate). Byte-identical to the former flat
 // POST /marks except the message id moved flat→path.
 describe("PUT /api/community/messages/[id]/marks", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockRequireChannelMember.mockResolvedValue({ ok: true, value: { id: "c1" } })
+    mockRequireMessageSurfaceAccess.mockResolvedValue({
+      ok: true,
+      value: { surface: "channel", channel: { id: "c1" } },
+    })
     mockGetMessage.mockResolvedValue({ id: "m1", channelId: "c1" })
     mockMarkMessage.mockResolvedValue(undefined)
   })
@@ -103,16 +137,48 @@ describe("PUT /api/community/messages/[id]/marks", () => {
     expect(mockMarkMessage).not.toHaveBeenCalled()
   })
 
-  it("forwards the channel-membership gate — a non-member cannot mark", async () => {
-    mockRequireChannelMember.mockResolvedValue({ ok: false, error: "forbidden", status: 403 })
+  it("forwards the message-surface gate — a non-member cannot mark", async () => {
+    mockRequireMessageSurfaceAccess.mockResolvedValue({ ok: false, error: "forbidden", status: 403 })
     const res = await PUT(putReq({ channelId: "c1" }), ctx)
     expect(res.status).toBe(403)
     expect(mockGetMessage).not.toHaveBeenCalled()
     expect(mockMarkMessage).not.toHaveBeenCalled()
   })
 
+  it("rejects a blocked human DM before loading or marking its message", async () => {
+    mockRequireMessageSurfaceAccess.mockResolvedValue({ ok: false, error: "blocked", status: 403 })
+    const res = await PUT(putReq({ channelId: "dm1" }), ctx)
+    expect(res.status).toBe(403)
+    await expect(res.json()).resolves.toEqual({ error: "blocked" })
+    expect(mockRequireMessageSurfaceAccess).toHaveBeenCalledWith({}, "dm1", "u1")
+    expect(mockGetMessage).not.toHaveBeenCalled()
+    expect(mockMarkMessage).not.toHaveBeenCalled()
+  })
+
   it("400s on missing channelId", async () => {
     expect((await PUT(putReq({}), ctx)).status).toBe(400)
+  })
+
+  it("bot set resolves a full ref with message-surface access and self-scopes the mark", async () => {
+    mockResolveMessageRefForBot.mockResolvedValue({ ok: true, messageId: "m42", channelId: "dm1" })
+    const body = { channel: "/.dm/peer#0001", seq: 42 }
+    const res = await PUT(botReq("PUT", body), { params: { id: "resolve" } })
+    expect(res.status).toBe(200)
+    expect(mockResolveMessageRefForBot).toHaveBeenCalledWith({}, "bot_1", body, {
+      requireSurfaceAccess: true,
+    })
+    expect(mockMarkMessage).toHaveBeenCalledWith({}, {
+      userId: "bot_1", channelId: "dm1", messageId: "m42",
+    })
+  })
+
+  it("bot set preserves an opaque access denial and writes nothing", async () => {
+    mockResolveMessageRefForBot.mockResolvedValue({ ok: false, status: 403, error: "blocked" })
+    const res = await PUT(botReq("PUT", { channel: "/.dm/peer#0001", seq: 42 }), {
+      params: { id: "resolve" },
+    })
+    expect(res.status).toBe(403)
+    expect(mockMarkMessage).not.toHaveBeenCalled()
   })
 })
 
@@ -133,6 +199,19 @@ describe("DELETE /api/community/messages/[id]/marks", () => {
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ ok: true })
   })
+
+  it("bot remove uses the cleanup resolver without the surface-access gate and deletes only its own mark", async () => {
+    mockResolveMessageRefForBot.mockResolvedValue({ ok: true, messageId: "m42", channelId: "dm1" })
+    const body = { channel: "/.dm/peer#0001", seq: 42 }
+    const res = await DELETE(botReq("DELETE", body), { params: { id: "resolve" } })
+    expect(res.status).toBe(200)
+    expect(mockResolveMessageRefForBot).toHaveBeenCalledWith({}, "bot_1", body, {
+      requireSurfaceAccess: false,
+    })
+    expect(mockUnmarkMessage).toHaveBeenCalledWith({}, {
+      userId: "bot_1", messageId: "m42",
+    })
+  })
 })
 
 describe("GET /api/community/messages/[id]/marks", () => {
@@ -150,5 +229,13 @@ describe("GET /api/community/messages/[id]/marks", () => {
     mockIsMessageMarked.mockResolvedValue(false)
     const res = await GET(new NextRequest("http://localhost/api/community/messages/m1/marks"), ctx)
     expect(await res.json()).toEqual({ marked: false })
+  })
+
+  it("keeps the isMarked GET human-only so a crk_ cannot create a fourth bot face", async () => {
+    const res = await GET(new NextRequest("http://localhost/api/community/messages/m1/marks", {
+      headers: { Authorization: "Bearer crk_test" },
+    }), ctx)
+    expect(res.status).toBe(401)
+    expect(mockIsMessageMarked).not.toHaveBeenCalled()
   })
 })

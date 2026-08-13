@@ -40,6 +40,8 @@ import type {
   ChannelMemberResult,
   ChannelRef,
   CommunityAgentReactAddResponse,
+  MessageMarkRequest,
+  MessageMarkListResponse,
   ServerMemberListResult,
   Page,
   Message,
@@ -399,6 +401,38 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     return parseJsonResponse<InboxPullResponse>(res, "inboxPull");
   }
 
+  async function callMarkSet(req: MessageMarkRequest): Promise<void> {
+    const res = await fetchImpl(`${base}/api/community/messages/resolve/marks`, {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${config.voucher}`,
+      },
+      body: JSON.stringify(req),
+    });
+    await parseJsonResponse<{ ok: true }>(res, "markSet");
+  }
+
+  async function callMarkRemove(req: MessageMarkRequest): Promise<void> {
+    const res = await fetchImpl(`${base}/api/community/messages/resolve/marks`, {
+      method: "DELETE",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${config.voucher}`,
+      },
+      body: JSON.stringify(req),
+    });
+    await parseJsonResponse<{ ok: true }>(res, "markRemove");
+  }
+
+  async function callListMarks(): Promise<MessageMarkListResponse> {
+    const res = await fetchImpl(`${base}/api/community/users/me/marks`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${config.voucher}` },
+    });
+    return parseJsonResponse<MessageMarkListResponse>(res, "markList");
+  }
+
   async function callAck(req: AckRequest): Promise<void> {
     // RETARGETED off the flat `ack` verb onto POST users/me/inbox/ack (route/disc
     // 接口树统一, Gener #215 乙) — ack is the ADVANCE operation of the inbox
@@ -580,6 +614,9 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     attachmentUpload: callUpload,
     attachmentDownload: callDownload,
     reactAdd: callReactAdd,
+    markSet: callMarkSet,
+    markRemove: callMarkRemove,
+    listMarks: (_r: { agentId: AgentId }) => callListMarks(),
     friendRequest: callFriendRequest,
     listFriends: (_r: { agentId: AgentId }) => callListFriends(),
     nap: callNap,

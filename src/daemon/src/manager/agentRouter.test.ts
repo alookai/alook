@@ -248,6 +248,8 @@ describe("AgentRouter — agent:reset", () => {
     expect(resets).toHaveLength(1);
     expect(resets[0]).toMatchObject({ agentId: "a1", launchId: "l1" });
     expect(resets[0].rewakePrompt.length).toBeGreaterThan(0);
+    expect(resets[0].rewakePrompt).not.toContain("todo.md");
+    expect(resets[0].rewakePrompt).toContain("$ALOOK_CLI message mark list");
     // Ordering: onBeforeAgent completes before resetSession fires.
     expect(order[0]).toBe("before:a1");
     expect(order[1]).toBe("reset:a1");
@@ -396,6 +398,8 @@ describe("AgentRouter — agent:nap", () => {
     expect(resets[0]).toMatchObject({ agentId: "a1", launchId: "l1", barrierType: "nap" });
     // The agent's own handoff is carried inline in the rewake prompt (not a file, not a message).
     expect(resets[0].rewakePrompt).toContain(handoff);
+    expect(resets[0].rewakePrompt).not.toContain("todo.md");
+    expect(resets[0].rewakePrompt).toContain("$ALOOK_CLI message mark list");
     expect(order[0]).toBe("before:a1");
     expect(order[1]).toBe("reset:a1");
     expect(router.buildReady().runningAgents).toContain("a1");

@@ -10,22 +10,34 @@ interface SeenRequest {
   agentId?: string;
   client?: string;
   capabilities?: string;
+  method?: string;
   path?: string;
+  contentLength?: string;
+  transferEncoding?: string;
+  body?: string;
 }
 
 /** A throwaway upstream that records what headers + path the proxy forwards. */
 async function startUpstream(): Promise<{ url: string; seen: SeenRequest[]; close: () => Promise<void> }> {
   const seen: SeenRequest[] = [];
   const server = http.createServer((req, res) => {
-    seen.push({
-      authorization: req.headers["authorization"] as string | undefined,
-      agentId: req.headers["x-agent-id"] as string | undefined,
-      client: req.headers["x-client"] as string | undefined,
-      capabilities: req.headers["x-agent-active-capabilities"] as string | undefined,
-      path: req.url,
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => {
+      seen.push({
+        authorization: req.headers["authorization"] as string | undefined,
+        agentId: req.headers["x-agent-id"] as string | undefined,
+        client: req.headers["x-client"] as string | undefined,
+        capabilities: req.headers["x-agent-active-capabilities"] as string | undefined,
+        method: req.method,
+        path: req.url,
+        contentLength: req.headers["content-length"],
+        transferEncoding: req.headers["transfer-encoding"],
+        body: Buffer.concat(chunks).toString(),
+      });
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: true }));
     });
-    res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify({ ok: true }));
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
   const addr = server.address();
@@ -51,6 +63,13 @@ describe("DEFAULT_CAPABILITY_RESOLVER", () => {
     // Flat /api/reactAdd is DELETED (folded into the canonical reaction door).
     // The write capability now attaches to the door shape.
     expect(DEFAULT_CAPABILITY_RESOLVER("PUT", "/api/community/messages/resolve/reactions/%F0%9F%91%8D")).toBe("send");
+  });
+
+  it("maps only bot mark mutations to send and the aggregate list to read", () => {
+    expect(DEFAULT_CAPABILITY_RESOLVER("PUT", "/api/community/messages/resolve/marks")).toBe("send");
+    expect(DEFAULT_CAPABILITY_RESOLVER("DELETE", "/api/community/messages/resolve/marks")).toBe("send");
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/users/me/marks")).toBe("read");
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/messages/m1/marks")).toBeUndefined();
   });
 
   it("maps the friends bucket sub-resource endpoints (listFriends fold) to `friend`", () => {
@@ -327,6 +346,78 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     const r = await post(proxy.url, reg.voucher, "/api/community/channels/resolve/messages");
     expect(r.status).toBe(200);
     expect(sightings).toEqual([{ agentId: "agent-1", method: "POST", pathname: "/api/community/channels/resolve/messages" }]);
+  });
+
+  it("reports each canonical mark request exactly once for audit derivation", async () => {
+    const upstream = await startUpstream();
+    upstreamClose = upstream.close;
+    const sightings: Array<{ agentId: string; method: string; pathname: string }> = [];
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    proxy = await startCredentialProxy(broker, {
+      onProxyRequest: (agentId, method, pathname) => sightings.push({ agentId, method, pathname }),
+    });
+    const reg = broker.mint("agent-1", "l", ["send", "read"], REAL_KEY);
+    const headers = { Authorization: `Bearer ${reg.voucher}`, "content-type": "application/json" };
+
+    await fetch(`${proxy.url}/api/community/messages/resolve/marks`, {
+      method: "PUT", headers, body: JSON.stringify({ channel: "/s/c", seq: 1 }),
+    });
+    await fetch(`${proxy.url}/api/community/messages/resolve/marks`, {
+      method: "DELETE", headers, body: JSON.stringify({ channel: "/s/c", seq: 1 }),
+    });
+    await fetch(`${proxy.url}/api/community/users/me/marks`, { method: "GET", headers });
+
+    expect(sightings).toEqual([
+      { agentId: "agent-1", method: "PUT", pathname: "/api/community/messages/resolve/marks" },
+      { agentId: "agent-1", method: "DELETE", pathname: "/api/community/messages/resolve/marks" },
+      { agentId: "agent-1", method: "GET", pathname: "/api/community/users/me/marks" },
+    ]);
+  });
+
+  it("preserves framing for unchanged JSON bodies without inventing a length for bodyless DELETE", async () => {
+    const upstream = await startUpstream();
+    upstreamClose = upstream.close;
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    proxy = await startCredentialProxy(broker);
+    const reg = broker.mint("agent-1", "l", ["send"], REAL_KEY);
+    const headers = { Authorization: `Bearer ${reg.voucher}`, "content-type": "application/json" };
+    const body = JSON.stringify({ channel: "/s/c", seq: 42 });
+
+    await fetch(`${proxy.url}/api/community/messages/resolve/marks`, {
+      method: "DELETE",
+      headers,
+      body,
+    });
+    await fetch(`${proxy.url}/api/community/messages/resolve/marks`, {
+      method: "DELETE",
+      headers,
+    });
+    await fetch(`${proxy.url}/api/community/messages/resolve/marks`, {
+      method: "PUT",
+      headers,
+      body,
+    });
+
+    expect(upstream.seen).toEqual([
+      expect.objectContaining({
+        method: "DELETE",
+        contentLength: String(Buffer.byteLength(body)),
+        transferEncoding: undefined,
+        body,
+      }),
+      expect.objectContaining({
+        method: "DELETE",
+        contentLength: undefined,
+        transferEncoding: undefined,
+        body: "",
+      }),
+      expect.objectContaining({
+        method: "PUT",
+        contentLength: String(Buffer.byteLength(body)),
+        transferEncoding: undefined,
+        body,
+      }),
+    ]);
   });
 
   it("does NOT fire onProxyRequest on a rejected voucher (401/403)", async () => {

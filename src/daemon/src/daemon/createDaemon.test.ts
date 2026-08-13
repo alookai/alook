@@ -1057,6 +1057,10 @@ describe("deriveAuditLogSubcommand", () => {
     expect(deriveAuditLogSubcommand("/api/community/channels/resolve/messages?ref=%2Fs%2Fg", "GET")).toBe("read");
     // message-keyed write doors.
     expect(deriveAuditLogSubcommand("/api/community/messages/resolve/reactions/%F0%9F%91%8D", "PUT")).toBe("reactAdd");
+    expect(deriveAuditLogSubcommand("/api/community/messages/resolve/marks", "PUT")).toBe("markSet");
+    expect(deriveAuditLogSubcommand("/api/community/messages/resolve/marks", "DELETE")).toBe("markRemove");
+    expect(deriveAuditLogSubcommand("/api/community/users/me/marks", "GET")).toBe("markList");
+    expect(deriveAuditLogSubcommand("/api/community/messages/m1/marks", "GET")).toBe(null);
     // seq→id lookup (folded resolve).
     expect(deriveAuditLogSubcommand("/api/community/channels/resolve/messages/seq/42", "GET")).toBe("resolve");
     // single-message hydrate door GET messages/{id} = the folded `resolve` verb.

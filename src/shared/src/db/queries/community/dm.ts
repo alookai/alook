@@ -1,5 +1,6 @@
-import { eq, and, desc, isNull, inArray } from "drizzle-orm";
-import { communityChannel, communityChannelMember } from "../../community-schema";
+import { eq, and, desc, isNull, inArray, ne, notExists, or } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
+import { communityChannel, communityChannelMember, communityFriendship } from "../../community-schema";
 import { user } from "../../schema";
 import { PARTICIPANT_SOURCE } from "../../../constants/community";
 import type { Database } from "../../index";
@@ -106,17 +107,16 @@ export async function createOrGetDM(
   return channel;
 }
 
-// The ids of every DM channel the user has access to (type='dm' channels where
-// they hold a relation='access' member row). DMs carry `server_id = NULL`, so
-// they are structurally absent from `listVisibleChannelIdsForUser` (which walks
-// the user's server memberships). A caller that needs DM messages in scope —
-// e.g. the Marked inbox tab, which spans DMs as well as server channels — unions
-// these ids in. Access-membership IS the DM visibility gate, so a mark in a DM
-// the user isn't a member of never surfaces.
+// The ids of every readable DM channel for the user. Access membership is
+// necessary but not sufficient: a block in either direction makes the DM
+// message surface unreadable. The correlated anti-join excludes blocked peers
+// in this one batched query rather than running isBlocked once per DM.
 export async function listDmChannelIdsForUser(
   db: Database,
   userId: string
 ): Promise<string[]> {
+  const peer = alias(communityChannelMember, "readable_dm_peer");
+  const friendship = alias(communityFriendship, "readable_dm_block");
   const rows = await db
     .select({ channelId: communityChannelMember.channelId })
     .from(communityChannelMember)
@@ -128,7 +128,35 @@ export async function listDmChannelIdsForUser(
       and(
         eq(communityChannelMember.userId, userId),
         eq(communityChannelMember.relation, "access"),
-        eq(communityChannel.type, "dm")
+        eq(communityChannel.type, "dm"),
+        notExists(
+          db
+            .select({ requesterId: friendship.requesterId })
+            .from(peer)
+            .innerJoin(
+              friendship,
+              and(
+                eq(friendship.status, "blocked"),
+                or(
+                  and(
+                    eq(friendship.requesterId, userId),
+                    eq(friendship.addresseeId, peer.userId)
+                  ),
+                  and(
+                    eq(friendship.requesterId, peer.userId),
+                    eq(friendship.addresseeId, userId)
+                  )
+                )
+              )
+            )
+            .where(
+              and(
+                eq(peer.channelId, communityChannelMember.channelId),
+                eq(peer.relation, "access"),
+                ne(peer.userId, userId)
+              )
+            )
+        )
       )
     );
   return rows.map((r) => r.channelId);

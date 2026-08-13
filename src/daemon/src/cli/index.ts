@@ -164,21 +164,20 @@ function contentTypeFromFilename(filename: string): string {
 }
 
 /**
- * Is this a TRANSPORT-transient error worth retrying with the SAME nonce?
+ * Is this a transport-transient mutation error worth retrying?
  *
  * Only true for "the request may or may not have reached/committed on the
  * server, but the RESPONSE was lost" shapes: an upstream 5xx wrapper, a body
- * that couldn't be read, or a network-level fetch failure. These are exactly
- * the errors behind the duplicate-send bug — the server often already
- * committed, so a same-nonce retry either gets the real response (fresh write)
- * or the deduped canonical (already-committed), never a second row.
+ * that couldn't be read, or a network-level fetch failure. Callers must make a
+ * committed-but-response-lost retry safe: sends/posts reuse one nonce, while
+ * mark set/remove are database-idempotent.
  *
  * NOT transient (never retried here): business outcomes. `blocked`/unaligned is
  * a RETURN value (handled below, never thrown). 4xx business errors (bad
  * attachment, reply-not-found, forbidden) come back as thrown Errors with the
  * server's message and are deterministic — retrying would just re-fail.
  */
-function isTransientSendError(err: unknown): boolean {
+function isTransientMutationError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
   return (
     /upstream returned 5\d\d/.test(msg) ||
@@ -189,6 +188,24 @@ function isTransientSendError(err: unknown): boolean {
     msg.includes("socket hang up") ||
     msg.includes("network")
   );
+}
+
+async function withTransientMutationRetry<T>(mutation: () => Promise<T>): Promise<T> {
+  const MAX_ATTEMPTS = 4;
+  const BASE_DELAY_MS = 150;
+  const MAX_DELAY_MS = 2000;
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    try {
+      return await mutation();
+    } catch (err) {
+      lastErr = err;
+      if (!isTransientMutationError(err) || attempt === MAX_ATTEMPTS - 1) throw err;
+      const cap = Math.min(MAX_DELAY_MS, BASE_DELAY_MS * 2 ** attempt);
+      await new Promise((resolve) => setTimeout(resolve, cap));
+    }
+  }
+  throw lastErr;
 }
 
 /**
@@ -206,23 +223,7 @@ async function sendWithRetry(
   api: ServerApi,
   req: Parameters<ServerApi["send"]>[0],
 ): Promise<Awaited<ReturnType<ServerApi["send"]>>> {
-  const MAX_ATTEMPTS = 4;
-  const BASE_DELAY_MS = 150;
-  const MAX_DELAY_MS = 2000;
-  let lastErr: unknown;
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    try {
-      return await api.send(req);
-    } catch (err) {
-      lastErr = err;
-      if (!isTransientSendError(err) || attempt === MAX_ATTEMPTS - 1) throw err;
-      const cap = Math.min(MAX_DELAY_MS, BASE_DELAY_MS * 2 ** attempt);
-      // Deterministic-enough backoff; a small offset per attempt avoids a
-      // thundering retry but doesn't need crypto randomness here.
-      await new Promise((r) => setTimeout(r, cap));
-    }
-  }
-  throw lastErr;
+  return withTransientMutationRetry(() => api.send(req));
 }
 
 async function cmdMessageSend(opts: Record<string, unknown>): Promise<unknown> {
@@ -310,21 +311,7 @@ async function createPostWithRetry(
   api: ServerApi,
   req: Parameters<ServerApi["createPost"]>[0],
 ): Promise<Awaited<ReturnType<ServerApi["createPost"]>>> {
-  const MAX_ATTEMPTS = 4;
-  const BASE_DELAY_MS = 150;
-  const MAX_DELAY_MS = 2000;
-  let lastErr: unknown;
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    try {
-      return await api.createPost(req);
-    } catch (err) {
-      lastErr = err;
-      if (!isTransientSendError(err) || attempt === MAX_ATTEMPTS - 1) throw err;
-      const cap = Math.min(MAX_DELAY_MS, BASE_DELAY_MS * 2 ** attempt);
-      await new Promise((r) => setTimeout(r, cap));
-    }
-  }
-  throw lastErr;
+  return withTransientMutationRetry(() => api.createPost(req));
 }
 
 async function cmdMessagePost(opts: Record<string, unknown>): Promise<unknown> {
@@ -379,32 +366,63 @@ async function cmdMessageEmoji(opts: Record<string, unknown>): Promise<unknown> 
   if (!target) throw new CliError("message emoji: --target <ref> is required (e.g. /demo#1234/general#42)");
   if (!emoji) throw new CliError("message emoji: --emoji <string> is required");
 
-  let parsed: ReturnType<typeof parseRef>;
-  try {
-    parsed = parseRef(target);
-  } catch (err) {
-    throw new CliError(`message emoji: ${(err as Error).message}`);
-  }
+  const { channel, seq } = parseMessageTarget("message emoji", target);
 
-  if (parsed.seq === undefined) {
-    const err = new CliError(`message emoji needs a ref with a seq (e.g. ${target}#42)`);
-    (err as { hint?: string }).hint =
-      "pass --target /<server>/<channel>#N, /<server>/<channel>/#N#M for thread reply, or /.dm/<peer>#N";
-    throw err;
-  }
   if (Buffer.byteLength(emoji, "utf8") > MAX_EMOJI_BYTES) {
     const err = new CliError("emoji is too long");
     (err as { hint?: string }).hint = "use a single emoji, not a phrase";
     throw err;
   }
 
-  // Rebuild the SCOPE ref (no pin-seq — that's passed separately as `seq`).
+  const res = await api.reactAdd({ channel, seq, emoji });
+  return { target, emoji, duplicate: res.duplicate === true };
+}
+
+function parseMessageTarget(command: string, target: string): { channel: string; seq: number } {
+
+  let parsed: ReturnType<typeof parseRef>;
+  try {
+    parsed = parseRef(target);
+  } catch (err) {
+    throw new CliError(`${command}: ${(err as Error).message}`);
+  }
+
+  if (parsed.seq === undefined) {
+    const err = new CliError(`${command} needs a ref with a seq (e.g. ${target}#42)`);
+    (err as { hint?: string }).hint =
+      "pass --target /<server>/<channel>#N, /<server>/<channel>/#N#M for thread reply, or /.dm/<peer>#N";
+    throw err;
+  }
+
   const channel =
     parsed.threadRootSeq !== undefined
       ? `/${parsed.server}/${parsed.channel}/#${parsed.threadRootSeq}`
       : `/${parsed.server}/${parsed.channel}`;
-  const res = await api.reactAdd({ channel, seq: parsed.seq, emoji });
-  return { target, emoji, duplicate: res.duplicate === true };
+  return { channel, seq: parsed.seq };
+}
+
+async function cmdMessageMarkSet(opts: Record<string, unknown>): Promise<unknown> {
+  const api = getApi();
+  const target = opts.target as string;
+  if (!target) throw new CliError("message mark set: --target <ref> is required");
+  const request = parseMessageTarget("message mark set", target);
+  await withTransientMutationRetry(() => api.markSet(request));
+  return { target, marked: true };
+}
+
+async function cmdMessageMarkRemove(opts: Record<string, unknown>): Promise<unknown> {
+  const api = getApi();
+  const target = opts.target as string;
+  if (!target) throw new CliError("message mark remove: --target <ref> is required");
+  const request = parseMessageTarget("message mark remove", target);
+  await withTransientMutationRetry(() => api.markRemove(request));
+  return { target, marked: false };
+}
+
+async function cmdMessageMarkList(opts: Record<string, unknown>): Promise<unknown> {
+  const api = getApi();
+  const { marked } = await api.listMarks({ agentId: agentId(opts) });
+  return { marked: messagesInLocalTime(marked) };
 }
 
 async function cmdAttachmentUpload(opts: Record<string, unknown>): Promise<unknown> {
@@ -507,7 +525,7 @@ async function cmdInboxPull(opts: Record<string, unknown>): Promise<unknown> {
   const api = getApi();
   const agent = agentId(opts);
   const max = opts.max ? Number(opts.max) : undefined;
-  const { messages, hasMore } = await api.inboxPull({ agentId: agent, max });
+  const { messages, hasMore, markedCount } = await api.inboxPull({ agentId: agent, max });
   const pulledAt = nowLocalISO();
 
   let acked = 0;
@@ -539,6 +557,11 @@ async function cmdInboxPull(opts: Record<string, unknown>): Promise<unknown> {
     acked,
     pulledAt,
     ...(ackError ? { ackError } : {}),
+    ...(markedCount > 0
+      ? {
+          markedReminder: `You have ${markedCount} marked ${markedCount === 1 ? "message" : "messages"}. Resolve ${markedCount === 1 ? "it" : "them"} before going dark unless blocked.`,
+        }
+      : {}),
   };
 }
 
@@ -722,6 +745,41 @@ function buildProgram(): Command {
       const localOpts = this.opts();
       const globalOpts = program.opts();
       const result = await cmdMessageEmoji({ ...globalOpts, ...localOpts });
+      printEnvelope({ success: result });
+    });
+
+  const mark = message.command("mark").description("durable message mark operations").exitOverride();
+  mark.configureOutput({ writeOut: () => {}, writeErr: () => {} });
+
+  mark
+    .command("set")
+    .description("mark a message as outstanding work")
+    .requiredOption("--target <ref>", "full message ref")
+    .exitOverride()
+    .configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      const result = await cmdMessageMarkSet({ ...program.opts(), ...this.opts() });
+      printEnvelope({ success: result });
+    });
+
+  mark
+    .command("remove")
+    .description("remove an outstanding-work mark")
+    .requiredOption("--target <ref>", "full message ref")
+    .exitOverride()
+    .configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      const result = await cmdMessageMarkRemove({ ...program.opts(), ...this.opts() });
+      printEnvelope({ success: result });
+    });
+
+  mark
+    .command("list")
+    .description("list all currently visible marked messages")
+    .exitOverride()
+    .configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      const result = await cmdMessageMarkList({ ...program.opts(), ...this.opts() });
       printEnvelope({ success: result });
     });
 

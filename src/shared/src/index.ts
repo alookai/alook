@@ -421,6 +421,8 @@ export type {
   SendRequest as CommunityCliSendRequest,
   SendResponse as CommunityCliSendResponse,
   CommunityAgentReactAddResponse,
+  MessageMarkRequest as CommunityCliMessageMarkRequest,
+  MessageMarkListResponse as CommunityCliMessageMarkListResponse,
   ReadRequest as CommunityCliReadRequest,
   ResolveRequest as CommunityCliResolveRequest,
   ListChannelsRequest as CommunityCliListChannelsRequest,

@@ -1,4 +1,4 @@
-import { eq, and, inArray, desc } from "drizzle-orm";
+import { eq, and, count, inArray, desc } from "drizzle-orm";
 import { communityMessageMark, communityMessage } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
@@ -6,8 +6,8 @@ import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 
 // Idempotent mark. UNIQUE(userId, messageId) makes a re-mark a no-op, so
 // `onConflictDoNothing` keeps the toggle safe to call twice without a 409
-// round-trip (contract: /Gus/working #1004). channelId is stored for the
-// cascade + the phase-2 per-channel read; messageId alone is globally unique.
+// round-trip (contract: /Gus/working #1004). channelId is stored for cascade
+// and current-visibility filtering; messageId alone is globally unique.
 export async function markMessage(
   db: Database,
   data: { userId: string; channelId: string; messageId: string }
@@ -117,4 +117,28 @@ export async function listMarksForUser(
   ).flat();
   merged.sort((a, b) => (a.mark.createdAt < b.mark.createdAt ? 1 : -1));
   return opts.limit !== undefined ? merged.slice(0, opts.limit) : merged;
+}
+
+export async function countMarksForUser(
+  db: Database,
+  userId: string,
+  opts: { visibleChannelIds: string[] }
+): Promise<number> {
+  if (opts.visibleChannelIds.length === 0) return 0;
+
+  const counts = await Promise.all(
+    chunk(opts.visibleChannelIds, D1_MAX_IN_PARAMS).map(async (ids) => {
+      const rows = await db
+        .select({ count: count() })
+        .from(communityMessageMark)
+        .where(
+          and(
+            eq(communityMessageMark.userId, userId),
+            inArray(communityMessageMark.channelId, ids)
+          )
+        );
+      return rows[0]?.count ?? 0;
+    })
+  );
+  return counts.reduce((total, count) => total + count, 0);
 }

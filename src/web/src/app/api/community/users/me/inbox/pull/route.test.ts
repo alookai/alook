@@ -15,8 +15,10 @@ const mockFindActiveAgentRunnerKeyByBearer = vi.fn()
 const mockGetUserInternal = vi.fn()
 const mockGetBotBinding = vi.fn()
 const mockListUnreadMessagesForAgent = vi.fn()
+const mockListAccessVisibleChannelIdsForUser = vi.fn()
 const mockToAgentMessages = vi.fn()
 const mockListByMessageIds = vi.fn()
+const mockCountMarksForUser = vi.fn()
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -28,8 +30,12 @@ vi.mock("@alook/shared", async () => {
       user: { getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a) },
       communityBot: { getBotBinding: (...a: unknown[]) => mockGetBotBinding(...a) },
       communityAgentInbox: {
+        listAccessVisibleChannelIdsForUser: (...a: unknown[]) => mockListAccessVisibleChannelIdsForUser(...a),
         listUnreadMessagesForAgent: (...a: unknown[]) => mockListUnreadMessagesForAgent(...a),
         toAgentMessages: (...a: unknown[]) => mockToAgentMessages(...a),
+      },
+      communityMessageMark: {
+        countMarksForUser: (...a: unknown[]) => mockCountMarksForUser(...a),
       },
       communityAttachment: {
         listByMessageIds: (...a: unknown[]) => mockListByMessageIds(...a),
@@ -60,6 +66,8 @@ describe("POST /api/community/users/me/inbox/pull — bot arm (folds inboxPull)"
     mockGetBotBinding.mockResolvedValue({ machineId: "m_1", runtime: "claude" })
     mockToAgentMessages.mockImplementation((_db: unknown, rows: unknown[]) => Promise.resolve(rows))
     mockListByMessageIds.mockResolvedValue([])
+    mockListAccessVisibleChannelIdsForUser.mockResolvedValue(["c_1"])
+    mockCountMarksForUser.mockResolvedValue(0)
   })
 
   it("401 without Authorization (human arm, no session)", async () => {
@@ -78,7 +86,14 @@ describe("POST /api/community/users/me/inbox/pull — bot arm (folds inboxPull)"
     // credential, not the payload (users/me/* family invariant).
     const res = await POST(req(JSON.stringify({ max: 5, userId: "someone_else" }), { Authorization: "Bearer crk_abc" }))
     expect(res.status).toBe(200)
-    expect(mockListUnreadMessagesForAgent).toHaveBeenCalledWith(expect.anything(), "bot_1", { max: 6 })
+    expect(mockListUnreadMessagesForAgent).toHaveBeenCalledWith(expect.anything(), "bot_1", {
+      max: 6,
+      visibleChannelIds: ["c_1"],
+    })
+    expect(mockListAccessVisibleChannelIdsForUser).toHaveBeenCalledOnce()
+    expect(mockCountMarksForUser).toHaveBeenCalledWith(expect.anything(), "bot_1", {
+      visibleChannelIds: ["c_1"],
+    })
   })
 
   it("hasMore + probe-row trim behave (unread > max)", async () => {
@@ -89,6 +104,17 @@ describe("POST /api/community/users/me/inbox/pull — bot arm (folds inboxPull)"
     expect(body.messages).toHaveLength(2)
   })
 
+  it("returns the numeric markedCount in the HTTP response unchanged", async () => {
+    mockListUnreadMessagesForAgent.mockResolvedValue([])
+    mockCountMarksForUser.mockResolvedValue(3)
+    const res = await POST(req(JSON.stringify({ max: 5 }), { Authorization: "Bearer crk_abc" }))
+    await expect(res.json()).resolves.toEqual({
+      messages: [],
+      hasMore: false,
+      markedCount: 3,
+    })
+  })
+
   it("retries a transient D1 error (withD1Retry armor carried over)", async () => {
     mockListUnreadMessagesForAgent
       .mockRejectedValueOnce(new Error("D1_ERROR: internal error; reference = abc123"))
@@ -96,6 +122,33 @@ describe("POST /api/community/users/me/inbox/pull — bot arm (folds inboxPull)"
     const res = await POST(req(JSON.stringify({ max: 5 }), { Authorization: "Bearer crk_abc" }))
     expect(res.status).toBe(200)
     expect(mockListUnreadMessagesForAgent).toHaveBeenCalledTimes(2)
+  })
+
+  it("fails open to numeric zero when mark count exhausts retries without changing unread delivery", async () => {
+    mockListUnreadMessagesForAgent.mockResolvedValue([{ id: "m_1" }, { id: "m_2" }])
+    mockCountMarksForUser.mockRejectedValue(new Error("D1_ERROR: SQLITE_BUSY: database is locked"))
+    const res = await POST(req(JSON.stringify({ max: 1 }), { Authorization: "Bearer crk_abc" }))
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({
+      messages: [{ id: "m_1" }],
+      hasMore: true,
+      markedCount: 0,
+    })
+    expect(mockListUnreadMessagesForAgent).toHaveBeenCalledOnce()
+    expect(mockCountMarksForUser).toHaveBeenCalledTimes(4)
+    expect(mockToAgentMessages).toHaveBeenCalledWith(
+      expect.anything(),
+      [{ id: "m_1" }],
+      "bot_1",
+      expect.any(Map),
+    )
+  })
+
+  it("keeps unread failures strict even when mark count succeeds", async () => {
+    mockListUnreadMessagesForAgent.mockRejectedValue(new Error("unread hard failure"))
+    const pull = POST(req(JSON.stringify({ max: 5 }), { Authorization: "Bearer crk_abc" }))
+    await expect(pull).rejects.toThrow("unread hard failure")
+    expect(mockToAgentMessages).not.toHaveBeenCalled()
   })
 
   it("keeps an orphan-DM message owed after a loud hydration failure and redelivers it after repair", async () => {

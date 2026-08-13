@@ -46,6 +46,8 @@ export type {
   CreatePostRequest,
   CreatePostResponse,
   CommunityAgentReactAddResponse,
+  MessageMarkRequest,
+  MessageMarkListResponse,
   ReadRequest,
   ResolveRequest,
   ListChannelsRequest,

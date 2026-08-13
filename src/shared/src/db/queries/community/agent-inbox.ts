@@ -33,6 +33,7 @@ import {
 } from "../../../community-cli-contract";
 import { formatHandle } from "../../../lib/discriminator";
 import { listVisibleChannelIdsForUser } from "./channel";
+import { listDmChannelIdsForUser } from "./dm";
 import { listParticipatingThreadIds } from "./thread";
 import { getMessagesByIdsInScope, type MessageScope } from "./message";
 import { reachIsParticipantSet, type StoredChannelType } from "../../../utils/community-roles";
@@ -478,26 +479,24 @@ export async function getLatestSeqForScope(db: Database, channelId: string): Pro
  * when older notified unread existed outside the top-N-by-createdAt
  * candidate window.
  */
-async function listAgentAllowedChannelIds(db: Database, botUserId: string): Promise<string[]> {
-  const visibleChannelIds = await listVisibleChannelIdsForUser(db, botUserId);
+export async function listAccessVisibleChannelIdsForUser(
+  db: Database,
+  userId: string
+): Promise<string[]> {
+  const serverChannelIds = await listVisibleChannelIdsForUser(db, userId);
+  const dmChannelIds = await listDmChannelIdsForUser(db, userId);
+  return [...new Set([...serverChannelIds, ...dmChannelIds])];
+}
 
-  // DM channels the bot holds a relation='access' row on — DMs are channels
-  // now, so they're not covered by `listVisibleChannelIdsForUser` (which walks
-  // server memberships). A DM has no thread/forum narrowing.
-  const dmRows = await db
-    .select({ channelId: communityChannelMember.channelId })
-    .from(communityChannelMember)
-    .innerJoin(communityChannel, eq(communityChannel.id, communityChannelMember.channelId))
-    .where(
-      and(
-        eq(communityChannelMember.userId, botUserId),
-        eq(communityChannelMember.relation, "access"),
-        eq(communityChannel.type, "dm")
-      )
-    );
-  const dmChannelIds = dmRows.map((r) => r.channelId);
+async function listAgentAllowedChannelIds(
+  db: Database,
+  botUserId: string,
+  accessVisibleChannelIds?: string[]
+): Promise<string[]> {
+  const visibleChannelIds = accessVisibleChannelIds
+    ?? await listAccessVisibleChannelIdsForUser(db, botUserId);
 
-  if (visibleChannelIds.length === 0) return dmChannelIds;
+  if (visibleChannelIds.length === 0) return [];
 
   // Chunk the `inArray` for D1's 100-param limit; no order/limit → concat.
   const typeRows = (
@@ -523,7 +522,7 @@ async function listAgentAllowedChannelIds(db: Database, botUserId: string): Prom
       : new Set<string>();
   const narrowSet = new Set(narrowIds);
   const serverAllowed = visibleChannelIds.filter((id) => !narrowSet.has(id) || notifiedChannelIds.has(id));
-  return [...serverAllowed, ...dmChannelIds];
+  return serverAllowed;
 }
 
 /**
@@ -563,9 +562,13 @@ const channelJoinBaselineGuard = sql`${communityMessage.createdAt} > COALESCE(${
 export async function listUnreadMessagesForAgent(
   db: Database,
   botUserId: string,
-  opts: { max: number }
+  opts: { max: number; visibleChannelIds?: string[] }
 ): Promise<RawAgentMessage[]> {
-  const allowedChannelIds = await listAgentAllowedChannelIds(db, botUserId);
+  const allowedChannelIds = await listAgentAllowedChannelIds(
+    db,
+    botUserId,
+    opts.visibleChannelIds
+  );
   if (allowedChannelIds.length === 0) return [];
 
   // D1 caps a statement at 100 bound params, and `allowedChannelIds` is

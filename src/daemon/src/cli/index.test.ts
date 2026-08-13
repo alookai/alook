@@ -31,7 +31,7 @@ function stubApi(over: Partial<ServerApi> = {}): ServerApi {
     listServers: async () => ({ servers: [] }),
     listChannels: async () => ({ groups: [] }),
     channelMember: async () => ({ visibility: "public", hint: "" }),
-    inboxPull: async () => ({ messages: [], hasMore: false }),
+    inboxPull: async () => ({ messages: [], hasMore: false, markedCount: 0 }),
     inboxSnapshot: async () => ({ rows: [], pendingChannels: 0, pendingMessages: 0 }),
     ack: async () => undefined,
     send: async () => ({ state: "sent", message: { seq: "#1", channel: "/s/c", sender: "@a", content: { text: "" }, time: "" } }),
@@ -41,6 +41,9 @@ function stubApi(over: Partial<ServerApi> = {}): ServerApi {
     listMembers: async () => ({ members: [], hasMore: false }),
     joinServer: async () => ({ server: { handle: "s#0042" } }),
     reactAdd: async () => ({ ok: true, duplicate: false }),
+    markSet: async () => undefined,
+    markRemove: async () => undefined,
+    listMarks: async () => ({ marked: [] }),
     friendRequest: async () => ({ friendshipId: "fr_1", status: "pending", hint: "Your owner needs to approve this request in DM." }),
     listFriends: async () => ({ accepted: [], pendingOutgoing: [], pendingIncoming: [] }),
     nap: async () => ({ napped: true }),
@@ -250,6 +253,7 @@ describe("inbox pull", () => {
       .mockResolvedValueOnce({
         messages: [{ seq: "#7", channel: "/.dm/Bob#0042", sender: "@Alice#1234", content: { text: "still owed" }, time: "" }],
         hasMore: false,
+        markedCount: 0,
       });
     setApiForTesting(stubApi({ inboxPull: pullSpy, ack: ackSpy }));
 
@@ -273,6 +277,7 @@ describe("inbox pull", () => {
         inboxPull: async () => ({
           messages: [{ seq: "#2", channel: "/s#0042/general", sender: "@x", content: { text: "yo" }, time: "" }],
           hasMore: false,
+          markedCount: 0,
         }),
         ack: ackSpy,
       }),
@@ -294,6 +299,7 @@ describe("inbox pull", () => {
         inboxPull: async () => ({
           messages: [{ seq: "#2", channel: "/s#0042/general", sender: "@x", content: { text: "yo" }, time: "" }],
           hasMore: false,
+          markedCount: 0,
         }),
         ack: ackSpy,
       }),
@@ -320,6 +326,7 @@ describe("inbox pull", () => {
             { seq: "#3", channel: "/s#0042/general", sender: "@x", content: { text: "bye" }, time: "" },
           ],
           hasMore: false,
+          markedCount: 2,
         }),
         ack: ackSpy,
       }),
@@ -332,6 +339,14 @@ describe("inbox pull", () => {
     expect(env.success.messages).toHaveLength(2);
     expect(env.success.acked).toBe(0);
     expect(env.success.ackError).toBe("forbidden");
+    expect(Object.keys(env.success)).toEqual([
+      "messages",
+      "hasMore",
+      "acked",
+      "pulledAt",
+      "ackError",
+      "markedReminder",
+    ]);
   });
 
   it("does NOT include ackError when the ack succeeds", async () => {
@@ -340,6 +355,7 @@ describe("inbox pull", () => {
         inboxPull: async () => ({
           messages: [{ seq: "#2", channel: "/s#0042/general", sender: "@x", content: { text: "yo" }, time: "" }],
           hasMore: false,
+          markedCount: 0,
         }),
         ack: async () => undefined,
       }),
@@ -350,6 +366,22 @@ describe("inbox pull", () => {
     };
     expect(env.success.acked).toBe(1);
     expect(env.success.ackError).toBeUndefined();
+  });
+
+  it.each([
+    [0, undefined],
+    [1, "You have 1 marked message. Resolve it before going dark unless blocked."],
+    [3, "You have 3 marked messages. Resolve them before going dark unless blocked."],
+  ])("projects markedCount=%i without fabricating a message", async (markedCount, expected) => {
+    setApiForTesting(stubApi({
+      inboxPull: async () => ({ messages: [], hasMore: false, markedCount }),
+    }));
+    await main(["inbox", "pull"]);
+    const env = parseEnvelope(cap.lines()) as {
+      success: { messages: unknown[]; markedReminder?: string };
+    };
+    expect(env.success.messages).toEqual([]);
+    expect(env.success.markedReminder).toBe(expected);
   });
 });
 
@@ -1000,6 +1032,97 @@ describe("message emoji", () => {
     await main(["message", "emoji", "--target", "/demo#0042/general/#5#42", "--emoji", "👍"]);
     const env = parseEnvelope(cap.lines()) as { success: { duplicate: boolean } };
     expect(env.success.duplicate).toBe(true);
+  });
+});
+
+describe("message mark", () => {
+  it.each([
+    ["/demo#0042/general#42", "/demo#0042/general", 42],
+    ["/demo#0042/general/#5#7", "/demo#0042/general/#5", 7],
+    ["/.dm/peer#0001#9", "/.dm/peer#0001", 9],
+  ])("set parses %s and returns the confirmed envelope", async (target, channel, seq) => {
+    const markSet = vi.fn(async () => undefined);
+    setApiForTesting(stubApi({ markSet }));
+    await main(["message", "mark", "set", "--target", target]);
+    expect(markSet).toHaveBeenCalledWith({ channel, seq });
+    expect(parseEnvelope(cap.lines())).toEqual({ success: { target, marked: true } });
+  });
+
+  it("remove forwards the same canonical target and returns marked:false", async () => {
+    const markRemove = vi.fn(async () => undefined);
+    setApiForTesting(stubApi({ markRemove }));
+    await main(["message", "mark", "remove", "--target", "/demo#0042/general#42"]);
+    expect(markRemove).toHaveBeenCalledWith({ channel: "/demo#0042/general", seq: 42 });
+    expect(parseEnvelope(cap.lines())).toEqual({
+      success: { target: "/demo#0042/general#42", marked: false },
+    });
+  });
+
+  it.each([
+    ["set", "markSet", true],
+    ["remove", "markRemove", false],
+  ] as const)("%s retries one empty upstream 500 into one success envelope", async (command, method, marked) => {
+    const mutation = vi.fn()
+      .mockRejectedValueOnce(new Error(`upstream returned 500 with non-JSON body during ${method}`))
+      .mockResolvedValueOnce(undefined);
+    setApiForTesting(stubApi(method === "markSet" ? { markSet: mutation } : { markRemove: mutation }));
+    await main(["message", "mark", command, "--target", "/demo#0042/general#42"]);
+    expect(mutation).toHaveBeenCalledTimes(2);
+    expect(parseEnvelope(cap.lines())).toEqual({
+      success: { target: "/demo#0042/general#42", marked },
+    });
+  });
+
+  it.each([
+    ["set", "markSet"],
+    ["remove", "markRemove"],
+  ] as const)("%s does not retry a 400 business error", async (command, method) => {
+    const mutation = vi.fn(async () => {
+      throw new Error(`upstream returned 400 with non-JSON body during ${method}`);
+    });
+    setApiForTesting(stubApi(method === "markSet" ? { markSet: mutation } : { markRemove: mutation }));
+    await main(["message", "mark", command, "--target", "/demo#0042/general#42"]);
+    expect(mutation).toHaveBeenCalledOnce();
+    expect(parseEnvelope(cap.lines()).error).toContain("upstream returned 400");
+  });
+
+  it.each([
+    ["set", "markSet"],
+    ["remove", "markRemove"],
+  ] as const)("%s throws after the existing four-attempt 5xx cap", async (command, method) => {
+    const mutation = vi.fn(async () => {
+      throw new Error(`upstream returned 503 with non-JSON body during ${method}`);
+    });
+    setApiForTesting(stubApi(method === "markSet" ? { markSet: mutation } : { markRemove: mutation }));
+    await main(["message", "mark", command, "--target", "/demo#0042/general#42"]);
+    expect(mutation).toHaveBeenCalledTimes(4);
+    expect(parseEnvelope(cap.lines()).error).toContain("upstream returned 503");
+  });
+
+  it("rejects a target without a message seq locally", async () => {
+    const markSet = vi.fn(async () => undefined);
+    setApiForTesting(stubApi({ markSet }));
+    await main(["message", "mark", "set", "--target", "/demo#0042/general"]);
+    expect(parseEnvelope(cap.lines()).error).toContain("needs a ref with a seq");
+    expect(markSet).not.toHaveBeenCalled();
+  });
+
+  it("list returns all messages through the same local-time projection as inbox", async () => {
+    setApiForTesting(stubApi({
+      listMarks: async () => ({
+        marked: [{
+          seq: "#42",
+          channel: "/demo#0042/general",
+          sender: "@alice#0001",
+          content: { text: "task" },
+          time: "2026-08-13T04:00:00.000Z",
+        }],
+      }),
+    }));
+    await main(["message", "mark", "list"]);
+    const env = parseEnvelope(cap.lines()) as { success: { marked: Array<{ time: string }> } };
+    expect(env.success.marked).toHaveLength(1);
+    expect(env.success.marked[0].time).toMatch(/[+-]\d{2}:\d{2}$/);
   });
 });
 

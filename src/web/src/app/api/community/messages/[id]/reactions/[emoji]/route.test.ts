@@ -24,7 +24,7 @@ vi.mock("@alook/shared", async () => {
       ...actual.queries,
       communityMessage: {
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
-        getMessageByChannelAndSeq: (...a: unknown[]) => mockGetMessageByChannelAndSeq(...a),
+        getMessageIdentityByChannelAndSeq: (...a: unknown[]) => mockGetMessageIdentityByChannelAndSeq(...a),
       },
       communityChannel: { getChannelType: (...a: unknown[]) => mockGetChannelType(...a) },
       communityReaction: {
@@ -45,7 +45,7 @@ vi.mock("@/lib/community/fanout", () => ({
   fanOutToDM: (...a: unknown[]) => mockFanOutToDM(...a),
 }));
 
-const mockGetMessageByChannelAndSeq = vi.fn();
+const mockGetMessageIdentityByChannelAndSeq = vi.fn();
 const mockResolveTargetForMember = vi.fn();
 
 vi.mock("@/lib/community/resolve-ref", () => ({
@@ -53,7 +53,7 @@ vi.mock("@/lib/community/resolve-ref", () => ({
 }));
 
 // Dual-actor: crk_ bearer → bot, else human (mirrors the real wrapper). The bot
-// arm reaches resolveTargetForMember + getMessageByChannelAndSeq; the human arm
+// arm reaches resolveTargetForMember + the identity-only seq lookup; the human arm
 // carries the messageId in the path.
 vi.mock("@/lib/middleware/community-actor", () => ({
   withCommunityActor: (handler: any) => async (req: any, ctx?: any) => {
@@ -149,7 +149,7 @@ describe("reactions [emoji] surface guard", () => {
 
   it("bot PUT resolves ref+seq via resolveTargetForMember, then reacts", async () => {
     mockResolveTargetForMember.mockResolvedValue({ kind: "channel", channelId: "c1" });
-    mockGetMessageByChannelAndSeq.mockResolvedValue({ id: "m1" });
+    mockGetMessageIdentityByChannelAndSeq.mockResolvedValue({ id: "m1", channelId: "c1" });
     mockGetChannelType.mockResolvedValue("text");
     const res = await PUT(botReq("PUT", { channel: "/s/general", seq: 42 }), ctxResolve);
     expect(res.status).toBe(200);
@@ -158,7 +158,7 @@ describe("reactions [emoji] surface guard", () => {
       createThreadIfMissing: false,
       callerKind: "bot",
     });
-    expect(mockGetMessageByChannelAndSeq).toHaveBeenCalledWith({}, { channelId: "c1" }, 42);
+    expect(mockGetMessageIdentityByChannelAndSeq).toHaveBeenCalledWith({}, { channelId: "c1" }, 42);
     expect(mockAddReaction).toHaveBeenCalled();
   });
 
@@ -167,14 +167,14 @@ describe("reactions [emoji] surface guard", () => {
     const res = await PUT(botReq("PUT", { channel: "/s/general", seq: 42 }), ctxResolve);
     expect(res.status).toBe(404);
     // never reaches the messageId-keyed authorizeReaction / addReaction.
-    expect(mockGetMessageByChannelAndSeq).not.toHaveBeenCalled();
+    expect(mockGetMessageIdentityByChannelAndSeq).not.toHaveBeenCalled();
     expect(mockGetMessage).not.toHaveBeenCalled();
     expect(mockAddReaction).not.toHaveBeenCalled();
   });
 
   it("bot PUT ref resolves but seq absent → 404", async () => {
     mockResolveTargetForMember.mockResolvedValue({ kind: "channel", channelId: "c1" });
-    mockGetMessageByChannelAndSeq.mockResolvedValue(null);
+    mockGetMessageIdentityByChannelAndSeq.mockResolvedValue(null);
     const res = await PUT(botReq("PUT", { channel: "/s/general", seq: 999 }), ctxResolve);
     expect(res.status).toBe(404);
     expect(mockAddReaction).not.toHaveBeenCalled();

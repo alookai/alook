@@ -139,6 +139,12 @@ export function deriveAuditLogSubcommand(pathname: string, method?: string): str
   // it needs the method; the others are single-verb.
   const canonical = pathname.split("?")[0] ?? pathname;
   if (/^\/api\/community\/messages\/[^/]+\/reactions\//.test(canonical)) return "reactAdd";
+  if (/^\/api\/community\/messages\/[^/]+\/marks$/.test(canonical)) {
+    if (method === "PUT") return "markSet";
+    if (method === "DELETE") return "markRemove";
+    return null;
+  }
+  if (method === "GET" && /^\/api\/community\/users\/me\/marks$/.test(canonical)) return "markList";
   if (/^\/api\/community\/channels\/[^/]+\/messages\/seq\//.test(canonical)) return "resolve";
   if (/^\/api\/community\/channels\/[^/]+\/messages(\/|$)/.test(canonical)) {
     return method === "GET" ? "read" : "send";

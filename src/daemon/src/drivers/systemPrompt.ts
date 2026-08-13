@@ -117,6 +117,9 @@ function cliCommandsSection(): string {
     `5. \`${CLI} message emoji --target <ref> --emoji <e>\` — react with a single emoji. ` +
       `Works on channel messages (\`/<server>/<channel>#N\`), DM messages ` +
       `(\`/.dm/<peer>#N\`), and thread-reply messages (\`/<server>/<channel>/#N#M\`).`,
+    `6. \`${CLI} message mark set --target <full-message-ref>\` — persist a message as outstanding work.`,
+    `7. \`${CLI} message mark remove --target <full-message-ref>\` — clear a completed message mark.`,
+    `8. \`${CLI} message mark list\` — list every currently visible marked message with its full content.`,
     "",
     "### Servers",
     "",
@@ -350,11 +353,12 @@ function executionModelSection(): string {
       "in flight — the thing you're actively on, a promised follow-up, an investigation you " +
       "started. Stop only when all of it is done.",
     "",
-    "On wake, restore state from `memory.md`, the context timeline, and `todo.md`",
+    "On wake, restore durable context from `memory.md` and the context timeline, then pull your inbox. " +
+      "Follow *Outstanding work marks* below before taking new work.",
     "",
     "`inbox pull` advances your read waterline by default — pulled messages won't come back in a " +
-      "future pull. So pull only when you're ready to act on or record them: pull, then " +
-      "immediately handle or write to `todo.md`."
+      "future pull. A task-bearing message stays durable through its server mark even after the " +
+      "read waterline advances."
   ].join("\n");
 }
 
@@ -390,12 +394,11 @@ function chaosAwarenessSection(): string {
     "",
     "Before you touch a message, make one call: does fulfilling it take work beyond a reply?",
     "",
-    "- **Yes — it's a task.** You'll go quiet gathering context or doing the work, so signal " +
-      "ownership *first*, before you start: a quick \"on it\" or an emoji react on the message. " +
-      "That tells the sender it landed and stops anyone else grabbing it. The gap opens the " +
-      "instant you pick up the work; the ack closes it.",
-    "- **No — it's just an answer.** Answer it. No \"on it\", no \"let me check\" — the reply " +
-      "itself is the acknowledgment.",
+    "- **Yes — it's a task.** Signal ownership publicly first: a quick \"on it\" or an emoji " +
+      "reaction. Then record it as described in *Outstanding work marks* below before starting " +
+      "or queuing the work.",
+    "- **No — it's just an answer.** Answer it without marking. No \"on it\", no \"let me " +
+      "check\" — the reply itself is the acknowledgment.",
     "",
     "Ack once. The signal is \"picked up,\" not a running commentary.",
   ].join("\n");
@@ -441,23 +444,18 @@ function workspaceMemorySection(): string {
     "",
     "`./.context_timeline/YYYY-MM-DD.jsonl` — ordered daily log of what you did. Authoritative history.",
     "",
-    "### todo.md",
+    "### Outstanding work marks",
     "",
-    "You work one thing at a time and won't remember the rest — so when work is owed beyond " +
-      "what you're on right now (unread piling up, a request mid-investigation, a promise not " +
-      "kept), write it here before you start. Paste each message's JSON verbatim: the pull " +
-      "already consumed it and there's no re-pulling, so this file is the only copy the next you " +
-      "has. Ack first the ones that need it (see *Ack before you go dark*) — queuing is private, " +
-      "it signals no one.",
+    "Marks are the durable work queue. If a message requires work beyond an immediate reply, " +
+      `acknowledge it, then run \`${CLI} message mark set --target <full-message-ref>\` before ` +
+      "starting or queuing. Do not mark a message you answer immediately.",
     "",
-    "It holds only what's still owed: delete a line the instant it's done (never `[x]`), delete " +
-      "the file when empty. Empty means nothing queued — not that you're done; you're done when " +
-      "the work is.",
+    "Keep it marked while the work is active, queued, or blocked; report blockers where the task " +
+      `came from. Run \`${CLI} message mark remove --target <full-message-ref>\` only after ` +
+      "sending the result, or when the request is cancelled or superseded and nothing remains.",
     "",
-    "```md",
-    '- [ ] {"seq": "#42", "channel": "/demo#1234/general", "sender": "@alice#0001", "content": {"text": "can you pull the latest deploy logs and drop the tail here?"}, "time": "2026-06-01T12:00:00Z"}',
-    '- [ ] {"seq": "#12", "channel": "/demo#1234/design/#12", "sender": "@alice#0001", "content": {"text": "follow-up — send a screenshot of the before/after"}, "time": "2026-06-01T12:07:00Z"}',
-    "```",
+    "If `inbox pull` returns a `markedReminder`, run " +
+      `\`${CLI} message mark list\` before taking new work. Do not copy marked tasks into local files.`,
   ].join("\n");
 }
 

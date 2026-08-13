@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import * as agentInbox from "../../src/db/queries/community/agent-inbox";
+import * as marks from "../../src/db/queries/community/mark";
 import { formatRef, formatSeq, DM_SERVER } from "../../src/community-cli-contract";
 
 /**
@@ -10,10 +11,10 @@ import { formatRef, formatSeq, DM_SERVER } from "../../src/community-cli-contrac
  * so this one mock covers every shape `agent-inbox.ts` builds (`.where()`
  * terminal, `.limit()` terminal, `.groupBy()` terminal, ...).
  *
- * `db.select()` calls consume `responses` in FIFO call order — i.e. the Nth
- * `db.select(...)` call anywhere in the exercised code resolves to
- * `responses[N]`. See the query module's internal `Promise.all` construction
- * order (documented per-test below) for why this order is deterministic.
+ * `db.select()` builder calls consume `responses` in FIFO construction order.
+ * An embedded correlated-subquery builder therefore needs its own unused slot
+ * even though it executes as part of the outer SQL statement, not as another
+ * database round trip. See the per-test call-shape notes below.
  */
 function createSequentialDb(responses: unknown[][]) {
   let call = 0;
@@ -41,6 +42,23 @@ describe("getLatestSeqForScope", () => {
     const result = await agentInbox.getLatestSeqForScope(db, "new");
     expect(result).toBe(0);
   });
+});
+
+describe("listAccessVisibleChannelIdsForUser", () => {
+  it("sequentially unions server and readable-DM visibility once", async () => {
+    const db = createSequentialDb([
+      [{ serverId: "srv_1" }],
+      [{ id: "ch_1", type: "text", categoryId: null, categoryPrivate: null, creatorId: "u_owner", parentChannelId: null }],
+      [],
+      [{ channelId: "dm_1" }],
+      [], // blocked-DM anti-join inner builder; same SQL statement as the outer DM select
+    ])
+    await expect(agentInbox.listAccessVisibleChannelIdsForUser(db, "bot_1"))
+      .resolves.toEqual(["ch_1", "dm_1"])
+    // Three server-visibility builders plus the DM outer + embedded anti-join
+    // builders. The latter two compile into one statement (real-SQLite test).
+    expect(db.select).toHaveBeenCalledTimes(5)
+  })
 });
 
 function rawMsg(overrides: Partial<Record<string, unknown>> = {}) {
@@ -430,17 +448,19 @@ describe("listUnreadMessagesForAgent", () => {
   //  3. `listVisibleChannelIdsForUser` → viewer's channel-member rows
   //  4. DM channels the bot has an access row on (DMs are channels now, not
   //     covered by the server-membership walk above)
-  //  5. Visible-channel types lookup (skipped when visible set is empty)
-  //  6. `listParticipatingThreadIds` (skipped when no narrow types among visible)
-  //  7. The messages SQL itself (select index 5)
+  //  5. Blocked-DM anti-join inner builder (part of call 4's SQL)
+  //  6. Visible-channel types lookup (skipped when visible set is empty)
+  //  7. `listParticipatingThreadIds` (skipped when no narrow types among visible)
+  //  8. The messages SQL itself (builder index 6 when call 7 is skipped)
   it("strips the internal lastReadSeq column before returning rows", async () => {
     const db = createSequentialDb([
       [{ serverId: "srv_1" }], // 1. membership
       [{ id: "ch_1", type: "text", categoryId: null, categoryPrivate: null, creatorId: "u_other", parentChannelId: null }], // 2. channels
       [], // 3. viewer memberChannelIds
       [], // 4. DM access channels
-      [{ id: "ch_1", type: "text" }], // 5. types of visible channels
-      [{ ...rawMsg(), lastReadSeq: 0 }], // 6. messages (no narrow types → no participant query)
+      [], // 5. blocked-DM anti-join inner builder; same SQL statement
+      [{ id: "ch_1", type: "text" }], // 6. types of visible channels
+      [{ ...rawMsg(), lastReadSeq: 0 }], // 7. messages (no narrow types → no participant query)
     ]);
     const result = await agentInbox.listUnreadMessagesForAgent(db, "bot_1", { max: 50 });
     expect(result).toEqual([rawMsg()]);
@@ -453,12 +473,13 @@ describe("listUnreadMessagesForAgent", () => {
       [{ id: "ch_1", type: "text", categoryId: null, categoryPrivate: null, creatorId: "u_other", parentChannelId: null }],
       [],
       [], // DM access channels
+      [], // blocked-DM anti-join inner builder; same SQL statement
       [{ id: "ch_1", type: "text" }],
       [],
     ]);
     await agentInbox.listUnreadMessagesForAgent(db, "bot_1", { max: 17 });
-    // The 6th `db.select(...)` chain is the message query — that's where `.limit` lands.
-    const chainResult = db.select.mock.results[5]!.value;
+    // The 7th builder is the message query — that's where `.limit` lands.
+    const chainResult = db.select.mock.results[6]!.value;
     expect(chainResult.limit).toHaveBeenCalledWith(17);
   });
 
@@ -468,12 +489,13 @@ describe("listUnreadMessagesForAgent", () => {
       [{ id: "ch_1", type: "text", categoryId: null, categoryPrivate: null, creatorId: "u_other", parentChannelId: null }],
       [],
       [], // DM access channels
+      [], // blocked-DM anti-join inner builder; same SQL statement
       [{ id: "ch_1", type: "text" }],
       [],
     ]);
     await agentInbox.listUnreadMessagesForAgent(db, "bot_1", { max: 50 });
 
-    const chainResult = db.select.mock.results[5]!.value;
+    const chainResult = db.select.mock.results[6]!.value;
     // read-state + channel + channel-member (relation='access') + server-member.
     // No dm-conversation join — DMs are channels now, resolved via the
     // channel-member join. The channel + channel-member + server-member joins
@@ -501,6 +523,7 @@ describe("listUnreadMessagesForAgent", () => {
       ],
       [],
       [], // DM access channels
+      [], // blocked-DM anti-join inner builder; same SQL statement
       [
         { id: "ch_a", type: "text" },
         { id: "ch_b_thread", type: "thread" },
@@ -512,6 +535,23 @@ describe("listUnreadMessagesForAgent", () => {
     expect(result.map((r) => r.id)).toEqual(["m_a"]);
   });
 
+  it("counts an access-visible unnotified thread as marked while excluding it from unread delivery", async () => {
+    const visibleChannelIds = ["thread_visible_unnotified"];
+    const markDb = createSequentialDb([[{ count: 1 }]]);
+    await expect(marks.countMarksForUser(markDb, "bot_1", { visibleChannelIds }))
+      .resolves.toBe(1);
+
+    const unreadDb = createSequentialDb([
+      [{ id: "thread_visible_unnotified", type: "thread" }],
+      [],
+    ]);
+    await expect(agentInbox.listUnreadMessagesForAgent(unreadDb, "bot_1", {
+      max: 50,
+      visibleChannelIds,
+    })).resolves.toEqual([]);
+    expect(unreadDb.select).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps thread channels when the bot IS a participant", async () => {
     const db = createSequentialDb([
       [{ serverId: "srv_1" }],
@@ -521,6 +561,7 @@ describe("listUnreadMessagesForAgent", () => {
       ],
       [],
       [], // DM access channels
+      [], // blocked-DM anti-join inner builder; same SQL statement
       [
         { id: "ch_a", type: "text" },
         { id: "ch_b_thread", type: "thread" },
@@ -536,6 +577,7 @@ describe("listUnreadMessagesForAgent", () => {
     const db = createSequentialDb([
       [], // no memberships → listVisibleChannelIdsForUser returns []
       [], // DM access channels: none either → allowedChannelIds empty
+      [], // blocked-DM anti-join inner builder; same SQL statement
       [{ ...rawMsg(), lastReadSeq: 0 }], // messages SQL (guarded by 1=0 in real SQL when allowed set empty)
     ]);
     const result = await agentInbox.listUnreadMessagesForAgent(db, "bot_1", { max: 50 });
@@ -548,15 +590,17 @@ describe("getLatestUnreadMessageForAgent", () => {
   // listUnreadMessagesForAgent, then a single-row messages SQL):
   //  1-3. `listVisibleChannelIdsForUser`
   //  4. DM channels the bot has an access row on
-  //  5. Visible-channel types lookup
-  //  6. `listParticipatingThreadIds` (only if narrow types among visible)
-  //  7. The messages SQL — `ORDER BY createdAt DESC LIMIT 1` (select index 5)
+  //  5. Blocked-DM anti-join inner builder (part of call 4's SQL)
+  //  6. Visible-channel types lookup
+  //  7. `listParticipatingThreadIds` (only if narrow types among visible)
+  //  8. The messages SQL — `ORDER BY createdAt DESC LIMIT 1`
   it("returns null when there's no unread anywhere", async () => {
     const db = createSequentialDb([
       [{ serverId: "srv_1" }],
       [{ id: "ch_1", type: "text", categoryId: null, categoryPrivate: null, creatorId: "u_other", parentChannelId: null }],
       [],
       [], // DM access channels
+      [], // blocked-DM anti-join inner builder; same SQL statement
       [{ id: "ch_1", type: "text" }],
       [],
     ]);
@@ -570,6 +614,7 @@ describe("getLatestUnreadMessageForAgent", () => {
       [{ id: "ch_1", type: "text", categoryId: null, categoryPrivate: null, creatorId: "u_other", parentChannelId: null }],
       [],
       [], // DM access channels
+      [], // blocked-DM anti-join inner builder; same SQL statement
       [{ id: "ch_1", type: "text" }],
       [{ id: "m_latest" }],
     ]);
@@ -589,6 +634,7 @@ describe("getLatestUnreadMessageForAgent", () => {
       ],
       [],
       [], // DM access channels
+      [], // blocked-DM anti-join inner builder; same SQL statement
       [
         { id: "ch_thread", type: "thread" },
         { id: "ch_text", type: "text" },
@@ -606,11 +652,12 @@ describe("getLatestUnreadMessageForAgent", () => {
       [{ id: "ch_1", type: "text", categoryId: null, categoryPrivate: null, creatorId: "u_other", parentChannelId: null }],
       [],
       [], // DM access channels
+      [], // blocked-DM anti-join inner builder; same SQL statement
       [{ id: "ch_1", type: "text" }],
       [],
     ]);
     await agentInbox.getLatestUnreadMessageForAgent(db, "bot_1");
-    const chainResult = db.select.mock.results[5]!.value;
+    const chainResult = db.select.mock.results[6]!.value;
     expect(chainResult.orderBy).toHaveBeenCalledTimes(1);
     expect(chainResult.limit).toHaveBeenCalledWith(1);
   });
@@ -621,11 +668,12 @@ describe("getLatestUnreadMessageForAgent", () => {
       [{ id: "ch_1", type: "text", categoryId: null, categoryPrivate: null, creatorId: "u_other", parentChannelId: null }],
       [],
       [], // DM access channels
+      [], // blocked-DM anti-join inner builder; same SQL statement
       [{ id: "ch_1", type: "text" }],
       [],
     ]);
     await agentInbox.getLatestUnreadMessageForAgent(db, "bot_1");
-    const chainResult = db.select.mock.results[5]!.value;
+    const chainResult = db.select.mock.results[6]!.value;
     // read-state + channel + channel-member + server-member. No dm-conversation
     // join — DMs are channels now.
     expect(chainResult.leftJoin).toHaveBeenCalledTimes(4);
@@ -667,16 +715,18 @@ describe("getInboxSnapshotForAgent", () => {
   // Call order:
   //  1-3. `listVisibleChannelIdsForUser` (memberships, channels, viewer members)
   //  4. DM channels the bot has an access row on
-  //  5. Visible-channel types lookup
-  //  6. `listParticipatingThreadIds` (skipped when no narrow types among visible)
-  //  7. The snapshot aggregation SQL (select index 5)
-  //  8. sender-name hydration
+  //  5. Blocked-DM anti-join inner builder (part of call 4's SQL)
+  //  6. Visible-channel types lookup
+  //  7. `listParticipatingThreadIds` (skipped when no narrow types among visible)
+  //  8. The snapshot aggregation SQL
+  //  9. sender-name hydration
   it("returns [] and skips the user-name lookup when there's no pending unread", async () => {
     const db = createSequentialDb([
       [{ serverId: "srv_1" }],
       [{ id: "ch_1", type: "text", categoryId: null, categoryPrivate: null, creatorId: "u_other", parentChannelId: null }],
       [],
       [], // DM access channels
+      [], // blocked-DM anti-join inner builder; same SQL statement
       [{ id: "ch_1", type: "text" }],
       [],
     ]);
@@ -698,7 +748,7 @@ describe("getInboxSnapshotForAgent", () => {
       id: `sender_${i}`, name: `Sender${i}`, discriminator: String(i).padStart(4, "0"),
     }));
     const db = createSequentialDb([
-      [{ serverId: "srv_1" }], channels, [], [], channelTypes.slice(0, 100), channelTypes.slice(100),
+      [{ serverId: "srv_1" }], channels, [], [], [], channelTypes.slice(0, 100), channelTypes.slice(100),
       aggregated.slice(0, 100), aggregated.slice(100),
       firstSenderChunk, [], // sender_100 is absent in the second hydration chunk
     ]);
@@ -721,6 +771,7 @@ describe("getInboxSnapshotForAgent", () => {
       ],
       [],
       [], // DM access channels
+      [], // blocked-DM anti-join inner builder; same SQL statement
       [
         { id: "ch_1", type: "text" },
         { id: "ch_2", type: "text" },
@@ -783,6 +834,7 @@ describe("getInboxSnapshotForAgent", () => {
       ],
       [],
       [], // DM access channels
+      [], // blocked-DM anti-join inner builder; same SQL statement
       [{ id: "ch_thread", type: "thread" }],
       [], // participant lookup: not a participant → ch_thread dropped from allowed
       [], // aggregation SQL: allowedChannelIds is [], WHERE has 1=0, no rows survive
@@ -797,12 +849,13 @@ describe("getInboxSnapshotForAgent", () => {
       [{ id: "ch_1", type: "text", categoryId: null, categoryPrivate: null, creatorId: "u_other", parentChannelId: null }],
       [],
       [], // DM access channels
+      [], // blocked-DM anti-join inner builder; same SQL statement
       [{ id: "ch_1", type: "text" }],
       [],
     ]);
     await agentInbox.getInboxSnapshotForAgent(db, "bot_1");
 
-    const chainResult = db.select.mock.results[5]!.value;
+    const chainResult = db.select.mock.results[6]!.value;
     // read-state + channel + channel-member + server-member. No dm-conversation
     // join — DMs are channels now.
     expect(chainResult.leftJoin).toHaveBeenCalledTimes(4);

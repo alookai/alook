@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { queries, withD1Retry, CommunityAgentInboxPullRequestSchema } from "@alook/shared"
 import { getDb } from "@/lib/db"
+import { log } from "@/lib/logger"
 import { withCommunityActor, requireBot } from "@/lib/middleware/community-actor"
 
 const MAX_PULL = 200
@@ -44,13 +45,35 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   }
   const max = Math.min(parsed.data.max ?? MAX_PULL, MAX_PULL)
 
-  // Fetch one extra row to detect whether more unread remain beyond `max`. Each
-  // D1 call is wrapped in withD1Retry so a transient blip is retried, not a hard
-  // 500 to the bot.
-  const rows = await withD1Retry(
-    () => queries.communityAgentInbox.listUnreadMessagesForAgent(db, botUserId, { max: max + 1 }),
-    { route: "community/users/me/inbox/pull:list-unread" },
+  const visibleChannelIds = await withD1Retry(
+    () => queries.communityAgentInbox.listAccessVisibleChannelIdsForUser(db, botUserId),
+    { route: "community/users/me/inbox/pull:visibility" },
   )
+  const markedCountPromise = withD1Retry(
+    () => queries.communityMessageMark.countMarksForUser(
+      db,
+      botUserId,
+      { visibleChannelIds },
+    ),
+    { route: "community/users/me/inbox/pull:count-marks" },
+  ).catch((err: unknown) => {
+    log.warn("community_inbox_marked_count_failed", {
+      botUserId,
+      err: err instanceof Error ? err.message : String(err),
+    })
+    return 0
+  })
+  const [rows, markedCount] = await Promise.all([
+    withD1Retry(
+      () => queries.communityAgentInbox.listUnreadMessagesForAgent(
+        db,
+        botUserId,
+        { max: max + 1, visibleChannelIds },
+      ),
+      { route: "community/users/me/inbox/pull:list-unread" },
+    ),
+    markedCountPromise,
+  ])
   const hasMore = rows.length > max
   const page = hasMore ? rows.slice(0, max) : rows
 
@@ -78,5 +101,5 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
     ),
     { route: "community/users/me/inbox/pull:hydrate" },
   )
-  return NextResponse.json({ messages, hasMore })
+  return NextResponse.json({ messages, hasMore, markedCount })
 })
