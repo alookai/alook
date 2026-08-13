@@ -17,6 +17,7 @@ import type { ImagePreview, RenderMsg, OpenProfile } from "./_types"
 // plans/community-switch-perf-optimization.md (WS3).
 export interface MessageRowProps {
   m: RenderMsg
+  viewerUserId?: string
   pinned?: boolean
   highlighted?: boolean
   onOpenThread: (id: string) => void
@@ -50,7 +51,7 @@ export interface MessageRowProps {
 
 function MessageRowImpl(props: MessageRowProps) {
   const {
-    m, pinned, highlighted, onOpenThread, onOpenProfile,
+    m, viewerUserId, pinned, highlighted, onOpenThread, onOpenProfile,
     onToggleReactionId, onReactId, onReplyId, onPinId, onMarkId, onCreateThreadId,
     onCopyId, onEditId, onRetryId, onDismissId, onJumpToId, onPreviewImage, onDownloadFile,
     resolveUserName, onImageLoad,
@@ -88,6 +89,7 @@ function MessageRowImpl(props: MessageRowProps) {
   return (
     <Message
       m={m}
+      viewerUserId={viewerUserId}
       pinned={pinned}
       highlighted={highlighted}
       onOpenThread={onOpenThread}

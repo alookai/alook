@@ -15,6 +15,8 @@ export const tid = {
   statusPill: "community-status-pill",
   inviteToken: "community-invite-token",
   inviteCopy: "community-invite-copy",
+  inviteCard: (token: string) => `community-invite-card-${token}`,
+  inviteCardAction: (token: string) => `community-invite-card-action-${token}`,
   machinePairOpen: "community-machine-pair-open",
   machinePairCommand: "community-machine-pair-command",
   machinePairCopy: "community-machine-pair-copy",

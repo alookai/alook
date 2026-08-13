@@ -21,7 +21,7 @@ export function RightPanelContent({
   onAddMember, manageContext,
   pinned, pinnedLoading, searchResults, searchQuery,
   threads, threadsLoading, showSearchInput = true, onOpenThread, onOpenProfile,
-  onSetRole, onKickMember, myRole, onJumpToMessage, onSearch,
+  onSetRole, onKickMember, myRole, onJumpToMessage, onSearch, viewerUserId,
 }: {
   kind: Exclude<RightPanel, null>
   members: Member[]
@@ -49,6 +49,7 @@ export function RightPanelContent({
   // sheet), so a click always gives feedback even for an out-of-window pin.
   onJumpToMessage?: (seq: number) => void
   onSearch?: (query: string) => void
+  viewerUserId?: string
 }) {
   if (kind === "members")
     return (
@@ -100,7 +101,16 @@ export function RightPanelContent({
       </PanelShell>
     )
   if (kind === "search")
-    return <SearchPanel searchResults={searchResults} initialQuery={searchQuery} showSearchInput={showSearchInput} onOpenProfile={onOpenProfile} onSearch={onSearch} />
+    return (
+      <SearchPanel
+        searchResults={searchResults}
+        initialQuery={searchQuery}
+        showSearchInput={showSearchInput}
+        onOpenProfile={onOpenProfile}
+        onSearch={onSearch}
+        viewerUserId={viewerUserId}
+      />
+    )
   return (
     <PanelShell icon={MessagesSquare} title="Threads">
       {threadsLoading && threads.length === 0 ? (
@@ -170,8 +180,20 @@ function ThreadListSkeleton() {
   )
 }
 
-function SearchPanel({ searchResults, initialQuery, showSearchInput, onOpenProfile, onSearch }: {
-  searchResults: Msg[]; initialQuery?: string; showSearchInput?: boolean; onOpenProfile?: OpenProfile; onSearch?: (query: string) => void
+function SearchPanel({
+  searchResults,
+  initialQuery,
+  showSearchInput,
+  onOpenProfile,
+  onSearch,
+  viewerUserId,
+}: {
+  searchResults: Msg[]
+  initialQuery?: string
+  showSearchInput?: boolean
+  onOpenProfile?: OpenProfile
+  onSearch?: (query: string) => void
+  viewerUserId?: string
 }) {
   const [query, setQuery] = useState(initialQuery ?? "")
   const submit = () => { const q = query.trim(); if (q) onSearch?.(q) }
@@ -192,7 +214,16 @@ function SearchPanel({ searchResults, initialQuery, showSearchInput, onOpenProfi
       <div className="mb-2 text-xs text-muted-foreground">{searchResults.length} results</div>
       {searchResults.map((m) => {
         const renderMsg: RenderMsg = { ...m, grouped: false }
-        return <Message key={m.id} m={renderMsg} compact onOpenThread={() => {}} onOpenProfile={onOpenProfile} />
+        return (
+          <Message
+            key={m.id}
+            m={renderMsg}
+            compact
+            viewerUserId={viewerUserId}
+            onOpenThread={() => {}}
+            onOpenProfile={onOpenProfile}
+          />
+        )
       })}
     </PanelShell>
   )

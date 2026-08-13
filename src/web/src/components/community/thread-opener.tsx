@@ -28,12 +28,14 @@ import type { ImagePreview, OpenProfile } from "./_types"
 // reflect here without a page reload once the mutation invalidates this key.
 export function ThreadOpener({
   parentMessageId,
+  viewerUserId,
   onOpenProfile,
   onPreviewImage,
   onDownloadFile,
   onJump,
 }: {
   parentMessageId: string
+  viewerUserId: string
   onOpenProfile?: OpenProfile
   onPreviewImage?: (image: ImagePreview) => void
   onDownloadFile?: (url: string) => void
@@ -102,7 +104,13 @@ export function ThreadOpener({
             </span>
           </div>
 
-          {msg.content && <MessageBody text={msg.content} onOpenProfile={onOpenProfile} />}
+          {msg.content && (
+            <MessageBody
+              text={msg.content}
+              onOpenProfile={onOpenProfile}
+              perspective={msg.authorId === viewerUserId ? "sender" : "recipient"}
+            />
+          )}
 
           {msg.attachments && msg.attachments.length > 0 && (
             <div className="mt-2 flex flex-col gap-2 pb-2">

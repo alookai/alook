@@ -228,6 +228,7 @@ describe("ThreadChannelSurface ownership", () => {
     expect(opener.type).toBe(ThreadOpener)
     expect(opener.props).toEqual(expect.objectContaining({
       parentMessageId: "opener_1",
+      viewerUserId: "viewer_1",
       onOpenProfile: props.onOpenProfile,
     }))
     act(() => opener.props.onJump?.())

@@ -40,7 +40,10 @@ describe("ThreadOpener image attachment layout", () => {
     let renderer: TestRenderer.ReactTestRenderer
     act(() => {
       renderer = TestRenderer.create(
-        React.createElement(ThreadOpener, { parentMessageId: "opener_1" }),
+        React.createElement(ThreadOpener, {
+          parentMessageId: "opener_1",
+          viewerUserId: "viewer_1",
+        }),
         { createNodeMock: () => genericMock },
       )
     })

@@ -7,6 +7,13 @@ describe("community QA selectors", () => {
     expect(tid.channelRefPill("post_1")).toBe("community-channel-ref-pill-post_1")
   })
 
+  it("keys invite-card surfaces by their token", () => {
+    expect(tid.inviteCard("invite_1")).toBe("community-invite-card-invite_1")
+    expect(tid.inviteCardAction("invite_1")).toBe(
+      "community-invite-card-action-invite_1",
+    )
+  })
+
   it("exposes only the four stable My Bots bug-report flow selectors", () => {
     expect(tid.botReportProblemItem).toBe("bot-report-problem-item")
     expect(tid.botReportProblemDialog).toBe("bot-report-problem-dialog")

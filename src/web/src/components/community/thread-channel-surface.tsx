@@ -153,6 +153,7 @@ export function ThreadChannelSurface({
   const opener = parentMessageId && !parentIsForum ? (
     <ThreadOpener
       parentMessageId={parentMessageId}
+      viewerUserId={viewer.id}
       onOpenProfile={onOpenProfile}
       onPreviewImage={(image) => uiHandlers.previewImage?.(image)}
       onDownloadFile={(url) => {
@@ -256,6 +257,7 @@ export function ThreadChannelSurface({
               open
               onOpenChange={(open) => { if (!open) setRightPanel(null) }}
               kind={rightPanel}
+              viewerUserId={viewer.id}
               {...memberPanelProps}
               pinned={controller.feed.pinned}
               pinnedLoading={controller.feed.pinnedLoading}

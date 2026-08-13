@@ -417,6 +417,7 @@ export function MessageContextSheet({
           {!query.isLoading && !query.isError && query.data && !query.data.notFound && (
             <ContextRows
               rows={renderRows}
+              viewerUserId={currentUser.id}
               anchorId={anchorId}
               pinnedIds={pinnedIds}
               onOpenProfile={onOpenProfile}
@@ -441,6 +442,7 @@ export function MessageContextSheet({
 
 function ContextRows({
   rows,
+  viewerUserId,
   anchorId,
   pinnedIds,
   onOpenProfile,
@@ -457,6 +459,7 @@ function ContextRows({
   onDownloadFile,
 }: {
   rows: RenderMsg[]
+  viewerUserId: string
   anchorId: string | null
   pinnedIds?: Set<string>
   onOpenProfile?: OpenProfile
@@ -500,6 +503,7 @@ function ContextRows({
             <div data-anchor-row={isTarget ? "1" : undefined}>
               <MessageRow
                 m={m}
+                viewerUserId={viewerUserId}
                 pinned={pinnedIds?.has(m.id)}
                 highlighted={isTarget}
                 onOpenThread={onOpenThread ?? (() => {})}
