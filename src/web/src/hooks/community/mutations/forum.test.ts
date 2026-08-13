@@ -122,7 +122,7 @@ describe("useCreateForumThread", () => {
     expect(body.mentionType).toBe("everyone")
     const [, replyInit] = apiFetchMock.mock.calls[1]
     const replyBody = JSON.parse((replyInit as { body: string }).body)
-    expect(replyBody.attachments).toBeUndefined()
+    expect(replyBody.attachments).toEqual(["att_1"])
   })
 
   it("invalidates the composed forum list on success", async () => {

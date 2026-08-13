@@ -336,13 +336,7 @@ describe("ThreadChannelSurface ownership", () => {
       titleRename: true,
       onRename: expect.any(Function),
     }))
-    const opener = mockedMessageList.mock.calls.at(-1)![0].hero as React.ReactElement<React.ComponentProps<typeof ThreadOpener>>
-    expect(opener.type).toBe(ThreadOpener)
-    expect(opener.props).toEqual(expect.objectContaining({
-      parentMessageId: "opener_1",
-      viewerUserId: "viewer_1",
-      onJump: undefined,
-    }))
+    expect(mockedMessageList.mock.calls.at(-1)![0].hero).toBeUndefined()
 
     await act(async () => {
       await headerProps.breadcrumb?.onRename?.("Renamed post")

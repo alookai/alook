@@ -264,28 +264,6 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(mockCreateMessage).toHaveBeenCalled()
   })
 
-  it("binds validated human attachment ids to the forum opener message", async () => {
-    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "forum", parentChannelId: null })
-    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1", type: "forum", parentChannelId: null })
-    mockFindPendingAttachmentsForSender.mockResolvedValue([{ id: "att_1" }])
-    mockReserveAttachmentsForMessage.mockResolvedValue(["att_1"])
-    mockListByMessageIds.mockResolvedValue([{
-      id: "att_1", targetId: "c1", filename: "clip.webm", thumbnailR2Key: null,
-      contentType: "video/webm", size: 10, width: null, height: null,
-    }])
-
-    const res = await POST(postReq({ content: "Media post", attachments: ["att_1"] }), ctx)
-
-    expect(res.status).toBe(201)
-    expect(mockFindPendingAttachmentsForSender).toHaveBeenCalledWith({}, {
-      ids: ["att_1"], uploaderId: "u1", targetId: "c1",
-    })
-    expect(mockReserveAttachmentsForMessage).toHaveBeenCalledWith({}, {
-      ids: ["att_1"], messageId: "m1",
-    })
-    expect(mockRebindPendingAttachmentsToChild).toHaveBeenCalledWith({}, expect.objectContaining({ ids: [] }))
-  })
-
   it("a DM id via the door routes to the DM arm — the block gate runs (blocked peer → 403, not a silent channel-route bypass)", async () => {
     // Corrected direction (one door): a DM id is a valid target here, dispatched
     // to requireDMAccess (which runs the block check) — NOT the old two-door

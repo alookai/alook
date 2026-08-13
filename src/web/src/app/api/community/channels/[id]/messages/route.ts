@@ -252,32 +252,13 @@ async function handleHumanSend(
     const forumBody = raw as { content?: unknown; mentionType?: unknown }
     const content = typeof forumBody.content === "string" ? forumBody.content : ""
     if (!content.trim()) return NextResponse.json({ error: "content is required" }, { status: 400 })
-    const replay = await getCommunityMessageReplay({
-      db,
-      authorId: userId,
-      channelId: target.channelId,
-      clientNonce,
-    })
-    if (!replay && attachmentIds.length > 0) {
-      const rows = await withD1Retry(
-        () => queries.communityAttachment.findPendingAttachmentsForSender(db, {
-          ids: attachmentIds,
-          uploaderId: userId,
-          targetId: target.channelId,
-        }),
-        { route: "community/messages:human-forum-attachments" },
-      )
-      if (rows.length !== attachmentIds.length) {
-        return NextResponse.json({ error: "attachment not found or not attachable to this target" }, { status: 400 })
-      }
-    }
     const created = await createMessageWithThread({
       db,
       authorId: userId,
       parentChannelId: target.channelId,
       serverId: target.serverId,
       body: { content, mentionType: forumBody.mentionType },
-      attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
+      pendingAttachmentIdsToRebind: attachmentIds,
       clientNonce,
       source: "web",
     })
@@ -369,43 +350,19 @@ async function handleBotSend(
   // brand-new thread is a fresh scope with no seq contention to align
   // against.
   if (target.kind === "forum") {
-    const replay = await getCommunityMessageReplay({
-      db,
-      authorId: botUserId,
-      channelId,
-      clientNonce: body.nonce,
-    })
-    if (!replay && body.attachments.length > 0) {
-      const rows = await withD1Retry(
-        () => queries.communityAttachment.findPendingAttachmentsForSender(db, {
-          ids: body.attachments,
-          uploaderId: botUserId,
-          targetId: channelId,
-        }),
-        { route: "community/messages:forum-attachments" },
-      )
-      if (rows.length !== body.attachments.length) {
-        return NextResponse.json({ error: "attachment not found or not attachable to this target" }, { status: 400 })
-      }
-    }
     const created = await createMessageWithThread({
       db,
       authorId: botUserId,
       parentChannelId: channelId,
       serverId: target.serverId,
       body: { content: body.content.text },
-      attachmentIds: body.attachments.length > 0 ? body.attachments : undefined,
+      attachmentIds: undefined,
+      pendingAttachmentIdsToRebind: body.attachments,
       clientNonce: body.nonce,
       source: "cli",
     })
     if (!created.ok) return NextResponse.json({ error: created.error }, { status: created.status })
-    const orderedAttachments = created.attachments.map((attachment) => ({
-      id: attachment.id,
-      filename: attachment.filename,
-      contentType: attachment.contentType,
-      size: attachment.size,
-    }))
-    const message = await queries.communityAgentInbox.toAgentMessage(db, created.message, botUserId, orderedAttachments)
+    const message = await queries.communityAgentInbox.toAgentMessage(db, created.message, botUserId)
     return NextResponse.json({
       state: "sent",
       message,

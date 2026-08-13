@@ -42,7 +42,7 @@ export function useCreateForumThread() {
       )
       await apiFetch(`/api/community/channels/${structure.threadId}/messages`, {
         method: "POST",
-        body: JSON.stringify({ content, nonce: `${nonce}:reply` }),
+        body: JSON.stringify({ content, attachments: attachmentIds, nonce: `${nonce}:reply` }),
       })
       return structure
     },
