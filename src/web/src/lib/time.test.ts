@@ -41,12 +41,15 @@ describe("relativeTime", () => {
 
   it("returns formatted date for 7+ days", () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-06-10T12:00:00Z"));
-    const result = relativeTime("2026-05-20T12:00:00Z");
-    expect(result).not.toContain("ago");
-    expect(result).not.toBe("just now");
-    expect(result).not.toBe("");
-    expect(result.length).toBeGreaterThan(0);
+    vi.setSystemTime(new Date("2026-08-13T12:00:00Z"));
+    const localeSpy = vi.spyOn(Date.prototype, "toLocaleDateString");
+    const result = relativeTime("2026-08-06T04:20:00Z");
+    expect(result).toBe("Aug 6");
+    expect(localeSpy).toHaveBeenCalledWith("en-US", {
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    });
     vi.useRealTimers();
   });
 });
