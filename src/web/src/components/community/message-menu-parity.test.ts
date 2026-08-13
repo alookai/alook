@@ -30,8 +30,25 @@ describe("messageCanShare — the derivation that gives every surface Share", ()
     expect(messageCanShare(msg(), undefined)).toBe(true)
   })
 
+  it("offers Share for an image-only message", () => {
+    expect(messageCanShare(msg({
+      content: "",
+      attachments: [{
+        kind: "image",
+        name: "photo.png",
+        url: "/photo.png",
+        width: 640,
+        height: 480,
+      }],
+    }), false)).toBe(true)
+  })
+
   it("withholds Share when there's nothing to put on the card", () => {
     expect(messageCanShare(msg({ content: "" }), false)).toBe(false)
+    expect(messageCanShare(msg({
+      content: "",
+      attachments: [{ kind: "file", name: "notes.txt", url: "/notes.txt", size: "1 KB" }],
+    }), false)).toBe(false)
     expect(messageCanShare(msg({ approval: {} as RenderMsg["approval"] }), false)).toBe(false)
     expect(messageCanShare(msg(), true)).toBe(false) // compact rows opt out
   })

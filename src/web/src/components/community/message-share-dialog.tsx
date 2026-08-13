@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button"
 import { Avatar } from "./avatar"
 import { MessageBody } from "./message-body"
+import { attachmentAspectRatio } from "./attachment-layout"
 import { tid } from "@/lib/community/testids"
 import { applyHighlightToRange, clearHighlights, hasHighlights } from "@/lib/community/highlight-range"
 import type { RenderMsg } from "./_types"
@@ -218,6 +219,32 @@ export function MessageShareDialog({ m, open, onClose }: {
                         className="max-h-164 overflow-hidden line-clamp-32 [&_mark[data-hl]]:rounded-xs [&_mark[data-hl]]:bg-[rgba(255,208,92,0.5)] [&_mark[data-hl]]:p-[0_1px] [&_mark[data-hl]]:[box-decoration-break:clone] [&_mark[data-hl]]:[-webkit-box-decoration-break:clone] [&_mark[data-hl]]:text-inherit"
                       >
                         <MessageBody text={msg.content} perspective="neutral" />
+                      </div>
+                    )}
+                    {msg.attachments?.some((attachment) => attachment.kind === "image") && (
+                      <div
+                        data-testid={`message-share-images-${msg.id}`}
+                        className="mt-2 flex flex-col gap-2"
+                      >
+                        {msg.attachments.map((attachment, index) => (
+                          attachment.kind === "image" && (
+                            <div
+                              key={`${attachment.name}-${index}`}
+                              className="w-fit max-w-full overflow-hidden rounded-lg border border-border"
+                            >
+                              <img
+                                data-testid={`message-share-image-${msg.id}-${index}`}
+                                src={attachment.url}
+                                alt={attachment.name}
+                                width={attachment.width}
+                                height={attachment.height}
+                                loading="eager"
+                                className="block h-auto w-auto max-h-75 max-w-full rounded-lg object-contain"
+                                style={{ aspectRatio: attachmentAspectRatio(attachment.width, attachment.height) }}
+                              />
+                            </div>
+                          )
+                        ))}
                       </div>
                     )}
                     {msg.reactions && msg.reactions.length > 0 && (

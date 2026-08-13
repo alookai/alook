@@ -30,11 +30,13 @@ import { attachmentAspectRatio } from "./attachment-layout"
 // the right-click / long-press context menu, and the #N-ref context sheet —
 // inherits an identical action menu. Extracted as a pure predicate so that
 // menu-parity guarantee is directly testable. A share card mirrors
-// avatar/name/content, so it's meaningful only for a non-compact message that
-// has rendered text (an approval- or attachment-only row has nothing to put on
-// the card).
+// avatar/name/content/images, so it's meaningful only for a non-compact message
+// that has rendered text or at least one image attachment. File-only and
+// approval rows still have no visual message content for the card.
 export function messageCanShare(m: RenderMsg, compact?: boolean): boolean {
-  return !compact && !m.approval && !!m.content
+  return !compact
+    && !m.approval
+    && (!!m.content || !!m.attachments?.some((attachment) => attachment.kind === "image"))
 }
 
 export function shouldActivateMessageOverlays(target: EventTarget | null): boolean {

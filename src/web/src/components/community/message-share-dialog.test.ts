@@ -90,6 +90,55 @@ describe("MessageShareDialog message context", () => {
     expect(text).toEqual(expect.arrayContaining(["👍", "2", "🎉", "11"]))
   })
 
+  it("renders attached originals at their intrinsic ratio and omits files", () => {
+    const renderer = renderMessage(message({
+      attachments: [
+        {
+          kind: "image",
+          name: "photo.png",
+          url: "/original-photo.png",
+          thumbnailUrl: "/thumbnail-photo.jpg",
+          width: 1200,
+          height: 800,
+        },
+        { kind: "file", name: "notes.txt", url: "/notes.txt", size: "1 KB" },
+      ],
+    }))
+
+    const image = renderer.root.findByProps({ "data-testid": "message-share-image-m1-0" })
+    expect(image.props).toMatchObject({
+      src: "/original-photo.png",
+      alt: "photo.png",
+      width: 1200,
+      height: 800,
+      loading: "eager",
+      style: { aspectRatio: "1200/800" },
+    })
+    expect(image.props.className).toContain("max-h-75")
+    expect(image.props.className).toContain("max-w-full")
+    expect(image.props.className).toContain("rounded-lg")
+    expect(image.props.className).toContain("object-contain")
+    expect(image.parent?.props.className).toContain("w-fit")
+    expect(image.parent?.props.className).toContain("max-w-full")
+    expect(image.parent?.props.className).toContain("rounded-lg")
+    expect(image.parent?.props.className).toContain("border")
+    expect(renderer.root.findAllByProps({ src: "/notes.txt" })).toHaveLength(0)
+  })
+
+  it("keeps image previews above reactions like the live message", () => {
+    const renderer = renderMessage(message({
+      content: "",
+      attachments: [{ kind: "image", name: "photo.png", url: "/photo.png" }],
+      reactions: [{ emoji: "👍", count: 2, me: false, userIds: [] }],
+    }))
+
+    const contextOrder = renderer.root.findAll((node) => (
+      typeof node.props["data-testid"] === "string"
+      && ["message-share-images-m1", "message-share-reactions-m1"].includes(node.props["data-testid"])
+    )).map((node) => node.props["data-testid"])
+    expect(contextOrder).toEqual(["message-share-images-m1", "message-share-reactions-m1"])
+  })
+
   it("does not add empty context containers", () => {
     const renderer = renderMessage(message())
     const contexts = renderer.root.findAll((node) => (
