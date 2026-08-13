@@ -34,7 +34,7 @@ describe("local Wrangler registry isolation", () => {
   })
 
   it("executes native package-manager launchers directly", () => {
-    const launcher = readFileSync(launcherPath, "utf8")
+    const launcher = readFileSync(launcherPath, "utf8").replaceAll("\r\n", "\n")
 
     expect(launcher).toContain('spawn(\n  packageManagerCli,\n  ["exec", command, ...args]')
     expect(launcher).not.toContain("process.execPath")
