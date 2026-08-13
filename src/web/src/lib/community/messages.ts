@@ -1,13 +1,7 @@
 import { DEFAULT_MESSAGE_PAGE_SIZE, MAX_MESSAGE_PAGE_SIZE } from "@alook/shared"
 import { isInlineAttachmentContentType } from "./attachment-content-type"
+import { formatAttachmentSize } from "./attachment-presentation"
 import { attachmentThumbnailUrl, attachmentUrl } from "./storage"
-
-// Format file sizes for display
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
 
 // Parse cursor from query params (format: "createdAt|id")
 export function parseCursor(cursorParam: string | null): { createdAt: string; id: string } | undefined {
@@ -154,8 +148,8 @@ export function buildMemberPaginatedResponse<T extends { joinedAt: string; id: s
 // the read paths never surface them.
 export function groupAttachments(
   attachments: Array<{ id: string; messageId: string | null; targetId: string; filename: string; r2Key: string; thumbnailR2Key?: string | null; contentType: string | null; size: number | null; width?: number | null; height?: number | null }>
-): Record<string, Array<{ kind: "image" | "file"; name: string; url: string; thumbnailUrl?: string; size?: string; width?: number; height?: number }>> {
-  const map: Record<string, Array<{ kind: "image" | "file"; name: string; url: string; thumbnailUrl?: string; size?: string; width?: number; height?: number }>> = {}
+): Record<string, Array<{ kind: "image" | "file"; name: string; url: string; thumbnailUrl?: string; contentType?: string; size?: string; sizeBytes?: number; width?: number; height?: number }>> {
+  const map: Record<string, Array<{ kind: "image" | "file"; name: string; url: string; thumbnailUrl?: string; contentType?: string; size?: string; sizeBytes?: number; width?: number; height?: number }>> = {}
   for (const a of attachments) {
     if (!a.messageId) continue
     const kind = isInlineAttachmentContentType(a.contentType) ? "image" : "file"
@@ -163,12 +157,14 @@ export function groupAttachments(
       kind,
       name: a.filename,
       url: attachmentUrl(a.targetId, a.id),
+      ...(a.contentType ? { contentType: a.contentType } : {}),
+      ...(a.size !== null ? { sizeBytes: a.size } : {}),
       ...(kind === "image" && a.thumbnailR2Key
         ? { thumbnailUrl: attachmentThumbnailUrl(a.targetId, a.id) }
         : {}),
-      ...(kind === "file" && a.size ? { size: formatBytes(a.size) } : {}),
+      ...(kind === "file" && a.size !== null ? { size: formatAttachmentSize(a.size) } : {}),
       ...(kind === "image" ? { width: a.width ?? undefined, height: a.height ?? undefined } : {}),
-    } as { kind: "image" | "file"; name: string; url: string; thumbnailUrl?: string; size?: string; width?: number; height?: number }
+    } as { kind: "image" | "file"; name: string; url: string; thumbnailUrl?: string; contentType?: string; size?: string; sizeBytes?: number; width?: number; height?: number }
     ;(map[a.messageId] ??= []).push(entry)
   }
   return map

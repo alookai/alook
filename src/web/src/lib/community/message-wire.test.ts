@@ -62,9 +62,9 @@ describe("projectCommunityMessageCreate", () => {
     }))
     expect(projected.embeds).toEqual([{ title: "Card", url: "https://example.com" }])
     expect(projected.attachments).toEqual([
-      { kind: "image", name: "photo.png", url: "/photo", width: 640, height: 480 },
-      { kind: "file", name: "doc.pdf", url: "/doc", size: "2 KB" },
-      { kind: "file", name: "unsafe.svg", url: "/unsafe", size: "1 KB" },
+      { kind: "image", name: "photo.png", url: "/photo", contentType: "image/png", sizeBytes: 2048, width: 640, height: 480 },
+      { kind: "file", name: "doc.pdf", url: "/doc", contentType: "application/pdf", sizeBytes: 2048, size: "2.0 KB" },
+      { kind: "file", name: "unsafe.svg", url: "/unsafe", contentType: "image/svg+xml", sizeBytes: 1024, size: "1.0 KB" },
     ])
   })
 })

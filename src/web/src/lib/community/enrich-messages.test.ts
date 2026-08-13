@@ -93,6 +93,8 @@ describe("enrichMessages attachment projection", () => {
           kind: "image",
           name: "photo.png",
           url: "/api/community/channels/c1/attachments/att_1",
+          contentType: "image/png",
+          sizeBytes: 100,
           thumbnailUrl: "/api/community/channels/c1/attachments/att_1/thumbnail",
           width: 640,
           height: 480,

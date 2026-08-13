@@ -36,6 +36,8 @@ describe("toAttachmentVm", () => {
       kind: "image",
       name: "a.png",
       url: "/api/community/channels/c1/attachments/att_1",
+      contentType: "image/png",
+      sizeBytes: 1000,
       width: 1920,
       height: 1080,
     })
@@ -52,6 +54,8 @@ describe("toAttachmentVm", () => {
       kind: "image",
       name: "a.png",
       url: "/api/community/channels/c1/attachments/att_1",
+      contentType: "image/png",
+      sizeBytes: 1000,
       width: undefined,
       height: undefined,
     })
@@ -68,7 +72,9 @@ describe("toAttachmentVm", () => {
       kind: "file",
       name: "a.pdf",
       url: "/api/community/channels/c1/attachments/att_2",
-      size: "2 KB",
+      contentType: "application/pdf",
+      sizeBytes: 2048,
+      size: "2.0 KB",
     })
   })
 
@@ -83,7 +89,7 @@ describe("toAttachmentVm", () => {
         width: 1920,
         height: 1080,
       })
-      expect(result).toEqual({ kind: "file", name: "unsafe.img", url: "/api/community/channels/c1/attachments/att_3", size: "2 KB" })
+      expect(result).toEqual({ kind: "file", name: "unsafe.img", url: "/api/community/channels/c1/attachments/att_3", contentType, sizeBytes: 2048, size: "2.0 KB" })
     },
   )
 })

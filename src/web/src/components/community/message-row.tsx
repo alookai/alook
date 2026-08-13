@@ -2,7 +2,7 @@
 
 import { memo, useCallback } from "react"
 import { Message } from "./message"
-import type { ImagePreview, RenderMsg, OpenProfile } from "./_types"
+import type { FileAttachment, ImagePreview, RenderMsg, OpenProfile } from "./_types"
 
 // A thin, memoized per-row wrapper between the virtualized list and `Message`.
 //
@@ -34,7 +34,8 @@ export interface MessageRowProps {
   onDismissId?: (id: string) => void
   onJumpToId?: (id: string) => void
   onPreviewImage?: (image: ImagePreview) => void
-  onDownloadFile?: (name: string) => void
+  onPreviewAttachment?: (attachment: FileAttachment) => void
+  onDownloadFile?: (url: string, name: string) => void
   resolveUserName?: (userId: string) => string
   onImageLoad?: () => void
   // Multi-select share. `selectMode`/`selected` are plain booleans (pass-through);
@@ -53,7 +54,7 @@ function MessageRowImpl(props: MessageRowProps) {
   const {
     m, viewerUserId, pinned, highlighted, onOpenThread, onOpenProfile,
     onToggleReactionId, onReactId, onReplyId, onPinId, onMarkId, onCreateThreadId,
-    onCopyId, onEditId, onRetryId, onDismissId, onJumpToId, onPreviewImage, onDownloadFile,
+    onCopyId, onEditId, onRetryId, onDismissId, onJumpToId, onPreviewImage, onPreviewAttachment, onDownloadFile,
     resolveUserName, onImageLoad,
     selectMode, selected, onToggleSelectId, onEnterSelectId, onShareSingleId,
   } = props
@@ -106,6 +107,7 @@ function MessageRowImpl(props: MessageRowProps) {
       onRetry={onRetryId ? onRetry : undefined}
       onDismiss={onDismissId ? onDismiss : undefined}
       onPreviewImage={onPreviewImage}
+      onPreviewAttachment={onPreviewAttachment}
       onDownloadFile={onDownloadFile}
       resolveUserName={resolveUserName}
       onImageLoad={onImageLoad}

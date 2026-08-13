@@ -14,7 +14,7 @@ import { MessageChannelController } from "@/components/community/message-channel
 import { MessageContextSheet } from "@/components/community/message-context-sheet"
 import { MessageList } from "@/components/community/message-list"
 import { ThreadOpener } from "@/components/community/thread-opener"
-import type { ImagePreview, OpenProfile, RightPanel } from "@/components/community/_types"
+import type { FileAttachment, ImagePreview, OpenProfile, RightPanel } from "@/components/community/_types"
 import type { ChannelMemberPanelProps } from "@/components/community/channel-member-view-model"
 
 const ignoreNestedThread = () => {}
@@ -72,6 +72,7 @@ export function ThreadChannelSurface({
   uiHandlers: {
     navigate?: (serverId: string, channelId: string) => void
     previewImage?: (image: ImagePreview) => void
+    previewAttachment?: (attachment: FileAttachment) => void
   }
   onOpenChild: (childId: string) => void
   onOpenProfile: OpenProfile
@@ -156,10 +157,11 @@ export function ThreadChannelSurface({
       viewerUserId={viewer.id}
       onOpenProfile={onOpenProfile}
       onPreviewImage={(image) => uiHandlers.previewImage?.(image)}
-      onDownloadFile={(url) => {
+      onPreviewAttachment={(attachment) => uiHandlers.previewAttachment?.(attachment)}
+      onDownloadFile={(url, name) => {
         const link = document.createElement("a")
         link.href = url
-        link.download = url.split("/").pop() ?? "file"
+        link.download = name
         link.click()
       }}
       onJump={parentChannelId

@@ -237,7 +237,7 @@ describe("ThreadChannelSurface ownership", () => {
     expect(props.uiHandlers.previewImage).toHaveBeenCalledWith("https://example.test/image.png")
     const anchor = { href: "", download: "", click: vi.fn() }
     vi.stubGlobal("document", { createElement: vi.fn(() => anchor) })
-    act(() => opener.props.onDownloadFile?.("https://example.test/report.pdf"))
+    act(() => opener.props.onDownloadFile?.("https://example.test/report.pdf", "report.pdf"))
     expect(anchor).toEqual(expect.objectContaining({
       href: "https://example.test/report.pdf",
       download: "report.pdf",

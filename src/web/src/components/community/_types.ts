@@ -78,9 +78,18 @@ export type Category = {
 }
 
 // ── Messages ───────────────────────────────────────────────────────────────
+type AttachmentMetadata = {
+  name: string
+  url: string
+  contentType?: string
+  sizeBytes?: number
+}
+
+export type FileAttachment = AttachmentMetadata & { kind: "file"; size: string }
+
 export type Attachment =
-  | { kind: "image"; name: string; url: string; thumbnailUrl?: string; width?: number; height?: number }
-  | { kind: "file"; name: string; url: string; size: string }
+  | (AttachmentMetadata & { kind: "image"; thumbnailUrl?: string; width?: number; height?: number })
+  | FileAttachment
 
 export type ImagePreview = { originalUrl: string; thumbnailUrl?: string; name: string }
 

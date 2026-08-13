@@ -9,7 +9,7 @@ import { Avatar } from "@/components/community/avatar"
 import { MessageList } from "@/components/community/message-list"
 import { MessageContextSheet } from "@/components/community/message-context-sheet"
 import { Composer, ComposerSkeleton, type SendAttachment } from "@/components/community/composer"
-import type { ImagePreview, OpenProfile } from "@/components/community/_types"
+import type { FileAttachment, ImagePreview, OpenProfile } from "@/components/community/_types"
 import {
   useCommunityStore,
   useCurrentChannelId,
@@ -295,10 +295,13 @@ function DmView() {
     onPreviewImage: (image: ImagePreview) => {
       uiHandlers.previewImage?.(image)
     },
-    onDownloadFile: (url: string) => {
+    onPreviewAttachment: (attachment: FileAttachment) => {
+      uiHandlers.previewAttachment?.(attachment)
+    },
+    onDownloadFile: (url: string, name: string) => {
       const a = document.createElement("a")
       a.href = url
-      a.download = url.split("/").pop() ?? "file"
+      a.download = name
       a.click()
     },
   }), [toggleReaction, toggleMark, dmId, currentUser.id, messages, retryDmMessage, uiHandlers, advanceOnboardingAfterSend])
@@ -383,6 +386,7 @@ function DmView() {
           onRetry={dmBlocked ? undefined : messageActions.onRetry}
           onDismiss={dmBlocked ? undefined : messageActions.onDismiss}
           onPreviewImage={messageActions.onPreviewImage}
+          onPreviewAttachment={messageActions.onPreviewAttachment}
           onDownloadFile={messageActions.onDownloadFile}
           onOpenProfile={openProfile}
           resolveUserName={resolveUserName}

@@ -484,9 +484,9 @@ describe("attachment ownership effects", () => {
     expect(retried?.localUploads[0].height).toBe(480)
     expect(retried?.uploadStatus).toBe("pending")
     expect(materializeMessageStream([], state)[0].attachments).toEqual([
-      { kind: "file", name: "notes.txt", url: "blob:a", size: "1 KB" },
-      { kind: "image", name: "photo.png", url: "blob:b", width: 320, height: 240 },
-      { kind: "file", name: "copy.txt", url: "blob:a", size: "1 KB" },
+      { kind: "file", name: "notes.txt", url: "blob:a", contentType: "text/plain", sizeBytes: 1024, size: "1.0 KB" },
+      { kind: "image", name: "photo.png", url: "blob:b", contentType: "image/png", sizeBytes: 2048, width: 320, height: 240 },
+      { kind: "file", name: "copy.txt", url: "blob:a", contentType: "text/plain", sizeBytes: 1024, size: "1.0 KB" },
     ])
   })
 
