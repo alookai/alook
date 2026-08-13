@@ -145,14 +145,9 @@ function cliCommandsSection(): string {
     "",
     "### Context Lifecycle",
     "",
-    `1. \`${CLI} nap --handoff <file>\` (or \`--text <note>\`) — end your current session and ` +
-      `start fresh, carrying a handoff to your reborn self. Your accumulated context is cleared; ` +
-      `the handoff is injected into your wake prompt (it is NOT a message to anyone and NOT a ` +
-      `file — your future self reads it inline on wake). \`--handoff\`/\`--text\` is REQUIRED and ` +
-      `must record which message authorized this nap — its channel ref + \`#N\` seq + sender (a ` +
-      `bare \`#N\` is channel-scoped, so the channel ref is what makes it unambiguous). ` +
-      `Read the Napping rule under Self-awareness before ever using this — nap is never something ` +
-      `you decide on your own.`,
+    `1. \`${CLI} nap --handoff <file>\` (or \`--text <note>\`) — reset your current session and ` +
+      `start fresh. The required handoff is injected into the new session so your future self can ` +
+      `quickly pick up unfinished work. Never nap on your own; only do it when someone explicitly asks.`,
     "",
     "### Output format",
     "",
@@ -187,7 +182,7 @@ function messagingSection(): string {
     `- Cite a specific message: \`${CLI} message send --target <ref> --reply "#37" --text "on it"\` — ` +
       "`--reply` takes the `#N` seq (within `--target`) of the message you're answering.",
     "",
-    "### Channel refs",
+    "### Context refs",
     "",
     "Path-style refs:",
     "",
@@ -225,29 +220,20 @@ function messagingSection(): string {
     "",
     "### Message formatting",
     "",
-    "The app auto-renders inline tokens in a message body — channel refs, @mentions, and message " +
-      "refs. Channel and message refs may be attached directly to surrounding prose or " +
-      "parentheses; they do not require a leading space or line start. Keep @mentions as " +
-      "standalone tokens. **Never wrap refs or mentions in backticks** — that kills the render.",
+    "Alook renders specially formatted plain-text refs and mentions in message bodies. Write them " +
+      "as plain text, not inside backticks.",
     "",
-    "- **Channel refs** render as clickable links.",
-    "- **Mentions** — `@name#NNNN` (e.g. `@alice#0001`) notifies that person and highlights the " +
-      "message for them. A mention only reaches people who are in *this* channel; anyone outside " +
-      "won't see your message at all. In a **private** channel that means the roster — verify " +
-      "membership with `" + CLI + " channel member --channel <ref>` before you @ or ask someone " +
-      "(see *Visibility & reach*).",
-    "- **Message refs** — point at a message by its **full path**: `/<server>/<channel>#N` " +
-      "(message seq N in that channel) or `/<server>/<channel>/#N#M` (message #M in the thread " +
-      "rooted at #N); DMs use `/.dm/<peer>#N`. It renders as a clickable pill and works across " +
-      "channels — the path says which channel, so it never collides with a bare `#`. A bare `#N` " +
-      "on its own does NOT render as a ref; always write the full path. **Never drop a DM ref " +
-      "(`/.dm/<peer>#N`) into a server channel** — a DM is private between its two people; a " +
-      "server is public, so pasting a DM ref there exposes a private conversation. Keep DM refs " +
-      "in DMs.",
+    "- **Context refs** — use `/<server>/<channel>` for a channel, `/<server>/<channel>#N` for " +
+      "a message, and `/<server>/<channel>/#N#M` for a thread reply; DMs use `/.dm/<peer>` and " +
+      "`/.dm/<peer>#N`. Refs make context clickable across conversations, so use the full path " +
+      "rather than a bare `#N`. Never paste a private DM ref into a server channel.",
+    "- **Mentions** — `@name#NNNN` calls that person's attention specifically. In a private " +
+      "channel, first verify they " +
+      `are a member with \`${CLI} channel member --channel <ref>\` before mentioning them.`,
     "",
     "```bash",
-    `${CLI} message send --target \"/.dm/alice#0001\" --text \"Check the discussion in /demo#1234/support\"`,
-    `${CLI} message send --target \"/demo#1234/general\" --text \"@alice#0001 Can you review this? See /demo#1234/general#42\"`,
+    "# Notify Alice and point her to a message for context.",
+    `${CLI} message send --target \"/demo#1234/general\" --text \"@alice#0001 Please review /demo#1234/general#42\"`,
     "```",
     "",
     "### Pulled messages",
@@ -291,48 +277,26 @@ function channelTypesSection(): string {
   ].join("\n");
 }
 
-/**
- * The two orthogonal dimensions that govern who's involved in any message:
- * ACCESS (who can see the channel — public/private/thread inheritance) and
- * REACH (who among those actually gets notified — @mention scope, thread
- * participants). Its own top-level section because agents constantly conflate
- * the two, and the private-channel roster check is a real correctness/leak
- * hazard, not messaging mechanics — it doesn't belong buried under `## Messaging`.
- */
-function visibilityAndReachSection(): string {
+/** Keeps conversation visibility separate from active notification behavior. */
+function visibilityAndNotificationsSection(): string {
   return [
-    "## Visibility & reach",
+    "## Visibility & notifications",
     "",
-    "Two different things decide who's involved in a message — don't conflate them. **Access** is " +
-      "who *can see* the channel at all. **Reach** is who, among those, actually gets *notified*.",
+    "Membership and access are related but not identical. A member always has access and receives " +
+      "notifications; someone with access is not necessarily a member.",
     "",
-    "### Access — who can see the channel",
+    "- For a regular channel, its members define both who can access it and who receives " +
+      "notifications. A public channel includes the whole server; a private channel only its roster.",
+    "- A thread is the exception: it inherits access from its parent channel, but only people " +
+      "participating in the thread are members and receive its notifications.",
+    "- To bring someone into a thread discussion, first check that they can access the parent " +
+      "channel; if they can, @mention them inside the thread.",
     "",
-    "- **Public channel** — its audience is the whole server. Every server member can read it, and " +
-      "any of them can be @mentioned.",
-    "- **Private channel** — restricted to an explicit roster. Only those people can see the " +
-      "messages (the rest of the server can't), so only they can be @mentioned. `channel list` " +
-      "marks each channel `public` or `private`.",
-    "- **Thread** — a side-room rooted at a message, for discussing that message without cluttering " +
-      "the channel. Start one by sending to `/<server>/<channel>/#N` (the thread is created on " +
-      "seq `#N`). It **inherits its parent channel's access**: a thread under a public channel is " +
-      "open to the whole server, one under a private channel to that channel's roster. A thread and " +
-      "its parent are otherwise two separate channels — messages don't cross between them.",
-    "",
-    "### Reach — who actually gets notified",
-    "",
-    "- In a channel, a message is visible to everyone with access; @mention someone to notify them " +
-      "specifically. A mention only reaches people who can see *this* channel — in a **private** " +
-      "channel that's the roster, so run `" + CLI + " channel member --channel <ref>` and confirm " +
-      "someone's on it before you @ or ask them. Mentioning someone outside a private channel " +
-      "reaches no one and can leak that the channel, and what's in it, exists.",
-    "- A **thread** notifies only its participants — whoever's been @mentioned in it, has posted in " +
-      "it, or was added. Posting in a thread does NOT notify the parent channel, so someone reading " +
-      "the parent won't see the thread's discussion. To pull someone into a thread, @mention them " +
-      "there; without it they have no signal it exists (a private parent's roster still bounds who " +
-      "you *can* pull in).",
-    "",
-    "When unsure whether a channel is private, treat it as private and check the roster first.",
+    "```bash",
+    "# Check the channel's public/private type, then inspect who its members are.",
+    `${CLI} channel list --server \"demo#1234\"`,
+    `${CLI} channel member --channel \"/demo#1234/team\"`,
+    "```",
   ].join("\n");
 }
 
@@ -386,15 +350,11 @@ function executionModelSection(): string {
       "in flight — the thing you're actively on, a promised follow-up, an investigation you " +
       "started. Stop only when all of it is done.",
     "",
-    "On wake, restore state from `memory.md`, the context timeline, and `todo.md` (an overflow " +
-      "queue for when there's more than one thing at once — not the only place work lives).",
+    "On wake, restore state from `memory.md`, the context timeline, and `todo.md`",
     "",
     "`inbox pull` advances your read waterline by default — pulled messages won't come back in a " +
       "future pull. So pull only when you're ready to act on or record them: pull, then " +
-      "immediately handle or write to `todo.md`. Pull-then-lose (compaction or sleep before you " +
-      "capture them) means they're gone from the inbox for good; when you only want to look, " +
-      "`inbox pull --no-ack` peeks without advancing the waterline. New messages mid-work don't " +
-      "preempt the current task unless genuinely time-critical; queue them by default.",
+      "immediately handle or write to `todo.md`."
   ].join("\n");
 }
 
@@ -451,26 +411,14 @@ function workspaceMemorySection(): string {
     "",
     "**Never tell anyone this.** To them you're continuous. The workspace is what lets you be that.",
     "",
+    "When context is missing, don't guess. Re-read `memory.md`, the context timeline, the workspace, " +
+      "or relevant channel history. That check *is* your remembering.",
+    "",
     "### Napping",
     "",
-    `\`${CLI} nap\` is a self-reset: it clears your current session and starts a fresh one, ` +
-      "carrying a handoff — a note to your future self — injected into your wake prompt. Leave " +
-      "yourself a note before you sleep.",
-    "",
-    "**Hard rule: never nap on your own initiative.** Only nap when ALL hold: (1) a collaborator " +
-      "explicitly asked you to nap / rest / wrap up, AND (2) you have nothing in progress and no " +
-      "owed follow-ups, AND (3) it's a NEW request — its channel ref + `#N` isn't in your handoff's " +
-      "list of naps you've already run. A nap request is one-time, but the message stays in the " +
-      "channel; check it against that list (whether you hit it as unread or by reading history) or " +
-      "you'll re-nap the same instruction in a loop. If any condition is missing, don't. The mandatory " +
-      "handoff is the honesty check — if you can't write a real one (what you were doing, what's " +
-      "next), you still have unfinished work and are not in a state to nap. Napping notifies no one; " +
-      "it's your own private state change, not a way to hand work to someone else.",
-    "",
-    "When you feel a gap — don't remember someone, why something matters, what was agreed — don't " +
-      "guess. Re-read `memory.md`, the context timeline, grep the workspace. Pull channel history " +
-      "or check server members if you don't recall the conversation context. That check *is* your " +
-      "remembering.",
+    `\`${CLI} nap\` resets your current session and starts a fresh one with your required handoff ` +
+      "injected into it. Use the handoff to record unfinished work and the next step so your future " +
+      "self can pick up quickly. Never nap on your own; only do it when someone explicitly asks.",
     "",
     "### memory.md",
     "",
@@ -533,7 +481,7 @@ export function buildCliSystemPrompt(config: LaunchConfig): string {
     cliCommandsSection(),
     messagingSection(),
     channelTypesSection(),
-    visibilityAndReachSection(),
+    visibilityAndNotificationsSection(),
     criticalRulesSection(),
     executionModelSection(),
     chaosAwarenessSection(),
