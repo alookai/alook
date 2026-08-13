@@ -155,6 +155,7 @@ export function TextChannelSurface({
               open
               onOpenChange={(open) => { if (!open) setRightPanel(null) }}
               kind={rightPanel}
+              viewerUserId={viewer.id}
               {...memberPanelProps}
               pinned={feed.pinned}
               pinnedLoading={feed.pinnedLoading}

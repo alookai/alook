@@ -42,6 +42,7 @@ function MessageImpl({
   onToggleReaction, onReact, onReply, onPin, onMark, onCreateThread, onCopy, onEdit, onRetry, onDismiss,
   onPreviewImage, onDownloadFile, highlighted, resolveUserName, onImageLoad,
   selectMode, selected, onToggleSelect, onEnterSelect, onShareSingle,
+  viewerUserId,
 }: {
   m: RenderMsg
   compact?: boolean
@@ -81,6 +82,7 @@ function MessageImpl({
   onToggleSelect?: () => void
   onEnterSelect?: () => void
   onShareSingle?: () => void
+  viewerUserId?: string
 }) {
   // keep the hover toolbar pinned open while its ⋯ dropdown is open
   const [toolbarOpen, setToolbarOpen] = useState(false)
@@ -241,7 +243,15 @@ function MessageImpl({
             <BotApprovalCard approval={m.approval} />
           ) : (
             m.content && (
-              <MessageBody text={m.content} onOpenProfile={onOpenProfile} />
+              <MessageBody
+                text={m.content}
+                onOpenProfile={onOpenProfile}
+                invitePerspective={
+                  viewerUserId
+                    ? m.authorId === viewerUserId ? "sender" : "recipient"
+                    : "neutral"
+                }
+              />
             )
           )}
 
@@ -472,6 +482,7 @@ function messagePropsEqual(prev: MessageProps, next: MessageProps): boolean {
       a.content !== b.content ||
       a.grouped !== b.grouped ||
       a.failed !== b.failed ||
+      a.authorId !== b.authorId ||
       a.authorName !== b.authorName ||
       a.authorAvatar !== b.authorAvatar ||
       a.color !== b.color ||
@@ -490,6 +501,7 @@ function messagePropsEqual(prev: MessageProps, next: MessageProps): boolean {
     prev.compact === next.compact &&
     prev.pinned === next.pinned &&
     prev.highlighted === next.highlighted &&
+    prev.viewerUserId === next.viewerUserId &&
     prev.onOpenThread === next.onOpenThread &&
     prev.onOpenProfile === next.onOpenProfile &&
     prev.onJumpReply === next.onJumpReply &&

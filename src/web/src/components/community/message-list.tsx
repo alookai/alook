@@ -451,6 +451,7 @@ export function MessageList({
                         <div data-msg-id={item.m.id} data-testid={tid.message(item.m.id)}>
                           <MessageRow
                             m={item.m}
+                            viewerUserId={viewerUserId}
                             pinned={pinnedIds?.has(item.m.id)}
                             highlighted={jumped === item.m.id}
                             onOpenThread={onOpenThread}

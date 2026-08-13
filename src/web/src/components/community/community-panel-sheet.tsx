@@ -34,6 +34,7 @@ export function CommunityPanelSheet({
   myRole,
   onJumpToMessage,
   onSearch,
+  viewerUserId,
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
@@ -59,6 +60,7 @@ export function CommunityPanelSheet({
   myRole?: Role
   onJumpToMessage?: (seq: number) => void
   onSearch?: (query: string) => void
+  viewerUserId?: string
 }) {
   const { width, onPointerDown, onPointerMove, onPointerUp } = useSheetResize({
     defaultWidth: 380,
@@ -100,6 +102,7 @@ export function CommunityPanelSheet({
           myRole={myRole}
           onJumpToMessage={onJumpToMessage}
           onSearch={onSearch}
+          viewerUserId={viewerUserId}
         />
       </SheetContent>
     </Sheet>

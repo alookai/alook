@@ -13,7 +13,10 @@ import {
   MD_LITERAL_TAGS,
   buildMdComponents,
 } from "./message-markdown"
-import { CommunityInviteCard } from "./community-invite-card"
+import {
+  CommunityInviteCard,
+  type InviteCardPerspective,
+} from "./community-invite-card"
 import type { OpenProfile } from "./_types"
 
 // The sanitize schema Streamdown builds internally when `allowedTags` is
@@ -94,9 +97,11 @@ const REHYPE_PLUGINS: PluggableList = [
 function MessageBodyImpl({
   text,
   onOpenProfile,
+  invitePerspective = "neutral",
 }: {
   text: string
   onOpenProfile?: OpenProfile
+  invitePerspective?: InviteCardPerspective
 }) {
   const inviteTokens = useMemo(() => extractInviteTokens(text), [text])
   const components = useMemo(
@@ -135,7 +140,11 @@ function MessageBodyImpl({
         // padding area.
         <div className="flex flex-col gap-2 pb-2">
           {inviteTokens.map((token) => (
-            <CommunityInviteCard key={token} token={token} />
+            <CommunityInviteCard
+              key={token}
+              token={token}
+              perspective={invitePerspective}
+            />
           ))}
         </div>
       )}
