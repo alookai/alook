@@ -37,6 +37,11 @@ export function messageCanShare(m: RenderMsg, compact?: boolean): boolean {
   return !compact && !m.approval && !!m.content
 }
 
+export function shouldActivateMessageOverlays(target: EventTarget | null): boolean {
+  const element = target as { closest?: (selector: string) => unknown } | null
+  return !element?.closest?.("button, a, input, textarea, select, [role=button]")
+}
+
 function MessageImpl({
   m, compact, pinned, onOpenThread, onOpenProfile, onJumpReply,
   onToggleReaction, onReact, onReply, onPin, onMark, onCreateThread, onCopy, onEdit, onRetry, onDismiss,
@@ -131,7 +136,11 @@ function MessageImpl({
   }
   const showMenu = hasMessageMenu(menuHandlers)
   const interactive = !compact && !m.failed && showMenu
-  const activate = interactive && !activated ? () => setActivated(true) : undefined
+  const activate = interactive && !activated
+    ? (event: React.SyntheticEvent<HTMLElement>) => {
+        if (shouldActivateMessageOverlays(event.target)) setActivated(true)
+      }
+    : undefined
   // In select mode (multi-share), the whole row is a big toggle target and gets
   // a leading checkbox overlay + a tint when picked. `canShare` rows only —
   // approval/attachment-only rows aren't selectable (nothing to put on the card).

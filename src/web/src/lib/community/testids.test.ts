@@ -14,6 +14,11 @@ describe("community QA selectors", () => {
     )
   })
 
+  it("exposes the profile context badge independently from the card", () => {
+    expect(tid.profileCard).toBe("community-profile-card")
+    expect(tid.profileContextBadge).toBe("community-profile-context-badge")
+  })
+
   it("exposes only the four stable My Bots bug-report flow selectors", () => {
     expect(tid.botReportProblemItem).toBe("bot-report-problem-item")
     expect(tid.botReportProblemDialog).toBe("bot-report-problem-dialog")

@@ -277,7 +277,7 @@ export type Profile = {
   // in @alook/shared.
   discriminator?: string
   avatar: string
-  role: string
+  contextLabel?: string
   about: string
   mutual: number
   // Live online/offline dot on the card's avatar — undefined when no

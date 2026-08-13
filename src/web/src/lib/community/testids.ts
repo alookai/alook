@@ -12,6 +12,7 @@ export const tid = {
   typingIndicator: "community-typing-indicator",
   dmBlockedNotice: "community-dm-blocked-notice",
   profileCard: "community-profile-card",
+  profileContextBadge: "community-profile-context-badge",
   statusPill: "community-status-pill",
   inviteToken: "community-invite-token",
   inviteCopy: "community-invite-copy",

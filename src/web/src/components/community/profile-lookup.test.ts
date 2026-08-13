@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest"
-import { resolveProfileTarget, buildSelfProfile } from "./profile-lookup"
+import {
+  resolveProfileContextLabel,
+  resolveProfileServerId,
+  resolveProfileTarget,
+  resolveProfileUserId,
+  buildSelfProfile,
+} from "./profile-lookup"
 import type { Member, Friend } from "./_types"
 import type { CurrentUser } from "@/contexts/community/current-user"
 
@@ -48,6 +54,40 @@ describe("resolveProfileTarget", () => {
   })
 })
 
+describe("profile context", () => {
+  it("uses the shell view as the synchronous context boundary", () => {
+    expect(resolveProfileServerId("server", "server_1")).toBe("server_1")
+    expect(resolveProfileServerId("dm", "stale_server")).toBeNull()
+    expect(resolveProfileServerId("settings", "stale_server")).toBeNull()
+  })
+
+  it.each([
+    ["owner", "Owner"],
+    ["admin", "Admin"],
+    ["member", "Member"],
+  ] as const)("shows the real %s role only in a server", (role, label) => {
+    const target = member({ role })
+
+    expect(resolveProfileContextLabel("server_1", target)).toBe(label)
+    expect(resolveProfileContextLabel(null, target)).toBeUndefined()
+  })
+
+  it("does not turn a friend row into a server member badge", () => {
+    const friend: Friend = { id: "friend_1", userId: "user_1", name: "Ren", discriminator: "0001", avatar: "R", status: "online", sub: "" }
+
+    expect(resolveProfileContextLabel("server_1", friend)).toBeUndefined()
+  })
+
+  it("keeps the caller user id when no cached member or friend resolves", () => {
+    expect(resolveProfileUserId(undefined, "user_uncached")).toBe("user_uncached")
+  })
+
+  it("prefers the resolved row user id over the caller fallback", () => {
+    expect(resolveProfileUserId(member({ userId: "user_resolved" }), "user_fallback"))
+      .toBe("user_resolved")
+  })
+})
+
 function currentUser(overrides: Partial<CurrentUser> = {}): CurrentUser {
   return {
     id: overrides.id ?? "user_self",
@@ -70,7 +110,7 @@ describe("buildSelfProfile", () => {
     expect(profile.name).toBe("Ren")
     expect(profile.discriminator).toBe("0001")
     expect(profile.about).toBe("hi")
-    expect(profile.role).toBe("You")
+    expect(profile.contextLabel).toBeUndefined()
   })
 
   it("always resolves self presence to online, even when the viewer's id is absent from the online set", () => {
@@ -81,5 +121,11 @@ describe("buildSelfProfile", () => {
   it("falls back to an avatar initial when the viewer has no avatar", () => {
     const profile = buildSelfProfile(currentUser({ name: "alice", avatar: "" }), new Set())
     expect(profile.avatar).toBe("A")
+  })
+
+  it("uses the viewer's real server role when the caller provides one", () => {
+    const profile = buildSelfProfile(currentUser(), new Set(), "Admin")
+
+    expect(profile.contextLabel).toBe("Admin")
   })
 })

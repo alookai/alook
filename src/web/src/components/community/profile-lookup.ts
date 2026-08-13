@@ -1,4 +1,4 @@
-import type { Member, Friend, Profile } from "./_types"
+import type { Member, Friend, Profile, View } from "./_types"
 import type { CurrentUser } from "@/contexts/community/current-user"
 import { resolveProfilePresence } from "@/lib/community/presence"
 import { avatarInitial } from "@/lib/community/avatar"
@@ -16,17 +16,40 @@ import { avatarInitial } from "@/lib/community/avatar"
 export function buildSelfProfile(
   currentUser: CurrentUser,
   onlineUserIds: ReadonlySet<string>,
+  contextLabel?: string,
 ): Profile {
   return {
     name: currentUser.name,
     userId: currentUser.id,
     discriminator: currentUser.discriminator,
     avatar: currentUser.avatar || avatarInitial(currentUser.name),
-    role: "You",
+    contextLabel,
     about: currentUser.aboutMe ?? "",
     mutual: 0,
     presence: resolveProfilePresence(true, undefined, onlineUserIds),
   }
+}
+
+export function resolveProfileContextLabel(
+  currentServerId: string | null | undefined,
+  target: Member | Friend | undefined,
+): string | undefined {
+  if (!currentServerId || !target || !("role" in target)) return undefined
+  return target.role.charAt(0).toUpperCase() + target.role.slice(1)
+}
+
+export function resolveProfileServerId(
+  view: View,
+  activeServerId: string | undefined,
+): string | null {
+  return view === "server" ? (activeServerId ?? null) : null
+}
+
+export function resolveProfileUserId(
+  target: Member | Friend | undefined,
+  targetUserId?: string,
+): string | undefined {
+  return target?.userId ?? targetUserId
 }
 
 /**
