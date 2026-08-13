@@ -214,7 +214,7 @@ export function UserSettings({ onClose, userId, userName, aboutMe, avatar, statu
                   pill button beneath (matches the bot create/edit sheet; a stock
                   secondary Button reads as the old square style). */}
               <div className="flex flex-col items-center gap-3">
-                <span className="block size-24 overflow-hidden rounded-2xl ring-1 ring-border/50">
+                <span className="block size-24 overflow-hidden rounded-full ring-1 ring-border/50">
                   <Avatar label={avatar} seed={userId ?? undefined} size={96} />
                 </span>
                 <button

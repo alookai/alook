@@ -18,6 +18,7 @@ import { type AvatarDraft } from "@/lib/avatar/model";
 import { GeneratedAvatar } from "./generated-avatar";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAvatarDraftPicker, type AvatarPickerTab } from "./use-avatar-draft-picker";
+import { tid } from "@/lib/community/testids";
 
 interface BotAvatarPickerDialogProps {
   image: string | null;
@@ -56,14 +57,16 @@ export function BotAvatarPickerDialog({ image, onChange }: BotAvatarPickerDialog
             render={
               <button
                 type="button"
-                className="rounded-2xl bg-background p-2 shadow-sm border border-border hover:border-primary/40 transition-colors cursor-pointer"
+                aria-label="Choose bot avatar"
+                data-testid={tid.botAvatarPickerTrigger}
+                className="rounded-full bg-background p-2 shadow-sm border border-border hover:border-primary/40 transition-colors cursor-pointer"
               />
             }
           >
             {triggerPreview ? (
-              <img src={triggerPreview} alt="" className="size-20 rounded-2xl object-cover" />
+              <img src={triggerPreview} alt="" className="size-20 rounded-full object-cover" />
             ) : (
-              <span className="block size-20 overflow-hidden rounded-2xl">
+              <span className="block size-20 overflow-hidden rounded-full">
                 <GeneratedAvatar seed={picker.seed} size={80} className="size-full" />
               </span>
             )}
