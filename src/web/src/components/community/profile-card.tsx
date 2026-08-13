@@ -178,10 +178,16 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
               (a step past DESIGN.md's 16px between-groups token) rather than
               just tighter line spacing off the bio above it. */}
           <p className="mt-2 text-[15px] text-muted-foreground">{data.about || "No bio yet."}</p>
-          <div className="mt-6 flex items-center gap-2 text-xs text-muted-foreground">
-            <Badge variant="secondary" className="h-5 gap-1 text-xs"><Shield className="size-3" /> {data.role}</Badge>
-            {data.mutual > 0 && <span>{data.mutual} mutual server{data.mutual > 1 ? "s" : ""}</span>}
-          </div>
+          {(data.contextLabel || data.mutual > 0) && (
+            <div className="mt-6 flex items-center gap-2 text-xs text-muted-foreground">
+              {data.contextLabel && (
+                <Badge data-testid={tid.profileContextBadge} variant="secondary" className="h-5 gap-1 text-xs">
+                  <Shield className="size-3" /> {data.contextLabel}
+                </Badge>
+              )}
+              {data.mutual > 0 && <span>{data.mutual} mutual server{data.mutual > 1 ? "s" : ""}</span>}
+            </div>
+          )}
           {!isSelf && (
             <div className="mt-4 flex h-9 items-center gap-2 rounded-md bg-secondary px-2">
               <input

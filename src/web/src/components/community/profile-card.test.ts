@@ -1,6 +1,51 @@
+import { createElement } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
 import { describe, it, expect } from "vitest"
 import { resolveCardStatus, resolveProfileBackdropSeed } from "./profile-card"
+import { ProfileCard } from "./profile-card"
 import { serializeBeamSeed } from "@/lib/avatar/seed-url"
+import type { Profile } from "./_types"
+
+function renderProfile(overrides: Partial<Profile> = {}) {
+  return renderToStaticMarkup(createElement(ProfileCard, {
+    embedded: true,
+    data: {
+      name: "Ren",
+      userId: "user_1",
+      avatar: "R",
+      about: "",
+      mutual: 0,
+      ...overrides,
+    },
+    x: 0,
+    y: 0,
+    bp: "desktop",
+    onClose: () => undefined,
+  }))
+}
+
+describe("ProfileCard contextual metadata", () => {
+  it("omits the badge when no context label exists", () => {
+    const html = renderProfile()
+
+    expect(html).not.toContain("community-profile-context-badge")
+    expect(html).not.toContain(">Member<")
+  })
+
+  it("renders an explicit context label", () => {
+    const html = renderProfile({ contextLabel: "Admin" })
+
+    expect(html).toContain('data-testid="community-profile-context-badge"')
+    expect(html).toContain("Admin")
+  })
+
+  it("keeps mutual-server metadata without a context label", () => {
+    const html = renderProfile({ mutual: 2 })
+
+    expect(html).not.toContain("community-profile-context-badge")
+    expect(html).toContain("2 mutual servers")
+  })
+})
 
 describe("resolveProfileBackdropSeed", () => {
   it("uses the stored generated seed so Shuffle changes face and backdrop together", () => {

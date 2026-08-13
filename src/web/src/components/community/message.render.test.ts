@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { Message } from "./message"
+import { Message, shouldActivateMessageOverlays } from "./message"
 import type { RenderMsg } from "./_types"
 
 // WS3 render-behavior tests (see plans/community-switch-perf-optimization.md):
@@ -178,6 +178,48 @@ describe("Message image attachment layout", () => {
 })
 
 describe("Message lazy overlays", () => {
+  it("does not remount the row when the pointer enters an author button", () => {
+    const interactiveTarget = { closest: vi.fn(() => ({})) }
+    const rowTarget = { closest: vi.fn(() => null) }
+
+    expect(shouldActivateMessageOverlays(interactiveTarget as unknown as EventTarget)).toBe(false)
+    expect(shouldActivateMessageOverlays(rowTarget as unknown as EventTarget)).toBe(true)
+  })
+
+  it("keeps the first author click live while lazy overlays are inactive", () => {
+    const onOpenProfile = vi.fn()
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        makeTree({
+          m: baseMsg(),
+          onOpenThread: vi.fn(),
+          onOpenProfile,
+          onReply: vi.fn(),
+        }),
+        { createNodeMock: () => genericMock },
+      )
+    })
+    const row = renderer!.root.find(
+      (node) => typeof node.props.className === "string"
+        && node.props.className.includes("group relative -mx-2"),
+    )
+    const authorButton = renderer!.root.findAllByType("button").find((button) =>
+      button.children.includes("Alice"),
+    )
+    const target = { closest: () => authorButton }
+
+    act(() => row.props.onPointerEnter({ target }))
+    expect(renderer!.root.findAll(
+      (node) => node.props["data-slot"] === "context-menu-trigger",
+    )).toHaveLength(0)
+
+    const event = { clientX: 10, clientY: 20 }
+    act(() => authorButton!.props.onClick(event))
+    expect(onOpenProfile).toHaveBeenCalledOnce()
+    expect(onOpenProfile).toHaveBeenCalledWith("Alice", event, undefined, "u1")
+  })
+
   it("does not mount the ContextMenu root until the row is activated", () => {
     const onOpenThread = vi.fn()
     let renderer: TestRenderer.ReactTestRenderer

@@ -107,7 +107,7 @@ const LANDING_PROFILE = {
   name: "Maya",
   userId: "maya",
   avatar: "Maya",
-  role: "Agent",
+  contextLabel: "Agent",
   about: "I keep the same account, identity, and relationships across every room.",
   mutual: 0,
   presence: "online" as const,

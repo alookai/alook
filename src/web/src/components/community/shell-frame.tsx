@@ -29,7 +29,13 @@ import { ImageLightbox } from "./image-lightbox"
 import { ImageCropDialog } from "./image-crop-dialog"
 import { validateIconSourceFile } from "@/lib/community/image-crop"
 import type { ImagePreview, Marked, MobileZone, Profile, View } from "./_types"
-import { resolveProfileTarget, buildSelfProfile } from "./profile-lookup"
+import {
+  resolveProfileContextLabel,
+  resolveProfileServerId,
+  resolveProfileTarget,
+  resolveProfileUserId,
+  buildSelfProfile,
+} from "./profile-lookup"
 import { resolveProfilePresence } from "@/lib/community/presence"
 import { avatarInitial } from "@/lib/community/avatar"
 import { signOut } from "@/lib/auth-client"
@@ -122,7 +128,8 @@ export function ShellFrame({
   const { folders } = useFolders()
   const { friends } = useFriends()
   const currentServerId = useCommunityStore((s) => s.currentServerId)
-  const membersHook = useServerMembers(currentServerId)
+  const profileServerId = resolveProfileServerId(view, activeServerId)
+  const membersHook = useServerMembers(profileServerId)
   const members = membersHook.members
 
   // Inbox pair — the shell reads both to drive the bell badge.
@@ -346,8 +353,15 @@ export function ShellFrame({
     (name: string, e: React.MouseEvent, discriminator?: string, targetUserId?: string) => {
       const isSelf = !!targetUserId && targetUserId === currentUser.id
       if (isSelf) {
+        const selfMember = profileServerId
+          ? members.find((member) => member.userId === currentUser.id)
+          : undefined
         setProfile({
-          data: buildSelfProfile(currentUser, onlineUserIds),
+          data: buildSelfProfile(
+            currentUser,
+            onlineUserIds,
+            resolveProfileContextLabel(profileServerId, selfMember),
+          ),
           x: e.clientX,
           y: e.clientY,
           initialStatusEmoji: currentUser.statusEmoji ?? null,
@@ -356,19 +370,17 @@ export function ShellFrame({
         return
       }
       const member = resolveProfileTarget(members, friends, { name, discriminator, userId: targetUserId })
-      const role: string = member && "role" in member ? (member as { role: string }).role : "member"
-      const about: string = member && "sub" in member && (member as { sub: string }).sub ? (member as { sub: string }).sub : ""
-      const displayRole = role.charAt(0).toUpperCase() + role.slice(1)
+      const about = member?.sub ?? ""
       // Hoisted above `data` (was previously computed after `setProfile`,
       // only for the async fetch below) so the same value can also feed
       // `resolveProfilePresence`.
-      const userId = member && "userId" in member ? (member as { userId: string }).userId : member?.id
+      const userId = resolveProfileUserId(member, targetUserId)
       const data: Profile = {
         name,
         userId,
         // discriminator is undefined until the /profile fetch below hydrates it.
         avatar: member?.avatar ?? avatarInitial(name),
-        role: displayRole,
+        contextLabel: resolveProfileContextLabel(profileServerId, member),
         about,
         mutual: 0,
         presence: resolveProfilePresence(false, userId, onlineUserIds),
@@ -423,7 +435,7 @@ export function ShellFrame({
           .catch((e) => toastApiError(e, "Failed to load profile"))
       }
     },
-    [currentUser, members, friends, queryClient, onlineUserIds],
+    [currentUser, profileServerId, members, friends, queryClient, onlineUserIds],
   )
 
   const previewImage = useCallback((image: ImagePreview) => setPreview(image), [])
