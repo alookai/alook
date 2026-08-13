@@ -188,7 +188,7 @@ export function AttachmentPreviewSheet({
           data-testid={tid.attachmentPreviewContent}
           className={cn(
             "flex min-h-0 flex-col",
-            (presentation?.previewKind === "code" || presentation?.previewKind === "text") && "p-0",
+            (presentation?.previewKind === "code" || presentation?.previewKind === "text") && "p-0 sm:p-0",
           )}
         >
           {preview.status === "loading" && (

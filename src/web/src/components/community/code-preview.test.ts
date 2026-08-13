@@ -54,8 +54,7 @@ describe("CodePreview", () => {
     const preview = renderer!.root.findByProps({ "data-testid": tid.codePreview })
     expect(preview.props.className).not.toMatch(/rounded|\bborder\b|bg-/)
     const toolbar = preview.findAllByType("div")[0]!
-    expect(toolbar.props.className).toContain("border-b")
-    expect(toolbar.props.className).not.toMatch(/bg-/)
+    expect(toolbar.props.className).not.toMatch(/\bborder\b|border-|bg-/)
   })
 
   it("renders language, line numbers, and theme-aware Shiki tokens", async () => {

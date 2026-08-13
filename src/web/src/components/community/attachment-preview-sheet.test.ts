@@ -145,6 +145,8 @@ describe("AttachmentPreviewSheet", () => {
     expect(preview.children).toEqual(["const answer = 42"])
     expect(renderer!.root.findByProps({ "data-testid": "community-attachment-preview-content" }).props.className)
       .toContain("p-0")
+    expect(renderer!.root.findByProps({ "data-testid": "community-attachment-preview-content" }).props.className)
+      .toContain("sm:p-0")
   })
 
   it("keeps the existing SheetBody spacing for Markdown", async () => {
@@ -161,6 +163,8 @@ describe("AttachmentPreviewSheet", () => {
 
     expect(renderer!.root.findByProps({ "data-testid": "community-attachment-preview-content" }).props.className)
       .not.toContain("p-0")
+    expect(renderer!.root.findByProps({ "data-testid": "community-attachment-preview-content" }).props.className)
+      .not.toContain("sm:p-0")
   })
 
   it("keeps the existing one MiB ceiling for code", async () => {
