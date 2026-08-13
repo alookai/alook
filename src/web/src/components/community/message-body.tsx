@@ -13,11 +13,8 @@ import {
   MD_LITERAL_TAGS,
   buildMdComponents,
 } from "./message-markdown"
-import {
-  CommunityInviteCard,
-  type InviteCardPerspective,
-} from "./community-invite-card"
-import type { OpenProfile } from "./_types"
+import { CommunityInviteCard } from "./community-invite-card"
+import type { MessagePerspective, OpenProfile } from "./_types"
 
 // The sanitize schema Streamdown builds internally when `allowedTags` is
 // left at its default merge path (verified against Streamdown 2.5.0's
@@ -97,11 +94,11 @@ const REHYPE_PLUGINS: PluggableList = [
 function MessageBodyImpl({
   text,
   onOpenProfile,
-  invitePerspective = "neutral",
+  perspective = "neutral",
 }: {
   text: string
   onOpenProfile?: OpenProfile
-  invitePerspective?: InviteCardPerspective
+  perspective?: MessagePerspective
 }) {
   const inviteTokens = useMemo(() => extractInviteTokens(text), [text])
   const components = useMemo(
@@ -143,7 +140,7 @@ function MessageBodyImpl({
             <CommunityInviteCard
               key={token}
               token={token}
-              perspective={invitePerspective}
+              perspective={perspective}
             />
           ))}
         </div>

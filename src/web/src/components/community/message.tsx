@@ -246,7 +246,7 @@ function MessageImpl({
               <MessageBody
                 text={m.content}
                 onOpenProfile={onOpenProfile}
-                invitePerspective={
+                perspective={
                   viewerUserId
                     ? m.authorId === viewerUserId ? "sender" : "recipient"
                     : "neutral"

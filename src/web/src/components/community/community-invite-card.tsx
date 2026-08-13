@@ -12,11 +12,10 @@ import { useJoinServer } from "@/hooks/community/mutations/servers"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { tid } from "@/lib/community/testids"
-
-export type InviteCardPerspective = "sender" | "recipient" | "neutral"
+import type { MessagePerspective } from "./_types"
 
 export function resolveInviteCardPresentation(
-  perspective: InviteCardPerspective,
+  perspective: MessagePerspective,
   alreadyMember: boolean,
 ): { eyebrow: string; action: "join" | "open" | null } {
   if (perspective === "sender") return { eyebrow: "Invite sent", action: null }
@@ -45,7 +44,7 @@ export function CommunityInviteCard({
   perspective,
 }: {
   token: string
-  perspective: InviteCardPerspective
+  perspective: MessagePerspective
 }) {
   const router = useRouter()
   const { servers } = useServers()

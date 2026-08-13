@@ -20,6 +20,7 @@ export type Presence = "online" | "offline"
 export type RightPanel = "members" | "pinned" | "search" | "threads" | null
 export type MobileZone = "nav" | "messages"
 export type View = "server" | "dm" | "settings"
+export type MessagePerspective = "sender" | "recipient" | "neutral"
 export type SettingsSection =
   | "overview"
   | "members"

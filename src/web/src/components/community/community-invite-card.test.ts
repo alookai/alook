@@ -51,6 +51,6 @@ describe("invite-card perspective wiring", () => {
   it("keeps Share as Image explicitly neutral", () => {
     const shareDialog = readComponent("message-share-dialog.tsx")
 
-    expect(shareDialog).toContain('invitePerspective="neutral"')
+    expect(shareDialog).toContain('perspective="neutral"')
   })
 })

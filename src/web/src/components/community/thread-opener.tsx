@@ -107,7 +107,7 @@ export function ThreadOpener({
             <MessageBody
               text={msg.content}
               onOpenProfile={onOpenProfile}
-              invitePerspective={msg.authorId === viewerUserId ? "sender" : "recipient"}
+              perspective={msg.authorId === viewerUserId ? "sender" : "recipient"}
             />
           )}
 
