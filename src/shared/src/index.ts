@@ -158,6 +158,7 @@ export {
   DEFAULT_INBOX_PAGE_SIZE,
   MAX_INBOX_PAGE_SIZE,
   PRESENCE_MEMBER_CAP,
+  SELF_UPDATE_MIN_DAEMON_VERSION,
   BANNER_COLOR_REGEX,
   NOTIFICATION_LEVEL_VALUES,
   TYPING_INDICATOR_TIMEOUT_MS,
@@ -656,6 +657,7 @@ export { isPublic, isPrivate } from "./utils/visibility";
 export type { AgentVisibility } from "./utils/visibility";
 export { extractMentionedUserIds, MENTION_TYPES, isMentionType } from "./utils/community-mentions";
 export type { MentionCandidate, MentionType } from "./utils/community-mentions";
-export { semverGte } from "./semver";
+export { parseReleaseVersion, releaseVersionGte, semverGte } from "./semver";
+export type { ReleaseVersion } from "./semver";
 export { resolveMode, cliCommand, cliPackageName, updateCommand, daemonCommand, getBaseUrl, isTauri, isDesktop, isMobile, tauriInvoke } from "./mode";
 export type { AlookMode, ModeSignals, BaseUrlSignals } from "./mode";

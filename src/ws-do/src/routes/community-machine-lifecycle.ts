@@ -1,6 +1,61 @@
 import { queries } from "@alook/shared"
 import type { RouterContext } from "../router-context"
 
+export async function handleMachineUpdate({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {
+  const forwardUpdate = url.pathname.match(/^\/community-machine\/by-id\/([^/]+)\/forward-update$/)
+  if (!forwardUpdate || request.method !== "POST") return null
+
+  const machineId = decodeURIComponent(forwardUpdate[1])
+  const reqLog = log.child({ traceId, machineId })
+  reqLog.debug("forwarding machine:update to machine")
+
+  let doNames: string[]
+  try {
+    const shared = await import("@alook/shared")
+    const db = shared.createDb((env as unknown as { DB: D1Database }).DB)
+    doNames = await queries.communityMachine.getActiveDoNamesForMachine(db, machineId)
+  } catch (err) {
+    reqLog.error("failed to resolve machine doNames for update", { err })
+    return Response.json({ error: "failed to resolve machine" }, { status: 503 })
+  }
+  if (doNames.length === 0) return Response.json({ sent: 0 })
+
+  const frame = JSON.stringify({ type: "machine:update" })
+  let delivered = 0
+  let transientFailure = false
+  for (const doName of doNames) {
+    const doId = env.WS_DO.idFromName("community-machine:" + doName)
+    const stub = env.WS_DO.get(doId)
+    try {
+      const response = await stub.fetch(new Request("http://internal/push", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: frame,
+      }))
+      if (!response.ok) {
+        transientFailure = true
+        continue
+      }
+      const data = await response.json() as { sent?: unknown }
+      if (
+        typeof data.sent !== "number"
+        || !Number.isSafeInteger(data.sent)
+        || data.sent < 0
+      ) {
+        transientFailure = true
+        continue
+      }
+      delivered += data.sent
+    } catch {
+      transientFailure = true
+    }
+  }
+  if (delivered === 0 && transientFailure) {
+    return Response.json({ error: "failed to forward machine update" }, { status: 503 })
+  }
+  return Response.json({ sent: delivered })
+}
+
 export async function handleMachineReset({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {
   // POST /community-machine/by-id/<machineId>/forward-agent-reset — owner-
   // triggered `agent:reset` push. Same shape as `/forward-agent-wake`: build

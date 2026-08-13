@@ -15,6 +15,7 @@ import { createLogger } from "../logger.js";
 import { readDaemonVersion } from "../version.js";
 import { runPreparedDaemon, type DaemonReadyReceipt, type PreparedDaemon } from "./daemonRunner.js";
 import { spawn, type ChildProcess } from "node:child_process";
+import { parseReleaseVersion } from "@alook/shared";
 
 /**
  * Grace window for a daemon to exit on SIGTERM before we escalate to SIGKILL.
@@ -63,7 +64,7 @@ function daemonsDir(baseDir: string): string {
  * `daemon list` shows / `daemon stop <id>` takes. See
  * plans/daemon-c01-machineid-anchor.md.
  */
-function daemonDirById(baseDir: string, id: string): string {
+export function daemonDirById(baseDir: string, id: string): string {
   return path.join(daemonsDir(baseDir), validateDaemonId(id));
 }
 
@@ -81,7 +82,7 @@ function validateDaemonId(id: string): string {
   return id;
 }
 
-function pidfilePathById(baseDir: string, id: string): string {
+export function pidfilePathById(baseDir: string, id: string): string {
   return path.join(daemonDirById(baseDir, id), "daemon.pid");
 }
 
@@ -114,6 +115,14 @@ export interface DaemonPidFile {
   startedAt?: string;
   ownerToken?: string;
   key?: string;
+}
+
+export interface DaemonReplacementLock {
+  pid: number;
+  machineId: string;
+  startedAt: string;
+  ownerToken: string;
+  requestId: string;
 }
 
 function parsePidFileContent(raw: string): DaemonPidFile | null {
@@ -160,7 +169,7 @@ function syncDirectory(dir: string): void {
   }
 }
 
-function writeExclusive(filePath: string, value: Record<string, unknown>): void {
+function writeExclusive(filePath: string, value: object): void {
   const dir = path.dirname(filePath);
   ensurePrivateDir(dir);
   const tempPath = path.join(
@@ -175,6 +184,30 @@ function writeExclusive(filePath: string, value: Record<string, unknown>): void 
     fd = null;
     fs.chmodSync(tempPath, 0o600);
     fs.linkSync(tempPath, filePath);
+    syncDirectory(dir);
+  } finally {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch { /* best effort */ }
+    }
+    try { fs.unlinkSync(tempPath); } catch { /* best effort */ }
+  }
+}
+
+function writePrivateJsonAtomic(filePath: string, value: object): void {
+  const dir = path.dirname(filePath);
+  ensurePrivateDir(dir);
+  const tempPath = path.join(
+    dir,
+    `.${path.basename(filePath)}.${process.pid}.${crypto.randomBytes(12).toString("hex")}.tmp`,
+  );
+  let fd: number | null = fs.openSync(tempPath, "wx", 0o600);
+  try {
+    fs.writeFileSync(fd, JSON.stringify(value));
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = null;
+    fs.chmodSync(tempPath, 0o600);
+    fs.renameSync(tempPath, filePath);
     syncDirectory(dir);
   } finally {
     if (fd !== null) {
@@ -256,6 +289,117 @@ function clearStaleOwnership(filePath: string, liveError: (pid: number) => Error
   } catch { /* best effort */ }
 }
 
+export function replacementLockPathById(baseDir: string, machineId: string): string {
+  return path.join(daemonDirById(baseDir, machineId), "daemon.replace.lock");
+}
+
+export function readReplacementLock(filePath: string): DaemonReplacementLock | null {
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    const stat = fs.lstatSync(filePath);
+    if (!stat.isFile()) throw new Error("unsafe daemon replacement lock type");
+    fs.chmodSync(filePath, 0o600);
+    const content = JSON.parse(fs.readFileSync(filePath, "utf8")) as Partial<DaemonReplacementLock>;
+    if (
+      !Number.isInteger(content.pid)
+      || (content.pid ?? 0) <= 0
+      || typeof content.machineId !== "string"
+      || typeof content.startedAt !== "string"
+      || typeof content.ownerToken !== "string"
+      || typeof content.requestId !== "string"
+    ) return null;
+    return content as DaemonReplacementLock;
+  } catch (error) {
+    if (error instanceof SyntaxError) return null;
+    throw error;
+  }
+}
+
+function replacementLocksEqual(a: DaemonReplacementLock, b: DaemonReplacementLock): boolean {
+  return a.pid === b.pid
+    && a.machineId === b.machineId
+    && a.startedAt === b.startedAt
+    && a.ownerToken === b.ownerToken
+    && a.requestId === b.requestId;
+}
+
+export function removeReplacementLockIfMatches(
+  filePath: string,
+  expected: DaemonReplacementLock,
+): void {
+  try {
+    const current = readReplacementLock(filePath);
+    if (current && replacementLocksEqual(current, expected)) fs.unlinkSync(filePath);
+  } catch { /* best effort */ }
+}
+
+function checkReplacementLock(
+  baseDir: string,
+  machineId: string,
+  resumeRequestId?: string,
+): void {
+  const lockPath = replacementLockPathById(baseDir, machineId);
+  if (!fs.existsSync(lockPath)) return;
+  const lock = readReplacementLock(lockPath);
+  if (!lock) {
+    let before: fs.Stats;
+    let raw: string;
+    try {
+      before = fs.statSync(lockPath);
+      raw = fs.readFileSync(lockPath, "utf8");
+      const afterRead = fs.statSync(lockPath);
+      if (
+        afterRead.dev !== before.dev
+        || afterRead.ino !== before.ino
+        || afterRead.size !== before.size
+        || afterRead.mtimeMs !== before.mtimeMs
+      ) throw new Error(`daemon '${machineId}' replacement lock changed during recovery`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return;
+      throw error;
+    }
+    const pid = malformedPidHint(raw);
+    if (pid && isProcessAlive(pid)) {
+      throw new Error(`daemon '${machineId}' replacement lock is malformed but owned by live pid ${pid}`);
+    }
+    try {
+      const current = fs.statSync(lockPath);
+      if (
+        current.dev === before.dev
+        && current.ino === before.ino
+        && current.size === before.size
+        && current.mtimeMs === before.mtimeMs
+      ) fs.unlinkSync(lockPath);
+    } catch { /* best effort */ }
+    return;
+  }
+  if (!isProcessAlive(lock.pid)) {
+    removeReplacementLockIfMatches(lockPath, lock);
+    return;
+  }
+  if (resumeRequestId && lock.requestId === resumeRequestId) return;
+  throw new Error(`daemon '${machineId}' replacement already in progress (pid ${lock.pid})`);
+}
+
+export function acquireDaemonReplacementLock(args: {
+  baseDir: string;
+  machineId: string;
+  requestId: string;
+}): { path: string; lock: DaemonReplacementLock } {
+  const lockPath = replacementLockPathById(args.baseDir, args.machineId);
+  ensurePrivateDir(path.dirname(lockPath));
+  checkReplacementLock(args.baseDir, args.machineId);
+  const lock: DaemonReplacementLock = {
+    pid: process.pid,
+    machineId: args.machineId,
+    startedAt: new Date().toISOString(),
+    ownerToken: crypto.randomBytes(24).toString("base64url"),
+    requestId: args.requestId,
+  };
+  writeExclusive(lockPath, lock);
+  return { path: lockPath, lock };
+}
+
 /**
  * COARSE start-lock for the `cmt_` path (C0.1): the machineId isn't known until
  * after async `/activate`, so this baseDir-level lock blocks a concurrent local
@@ -275,11 +419,17 @@ function acquireCoarseLock(baseDir: string, ownerToken: string): string {
   return lf;
 }
 
-function acquireLaunchLock(baseDir: string, machineId: string, ownerToken: string): string {
+function acquireLaunchLock(
+  baseDir: string,
+  machineId: string,
+  ownerToken: string,
+  resumeRequestId?: string,
+): string {
   const daemonDir = daemonDirById(baseDir, machineId);
   ensurePrivateDir(daemonDir);
   const lockPath = path.join(daemonDir, "daemon.launch.lock");
   const finalPath = pidfilePathById(baseDir, machineId);
+  checkReplacementLock(baseDir, machineId, resumeRequestId);
   secureExistingFile(lockPath);
   secureExistingFile(finalPath);
   clearStaleOwnership(finalPath, (pid) => new Error(`daemon '${machineId}' already running (pid ${pid})`));
@@ -523,6 +673,30 @@ export interface DaemonStopOpts {
  * UNCHANGED by stop-by-id (plans/daemon-cli-humanize-charter.md red line 3) —
  * only HOW the daemon is addressed changed (its list id, not a machine key).
  */
+async function stopExactPid(pid: number): Promise<void> {
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch (error) {
+    if (isProcessAlive(pid)) throw error;
+  }
+
+  if (!await waitForPidExit(pid, STOP_GRACE_MS)) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch (error) {
+      if (isProcessAlive(pid)) throw error;
+    }
+    if (!await waitForPidExit(pid, STOP_KILL_GRACE_MS)) {
+      throw new Error(`daemon (pid ${pid}) is still running after SIGKILL`);
+    }
+  }
+}
+
+export async function stopExactDaemonPid(pid: number): Promise<void> {
+  if (!Number.isInteger(pid) || pid <= 0) throw new Error("invalid daemon pid");
+  await stopExactPid(pid);
+}
+
 async function stopByPidfile(pf: string, notFoundHint: string): Promise<void> {
   const data = readPidFile(pf);
 
@@ -537,23 +711,7 @@ async function stopByPidfile(pf: string, notFoundHint: string): Promise<void> {
   }
 
   log.info(`sending SIGTERM to daemon (pid ${data.pid})…`);
-  try {
-    process.kill(data.pid, "SIGTERM");
-  } catch (error) {
-    if (isProcessAlive(data.pid)) throw error;
-  }
-
-  if (!await waitForPidExit(data.pid, STOP_GRACE_MS)) {
-    log.error(`daemon (pid ${data.pid}) did not exit in ${STOP_GRACE_MS / 1000}s — sending SIGKILL`);
-    try {
-      process.kill(data.pid, "SIGKILL");
-    } catch (error) {
-      if (isProcessAlive(data.pid)) throw error;
-    }
-    if (!await waitForPidExit(data.pid, STOP_KILL_GRACE_MS)) {
-      throw new Error(`daemon (pid ${data.pid}) is still running after SIGKILL`);
-    }
-  }
+  await stopExactPid(data.pid);
   log.info("daemon stopped");
   removePidFileIfMatches(pf, data);
 }
@@ -579,6 +737,17 @@ export interface DaemonStartOpts {
   wsUrl?: string;
   baseDir?: string;
   foreground?: boolean;
+  /** Internal-only replacement lock bypass. Never exposed on normal start. */
+  resumeRequestId?: string;
+}
+
+export interface DaemonLaunchRecord {
+  schemaVersion: 1;
+  credential: string;
+  machineId: string;
+  serverUrl: string;
+  wsUrl: string;
+  daemonVersion: string;
 }
 
 /**
@@ -591,7 +760,7 @@ export function credentialFilePathByMachineId(baseDir: string, machineId: string
   return path.join(daemonsDir(baseDir), `${validateMachineId(machineId)}.credential.json`);
 }
 
-function readCredentialFile(filePath: string): { credential: string; machineId: string } | null {
+function readCredentialFile(filePath: string): (DaemonLaunchRecord | { credential: string; machineId: string }) | null {
   if (!fs.existsSync(filePath)) return null;
   const stat = fs.lstatSync(filePath);
   if (!stat.isFile()) throw new Error("unsafe daemon credential file type");
@@ -603,34 +772,44 @@ function readCredentialFile(filePath: string): { credential: string; machineId: 
       content.credential.startsWith("cmk_") &&
       typeof content.machineId === "string"
     ) {
+      if (
+        content.schemaVersion === 1
+        && typeof content.serverUrl === "string"
+        && typeof content.wsUrl === "string"
+        && typeof content.daemonVersion === "string"
+      ) {
+        return {
+          schemaVersion: 1,
+          credential: content.credential,
+          machineId: content.machineId,
+          serverUrl: content.serverUrl,
+          wsUrl: content.wsUrl,
+          daemonVersion: content.daemonVersion,
+        };
+      }
       return { credential: content.credential, machineId: content.machineId };
     }
   } catch { /* malformed */ }
   return null;
 }
 
-function writeCredentialFile(filePath: string, credential: string, machineId: string): void {
-  const dir = path.dirname(filePath);
-  ensurePrivateDir(dir);
-  const tempPath = path.join(
-    dir,
-    `.${path.basename(filePath)}.${process.pid}.${crypto.randomBytes(12).toString("hex")}.tmp`,
-  );
-  let fd: number | null = fs.openSync(tempPath, "wx", 0o600);
-  try {
-    fs.writeFileSync(fd, JSON.stringify({ credential, machineId }));
-    fs.fsyncSync(fd);
-    fs.closeSync(fd);
-    fd = null;
-    fs.chmodSync(tempPath, 0o600);
-    fs.renameSync(tempPath, filePath);
-    syncDirectory(dir);
-  } finally {
-    if (fd !== null) {
-      try { fs.closeSync(fd); } catch { /* best effort */ }
-    }
-    try { fs.unlinkSync(tempPath); } catch { /* best effort */ }
+function writeCredentialFile(filePath: string, record: DaemonLaunchRecord): void {
+  writePrivateJsonAtomic(filePath, record);
+}
+
+export function readDaemonLaunchRecord(baseDir: string, machineId: string): DaemonLaunchRecord {
+  const record = readCredentialFile(credentialFilePathByMachineId(baseDir, machineId));
+  if (
+    !record
+    || !("schemaVersion" in record)
+    || record.schemaVersion !== 1
+    || !parseReleaseVersion(record.daemonVersion)
+  ) {
+    throw new Error("daemon launch record is missing or requires a manual start upgrade");
   }
+  validateMachineId(record.machineId);
+  if (record.machineId !== machineId) throw new Error("daemon launch record machine mismatch");
+  return record;
 }
 
 /**
@@ -712,6 +891,8 @@ async function prepareDaemonStart(opts: DaemonStartOpts): Promise<PreparedStart>
     throw new Error("invalid machine key format — expected `cmt_` or `cmk_`");
   }
   const baseDir = opts.baseDir || process.env.ALOOK_DATA_DIR || DEFAULT_BASE_DIR;
+  const daemonVersion = readDaemonVersion();
+  if (!parseReleaseVersion(daemonVersion)) throw new Error("daemon package version is not a strict release version");
   const ownerToken = crypto.randomBytes(24).toString("base64url");
   const persisted = opts.machineKey.startsWith("cmk_")
     ? findExistingCredentialForBearer(baseDir, opts.machineKey)
@@ -722,7 +903,7 @@ async function prepareDaemonStart(opts: DaemonStartOpts): Promise<PreparedStart>
     let machineKey = persisted?.credential;
     let machineId = persisted ? validateMachineId(persisted.machineId) : undefined;
     if (machineKey && machineId) {
-      launchLockPath = acquireLaunchLock(baseDir, machineId, ownerToken);
+      launchLockPath = acquireLaunchLock(baseDir, machineId, ownerToken, opts.resumeRequestId);
     } else {
       coarseLockPath = acquireCoarseLock(baseDir, ownerToken);
       if (opts.machineKey.startsWith("cmk_")) {
@@ -741,7 +922,7 @@ async function prepareDaemonStart(opts: DaemonStartOpts): Promise<PreparedStart>
         process.platform,
         process.arch,
         os.release(),
-        readDaemonVersion(),
+        daemonVersion,
         runtimeReport,
       );
       machineKey = activated.credential;
@@ -750,8 +931,15 @@ async function prepareDaemonStart(opts: DaemonStartOpts): Promise<PreparedStart>
       machineKey ??= opts.machineKey;
       machineId ??= validateMachineId(await resolveMachineIdentity(serverUrl, opts.machineKey));
     }
-    writeCredentialFile(credentialFilePathByMachineId(baseDir, machineId), machineKey, machineId);
-    launchLockPath ??= acquireLaunchLock(baseDir, machineId, ownerToken);
+    launchLockPath ??= acquireLaunchLock(baseDir, machineId, ownerToken, opts.resumeRequestId);
+    writeCredentialFile(credentialFilePathByMachineId(baseDir, machineId), {
+      schemaVersion: 1,
+      credential: machineKey,
+      machineId,
+      serverUrl,
+      wsUrl,
+      daemonVersion,
+    });
     if (coarseLockPath) removeOwnedFile(coarseLockPath, process.pid, ownerToken);
     const startedAt = new Date().toISOString();
     return {
@@ -771,7 +959,7 @@ async function prepareDaemonStart(opts: DaemonStartOpts): Promise<PreparedStart>
         platform: process.platform,
         arch: process.arch,
         osRelease: os.release(),
-        daemonVersion: readDaemonVersion(),
+        daemonVersion,
         ownerToken,
         startedAt,
       },
@@ -781,6 +969,29 @@ async function prepareDaemonStart(opts: DaemonStartOpts): Promise<PreparedStart>
     if (coarseLockPath) removeOwnedFile(coarseLockPath, process.pid, ownerToken);
     throw error;
   }
+}
+
+export async function daemonResume(opts: {
+  id: string;
+  baseDir?: string;
+  requestId: string;
+}): Promise<void> {
+  if (!/^[A-Za-z0-9_-]{16,128}$/.test(opts.requestId)) throw new Error("invalid replacement request id");
+  const baseDir = opts.baseDir || process.env.ALOOK_DATA_DIR || DEFAULT_BASE_DIR;
+  const record = readDaemonLaunchRecord(baseDir, opts.id);
+  if (
+    process.env.NODE_ENV === "test"
+    && fs.existsSync(path.join(daemonDirById(baseDir, opts.id), `test-fail-start-${readDaemonVersion()}`))
+  ) {
+    throw new Error("test-gated daemon resume failure");
+  }
+  await daemonStart({
+    machineKey: record.credential,
+    serverUrl: record.serverUrl,
+    wsUrl: record.wsUrl,
+    baseDir,
+    resumeRequestId: opts.requestId,
+  });
 }
 
 function runnerArguments(): string[] {

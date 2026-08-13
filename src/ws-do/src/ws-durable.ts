@@ -117,7 +117,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     await handleWebSocketClose(
       this.domainContext(),
       ws,
-      (state) => handleCommunityMachineClose(this.domainContext(), state),
+      (state) => handleCommunityMachineClose(this.domainContext(), state, ws),
     )
   }
 

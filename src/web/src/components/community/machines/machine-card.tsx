@@ -15,16 +15,19 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { timeAgo } from "@/lib/time"
 import { machineName } from "@/lib/community/machine-name"
+import { tid } from "@/lib/community/testids"
 import { MachineRuntimes } from "./machine-runtimes"
 
 export function MachineCard({
   machine,
   onDelete,
   onReconnect,
+  onUpdate,
 }: {
   machine: CommunityMachineSummary
   onDelete: () => void
   onReconnect: () => void
+  onUpdate?: () => void
 }) {
   const isOnline = isPresenceOnline(machine.status)
   const lastSeenLabel = useMemo(
@@ -95,6 +98,7 @@ export function MachineCard({
             render={
               <button
                 aria-label="Machine actions"
+                data-testid={tid.machineActions(machine.id)}
                 className="grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
               >
                 <MoreVertical className="size-4" />
@@ -102,6 +106,14 @@ export function MachineCard({
             }
           />
           <DropdownMenuContent align="end">
+            {onUpdate && (
+              <DropdownMenuItem
+                data-testid={tid.machineUpdate(machine.id)}
+                onClick={onUpdate}
+              >
+                Update daemon…
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onClick={onReconnect}>
               Reconnect…
             </DropdownMenuItem>

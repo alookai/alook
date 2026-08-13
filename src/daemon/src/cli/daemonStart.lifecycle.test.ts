@@ -17,6 +17,7 @@ vi.mock("../discovery", async (importOriginal) => ({
 }));
 
 import { daemonRunFromIpc, daemonStart } from "./daemonStart";
+import { readDaemonVersion } from "../version";
 
 describe("daemon lifecycle ownership cleanup", () => {
   let baseDir: string;
@@ -149,6 +150,77 @@ describe("daemon lifecycle ownership cleanup", () => {
     expect(fs.existsSync(legacyPath)).toBe(false);
     expect(fs.existsSync(path.join(baseDir, "daemons", "cm_machine_init_failure.credential.json"))).toBe(true);
     expect(mockRunPreparedDaemon).toHaveBeenCalledOnce();
+  });
+
+  it("upgrades a legacy two-field credential record to a private resumable launch record", async () => {
+    const machineId = "cm_machine_init_failure";
+    const recordPath = path.join(baseDir, "daemons", `${machineId}.credential.json`);
+    fs.mkdirSync(path.dirname(recordPath), { recursive: true });
+    fs.writeFileSync(recordPath, JSON.stringify({ credential: "cmk_test", machineId }), { mode: 0o644 });
+
+    await expect(daemonStart({
+      machineKey: "cmk_test",
+      serverUrl: "http://server",
+      wsUrl: "ws://server",
+      baseDir,
+      foreground: true,
+    })).rejects.toThrow("runner init failed");
+
+    expect(JSON.parse(fs.readFileSync(recordPath, "utf8"))).toEqual({
+      schemaVersion: 1,
+      credential: "cmk_test",
+      machineId,
+      serverUrl: "http://server",
+      wsUrl: "ws://server",
+      daemonVersion: readDaemonVersion(),
+    });
+    if (process.platform !== "win32") expect(fs.statSync(recordPath).mode & 0o777).toBe(0o600);
+  });
+
+  it("blocks normal start during replacement and lets only the matching resume request bypass", async () => {
+    const machineId = "cm_machine_init_failure";
+    const daemonsDir = path.join(baseDir, "daemons");
+    const daemonDir = path.join(daemonsDir, machineId);
+    fs.mkdirSync(daemonDir, { recursive: true });
+    fs.writeFileSync(path.join(daemonsDir, `${machineId}.credential.json`), JSON.stringify({
+      schemaVersion: 1,
+      credential: "cmk_test",
+      machineId,
+      serverUrl: "http://server",
+      wsUrl: "ws://server",
+      daemonVersion: readDaemonVersion(),
+    }), { mode: 0o600 });
+    fs.writeFileSync(path.join(daemonDir, "daemon.replace.lock"), JSON.stringify({
+      pid: process.pid,
+      machineId,
+      startedAt: new Date().toISOString(),
+      ownerToken: "replace-owner",
+      requestId: "request_1234567890",
+    }), { mode: 0o600 });
+
+    await expect(daemonStart({
+      machineKey: "cmk_test",
+      serverUrl: "http://server",
+      wsUrl: "ws://server",
+      baseDir,
+      foreground: true,
+    })).rejects.toThrow("replacement already in progress");
+    await expect(daemonStart({
+      machineKey: "cmk_test",
+      serverUrl: "http://server",
+      wsUrl: "ws://server",
+      baseDir,
+      foreground: true,
+      resumeRequestId: "wrong_request_123456",
+    })).rejects.toThrow("replacement already in progress");
+    await expect(daemonStart({
+      machineKey: "cmk_test",
+      serverUrl: "http://server",
+      wsUrl: "ws://server",
+      baseDir,
+      foreground: true,
+      resumeRequestId: "request_1234567890",
+    })).rejects.toThrow("runner init failed");
   });
 
   it.each([

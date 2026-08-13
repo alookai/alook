@@ -786,6 +786,7 @@ export type HostCommand =
    * `agentRouter` and plans/daemon-batch-reset.md.
    */
   | { type: "machine:reset_all"; resets: Array<{ agentId: AgentId; config: RuntimeConfig; launchId: string }> }
+  | { type: "machine:update" }
   // ─── Bot lifecycle events (server → daemon) ────────────────────────────
   // Colon-namespaced to match the agent:* naming convention. Delivered to
   // the specific machine's daemon connection via the WS DO. On the daemon,
@@ -1420,6 +1421,9 @@ export const HostCommandSchema = z.discriminatedUnion("type", [
         launchId: z.string().min(1),
       }),
     ),
+  }),
+  z.strictObject({
+    type: z.literal("machine:update"),
   }),
   // The `bot:*` arms are NOT what #6 targets — the daemon acts on `agent:*`;
   // `bot:*` merely mutate/evict the `botsById` cache at the createDaemon layer.

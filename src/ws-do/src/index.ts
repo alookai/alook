@@ -13,6 +13,7 @@ import {
   handleMachineForceClose,
   handleMachineNap,
   handleMachineReset,
+  handleMachineUpdate,
 } from "./routes/community-machine-lifecycle"
 import { handleMachineModelSwitch, handleMachineProviderSwitch } from "./routes/community-machine-switch"
 import { handleHealth } from "./routes/health"
@@ -65,6 +66,8 @@ export default {
     response = await handleMachineDiagnostics(context)
     if (response) return response
     response = await handleMachineReset(context)
+    if (response) return response
+    response = await handleMachineUpdate(context)
     if (response) return response
     response = await handleMachineBatchReset(context)
     if (response) return response

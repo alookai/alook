@@ -9,9 +9,55 @@ import {
   pushAgentResetToMachine,
   pushAgentModelSwitchToMachine,
   pushAgentProviderSwitchToMachine,
+  pushMachineUpdate,
 } from "./bot-push"
 
 const FAKE_ENV = { WS_DO_WORKER: {}, DEV_WS_DO_URL: undefined } as unknown as Env
+
+describe("pushMachineUpdate", () => {
+  beforeEach(() => {
+    wsDoFetch.mockReset()
+  })
+
+  it("POSTs the fixed update route without a caller payload", async () => {
+    wsDoFetch.mockResolvedValue(new Response(JSON.stringify({ sent: 1 }), { status: 200 }))
+
+    await expect(pushMachineUpdate(FAKE_ENV, "machine/1")).resolves.toEqual({
+      sent: 1,
+      deliveryError: false,
+    })
+    const [, path, init, meta] = wsDoFetch.mock.calls[0]!
+    expect(path).toBe("/community-machine/by-id/machine%2F1/forward-update")
+    expect(init).toEqual({ method: "POST" })
+    expect(meta).toEqual({ label: "machine/1", type: "machine:update" })
+  })
+
+  it("distinguishes offline from non-ok, malformed, and thrown delivery failures", async () => {
+    wsDoFetch.mockResolvedValueOnce(new Response(JSON.stringify({ sent: 0 }), { status: 200 }))
+    await expect(pushMachineUpdate(FAKE_ENV, "m")).resolves.toEqual({
+      sent: 0,
+      deliveryError: false,
+    })
+
+    wsDoFetch.mockResolvedValueOnce(new Response("down", { status: 503 }))
+    await expect(pushMachineUpdate(FAKE_ENV, "m")).resolves.toEqual({
+      sent: 0,
+      deliveryError: true,
+    })
+
+    wsDoFetch.mockResolvedValueOnce(new Response(JSON.stringify({ sent: "one" }), { status: 200 }))
+    await expect(pushMachineUpdate(FAKE_ENV, "m")).resolves.toEqual({
+      sent: 0,
+      deliveryError: true,
+    })
+
+    wsDoFetch.mockRejectedValueOnce(new Error("network"))
+    await expect(pushMachineUpdate(FAKE_ENV, "m")).resolves.toEqual({
+      sent: 0,
+      deliveryError: true,
+    })
+  })
+})
 
 describe("pushAgentResetToMachine", () => {
   beforeEach(() => {

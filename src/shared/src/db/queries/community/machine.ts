@@ -265,6 +265,7 @@ export async function upsertMachineByMachineId(
   machine: MachineRow;
   priorLastSeenAt: string | null;
   priorAvailableRuntimes: CommunityMachineRuntime[];
+  priorDaemonVersion: string;
   priorStatus: "online" | "offline";
 } | null> {
   const markOnline = opts.markOnline ?? true;
@@ -306,6 +307,7 @@ export async function upsertMachineByMachineId(
     machine: rows[0] as MachineRow,
     priorLastSeenAt: prior.lastSeenAt,
     priorAvailableRuntimes: prior.availableRuntimes,
+    priorDaemonVersion: prior.daemonVersion,
     priorStatus: (prior.status as "online" | "offline") ?? "offline",
   };
 }

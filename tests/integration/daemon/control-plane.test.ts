@@ -128,7 +128,7 @@ describe("daemon control plane — real ws-do wake round-trip", () => {
       receivedCommands.push(cmd)
     })
     channel.onResync(() => ({
-      ready: { runtimeReport: [{ id: "claude" }], runningAgents: [] },
+      ready: { runtimeReport: [{ id: "claude" }], runningAgents: [], daemonVersion: "0.1.7" },
       sessions: [],
       activities: [],
     }))
@@ -202,6 +202,26 @@ describe("daemon control plane — real ws-do wake round-trip", () => {
     // The reply is now visible via a real owner-facing read of the channel.
     // Poll: wrangler/dev can briefly return empty bodies under fan-out load.
     await waitForChannelReply(fixture.channelId, cookie, replyText)
+  }, 30_000)
+
+  it("forwards the owner-scoped update API through the real ws-do as the exact machine:update command", async () => {
+    expect(channel).toBeDefined()
+    const received: HostCommand[] = []
+    channel!.onCommand((command) => received.push(command))
+
+    const response = await sessionRequest(
+      `/api/community/machines/${fixture.paired.machineId}/update`,
+      cookie,
+      { method: "POST" },
+    )
+
+    await assertResOk(response, "machine update dispatch")
+    expect(await response.json()).toEqual({ dispatched: true })
+    const update = await waitFor(
+      () => received.find((command) => command.type === "machine:update"),
+      15_000,
+    )
+    expect(update).toEqual({ type: "machine:update" })
   }, 30_000)
 
   it("reports agent_activity over the real WsControlChannel and the profile route reflects running, then idle after the stub session ends its turn", async () => {

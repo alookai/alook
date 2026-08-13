@@ -26,10 +26,20 @@ export async function scheduleHeartbeatAlarm(context: WsDurableContext): Promise
 export async function handleCommunityMachineClose(
   context: WsDurableContext,
   state: CommunityMachineConnectionState,
+  closingSocket: WebSocket,
 ): Promise<void> {
   context.log.info("community machine websocket closed", { machineId: state.machineId, userId: state.userId })
   const identity = await context.ctx.storage.get<CommunityMachineIdentity>(IDENTITY_KEY)
   if (!identity) return
+  const replacementIsLive = context.ctx.getWebSockets().some((socket) => {
+    if (socket === closingSocket) return false
+    const candidate = socket.deserializeAttachment() as ConnectionState
+    return candidate?.type === "community-machine"
+      && candidate.authenticated
+      && candidate.userId === state.userId
+      && candidate.machineId === state.machineId
+  })
+  if (replacementIsLive) return
   try {
     const db = createDb(context.env.DB)
     const flipped = await queries.communityMachine.markMachineOffline(db, {

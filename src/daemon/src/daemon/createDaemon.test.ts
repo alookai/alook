@@ -218,6 +218,30 @@ describe("createDaemon", () => {
     await daemon.stop();
   });
 
+  it("consumes machine:update before bot observers and AgentRouter", async () => {
+    const sockets: FakeSocket[] = [];
+    const routerEntry = spyOnRouterCommandEntry();
+    const handleSelfUpdate = vi.fn(async () => {});
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ bots: [] })));
+    const daemon = await createDaemon({
+      machineKey: "cmk_self_update",
+      serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as any,
+      runtimeReport: [],
+      driverFor: () => fakeDriver,
+      capabilities: [],
+      handleSelfUpdate,
+    } as Parameters<typeof createDaemon>[0]);
+    sockets[0].emit("open");
+
+    sockets[0].emit("message", JSON.stringify({ type: "machine:update" }));
+
+    await vi.waitFor(() => expect(handleSelfUpdate).toHaveBeenCalledOnce());
+    expect(routerEntry).not.toHaveBeenCalledWith(expect.objectContaining({ type: "machine:update" }));
+    await daemon.stop();
+  });
+
   it.each([
     ["missing", undefined],
     ["sync throw", vi.fn(() => { throw new Error("private sync detail"); })],

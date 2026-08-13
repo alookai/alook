@@ -490,6 +490,7 @@ describe("upsertMachineByMachineId", () => {
       availableRuntimes: [{ id: "claude" }, { id: "codex" }],
     });
     expect(res?.priorAvailableRuntimes).toEqual([{ id: "claude" }]);
+    expect(res?.priorDaemonVersion).toBe("0.1.0");
     expect(res?.machine.availableRuntimes).toEqual([{ id: "claude" }, { id: "codex" }]);
     expect(chain.set).toHaveBeenCalledWith(
       expect.objectContaining({

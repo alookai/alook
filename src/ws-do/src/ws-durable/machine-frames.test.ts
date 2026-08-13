@@ -454,7 +454,7 @@ describe("WebSocketDurableObject", () => {
         )
       })
 
-      it("emits machine.updated for status or lastError drift and emits nothing for steady runtimes", async () => {
+      it("emits machine.updated for status or lastError drift and emits nothing for steady metadata", async () => {
         const { durable, store } = createDO()
         seedIdentity(store)
         const baseMachine = {
@@ -468,6 +468,7 @@ describe("WebSocketDurableObject", () => {
           machine: baseMachine,
           priorLastSeenAt: "2026-08-07T00:00:00.000Z",
           priorAvailableRuntimes: [{ id: "codex", version: "1", status: "healthy" }],
+          priorDaemonVersion: "",
           priorStatus: "online",
         })
 
@@ -489,12 +490,48 @@ describe("WebSocketDurableObject", () => {
           machine: baseMachine,
           priorLastSeenAt: "2026-08-08T00:00:00.000Z",
           priorAvailableRuntimes: baseMachine.availableRuntimes,
+          priorDaemonVersion: "",
           priorStatus: "online",
         })
 
         await durable.webSocketMessage(machineWs() as any, driftFrame)
 
         expect(mockStubFetch).not.toHaveBeenCalled()
+      })
+
+      it("emits machine.updated when daemonVersion alone changes", async () => {
+        const { durable, store } = createDO()
+        seedIdentity(store)
+        mockUpsertMachineByMachineId.mockResolvedValue({
+          machine: {
+            id: "cm_1",
+            hostname: "host",
+            daemonVersion: "0.1.7",
+            availableRuntimes: [],
+            status: "online",
+            lastSeenAt: "2026-08-08T00:00:00.000Z",
+          },
+          priorLastSeenAt: "2026-08-07T00:00:00.000Z",
+          priorAvailableRuntimes: [],
+          priorDaemonVersion: "0.1.6",
+          priorStatus: "online",
+        })
+
+        await durable.webSocketMessage(
+          machineWs() as any,
+          JSON.stringify({
+            type: "ready",
+            runtimeReport: [],
+            runningAgents: [],
+            daemonVersion: "0.1.7",
+          }),
+        )
+
+        const bodies = await Promise.all(
+          mockStubFetch.mock.calls.map((call: any[]) => (call[0] as Request).clone().json() as Promise<any>),
+        )
+        expect(bodies.filter((body) => body.type === "community:machine.updated")).toHaveLength(1)
+        expect(bodies.find((body) => body.type === "community:machine.updated")?.machine.daemonVersion).toBe("0.1.7")
       })
     })
 })

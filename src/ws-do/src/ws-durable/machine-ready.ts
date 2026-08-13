@@ -82,7 +82,7 @@ export async function handleReadyFrame(
       context.log.warn("community machine row missing on ready", { machineId: identity.machineId })
       return true
     }
-    const { machine, priorAvailableRuntimes, priorStatus } = result
+    const { machine, priorAvailableRuntimes, priorDaemonVersion, priorStatus } = result
 
     // Reconciliation is the coarse safety net for an activity frame lost
     // during disconnect. It clears only stale system-owned activity pills;
@@ -126,7 +126,7 @@ export async function handleReadyFrame(
     const nextCanonical = canonicalRuntimes(availableRuntimes)
     // Runtime status/lastError drift is machine metadata drift and must reach
     // open clients even when the runtime set and versions are unchanged.
-    if (priorCanonical !== nextCanonical) {
+    if (priorCanonical !== nextCanonical || priorDaemonVersion !== daemonVersion) {
       await notifyUserDO(context, identity.userId, {
         type: WS_EVENTS.MACHINE_UPDATED,
         machine: summary,

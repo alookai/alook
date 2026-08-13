@@ -22,6 +22,7 @@ import { createLogger, type Logger } from "../logger.js";
 import { UnknownRuntimeError } from "../manager/agentRouter.js";
 import { scrubRuntimeErrorDiagnosticText } from "../runtime/errorDiagnostics.js";
 import { createRotatingFileSink, type RotatingFileSink } from "../util/rotatingFileSink.js";
+import { createDaemonSelfUpdateHandler } from "./daemonUpdate.js";
 
 const CAPABILITIES = ["send", "read", "mentions", "tasks", "reactions", "server", "channels", "knowledge", "attach", "friend"];
 export const DAEMON_LOG_MAX_BYTES = 8 * 1024 * 1024;
@@ -327,6 +328,13 @@ export async function runPreparedDaemon(
 
   try {
     logDaemonStartup(log, prepared);
+    const handleSelfUpdate = createDaemonSelfUpdateHandler({
+      machineId: prepared.machineId,
+      baseDir: prepared.baseDir,
+      pid: process.pid,
+      startedAt: prepared.startedAt,
+      ownerToken: prepared.ownerToken,
+    }, { logger: log });
     daemon = await createDaemon({
       machineKey: prepared.machineKey,
       serverUrl: prepared.serverUrl,
@@ -352,6 +360,7 @@ export async function runPreparedDaemon(
       osRelease: prepared.osRelease,
       daemonVersion: prepared.daemonVersion,
       logger: log,
+      handleSelfUpdate,
       handleDiagnosticCommand,
       reportDiagnosticFailure,
       onDiagnosticSources: ({ fsmTraceSource, statusFilePath }) => {

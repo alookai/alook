@@ -21,7 +21,8 @@ import { pathToFileURL } from "node:url";
 import type { ServerApi, Cursor, Message } from "../server/contract.js";
 import { parseRef } from "../server/contract.js";
 import { proxyServerApiFromEnv } from "./proxyServerApi.js";
-import { daemonRunFromIpc, daemonStart, daemonStop, daemonList, daemonStatus, type DaemonInfo } from "./daemonStart.js";
+import { daemonResume, daemonRunFromIpc, daemonStart, daemonStop, daemonList, daemonStatus, type DaemonInfo } from "./daemonStart.js";
+import { daemonReplace } from "./daemonUpdate.js";
 import { parseInviteToken } from "@alook/shared/lib/invite-link";
 import {
   MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES,
@@ -995,6 +996,38 @@ function buildProgram(): Command {
     });
 
   daemon
+    .command("resume", { hidden: true })
+    .requiredOption("--id <machineId>")
+    .requiredOption("--base-dir <path>")
+    .requiredOption("--request-id <id>")
+    .exitOverride()
+    .configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      const localOpts = this.opts();
+      await daemonResume({
+        id: localOpts.id as string,
+        baseDir: localOpts.baseDir as string,
+        requestId: localOpts.requestId as string,
+      });
+    });
+
+  daemon
+    .command("replace", { hidden: true })
+    .requiredOption("--id <machineId>")
+    .requiredOption("--base-dir <path>")
+    .requiredOption("--request-id <id>")
+    .exitOverride()
+    .configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      const localOpts = this.opts();
+      await daemonReplace({
+        id: localOpts.id as string,
+        baseDir: localOpts.baseDir as string,
+        requestId: localOpts.requestId as string,
+      });
+    });
+
+  daemon
     .command("stop")
     .argument("<id>", "daemon id from `alook daemon list` (the ID column)")
     .description("stop a daemon by its id (from `alook daemon list`)")
@@ -1058,6 +1091,7 @@ function buildProgram(): Command {
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const program = buildProgram();
+  let internalExitCode = 0;
   try {
     await program.parseAsync(argv, { from: "user" });
   } catch (err) {
@@ -1085,8 +1119,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         hint: (err as { hint?: string }).hint,
       });
     }
+    // Public agent-facing commands keep their JSON-only result contract. The
+    // two hidden replacement primitives additionally need a process status so
+    // the parent helper can distinguish ready from bounded rollback failure.
+    if (argv[0] === "daemon" && (argv[1] === "resume" || argv[1] === "replace")) {
+      internalExitCode = 1;
+    }
   }
-  return 0;
+  return internalExitCode;
 }
 
 function getHelpText(program: Command, argv: string[]): string {

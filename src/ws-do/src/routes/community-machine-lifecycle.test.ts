@@ -43,6 +43,62 @@ describe("ws-do router", () => {
     handler = undefined as unknown as RouterHandler
   })
 
+  describe("POST /community-machine/by-id/:machineId/forward-update", () => {
+    beforeEach(() => {
+      mockGetActiveDoNamesForMachine.mockReset().mockResolvedValue([])
+    })
+
+    it("returns sent:0 when the machine has no active credential DO", async () => {
+      const response = await handler.fetch(new Request(
+        "http://localhost/community-machine/by-id/machine-1/forward-update",
+        { method: "POST" },
+      ), env as any)
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({ sent: 0 })
+      expect(doMock.stubFetch).not.toHaveBeenCalled()
+    })
+
+    it("constructs only the exact machine:update frame and aggregates live delivery", async () => {
+      mockGetActiveDoNamesForMachine.mockResolvedValue(["do-a", "do-b"])
+      doMock.stubFetch
+        .mockResolvedValueOnce(new Response(JSON.stringify({ sent: 1 }), { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ sent: 2 }), { status: 200 }))
+
+      const response = await handler.fetch(new Request(
+        "http://localhost/community-machine/by-id/machine-1/forward-update",
+        { method: "POST", body: JSON.stringify({ command: "ignored" }) },
+      ), env as any)
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({ sent: 3 })
+      expect(doMock.stubFetch).toHaveBeenCalledTimes(2)
+      for (const [request] of doMock.stubFetch.mock.calls) {
+        expect(await (request as Request).clone().json()).toEqual({ type: "machine:update" })
+      }
+    })
+
+    it("returns 503 when resolution fails or every live DO delivery is transiently inconclusive", async () => {
+      mockGetActiveDoNamesForMachine.mockRejectedValueOnce(new Error("D1 down"))
+      const resolutionFailure = await handler.fetch(new Request(
+        "http://localhost/community-machine/by-id/machine-1/forward-update",
+        { method: "POST" },
+      ), env as any)
+      expect(resolutionFailure.status).toBe(503)
+
+      mockGetActiveDoNamesForMachine.mockResolvedValueOnce(["do-a", "do-b"])
+      doMock.stubFetch
+        .mockResolvedValueOnce(new Response(JSON.stringify({ sent: "invalid" }), { status: 200 }))
+        .mockRejectedValueOnce(new Error("network"))
+      const deliveryFailure = await handler.fetch(new Request(
+        "http://localhost/community-machine/by-id/machine-1/forward-update",
+        { method: "POST" },
+      ), env as any)
+      expect(deliveryFailure.status).toBe(503)
+      expect(await deliveryFailure.json()).toEqual({ error: "failed to forward machine update" })
+    })
+  })
+
   describe("POST /community-machine/by-id/:machineId/forward-agent-reset", () => {
     const validBody = {
       agentId: "bot-1",

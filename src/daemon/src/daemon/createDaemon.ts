@@ -45,6 +45,7 @@ import {
   createDiagnosticsCommandListener,
   type DiagnosticFailureReport,
 } from "./diagnosticsCommand.js";
+import { createSelfUpdateCommandListener } from "./selfUpdateCommand.js";
 
 // Cold-start warmup backoff schedule (ms).
 const WARMUP_BACKOFF_MS = [250, 500, 1000, 2000, 4000] as const;
@@ -297,6 +298,8 @@ export interface CreateDaemonOptions {
   logger?: Logger;
   /** B2b interception seam; B2c supplies the local collector/uploader. */
   handleDiagnosticCommand?: (command: DiagnosticCollectCommand) => void | Promise<void>;
+  /** Machine-level lifecycle command; consumed before bot observers/router. */
+  handleSelfUpdate?: () => void | Promise<void>;
   /** Fixed-code failure callback used when diagnostics is not available. */
   reportDiagnosticFailure?: (failure: DiagnosticFailureReport) => void | Promise<void>;
   /** Supplies only the bounded default FSM snapshot source and status snapshot path. */
@@ -875,10 +878,10 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       `You have unread messages in channel ${notice.channel}.`,
   });
 
-  // Register the diagnostics consumer first: its synchronous channel-owned
-  // sentinel claims diagnostics before either the bot-cache observer or the
-  // AgentRouter can see them. The bot-cache observer remains immediately
-  // before router.start()'s listener for ordinary bot:* frames.
+  // Machine lifecycle commands are claimed before diagnostics, bot observers,
+  // and AgentRouter; updates never enter agent lifecycle routing.
+  channel.onCommand(createSelfUpdateCommandListener(opts.handleSelfUpdate));
+  // Diagnostics likewise claims its machine-level command before bot/router.
   channel.onCommand(createDiagnosticsCommandListener({
     handleDiagnosticCommand: opts.handleDiagnosticCommand,
     reportDiagnosticFailure: opts.reportDiagnosticFailure,

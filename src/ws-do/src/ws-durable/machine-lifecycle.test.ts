@@ -152,6 +152,140 @@ describe("WebSocketDurableObject", () => {
         // the alarm has no state to act on either.
         expect(ctx.storage.setAlarm).not.toHaveBeenCalled()
       })
+
+      it("keeps online state and DO identity when a replacement socket becomes ready before the old socket closes", async () => {
+        const { durable, store, getWebSockets, ctx } = createDO()
+        store.set("community-machine-identity", {
+          userId: "u_1",
+          machineId: "cm_1",
+          credentialHash: "same-cmk",
+        })
+        store.set("community-machine-handle", { userId: "u_1", machineId: "cm_1" })
+        await ctx.storage.setAlarm(Date.now() + 90_000)
+
+        const oldSocket = createMockWebSocket()
+        oldSocket.serializeAttachment({
+          type: "community-machine",
+          machineId: "cm_1",
+          userId: "u_1",
+          authenticated: true,
+        })
+        const newSocket = createMockWebSocket()
+        newSocket.serializeAttachment({
+          type: "community-machine",
+          machineId: "cm_1",
+          userId: "u_1",
+          authenticated: true,
+        })
+        getWebSockets.mockReturnValue([oldSocket, newSocket])
+
+        mockUpsertMachineByMachineId.mockResolvedValueOnce({
+          machine: {
+            id: "cm_1",
+            hostname: "host",
+            daemonVersion: "0.1.7",
+            availableRuntimes: [],
+            status: "online",
+            lastSeenAt: "2026-08-13T08:00:00.000Z",
+          },
+          priorLastSeenAt: "2026-08-13T07:59:00.000Z",
+          priorAvailableRuntimes: [],
+          priorDaemonVersion: "0.1.6",
+          priorStatus: "online",
+        })
+        await durable.webSocketMessage(
+          newSocket as any,
+          JSON.stringify({
+            type: "ready",
+            runtimeReport: [],
+            runningAgents: [],
+            daemonVersion: "0.1.7",
+          }),
+        )
+        expect(mockUpsertMachineByMachineId).toHaveBeenCalledTimes(1)
+
+        mockStubFetch.mockClear()
+        ;(ctx.storage.deleteAlarm as any).mockClear?.()
+        await durable.webSocketClose(oldSocket as any)
+
+        expect(mockMarkMachineOffline).not.toHaveBeenCalled()
+        expect(mockStubFetch).not.toHaveBeenCalled()
+        expect(ctx.storage.deleteAlarm).not.toHaveBeenCalled()
+        expect(store.get("community-machine-identity")).toEqual({
+          userId: "u_1",
+          machineId: "cm_1",
+          credentialHash: "same-cmk",
+        })
+        expect(store.get("community-machine-handle")).toEqual({
+          userId: "u_1",
+          machineId: "cm_1",
+        })
+      })
+
+      it("does not count the closing socket itself as a live replacement", async () => {
+        const { durable, store, getWebSockets } = createDO()
+        store.set("community-machine-identity", {
+          userId: "u_1",
+          machineId: "cm_1",
+          credentialHash: "credential",
+        })
+        const closing = createMockWebSocket()
+        closing.serializeAttachment({
+          type: "community-machine",
+          machineId: "cm_1",
+          userId: "u_1",
+          authenticated: true,
+        })
+        getWebSockets.mockReturnValue([closing])
+        mockMarkMachineOffline.mockResolvedValueOnce(null)
+
+        await durable.webSocketClose(closing as any)
+
+        expect(mockMarkMachineOffline).toHaveBeenCalledTimes(1)
+      })
+
+      it("does not let different-user, different-machine, or unauthenticated sockets suppress offline", async () => {
+        const { durable, store, getWebSockets } = createDO()
+        store.set("community-machine-identity", {
+          userId: "u_1",
+          machineId: "cm_1",
+          credentialHash: "credential",
+        })
+        const closing = createMockWebSocket()
+        closing.serializeAttachment({
+          type: "community-machine",
+          machineId: "cm_1",
+          userId: "u_1",
+          authenticated: true,
+        })
+        const otherMachine = createMockWebSocket()
+        otherMachine.serializeAttachment({
+          type: "community-machine",
+          machineId: "cm_2",
+          userId: "u_1",
+          authenticated: true,
+        })
+        const otherUser = createMockWebSocket()
+        otherUser.serializeAttachment({
+          type: "community-machine",
+          machineId: "cm_1",
+          userId: "u_2",
+          authenticated: true,
+        })
+        const unauthenticated = createMockWebSocket()
+        unauthenticated.serializeAttachment({
+          type: "community-machine",
+          machineId: "cm_1",
+          userId: "u_1",
+          authenticated: false,
+        })
+        getWebSockets.mockReturnValue([closing, otherMachine, otherUser, unauthenticated])
+        mockMarkMachineOffline.mockResolvedValueOnce(null)
+
+        await durable.webSocketClose(closing as any)
+
+        expect(mockMarkMachineOffline).toHaveBeenCalledTimes(1)
+      })
     })
 
   describe("community-machine — alarm presence + backfill", () => {

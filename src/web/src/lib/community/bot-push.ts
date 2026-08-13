@@ -11,6 +11,42 @@ const log = createLogger({ service: "community-bot-push" })
 
 type BotEventFrame = BotAddedFrame | BotUpdatedFrame | BotRemovedFrame
 
+export type MachineUpdatePushResult =
+  | { sent: number; deliveryError: false }
+  | { sent: 0; deliveryError: true }
+
+export async function pushMachineUpdate(
+  env: Env,
+  machineId: string,
+): Promise<MachineUpdatePushResult> {
+  const path = `/community-machine/by-id/${encodeURIComponent(machineId)}/forward-update`
+  try {
+    const response = await wsDoFetch(
+      env,
+      path,
+      { method: "POST" },
+      { label: machineId, type: "machine:update" },
+    )
+    if (!response.ok) {
+      log.warn("machine:update push non-ok", { machineId, status: response.status })
+      return { sent: 0, deliveryError: true }
+    }
+    const data = await response.json() as { sent?: unknown }
+    if (
+      typeof data.sent !== "number"
+      || !Number.isSafeInteger(data.sent)
+      || data.sent < 0
+    ) {
+      log.warn("machine:update push malformed", { machineId })
+      return { sent: 0, deliveryError: true }
+    }
+    return { sent: data.sent, deliveryError: false }
+  } catch (err) {
+    log.warn("machine:update push threw", { machineId, err: String(err) })
+    return { sent: 0, deliveryError: true }
+  }
+}
+
 /**
  * Push a bot event (bot:added / bot:updated / bot:removed) to the machine's
  * daemon connection via the WS Durable Object.

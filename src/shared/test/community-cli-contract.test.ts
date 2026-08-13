@@ -312,3 +312,22 @@ describe("HostCommand diagnostics contract", () => {
     );
   });
 });
+
+describe("HostCommand machine update contract", () => {
+  it("keeps the no-payload arm in the type and strict runtime schema", () => {
+    type UpdateCommand = { type: "machine:update" };
+    expectTypeOf<Extract<HostCommand, { type: "machine:update" }>>()
+      .toEqualTypeOf<UpdateCommand>();
+    expect(HostCommandSchema.safeParse({ type: "machine:update" })).toEqual(
+      expect.objectContaining({ success: true }),
+    );
+  });
+
+  it.each(["package", "version", "url", "command"])(
+    "rejects an extra %s field instead of stripping it",
+    (field) => {
+      expect(HostCommandSchema.safeParse({ type: "machine:update", [field]: "attacker" }).success)
+        .toBe(false);
+    },
+  );
+});

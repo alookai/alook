@@ -93,6 +93,8 @@ export const MAX_INBOX_PAGE_SIZE = 200
 // (the web route only issues a single bulk request per poll).
 export const PRESENCE_MEMBER_CAP = 500
 
+export const SELF_UPDATE_MIN_DAEMON_VERSION = "0.1.7"
+
 // Banner color — accepts hex (#RRGGBB / #RGB) only
 export const BANNER_COLOR_REGEX = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
 

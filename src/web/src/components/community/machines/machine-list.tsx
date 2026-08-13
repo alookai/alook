@@ -5,8 +5,12 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { ChevronLeft } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
-import type { CommunityMachineSummary } from "@alook/shared"
-import { isPresenceOnline } from "@alook/shared"
+import type { AlookMode, CommunityMachineSummary } from "@alook/shared"
+import {
+  isPresenceOnline,
+  releaseVersionGte,
+  SELF_UPDATE_MIN_DAEMON_VERSION,
+} from "@alook/shared"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -21,7 +25,10 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog"
-import { apiFetch } from "@/lib/api/client"
+import { apiFetch, getErrorMessage } from "@/lib/api/client"
+import { fetchLatestCliVersion } from "@/lib/api/config"
+import { getAppMode } from "@/lib/utils"
+import { machineName } from "@/lib/community/machine-name"
 import { MachineCard } from "./machine-card"
 import { PairMachineSheet, type PairMachineSheetMode } from "./pair-machine-sheet"
 import { ConnectTile } from "@/components/community/onboarding-tiles/connect-tile"
@@ -59,6 +66,70 @@ function MachineCardSkeleton() {
   )
 }
 
+export function canUpdateMachine(
+  machine: Pick<CommunityMachineSummary, "status" | "daemonVersion">,
+  latestVersion: string | null,
+  controllerMode: AlookMode,
+): boolean {
+  const currentVersion = machine.daemonVersion
+  if (controllerMode === "dev" || !isPresenceOnline(machine.status) || !currentVersion || !latestVersion) {
+    return false
+  }
+  return (
+    releaseVersionGte(currentVersion, SELF_UPDATE_MIN_DAEMON_VERSION) &&
+    releaseVersionGte(latestVersion, currentVersion) &&
+    !releaseVersionGte(currentVersion, latestVersion)
+  )
+}
+
+export async function requestMachineUpdate(machineId: string): Promise<boolean> {
+  try {
+    await apiFetch<{ dispatched: true }>(`/api/community/machines/${machineId}/update`, {
+      method: "POST",
+    })
+    toast.success("Update requested — the machine will restart and reconnect")
+    return true
+  } catch (error) {
+    toast.error(getErrorMessage(error, "Couldn't request the daemon update"))
+    return false
+  }
+}
+
+export function MachineUpdateDialog({
+  machine,
+  onOpenChange,
+  onConfirm,
+}: {
+  machine: CommunityMachineSummary | null
+  onOpenChange: (open: boolean) => void
+  onConfirm: (machine: CommunityMachineSummary) => void
+}) {
+  return (
+    <AlertDialog open={!!machine} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            Update daemon on {machine ? machineName(machine) : "machine"}?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            The daemon will restart, and any agents currently running on this machine will stop.
+            The machine will reconnect automatically when the update is ready.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={() => onOpenChange(false)}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            data-testid={tid.machineUpdateConfirm}
+            onClick={() => machine && onConfirm(machine)}
+          >
+            Update daemon
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
 export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -71,12 +142,30 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   const [pendingTokenId, setPendingTokenId] = useState<string | null>(null)
   const [connectedHostname, setConnectedHostname] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<CommunityMachineSummary | null>(null)
+  const [confirmUpdate, setConfirmUpdate] = useState<CommunityMachineSummary | null>(null)
+  const [latestVersion, setLatestVersion] = useState<string | null>(null)
   const [guideAvatarSeed, setGuideAvatarSeed] = useState("alook-guide")
   const onboardingState = useCommunityOnboarding()
+  const controllerMode = getAppMode()
 
   useEffect(() => {
     setGuideAvatarSeed(`alook-guide-${crypto.randomUUID()}`)
   }, [])
+
+  useEffect(() => {
+    if (controllerMode === "dev") return
+    let active = true
+    void fetchLatestCliVersion()
+      .then(({ version }) => {
+        if (active) setLatestVersion(version)
+      })
+      .catch(() => {
+        if (active) setLatestVersion(null)
+      })
+    return () => {
+      active = false
+    }
+  }, [controllerMode])
 
   // When the WS layer announces a machine for our pending token, flip the sheet.
   useEffect(() => {
@@ -187,6 +276,11 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     useCommunityStore.getState().setPendingMachineTokenId(tokenId)
   }, [])
 
+  const onConfirmUpdate = useCallback((machine: CommunityMachineSummary) => {
+    setConfirmUpdate(null)
+    void requestMachineUpdate(machine.id)
+  }, [])
+
   const botsToDelete = confirmDelete
     ? bots.filter((b) => b.machineId === confirmDelete.id)
     : []
@@ -295,6 +389,11 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
               machine={m}
               onDelete={() => setConfirmDelete(m)}
               onReconnect={() => openReconnect(m)}
+              onUpdate={
+                canUpdateMachine(m, latestVersion, controllerMode)
+                  ? () => setConfirmUpdate(m)
+                  : undefined
+              }
             />
           ))}
         </div>
@@ -306,6 +405,11 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
         setPendingTokenId={handleSetPendingTokenId}
         connectedHostname={connectedHostname}
         mode={pairMode}
+      />
+      <MachineUpdateDialog
+        machine={confirmUpdate}
+        onOpenChange={(open) => !open && setConfirmUpdate(null)}
+        onConfirm={onConfirmUpdate}
       />
       <AlertDialog
         open={!!confirmDelete}
