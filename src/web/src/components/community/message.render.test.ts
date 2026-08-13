@@ -200,6 +200,28 @@ describe("Message file attachment", () => {
     act(() => card.props.onClick())
     expect(onPreviewAttachment).toHaveBeenCalledWith(file)
   })
+
+  it("renders media through the shared progressive-disclosure block", () => {
+    const media = {
+      kind: "file" as const,
+      name: "voice.ogg",
+      url: "/voice",
+      contentType: "audio/ogg",
+      sizeBytes: 256,
+      size: "256 B",
+    }
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(makeTree({
+        m: baseMsg({ attachments: [media] }),
+        onOpenThread: vi.fn(),
+      }), { createNodeMock: () => genericMock })
+    })
+
+    expect(renderer!.root.findByProps({ "data-testid": "community-media-block-voice.ogg" }).props["data-media-kind"])
+      .toBe("audio")
+    expect(renderer!.root.findAllByType("audio")).toHaveLength(0)
+  })
 })
 
 describe("Message lazy overlays", () => {

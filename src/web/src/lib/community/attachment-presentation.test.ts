@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   formatAttachmentSize,
   resolveAttachmentPresentation,
+  resolveMediaContentType,
   type AttachmentPresentation,
 } from "./attachment-presentation"
 
@@ -99,6 +100,56 @@ describe("resolveAttachmentPresentation", () => {
       .toEqual(presentation("pdf", null))
     expect(resolveAttachmentPresentation("payload.ts", "application/x-custom"))
       .toEqual(presentation("unknown", null))
+  })
+
+  it.each([
+    ["voice.mp3", "audio/mpeg", "audio"],
+    ["voice.wav", "audio/wav", "audio"],
+    ["voice.m4a", "audio/mp4", "audio"],
+    ["voice.ogg", "audio/ogg", "audio"],
+    ["clip.mp4", "video/mp4", "video"],
+    ["clip.webm", "video/webm", "video"],
+    ["clip.mov", "video/quicktime", "video"],
+  ])("classifies media MIME for %s", (filename, contentType, category) => {
+    expect(resolveAttachmentPresentation(filename, contentType))
+      .toEqual(presentation(category as AttachmentPresentation["category"], null))
+  })
+
+  it.each([
+    ["voice.mp3", "audio"],
+    ["voice.wav", "audio"],
+    ["voice.m4a", "audio"],
+    ["voice.ogg", "audio"],
+    ["clip.mp4", "video"],
+    ["clip.webm", "video"],
+    ["clip.mov", "video"],
+  ])("uses generic-MIME media fallback for %s", (filename, category) => {
+    expect(resolveAttachmentPresentation(filename, "application/octet-stream"))
+      .toEqual(presentation(category as AttachmentPresentation["category"], null))
+  })
+
+  it("keeps a specific non-media MIME authoritative over media extensions", () => {
+    expect(resolveAttachmentPresentation("report.mp4", "application/pdf"))
+      .toEqual(presentation("pdf", null))
+    expect(resolveAttachmentPresentation("archive.mp3", "application/zip"))
+      .toEqual(presentation("archive", null))
+  })
+
+  it.each([
+    ["voice.mp3", "application/octet-stream", "audio/mpeg"],
+    ["voice.wav", "", "audio/wav"],
+    ["voice.m4a", undefined, "audio/mp4"],
+    ["voice.ogg", "binary/octet-stream", "audio/ogg"],
+    ["clip.mp4", "application/octet-stream", "video/mp4"],
+    ["clip.webm", undefined, "video/webm"],
+    ["clip.mov", "", "video/quicktime"],
+    ["anything.bin", "video/mp4; codecs=avc1", "video/mp4"],
+  ])("resolves a browser media type for %s", (filename, contentType, expected) => {
+    expect(resolveMediaContentType(filename, contentType)).toBe(expected)
+  })
+
+  it("does not derive a media response type from a misleading specific MIME", () => {
+    expect(resolveMediaContentType("report.mp4", "application/pdf")).toBeNull()
   })
 })
 

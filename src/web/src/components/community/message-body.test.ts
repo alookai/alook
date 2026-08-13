@@ -3,6 +3,23 @@ import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { MessageBody } from "./message-body"
 
+describe("MessageBody — theme contrast", () => {
+  it("pins body copy to the semantic foreground token", () => {
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(MessageBody, { text: "Readable in both themes" }),
+      )
+    })
+
+    const body = renderer!.root.find(
+      (node) => node.type === "div" && typeof node.props.className === "string"
+        && node.props.className.includes("markdown-chat"),
+    )
+    expect(body.props.className).toContain("text-foreground")
+  })
+})
+
 // Regression test for the bug MD_LITERAL_TAGS included "spoiler" fixed:
 // Streamdown's `literalTagContent` flattens every descendant of a listed
 // tag into one text node. `mention`/`channelref` are leaf nodes so that's

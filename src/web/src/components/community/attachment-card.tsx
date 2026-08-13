@@ -15,6 +15,7 @@ import {
   Presentation,
 } from "lucide-react"
 import type { FileAttachment } from "./_types"
+import { MediaAttachmentBlock } from "./media-attachment-block"
 import { tid } from "@/lib/community/testids"
 import {
   resolveAttachmentPresentation,
@@ -45,6 +46,15 @@ export function AttachmentCard({
   onDownload?: (url: string, name: string) => void
 }) {
   const presentation = resolveAttachmentPresentation(attachment.name, attachment.contentType)
+  if (presentation.category === "audio" || presentation.category === "video") {
+    return (
+      <MediaAttachmentBlock
+        attachment={attachment}
+        mediaKind={presentation.category}
+        onDownload={onDownload}
+      />
+    )
+  }
   const Icon = CATEGORY_ICONS[presentation.category]
   const canPreview = presentation.previewKind !== null && !!onPreview
   const ActionIcon = canPreview ? Eye : Download

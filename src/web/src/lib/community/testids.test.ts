@@ -24,6 +24,13 @@ describe("community QA selectors", () => {
     expect(tid.attachmentPreviewSheet).toBe("community-attachment-preview-sheet")
     expect(tid.attachmentPreviewDownload).toBe("community-attachment-preview-download")
     expect(tid.attachmentPreviewContent).toBe("community-attachment-preview-content")
+    expect(tid.mediaBlock("clip.mp4")).toBe("community-media-block-clip.mp4")
+    expect(tid.mediaPlay("clip.mp4")).toBe("community-media-play-clip.mp4")
+    expect(tid.mediaPlayer("clip.mp4")).toBe("community-media-player-clip.mp4")
+    expect(tid.mediaCollapse("clip.mp4")).toBe("community-media-collapse-clip.mp4")
+    expect(tid.mediaDownload("clip.mp4")).toBe("community-media-download-clip.mp4")
+    expect(tid.mediaRetry("clip.mp4")).toBe("community-media-retry-clip.mp4")
+    expect(tid.mediaStatus("clip.mp4")).toBe("community-media-status-clip.mp4")
   })
 
   it("exposes only the four stable My Bots bug-report flow selectors", () => {

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
 const mockR2Get = vi.fn()
+const mockR2Head = vi.fn()
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
 const mockGetAttachmentById = vi.fn()
@@ -53,7 +54,16 @@ vi.mock("@/lib/middleware/community-actor", async () => {
         (authz.startsWith("Bearer crk_")
           ? { kind: "bot", userId: "bot_1", ownerUserId: "o_1", machineId: "m_1" }
           : { kind: "human", userId: "u1", email: "u@t.com", isBot: false })
-      return handler(req, { env: { COMMUNITY_MEDIA: { get: (...a: unknown[]) => mockR2Get(...a) } }, actor, params })
+      return handler(req, {
+        env: {
+          COMMUNITY_MEDIA: {
+            get: (...a: unknown[]) => mockR2Get(...a),
+            head: (...a: unknown[]) => mockR2Head(...a),
+          },
+        },
+        actor,
+        params,
+      })
     },
   }
 })
@@ -86,13 +96,20 @@ const persistedRow = (over: Record<string, unknown> = {}) => ({
   ...over,
 })
 
-const r2Object = (over: Record<string, unknown> = {}) => ({
-  body: new ReadableStream(),
+const r2Object = (over: Record<string, unknown> = {}, bytes = new Uint8Array(10)) => ({
+  body: new Response(bytes).body,
   size: 10,
   httpMetadata: {},
-  arrayBuffer: async () => new ArrayBuffer(10),
+  arrayBuffer: async () => bytes.slice().buffer,
   ...over,
 })
+
+function allowPersistedHuman(row = persistedRow()): void {
+  mockGetAttachmentById.mockResolvedValue(row)
+  mockGetMessage.mockResolvedValue({ id: "m_1", channelId: "c_real" })
+  mockGetChannelType.mockResolvedValue("text")
+  mockRequireChannelMember.mockResolvedValue({ ok: true, value: {} })
+}
 
 describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
   beforeEach(() => {
@@ -152,6 +169,25 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
     expect(res.headers.get("Cache-Control")).toBeNull()
   })
 
+  it("bot: ignores Range and preserves the full-download protocol", async () => {
+    const bytes = Uint8Array.from({ length: 10 }, (_, index) => index)
+    mockGetAttachmentById.mockResolvedValue(persistedRow({
+      messageId: null,
+      uploaderId: "bot_1",
+      filename: "clip.mp4",
+      contentType: "video/mp4",
+    }))
+    mockR2Get.mockResolvedValue(r2Object({}, bytes))
+
+    const res = await GET(req({ Authorization: "Bearer crk_abc", Range: "bytes=2-4" }), ctx())
+
+    expect(res.status).toBe(200)
+    expect(mockR2Get).toHaveBeenCalledWith("channel/c_row/uuid/a.png")
+    expect(res.headers.get("X-Alook-Filename")).toBe(encodeURIComponent("clip.mp4"))
+    expect(res.headers.get("Content-Range")).toBeNull()
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(bytes)
+  })
+
   it("bot: percent-encodes non-ASCII filenames per RFC 5987", async () => {
     mockGetAttachmentById.mockResolvedValue(persistedRow({ messageId: null, uploaderId: "bot_1", filename: "图表.png" }))
     mockR2Get.mockResolvedValue(r2Object())
@@ -185,6 +221,122 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
     const res = await GET(req(), ctx())
     expect(res.status).toBe(200)
     expect(res.headers.get("Content-Disposition")).toBe('attachment; filename="doc.pdf"')
+  })
+
+  it("human: full media GET is inline, byte-exact, and range-capable", async () => {
+    const bytes = Uint8Array.from({ length: 10 }, (_, index) => index)
+    allowPersistedHuman(persistedRow({
+      filename: "clip.mp4",
+      contentType: "video/mp4",
+      size: bytes.byteLength,
+    }))
+    mockR2Get.mockResolvedValue(r2Object({}, bytes))
+
+    const res = await GET(req(), ctx())
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get("Content-Type")).toBe("video/mp4")
+    expect(res.headers.get("Content-Disposition")).toBe("inline")
+    expect(res.headers.get("Accept-Ranges")).toBe("bytes")
+    expect(res.headers.get("Content-Length")).toBe("10")
+    expect(res.headers.get("Content-Range")).toBeNull()
+    expect(res.headers.get("Cache-Control")).toBe("private, max-age=31536000, immutable")
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(bytes)
+  })
+
+  it("human: generic-MIME media fallback emits a browser-playable Content-Type", async () => {
+    allowPersistedHuman(persistedRow({
+      filename: "voice.m4a",
+      contentType: "application/octet-stream",
+    }))
+    mockR2Get.mockResolvedValue(r2Object())
+
+    const res = await GET(req(), ctx())
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get("Content-Type")).toBe("audio/mp4")
+    expect(res.headers.get("Content-Disposition")).toBe("inline")
+    expect(res.headers.get("Accept-Ranges")).toBe("bytes")
+  })
+
+  it.each([
+    ["bytes=2-5", 2, 4, "bytes 2-5/10"],
+    ["bytes=6-", 6, 4, "bytes 6-9/10"],
+    ["bytes=-3", 7, 3, "bytes 7-9/10"],
+    ["bytes=8-99", 8, 2, "bytes 8-9/10"],
+  ])("human: %s returns an exact 206 R2 slice", async (range, offset, length, contentRange) => {
+    const bytes = Uint8Array.from({ length: 10 }, (_, index) => index)
+    allowPersistedHuman(persistedRow({ filename: "clip.webm", contentType: "video/webm", size: 10 }))
+    mockR2Get.mockImplementation(async (_key: string, options?: R2GetOptions) => {
+      const requested = options?.range as { offset: number; length: number }
+      return r2Object({}, bytes.slice(requested.offset, requested.offset + requested.length))
+    })
+
+    const res = await GET(req({ Range: range }), ctx())
+
+    expect(res.status).toBe(206)
+    expect(mockR2Get).toHaveBeenCalledWith("channel/c_row/uuid/a.png", { range: { offset, length } })
+    expect(res.headers.get("Content-Range")).toBe(contentRange)
+    expect(res.headers.get("Content-Length")).toBe(String(length))
+    expect(res.headers.get("Accept-Ranges")).toBe("bytes")
+    expect(res.headers.get("Content-Disposition")).toBe("inline")
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(bytes.slice(offset, offset + length))
+  })
+
+  it.each([
+    "bytes=",
+    "bytes=-0",
+    "bytes=5-4",
+    "bytes=10-",
+    "bytes=0-1,3-4",
+    "items=0-1",
+    "bytes=one-two",
+  ])("human: malformed or unsatisfiable media range %s returns 416 without an object read", async (range) => {
+    allowPersistedHuman(persistedRow({ filename: "clip.mp4", contentType: "video/mp4", size: 10 }))
+
+    const res = await GET(req({ Range: range }), ctx())
+
+    expect(res.status).toBe(416)
+    expect(res.headers.get("Content-Range")).toBe("bytes */10")
+    expect(res.headers.get("Accept-Ranges")).toBe("bytes")
+    expect(mockR2Get).not.toHaveBeenCalled()
+  })
+
+  it("human: falls back to R2 HEAD for a legacy media row without size", async () => {
+    const bytes = Uint8Array.from({ length: 10 }, (_, index) => index)
+    allowPersistedHuman(persistedRow({ filename: "clip.mov", contentType: "video/quicktime", size: null }))
+    mockR2Head.mockResolvedValue({ size: 10 })
+    mockR2Get.mockResolvedValue(r2Object({}, bytes.slice(4, 7)))
+
+    const res = await GET(req({ Range: "bytes=4-6" }), ctx())
+
+    expect(mockR2Head).toHaveBeenCalledWith("channel/c_row/uuid/a.png")
+    expect(mockR2Get).toHaveBeenCalledWith("channel/c_row/uuid/a.png", { range: { offset: 4, length: 3 } })
+    expect(res.status).toBe(206)
+    expect(res.headers.get("Content-Range")).toBe("bytes 4-6/10")
+  })
+
+  it("human: ranged media returns 502 when the authorized R2 object is missing", async () => {
+    allowPersistedHuman(persistedRow({ filename: "clip.mp4", contentType: "video/mp4", size: 10 }))
+    mockR2Get.mockResolvedValue(null)
+
+    const res = await GET(req({ Range: "bytes=0-2" }), ctx())
+
+    expect(res.status).toBe(502)
+    expect(mockR2Get).toHaveBeenCalledWith("channel/c_row/uuid/a.png", { range: { offset: 0, length: 3 } })
+  })
+
+  it("human: Range on non-media keeps the existing full attachment response", async () => {
+    allowPersistedHuman(persistedRow({ filename: "doc.pdf", contentType: "application/pdf" }))
+    mockR2Get.mockResolvedValue(r2Object({ httpMetadata: { contentType: "application/pdf" } }))
+
+    const res = await GET(req({ Range: "bytes=2-4" }), ctx())
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get("Content-Disposition")).toBe('attachment; filename="doc.pdf"')
+    expect(res.headers.get("Accept-Ranges")).toBeNull()
+    expect(res.headers.get("Content-Range")).toBeNull()
+    expect(mockR2Get).toHaveBeenCalledWith("channel/c_row/uuid/a.png")
   })
 
   it("routes a DM-scoped row through requireDMAccess (block gate), not requireChannelMember", async () => {

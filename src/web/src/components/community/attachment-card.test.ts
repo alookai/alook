@@ -78,4 +78,39 @@ describe("AttachmentCard", () => {
     expect(onPreview).toHaveBeenCalledWith(source)
     expect(onDownload).not.toHaveBeenCalled()
   })
+
+  it.each([
+    ["voice.mp3", "audio/mpeg", "audio"],
+    ["clip.webm", "application/octet-stream", "video"],
+  ])("delegates %s to the shared %s media block", (name, contentType, mediaKind) => {
+    const file = attachment({ name, contentType })
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(React.createElement(AttachmentCard, {
+        attachment: file,
+        onDownload: vi.fn(),
+      }))
+    })
+
+    expect(renderer!.root.findByProps({ "data-testid": `community-media-block-${name}` }).props["data-media-kind"])
+      .toBe(mediaKind)
+    expect(renderer!.root.findAllByProps({ "data-testid": `community-attachment-card-${name}` }))
+      .toHaveLength(0)
+  })
+
+  it("does not let a media-looking filename override a specific non-media MIME", () => {
+    const pdf = attachment({ name: "document.mp4", contentType: "application/pdf" })
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(React.createElement(AttachmentCard, {
+        attachment: pdf,
+        onDownload: vi.fn(),
+      }))
+    })
+
+    expect(renderer!.root.findByProps({ "data-testid": "community-attachment-card-document.mp4" }).props["data-attachment-category"])
+      .toBe("pdf")
+    expect(renderer!.root.findAllByProps({ "data-testid": "community-media-block-document.mp4" }))
+      .toHaveLength(0)
+  })
 })

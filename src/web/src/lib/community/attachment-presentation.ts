@@ -62,6 +62,16 @@ export type AttachmentPresentation = {
 
 const GENERIC_CONTENT_TYPES = new Set(["", "application/octet-stream", "binary/octet-stream"])
 
+const MEDIA_EXTENSION_CONTENT_TYPES: Readonly<Record<string, string>> = {
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
+  m4a: "audio/mp4",
+  ogg: "audio/ogg",
+  mp4: "video/mp4",
+  webm: "video/webm",
+  mov: "video/quicktime",
+}
+
 const MIME_PRESENTATIONS: ReadonlyArray<{
   matches: (contentType: string) => boolean
   presentation: AttachmentPresentation
@@ -230,6 +240,18 @@ export function resolveAttachmentPresentation(
   return BASENAME_PRESENTATIONS[basename]
     ?? EXTENSION_PRESENTATIONS[extension]
     ?? { category: "unknown", previewKind: null, shikiLanguage: null }
+}
+
+export function resolveMediaContentType(
+  filename: string,
+  contentType?: string | null,
+): string | null {
+  const normalizedType = contentType?.split(";", 1)[0]?.trim().toLowerCase() ?? ""
+  if (normalizedType.startsWith("audio/") || normalizedType.startsWith("video/")) {
+    return normalizedType
+  }
+  if (!GENERIC_CONTENT_TYPES.has(normalizedType)) return null
+  return MEDIA_EXTENSION_CONTENT_TYPES[filenameParts(filename).extension] ?? null
 }
 
 export function formatAttachmentSize(bytes?: number): string {
