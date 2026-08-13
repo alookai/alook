@@ -55,4 +55,27 @@ describe("AttachmentCard", () => {
     expect(onDownload).toHaveBeenCalledWith("/attachments/a1", "报告.pdf")
     expect(onPreview).not.toHaveBeenCalled()
   })
+
+  it.each([
+    ["source.ts", "application/octet-stream", "code"],
+    ["unsafe.svg", "image/svg+xml", "code"],
+  ])("opens %s through the source preview instead of download", (name, contentType, category) => {
+    const onPreview = vi.fn()
+    const onDownload = vi.fn()
+    const source = attachment({ name, contentType })
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(React.createElement(AttachmentCard, {
+        attachment: source,
+        onPreview,
+        onDownload,
+      }))
+    })
+    const button = renderer!.root.findByType("button")
+    expect(button.props["data-attachment-category"]).toBe(category)
+    expect(button.props["aria-label"]).toBe(`Preview ${name}`)
+    act(() => button.props.onClick())
+    expect(onPreview).toHaveBeenCalledWith(source)
+    expect(onDownload).not.toHaveBeenCalled()
+  })
 })

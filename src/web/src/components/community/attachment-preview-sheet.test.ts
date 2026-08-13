@@ -27,6 +27,14 @@ vi.mock("./message-body", () => ({
   MessageBody: ({ text }: { text: string }) => React.createElement("article", { "data-markdown": true }, text),
 }))
 
+vi.mock("./code-preview", () => ({
+  CodePreview: ({ content, language }: { content: string; language: string | null }) => React.createElement(
+    "pre",
+    { "data-code-language": language ?? "plain" },
+    content,
+  ),
+}))
+
 function file(overrides: Partial<FileAttachment> = {}): FileAttachment {
   return {
     kind: "file",
@@ -120,5 +128,39 @@ describe("AttachmentPreviewSheet", () => {
     requests[0]!.resolve(new Response("stale", { status: 200 }))
     await flush()
     expect(renderer!.root.findAllByType("pre")[0]?.children).toEqual(["second"])
+  })
+
+  it("passes the resolved source language to CodePreview", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("const answer = 42", { status: 200 })))
+    let renderer: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(AttachmentPreviewSheet, {
+        attachment: file({ name: "answer.ts", contentType: "application/octet-stream" }),
+        open: true,
+        onOpenChange: vi.fn(),
+      }))
+    })
+    await flush()
+    const preview = renderer!.root.findByProps({ "data-code-language": "typescript" })
+    expect(preview.children).toEqual(["const answer = 42"])
+  })
+
+  it("keeps the existing one MiB ceiling for code", async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    let renderer: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(AttachmentPreviewSheet, {
+        attachment: file({
+          name: "large.ts",
+          contentType: "application/octet-stream",
+          sizeBytes: 1024 * 1024 + 1,
+        }),
+        open: true,
+        onOpenChange: vi.fn(),
+      }))
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(renderer!.root.findAllByType("p").some((node) => node.children.join("").includes("too large"))).toBe(true)
   })
 })
