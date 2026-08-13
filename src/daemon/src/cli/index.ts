@@ -23,6 +23,7 @@ import { parseRef } from "../server/contract.js";
 import { proxyServerApiFromEnv } from "./proxyServerApi.js";
 import { daemonResume, daemonRunFromIpc, daemonStart, daemonStop, daemonList, daemonStatus, type DaemonInfo } from "./daemonStart.js";
 import { daemonReplace } from "./daemonUpdate.js";
+import { armMessageReminderFromEnv, parseRemindAfter } from "./messageReminderClient.js";
 import { parseInviteToken } from "@alook/shared/lib/invite-link";
 import {
   MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES,
@@ -228,6 +229,10 @@ async function sendWithRetry(
 }
 
 async function cmdMessageSend(opts: Record<string, unknown>): Promise<unknown> {
+  const remindAfterFlag = opts.remindAfter as string | undefined;
+  // Validate the full duration before any server mutation. A bad opt-in flag
+  // must never send a message and then report a local validation failure.
+  const remindAfterMs = remindAfterFlag === undefined ? undefined : parseRemindAfter(remindAfterFlag);
   const api = getApi();
   const agent = agentId(opts);
   const channel = opts.target as string;
@@ -297,7 +302,26 @@ async function cmdMessageSend(opts: Record<string, unknown>): Promise<unknown> {
   // `deduped` (a same-nonce retry matched the already-committed message) is a
   // SUCCESS — the message is in the channel; surface its canonical ref exactly
   // like a fresh send, never as an error.
-  return { sent: `${res.message.channel}${res.message.seq}` };
+  const sent = `${res.message.channel}${res.message.seq}`;
+  if (remindAfterMs === undefined) return { sent };
+
+  const seqText = res.message.seq.replace(/^#/, "");
+  const sentSeq = Number(seqText);
+  if (!/^\d+$/.test(seqText) || !Number.isSafeInteger(sentSeq) || sentSeq < 1) {
+    return { sent, reminder: { armed: false, reason: "server returned an invalid canonical message seq" } };
+  }
+  try {
+    const reminder = await armMessageReminderFromEnv({
+      channel: res.message.channel,
+      sentSeq,
+      remindAfterMs,
+    });
+    return { sent, reminder };
+  } catch {
+    // The send is already committed. Never turn a local arming problem into a
+    // command error that invites the agent to re-run and duplicate the send.
+    return { sent, reminder: { armed: false, reason: "local reminder request failed" } };
+  }
 }
 
 /**
@@ -704,6 +728,10 @@ function buildProgram(): Command {
       [] as string[],
     )
     .option("--reply <seq>", 'reply to a message by its seq in --target (e.g. "#37" or 37)')
+    .option(
+      "--remind-after <duration>",
+      "optionally arm one local follow-up wake after 1m..24h; a newer same-scope message or daemon restart cancels it",
+    )
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })
     .action(async function (this: Command) {

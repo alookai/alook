@@ -1,7 +1,13 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import * as http from "http";
 import * as fs from "fs";
-import { CredentialBroker, DEFAULT_CAPABILITY_RESOLVER, startCredentialProxy, type RunningProxy } from "./credentialProxy";
+import {
+  CredentialBroker,
+  DEFAULT_CAPABILITY_RESOLVER,
+  LOCAL_MESSAGE_REMINDER_PATH,
+  startCredentialProxy,
+  type RunningProxy,
+} from "./credentialProxy";
 
 const REAL_KEY = "sk_real_SUPER_SECRET";
 
@@ -218,6 +224,104 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     await upstreamClose?.();
     proxy = undefined;
     upstreamClose = undefined;
+  });
+
+  it("consumes a valid reminder locally with voucher-derived identity and no audit/forward", async () => {
+    const upstream = await startUpstream();
+    upstreamClose = upstream.close;
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    const onMessageReminderArm = vi.fn(async (input) => ({ armed: true as const, dueAt: 123456, input }));
+    const onProxyRequest = vi.fn();
+    proxy = await startCredentialProxy(broker, { onMessageReminderArm, onProxyRequest });
+    const reg = broker.mint("agent-derived", "l", ["send"], REAL_KEY);
+
+    const response = await fetch(`${proxy.url}${LOCAL_MESSAGE_REMINDER_PATH}`, {
+      method: "PUT",
+      headers: { authorization: `Bearer ${reg.voucher}`, "content-type": "application/json" },
+      body: JSON.stringify({ channel: "/s#0042/general/#3", sentSeq: 7, remindAfterMs: 60_000 }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(expect.objectContaining({ armed: true, dueAt: 123456 }));
+    expect(onMessageReminderArm).toHaveBeenCalledWith({
+      agentId: "agent-derived",
+      channel: "/s#0042/general/#3",
+      sentSeq: 7,
+      remindAfterMs: 60_000,
+    });
+    expect(upstream.seen).toEqual([]);
+    expect(onProxyRequest).not.toHaveBeenCalled();
+  });
+
+  it("requires a valid send-capable voucher for the local reminder endpoint", async () => {
+    const upstream = await startUpstream();
+    upstreamClose = upstream.close;
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    const onMessageReminderArm = vi.fn();
+    proxy = await startCredentialProxy(broker, { onMessageReminderArm });
+    const readOnly = broker.mint("reader", "l", ["read"], REAL_KEY);
+    const body = JSON.stringify({ channel: "/s#0042/general", sentSeq: 1, remindAfterMs: 60_000 });
+
+    const missing = await fetch(`${proxy.url}${LOCAL_MESSAGE_REMINDER_PATH}`, {
+      method: "PUT", headers: { "content-type": "application/json" }, body,
+    });
+    expect(missing.status).toBe(401);
+    const invalid = await fetch(`${proxy.url}${LOCAL_MESSAGE_REMINDER_PATH}`, {
+      method: "PUT",
+      headers: { authorization: "Bearer vch_invalid", "content-type": "application/json" },
+      body,
+    });
+    expect(invalid.status).toBe(401);
+    const denied = await fetch(`${proxy.url}${LOCAL_MESSAGE_REMINDER_PATH}`, {
+      method: "PUT",
+      headers: { authorization: `Bearer ${readOnly.voucher}`, "content-type": "application/json" },
+      body,
+    });
+    expect(denied.status).toBe(403);
+    expect(onMessageReminderArm).not.toHaveBeenCalled();
+    expect(upstream.seen).toEqual([]);
+  });
+
+  it("rejects non-exact routes, wrong methods, malformed/unknown/oversize bodies and never forwards", async () => {
+    const upstream = await startUpstream();
+    upstreamClose = upstream.close;
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    const onMessageReminderArm = vi.fn();
+    const onProxyRequest = vi.fn();
+    proxy = await startCredentialProxy(broker, { onMessageReminderArm, onProxyRequest });
+    const reg = broker.mint("agent-1", "l", ["send"], REAL_KEY);
+    const headers = { authorization: `Bearer ${reg.voucher}`, "content-type": "application/json" };
+    const valid = { channel: "/s#0042/general", sentSeq: 1, remindAfterMs: 60_000 };
+
+    expect((await fetch(`${proxy.url}${LOCAL_MESSAGE_REMINDER_PATH}?extra=1`, {
+      method: "PUT", headers, body: JSON.stringify(valid),
+    })).status).toBe(404);
+    expect((await fetch(`${proxy.url}${LOCAL_MESSAGE_REMINDER_PATH}`, {
+      method: "POST", headers, body: JSON.stringify(valid),
+    })).status).toBe(405);
+
+    for (const body of [
+      "not-json",
+      JSON.stringify({ ...valid, extra: true }),
+      JSON.stringify({ ...valid, channel: "/s#0042/general#2" }),
+      JSON.stringify({ ...valid, channel: "/.dm/no-discriminator" }),
+      JSON.stringify({ ...valid, channel: "/s#0042/general/#0" }),
+      JSON.stringify({ ...valid, sentSeq: 1.5 }),
+      JSON.stringify({ ...valid, remindAfterMs: 59_999 }),
+      JSON.stringify({ ...valid, remindAfterMs: 86_400_001 }),
+    ]) {
+      const response = await fetch(`${proxy.url}${LOCAL_MESSAGE_REMINDER_PATH}`, { method: "PUT", headers, body });
+      expect(response.status).toBe(400);
+    }
+    const oversize = await fetch(`${proxy.url}${LOCAL_MESSAGE_REMINDER_PATH}`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ ...valid, padding: "x".repeat(5_000) }),
+    });
+    expect(oversize.status).toBe(413);
+    expect(onMessageReminderArm).not.toHaveBeenCalled();
+    expect(onProxyRequest).not.toHaveBeenCalled();
+    expect(upstream.seen).toEqual([]);
   });
 
   it("swaps the voucher for the real key + stamps identity/capability headers", async () => {

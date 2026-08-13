@@ -46,6 +46,10 @@ import {
   type DiagnosticFailureReport,
 } from "./diagnosticsCommand.js";
 import { createSelfUpdateCommandListener } from "./selfUpdateCommand.js";
+import {
+  MessageReminderScheduler,
+  type MessageReminderSchedulerOptions,
+} from "./messageReminderScheduler.js";
 
 // Cold-start warmup backoff schedule (ms).
 const WARMUP_BACKOFF_MS = [250, 500, 1000, 2000, 4000] as const;
@@ -302,6 +306,8 @@ export interface CreateDaemonOptions {
   handleSelfUpdate?: () => void | Promise<void>;
   /** Fixed-code failure callback used when diagnostics is not available. */
   reportDiagnosticFailure?: (failure: DiagnosticFailureReport) => void | Promise<void>;
+  /** Injectable daemon-local reminder clock; tests only, defaults to Node timers. */
+  messageReminderClock?: Pick<MessageReminderSchedulerOptions, "now" | "setTimer" | "clearTimer">;
   /** Supplies only the bounded default FSM snapshot source and status snapshot path. */
   onDiagnosticSources?: (sources: {
     fsmTraceSource: Pick<RotatingFileSink, "openSnapshot"> | null;
@@ -362,6 +368,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   // Populated after `manager` is constructed below. Producer B reads
   // `auditContext(agentId)` off it inside `onProxyRequest`.
   let managerRef: AgentProcessManager | null = null;
+  let reminderSchedulerRef: MessageReminderScheduler | null = null;
   const emitBotAuditEvent = (
     agentId: string,
     event:
@@ -395,6 +402,8 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   const broker = new CredentialBroker({ upstreamBaseUrl: opts.serverUrl });
   const proxy = await startCredentialProxy(broker, {
     onInboxPullResponse: (agentId, messages) => timeline.appendEntryForAgent(agentId, messages),
+    onMessageReminderArm: (input) =>
+      reminderSchedulerRef?.arm(input) ?? { armed: false, reason: "reminder_scheduler_unavailable" },
     // Bot audit log — Producer B (authoritative for `alook <sub>`). Fires
     // ONLY on `verdict.ok === true`, before the upstream request is written.
     onProxyRequest: (agentId, method, pathname) => {
@@ -815,6 +824,10 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   });
   managerRef = manager;
   manager.start();
+  reminderSchedulerRef = new MessageReminderScheduler({
+    deliver: (agentId, message) => manager.deliver(agentId, message),
+    ...opts.messageReminderClock,
+  });
 
   // Periodic `daemon status` snapshot (batch E2): the daemon has no IPC, so it
   // writes a slim per-agent FSM projection to a file that the out-of-band
@@ -886,6 +899,24 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     handleDiagnosticCommand: opts.handleDiagnosticCommand,
     reportDiagnosticFailure: opts.reportDiagnosticFailure,
   }));
+  // Local reminder bookkeeping observes the original FIFO control stream
+  // before AgentRouter registers its listener in router.start(). It never
+  // consumes commands; AgentRouter remains the sole server-wake dispatcher.
+  channel.onCommand((cmd) => {
+    switch (cmd.type) {
+      case "agent:wake":
+        reminderSchedulerRef?.observe(cmd.agentId, cmd.unreadNotice.channel, cmd.unreadNotice.latestSeq);
+        break;
+      case "agent:stop":
+        reminderSchedulerRef?.clearAgent(cmd.agentId);
+        break;
+      case "bot:removed":
+        reminderSchedulerRef?.clearAgent(cmd.botId);
+        break;
+      default:
+        break;
+    }
+  });
   channel.onCommand((cmd) => {
     handleBotFrame(cmd);
   });
@@ -913,6 +944,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     },
     proxyUrl: proxy.url,
     stop: async () => {
+      reminderSchedulerRef?.clearAll();
       // Clear all bot-typing heartbeat intervals and emit final stops for
       // any outstanding scopes so no pill is left dangling.
       for (const agentId of [...typingHeartbeats.keys()]) {

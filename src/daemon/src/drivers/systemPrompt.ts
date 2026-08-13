@@ -108,7 +108,10 @@ function cliCommandsSection(): string {
     `1. \`${CLI} inbox pull\` — fetch unread messages (advances your read waterline by default, ` +
       `so they won't re-pull; \`--no-ack\` to peek without advancing).`,
     `2. \`${CLI} message send\` — send to a channel, DM, or thread. Attach with ` +
-      `\`--attachment <id>\` (repeatable, order matters).`,
+      `\`--attachment <id>\` (repeatable, order matters). Optionally add ` +
+      `\`--remind-after <duration>\` to be reminded if the same channel, thread, or DM receives no ` +
+      `newer message after your send. Use a whole number of minutes or hours from \`1m\` to \`24h\`, ` +
+      `such as \`15m\` or \`2h\`.`,
     `3. \`${CLI} message attachment upload --target <ref> --file <path>\` — upload a file; ` +
       `returns an id stable across pending→persisted. Feed it into ` +
       `\`message send --attachment <id>\`.`,
@@ -305,7 +308,7 @@ function visibilityAndNotificationsSection(): string {
 
 /**
  * Miscellaneous utilities and behaviors that don't fit into other sections.
- * Currently covers how to handle server invite links.
+ * Currently covers how to handle server invite links and follow-up reminders.
  */
 function utilsSection(): string {
   return [
@@ -316,6 +319,17 @@ function utilsSection(): string {
     `If a message contains a \`/c/invite/...\` link, just run \`${CLI} server join --invite <link>\`. ` +
       "The server enforces owner-only: it accepts only invites your owner created and rejects the " +
       "rest with a reason. Safe to attempt without reasoning about who sent it.",
+    "",
+    "### Follow up when a conversation goes quiet",
+    "",
+    `Use \`message send --remind-after <duration>\` when you send something that may need a later ` +
+      "follow-up — for example, a question, approval request, handoff, or blocker — and silence would " +
+      "leave the work unfinished. If no newer message appears in that channel, thread, or DM during " +
+      "the duration, you'll receive a reminder to return and decide what to do next. Don't add it to " +
+      "ordinary messages that need no follow-up.",
+    "",
+    `Example: \`${CLI} message send --target /demo#1234/team --text "Please review the rollout plan" ` +
+      `--remind-after 1m\`.`,
   ].join("\n");
 }
 

@@ -10,7 +10,9 @@ import {
   emitImplicitTypingStopOnSend,
   parseRuntimeRawTraceAgentIds,
 } from "./createDaemon";
+import { AgentProcessManager } from "../manager/managerRuntime";
 import { AgentRouter } from "../manager/agentRouter";
+import { CredentialBroker } from "../credentials/credentialProxy";
 import type { Driver } from "../types";
 import type { Logger } from "../logger";
 
@@ -139,6 +141,117 @@ function factory(sockets: FakeSocket[]) {
 }
 
 describe("createDaemon", () => {
+  it("routes local reminder expiry through the manager and cancels on exact-scope wake/stop/removal/daemon stop", async () => {
+    const realFetch = globalThis.fetch;
+    const sockets: FakeSocket[] = [];
+    const timers: Array<{ callback: () => void; cancelled: boolean }> = [];
+    let now = 1_000;
+    const deliver = vi.spyOn(AgentProcessManager.prototype, "deliver");
+    vi.spyOn(CredentialBroker.prototype, "check").mockReturnValue({
+      ok: true,
+      reg: {
+        agentId: "bot_1",
+        launchId: "launch_1",
+        capabilities: new Set(["send"]),
+        voucherFile: "/unused",
+        runnerKey: "runner_test",
+      },
+    } as never);
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("http://127.0.0.1:")) return realFetch(input, init);
+      if (url.includes("/enroll-agent")) return Response.json({ runnerKey: "runner_test" });
+      if (url.includes("/daemon/bots")) {
+        return Response.json({ bots: [{ id: "bot_1", name: "Bot", discriminator: "0001" }] });
+      }
+      return Response.json({ woken: 0 });
+    }));
+
+    const daemon = await createDaemon({
+      machineKey: "cmk_reminder",
+      serverUrl: "http://server.invalid",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as never,
+      runtimeReport: [{ id: "mock" }],
+      driverFor: () => fullFakeDriver("mock"),
+      capabilities: ["send"],
+      messageReminderClock: {
+        now: () => now,
+        setTimer: (callback) => {
+          const timer = { callback, cancelled: false };
+          timers.push(timer);
+          return { unref() {} } as ReturnType<typeof setTimeout>;
+        },
+        clearTimer: (handle) => {
+          const index = timers.findIndex((timer) => timer === (handle as unknown));
+          if (index >= 0) timers[index]!.cancelled = true;
+        },
+      },
+    });
+
+    const runTimer = (index: number) => {
+      const timer = timers[index]!;
+      if (!timer.cancelled) timer.callback();
+    };
+    const arm = (sentSeq: number) =>
+      realFetch(`${daemon.proxyUrl}/__alook/local/message-reminder`, {
+        method: "PUT",
+        headers: { authorization: "Bearer vch_test", "content-type": "application/json" },
+        body: JSON.stringify({ channel: "/demo#1234/general", sentSeq, remindAfterMs: 60_000 }),
+      });
+
+    try {
+      sockets[0]!.emit("open");
+      sockets[0]!.emit("message", JSON.stringify({
+        type: "agent:wake",
+        agentId: "bot_1",
+        config: { version: 1, runtime: "mock", model: { kind: "default" }, mode: { kind: "default" } },
+        launchId: "launch_1",
+        unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 1 },
+      }));
+      await vi.waitFor(() => expect(deliver).toHaveBeenCalledTimes(1));
+
+      now = 2_000;
+      expect(await (await arm(7)).json()).toEqual({ armed: true, dueAt: 62_000 });
+      runTimer(0);
+      expect(deliver).toHaveBeenCalledTimes(2);
+      expect(deliver).toHaveBeenLastCalledWith("bot_1", expect.objectContaining({
+        text: expect.stringContaining("/demo#1234/general#7"),
+      }));
+
+      await arm(8);
+      sockets[0]!.emit("message", JSON.stringify({
+        type: "agent:wake",
+        agentId: "bot_1",
+        config: { version: 1, runtime: "mock", model: { kind: "default" }, mode: { kind: "default" } },
+        launchId: "launch_2",
+        unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 9 },
+      }));
+      await vi.waitFor(() => expect(deliver).toHaveBeenCalledTimes(3));
+      runTimer(1);
+      expect(deliver).toHaveBeenCalledTimes(3);
+
+      await arm(10);
+      sockets[0]!.emit("message", JSON.stringify({ type: "agent:stop", agentId: "bot_1" }));
+      runTimer(2);
+      expect(deliver).toHaveBeenCalledTimes(3);
+
+      await arm(11);
+      sockets[0]!.emit("message", JSON.stringify({ type: "bot:removed", botId: "bot_1" }));
+      runTimer(3);
+      expect(deliver).toHaveBeenCalledTimes(3);
+
+      await arm(12);
+      await daemon.stop();
+      runTimer(4);
+      expect(deliver).toHaveBeenCalledTimes(3);
+    } finally {
+      // stop is idempotent enough for the failure path and keeps the loopback
+      // server from leaking if an assertion above throws early.
+      await daemon.stop();
+    }
+  });
+
   it("supplies only the canonical default FSM snapshot source and status path", async () => {
     const sockets: FakeSocket[] = [];
     const root = mkdtempSync(join(tmpdir(), "daemon-diagnostic-sources-"));

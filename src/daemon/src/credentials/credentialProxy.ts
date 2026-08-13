@@ -44,7 +44,24 @@ import * as https from "https";
 import * as os from "os";
 import * as path from "path";
 import { URL } from "url";
-import type { Message } from "../server/contract.js";
+import { formatRef, parseRef, type Message } from "../server/contract.js";
+import { parseNameAndTag } from "@alook/shared/lib/discriminator";
+
+export const LOCAL_MESSAGE_REMINDER_PATH = "/__alook/local/message-reminder";
+const LOCAL_MESSAGE_REMINDER_BODY_MAX_BYTES = 4 * 1024;
+const LOCAL_MESSAGE_REMINDER_MIN_MS = 60_000;
+const LOCAL_MESSAGE_REMINDER_MAX_MS = 24 * 60 * 60_000;
+
+export interface LocalMessageReminderArmInput {
+  agentId: string;
+  channel: string;
+  sentSeq: number;
+  remindAfterMs: number;
+}
+
+export type LocalMessageReminderArmResult =
+  | { armed: true; dueAt: number }
+  | { armed: false; reason: string };
 
 /** A capability token gating which actions a voucher may perform. */
 export type Capability = string;
@@ -305,6 +322,10 @@ export interface CredentialProxyOptions {
    * details.
    */
   onProxyRequest?: (agentId: string, method: string, pathname: string) => void;
+  /** Consume an authenticated reminder arm request locally; never forwarded. */
+  onMessageReminderArm?: (
+    input: LocalMessageReminderArmInput,
+  ) => LocalMessageReminderArmResult | Promise<LocalMessageReminderArmResult>;
   /**
    * Max time (ms) a forwarded upstream request may stay open before the proxy
    * gives up on it. Without this, a slow/hung upstream (or an agent that
@@ -322,6 +343,107 @@ export interface RunningProxy {
   url: string;
   port: number;
   close(): Promise<void>;
+}
+
+function writeJson(res: http.ServerResponse, status: number, body: unknown): void {
+  res.writeHead(status, { "content-type": "application/json" });
+  res.end(JSON.stringify(body));
+}
+
+function isCanonicalChannelScope(channel: string): boolean {
+  try {
+    const parsed = parseRef(channel);
+    if (!parsed.channel || parsed.seq !== undefined) return false;
+    if (parsed.threadRootSeq !== undefined && (!Number.isSafeInteger(parsed.threadRootSeq) || parsed.threadRootSeq < 1)) {
+      return false;
+    }
+    const handle = parseNameAndTag(parsed.server === ".dm" ? parsed.channel : parsed.server);
+    if (!handle || `${handle.name}#${handle.discriminator}` !== (parsed.server === ".dm" ? parsed.channel : parsed.server)) {
+      return false;
+    }
+    return formatRef(parsed) === channel;
+  } catch {
+    return false;
+  }
+}
+
+function parseLocalMessageReminderBody(body: Buffer, agentId: string): LocalMessageReminderArmInput | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(body.toString("utf8"));
+  } catch {
+    return null;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (Object.keys(record).sort().join(",") !== "channel,remindAfterMs,sentSeq") return null;
+  if (typeof record.channel !== "string" || !isCanonicalChannelScope(record.channel)) return null;
+  if (!Number.isSafeInteger(record.sentSeq) || (record.sentSeq as number) < 1) return null;
+  if (
+    !Number.isSafeInteger(record.remindAfterMs) ||
+    (record.remindAfterMs as number) < LOCAL_MESSAGE_REMINDER_MIN_MS ||
+    (record.remindAfterMs as number) > LOCAL_MESSAGE_REMINDER_MAX_MS
+  ) return null;
+  return {
+    agentId,
+    channel: record.channel,
+    sentSeq: record.sentSeq as number,
+    remindAfterMs: record.remindAfterMs as number,
+  };
+}
+
+async function handleLocalMessageReminder(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  agentId: string,
+  onArm: NonNullable<CredentialProxyOptions["onMessageReminderArm"]> | undefined,
+): Promise<void> {
+  const contentType = req.headers["content-type"] ?? "";
+  if (!contentType.toLowerCase().startsWith("application/json")) {
+    writeJson(res, 415, { error: "content-type must be application/json", code: "unsupported_media_type" });
+    req.resume();
+    return;
+  }
+  const declaredLength = Number(req.headers["content-length"] ?? 0);
+  if (!Number.isFinite(declaredLength) || declaredLength > LOCAL_MESSAGE_REMINDER_BODY_MAX_BYTES) {
+    writeJson(res, 413, { error: "request body too large", code: "body_too_large" });
+    req.resume();
+    return;
+  }
+
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  let tooLarge = false;
+  await new Promise<void>((resolve) => {
+    req.on("data", (chunk: Buffer) => {
+      bytes += chunk.byteLength;
+      if (bytes > LOCAL_MESSAGE_REMINDER_BODY_MAX_BYTES) {
+        tooLarge = true;
+      } else {
+        chunks.push(chunk);
+      }
+    });
+    req.on("end", resolve);
+    req.on("error", resolve);
+  });
+  if (tooLarge) {
+    writeJson(res, 413, { error: "request body too large", code: "body_too_large" });
+    return;
+  }
+  const input = parseLocalMessageReminderBody(Buffer.concat(chunks), agentId);
+  if (!input) {
+    writeJson(res, 400, { error: "invalid local message reminder request", code: "invalid_request" });
+    return;
+  }
+  if (!onArm) {
+    writeJson(res, 503, { error: "local message reminder unavailable", code: "reminder_unavailable" });
+    return;
+  }
+  try {
+    writeJson(res, 200, await onArm(input));
+  } catch {
+    writeJson(res, 500, { error: "local message reminder failed", code: "reminder_failed" });
+  }
 }
 
 /**
@@ -344,6 +466,34 @@ export async function startCredentialProxy(
 
   const server = http.createServer((req, res) => {
     const pathname = new URL(req.url ?? "/", "http://placeholder").pathname;
+    if (pathname.startsWith("/__alook/local/")) {
+      if (req.url !== LOCAL_MESSAGE_REMINDER_PATH) {
+        writeJson(res, 404, { error: "unknown local route", code: "not_found" });
+        req.resume();
+        return;
+      }
+      if (req.method !== "PUT") {
+        writeJson(res, 405, { error: "method not allowed", code: "method_not_allowed" });
+        req.resume();
+        return;
+      }
+      // This local-only endpoint deliberately bypasses the generic resolver:
+      // its send capability check must stay explicit and cannot regress to
+      // resolver(undefined) if the path catalog changes.
+      const localVerdict = broker.check(req.headers["authorization"], "send");
+      if (!localVerdict.ok) {
+        writeJson(res, localVerdict.status, { error: localVerdict.error, code: localVerdict.code });
+        req.resume();
+        return;
+      }
+      void handleLocalMessageReminder(
+        req,
+        res,
+        localVerdict.reg.agentId,
+        options.onMessageReminderArm,
+      );
+      return;
+    }
     const requiredCap = resolveCap(req.method ?? "GET", pathname);
     const verdict = broker.check(req.headers["authorization"], requiredCap);
 

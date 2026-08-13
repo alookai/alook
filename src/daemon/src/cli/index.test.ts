@@ -2,10 +2,15 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 const mockDaemonStart = vi.hoisted(() => vi.fn(async () => {}));
 const mockDaemonRunFromIpc = vi.hoisted(() => vi.fn(async () => new Promise<never>(() => {})));
+const mockArmMessageReminder = vi.hoisted(() => vi.fn(async () => ({ armed: true as const, dueAt: 123456 })));
 vi.mock("./daemonStart", async (importOriginal) => ({
   ...await importOriginal<typeof import("./daemonStart")>(),
   daemonStart: mockDaemonStart,
   daemonRunFromIpc: mockDaemonRunFromIpc,
+}));
+vi.mock("./messageReminderClient", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./messageReminderClient")>(),
+  armMessageReminderFromEnv: mockArmMessageReminder,
 }));
 import { main, setApiForTesting, decodeTextEscapes } from "./index";
 import type { ServerApi } from "../server/contract";
@@ -71,6 +76,8 @@ beforeEach(() => {
     savedProxyEnv[k] = process.env[k];
     delete process.env[k];
   }
+  mockArmMessageReminder.mockReset();
+  mockArmMessageReminder.mockResolvedValue({ armed: true, dueAt: 123456 });
 });
 afterEach(() => {
   cap.restore();
@@ -186,6 +193,99 @@ describe("channel alignment (message send)", () => {
     expect(env.error).toContain("3 unread");
     expect(env.error).toContain("#12");
     expect(env.error).toContain("inbox pull");
+  });
+});
+
+describe("message send --remind-after", () => {
+  const ok = {
+    state: "sent" as const,
+    message: { seq: "#7", channel: "/s#0042/general/#3", sender: "@a", content: { text: "hi" }, time: "" },
+  };
+
+  it("keeps the no-flag result shape byte-compatible and makes no local arm call", async () => {
+    setApiForTesting(stubApi({ send: async () => ok }));
+    await main(["message", "send", "--target", "/s#0042/general/#3", "--text", "hi"]);
+    expect(parseEnvelope(cap.lines())).toEqual({ success: { sent: "/s#0042/general/#3#7" } });
+    expect(mockArmMessageReminder).not.toHaveBeenCalled();
+  });
+
+  it.each(["0m", "25h", "1s", "1.5h"])("rejects invalid duration %s before sending", async (duration) => {
+    const send = vi.fn(async () => ok);
+    setApiForTesting(stubApi({ send }));
+    await main([
+      "message", "send", "--target", "/s#0042/general/#3", "--text", "hi", "--remind-after", duration,
+    ]);
+    expect(parseEnvelope(cap.lines()).error).toContain("--remind-after");
+    expect(send).not.toHaveBeenCalled();
+    expect(mockArmMessageReminder).not.toHaveBeenCalled();
+  });
+
+  it("arms only after success using the server's canonical channel and seq", async () => {
+    setApiForTesting(stubApi({ send: async () => ok }));
+    await main([
+      "message", "send", "--target", "/alias#0042/input", "--text", "hi", "--remind-after", "2m",
+    ]);
+    expect(mockArmMessageReminder).toHaveBeenCalledWith({
+      channel: "/s#0042/general/#3",
+      sentSeq: 7,
+      remindAfterMs: 120_000,
+    });
+    expect(parseEnvelope(cap.lines())).toEqual({
+      success: {
+        sent: "/s#0042/general/#3#7",
+        reminder: { armed: true, dueAt: 123456 },
+      },
+    });
+  });
+
+  it("does not arm when send is blocked or throws", async () => {
+    setApiForTesting(stubApi({
+      send: async () => ({ state: "blocked", reason: "unaligned", unreadCount: 1, latestSeq: 9 }),
+    }));
+    await main([
+      "message", "send", "--target", "/s#0042/general", "--text", "hi", "--remind-after", "1m",
+    ]);
+    expect(mockArmMessageReminder).not.toHaveBeenCalled();
+
+    cap.lines().length = 0;
+    setApiForTesting(stubApi({ send: async () => { throw new Error("forbidden"); } }));
+    await main([
+      "message", "send", "--target", "/s#0042/general", "--text", "hi", "--remind-after", "1m",
+    ]);
+    expect(mockArmMessageReminder).not.toHaveBeenCalled();
+  });
+
+  it("keeps sent success when local arming returns false or throws", async () => {
+    setApiForTesting(stubApi({ send: async () => ok }));
+    mockArmMessageReminder.mockResolvedValueOnce({ armed: false, reason: "newer_message_observed" });
+    await main([
+      "message", "send", "--target", "/s#0042/general", "--text", "hi", "--remind-after", "1m",
+    ]);
+    expect(parseEnvelope(cap.lines())).toEqual({
+      success: {
+        sent: "/s#0042/general/#3#7",
+        reminder: { armed: false, reason: "newer_message_observed" },
+      },
+    });
+
+    cap.lines().length = 0;
+    mockArmMessageReminder.mockRejectedValueOnce(new Error("vch_secret"));
+    await main([
+      "message", "send", "--target", "/s#0042/general", "--text", "hi", "--remind-after", "1m",
+    ]);
+    const envelope = parseEnvelope(cap.lines());
+    expect(envelope.success).toEqual({
+      sent: "/s#0042/general/#3#7",
+      reminder: { armed: false, reason: "local reminder request failed" },
+    });
+    expect(JSON.stringify(envelope)).not.toContain("vch_secret");
+  });
+
+  it("documents optional one-shot daemon-lifetime behavior in command help", async () => {
+    await main(["message", "send", "-h"]);
+    const output = cap.lines().join("");
+    expect(output).toContain("--remind-after <duration>");
+    expect(output).toMatch(/daemon\s+restart cancels it/);
   });
 });
 
