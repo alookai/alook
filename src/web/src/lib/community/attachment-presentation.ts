@@ -13,7 +13,7 @@ export type AttachmentCategory =
   | "archive"
   | "unknown"
 
-export type AttachmentPreviewKind = "markdown" | "text" | "code"
+type AttachmentPreviewKind = "markdown" | "text" | "code"
 
 export type AttachmentPresentation = {
   category: AttachmentCategory
