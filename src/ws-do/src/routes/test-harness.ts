@@ -1,5 +1,6 @@
 import { vi } from "vitest"
 import { createMockDONamespace } from "../__mocks__/cf"
+import routerHandler from "../index"
 
 vi.mock("../ws-durable", () => ({
   WebSocketDurableObject: class { },
@@ -79,6 +80,6 @@ export function createRouterTestContext(): RouterTestContext {
   return { doMock, rateLimitMock, env }
 }
 
-export async function loadRouter(): Promise<RouterHandler> {
-  return (await import("../index")).default
+export function loadRouter(): RouterHandler {
+  return routerHandler
 }
