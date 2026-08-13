@@ -14,6 +14,7 @@ import {
 import { SheetResizeHandle, useSheetResize } from "@/components/ui/sheet-resize-handle"
 import { cn } from "@/lib/utils"
 import { MessageBody } from "./message-body"
+import { CodePreview } from "./code-preview"
 import type { FileAttachment } from "./_types"
 import { tid } from "@/lib/community/testids"
 import {
@@ -183,7 +184,13 @@ export function AttachmentPreviewSheet({
             </button>
           </div>
         </SheetHeader>
-        <SheetBody data-testid={tid.attachmentPreviewContent} className="min-h-0">
+        <SheetBody
+          data-testid={tid.attachmentPreviewContent}
+          className={cn(
+            "flex min-h-0 flex-col",
+            (presentation?.previewKind === "code" || presentation?.previewKind === "text") && "p-0 sm:p-0",
+          )}
+        >
           {preview.status === "loading" && (
             <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" />
@@ -200,7 +207,7 @@ export function AttachmentPreviewSheet({
             <MessageBody text={preview.content} />
           )}
           {preview.status === "ready" && presentation?.previewKind !== "markdown" && (
-            <pre className="whitespace-pre-wrap wrap-break-word font-mono text-sm text-foreground">{preview.content}</pre>
+            <CodePreview content={preview.content} language={presentation?.shikiLanguage ?? null} />
           )}
         </SheetBody>
       </SheetContent>
