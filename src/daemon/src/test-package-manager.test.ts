@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolvePackageManagerCommand } from "./test-package-manager.js";
+import { commandShimShell, resolvePackageManagerCommand } from "./test-package-manager.js";
 
 describe("resolvePackageManagerCommand", () => {
   it("runs a JavaScript lifecycle entrypoint through Node", () => {
@@ -52,5 +52,10 @@ describe("resolvePackageManagerCommand", () => {
       file: "pnpm",
       args: ["pack"],
     });
+  });
+
+  it("shell-enables command shims only on Windows", () => {
+    expect(commandShimShell("win32")).toBe(true);
+    expect(commandShimShell("linux")).toBeUndefined();
   });
 });

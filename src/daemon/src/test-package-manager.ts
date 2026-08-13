@@ -7,6 +7,10 @@ export interface PackageManagerCommand {
   shell?: true;
 }
 
+export function commandShimShell(platform = process.platform): true | undefined {
+  return platform === "win32" ? true : undefined;
+}
+
 export function resolvePackageManagerCommand(
   args: string[],
   env: NodeJS.ProcessEnv = process.env,
@@ -15,8 +19,9 @@ export function resolvePackageManagerCommand(
 ): PackageManagerCommand {
   const npmExecPath = env.npm_execpath;
   if (!npmExecPath) {
-    return platform === "win32"
-      ? { file: "pnpm", args, shell: true }
+    const shell = commandShimShell(platform);
+    return shell
+      ? { file: "pnpm", args, shell }
       : { file: "pnpm", args };
   }
 
@@ -25,7 +30,7 @@ export function resolvePackageManagerCommand(
     return { file: nodeExecutable, args: [npmExecPath, ...args] };
   }
   if (platform === "win32" && [".bat", ".cmd"].includes(extension)) {
-    return { file: npmExecPath, args, shell: true };
+    return { file: npmExecPath, args, shell: commandShimShell(platform) };
   }
   return { file: npmExecPath, args };
 }

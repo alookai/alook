@@ -6,7 +6,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
-import { execPackageManagerSync } from "../test-package-manager.js";
+import { commandShimShell, execPackageManagerSync } from "../test-package-manager.js";
 
 const packageRoot = fileURLToPath(new URL("../..", import.meta.url));
 const machineId = "cm_self_update_real_123456";
@@ -49,7 +49,11 @@ function packFixture(version: string): string {
     "--ignore-scripts",
     "--pack-destination",
     fixtureRoot,
-  ], { cwd: dir, encoding: "utf8" })) as Array<{ filename: string }>;
+  ], {
+    cwd: dir,
+    encoding: "utf8",
+    shell: commandShimShell(),
+  })) as Array<{ filename: string }>;
   return path.join(fixtureRoot, packed[0]!.filename);
 }
 
@@ -62,6 +66,7 @@ function runNpmPackage(
     execFile("npm", ["exec", "--yes", `--package=${tgz}`, "--", "alook-daemon", ...args], {
       env: { ...process.env, ...env },
       maxBuffer: 10 * 1024 * 1024,
+      shell: commandShimShell(),
     }, (error, stdout, stderr) => {
       if (error && typeof (error as NodeJS.ErrnoException & { code?: unknown }).code !== "number") {
         reject(error);
