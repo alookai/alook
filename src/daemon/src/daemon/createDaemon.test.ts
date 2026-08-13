@@ -563,6 +563,83 @@ describe("createDaemon — logging", () => {
     await daemon.stop();
   });
 
+  it("retries a later wake after handshake_timeout instead of globally disabling the runtime", async () => {
+    global.fetch = vi.fn(async (url: string | URL) => {
+      const href = String(url);
+      if (href.includes("/enroll-agent")) {
+        return new Response(JSON.stringify({ runnerKey: "rk_retry" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ bots: [] }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const spawn = vi.fn(async () => {
+      const proc = new EventEmitter() as unknown as { kill: () => void };
+      proc.kill = () => {};
+      return { process: proc as never };
+    });
+    const driver = {
+      ...fullFakeDriver("cursor"),
+      spawn,
+    } as unknown as Driver;
+    const sockets: FakeSocket[] = [];
+    const logger = stubLogger();
+    const daemon = await createDaemon({
+      machineKey: "cmk_handshake_retry",
+      serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as any,
+      runtimeReport: [{ id: "cursor" }],
+      driverFor: () => driver,
+      capabilities: [],
+      handshakeTimeoutMs: 10,
+      logger,
+    });
+
+    try {
+      sockets[0].emit("open");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      sockets[0].emit(
+        "message",
+        JSON.stringify({ type: "bot:added", botId: "bot_retry", name: "Retry Bot", discriminator: "0001" }),
+      );
+      const wake = (launchId: string, latestSeq: number) =>
+        sockets[0].emit(
+          "message",
+          JSON.stringify({
+            type: "agent:wake",
+            agentId: "bot_retry",
+            config: { version: 1, runtime: "cursor", model: { kind: "default" }, mode: { kind: "default" } },
+            launchId,
+            unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq },
+          }),
+        );
+
+      wake("launch_1", 1);
+      await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(1));
+      await vi.waitFor(() =>
+        expect(
+          logger.calls.warn.some(
+            ([, message, detail]) =>
+              message === "spawn failed" && (detail[0] as { reason?: string })?.reason === "handshake_timeout",
+          ),
+        ).toBe(true),
+      );
+
+      wake("launch_2", 2);
+      await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(2));
+      expect(logger.calls.warn.some(([, message]) => message === "runtime marked unhealthy")).toBe(false);
+      expect(
+        logger.calls.info.some(
+          ([, message, detail]) =>
+            message === "agent:wake ack" &&
+            (detail[0] as { status?: string; "error.code"?: string })?.["error.code"] === "bot_runtime_missing",
+        ),
+      ).toBe(false);
+    } finally {
+      await daemon.stop();
+    }
+  });
+
   it("threads the shared logger into WsControlChannel/AgentRouter/AgentProcessManager, and logs bot:removed + a successful wake through the manager", async () => {
     global.fetch = vi.fn(async (url: string | URL) => {
       const href = String(url);

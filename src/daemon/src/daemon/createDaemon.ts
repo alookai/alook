@@ -248,6 +248,8 @@ export interface CreateDaemonOptions {
   capabilities: string[];
   /** Working directory base for agent launch contexts. */
   workingDirectoryBase?: string;
+  /** Override the manager's pre-handshake watchdog (primarily for tests). */
+  handshakeTimeoutMs?: number;
   /**
    * Directory for the DEFAULT-ON bounded FSM transition trace
    * (`<fsmTraceDir>/fsm-trace.jsonl`, size-capped/rotating — batch E1). When
@@ -719,7 +721,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       return opts.driverFor(agentId, runtimeConfig);
     },
     onRuntimeSpawnFailed: (runtimeId, reason) => {
-      router?.markRuntimeUnhealthy(runtimeId, reason);
+      router?.recordRuntimeSpawnFailure(runtimeId, reason);
     },
     onRuntimeSessionEstablished: (runtimeId) => {
       router?.markRuntimeHealthy(runtimeId);
@@ -749,6 +751,9 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
         } as LaunchContext["config"],
       } as Omit<LaunchContext, "prompt" | "standingPrompt"> & { config?: LaunchContext["config"] };
     },
+    ...(opts.handshakeTimeoutMs !== undefined
+      ? { handshakeTimeoutMs: opts.handshakeTimeoutMs }
+      : {}),
     tickIntervalMs: opts.tickIntervalMs ?? 2000,
     onAgentSession: (info) => void channel.reportAgentSession(info),
     onAgentActivity: (info) => {

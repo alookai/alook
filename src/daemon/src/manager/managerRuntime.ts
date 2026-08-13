@@ -346,9 +346,10 @@ export interface ManagerRuntimeOpts {
   stampWakePromptTime?: boolean;
   /**
    * Notified when a spawn fails BEFORE the runtime emits its handshake
-   * `runtime_event` (pre-establishment error). Typically wired to
-   * `AgentRouter.markRuntimeUnhealthy` so /community reflects the broken
-   * runtime; see plans/community-machine-presence-fix.md.
+   * `runtime_event` (pre-establishment error). The host may use definitive
+   * executable errors to update global runtime health, but transient failures
+   * such as `handshake_timeout` must remain scoped to this launch so a later
+   * wake can retry.
    *
    * `reason` is a short code like `"ENOENT"` or `"pre_handshake_exit"`.
    */

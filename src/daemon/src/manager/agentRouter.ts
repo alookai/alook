@@ -23,6 +23,8 @@ import type { AgentProcessManager } from "./managerRuntime.js";
 import type { TypingScopeTracker } from "./typingScopeTracker.js";
 import { createLogger, type Logger } from "../logger.js";
 
+const DEFINITIVE_EXECUTABLE_FAILURES = new Set(["ENOENT", "EACCES", "ENOEXEC", "EPERM"]);
+
 /**
  * Thrown by a `driverFor` implementation when the server asked for a runtime
  * that isn't available on this host. Caught by `AgentRouter` and forwarded
@@ -243,10 +245,23 @@ export class AgentRouter {
   }
 
   /**
-   * Mark a runtime unhealthy after a spawn failure (ENOENT, pre-handshake
-   * exit, etc.). Idempotent: a call whose (status, lastError) matches the
-   * existing entry is a no-op and does NOT schedule a resend. Silent no-op
-   * on unknown ids — the daemon never advertised them, so we don't want to
+   * Apply a pre-handshake spawn failure to host-wide runtime health only when
+   * the error proves the executable is missing or cannot be executed. A
+   * handshake timeout, early process exit, or unclassified start rejection is
+   * scoped to that one launch: globally disabling the runtime would make
+   * `driverFor` reject every later wake before another handshake could heal it.
+   */
+  recordRuntimeSpawnFailure(id: string, reason: string): void {
+    if (!DEFINITIVE_EXECUTABLE_FAILURES.has(reason)) return;
+    this.markRuntimeUnhealthy(id, reason);
+  }
+
+  /**
+   * Mark a runtime explicitly unhealthy. Spawn-failure callers should use
+   * `recordRuntimeSpawnFailure`, which keeps transient launch failures scoped
+   * to their session. Idempotent: a call whose (status, lastError) matches the
+   * existing entry is a no-op and does NOT schedule a resend. Silent no-op on
+   * unknown ids — the daemon never advertised them, so we don't want to
    * synthesize a phantom entry on the wire.
    */
   markRuntimeUnhealthy(id: string, reason: string): void {

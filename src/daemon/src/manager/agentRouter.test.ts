@@ -628,6 +628,48 @@ describe("AgentRouter — runtime health map", () => {
     expect(scheduled).toHaveLength(2);
   });
 
+  it.each(["handshake_timeout", "pre_handshake_exit", "spawn_threw", "other"])(
+    "keeps the runtime retryable after the transient spawn failure %s",
+    (reason) => {
+      const { mgr } = fakeManager();
+      const { ch } = fakeChannel();
+      const scheduled: Array<() => void> = [];
+      const router = new AgentRouter({
+        manager: mgr,
+        channel: ch,
+        runtimeReport: [{ id: "cursor" }],
+        scheduleReadyResend: (fn) => scheduled.push(fn),
+      });
+
+      router.recordRuntimeSpawnFailure("cursor", reason);
+
+      expect(router.isRuntimeHealthy("cursor")).toBe(true);
+      expect(router.healthyRuntimeIds()).toEqual(["cursor"]);
+      expect(scheduled).toHaveLength(0);
+    },
+  );
+
+  it.each(["ENOENT", "EACCES", "ENOEXEC", "EPERM"])(
+    "marks the runtime globally unhealthy after the definitive executable failure %s",
+    (reason) => {
+      const { mgr } = fakeManager();
+      const { ch } = fakeChannel();
+      const router = new AgentRouter({
+        manager: mgr,
+        channel: ch,
+        runtimeReport: [{ id: "cursor" }],
+        scheduleReadyResend: (fn) => fn(),
+      });
+
+      router.recordRuntimeSpawnFailure("cursor", reason);
+
+      expect(router.isRuntimeHealthy("cursor")).toBe(false);
+      expect(router.buildReady().runtimeReport).toEqual([
+        expect.objectContaining({ id: "cursor", status: "unhealthy", lastError: reason }),
+      ]);
+    },
+  );
+
   it("markRuntimeHealthy clears lastError/lastErrorAt when flipping back", () => {
     const { mgr } = fakeManager();
     const { ch, readyResends } = fakeChannelWithSendReady();
