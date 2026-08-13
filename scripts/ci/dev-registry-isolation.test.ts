@@ -33,6 +33,13 @@ describe("local Wrangler registry isolation", () => {
     expect(launcher).toContain("WRANGLER_REGISTRY_PATH: resolve(process.cwd(), registryPath)")
   })
 
+  it("executes native package-manager launchers directly", () => {
+    const launcher = readFileSync(launcherPath, "utf8")
+
+    expect(launcher).toContain('spawn(\n  packageManagerCli,\n  ["exec", command, ...args]')
+    expect(launcher).not.toContain("process.execPath")
+  })
+
   it("uses one shared registry inside the current worktree for every dev entrypoint", () => {
     const paths = packagePaths.map((packagePath) => resolvedRegistryPath(repositoryRoot, packagePath))
 
