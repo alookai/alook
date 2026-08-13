@@ -9,8 +9,8 @@ if (!registryPath || !command || !packageManagerCli) {
 }
 
 const child = spawn(
-  process.execPath,
-  [packageManagerCli, "exec", command, ...args],
+  packageManagerCli,
+  ["exec", command, ...args],
   {
     stdio: "inherit",
     env: {

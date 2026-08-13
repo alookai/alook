@@ -30,7 +30,11 @@ export function AvatarPickerDialog({ value, onChange }: AvatarPickerDialogProps)
 
   return (
     <div className="flex flex-col items-center gap-3">
-      <div className="rounded-2xl bg-background p-2 shadow-sm border border-border">
+      <div
+        aria-label="Workspace agent avatar preview"
+        data-testid="workspace-agent-avatar-preview"
+        className="rounded-2xl bg-background p-2 shadow-sm border border-border"
+      >
         <span className="block size-20 overflow-hidden rounded-2xl">
           <GeneratedAvatar seed={seed} size={80} className="size-full" />
         </span>

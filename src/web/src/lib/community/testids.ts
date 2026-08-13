@@ -24,6 +24,7 @@ export const tid = {
   botReportProblemDialog: "bot-report-problem-dialog",
   botReportProblemSubmit: "bot-report-problem-submit",
   botReportProblemStatus: "bot-report-problem-status",
+  botAvatarPickerTrigger: "community-bot-avatar-picker-trigger",
 
   forumTagDialog: "community-forum-tag-dialog",
 
