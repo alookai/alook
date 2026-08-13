@@ -9,6 +9,7 @@ const mockFanOutToChannel = vi.fn()
 const mockDeleteChannel = vi.fn()
 const mockListMessageAttachments = vi.fn()
 const mockRebindPendingAttachmentsToChild = vi.fn()
+const mockUnreserveAttachments = vi.fn()
 
 vi.mock("@/lib/community/message-handler", () => ({
   createCommunityMessage: (...a: unknown[]) => mockCreateCommunityMessage(...a),
@@ -39,6 +40,7 @@ vi.mock("@alook/shared", async () => {
         ...actual.queries.communityAttachment,
         listMessageAttachments: (...a: unknown[]) => mockListMessageAttachments(...a),
         rebindPendingAttachmentsToChild: (...a: unknown[]) => mockRebindPendingAttachmentsToChild(...a),
+        unreserveAttachments: (...a: unknown[]) => mockUnreserveAttachments(...a),
       },
       communityThread: {
         ...actual.queries.communityThread,
@@ -61,6 +63,7 @@ describe("createMessageWithThread (phase2 forum≡thread — atomic-by-compensat
     mockDeleteChannel.mockResolvedValue(undefined)
     mockHardDeleteMessage.mockResolvedValue(undefined)
     mockRebindPendingAttachmentsToChild.mockResolvedValue(true)
+    mockUnreserveAttachments.mockResolvedValue(undefined)
   })
 
   it("inserts the opener message into the PARENT channel, then opens a fresh thread rooted on it", async () => {
@@ -236,6 +239,30 @@ describe("createMessageWithThread (phase2 forum≡thread — atomic-by-compensat
     ).rejects.toThrow("D1 outage")
 
     expect(mockHardDeleteMessage).toHaveBeenCalledWith(expect.anything(), "msg_1")
+  })
+
+  it("unreserves opener attachments before removing a failed forum structure", async () => {
+    mockCreateCommunityMessage.mockResolvedValue({
+      ok: true,
+      row: { id: "msg_1", content: "hi", channelId: "forum_1" },
+      attachments: [{ id: "att_1" }],
+    })
+    mockCreateChannel.mockRejectedValue(new Error("D1 outage"))
+
+    await expect(createMessageWithThread({
+      db: {} as any,
+      authorId: "u1",
+      parentChannelId: "forum_1",
+      serverId: "s1",
+      body: { content: "hi" },
+      attachmentIds: ["att_1"],
+    })).rejects.toThrow("D1 outage")
+
+    expect(mockUnreserveAttachments).toHaveBeenCalledWith(expect.anything(), {
+      ids: ["att_1"], messageId: "msg_1",
+    })
+    expect(mockUnreserveAttachments.mock.invocationCallOrder[0])
+      .toBeLessThan(mockHardDeleteMessage.mock.invocationCallOrder[0])
   })
 
   it("when the compensating hardDelete ALSO fails, logs both errors but re-throws the ORIGINAL thread-open error (never masks the real cause, never fails silently)", async () => {

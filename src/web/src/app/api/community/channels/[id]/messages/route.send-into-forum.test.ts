@@ -5,8 +5,10 @@ vi.mock("@opennextjs/cloudflare", () => ({ getCloudflareContext: vi.fn(() => ({ 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
 const mockCreateMessageWithThread = vi.fn()
+const mockGetCommunityMessageReplay = vi.fn()
 const mockResolveTargetForMember = vi.fn()
 const mockRequireMessageSurfaceAccess = vi.fn()
+const mockFindPendingAttachmentsForSender = vi.fn()
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -18,12 +20,19 @@ vi.mock("@alook/shared", async () => {
         ...actual.queries.communityAgentInbox,
         toAgentMessage: vi.fn(async (_db, row) => ({ id: row.id, content: row.content, seq: row.seq ?? 1 })),
       },
+      communityAttachment: {
+        ...actual.queries.communityAttachment,
+        findPendingAttachmentsForSender: (...args: unknown[]) => mockFindPendingAttachmentsForSender(...args),
+      },
     },
   }
 })
 vi.mock("@/lib/community/resolve-ref", () => ({ resolveTargetForMember: (...args: unknown[]) => mockResolveTargetForMember(...args) }))
 vi.mock("@/lib/community/permissions", () => ({ requireMessageSurfaceAccess: (...args: unknown[]) => mockRequireMessageSurfaceAccess(...args) }))
 vi.mock("@/lib/community/create-channels", () => ({ createMessageWithThread: (...args: unknown[]) => mockCreateMessageWithThread(...args) }))
+vi.mock("@/lib/community/message-handler", () => ({
+  getCommunityMessageReplay: (...args: unknown[]) => mockGetCommunityMessageReplay(...args),
+}))
 vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: vi.fn(async () => ({ allowed: true })) }))
 vi.mock("@/lib/middleware/community-actor", () => ({
   withCommunityActor: (handler: any) => async (req: any, ctx?: any) => handler(req, {
@@ -63,6 +72,8 @@ describe("forum sends open a thread through the canonical message route", () => 
       attachments: [],
       thread: { id: "thread_1" },
     })
+    mockGetCommunityMessageReplay.mockResolvedValue(null)
+    mockFindPendingAttachmentsForSender.mockResolvedValue([{ id: "attachment_1" }])
   })
 
   it("creates only the opener and structural child thread", async () => {
@@ -74,22 +85,25 @@ describe("forum sends open a thread through the canonical message route", () => 
       parentChannelId: "forum_1",
       serverId: "server_1",
       body: { content: "Title" },
-      pendingAttachmentIdsToRebind: [],
+      attachmentIds: undefined,
       clientNonce: "command:opener",
     }))
     expect(await response.json()).toEqual(expect.objectContaining({ state: "sent", threadId: "thread_1" }))
   })
 
-  it("passes pending attachment ids to the structural primitive for scope-safe rebind", async () => {
+  it("validates and binds attachment ids to the forum opener", async () => {
     await POST(request({ channel: "/demo/forum", content: { text: "Title" }, attachments: ["attachment_1"] }), ctx)
 
+    expect(mockFindPendingAttachmentsForSender).toHaveBeenCalledWith(expect.anything(), {
+      ids: ["attachment_1"], uploaderId: "bot_1", targetId: "forum_1",
+    })
     expect(mockCreateMessageWithThread).toHaveBeenCalledWith(expect.objectContaining({
-      pendingAttachmentIdsToRebind: ["attachment_1"],
-      attachmentIds: undefined,
+      attachmentIds: ["attachment_1"],
     }))
   })
 
   it("accepts a deduped opener replay without a pending-attachment precheck", async () => {
+    mockGetCommunityMessageReplay.mockResolvedValueOnce({ row: { id: "message_1" }, attachments: [], deduped: true })
     mockCreateMessageWithThread.mockResolvedValueOnce({
       ok: true,
       deduped: true,
@@ -101,6 +115,7 @@ describe("forum sends open a thread through the canonical message route", () => 
     const response = await POST(request({ channel: "/demo/forum", content: { text: "Title" }, attachments: ["attachment_1"], nonce: "command:opener" }), ctx)
 
     expect(response.status).toBe(200)
+    expect(mockFindPendingAttachmentsForSender).not.toHaveBeenCalled()
     expect(await response.json()).toEqual(expect.objectContaining({ deduped: true, threadId: "thread_1" }))
   })
 

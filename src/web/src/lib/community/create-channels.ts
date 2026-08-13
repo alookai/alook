@@ -328,6 +328,22 @@ export async function createMessageWithThread(params: {
   if (!created.ok) return { ok: false, status: created.status, error: created.error }
   const messageId = created.row.id
 
+  const unreserveOpenerAttachments = async (cause: unknown) => {
+    if (!params.attachmentIds?.length) return
+    try {
+      await queries.communityAttachment.unreserveAttachments(db, {
+        ids: params.attachmentIds,
+        messageId,
+      })
+    } catch (rollbackErr) {
+      log.error("thread_rollback_unreserve_attachments_failed", {
+        messageId,
+        cause: cause instanceof Error ? cause.message : String(cause),
+        rollbackErr: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+      })
+    }
+  }
+
   if (created.deduped) {
     const thread = await queries.communityChannel.getThreadChannelByParentMessage(
       db,
@@ -388,6 +404,7 @@ export async function createMessageWithThread(params: {
     // message-handler.ts's attachment-reserve rollback shape exactly (never
     // let a secondary rollback failure mask the real cause, and never fail
     // silently — Aigneis #670/#680).
+    await unreserveOpenerAttachments(err)
     try {
       await queries.communityMessage.hardDeleteMessage(db, messageId)
     } catch (rollbackErr) {
@@ -400,6 +417,7 @@ export async function createMessageWithThread(params: {
     throw err
   }
   if (!threadResult.ok) {
+    await unreserveOpenerAttachments(threadResult.error)
     try {
       await queries.communityMessage.hardDeleteMessage(db, messageId)
     } catch (rollbackErr) {
@@ -425,6 +443,7 @@ export async function createMessageWithThread(params: {
           rollbackErr: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
         })
       }
+      await unreserveOpenerAttachments(cause)
       try {
         await queries.communityMessage.hardDeleteMessage(db, messageId)
       } catch (rollbackErr) {

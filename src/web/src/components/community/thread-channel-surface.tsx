@@ -151,7 +151,7 @@ export function ThreadChannelSurface({
     )
   }
 
-  const opener = parentMessageId && !parentIsForum ? (
+  const opener = parentMessageId ? (
     <ThreadOpener
       parentMessageId={parentMessageId}
       viewerUserId={viewer.id}
@@ -164,7 +164,7 @@ export function ThreadChannelSurface({
         link.download = name
         link.click()
       }}
-      onJump={parentChannelId
+      onJump={parentChannelId && !parentIsForum
         ? () => router.push(`/c/channels/${serverParam}/${parentChannelId}?msg=${parentMessageId}`)
         : undefined}
     />

@@ -115,4 +115,35 @@ describe("ThreadOpener image attachment layout", () => {
     act(() => card.props.onClick())
     expect(onPreviewAttachment).toHaveBeenCalledWith(file)
   })
+
+  it("renders opener media through the shared progressive-disclosure block", () => {
+    const media = {
+      kind: "file" as const,
+      name: "clip.webm",
+      url: "/clip",
+      contentType: "video/webm",
+      sizeBytes: 512,
+      size: "512 B",
+    }
+    useMessageMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      message: {
+        id: "opener_1", type: "chat", authorId: "u1", authorName: "Alice",
+        content: "Clip", createdAt: "2026-08-08T00:00:00.000Z",
+        attachments: [media],
+      },
+    })
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(ThreadOpener, { parentMessageId: "opener_1" }),
+        { createNodeMock: () => genericMock },
+      )
+    })
+
+    expect(renderer!.root.findByProps({ "data-testid": "community-media-block-clip.webm" }).props["data-media-kind"])
+      .toBe("video")
+    expect(renderer!.root.findAllByType("video")).toHaveLength(0)
+  })
 })
