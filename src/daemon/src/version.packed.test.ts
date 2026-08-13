@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { execPackageManagerSync } from "./test-package-manager.js";
 
 const execFileAsync = promisify(execFile);
 const packageRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -24,12 +25,8 @@ describe("packed daemon version", () => {
   it("reports the root package version from the real dist/cli bin", { timeout: 120_000 }, async () => {
     const root = mkdtempSync(join(tmpdir(), "alook-daemon-version-pack-"));
     tempRoots.push(root);
-    const npmExecPath = process.env.npm_execpath;
-    if (!npmExecPath) throw new Error("npm_execpath is required to build the packed daemon fixture");
-
-    await execFileAsync(
-      process.execPath,
-      [npmExecPath, "pack", "--pack-destination", root],
+    execPackageManagerSync(
+      ["pack", "--pack-destination", root],
       { cwd: packageRoot, maxBuffer: 10 * 1024 * 1024 },
     );
     const tarball = readdirSync(root).find((name) => name.endsWith(".tgz"));

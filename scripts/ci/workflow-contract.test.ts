@@ -8,6 +8,13 @@ const ciWorkflow = readFileSync(resolve(workflowRoot, "ci.yml"), "utf8")
 const publishWorkflows = ["publish-app.yml", "publish-cli.yml", "publish-daemon.yml"]
   .map((name) => readFileSync(resolve(workflowRoot, name), "utf8"))
 
+function ciJob(name: string): string {
+  const start = ciWorkflow.indexOf(`\n  ${name}:\n`)
+  if (start < 0) throw new Error(`missing CI job: ${name}`)
+  const next = ciWorkflow.slice(start + 1).search(/\n  [a-z][a-z0-9-]*:\n/)
+  return next < 0 ? ciWorkflow.slice(start) : ciWorkflow.slice(start, start + 1 + next)
+}
+
 describe("E2E UI workflow", () => {
   it("runs before merge without running on main pushes", () => {
     expect(workflow).toMatch(/^  pull_request:/m)
@@ -25,9 +32,13 @@ describe("E2E UI workflow", () => {
 })
 
 describe("Bun workflow setup", () => {
-  it("installs Bun only in the CI build job and pins every retained setup", () => {
-    expect(ciWorkflow.match(/oven-sh\/setup-bun/g)).toHaveLength(1)
-    expect(ciWorkflow).toContain("bun-version: 1.3.11")
+  it("installs pinned Bun in every CI job that builds a daemon package fixture", () => {
+    const bunJobs = ["test-linux", "test-windows", "build", "coverage"]
+    expect(ciWorkflow.match(/oven-sh\/setup-bun/g)).toHaveLength(bunJobs.length)
+    for (const job of bunJobs) {
+      expect(ciJob(job)).toContain("oven-sh/setup-bun")
+      expect(ciJob(job)).toContain("bun-version: 1.3.11")
+    }
     for (const publishWorkflow of publishWorkflows) {
       expect(publishWorkflow).toContain("oven-sh/setup-bun")
       expect(publishWorkflow).toContain("bun-version: 1.3.11")

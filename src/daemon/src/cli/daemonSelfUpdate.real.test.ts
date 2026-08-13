@@ -6,6 +6,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
+import { execPackageManagerSync } from "../test-package-manager.js";
 
 const packageRoot = fileURLToPath(new URL("../..", import.meta.url));
 const machineId = "cm_self_update_real_123456";
@@ -223,7 +224,7 @@ async function waitForUpdateSettled(baseDir: string, timeoutMs = 45_000): Promis
 }
 
 beforeAll(() => {
-  execFileSync("pnpm", ["run", "build"], { cwd: packageRoot, stdio: "pipe" });
+  execPackageManagerSync(["run", "build"], { cwd: packageRoot, stdio: "pipe" });
   oldTgz = packFixture("9.9.0");
   newTgz = packFixture("9.9.1");
 }, 120_000);
