@@ -77,7 +77,7 @@ describe("POST /api/community/invites/[token]/join", () => {
     expect(mockFanOut).toHaveBeenCalledTimes(1)
     const [serverId, event, opts] = mockFanOut.mock.calls[0]!
     expect(serverId).toBe("srv_1")
-    expect(opts).toEqual({ excludeUserId: "u_caller" })
+    expect(opts).toBeUndefined()
     expect(event.type).toBe("community:member.join")
     // The regression: name must be the joined user.name, NOT userId or nickname-fallback.
     expect(event.member.name).toBe("Alice")

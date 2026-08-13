@@ -105,8 +105,7 @@ describe("fanOutToServerMembers", () => {
     mockGetChannelType.mockResolvedValue("text")
   })
 
-  it("resolves recipients via listMemberUserIds (not listMembers) and skips excludeUserId", async () => {
-    // 5 members, author (u1) excluded → 4 broadcasts.
+  it("resolves recipients via listMemberUserIds and includes every account connection", async () => {
     mockListMemberUserIds.mockResolvedValue(["u1", "u2", "u3", "u4", "u5"])
 
     await fanOutToServerMembers(
@@ -117,7 +116,6 @@ describe("fanOutToServerMembers", () => {
         memberId: "m1",
         changes: { role: "admin" },
       },
-      { excludeUserId: "u1" },
     )
 
     expect(mockListMemberUserIds).toHaveBeenCalledTimes(1)
@@ -127,12 +125,11 @@ describe("fanOutToServerMembers", () => {
     expect(mockBroadcastToUsers).toHaveBeenCalledWith(
       ["u1", "u2", "u3", "u4", "u5"],
       expect.objectContaining({ type: WS_EVENTS.MEMBER_UPDATE }),
-      "u1",
     )
     expect(mockBroadcastToUser).not.toHaveBeenCalled()
   })
 
-  it("broadcasts to every recipient when excludeUserId is absent", async () => {
+  it("broadcasts to every recipient", async () => {
     mockListMemberUserIds.mockResolvedValue(["u1", "u2", "u3"])
 
     await fanOutToServerMembers("srv_1", {
@@ -146,7 +143,6 @@ describe("fanOutToServerMembers", () => {
     expect(mockBroadcastToUsers).toHaveBeenCalledWith(
       ["u1", "u2", "u3"],
       expect.objectContaining({ type: WS_EVENTS.MEMBER_UPDATE }),
-      undefined,
     )
   })
 
@@ -204,7 +200,6 @@ describe("fanOutToServerMembers", () => {
     await fanOutToChannel(
       "dm1",
       { type: WS_EVENTS.MESSAGE_CREATE, channelId: "dm1", message: {} as never } as never,
-      { excludeUserId: "u1" },
     )
 
     expect(mockResolveChannelRecipientUserIds).toHaveBeenCalledWith(
@@ -215,7 +210,6 @@ describe("fanOutToServerMembers", () => {
     expect(mockBroadcastToUsers).toHaveBeenCalledWith(
       ["u1", "u2"],
       expect.objectContaining({ type: WS_EVENTS.MESSAGE_CREATE }),
-      "u1",
     )
   })
 
@@ -323,7 +317,6 @@ describe("fanOutStatusUpdate", () => {
         statusEmoji: "🎧",
         statusText: "Vibing",
       },
-      undefined,
     )
   })
 
@@ -364,13 +357,13 @@ describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for ME
     mockEnqueueBotWakes.mockResolvedValue(undefined)
   })
 
-  it("fanOutToChannel enqueues wakes using the same recipient list, minus excludeUserId", async () => {
+  it("fanOutToChannel includes the actor in browser fan-out but excludes them from wakes", async () => {
     mockResolveChannelRecipientUserIds.mockResolvedValue(["u1", "u2", "u3"])
 
     await fanOutToChannel(
       "c1",
       { type: WS_EVENTS.MESSAGE_CREATE, channelId: "c1", message: {} as never } as never,
-      { excludeUserId: "u1", wakeMessageRow },
+      { excludeWakeUserId: "u1", wakeMessageRow },
     )
 
     expect(mockEnqueueBotWakes).toHaveBeenCalledTimes(1)
@@ -378,7 +371,12 @@ describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for ME
       recipients: ["u2", "u3"],
       channelId: "c1",
       messageRow: wakeMessageRow,
+      mentionedUserIds: undefined,
     })
+    expect(mockBroadcastToUsers).toHaveBeenCalledWith(
+      ["u1", "u2", "u3"],
+      expect.objectContaining({ type: WS_EVENTS.MESSAGE_CREATE }),
+    )
   })
 
   it("starts wake enqueue before a slow recipient broadcast settles", async () => {
@@ -393,7 +391,7 @@ describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for ME
       "c1",
       { type: WS_EVENTS.MESSAGE_CREATE, channelId: "c1", message: {} as never } as never,
       {
-        excludeUserId: "u1",
+        excludeWakeUserId: "u1",
         recipients: ["u1", "u2"],
         wakeMessageRow,
       },
@@ -411,7 +409,7 @@ describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for ME
       "c1",
       { type: WS_EVENTS.MESSAGE_CREATE, channelId: "c1", message: {} as never } as never,
       {
-        excludeUserId: "u1",
+        excludeWakeUserId: "u1",
         recipients: ["u1", "u2"],
         wakeMessageRow,
       },
@@ -438,7 +436,7 @@ describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for ME
       "c1",
       { type: WS_EVENTS.MESSAGE_CREATE, channelId: "c1", message: {} as never } as never,
       {
-        excludeUserId: "u1",
+        excludeWakeUserId: "u1",
         wakeMessageRow,
       },
     )
@@ -459,7 +457,7 @@ describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for ME
     await fanOutToDM(
       "dm1",
       { type: WS_EVENTS.MESSAGE_CREATE, channelId: "dm1", message: {} as never } as never,
-      { excludeUserId: "u1", wakeMessageRow: { ...wakeMessageRow, channelId: "dm1" } },
+      { excludeWakeUserId: "u1", wakeMessageRow: { ...wakeMessageRow, channelId: "dm1" } },
     )
 
     expect(mockListChannelMemberUserIds).toHaveBeenCalledWith(expect.anything(), "dm1")
@@ -468,6 +466,7 @@ describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for ME
       recipients: ["u2"],
       channelId: "dm1",
       messageRow: { ...wakeMessageRow, channelId: "dm1" },
+      mentionedUserIds: undefined,
     })
   })
 

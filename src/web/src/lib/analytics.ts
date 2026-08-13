@@ -163,6 +163,7 @@ export type CommunityWsFrameDropReason =
 
 export type CommunityWsReconcilePolicy =
   | "focused-messages"
+  | "focused-opener"
   | "focused-channel-roster"
   | "focused-pins"
   | "focused-threads"

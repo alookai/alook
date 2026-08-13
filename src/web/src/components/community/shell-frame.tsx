@@ -763,8 +763,8 @@ export function ShellFrame({
       {mobileZone === "nav" && (
         <>
           <ServerRail {...railProps} bottomInset={60} />
-          <div className="flex min-h-0 flex-1 flex-col bg-sidebar">
-            <div className="flex min-h-0 flex-1">{sidebar({ noHeader: false })}</div>
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-sidebar">
+            <div className="flex min-h-0 min-w-0 flex-1">{sidebar({ noHeader: false })}</div>
             <UserBar user={{ id: currentUser.id, name: currentUser.name, avatar: currentUser.avatar }} onOpenProfile={openProfile} onEditProfile={() => setEditingProfile(true)} inbox={inboxElement} hasUnread={inboxHasUnread} inboxOpen={inbox.open} onInboxOpenChange={inbox.onOpenChange} />
           </div>
         </>

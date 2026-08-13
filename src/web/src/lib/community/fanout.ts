@@ -89,7 +89,7 @@ export async function resolveChannelRecipients(db: Database, channelId: string):
 export function fanOutToChannel(
   channelId: string,
   event: BroadcastableEvent,
-  opts?: { excludeUserId?: string; recipients?: string[] } & WakeOpts
+  opts?: { excludeWakeUserId?: string; recipients?: string[] } & WakeOpts
 ): Promise<void> {
   try {
     const { env, ctx } = getCloudflareContext()
@@ -103,7 +103,7 @@ export function fanOutToChannel(
         // Register the wake's waitUntil before any human-WS broadcast can stall.
         // A slow best-effort UI fan-out must never delay or drop the bot wake.
         maybeEnqueueWakes(event, userIds, { channelId }, opts)
-        await broadcastToRecipients(userIds, event, opts?.excludeUserId)
+        await broadcastToRecipients(userIds, event)
       } catch (err) {
         log.warn("fanout_to_channel_failed", {
           eventType: event.type,
@@ -135,7 +135,7 @@ export function fanOutToChannel(
 export function fanOutToDM(
   channelId: string,
   event: BroadcastableEvent,
-  opts?: { excludeUserId?: string } & WakeOpts
+  opts?: { excludeWakeUserId?: string } & WakeOpts
 ): Promise<void> {
   try {
     const { env, ctx } = getCloudflareContext()
@@ -150,7 +150,7 @@ export function fanOutToDM(
         const userIds = await queries.communityChannel.listChannelMemberUserIds(db, channelId)
         // Keep wake delivery independent from the best-effort UI broadcast.
         maybeEnqueueWakes(event, userIds, { channelId }, opts)
-        await broadcastToRecipients(userIds, event, opts?.excludeUserId)
+        await broadcastToRecipients(userIds, event)
       } catch (err) {
         log.warn("fanout_to_dm_failed", {
           eventType: event.type,
@@ -174,18 +174,21 @@ export function fanOutToDM(
 /**
  * Wake dispatch only fires for real new-message events (plan §8) — reactions,
  * edits, pins, `CHILD_CHANNEL_UPDATE`, etc. never wake anyone. The sender is
- * excluded via the SAME `excludeUserId` the human-WS broadcast already used
- * (a bot never wakes itself off its own send). Never throws — `enqueueBotWakes`
- * owns its own error handling via `ctx.waitUntil`; this is best-effort on top.
+ * excluded independently from browser fan-out (a bot never wakes itself off
+ * its own send, while the author's other browser connections still sync).
+ * Never throws — `enqueueBotWakes` owns its own error handling via
+ * `ctx.waitUntil`; this is best-effort on top.
  */
 function maybeEnqueueWakes(
   event: BroadcastableEvent,
   recipients: string[],
   scope: { channelId: string },
-  opts?: { excludeUserId?: string } & WakeOpts
+  opts?: { excludeWakeUserId?: string } & WakeOpts
 ): void {
   if (event.type !== WS_EVENTS.MESSAGE_CREATE || !opts?.wakeMessageRow) return
-  const filtered = opts.excludeUserId ? recipients.filter((id) => id !== opts.excludeUserId) : recipients
+  const filtered = opts.excludeWakeUserId
+    ? recipients.filter((id) => id !== opts.excludeWakeUserId)
+    : recipients
   enqueueBotWakes({
     recipients: filtered,
     ...scope,
@@ -245,7 +248,6 @@ export async function fanOutStatusUpdate(
 export function fanOutToServerMembers(
   serverId: string,
   event: BroadcastableEvent,
-  opts?: { excludeUserId?: string }
 ): Promise<void> {
   try {
     const { env, ctx } = getCloudflareContext()
@@ -257,7 +259,7 @@ export function fanOutToServerMembers(
     const work = (async () => {
       try {
         const userIds = await getServerMemberUserIds(db, serverId)
-        await broadcastToRecipients(userIds, event, opts?.excludeUserId)
+        await broadcastToRecipients(userIds, event)
       } catch (err) {
         log.warn("fanout_to_server_members_failed", {
           eventType: event.type,
@@ -276,6 +278,13 @@ export function fanOutToServerMembers(
     })
     return Promise.resolve()
   }
+}
+
+export function fanOutToUsers(
+  userIds: string[],
+  event: BroadcastableEvent,
+): Promise<void> {
+  return broadcastToRecipients(userIds, event)
 }
 
 /**
@@ -299,16 +308,14 @@ export async function broadcastToUserSafe(
 
 /**
  * Internal: broadcast a community event to a list of user IDs.
- * Optionally excludes a specific user (e.g., the event author).
  */
 async function broadcastToRecipients(
   userIds: string[],
   event: BroadcastableEvent,
-  excludeUserId?: string
 ): Promise<void> {
   if (userIds.length === 0) return
   try {
-    await broadcastToUsers(userIds, event, excludeUserId)
+    await broadcastToUsers(userIds, event)
   } catch (err) {
     log.warn("broadcast_to_recipients_failed", {
       recipientCount: userIds.length,

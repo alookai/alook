@@ -465,6 +465,31 @@ describe("useCommunityWs — message.create", () => {
 
 })
 describe("useCommunityWs — reactions", () => {
+  it("patches a mounted single-message opener idempotently under actor self-echo", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    capturedQueryClient.setQueryData(communityKeys.message("m_opener"), {
+      id: "m_opener",
+      content: "root",
+      reactions: [],
+    })
+    const event: CommunityReactionAdd = {
+      type: "community:reaction.add",
+      channelId: "ch_parent",
+      messageId: "m_opener",
+      userId: "u_me",
+      emoji: "👍",
+    }
+
+    capturedOnMessage!(event)
+    capturedOnMessage!(event)
+
+    expect(capturedQueryClient.getQueryData<{
+      reactions: { emoji: string; count: number; me: boolean; userIds: string[] }[]
+    }>(communityKeys.message("m_opener"))?.reactions).toEqual([
+      { emoji: "👍", count: 1, me: true, userIds: ["u_me"] },
+    ])
+  })
+
   it("patches the message row's reactions in the channel cache", async () => {
     await mountHook({ viewerUserId: "u_me" })
     capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_1"), {

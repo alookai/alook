@@ -190,6 +190,25 @@ describe("PATCH /channels/[id] — permission gate", () => {
     expect(mockUpdateChannel).toHaveBeenCalledWith(expect.anything(), "c1", { name: "renamed" })
   })
 
+  it("broadcasts an ordinary thread rename as child_update to the parent audience", async () => {
+    const threadAccess = accessCtx({ canManage: true })
+    threadAccess.channel.type = "thread"
+    threadAccess.channel.parentChannelId = "parent_1"
+    threadAccess.anchor.type = "text"
+    mockResolveChannelAccessContext.mockResolvedValue(threadAccess)
+
+    const res = await PATCH(patchReq({ name: "renamed" }), ctx)
+
+    expect(res.status).toBe(200)
+    expect(mockFanOutToChannel).toHaveBeenCalledWith("parent_1", {
+      type: "community:channel.child_update",
+      parentChannelId: "parent_1",
+      channelId: "c1",
+      changes: { name: "renamed" },
+    })
+    expect(mockFanOutToServerMembers).not.toHaveBeenCalled()
+  })
+
   it("normalizes a spaced rename via slugify before calling updateChannel", async () => {
     mockResolveChannelAccessContext.mockResolvedValue(accessCtx({ canManage: true }))
     mockUpdateChannel.mockResolvedValue({ id: "c1", name: "General-Chat" })

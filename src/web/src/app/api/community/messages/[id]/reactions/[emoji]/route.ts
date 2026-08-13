@@ -123,9 +123,9 @@ export const PUT = withCommunityActor(async (req: NextRequest, ctx) => {
   }
 
   if (access.isDm) {
-    fanOutToDM(access.channelId, event, { excludeUserId: userId })
+    fanOutToDM(access.channelId, event)
   } else {
-    fanOutToChannel(access.channelId, event, { excludeUserId: userId })
+    fanOutToChannel(access.channelId, event)
   }
 
   return writeJSON(reaction)
@@ -166,9 +166,9 @@ export const DELETE = withCommunityActor(async (_req: NextRequest, ctx) => {
   }
 
   if (access.isDm) {
-    fanOutToDM(access.channelId, event, { excludeUserId: userId })
+    fanOutToDM(access.channelId, event)
   } else {
-    fanOutToChannel(access.channelId, event, { excludeUserId: userId })
+    fanOutToChannel(access.channelId, event)
   }
 
   return new Response(null, { status: 204 })

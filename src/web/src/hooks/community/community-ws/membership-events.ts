@@ -111,13 +111,23 @@ export function handleMemberJoin(
   event: CommunityMemberJoin,
   context: MembershipEventContext,
 ) {
-  const { queryClient } = context
+  const { queryClient, viewerUserIdRef } = context
   const key = communityKeys.members(event.serverId)
   queryClient.setQueryData<InfiniteData<MembersEnvelope> | undefined>(
     key,
     (cache) => patchCacheJoin(cache, event),
   )
   dispatchMemberOverlayEvent({ type: "refresh", serverId: event.serverId })
+  if (event.member.userId === viewerUserIdRef.current) {
+    void queryClient.invalidateQueries({
+      queryKey: communityKeys.servers(),
+      exact: true,
+    })
+    void queryClient.invalidateQueries({
+      queryKey: communityKeys.server(event.serverId),
+      exact: true,
+    })
+  }
   finishMemberEvent(event, context)
 }
 

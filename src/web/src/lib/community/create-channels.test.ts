@@ -9,6 +9,8 @@ const mockFanOutToChannel = vi.fn()
 const mockDeleteChannel = vi.fn()
 const mockListMessageAttachments = vi.fn()
 const mockRebindPendingAttachmentsToChild = vi.fn()
+const mockGetMessage = vi.fn()
+const mockRequireChannelMember = vi.fn()
 
 vi.mock("@/lib/community/message-handler", () => ({
   createCommunityMessage: (...a: unknown[]) => mockCreateCommunityMessage(...a),
@@ -17,6 +19,11 @@ vi.mock("@/lib/community/message-handler", () => ({
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToServerMembers: vi.fn(),
   fanOutToChannel: (...a: unknown[]) => mockFanOutToChannel(...a),
+}))
+
+vi.mock("@/lib/community/permissions", () => ({
+  requireServerMember: vi.fn(),
+  requireChannelMember: (...a: unknown[]) => mockRequireChannelMember(...a),
 }))
 
 vi.mock("@alook/shared", async () => {
@@ -33,6 +40,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityMessage: {
         ...actual.queries.communityMessage,
+        getMessage: (...a: unknown[]) => mockGetMessage(...a),
         hardDeleteMessage: (...a: unknown[]) => mockHardDeleteMessage(...a),
       },
       communityAttachment: {
@@ -48,7 +56,93 @@ vi.mock("@alook/shared", async () => {
   }
 })
 
-import { createMessageWithThread } from "./create-channels"
+import { createMessageWithThread, createThreadForUser } from "./create-channels"
+
+describe("createThreadForUser", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetThreadChannelByParentMessage.mockResolvedValue(null)
+    mockAddThreadParticipants.mockResolvedValue(undefined)
+    mockFanOutToChannel.mockResolvedValue(undefined)
+  })
+
+  it("derives the CLI thread name and commits participants before the canonical child-create frame", async () => {
+    const order: string[] = []
+    mockGetMessage.mockResolvedValue({
+      id: "m1",
+      channelId: "parent_1",
+      authorId: "source_author",
+      content: `  ${"x".repeat(60)}  `,
+    })
+    mockRequireChannelMember
+      .mockResolvedValueOnce({
+        ok: true,
+        value: { id: "parent_1", serverId: "s1", parentChannelId: null, type: "text" },
+      })
+      .mockResolvedValueOnce({ ok: true, value: {} })
+    mockCreateChannel.mockImplementation(async () => {
+      order.push("create")
+      return { id: "thread_1", name: "x".repeat(40), createdAt: "t0", creatorId: "cli_author" }
+    })
+    mockAddThreadParticipants.mockImplementation(async () => {
+      order.push("participants")
+    })
+    mockFanOutToChannel.mockImplementation(async () => {
+      order.push("fanout")
+    })
+
+    const result = await createThreadForUser({} as never, {
+      messageId: "m1",
+      actorUserId: "cli_author",
+    })
+
+    expect(result).toMatchObject({ ok: true, value: { id: "thread_1" } })
+    expect(mockCreateChannel).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      name: "x".repeat(40),
+      parentChannelId: "parent_1",
+      parentMessageId: "m1",
+      creatorId: "cli_author",
+    }))
+    expect(mockAddThreadParticipants).toHaveBeenCalledWith(expect.anything(), "thread_1", [
+      { userId: "cli_author", source: "spoke" },
+      { userId: "source_author", source: "added" },
+    ])
+    expect(order).toEqual(["create", "participants", "fanout"])
+  })
+
+  it("treats a same-actor race re-select as non-fresh and skips duplicate side effects", async () => {
+    mockGetMessage.mockResolvedValue({
+      id: "m1",
+      channelId: "parent_1",
+      authorId: "same_actor",
+      content: "root",
+    })
+    mockRequireChannelMember.mockResolvedValue({
+      ok: true,
+      value: { id: "parent_1", serverId: "s1", parentChannelId: null, type: "text" },
+    })
+    mockCreateChannel.mockRejectedValue(
+      Object.assign(new Error("UNIQUE constraint failed"), { code: "SQLITE_CONSTRAINT" }),
+    )
+    mockGetThreadChannelByParentMessage
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: "thread_winner",
+        name: "root",
+        createdAt: "t0",
+        creatorId: "same_actor",
+      })
+
+    const result = await createThreadForUser({} as never, {
+      messageId: "m1",
+      actorUserId: "same_actor",
+    })
+
+    expect(result).toMatchObject({ ok: true, value: { id: "thread_winner" } })
+    expect(mockAddThreadParticipants).not.toHaveBeenCalled()
+    expect(mockFanOutToChannel).not.toHaveBeenCalled()
+  })
+})
 
 describe("createMessageWithThread (phase2 forum≡thread — atomic-by-compensation primitive)", () => {
   beforeEach(() => {

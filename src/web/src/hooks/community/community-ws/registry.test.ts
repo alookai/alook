@@ -71,8 +71,8 @@ describe("community WebSocket registry", () => {
   })
 
   it("deduplicates the complete policy set", () => {
-    expect(communityWsReconnectPolicies).toHaveLength(12)
-    expect(new Set(communityWsReconnectPolicies).size).toBe(12)
+    expect(communityWsReconnectPolicies).toHaveLength(13)
+    expect(new Set(communityWsReconnectPolicies).size).toBe(13)
   })
 
   it.each([

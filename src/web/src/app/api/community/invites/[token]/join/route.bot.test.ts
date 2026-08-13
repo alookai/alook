@@ -116,7 +116,7 @@ describe("POST /api/community/invites/[token]/join — bot path", () => {
     expect((await res.json()).error).toBe("Already a member")
   })
 
-  it("returns the server superset and excludes the bot from server fan-out", async () => {
+  it("returns the server superset and includes the bot's browser connections in server fan-out", async () => {
     mockGetInviteByToken.mockResolvedValue({ id: "inv_1", serverId: "srv_1", createdBy: "owner_1" })
     mockUseInvite.mockResolvedValue({
       invite: { id: "inv_1", serverId: "srv_1" },
@@ -135,7 +135,6 @@ describe("POST /api/community/invites/[token]/join — bot path", () => {
     expect(mockFanOutToServerMembers).toHaveBeenCalledWith(
       "srv_1",
       expect.objectContaining({ serverId: "srv_1" }),
-      { excludeUserId: "bot_1" },
     )
     // The bot's owner isn't necessarily a server member, so the fan-out
     // above can't reach them. The route must ALSO notify the owner

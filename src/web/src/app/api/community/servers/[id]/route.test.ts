@@ -2,8 +2,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
 const mockGetMember = vi.fn()
+const mockListMemberUserIds = vi.fn()
 const mockUpdateServer = vi.fn()
+const mockDeleteServer = vi.fn()
 const mockFanOut = vi.fn()
+const mockFanOutToUsers = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -18,9 +21,13 @@ vi.mock("@alook/shared", async () => {
   return {
     ...actual,
     queries: {
-      communityMember: { getMember: (...a: unknown[]) => mockGetMember(...a) },
+      communityMember: {
+        getMember: (...a: unknown[]) => mockGetMember(...a),
+        listMemberUserIds: (...a: unknown[]) => mockListMemberUserIds(...a),
+      },
       communityServer: {
         updateServer: (...a: unknown[]) => mockUpdateServer(...a),
+        deleteServer: (...a: unknown[]) => mockDeleteServer(...a),
       },
     },
   }
@@ -28,6 +35,7 @@ vi.mock("@alook/shared", async () => {
 
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToServerMembers: (...a: unknown[]) => mockFanOut(...a),
+  fanOutToUsers: (...a: unknown[]) => mockFanOutToUsers(...a),
 }))
 
 vi.mock("@/lib/middleware/auth", () => ({
@@ -46,7 +54,7 @@ vi.mock("@/lib/middleware/helpers", () => {
   }
 })
 
-import { PATCH } from "./route"
+import { DELETE, PATCH } from "./route"
 
 const ctx = { params: { id: "s1" } } as any
 
@@ -56,6 +64,10 @@ function patchReq(body: unknown) {
     body: JSON.stringify(body),
     headers: { "Content-Type": "application/json" },
   })
+}
+
+function deleteReq() {
+  return new NextRequest("http://localhost/api/community/servers/s1", { method: "DELETE" })
 }
 
 describe("PATCH /api/community/servers/[id]", () => {
@@ -85,5 +97,39 @@ describe("PATCH /api/community/servers/[id]", () => {
     const res = await PATCH(patchReq({ name: "My Home" }), ctx)
     expect(res.status).toBe(403)
     expect(mockUpdateServer).not.toHaveBeenCalled()
+  })
+})
+
+describe("DELETE /api/community/servers/[id]", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetMember.mockResolvedValue({ id: "mem_1", userId: "u1", role: "owner" })
+    mockListMemberUserIds.mockResolvedValue(["u1", "u2"])
+    mockDeleteServer.mockResolvedValue({ id: "s1" })
+    mockFanOutToUsers.mockResolvedValue(undefined)
+  })
+
+  it("snapshots recipients, commits deletion, then broadcasts to every prior member", async () => {
+    const order: string[] = []
+    mockListMemberUserIds.mockImplementation(async () => {
+      order.push("recipients")
+      return ["u1", "u2"]
+    })
+    mockDeleteServer.mockImplementation(async () => {
+      order.push("delete")
+      return { id: "s1" }
+    })
+    mockFanOutToUsers.mockImplementation(async () => {
+      order.push("fanout")
+    })
+
+    const res = await DELETE(deleteReq(), ctx)
+
+    expect(res.status).toBe(204)
+    expect(order).toEqual(["recipients", "delete", "fanout"])
+    expect(mockFanOutToUsers).toHaveBeenCalledWith(["u1", "u2"], {
+      type: "community:server.delete",
+      serverId: "s1",
+    })
   })
 })

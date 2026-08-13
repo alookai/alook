@@ -67,7 +67,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
         joinedAt: added.joinedAt,
       },
     }
-    fanOutToServerMembers(serverId, joinEvent, { excludeUserId: ctx.userId })
+    fanOutToServerMembers(serverId, joinEvent)
     return writeJSON({ status: "added" }, 201)
   }
 
