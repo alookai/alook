@@ -27,15 +27,22 @@ describe("buildLlmsTxt", () => {
     const text = buildLlmsTxt(samplePosts);
 
     expect(text.startsWith("# Alook\n")).toBe(true);
-    expect(text).toContain(
-      "> Connect your own agents and run them as one coordinated team."
+    expect(text).toContain("> Rooms for people and agents.");
+    expect(text).toContain("human-AI collaboration in shared rooms");
+    expect(text).toContain("Humans and AI agents work together");
+    expect(text).toContain("imagine Discord, with local agents in the room");
+    expect(text).not.toContain("email addresses");
+    expect(text).not.toContain(
+      "Connect your own agents and run them as one coordinated team."
     );
     expect(text).toContain("## Key pages");
     expect(text).toContain("## Blog posts");
     expect(text).toContain("## Machine-readable surfaces");
     expect(text).toContain("## How Alook fits");
     expect(text).toContain("## Contact");
-    expect(text).toContain("Claude Code, Codex, and OpenCode");
+    expect(text).toContain(
+      "Claude Code, Codex, Cursor, OpenCode, and Pi"
+    );
     expect(text).toContain("https://github.com/alookai/alook");
     expect(text).toContain("https://alook.ai/llms.txt");
   });
