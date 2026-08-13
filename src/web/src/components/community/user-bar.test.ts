@@ -14,6 +14,7 @@ describe("UserBar", () => {
     }))
 
     expect(html).toContain('data-testid="community-user-bar"')
+    expect(html).toContain('class="w-full min-w-0 max-w-full shrink-0 overflow-hidden px-3 pb-3 pt-0"')
     expect(html).toContain('class="flex min-w-0 flex-1 items-center gap-2"')
     expect(html).toContain('data-testid="community-user-bar-name"')
     expect(html).toContain('class="truncate text-sm font-medium leading-tight"')
