@@ -5,6 +5,7 @@ import Image from "next/image"
 import { toBlob } from "html-to-image"
 import { toast } from "sonner"
 import { Check, Copy, Download, Highlighter, Loader2 } from "lucide-react"
+import { stripInlineMarkup } from "@alook/shared"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Avatar } from "./avatar"
@@ -169,41 +170,76 @@ export function MessageShareDialog({ m, open, onClose }: {
             className="rounded-xl bg-card p-5 shadow-(--e1)"
           >
             {messages.map((msg) => (
-              // A grouped message (consecutive same author) collapses the avatar
-              // column into a spacer + drops the name, matching the chat stream.
-              <div key={msg.id} className={`flex gap-3 ${msg.grouped ? "mt-0.5" : "mt-3 first:mt-0"}`}>
-                {msg.grouped
-                  ? <div className="w-10 shrink-0" aria-hidden />
-                  : <Avatar label={msg.authorAvatar ?? "?"} seed={msg.authorId} size={40} />}
-                <div className="min-w-0 flex-1">
-                  {!msg.grouped && (
-                    <div
-                      className="mb-0.5 text-[15px] font-semibold"
-                      style={{ color: msg.color ?? "var(--foreground)" }}
-                    >
-                      {msg.authorName}
-                    </div>
-                  )}
-                  {/* Each body: clamp at 32 lines (Alli #137 — one number for
-                      single & multi share). Two layers, same as the original
-                      single-message card: `max-h` hard-bounds any structure
-                      (multi-paragraph markdown escapes line-clamp alone), and
-                      `line-clamp-[32]` gives a single-block message a tidy
-                      ellipsis. Each body also drives its own drag-highlight
-                      (per-message scope, Alli #133) via its ref in `bodyRefs`;
-                      the `mark[data-hl]` styles are the soft-yellow marker
-                      (rasterises cleanly under html-to-image — plain bg +
-                      box-decoration-break, no mask). max-h ≈ 32 lines at the
-                      body's 15px/leading-snug. */}
-                  {msg.content && (
-                    <div
-                      ref={(el) => { bodyRefs.current.set(msg.id, el) }}
-                      onMouseUp={() => onBodyMouseUp(msg.id)}
-                      className="max-h-164 overflow-hidden line-clamp-32 [&_mark[data-hl]]:rounded-xs [&_mark[data-hl]]:bg-[rgba(255,208,92,0.5)] [&_mark[data-hl]]:p-[0_1px] [&_mark[data-hl]]:[box-decoration-break:clone] [&_mark[data-hl]]:[-webkit-box-decoration-break:clone] [&_mark[data-hl]]:text-inherit"
-                    >
-                      <MessageBody text={msg.content} perspective="neutral" />
-                    </div>
-                  )}
+              <div key={msg.id} className={msg.grouped ? "mt-0.5" : "mt-3 first:mt-0"}>
+                {msg.replyTo && (
+                  <div
+                    data-testid={`message-share-reply-${msg.id}`}
+                    className="mb-1 ml-13 flex min-w-0 max-w-[calc(100%-3.25rem)] items-center gap-2 text-[13px] text-muted-foreground"
+                  >
+                    <div className="h-2 w-4 shrink-0 rounded-tl-md border-l-2 border-t-2 border-border" />
+                    {msg.replyTo.deleted ? (
+                      <span className="italic">Original message was deleted</span>
+                    ) : (
+                      <>
+                        <span className="shrink-0 font-medium text-foreground/80">@{msg.replyTo.authorName}</span>
+                        <span className="min-w-0 truncate">{stripInlineMarkup(msg.replyTo.text)}</span>
+                      </>
+                    )}
+                  </div>
+                )}
+                <div className="flex gap-3">
+                  {msg.grouped
+                    ? <div className="w-10 shrink-0" aria-hidden />
+                    : <Avatar label={msg.authorAvatar ?? "?"} seed={msg.authorId} size={40} />}
+                  <div className="min-w-0 flex-1">
+                    {!msg.grouped && (
+                      <div
+                        className="mb-0.5 text-[15px] font-semibold"
+                        style={{ color: msg.color ?? "var(--foreground)" }}
+                      >
+                        {msg.authorName}
+                      </div>
+                    )}
+                    {/* Each body: clamp at 32 lines (Alli #137 — one number for
+                        single & multi share). Two layers, same as the original
+                        single-message card: `max-h` hard-bounds any structure
+                        (multi-paragraph markdown escapes line-clamp alone), and
+                        `line-clamp-[32]` gives a single-block message a tidy
+                        ellipsis. Each body also drives its own drag-highlight
+                        (per-message scope, Alli #133) via its ref in `bodyRefs`;
+                        the `mark[data-hl]` styles are the soft-yellow marker
+                        (rasterises cleanly under html-to-image — plain bg +
+                        box-decoration-break, no mask). max-h ≈ 32 lines at the
+                        body's 15px/leading-snug. */}
+                    {msg.content && (
+                      <div
+                        ref={(el) => { bodyRefs.current.set(msg.id, el) }}
+                        onMouseUp={() => onBodyMouseUp(msg.id)}
+                        className="max-h-164 overflow-hidden line-clamp-32 [&_mark[data-hl]]:rounded-xs [&_mark[data-hl]]:bg-[rgba(255,208,92,0.5)] [&_mark[data-hl]]:p-[0_1px] [&_mark[data-hl]]:[box-decoration-break:clone] [&_mark[data-hl]]:[-webkit-box-decoration-break:clone] [&_mark[data-hl]]:text-inherit"
+                      >
+                        <MessageBody text={msg.content} perspective="neutral" />
+                      </div>
+                    )}
+                    {msg.reactions && msg.reactions.length > 0 && (
+                      <div
+                        data-testid={`message-share-reactions-${msg.id}`}
+                        className="mt-2 flex flex-wrap gap-1"
+                      >
+                        {msg.reactions.map((reaction) => (
+                          <span
+                            key={reaction.emoji}
+                            className={[
+                              "flex h-6 items-center gap-1 rounded-md px-2 text-sm",
+                              reaction.me ? "border border-primary/50 bg-accent" : "bg-secondary",
+                            ].join(" ")}
+                          >
+                            <span>{reaction.emoji}</span>
+                            <span className="text-xs text-muted-foreground">{reaction.count}</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
