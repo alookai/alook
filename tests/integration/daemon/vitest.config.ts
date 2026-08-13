@@ -14,6 +14,7 @@ export default mergeConfig(shared, defineConfig({
   resolve: {
     alias: {
       "@alook/shared/community-cli-contract": resolve(root, "src/shared/src/community-cli-contract.ts"),
+      "@alook/shared/lib/discriminator": resolve(root, "src/shared/src/lib/discriminator.ts"),
       "@alook/test-utils": resolve(root, "tests/utils/src/index.ts"),
       "@alook/shared": resolve(root, "src/shared/src/index.ts"),
     },
