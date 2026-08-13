@@ -184,7 +184,13 @@ export function AttachmentPreviewSheet({
             </button>
           </div>
         </SheetHeader>
-        <SheetBody data-testid={tid.attachmentPreviewContent} className="flex min-h-0 flex-col">
+        <SheetBody
+          data-testid={tid.attachmentPreviewContent}
+          className={cn(
+            "flex min-h-0 flex-col",
+            (presentation?.previewKind === "code" || presentation?.previewKind === "text") && "p-0",
+          )}
+        >
           {preview.status === "loading" && (
             <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" />

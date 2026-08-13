@@ -41,6 +41,23 @@ afterEach(() => {
 })
 
 describe("CodePreview", () => {
+  it("renders as a flat Sheet panel without card chrome", async () => {
+    let renderer: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(CodePreview, {
+        content: "plain source",
+        language: null,
+      }))
+    })
+    await flush()
+
+    const preview = renderer!.root.findByProps({ "data-testid": tid.codePreview })
+    expect(preview.props.className).not.toMatch(/rounded|\bborder\b|bg-/)
+    const toolbar = preview.findAllByType("div")[0]!
+    expect(toolbar.props.className).toContain("border-b")
+    expect(toolbar.props.className).not.toMatch(/bg-/)
+  })
+
   it("renders language, line numbers, and theme-aware Shiki tokens", async () => {
     highlightCodeMock.mockResolvedValue({
       kind: "highlighted",

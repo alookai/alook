@@ -129,9 +129,9 @@ export function CodePreview({
   return (
     <section
       data-testid={tid.codePreview}
-      className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-muted/20"
+      className="flex min-h-0 flex-1 flex-col overflow-hidden"
     >
-      <div className="flex shrink-0 items-center gap-2 border-b border-border bg-card px-2 py-1">
+      <div className="flex shrink-0 items-center gap-2 border-b border-border px-2 py-1">
         <span data-testid={tid.codePreviewLanguage} className="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground">
           {label}
         </span>

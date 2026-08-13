@@ -143,6 +143,24 @@ describe("AttachmentPreviewSheet", () => {
     await flush()
     const preview = renderer!.root.findByProps({ "data-code-language": "typescript" })
     expect(preview.children).toEqual(["const answer = 42"])
+    expect(renderer!.root.findByProps({ "data-testid": "community-attachment-preview-content" }).props.className)
+      .toContain("p-0")
+  })
+
+  it("keeps the existing SheetBody spacing for Markdown", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("# Hello", { status: 200 })))
+    let renderer: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(AttachmentPreviewSheet, {
+        attachment: file(),
+        open: true,
+        onOpenChange: vi.fn(),
+      }))
+    })
+    await flush()
+
+    expect(renderer!.root.findByProps({ "data-testid": "community-attachment-preview-content" }).props.className)
+      .not.toContain("p-0")
   })
 
   it("keeps the existing one MiB ceiling for code", async () => {
