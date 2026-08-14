@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { Avatar } from "./avatar"
+import { ProfileAvatar } from "@/components/avatar"
 import { serializeBeamSeed } from "@/lib/avatar/seed-url"
 
 function normalize(html: string): string {
@@ -38,6 +39,23 @@ describe("Avatar seed contract", () => {
     expect(html).not.toContain('data-slot="avatar-fallback"')
   })
 
+  it("keeps stored avatar sources out of the accessibility tree", () => {
+    for (const source of [
+      serializeBeamSeed("private-seed"),
+      "https://cdn.example.com/private-avatar.png",
+    ]) {
+      const element = Avatar({ label: source, seed: "usr_1" })
+      const html = render({ label: source, seed: "usr_1" })
+
+      expect(element.type).toBe(ProfileAvatar)
+      expect(element.props.alt).toBe("")
+      expect(html).toContain('aria-hidden="true"')
+      expect(html).not.toContain('role="img"')
+      expect(html).not.toContain("aria-label")
+      expect(html).not.toContain(source)
+    }
+  })
+
   it("is stable for the same seed", () => {
     expect(normalize(render({ label: "Ada", seed: "usr_1" }))).toBe(
       normalize(render({ label: "Ada", seed: "usr_1" })),
@@ -47,12 +65,26 @@ describe("Avatar seed contract", () => {
   it("keeps the same avatar when the display name changes but the seed is stable", () => {
     const before = normalize(render({ label: "Ada", seed: "usr_1" }))
     const afterRename = normalize(render({ label: "Adelaide", seed: "usr_1" }))
-    expect(afterRename).toBe(before)
+    expect(afterRename.replace('aria-label="Adelaide"', 'aria-label="Ada"')).toBe(before)
   })
 
   it("produces different avatars for different seeds", () => {
     const a = normalize(render({ label: "Ada", seed: "usr_1" }))
     const b = normalize(render({ label: "Ada", seed: "usr_2" }))
     expect(a).not.toBe(b)
+  })
+
+  it("preserves the community presence badge and caller ring surface", () => {
+    const html = render({
+      label: "Ada",
+      seed: "usr_1",
+      size: 64,
+      presence: "online",
+      ringColor: "var(--popover)",
+    })
+
+    expect(html).toContain('data-presence="online"')
+    expect(html).toContain("background:var(--status-online)")
+    expect(html).toContain("var(--popover)")
   })
 })

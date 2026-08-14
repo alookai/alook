@@ -20,6 +20,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { trackTeamMemberInvited } from "@/lib/analytics";
 import { displayName } from "@/lib/community/display-name";
+import { ProfileAvatar } from "@/components/avatar";
 
 function getInviteLink(token: string) {
   return `${window.location.origin}/invite/${token}`;
@@ -199,26 +200,19 @@ export function MembersTab() {
         <div className="space-y-2">
           {members.map((member) => {
             const isSelf = member.user_id === currentUserId;
-            const initials = displayName(member)
-              .split(" ")
-              .map((n) => n[0])
-              .join("")
-              .slice(0, 2)
-              .toUpperCase();
 
             return (
               <div
                 key={member.id}
                 className="flex items-center gap-3 rounded-md border border-border/50 px-3 py-2"
               >
-                {/* Avatar */}
-                <div className="size-7 rounded-full bg-muted flex items-center justify-center text-xs font-medium text-muted-foreground shrink-0 overflow-hidden">
-                  {member.image ? (
-                    <img src={member.image} alt={member.name} className="size-full object-cover" />
-                  ) : (
-                    initials
-                  )}
-                </div>
+                <ProfileAvatar
+                  label={displayName(member)}
+                  seed={member.user_id}
+                  src={member.image}
+                  size={28}
+                  data-testid={`members-avatar-${member.user_id}`}
+                />
 
                 {/* Name / email */}
                 <div className="min-w-0 flex-1">
