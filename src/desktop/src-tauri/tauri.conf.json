@@ -1,6 +1,6 @@
 {
   "productName": "Alook",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "identifier": "ai.alook.desktop",
   "build": {
     "devUrl": "http://localhost:3000/c",
@@ -43,7 +43,9 @@
       }
     ],
     "security": {
-      "capabilities": ["desktop-capability"]
+      "capabilities": [
+        "desktop-capability"
+      ]
     }
   },
   "plugins": {
