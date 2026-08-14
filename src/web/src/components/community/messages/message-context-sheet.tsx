@@ -19,7 +19,7 @@ import { useCurrentUser } from "@/contexts/community/current-user"
 import { useUiHandlers } from "@/stores/community"
 import { usePinMessage, useUnpinMessage, useCreateThread, useToggleMark } from "@/hooks/community/mutations"
 import type { FileAttachment, ImagePreview, MessagesPage, Msg, Reaction, RenderMsg } from "@/lib/community/models/message"
-import type { OpenProfile } from "@/components/community/profile-types"
+import type { OpenProfile } from "@/components/community/social/profile-types"
 
 export type ReplyTarget = { id: string; authorName: string; text: string }
 

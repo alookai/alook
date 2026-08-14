@@ -7,7 +7,7 @@ import { MAX_STATUS_TEXT_LENGTH } from "@alook/shared"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
-import { EmojiPickerPopover } from "./messages/emoji-picker"
+import { EmojiPickerPopover } from "../messages/emoji-picker"
 import { STATUS_PRESETS, matchingPreset, hasStatus } from "./status-presets"
 
 export { hasStatus } from "./status-presets"

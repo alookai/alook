@@ -6,7 +6,7 @@ import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-fee
 import { ChannelHeader, type ChannelNotifLevel } from "@/components/community/channels/channel-header"
 import { ChannelShell } from "@/components/community/channels/channel-shell"
 import { CommunityPanelSheet } from "@/components/community/shell/community-panel-sheet"
-import type { ChannelMemberPanelProps } from "@/components/community/channel-member-view-model"
+import type { ChannelMemberPanelProps } from "@/components/community/members/channel-member-view-model"
 import { Composer } from "@/components/community/messages/composer"
 import { MessageContextSheet } from "@/components/community/messages/message-context-sheet"
 import { MessageList } from "@/components/community/messages/message-list"
@@ -14,7 +14,7 @@ import {
   MessageChannelController,
 } from "@/components/community/messages/message-channel-controller"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
-import type { OpenProfile } from "@/components/community/profile-types"
+import type { OpenProfile } from "@/components/community/social/profile-types"
 import type { RightPanel } from "@/components/community/shell/panel-types"
 
 export function TextChannelSurface({

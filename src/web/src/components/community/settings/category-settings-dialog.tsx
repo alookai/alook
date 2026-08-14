@@ -4,7 +4,7 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { onEnterSubmit } from "@/lib/ime"
 import { CreateDialogShell } from "./create-dialog-shell"
-import { PrivateCategoryRow } from "./private-category-row"
+import { PrivateCategoryRow } from "../members/private-category-row"
 
 // Category settings dialog — rename only. Privacy (public/private) is fixed at
 // creation and can't be changed here: flipping it would silently widen/tighten

@@ -7,7 +7,7 @@ import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Avatar } from "./avatar"
+import { Avatar } from "../avatar"
 import { hasStatus } from "./status-presets"
 import { useInvitableFriends } from "@/hooks/community/use-invitable-friends"
 import {

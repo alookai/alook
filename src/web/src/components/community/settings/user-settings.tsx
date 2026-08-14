@@ -11,9 +11,9 @@ import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { clearPersistedCache } from "@/lib/query-persister"
-import { Avatar } from "./avatar"
+import { Avatar } from "../avatar"
 import { Field } from "./field"
-import { StatusEditor, hasStatus } from "./status-editor"
+import { StatusEditor, hasStatus } from "../social/status-editor"
 import {
   SETTINGS_LOGOUT_CLASS,
   SETTINGS_NAV_CLASS,

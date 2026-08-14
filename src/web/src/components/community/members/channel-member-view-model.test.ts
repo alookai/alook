@@ -63,7 +63,7 @@ vi.mock("@/stores/community/ws", () => ({
   useCommunityWsStore: (selector: (state: { userStatuses: typeof mocks.userStatuses }) => unknown) =>
     selector({ userStatuses: mocks.userStatuses }),
 }))
-vi.mock("@/components/community/add-members-dialog", () => ({
+vi.mock("@/components/community/members/add-members-dialog", () => ({
   AddMembersDialog: vi.fn(() => null),
 }))
 vi.mock("@/components/community/shell/community-panel-sheet", () => ({

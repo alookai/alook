@@ -3,7 +3,7 @@
 import { memo, useCallback } from "react"
 import { Message } from "./message"
 import type { FileAttachment, ImagePreview, RenderMsg } from "@/lib/community/models/message"
-import type { OpenProfile } from "@/components/community/profile-types"
+import type { OpenProfile } from "@/components/community/social/profile-types"
 
 // A thin, memoized per-row wrapper between the virtualized list and `Message`.
 //

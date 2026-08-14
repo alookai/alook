@@ -32,7 +32,7 @@ describe("community virtualizer direct DOM contract", () => {
   })
 
   it("gives MemberList container size and row position ownership to the virtualizer", () => {
-    const memberList = readComponent("../member-list.tsx")
+    const memberList = readComponent("../members/member-list.tsx")
 
     expect(memberList).toContain("...COMMUNITY_VIRTUALIZER_REACT_OPTIONS")
     expect(memberList).toContain("ref={rowVirtualizer.containerRef}")
@@ -43,7 +43,7 @@ describe("community virtualizer direct DOM contract", () => {
   })
 
   it("gives SettingsMembers container size and row position ownership to the virtualizer", () => {
-    const serverSettings = readComponent("../server-settings.tsx")
+    const serverSettings = readComponent("../settings/server-settings.tsx")
 
     expect(serverSettings).toContain("...COMMUNITY_VIRTUALIZER_REACT_OPTIONS")
     expect(serverSettings).toContain("ref={rowVirtualizer.containerRef}")

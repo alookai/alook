@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 
 const componentDirectory = dirname(fileURLToPath(import.meta.url))
-const webRoot = resolve(componentDirectory, "../../..")
+const webRoot = resolve(componentDirectory, "../../../..")
 const repositoryRoot = resolve(webRoot, "../..")
 
 const readWeb = (path: string) => readFileSync(resolve(webRoot, path), "utf8")
@@ -12,9 +12,9 @@ const readRepository = (path: string) => readFileSync(resolve(repositoryRoot, pa
 
 describe("server audit removal contract", () => {
   it("removes the server settings surface and client query", () => {
-    expect(readWeb("src/components/community/server-settings.tsx")).not.toContain("Audit Log")
+    expect(readWeb("src/components/community/settings/server-settings.tsx")).not.toContain("Audit Log")
     expect(readWeb("src/components/community/channels/channel-sidebar.tsx")).not.toContain("Audit Log")
-    expect(readWeb("src/components/community/settings-types.ts")).not.toContain('| "audit"')
+    expect(readWeb("src/components/community/settings/settings-types.ts")).not.toContain('| "audit"')
     expect(readWeb("src/hooks/community/use-server-panels.ts")).not.toContain("useAuditLog")
     expect(readWeb("src/lib/query-keys.ts")).not.toContain("auditLog:")
   })

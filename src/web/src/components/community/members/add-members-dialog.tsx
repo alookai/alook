@@ -6,7 +6,7 @@ import { Search, Loader2 } from "lucide-react"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { Avatar } from "./avatar"
+import { Avatar } from "../avatar"
 import { displayName } from "@/lib/community/display-name"
 import { toastApiError } from "@/lib/api/client"
 

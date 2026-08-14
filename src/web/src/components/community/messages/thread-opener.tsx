@@ -11,7 +11,7 @@ import { avatarInitial } from "@/lib/community/avatar"
 import { useMessage } from "@/hooks/community/use-message"
 import { tid } from "@/lib/community/testids"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
-import type { OpenProfile } from "@/components/community/profile-types"
+import type { OpenProfile } from "@/components/community/social/profile-types"
 import { AttachmentCard } from "./attachment-card"
 
 // Thread opener — the parent message the thread was created from, pinned at

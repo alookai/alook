@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { Check } from "lucide-react"
-import { EntityIcon } from "./entity-icon"
+import { EntityIcon } from "../entity-icon"
 import { CreateDialogShell } from "./create-dialog-shell"
 import { Button } from "@/components/ui/button"
 import { tid } from "@/lib/community/testids"

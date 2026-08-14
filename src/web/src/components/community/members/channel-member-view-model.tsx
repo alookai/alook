@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from "react"
 import { toast } from "sonner"
 import { isForum, type CommunityRole as Role } from "@alook/shared"
-import { AddMembersDialog } from "@/components/community/add-members-dialog"
+import { AddMembersDialog } from "@/components/community/members/add-members-dialog"
 import type { CommunityPanelSheet } from "@/components/community/shell/community-panel-sheet"
 import type { Member } from "@/lib/community/models/people"
 import { toastApiError } from "@/lib/api/client"

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ChannelRoute } from "./channel-route"
 import { ForumChannelSurface } from "./forum-channel-surface"
 import { MessageList } from "../messages/message-list"
-import { useChannelMemberViewModel } from "../channel-member-view-model"
+import { useChannelMemberViewModel } from "../members/channel-member-view-model"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
 
 const { mockRouteModel, mockMemberViewModel } = vi.hoisted(() => ({
@@ -60,7 +60,7 @@ vi.mock("@/components/community/channels/forum-view", () => ({ ForumViewSkeleton
 vi.mock("@/components/community/channels/forum-channel-surface", () => ({
   ForumChannelSurface: vi.fn(() => null),
 }))
-vi.mock("@/components/community/channel-member-view-model", () => ({
+vi.mock("@/components/community/members/channel-member-view-model", () => ({
   useChannelMemberViewModel: vi.fn(() => mockMemberViewModel),
 }))
 vi.mock("@/components/community/channels/channel-shell", () => ({
@@ -69,7 +69,7 @@ vi.mock("@/components/community/channels/channel-shell", () => ({
 vi.mock("@/components/community/shell/community-panel-sheet", () => ({ CommunityPanelSheet: () => null }))
 vi.mock("@/components/community/messages/message-context-sheet", () => ({ MessageContextSheet: () => null }))
 vi.mock("@/components/community/messages/thread-opener", () => ({ ThreadOpener: () => null }))
-vi.mock("@/components/community/add-members-dialog", () => ({ AddMembersDialog: () => null }))
+vi.mock("@/components/community/members/add-members-dialog", () => ({ AddMembersDialog: () => null }))
 vi.mock("@alook/shared", () => ({
   canManageServer: () => false,
   isForum: () => false,

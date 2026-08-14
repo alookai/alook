@@ -4,7 +4,7 @@ import type React from "react"
 import { Inbox, Settings } from "lucide-react"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Avatar } from "../avatar"
-import type { OpenProfile } from "@/components/community/profile-types"
+import type { OpenProfile } from "@/components/community/social/profile-types"
 import { resolveProfilePresence } from "@/lib/community/presence"
 
 // UserBar always renders the signed-in viewer, so presence resolves through

@@ -4,7 +4,7 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { onEnterSubmit } from "@/lib/ime"
 import { CreateDialogShell } from "./create-dialog-shell"
-import { PrivateCategoryRow } from "./private-category-row"
+import { PrivateCategoryRow } from "../members/private-category-row"
 
 // Create Category dialog — name + private toggle (defaults to public). In a
 // private category any member can create a channel, but each channel is visible

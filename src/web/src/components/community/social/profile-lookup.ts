@@ -1,5 +1,5 @@
 import type { Member, Friend } from "@/lib/community/models/people"
-import type { Profile } from "@/components/community/profile-types"
+import type { Profile } from "@/components/community/social/profile-types"
 import type { View } from "@/components/community/shell/shell-types"
 import type { CurrentUser } from "@/contexts/community/current-user"
 import { resolveProfilePresence } from "@/lib/community/presence"

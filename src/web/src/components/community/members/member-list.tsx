@@ -9,15 +9,15 @@ import {
 } from "@/components/ui/context-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Input } from "@/components/ui/input"
-import { Avatar } from "./avatar"
+import { Avatar } from "../avatar"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { toastApiError } from "@/lib/api/client"
 import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "@/hooks/community/virtualizer-react-options"
-import { hasStatus } from "./status-presets"
+import { hasStatus } from "../social/status-presets"
 import { tid } from "@/lib/community/testids"
 import type { Member } from "@/lib/community/models/people"
-import type { OpenProfile } from "@/components/community/profile-types"
-import type { MemberManageContext } from "@/components/community/member-management-types"
+import type { OpenProfile } from "@/components/community/social/profile-types"
+import type { MemberManageContext } from "@/components/community/members/member-management-types"
 import {
   canManageServer,
   isPresenceOffline,

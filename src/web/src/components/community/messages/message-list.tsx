@@ -17,7 +17,7 @@ import { flattenMessageItems } from "@/lib/community/message-list-items"
 import { VirtualRows } from "./virtual-cursor-list"
 import { useVirtualCursorSentinel } from "@/hooks/community/use-virtual-cursor-sentinel"
 import type { FileAttachment, ImagePreview, Msg } from "@/lib/community/models/message"
-import type { OpenProfile } from "@/components/community/profile-types"
+import type { OpenProfile } from "@/components/community/social/profile-types"
 
 // Channel message list — welcome hero, date dividers, messages (with the NEW divider),
 // and typing indicator. Data via props.

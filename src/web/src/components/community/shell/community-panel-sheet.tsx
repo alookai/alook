@@ -7,8 +7,8 @@ import type { RightPanel } from "@/components/community/shell/panel-types"
 import type { Member } from "@/lib/community/models/people"
 import type { CommunityRole as Role } from "@alook/shared"
 import type { Msg, Thread } from "@/lib/community/models/message"
-import type { OpenProfile } from "@/components/community/profile-types"
-import type { MemberManageContext } from "@/components/community/member-management-types"
+import type { OpenProfile } from "@/components/community/social/profile-types"
+import type { MemberManageContext } from "@/components/community/members/member-management-types"
 
 // Sheet-based right panel for the community channel UI.
 // Renders the channel's threads / pinned / members / search panel as a non-modal Sheet:

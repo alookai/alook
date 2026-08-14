@@ -10,7 +10,7 @@ import { validateIconSourceFile } from "@/lib/community/image-crop"
 import { previewSlug } from "@/lib/community/slug-preview"
 import { tid } from "@/lib/community/testids"
 import { CreateDialogShell } from "./create-dialog-shell"
-import { ImageCropDialog } from "./image-crop-dialog"
+import { ImageCropDialog } from "../image-crop-dialog"
 import { SlugHint } from "./slug-hint"
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)"

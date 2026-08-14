@@ -7,15 +7,15 @@ import { onEnterSubmit } from "@/lib/ime"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "../avatar"
 import { PanelShell } from "./panel-shell"
-import { MemberList } from "../member-list"
+import { MemberList } from "../members/member-list"
 import { Message } from "../messages/message"
 import { formatRelativeTime } from "@/lib/community/format-time"
 import { stripInlineMarkup, type CommunityRole as Role } from "@alook/shared"
 import type { RightPanel } from "@/components/community/shell/panel-types"
 import type { Member } from "@/lib/community/models/people"
 import type { Msg, RenderMsg, Thread } from "@/lib/community/models/message"
-import type { OpenProfile } from "@/components/community/profile-types"
-import type { MemberManageContext } from "@/components/community/member-management-types"
+import type { OpenProfile } from "@/components/community/social/profile-types"
+import type { MemberManageContext } from "@/components/community/members/member-management-types"
 
 // Right-panel content router — members / pinned / search / threads. Data via props.
 // Always wraps the active section in PanelShell — the surrounding Sheet provides the

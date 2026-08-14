@@ -13,11 +13,11 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { Skeleton } from "@/components/ui/skeleton"
 import { ChannelIcon } from "./channel-icon"
 import { EntityIcon } from "../entity-icon"
-import { SlugHint } from "../slug-hint"
+import { SlugHint } from "../settings/slug-hint"
 import { previewSlug } from "@/lib/community/slug-preview"
 import { SeededBackdrop } from "@/components/avatar"
 import type { RightPanel } from "@/components/community/shell/panel-types"
-import { CreateDialogShell } from "../create-dialog-shell"
+import { CreateDialogShell } from "../settings/create-dialog-shell"
 
 // Skeleton header for the loading frame between route change and channel
 // metadata arriving. Same h-12 footprint as <ChannelHeader> so the body below

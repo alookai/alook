@@ -10,7 +10,7 @@ import { MessageList } from "@/components/community/messages/message-list"
 import { MessageContextSheet } from "@/components/community/messages/message-context-sheet"
 import { Composer, ComposerSkeleton, type SendAttachment } from "@/components/community/messages/composer"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
-import type { OpenProfile } from "@/components/community/profile-types"
+import type { OpenProfile } from "@/components/community/social/profile-types"
 import {
   useCommunityStore,
   useCurrentChannelId,
