@@ -3,8 +3,8 @@
   "version": "0.1.7",
   "identifier": "ai.alook.desktop",
   "build": {
-    "devUrl": "http://localhost:3000/workspaces?auto",
-    "frontendDist": "https://alook.ai/workspaces?auto"
+    "devUrl": "http://localhost:3000/c",
+    "frontendDist": "https://alook.ai/c"
   },
   "bundle": {
     "active": true,

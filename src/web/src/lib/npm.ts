@@ -10,8 +10,7 @@ function getPackageName(): string {
   return "@alook/cli"
 }
 
-export async function fetchLatestCliVersion(): Promise<{ version: string; package: string } | null> {
-  const pkg = getPackageName()
+async function fetchLatestPackageVersion(pkg: string): Promise<{ version: string; package: string } | null> {
   try {
     const res = await fetch(`https://registry.npmjs.org/${pkg}/latest`);
     if (!res.ok) return null;
@@ -21,4 +20,12 @@ export async function fetchLatestCliVersion(): Promise<{ version: string; packag
   } catch {
     return null;
   }
+}
+
+export function fetchLatestCliVersion(): Promise<{ version: string; package: string } | null> {
+  return fetchLatestPackageVersion(getPackageName())
+}
+
+export function fetchLatestDaemonVersion(): Promise<{ version: string; package: string } | null> {
+  return fetchLatestPackageVersion("@alook/daemon")
 }

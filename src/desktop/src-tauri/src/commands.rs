@@ -7,19 +7,10 @@ use tauri_plugin_shell::ShellExt;
 #[cfg(desktop)]
 use tauri_plugin_notification::NotificationExt;
 
-#[cfg(desktop)]
 use std::path::PathBuf;
 
 #[cfg(desktop)]
 use std::sync::atomic::{AtomicBool, Ordering};
-
-
-#[derive(Serialize)]
-pub struct DaemonStatusResult {
-    pub running: bool,
-    pub pid: Option<u32>,
-    pub version: Option<String>,
-}
 
 #[derive(Serialize)]
 pub struct CommandResult {
@@ -27,17 +18,18 @@ pub struct CommandResult {
     pub message: String,
 }
 
-#[derive(Serialize)]
-pub struct CliInfo {
-    pub command: String,
-    pub is_dev: bool,
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DaemonRuntimeCapability {
+    pub available: bool,
+    pub reason: Option<String>,
+    pub node_version: Option<String>,
 }
 
-#[cfg(desktop)]
-struct CliConfig {
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct DaemonConfig {
     command: &'static str,
     base_args: &'static [&'static str],
-    env: Vec<(&'static str, &'static str)>,
     cwd: Option<PathBuf>,
 }
 
@@ -45,97 +37,203 @@ struct CliConfig {
 fn resolve_path() -> String {
     use std::sync::OnceLock;
     static CACHED: OnceLock<String> = OnceLock::new();
-    CACHED.get_or_init(|| {
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-        if let Ok(output) = std::process::Command::new(&shell)
-            .args(["-ilc", "echo $PATH"])
-            .output()
-        {
-            let shell_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !shell_path.is_empty() {
-                return shell_path;
+    CACHED
+        .get_or_init(|| {
+            let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+            if let Ok(output) = std::process::Command::new(&shell)
+                .args(["-ilc", "echo $PATH"])
+                .output()
+            {
+                let shell_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !shell_path.is_empty() {
+                    return shell_path;
+                }
             }
-        }
-        std::env::var("PATH").unwrap_or_default()
-    }).clone()
+            std::env::var("PATH").unwrap_or_default()
+        })
+        .clone()
 }
 
 #[cfg(desktop)]
-fn cli_config() -> CliConfig {
-    if cfg!(debug_assertions) {
+fn daemon_config() -> DaemonConfig {
+    daemon_config_for(cfg!(debug_assertions))
+}
+
+fn daemon_config_for(is_debug: bool) -> DaemonConfig {
+    if is_debug {
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let monorepo_root = manifest_dir
             .parent()
             .and_then(|p| p.parent())
             .and_then(|p| p.parent())
             .map(|p| p.to_path_buf());
-        CliConfig {
+        DaemonConfig {
             command: "pnpm",
-            base_args: &["dev:cli"],
-            env: vec![],
+            base_args: &[],
             cwd: monorepo_root,
         }
     } else {
-        CliConfig {
+        DaemonConfig {
             command: "npx",
-            base_args: &["@alook/cli"],
-            env: vec![],
+            base_args: &["--yes", "@alook/daemon"],
             cwd: None,
         }
     }
 }
 
-#[cfg(desktop)]
-struct CliOutput {
-    success: bool,
-    stdout: String,
-    stderr: String,
+fn daemon_endpoints_for(is_debug: bool) -> (&'static str, &'static str) {
+    if is_debug {
+        ("http://localhost:3000", "ws://localhost:8789")
+    } else {
+        ("https://alook.ai", "wss://alook.ai/api/ws/community-daemon")
+    }
 }
 
 #[cfg(desktop)]
-async fn run_cli(app: &AppHandle, extra_args: &[&str]) -> Result<CliOutput, String> {
-    let cfg = cli_config();
-    let mut args: Vec<&str> = cfg.base_args.to_vec();
+struct DaemonOutput {
+    success: bool,
+}
+
+#[cfg(desktop)]
+async fn run_daemon(app: &AppHandle, extra_args: &[String]) -> Result<DaemonOutput, String> {
+    let cfg = daemon_config();
+    let mut args: Vec<String> = cfg.base_args.iter().map(|arg| (*arg).to_string()).collect();
     args.extend_from_slice(extra_args);
 
     let mut cmd = app.shell().command(cfg.command);
     cmd = cmd.env("PATH", resolve_path());
-    for (key, val) in &cfg.env {
-        cmd = cmd.env(key, val);
-    }
     if let Some(cwd) = &cfg.cwd {
         cmd = cmd.current_dir(cwd.clone());
     }
     let output = cmd.args(&args).output().await.map_err(|e| e.to_string())?;
 
-    Ok(CliOutput {
+    Ok(DaemonOutput {
         success: output.status.success(),
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
     })
 }
 
-#[cfg(desktop)]
-fn to_command_result(output: CliOutput) -> CommandResult {
-    CommandResult {
-        success: output.success,
-        message: if output.success {
-            output.stdout
-        } else if output.stderr.trim().is_empty() {
-            output.stdout
-        } else {
-            output.stderr
-        },
+fn valid_machine_key(machine_key: &str) -> bool {
+    let value = machine_key
+        .strip_prefix("cmt_")
+        .or_else(|| machine_key.strip_prefix("cmk_"));
+    let Some(value) = value else {
+        return false;
+    };
+    value.len() == 32
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+}
+
+fn daemon_pair_args(machine_key: &str, is_debug: bool) -> Result<Vec<String>, String> {
+    if !valid_machine_key(machine_key) {
+        return Err("invalid Community machine key".to_string());
     }
+    let (server_url, ws_url) = daemon_endpoints_for(is_debug);
+    Ok(vec![
+        "daemon".to_string(),
+        "start".to_string(),
+        "--machine-key".to_string(),
+        machine_key.to_string(),
+        "--server-url".to_string(),
+        server_url.to_string(),
+        "--ws-url".to_string(),
+        ws_url.to_string(),
+    ])
+}
+
+fn parse_node_version(stdout: &str) -> Option<(u64, u64, u64)> {
+    let version = stdout.trim().strip_prefix('v').unwrap_or(stdout.trim());
+    let mut parts = version.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    let patch = parts.next()?.split('-').next()?.parse().ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    Some((major, minor, patch))
+}
+
+fn supported_node_version(version: (u64, u64, u64)) -> bool {
+    version.0 > 20 || version.0 == 20 && version.1 >= 9
+}
+
+fn evaluate_runtime_capability(
+    node: Result<String, String>,
+    npm: Result<String, String>,
+    npx: Result<String, String>,
+) -> DaemonRuntimeCapability {
+    let node_output = match node {
+        Ok(output) => output,
+        Err(reason) => {
+            return DaemonRuntimeCapability {
+                available: false,
+                reason: Some(format!("Node.js 20.9 or newer is required: {reason}.")),
+                node_version: None,
+            };
+        }
+    };
+    let Some(version) = parse_node_version(&node_output) else {
+        return DaemonRuntimeCapability {
+            available: false,
+            reason: Some(
+                "Node.js returned an unrecognized version. Install Node.js 20.9 or newer."
+                    .to_string(),
+            ),
+            node_version: Some(node_output),
+        };
+    };
+    if !supported_node_version(version) {
+        return DaemonRuntimeCapability {
+            available: false,
+            reason: Some(format!(
+                "Node.js {node_output} is too old. Install Node.js 20.9 or newer."
+            )),
+            node_version: Some(node_output),
+        };
+    }
+    for result in [npm, npx] {
+        if let Err(reason) = result {
+            return DaemonRuntimeCapability {
+                available: false,
+                reason: Some(format!(
+                    "Node.js {node_output} is available, but {reason}. Install npm with Node.js and try again."
+                )),
+                node_version: Some(node_output),
+            };
+        }
+    }
+    DaemonRuntimeCapability {
+        available: true,
+        reason: None,
+        node_version: Some(node_output),
+    }
+}
+
+#[cfg(desktop)]
+async fn probe_runtime_command(app: &AppHandle, command: &str) -> Result<String, String> {
+    let output = app
+        .shell()
+        .command(command)
+        .env("PATH", resolve_path())
+        .arg("--version")
+        .output()
+        .await
+        .map_err(|_| format!("{command} was not found"))?;
+    if !output.status.success() {
+        return Err(format!("{command} could not run"));
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if stdout.is_empty() {
+        return Err(format!("{command} returned no version"));
+    }
+    Ok(stdout)
 }
 
 // --- Splashscreen ---
 
 #[cfg(desktop)]
 static SPLASH_CLOSED: AtomicBool = AtomicBool::new(false);
-
-#[cfg(desktop)]
-static SPLASH_DAEMON_READY: AtomicBool = AtomicBool::new(false);
 
 #[cfg(desktop)]
 static SPLASH_FRONTEND_READY: AtomicBool = AtomicBool::new(false);
@@ -171,17 +269,21 @@ pub fn splash_html() -> String {
 pub fn create_splash_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::{WebviewUrl, WebviewWindowBuilder};
 
-    WebviewWindowBuilder::new(app, "splash", WebviewUrl::CustomProtocol("splash://index".parse()?))
-        .title("Alook")
-        .inner_size(200.0, 200.0)
-        .center()
-        .decorations(false)
-        .resizable(false)
-        .transparent(true)
-        .shadow(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .build()?;
+    WebviewWindowBuilder::new(
+        app,
+        "splash",
+        WebviewUrl::CustomProtocol("splash://index".parse()?),
+    )
+    .title("Alook")
+    .inner_size(200.0, 200.0)
+    .center()
+    .decorations(false)
+    .resizable(false)
+    .transparent(true)
+    .shadow(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .build()?;
 
     Ok(())
 }
@@ -203,12 +305,14 @@ fn do_close_splashscreen(handle: &AppHandle) {
 
 #[cfg(desktop)]
 fn fade_out_and_close_splash(handle: &AppHandle) {
-    let Some(splash) = handle.get_webview_window("splash") else { return };
+    let Some(splash) = handle.get_webview_window("splash") else {
+        return;
+    };
 
     #[cfg(target_os = "macos")]
     {
-        use objc2::runtime::AnyObject;
         use objc2::msg_send;
+        use objc2::runtime::AnyObject;
         unsafe {
             let ns_window = splash.ns_window().unwrap() as *mut AnyObject;
             for i in (0..=5).rev() {
@@ -229,10 +333,9 @@ fn fade_out_and_close_splash(handle: &AppHandle) {
 
 #[cfg(desktop)]
 fn try_close_splashscreen(handle: &AppHandle) {
-    let daemon = SPLASH_DAEMON_READY.load(Ordering::SeqCst);
     let frontend = SPLASH_FRONTEND_READY.load(Ordering::SeqCst);
     let min = SPLASH_MIN_ELAPSED.load(Ordering::SeqCst);
-    if daemon && frontend && min {
+    if frontend && min {
         do_close_splashscreen(handle);
     }
 }
@@ -244,142 +347,40 @@ pub fn mark_splash_min_elapsed(handle: &AppHandle) {
 }
 
 #[cfg(desktop)]
-pub fn mark_daemon_ready(handle: &AppHandle) {
-    SPLASH_DAEMON_READY.store(true, Ordering::SeqCst);
-    try_close_splashscreen(handle);
-}
-
-#[cfg(desktop)]
-pub fn fatal_exit(handle: &AppHandle, msg: &str) {
-    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
-    // Close splash if still showing
-    if let Some(splash) = handle.get_webview_window("splash") {
-        let _ = splash.close();
-    }
-    let h = handle.clone();
-    handle.dialog()
-        .message(msg)
-        .title("Alook — Fatal Error")
-        .buttons(MessageDialogButtons::OkCustom("Quit".into()))
-        .show(move |_| {
-            h.exit(1);
-        });
-}
-
-#[cfg(desktop)]
 #[tauri::command]
 pub fn close_splashscreen(app: AppHandle) {
     SPLASH_FRONTEND_READY.store(true, Ordering::SeqCst);
     try_close_splashscreen(&app);
 }
 
-// --- CLI commands ---
+// --- Daemon commands ---
 
 #[cfg(desktop)]
 #[tauri::command]
-pub fn get_cli_info() -> CliInfo {
-    let cfg = cli_config();
-    CliInfo {
-        command: format!("{} {}", cfg.command, cfg.base_args.join(" ")),
-        is_dev: cfg!(debug_assertions),
-    }
+pub async fn daemon_runtime_capability(app: AppHandle) -> DaemonRuntimeCapability {
+    let node = probe_runtime_command(&app, "node").await;
+    let npm = probe_runtime_command(&app, "npm").await;
+    let npx = probe_runtime_command(&app, "npx").await;
+    evaluate_runtime_capability(node, npm, npx)
 }
 
 #[cfg(desktop)]
 #[tauri::command]
-pub async fn register_cli(app: AppHandle, token: String) -> Result<CommandResult, String> {
-    let cfg = cli_config();
-    let mut args: Vec<&str> = cfg.base_args.to_vec();
-    args.extend_from_slice(&["register", "--token"]);
-    let token_ref: &str = &token;
-
-    let mut cmd = app.shell().command(cfg.command);
-    cmd = cmd.env("PATH", resolve_path());
-    for (key, val) in &cfg.env {
-        cmd = cmd.env(key, val);
-    }
-    if let Some(cwd) = &cfg.cwd {
-        cmd = cmd.current_dir(cwd.clone());
-    }
-    let output = cmd
-        .args(&args)
-        .arg(token_ref)
-        .output()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let cli_output = CliOutput {
-        success: output.status.success(),
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-    };
-    Ok(to_command_result(cli_output))
-}
-
-#[cfg(desktop)]
-#[tauri::command]
-pub async fn daemon_start(app: AppHandle) -> Result<CommandResult, String> {
-    let output = run_cli(&app, &["daemon", "start"]).await?;
-    Ok(to_command_result(output))
-}
-
-#[cfg(desktop)]
-#[tauri::command]
-pub async fn daemon_stop(app: AppHandle) -> Result<CommandResult, String> {
-    let output = run_cli(&app, &["daemon", "stop"]).await?;
-    Ok(to_command_result(output))
-}
-
-#[cfg(desktop)]
-#[tauri::command]
-pub async fn daemon_status(app: AppHandle) -> Result<DaemonStatusResult, String> {
-    let output = run_cli(&app, &["daemon", "status"]).await?;
-    Ok(parse_daemon_status(&output.stdout))
-}
-
-#[cfg(desktop)]
-#[tauri::command]
-pub async fn cli_update(app: AppHandle) -> Result<CommandResult, String> {
-    if cfg!(debug_assertions) {
-        return Ok(CommandResult {
+pub async fn daemon_pair(app: AppHandle, machine_key: String) -> Result<CommandResult, String> {
+    let args = daemon_pair_args(&machine_key, cfg!(debug_assertions))?;
+    let output = run_daemon(&app, &args).await?;
+    if output.success {
+        Ok(CommandResult {
             success: true,
-            message: "CLI update skipped in dev mode".to_string(),
-        });
+            message: "Daemon paired and started".to_string(),
+        })
+    } else {
+        Ok(CommandResult {
+            success: false,
+            message: "The daemon couldn't start. Run the command below in a terminal for details."
+                .to_string(),
+        })
     }
-
-    let mut stop_cmd = app.shell().command("npx");
-    stop_cmd = stop_cmd.env("PATH", resolve_path());
-    let _ = stop_cmd
-        .args(["--yes", "@alook/cli", "daemon", "stop"])
-        .output()
-        .await;
-
-    let mut start_cmd = app.shell().command("npx");
-    start_cmd = start_cmd.env("PATH", resolve_path());
-    let start_output = start_cmd
-        .args(["--yes", "@alook/cli@latest", "daemon", "start"])
-        .output()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    Ok(CommandResult {
-        success: start_output.status.success(),
-        message: if start_output.status.success() {
-            "CLI updated and daemon restarted".to_string()
-        } else {
-            String::from_utf8_lossy(&start_output.stderr).to_string()
-        },
-    })
-}
-
-#[cfg(desktop)]
-#[tauri::command]
-pub async fn cli_check(app: AppHandle) -> Result<CommandResult, String> {
-    let output = run_cli(&app, &["--version"]).await?;
-    Ok(CommandResult {
-        success: output.success,
-        message: output.stdout.trim().to_string(),
-    })
 }
 
 // --- App updater ---
@@ -421,27 +422,38 @@ pub async fn check_for_updates(app: AppHandle) -> Result<UpdateInfo, String> {
 #[cfg(desktop)]
 #[tauri::command]
 pub async fn install_update(app: AppHandle) -> Result<(), String> {
-    use tauri_plugin_updater::UpdaterExt;
     use tauri::Emitter;
+    use tauri_plugin_updater::UpdaterExt;
 
     let updater = app.updater().map_err(|e| e.to_string())?;
-    let update = updater.check().await.map_err(|e| e.to_string())?
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| e.to_string())?
         .ok_or("No update available".to_string())?;
 
     let handle = app.clone();
     let mut cumulative: u64 = 0;
-    update.download_and_install(
-        move |chunk_size, total| {
-            cumulative += chunk_size as u64;
-            let percent = total.map(|t| (cumulative as f64 / t as f64) * 100.0).unwrap_or(0.0);
-            let _ = handle.emit("update://progress", UpdateProgress {
-                percent,
-                downloaded: cumulative,
-                total,
-            });
-        },
-        || {},
-    ).await.map_err(|e| e.to_string())?;
+    update
+        .download_and_install(
+            move |chunk_size, total| {
+                cumulative += chunk_size as u64;
+                let percent = total
+                    .map(|t| (cumulative as f64 / t as f64) * 100.0)
+                    .unwrap_or(0.0);
+                let _ = handle.emit(
+                    "update://progress",
+                    UpdateProgress {
+                        percent,
+                        downloaded: cumulative,
+                        total,
+                    },
+                );
+            },
+            || {},
+        )
+        .await
+        .map_err(|e| e.to_string())?;
 
     app.restart();
 }
@@ -452,8 +464,8 @@ pub fn set_window_theme(window: tauri::WebviewWindow, dark: bool) {
     let _ = (&window, dark);
     #[cfg(target_os = "macos")]
     {
-        use objc2::runtime::AnyObject;
         use objc2::msg_send;
+        use objc2::runtime::AnyObject;
 
         unsafe {
             let ns_window = window.ns_window().unwrap() as *mut AnyObject;
@@ -475,73 +487,12 @@ pub fn set_window_theme(window: tauri::WebviewWindow, dark: bool) {
 }
 
 #[cfg(desktop)]
-#[tauri::command]
-pub fn is_daemon_online() -> bool {
-    DAEMON_ONLINE.load(Ordering::Relaxed)
-}
-
-// --- Daemon state ---
-
-#[cfg(desktop)]
-pub static DAEMON_ONLINE: AtomicBool = AtomicBool::new(false);
-
-
-#[cfg(desktop)]
-static QUIT_BEHAVIOR: std::sync::Mutex<Option<QuitBehavior>> = std::sync::Mutex::new(None);
-
-#[cfg(desktop)]
-#[derive(Clone, Copy, PartialEq)]
-enum QuitBehavior {
-    KeepRunning,
-    StopDaemon,
-}
-
-#[cfg(desktop)]
-fn load_quit_behavior(handle: &AppHandle) -> Option<QuitBehavior> {
-    let path = handle.path().app_config_dir().ok()?.join("quit-behavior.json");
-    let content = std::fs::read_to_string(path).ok()?;
-    let val: serde_json::Value = serde_json::from_str(&content).ok()?;
-    match val["quit_behavior"].as_str()? {
-        "keep_running" => Some(QuitBehavior::KeepRunning),
-        "stop_daemon" => Some(QuitBehavior::StopDaemon),
-        _ => None,
-    }
-}
-
-#[cfg(desktop)]
-fn save_quit_behavior(handle: &AppHandle, behavior: QuitBehavior) {
-    if let Ok(dir) = handle.path().app_config_dir() {
-        let _ = std::fs::create_dir_all(&dir);
-        let val = match behavior {
-            QuitBehavior::KeepRunning => "keep_running",
-            QuitBehavior::StopDaemon => "stop_daemon",
-        };
-        let json = format!(r#"{{"quit_behavior":"{}"}}"#, val);
-        let _ = std::fs::write(dir.join("quit-behavior.json"), json);
-    }
-    *QUIT_BEHAVIOR.lock().unwrap_or_else(|e| e.into_inner()) = Some(behavior);
-}
-
-#[cfg(desktop)]
-fn get_quit_behavior(handle: &AppHandle) -> Option<QuitBehavior> {
-    let guard = QUIT_BEHAVIOR.lock().unwrap_or_else(|e| e.into_inner());
-    if guard.is_some() {
-        return *guard;
-    }
-    drop(guard);
-    let loaded = load_quit_behavior(handle);
-    *QUIT_BEHAVIOR.lock().unwrap_or_else(|e| e.into_inner()) = loaded;
-    loaded
-}
-
-#[cfg(desktop)]
 static UPDATE_AVAILABLE_VERSION: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
 #[cfg(desktop)]
 static UPDATE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
 // --- System tray ---
-
 #[cfg(desktop)]
 pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::{
@@ -550,15 +501,12 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         tray::TrayIconBuilder,
     };
 
-    use tauri::menu::CheckMenuItemBuilder;
-
-    let show = MenuItemBuilder::with_id("show", "Show").build(app)?;
-    let version = MenuItemBuilder::with_id("version", format!("Version {}", app.package_info().version)).enabled(false).build(app)?;
-    let update_item = MenuItemBuilder::with_id("update", "Check for Updates").build(app)?;
-    let stop_on_quit_checked = get_quit_behavior(app.handle()) == Some(QuitBehavior::StopDaemon);
-    let stop_on_quit = CheckMenuItemBuilder::with_id("stop_on_quit", "Stop daemon on quit")
-        .checked(stop_on_quit_checked)
-        .build(app)?;
+    let show = MenuItemBuilder::with_id("show", "Open Alook").build(app)?;
+    let version =
+        MenuItemBuilder::with_id("version", format!("Version {}", app.package_info().version))
+            .enabled(false)
+            .build(app)?;
+    let update_item = MenuItemBuilder::with_id("update", "Check for Alook Updates…").build(app)?;
     let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
 
     let menu = MenuBuilder::new(app)
@@ -566,14 +514,12 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .separator()
         .item(&version)
         .item(&update_item)
-        .item(&stop_on_quit)
         .separator()
         .item(&quit)
         .build()?;
 
-    let tray = TrayIconBuilder::new()
-        .icon(Image::from_bytes(include_bytes!("../icons/tray-default.png"))
-            .expect("tray icon"))
+    let _tray = TrayIconBuilder::new()
+        .icon(Image::from_bytes(include_bytes!("../icons/tray-default.png")).expect("tray icon"))
         .icon_as_template(true)
         .menu(&menu)
         .show_menu_on_left_click(false)
@@ -592,21 +538,18 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     do_install_update(&handle).await;
                 });
             }
-            "stop_on_quit" => {
-                let current = get_quit_behavior(app) == Some(QuitBehavior::StopDaemon);
-                let new_behavior = if current { QuitBehavior::KeepRunning } else { QuitBehavior::StopDaemon };
-                save_quit_behavior(app, new_behavior);
-            }
             "quit" => {
-                let handle = app.clone();
-                quit_with_daemon_prompt(&handle);
+                app.exit(0);
             }
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
             if let tauri::tray::TrayIconEvent::Click {
-                button: tauri::tray::MouseButton::Left, ..
-            } = event {
+                button: tauri::tray::MouseButton::Left,
+                button_state: tauri::tray::MouseButtonState::Up,
+                ..
+            } = event
+            {
                 if let Some(window) = tray.app_handle().get_webview_window("main") {
                     let _ = window.show();
                     let _ = window.unminimize();
@@ -616,119 +559,19 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         })
         .build(app)?;
 
-    let handle = app.handle().clone();
-    std::thread::spawn(move || {
-        let mut restart_attempts: u32 = 0;
-        loop {
-            std::thread::sleep(std::time::Duration::from_secs(15));
-            let h = handle.clone();
-            let online = tauri::async_runtime::block_on(check_daemon_online(&h));
-            DAEMON_ONLINE.store(online, Ordering::Relaxed);
-
-            if !online {
-                // Try to restart daemon
-                let h2 = handle.clone();
-                let started = tauri::async_runtime::block_on(async {
-                    match run_cli(&h2, &["daemon", "start"]).await {
-                        Ok(output) if output.success => true,
-                        Ok(output) => {
-                            if restart_attempts == 0 {
-                                let msg = if output.stderr.trim().is_empty() {
-                                    "Daemon stopped unexpectedly. Failed to restart.".to_string()
-                                } else {
-                                    format!("Daemon stopped unexpectedly: {}", output.stderr.trim())
-                                };
-                                let _ = h2.notification()
-                                    .builder()
-                                    .title("Alook")
-                                    .body(&msg)
-                                    .show();
-                            }
-                            false
-                        }
-                        Err(e) => {
-                            if restart_attempts == 0 {
-                                let _ = h2.notification()
-                                    .builder()
-                                    .title("Alook")
-                                    .body(&format!("Could not restart daemon: {}", e))
-                                    .show();
-                            }
-                            false
-                        }
-                    }
-                });
-                if started {
-                    restart_attempts = 0;
-                    DAEMON_ONLINE.store(true, Ordering::Relaxed);
-                } else {
-                    restart_attempts += 1;
-                }
-            } else {
-                restart_attempts = 0;
-            }
-
-            let icon_bytes: &[u8] = if DAEMON_ONLINE.load(Ordering::Relaxed) {
-                include_bytes!("../icons/tray-online.png")
-            } else {
-                include_bytes!("../icons/tray-offline.png")
-            };
-            if let Ok(img) = tauri::image::Image::from_bytes(icon_bytes) {
-                let _ = tray.set_icon(Some(img));
-                let _ = tray.set_icon_as_template(true);
-            }
-        }
-    });
-
     Ok(())
-}
-
-// --- Quit with daemon prompt ---
-
-#[cfg(desktop)]
-pub fn quit_with_daemon_prompt(handle: &AppHandle) {
-    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
-
-    if !DAEMON_ONLINE.load(Ordering::Relaxed) {
-        handle.exit(0);
-        return;
-    }
-
-    let will_stop = get_quit_behavior(handle) == Some(QuitBehavior::StopDaemon);
-    let msg = if will_stop {
-        "The daemon will be stopped after quitting.\n\nYou can change this in the tray menu → \"Stop daemon on quit\"."
-    } else {
-        "The daemon will keep running in the background.\n\nYou can change this in the tray menu → \"Stop daemon on quit\"."
-    };
-
-    let h = handle.clone();
-    handle.dialog()
-        .message(msg)
-        .title("Quit Alook")
-        .buttons(MessageDialogButtons::OkCancelCustom("Quit".into(), "Cancel".into()))
-        .show(move |confirmed| {
-            if !confirmed { return; }
-            if will_stop {
-                tauri::async_runtime::spawn(async move {
-                    let _ = run_cli(&h, &["daemon", "stop"]).await;
-                    h.exit(0);
-                });
-            } else {
-                h.exit(0);
-            }
-        });
 }
 
 // --- Update flow ---
 
 #[cfg(desktop)]
 async fn do_install_update(handle: &AppHandle) {
-    use tauri_plugin_updater::UpdaterExt;
     use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
-    use tauri::Emitter;
+    use tauri_plugin_updater::UpdaterExt;
 
     if UPDATE_IN_PROGRESS.swap(true, Ordering::SeqCst) {
-        handle.dialog()
+        handle
+            .dialog()
             .message("An update is already in progress.")
             .title("Alook")
             .buttons(MessageDialogButtons::OkCustom("OK".into()))
@@ -740,8 +583,9 @@ async fn do_install_update(handle: &AppHandle) {
         Ok(u) => u,
         Err(e) => {
             UPDATE_IN_PROGRESS.store(false, Ordering::SeqCst);
-            handle.dialog()
-                .message(&format!("Could not check for updates: {}", e))
+            handle
+                .dialog()
+                .message(format!("Could not check for updates: {}", e))
                 .title("Update Check Failed")
                 .buttons(MessageDialogButtons::OkCustom("OK".into()))
                 .show(|_| {});
@@ -756,75 +600,35 @@ async fn do_install_update(handle: &AppHandle) {
             let msg = if notes.is_empty() {
                 format!("Version {} is available. Download and install?", version)
             } else {
-                format!("Version {} is available.\n\n{}\n\nDownload and install?", version, notes)
+                format!(
+                    "Version {} is available.\n\n{}\n\nDownload and install?",
+                    version, notes
+                )
             };
 
-            let (tx, rx) = std::sync::mpsc::channel();
-            handle.dialog()
+            let h = handle.clone();
+            handle
+                .dialog()
                 .message(&msg)
                 .title("Update Available")
-                .buttons(MessageDialogButtons::OkCancelCustom("Update".into(), "Later".into()))
+                .buttons(MessageDialogButtons::OkCancelCustom(
+                    "Update".into(),
+                    "Later".into(),
+                ))
                 .show(move |confirmed| {
-                    let _ = tx.send(confirmed);
-                });
-
-            let confirmed = rx.recv().unwrap_or(false);
-            if !confirmed {
-                UPDATE_IN_PROGRESS.store(false, Ordering::SeqCst);
-                return;
-            }
-
-            let _ = handle.notification()
-                .builder()
-                .title("Alook")
-                .body(&format!("Downloading v{}...", version))
-                .show();
-
-            let h = handle.clone();
-            let mut cumulative: u64 = 0;
-            let result = update.download_and_install(
-                move |chunk_size, total| {
-                    cumulative += chunk_size as u64;
-                    let percent = total.map(|t| (cumulative as f64 / t as f64) * 100.0).unwrap_or(0.0);
-                    let _ = h.emit("update://progress", UpdateProgress {
-                        percent,
-                        downloaded: cumulative,
-                        total,
-                    });
-                },
-                || {},
-            ).await;
-
-            match result {
-                Ok(_) => {
-                    let (tx2, rx2) = std::sync::mpsc::channel();
-                    handle.dialog()
-                        .message(&format!("Version {} has been installed. Restart now?", version))
-                        .title("Update Complete")
-                        .buttons(MessageDialogButtons::OkCancelCustom("Restart".into(), "Later".into()))
-                        .show(move |restart| {
-                            let _ = tx2.send(restart);
-                        });
-
-                    if rx2.recv().unwrap_or(false) {
-                        handle.restart();
-                    } else {
+                    if !confirmed {
                         UPDATE_IN_PROGRESS.store(false, Ordering::SeqCst);
+                        return;
                     }
-                }
-                Err(e) => {
-                    UPDATE_IN_PROGRESS.store(false, Ordering::SeqCst);
-                    handle.dialog()
-                        .message(&format!("Download failed: {}", e))
-                        .title("Update Failed")
-                        .buttons(MessageDialogButtons::OkCustom("OK".into()))
-                        .show(|_| {});
-                }
-            }
+                    tauri::async_runtime::spawn(async move {
+                        install_checked_update(h, update).await;
+                    });
+                });
         }
         Ok(None) => {
             UPDATE_IN_PROGRESS.store(false, Ordering::SeqCst);
-            handle.dialog()
+            handle
+                .dialog()
                 .message("You're on the latest version.")
                 .title("No Updates Available")
                 .buttons(MessageDialogButtons::OkCustom("OK".into()))
@@ -832,10 +636,79 @@ async fn do_install_update(handle: &AppHandle) {
         }
         Err(e) => {
             UPDATE_IN_PROGRESS.store(false, Ordering::SeqCst);
-            handle.dialog()
-                .message(&format!("Could not check for updates: {}", e))
+            handle
+                .dialog()
+                .message(format!("Could not check for updates: {}", e))
                 .title("Update Check Failed")
                 .buttons(MessageDialogButtons::OkCustom("OK".into()))
+                .show(|_| {});
+        }
+    }
+}
+
+#[cfg(desktop)]
+async fn install_checked_update(handle: AppHandle, update: tauri_plugin_updater::Update) {
+    use tauri::Emitter;
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+
+    let version = update.version.clone();
+    let _ = handle
+        .notification()
+        .builder()
+        .title("Alook")
+        .body(format!("Downloading v{version}…"))
+        .show();
+
+    let h = handle.clone();
+    let mut cumulative: u64 = 0;
+    let result = update
+        .download_and_install(
+            move |chunk_size, total| {
+                cumulative += chunk_size as u64;
+                let percent = total
+                    .map(|value| (cumulative as f64 / value as f64) * 100.0)
+                    .unwrap_or(0.0);
+                let _ = h.emit(
+                    "update://progress",
+                    UpdateProgress {
+                        percent,
+                        downloaded: cumulative,
+                        total,
+                    },
+                );
+            },
+            || {},
+        )
+        .await;
+
+    match result {
+        Ok(()) => {
+            let h = handle.clone();
+            handle
+                .dialog()
+                .message(format!(
+                    "Version {version} has been installed. Restart now?"
+                ))
+                .title("Update Complete")
+                .buttons(MessageDialogButtons::OkCancelCustom(
+                    "Restart".into(),
+                    "Later".into(),
+                ))
+                .show(move |restart| {
+                    if restart {
+                        h.restart();
+                    } else {
+                        UPDATE_IN_PROGRESS.store(false, Ordering::SeqCst);
+                    }
+                });
+        }
+        Err(error) => {
+            UPDATE_IN_PROGRESS.store(false, Ordering::SeqCst);
+            handle
+                .dialog()
+                .message(format!("Download failed: {error}"))
+                .title("Update Failed")
+                .buttons(MessageDialogButtons::OkCustom("Close".into()))
                 .show(|_| {});
         }
     }
@@ -858,15 +731,21 @@ pub fn auto_check_updates(handle: AppHandle) {
             });
 
             if let Some(version) = found {
-                let mut guard = UPDATE_AVAILABLE_VERSION.lock().unwrap_or_else(|e| e.into_inner());
+                let mut guard = UPDATE_AVAILABLE_VERSION
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
                 let already_notified = guard.as_deref() == Some(&*version);
                 if !already_notified {
                     *guard = Some(version.clone());
                     drop(guard);
-                    let _ = handle.notification()
+                    let _ = handle
+                        .notification()
                         .builder()
                         .title("Alook Update Available")
-                        .body(&format!("Version {} is ready to install. Use the tray menu to update.", version))
+                        .body(format!(
+                            "Version {} is ready to install. Use the tray menu to update.",
+                            version
+                        ))
                         .show();
                 }
             }
@@ -876,172 +755,132 @@ pub fn auto_check_updates(handle: AppHandle) {
     });
 }
 
-// --- Daemon helpers ---
-
-#[cfg(desktop)]
-async fn check_daemon_online(handle: &AppHandle) -> bool {
-    match run_cli(handle, &["daemon", "status"]).await {
-        Ok(output) => parse_daemon_status(&output.stdout).running,
-        Err(_) => false,
-    }
-}
-
-#[cfg(desktop)]
-pub fn auto_start_daemon(handle: AppHandle) {
-    tauri::async_runtime::spawn(async move {
-        if check_daemon_online(&handle).await {
-            DAEMON_ONLINE.store(true, Ordering::Relaxed);
-            mark_daemon_ready(&handle);
-            return;
-        }
-
-        match run_cli(&handle, &["daemon", "start"]).await {
-            Ok(output) if output.success => {
-                DAEMON_ONLINE.store(true, Ordering::Relaxed);
-                mark_daemon_ready(&handle);
-            }
-            Ok(output) => {
-                let msg = if output.stderr.trim().is_empty() {
-                    "Failed to start daemon.".to_string()
-                } else {
-                    format!("Failed to start daemon: {}", output.stderr.trim())
-                };
-                fatal_exit(&handle, &msg);
-            }
-            Err(e) => {
-                fatal_exit(&handle, &format!("Could not find CLI: {}", e));
-            }
-        }
-    });
-}
-
-
-pub fn parse_daemon_status(stdout: &str) -> DaemonStatusResult {
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(stdout) {
-        return DaemonStatusResult {
-            running: json["running"].as_bool().unwrap_or(false),
-            pid: json["pid"].as_u64().map(|p| p as u32),
-            version: json["version"].as_str().map(|s| s.to_string()),
-        };
-    }
-
-    let running = stdout.contains("running (pid=");
-    let pid = if running {
-        stdout
-            .split("pid=")
-            .nth(1)
-            .and_then(|s| s.trim_end_matches(')').trim().parse::<u32>().ok())
-    } else {
-        None
-    };
-
-    DaemonStatusResult {
-        running,
-        pid,
-        version: None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn parse_status_json_running() {
-        let input = r#"{"running":true,"pid":12345,"version":"0.1.0"}"#;
-        let result = parse_daemon_status(input);
-        assert!(result.running);
-        assert_eq!(result.pid, Some(12345));
-        assert_eq!(result.version.as_deref(), Some("0.1.0"));
+    fn parses_and_checks_supported_node_versions() {
+        assert_eq!(parse_node_version("v20.9.0\n"), Some((20, 9, 0)));
+        assert_eq!(parse_node_version("22.12.1"), Some((22, 12, 1)));
+        assert!(supported_node_version((20, 9, 0)));
+        assert!(supported_node_version((21, 0, 0)));
+        assert!(!supported_node_version((20, 8, 9)));
+        assert!(!supported_node_version((19, 99, 99)));
+        assert_eq!(parse_node_version(""), None);
+        assert_eq!(parse_node_version("v20"), None);
+        assert_eq!(parse_node_version("not-a-version"), None);
     }
 
     #[test]
-    fn parse_status_json_not_running() {
-        let input = r#"{"running":false,"pid":null,"version":null}"#;
-        let result = parse_daemon_status(input);
-        assert!(!result.running);
-        assert_eq!(result.pid, None);
-        assert_eq!(result.version, None);
+    fn runtime_capability_requires_node_npm_and_npx() {
+        let ok = || Ok("10.9.3".to_string());
+        assert!(evaluate_runtime_capability(Ok("v20.9.0".to_string()), ok(), ok()).available);
+
+        let old = evaluate_runtime_capability(Ok("v20.8.0".to_string()), ok(), ok());
+        assert!(!old.available);
+        assert!(old.reason.unwrap().contains("too old"));
+
+        let missing_npm = evaluate_runtime_capability(
+            Ok("v22.0.0".to_string()),
+            Err("npm was not found".to_string()),
+            ok(),
+        );
+        assert!(!missing_npm.available);
+        assert!(missing_npm.reason.unwrap().contains("npm was not found"));
+
+        let missing_npx = evaluate_runtime_capability(
+            Ok("v22.0.0".to_string()),
+            ok(),
+            Err("npx was not found".to_string()),
+        );
+        assert!(!missing_npx.available);
+        assert!(missing_npx.reason.unwrap().contains("npx was not found"));
     }
 
     #[test]
-    fn parse_status_text_running() {
-        let input = "Daemon running (pid=54321)";
-        let result = parse_daemon_status(input);
-        assert!(result.running);
-        assert_eq!(result.pid, Some(54321));
-        assert_eq!(result.version, None);
+    fn daemon_config_selects_repository_and_published_commands() {
+        let debug = daemon_config_for(true);
+        assert_eq!(debug.command, "pnpm");
+        assert!(debug.base_args.is_empty());
+        assert!(debug.cwd.is_some());
+
+        let release = daemon_config_for(false);
+        assert_eq!(release.command, "npx");
+        assert_eq!(release.base_args, &["--yes", "@alook/daemon"]);
+        assert!(release.cwd.is_none());
     }
 
     #[test]
-    fn parse_status_text_not_running() {
-        let input = "Daemon not running.";
-        let result = parse_daemon_status(input);
-        assert!(!result.running);
-        assert_eq!(result.pid, None);
+    fn daemon_endpoints_are_fixed_at_the_native_boundary() {
+        assert_eq!(
+            daemon_endpoints_for(true),
+            ("http://localhost:3000", "ws://localhost:8789")
+        );
+        assert_eq!(
+            daemon_endpoints_for(false),
+            ("https://alook.ai", "wss://alook.ai/api/ws/community-daemon")
+        );
     }
 
     #[test]
-    fn parse_status_empty_string() {
-        let result = parse_daemon_status("");
-        assert!(!result.running);
-        assert_eq!(result.pid, None);
-        assert_eq!(result.version, None);
-    }
+    fn pairing_accepts_only_machine_keys_and_builds_fixed_arguments() {
+        for key in [
+            "cmt_abcdefghijklmnopqrstuvwxyz012345",
+            "cmk_abcDEF0123456789_-abcdefghijklmn",
+        ] {
+            let args = daemon_pair_args(key, false).unwrap();
+            assert_eq!(
+                args,
+                vec![
+                    "daemon",
+                    "start",
+                    "--machine-key",
+                    key,
+                    "--server-url",
+                    "https://alook.ai",
+                    "--ws-url",
+                    "wss://alook.ai/api/ws/community-daemon",
+                ]
+            );
+            assert!(!args.iter().any(|arg| arg == "--base-dir"));
+        }
 
-    #[test]
-    fn cli_config_args_construction() {
-        let cfg = cli_config();
-        let mut args: Vec<&str> = cfg.base_args.to_vec();
-        args.extend_from_slice(&["register", "--token"]);
-
-        if cfg!(debug_assertions) {
-            assert_eq!(cfg.command, "pnpm");
-            assert_eq!(args, vec!["dev:cli", "register", "--token"]);
-            assert!(cfg.cwd.is_some());
-        } else {
-            assert_eq!(cfg.command, "npx");
-            assert_eq!(args, vec!["@alook/cli", "register", "--token"]);
-            assert!(cfg.cwd.is_none());
+        for invalid in [
+            "cmt_too_short",
+            "cmk_has spaces",
+            "cm_machine_1234",
+            "--server-url=https://example.com",
+        ] {
+            assert!(daemon_pair_args(invalid, false).is_err());
         }
     }
 
     #[test]
-    fn cli_config_daemon_start_args() {
-        let cfg = cli_config();
-        let mut args: Vec<&str> = cfg.base_args.to_vec();
-        args.extend_from_slice(&["daemon", "start"]);
-
-        if cfg!(debug_assertions) {
-            assert_eq!(args, vec!["dev:cli", "daemon", "start"]);
-        } else {
-            assert_eq!(args, vec!["@alook/cli", "daemon", "start"]);
-        }
+    fn development_pairing_uses_only_fixed_local_endpoints() {
+        let args = daemon_pair_args("cmt_abcdefghijklmnopqrstuvwxyz012345", true).unwrap();
+        assert_eq!(args[5], "http://localhost:3000");
+        assert_eq!(args[7], "ws://localhost:8789");
+        assert_eq!(args.len(), 8);
     }
 
     #[test]
-    fn cli_config_daemon_status_args() {
-        let cfg = cli_config();
-        let mut args: Vec<&str> = cfg.base_args.to_vec();
-        args.extend_from_slice(&["daemon", "status"]);
-
-        if cfg!(debug_assertions) {
-            assert_eq!(args, vec!["dev:cli", "daemon", "status"]);
-        } else {
-            assert_eq!(args, vec!["@alook/cli", "daemon", "status"]);
-        }
-    }
-
-    #[test]
-    fn cli_config_version_args() {
-        let cfg = cli_config();
-        let mut args: Vec<&str> = cfg.base_args.to_vec();
-        args.push("--version");
-
-        if cfg!(debug_assertions) {
-            assert_eq!(args, vec!["dev:cli", "--version"]);
-        } else {
-            assert_eq!(args, vec!["@alook/cli", "--version"]);
+    fn desktop_registers_no_daemon_lifecycle_commands() {
+        let app_source = include_str!("lib.rs");
+        for rejected in [
+            "commands::daemon_start",
+            "commands::daemon_stop",
+            "commands::daemon_status",
+            "commands::register_cli",
+            "commands::cli_update",
+            "commands::cli_check",
+            "auto_start_daemon",
+            "prevent_exit",
+        ] {
+            assert!(
+                !app_source.contains(rejected),
+                "found rejected lifecycle hook: {rejected}"
+            );
         }
     }
 }
