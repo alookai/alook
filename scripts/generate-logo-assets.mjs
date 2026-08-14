@@ -18,10 +18,13 @@ const sharp = requireFromCli("sharp")
 
 export const preservedAssets = [
   "src/web/src/app/favicon.ico",
-  "src/desktop/src-tauri/icons/tray-default.png",
-  "src/desktop/src-tauri/icons/tray-online.png",
-  "src/desktop/src-tauri/icons/tray-offline.png",
   "assets/readme-banner.png",
+]
+
+export const trayRasterAssets = [
+  ["assets/alook-tray.svg", "src/desktop/src-tauri/icons/tray-default.png"],
+  ["assets/alook-tray.svg", "src/desktop/src-tauri/icons/tray-online.png"],
+  ["assets/alook-tray-offline.svg", "src/desktop/src-tauri/icons/tray-offline.png"],
 ]
 
 export const desktopRasterAssets = [
@@ -124,6 +127,13 @@ async function renderContained(svg, canvasSize, artworkSize) {
   }).composite([{ input: artwork, left: offset, top: offset }]).png().toBuffer()
 }
 
+export async function generateTrayAssets() {
+  for (const [source, destination] of trayRasterAssets) {
+    const svg = await readFile(resolve(repoRoot, source), "utf8")
+    await writeFile(resolve(repoRoot, destination), await render(svg, 36))
+  }
+}
+
 async function assertDimensions(path, width, height = width) {
   const metadata = await sharp(path).metadata()
   if (metadata.width !== width || metadata.height !== height) {
@@ -156,6 +166,7 @@ export async function generateLogoAssets() {
   await writeFile(resolve(repoRoot, "src/web/public/icon-512.png"), await render(canonical, 512))
   const fullBleed = fullBleedSvg(canonical)
   await writeFile(resolve(repoRoot, "src/web/public/apple-touch-icon.png"), await renderOpaque(fullBleed, 180))
+  await generateTrayAssets()
 
   for (const file of desktopRasterAssets) {
     const source = join(roundedOutput, file)

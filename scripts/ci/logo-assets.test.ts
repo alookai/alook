@@ -9,6 +9,7 @@ import {
   fullBleedSvg,
   iosRasterAssets,
   preservedAssets,
+  trayRasterAssets,
 } from "../generate-logo-assets.mjs"
 
 const repoRoot = resolve(import.meta.dirname, "../..")
@@ -52,10 +53,12 @@ describe("logo asset generator", () => {
     expect(iosRasterAssets).toHaveLength(18)
     expect(preservedAssets).toEqual([
       "src/web/src/app/favicon.ico",
-      "src/desktop/src-tauri/icons/tray-default.png",
-      "src/desktop/src-tauri/icons/tray-online.png",
-      "src/desktop/src-tauri/icons/tray-offline.png",
       "assets/readme-banner.png",
+    ])
+    expect(trayRasterAssets).toEqual([
+      ["assets/alook-tray.svg", "src/desktop/src-tauri/icons/tray-default.png"],
+      ["assets/alook-tray.svg", "src/desktop/src-tauri/icons/tray-online.png"],
+      ["assets/alook-tray-offline.svg", "src/desktop/src-tauri/icons/tray-offline.png"],
     ])
   })
 
@@ -76,6 +79,20 @@ describe("logo asset generator", () => {
     const canonical = canonicalizeIcns(unordered)
     expect(canonical.subarray(8, 12).toString("ascii")).toBe("aaaa")
     expect(canonicalizeIcns(canonical)).toEqual(canonical)
+  })
+
+  it("keeps Retina Tray templates generated from their SVG sources", async () => {
+    for (const [source, destination] of trayRasterAssets) {
+      const svg = await readFile(resolve(repoRoot, source))
+      const expected = await sharp(svg).resize(36, 36).png().toBuffer()
+      expect(await readFile(resolve(repoRoot, destination))).toEqual(expected)
+      expect(await alphaBounds(resolve(repoRoot, destination))).toEqual({
+        width: 36,
+        height: 36,
+        bounds: [2, 2, 35, 33],
+        opaque: false,
+      })
+    }
   })
 
   it("preserves web, platform, and splash canvas contracts", async () => {

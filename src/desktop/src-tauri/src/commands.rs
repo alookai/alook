@@ -467,6 +467,15 @@ static UPDATE_AVAILABLE_VERSION: std::sync::Mutex<Option<String>> = std::sync::M
 #[cfg(desktop)]
 static UPDATE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
+#[cfg(desktop)]
+pub fn show_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
 // --- System tray ---
 #[cfg(desktop)]
 pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -500,13 +509,7 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .show_menu_on_left_click(false)
         .tooltip("Alook")
         .on_menu_event(move |app, event| match event.id().as_ref() {
-            "show" => {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.unminimize();
-                    let _ = window.set_focus();
-                }
-            }
+            "show" => show_main_window(app),
             "update" => {
                 let handle = app.clone();
                 tauri::async_runtime::spawn(async move {
@@ -525,11 +528,7 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 ..
             } = event
             {
-                if let Some(window) = tray.app_handle().get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.unminimize();
-                    let _ = window.set_focus();
-                }
+                show_main_window(tray.app_handle());
             }
         })
         .build(app)?;
@@ -861,5 +860,12 @@ mod tests {
                 "found rejected lifecycle hook: {rejected}"
             );
         }
+    }
+
+    #[test]
+    fn desktop_restores_the_main_window_on_macos_reopen() {
+        let app_source = include_str!("lib.rs");
+        assert!(app_source.contains("tauri::RunEvent::Reopen"));
+        assert!(app_source.contains("commands::show_main_window(app)"));
     }
 }
