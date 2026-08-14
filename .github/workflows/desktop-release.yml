@@ -56,6 +56,24 @@ jobs:
         shell: bash
         run: echo "version=$(tr -d '\n' < src/desktop/.deploy-version)" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve existing release
+        id: release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: v${{ steps.version.outputs.version }}
+        run: |
+          for attempt in {1..30}; do
+            if release_id=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq '.id' 2>/dev/null); then
+              echo "id=${release_id}" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "Waiting for ${TAG} release (${attempt}/30)..."
+            sleep 2
+          done
+          echo "::error::Release ${TAG} was not created within 60 seconds"
+          exit 1
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
@@ -64,11 +82,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: src/desktop
-          tagName: v${{ steps.version.outputs.version }}
-          releaseName: "Alook v${{ steps.version.outputs.version }}"
-          releaseBody: ""
-          releaseDraft: false
-          prerelease: false
+          releaseId: ${{ steps.release.outputs.id }}
           uploadUpdaterJson: true
           args: --target ${{ matrix.target }}
 

@@ -9,6 +9,9 @@ function normalizeWorkflow(text: string): string {
 
 const workflow = normalizeWorkflow(readFileSync(resolve(workflowRoot, "e2e-ui.yml"), "utf8"))
 const ciWorkflow = normalizeWorkflow(readFileSync(resolve(workflowRoot, "ci.yml"), "utf8"))
+const autoTagReleaseWorkflow = normalizeWorkflow(
+  readFileSync(resolve(workflowRoot, "auto-tag-release.yml"), "utf8"),
+)
 const desktopReleaseWorkflow = normalizeWorkflow(readFileSync(resolve(workflowRoot, "desktop-release.yml"), "utf8"))
 const desktopConfig = JSON.parse(
   readFileSync(resolve(import.meta.dirname, "../../src/desktop/src-tauri/tauri.conf.json"), "utf8"),
@@ -79,6 +82,20 @@ describe("Bun workflow setup", () => {
 })
 
 describe("Desktop updater release", () => {
+  it("uploads assets without replacing the auto-tag title or changelog", () => {
+    expect(autoTagReleaseWorkflow).toContain('--title "$TAG"')
+    expect(desktopReleaseWorkflow).toContain("for attempt in {1..30}")
+    expect(desktopReleaseWorkflow).toContain('releases/tags/${TAG}')
+    expect(desktopReleaseWorkflow).toContain('releaseId: ${{ steps.release.outputs.id }}')
+    expect(desktopReleaseWorkflow).not.toContain("tagName:")
+    expect(desktopReleaseWorkflow).not.toContain("releaseName:")
+    expect(desktopReleaseWorkflow).not.toContain("releaseBody:")
+    expect(desktopReleaseWorkflow).not.toContain("releaseDraft:")
+    expect(desktopReleaseWorkflow).not.toContain("prerelease:")
+    expect(desktopReleaseWorkflow).toContain('EXISTING=$(gh release view "$TAG" --json body')
+    expect(desktopReleaseWorkflow).toContain('gh release edit "$TAG" --notes "${EXISTING}${DOWNLOADS}"')
+  })
+
   it("builds signed updater artifacts and publishes updater metadata", () => {
     expect(desktopConfig.bundle?.createUpdaterArtifacts).toBe(true)
     expect(desktopConfig.plugins?.updater?.endpoints).toEqual([
