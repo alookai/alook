@@ -16,9 +16,8 @@
  *   - Against a live dev build each switch is slow (full API fan-out + paint +
  *     reflow settle), so the matrix defaults SMALL and is env-tunable:
  *     PERF_CHANNEL_SWITCHES (default 3), PERF_SERVER_SWITCHES (default 3).
- *   - The capture is flushed to switch-events.json after EVERY switch, and the
- *     `perf:switch` script runs the report with `;` (not `&&`), so even a
- *     timed-out run still produces switch-report.md from the partial capture.
+ *   - The capture is flushed to switch-events.json after every switch. The
+ *     runner clears old artifacts first and only reports a successful run.
  *
  * See plans/community-switch-perf-diagnosis.md. LOCAL-ONLY — runs via
  * playwright.perf.config.ts, which has NO global-setup, so the stress-seeded
@@ -209,6 +208,12 @@ test("community switch perceived-latency capture", async ({ browser }) => {
   expect(process.env.NEXT_PUBLIC_MOCK_NETWORK, "mock-network must be off").not.toBe("true")
 
   await page.goto(`${BASE_URL}/c/channels/${targetServer.id}`, { waitUntil: "commit" })
+  await page.waitForURL(
+    (url) =>
+      url.pathname.startsWith(`/c/channels/${targetServer.id}/`) &&
+      url.pathname !== `/c/channels/${targetServer.id}/`,
+    { timeout: 20_000 },
+  )
   // Prove the react-scan hook registered early enough: commit events must
   // actually arrive (not merely that hooks are "available").
   await page.waitForFunction(() => Array.isArray(window.__ALOOK_PERF__) && window.__ALOOK_PERF__.length > 0, {
@@ -219,7 +224,10 @@ test("community switch perceived-latency capture", async ({ browser }) => {
 
   // Warm the LEAF routes (channel + server) so first-hit dev compile isn't
   // misattributed to a measured switch.
-  await page.goto(`${BASE_URL}/c/channels/${targetServer.id}/${channels[0].id}`, { waitUntil: "commit" })
+  const firstLeaf = `${BASE_URL}/c/channels/${targetServer.id}/${channels[0].id}`
+  if (page.url() !== firstLeaf) {
+    await page.goto(firstLeaf, { waitUntil: "commit" })
+  }
   await page.waitForSelector("[data-msg-id]", { timeout: 20_000 }).catch(() => {})
 
   const captured: CapturedSwitch[] = []

@@ -5,7 +5,7 @@
  * The correlation core (`analyzeSwitch`, `renderReport`) is pure and exported
  * for unit testing — no filesystem, no browser.
  */
-import { readFileSync, writeFileSync } from "node:fs"
+import { readFileSync, rmSync, writeFileSync } from "node:fs"
 import { resolve } from "node:path"
 import type {
   CaptureFile,
@@ -16,6 +16,11 @@ import type {
 const ARTIFACTS_DIR = resolve(import.meta.dirname, "..", "perf-artifacts")
 const CAPTURE_IN = resolve(ARTIFACTS_DIR, "switch-events.json")
 const REPORT_OUT = resolve(ARTIFACTS_DIR, "switch-report.md")
+
+export function clearPerfArtifacts(capturePath = CAPTURE_IN, reportPath = REPORT_OUT): void {
+  rmSync(capturePath, { force: true })
+  rmSync(reportPath, { force: true })
+}
 
 export interface SwitchAnalysis {
   kind: string
@@ -237,6 +242,10 @@ export function renderReport(file: CaptureFile): string {
 }
 
 function main(): void {
+  if (process.argv.includes("--clear")) {
+    clearPerfArtifacts()
+    return
+  }
   let file: CaptureFile
   try {
     file = JSON.parse(readFileSync(CAPTURE_IN, "utf8")) as CaptureFile

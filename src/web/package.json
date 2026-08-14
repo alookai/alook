@@ -20,7 +20,7 @@
     "test:e2e-ui:headed": "playwright test --headed",
     "knip": "knip",
     "seed:stress": "tsx scripts/seed-stress.ts",
-    "perf:switch": "playwright test --config playwright.perf.config.ts; tsx scripts/perf-report.ts",
+    "perf:switch": "tsx scripts/perf-report.ts --clear && playwright test --config playwright.perf.config.ts && tsx scripts/perf-report.ts",
     "typecheck": "tsc --noEmit",
     "seo:check": "lhci autorun --config=lighthouserc.json && node scripts/print-lighthouse-scores.mjs"
   },
