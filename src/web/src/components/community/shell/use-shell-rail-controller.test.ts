@@ -1,0 +1,399 @@
+import { createElement } from "react"
+import TestRenderer, { act } from "react-test-renderer"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { useShellRailController } from "./use-shell-rail-controller"
+
+const mocks = vi.hoisted(() => ({
+  servers: [{ id: "s1", name: "One" }, { id: "s2", name: "Two" }],
+  folders: [],
+  createServer: vi.fn(),
+  leaveServer: vi.fn(),
+  uploadIcon: vi.fn(),
+  deleteFolder: vi.fn(),
+  reorderServers: vi.fn(),
+  reorderFolders: vi.fn(),
+  updateFolderItems: vi.fn(),
+  createFolder: vi.fn(),
+  markVoluntaryLeave: vi.fn(),
+  markSwitch: vi.fn(),
+  toast: vi.fn(),
+  toastApiError: vi.fn(),
+}))
+
+vi.mock("sonner", () => ({ toast: mocks.toast }))
+vi.mock("@/lib/api/client", () => ({ toastApiError: mocks.toastApiError }))
+vi.mock("@/lib/perf/switch-mark", () => ({ markSwitch: mocks.markSwitch }))
+vi.mock("@/lib/community/eject-server", () => ({
+  markVoluntaryLeave: mocks.markVoluntaryLeave,
+  pickPostEjectDestination: () => "/c/me",
+}))
+vi.mock("@/hooks/community/use-servers", () => ({
+  useServers: () => ({
+    servers: mocks.servers,
+    isLoading: false,
+  }),
+  serverQueryFn: (id: string) => () => Promise.resolve({ id }),
+}))
+vi.mock("@/hooks/community/use-folders", () => ({ useFolders: () => ({ folders: mocks.folders }) }))
+vi.mock("@/hooks/community/mutations", () => ({
+  useCreateServer: () => ({ mutateAsync: mocks.createServer }),
+  useLeaveServer: () => ({ mutate: mocks.leaveServer }),
+  useUploadServerIcon: () => ({ mutate: mocks.uploadIcon }),
+  useDeleteServerFolder: () => ({ mutate: mocks.deleteFolder }),
+  useReorderServers: () => ({ mutate: mocks.reorderServers }),
+  useReorderFolders: () => ({ mutate: mocks.reorderFolders }),
+  useUpdateFolderItems: () => ({ mutate: mocks.updateFolderItems }),
+  useCreateServerFolderWith: () => ({ mutate: mocks.createFolder }),
+}))
+vi.mock("@/stores/community", () => ({
+  useCommunityStore: (selector: (state: { currentServerId: string }) => unknown) =>
+    selector({ currentServerId: "s1" }),
+}))
+vi.mock("@/lib/community/last-channel", () => ({
+  getLastChannel: () => null,
+  pickServerLandingHref: (id: string, channelIds: string[]) =>
+    channelIds[0] ? `/c/channels/${id}/${channelIds[0]}` : `/c/channels/${id}`,
+}))
+vi.mock("@/lib/community/last-me-location", () => ({
+  getLastMeLeaf: () => null,
+  pickMeLandingLocation: () => "/c/me",
+}))
+
+type Result = ReturnType<typeof useShellRailController>
+
+function Capture({ options, onResult }: {
+  options: Parameters<typeof useShellRailController>[0]
+  onResult: (result: Result) => void
+}) {
+  onResult(useShellRailController(options))
+  return null
+}
+
+function deferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>((done) => { resolve = done })
+  return { promise, resolve }
+}
+
+async function renderController(overrides: Record<string, unknown> = {}) {
+  const pushed: string[] = []
+  const replaced: string[] = []
+  const prefetched: string[] = []
+  const router = {
+    push: (href: string) => { pushed.push(href) },
+    replace: (href: string) => { replaced.push(href) },
+    prefetch: (href: string) => { prefetched.push(href) },
+  }
+  const cache = new Map<string, unknown>()
+  const queryClient = {
+    getQueryData: vi.fn((key: unknown[]) => cache.get(String(key.at(-1)))),
+    fetchQuery: vi.fn(),
+  }
+  const options = {
+    router,
+    pathname: "/c/channels/s1",
+    queryClient,
+    view: "server",
+    activeServerId: "s1",
+    setMobileZone: vi.fn(),
+    goHome: vi.fn(),
+    goServer: vi.fn(),
+    ...overrides,
+  } as never
+  let current!: Result
+  let renderer!: TestRenderer.ReactTestRenderer
+  const onResult = (result: Result) => { current = result }
+  await act(async () => {
+    renderer = TestRenderer.create(createElement(Capture, {
+      options,
+      onResult,
+    }))
+  })
+  return {
+    get current() { return current },
+    renderer,
+    options,
+    router,
+    queryClient,
+    cache,
+    pushed,
+    replaced,
+    prefetched,
+    async rerender() {
+      await act(async () => {
+        renderer.update(createElement(Capture, { options, onResult }))
+      })
+    },
+  }
+}
+
+describe("useShellRailController", () => {
+  beforeEach(() => {
+    for (const mock of Object.values(mocks)) {
+      if (typeof mock === "function" && "mockReset" in mock) mock.mockReset()
+    }
+  })
+
+  it("commits only the latest deferred server navigation", async () => {
+    const first = deferred()
+    const second = deferred()
+    const hook = await renderController()
+    hook.queryClient.fetchQuery.mockImplementation(({ queryKey }: { queryKey: unknown[] }) => {
+      const id = String(queryKey.at(-1))
+      return id === "s1" ? first.promise : second.promise
+    })
+
+    await act(async () => {
+      hook.current.railProps.onServerNavigate("s1")
+      hook.current.railProps.onServerNavigate("s2")
+    })
+    hook.cache.set("s2", { categories: [{ channels: [{ id: "c2", pending: false }] }] })
+    await act(async () => second.resolve())
+    hook.cache.set("s1", { categories: [{ channels: [{ id: "c1", pending: false }] }] })
+    await act(async () => first.resolve())
+
+    expect(hook.pushed).toEqual(["/c/channels/s2/c2"])
+    expect(mocks.markSwitch).toHaveBeenNthCalledWith(1, "server", "s1")
+    expect(mocks.markSwitch).toHaveBeenNthCalledWith(2, "server", "s2")
+  })
+
+  it("supersedes pending navigation on pathname changes and direct channel navigation", async () => {
+    const pathnamePending = deferred()
+    const channelPending = deferred()
+    const hook = await renderController()
+    hook.queryClient.fetchQuery.mockReturnValueOnce(pathnamePending.promise)
+
+    await act(async () => hook.current.railProps.onServerNavigate("s2"))
+    hook.options.pathname = "/c/me"
+    await hook.rerender()
+    hook.cache.set("s2", { categories: [{ channels: [{ id: "late", pending: false }] }] })
+    await act(async () => pathnamePending.resolve())
+    expect(hook.pushed).toEqual([])
+
+    hook.cache.delete("s2")
+    hook.queryClient.fetchQuery.mockReturnValueOnce(channelPending.promise)
+    await act(async () => {
+      hook.current.railProps.onServerNavigate("s2")
+      hook.current.navigate("s1", "c1")
+    })
+    hook.cache.set("s2", { categories: [{ channels: [{ id: "late-again", pending: false }] }] })
+    await act(async () => channelPending.resolve())
+    expect(hook.pushed).toEqual(["/c/channels/s1/c1"])
+    expect(mocks.markSwitch).toHaveBeenLastCalledWith("channel", "c1")
+  })
+
+  it("cancels pending navigation for settings and invite actions", async () => {
+    const pending = deferred()
+    const invitePending = deferred()
+    const openSettings = vi.fn()
+    const openInvite = vi.fn()
+    const hook = await renderController({
+      onOpenActiveServerSettings: openSettings,
+      onOpenActiveServerInvite: openInvite,
+    })
+    hook.queryClient.fetchQuery.mockReturnValue(pending.promise)
+
+    await act(async () => {
+      hook.current.railProps.onServerNavigate("s2")
+      hook.current.railProps.onOpenSettings("s1")
+    })
+    expect(openSettings).toHaveBeenCalledTimes(1)
+    expect(hook.pushed).toEqual([])
+    hook.cache.set("s2", { categories: [{ channels: [{ id: "late", pending: false }] }] })
+    await act(async () => pending.resolve())
+    expect(hook.pushed).toEqual([])
+
+    hook.cache.delete("s2")
+    hook.queryClient.fetchQuery.mockReturnValueOnce(invitePending.promise)
+    await act(async () => {
+      hook.current.railProps.onServerNavigate("s2")
+      hook.current.railProps.onOpenInvitePopover("s1")
+    })
+    expect(openInvite).toHaveBeenCalledTimes(1)
+    hook.cache.set("s2", { categories: [{ channels: [{ id: "invite-late", pending: false }] }] })
+    await act(async () => invitePending.resolve())
+    expect(hook.pushed).toEqual([])
+    await act(async () => hook.current.railProps.onOpenSettings("s2"))
+    await act(async () => hook.current.railProps.onOpenInvitePopover("s2"))
+    expect(hook.pushed).toEqual([
+      "/c/channels/s2?settings=1",
+      "/c/channels/s2?invite=1",
+    ])
+
+    hook.pushed.length = 0
+    await act(async () => {
+      hook.current.railProps.onOpenSettings(undefined)
+      hook.current.railProps.onOpenInvitePopover(undefined)
+    })
+    expect(hook.pushed).toEqual([])
+  })
+
+  it("cancels pending navigation before invoking the home callback", async () => {
+    const pending = deferred()
+    const goHome = vi.fn()
+    const hook = await renderController({ goHome })
+    hook.queryClient.fetchQuery.mockReturnValue(pending.promise)
+
+    await act(async () => {
+      hook.current.railProps.onServerNavigate("s2")
+      hook.current.railProps.onHome()
+    })
+    expect(goHome).toHaveBeenCalledTimes(1)
+    hook.cache.set("s2", { categories: [{ channels: [{ id: "late", pending: false }] }] })
+    await act(async () => pending.resolve())
+    expect(hook.pushed).toEqual([])
+  })
+
+  it("uses cached and fetched destinations for navigation and prefetch fallbacks", async () => {
+    const hook = await renderController()
+    hook.cache.set("s1", {
+      categories: [{ channels: [{ id: "pending", pending: true }, { id: "cached", pending: false }] }],
+    })
+
+    await act(async () => hook.current.railProps.onServerNavigate("s1"))
+    await act(async () => hook.current.railProps.onServerPrefetch("s1"))
+    await act(async () => hook.current.railProps.onHomePrefetch())
+    expect(hook.pushed).toEqual(["/c/channels/s1/cached"])
+    expect(hook.prefetched).toEqual(["/c/channels/s1/cached", "/c/me"])
+    expect(hook.queryClient.fetchQuery).not.toHaveBeenCalled()
+
+    hook.queryClient.fetchQuery.mockImplementationOnce(async ({ queryKey }: { queryKey: unknown[] }) => {
+      const id = String(queryKey.at(-1))
+      hook.cache.set(id, { categories: [{ channels: [{ id: "fetched", pending: false }] }] })
+    })
+    await act(async () => hook.current.railProps.onServerNavigate("s2"))
+    expect(hook.pushed).toContain("/c/channels/s2/fetched")
+    expect(hook.queryClient.fetchQuery).toHaveBeenLastCalledWith(expect.objectContaining({
+      queryKey: expect.any(Array),
+      queryFn: expect.any(Function),
+      staleTime: Infinity,
+    }))
+
+    hook.queryClient.fetchQuery.mockRejectedValueOnce(new Error("offline"))
+    await act(async () => hook.current.railProps.onServerPrefetch("s3"))
+    expect(hook.prefetched).toContain("/c/channels/s3")
+  })
+
+  it("keeps callback fields stable without stabilizing the railProps aggregate", async () => {
+    const hook = await renderController()
+    const firstProps = hook.current.railProps
+    const callbacks = {
+      onHome: firstProps.onHome,
+      onServerNavigate: firstProps.onServerNavigate,
+      onCreateServer: firstProps.onCreateServer,
+      onLeaveServer: firstProps.onLeaveServer,
+    }
+    await hook.rerender()
+    expect(hook.current.railProps).not.toBe(firstProps)
+    expect(hook.current.railProps.onHome).toBe(callbacks.onHome)
+    expect(hook.current.railProps.onServerNavigate).toBe(callbacks.onServerNavigate)
+    expect(hook.current.railProps.onCreateServer).toBe(callbacks.onCreateServer)
+    expect(hook.current.railProps.onLeaveServer).toBe(callbacks.onLeaveServer)
+  })
+
+  it("preserves create and leave side-effect ordering", async () => {
+    const order: string[] = []
+    mocks.createServer.mockImplementation(async () => {
+      order.push("create")
+      return { server: { id: "new" } }
+    })
+    mocks.toast.mockImplementation(() => { order.push("toast") })
+    const hook = await renderController()
+    hook.router.push = (href: string) => { order.push(`push:${href}`) }
+    await act(async () => hook.current.railProps.onCreateServer("New"))
+    expect(order).toEqual(["create", "toast", "push:/c/channels/new"])
+
+    order.length = 0
+    mocks.markVoluntaryLeave.mockImplementation(() => { order.push("mark") })
+    mocks.leaveServer.mockImplementation((_input, options) => {
+      order.push("mutate")
+      options.onSuccess()
+    })
+    hook.router.replace = (href: string) => { order.push(`replace:${href}`) }
+    await act(async () => hook.current.railProps.onLeaveServer("s1"))
+    expect(order).toEqual(["mark", "mutate", "toast", "replace:/c/me"])
+  })
+
+  it("preserves optional icon upload and create/leave error reporting", async () => {
+    const file = new File(["icon"], "icon.png", { type: "image/png" })
+    const order: string[] = []
+    mocks.createServer.mockImplementation(async () => {
+      order.push("create")
+      return { server: { id: "new" } }
+    })
+    mocks.toast.mockImplementation(() => { order.push("toast") })
+    mocks.uploadIcon.mockImplementation(() => { order.push("upload") })
+    const hook = await renderController()
+    hook.router.push = (href: string) => { order.push(`push:${href}`) }
+
+    await act(async () => hook.current.railProps.onCreateServer("New", file))
+    expect(order).toEqual(["create", "toast", "upload", "push:/c/channels/new"])
+    expect(mocks.uploadIcon).toHaveBeenCalledWith(
+      { serverId: "new", file },
+      expect.objectContaining({ onError: expect.any(Function) }),
+    )
+    const iconError = new Error("icon")
+    mocks.uploadIcon.mock.calls[0]![1].onError(iconError)
+    expect(mocks.toastApiError).toHaveBeenCalledWith(
+      iconError,
+      "Server created, but the icon failed to upload",
+    )
+
+    const createError = new Error("create")
+    mocks.createServer.mockRejectedValueOnce(createError)
+    await act(async () => hook.current.railProps.onCreateServer("Broken"))
+    expect(mocks.toastApiError).toHaveBeenCalledWith(createError, "Failed to create server")
+
+    await act(async () => hook.current.railProps.onLeaveServer("s2"))
+    const leaveError = new Error("leave")
+    mocks.leaveServer.mock.calls.at(-1)![1].onError(leaveError)
+    expect(mocks.toastApiError).toHaveBeenCalledWith(leaveError, "Failed to leave server")
+  })
+
+  it("preserves folder and ordering mutation payloads and toast callbacks", async () => {
+    const hook = await renderController()
+    await act(async () => {
+      hook.current.railProps.onUngroupFolder("f1")
+      hook.current.railProps.onReorderRail(["s2", "s1"])
+      hook.current.railProps.onReorderFolders(["f2", "f1"])
+      hook.current.railProps.onFolderItemsChange("f1", ["s1", "s2"])
+      hook.current.railProps.onDragCreateFolder("s1", "s2")
+    })
+
+    expect(mocks.deleteFolder).toHaveBeenCalledWith(
+      { folderId: "f1" },
+      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
+    )
+    expect(mocks.reorderServers).toHaveBeenCalledWith(
+      { serverIds: ["s2", "s1"] },
+      expect.objectContaining({ onError: expect.any(Function) }),
+    )
+    expect(mocks.reorderFolders).toHaveBeenCalledWith(
+      { folderIds: ["f2", "f1"] },
+      expect.objectContaining({ onError: expect.any(Function) }),
+    )
+    expect(mocks.updateFolderItems).toHaveBeenCalledWith(
+      { folderId: "f1", serverIds: ["s1", "s2"] },
+      expect.objectContaining({ onError: expect.any(Function) }),
+    )
+    expect(mocks.createFolder).toHaveBeenCalledWith(
+      { serverIdA: "s1", serverIdB: "s2" },
+      expect.objectContaining({ onError: expect.any(Function) }),
+    )
+
+    mocks.deleteFolder.mock.calls[0]![1].onSuccess()
+    expect(mocks.toast).toHaveBeenLastCalledWith("Group removed")
+    const cases = [
+      [mocks.deleteFolder, "Failed to remove group"],
+      [mocks.reorderServers, "Failed to save server order"],
+      [mocks.reorderFolders, "Failed to reorder groups"],
+      [mocks.updateFolderItems, "Failed to update group"],
+      [mocks.createFolder, "Failed to create group"],
+    ] as const
+    for (const [mutation, message] of cases) {
+      const error = new Error(message)
+      mutation.mock.calls[0]![1].onError(error)
+      expect(mocks.toastApiError).toHaveBeenLastCalledWith(error, message)
+    }
+  })
+})
