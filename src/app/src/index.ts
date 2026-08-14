@@ -7,7 +7,7 @@ import { onboardCommand } from "./commands/onboard.js";
 import { startCommand } from "./commands/start.js";
 import { stopCommand } from "./commands/stop.js";
 import { updateCommand } from "./commands/update.js";
-import { registerCommand, daemonCommand, cliPassthroughCommand } from "./commands/cli.js";
+import { daemonCommand } from "./commands/daemon.js";
 
 function getVersion(): string {
   const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -32,8 +32,6 @@ program.addCommand(onboardCommand());
 program.addCommand(startCommand());
 program.addCommand(stopCommand());
 program.addCommand(updateCommand());
-program.addCommand(registerCommand());
 program.addCommand(daemonCommand());
-program.addCommand(cliPassthroughCommand());
 
 program.parse();

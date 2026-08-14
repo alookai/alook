@@ -994,6 +994,22 @@ export async function daemonResume(opts: {
   });
 }
 
+export async function daemonStartById(opts: {
+  id: string;
+  baseDir?: string;
+  foreground?: boolean;
+}): Promise<void> {
+  const baseDir = opts.baseDir || process.env.ALOOK_DATA_DIR || DEFAULT_BASE_DIR;
+  const record = readDaemonLaunchRecord(baseDir, opts.id);
+  await daemonStart({
+    machineKey: record.credential,
+    serverUrl: record.serverUrl,
+    wsUrl: record.wsUrl,
+    baseDir,
+    foreground: opts.foreground,
+  });
+}
+
 function runnerArguments(): string[] {
   const command = process.env.ALOOK_DAEMON_PACKAGE_WRAPPER === "1" ? ["run"] : ["daemon", "run"];
   return [...process.execArgv, process.argv[1]!, ...command];

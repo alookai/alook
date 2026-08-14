@@ -8,15 +8,9 @@ interface SignupResult {
   userId: string;
 }
 
-interface WorkspaceResult {
-  id: string;
-  name: string;
-  slug: string;
-}
-
-interface TokenResult {
-  token: string;
-  id: string;
+interface PairingTokenResult {
+  tokenId: string;
+  expiresAt: string;
 }
 
 function prompt(question: string): Promise<string> {
@@ -92,56 +86,26 @@ export async function registerUser(baseURL: string, email: string): Promise<Sign
   return session;
 }
 
-export async function createWorkspace(baseURL: string, cookie: string): Promise<WorkspaceResult> {
-  const res = await fetch(`${baseURL}/api/workspaces`, {
+export async function createPairingToken(baseURL: string, cookie: string): Promise<PairingTokenResult> {
+  const res = await fetch(`${baseURL}/api/community/machines/pair`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Origin: baseURL,
       Cookie: cookie,
     },
-    body: JSON.stringify({ name: "Personal", slug: "personal" }),
-  });
-
-  if (!res.ok) {
-    const listRes = await fetch(`${baseURL}/api/workspaces`, {
-      headers: { Cookie: cookie, Origin: baseURL },
-    });
-    if (listRes.ok) {
-      const workspaces = (await listRes.json()) as WorkspaceResult[];
-      if (workspaces.length > 0) return workspaces[0];
-    }
-    console.error("Error: failed to create workspace");
-    process.exit(1);
-  }
-
-  const ws = (await res.json()) as WorkspaceResult;
-  console.log(`  ✓ Workspace "${ws.name}" ready`);
-  return ws;
-}
-
-export async function createMachineToken(
-  baseURL: string,
-  cookie: string,
-  workspaceId: string,
-): Promise<TokenResult> {
-  const res = await fetch(`${baseURL}/api/machine-tokens?workspace_id=${workspaceId}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Origin: baseURL,
-      Cookie: cookie,
-    },
-    body: JSON.stringify({ name: "local-onboard" }),
   });
 
   if (!res.ok) {
     const text = await res.text();
-    console.error(`Error: failed to create machine token (${res.status}): ${text}`);
-    process.exit(1);
+    throw new Error(`failed to create community pairing token (${res.status}): ${text}`);
   }
 
-  return (await res.json()) as TokenResult;
+  const result = (await res.json()) as Partial<PairingTokenResult>;
+  if (typeof result.tokenId !== "string" || !result.tokenId.startsWith("cmt_")) {
+    throw new Error("community pairing endpoint returned an invalid token");
+  }
+  return result as PairingTokenResult;
 }
 
 export async function waitForServer(baseURL: string, timeoutMs = 90000): Promise<void> {

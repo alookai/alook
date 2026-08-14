@@ -16,7 +16,7 @@ vi.mock("../discovery", async (importOriginal) => ({
   resolveAlookCliPathWithFallback: vi.fn(() => undefined),
 }));
 
-import { daemonRunFromIpc, daemonStart } from "./daemonStart";
+import { daemonRunFromIpc, daemonStart, daemonStartById } from "./daemonStart";
 import { readDaemonVersion } from "../version";
 
 describe("daemon lifecycle ownership cleanup", () => {
@@ -175,6 +175,32 @@ describe("daemon lifecycle ownership cleanup", () => {
       daemonVersion: readDaemonVersion(),
     });
     if (process.platform !== "win32") expect(fs.statSync(recordPath).mode & 0o777).toBe(0o600);
+  });
+
+  it("starts a saved machine by id using its private launch record", async () => {
+    const machineId = "cm_machine_init_failure";
+    const recordPath = path.join(baseDir, "daemons", `${machineId}.credential.json`);
+    fs.mkdirSync(path.dirname(recordPath), { recursive: true });
+    fs.writeFileSync(recordPath, JSON.stringify({
+      schemaVersion: 1,
+      credential: "cmk_test",
+      machineId,
+      serverUrl: "http://server",
+      wsUrl: "ws://server",
+      daemonVersion: readDaemonVersion(),
+    }), { mode: 0o600 });
+
+    await expect(daemonStartById({ id: machineId, baseDir, foreground: true }))
+      .rejects.toThrow("runner init failed");
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(mockRunPreparedDaemon).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a saved-machine start when the private launch record is absent", async () => {
+    await expect(daemonStartById({ id: "cm_missing_machine", baseDir }))
+      .rejects.toThrow("launch record is missing");
+    expect(mockRunPreparedDaemon).not.toHaveBeenCalled();
   });
 
   it("blocks normal start during replacement and lets only the matching resume request bypass", async () => {

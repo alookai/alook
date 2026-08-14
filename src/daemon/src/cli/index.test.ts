@@ -1,11 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 const mockDaemonStart = vi.hoisted(() => vi.fn(async () => {}));
+const mockDaemonStartById = vi.hoisted(() => vi.fn(async () => {}));
+const mockDaemonList = vi.hoisted(() => vi.fn(() => [{ id: "cm_saved_machine", pid: 42, alive: true, agents: 1, running: 0, lastActiveMs: 1 }]));
 const mockDaemonRunFromIpc = vi.hoisted(() => vi.fn(async () => new Promise<never>(() => {})));
 const mockArmMessageReminder = vi.hoisted(() => vi.fn(async () => ({ armed: true as const, dueAt: 123456 })));
 vi.mock("./daemonStart", async (importOriginal) => ({
   ...await importOriginal<typeof import("./daemonStart")>(),
   daemonStart: mockDaemonStart,
+  daemonStartById: mockDaemonStartById,
+  daemonList: mockDaemonList,
   daemonRunFromIpc: mockDaemonRunFromIpc,
 }));
 vi.mock("./messageReminderClient", async (importOriginal) => ({
@@ -70,6 +74,10 @@ let savedProxyEnv: Record<string, string | undefined> = {};
 
 beforeEach(() => {
   cap = captureStdout();
+  mockDaemonStart.mockClear();
+  mockDaemonStartById.mockClear();
+  mockDaemonRunFromIpc.mockClear();
+  mockDaemonList.mockClear();
   process.env.ALOOK_AGENT_ID = "agent_test";
   savedProxyEnv = {};
   for (const k of PROXY_ENV_KEYS) {
@@ -103,13 +111,37 @@ describe("daemon command contract", () => {
     }));
   });
 
+  it("restarts a paired machine by id without accepting a machine key", async () => {
+    await main(["daemon", "start", "--id", "cm_saved_machine", "--base-dir", "/tmp/alook-daemon"]);
+    expect(mockDaemonStartById).toHaveBeenCalledWith({
+      id: "cm_saved_machine",
+      baseDir: "/tmp/alook-daemon",
+      foreground: false,
+    });
+    expect(mockDaemonStart).not.toHaveBeenCalled();
+  });
+
   it("keeps missing and unknown arguments in the canonical Commander parser", async () => {
     await main(["daemon", "start"]);
-    expect(parseEnvelope(cap.lines())).toEqual(expect.objectContaining({ error: expect.stringContaining("--machine-key") }));
+    expect(parseEnvelope(cap.lines())).toEqual(expect.objectContaining({ error: expect.stringContaining("exactly one") }));
+    cap.restore();
+    cap = captureStdout();
+    await main(["daemon", "start", "--machine-key", "cmk_test", "--id", "cm_saved_machine"]);
+    expect(parseEnvelope(cap.lines())).toEqual(expect.objectContaining({ error: expect.stringContaining("exactly one") }));
     cap.restore();
     cap = captureStdout();
     await main(["daemon", "wat"]);
     expect(parseEnvelope(cap.lines())).toEqual(expect.objectContaining({ error: expect.stringContaining("unknown command") }));
+  });
+
+  it("lists daemons in a machine-readable envelope when requested", async () => {
+    await main(["daemon", "list", "--json", "--base-dir", "/tmp/alook-daemon"]);
+    expect(mockDaemonList).toHaveBeenCalledWith({ baseDir: "/tmp/alook-daemon" });
+    expect(parseEnvelope(cap.lines())).toEqual({
+      success: {
+        daemons: [{ id: "cm_saved_machine", pid: 42, alive: true, agents: 1, running: 0, lastActiveMs: 1 }],
+      },
+    });
   });
 });
 

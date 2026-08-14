@@ -1,9 +1,7 @@
 import { Command } from "commander";
-import { execSync, spawnSync, spawn as spawnAsync } from "child_process";
-import { join, dirname } from "path";
-import { fileURLToPath } from "url";
+import { execSync, spawn as spawnAsync } from "child_process";
 import { createInterface } from "readline";
-import { checkNodeVersion, checkAIRuntime, checkPorts } from "../lib/checks.js";
+import { checkNodeVersion, checkPorts } from "../lib/checks.js";
 import { isInstalled, installBundled } from "../lib/install.js";
 import { ensureSecrets } from "../lib/secrets.js";
 import { runMigrations } from "../lib/migrate.js";
@@ -11,15 +9,12 @@ import { startServices, isRunning } from "../lib/services.js";
 import {
   collectEmail,
   registerUser,
-  createWorkspace,
-  createMachineToken,
+  createPairingToken,
   waitForServer,
 } from "../lib/register.js";
 import { DEFAULT_PORTS, WEB_URL, SELF_HOSTED_DIR } from "../lib/constants.js";
 import { patchWranglerConfigs } from "../lib/wrangler-config.js";
-import { buildCliEnv } from "../lib/cli-env.js";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
+import { pairAndStartDaemon } from "../lib/daemon.js";
 
 export function onboardCommand(): Command {
   return new Command("onboard")
@@ -27,12 +22,14 @@ export function onboardCommand(): Command {
     .option("--port-web <port>", "Web server port", String(DEFAULT_PORTS.web))
     .option("--port-email <port>", "Email worker port", String(DEFAULT_PORTS.emailWorker))
     .option("--port-ws <port>", "WebSocket worker port", String(DEFAULT_PORTS.wsDo))
+    .option("--port-wake <port>", "Wake worker port", String(DEFAULT_PORTS.wakeWorker))
     .option("--skip-register", "Skip account creation (just start services)")
     .action(async (opts) => {
       const ports = {
         web: parseInt(opts.portWeb, 10),
         emailWorker: parseInt(opts.portEmail, 10),
         wsDo: parseInt(opts.portWs, 10),
+        wakeWorker: parseInt(opts.portWake, 10),
       };
 
       console.log("\n🚀 Alook Local Setup\n");
@@ -43,17 +40,7 @@ export function onboardCommand(): Command {
       // 2. Check ports
       await checkPorts(ports);
 
-      // 3. Check AI runtimes
-      console.log("Scanning for AI runtimes...");
-      const runtimes = checkAIRuntime();
-      if (runtimes.length === 0) {
-        console.error("Error: no AI runtimes found.");
-        console.error("Install one of: claude, codex, or opencode");
-        process.exit(1);
-      }
-      console.log(`  Found: ${runtimes.map((r) => r.type).join(", ")}\n`);
-
-      // 4. Collect user input before heavy install/migrate work
+      // 3. Collect user input before heavy install/migrate work
       let email: string | undefined;
       if (!opts.skipRegister) {
         email = await collectEmail();
@@ -99,26 +86,11 @@ export function onboardCommand(): Command {
       // 10. Register with collected email
       if (email) {
         const { sessionCookie } = await registerUser(baseURL, email);
-        const workspace = await createWorkspace(baseURL, sessionCookie);
-        const { token } = await createMachineToken(baseURL, sessionCookie, workspace.id);
-
-        // Let CLI register handle token activation + config save
-        const cliEntry = join(__dirname, "cli", "index.js");
-        const cliEnv = buildCliEnv(ports.web);
+        const { tokenId } = await createPairingToken(baseURL, sessionCookie);
         console.log("Starting daemon...");
-        try {
-          spawnSync("node", [cliEntry, "register", "--token", token], {
-            stdio: "inherit",
-            env: cliEnv,
-          });
-          spawnSync("node", [cliEntry, "daemon", "start"], {
-            stdio: "inherit",
-            env: cliEnv,
-          });
-        } catch {
-          console.warn("  Warning: daemon auto-start failed. Start manually:");
-          console.warn(`  npx @alook/app cli register --token ${token}`);
-          console.warn(`  npx @alook/app cli daemon start`);
+        if (!pairAndStartDaemon(tokenId, ports)) {
+          console.warn("  Warning: daemon auto-start failed.");
+          console.warn(`  Open ${baseURL}/c/me/machines to generate a new pairing command.`);
         }
       }
 
