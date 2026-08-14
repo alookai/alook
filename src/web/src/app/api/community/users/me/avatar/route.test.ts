@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
 const mockHandleUserAvatarUpload = vi.fn()
+const mockHandleBotAvatarUpload = vi.fn()
 const mockUpdateUser = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
@@ -24,18 +25,26 @@ vi.mock("@alook/shared", async () => {
 
 vi.mock("@/lib/community/upload", () => ({
   handleUserAvatarUpload: (...a: unknown[]) => mockHandleUserAvatarUpload(...a),
+  handleBotAvatarUpload: (...a: unknown[]) => mockHandleBotAvatarUpload(...a),
 }))
 
 let isAuthed = true
+let actorKind: "human" | "bot" = "human"
 
-vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
+vi.mock("@/lib/middleware/community-actor", () => ({
+  withCommunityActor: vi.fn((handler: any) => async (req: any, ctx?: any) => {
     if (!isAuthed) {
       const { NextResponse } = require("next/server")
       return NextResponse.json({ error: "unauthorized" }, { status: 401 })
     }
     const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: { DB: {} }, userId: "u1", email: "u@t.com", params })
+    return handler(req, {
+      env: { DB: {} },
+      actor: actorKind === "bot"
+        ? { kind: "bot", userId: "b1", ownerUserId: "u1", machineId: "m1" }
+        : { kind: "human", userId: "u1", email: "u@t.com" },
+      params,
+    })
   }),
 }))
 
@@ -57,6 +66,7 @@ describe("POST /api/community/users/me/avatar", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     isAuthed = true
+    actorKind = "human"
     mockUpdateUser.mockResolvedValue(undefined)
   })
 
@@ -95,5 +105,24 @@ describe("POST /api/community/users/me/avatar", () => {
 
     expect(mockHandleUserAvatarUpload).toHaveBeenCalledWith(expect.anything(), expect.anything(), "u1")
     expect(mockUpdateUser).toHaveBeenCalledWith(expect.anything(), "u1", { image: "/api/community/users/u1/avatar" })
+  })
+
+  it("uses the bot avatar key and URL for a bot actor", async () => {
+    actorKind = "bot"
+    mockHandleBotAvatarUpload.mockResolvedValue({
+      ok: true,
+      id: "b1",
+      key: "bot-avatar/b1",
+      url: "/api/community/bots/b1/avatar",
+      filename: "bot.png",
+      contentType: "image/png",
+      size: 10,
+    })
+    const res = await POST(postReq(), {} as never)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ url: "/api/community/bots/b1/avatar" })
+    expect(mockHandleBotAvatarUpload).toHaveBeenCalledWith(expect.anything(), expect.anything(), "b1")
+    expect(mockHandleUserAvatarUpload).not.toHaveBeenCalled()
+    expect(mockUpdateUser).toHaveBeenCalledWith(expect.anything(), "b1", { image: "/api/community/bots/b1/avatar" })
   })
 })

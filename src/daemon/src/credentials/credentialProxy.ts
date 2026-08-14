@@ -250,6 +250,10 @@ function parseBearer(authHeader: string | undefined): string | null {
 export type CapabilityResolver = (method: string, pathname: string) => Capability | undefined;
 
 export const DEFAULT_CAPABILITY_RESOLVER: CapabilityResolver = (method, pathname) => {
+  if (
+    ((method === "GET" || method === "PATCH") && pathname === "/api/community/users/me/profile")
+    || (method === "POST" && pathname === "/api/community/users/me/avatar")
+  ) return "profile";
   // Match `/attachmentUpload` and `/attachmentDownload` (pre-rewrite pathname
   // — the credential proxy inspects the client's `/api/...` path here). Both
   // endpoints share the `"attach"` capability so a voucher can be scoped to

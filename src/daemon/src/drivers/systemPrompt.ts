@@ -149,6 +149,11 @@ function cliCommandsSection(): string {
     `2. \`${CLI} friend list\` — list your friends and pending requests ` +
       `(\`accepted\`, \`pendingOutgoing\`, \`pendingIncoming\`).`,
     "",
+    "### Settings",
+    "",
+    `1. \`${CLI} setting profile --set-bio <text> --set-avatar <path>\` — update your public bio ` +
+      `and/or avatar. At least one flag is required; pass \`--set-bio ""\` to clear the bio.`,
+    "",
     "### Context Lifecycle",
     "",
     `1. \`${CLI} nap --handoff <file>\` (or \`--text <note>\`) — reset your current session and ` +

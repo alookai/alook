@@ -61,6 +61,7 @@ export type BotBinding = {
   userId: string;
   machineId: string;
   runtime: string;
+  instruction: string;
   modelName: string | null;
   createdAt: string;
 };
@@ -92,17 +93,13 @@ export async function listBotsForOwner(
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       lastRefreshContextAt: user.lastRefreshContextAt,
-      description: communityUserProfile.aboutMe,
+      description: communityBotBinding.instruction,
       machineId: communityBotBinding.machineId,
       runtime: communityBotBinding.runtime,
       modelName: communityBotBinding.modelName,
     })
     .from(user)
     .innerJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
-    .leftJoin(
-      communityUserProfile,
-      eq(communityUserProfile.userId, user.id)
-    )
     .where(
       and(
         eq(user.isBot, true),
@@ -145,17 +142,13 @@ export async function getBotOwnedBy(
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       lastRefreshContextAt: user.lastRefreshContextAt,
-      description: communityUserProfile.aboutMe,
+      description: communityBotBinding.instruction,
       machineId: communityBotBinding.machineId,
       runtime: communityBotBinding.runtime,
       modelName: communityBotBinding.modelName,
     })
     .from(user)
     .leftJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
-    .leftJoin(
-      communityUserProfile,
-      eq(communityUserProfile.userId, user.id)
-    )
     .where(
       and(
         eq(user.id, botId),
@@ -395,7 +388,7 @@ export async function listBotsForMachine(
       id: user.id,
       name: user.name,
       discriminator: user.discriminator,
-      description: communityUserProfile.aboutMe,
+      description: communityBotBinding.instruction,
       ownerName: owner.name,
       ownerDiscriminator: owner.discriminator,
       runtime: communityBotBinding.runtime,
@@ -404,10 +397,6 @@ export async function listBotsForMachine(
     .from(user)
     .innerJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
     .innerJoin(owner, eq(owner.id, user.ownerUserId))
-    .leftJoin(
-      communityUserProfile,
-      eq(communityUserProfile.userId, user.id)
-    )
     .where(
       and(
         eq(communityBotBinding.machineId, machineId),
@@ -524,6 +513,7 @@ export async function createBot(
         userId: botId,
         machineId: data.machineId,
         runtime: data.runtime,
+        instruction: description,
         modelName: data.modelName ?? null,
         createdAt: nowIso,
       });
@@ -568,15 +558,11 @@ export async function updateBot(
   if (data.name !== undefined) set.name = data.name;
   if (data.image !== undefined) set.image = data.image;
 
-  // When description is changing, batch the user UPDATE + profile upsert so a
-  // concurrent softDeleteBot can't slip in between and leave a fresh description
-  // on a tombstoned bot. The upsert INSERT branch is safe (createBot writes the
-  // profile row); it only fires for legacy rows that pre-date the profile write.
   let rows: Array<{ id: string; name: string; discriminator: string; image: string | null }>;
   if (data.description !== undefined) {
-    const s1 = db
-      .update(user)
-      .set(set)
+    const ownerScopedIds = db
+      .select({ id: user.id })
+      .from(user)
       .where(
         and(
           eq(user.id, botId),
@@ -584,17 +570,33 @@ export async function updateBot(
           eq(user.isBot, true),
           isNull(user.deletedAt)
         )
+      );
+    const ownerScopedBindingIds = db
+      .select({ id: communityBotBinding.userId })
+      .from(communityBotBinding)
+      .where(inArray(communityBotBinding.userId, ownerScopedIds));
+    const s1 = db
+      .update(communityBotBinding)
+      .set({ instruction: data.description })
+      .where(inArray(communityBotBinding.userId, ownerScopedIds))
+      .returning({ userId: communityBotBinding.userId });
+    const s2 = db
+      .update(user)
+      .set(set)
+      .where(
+        and(
+          eq(user.id, botId),
+          eq(user.ownerUserId, ownerId),
+          eq(user.isBot, true),
+          isNull(user.deletedAt),
+          inArray(user.id, ownerScopedBindingIds)
+        )
       )
       .returning({ id: user.id, name: user.name, discriminator: user.discriminator, image: user.image });
-    const s2 = db
-      .insert(communityUserProfile)
-      .values({ userId: botId, aboutMe: data.description })
-      .onConflictDoUpdate({
-        target: communityUserProfile.userId,
-        set: { aboutMe: data.description },
-      });
     const results = (await db.batch([s1, s2] as any)) as any[];
-    rows = Array.isArray(results?.[0]) ? results[0] : [];
+    const bindingRows = Array.isArray(results?.[0]) ? results[0] : [];
+    rows = Array.isArray(results?.[1]) ? results[1] : [];
+    if (bindingRows.length === 0) rows = [];
   } else {
     rows = await db
       .update(user)
@@ -614,12 +616,12 @@ export async function updateBot(
 
   let description = data.description ?? "";
   if (data.description === undefined) {
-    const profileRows = await db
-      .select({ aboutMe: communityUserProfile.aboutMe })
-      .from(communityUserProfile)
-      .where(eq(communityUserProfile.userId, botId))
+    const bindingRows = await db
+      .select({ instruction: communityBotBinding.instruction })
+      .from(communityBotBinding)
+      .where(eq(communityBotBinding.userId, botId))
       .limit(1);
-    description = profileRows[0]?.aboutMe ?? "";
+    description = bindingRows[0]?.instruction ?? "";
   }
 
   return {

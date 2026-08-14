@@ -18,6 +18,7 @@ vi.mock("./messageReminderClient", async (importOriginal) => ({
 }));
 import { main, setApiForTesting, decodeTextEscapes } from "./index";
 import type { ServerApi } from "../server/contract";
+import { MAX_SERVER_ICON_SIZE_BYTES } from "@alook/shared/constants/community";
 
 /** Capture exactly the JSON object the CLI prints to stdout. */
 function captureStdout(): { lines: () => string[]; restore: () => void } {
@@ -55,6 +56,12 @@ function stubApi(over: Partial<ServerApi> = {}): ServerApi {
     listMarks: async () => ({ marked: [] }),
     friendRequest: async () => ({ friendshipId: "fr_1", status: "pending", hint: "Your owner needs to approve this request in DM." }),
     listFriends: async () => ({ accepted: [], pendingOutgoing: [], pendingIncoming: [] }),
+    updateProfile: async (req) => ({
+      updated: [req.avatar ? "avatar" as const : undefined, req.bio !== undefined ? "bio" as const : undefined]
+        .filter((value): value is "avatar" | "bio" => value !== undefined),
+      ...(req.bio !== undefined ? { bio: req.bio } : {}),
+      ...(req.avatar ? { avatarUrl: "/api/community/bots/agent_test/avatar" } : {}),
+    }),
     nap: async () => ({ napped: true }),
     ...over,
   } as ServerApi;
@@ -1523,6 +1530,144 @@ describe("friend list", () => {
     await main(["friend", "list"]);
     const env = parseEnvelope(cap.lines());
     expect(env).toEqual({ success: { accepted: [], pendingOutgoing: [], pendingIncoming: [] } });
+  });
+});
+
+describe("setting profile", () => {
+  it("rejects an empty command before calling ServerApi", async () => {
+    const updateProfile = vi.fn();
+    setApiForTesting(stubApi({ updateProfile }));
+    await main(["setting", "profile"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env.error).toContain("--set-bio")
+    expect(updateProfile).not.toHaveBeenCalled();
+  });
+
+  it("accepts an empty bio as an explicit clear", async () => {
+    const updateProfile = vi.fn(async () => ({ updated: ["bio" as const], bio: "" }));
+    setApiForTesting(stubApi({ updateProfile }));
+    await main(["setting", "profile", "--set-bio", ""]);
+    expect(parseEnvelope(cap.lines())).toEqual({ success: { updated: ["bio"], bio: "" } });
+    expect(updateProfile).toHaveBeenCalledWith({ bio: "" });
+  });
+
+  it("updates a non-empty bio without an avatar", async () => {
+    const updateProfile = vi.fn(async () => ({ updated: ["bio" as const], bio: "Backend and infrastructure" }));
+    setApiForTesting(stubApi({ updateProfile }));
+    await main(["setting", "profile", "--set-bio", "Backend and infrastructure"]);
+    expect(parseEnvelope(cap.lines())).toEqual({
+      success: { updated: ["bio"], bio: "Backend and infrastructure" },
+    });
+    expect(updateProfile).toHaveBeenCalledWith({ bio: "Backend and infrastructure" });
+  });
+
+  it("updates an avatar without a bio", async () => {
+    const fs = await import("fs");
+    const os = await import("os");
+    const path = await import("path");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "profile-"));
+    const file = path.join(dir, "avatar.webp");
+    fs.writeFileSync(file, new Uint8Array([1, 2, 3]));
+    const updateProfile = vi.fn(async () => ({
+      updated: ["avatar" as const],
+      avatarUrl: "/api/community/bots/agent_test/avatar",
+    }));
+    setApiForTesting(stubApi({ updateProfile }));
+    await main(["setting", "profile", "--set-avatar", file]);
+    fs.rmSync(dir, { recursive: true, force: true });
+    expect(parseEnvelope(cap.lines())).toEqual({
+      success: {
+        updated: ["avatar"],
+        avatarUrl: "/api/community/bots/agent_test/avatar",
+      },
+    });
+    expect(updateProfile).toHaveBeenCalledWith({
+      avatar: expect.objectContaining({ filename: "avatar.webp", contentType: "image/webp" }),
+    });
+  });
+
+  it("preflights and sends bio plus avatar in one logical request", async () => {
+    const fs = await import("fs");
+    const os = await import("os");
+    const path = await import("path");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "profile-"));
+    const file = path.join(dir, "avatar.png");
+    fs.writeFileSync(file, new Uint8Array([1, 2, 3]));
+    const updateProfile = vi.fn(async () => ({
+      updated: ["avatar" as const, "bio" as const],
+      avatarUrl: "/api/community/bots/agent_test/avatar",
+      bio: "infra",
+    }));
+    setApiForTesting(stubApi({ updateProfile }));
+    await main(["setting", "profile", "--set-bio", "infra", "--set-avatar", file]);
+    fs.rmSync(dir, { recursive: true, force: true });
+    expect(parseEnvelope(cap.lines())).toEqual({
+      success: {
+        updated: ["avatar", "bio"],
+        avatarUrl: "/api/community/bots/agent_test/avatar",
+        bio: "infra",
+      },
+    });
+    expect(updateProfile).toHaveBeenCalledWith({
+      bio: "infra",
+      avatar: expect.objectContaining({ filename: "avatar.png", contentType: "image/png" }),
+    });
+  });
+
+  it("rejects an unsupported avatar before calling ServerApi", async () => {
+    const fs = await import("fs");
+    const os = await import("os");
+    const path = await import("path");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "profile-"));
+    const file = path.join(dir, "avatar.svg");
+    fs.writeFileSync(file, "<svg/>");
+    const updateProfile = vi.fn();
+    setApiForTesting(stubApi({ updateProfile }));
+    await main(["setting", "profile", "--set-avatar", file]);
+    fs.rmSync(dir, { recursive: true, force: true });
+    expect(parseEnvelope(cap.lines()).error).toContain("png / jpeg / webp / gif");
+    expect(updateProfile).not.toHaveBeenCalled();
+  });
+
+  it("rejects a missing avatar before calling ServerApi", async () => {
+    const os = await import("os");
+    const path = await import("path");
+    const updateProfile = vi.fn();
+    setApiForTesting(stubApi({ updateProfile }));
+    const missing = path.join(os.tmpdir(), `missing-avatar-${Date.now()}.png`);
+    await main(["setting", "profile", "--set-avatar", missing]);
+    expect(parseEnvelope(cap.lines()).error).toContain("cannot read avatar");
+    expect(updateProfile).not.toHaveBeenCalled();
+  });
+
+  it("rejects an oversize avatar before calling ServerApi", async () => {
+    const fs = await import("fs");
+    const os = await import("os");
+    const path = await import("path");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "profile-"));
+    const file = path.join(dir, "avatar.png");
+    fs.writeFileSync(file, new Uint8Array(MAX_SERVER_ICON_SIZE_BYTES + 1));
+    const updateProfile = vi.fn();
+    setApiForTesting(stubApi({ updateProfile }));
+    await main(["setting", "profile", "--set-avatar", file]);
+    fs.rmSync(dir, { recursive: true, force: true });
+    expect(parseEnvelope(cap.lines()).error).toContain("avatar too large");
+    expect(updateProfile).not.toHaveBeenCalled();
+  });
+
+  it("rejects an empty avatar before calling ServerApi", async () => {
+    const fs = await import("fs");
+    const os = await import("os");
+    const path = await import("path");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "profile-"));
+    const file = path.join(dir, "avatar.png");
+    fs.writeFileSync(file, "");
+    const updateProfile = vi.fn();
+    setApiForTesting(stubApi({ updateProfile }));
+    await main(["setting", "profile", "--set-avatar", file]);
+    fs.rmSync(dir, { recursive: true, force: true });
+    expect(parseEnvelope(cap.lines()).error).toContain("empty");
+    expect(updateProfile).not.toHaveBeenCalled();
   });
 });
 

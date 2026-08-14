@@ -9,6 +9,7 @@ const getMemberships = vi.fn()
 const authApiUpdateUser = vi.fn()
 const fanOutToServerMembers = vi.fn()
 const fanOutStatusUpdate = vi.fn()
+let actorKind: "human" | "bot" = "human"
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -47,10 +48,16 @@ vi.mock("@alook/shared", async () => {
   }
 })
 
-vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
+vi.mock("@/lib/middleware/community-actor", () => ({
+  withCommunityActor: vi.fn((handler: any) => async (req: any, ctx?: any) => {
     const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: {}, userId: "u1", email: "u@t.com", params })
+    return handler(req, {
+      env: {},
+      actor: actorKind === "bot"
+        ? { kind: "bot", userId: "b1", ownerUserId: "u1", machineId: "m1" }
+        : { kind: "human", userId: "u1", email: "u@t.com" },
+      params,
+    })
   }),
 }))
 
@@ -75,6 +82,7 @@ function patchReq(body: unknown) {
 describe("GET /api/community/users/me/profile", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    actorKind = "human"
     getUser.mockResolvedValue({ id: "u1", discriminator: "4242" })
   })
 
@@ -120,6 +128,7 @@ describe("GET /api/community/users/me/profile", () => {
 describe("PATCH /api/community/users/me/profile", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    actorKind = "human"
     authApiUpdateUser.mockResolvedValue({ headers: new Headers() })
     listMemberServerIds.mockResolvedValue([])
     getMemberships.mockResolvedValue([])
@@ -298,4 +307,24 @@ describe("PATCH /api/community/users/me/profile", () => {
     expect(res.status).toBe(200)
     expect(fanOutStatusUpdate).toHaveBeenCalledWith("u1", "🎧", "Vibing")
   })
+
+  it("allows a bot to update only its own public bio", async () => {
+    actorKind = "bot"
+    const res = await PATCH(patchReq({ aboutMe: "bot bio" }), {} as never)
+    expect(res.status).toBe(200)
+    expect(updateProfile).toHaveBeenCalledWith({}, "b1", { aboutMe: "bot bio" })
+    expect(authApiUpdateUser).not.toHaveBeenCalled()
+    expect(fanOutStatusUpdate).not.toHaveBeenCalled()
+  })
+
+  it.each(["name", "bannerColor", "statusEmoji", "statusText"])(
+    "returns 403 when a bot supplies forbidden field %s",
+    async (field) => {
+      actorKind = "bot"
+      const res = await PATCH(patchReq({ [field]: "blocked" }), {} as never)
+      expect(res.status).toBe(403)
+      expect(updateProfile).not.toHaveBeenCalled()
+      expect(authApiUpdateUser).not.toHaveBeenCalled()
+    },
+  )
 })

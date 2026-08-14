@@ -65,6 +65,15 @@ async function post(url: string, voucher: string, path: string) {
 }
 
 describe("DEFAULT_CAPABILITY_RESOLVER", () => {
+  it("maps only the exact self-profile route shapes to `profile`", () => {
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/users/me/profile")).toBe("profile");
+    expect(DEFAULT_CAPABILITY_RESOLVER("PATCH", "/api/community/users/me/profile")).toBe("profile");
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/users/me/avatar")).toBe("profile");
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/users/me/profile")).toBeUndefined();
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/users/me/avatar")).toBeUndefined();
+    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/users/me/inbox/pull")).toBe("read");
+  });
+
   it("maps a reaction (canonical door PUT messages/{id}/reactions) to `send` (a read-only voucher must not react)", () => {
     // Flat /api/reactAdd is DELETED (folded into the canonical reaction door).
     // The write capability now attaches to the door shape.

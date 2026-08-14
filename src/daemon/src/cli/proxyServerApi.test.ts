@@ -42,6 +42,101 @@ function bufferResponse(bytes: Uint8Array, headers: Record<string, string> = {})
 
 const cfg = { proxyUrl: "http://proxy.test", voucher: "vch_test" };
 
+describe("createProxyServerApi — updateProfile", () => {
+  it("applies avatar before bio and returns one ordered result", async () => {
+    const seen: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
+      seen.push({ url, init });
+      return url.endsWith("/avatar")
+        ? jsonBody(JSON.stringify({ url: "/api/community/bots/b1/avatar" }))
+        : jsonBody(JSON.stringify({ aboutMe: "infra" }));
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    const result = await api.updateProfile({
+      bio: "infra",
+      avatar: { filename: "me.png", contentType: "image/png", data: new Uint8Array([1, 2, 3]) },
+    });
+    expect(seen.map((entry) => entry.url)).toEqual([
+      "http://proxy.test/api/community/users/me/avatar",
+      "http://proxy.test/api/community/users/me/profile",
+    ]);
+    expect(seen[0]?.init?.body).toBeInstanceOf(FormData);
+    expect(seen[1]?.init?.body).toBe(JSON.stringify({ aboutMe: "infra" }));
+    expect(result).toEqual({
+      updated: ["avatar", "bio"],
+      avatarUrl: "/api/community/bots/b1/avatar",
+      bio: "infra",
+    });
+  });
+
+  it("reports explicit partial state when avatar succeeds and bio fails", async () => {
+    const fetchImpl: FetchLike = vi.fn()
+      .mockResolvedValueOnce(jsonBody(JSON.stringify({ url: "/api/community/bots/b1/avatar" })))
+      .mockResolvedValue(jsonBody(JSON.stringify({ error: "bad bio" }), { status: 400 }));
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    try {
+      await api.updateProfile({
+        bio: "infra",
+        avatar: { filename: "me.png", contentType: "image/png", data: new Uint8Array([1]) },
+      });
+      throw new Error("should have thrown");
+    } catch (err) {
+      expect((err as Error).message).toBe("bad bio");
+      expect((err as { hint?: string }).hint).toBe("avatar was applied; bio was not applied");
+    }
+  });
+
+  it("retries bio in place without replaying a previously committed avatar", async () => {
+    const fetchImpl: FetchLike = vi.fn()
+      .mockResolvedValueOnce(jsonBody(JSON.stringify({ url: "/api/community/bots/b1/avatar" })))
+      .mockResolvedValueOnce(jsonBody(JSON.stringify({ error: "temporary" }), { status: 503 }))
+      .mockResolvedValueOnce(jsonBody(JSON.stringify({ aboutMe: "infra" })));
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+
+    await expect(api.updateProfile({
+      bio: "infra",
+      avatar: { filename: "me.png", contentType: "image/png", data: new Uint8Array([1]) },
+    })).resolves.toEqual({
+      updated: ["avatar", "bio"],
+      avatarUrl: "/api/community/bots/b1/avatar",
+      bio: "infra",
+    });
+
+    const urls = (fetchImpl as ReturnType<typeof vi.fn>).mock.calls.map(([url]) => url);
+    expect(urls.filter((url) => String(url).endsWith("/avatar"))).toHaveLength(1);
+    expect(urls.filter((url) => String(url).endsWith("/profile"))).toHaveLength(2);
+  });
+
+  it("retains the partial-state hint when every bio retry fails after avatar commit", async () => {
+    const fetchImpl: FetchLike = vi.fn()
+      .mockResolvedValueOnce(jsonBody(JSON.stringify({ url: "/api/community/bots/b1/avatar" })))
+      .mockResolvedValue(jsonBody(JSON.stringify({ error: "D1 unavailable" }), { status: 503 }));
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+
+    try {
+      await api.updateProfile({
+        bio: "infra",
+        avatar: { filename: "me.png", contentType: "image/png", data: new Uint8Array([1]) },
+      });
+      throw new Error("should have thrown");
+    } catch (err) {
+      expect((err as Error).message).toBe("D1 unavailable");
+      expect((err as { hint?: string }).hint).toBe("avatar was applied; bio was not applied");
+    }
+
+    const urls = (fetchImpl as ReturnType<typeof vi.fn>).mock.calls.map(([url]) => url);
+    expect(urls.filter((url) => String(url).endsWith("/avatar"))).toHaveLength(1);
+    expect(urls.filter((url) => String(url).endsWith("/profile"))).toHaveLength(4);
+  });
+
+  it("rejects an empty request before fetch", async () => {
+    const fetchImpl: FetchLike = vi.fn();
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    await expect(api.updateProfile({})).rejects.toThrow("bio or avatar is required");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
 describe("createProxyServerApi — parseJsonResponse via call<T>", () => {
   it("throws structured 'non-JSON body' on empty 500", async () => {
     const fetchImpl: FetchLike = vi.fn(async () => jsonBody("", { status: 500 }));
@@ -91,6 +186,7 @@ describe("createProxyServerApi — parseJsonResponse via call<T>", () => {
       throw new Error("should have thrown");
     } catch (err) {
       expect((err as Error).message).toBe("not allowed");
+      expect((err as { status?: number }).status).toBe(403);
       expect((err as { code?: string }).code).toBe("forbidden");
       expect((err as { hint?: string }).hint).toBe("check owner");
     }

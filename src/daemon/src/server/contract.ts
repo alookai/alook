@@ -32,6 +32,8 @@ export type {
   AgentAttachmentDownloadResult,
   AttachmentUploadRequest,
   AttachmentDownloadRequest,
+  UpdateProfileRequest,
+  UpdateProfileResult,
   FileHandle,
   Cursor,
   Page,

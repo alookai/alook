@@ -1,7 +1,13 @@
 import { z } from "zod";
 import { IssueStatus, TASK_TYPES } from "./constants";
 import { sanitizeSlug } from "./utils/slug";
-import { MAX_ATTACHMENTS_PER_MESSAGE, MAX_MESSAGE_CONTENT_LENGTH } from "./constants/community";
+import {
+  ALLOWED_ICON_MIME_TYPES,
+  MAX_ATTACHMENTS_PER_MESSAGE,
+  MAX_MESSAGE_CONTENT_LENGTH,
+  MAX_PROFILE_ABOUT_LENGTH,
+  MAX_SERVER_ICON_SIZE_BYTES,
+} from "./constants/community";
 
 // ---------------------------------------------------------------------------
 // Task status
@@ -1198,6 +1204,29 @@ export const CommunityAgentAttachmentDownloadRequestSchema = z.object({
 });
 export type CommunityAgentAttachmentDownloadRequest = z.infer<
   typeof CommunityAgentAttachmentDownloadRequestSchema
+>;
+
+export const CommunityAgentUpdateProfileRequestSchema = z
+  .object({
+    bio: z.string().max(MAX_PROFILE_ABOUT_LENGTH).optional(),
+    avatar: z
+      .object({
+        filename: z.string().min(1),
+        contentType: z.enum(ALLOWED_ICON_MIME_TYPES),
+        data: z.instanceof(Uint8Array)
+          .refine((value) => value.byteLength > 0, "avatar must not be empty")
+          .refine(
+            (value) => value.byteLength <= MAX_SERVER_ICON_SIZE_BYTES,
+            `avatar must be ≤ ${MAX_SERVER_ICON_SIZE_BYTES} bytes`,
+          ),
+      })
+      .optional(),
+  })
+  .refine((value) => value.bio !== undefined || value.avatar !== undefined, {
+    message: "bio or avatar is required",
+  });
+export type CommunityAgentUpdateProfileRequest = z.infer<
+  typeof CommunityAgentUpdateProfileRequestSchema
 >;
 
 export const CommunityAgentInboxPullRequestSchema = z.object({

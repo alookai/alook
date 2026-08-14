@@ -366,6 +366,21 @@ export interface AttachmentDownloadRequest {
   destPath: string;
 }
 
+export interface UpdateProfileRequest {
+  bio?: string;
+  avatar?: {
+    filename: string;
+    contentType: string;
+    data: Uint8Array;
+  };
+}
+
+export interface UpdateProfileResult {
+  updated: Array<"avatar" | "bio">;
+  bio?: string;
+  avatarUrl?: string;
+}
+
 /**
  * Sent: the message landed. Blocked: the channel has unseen messages the agent
  * must align to first (pull, then resend) — `latestSeq` is the current waterline.
@@ -649,6 +664,9 @@ export interface ServerApi {
 
   /** Download an attachment by id, writing to `destPath` (atomic temp-then-rename). */
   attachmentDownload(req: AttachmentDownloadRequest): Promise<AgentAttachmentDownloadResult>;
+
+  /** Update the authenticated account's public bio and/or avatar. */
+  updateProfile(req: UpdateProfileRequest): Promise<UpdateProfileResult>;
 
   /** React to a message with a single emoji. Duplicates are idempotent (`duplicate:true`, no fan-out). */
   reactAdd(req: { channel: ChannelRef; seq: Seq; emoji: string }): Promise<CommunityAgentReactAddResponse>;

@@ -193,6 +193,13 @@ export function deriveAuditLogSubcommand(pathname: string, method?: string): str
   if (/^\/api\/community\/users\/me\/inbox\/snapshot(\/|$|\?)/.test(canonical)) return "inboxSnapshot";
   if (/^\/api\/community\/users\/me\/inbox\/ack(\/|$|\?)/.test(canonical)) return null; // ack writes no audit row here (re-homed to daemon reborn-ready signal)
 
+  // A combined `setting profile` invocation is deliberately two canonical
+  // mutations (avatar first, then bio). Keep them distinct in the authoritative
+  // proxy audit so partial completion is visible instead of collapsing both
+  // writes into one ambiguous shell-level event.
+  if (method === "PATCH" && canonical === "/api/community/users/me/profile") return "profileBioUpdate";
+  if (method === "POST" && canonical === "/api/community/users/me/avatar") return "profileAvatarUpdate";
+
   // Bot-self lifecycle door (bots/me/*, Blondie #527): nap relocated from the flat
   // /nap to bots/me/nap. Map back to the logical `nap` verb so the audit stays
   // `nap`, not the `bots` segment.

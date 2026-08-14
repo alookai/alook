@@ -91,6 +91,8 @@ describe("createBot", () => {
     const botUser = userValues[0] as { id: string; discriminator: string }
     expect(botUser.discriminator).toBe(computeDiscriminator(botUser.id))
     expect(botUser.discriminator).toMatch(/^\d{4}$/)
+    expect(userValues[1]).toEqual(expect.objectContaining({ instruction: "does things" }))
+    expect(userValues[2]).toEqual(expect.objectContaining({ aboutMe: "does things" }))
     expect(db.batch).toHaveBeenCalledOnce()
   })
 

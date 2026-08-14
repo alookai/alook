@@ -11,19 +11,20 @@ import {
 } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { createAuth } from "@/lib/auth"
-import { withAuth } from "@/lib/middleware/auth"
+import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { fanOutStatusUpdate, fanOutToServerMembers } from "@/lib/community/fanout"
 
-export const GET = withAuth(async (_req, ctx) => {
+export const GET = withCommunityActor(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
+  const userId = ctx.actor.userId
   const [profile, viewer] = await Promise.all([
     withD1Retry(
-      () => queries.communityUserProfile.getProfile(db, ctx.userId),
+      () => queries.communityUserProfile.getProfile(db, userId),
       { route: "community/profile:self-profile" }
     ),
     withD1Retry(
-      () => queries.user.getUserSelf(db, ctx.userId),
+      () => queries.user.getUserSelf(db, userId),
       { route: "community/profile:self-user" }
     ),
   ])
@@ -36,8 +37,9 @@ export const GET = withAuth(async (_req, ctx) => {
   })
 })
 
-export const PATCH = withAuth(async (req: NextRequest, ctx) => {
+export const PATCH = withCommunityActor(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
+  const userId = ctx.actor.userId
 
   let body: {
     name?: string
@@ -50,6 +52,13 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     body = await req.json()
   } catch {
     return writeError("invalid request body", 400)
+  }
+
+  if (ctx.actor.kind === "bot") {
+    const forbidden = ["name", "bannerColor", "statusEmoji", "statusText"] as const
+    if (forbidden.some((field) => body[field] !== undefined)) {
+      return writeError("forbidden: bots may only update aboutMe", 403)
+    }
   }
 
   if (
@@ -67,7 +76,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   // final response (see the return below).
   let renameCookieHeaders: Headers | undefined
 
-  if (body.name !== undefined) {
+  if (body.name !== undefined && ctx.actor.kind === "human") {
     if (typeof body.name !== "string") return writeError("name must be a string", 400)
     const trimmed = body.name.trim()
     // Rejects empty, over-length, and names with `#`/`@`/line breaks — the last
@@ -93,15 +102,15 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     // Broadcast the new name to every server the user belongs to, so open
     // member lists update without a refresh (previously nothing fired
     // MEMBER_UPDATE for a self-rename — only role changes did).
-    const serverIds = await queries.communityMember.listMemberServerIds(db, ctx.userId)
+    const serverIds = await queries.communityMember.listMemberServerIds(db, userId)
     if (serverIds.length > 0) {
-      const memberships = await queries.communityMember.getMemberships(db, ctx.userId, serverIds)
+      const memberships = await queries.communityMember.getMemberships(db, userId, serverIds)
       for (const membership of memberships) {
         fanOutToServerMembers(membership.serverId, {
           type: WS_EVENTS.MEMBER_UPDATE,
           serverId: membership.serverId,
           memberId: membership.id,
-          userId: ctx.userId,
+          userId,
           changes: { nickname: trimmed },
         })
       }
@@ -168,14 +177,14 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     data.statusEmoji !== undefined ||
     data.statusText !== undefined
   ) {
-    updated = await queries.communityUserProfile.updateProfile(db, ctx.userId, data)
+    updated = await queries.communityUserProfile.updateProfile(db, userId, data)
   }
 
   // Fan out only when a status field was actually part of this patch — a
   // plain aboutMe-only save must not trigger a broadcast.
   if (data.statusEmoji !== undefined || data.statusText !== undefined) {
     await fanOutStatusUpdate(
-      ctx.userId,
+      userId,
       updated?.statusEmoji ?? null,
       updated?.statusText ?? null,
     )

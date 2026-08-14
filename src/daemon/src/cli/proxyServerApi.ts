@@ -50,8 +50,10 @@ import type {
   AgentId,
   FriendRequestResult,
   FriendCard,
+  UpdateProfileRequest,
+  UpdateProfileResult,
 } from "../server/contract.js";
-import { formatHandle } from "@alook/shared";
+import { CommunityAgentUpdateProfileRequestSchema, formatHandle } from "@alook/shared";
 
 export interface ProxyServerApiConfig {
   /** The credential proxy base URL (from `<PREFIX>_PROXY_URL`). */
@@ -106,6 +108,10 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     }
     if (!res.ok) {
       const e = new Error(json?.error ?? `proxy ${method} failed (${res.status})`);
+      // Preserve transport status independently from the server's human error
+      // text. Retry policy must classify a JSON `{ error: "temporary" }` 503
+      // by its stable status, while leaving the same text on a 4xx terminal.
+      (e as Error & { status: number }).status = res.status;
       // Only attach when present — assigning `undefined` would leave an own
       // property that trips `"code" in err` / `hasOwnProperty` checks in
       // callers that use those as feature-tests.
@@ -117,6 +123,36 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
       throw e;
     }
     return json as T;
+  }
+
+  function isTransientProfileStepError(err: unknown): boolean {
+    const message = err instanceof Error ? err.message : String(err);
+    const status = typeof err === "object" && err !== null && "status" in err
+      ? (err as { status?: unknown }).status
+      : undefined;
+    return (
+      (typeof status === "number" && status >= 500 && status <= 599) ||
+      /upstream returned 5\d\d/.test(message) ||
+      message.includes("upstream body read failed") ||
+      message.includes("fetch failed") ||
+      message.includes("ECONNRESET") ||
+      message.includes("ETIMEDOUT") ||
+      message.includes("socket hang up") ||
+      message.includes("network")
+    );
+  }
+
+  async function withProfileStepRetry<T>(step: () => Promise<T>): Promise<T> {
+    const maxAttempts = 4;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      try {
+        return await step();
+      } catch (err) {
+        if (!isTransientProfileStepError(err) || attempt === maxAttempts - 1) throw err;
+        await new Promise((resolve) => setTimeout(resolve, Math.min(2000, 150 * 2 ** attempt)));
+      }
+    }
+    throw new Error("profile step retry exhausted");
   }
 
   async function callUpload(req: AttachmentUploadRequest): Promise<AgentAttachmentUploadResult> {
@@ -494,6 +530,65 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     return parseJsonResponse<{ napped: boolean }>(res, "nap");
   }
 
+  async function callUpdateProfile(req: UpdateProfileRequest): Promise<UpdateProfileResult> {
+    const parsed = CommunityAgentUpdateProfileRequestSchema.safeParse(req);
+    if (!parsed.success) {
+      throw new Error(parsed.error.issues[0]?.message ?? "invalid profile update");
+    }
+
+    const updated: Array<"avatar" | "bio"> = [];
+    let avatarUrl: string | undefined;
+    if (req.avatar) {
+      const body = await withProfileStepRetry(async () => {
+        // Rebuild FormData per attempt: fetch implementations are allowed to
+        // consume request bodies, so reusing one would make the retry unsafe.
+        // The avatar door overwrites one stable R2 key, making this step
+        // idempotent even when the first response is lost after commit.
+        const form = new FormData();
+        const blob = new Blob([new Uint8Array(req.avatar!.data)], { type: req.avatar!.contentType });
+        form.append("file", blob, req.avatar!.filename);
+        const res = await fetchImpl(`${base}/api/community/users/me/avatar`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${config.voucher}` },
+          body: form,
+        });
+        return parseJsonResponse<{ url: string }>(res, "updateProfile avatar");
+      });
+      avatarUrl = body.url;
+      updated.push("avatar");
+    }
+
+    let bio: string | undefined;
+    if (req.bio !== undefined) {
+      try {
+        const body = await withProfileStepRetry(async () => {
+          const res = await fetchImpl(`${base}/api/community/users/me/profile`, {
+            method: "PATCH",
+            headers: {
+              "content-type": "application/json",
+              authorization: `Bearer ${config.voucher}`,
+            },
+            body: JSON.stringify({ aboutMe: req.bio }),
+          });
+          return parseJsonResponse<{ aboutMe: string }>(res, "updateProfile bio");
+        });
+        bio = body.aboutMe;
+        updated.push("bio");
+      } catch (err) {
+        if (avatarUrl !== undefined && err instanceof Error) {
+          (err as Error & { hint?: string }).hint = "avatar was applied; bio was not applied";
+        }
+        throw err;
+      }
+    }
+
+    return {
+      updated,
+      ...(bio !== undefined ? { bio } : {}),
+      ...(avatarUrl !== undefined ? { avatarUrl } : {}),
+    };
+  }
+
   async function callInboxSnapshot(): Promise<InboxSnapshot> {
     // RETARGETED off the flat `inboxSnapshot` verb onto GET users/me/inbox/snapshot
     // (route/disc 轴3). A GET — snapshot is a pure peek (never advances the read
@@ -613,6 +708,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     listMembers: callListMembers,
     attachmentUpload: callUpload,
     attachmentDownload: callDownload,
+    updateProfile: callUpdateProfile,
     reactAdd: callReactAdd,
     markSet: callMarkSet,
     markRemove: callMarkRemove,

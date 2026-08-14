@@ -26,8 +26,11 @@ import { daemonReplace } from "./daemonUpdate.js";
 import { armMessageReminderFromEnv, parseRemindAfter } from "./messageReminderClient.js";
 import { parseInviteToken } from "@alook/shared/lib/invite-link";
 import {
+  ALLOWED_ICON_MIME_TYPES,
   MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES,
   MAX_EMOJI_BYTES,
+  MAX_PROFILE_ABOUT_LENGTH,
+  MAX_SERVER_ICON_SIZE_BYTES,
 } from "@alook/shared/constants/community";
 import { nowLocalISO, toLocalISO } from "../util/localTime.js";
 
@@ -181,7 +184,11 @@ function contentTypeFromFilename(filename: string): string {
  */
 function isTransientMutationError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
+  const status = typeof err === "object" && err !== null && "status" in err
+    ? (err as { status?: unknown }).status
+    : undefined;
   return (
+    (typeof status === "number" && status >= 500 && status <= 599) ||
     /upstream returned 5\d\d/.test(msg) ||
     msg.includes("upstream body read failed") ||
     msg.includes("fetch failed") ||
@@ -545,6 +552,49 @@ async function cmdAttachmentDownload(opts: Record<string, unknown>): Promise<unk
     }
   }
   return result;
+}
+
+async function cmdSettingProfile(opts: Record<string, unknown>): Promise<unknown> {
+  const bio = opts.setBio as string | undefined;
+  const avatarPath = opts.setAvatar as string | undefined;
+  if (bio === undefined && avatarPath === undefined) {
+    throw new CliError("setting profile: --set-bio <text> or --set-avatar <path> is required");
+  }
+  if (bio !== undefined && bio.length > MAX_PROFILE_ABOUT_LENGTH) {
+    throw new CliError(`setting profile: bio must be ≤ ${MAX_PROFILE_ABOUT_LENGTH} characters`);
+  }
+
+  let avatar: { filename: string; contentType: string; data: Uint8Array } | undefined;
+  if (avatarPath !== undefined) {
+    const fs = await import("fs/promises");
+    let bytes: Buffer;
+    try {
+      bytes = await fs.readFile(avatarPath);
+    } catch (err) {
+      throw new CliError(`setting profile: cannot read avatar: ${(err as Error).message}`);
+    }
+    if (bytes.byteLength === 0) throw new CliError("setting profile: avatar file is empty");
+    if (bytes.byteLength > MAX_SERVER_ICON_SIZE_BYTES) {
+      throw new CliError(
+        `setting profile: avatar too large — ${bytes.byteLength} bytes, max ${MAX_SERVER_ICON_SIZE_BYTES}`,
+      );
+    }
+    const pathMod = await import("path");
+    const filename = pathMod.basename(avatarPath);
+    const contentType = contentTypeFromFilename(filename);
+    if (!(ALLOWED_ICON_MIME_TYPES as readonly string[]).includes(contentType)) {
+      throw new CliError("setting profile: avatar must be png / jpeg / webp / gif");
+    }
+    avatar = { filename, contentType, data: new Uint8Array(bytes) };
+  }
+
+  const api = getApi();
+  // updateProfile owns per-step retries so a successful avatar is never
+  // replayed merely because the following bio step failed transiently.
+  return api.updateProfile({
+    ...(bio !== undefined ? { bio } : {}),
+    ...(avatar ? { avatar } : {}),
+  });
 }
 
 async function cmdInboxPull(opts: Record<string, unknown>): Promise<unknown> {
@@ -975,6 +1025,21 @@ function buildProgram(): Command {
       const localOpts = this.opts();
       const globalOpts = program.opts();
       const result = await cmdFriendList({ ...globalOpts, ...localOpts });
+      printEnvelope({ success: result });
+    });
+
+  const setting = program.command("setting").description("account settings").exitOverride();
+  setting.configureOutput({ writeOut: () => {}, writeErr: () => {} });
+
+  setting
+    .command("profile")
+    .description("update your public bio and/or avatar")
+    .option("--set-bio <text>", "set public bio; pass an empty string to clear it")
+    .option("--set-avatar <path>", "upload a png, jpeg, webp, or gif avatar")
+    .exitOverride()
+    .configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      const result = await cmdSettingProfile({ ...program.opts(), ...this.opts() });
       printEnvelope({ success: result });
     });
 

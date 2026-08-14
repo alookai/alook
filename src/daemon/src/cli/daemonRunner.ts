@@ -24,7 +24,7 @@ import { scrubRuntimeErrorDiagnosticText } from "../runtime/errorDiagnostics.js"
 import { createRotatingFileSink, type RotatingFileSink } from "../util/rotatingFileSink.js";
 import { createDaemonSelfUpdateHandler } from "./daemonUpdate.js";
 
-const CAPABILITIES = ["send", "read", "mentions", "tasks", "reactions", "server", "channels", "knowledge", "attach", "friend"];
+const CAPABILITIES = ["send", "read", "mentions", "tasks", "reactions", "server", "channels", "knowledge", "attach", "friend", "profile"];
 export const DAEMON_LOG_MAX_BYTES = 8 * 1024 * 1024;
 const DAEMON_ERROR_MESSAGE_MAX_CHARS = 512;
 const DIAGNOSTIC_MAX_LINE_BYTES = 128 * 1024;

@@ -1,18 +1,21 @@
 import { NextRequest } from "next/server"
 import { queries } from "@alook/shared"
-import { withAuth } from "@/lib/middleware/auth"
+import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { handleUserAvatarUpload } from "@/lib/community/upload"
-import { userAvatarUrl } from "@/lib/community/storage"
+import { handleBotAvatarUpload, handleUserAvatarUpload } from "@/lib/community/upload"
+import { botAvatarUrl, userAvatarUrl } from "@/lib/community/storage"
 
-export const POST = withAuth(async (req: NextRequest, ctx) => {
-  const result = await handleUserAvatarUpload(req, ctx.env, ctx.userId)
+export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
+  const userId = ctx.actor.userId
+  const result = ctx.actor.kind === "bot"
+    ? await handleBotAvatarUpload(req, ctx.env, userId)
+    : await handleUserAvatarUpload(req, ctx.env, userId)
   if (!result.ok) return result.response
 
   const db = getDb(ctx.env.DB)
-  const url = userAvatarUrl(ctx.userId)
-  await queries.user.updateUser(db, ctx.userId, { image: url })
+  const url = ctx.actor.kind === "bot" ? botAvatarUrl(userId) : userAvatarUrl(userId)
+  await queries.user.updateUser(db, userId, { image: url })
 
   return writeJSON({ url })
 })

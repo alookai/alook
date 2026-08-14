@@ -1229,6 +1229,11 @@ describe("deriveAuditLogSubcommand", () => {
     // ack is the advance op of the trinity but writes NO audit row here (re-homed
     // to the daemon reborn-ready signal) — null, same as flat /ack, NOT `users`.
     expect(deriveAuditLogSubcommand("/api/community/users/me/inbox/ack", "POST")).toBe(null);
+    // One combined profile command issues two independently auditable writes.
+    expect(deriveAuditLogSubcommand("/api/community/users/me/avatar", "POST")).toBe("profileAvatarUpdate");
+    expect(deriveAuditLogSubcommand("/api/community/users/me/profile", "PATCH")).toBe("profileBioUpdate");
+    expect(deriveAuditLogSubcommand("/api/community/users/me/profile", "GET")).toBe(null);
+    expect(deriveAuditLogSubcommand("/api/community/users/me/avatar", "PATCH")).toBe(null);
     // bot-self lifecycle door (bots/me/*): nap maps back to `nap`, not `bots`.
     expect(deriveAuditLogSubcommand("/api/community/bots/me/nap", "POST")).toBe("nap");
     // attachments door (attachments fold): channels/{id}/attachments = upload,
