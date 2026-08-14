@@ -7,7 +7,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CommunityOnboardingGuideController } from "./community-onboarding-guide-types";
 
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
-const readWebSource = (path: string) => readFileSync(resolve(webRoot, path), "utf8");
+const readWebSource = (path: string) =>
+  readFileSync(resolve(webRoot, path), "utf8").replaceAll("\r\n", "\n");
 
 vi.mock("react-dom", async () => {
   const ReactModule = await import("react");
