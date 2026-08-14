@@ -321,7 +321,7 @@ export async function createThreadChannel(
   const [parentServer, parentMessage] = await Promise.all([
     db
       .select({
-        serverId: communityServerMember.serverId,
+        serverId: communityChannel.serverId,
         parentChannelId: communityChannel.parentChannelId,
       })
       .from(communityChannel)

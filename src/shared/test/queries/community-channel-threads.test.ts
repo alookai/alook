@@ -1,4 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
+import Sqlite from "better-sqlite3";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
+import type { Database } from "../../src/db";
 import {
   createThreadChannel,
 } from "../../src/db/queries/community/channel";
@@ -113,5 +116,63 @@ describe("createThreadChannel", () => {
     });
     await expect(createThreadChannel(db, "forum_post_1", "m_root", "u_1")).rejects.toThrow(/child channel/);
     expect(db.__insertValues).not.toHaveBeenCalled();
+  });
+});
+
+describe("createThreadChannel against real SQLite", () => {
+  let sqlite: Sqlite.Database;
+  let db: Database;
+
+  beforeEach(() => {
+    sqlite = new Sqlite(":memory:");
+    sqlite.exec(`
+      CREATE TABLE community_channel (
+        id TEXT PRIMARY KEY,
+        server_id TEXT,
+        category_id TEXT,
+        name TEXT,
+        type TEXT NOT NULL DEFAULT 'text',
+        topic TEXT DEFAULT '',
+        position INTEGER DEFAULT 0,
+        parent_channel_id TEXT,
+        creator_id TEXT,
+        message_count INTEGER DEFAULT 0,
+        archived INTEGER DEFAULT 0,
+        parent_message_id TEXT,
+        last_message_at TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE community_message (
+        id TEXT PRIMARY KEY,
+        content TEXT NOT NULL
+      );
+      INSERT INTO community_channel
+        (id, server_id, name, type, created_at)
+      VALUES
+        ('parent_1', 'server_1', 'general', 'text', '2026-08-14T00:00:00.000Z');
+      INSERT INTO community_message (id, content)
+      VALUES ('message_1', 'Thread from a real query');
+    `);
+    db = drizzle(sqlite) as unknown as Database;
+  });
+
+  afterEach(() => sqlite.close());
+
+  it("projects the parent server from the joined query table and creates the child", async () => {
+    const created = await createThreadChannel(
+      db,
+      "parent_1",
+      "message_1",
+      "creator_1",
+    );
+
+    expect(created).toMatchObject({
+      serverId: "server_1",
+      parentChannelId: "parent_1",
+      parentMessageId: "message_1",
+      creatorId: "creator_1",
+      type: "thread",
+      name: "Thread from a real query",
+    });
   });
 });
