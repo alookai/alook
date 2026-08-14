@@ -17,6 +17,13 @@ const tempChannelId = () => `tmp_ch_${nanoid()}`
 const isUncategorizedTarget = (categoryId: string | null) =>
   !categoryId || categoryId === UNCATEGORIZED_CATEGORY_ID
 
+function invalidateChannelRefDirectory(queryClient: ReturnType<typeof useQueryClient>) {
+  void queryClient.invalidateQueries({
+    queryKey: communityKeys.channelRefDirectory(),
+    exact: true,
+  })
+}
+
 /**
  * Channel / category CRUD + reorders. These all invalidate `server(serverId)`
  * so the tree re-renders with fresh category/channel positions. The WS layer
@@ -129,6 +136,7 @@ export function useCreateChannel() {
     },
     onSettled: (_data, _err, args) => {
       void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
+      invalidateChannelRefDirectory(queryClient)
     },
   })
 }
@@ -157,6 +165,7 @@ export function useMoveChannel() {
     },
     onSuccess: (_data, args) => {
       void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
+      invalidateChannelRefDirectory(queryClient)
     },
   })
 }
@@ -173,6 +182,7 @@ export function useDeleteChannel() {
       if (args.serverId) {
         void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
       }
+      invalidateChannelRefDirectory(queryClient)
     },
   })
 }
@@ -244,6 +254,7 @@ export function useCreateCategory() {
     },
     onSettled: (_data, _err, args) => {
       void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
+      invalidateChannelRefDirectory(queryClient)
     },
   })
 }
@@ -266,6 +277,7 @@ export function useUpdateCategory() {
     },
     onSuccess: (_data, args) => {
       void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
+      invalidateChannelRefDirectory(queryClient)
     },
   })
 }
@@ -303,6 +315,7 @@ export function useDeleteCategory() {
     },
     onSettled: (_data, _err, args) => {
       void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
+      invalidateChannelRefDirectory(queryClient)
     },
   })
 }
@@ -344,6 +357,7 @@ export function useReorderServers() {
     onError: (_err, _args, ctx) => {
       if (ctx?.snapshot) queryClient.setQueryData(communityKeys.servers(), ctx.snapshot)
     },
+    onSettled: () => invalidateChannelRefDirectory(queryClient),
   })
 }
 
@@ -360,6 +374,7 @@ export function useReorderCategories() {
     },
     onSuccess: (_data, args) => {
       void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
+      invalidateChannelRefDirectory(queryClient)
     },
   })
 }
@@ -377,6 +392,7 @@ export function useReorderChannels() {
     },
     onSuccess: (_data, args) => {
       void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
+      invalidateChannelRefDirectory(queryClient)
     },
   })
 }

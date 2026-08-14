@@ -68,3 +68,14 @@ export function pickServerLandingChannel(
   if (last !== null) return last
   return channelIds[0]
 }
+
+export function pickServerLandingHref(
+  serverId: string,
+  channelIds: readonly string[],
+  last: string | null,
+): string {
+  const channelId = pickServerLandingChannel(channelIds, last)
+  return channelId
+    ? `/c/channels/${serverId}/${channelId}`
+    : `/c/channels/${serverId}`
+}

@@ -118,6 +118,7 @@ const ChannelRefNode = Mention.extend({
 export function buildCommunityChannelRefExtension(opts: {
   candidatesRef: { current: ChannelRefCandidate[] }
   popupRef: { current: ChannelRefPopupState }
+  onIntentRef?: { current: (() => void) | undefined }
   setPopup: (
     next: ChannelRefPopupState | ((cur: ChannelRefPopupState) => ChannelRefPopupState),
   ) => void
@@ -127,7 +128,7 @@ export function buildCommunityChannelRefExtension(opts: {
   // extension's `queryRef`.
   queryRef?: { current: string }
 }) {
-  const { candidatesRef, popupRef, setPopup, queryRef } = opts
+  const { candidatesRef, popupRef, onIntentRef, setPopup, queryRef } = opts
 
   return ChannelRefNode.configure({
     HTMLAttributes: { class: "channel-ref-highlight" },
@@ -158,6 +159,7 @@ export function buildCommunityChannelRefExtension(opts: {
       char: "/",
       pluginKey: new PluginKey("channelRefSuggestion"),
       items: ({ query }: { query: string }) => {
+        onIntentRef?.current?.()
         if (queryRef) queryRef.current = query
         return rankChannelRefItems(candidatesRef.current, query)
       },

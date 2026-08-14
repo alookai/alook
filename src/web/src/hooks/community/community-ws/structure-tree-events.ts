@@ -35,6 +35,15 @@ import {
 } from "@/hooks/community/community-ws/cache"
 import type { StructureTreeEventContext } from "@/hooks/community/community-ws/handler-context"
 
+function invalidateChannelRefDirectory(
+  queryClient: StructureTreeEventContext["queryClient"],
+) {
+  void queryClient.invalidateQueries({
+    queryKey: communityKeys.channelRefDirectory(),
+    exact: true,
+  })
+}
+
 export function handleChildChannelCreate(
   event: CommunityChildChannelCreate,
   { queryClient }: StructureTreeEventContext,
@@ -232,6 +241,7 @@ export function handleServerUpdate(
   event: CommunityServerUpdate,
   { queryClient }: StructureTreeEventContext,
 ) {
+  invalidateChannelRefDirectory(queryClient)
   queryClient.setQueryData<ServerDetail | undefined>(
     communityKeys.server(event.serverId),
     (prev) =>
@@ -274,6 +284,7 @@ export function handleServerDelete(
   event: CommunityServerDelete,
   { queryClient }: StructureTreeEventContext,
 ) {
+  invalidateChannelRefDirectory(queryClient)
   // Refresh the rail LIST only (drop the deleted server). `exact`
   // so this doesn't cascade-refetch every other server's nested
   // detail subtree; the deleted server's own subtree is cleared by
@@ -302,6 +313,7 @@ export function handleChannelEvent(
   event: ChannelEvent,
   { queryClient }: StructureTreeEventContext,
 ) {
+  invalidateChannelRefDirectory(queryClient)
   // #3: on channel.delete, evict every channel-scoped cache before
   // invalidating the server. Without this the messages/pins/threads/
   // child-thread caches for the dead channel linger forever — a
@@ -372,6 +384,7 @@ export function handleCategoryEvent(
   event: CategoryEvent,
   { queryClient }: StructureTreeEventContext,
 ) {
+  invalidateChannelRefDirectory(queryClient)
   void queryClient.invalidateQueries({
     queryKey: communityKeys.server(event.serverId),
     exact: true,

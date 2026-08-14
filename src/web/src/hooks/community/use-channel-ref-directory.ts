@@ -1,71 +1,32 @@
 "use client"
 
-import { useMemo } from "react"
-import { useQueries } from "@tanstack/react-query"
+import { useQuery } from "@tanstack/react-query"
+import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import { useServers, serverQueryFn, type ServerDetail } from "./use-servers"
 import type { ChannelRefDirectory } from "@/lib/community/channel-ref"
-import type { Server } from "@/components/community/_types"
 
-/**
- * Pure — flattens each server's `categories[].channels` into one `channels`
- * array per server. A server whose detail hasn't loaded yet (or is
- * genuinely still loading) contributes an empty `channels` array rather than
- * being omitted or crashing — `resolveChannelRefBase` then simply can't
- * resolve into it yet (falls back to plain/muted text upstream), and the
- * directory backfills once the detail query resolves.
- */
-export function buildChannelRefDirectory(
-  servers: Server[],
-  detailsById: Record<string, ServerDetail | undefined>,
-): ChannelRefDirectory {
-  return servers.map((s) => {
-    const detail = detailsById[s.id]
-    const channels = detail?.categories?.flatMap((c) => c.channels.map((ch) => ({ id: ch.id, name: ch.name }))) ?? []
-    return { id: s.id, name: s.name, discriminator: s.discriminator ?? "", channels }
-  })
+const EMPTY_DIRECTORY = Object.freeze([]) as unknown as ChannelRefDirectory
+
+export const channelRefDirectoryQueryFn = async (): Promise<ChannelRefDirectory> => {
+  const data = await apiFetch<{ directory: ChannelRefDirectory }>(
+    "/api/community/users/me/channel-directory",
+  )
+  return data.directory
 }
 
-/**
- * Directory of every channel-ref-resolvable server + channel the current
- * user is a member of. Fetches every member server's channel list in
- * parallel via `useQueries` (reusing `serverQueryFn`/`communityKeys.server`
- * so the cache is shared with any already-mounted single-server `useServer`
- * call), then flattens via `buildChannelRefDirectory`.
- *
- * Scope decision: eagerly resolves refs to ANY server the user is a member
- * of, not just the currently open one — simpler and more correct than
- * lazily fetching only the referenced server, at the cost of fetching every
- * member server's channel list as soon as a channel-ref pill is on screen
- * (bounded, cached, parallel).
- */
-export function useChannelRefDirectory(): {
+export function useChannelRefDirectory(enabled = true): {
   directory: ChannelRefDirectory
   isLoading: boolean
 } {
-  const { servers } = useServers()
-
-  const results = useQueries({
-    queries: servers.map((s) => ({
-      queryKey: communityKeys.server(s.id),
-      queryFn: serverQueryFn(s.id),
-    })),
+  const query = useQuery({
+    queryKey: communityKeys.channelRefDirectory(),
+    queryFn: channelRefDirectoryQueryFn,
+    enabled,
+    staleTime: Infinity,
+    refetchOnReconnect: true,
   })
-
-  const detailsById = useMemo(() => {
-    const map: Record<string, ServerDetail | undefined> = {}
-    servers.forEach((s, i) => {
-      map[s.id] = results[i]?.data
-    })
-    return map
-  }, [servers, results])
-
-  const directory = useMemo(
-    () => buildChannelRefDirectory(servers, detailsById),
-    [servers, detailsById],
-  )
-
-  const isLoading = results.some((r) => r.isLoading)
-
-  return { directory, isLoading }
+  return {
+    directory: query.data ?? EMPTY_DIRECTORY,
+    isLoading: enabled && query.isLoading,
+  }
 }

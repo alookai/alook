@@ -1,0 +1,78 @@
+import { createElement } from "react"
+import TestRenderer, { act, type ReactTestRenderer } from "react-test-renderer"
+import { describe, expect, it, vi } from "vitest"
+import { tid } from "@/lib/community/testids"
+import { DmSidebar } from "./dm-sidebar"
+
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
+describe("DmSidebar navigation intent", () => {
+  it("prefetches the fixed destinations on pointer and keyboard intent", async () => {
+    const onPrefetchFriends = vi.fn()
+    const onPrefetchMachines = vi.fn()
+    const onPrefetchBots = vi.fn()
+    const onShowFriends = vi.fn()
+    const onShowMachines = vi.fn()
+    const onShowBots = vi.fn()
+    let renderer!: ReactTestRenderer
+
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(DmSidebar, {
+        dms: [],
+        activeDm: null,
+        onPickDm: vi.fn(),
+        onShowFriends,
+        onPrefetchFriends,
+        onShowMachines,
+        onPrefetchMachines,
+        onShowBots,
+        onPrefetchBots,
+      }))
+    })
+
+    const [friends, machines, bots] = renderer.root.findAllByType("button")
+    act(() => friends!.props.onPointerEnter())
+    act(() => machines!.props.onFocus())
+    act(() => bots!.props.onPointerEnter())
+
+    expect(onPrefetchFriends).toHaveBeenCalledTimes(1)
+    expect(onPrefetchMachines).toHaveBeenCalledTimes(1)
+    expect(onPrefetchBots).toHaveBeenCalledTimes(1)
+    expect(onShowFriends).not.toHaveBeenCalled()
+    expect(onShowMachines).not.toHaveBeenCalled()
+    expect(onShowBots).not.toHaveBeenCalled()
+
+    act(() => renderer.unmount())
+  })
+
+  it("prefetches the intended DM without selecting it", async () => {
+    const onPrefetchDm = vi.fn()
+    const onPickDm = vi.fn()
+    let renderer!: ReactTestRenderer
+
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(DmSidebar, {
+        dms: [{
+          id: "dm_1",
+          userId: "user_1",
+          name: "Melly",
+          avatar: "M",
+          status: "online",
+          preview: "hello",
+        }],
+        activeDm: null,
+        onPickDm,
+        onPrefetchDm,
+        onShowFriends: vi.fn(),
+      }))
+    })
+
+    const row = renderer.root.findByProps({ "data-testid": tid.dmRow("dm_1") })
+    act(() => row.props.onFocus())
+
+    expect(onPrefetchDm).toHaveBeenCalledWith("dm_1")
+    expect(onPickDm).not.toHaveBeenCalled()
+
+    act(() => renderer.unmount())
+  })
+})

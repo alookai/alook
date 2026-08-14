@@ -326,6 +326,11 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     if (bp === "mobile") setMobileZone("messages")
   }, [bp, queryClient, router, serverId])
 
+  const prefetchChannel = useCallback(
+    (id: string) => router.prefetch(`/c/channels/${serverId}/${id}`),
+    [router, serverId],
+  )
+
   const onSidebarOpenSettings = useCallback((section?: SettingsSection) => {
     if (section) setSettingsSection(section)
     setServerSettingsOpen(true)
@@ -367,10 +372,14 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
         method: "PATCH",
         body: JSON.stringify({ name }),
       })
+      void queryClient.invalidateQueries({
+        queryKey: communityKeys.channelRefDirectory(),
+        exact: true,
+      })
     } catch (e) {
       toastApiError(e, "Failed to rename channel")
     }
-  }, [])
+  }, [queryClient])
   const onDeleteChannelInSidebar = useCallback((channelId: string) => {
     deleteChannelMut.mutate({ serverId, channelId }, { onError: (e) => toastApiError(e, "Failed to delete channel") })
   }, [deleteChannelMut, serverId])
@@ -402,6 +411,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     currentUserId: currentUser.id,
     loading: !currentServer,
     setActiveChannel,
+    prefetchChannel,
     forumThreadsByParent,
     activeThreadId: activeForumThreadId,
     onSelectForumThread: setActiveForumThread,
@@ -423,7 +433,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     onInvitePopoverOpenChange: setInvitePopoverOpen,
   }), [
     channelTree, currentServer, currentChannelMeta?.parentChannelId,
-    currentChannelId, isAdmin, currentUser.id, setActiveChannel,
+    currentChannelId, isAdmin, currentUser.id, setActiveChannel, prefetchChannel,
     forumThreadsByParent, activeForumThreadId, setActiveForumThread,
     onSidebarOpenSettings, onBlockedCreate, mutedChannels,
     onCreateChannelInSidebar, onCreateCategoryInSidebar, onRenameChannel,

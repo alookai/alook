@@ -22,6 +22,7 @@ type MutConfig<Args, Ctx> = {
   onMutate?: (args: Args) => Promise<Ctx> | Ctx
   onSuccess?: (data: unknown, args: Args, ctx: Ctx) => unknown
   onError?: (err: unknown, args: Args, ctx: Ctx) => unknown
+  onSettled?: (data: unknown, err: unknown, args: Args, ctx: Ctx) => unknown
 }
 let capturedConfig: MutConfig<unknown, unknown> | null = null
 let capturedQc: QueryClient
@@ -43,9 +44,11 @@ async function runMutation<Args>(args: Args) {
   try {
     const data = cfg.mutationFn ? await cfg.mutationFn(args) : undefined
     cfg.onSuccess?.(data, args, ctx)
+    cfg.onSettled?.(data, undefined, args, ctx)
     return { data, ctx }
   } catch (err) {
     cfg.onError?.(err, args, ctx)
+    cfg.onSettled?.(undefined, err, args, ctx)
     throw err
   }
 }
@@ -147,6 +150,20 @@ describe("useUpdateServer — rollback on both caches", () => {
     expect(detail?.name).toBe("old")
     const list = capturedQc.getQueryData<{ servers: { name: string }[] }>(communityKeys.servers())
     expect(list?.servers[0].name).toBe("old")
+  })
+
+  it("invalidates the channel-ref directory after settling", async () => {
+    apiFetchMock.mockResolvedValueOnce(undefined)
+    const mod = await load()
+    mod.useUpdateServer()
+    const spy = vi.spyOn(capturedQc, "invalidateQueries")
+
+    await runMutation({ serverId: "srv_1", name: "new", description: "updated" })
+
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: communityKeys.channelRefDirectory(),
+      exact: true,
+    })
   })
 })
 

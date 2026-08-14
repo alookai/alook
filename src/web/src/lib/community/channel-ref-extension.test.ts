@@ -100,13 +100,18 @@ function getKeyDownCallback(
   return onKeyDown
 }
 
-function build(candidates: ChannelRefCandidate[] = [], popup: ChannelRefPopupState = EMPTY_CHANNEL_REF_STATE) {
+function build(
+  candidates: ChannelRefCandidate[] = [],
+  popup: ChannelRefPopupState = EMPTY_CHANNEL_REF_STATE,
+  onIntent?: () => void,
+) {
   const candidatesRef = { current: candidates }
   const popupRef = { current: popup }
+  const onIntentRef = { current: onIntent }
   const setPopup = vi.fn()
   const queryRef = { current: "" }
-  const ext = buildCommunityChannelRefExtension({ candidatesRef, popupRef, setPopup, queryRef })
-  return { ext, candidatesRef, popupRef, setPopup, queryRef }
+  const ext = buildCommunityChannelRefExtension({ candidatesRef, popupRef, onIntentRef, setPopup, queryRef })
+  return { ext, candidatesRef, popupRef, onIntentRef, setPopup, queryRef }
 }
 
 describe("toChannelRefCommandProps", () => {
@@ -139,6 +144,13 @@ describe("buildCommunityChannelRefExtension — suggestion.items callback", () =
     expect(queryRef.current).toBe("gen")
     items({ query: "general" })
     expect(queryRef.current).toBe("general")
+  })
+
+  it("signals directory demand when slash suggestions are evaluated", () => {
+    const onIntent = vi.fn()
+    const { ext } = build([], EMPTY_CHANNEL_REF_STATE, onIntent)
+    getItemsCallback(ext)({ query: "" })
+    expect(onIntent).toHaveBeenCalledTimes(1)
   })
 })
 

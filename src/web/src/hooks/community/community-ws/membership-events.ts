@@ -80,6 +80,10 @@ export function handleChannelMemberEvent(
     queryKey: communityKeys.server(event.serverId),
     exact: true,
   })
+  void queryClient.invalidateQueries({
+    queryKey: communityKeys.channelRefDirectory(),
+    exact: true,
+  })
   // Refetch the channel roster so an open private-channel Members drawer
   // (and the manage-members dialog) reflect the add/remove live.
   void queryClient.invalidateQueries({ queryKey: communityKeys.channelMembers(event.channelId) })
@@ -120,6 +124,10 @@ export function handleMemberJoin(
   dispatchMemberOverlayEvent({ type: "refresh", serverId: event.serverId })
   if (event.member.userId === viewerUserIdRef.current) {
     void queryClient.invalidateQueries({
+      queryKey: communityKeys.channelRefDirectory(),
+      exact: true,
+    })
+    void queryClient.invalidateQueries({
       queryKey: communityKeys.servers(),
       exact: true,
     })
@@ -151,6 +159,10 @@ export function handleMemberLeave(
   // so the layout's eject effect can detect the drop and route
   // the user away from the now-forbidden URL.
   if (event.userId === viewerUserIdRef.current) {
+    void queryClient.invalidateQueries({
+      queryKey: communityKeys.channelRefDirectory(),
+      exact: true,
+    })
     useMessageStreamStore.getState().removeServer(event.serverId)
     queryClient.removeQueries({ queryKey: communityKeys.server(event.serverId) })
     const store = useCommunityStore.getState()

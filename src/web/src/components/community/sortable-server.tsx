@@ -26,6 +26,7 @@ type SortableServerProps = {
   server: Server;
   active?: boolean;
   onClick: () => void;
+  onPrefetch?: () => void;
   onLeave?: () => void;
   onOpenSettings?: () => void;
   onOpenInvitePopover?: () => void;
@@ -39,6 +40,7 @@ function SortableServerImpl({
   server,
   active,
   onClick,
+  onPrefetch,
   onLeave,
   onOpenSettings,
   onOpenInvitePopover,
@@ -79,14 +81,18 @@ function SortableServerImpl({
   // mounted before it's invoked).
   const [activated, setActivated] = useState(false);
   const activate = activated ? undefined : () => setActivated(true);
+  const activateAndPrefetch = () => {
+    activate?.();
+    onPrefetch?.();
+  };
 
   const icon = (
     <div
       ref={setNodeRef}
       style={style}
       className="group relative flex w-full justify-center"
-      onPointerEnter={activate}
-      onFocusCapture={activate}
+      onPointerEnter={activateAndPrefetch}
+      onFocusCapture={activateAndPrefetch}
       onKeyDownCapture={activate}
     >
       {showLine && (
@@ -247,7 +253,8 @@ function serverPropsEqual(prev: SortableServerProps, next: SortableServerProps):
     !!prev.onLeave === !!next.onLeave &&
     !!prev.onOpenSettings === !!next.onOpenSettings &&
     !!prev.onOpenInvitePopover === !!next.onOpenInvitePopover &&
-    !!prev.onCreateFolder === !!next.onCreateFolder
+    !!prev.onCreateFolder === !!next.onCreateFolder &&
+    !!prev.onPrefetch === !!next.onPrefetch
   );
 }
 

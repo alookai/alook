@@ -9,6 +9,7 @@ import type { DM } from "./_types"
 
 export const DmSidebar = memo(function DmSidebar({
   dms, activeDm, blockedUserIds, loading, onPickDm, onShowFriends, onShowMachines, onShowBots,
+  onPrefetchDm, onPrefetchFriends, onPrefetchMachines, onPrefetchBots,
   friendsActive, machinesActive, botsActive,
 }: {
   dms: DM[]
@@ -16,9 +17,13 @@ export const DmSidebar = memo(function DmSidebar({
   blockedUserIds?: Set<string>
   loading?: boolean
   onPickDm: (id: string) => void
+  onPrefetchDm?: (id: string) => void
   onShowFriends: () => void
+  onPrefetchFriends?: () => void
   onShowMachines?: () => void
+  onPrefetchMachines?: () => void
   onShowBots?: () => void
+  onPrefetchBots?: () => void
   friendsActive?: boolean
   machinesActive?: boolean
   botsActive?: boolean
@@ -29,6 +34,8 @@ export const DmSidebar = memo(function DmSidebar({
       <div className="flex-1 overflow-y-auto thin-scrollbar px-2 py-4">
         <button
           onClick={onShowFriends}
+          onPointerEnter={onPrefetchFriends}
+          onFocus={onPrefetchFriends}
           className={[
             "mb-1 flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium",
             isFriendsActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
@@ -39,6 +46,8 @@ export const DmSidebar = memo(function DmSidebar({
         {onShowMachines && (
           <button
             onClick={onShowMachines}
+            onPointerEnter={onPrefetchMachines}
+            onFocus={onPrefetchMachines}
             className={[
               "mb-1 flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium",
               machinesActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
@@ -50,6 +59,8 @@ export const DmSidebar = memo(function DmSidebar({
         {onShowBots && (
           <button
             onClick={onShowBots}
+            onPointerEnter={onPrefetchBots}
+            onFocus={onPrefetchBots}
             className={[
               "mb-2 flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium",
               botsActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
@@ -75,6 +86,8 @@ export const DmSidebar = memo(function DmSidebar({
               key={d.id}
               data-testid={tid.dmRow(d.id)}
               onClick={() => onPickDm(d.id)}
+              onPointerEnter={() => onPrefetchDm?.(d.id)}
+              onFocus={() => onPrefetchDm?.(d.id)}
               className={[
                 "flex w-full items-center gap-3 rounded-md px-2 py-2",
                 active ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",

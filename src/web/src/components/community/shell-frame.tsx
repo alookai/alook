@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
-import { useRouter } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
@@ -45,7 +45,7 @@ import { useCommunityStore } from "@/stores/community"
 import { useCommunityWsStore, useOnlineUserIds } from "@/stores/community/ws"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
 import { useCurrentUser, useSetCurrentUser } from "@/contexts/community/current-user"
-import { useServers } from "@/hooks/community/use-servers"
+import { serverQueryFn, useServers, type ServerDetail } from "@/hooks/community/use-servers"
 import { useFolders } from "@/hooks/community/use-folders"
 import { useFriends } from "@/hooks/community/use-friends"
 import { useServerMembers } from "@/hooks/community/use-server-members"
@@ -70,6 +70,8 @@ import {
   useUploadUserAvatar,
 } from "@/hooks/community/mutations"
 import { useDmMessageSender } from "@/hooks/community/use-dm-message-sender"
+import { getLastChannel, pickServerLandingHref } from "@/lib/community/last-channel"
+import { getLastMeLeaf, pickMeLandingLocation } from "@/lib/community/last-me-location"
 
 /**
  * Shared community shell — ServerRail on the left, sidebar column with the
@@ -109,6 +111,7 @@ export function ShellFrame({
   goServer: () => void
 }) {
   const router = useRouter()
+  const pathname = usePathname()
   const bp = useBreakpoint()
   const queryClient = useQueryClient()
   const currentUser = useCurrentUser()
@@ -205,8 +208,54 @@ export function ShellFrame({
     [servers, activeServerId, folderServerIds],
   )
 
+  const serverNavigationTokenRef = useRef(0)
+  useEffect(() => {
+    serverNavigationTokenRef.current += 1
+  }, [pathname])
+
+  const serverDestination = useCallback((id: string) => {
+    const detail = queryClient.getQueryData<ServerDetail>(communityKeys.server(id))
+    const channelIds = detail?.categories.flatMap((category) =>
+      category.channels.filter((channel) => !channel.pending).map((channel) => channel.id)
+    ) ?? []
+    return pickServerLandingHref(id, channelIds, getLastChannel(id))
+  }, [queryClient])
+  const resolveServerDestination = useCallback(async (id: string) => {
+    const root = `/c/channels/${id}`
+    const immediate = serverDestination(id)
+    if (immediate !== root) return immediate
+    try {
+      await queryClient.fetchQuery({
+        queryKey: communityKeys.server(id),
+        queryFn: serverQueryFn(id),
+        staleTime: Infinity,
+      })
+    } catch {
+      return root
+    }
+    return serverDestination(id)
+  }, [queryClient, serverDestination])
   const onRailServerNavigate = useCallback(
-    (id: string) => { markSwitch("server", id); router.push(`/c/channels/${id}`) },
+    (id: string) => {
+      const navigationToken = ++serverNavigationTokenRef.current
+      markSwitch("server", id)
+      void resolveServerDestination(id).then((destination) => {
+        if (navigationToken === serverNavigationTokenRef.current) {
+          router.push(destination)
+        }
+      })
+    },
+    [resolveServerDestination, router],
+  )
+  const onRailHomeNavigate = useCallback(() => {
+    serverNavigationTokenRef.current += 1
+    goHome()
+  }, [goHome])
+  const onRailServerPrefetch = useCallback((id: string) => {
+    void resolveServerDestination(id).then((destination) => router.prefetch(destination))
+  }, [resolveServerDestination, router])
+  const onRailHomePrefetch = useCallback(
+    () => router.prefetch(pickMeLandingLocation(getLastMeLeaf())),
     [router],
   )
   const onRailCreateServer = useCallback(
@@ -334,9 +383,11 @@ export function ShellFrame({
     serversLoading: serversQuery.isLoading,
     setMobileZone,
     view,
-    onHome: goHome,
+    onHome: onRailHomeNavigate,
+    onHomePrefetch: onRailHomePrefetch,
     onServer: goServer,
     onServerNavigate: onRailServerNavigate,
+    onServerPrefetch: onRailServerPrefetch,
     onCreateServer: onRailCreateServer,
     onLeaveServer: onRailLeaveServer,
     onOpenSettings: onRailOpenSettings,
@@ -450,9 +501,19 @@ export function ShellFrame({
   const navigate = useCallback(
     (serverId: string, channelId?: string) => {
       markSwitch(channelId ? "channel" : "server", channelId ?? serverId)
-      router.push(channelId ? `/c/channels/${serverId}/${channelId}` : `/c/channels/${serverId}`)
+      if (channelId) {
+        serverNavigationTokenRef.current += 1
+        router.push(`/c/channels/${serverId}/${channelId}`)
+        return
+      }
+      const navigationToken = ++serverNavigationTokenRef.current
+      void resolveServerDestination(serverId).then((destination) => {
+        if (navigationToken === serverNavigationTokenRef.current) {
+          router.push(destination)
+        }
+      })
     },
-    [router],
+    [resolveServerDestination, router],
   )
   useEffect(() => {
     useCommunityStore.getState().registerUiHandlers({

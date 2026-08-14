@@ -148,6 +148,10 @@ describe("useMoveChannel", () => {
         return Array.isArray(k) && k[0] === "community" && k[1] === "servers" && k[2] === "s1"
       }),
     ).toBe(true)
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: communityKeys.channelRefDirectory(),
+      exact: true,
+    })
   })
 
   it("sends categoryId: null when moving to uncategorized", async () => {

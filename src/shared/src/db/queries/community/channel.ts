@@ -1,8 +1,9 @@
-import { eq, and, asc, desc, isNull, max, inArray, count } from "drizzle-orm";
+import { eq, and, asc, desc, isNotNull, isNull, max, inArray, count, or, sql } from "drizzle-orm";
 import {
   communityChannel,
   communityCategory,
   communityChannelMember,
+  communityServer,
   communityServerMember,
   communityMessage,
 } from "../../community-schema";
@@ -320,7 +321,7 @@ export async function createThreadChannel(
   const [parentServer, parentMessage] = await Promise.all([
     db
       .select({
-        serverId: communityChannel.serverId,
+        serverId: communityServerMember.serverId,
         parentChannelId: communityChannel.parentChannelId,
       })
       .from(communityChannel)
@@ -772,6 +773,94 @@ export async function listServerChannelsForViewer(
     resolveVisibleChannelIdSet(db, userId, { serverIds: [serverId] }),
   ]);
   return rows.filter((r) => visibleSet.has(r.id));
+}
+
+export type ChannelRefDirectoryRow = {
+  serverId: string;
+  channelId: string;
+  channelName: string;
+};
+
+export function groupChannelRefDirectoryRows(
+  servers: Array<{ id: string; name: string; discriminator: string }>,
+  channels: ChannelRefDirectoryRow[]
+) {
+  const channelsByServer = new Map<string, Array<{ id: string; name: string }>>();
+  for (const channel of channels) {
+    const current = channelsByServer.get(channel.serverId) ?? [];
+    current.push({ id: channel.channelId, name: channel.channelName });
+    channelsByServer.set(channel.serverId, current);
+  }
+  return servers.map((server) => ({
+    id: server.id,
+    name: server.name,
+    discriminator: server.discriminator,
+    channels: channelsByServer.get(server.id) ?? [],
+  }));
+}
+
+export async function listChannelRefDirectoryForUser(db: Database, userId: string) {
+  const [servers, channels] = await Promise.all([
+    db
+      .select({
+        id: communityServer.id,
+        name: communityServer.name,
+        discriminator: communityServer.discriminator,
+      })
+      .from(communityServer)
+      .innerJoin(
+        communityServerMember,
+        and(
+          eq(communityServerMember.serverId, communityServer.id),
+          eq(communityServerMember.userId, userId)
+        )
+      )
+      .orderBy(asc(communityServerMember.railOrder), asc(communityServer.id)),
+    db
+      .select({
+        serverId: communityChannel.serverId,
+        channelId: communityChannel.id,
+        channelName: communityChannel.name,
+      })
+      .from(communityChannel)
+      .innerJoin(
+        communityServerMember,
+        and(
+          eq(communityServerMember.serverId, communityChannel.serverId),
+          eq(communityServerMember.userId, userId)
+        )
+      )
+      .leftJoin(communityCategory, eq(communityCategory.id, communityChannel.categoryId))
+      .leftJoin(
+        communityChannelMember,
+        and(
+          eq(communityChannelMember.channelId, communityChannel.id),
+          eq(communityChannelMember.userId, userId),
+          eq(communityChannelMember.relation, "access")
+        )
+      )
+      .where(
+        and(
+          isNull(communityChannel.parentChannelId),
+          or(
+            isNull(communityChannel.categoryId),
+            eq(communityCategory.private, 0),
+            eq(communityChannel.creatorId, userId),
+            isNotNull(communityChannelMember.id)
+          )
+        )
+      )
+      .orderBy(
+        asc(communityServerMember.railOrder),
+        asc(communityServerMember.serverId),
+        sql`${communityChannel.categoryId} IS NULL`,
+        asc(communityCategory.position),
+        asc(communityCategory.id),
+        asc(communityChannel.position),
+        asc(communityChannel.id)
+      ),
+  ]);
+  return groupChannelRefDirectoryRows(servers, channels);
 }
 
 // Shared visibility computation for the nested-membership model. Assembles the

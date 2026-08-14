@@ -16,6 +16,11 @@ describe("communityKeys", () => {
 
     // Sample enough branches to catch a mis-rooted key.
     expect(communityKeys.servers()[0]).toBe("community")
+    expect(communityKeys.channelRefDirectory()).toEqual([
+      "community",
+      "servers",
+      "channel-ref-directory",
+    ])
     expect(communityKeys.inbox()[0]).toBe("community")
     expect(communityKeys.friends()[0]).toBe("community")
     expect(communityKeys.machines()[0]).toBe("community")

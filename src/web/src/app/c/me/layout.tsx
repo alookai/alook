@@ -130,6 +130,11 @@ export default function MeLayout({ children }: { children: ReactNode }) {
     if (bp === "mobile") setMobileZone("messages")
   }, [router, bp])
 
+  const prefetchDm = useCallback((id: string) => router.prefetch(`/c/me/${id}`), [router])
+  const prefetchFriends = useCallback(() => router.prefetch("/c/me"), [router])
+  const prefetchMachines = useCallback(() => router.prefetch("/c/me/machines"), [router])
+  const prefetchBots = useCallback(() => router.prefetch("/c/me/bots"), [router])
+
   const goHome = useCallback(() => {
     setMobileZone("nav")
     router.push(pickMeLandingLocation(getLastMeLeaf()))
@@ -148,14 +153,18 @@ export default function MeLayout({ children }: { children: ReactNode }) {
       blockedUserIds={blockedUserIds}
       loading={dmsLoading}
       onPickDm={enterDm}
+      onPrefetchDm={prefetchDm}
       onShowFriends={onShowFriends}
+      onPrefetchFriends={prefetchFriends}
       onShowMachines={onShowMachines}
+      onPrefetchMachines={prefetchMachines}
       onShowBots={onShowBots}
+      onPrefetchBots={prefetchBots}
       friendsActive={friendsActive}
       machinesActive={machinesActive}
       botsActive={botsActive}
     />
-  ), [dms, currentChannelId, dmsLoading, blockedUserIds, enterDm, onShowFriends, onShowMachines, onShowBots, friendsActive, machinesActive, botsActive])
+  ), [dms, currentChannelId, dmsLoading, blockedUserIds, enterDm, prefetchDm, onShowFriends, prefetchFriends, onShowMachines, prefetchMachines, onShowBots, prefetchBots, friendsActive, machinesActive, botsActive])
 
   return (
     <ShellFrame

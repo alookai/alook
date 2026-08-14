@@ -100,6 +100,10 @@ export function useLeaveServer() {
     },
     onSuccess: (_data, args) => {
       queryClient.removeQueries({ queryKey: communityKeys.server(args.serverId) })
+      void queryClient.invalidateQueries({
+        queryKey: communityKeys.channelRefDirectory(),
+        exact: true,
+      })
       clearDepartedServer(args.serverId)
     },
   })
@@ -125,6 +129,10 @@ export function useDeleteServer() {
     },
     onSuccess: (_data, args) => {
       queryClient.removeQueries({ queryKey: communityKeys.server(args.serverId) })
+      void queryClient.invalidateQueries({
+        queryKey: communityKeys.channelRefDirectory(),
+        exact: true,
+      })
       clearDepartedServer(args.serverId)
     },
   })
@@ -179,6 +187,12 @@ export function useUpdateServer() {
     onError: (_err, args, ctx) => {
       if (ctx?.serverSnap) queryClient.setQueryData(communityKeys.server(args.serverId), ctx.serverSnap)
       if (ctx?.listSnap) queryClient.setQueryData(communityKeys.servers(), ctx.listSnap)
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({
+        queryKey: communityKeys.channelRefDirectory(),
+        exact: true,
+      })
     },
   })
 }
