@@ -25,7 +25,7 @@ import {
 
 export const ServerRail = memo(function ServerRail({
   servers, folders, activeServerId: activeServerIdProp, serversLoading, setMobileZone, view, bottomInset,
-  onHome, onServer, onServerNavigate, onCreateServer, onLeaveServer,
+  onHome, onHomePrefetch, onServer, onServerNavigate, onServerPrefetch, onCreateServer, onLeaveServer,
   onOpenSettings, onOpenInvitePopover, onUngroupFolder, onReorderRail, onReorderFolders, onFolderItemsChange, onDragCreateFolder,
 }: {
   servers: Server[]
@@ -36,8 +36,10 @@ export const ServerRail = memo(function ServerRail({
   view: View
   bottomInset?: number
   onHome: () => void
+  onHomePrefetch?: () => void
   onServer: () => void
   onServerNavigate?: (id: string) => void
+  onServerPrefetch?: (id: string) => void
   onCreateServer?: (name: string, icon?: File) => void
   onLeaveServer?: (id: string) => void
   onOpenSettings?: (serverId: string) => void
@@ -95,6 +97,8 @@ export const ServerRail = memo(function ServerRail({
           ].join(" ")} />
           <button
             onClick={onHome}
+            onPointerEnter={onHomePrefetch}
+            onFocus={onHomePrefetch}
             aria-label="Home"
             data-testid={tid.homeButton}
             className="group/alook grid size-10 shrink-0 place-items-center rounded-[20px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
@@ -150,6 +154,7 @@ export const ServerRail = memo(function ServerRail({
                           server={{ id: fs.id, name: fs.name, initial: fs.initial, icon: fs.icon, active: false, mentions: 0, isOwner: false }}
                           active={view !== "dm" && activeId === sid}
                           onClick={() => pickServer(sid)}
+                          onPrefetch={() => onServerPrefetch?.(sid)}
                           onOpenSettings={() => onOpenSettings?.(sid)}
                           onOpenInvitePopover={onOpenInvitePopover ? () => onOpenInvitePopover(sid) : undefined}
                           inFolder
@@ -180,6 +185,7 @@ export const ServerRail = memo(function ServerRail({
                         server={s}
                         active={view !== "dm" && s.active}
                         onClick={() => pickServer(id)}
+                        onPrefetch={() => onServerPrefetch?.(id)}
                         onLeave={() => onLeaveServer?.(id)}
                         onOpenSettings={() => onOpenSettings?.(id)}
                         onOpenInvitePopover={onOpenInvitePopover ? () => onOpenInvitePopover(id) : undefined}

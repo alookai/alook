@@ -18,6 +18,8 @@ export const communityKeys = {
 
   // ── Servers ──────────────────────────────────────────────────────────────
   servers: () => [...communityKeys.all, "servers"] as const,
+  channelRefDirectory: () =>
+    [...communityKeys.servers(), "channel-ref-directory"] as const,
   server: (serverId: string) =>
     [...communityKeys.servers(), serverId] as const,
   forumSidebarThreads: (serverId: string) =>

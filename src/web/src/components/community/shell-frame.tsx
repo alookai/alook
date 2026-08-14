@@ -1,7 +1,14 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
-import { useRouter } from "next/navigation"
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react"
+import { usePathname, useRouter } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
@@ -45,7 +52,7 @@ import { useCommunityStore } from "@/stores/community"
 import { useCommunityWsStore, useOnlineUserIds } from "@/stores/community/ws"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
 import { useCurrentUser, useSetCurrentUser } from "@/contexts/community/current-user"
-import { useServers } from "@/hooks/community/use-servers"
+import { serverQueryFn, useServers, type ServerDetail } from "@/hooks/community/use-servers"
 import { useFolders } from "@/hooks/community/use-folders"
 import { useFriends } from "@/hooks/community/use-friends"
 import { useServerMembers } from "@/hooks/community/use-server-members"
@@ -70,6 +77,13 @@ import {
   useUploadUserAvatar,
 } from "@/hooks/community/mutations"
 import { useDmMessageSender } from "@/hooks/community/use-dm-message-sender"
+import { getLastChannel, pickServerLandingHref } from "@/lib/community/last-channel"
+import { getLastMeLeaf, pickMeLandingLocation } from "@/lib/community/last-me-location"
+import {
+  commitLatestNavigationIntent,
+  createNavigationIntentGate,
+  supersedeNavigationIntent,
+} from "@/lib/community/navigation-intent"
 
 /**
  * Shared community shell — ServerRail on the left, sidebar column with the
@@ -109,6 +123,7 @@ export function ShellFrame({
   goServer: () => void
 }) {
   const router = useRouter()
+  const pathname = usePathname()
   const bp = useBreakpoint()
   const queryClient = useQueryClient()
   const currentUser = useCurrentUser()
@@ -205,8 +220,56 @@ export function ShellFrame({
     [servers, activeServerId, folderServerIds],
   )
 
+  const serverNavigationGateRef = useRef(createNavigationIntentGate())
+  const cancelPendingServerNavigation = useCallback(() => {
+    supersedeNavigationIntent(serverNavigationGateRef.current)
+  }, [])
+  useEffect(() => {
+    cancelPendingServerNavigation()
+  }, [cancelPendingServerNavigation, pathname])
+
+  const serverDestination = useCallback((id: string) => {
+    const detail = queryClient.getQueryData<ServerDetail>(communityKeys.server(id))
+    const channelIds = detail?.categories.flatMap((category) =>
+      category.channels.filter((channel) => !channel.pending).map((channel) => channel.id)
+    ) ?? []
+    return pickServerLandingHref(id, channelIds, getLastChannel(id))
+  }, [queryClient])
+  const resolveServerDestination = useCallback(async (id: string) => {
+    const root = `/c/channels/${id}`
+    const immediate = serverDestination(id)
+    if (immediate !== root) return immediate
+    try {
+      await queryClient.fetchQuery({
+        queryKey: communityKeys.server(id),
+        queryFn: serverQueryFn(id),
+        staleTime: Infinity,
+      })
+    } catch {
+      return root
+    }
+    return serverDestination(id)
+  }, [queryClient, serverDestination])
   const onRailServerNavigate = useCallback(
-    (id: string) => { markSwitch("server", id); router.push(`/c/channels/${id}`) },
+    (id: string) => {
+      markSwitch("server", id)
+      void commitLatestNavigationIntent(
+        serverNavigationGateRef.current,
+        () => resolveServerDestination(id),
+        (destination) => router.push(destination),
+      )
+    },
+    [resolveServerDestination, router],
+  )
+  const onRailHomeNavigate = useCallback(() => {
+    cancelPendingServerNavigation()
+    goHome()
+  }, [cancelPendingServerNavigation, goHome])
+  const onRailServerPrefetch = useCallback((id: string) => {
+    void resolveServerDestination(id).then((destination) => router.prefetch(destination))
+  }, [resolveServerDestination, router])
+  const onRailHomePrefetch = useCallback(
+    () => router.prefetch(pickMeLandingLocation(getLastMeLeaf())),
     [router],
   )
   const onRailCreateServer = useCallback(
@@ -221,12 +284,13 @@ export function ShellFrame({
             { onError: (e) => toastApiError(e, "Server created, but the icon failed to upload") },
           )
         }
+        cancelPendingServerNavigation()
         router.push(`/c/channels/${newId}`)
       } catch (e) {
         toastApiError(e, "Failed to create server")
       }
     },
-    [createServerAsync, uploadServerIconMutate, router],
+    [cancelPendingServerNavigation, createServerAsync, uploadServerIconMutate, router],
   )
   const onRailLeaveServer = useCallback(
     (id: string) => {
@@ -241,6 +305,7 @@ export function ShellFrame({
           onSuccess: () => {
             toast("Left server")
             if (currentServerId === id) {
+              cancelPendingServerNavigation()
               router.replace(pickPostEjectDestination(servers, id))
             }
           },
@@ -248,11 +313,12 @@ export function ShellFrame({
         },
       )
     },
-    [leaveServerMutate, currentServerId, router, servers],
+    [cancelPendingServerNavigation, leaveServerMutate, currentServerId, router, servers],
   )
   const onRailOpenSettings = useCallback(
     (id?: string) => {
       if (!id) return
+      cancelPendingServerNavigation()
       const action = resolveServerRailOverlayAction({
         targetServerId: id,
         activeServerId,
@@ -262,11 +328,12 @@ export function ShellFrame({
       if (action.kind === "open-active") onOpenActiveServerSettings?.()
       else router.push(action.href)
     },
-    [activeServerId, onOpenActiveServerSettings, router],
+    [activeServerId, cancelPendingServerNavigation, onOpenActiveServerSettings, router],
   )
   const onRailOpenInvitePopover = useCallback(
     (id?: string) => {
       if (!id) return
+      cancelPendingServerNavigation()
       const action = resolveServerRailOverlayAction({
         targetServerId: id,
         activeServerId,
@@ -276,7 +343,7 @@ export function ShellFrame({
       if (action.kind === "open-active") onOpenActiveServerInvite?.()
       else router.push(action.href)
     },
-    [activeServerId, onOpenActiveServerInvite, router],
+    [activeServerId, cancelPendingServerNavigation, onOpenActiveServerInvite, router],
   )
   const onRailUngroupFolder = useCallback(
     (fId: string) => {
@@ -334,9 +401,11 @@ export function ShellFrame({
     serversLoading: serversQuery.isLoading,
     setMobileZone,
     view,
-    onHome: goHome,
+    onHome: onRailHomeNavigate,
+    onHomePrefetch: onRailHomePrefetch,
     onServer: goServer,
     onServerNavigate: onRailServerNavigate,
+    onServerPrefetch: onRailServerPrefetch,
     onCreateServer: onRailCreateServer,
     onLeaveServer: onRailLeaveServer,
     onOpenSettings: onRailOpenSettings,
@@ -450,9 +519,18 @@ export function ShellFrame({
   const navigate = useCallback(
     (serverId: string, channelId?: string) => {
       markSwitch(channelId ? "channel" : "server", channelId ?? serverId)
-      router.push(channelId ? `/c/channels/${serverId}/${channelId}` : `/c/channels/${serverId}`)
+      if (channelId) {
+        cancelPendingServerNavigation()
+        router.push(`/c/channels/${serverId}/${channelId}`)
+        return
+      }
+      void commitLatestNavigationIntent(
+        serverNavigationGateRef.current,
+        () => resolveServerDestination(serverId),
+        (destination) => router.push(destination),
+      )
     },
-    [router],
+    [cancelPendingServerNavigation, resolveServerDestination, router],
   )
   useEffect(() => {
     useCommunityStore.getState().registerUiHandlers({
@@ -461,8 +539,9 @@ export function ShellFrame({
       openProfile,
       goBackMobile,
       navigate,
+      cancelPendingNavigation: cancelPendingServerNavigation,
     })
-  }, [previewImage, previewAttachment, openProfile, goBackMobile, navigate])
+  }, [previewImage, previewAttachment, openProfile, goBackMobile, navigate, cancelPendingServerNavigation])
 
   // Inline self-status save from the `ProfileCard` header (see status-editor.tsx).
   // Mirrors `userSettingsDialog`'s onSave status branch exactly — both save
@@ -510,6 +589,7 @@ export function ShellFrame({
       }
       void receipt.committed
     }
+    cancelPendingServerNavigation()
     router.push(`/c/me/${dmId}`)
   }
 
@@ -522,9 +602,10 @@ export function ShellFrame({
       // a mention click passes `mention:<id>` so the mention row (not the
       // channel, which may persist to host unread children) drives the collapse.
       watchInboxItem(watchKey)
+      cancelPendingServerNavigation()
       router.push(`/c/channels/${sid}/${cid}`)
     },
-    [router, watchInboxItem],
+    [cancelPendingServerNavigation, router, watchInboxItem],
   )
 
   const openForumThreadFromInbox = useCallback(
@@ -535,9 +616,10 @@ export function ShellFrame({
       // opener unread for a later retry.
       watchInboxItem(`channel:${childChannelId}`)
       readForumThreadFromInbox({ parentChannelId, openerMessageId })
+      cancelPendingServerNavigation()
       router.push(`/c/channels/${sid}/${childChannelId}`)
     },
-    [readForumThreadFromInbox, router, watchInboxItem],
+    [cancelPendingServerNavigation, readForumThreadFromInbox, router, watchInboxItem],
   )
 
   // A Marked row is cross-channel — clicking one navigates to the message's
@@ -551,6 +633,7 @@ export function ShellFrame({
   const openMarked = useCallback(
     (mk: Marked) => {
       watchInboxItem(`marked:${mk.id}`)
+      cancelPendingServerNavigation()
       const seqQuery = mk.m.seq != null ? `?seq=${mk.m.seq}` : ""
       if (mk.serverId) {
         router.push(`/c/channels/${mk.serverId}/${mk.channelId}${seqQuery}`)
@@ -558,7 +641,7 @@ export function ShellFrame({
         router.push(`/c/me/${mk.channelId}${seqQuery}`)
       }
     },
-    [router, watchInboxItem],
+    [cancelPendingServerNavigation, router, watchInboxItem],
   )
 
   const openInboxDm = useCallback(
@@ -576,9 +659,10 @@ export function ShellFrame({
             : prev,
       )
       watchInboxItem(`dm:${dmId}`)
+      cancelPendingServerNavigation()
       router.push(`/c/me/${dmId}`)
     },
-    [router, queryClient, watchInboxItem],
+    [cancelPendingServerNavigation, router, queryClient, watchInboxItem],
   )
 
   const inboxElement = (
@@ -655,6 +739,7 @@ export function ShellFrame({
             } catch (e) { toastApiError(e, "Failed to save profile") }
           }}
           onLogout={async () => {
+            cancelPendingServerNavigation()
             // Clear community-local state (timers, subscription, presence)
             // before the auth cookie clears so no orphan timers fire after
             // the user is gone. `useCommunityStore.reset()` also flushes any
@@ -716,7 +801,7 @@ export function ShellFrame({
 
   if (bp === "desktop") {
     return (
-      <Shell>
+      <Shell onNavigationIntent={cancelPendingServerNavigation}>
         <ServerRail {...railProps} bottomInset={60} />
         <div className="relative flex-1 flex flex-col min-w-0 pt-2">
           <AppSurface className="rounded-tl-xl rounded-tr-none rounded-br-none rounded-bl-none ring-0 border-l border-t border-border/40 shadow-none">
@@ -759,7 +844,7 @@ export function ShellFrame({
   }
 
   return (
-    <Shell>
+    <Shell onNavigationIntent={cancelPendingServerNavigation}>
       {mobileZone === "nav" && (
         <>
           <ServerRail {...railProps} bottomInset={60} />

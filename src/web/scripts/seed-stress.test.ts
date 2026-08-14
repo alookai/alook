@@ -133,8 +133,8 @@ function installFetchMock(handlers: {
     if (url.endsWith("/api/community/servers") && method === "POST") {
       return jsonRes({ server: { id: "new-server" } })
     }
-    if (/\/api\/community\/servers\/[^/]+$/.test(url) && method === "GET") {
-      return jsonRes({ categories: [{ channels: existingChannels }] })
+    if (/\/api\/community\/servers\/[^/]+\/channels$/.test(url) && method === "GET") {
+      return jsonRes({ channels: existingChannels })
     }
     if (/\/channels$/.test(url) && method === "POST") {
       return jsonRes({ channel: { id: "new-channel" } })
@@ -180,6 +180,12 @@ describe("runSeedStress — idempotency", () => {
     )
     expect(serverPosts).toHaveLength(0)
     expect(manifest.servers[0].id).toBe("srv-existing")
+    expect(calls).toContainEqual({
+      url: "http://localhost:3000/api/community/servers/srv-existing/channels",
+      method: "GET",
+      body: undefined,
+    })
+    expect(calls.some((call) => call.url.endsWith("/api/community/servers/srv-existing"))).toBe(false)
   })
 
   it("seeds ZERO messages when the channel already meets the target", async () => {

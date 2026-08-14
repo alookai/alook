@@ -5,6 +5,7 @@ import {
   setLastChannel,
   clearLastChannel,
   pickServerLandingChannel,
+  pickServerLandingHref,
 } from "./last-channel"
 
 describe("last-channel", () => {
@@ -122,5 +123,20 @@ describe("pickServerLandingChannel", () => {
     // With memory, the id is returned even if the top-level list is empty (the
     // remembered channel may be a child channel under a forum, not top-level).
     expect(pickServerLandingChannel([], "post_abc")).toBe("post_abc")
+  })
+})
+
+describe("pickServerLandingHref", () => {
+  it("lands directly on a remembered child thread without top-level validation", () => {
+    expect(pickServerLandingHref("srv_1", ["ch_1"], "post_1")).toBe(
+      "/c/channels/srv_1/post_1",
+    )
+  })
+
+  it("uses a cached default leaf and only falls back to the root when none exists", () => {
+    expect(pickServerLandingHref("srv_1", ["ch_1", "ch_2"], null)).toBe(
+      "/c/channels/srv_1/ch_1",
+    )
+    expect(pickServerLandingHref("srv_1", [], null)).toBe("/c/channels/srv_1")
   })
 })

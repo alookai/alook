@@ -124,7 +124,8 @@ function DmView() {
   // DM composer has no "current server" — flatten every member server's
   // channels into one cross-server candidate list so a `/`-ref can be
   // dropped into a DM (see plan community-channel-ref.md §6).
-  const { directory: channelRefDirectory } = useChannelRefDirectory()
+  const [channelRefDirectoryEnabled, setChannelRefDirectoryEnabled] = useState(false)
+  const { directory: channelRefDirectory } = useChannelRefDirectory(channelRefDirectoryEnabled)
   const channelRefCandidates = useMemo(
     () =>
       channelRefDirectory.flatMap((s) =>
@@ -428,6 +429,7 @@ function DmView() {
             // honest without shimming friends into a member shape.
             members={[]}
             channelRefCandidates={channelRefCandidates}
+            onChannelRefIntent={() => setChannelRefDirectoryEnabled(true)}
             onAcceptSend={acceptDmSend}
             onTyping={handleTyping}
             replyingTo={replyTo?.authorName}

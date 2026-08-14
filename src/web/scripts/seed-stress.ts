@@ -285,10 +285,10 @@ async function ensureServer(client: SeedClient, existing: ServerRow[], name: str
 }
 
 async function listChannels(client: SeedClient, serverId: string): Promise<ChannelRow[]> {
-  const detail = await client.get<{
-    categories: Array<{ channels: ChannelRow[] }>
-  }>(`/api/community/servers/${serverId}`)
-  return detail.categories.flatMap((c) => c.channels)
+  const data = await client.get<{ channels: ChannelRow[] }>(
+    `/api/community/servers/${serverId}/channels`,
+  )
+  return data.channels
 }
 
 async function ensureChannel(

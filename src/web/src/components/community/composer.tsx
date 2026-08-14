@@ -103,6 +103,7 @@ type ComposerBaseProps = {
   // for DM composers. Always provided by the caller — empty array is fine,
   // the popup just shows nothing on `/`.
   channelRefCandidates?: ChannelRefCandidate[]
+  onChannelRefIntent?: () => void
   onTyping?: () => void
   // when set, shows a "Replying to X" bar above the input
   replyingTo?: string
@@ -166,6 +167,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   members,
   onSearchMembers,
   channelRefCandidates = [],
+  onChannelRefIntent,
   sendContract,
   onAcceptSend,
   onDeferredSubmit,
@@ -262,14 +264,17 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 
   // Same "built once, refs read at runtime" pattern as the mention extension.
   const channelRefCandidatesRef = useRef(channelRefCandidates)
+  const onChannelRefIntentRef = useRef(onChannelRefIntent)
   const channelRefQueryRef = useRef<string>("")
   useEffect(() => { channelRefCandidatesRef.current = channelRefCandidates }, [channelRefCandidates])
+  useEffect(() => { onChannelRefIntentRef.current = onChannelRefIntent }, [onChannelRefIntent])
 
   // eslint-disable-next-line react-hooks/refs -- refs read in runtime callbacks, not render
   const [channelRefExtension] = useState(() =>
     buildCommunityChannelRefExtension({
       candidatesRef: channelRefCandidatesRef,
       popupRef: channelRefPopupRef,
+      onIntentRef: onChannelRefIntentRef,
       setPopup: setChannelRefPopup,
       queryRef: channelRefQueryRef,
     }),

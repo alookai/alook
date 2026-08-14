@@ -1,5 +1,8 @@
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { describe, it, expect } from "vitest"
-import { analyzeSwitch, renderReport } from "./perf-report"
+import { analyzeSwitch, clearPerfArtifacts, renderReport } from "./perf-report"
 import type { CapturedSwitch, CaptureFile } from "../src/test/e2e-ui/perf/perf-capture-types"
 
 function baseSwitch(over: Partial<CapturedSwitch> = {}): CapturedSwitch {
@@ -166,5 +169,21 @@ describe("renderReport — cache-state split", () => {
     expect(md).toMatch(/cache: memory-warm/)
     expect(md).toMatch(/cache: disk-warm/)
     expect(md).toMatch(/PERCEIVED/)
+  })
+})
+
+describe("clearPerfArtifacts", () => {
+  it("removes both stale capture and report files", () => {
+    const dir = mkdtempSync(join(tmpdir(), "alook-perf-"))
+    const capture = join(dir, "switch-events.json")
+    const report = join(dir, "switch-report.md")
+    writeFileSync(capture, "stale")
+    writeFileSync(report, "stale")
+
+    clearPerfArtifacts(capture, report)
+
+    expect(existsSync(capture)).toBe(false)
+    expect(existsSync(report)).toBe(false)
+    rmSync(dir, { recursive: true, force: true })
   })
 })

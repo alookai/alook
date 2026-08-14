@@ -36,7 +36,7 @@ type Dialog =
 // right-click) creates; channels right-click to edit/delete. A private category only
 // lets admins create channels — non-admins are blocked via onBlockedCreate.
 export const ChannelSidebar = memo(function ChannelSidebar({
-  tree, serverName, activeChannel, setActiveChannel, noHeader, onOpenSettings,
+  tree, serverName, activeChannel, setActiveChannel, prefetchChannel, noHeader, onOpenSettings,
   isAdmin = true, currentUserId, onBlockedCreate, mutedChannels, loading,
   onCreateChannel, onCreateCategory, onDeleteChannel, onDeleteCategory,
   onUpdateCategory, onRenameChannel, onReorderCategories, onReorderChannels,
@@ -49,6 +49,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
   serverIcon?: string | null
   activeChannel: string
   setActiveChannel: (id: string) => void
+  prefetchChannel?: (id: string) => void
   noHeader?: boolean
   onOpenSettings?: (section?: SettingsSection) => void
   isAdmin?: boolean
@@ -180,6 +181,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
             active={thread.id === activeThreadId}
             muted={!!mutedChannels?.[parentId]}
             onClick={() => onSelectForumThread?.(thread.id)}
+            onPrefetch={() => prefetchChannel?.(thread.id)}
           />
         ))}
       </div>
@@ -230,6 +232,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
                   active={ch.id === activeChannel && !hasActiveSidebarThread}
                   canReorder={isAdmin}
                   onClick={() => setActiveChannel(ch.id)}
+                  onPrefetch={() => prefetchChannel?.(ch.id)}
                   onEdit={isAdmin ? () => setDialog({ kind: "edit-channel", id: ch.id, categoryId: noneCatId, name: ch.name, type: ch.type ?? "text" }) : undefined}
                   onDelete={isAdmin ? () => { removeChannel(ch.id); onDeleteChannel?.(ch.id) } : undefined}
                 />
@@ -270,6 +273,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
                         active={ch.id === activeChannel && !hasActiveSidebarThread}
                         canReorder={isAdmin}
                         onClick={() => setActiveChannel(ch.id)}
+                        onPrefetch={() => prefetchChannel?.(ch.id)}
                         onEdit={canManageChannel ? () => setDialog({ kind: "edit-channel", id: ch.id, categoryId: id, name: ch.name, type: ch.type ?? "text" }) : undefined}
                         onDelete={canManageChannel ? () => { removeChannel(ch.id); onDeleteChannel?.(ch.id) } : undefined}
                         onManageMembers={(catPrivate[id] && canManageChannel) ? () => setDialog({ kind: "manage-members", channelId: ch.id, channelName: ch.name }) : undefined}
@@ -396,11 +400,13 @@ function ForumSidebarThreadRow({
   active,
   muted,
   onClick,
+  onPrefetch,
 }: {
   thread: ForumSidebarThread
   active: boolean
   muted: boolean
   onClick: () => void
+  onPrefetch?: () => void
 }) {
   return (
     <div className="relative h-7">
@@ -409,6 +415,8 @@ function ForumSidebarThreadRow({
         data-testid={tid.forumSidebarThread(thread.id)}
         aria-current={active ? "page" : undefined}
         onClick={onClick}
+        onPointerEnter={onPrefetch}
+        onFocus={onPrefetch}
         onContextMenu={(event) => {
           event.preventDefault()
           event.stopPropagation()
