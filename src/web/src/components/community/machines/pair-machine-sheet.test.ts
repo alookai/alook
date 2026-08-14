@@ -119,11 +119,39 @@ describe("PairMachineSheet desktop daemon integration", () => {
     expect(renderer.root.findByProps({ "data-testid": tid.machinePairCopy })).toBeTruthy()
   })
 
+  it("surfaces a native string rejection without removing the fallback", async () => {
+    mocks.invoke.mockImplementation((command: string) => {
+      if (command === "daemon_runtime_capability") {
+        return Promise.resolve({ available: true, reason: null, nodeVersion: "v16.0.0" })
+      }
+      return Promise.reject("Node.js 20.9 or newer is required by @alook/daemon")
+    })
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(PairMachineSheet, {
+        open: true,
+        onOpenChange: vi.fn(),
+        pendingTokenId: "cmt_desktop_token",
+        setPendingTokenId: vi.fn(),
+        connectedHostname: null,
+      }))
+    })
+
+    await act(async () => {
+      await renderer.root.findByProps({ "data-testid": tid.machinePairDesktopConnect }).props.onClick()
+    })
+
+    expect(mocks.toastError).toHaveBeenCalledWith("Node.js 20.9 or newer is required by @alook/daemon")
+    expect(renderer.root.findByProps({ "data-testid": tid.machinePairRuntimeHint }).children.join(""))
+      .toContain("Node.js 20.9 or newer is required by @alook/daemon")
+    expect(renderer.root.findByProps({ "data-testid": tid.machinePairCopy })).toBeTruthy()
+  })
+
   it("keeps the command fallback and explains an unavailable Desktop runtime", async () => {
     mocks.invoke.mockResolvedValue({
       available: false,
-      reason: "Node.js v20.8.0 is too old. Install Node.js 20.9 or newer.",
-      nodeVersion: "v20.8.0",
+      reason: "npx was not found. Install npm with Node.js and try again.",
+      nodeVersion: "v16.0.0",
     })
     let renderer!: TestRenderer.ReactTestRenderer
     await act(async () => {
@@ -138,7 +166,7 @@ describe("PairMachineSheet desktop daemon integration", () => {
 
     expect(renderer.root.findAllByProps({ "data-testid": tid.machinePairDesktopConnect })).toHaveLength(0)
     expect(renderer.root.findByProps({ "data-testid": tid.machinePairRuntimeHint }).children.join(""))
-      .toContain("20.9 or newer")
+      .toContain("npx was not found")
     expect(renderer.root.findByProps({ "data-testid": tid.machinePairCommand })).toBeTruthy()
     expect(renderer.root.findByProps({ "data-testid": tid.machinePairCopy })).toBeTruthy()
   })

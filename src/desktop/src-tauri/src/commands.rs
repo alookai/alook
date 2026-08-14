@@ -92,6 +92,8 @@ fn daemon_endpoints_for(is_debug: bool) -> (&'static str, &'static str) {
 #[cfg(desktop)]
 struct DaemonOutput {
     success: bool,
+    stdout: String,
+    stderr: String,
 }
 
 #[cfg(desktop)]
@@ -109,6 +111,8 @@ async fn run_daemon(app: &AppHandle, extra_args: &[String]) -> Result<DaemonOutp
 
     Ok(DaemonOutput {
         success: output.status.success(),
+        stdout: String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
     })
 }
 
@@ -142,22 +146,6 @@ fn daemon_pair_args(machine_key: &str, is_debug: bool) -> Result<Vec<String>, St
     ])
 }
 
-fn parse_node_version(stdout: &str) -> Option<(u64, u64, u64)> {
-    let version = stdout.trim().strip_prefix('v').unwrap_or(stdout.trim());
-    let mut parts = version.split('.');
-    let major = parts.next()?.parse().ok()?;
-    let minor = parts.next()?.parse().ok()?;
-    let patch = parts.next()?.split('-').next()?.parse().ok()?;
-    if parts.next().is_some() {
-        return None;
-    }
-    Some((major, minor, patch))
-}
-
-fn supported_node_version(version: (u64, u64, u64)) -> bool {
-    version.0 > 20 || version.0 == 20 && version.1 >= 9
-}
-
 fn evaluate_runtime_capability(
     node: Result<String, String>,
     npm: Result<String, String>,
@@ -168,46 +156,38 @@ fn evaluate_runtime_capability(
         Err(reason) => {
             return DaemonRuntimeCapability {
                 available: false,
-                reason: Some(format!("Node.js 20.9 or newer is required: {reason}.")),
+                reason: Some(format!("Node.js is required: {reason}.")),
                 node_version: None,
             };
         }
     };
-    let Some(version) = parse_node_version(&node_output) else {
-        return DaemonRuntimeCapability {
-            available: false,
-            reason: Some(
-                "Node.js returned an unrecognized version. Install Node.js 20.9 or newer."
-                    .to_string(),
-            ),
-            node_version: Some(node_output),
-        };
-    };
-    if !supported_node_version(version) {
-        return DaemonRuntimeCapability {
-            available: false,
-            reason: Some(format!(
-                "Node.js {node_output} is too old. Install Node.js 20.9 or newer."
-            )),
-            node_version: Some(node_output),
-        };
-    }
     for result in [npm, npx] {
         if let Err(reason) = result {
             return DaemonRuntimeCapability {
                 available: false,
                 reason: Some(format!(
-                    "Node.js {node_output} is available, but {reason}. Install npm with Node.js and try again."
+                    "Node.js is available, but {reason}. Install npm with Node.js and try again."
                 )),
-                node_version: Some(node_output),
+                node_version: (!node_output.is_empty()).then_some(node_output),
             };
         }
     }
     DaemonRuntimeCapability {
         available: true,
         reason: None,
-        node_version: Some(node_output),
+        node_version: (!node_output.is_empty()).then_some(node_output),
     }
+}
+
+fn daemon_failure_message(stdout: &str, stderr: &str) -> String {
+    let detail = if !stderr.trim().is_empty() {
+        stderr.trim()
+    } else if !stdout.trim().is_empty() {
+        stdout.trim()
+    } else {
+        "The daemon process exited before it reported a reason."
+    };
+    format!("The daemon couldn't start: {detail}")
 }
 
 #[cfg(desktop)]
@@ -223,11 +203,7 @@ async fn probe_runtime_command(app: &AppHandle, command: &str) -> Result<String,
     if !output.status.success() {
         return Err(format!("{command} could not run"));
     }
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if stdout.is_empty() {
-        return Err(format!("{command} returned no version"));
-    }
-    Ok(stdout)
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 // --- Splashscreen ---
@@ -377,8 +353,7 @@ pub async fn daemon_pair(app: AppHandle, machine_key: String) -> Result<CommandR
     } else {
         Ok(CommandResult {
             success: false,
-            message: "The daemon couldn't start. Run the command below in a terminal for details."
-                .to_string(),
+            message: daemon_failure_message(&output.stdout, &output.stderr),
         })
     }
 }
@@ -760,26 +735,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_and_checks_supported_node_versions() {
-        assert_eq!(parse_node_version("v20.9.0\n"), Some((20, 9, 0)));
-        assert_eq!(parse_node_version("22.12.1"), Some((22, 12, 1)));
-        assert!(supported_node_version((20, 9, 0)));
-        assert!(supported_node_version((21, 0, 0)));
-        assert!(!supported_node_version((20, 8, 9)));
-        assert!(!supported_node_version((19, 99, 99)));
-        assert_eq!(parse_node_version(""), None);
-        assert_eq!(parse_node_version("v20"), None);
-        assert_eq!(parse_node_version("not-a-version"), None);
-    }
-
-    #[test]
     fn runtime_capability_requires_node_npm_and_npx() {
         let ok = || Ok("10.9.3".to_string());
-        assert!(evaluate_runtime_capability(Ok("v20.9.0".to_string()), ok(), ok()).available);
+        let old = evaluate_runtime_capability(Ok("v16.0.0".to_string()), ok(), ok());
+        assert!(old.available);
+        assert_eq!(old.node_version.as_deref(), Some("v16.0.0"));
 
-        let old = evaluate_runtime_capability(Ok("v20.8.0".to_string()), ok(), ok());
-        assert!(!old.available);
-        assert!(old.reason.unwrap().contains("too old"));
+        let unrecognized = evaluate_runtime_capability(Ok("not-a-version".to_string()), ok(), ok());
+        assert!(unrecognized.available);
 
         let missing_npm = evaluate_runtime_capability(
             Ok("v22.0.0".to_string()),
@@ -796,6 +759,22 @@ mod tests {
         );
         assert!(!missing_npx.available);
         assert!(missing_npx.reason.unwrap().contains("npx was not found"));
+    }
+
+    #[test]
+    fn daemon_failure_prefers_stderr_and_falls_back_to_stdout() {
+        assert_eq!(
+            daemon_failure_message("less useful stdout", "Node.js 20.9 or newer is required"),
+            "The daemon couldn't start: Node.js 20.9 or newer is required"
+        );
+        assert_eq!(
+            daemon_failure_message("npm failed", ""),
+            "The daemon couldn't start: npm failed"
+        );
+        assert_eq!(
+            daemon_failure_message("", ""),
+            "The daemon couldn't start: The daemon process exited before it reported a reason."
+        );
     }
 
     #[test]

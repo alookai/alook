@@ -52,6 +52,12 @@ type DaemonRuntimeCapability = {
   nodeVersion: string | null
 }
 
+function nativeErrorMessage(error: unknown, fallback: string): string {
+  if (typeof error === "string" && error.trim()) return error.trim()
+  if (error instanceof Error && error.message) return error.message
+  return fallback
+}
+
 export function PairMachineSheet({
   open,
   onOpenChange,
@@ -135,9 +141,10 @@ export function PairMachineSheet({
         if (!active) return
         setRuntimeCapability({
           available: false,
-          reason: error instanceof Error && error.message
-            ? error.message
-            : "Alook couldn't check Node.js, npm, and npx on this computer.",
+          reason: nativeErrorMessage(
+            error,
+            "Alook couldn't check Node.js, npm, and npx on this computer.",
+          ),
           nodeVersion: null,
         })
       })
@@ -174,9 +181,10 @@ export function PairMachineSheet({
       setStarted(true)
       toast.success(isReconnect ? "Machine reconnected" : "This computer is connecting")
     } catch (error) {
-      const message = error instanceof Error && error.message
-        ? error.message
-        : "Couldn't start the daemon. Run the command below in a terminal instead."
+      const message = nativeErrorMessage(
+        error,
+        "Couldn't start the daemon. Run the command below in a terminal instead.",
+      )
       setLaunchError(message)
       toast.error(message)
     } finally {
@@ -322,7 +330,7 @@ function Step1({
       </header>
       <p className="text-sm text-muted-foreground">
         Open a terminal on the computer you want to connect, paste the command,
-        and hit enter. Node.js 20.9+ is required.
+        and hit enter. Node.js with npm and npx is required.
       </p>
       {generating ? (
         <div className="flex items-center gap-2 rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
@@ -353,8 +361,8 @@ function Step1({
                   {launchError
                     ? `${launchError} The terminal command remains available below.`
                     : checkingRuntime
-                      ? "Checking this computer for Node.js 20.9+, npm, and npx…"
-                      : runtimeCapability?.reason ?? "Node.js 20.9+, npm, and npx are required for one-click connection."}
+                      ? "Checking this computer for Node.js, npm, and npx…"
+                      : runtimeCapability?.reason ?? "Node.js, npm, and npx are required for one-click connection."}
                 </p>
               )}
             </div>
