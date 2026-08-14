@@ -95,11 +95,13 @@ describe("Desktop updater release", () => {
     expect(desktopUpdateRoute).toContain('"windows-x86_64-nsis"')
   })
 
-  it("restores the checked-in updater configuration after unsigned local builds", () => {
-    expect(desktopBuildScript).toContain("trap restore_config EXIT")
-    expect(desktopBuildScript).toContain("createUpdaterArtifacts\": true")
-    expect(desktopBuildScript).toContain("createUpdaterArtifacts\": false")
-    expect(desktopBuildScript).toContain('mv "$CONF.bak" "$CONF"')
+  it("uses an inline unsigned-build overlay without mutating tracked configuration", () => {
+    expect(desktopBuildScript).toContain(
+      `--config '{"bundle":{"createUpdaterArtifacts":false}}'`,
+    )
+    expect(desktopBuildScript).not.toContain("tauri.conf.json")
+    expect(desktopBuildScript).not.toMatch(/\b(?:cp|mv|sed)\b/)
+    expect(desktopBuildScript).not.toContain(".bak")
   })
 
   it("ad-hoc signs unnotarized macOS builds and discloses manual approval", () => {
