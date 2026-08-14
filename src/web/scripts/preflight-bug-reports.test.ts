@@ -68,10 +68,11 @@ describe("B2d read-only bug-report R2 preflight", () => {
     const packageRoot = fileURLToPath(new URL("..", import.meta.url));
     const secretMarker = "PREFLIGHT_SECRET_MUST_NOT_LEAK";
     const packageManagerCli = process.env.npm_execpath;
+    const packageManagerIsNodeScript = packageManagerCli != null && /\.[cm]?js$/i.test(packageManagerCli);
     const child = spawnSync(
-      packageManagerCli ?? process.execPath,
+      packageManagerIsNodeScript ? process.execPath : (packageManagerCli ?? process.execPath),
       packageManagerCli
-        ? ["run", "preflight:bug-reports"]
+        ? [...(packageManagerIsNodeScript ? [packageManagerCli] : []), "run", "preflight:bug-reports"]
         : [
             fileURLToPath(import.meta.resolve("tsx/cli")),
             fileURLToPath(new URL("./preflight-bug-reports.ts", import.meta.url)),
