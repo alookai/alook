@@ -66,7 +66,7 @@ vi.mock("@/stores/community/ws", () => ({
 vi.mock("@/components/community/add-members-dialog", () => ({
   AddMembersDialog: vi.fn(() => null),
 }))
-vi.mock("@/components/community/community-panel-sheet", () => ({
+vi.mock("@/components/community/shell/community-panel-sheet", () => ({
   CommunityPanelSheet: () => null,
 }))
 

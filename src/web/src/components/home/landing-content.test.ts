@@ -110,7 +110,7 @@ describe("landing content contract", () => {
   it("keeps product-demo labels out of the homepage heading tree", () => {
     const root = webRoot()
     const shellSource = readFileSync(path.join(root, "src/components/home/landing-shell-motion.tsx"), "utf8")
-    const dmHeaderSource = readFileSync(path.join(root, "src/components/community/dm-header.tsx"), "utf8")
+    const dmHeaderSource = readFileSync(path.join(root, "src/components/community/channels/dm-header.tsx"), "utf8")
     const pairMachineSource = readFileSync(
       path.join(root, "src/components/community/machines/pair-machine-sheet.tsx"),
       "utf8",

@@ -2,12 +2,12 @@
 
 import { useState } from "react"
 import { BellOff, Loader2, Pencil, Trash2, Users } from "lucide-react"
-import { EntityIcon } from "./entity-icon"
+import { EntityIcon } from "../entity-icon"
 import { useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
-import { DropLine } from "./drop-line"
+import { DropLine } from "../drop-line"
 import { tid } from "@/lib/community/testids"
 import type { Channel } from "@/lib/community/models/navigation"
 

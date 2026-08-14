@@ -3,9 +3,9 @@
 import { useEffect, useState, type ComponentProps, type ReactNode } from "react"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
-import { ChannelHeader, type ChannelNotifLevel } from "@/components/community/channel-header"
-import { ChannelShell } from "@/components/community/channel-shell"
-import { CommunityPanelSheet } from "@/components/community/community-panel-sheet"
+import { ChannelHeader, type ChannelNotifLevel } from "@/components/community/channels/channel-header"
+import { ChannelShell } from "@/components/community/channels/channel-shell"
+import { CommunityPanelSheet } from "@/components/community/shell/community-panel-sheet"
 import type { ChannelMemberPanelProps } from "@/components/community/channel-member-view-model"
 import { Composer } from "@/components/community/messages/composer"
 import { MessageContextSheet } from "@/components/community/messages/message-context-sheet"
@@ -15,7 +15,7 @@ import {
 } from "@/components/community/messages/message-channel-controller"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/profile-types"
-import type { RightPanel } from "@/components/community/panel-types"
+import type { RightPanel } from "@/components/community/shell/panel-types"
 
 export function TextChannelSurface({
   channelId,

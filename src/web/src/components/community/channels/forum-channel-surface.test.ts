@@ -2,7 +2,7 @@ import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ChannelHeader } from "./channel-header"
-import { CommunityPanelSheet } from "./community-panel-sheet"
+import { CommunityPanelSheet } from "../shell/community-panel-sheet"
 import { ForumChannelSurface } from "./forum-channel-surface"
 import { ForumSurface } from "./forum-surface"
 
@@ -42,10 +42,10 @@ vi.mock("@alook/shared", async (importOriginal) => {
   const original = await importOriginal<typeof import("@alook/shared")>()
   return { ...original, canManageServer: (role: string | undefined) => role === "owner" || role === "admin" }
 })
-vi.mock("@/components/community/channel-header", () => ({
+vi.mock("@/components/community/channels/channel-header", () => ({
   ChannelHeader: vi.fn(() => null),
 }))
-vi.mock("@/components/community/channel-shell", () => ({
+vi.mock("@/components/community/channels/channel-shell", () => ({
   ChannelShell: ({ header, body, panels, dialogs }: {
     header: React.ReactNode
     body: React.ReactNode
@@ -53,10 +53,10 @@ vi.mock("@/components/community/channel-shell", () => ({
     dialogs?: React.ReactNode
   }) => React.createElement(React.Fragment, null, header, body, panels, dialogs),
 }))
-vi.mock("@/components/community/community-panel-sheet", () => ({
+vi.mock("@/components/community/shell/community-panel-sheet", () => ({
   CommunityPanelSheet: vi.fn(() => null),
 }))
-vi.mock("@/components/community/forum-surface", () => ({
+vi.mock("@/components/community/channels/forum-surface", () => ({
   ForumSurface: vi.fn(() => null),
 }))
 

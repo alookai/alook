@@ -16,7 +16,7 @@ import { useFileAttachments, type PendingFile } from "@/hooks/use-file-attachmen
 import { MAX_ATTACHMENT_SIZE_BYTES } from "@alook/shared"
 import { tid } from "@/lib/community/testids"
 import { Avatar } from "../avatar"
-import { ChannelIcon } from "../channel-icon"
+import { ChannelIcon } from "../channels/channel-icon"
 import { EmojiPickerPopover } from "./emoji-picker"
 import type { Member } from "@/lib/community/models/people"
 import type { SendAttachment } from "@/lib/community/models/message"

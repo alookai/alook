@@ -9,7 +9,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { useSheetResize, SheetResizeHandle } from "@/components/ui/sheet-resize-handle"
 import { MessageRow } from "./message-row"
 import { MessageShareDialog } from "./message-share-dialog"
-import { ChannelIcon } from "../channel-icon"
+import { ChannelIcon } from "../channels/channel-icon"
 import { Skeleton } from "@/components/ui/skeleton"
 import { apiFetch, toastApiError } from "@/lib/api/client"
 import { ApiError } from "@/lib/errors"

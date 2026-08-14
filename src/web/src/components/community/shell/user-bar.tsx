@@ -3,7 +3,7 @@
 import type React from "react"
 import { Inbox, Settings } from "lucide-react"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
-import { Avatar } from "./avatar"
+import { Avatar } from "../avatar"
 import type { OpenProfile } from "@/components/community/profile-types"
 import { resolveProfilePresence } from "@/lib/community/presence"
 

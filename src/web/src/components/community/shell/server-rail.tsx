@@ -14,12 +14,12 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { Skeleton } from "@/components/ui/skeleton"
 import { SortableServer } from "./sortable-server"
 import { RailFolder } from "./rail-folder"
-import { CreateServerDialog } from "./create-server-dialog"
+import { CreateServerDialog } from "../create-server-dialog"
 import { useRailOrder, isFolderKey, extractFolderId } from "./use-rail-order"
 import { SeededBackdrop } from "@/components/avatar"
 import type { Server, CommunityFolder } from "@/lib/community/models/navigation"
-import type { MobileZone } from "@/components/community/mobile-zone"
-import type { View } from "@/components/community/shell-types"
+import type { MobileZone } from "@/components/community/shell/mobile-zone"
+import type { View } from "@/components/community/shell/shell-types"
 import {
   completeCommunityOnboarding,
   isCommunityOnboardingStage,

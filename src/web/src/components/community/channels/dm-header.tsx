@@ -1,7 +1,7 @@
 import { ChevronLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Avatar } from "./avatar"
+import { Avatar } from "../avatar"
 import type { DM } from "@/lib/community/models/people"
 
 export function DmHeader({ dm, onBack, titleAs: Title = "h1" }: {

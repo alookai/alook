@@ -3,13 +3,13 @@ import TestRenderer, { act } from "react-test-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ThreadChannelSurface } from "./thread-channel-surface"
 import { ChannelHeader } from "./channel-header"
-import { CommunityPanelSheet } from "./community-panel-sheet"
-import { Composer } from "./messages/composer"
-import { MessageContextSheet } from "./messages/message-context-sheet"
-import { MessageList } from "./messages/message-list"
-import { ThreadOpener } from "./messages/thread-opener"
+import { CommunityPanelSheet } from "../shell/community-panel-sheet"
+import { Composer } from "../messages/composer"
+import { MessageContextSheet } from "../messages/message-context-sheet"
+import { MessageList } from "../messages/message-list"
+import { ThreadOpener } from "../messages/thread-opener"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
-import type { MessageChannelControllerValue } from "./messages/message-channel-controller"
+import type { MessageChannelControllerValue } from "../messages/message-channel-controller"
 
 const mocks = vi.hoisted(() => ({
   router: { push: vi.fn(), replace: vi.fn(), back: vi.fn() },
@@ -36,11 +36,11 @@ vi.mock("@/hooks/community/use-channel-message-feed", () => ({
 vi.mock("@/hooks/community/mutations", () => ({
   useEditMessage: () => ({ mutateAsync: mocks.editMessage }),
 }))
-vi.mock("@/components/community/channel-header", () => ({
+vi.mock("@/components/community/channels/channel-header", () => ({
   ChannelHeader: vi.fn(() => null),
   ChannelHeaderSkeleton: vi.fn(() => null),
 }))
-vi.mock("@/components/community/channel-shell", () => ({
+vi.mock("@/components/community/channels/channel-shell", () => ({
   ChannelShell: ({
     header,
     body,
@@ -53,7 +53,7 @@ vi.mock("@/components/community/channel-shell", () => ({
     dialogs?: React.ReactNode
   }) => React.createElement(React.Fragment, null, header, body, panels, dialogs),
 }))
-vi.mock("@/components/community/community-panel-sheet", () => ({
+vi.mock("@/components/community/shell/community-panel-sheet", () => ({
   CommunityPanelSheet: vi.fn(() => null),
 }))
 vi.mock("@/components/community/messages/composer", () => ({

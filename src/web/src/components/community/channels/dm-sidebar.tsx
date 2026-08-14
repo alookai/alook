@@ -2,7 +2,7 @@
 
 import { memo } from "react"
 import { Users, Ban, Monitor, Bot } from "lucide-react"
-import { Avatar } from "./avatar"
+import { Avatar } from "../avatar"
 import { Skeleton } from "@/components/ui/skeleton"
 import { tid } from "@/lib/community/testids"
 import type { DM } from "@/lib/community/models/people"

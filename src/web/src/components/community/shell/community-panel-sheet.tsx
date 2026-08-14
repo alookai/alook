@@ -3,7 +3,7 @@
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { useSheetResize, SheetResizeHandle } from "@/components/ui/sheet-resize-handle"
 import { RightPanelContent } from "./right-panel"
-import type { RightPanel } from "@/components/community/panel-types"
+import type { RightPanel } from "@/components/community/shell/panel-types"
 import type { Member } from "@/lib/community/models/people"
 import type { CommunityRole as Role } from "@alook/shared"
 import type { Msg, Thread } from "@/lib/community/models/message"

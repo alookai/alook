@@ -8,7 +8,7 @@ import { useDroppable } from "@dnd-kit/core"
 import { CSS } from "@dnd-kit/utilities"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
-import { DropLine } from "./drop-line"
+import { DropLine } from "../drop-line"
 
 // True when the category header has at least one right-click action. With none, we skip
 // the ContextMenu wrapper so a non-admin doesn't get an empty popover strip.

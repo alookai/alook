@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 
-vi.mock("./create-dialog-shell", async () => {
+vi.mock("../create-dialog-shell", async () => {
   const ReactModule = await import("react")
   return {
     CreateDialogShell: ({ title, footer, children }: { title: React.ReactNode; footer?: React.ReactNode; children: React.ReactNode }) => (

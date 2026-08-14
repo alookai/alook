@@ -3,8 +3,8 @@ import TestRenderer, { act } from "react-test-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ChannelRoute } from "./channel-route"
 import { ForumChannelSurface } from "./forum-channel-surface"
-import { MessageList } from "./messages/message-list"
-import { useChannelMemberViewModel } from "./channel-member-view-model"
+import { MessageList } from "../messages/message-list"
+import { useChannelMemberViewModel } from "../channel-member-view-model"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
 
 const { mockRouteModel, mockMemberViewModel } = vi.hoisted(() => ({
@@ -47,7 +47,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("sonner", () => ({ toast: vi.fn() }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: vi.fn(), toastApiError: vi.fn() }))
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => "desktop" }))
-vi.mock("@/components/community/channel-header", () => ({
+vi.mock("@/components/community/channels/channel-header", () => ({
   ChannelHeader: () => null,
   ChannelHeaderSkeleton: () => null,
 }))
@@ -56,17 +56,17 @@ vi.mock("@/components/community/messages/composer", () => ({
   Composer: () => null,
   ComposerSkeleton: () => null,
 }))
-vi.mock("@/components/community/forum-view", () => ({ ForumViewSkeleton: () => null }))
-vi.mock("@/components/community/forum-channel-surface", () => ({
+vi.mock("@/components/community/channels/forum-view", () => ({ ForumViewSkeleton: () => null }))
+vi.mock("@/components/community/channels/forum-channel-surface", () => ({
   ForumChannelSurface: vi.fn(() => null),
 }))
 vi.mock("@/components/community/channel-member-view-model", () => ({
   useChannelMemberViewModel: vi.fn(() => mockMemberViewModel),
 }))
-vi.mock("@/components/community/channel-shell", () => ({
+vi.mock("@/components/community/channels/channel-shell", () => ({
   ChannelShell: ({ body }: { body: React.ReactNode }) => body,
 }))
-vi.mock("@/components/community/community-panel-sheet", () => ({ CommunityPanelSheet: () => null }))
+vi.mock("@/components/community/shell/community-panel-sheet", () => ({ CommunityPanelSheet: () => null }))
 vi.mock("@/components/community/messages/message-context-sheet", () => ({ MessageContextSheet: () => null }))
 vi.mock("@/components/community/messages/thread-opener", () => ({ ThreadOpener: () => null }))
 vi.mock("@/components/community/add-members-dialog", () => ({ AddMembersDialog: () => null }))
