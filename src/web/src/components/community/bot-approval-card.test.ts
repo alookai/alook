@@ -3,6 +3,7 @@ import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import type { FriendApprovalPayload } from "@alook/shared"
+import { serializeBeamSeed } from "@/lib/avatar/seed-url"
 import { BotApprovalCard } from "./bot-approval-card"
 
 const OTHER = { id: "u_alice", name: "Alice", discriminator: "0042", image: null }
@@ -76,5 +77,27 @@ describe("BotApprovalCard states", () => {
   it("never renders any isBot marker", () => {
     const html = render(base({ status: "pending", waitingOn: "you" }))
     expect(html).not.toContain("isBot")
+  })
+
+  it("renders a stored beam avatar without treating it as an image URL", () => {
+    const html = render(base({
+      otherProfile: { ...OTHER, image: serializeBeamSeed("alice-face") },
+    }))
+
+    expect(html).toContain('data-testid="bot-approval-avatar"')
+    expect(html).toContain("<svg")
+    expect(html).not.toContain('src="avatar:beam:alice-face"')
+  })
+
+  it("renders a photo and uses the profile id when the image is absent", () => {
+    const photo = render(base({
+      otherProfile: { ...OTHER, image: "https://cdn.example.com/alice.png" },
+    }))
+    const generated = render(base({ otherProfile: OTHER }))
+
+    expect(photo).toContain('data-avatar-kind="photo"')
+    expect(generated).toContain('data-avatar-kind="beam"')
+    expect(generated).toContain("<svg")
+    expect(generated).not.toContain('data-slot="avatar-fallback"')
   })
 })

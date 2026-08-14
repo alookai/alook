@@ -2,9 +2,9 @@
 
 import { toast } from "sonner"
 import type { FriendApprovalPayload } from "@alook/shared"
-import { avatarInitial } from "@/lib/community/avatar"
 import { useOwnerDecision } from "@/hooks/community/mutations/friends"
 import { Button } from "@/components/ui/button"
+import { ProfileAvatar } from "@/components/avatar"
 
 /**
  * Inline friend-approval card, rendered in a bot owner's DM with their bot when
@@ -35,17 +35,13 @@ export function BotApprovalCard({ approval }: { approval: FriendApprovalPayload 
   // Header — who wants to friend whom. Symmetric wording; no isBot leak.
   const header = (
     <div className="flex items-center gap-3">
-      {other.image ? (
-        <img
-          src={other.image}
-          alt={other.name}
-          className="size-10 shrink-0 rounded-full object-cover"
-        />
-      ) : (
-        <div className="grid size-10 shrink-0 place-items-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
-          {avatarInitial(other.name)}
-        </div>
-      )}
+      <ProfileAvatar
+        label={other.name}
+        seed={other.id}
+        src={other.image}
+        size={40}
+        data-testid="bot-approval-avatar"
+      />
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium">{otherHandle}</div>
         <div className="text-xs text-muted-foreground">

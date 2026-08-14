@@ -18,9 +18,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import { LogOut, User } from "lucide-react";
+import { LogOut } from "lucide-react";
 import { displayName } from "@/lib/community/display-name";
-import { avatarInitial } from "@/lib/community/avatar";
+import { ProfileAvatar } from "@/components/avatar";
 
 export function NavUser() {
   const { data: session, isPending } = useSession();
@@ -35,7 +35,7 @@ export function NavUser() {
   if (!mounted || isPending || !user)
     return <Skeleton className="size-10 rounded-xl" />;
 
-  const firstLetter = avatarInitial(displayName(user));
+  const userDisplayName = displayName(user);
 
   return (
     <DropdownMenu>
@@ -44,11 +44,20 @@ export function NavUser() {
           <button
             type="button"
             title={user.name}
+            aria-label={`Open user menu for ${userDisplayName}`}
+            data-testid="nav-user-trigger"
             className="flex items-center justify-center size-10 rounded-xl text-muted-foreground hover:text-foreground hover:bg-accent transition-colors duration-200 cursor-pointer"
           />
         }
       >
-        <User className="size-4" />
+        <ProfileAvatar
+          label={userDisplayName}
+          seed={user.id}
+          src={user.image}
+          size={28}
+          alt=""
+          data-testid="nav-user-trigger-avatar"
+        />
       </DropdownMenuTrigger>
       <DropdownMenuContent
         className="min-w-52 rounded-lg"
@@ -59,12 +68,16 @@ export function NavUser() {
         <DropdownMenuGroup>
           <DropdownMenuLabel className="p-0 font-normal">
             <div className="flex items-center gap-2 px-2 py-2 text-left text-sm">
-              <div className="flex items-center justify-center size-7 rounded-full bg-primary text-primary-foreground text-xs font-medium shrink-0">
-                {firstLetter}
-              </div>
+              <ProfileAvatar
+                label={userDisplayName}
+                seed={user.id}
+                src={user.image}
+                size={28}
+                data-testid="nav-user-menu-avatar"
+              />
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-medium">
-                  {displayName(user)}
+                  {userDisplayName}
                 </span>
                 <span className="truncate text-xs text-muted-foreground">
                   {user.email}

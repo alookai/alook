@@ -47,12 +47,26 @@ describe("Avatar seed contract", () => {
   it("keeps the same avatar when the display name changes but the seed is stable", () => {
     const before = normalize(render({ label: "Ada", seed: "usr_1" }))
     const afterRename = normalize(render({ label: "Adelaide", seed: "usr_1" }))
-    expect(afterRename).toBe(before)
+    expect(afterRename.replace('aria-label="Adelaide"', 'aria-label="Ada"')).toBe(before)
   })
 
   it("produces different avatars for different seeds", () => {
     const a = normalize(render({ label: "Ada", seed: "usr_1" }))
     const b = normalize(render({ label: "Ada", seed: "usr_2" }))
     expect(a).not.toBe(b)
+  })
+
+  it("preserves the community presence badge and caller ring surface", () => {
+    const html = render({
+      label: "Ada",
+      seed: "usr_1",
+      size: 64,
+      presence: "online",
+      ringColor: "var(--popover)",
+    })
+
+    expect(html).toContain('data-presence="online"')
+    expect(html).toContain("background:var(--status-online)")
+    expect(html).toContain("var(--popover)")
   })
 })

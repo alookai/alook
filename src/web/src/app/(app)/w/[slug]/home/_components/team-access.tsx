@@ -7,7 +7,7 @@ import { useWorkspace } from "@/contexts/workspace-context";
 import { ArrowUpRight } from "lucide-react";
 import type { WorkspaceOverview } from "@/lib/api";
 import { displayName } from "@/lib/community/display-name";
-import { avatarInitial } from "@/lib/community/avatar";
+import { ProfileAvatar } from "@/components/avatar";
 
 interface TeamAccessProps {
   overview: WorkspaceOverview;
@@ -43,17 +43,13 @@ export function TeamAccess({ overview }: TeamAccessProps) {
         <div className="divide-y divide-border/50">
           {[...members].sort((a, b) => (a.role === "owner" ? -1 : b.role === "owner" ? 1 : 0)).map((m) => (
             <div key={m.id} className="flex items-center gap-3 px-4 py-2">
-              {m.image ? (
-                <img
-                  src={m.image}
-                  alt={m.name}
-                  className="size-7 rounded-full shrink-0"
-                />
-              ) : (
-                <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-secondary text-xs font-medium">
-                  {avatarInitial(displayName(m))}
-                </div>
-              )}
+              <ProfileAvatar
+                label={displayName(m)}
+                seed={m.user_id}
+                src={m.image}
+                size={28}
+                data-testid={`team-access-avatar-${m.user_id}`}
+              />
               <div className="flex-1 min-w-0">
                 <span className="text-sm font-medium truncate block">
                   {displayName(m)}

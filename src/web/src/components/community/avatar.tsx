@@ -1,8 +1,6 @@
 import type React from "react"
-import { Avatar as UiAvatar, AvatarImage, AvatarFallback, AvatarBadge } from "@/components/ui/avatar"
-import { GeneratedAvatar } from "@/components/avatar"
-import { resolveAvatar } from "@/lib/avatar/resolve"
-import { avatarInitial } from "@/lib/community/avatar"
+import { AvatarBadge } from "@/components/ui/avatar"
+import { ProfileAvatar } from "@/components/avatar"
 import type { Presence } from "./_types"
 
 const STATUS_COLOR: Record<Presence, string> = {
@@ -23,7 +21,7 @@ export function Avatar({ label, seed, src, size = 40, dim = false, presence, rin
   // shape avatars must not shift on rename. When absent, we drop to a plain
   // single-letter fallback instead of synthesising a shape from `label`.
   seed?: string
-  src?: string
+  src?: string | null
   size?: number
   dim?: boolean
   presence?: Presence
@@ -34,44 +32,8 @@ export function Avatar({ label, seed, src, size = 40, dim = false, presence, rin
   // e.g. `ringColor="var(--popover)"`.
   ringColor?: string
 }) {
-  const safeLabel = label || "?"
-  // `label` historically also carried stored avatar values, so keep it as the
-  // fallback input when `src` is absent. The shared resolver owns URL/generated
-  // precedence and returns a plain-letter fallback when there is no stable id.
-  const resolved = resolveAvatar(src || safeLabel, seed || undefined)
-
-  // Priority: image URL > beam (from stored seed or id) > single letter. Radix
-  // `AvatarFallback` renders whenever no `AvatarImage` is present, so we must
-  // NOT emit it when we've already drawn a beam via `<span><GeneratedAvatar/></span>`
-  // — otherwise both stack on top of each other (the "two-avatar-in-one-place" bug).
   return (
-    <UiAvatar
-      className={resolved.kind === "beam" ? "after:hidden" : "bg-muted"}
-      style={{ width: size, height: size, opacity: dim ? 0.4 : 1 }}
-    >
-      {resolved.kind === "photo" ? (
-        <>
-          <AvatarImage src={resolved.url} alt={safeLabel} />
-          <AvatarFallback className="font-medium" style={{ fontSize: size * 0.4 }}>
-            {avatarInitial(safeLabel)}
-          </AvatarFallback>
-        </>
-      ) : resolved.kind === "beam" ? (
-        <span className="size-full rounded-full overflow-hidden">
-          {/* rounded-full must live on GeneratedAvatar's OWN wrapper (which carries
-              overflow-hidden), not only on this outer span: the beam SVG has a
-              `<g transform>`, and WebKit/Safari does not clip a transformed
-              descendant to an ancestor's border-radius — so an outer-only
-              radius leaks the beam's square background as a rounded-square
-              (the pinned-panel "clipped avatar" bug, WebKit-only). Every other
-              GeneratedAvatar caller co-locates the radius on it for this reason. */}
-          <GeneratedAvatar seed={resolved.seed} size={size} className="size-full rounded-full" />
-        </span>
-      ) : (
-        <AvatarFallback className="font-medium" style={{ fontSize: size * 0.4 }}>
-          {avatarInitial(safeLabel)}
-        </AvatarFallback>
-      )}
+    <ProfileAvatar label={label} seed={seed} src={src} size={size} dim={dim}>
       {presence && (
         <AvatarBadge
           data-presence={presence}
@@ -93,6 +55,6 @@ export function Avatar({ label, seed, src, size = 40, dim = false, presence, rin
           } as React.CSSProperties}
         />
       )}
-    </UiAvatar>
+    </ProfileAvatar>
   )
 }
