@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
+  fetchLatestDaemonVersion: vi.fn(),
 }))
 
 vi.mock("sonner", () => ({
@@ -69,12 +70,15 @@ vi.mock("@/lib/community-onboarding", () => ({
   updateCommunityOnboardingResources: vi.fn(),
   useCommunityOnboarding: () => "done",
 }))
-vi.mock("@/lib/api/config", () => ({ fetchLatestCliVersion: vi.fn() }))
+vi.mock("@/lib/api/config", () => ({
+  fetchLatestDaemonVersion: mocks.fetchLatestDaemonVersion,
+}))
 vi.mock("@/lib/utils", () => ({ getAppMode: () => "production" }))
 
 import type { CommunityMachineSummary } from "@alook/shared"
 import {
   canUpdateMachine,
+  MachineList,
   MachineUpdateDialog,
   requestMachineUpdate,
 } from "./machine-list"
@@ -95,6 +99,21 @@ describe("machine daemon update UI", () => {
     mocks.apiFetch.mockReset()
     mocks.toastSuccess.mockReset()
     mocks.toastError.mockReset()
+    mocks.fetchLatestDaemonVersion.mockReset()
+    mocks.fetchLatestDaemonVersion.mockResolvedValue({
+      version: "0.1.8",
+      package: "@alook/daemon",
+    })
+  })
+
+  it("loads Community update eligibility from the daemon package endpoint", async () => {
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(MachineList))
+    })
+
+    expect(mocks.fetchLatestDaemonVersion).toHaveBeenCalledOnce()
+    act(() => renderer.unmount())
   })
 
   it("allows every remote controller mode and hides Update only in dev", () => {

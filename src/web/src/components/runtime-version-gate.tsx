@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAgentContext } from "@/contexts/agent-context";
 import { getMinCliVersion, triggerRuntimeUpdate } from "@/lib/api";
-import { semverGte, isTauri, tauriInvoke } from "@alook/shared";
+import { semverGte } from "@alook/shared";
 import { getAppMode, updateCmd } from "@/lib/utils";
 import {
   Dialog,
@@ -59,22 +59,6 @@ export function RuntimeVersionGate() {
   if (outdatedMachines.size === 0) return null;
 
   const handleUpdate = async (rt: AgentRuntime) => {
-    if (mode === "desktop" && isTauri()) {
-      setUpdating((prev) => new Set(prev).add(rt.id));
-      try {
-        await tauriInvoke("cli_update");
-        toast.success("CLI updated");
-      } catch {
-        toast.error("Failed to update CLI");
-      } finally {
-        setUpdating((prev) => {
-          const next = new Set(prev);
-          next.delete(rt.id);
-          return next;
-        });
-      }
-      return;
-    }
     if (mode === "app") {
       setShowManualHint(true);
       return;

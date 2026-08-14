@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1200">
+  <mask id="face" maskUnits="userSpaceOnUse" x="0" y="0" width="1200" height="1200">
+    <rect width="1200" height="1200" fill="black"/>
+    <path d="M73.3744 799.986L80.287 602.034C88.6974 361.193 232.448 217.568 434.621 198.202C507.549 190.84 540.698 92.9006 702.358 98.5459C972.892 107.993 1146.28 345.273 1136.03 638.902L1129.12 836.853C1122.78 1018.31 954.364 1111.52 591.453 1098.85C228.541 1086.18 67.0378 981.442 73.3744 799.986Z" fill="white"/>
+    <path d="M442 470H556M704 470H818" stroke="black" stroke-width="48" stroke-linecap="round"/>
+    <path d="M520 640C577 584 665 584 738 640" fill="none" stroke="black" stroke-width="46" stroke-linecap="round"/>
+  </mask>
+  <rect width="1200" height="1200" fill="black" mask="url(#face)"/>
+</svg>

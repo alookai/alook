@@ -26,7 +26,7 @@ import {
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog"
 import { apiFetch, getErrorMessage } from "@/lib/api/client"
-import { fetchLatestCliVersion } from "@/lib/api/config"
+import { fetchLatestDaemonVersion } from "@/lib/api/config"
 import { getAppMode } from "@/lib/utils"
 import { machineName } from "@/lib/community/machine-name"
 import { MachineCard } from "./machine-card"
@@ -155,7 +155,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   useEffect(() => {
     if (controllerMode === "dev") return
     let active = true
-    void fetchLatestCliVersion()
+    void fetchLatestDaemonVersion()
       .then(({ version }) => {
         if (active) setLatestVersion(version)
       })

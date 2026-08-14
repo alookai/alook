@@ -8,3 +8,6 @@ export const getMinCliVersion = () =>
 
 export const fetchLatestCliVersion = () =>
   apiFetch<{ version: string; package: string }>("/api/cli/latest-version");
+
+export const fetchLatestDaemonVersion = () =>
+  apiFetch<{ version: string; package: string }>("/api/daemon/latest-version");

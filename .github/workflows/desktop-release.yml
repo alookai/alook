@@ -69,7 +69,7 @@ jobs:
           releaseBody: ""
           releaseDraft: false
           prerelease: false
-          includeUpdaterJson: true
+          uploadUpdaterJson: true
           args: --target ${{ matrix.target }}
 
   update-release-notes:
@@ -103,8 +103,12 @@ jobs:
           ### macOS
           [Apple Silicon](${BASE}/Alook_${VERSION}_aarch64.dmg) | [Intel](${BASE}/Alook_${VERSION}_x64.dmg)
 
+          These macOS builds are ad-hoc signed and are not notarized. On first launch, macOS may block the app; open System Settings → Privacy & Security and choose **Open Anyway**.
+
           ### Windows
           [.exe Installer](${BASE}/Alook_${VERSION}_x64-setup.exe) | [.msi](${BASE}/Alook_${VERSION}_x64_en-US.msi)
+
+          These Windows builds are not Authenticode code-signed. On first launch, Microsoft Defender SmartScreen may block the app; choose **More info** → **Run anyway** to continue.
 
           ### Linux
           [.deb](${BASE}/Alook_${VERSION}_amd64.deb) | [.rpm](${BASE}/Alook-${VERSION}-1.x86_64.rpm) | [.AppImage](${BASE}/Alook_${VERSION}_amd64.AppImage)"

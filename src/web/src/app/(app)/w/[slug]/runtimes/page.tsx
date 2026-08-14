@@ -26,7 +26,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Monitor, Plus } from "lucide-react";
 
 import type { AgentRuntime as Runtime } from "@alook/shared";
-import { semverGte, isTauri, isDesktop, tauriInvoke } from "@alook/shared";
+import { semverGte } from "@alook/shared";
 import { cliCmd, getAppMode } from "@/lib/utils";
 import { ProviderLogo } from "@/components/provider-logo";
 import { triggerRuntimeUpdate, triggerRuntimeRescan, fetchLatestCliVersion } from "@/lib/api";
@@ -43,8 +43,7 @@ export default function RuntimesPage() {
   const pathname = usePathname();
   const mode = getAppMode();
   const isMobileApp = mode === "mobile";
-  const isTauriDesktop = isTauri() && isDesktop();
-  const hideNewMachine = isMobileApp || isTauriDesktop;
+  const hideNewMachine = isMobileApp;
 
   const [sheetOpen, setSheetOpen] = useState(() => searchParams.has("connect"));
   const [generatedToken, setGeneratedToken] = useState("");
@@ -453,41 +452,23 @@ export default function RuntimesPage() {
                           <p className="text-[11px] text-muted-foreground mb-2">
                             Bring this machine online:
                           </p>
-                          {mode === "desktop" && isTauri() ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="w-full h-7 text-[11px]"
-                              onClick={async () => {
-                                try {
-                                  await tauriInvoke("daemon_start");
-                                  toast.success("Daemon started");
-                                } catch {
-                                  toast.error("Failed to start daemon");
-                                }
-                              }}
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <div
+                                  className="relative overflow-hidden rounded-md bg-muted px-2 py-2 font-mono text-[11px] text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(`${cliCmd()} daemon start`);
+                                    toast.success("Copied to clipboard");
+                                  }}
+                                />
+                              }
                             >
-                              Start Daemon
-                            </Button>
-                          ) : (
-                            <Tooltip>
-                              <TooltipTrigger
-                                render={
-                                  <div
-                                    className="relative overflow-hidden rounded-md bg-muted px-2 py-2 font-mono text-[11px] text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors"
-                                    onClick={() => {
-                                      navigator.clipboard.writeText(`${cliCmd()} daemon start`);
-                                      toast.success("Copied to clipboard");
-                                    }}
-                                  />
-                                }
-                              >
-                                <span className="absolute inset-0 -translate-x-full animate-[shimmer_2.5s_infinite] bg-linear-to-r from-transparent via-(--shimmer-peak) to-transparent" />
-                                <span className="relative">{cliCmd()} daemon start</span>
-                              </TooltipTrigger>
-                              <TooltipContent>Click to copy</TooltipContent>
-                            </Tooltip>
-                          )}
+                              <span className="absolute inset-0 -translate-x-full animate-[shimmer_2.5s_infinite] bg-linear-to-r from-transparent via-(--shimmer-peak) to-transparent" />
+                              <span className="relative">{cliCmd()} daemon start</span>
+                            </TooltipTrigger>
+                            <TooltipContent>Click to copy</TooltipContent>
+                          </Tooltip>
                         </div>
                       )}
                     </div>
