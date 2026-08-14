@@ -2,7 +2,7 @@ import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { describe, expect, it, vi } from "vitest"
 import { AttachmentCard } from "./attachment-card"
-import type { FileAttachment } from "./_types"
+import type { FileAttachment } from "@/lib/community/models/message"
 
 function attachment(overrides: Partial<FileAttachment> = {}): FileAttachment {
   return {

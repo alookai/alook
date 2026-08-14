@@ -14,7 +14,7 @@ import { onEnterSubmit } from "@/lib/ime"
 import { toastApiError } from "@/lib/api/client"
 import { MAX_CHANNEL_NAME_LENGTH, type MentionType } from "@alook/shared"
 import { Composer, type ComposerHandle, type SendAttachment } from "./composer"
-import type { Member } from "./_types"
+import type { Member } from "@/lib/community/models/people"
 import {
   useUploadFile,
   zipUploadResultsWithDimensions,

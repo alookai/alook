@@ -3,7 +3,7 @@ import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { ForumView, shouldActivateForumRow } from "./forum-view"
 import { tid } from "@/lib/community/testids"
-import type { ForumThread } from "./_types"
+import type { ForumThread } from "@/lib/community/models/message"
 
 const LAST_AT = "2020-01-01T00:00:00.000Z"
 

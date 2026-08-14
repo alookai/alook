@@ -4,10 +4,15 @@ import { useEffect, useRef, useState } from "react"
 import type { LucideIcon } from "lucide-react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { Settings, Users, Link2, Bell, Trash2, X, Shield, Search, Camera } from "lucide-react"
-import { NOTIF_LEVELS, notifLevelDisplay } from "@alook/shared"
+import {
+  isServerOwner,
+  NOTIF_LEVELS,
+  notifLevelDisplay,
+  type CommunityRole as Role,
+} from "@alook/shared"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Button } from "@/components/ui/button"
-import { formatRelativeTime } from "./format-time"
+import { formatRelativeTime } from "@/lib/community/format-time"
 import { Input } from "@/components/ui/input"
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea"
 import { Badge, badgeVariants } from "@/components/ui/badge"
@@ -22,8 +27,9 @@ import { previewSlug } from "@/lib/community/slug-preview"
 import { tid } from "@/lib/community/testids"
 import { useInvites } from "@/hooks/community/use-server-panels"
 import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "@/hooks/community/virtualizer-react-options"
-import type { SettingsSection, Member, Role, InviteRow, OpenProfile } from "./_types"
-import { isServerOwner } from "./_types"
+import type { SettingsSection } from "@/components/community/settings-types"
+import type { Member, InviteRow } from "@/lib/community/models/people"
+import type { OpenProfile } from "@/components/community/profile-types"
 import {
   SETTINGS_NAV_CLASS,
   SETTINGS_NAV_LABEL_CLASS,

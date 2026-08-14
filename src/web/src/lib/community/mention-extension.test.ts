@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest"
-import type { Member } from "@/components/community/_types"
+import type { Member } from "@/lib/community/models/people"
 import {
   buildCommunityMentionExtension,
   rankMentionItems,

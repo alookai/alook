@@ -3,7 +3,7 @@ import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { Message, shouldActivateMessageOverlays } from "./message"
-import type { RenderMsg } from "./_types"
+import type { RenderMsg } from "@/lib/community/models/message"
 
 // WS3 render-behavior tests (see plans/community-switch-perf-optimization.md):
 // - the custom memo comparator bails out despite the per-render `m` clone,

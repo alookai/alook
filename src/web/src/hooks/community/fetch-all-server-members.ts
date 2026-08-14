@@ -1,5 +1,5 @@
 import { MAX_MEMBERS_PAGE_SIZE } from "@alook/shared"
-import type { Member } from "@/components/community/_types"
+import type { Member } from "@/lib/community/models/people"
 import { apiFetch } from "@/lib/api/client"
 
 type MembersPage = {

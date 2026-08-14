@@ -14,7 +14,7 @@ import {
   FileVideo,
   Presentation,
 } from "lucide-react"
-import type { FileAttachment } from "./_types"
+import type { FileAttachment } from "@/lib/community/models/message"
 import { MediaAttachmentBlock } from "./media-attachment-block"
 import { tid } from "@/lib/community/testids"
 import {

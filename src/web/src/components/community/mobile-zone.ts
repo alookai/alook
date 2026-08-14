@@ -1,4 +1,4 @@
-import type { MobileZone } from "./_types"
+export type MobileZone = "nav" | "messages"
 
 export type MobileZoneAction =
   | { type: "setActiveChannel" }

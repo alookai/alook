@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
-import type { ImagePreview } from "./_types"
+import type { ImagePreview } from "@/lib/community/models/message"
 import { tid } from "@/lib/community/testids"
 
 // Full-screen image preview. Uses shadcn Dialog for accessibility (focus trap, Esc, aria).

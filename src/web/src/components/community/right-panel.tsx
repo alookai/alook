@@ -9,9 +9,13 @@ import { Avatar } from "./avatar"
 import { PanelShell } from "./panel-shell"
 import { MemberList } from "./member-list"
 import { Message } from "./message"
-import { formatRelativeTime } from "./format-time"
-import { stripInlineMarkup } from "@alook/shared"
-import type { RightPanel, Member, Role, Msg, RenderMsg, Thread, OpenProfile, MemberManageContext } from "./_types"
+import { formatRelativeTime } from "@/lib/community/format-time"
+import { stripInlineMarkup, type CommunityRole as Role } from "@alook/shared"
+import type { RightPanel } from "@/components/community/panel-types"
+import type { Member } from "@/lib/community/models/people"
+import type { Msg, RenderMsg, Thread } from "@/lib/community/models/message"
+import type { OpenProfile } from "@/components/community/profile-types"
+import type { MemberManageContext } from "@/components/community/member-management-types"
 
 // Right-panel content router — members / pinned / search / threads. Data via props.
 // Always wraps the active section in PanelShell — the surrounding Sheet provides the

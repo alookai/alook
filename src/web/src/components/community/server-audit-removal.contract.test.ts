@@ -14,7 +14,7 @@ describe("server audit removal contract", () => {
   it("removes the server settings surface and client query", () => {
     expect(readWeb("src/components/community/server-settings.tsx")).not.toContain("Audit Log")
     expect(readWeb("src/components/community/channel-sidebar.tsx")).not.toContain("Audit Log")
-    expect(readWeb("src/components/community/_types.ts")).not.toContain('| "audit"')
+    expect(readWeb("src/components/community/settings-types.ts")).not.toContain('| "audit"')
     expect(readWeb("src/hooks/community/use-server-panels.ts")).not.toContain("useAuditLog")
     expect(readWeb("src/lib/query-keys.ts")).not.toContain("auditLog:")
   })

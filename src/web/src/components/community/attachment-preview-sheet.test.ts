@@ -2,7 +2,7 @@ import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { AttachmentPreviewSheet, readAttachmentText } from "./attachment-preview-sheet"
-import type { FileAttachment } from "./_types"
+import type { FileAttachment } from "@/lib/community/models/message"
 
 vi.mock("@/components/ui/sheet", () => ({
   Sheet: ({ children }: { children: React.ReactNode }) => React.createElement("div", null, children),

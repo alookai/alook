@@ -70,8 +70,8 @@ vi.mock("@/components/community/community-panel-sheet", () => ({ CommunityPanelS
 vi.mock("@/components/community/message-context-sheet", () => ({ MessageContextSheet: () => null }))
 vi.mock("@/components/community/thread-opener", () => ({ ThreadOpener: () => null }))
 vi.mock("@/components/community/add-members-dialog", () => ({ AddMembersDialog: () => null }))
-vi.mock("@/components/community/_types", () => ({ canManageServer: () => false }))
 vi.mock("@alook/shared", () => ({
+  canManageServer: () => false,
   isForum: () => false,
   deriveThreadName: () => "thread",
   USE_SERVER_DEFAULT: "default",

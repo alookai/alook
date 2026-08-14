@@ -18,7 +18,8 @@ import { tid } from "@/lib/community/testids"
 import { Avatar } from "./avatar"
 import { ChannelIcon } from "./channel-icon"
 import { EmojiPickerPopover } from "./emoji-picker"
-import type { Member } from "./_types"
+import type { Member } from "@/lib/community/models/people"
+import type { SendAttachment } from "@/lib/community/models/message"
 import type { MentionType } from "@alook/shared"
 import {
   buildCommunityMentionExtension,
@@ -38,13 +39,7 @@ import {
   type ChannelRefPopupState,
 } from "@/lib/community/channel-ref-extension"
 
-export type SendAttachment = {
-  file: File
-  thumbnailBlob?: Blob
-  previewObjectUrl?: string
-  width?: number
-  height?: number
-}
+export type { SendAttachment } from "@/lib/community/models/message"
 
 // Pure mapping from `useFileAttachments`'s pending-file state to `onSend`'s
 // attachments argument. Extracted so the width/height threading through

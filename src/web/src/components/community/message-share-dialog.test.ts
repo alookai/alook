@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { MessageShareDialog } from "./message-share-dialog"
-import type { RenderMsg } from "./_types"
+import type { RenderMsg } from "@/lib/community/models/message"
 
 vi.mock("html-to-image", () => ({ toBlob: vi.fn() }))
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))

@@ -5,7 +5,7 @@ import { flushSync } from "react-dom"
 import { Download, FileAudio, FileVideo, LoaderCircle, Pause, Play, RefreshCw, Square } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { tid } from "@/lib/community/testids"
-import type { FileAttachment } from "./_types"
+import type { FileAttachment } from "@/lib/community/models/message"
 
 type MediaKind = "audio" | "video"
 type MediaStatus = "idle" | "loading" | "ready" | "blocked" | "error"

@@ -1,7 +1,8 @@
 "use client"
 
 import type { NewForumThread } from "./create-forum-thread"
-import type { ForumThread, Member } from "./_types"
+import type { ForumThread } from "@/lib/community/models/message"
+import type { Member } from "@/lib/community/models/people"
 import { ForumView } from "./forum-view"
 import { useForumFeed } from "@/hooks/community/use-forum-feed"
 

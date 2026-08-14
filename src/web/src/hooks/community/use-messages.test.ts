@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { QueryClient, type InfiniteData } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
-import type { Msg } from "@/components/community/_types"
+import type { Msg } from "@/lib/community/models/message"
 
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({

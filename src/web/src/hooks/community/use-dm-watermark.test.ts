@@ -142,6 +142,8 @@ const flushSpy = vi.fn()
 
 vi.mock("@/hooks/community/mutations/messages", () => ({
   useAdvanceDmWatermark: () => advanceSpy,
+}))
+vi.mock("@/lib/community/pending-reads", () => ({
   flushPendingReads: () => flushSpy(),
 }))
 

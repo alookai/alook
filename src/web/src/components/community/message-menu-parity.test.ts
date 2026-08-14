@@ -17,7 +17,7 @@
 import { describe, it, expect } from "vitest"
 import { messageCanShare } from "./message"
 import { messageMenuItems } from "./message-menu"
-import type { RenderMsg } from "./_types"
+import type { RenderMsg } from "@/lib/community/models/message"
 
 const msg = (over: Partial<RenderMsg> = {}): RenderMsg =>
   ({ id: "m1", content: "hello", grouped: false, ...over }) as RenderMsg

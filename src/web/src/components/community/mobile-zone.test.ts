@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { initialMobileZone, nextMobileZone } from "./mobile-zone"
-import type { MobileZone } from "./_types"
+import type { MobileZone } from "@/components/community/mobile-zone"
 
 describe("initialMobileZone", () => {
   it("returns 'nav' when no channel is in the URL", () => {

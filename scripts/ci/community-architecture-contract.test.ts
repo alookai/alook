@@ -272,69 +272,9 @@ function collectCyclicComponents(graph: ReadonlyMap<string, readonly ModuleEdge[
   return components.sort((left, right) => left.nodes.join("\n").localeCompare(right.nodes.join("\n")))
 }
 
-const allowedReverseDependencies = [
-  "static | src/web/src/hooks/community/use-channel-route-model.ts -> src/web/src/components/community/eject-server.ts",
-  "static | src/web/src/hooks/community/use-scroll-anchor.ts -> src/web/src/components/community/message-list-items.ts",
-  "type | src/web/src/hooks/community/community-ws/cache.ts -> src/web/src/components/community/_types.ts",
-  "type | src/web/src/hooks/community/community-ws/message-events.ts -> src/web/src/components/community/_types.ts",
-  "type | src/web/src/hooks/community/fetch-all-server-members.ts -> src/web/src/components/community/_types.ts",
-  "type | src/web/src/hooks/community/forum-opener-title-reconciliation.ts -> src/web/src/components/community/_types.ts",
-  "type | src/web/src/hooks/community/mutations/folders.ts -> src/web/src/components/community/_types.ts",
-  "type | src/web/src/hooks/community/mutations/messages.ts -> src/web/src/components/community/_types.ts",
-  "type | src/web/src/hooks/community/use-bots.ts -> src/web/src/components/community/bots/bot-activity-heatmap.tsx",
-  "type | src/web/src/hooks/community/use-channel-members.ts -> src/web/src/components/community/_types.ts",
-  "type | src/web/src/hooks/community/use-channel-panels.ts -> src/web/src/components/community/_types.ts",
-  "type | src/web/src/hooks/community/use-channel-watermark.ts -> src/web/src/components/community/_types.ts",
-  "type | src/web/src/hooks/community/use-dm-message-sender.ts -> src/web/src/components/community/_types.ts",
-  "type | src/web/src/hooks/community/use-dm-message-sender.ts -> src/web/src/components/community/composer.tsx",
-  "type | src/web/src/hooks/community/use-dm-watermark.ts -> src/web/src/components/community/_types.ts",
-  "type | src/web/src/hooks/community/use-dms.ts -> src/web/src/components/community/_types.ts",
-  "type | src/web/src/hooks/community/use-folders.ts -> src/web/src/components/community/_types.ts",
-  "type | src/web/src/hooks/community/use-forum-feed.ts -> src/web/src/components/community/_types.ts",
-  "type | src/web/src/hooks/community/use-friends.ts -> src/web/src/components/community/_types.ts",
-  "type | src/web/src/hooks/community/use-inbox-auto-collapse.ts -> src/web/src/components/community/_types.ts",
-  "type | src/web/src/hooks/community/use-inbox.ts -> src/web/src/components/community/_types.ts",
-  "type | src/web/src/hooks/community/use-invitable-friends.ts -> src/web/src/components/community/_types.ts",
-  "type | src/web/src/hooks/community/use-message.ts -> src/web/src/components/community/_types.ts",
-  "type | src/web/src/hooks/community/use-messages.ts -> src/web/src/components/community/_types.ts",
-  "type | src/web/src/hooks/community/use-server-members.ts -> src/web/src/components/community/_types.ts",
-  "type | src/web/src/hooks/community/use-server-panels.ts -> src/web/src/components/community/_types.ts",
-  "type | src/web/src/hooks/community/use-servers.ts -> src/web/src/components/community/_types.ts",
-  "type | src/web/src/lib/community/mention-extension.ts -> src/web/src/components/community/_types.ts",
-  "type | src/web/src/lib/community/message-stream.ts -> src/web/src/components/community/_types.ts",
-  "type | src/web/src/lib/community/message-wire.ts -> src/web/src/components/community/_types.ts",
-  "type | src/web/src/lib/community/presence.ts -> src/web/src/components/community/_types.ts",
-  "type | src/web/src/stores/community/index.ts -> src/web/src/components/community/_types.ts",
-]
-const allowedFullDependencyComponents: CyclicComponent[] = [{
-  nodes: [
-    "src/web/src/hooks/community/community-ws/cache.ts",
-    "src/web/src/hooks/community/forum-opener-title-reconciliation.ts",
-    "src/web/src/hooks/community/mutations/messages.ts",
-    "src/web/src/hooks/community/use-messages.ts",
-    "src/web/src/stores/community/index.ts",
-  ],
-  edges: [
-    "src/web/src/hooks/community/community-ws/cache.ts -[type]-> src/web/src/hooks/community/use-messages.ts",
-    "src/web/src/hooks/community/forum-opener-title-reconciliation.ts -[static]-> src/web/src/hooks/community/community-ws/cache.ts",
-    "src/web/src/hooks/community/forum-opener-title-reconciliation.ts -[type]-> src/web/src/hooks/community/use-messages.ts",
-    "src/web/src/hooks/community/mutations/messages.ts -[static]-> src/web/src/hooks/community/forum-opener-title-reconciliation.ts",
-    "src/web/src/hooks/community/mutations/messages.ts -[static]-> src/web/src/stores/community/index.ts",
-    "src/web/src/hooks/community/mutations/messages.ts -[type]-> src/web/src/hooks/community/use-messages.ts",
-    "src/web/src/hooks/community/use-messages.ts -[static]-> src/web/src/hooks/community/mutations/messages.ts",
-    "src/web/src/stores/community/index.ts -[dynamic]-> src/web/src/hooks/community/mutations/messages.ts",
-  ],
-}]
-const allowedRuntimeDependencyComponents: CyclicComponent[] = [{
-  nodes: [
-    "src/web/src/hooks/community/mutations/messages.ts",
-    "src/web/src/stores/community/index.ts",
-  ],
-  edges: [
-    "src/web/src/hooks/community/mutations/messages.ts -[static]-> src/web/src/stores/community/index.ts",
-    "src/web/src/stores/community/index.ts -[dynamic]-> src/web/src/hooks/community/mutations/messages.ts",
-  ],
-}]
+const allowedReverseDependencies: string[] = []
+const allowedFullDependencyComponents: CyclicComponent[] = []
+const allowedRuntimeDependencyComponents: CyclicComponent[] = []
 
 describe("community architecture contract", () => {
   it("recognizes every supported module dependency syntax", () => {

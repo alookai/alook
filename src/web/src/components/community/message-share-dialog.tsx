@@ -13,7 +13,7 @@ import { MessageBody } from "./message-body"
 import { attachmentAspectRatio } from "./attachment-layout"
 import { tid } from "@/lib/community/testids"
 import { applyHighlightToRange, clearHighlights, hasHighlights } from "@/lib/community/highlight-range"
-import type { RenderMsg } from "./_types"
+import type { RenderMsg } from "@/lib/community/models/message"
 
 // Share one OR several messages as an image. Renders a self-contained "share
 // card" that mirrors the in-app message blob(s) (avatar / name / content — NO

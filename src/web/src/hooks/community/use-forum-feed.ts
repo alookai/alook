@@ -7,7 +7,7 @@ import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { avatarInitial } from "@/lib/community/avatar"
 import { readForumTagSelection, validateForumTagSelection, writeForumTagSelection } from "@/lib/community/forum-tag-selection"
-import type { ForumThread } from "@/components/community/_types"
+import type { ForumThread } from "@/lib/community/models/message"
 import { useForumTags } from "./use-channel-panels"
 
 type ActivityThread = {

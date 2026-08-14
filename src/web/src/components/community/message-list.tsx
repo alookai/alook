@@ -10,13 +10,14 @@ import { TypingIndicator } from "./typing-indicator"
 import { ChannelIcon } from "./channel-icon"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import type { RenderMsg } from "./_types"
+import type { RenderMsg } from "@/lib/community/models/message"
 import { NumberTicker } from "@/components/ui/number-ticker"
 import { useScrollAnchor } from "@/hooks/community/use-scroll-anchor"
-import { flattenMessageItems } from "./message-list-items"
+import { flattenMessageItems } from "@/lib/community/message-list-items"
 import { VirtualRows } from "./virtual-cursor-list"
 import { useVirtualCursorSentinel } from "@/hooks/community/use-virtual-cursor-sentinel"
-import type { FileAttachment, ImagePreview, Msg, OpenProfile } from "./_types"
+import type { FileAttachment, ImagePreview, Msg } from "@/lib/community/models/message"
+import type { OpenProfile } from "@/components/community/profile-types"
 
 // Channel message list — welcome hero, date dividers, messages (with the NEW divider),
 // and typing indicator. Data via props.

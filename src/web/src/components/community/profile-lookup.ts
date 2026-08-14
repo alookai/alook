@@ -1,4 +1,6 @@
-import type { Member, Friend, Profile, View } from "./_types"
+import type { Member, Friend } from "@/lib/community/models/people"
+import type { Profile } from "@/components/community/profile-types"
+import type { View } from "@/components/community/shell-types"
 import type { CurrentUser } from "@/contexts/community/current-user"
 import { resolveProfilePresence } from "@/lib/community/presence"
 import { avatarInitial } from "@/lib/community/avatar"

@@ -9,7 +9,7 @@ import {
   mergeChannelMetadata,
   type ChannelOrder,
 } from "./use-channel-tree"
-import type { Channel, Category } from "./_types"
+import type { Channel, Category } from "@/lib/community/models/navigation"
 
 const ch = (id: string): Channel => ({ id, name: id, active: false, unread: false })
 

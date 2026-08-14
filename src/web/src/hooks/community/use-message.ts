@@ -3,7 +3,7 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import type { Msg } from "@/components/community/_types"
+import type { Msg } from "@/lib/community/models/message"
 
 /**
  * Fetches a single hydrated message by id — the payload shape returned by

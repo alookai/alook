@@ -4,7 +4,7 @@ import { useQuery, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { avatarInitial } from "@/lib/community/avatar"
-import type { CommunityFolder } from "@/components/community/_types"
+import type { CommunityFolder } from "@/lib/community/models/navigation"
 
 /**
  * Fetches the user's server-folder groupings for the rail.

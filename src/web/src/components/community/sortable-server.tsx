@@ -20,7 +20,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { NumberTicker } from "@/components/ui/number-ticker";
 import { SeededBackdrop } from "@/components/avatar";
 import { tid } from "@/lib/community/testids";
-import type { Server } from "./_types";
+import type { Server } from "@/lib/community/models/navigation"
 
 type SortableServerProps = {
   server: Server;

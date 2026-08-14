@@ -16,7 +16,7 @@ import { EntityIcon } from "./entity-icon"
 import { SlugHint } from "./slug-hint"
 import { previewSlug } from "@/lib/community/slug-preview"
 import { SeededBackdrop } from "@/components/avatar"
-import type { RightPanel } from "./_types"
+import type { RightPanel } from "@/components/community/panel-types"
 import { CreateDialogShell } from "./create-dialog-shell"
 
 // Skeleton header for the loading frame between route change and channel

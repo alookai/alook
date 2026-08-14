@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { hasChannelMenu, PendingChannelRow } from "./sortable-channel"
-import type { Channel } from "./_types"
+import type { Channel } from "@/lib/community/models/navigation"
 
 const noop = () => {}
 

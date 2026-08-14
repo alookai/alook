@@ -3,7 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import type { CommunityFolder, FolderServer } from "@/components/community/_types"
+import type { CommunityFolder, FolderServer } from "@/lib/community/models/navigation"
 import type { FoldersResponse } from "@/hooks/community/use-folders"
 import type { ServersResponse } from "@/hooks/community/use-servers"
 

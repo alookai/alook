@@ -6,7 +6,7 @@ import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } 
 import { RailIndicator } from "./rail-indicator"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { SeededBackdrop } from "@/components/avatar"
-import type { FolderServer } from "./_types"
+import type { FolderServer } from "@/lib/community/models/navigation"
 
 export function RailFolder({
   sortableId, open, onToggle, activeId, folderServers, onUngroup, dragging: isDragActive,

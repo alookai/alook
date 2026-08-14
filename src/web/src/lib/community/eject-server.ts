@@ -1,4 +1,4 @@
-import type { Server } from "./_types"
+import type { Server } from "./models/navigation"
 import { ApiError } from "@/lib/errors"
 
 // Module-scoped marker set. The "Leave" button in the server rail marks

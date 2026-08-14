@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type { CommunityRole } from "@alook/shared"
-import type { CommunityUserCore } from "@/components/community/_types"
+import type { CommunityUserCore } from "@/lib/community/models/people"
 import { fetchAllServerMembers } from "./fetch-all-server-members"
 
 // Canonical member shape (superset of the pre-audience roster). `source` tags

@@ -6,7 +6,7 @@ import {
   runAuthoritativeServerEject,
   isDefinitiveChildMetaFailure,
 } from "./eject-server"
-import type { Server } from "./_types"
+import type { Server } from "./models/navigation"
 import { ApiError } from "@/lib/errors"
 
 function makeServer(id: string): Server {

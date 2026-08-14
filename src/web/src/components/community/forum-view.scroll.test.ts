@@ -1,7 +1,7 @@
 import { act, create, type ReactTestRenderer } from "react-test-renderer"
 import { createElement } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import type { ForumThread } from "./_types"
+import type { ForumThread } from "@/lib/community/models/message"
 
 const scrollToIndex = vi.fn()
 let requestOlder: (() => void) | undefined

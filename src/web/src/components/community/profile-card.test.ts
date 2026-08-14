@@ -4,7 +4,7 @@ import { describe, it, expect } from "vitest"
 import { resolveCardStatus, resolveProfileBackdropSeed } from "./profile-card"
 import { ProfileCard } from "./profile-card"
 import { serializeBeamSeed } from "@/lib/avatar/seed-url"
-import type { Profile } from "./_types"
+import type { Profile } from "@/components/community/profile-types"
 
 function renderProfile(overrides: Partial<Profile> = {}) {
   return renderToStaticMarkup(createElement(ProfileCard, {

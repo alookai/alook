@@ -2,7 +2,7 @@ import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { describe, expect, expectTypeOf, it, vi } from "vitest"
 import { InboxPopover } from "./community-inbox-popover"
-import type { UnreadServer } from "./_types"
+import type { UnreadServer } from "@/lib/community/models/inbox"
 
 vi.mock("@/components/ui/tabs", () => ({
   Tabs: ({ children }: { children: React.ReactNode }) => React.createElement("div", null, children),

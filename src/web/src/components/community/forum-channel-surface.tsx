@@ -2,14 +2,16 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from "react"
 import { toastApiError } from "@/lib/api/client"
-import { canManageServer, type OpenProfile, type RightPanel, type Role } from "@/components/community/_types"
+import { canManageServer, type CommunityRole as Role } from "@alook/shared"
+import type { OpenProfile } from "@/components/community/profile-types"
+import type { RightPanel } from "@/components/community/panel-types"
 import { ChannelHeader, type ChannelNotifLevel } from "@/components/community/channel-header"
 import { ChannelShell } from "@/components/community/channel-shell"
 import type { ChannelMemberPanelProps } from "@/components/community/channel-member-view-model"
 import { CommunityPanelSheet } from "@/components/community/community-panel-sheet"
 import type { NewForumThread } from "@/components/community/create-forum-thread"
 import { ForumSurface } from "@/components/community/forum-surface"
-import type { Member } from "@/components/community/_types"
+import type { Member } from "@/lib/community/models/people"
 import {
   useCreateForumThread,
   useDeleteForumThread,

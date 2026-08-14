@@ -3,7 +3,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { computeDuplicateNames, hasMemberMenu } from "./member-list"
-import type { Member } from "./_types"
+import type { Member } from "@/lib/community/models/people"
 
 const member = (id: string, name: string, discriminator = "0000"): Member => ({
   id,

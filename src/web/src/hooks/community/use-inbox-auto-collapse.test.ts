@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
 import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
-import type { Mention, UnreadDm, UnreadServer } from "@/components/community/_types"
+import type { Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
 import {
   inboxItemPresent,
   useInboxAutoCollapse,

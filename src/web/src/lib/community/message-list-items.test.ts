@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { flattenMessageItems, estimateRowHeight, computeBelowCount } from "./message-list-items"
-import type { Msg } from "./_types"
+import type { Msg } from "./models/message"
 
 function msg(overrides: Partial<Msg> & { id: string }): Msg {
   return {

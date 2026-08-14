@@ -9,7 +9,7 @@ import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, C
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { DropLine } from "./drop-line"
 import { tid } from "@/lib/community/testids"
-import type { Channel } from "./_types"
+import type { Channel } from "@/lib/community/models/navigation"
 
 // True when the row has at least one right-click action. With none, we skip the
 // ContextMenu wrapper entirely so a non-manager doesn't get an empty popover strip.

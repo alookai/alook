@@ -5,7 +5,7 @@ import { Users, Ban, Monitor, Bot } from "lucide-react"
 import { Avatar } from "./avatar"
 import { Skeleton } from "@/components/ui/skeleton"
 import { tid } from "@/lib/community/testids"
-import type { DM } from "./_types"
+import type { DM } from "@/lib/community/models/people"
 
 export const DmSidebar = memo(function DmSidebar({
   dms, activeDm, blockedUserIds, loading, onPickDm, onShowFriends, onShowMachines, onShowBots,

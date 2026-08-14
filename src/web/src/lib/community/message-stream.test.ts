@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import type { Msg } from "@/components/community/_types"
+import type { Msg } from "@/lib/community/models/message"
 import {
   MAX_LIVE_MESSAGE_DELTAS,
   emptyMessageOverlay,

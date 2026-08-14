@@ -3,7 +3,7 @@
 import { useQuery, keepPreviousData, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import type { InviteRow } from "@/components/community/_types"
+import type { InviteRow } from "@/lib/community/models/people"
 
 class StaleReadError extends Error {
   constructor() { super("stale D1 read"); this.name = "StaleReadError" }

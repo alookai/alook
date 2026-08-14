@@ -3,7 +3,12 @@
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { useSheetResize, SheetResizeHandle } from "@/components/ui/sheet-resize-handle"
 import { RightPanelContent } from "./right-panel"
-import type { RightPanel, Member, Role, Msg, Thread, OpenProfile, MemberManageContext } from "./_types"
+import type { RightPanel } from "@/components/community/panel-types"
+import type { Member } from "@/lib/community/models/people"
+import type { CommunityRole as Role } from "@alook/shared"
+import type { Msg, Thread } from "@/lib/community/models/message"
+import type { OpenProfile } from "@/components/community/profile-types"
+import type { MemberManageContext } from "@/components/community/member-management-types"
 
 // Sheet-based right panel for the community channel UI.
 // Renders the channel's threads / pinned / members / search panel as a non-modal Sheet:

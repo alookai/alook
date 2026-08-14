@@ -6,7 +6,7 @@ import { toast } from "sonner"
 import { deriveThreadName, type MentionType } from "@alook/shared"
 import { apiFetch, toastApiError } from "@/lib/api/client"
 import { avatarInitial } from "@/lib/community/avatar"
-import type { FileAttachment, ImagePreview, Msg } from "@/components/community/_types"
+import type { FileAttachment, ImagePreview, Msg } from "@/lib/community/models/message"
 import type { SendAttachment } from "@/components/community/composer"
 import type { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
 import {

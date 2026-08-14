@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useQueryClient, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch, readUploadError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import type { BotActivityDay } from "@/components/community/bots/bot-activity-heatmap"
+import type { BotActivityDay } from "@/lib/community/models/people"
 
 export type BotSummary = {
   id: string

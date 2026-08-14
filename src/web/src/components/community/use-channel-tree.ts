@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { arrayMove } from "@dnd-kit/sortable"
 import type { DragEndEvent } from "@dnd-kit/core"
-import type { Category, Channel } from "./_types"
+import type { Category, Channel } from "@/lib/community/models/navigation"
 
 // dnd ids: category ids are used directly (they already have a "cat_" prefix);
 // channel ids are bare. We distinguish by checking the "cat_" prefix.

@@ -17,7 +17,8 @@ import { ChannelSidebar } from "@/components/community/channel-sidebar"
 import { ServerSettings } from "@/components/community/server-settings"
 import { ImageCropDialog } from "@/components/community/image-crop-dialog"
 import { validateIconSourceFile } from "@/lib/community/image-crop"
-import type { MobileZone, SettingsSection } from "@/components/community/_types"
+import type { MobileZone } from "@/components/community/mobile-zone"
+import type { SettingsSection } from "@/components/community/settings-types"
 import { canManageServer, isForum, notifLevelDisplay, type ChannelType } from "@alook/shared"
 import { resolveRowPresence } from "@/lib/community/presence"
 import {
@@ -31,7 +32,7 @@ import { useServerMembers } from "@/hooks/community/use-server-members"
 import {
   consumeVoluntaryLeave,
   runAuthoritativeServerEject,
-} from "@/components/community/eject-server"
+} from "@/lib/community/eject-server"
 import { clearLastChannel } from "@/lib/community/last-channel"
 import { getLastMeLeaf, pickMeLandingLocation } from "@/lib/community/last-me-location"
 import { usePresence } from "@/hooks/community/use-server-panels"

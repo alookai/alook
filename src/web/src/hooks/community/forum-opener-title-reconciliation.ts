@@ -2,8 +2,8 @@
 
 import type { InfiniteData, QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
-import type { Msg, UnreadServer } from "@/components/community/_types"
-import type { MessagesPage } from "@/hooks/community/use-messages"
+import type { MessagesPage, Msg } from "@/lib/community/models/message"
+import type { UnreadServer } from "@/lib/community/models/inbox"
 import type { ThreadsResponse } from "@/hooks/community/use-channel-panels"
 import type { ForumActivityPage } from "@/hooks/community/use-forum-feed"
 import {

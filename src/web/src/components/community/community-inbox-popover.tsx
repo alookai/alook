@@ -7,8 +7,8 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "./avatar"
 import { ChannelIcon } from "./channel-icon"
 import { EmptyState } from "./empty-state"
-import { formatRelativeTime } from "./format-time"
-import type { Marked, Mention, UnreadDm, UnreadServer } from "./_types"
+import { formatRelativeTime } from "@/lib/community/format-time"
+import type { Marked, Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
 import { tid } from "@/lib/community/testids"
 
 function MentionBadge({ count }: { count: number }) {

@@ -3,7 +3,7 @@
 import { useQuery, keepPreviousData, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import type { Friend, PendingRequest, BlockedUser } from "@/components/community/_types"
+import type { Friend, PendingRequest, BlockedUser } from "@/lib/community/models/people"
 
 /**
  * The community read routes wrap their D1 hits in `readOrStale` (see

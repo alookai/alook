@@ -1,4 +1,4 @@
-import type { Msg } from "@/components/community/_types"
+import type { Msg } from "@/lib/community/models/message"
 import type { MentionType } from "@alook/shared"
 import { isInlineAttachmentContentType } from "@/lib/community/attachment-content-type"
 import { formatAttachmentSize } from "@/lib/community/attachment-presentation"

@@ -28,7 +28,7 @@ import {
 import { ServerRail } from "./server-rail"
 import { resolveServerRailOverlayAction } from "./server-rail-actions"
 import { UserBar } from "./user-bar"
-import { markVoluntaryLeave, pickPostEjectDestination } from "./eject-server"
+import { markVoluntaryLeave, pickPostEjectDestination } from "@/lib/community/eject-server"
 import { InboxPopover } from "./community-inbox-popover"
 import { UserSettings } from "./edit-profile-dialog"
 import { ProfileCard } from "./profile-card"
@@ -36,7 +36,11 @@ import { ImageLightbox } from "./image-lightbox"
 import { AttachmentPreviewSheet } from "./attachment-preview-sheet"
 import { ImageCropDialog } from "./image-crop-dialog"
 import { validateIconSourceFile } from "@/lib/community/image-crop"
-import type { FileAttachment, ImagePreview, Marked, MobileZone, Profile, View } from "./_types"
+import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
+import type { Marked } from "@/lib/community/models/inbox"
+import type { MobileZone } from "@/components/community/mobile-zone"
+import type { Profile } from "@/components/community/profile-types"
+import type { View } from "@/components/community/shell-types"
 import {
   resolveProfileContextLabel,
   resolveProfileServerId,

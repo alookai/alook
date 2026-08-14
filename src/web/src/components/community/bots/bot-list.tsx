@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { AgentAvatar } from "@/components/avatar"
 import { ProviderLogo } from "@/components/provider-logo"
-import { formatAwakeDuration } from "@/components/community/format-time"
+import { formatAwakeDuration } from "@/lib/community/format-time"
 import { BotActivityHeatmap } from "./bot-activity-heatmap"
 import { useMachines } from "@/hooks/community/use-machines"
 import { useBots, useDeleteBot, useResetBotSession, useResetMachineAgents, type BotSummary } from "@/hooks/community/use-bots"

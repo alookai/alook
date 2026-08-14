@@ -1,5 +1,5 @@
 import { dateKey, formatDateLabel } from "./format-time"
-import type { Msg, RenderMsg } from "./_types"
+import type { Msg, RenderMsg } from "./models/message"
 
 function messageDisplayKey(message: Msg): string {
   const nonce = message.clientNonce

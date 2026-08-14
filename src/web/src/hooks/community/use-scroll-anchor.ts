@@ -1,7 +1,7 @@
 import { useCallback, useLayoutEffect, useRef } from "react"
 import { useVirtualizer, type ReactVirtualizer, type VirtualItem } from "@tanstack/react-virtual"
 import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "./virtualizer-react-options"
-import { estimateRowHeight, computeBelowCount, type FlatItem } from "@/components/community/message-list-items"
+import { estimateRowHeight, computeBelowCount, type FlatItem } from "@/lib/community/message-list-items"
 
 // Virtualized rewrite of message-list's scroll-anchoring logic. The
 // pre-virtualization version (see git history) hand-rolled 4 branches —

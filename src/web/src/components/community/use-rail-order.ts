@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { arrayMove } from "@dnd-kit/sortable"
 import type { DragEndEvent, DragOverEvent, DragStartEvent } from "@dnd-kit/core"
-import type { CommunityFolder } from "./_types"
+import type { CommunityFolder } from "@/lib/community/models/navigation"
 
 export const FOLDER_PREFIX = "folder:"
 export function folderId(id: string) { return `${FOLDER_PREFIX}${id}` }

@@ -15,8 +15,17 @@ import { toastApiError } from "@/lib/api/client"
 import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "@/hooks/community/virtualizer-react-options"
 import { hasStatus } from "./status-presets"
 import { tid } from "@/lib/community/testids"
-import type { Member, Role, OpenProfile, MemberManageContext } from "./_types"
-import { canManageServer, isServerOwner, ROLES, isPresenceOnline, isPresenceOffline } from "./_types"
+import type { Member } from "@/lib/community/models/people"
+import type { OpenProfile } from "@/components/community/profile-types"
+import type { MemberManageContext } from "@/components/community/member-management-types"
+import {
+  canManageServer,
+  isPresenceOffline,
+  isPresenceOnline,
+  isServerOwner,
+  ROLES,
+  type CommunityRole as Role,
+} from "@alook/shared"
 
 // The Leave/Remove confirm flow the row menu opens (private channel/post/thread).
 type ManageConfirm = { kind: "leave" | "remove"; member: Member }

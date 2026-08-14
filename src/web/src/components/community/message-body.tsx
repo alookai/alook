@@ -14,7 +14,8 @@ import {
   buildMdComponents,
 } from "./message-markdown"
 import { CommunityInviteCard } from "./community-invite-card"
-import type { MessagePerspective, OpenProfile } from "./_types"
+import type { MessagePerspective } from "@/components/community/message-presentation-types"
+import type { OpenProfile } from "@/components/community/profile-types"
 
 // The sanitize schema Streamdown builds internally when `allowedTags` is
 // left at its default merge path (verified against Streamdown 2.5.0's

@@ -38,8 +38,8 @@ vi.mock("@/hooks/community/mutations", () => ({
     variables: { threadId: "post_deleting" },
   }),
 }))
-vi.mock("@/components/community/_types", async (importOriginal) => {
-  const original = await importOriginal<typeof import("./_types")>()
+vi.mock("@alook/shared", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@alook/shared")>()
   return { ...original, canManageServer: (role: string | undefined) => role === "owner" || role === "admin" }
 })
 vi.mock("@/components/community/channel-header", () => ({

@@ -9,7 +9,8 @@ import { Avatar } from "@/components/community/avatar"
 import { MessageList } from "@/components/community/message-list"
 import { MessageContextSheet } from "@/components/community/message-context-sheet"
 import { Composer, ComposerSkeleton, type SendAttachment } from "@/components/community/composer"
-import type { FileAttachment, ImagePreview, OpenProfile } from "@/components/community/_types"
+import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
+import type { OpenProfile } from "@/components/community/profile-types"
 import {
   useCommunityStore,
   useCurrentChannelId,

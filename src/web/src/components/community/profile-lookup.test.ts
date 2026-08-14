@@ -6,7 +6,7 @@ import {
   resolveProfileUserId,
   buildSelfProfile,
 } from "./profile-lookup"
-import type { Member, Friend } from "./_types"
+import type { Member, Friend } from "@/lib/community/models/people"
 import type { CurrentUser } from "@/contexts/community/current-user"
 
 function member(overrides: Partial<Member>): Member {

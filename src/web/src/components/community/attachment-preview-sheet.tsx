@@ -15,7 +15,7 @@ import { SheetResizeHandle, useSheetResize } from "@/components/ui/sheet-resize-
 import { cn } from "@/lib/utils"
 import { MessageBody } from "./message-body"
 import { CodePreview } from "./code-preview"
-import type { FileAttachment } from "./_types"
+import type { FileAttachment } from "@/lib/community/models/message"
 import { tid } from "@/lib/community/testids"
 import {
   formatAttachmentSize,

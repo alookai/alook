@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { useScrollAnchor } from "./use-scroll-anchor"
-import type { FlatItem } from "@/components/community/message-list-items"
+import type { FlatItem } from "@/lib/community/message-list-items"
 
 // Render-level coverage for something `computeHeroScrollCompensation`'s
 // pure-function tests can't reach — it lives in `useScrollAnchor`'s effect

@@ -4,8 +4,7 @@ import type {
   Persister,
 } from "@tanstack/react-query-persist-client"
 import { del, get, set } from "idb-keyval"
-import type { Msg } from "@/components/community/_types"
-import type { MessagesPage } from "@/hooks/community/use-messages"
+import type { MessagesPage, Msg } from "@/lib/community/models/message"
 
 /**
  * IDB namespace root. Bumping the tail segment (`v1` → `v2`) invalidates every

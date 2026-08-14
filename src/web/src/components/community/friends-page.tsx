@@ -13,7 +13,8 @@ import { Avatar } from "./avatar"
 import { avatarInitial } from "@/lib/community/avatar"
 import { EmptyState } from "./empty-state"
 import { hasStatus } from "./status-presets"
-import type { Friend, PendingRequest, BlockedUser, OpenProfile } from "./_types"
+import type { Friend, PendingRequest, BlockedUser } from "@/lib/community/models/people"
+import type { OpenProfile } from "@/components/community/profile-types"
 import { isSelfBotFriendship, isPresenceOffline, MIN_SEARCH_LENGTH } from "@alook/shared"
 
 function FriendSection({ title, count, emptyLabel, children }: {

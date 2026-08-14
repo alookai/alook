@@ -2,7 +2,7 @@ import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { describe, expect, it, vi } from "vitest"
 import { tid } from "@/lib/community/testids"
-import type { FileAttachment } from "./_types"
+import type { FileAttachment } from "@/lib/community/models/message"
 import { MediaAttachmentBlock } from "./media-attachment-block"
 
 vi.mock("@/components/ui/button", () => ({

@@ -14,7 +14,9 @@ import { MessageChannelController } from "@/components/community/message-channel
 import { MessageContextSheet } from "@/components/community/message-context-sheet"
 import { MessageList } from "@/components/community/message-list"
 import { ThreadOpener } from "@/components/community/thread-opener"
-import type { FileAttachment, ImagePreview, OpenProfile, RightPanel } from "@/components/community/_types"
+import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
+import type { OpenProfile } from "@/components/community/profile-types"
+import type { RightPanel } from "@/components/community/panel-types"
 import type { ChannelMemberPanelProps } from "@/components/community/channel-member-view-model"
 
 const ignoreNestedThread = () => {}

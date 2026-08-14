@@ -9,8 +9,12 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import type { Msg } from "@/components/community/_types"
-import { flushPendingReads } from "@/hooks/community/mutations/messages"
+import type {
+  MessagesPage,
+  MessagesPageParam,
+  Msg,
+} from "@/lib/community/models/message"
+import { flushPendingReads } from "@/lib/community/pending-reads"
 import {
   materializeMessageStream,
   type CanonicalMessage,
@@ -36,29 +40,7 @@ import { useMessageOverlay, useMessageStreamStore } from "@/stores/community/mes
  * single `invalidateQueries({ queryKey: communityKeys.channelMessages(id) })`
  * refreshes every page in one call.
  */
-export type MessagesPage = {
-  messages: Msg[]
-  latestSeq?: number
-  // Anchor / since mode
-  hasMoreOlder?: boolean
-  hasMoreNewer?: boolean
-  olderCursor?: string
-  newerCursor?: string
-  // Legacy (newest + older continuation) mode
-  hasMore?: boolean
-  cursor?: string
-}
-
-// Discriminated pageParam. The queryFn dispatches on `mode` — the URL param
-// map is: newest → no param, older → cursor, newer/since → since, anchor →
-// anchor. Since is reserved for future direct catch-up (Commit C); A2 never
-// fires it, but the type covers it so the server contract stays honest.
-export type MessagesPageParam =
-  | { mode: "newest" }
-  | { mode: "anchor"; anchor: string }
-  | { mode: "since"; since: string }
-  | { mode: "older"; cursor: string }
-  | { mode: "newer"; cursor: string }
+export type { MessagesPage, MessagesPageParam } from "@/lib/community/models/message"
 
 function buildMessagesUrl(base: string, pageParam: MessagesPageParam, tag?: string | null): string {
   const params = new URLSearchParams()

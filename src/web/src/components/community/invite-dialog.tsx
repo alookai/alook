@@ -16,7 +16,7 @@ import {
 } from "@/hooks/community/mutations"
 import { useDmMessageSender } from "@/hooks/community/use-dm-message-sender"
 import { useCurrentUser } from "@/contexts/community/current-user"
-import type { Friend } from "./_types"
+import type { Friend } from "@/lib/community/models/people"
 
 const INVITE_ORIGIN =
   typeof window !== "undefined" ? window.location.origin : ""

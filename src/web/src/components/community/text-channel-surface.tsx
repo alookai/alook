@@ -13,7 +13,9 @@ import { MessageList } from "@/components/community/message-list"
 import {
   MessageChannelController,
 } from "@/components/community/message-channel-controller"
-import type { FileAttachment, ImagePreview, OpenProfile, RightPanel } from "@/components/community/_types"
+import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
+import type { OpenProfile } from "@/components/community/profile-types"
+import type { RightPanel } from "@/components/community/panel-types"
 
 export function TextChannelSurface({
   channelId,
