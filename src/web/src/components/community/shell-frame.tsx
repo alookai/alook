@@ -1,6 +1,13 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react"
 import { usePathname, useRouter } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
@@ -794,7 +801,7 @@ export function ShellFrame({
 
   if (bp === "desktop") {
     return (
-      <Shell>
+      <Shell onNavigationIntent={cancelPendingServerNavigation}>
         <ServerRail {...railProps} bottomInset={60} />
         <div className="relative flex-1 flex flex-col min-w-0 pt-2">
           <AppSurface className="rounded-tl-xl rounded-tr-none rounded-br-none rounded-bl-none ring-0 border-l border-t border-border/40 shadow-none">
@@ -837,7 +844,7 @@ export function ShellFrame({
   }
 
   return (
-    <Shell>
+    <Shell onNavigationIntent={cancelPendingServerNavigation}>
       {mobileZone === "nav" && (
         <>
           <ServerRail {...railProps} bottomInset={60} />

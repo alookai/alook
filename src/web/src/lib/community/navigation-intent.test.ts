@@ -6,7 +6,7 @@ import {
 } from "./navigation-intent"
 
 describe("navigation intent gate", () => {
-  it("does not let a pending server resolution overwrite a later leaf intent", async () => {
+  it("does not let a pending server resolution overwrite a Bot DM click captured at the shell root", async () => {
     let resolveServer!: (href: string) => void
     const pendingServer = new Promise<string>((resolve) => {
       resolveServer = resolve
@@ -19,8 +19,11 @@ describe("navigation intent gate", () => {
       push,
     )
 
-    supersedeNavigationIntent(gate)
-    push("/c/me/dm_2")
+    const onShellClickCapture = () => supersedeNavigationIntent(gate)
+    const onBotDmClick = () => push("/c/me/dm_2")
+
+    onShellClickCapture()
+    onBotDmClick()
     resolveServer("/c/channels/server_1/channel_1")
 
     await expect(navigation).resolves.toBe(false)
