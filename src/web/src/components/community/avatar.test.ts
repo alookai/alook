@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { Avatar } from "./avatar"
+import { ProfileAvatar } from "@/components/avatar"
 import { serializeBeamSeed } from "@/lib/avatar/seed-url"
 
 function normalize(html: string): string {
@@ -36,6 +37,23 @@ describe("Avatar seed contract", () => {
     const html = render({ label: serializeBeamSeed("beam-xyz") })
     expect(html).toContain("<svg")
     expect(html).not.toContain('data-slot="avatar-fallback"')
+  })
+
+  it("keeps stored avatar sources out of the accessibility tree", () => {
+    for (const source of [
+      serializeBeamSeed("private-seed"),
+      "https://cdn.example.com/private-avatar.png",
+    ]) {
+      const element = Avatar({ label: source, seed: "usr_1" })
+      const html = render({ label: source, seed: "usr_1" })
+
+      expect(element.type).toBe(ProfileAvatar)
+      expect(element.props.alt).toBe("")
+      expect(html).toContain('aria-hidden="true"')
+      expect(html).not.toContain('role="img"')
+      expect(html).not.toContain("aria-label")
+      expect(html).not.toContain(source)
+    }
   })
 
   it("is stable for the same seed", () => {

@@ -37,6 +37,7 @@ export function ProfileAvatar({
   const safeLabel = label || "?"
   const resolved = resolveAvatar(src || safeLabel, seed || undefined)
   const accessibleLabel = alt ?? safeLabel
+  const decorative = accessibleLabel === ""
 
   return (
     <UiAvatar
@@ -44,8 +45,9 @@ export function ProfileAvatar({
       data-avatar-kind={resolved.kind}
       className={cn(resolved.kind === "beam" ? "after:hidden" : "bg-muted", className)}
       style={{ width: size, height: size, opacity: dim ? 0.4 : 1 }}
-      role={resolved.kind === "photo" ? undefined : "img"}
-      aria-label={resolved.kind === "photo" ? undefined : accessibleLabel}
+      role={resolved.kind === "photo" || decorative ? undefined : "img"}
+      aria-label={resolved.kind === "photo" || decorative ? undefined : accessibleLabel}
+      aria-hidden={decorative ? true : undefined}
     >
       {resolved.kind === "photo" ? (
         <>

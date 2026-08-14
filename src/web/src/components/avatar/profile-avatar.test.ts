@@ -84,6 +84,19 @@ describe("ProfileAvatar", () => {
 
     expect(html).toContain('data-avatar-kind="photo"')
     expect(resolvedImageProps({ label: "Ada", src: "/api/avatar", alt: "" }).alt).toBe("")
+    expect(html).toContain('aria-hidden="true"')
+    expect(html).not.toContain('role="img"')
+    expect(html).not.toContain("aria-label")
     expect(html).toContain("opacity:0.4")
+  })
+
+  it("makes generated avatars decorative without exposing their source", () => {
+    const source = serializeBeamSeed("private-seed")
+    const html = render({ label: source, src: source, seed: "user_1", alt: "" })
+
+    expect(html).toContain('aria-hidden="true"')
+    expect(html).not.toContain('role="img"')
+    expect(html).not.toContain("aria-label")
+    expect(html).not.toContain(source)
   })
 })

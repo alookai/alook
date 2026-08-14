@@ -33,7 +33,7 @@ export function Avatar({ label, seed, src, size = 40, dim = false, presence, rin
   ringColor?: string
 }) {
   return (
-    <ProfileAvatar label={label} seed={seed} src={src} size={size} dim={dim}>
+    <ProfileAvatar label={label} seed={seed} src={src} size={size} dim={dim} alt="">
       {presence && (
         <AvatarBadge
           data-presence={presence}
