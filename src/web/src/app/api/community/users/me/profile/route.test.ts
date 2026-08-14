@@ -83,7 +83,7 @@ describe("GET /api/community/users/me/profile", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     actorKind = "human"
-    getUser.mockResolvedValue({ id: "u1", discriminator: "4242" })
+    getUser.mockResolvedValue({ id: "u1", discriminator: "4242", image: "/api/community/users/u1/avatar" })
   })
 
   it("returns defaults when no profile row exists", async () => {
@@ -92,6 +92,7 @@ describe("GET /api/community/users/me/profile", () => {
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
       aboutMe: "",
+      avatar: "/api/community/users/u1/avatar",
       bannerColor: null,
       discriminator: "4242",
       statusEmoji: null,
@@ -104,6 +105,7 @@ describe("GET /api/community/users/me/profile", () => {
     const res = await GET(new NextRequest("http://localhost/api/community/users/me/profile"), {} as never)
     expect(await res.json()).toEqual({
       aboutMe: "hi",
+      avatar: "/api/community/users/u1/avatar",
       bannerColor: "#aabbcc",
       discriminator: "4242",
       statusEmoji: "🎧",
@@ -117,6 +119,7 @@ describe("GET /api/community/users/me/profile", () => {
     const res = await GET(new NextRequest("http://localhost/api/community/users/me/profile"), {} as never)
     expect(await res.json()).toEqual({
       aboutMe: "",
+      avatar: "",
       bannerColor: null,
       discriminator: "0000",
       statusEmoji: null,

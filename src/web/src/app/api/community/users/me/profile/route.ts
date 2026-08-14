@@ -30,6 +30,7 @@ export const GET = withCommunityActor(async (_req, ctx) => {
   ])
   return writeJSON({
     aboutMe: profile?.aboutMe ?? "",
+    avatar: viewer?.image ?? "",
     bannerColor: profile?.bannerColor ?? null,
     discriminator: viewer?.discriminator ?? "0000",
     statusEmoji: profile?.statusEmoji ?? null,

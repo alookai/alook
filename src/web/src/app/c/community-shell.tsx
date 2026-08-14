@@ -59,20 +59,19 @@ function CommunityBootstrap({ children }: { children: ReactNode }) {
   // flag stuck at false for the viewer's own reactions.
   useCommunityWs({ viewerUserId: currentUser.id })
 
-  // Hydrate `aboutMe`/status — the community identity holds email/name/avatar
-  // from the session, but the free-text "about me" and custom status live on
-  // the community profile row. Fetch it once so the settings dialog and
-  // UserBar/ProfileCard open pre-filled instead of blank until the next save
-  // or WS event (see plans/profile-card.md).
+  // Hydrate the live public profile. The auth session can retain a stale image
+  // after an avatar upload, while this self endpoint reads the canonical user
+  // row alongside the community profile fields.
   const currentUserId = currentUser.id
   useEffect(() => {
-    apiFetch<{ aboutMe: string; discriminator: string; statusEmoji: string | null; statusText: string }>(
+    apiFetch<{ aboutMe: string; avatar: string; discriminator: string; statusEmoji: string | null; statusText: string }>(
       "/api/community/users/me/profile",
     )
       .then((data) => {
         setCurrentUser((u) => ({
           ...u,
           aboutMe: data.aboutMe,
+          avatar: data.avatar || u.avatar,
           discriminator: data.discriminator,
           statusEmoji: data.statusEmoji,
           statusText: data.statusText,
