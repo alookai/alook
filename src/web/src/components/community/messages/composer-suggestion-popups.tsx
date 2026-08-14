@@ -1,0 +1,239 @@
+import { useEffect, useRef, type CSSProperties } from "react"
+import { createPortal } from "react-dom"
+import { Users } from "lucide-react"
+import { Avatar } from "../avatar"
+import { ChannelIcon } from "../channels/channel-icon"
+import { nextListScrollTop } from "@/lib/community/popup-scroll"
+import { tid } from "@/lib/community/testids"
+import {
+  toChannelRefCommandProps,
+  type ChannelRefCandidate,
+  type ChannelRefPopupState,
+} from "@/lib/community/channel-ref-extension"
+import type {
+  MentionItem,
+  MentionPopupState,
+} from "@/lib/community/mention-extension"
+
+const POPUP_WIDTH = 256
+const POPUP_MAX_HEIGHT = 240
+const VIEWPORT_MARGIN = 8
+
+export function popoverStyle(
+  rect: DOMRect,
+  viewportWidth: number,
+  viewportHeight: number,
+): CSSProperties {
+  const maxLeft = Math.max(
+    VIEWPORT_MARGIN,
+    viewportWidth - POPUP_WIDTH - VIEWPORT_MARGIN,
+  )
+  const left = Math.min(rect.left, maxLeft)
+  const flipBelow =
+    rect.top < POPUP_MAX_HEIGHT + VIEWPORT_MARGIN &&
+    rect.bottom + POPUP_MAX_HEIGHT + VIEWPORT_MARGIN <= viewportHeight
+  return flipBelow
+    ? { top: rect.bottom + 4, left }
+    : { top: rect.top - 4, left, transform: "translateY(-100%)" }
+}
+
+function viewportSize(): { w: number; h: number } {
+  if (typeof window === "undefined") {
+    return { w: POPUP_WIDTH, h: POPUP_MAX_HEIGHT }
+  }
+  return { w: window.innerWidth, h: window.innerHeight }
+}
+
+function scrollSelectedRowIntoView(list: HTMLDivElement | null): void {
+  if (!list) return
+  const row = list.querySelector<HTMLElement>('[aria-selected="true"]')
+  if (!row) return
+  list.scrollTop = nextListScrollTop(
+    list.scrollTop,
+    list.clientHeight,
+    row.offsetTop,
+    row.offsetHeight,
+  )
+}
+
+export function CommunityMentionList({
+  state,
+}: {
+  state: MentionPopupState
+}) {
+  const listRef = useRef<HTMLDivElement>(null)
+  const { items, selectedIndex, command, rect } = state
+  useEffect(() => {
+    scrollSelectedRowIntoView(listRef.current)
+  }, [selectedIndex])
+  if (!rect || items.length === 0 || !command) return null
+
+  const firstMemberIndex = items.findIndex((item) => item.kind === "member")
+  const hasVirtual = items.some((item) => item.kind !== "member")
+  const showMembersHeader = hasVirtual && firstMemberIndex > 0
+  const viewport = viewportSize()
+
+  return createPortal(
+    <div
+      className="fixed z-100 w-64 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-(--e2)"
+      style={popoverStyle(rect, viewport.w, viewport.h)}
+    >
+      <div
+        ref={listRef}
+        className="relative max-h-60 overflow-x-hidden overflow-y-auto thin-scrollbar"
+      >
+        {items.map((item, index) => (
+          <MentionRow
+            key={`${item.kind}:${item.id}`}
+            item={item}
+            selected={index === selectedIndex}
+            showMembersHeader={
+              showMembersHeader && index === firstMemberIndex
+            }
+            onSelect={() => command({ id: item.id, label: item.label })}
+          />
+        ))}
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+export function ChannelRefList({ state }: { state: ChannelRefPopupState }) {
+  const listRef = useRef<HTMLDivElement>(null)
+  const { items, selectedIndex, command, rect } = state
+  useEffect(() => {
+    scrollSelectedRowIntoView(listRef.current)
+  }, [selectedIndex])
+  if (!rect || items.length === 0 || !command) return null
+
+  const spansMultipleServers = items.some(
+    (item) => item.serverId !== items[0]?.serverId,
+  )
+  const viewport = viewportSize()
+  return createPortal(
+    <div
+      className="fixed z-100 w-64 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-(--e2)"
+      style={popoverStyle(rect, viewport.w, viewport.h)}
+    >
+      <div
+        ref={listRef}
+        className="relative max-h-60 overflow-x-hidden overflow-y-auto thin-scrollbar"
+      >
+        {items.map((item, index) => (
+          <ChannelRefRow
+            key={item.id}
+            item={item}
+            selected={index === selectedIndex}
+            showServerPrefix={spansMultipleServers}
+            onSelect={() => command(toChannelRefCommandProps(item))}
+          />
+        ))}
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+function ChannelRefRow({
+  item,
+  selected,
+  showServerPrefix,
+  onSelect,
+}: {
+  item: ChannelRefCandidate
+  selected: boolean
+  showServerPrefix: boolean
+  onSelect: () => void
+}) {
+  return (
+    <button
+      type="button"
+      role="option"
+      aria-selected={selected}
+      className={[
+        "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors",
+        selected ? "bg-accent" : "hover:bg-accent/50",
+      ].join(" ")}
+      onMouseDown={(event) => {
+        event.preventDefault()
+        onSelect()
+      }}
+    >
+      <ChannelIcon className="size-3.5 text-muted-foreground" />
+      <span className="font-medium">
+        {showServerPrefix && (
+          <span className="text-muted-foreground">{item.serverName} / </span>
+        )}
+        {item.name}
+      </span>
+    </button>
+  )
+}
+
+function MentionRow({
+  item,
+  selected,
+  showMembersHeader,
+  onSelect,
+}: {
+  item: MentionItem
+  selected: boolean
+  showMembersHeader: boolean
+  onSelect: () => void
+}) {
+  return (
+    <>
+      {showMembersHeader && (
+        <div className="-mx-1 mt-1 border-t border-border/60 px-2 pt-2 pb-1 text-xs font-semibold text-muted-foreground">
+          Members
+        </div>
+      )}
+      <button
+        type="button"
+        role="option"
+        data-testid={tid.mentionOption(item.id)}
+        aria-selected={selected}
+        className={[
+          "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors",
+          selected ? "bg-accent" : "hover:bg-accent/50",
+        ].join(" ")}
+        onMouseDown={(event) => {
+          event.preventDefault()
+          onSelect()
+        }}
+      >
+        {item.kind === "member" ? (
+          <Avatar
+            label={item.avatar}
+            seed={item.userId}
+            size={24}
+            presence={item.status}
+            ringColor="var(--popover)"
+          />
+        ) : (
+          <span className="grid size-6 place-items-center rounded-full bg-primary/15 text-primary">
+            <Users className="size-3.5" />
+          </span>
+        )}
+        <span className="font-medium">
+          {item.kind === "member" ? (
+            <>
+              {item.name}
+              <span className="ml-1 text-xs font-normal tracking-wide text-muted-foreground">
+                #{item.discriminator}
+              </span>
+            </>
+          ) : (
+            `@${item.label}`
+          )}
+        </span>
+        {item.kind !== "member" && (
+          <span className="ml-auto text-xs text-muted-foreground">
+            Notify everyone
+          </span>
+        )}
+      </button>
+    </>
+  )
+}

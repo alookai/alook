@@ -1,0 +1,59 @@
+import type { MentionType } from "@alook/shared"
+import type { ChannelRefCandidate } from "@/lib/community/channel-ref-extension"
+import type { MentionContext } from "@/lib/community/mention-extension"
+import type { SendAttachment } from "@/lib/community/models/message"
+import type { Member } from "@/lib/community/models/people"
+
+type ComposerMode = "chat" | "forumThreadBody"
+
+export type ComposerHandle = {
+  focusEditor: () => void
+  submitNow: () => void
+  resetAfterSubmit: () => void
+  isEmpty: () => boolean
+  openFilePicker: () => void
+}
+
+type ComposerBaseProps = {
+  channel: string
+  context: MentionContext
+  members: Member[]
+  onSearchMembers?: (query: string) => void
+  channelRefCandidates?: ChannelRefCandidate[]
+  onChannelRefIntent?: () => void
+  onTyping?: () => void
+  replyingTo?: string
+  onCancelReply?: () => void
+  autoFocus?: boolean
+  mode?: ComposerMode
+  placeholder?: string
+  hideEmoji?: boolean
+  hideAttach?: boolean
+  onDirty?: (hasContent: boolean) => void
+  draftKey?: string
+}
+
+type ComposerAcceptedSend = {
+  sendContract: "accepted"
+  mode?: "chat"
+  onAcceptSend: (
+    markdown: string,
+    attachments?: SendAttachment[],
+    mentionType?: MentionType,
+  ) => boolean
+  onDeferredSubmit?: never
+}
+
+type ComposerDeferredSend = {
+  sendContract: "deferred"
+  mode: "forumThreadBody"
+  onDeferredSubmit: (
+    markdown: string,
+    attachments?: SendAttachment[],
+    mentionType?: MentionType,
+  ) => void | Promise<void>
+  onAcceptSend?: never
+}
+
+export type ComposerProps = ComposerBaseProps &
+  (ComposerAcceptedSend | ComposerDeferredSend)

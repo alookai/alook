@@ -1,0 +1,383 @@
+import { createElement, useEffect } from "react"
+import TestRenderer, { act } from "react-test-renderer"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+const mocks = vi.hoisted(() => ({
+  buildMention: vi.fn(),
+  buildChannel: vi.fn(),
+  rankMention: vi.fn(),
+  rankChannel: vi.fn(),
+}))
+
+vi.mock("@/lib/community/mention-extension", () => ({
+  EMPTY_MENTION_STATE: {
+    items: [],
+    selectedIndex: 0,
+    command: null,
+    rect: null,
+  },
+  buildCommunityMentionExtension: (...args: unknown[]) =>
+    mocks.buildMention(...args),
+  rankMentionItems: (...args: unknown[]) => mocks.rankMention(...args),
+}))
+
+vi.mock("@/lib/community/channel-ref-extension", () => ({
+  EMPTY_CHANNEL_REF_STATE: {
+    items: [],
+    selectedIndex: 0,
+    command: null,
+    rect: null,
+  },
+  buildCommunityChannelRefExtension: (...args: unknown[]) =>
+    mocks.buildChannel(...args),
+  rankChannelRefItems: (...args: unknown[]) => mocks.rankChannel(...args),
+}))
+
+import { useComposerSuggestions } from "./use-composer-suggestions"
+import type { ChannelRefCandidate } from "@/lib/community/channel-ref-extension"
+import type { Member } from "@/lib/community/models/people"
+
+type Options = Parameters<typeof useComposerSuggestions>[0]
+type Result = ReturnType<typeof useComposerSuggestions>
+
+function Harness({
+  resultRef,
+  ...options
+}: Options & { resultRef: { current: Result | null } }) {
+  const result = useComposerSuggestions(options)
+  useEffect(() => {
+    resultRef.current = result
+  }, [result, resultRef])
+  return createElement("suggestions-probe")
+}
+
+const member = (overrides: Partial<Member> = {}): Member =>
+  ({
+    id: "member-1",
+    userId: "user-1",
+    name: "Ada",
+    discriminator: "0001",
+    avatar: "A",
+    status: "online",
+    ...overrides,
+  }) as Member
+
+const channel = (
+  overrides: Partial<ChannelRefCandidate> = {},
+): ChannelRefCandidate => ({
+  id: "channel-1",
+  name: "general",
+  serverId: "server-1",
+  serverName: "One",
+  ...overrides,
+})
+
+describe("useComposerSuggestions", () => {
+  beforeEach(() => {
+    mocks.buildMention.mockReset()
+    mocks.buildChannel.mockReset()
+    mocks.rankMention.mockReset()
+    mocks.rankChannel.mockReset()
+    mocks.buildMention.mockImplementation((options) => ({
+      name: "mention-extension",
+      runQuery: (query: string) => {
+        options.queryRef.current = query
+        options.onSearchMembersRef.current?.(query)
+        return mocks.rankMention(
+          options.membersRef.current,
+          options.contextRef.current,
+          query,
+        )
+      },
+    }))
+    mocks.buildChannel.mockImplementation((options) => ({
+      name: "channel-extension",
+      runQuery: (query: string) => {
+        options.queryRef.current = query
+        options.onIntentRef.current?.()
+        return mocks.rankChannel(options.candidatesRef.current, query)
+      },
+    }))
+    mocks.rankMention.mockReturnValue([])
+    mocks.rankChannel.mockReturnValue([])
+  })
+
+  it("builds only the two custom extensions once and refreshes live refs", async () => {
+    const resultRef: { current: Result | null } = { current: null }
+    const firstMembers = [member()]
+    const firstChannels = [channel()]
+    const firstSearch = vi.fn()
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(
+        createElement(Harness, {
+          members: firstMembers,
+          context: "channel",
+          onSearchMembers: firstSearch,
+          channelRefCandidates: firstChannels,
+          onChannelRefIntent: vi.fn(),
+          resultRef,
+        }),
+      )
+    })
+    const firstMentionExtension = resultRef.current!.mentionExtension
+    const firstChannelExtension = resultRef.current!.channelRefExtension
+    const mentionOptions = mocks.buildMention.mock.calls[0][0]
+    const channelOptions = mocks.buildChannel.mock.calls[0][0]
+
+    const nextMembers = [member({ avatar: "B", status: "offline" })]
+    const nextChannels = [channel({ serverName: "Two" })]
+    const nextSearch = vi.fn()
+    const nextIntent = vi.fn()
+    await act(async () => {
+      renderer.update(
+        createElement(Harness, {
+          members: nextMembers,
+          context: "thread",
+          onSearchMembers: nextSearch,
+          channelRefCandidates: nextChannels,
+          onChannelRefIntent: nextIntent,
+          resultRef,
+        }),
+      )
+    })
+
+    expect(mocks.buildMention).toHaveBeenCalledOnce()
+    expect(mocks.buildChannel).toHaveBeenCalledOnce()
+    expect(resultRef.current!.mentionExtension).toBe(firstMentionExtension)
+    expect(resultRef.current!.channelRefExtension).toBe(firstChannelExtension)
+    expect(mentionOptions.membersRef.current).toBe(nextMembers)
+    expect(mentionOptions.contextRef.current).toBe("thread")
+    expect(mentionOptions.onSearchMembersRef.current).toBe(nextSearch)
+    expect(channelOptions.candidatesRef.current).toBe(nextChannels)
+    expect(channelOptions.onIntentRef.current).toBe(nextIntent)
+
+    await act(async () => {
+      mentionOptions.setPopup({
+        items: [],
+        selectedIndex: 0,
+        command: vi.fn(),
+        rect: null,
+      })
+      channelOptions.setPopup({
+        items: [],
+        selectedIndex: 0,
+        command: vi.fn(),
+        rect: null,
+      })
+    })
+
+    mocks.rankMention.mockReturnValue([{ id: "latest-member" }])
+    const mentionResult = (
+      resultRef.current!.mentionExtension as unknown as {
+        runQuery: (query: string) => unknown
+      }
+    ).runQuery("ad")
+    expect(mentionResult).toEqual([{ id: "latest-member" }])
+    expect(nextSearch).toHaveBeenCalledWith("ad")
+    expect(mocks.rankMention).toHaveBeenLastCalledWith(
+      nextMembers,
+      "thread",
+      "ad",
+    )
+
+    mocks.rankChannel.mockReturnValue([{ id: "latest-channel" }])
+    const channelResult = (
+      resultRef.current!.channelRefExtension as unknown as {
+        runQuery: (query: string) => unknown
+      }
+    ).runQuery("gen")
+    expect(channelResult).toEqual([{ id: "latest-channel" }])
+    expect(nextIntent).toHaveBeenCalledOnce()
+    expect(mocks.rankChannel).toHaveBeenLastCalledWith(nextChannels, "gen")
+
+    const thirdMembers = [member({ name: "Ada Latest" })]
+    const thirdChannels = [channel({ name: "general-latest" })]
+    await act(async () => {
+      renderer.update(
+        createElement(Harness, {
+          members: thirdMembers,
+          context: "thread",
+          onSearchMembers: nextSearch,
+          channelRefCandidates: thirdChannels,
+          onChannelRefIntent: nextIntent,
+          resultRef,
+        }),
+      )
+    })
+    expect(mocks.rankMention).toHaveBeenLastCalledWith(
+      thirdMembers,
+      "thread",
+      "ad",
+    )
+    expect(mocks.rankChannel).toHaveBeenLastCalledWith(thirdChannels, "gen")
+  })
+
+  it("reranks open mentions, preserves valid selection, and detects visual changes", async () => {
+    const resultRef: { current: Result | null } = { current: null }
+    const initialItem = {
+      kind: "member" as const,
+      id: "member-1",
+      userId: "user-1",
+      label: "Ada#0001",
+      name: "Ada",
+      discriminator: "0001",
+      avatar: "A",
+      status: "online" as const,
+    }
+    const secondItem = { ...initialItem, id: "member-2", userId: "user-2" }
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(
+        createElement(Harness, {
+          members: [member()],
+          context: "channel",
+          channelRefCandidates: [],
+          resultRef,
+        }),
+      )
+    })
+    const options = mocks.buildMention.mock.calls[0][0]
+    await act(async () => {
+      options.setPopup({
+        items: [initialItem, secondItem],
+        selectedIndex: 1,
+        command: vi.fn(),
+        rect: null,
+      })
+    })
+
+    const unchangedState = resultRef.current!.mentionPopup
+    mocks.rankMention.mockReturnValue([initialItem, secondItem])
+    await act(async () => {
+      renderer.update(
+        createElement(Harness, {
+          members: [member({ name: "Ada Lovelace" })],
+          context: "channel",
+          channelRefCandidates: [],
+          resultRef,
+        }),
+      )
+    })
+    expect(resultRef.current!.mentionPopup).toBe(unchangedState)
+
+    mocks.rankMention.mockReturnValue([
+      { ...initialItem, status: "offline" },
+      secondItem,
+    ])
+    await act(async () => {
+      renderer.update(
+        createElement(Harness, {
+          members: [member({ status: "offline" })],
+          context: "channel",
+          channelRefCandidates: [],
+          resultRef,
+        }),
+      )
+    })
+    expect(resultRef.current!.mentionPopup.items[0]).toMatchObject({
+      status: "offline",
+    })
+    expect(resultRef.current!.mentionPopup.selectedIndex).toBe(1)
+
+    mocks.rankMention.mockReturnValue([{ ...initialItem, avatar: "C" }])
+    await act(async () => {
+      renderer.update(
+        createElement(Harness, {
+          members: [member({ avatar: "C" })],
+          context: "thread",
+          channelRefCandidates: [],
+          resultRef,
+        }),
+      )
+    })
+    expect(resultRef.current!.mentionPopup.selectedIndex).toBe(0)
+  })
+
+  it("keeps channel state when only serverName changes and resets both popups", async () => {
+    const resultRef: { current: Result | null } = { current: null }
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(
+        createElement(Harness, {
+          members: [],
+          context: "dm",
+          channelRefCandidates: [channel()],
+          resultRef,
+        }),
+      )
+    })
+    const mentionOptions = mocks.buildMention.mock.calls[0][0]
+    const channelOptions = mocks.buildChannel.mock.calls[0][0]
+    await act(async () => {
+      mentionOptions.setPopup({
+        items: [{ kind: "everyone", id: "everyone", label: "everyone" }],
+        selectedIndex: 0,
+        command: vi.fn(),
+        rect: null,
+      })
+      channelOptions.setPopup({
+        items: [channel()],
+        selectedIndex: 0,
+        command: vi.fn(),
+        rect: null,
+      })
+    })
+    const previousState = resultRef.current!.channelRefPopup
+    mocks.rankChannel.mockReturnValue([channel({ serverName: "Two" })])
+    await act(async () => {
+      renderer.update(
+        createElement(Harness, {
+          members: [],
+          context: "dm",
+          channelRefCandidates: [channel({ serverName: "Two" })],
+          resultRef,
+        }),
+      )
+    })
+    expect(resultRef.current!.channelRefPopup).toBe(previousState)
+    expect(resultRef.current!.channelRefPopup.items[0].serverName).toBe("One")
+
+    const second = channel({ id: "channel-2", name: "random" })
+    await act(async () => {
+      channelOptions.setPopup({
+        items: [channel(), second],
+        selectedIndex: 1,
+        command: vi.fn(),
+        rect: null,
+      })
+    })
+    mocks.rankChannel.mockReturnValue([
+      channel({ name: "general-updated" }),
+      second,
+    ])
+    await act(async () => {
+      renderer.update(
+        createElement(Harness, {
+          members: [],
+          context: "dm",
+          channelRefCandidates: [channel({ name: "general-updated" }), second],
+          resultRef,
+        }),
+      )
+    })
+    expect(resultRef.current!.channelRefPopup.selectedIndex).toBe(1)
+
+    mocks.rankChannel.mockReturnValue([channel({ name: "final" })])
+    await act(async () => {
+      renderer.update(
+        createElement(Harness, {
+          members: [],
+          context: "dm",
+          channelRefCandidates: [channel({ name: "final" })],
+          resultRef,
+        }),
+      )
+    })
+    expect(resultRef.current!.channelRefPopup.selectedIndex).toBe(0)
+
+    await act(async () => resultRef.current!.resetPopups())
+    expect(resultRef.current!.mentionPopup.command).toBeNull()
+    expect(resultRef.current!.channelRefPopup.command).toBeNull()
+  })
+})
