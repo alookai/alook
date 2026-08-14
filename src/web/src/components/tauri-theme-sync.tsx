@@ -4,6 +4,14 @@ import { useEffect } from "react";
 import { useTheme } from "next-themes";
 import { isTauri, isDesktop, tauriInvoke } from "@alook/shared";
 
+export async function syncTauriWindowTheme(dark: boolean) {
+  try {
+    await tauriInvoke("set_window_theme", { dark });
+  } finally {
+    await tauriInvoke("close_splashscreen").catch(() => {});
+  }
+}
+
 export function TauriThemeSync() {
   const { resolvedTheme } = useTheme();
 
@@ -11,9 +19,7 @@ export function TauriThemeSync() {
     if (!isTauri() || !isDesktop()) return;
     if (!resolvedTheme) return;
 
-    tauriInvoke("set_window_theme", { dark: resolvedTheme === "dark" })
-      .then(() => tauriInvoke("close_splashscreen"))
-      .catch(() => {});
+    void syncTauriWindowTheme(resolvedTheme === "dark").catch(() => {});
   }, [resolvedTheme]);
 
   return null;

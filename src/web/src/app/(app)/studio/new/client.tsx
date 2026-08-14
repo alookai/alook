@@ -20,7 +20,6 @@ import {
 
 import type { AgentRuntime as Runtime } from "@alook/shared";
 import type { WsMessage } from "@alook/shared";
-import { isTauri, isDesktop, tauriInvoke } from "@alook/shared";
 import { listRuntimes, createMachineToken } from "@/lib/api";
 import { useUserWs } from "@/lib/use-user-ws";
 import { ConnectMachineSteps } from "@/components/connect-machine-steps";
@@ -50,11 +49,9 @@ export function StudioOnboardingClient({
   const [machineRegistered, setMachineRegistered] = useState(false);
   const [daemonOnline, setDaemonOnline] = useState(false);
 
-  const isTauriDesktop = isTauri() && isDesktop();
   const onlineRuntimes = runtimes.filter((r) => r.status === "online");
   const hasOnlineRuntime = onlineRuntimes.length > 0;
-  const computerConnected =
-    hasOnlineRuntime || (machineRegistered && daemonOnline) || isTauriDesktop;
+  const computerConnected = hasOnlineRuntime || (machineRegistered && daemonOnline);
 
   useEffect(() => {
     listRuntimes(workspaceId)
@@ -88,30 +85,12 @@ export function StudioOnboardingClient({
     try {
       const res = await createMachineToken("cli", workspaceId);
       setGeneratedToken(res.token);
-      if (isTauriDesktop) {
-        const result = await tauriInvoke<{ success: boolean; message: string }>("register_cli", { token: res.token });
-        if (result.success) {
-          setMachineRegistered(true);
-          setDaemonOnline(true);
-          const rts = await listRuntimes(workspaceId).catch(() => [] as Runtime[]);
-          setRuntimes(rts);
-        } else {
-          toast.error(result.message || "Auto-registration failed");
-        }
-      }
     } catch {
       toast.error("Failed to generate token");
     } finally {
       setGeneratingToken(false);
     }
-  }, [workspaceId, isTauriDesktop]);
-
-  // In Tauri desktop mode, auto-register the CLI when no runtime is online
-  useEffect(() => {
-    if (!isTauriDesktop || loadingRuntimes || hasOnlineRuntime || machineRegistered) return;
-    handleGenerateToken();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isTauriDesktop, loadingRuntimes]);
+  }, [workspaceId]);
 
   useEffect(() => {
     const firstOnline = onlineRuntimes[0]?.id;
@@ -427,31 +406,28 @@ export function StudioOnboardingClient({
               onAssignRuntime={handleAssignRuntime}
             />
 
-            {/* Connect Machine — hidden in Tauri desktop (the app IS the computer) */}
-            {!isTauriDesktop && (
-              <div className="space-y-3">
-                {computerConnected ? (
-                  <p className="text-xs text-emerald-600 flex items-center gap-1">
-                    <CheckCircle2 className="size-3" /> Computer connected
+            <div className="space-y-3">
+              {computerConnected ? (
+                <p className="text-xs text-emerald-600 flex items-center gap-1">
+                  <CheckCircle2 className="size-3" /> Computer connected
+                </p>
+              ) : (
+                <>
+                  <p className="text-xs text-muted-foreground">
+                    Your company needs a connected computer to run tasks.
                   </p>
-                ) : (
-                  <>
-                    <p className="text-xs text-muted-foreground">
-                      Your company needs a connected computer to run tasks.
-                    </p>
-                    <div className="rounded-xl bg-muted/40 p-4">
-                      <ConnectMachineSteps
-                        generatedToken={generatedToken}
-                        generatingToken={generatingToken}
-                        onGenerateToken={handleGenerateToken}
-                        registered={machineRegistered}
-                        daemonOnline={daemonOnline}
-                      />
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
+                  <div className="rounded-xl bg-muted/40 p-4">
+                    <ConnectMachineSteps
+                      generatedToken={generatedToken}
+                      generatingToken={generatingToken}
+                      onGenerateToken={handleGenerateToken}
+                      registered={machineRegistered}
+                      daemonOnline={daemonOnline}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
 
             {/* Create */}
             <Button

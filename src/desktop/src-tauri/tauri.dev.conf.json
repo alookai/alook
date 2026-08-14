@@ -1,0 +1,21 @@
+{
+  "$schema": "./gen/schemas/desktop-schema.json",
+  "app": {
+    "security": {
+      "capabilities": [
+        "desktop-capability",
+        {
+          "identifier": "desktop-development",
+          "description": "Development custom-command access for the local webview",
+          "windows": ["main"],
+          "platforms": ["linux", "macOS", "windows"],
+          "local": false,
+          "remote": {
+            "urls": ["http://localhost:3000"]
+          },
+          "permissions": []
+        }
+      ]
+    }
+  }
+}

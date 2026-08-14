@@ -1,24 +1,51 @@
-use serde::Serialize;
-use tauri::{AppHandle, Manager};
-
 #[cfg(desktop)]
-use tauri_plugin_shell::ShellExt;
+use serde::Serialize;
+#[cfg(desktop)]
+use tauri::{AppHandle, Manager};
 
 #[cfg(desktop)]
 use tauri_plugin_notification::NotificationExt;
 
+#[cfg(desktop)]
 use std::path::PathBuf;
+
+#[cfg(desktop)]
+use std::{
+    io::Read,
+    process::{Command, Stdio},
+    time::{Duration, Instant},
+};
+
+#[cfg(desktop)]
+use command_group::CommandGroup;
 
 #[cfg(desktop)]
 use std::sync::atomic::{AtomicBool, Ordering};
 
+#[cfg(desktop)]
+const PATH_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(2);
+
+#[cfg(desktop)]
+const RUNTIME_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+
+#[cfg(desktop)]
+const DAEMON_PAIR_TIMEOUT: Duration = Duration::from_secs(60);
+
+#[cfg(desktop)]
+const UPDATE_CHECK_TIMEOUT: Duration = Duration::from_secs(15);
+
+#[cfg(desktop)]
+const UPDATE_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+
 #[derive(Serialize)]
+#[cfg(desktop)]
 pub struct CommandResult {
     pub success: bool,
     pub message: String,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[cfg(desktop)]
 #[serde(rename_all = "camelCase")]
 pub struct DaemonRuntimeCapability {
     pub available: bool,
@@ -27,6 +54,7 @@ pub struct DaemonRuntimeCapability {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg(desktop)]
 struct DaemonConfig {
     command: &'static str,
     base_args: &'static [&'static str],
@@ -34,31 +62,11 @@ struct DaemonConfig {
 }
 
 #[cfg(desktop)]
-fn resolve_path() -> String {
-    use std::sync::OnceLock;
-    static CACHED: OnceLock<String> = OnceLock::new();
-    CACHED
-        .get_or_init(|| {
-            let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-            if let Ok(output) = std::process::Command::new(&shell)
-                .args(["-ilc", "echo $PATH"])
-                .output()
-            {
-                let shell_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !shell_path.is_empty() {
-                    return shell_path;
-                }
-            }
-            std::env::var("PATH").unwrap_or_default()
-        })
-        .clone()
-}
-
-#[cfg(desktop)]
 fn daemon_config() -> DaemonConfig {
     daemon_config_for(cfg!(debug_assertions))
 }
 
+#[cfg(desktop)]
 fn daemon_config_for(is_debug: bool) -> DaemonConfig {
     if is_debug {
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -81,6 +89,21 @@ fn daemon_config_for(is_debug: bool) -> DaemonConfig {
     }
 }
 
+#[cfg(desktop)]
+fn executable_for_platform(command: &str, is_windows: bool) -> String {
+    if is_windows && matches!(command, "npm" | "npx" | "pnpm") {
+        format!("{command}.cmd")
+    } else {
+        command.to_string()
+    }
+}
+
+#[cfg(desktop)]
+fn executable(command: &str) -> String {
+    executable_for_platform(command, cfg!(windows))
+}
+
+#[cfg(desktop)]
 fn daemon_endpoints_for(is_debug: bool) -> (&'static str, &'static str) {
     if is_debug {
         ("http://localhost:3000", "ws://localhost:8789")
@@ -90,6 +113,7 @@ fn daemon_endpoints_for(is_debug: bool) -> (&'static str, &'static str) {
 }
 
 #[cfg(desktop)]
+#[derive(Debug)]
 struct DaemonOutput {
     success: bool,
     stdout: String,
@@ -97,25 +121,128 @@ struct DaemonOutput {
 }
 
 #[cfg(desktop)]
-async fn run_daemon(app: &AppHandle, extra_args: &[String]) -> Result<DaemonOutput, String> {
+fn read_process_pipe<R: Read + Send + 'static>(mut pipe: R) -> std::thread::JoinHandle<Vec<u8>> {
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = pipe.read_to_end(&mut bytes);
+        bytes
+    })
+}
+
+#[cfg(desktop)]
+fn run_process_with_timeout(
+    mut command: Command,
+    timeout: Duration,
+    timeout_message: String,
+) -> Result<DaemonOutput, String> {
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = command.group_spawn().map_err(|error| error.to_string())?;
+    let stdout = child
+        .inner()
+        .stdout
+        .take()
+        .map(read_process_pipe)
+        .ok_or("failed to capture process stdout")?;
+    let stderr = child
+        .inner()
+        .stderr
+        .take()
+        .map(read_process_pipe)
+        .ok_or("failed to capture process stderr")?;
+    let deadline = Instant::now() + timeout;
+
+    let mut status = None;
+    loop {
+        if status.is_none() {
+            status = child.try_wait().map_err(|error| error.to_string())?;
+        }
+        if status.is_some() && stdout.is_finished() && stderr.is_finished() {
+            break;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = stdout.join();
+            let _ = stderr.join();
+            return Err(timeout_message);
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    let stdout = stdout.join().map_err(|_| "stdout reader failed")?;
+    let stderr = stderr.join().map_err(|_| "stderr reader failed")?;
+    Ok(DaemonOutput {
+        success: status.is_some_and(|status| status.success()),
+        stdout: String::from_utf8_lossy(&stdout).trim().to_string(),
+        stderr: String::from_utf8_lossy(&stderr).trim().to_string(),
+    })
+}
+
+#[cfg(desktop)]
+async fn run_process(
+    command: Command,
+    timeout: Duration,
+    timeout_message: String,
+) -> Result<DaemonOutput, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        run_process_with_timeout(command, timeout, timeout_message)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[cfg(desktop)]
+fn parse_shell_path(stdout: &str) -> Option<String> {
+    let value = stdout.trim();
+    if value.is_empty() || value.lines().count() != 1 {
+        return None;
+    }
+    let paths: Vec<PathBuf> = std::env::split_paths(value).collect();
+    if paths.is_empty() || paths.iter().any(|path| !path.is_absolute()) {
+        return None;
+    }
+    Some(value.to_string())
+}
+
+#[cfg(desktop)]
+async fn resolve_path() -> String {
+    let fallback = std::env::var("PATH").unwrap_or_default();
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+    let mut command = Command::new(shell);
+    command.args(["-ilc", "printf '%s\\n' \"$PATH\""]);
+    match run_process(
+        command,
+        PATH_DISCOVERY_TIMEOUT,
+        "login shell PATH lookup timed out".to_string(),
+    )
+    .await
+    {
+        Ok(output) if output.success => parse_shell_path(&output.stdout).unwrap_or(fallback),
+        _ => fallback,
+    }
+}
+
+#[cfg(desktop)]
+async fn run_daemon(extra_args: &[String]) -> Result<DaemonOutput, String> {
     let cfg = daemon_config();
     let mut args: Vec<String> = cfg.base_args.iter().map(|arg| (*arg).to_string()).collect();
     args.extend_from_slice(extra_args);
 
-    let mut cmd = app.shell().command(cfg.command);
-    cmd = cmd.env("PATH", resolve_path());
+    let mut command = Command::new(executable(cfg.command));
+    command.env("PATH", resolve_path().await);
     if let Some(cwd) = &cfg.cwd {
-        cmd = cmd.current_dir(cwd.clone());
+        command.current_dir(cwd);
     }
-    let output = cmd.args(&args).output().await.map_err(|e| e.to_string())?;
-
-    Ok(DaemonOutput {
-        success: output.status.success(),
-        stdout: String::from_utf8_lossy(&output.stdout).trim().to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
-    })
+    command.args(&args);
+    run_process(
+        command,
+        DAEMON_PAIR_TIMEOUT,
+        "The daemon didn't start within 60 seconds. Check your network and try again.".to_string(),
+    )
+    .await
 }
 
+#[cfg(desktop)]
 fn valid_machine_key(machine_key: &str) -> bool {
     let value = machine_key
         .strip_prefix("cmt_")
@@ -129,6 +256,7 @@ fn valid_machine_key(machine_key: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
 }
 
+#[cfg(desktop)]
 fn daemon_pair_args(machine_key: &str, is_debug: bool) -> Result<Vec<String>, String> {
     if !valid_machine_key(machine_key) {
         return Err("invalid Community machine key".to_string());
@@ -146,6 +274,7 @@ fn daemon_pair_args(machine_key: &str, is_debug: bool) -> Result<Vec<String>, St
     ])
 }
 
+#[cfg(desktop)]
 fn evaluate_runtime_capability(
     node: Result<String, String>,
     npm: Result<String, String>,
@@ -179,6 +308,7 @@ fn evaluate_runtime_capability(
     }
 }
 
+#[cfg(desktop)]
 fn daemon_failure_message(stdout: &str, stderr: &str) -> String {
     let detail = if !stderr.trim().is_empty() {
         stderr.trim()
@@ -191,19 +321,26 @@ fn daemon_failure_message(stdout: &str, stderr: &str) -> String {
 }
 
 #[cfg(desktop)]
-async fn probe_runtime_command(app: &AppHandle, command: &str) -> Result<String, String> {
-    let output = app
-        .shell()
-        .command(command)
-        .env("PATH", resolve_path())
-        .arg("--version")
-        .output()
-        .await
-        .map_err(|_| format!("{command} was not found"))?;
-    if !output.status.success() {
+async fn probe_runtime_command(command: &'static str, path: String) -> Result<String, String> {
+    let mut process = Command::new(executable(command));
+    process.env("PATH", path).arg("--version");
+    let output = run_process(
+        process,
+        RUNTIME_PROBE_TIMEOUT,
+        format!("{command} did not respond within 5 seconds"),
+    )
+    .await
+    .map_err(|error| {
+        if error.contains("did not respond") {
+            error
+        } else {
+            format!("{command} was not found")
+        }
+    })?;
+    if !output.success {
         return Err(format!("{command} could not run"));
     }
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    Ok(output.stdout)
 }
 
 // --- Splashscreen ---
@@ -216,6 +353,19 @@ static SPLASH_FRONTEND_READY: AtomicBool = AtomicBool::new(false);
 
 #[cfg(desktop)]
 static SPLASH_MIN_ELAPSED: AtomicBool = AtomicBool::new(false);
+
+#[cfg(desktop)]
+static SPLASH_MAX_WAIT_ELAPSED: AtomicBool = AtomicBool::new(false);
+
+#[cfg(desktop)]
+pub fn should_hide_on_close(window_label: &str) -> bool {
+    window_label == "main"
+}
+
+#[cfg(desktop)]
+fn should_close_splash(frontend_ready: bool, min_elapsed: bool, max_wait_elapsed: bool) -> bool {
+    max_wait_elapsed || (frontend_ready && min_elapsed)
+}
 
 #[cfg(desktop)]
 pub fn splash_html() -> String {
@@ -269,49 +419,24 @@ fn do_close_splashscreen(handle: &AppHandle) {
     if SPLASH_CLOSED.swap(true, Ordering::SeqCst) {
         return;
     }
-    if let Some(main) = handle.get_webview_window("main") {
-        let _ = main.show();
-        let _ = main.set_focus();
-    }
-    let h = handle.clone();
-    std::thread::spawn(move || {
-        fade_out_and_close_splash(&h);
-    });
-}
-
-#[cfg(desktop)]
-fn fade_out_and_close_splash(handle: &AppHandle) {
-    let Some(splash) = handle.get_webview_window("splash") else {
-        return;
-    };
-
-    #[cfg(target_os = "macos")]
-    {
-        use objc2::msg_send;
-        use objc2::runtime::AnyObject;
-        unsafe {
-            let ns_window = splash.ns_window().unwrap() as *mut AnyObject;
-            for i in (0..=5).rev() {
-                let alpha = i as f64 / 5.0;
-                let _: () = msg_send![ns_window, setAlphaValue: alpha];
-                std::thread::sleep(std::time::Duration::from_millis(40));
-            }
+    let app = handle.clone();
+    let _ = handle.run_on_main_thread(move || {
+        if let Some(main) = app.get_webview_window("main") {
+            let _ = main.show();
+            let _ = main.set_focus();
         }
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        std::thread::sleep(std::time::Duration::from_millis(200));
-    }
-
-    let _ = splash.close();
+        if let Some(splash) = app.get_webview_window("splash") {
+            let _ = splash.close();
+        }
+    });
 }
 
 #[cfg(desktop)]
 fn try_close_splashscreen(handle: &AppHandle) {
     let frontend = SPLASH_FRONTEND_READY.load(Ordering::SeqCst);
     let min = SPLASH_MIN_ELAPSED.load(Ordering::SeqCst);
-    if frontend && min {
+    let max = SPLASH_MAX_WAIT_ELAPSED.load(Ordering::SeqCst);
+    if should_close_splash(frontend, min, max) {
         do_close_splashscreen(handle);
     }
 }
@@ -319,6 +444,12 @@ fn try_close_splashscreen(handle: &AppHandle) {
 #[cfg(desktop)]
 pub fn mark_splash_min_elapsed(handle: &AppHandle) {
     SPLASH_MIN_ELAPSED.store(true, Ordering::SeqCst);
+    try_close_splashscreen(handle);
+}
+
+#[cfg(desktop)]
+pub fn mark_splash_max_wait_elapsed(handle: &AppHandle) {
+    SPLASH_MAX_WAIT_ELAPSED.store(true, Ordering::SeqCst);
     try_close_splashscreen(handle);
 }
 
@@ -333,18 +464,21 @@ pub fn close_splashscreen(app: AppHandle) {
 
 #[cfg(desktop)]
 #[tauri::command]
-pub async fn daemon_runtime_capability(app: AppHandle) -> DaemonRuntimeCapability {
-    let node = probe_runtime_command(&app, "node").await;
-    let npm = probe_runtime_command(&app, "npm").await;
-    let npx = probe_runtime_command(&app, "npx").await;
+pub async fn daemon_runtime_capability() -> DaemonRuntimeCapability {
+    let path = resolve_path().await;
+    let (node, npm, npx) = tokio::join!(
+        probe_runtime_command("node", path.clone()),
+        probe_runtime_command("npm", path.clone()),
+        probe_runtime_command("npx", path),
+    );
     evaluate_runtime_capability(node, npm, npx)
 }
 
 #[cfg(desktop)]
 #[tauri::command]
-pub async fn daemon_pair(app: AppHandle, machine_key: String) -> Result<CommandResult, String> {
+pub async fn daemon_pair(machine_key: String) -> Result<CommandResult, String> {
     let args = daemon_pair_args(&machine_key, cfg!(debug_assertions))?;
-    let output = run_daemon(&app, &args).await?;
+    let output = run_daemon(&args).await?;
     if output.success {
         Ok(CommandResult {
             success: true,
@@ -361,76 +495,11 @@ pub async fn daemon_pair(app: AppHandle, machine_key: String) -> Result<CommandR
 // --- App updater ---
 
 #[derive(Serialize, Clone)]
-pub struct UpdateInfo {
-    pub available: bool,
-    pub version: Option<String>,
-    pub notes: Option<String>,
-}
-
-#[derive(Serialize, Clone)]
+#[cfg(desktop)]
 struct UpdateProgress {
     percent: f64,
     downloaded: u64,
     total: Option<u64>,
-}
-
-#[cfg(desktop)]
-#[tauri::command]
-pub async fn check_for_updates(app: AppHandle) -> Result<UpdateInfo, String> {
-    use tauri_plugin_updater::UpdaterExt;
-    let updater = app.updater().map_err(|e| e.to_string())?;
-    match updater.check().await {
-        Ok(Some(update)) => Ok(UpdateInfo {
-            available: true,
-            version: Some(update.version.clone()),
-            notes: update.body.clone(),
-        }),
-        Ok(None) => Ok(UpdateInfo {
-            available: false,
-            version: None,
-            notes: None,
-        }),
-        Err(e) => Err(e.to_string()),
-    }
-}
-
-#[cfg(desktop)]
-#[tauri::command]
-pub async fn install_update(app: AppHandle) -> Result<(), String> {
-    use tauri::Emitter;
-    use tauri_plugin_updater::UpdaterExt;
-
-    let updater = app.updater().map_err(|e| e.to_string())?;
-    let update = updater
-        .check()
-        .await
-        .map_err(|e| e.to_string())?
-        .ok_or("No update available".to_string())?;
-
-    let handle = app.clone();
-    let mut cumulative: u64 = 0;
-    update
-        .download_and_install(
-            move |chunk_size, total| {
-                cumulative += chunk_size as u64;
-                let percent = total
-                    .map(|t| (cumulative as f64 / t as f64) * 100.0)
-                    .unwrap_or(0.0);
-                let _ = handle.emit(
-                    "update://progress",
-                    UpdateProgress {
-                        percent,
-                        downloaded: cumulative,
-                        total,
-                    },
-                );
-            },
-            || {},
-        )
-        .await
-        .map_err(|e| e.to_string())?;
-
-    app.restart();
 }
 
 #[cfg(desktop)]
@@ -442,8 +511,9 @@ pub fn set_window_theme(window: tauri::WebviewWindow, dark: bool) {
         use objc2::msg_send;
         use objc2::runtime::AnyObject;
 
-        unsafe {
-            let ns_window = window.ns_window().unwrap() as *mut AnyObject;
+        let target = window.clone();
+        let _ = window.run_on_main_thread(move || unsafe {
+            let ns_window = target.ns_window().unwrap() as *mut AnyObject;
             let (r, g, b) = if dark {
                 (0.063f64, 0.051f64, 0.039f64)
             } else {
@@ -457,7 +527,7 @@ pub fn set_window_theme(window: tauri::WebviewWindow, dark: bool) {
                 alpha: 1.0f64
             ];
             let _: () = msg_send![ns_window, setBackgroundColor: color];
-        }
+        });
     }
 }
 
@@ -466,6 +536,27 @@ static UPDATE_AVAILABLE_VERSION: std::sync::Mutex<Option<String>> = std::sync::M
 
 #[cfg(desktop)]
 static UPDATE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
+#[cfg(desktop)]
+struct UpdateInProgressGuard<'a> {
+    flag: &'a AtomicBool,
+}
+
+#[cfg(desktop)]
+impl<'a> UpdateInProgressGuard<'a> {
+    fn acquire(flag: &'a AtomicBool) -> Option<Self> {
+        flag.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .ok()
+            .map(|_| Self { flag })
+    }
+}
+
+#[cfg(desktop)]
+impl Drop for UpdateInProgressGuard<'_> {
+    fn drop(&mut self) {
+        self.flag.store(false, Ordering::SeqCst);
+    }
+}
 
 #[cfg(desktop)]
 pub fn show_main_window(app: &AppHandle) {
@@ -543,7 +634,7 @@ async fn do_install_update(handle: &AppHandle) {
     use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
     use tauri_plugin_updater::UpdaterExt;
 
-    if UPDATE_IN_PROGRESS.swap(true, Ordering::SeqCst) {
+    let Some(update_guard) = UpdateInProgressGuard::acquire(&UPDATE_IN_PROGRESS) else {
         handle
             .dialog()
             .message("An update is already in progress.")
@@ -551,12 +642,15 @@ async fn do_install_update(handle: &AppHandle) {
             .buttons(MessageDialogButtons::OkCustom("OK".into()))
             .show(|_| {});
         return;
-    }
+    };
 
-    let updater = match handle.updater() {
+    let updater = match handle
+        .updater_builder()
+        .timeout(UPDATE_CHECK_TIMEOUT)
+        .build()
+    {
         Ok(u) => u,
         Err(e) => {
-            UPDATE_IN_PROGRESS.store(false, Ordering::SeqCst);
             handle
                 .dialog()
                 .message(format!("Could not check for updates: {}", e))
@@ -568,7 +662,8 @@ async fn do_install_update(handle: &AppHandle) {
     };
 
     match updater.check().await {
-        Ok(Some(update)) => {
+        Ok(Some(mut update)) => {
+            update.timeout = Some(UPDATE_DOWNLOAD_TIMEOUT);
             let version = update.version.clone();
             let notes = update.body.clone().unwrap_or_default();
             let msg = if notes.is_empty() {
@@ -591,16 +686,14 @@ async fn do_install_update(handle: &AppHandle) {
                 ))
                 .show(move |confirmed| {
                     if !confirmed {
-                        UPDATE_IN_PROGRESS.store(false, Ordering::SeqCst);
                         return;
                     }
                     tauri::async_runtime::spawn(async move {
-                        install_checked_update(h, update).await;
+                        install_checked_update(h, update, update_guard).await;
                     });
                 });
         }
         Ok(None) => {
-            UPDATE_IN_PROGRESS.store(false, Ordering::SeqCst);
             handle
                 .dialog()
                 .message("You're on the latest version.")
@@ -609,7 +702,6 @@ async fn do_install_update(handle: &AppHandle) {
                 .show(|_| {});
         }
         Err(e) => {
-            UPDATE_IN_PROGRESS.store(false, Ordering::SeqCst);
             handle
                 .dialog()
                 .message(format!("Could not check for updates: {}", e))
@@ -621,7 +713,11 @@ async fn do_install_update(handle: &AppHandle) {
 }
 
 #[cfg(desktop)]
-async fn install_checked_update(handle: AppHandle, update: tauri_plugin_updater::Update) {
+async fn install_checked_update(
+    handle: AppHandle,
+    update: tauri_plugin_updater::Update,
+    update_guard: UpdateInProgressGuard<'static>,
+) {
     use tauri::Emitter;
     use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 
@@ -671,13 +767,11 @@ async fn install_checked_update(handle: AppHandle, update: tauri_plugin_updater:
                 .show(move |restart| {
                     if restart {
                         h.restart();
-                    } else {
-                        UPDATE_IN_PROGRESS.store(false, Ordering::SeqCst);
                     }
+                    drop(update_guard);
                 });
         }
         Err(error) => {
-            UPDATE_IN_PROGRESS.store(false, Ordering::SeqCst);
             handle
                 .dialog()
                 .message(format!("Download failed: {error}"))
@@ -699,7 +793,11 @@ pub fn auto_check_updates(handle: AppHandle) {
         loop {
             let h = handle.clone();
             let found = tauri::async_runtime::block_on(async {
-                let updater = h.updater().ok()?;
+                let updater = h
+                    .updater_builder()
+                    .timeout(UPDATE_CHECK_TIMEOUT)
+                    .build()
+                    .ok()?;
                 let update = updater.check().await.ok()??;
                 Some(update.version.clone())
             });
@@ -790,6 +888,15 @@ mod tests {
     }
 
     #[test]
+    fn windows_uses_command_shims_for_node_package_tools() {
+        assert_eq!(executable_for_platform("node", true), "node");
+        assert_eq!(executable_for_platform("npm", true), "npm.cmd");
+        assert_eq!(executable_for_platform("npx", true), "npx.cmd");
+        assert_eq!(executable_for_platform("pnpm", true), "pnpm.cmd");
+        assert_eq!(executable_for_platform("npx", false), "npx");
+    }
+
+    #[test]
     fn daemon_endpoints_are_fixed_at_the_native_boundary() {
         assert_eq!(
             daemon_endpoints_for(true),
@@ -852,6 +959,8 @@ mod tests {
             "commands::register_cli",
             "commands::cli_update",
             "commands::cli_check",
+            "commands::check_for_updates",
+            "commands::install_update",
             "auto_start_daemon",
             "prevent_exit",
         ] {
@@ -867,5 +976,143 @@ mod tests {
         let app_source = include_str!("lib.rs");
         assert!(app_source.contains("tauri::RunEvent::Reopen"));
         assert!(app_source.contains("commands::show_main_window(app)"));
+    }
+
+    #[test]
+    fn desktop_restores_the_main_window_for_a_second_instance() {
+        let app_source = include_str!("lib.rs");
+        let single_instance = app_source
+            .find("tauri_plugin_single_instance::init")
+            .unwrap();
+        let updater = app_source.find("tauri_plugin_updater::Builder").unwrap();
+        assert!(single_instance < updater);
+        assert!(app_source[single_instance..updater].contains("show_main_window(app)"));
+    }
+
+    #[test]
+    fn update_lock_releases_on_every_scope_exit() {
+        let flag = AtomicBool::new(false);
+        let guard = UpdateInProgressGuard::acquire(&flag).unwrap();
+        assert!(flag.load(Ordering::SeqCst));
+        assert!(UpdateInProgressGuard::acquire(&flag).is_none());
+        drop(guard);
+        assert!(!flag.load(Ordering::SeqCst));
+        assert!(UpdateInProgressGuard::acquire(&flag).is_some());
+    }
+
+    #[test]
+    fn updater_network_operations_have_explicit_deadlines() {
+        let source = include_str!("commands.rs");
+        assert_eq!(UPDATE_CHECK_TIMEOUT, Duration::from_secs(15));
+        assert_eq!(UPDATE_DOWNLOAD_TIMEOUT, Duration::from_secs(10 * 60));
+        assert!(source.matches(".timeout(UPDATE_CHECK_TIMEOUT)").count() >= 2);
+        assert!(source.contains("update.timeout = Some(UPDATE_DOWNLOAD_TIMEOUT)"));
+    }
+
+    #[test]
+    fn close_to_hide_applies_only_to_the_main_window() {
+        assert!(should_hide_on_close("main"));
+        assert!(!should_hide_on_close("splash"));
+        assert!(!should_hide_on_close("settings"));
+
+        let app_source = include_str!("lib.rs");
+        assert!(app_source.contains("should_hide_on_close(window.label())"));
+    }
+
+    #[test]
+    fn splash_closes_when_ready_or_when_the_native_deadline_expires() {
+        assert!(!should_close_splash(false, false, false));
+        assert!(!should_close_splash(true, false, false));
+        assert!(!should_close_splash(false, true, false));
+        assert!(should_close_splash(true, true, false));
+        assert!(should_close_splash(false, false, true));
+
+        let app_source = include_str!("lib.rs");
+        assert!(app_source.contains("Duration::from_secs(10)"));
+        assert!(app_source.contains("mark_splash_max_wait_elapsed"));
+    }
+
+    #[test]
+    fn login_shell_path_accepts_only_one_line_of_absolute_entries() {
+        let root = std::env::current_dir().unwrap();
+        let first = root.join("runtime-path-one");
+        let second = root.join("runtime-path-two");
+        let valid = std::env::join_paths([first, second])
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        assert_eq!(parse_shell_path(&valid).as_deref(), Some(valid.as_str()));
+        assert!(parse_shell_path("").is_none());
+        assert!(parse_shell_path("banner\n/usr/bin").is_none());
+        assert!(parse_shell_path("relative/bin").is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bounded_process_kills_a_stalled_process_group_holding_output_pipes() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "(sh -c 'sleep 5') &"]);
+        let started = Instant::now();
+        let error = run_process_with_timeout(
+            command,
+            Duration::from_millis(50),
+            "process timed out".to_string(),
+        )
+        .unwrap_err();
+
+        assert_eq!(error, "process timed out");
+        assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    #[test]
+    fn desktop_remote_capability_has_no_plugin_permissions_or_localhost() {
+        let capability = include_str!("../capabilities/desktop.json");
+        assert!(capability.contains("https://alook.ai"));
+        assert!(!capability.contains("localhost"));
+        for rejected in [
+            "shell:",
+            "autostart:",
+            "global-shortcut:",
+            "updater:",
+            "dialog:",
+            "notification:",
+            "deep-link:",
+        ] {
+            assert!(!capability.contains(rejected));
+        }
+
+        let app_source = include_str!("lib.rs");
+        let cargo_manifest = include_str!("../Cargo.toml");
+        for removed in ["autostart", "global_shortcut", "deep_link"] {
+            assert!(!app_source.contains(removed));
+            assert!(!cargo_manifest.contains(&removed.replace('_', "-")));
+        }
+    }
+
+    #[test]
+    fn cocoa_mutations_are_dispatched_to_the_main_thread() {
+        let command_source = include_str!("commands.rs");
+        let window_source = include_str!("macos_window.rs");
+        let removed_fade = ["fade", "out", "and", "close", "splash"].join("_");
+        assert!(!command_source.contains(&removed_fade));
+        assert!(command_source.contains("handle.run_on_main_thread"));
+        assert!(command_source.contains("window.run_on_main_thread"));
+        assert!(window_source.contains("window.run_on_main_thread"));
+    }
+
+    #[test]
+    fn mobile_placeholder_plugins_are_not_linked_or_registered() {
+        let app_source = include_str!("lib.rs");
+        let cargo_manifest = include_str!("../Cargo.toml");
+        for removed in ["tauri_plugin_biometric", "tauri_plugin_push"] {
+            assert!(!app_source.contains(removed));
+            assert!(!cargo_manifest.contains(&removed.replace('_', "-")));
+        }
+        let common_dependencies = cargo_manifest
+            .split("[target.\"cfg(not(any(target_os = \\\"android\\\", target_os = \\\"ios\\\")))\".dependencies]")
+            .next()
+            .unwrap();
+        assert!(!common_dependencies.contains("tauri-plugin-notification"));
+        assert!(app_source.contains(".plugin(tauri_plugin_notification::init())"));
     }
 }

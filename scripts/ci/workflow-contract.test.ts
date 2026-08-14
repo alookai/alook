@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 
@@ -9,6 +9,30 @@ function normalizeWorkflow(text: string): string {
 
 const workflow = normalizeWorkflow(readFileSync(resolve(workflowRoot, "e2e-ui.yml"), "utf8"))
 const ciWorkflow = normalizeWorkflow(readFileSync(resolve(workflowRoot, "ci.yml"), "utf8"))
+const desktopReleaseWorkflow = normalizeWorkflow(readFileSync(resolve(workflowRoot, "desktop-release.yml"), "utf8"))
+const desktopConfig = JSON.parse(
+  readFileSync(resolve(import.meta.dirname, "../../src/desktop/src-tauri/tauri.conf.json"), "utf8"),
+) as {
+  bundle?: { createUpdaterArtifacts?: boolean | string }
+  plugins?: { updater?: { endpoints?: string[] } }
+}
+const desktopMacConfig = JSON.parse(
+  readFileSync(resolve(import.meta.dirname, "../../src/desktop/src-tauri/tauri.macos.conf.json"), "utf8"),
+) as { bundle?: { macOS?: { entitlements?: string; signingIdentity?: string } } }
+const desktopEntitlementsPath = resolve(
+  import.meta.dirname,
+  "../../src/desktop/src-tauri/entitlements.plist",
+)
+const desktopBuildScript = readFileSync(
+  resolve(import.meta.dirname, "../../src/desktop/scripts/build.sh"),
+  "utf8",
+)
+const bumpScript = readFileSync(resolve(import.meta.dirname, "../bump-version.mjs"), "utf8")
+const mobileReleaseWorkflow = resolve(workflowRoot, "mobile-release.yml")
+const desktopUpdateRoute = readFileSync(
+  resolve(import.meta.dirname, "../../src/web/src/app/api/desktop/update/[target]/[arch]/[current_version]/route.ts"),
+  "utf8",
+)
 const publishWorkflows = ["publish-app.yml", "publish-cli.yml", "publish-daemon.yml"]
   .map((name) => normalizeWorkflow(readFileSync(resolve(workflowRoot, name), "utf8")))
 
@@ -51,5 +75,50 @@ describe("Bun workflow setup", () => {
       expect(publishWorkflow).toContain("oven-sh/setup-bun")
       expect(publishWorkflow).toContain("bun-version: 1.3.11")
     }
+  })
+})
+
+describe("Desktop updater release", () => {
+  it("builds signed updater artifacts and publishes updater metadata", () => {
+    expect(desktopConfig.bundle?.createUpdaterArtifacts).toBe(true)
+    expect(desktopConfig.plugins?.updater?.endpoints).toEqual([
+      "https://alook.ai/api/desktop/update/{{target}}/{{arch}}/{{current_version}}?bundle_type={{bundle_type}}",
+    ])
+    expect(desktopReleaseWorkflow).toContain("uploadUpdaterJson: true")
+    expect(desktopReleaseWorkflow).not.toContain("includeUpdaterJson")
+    expect(desktopReleaseWorkflow).toContain("TAURI_SIGNING_PRIVATE_KEY:")
+    expect(desktopUpdateRoute).toContain('"darwin-aarch64-app"')
+    expect(desktopUpdateRoute).toContain('"linux-x86_64-appimage"')
+    expect(desktopUpdateRoute).toContain('"linux-x86_64-deb"')
+    expect(desktopUpdateRoute).toContain('"linux-x86_64-rpm"')
+    expect(desktopUpdateRoute).toContain('"windows-x86_64-msi"')
+    expect(desktopUpdateRoute).toContain('"windows-x86_64-nsis"')
+  })
+
+  it("restores the checked-in updater configuration after unsigned local builds", () => {
+    expect(desktopBuildScript).toContain("trap restore_config EXIT")
+    expect(desktopBuildScript).toContain("createUpdaterArtifacts\": true")
+    expect(desktopBuildScript).toContain("createUpdaterArtifacts\": false")
+    expect(desktopBuildScript).toContain('mv "$CONF.bak" "$CONF"')
+  })
+
+  it("ad-hoc signs unnotarized macOS builds and discloses manual approval", () => {
+    expect(desktopMacConfig.bundle?.macOS?.signingIdentity).toBe("-")
+    expect(desktopMacConfig.bundle?.macOS?.entitlements).toBeUndefined()
+    expect(existsSync(desktopEntitlementsPath)).toBe(false)
+    expect(desktopReleaseWorkflow).toContain("ad-hoc signed and are not notarized")
+    expect(desktopReleaseWorkflow).toContain("Privacy & Security")
+    expect(desktopReleaseWorkflow).toContain("not Authenticode code-signed")
+    expect(desktopReleaseWorkflow).toContain("More info")
+    expect(desktopReleaseWorkflow).toContain("Run anyway")
+    expect(desktopReleaseWorkflow).not.toContain("APPLE_CERTIFICATE:")
+  })
+})
+
+describe("Mobile release availability", () => {
+  it("fails closed until store signing accounts and a current workflow exist", () => {
+    expect(existsSync(mobileReleaseWorkflow)).toBe(false)
+    expect(bumpScript).not.toContain("deploy-version-mobile")
+    expect(bumpScript).toContain("Mobile releases are not configured")
   })
 })
