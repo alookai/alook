@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs"
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import React, { type ComponentProps, type ComponentRef } from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest"
@@ -28,7 +30,8 @@ type ExpectedBotListProps = {
   onBack?: () => void
 }
 
-const source = (path: string) => readFileSync(path, "utf8")
+const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..")
+const source = (path: string) => readFileSync(resolve(webRoot, path), "utf8")
 
 describe("BotList facade contract", () => {
   beforeEach(() => vi.clearAllMocks())

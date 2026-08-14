@@ -1,9 +1,14 @@
 import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CommunityOnboardingState } from "@/lib/community-onboarding";
 import type { CommunityOnboardingGuideController } from "./community-onboarding-guide-types";
+
+const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
+const readWebSource = (path: string) => readFileSync(resolve(webRoot, path), "utf8");
 
 const mocks = vi.hoisted(() => ({
   hookOrder: [] as string[],
@@ -195,9 +200,8 @@ describe("useCommunityOnboardingGuideController", () => {
       "bots",
       "onboarding",
     ]);
-    const source = readFileSync(
+    const source = readWebSource(
       "src/components/community/onboarding/community-onboarding-guide-controller.ts",
-      "utf8",
     );
     const owners = [
       "const router = useRouter();",
@@ -235,11 +239,10 @@ describe("useCommunityOnboardingGuideController", () => {
       "src/components/community/onboarding/community-onboarding-guide-copy.ts",
       "src/components/community/onboarding/community-onboarding-guide-target.ts",
     ]) {
-      expect(readFileSync(path, "utf8")).not.toMatch(/\buse[A-Z]\w*\(/);
+      expect(readWebSource(path)).not.toMatch(/\buse[A-Z]\w*\(/);
     }
-    const view = readFileSync(
+    const view = readWebSource(
       "src/components/community/onboarding/community-onboarding-guide-view.tsx",
-      "utf8",
     );
     expect(view.match(/useEffect\(/g)).toHaveLength(1);
     expect(view.indexOf("function GuideCard")).toBeLessThan(view.indexOf("useEffect("));
@@ -460,9 +463,8 @@ describe("useCommunityOnboardingGuideController", () => {
     expect(latest.targetAvatarContainer).toBe(avatar);
     expect(instance.destroy).not.toHaveBeenCalled();
 
-    const source = readFileSync(
+    const source = readWebSource(
       "src/components/community/onboarding/community-onboarding-guide-controller.ts",
-      "utf8",
     );
     const lifecycleOrder = [
       "instance = driver({",
@@ -638,9 +640,8 @@ describe("useCommunityOnboardingGuideController", () => {
     expect(bodyRemove).toHaveBeenCalledWith("community-onboarding-active");
     expect(latest.popoverContainer).toBeNull();
 
-    const source = readFileSync(
+    const source = readWebSource(
       "src/components/community/onboarding/community-onboarding-guide-controller.ts",
-      "utf8",
     );
     const destroyBlock = source.slice(
       source.indexOf("const destroyGuide = useCallback"),

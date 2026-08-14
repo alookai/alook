@@ -1,9 +1,14 @@
 import React from "react"
 import { readFileSync } from "node:fs"
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import TestRenderer, { act } from "react-test-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { BotSummary } from "@/hooks/community/use-bots"
 import type { BotListController } from "./bot-list-types"
+
+const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..")
+const readWebSource = (path: string) => readFileSync(resolve(webRoot, path), "utf8")
 
 const mocks = vi.hoisted(() => ({
   hookOrder: [] as string[],
@@ -167,7 +172,7 @@ describe("useBotListController", () => {
     ])
     expect(mocks.hookOrder[9]).toBe("onboarding")
 
-    const source = readFileSync("src/components/community/bots/bot-list-controller.ts", "utf8")
+    const source = readWebSource("src/components/community/bots/bot-list-controller.ts")
     expect(source.match(/useState(?:<[^\n]+>)?\(/g)).toHaveLength(13)
     expect(source).not.toMatch(/useCallback\(/)
     expect(source.match(/useMemo\(/g)).toHaveLength(1)
@@ -210,7 +215,7 @@ describe("useBotListController", () => {
       "src/components/community/bots/bot-list-machine-group.tsx",
       "src/components/community/bots/bot-list-overlays.tsx",
     ]) {
-      expect(readFileSync(path, "utf8")).not.toMatch(/\buse[A-Z]\w*\(/)
+      expect(readWebSource(path)).not.toMatch(/\buse[A-Z]\w*\(/)
     }
   })
 

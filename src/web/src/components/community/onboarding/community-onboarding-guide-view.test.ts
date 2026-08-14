@@ -1,8 +1,13 @@
 import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CommunityOnboardingGuideController } from "./community-onboarding-guide-types";
+
+const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
+const readWebSource = (path: string) => readFileSync(resolve(webRoot, path), "utf8");
 
 vi.mock("react-dom", async () => {
   const ReactModule = await import("react");
@@ -73,9 +78,8 @@ describe("renderCommunityOnboardingGuide", () => {
       className: "rounded-full ring-2 ring-background shadow-md",
     });
 
-    const source = readFileSync(
+    const source = readWebSource(
       "src/components/community/onboarding/community-onboarding-guide-view.tsx",
-      "utf8",
     );
     expect(source.indexOf("? createPortal(")).toBeLessThan(
       source.lastIndexOf("? createPortal("),

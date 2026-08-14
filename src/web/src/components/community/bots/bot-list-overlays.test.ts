@@ -1,8 +1,13 @@
 import React from "react"
 import { readFileSync } from "node:fs"
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import TestRenderer, { act } from "react-test-renderer"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { BotListController } from "./bot-list-types"
+
+const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..")
+const readWebSource = (path: string) => readFileSync(resolve(webRoot, path), "utf8")
 
 function host(name: string) {
   const Host = ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) =>
@@ -99,7 +104,7 @@ describe("renderBotListOverlaySlots", () => {
       "Host(alert)",
       "Host(alert)",
     ])
-    const source = readFileSync("src/components/community/bots/bot-list-overlays.tsx", "utf8")
+    const source = readWebSource("src/components/community/bots/bot-list-overlays.tsx")
     expect(source).not.toMatch(/<>|<React\.Fragment|return\s*\[/)
   })
 

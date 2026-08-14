@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -16,6 +18,9 @@ vi.mock("./community-onboarding-guide-view", () => ({
 }));
 
 import * as facade from "./community-onboarding-guide";
+
+const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
+const readWebSource = (path: string) => readFileSync(resolve(webRoot, path), "utf8");
 
 describe("CommunityOnboardingGuide facade", () => {
   beforeEach(() => {
@@ -50,15 +55,14 @@ describe("CommunityOnboardingGuide facade", () => {
   });
 
   it("keeps the sole production importer on the original path and the facade boundary plain", () => {
-    const importer = readFileSync("src/app/c/community-shell.tsx", "utf8");
+    const importer = readWebSource("src/app/c/community-shell.tsx");
     expect(importer).toContain(
       'import { CommunityOnboardingGuide } from "@/components/community/onboarding/community-onboarding-guide"',
     );
     expect(importer.match(/<CommunityOnboardingGuide\s*\/>/g)).toHaveLength(1);
 
-    const source = readFileSync(
+    const source = readWebSource(
       "src/components/community/onboarding/community-onboarding-guide.tsx",
-      "utf8",
     );
     expect(source).toContain("const controller = useCommunityOnboardingGuideController();");
     expect(source).toContain("return renderCommunityOnboardingGuide(controller);");

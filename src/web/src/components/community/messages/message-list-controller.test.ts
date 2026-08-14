@@ -1,9 +1,14 @@
 import React from "react"
 import { readFileSync } from "node:fs"
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import TestRenderer, { act } from "react-test-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { useMessageListController, type MessageListController } from "./message-list-controller"
 import type { ResolvedMessageListProps } from "./message-list-types"
+
+const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..")
+const readWebSource = (path: string) => readFileSync(resolve(webRoot, path), "utf8")
 
 const mocks = vi.hoisted(() => ({
   hookOrder: [] as string[],
@@ -389,9 +394,8 @@ describe("useMessageListController", () => {
   })
 
   it("closes the share dialog before exiting selection mode", () => {
-    const source = readFileSync(
+    const source = readWebSource(
       "src/components/community/messages/message-list-controller.ts",
-      "utf8",
     )
     const closeShare = source.slice(
       source.indexOf("const closeShare = useCallback"),

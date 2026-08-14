@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs"
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import type { ComponentProps, ComponentRef, ReactNode } from "react"
 import { describe, expect, expectTypeOf, it } from "vitest"
 import * as facade from "./message-list"
@@ -46,7 +48,8 @@ type ExpectedMessageListProps = {
   unreadCount?: number
 }
 
-const source = (path: string) => readFileSync(path, "utf8")
+const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..")
+const source = (path: string) => readFileSync(resolve(webRoot, path), "utf8")
 
 describe("MessageList facade contract", () => {
   it("keeps the exact one-value public surface and applies defaults in the facade", () => {

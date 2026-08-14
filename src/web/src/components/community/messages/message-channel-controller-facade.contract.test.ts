@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs"
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import type { ComponentProps, ComponentRef, ReactNode } from "react"
 import type { MentionType } from "@alook/shared"
 import { describe, expect, expectTypeOf, it } from "vitest"
@@ -80,7 +82,8 @@ type ExpectedControllerProps = {
   children: (controller: ExpectedControllerValue) => ReactNode
 }
 
-const source = (path: string) => readFileSync(path, "utf8")
+const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..")
+const source = (path: string) => readFileSync(resolve(webRoot, path), "utf8")
 
 describe("MessageChannelController facade contract", () => {
   it("keeps the exact runtime export and a direct non-component render call", () => {
