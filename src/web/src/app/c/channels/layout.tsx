@@ -73,6 +73,9 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const router = useRouter()
   const bp = useBreakpoint()
   const queryClient = useQueryClient()
+  const cancelPendingNavigation = useCallback(() => {
+    useCommunityStore.getState().uiHandlers.cancelPendingNavigation?.()
+  }, [])
   const currentUser = useCurrentUser()
   const { server: currentServer } = useServer(serverId)
   const membersHook = useServerMembers(serverId)
@@ -176,9 +179,12 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       consumeVoluntaryLeave,
       clearLastChannel,
       toast,
-      replace: (destination) => router.replace(destination),
+      replace: (destination) => {
+        cancelPendingNavigation()
+        router.replace(destination)
+      },
     })
-  }, [serverId, serversList.isSuccess, serversList.isFetching, serversList.servers, router])
+  }, [cancelPendingNavigation, serverId, serversList.isSuccess, serversList.isFetching, serversList.servers, router])
   // Reset the guard when the URL changes to a NEW server id — otherwise
   // navigating server → dangling-server → server would leave the ref
   // latched and skip the eject.
@@ -250,10 +256,11 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       !hasChannel && !!currentServer && currentServer.categories.some((c) => c.channels.length > 0)
     if (stillRedirecting) return
 
+    cancelPendingNavigation()
     router.replace(
       hasChannel ? `/c/channels/${serverId}/${params.channelId}` : `/c/channels/${serverId}`,
     )
-  }, [searchParams, serverId, router, hasChannel, currentServer, params.channelId])
+  }, [cancelPendingNavigation, searchParams, serverId, router, hasChannel, currentServer, params.channelId])
 
   const categories = useMemo(() => (currentServer?.categories ?? []).map((category) => ({
     ...category,
@@ -267,8 +274,9 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
 
   const goHome = useCallback(() => {
     setMobileZone("nav")
+    cancelPendingNavigation()
     router.push(pickMeLandingLocation(getLastMeLeaf()))
-  }, [router])
+  }, [cancelPendingNavigation, router])
   const goServer = useCallback(() => { setMobileZone("nav") }, [])
 
   const setActiveChannel = useCallback((id: string) => {
@@ -301,6 +309,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     // before the user even navigates away — `useChannelTree`'s metadata merge
     // trusts the cache unconditionally, so both directions must write to it.
     markSwitch("channel", id)
+    cancelPendingNavigation()
     router.push(`/c/channels/${serverId}/${id}`)
     channelTree.markRead(id)
     const hasChildFallback = setForumSidebarParentUnreadBase(
@@ -316,15 +325,16 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       )
     }
     if (bp === "mobile") setMobileZone("messages")
-  }, [router, serverId, channelTree, bp, queryClient])
+  }, [bp, cancelPendingNavigation, channelTree, queryClient, router, serverId])
 
   const setActiveForumThread = useCallback((id: string) => {
     markSwitch("channel", id)
+    cancelPendingNavigation()
     router.push(`/c/channels/${serverId}/${id}`)
     removeForumSidebarUnreadChild(queryClient, serverId, id)
     patchForumSidebarUnreadExact(queryClient, serverId, id, false)
     if (bp === "mobile") setMobileZone("messages")
-  }, [bp, queryClient, router, serverId])
+  }, [bp, cancelPendingNavigation, queryClient, router, serverId])
 
   const prefetchChannel = useCallback(
     (id: string) => router.prefetch(`/c/channels/${serverId}/${id}`),
@@ -495,6 +505,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
               onSuccess: () => {
                 toast("Server deleted")
                 useCommunityStore.getState().setCurrentServerId(null)
+                cancelPendingNavigation()
                 router.push("/c/me")
               },
               onError: (e) => toastApiError(e, "Failed to delete server"),

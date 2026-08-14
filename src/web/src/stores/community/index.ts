@@ -83,6 +83,7 @@ type CommunityUiHandlers = {
   // clicking still scrolls to the message — the behavior the bare-`#N` pill had
   // before message-ref-upgrade.md removed it.
   jumpToSeq?: (seq: number) => void
+  cancelPendingNavigation?: () => void
   // Navigate to a server (channelId omitted) or a channel. Registered by the
   // shell (shell-frame) where the router is the live App-Router instance.
   // Channel/server-ref pills call this INSTEAD of a subtree `useRouter()`:
@@ -283,6 +284,7 @@ const stableUiHandlers: CommunityUiHandlers = {
     useCommunityStore.getState().uiHandlers.openProfile?.(name, e, discriminator, userId),
   goBackMobile: () => useCommunityStore.getState().uiHandlers.goBackMobile?.(),
   jumpToSeq: (seq) => useCommunityStore.getState().uiHandlers.jumpToSeq?.(seq),
+  cancelPendingNavigation: () => useCommunityStore.getState().uiHandlers.cancelPendingNavigation?.(),
   navigate: (serverId, channelId) => useCommunityStore.getState().uiHandlers.navigate?.(serverId, channelId),
   openMessageContext: (target) => useCommunityStore.getState().uiHandlers.openMessageContext?.(target),
 }

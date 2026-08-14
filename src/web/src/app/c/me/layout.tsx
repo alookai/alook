@@ -43,6 +43,9 @@ export default function MeLayout({ children }: { children: ReactNode }) {
   const { blocked } = useFriends()
   const currentChannelId = useCurrentChannelId()
   const queryClient = useQueryClient()
+  const cancelPendingNavigation = useCallback(() => {
+    useCommunityStore.getState().uiHandlers.cancelPendingNavigation?.()
+  }, [])
 
   // Clear the active server when entering the DM home. `currentServerId ===
   // null` is the canonical "no server focused" state — no need for a "@me"
@@ -82,8 +85,9 @@ export default function MeLayout({ children }: { children: ReactNode }) {
     }
     if (meLocationStatus !== "stale") return
     if (getLastMeLeaf() === meLeafFromPathname(pathname)) clearLastMeLocation()
+    cancelPendingNavigation()
     router.replace(ME_ROOT)
-  }, [meLocationStatus, pathname, router])
+  }, [cancelPendingNavigation, meLocationStatus, pathname, router])
 
   const [mobileZone, setMobileZone] = useState<MobileZone>(() => (hasDm ? "messages" : "nav"))
 
@@ -108,27 +112,31 @@ export default function MeLayout({ children }: { children: ReactNode }) {
           ? { ...prev, conversations: prev.conversations.map((d) => (d.id === id ? { ...d, unread: false } : d)) }
           : prev,
     )
+    cancelPendingNavigation()
     router.push(`/c/me/${id}`)
     if (bp === "mobile") setMobileZone("messages")
-  }, [queryClient, router, bp])
+  }, [bp, cancelPendingNavigation, queryClient, router])
 
   const onShowFriends = useCallback(() => {
     useCommunityStore.getState().setCurrentChannelId(null)
+    cancelPendingNavigation()
     router.push("/c/me")
     if (bp === "mobile") setMobileZone("messages")
-  }, [router, bp])
+  }, [bp, cancelPendingNavigation, router])
 
   const onShowMachines = useCallback(() => {
     useCommunityStore.getState().setCurrentChannelId(null)
+    cancelPendingNavigation()
     router.push("/c/me/machines")
     if (bp === "mobile") setMobileZone("messages")
-  }, [router, bp])
+  }, [bp, cancelPendingNavigation, router])
 
   const onShowBots = useCallback(() => {
     useCommunityStore.getState().setCurrentChannelId(null)
+    cancelPendingNavigation()
     router.push("/c/me/bots")
     if (bp === "mobile") setMobileZone("messages")
-  }, [router, bp])
+  }, [bp, cancelPendingNavigation, router])
 
   const prefetchDm = useCallback((id: string) => router.prefetch(`/c/me/${id}`), [router])
   const prefetchFriends = useCallback(() => router.prefetch("/c/me"), [router])
@@ -137,8 +145,9 @@ export default function MeLayout({ children }: { children: ReactNode }) {
 
   const goHome = useCallback(() => {
     setMobileZone("nav")
+    cancelPendingNavigation()
     router.push(pickMeLandingLocation(getLastMeLeaf()))
-  }, [router])
+  }, [cancelPendingNavigation, router])
   const goServer = useCallback(() => { setMobileZone("nav") }, [])
 
   const blockedUserIds = useMemo(
