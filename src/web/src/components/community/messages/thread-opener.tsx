@@ -1,7 +1,7 @@
 "use client"
 
 import { MessagesSquare, ArrowUpRight } from "lucide-react"
-import { Avatar } from "./avatar"
+import { Avatar } from "../avatar"
 import { MessageBody } from "./message-body"
 import { attachmentAspectRatio } from "./attachment-layout"
 import { formatMessageTime } from "@/lib/community/format-time"

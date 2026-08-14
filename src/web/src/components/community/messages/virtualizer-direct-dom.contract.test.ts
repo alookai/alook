@@ -4,7 +4,7 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 
 const componentDirectory = path.dirname(fileURLToPath(import.meta.url))
-const hooksDirectory = path.resolve(componentDirectory, "../../hooks/community")
+const hooksDirectory = path.resolve(componentDirectory, "../../../hooks/community")
 const readComponent = (name: string) => fs.readFileSync(path.join(componentDirectory, name), "utf8")
 
 describe("community virtualizer direct DOM contract", () => {
@@ -23,7 +23,7 @@ describe("community virtualizer direct DOM contract", () => {
   })
 
   it("keeps ForumView on the shared direct DOM row contract", () => {
-    const forumView = readComponent("forum-view.tsx")
+    const forumView = readComponent("../forum-view.tsx")
 
     expect(forumView).toContain("...COMMUNITY_VIRTUALIZER_REACT_OPTIONS")
     expect(forumView).toContain("<VirtualRows")
@@ -32,7 +32,7 @@ describe("community virtualizer direct DOM contract", () => {
   })
 
   it("gives MemberList container size and row position ownership to the virtualizer", () => {
-    const memberList = readComponent("member-list.tsx")
+    const memberList = readComponent("../member-list.tsx")
 
     expect(memberList).toContain("...COMMUNITY_VIRTUALIZER_REACT_OPTIONS")
     expect(memberList).toContain("ref={rowVirtualizer.containerRef}")
@@ -43,7 +43,7 @@ describe("community virtualizer direct DOM contract", () => {
   })
 
   it("gives SettingsMembers container size and row position ownership to the virtualizer", () => {
-    const serverSettings = readComponent("server-settings.tsx")
+    const serverSettings = readComponent("../server-settings.tsx")
 
     expect(serverSettings).toContain("...COMMUNITY_VIRTUALIZER_REACT_OPTIONS")
     expect(serverSettings).toContain("ref={rowVirtualizer.containerRef}")

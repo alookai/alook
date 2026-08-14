@@ -9,7 +9,7 @@ import { ChannelHeader, type ChannelNotifLevel } from "@/components/community/ch
 import { ChannelShell } from "@/components/community/channel-shell"
 import type { ChannelMemberPanelProps } from "@/components/community/channel-member-view-model"
 import { CommunityPanelSheet } from "@/components/community/community-panel-sheet"
-import type { NewForumThread } from "@/components/community/create-forum-thread"
+import type { NewForumThread } from "@/components/community/messages/create-forum-thread"
 import { ForumSurface } from "@/components/community/forum-surface"
 import type { Member } from "@/lib/community/models/people"
 import {

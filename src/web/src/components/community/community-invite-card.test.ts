@@ -41,7 +41,7 @@ describe("resolveInviteCardPresentation", () => {
 
 describe("invite-card perspective wiring", () => {
   it("derives sender perspective from the message author and viewer", () => {
-    const message = readComponent("message.tsx")
+    const message = readComponent("messages/message.tsx")
 
     expect(message).toContain("m.authorId === viewerUserId ? \"sender\" : \"recipient\"")
     expect(message).toContain("a.authorId !== b.authorId")
@@ -49,7 +49,7 @@ describe("invite-card perspective wiring", () => {
   })
 
   it("keeps Share as Image explicitly neutral", () => {
-    const shareDialog = readComponent("message-share-dialog.tsx")
+    const shareDialog = readComponent("messages/message-share-dialog.tsx")
 
     expect(shareDialog).toContain('perspective="neutral"')
   })

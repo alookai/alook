@@ -4,12 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ThreadChannelSurface } from "./thread-channel-surface"
 import { ChannelHeader } from "./channel-header"
 import { CommunityPanelSheet } from "./community-panel-sheet"
-import { Composer } from "./composer"
-import { MessageContextSheet } from "./message-context-sheet"
-import { MessageList } from "./message-list"
-import { ThreadOpener } from "./thread-opener"
+import { Composer } from "./messages/composer"
+import { MessageContextSheet } from "./messages/message-context-sheet"
+import { MessageList } from "./messages/message-list"
+import { ThreadOpener } from "./messages/thread-opener"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
-import type { MessageChannelControllerValue } from "./message-channel-controller"
+import type { MessageChannelControllerValue } from "./messages/message-channel-controller"
 
 const mocks = vi.hoisted(() => ({
   router: { push: vi.fn(), replace: vi.fn(), back: vi.fn() },
@@ -56,20 +56,20 @@ vi.mock("@/components/community/channel-shell", () => ({
 vi.mock("@/components/community/community-panel-sheet", () => ({
   CommunityPanelSheet: vi.fn(() => null),
 }))
-vi.mock("@/components/community/composer", () => ({
+vi.mock("@/components/community/messages/composer", () => ({
   Composer: vi.fn(() => null),
   ComposerSkeleton: vi.fn(() => null),
 }))
-vi.mock("@/components/community/message-context-sheet", () => ({
+vi.mock("@/components/community/messages/message-context-sheet", () => ({
   MessageContextSheet: vi.fn(() => null),
 }))
-vi.mock("@/components/community/message-list", () => ({
+vi.mock("@/components/community/messages/message-list", () => ({
   MessageList: vi.fn(() => null),
 }))
-vi.mock("@/components/community/thread-opener", () => ({
+vi.mock("@/components/community/messages/thread-opener", () => ({
   ThreadOpener: vi.fn(() => null),
 }))
-vi.mock("@/components/community/message-channel-controller", () => ({
+vi.mock("@/components/community/messages/message-channel-controller", () => ({
   MessageChannelController: ({
     feed: messageFeed,
     children,

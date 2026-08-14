@@ -7,7 +7,7 @@ import type { RenderMsg } from "@/lib/community/models/message"
 vi.mock("html-to-image", () => ({ toBlob: vi.fn() }))
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 vi.mock("next/image", () => ({ default: "img" }))
-vi.mock("./avatar", () => ({ Avatar: "mock-avatar" }))
+vi.mock("../avatar", () => ({ Avatar: "mock-avatar" }))
 vi.mock("./message-body", () => ({ MessageBody: ({ text }: { text: string }) => text }))
 vi.mock("@/components/ui/button", () => ({ Button: "button" }))
 vi.mock("@/components/ui/dialog", () => {

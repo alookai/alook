@@ -12,7 +12,7 @@ import { useJoinServer } from "@/hooks/community/mutations/servers"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { tid } from "@/lib/community/testids"
-import type { MessagePerspective } from "@/components/community/message-presentation-types"
+import type { MessagePerspective } from "@/components/community/messages/message-presentation-types"
 
 export function resolveInviteCardPresentation(
   perspective: MessagePerspective,

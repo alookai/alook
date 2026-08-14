@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import type React from "react"
-import { ChannelIcon } from "./channel-icon"
+import { ChannelIcon } from "../channel-icon"
 
 // Pill components the streamdown renderer maps custom tags to (see message-markdown.tsx).
 

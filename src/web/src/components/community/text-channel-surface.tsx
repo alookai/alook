@@ -7,12 +7,12 @@ import { ChannelHeader, type ChannelNotifLevel } from "@/components/community/ch
 import { ChannelShell } from "@/components/community/channel-shell"
 import { CommunityPanelSheet } from "@/components/community/community-panel-sheet"
 import type { ChannelMemberPanelProps } from "@/components/community/channel-member-view-model"
-import { Composer } from "@/components/community/composer"
-import { MessageContextSheet } from "@/components/community/message-context-sheet"
-import { MessageList } from "@/components/community/message-list"
+import { Composer } from "@/components/community/messages/composer"
+import { MessageContextSheet } from "@/components/community/messages/message-context-sheet"
+import { MessageList } from "@/components/community/messages/message-list"
 import {
   MessageChannelController,
-} from "@/components/community/message-channel-controller"
+} from "@/components/community/messages/message-channel-controller"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/profile-types"
 import type { RightPanel } from "@/components/community/panel-types"

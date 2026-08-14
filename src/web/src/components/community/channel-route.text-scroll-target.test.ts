@@ -3,7 +3,7 @@ import TestRenderer, { act } from "react-test-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ChannelRoute } from "./channel-route"
 import { ForumChannelSurface } from "./forum-channel-surface"
-import { MessageList } from "./message-list"
+import { MessageList } from "./messages/message-list"
 import { useChannelMemberViewModel } from "./channel-member-view-model"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
 
@@ -51,8 +51,8 @@ vi.mock("@/components/community/channel-header", () => ({
   ChannelHeader: () => null,
   ChannelHeaderSkeleton: () => null,
 }))
-vi.mock("@/components/community/message-list", () => ({ MessageList: vi.fn(() => null) }))
-vi.mock("@/components/community/composer", () => ({
+vi.mock("@/components/community/messages/message-list", () => ({ MessageList: vi.fn(() => null) }))
+vi.mock("@/components/community/messages/composer", () => ({
   Composer: () => null,
   ComposerSkeleton: () => null,
 }))
@@ -67,8 +67,8 @@ vi.mock("@/components/community/channel-shell", () => ({
   ChannelShell: ({ body }: { body: React.ReactNode }) => body,
 }))
 vi.mock("@/components/community/community-panel-sheet", () => ({ CommunityPanelSheet: () => null }))
-vi.mock("@/components/community/message-context-sheet", () => ({ MessageContextSheet: () => null }))
-vi.mock("@/components/community/thread-opener", () => ({ ThreadOpener: () => null }))
+vi.mock("@/components/community/messages/message-context-sheet", () => ({ MessageContextSheet: () => null }))
+vi.mock("@/components/community/messages/thread-opener", () => ({ ThreadOpener: () => null }))
 vi.mock("@/components/community/add-members-dialog", () => ({ AddMembersDialog: () => null }))
 vi.mock("@alook/shared", () => ({
   canManageServer: () => false,

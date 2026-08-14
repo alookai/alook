@@ -2,7 +2,7 @@
 
 import { useEffect } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { MessageList } from "@/components/community/message-list"
+import { MessageList } from "@/components/community/messages/message-list"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useServer } from "@/hooks/community/use-servers"
 import { getLastChannel, pickServerLandingChannel } from "@/lib/community/last-channel"
