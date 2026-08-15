@@ -78,6 +78,34 @@ beforeEach(() => {
 })
 
 describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
+  it("leaves browser network reconnect reconciliation to the bounded WS path", () => {
+    const queryClient = new QueryClient()
+    queryClient.setQueryData(communityKeys.dmMessages("dm_activation"), {
+      pages: [{
+        messages: [{ id: "m_cached", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
+        hasMore: false,
+        latestSeq: 1,
+      }],
+      pageParams: [{ mode: "newest" }],
+    })
+    apiFetchMock.mockResolvedValue({
+      messages: [{ id: "m_cached", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
+      hasMore: false,
+      latestSeq: 1,
+    })
+    const renderer = renderCapture(
+      queryClient,
+      React.createElement(DmCapture, {
+        lastReadMessageId: null,
+        onRender: () => undefined,
+      }),
+    )
+    expect(queryClient.getQueryCache().find({
+      queryKey: communityKeys.dmMessages("dm_activation"),
+    })?.options.refetchOnReconnect).toBe(false)
+    renderer.unmount()
+  })
+
   it("refetches a fresh persisted empty DM on activation and converges to server truth", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 5_000 } } })
     queryClient.setQueryData(communityKeys.dmMessages("dm_activation"), {
@@ -102,7 +130,10 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
       React.createElement(DmCapture, { lastReadMessageId: null, onRender }),
     )
     await waitFor(() => apiFetchMock.mock.calls.length === 1)
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/dm_activation/messages")
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/community/channels/dm_activation/messages",
+      { signal: expect.any(AbortSignal) },
+    )
 
     response.resolve({
       messages: [{ id: "m_server", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
@@ -204,6 +235,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       1,
       "/api/community/channels/ch_activation/messages?anchor=m_anchor",
+      { signal: expect.any(AbortSignal) },
     )
     for (const snapshot of snapshots) expect(snapshot.ids.length).toBeGreaterThan(0)
 
@@ -218,6 +250,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       2,
       "/api/community/channels/ch_activation/messages?cursor=fresh-cursor",
+      { signal: expect.any(AbortSignal) },
     )
     for (const snapshot of snapshots) expect(snapshot.ids.length).toBeGreaterThan(0)
 

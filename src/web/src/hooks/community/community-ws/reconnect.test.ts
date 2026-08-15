@@ -47,7 +47,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     })
   })
 
-  it("invalidates the focused channel's messages + inbox on reconnect, but NOT the read-state snapshot", async () => {
+  it("reconciles the focused channel's messages + inbox on reconnect, but NOT the read-state snapshot", async () => {
     const { useCommunityStore } = await import("@/stores/community")
     useCommunityStore.getState().subscribe({ channelId: "ch_focus" })
 
@@ -60,7 +60,8 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const invalidatedKeys = spy.mock.calls.map(
       (c) => c[0]?.queryKey as unknown[] | undefined,
     )
-    // Focused channel messages — a legitimate top-up refetch that keeps data.
+    // Focused channel messages use the bounded catch-up path instead of a
+    // TanStack invalidation that would refetch every cached infinite page.
     expect(
       invalidatedKeys.some(
         (k) =>
@@ -70,7 +71,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
           k[2] === "ch_focus" &&
           k[3] === "messages",
       ),
-    ).toBe(true)
+    ).toBe(false)
     expect(
       invalidatedKeys.some(
         (k) => JSON.stringify(k) === JSON.stringify(communityKeys.channelMembers("ch_focus")),
@@ -200,7 +201,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     })).toEqual([])
   })
 
-  it("invalidates the focused DM's messages on reconnect, but NOT its read-state snapshot", async () => {
+  it("reconciles the focused DM's messages on reconnect, but NOT its read-state snapshot", async () => {
     const { useCommunityStore } = await import("@/stores/community")
     useCommunityStore.getState().subscribe({ dmConversationId: "dm_focus" })
 
@@ -222,7 +223,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
           k[2] === "dm_focus" &&
           k[3] === "messages",
       ),
-    ).toBe(true)
+    ).toBe(false)
     // Read-state snapshot MUST NOT be invalidated — same rationale as the
     // channel case (mirrors `useChannelReadStateSnapshot`'s freeze contract).
     expect(
