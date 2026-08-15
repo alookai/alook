@@ -9,6 +9,13 @@ import type {
 
 type MessageCache = InfiniteData<MessagesPage, MessagesPageParam>
 
+type WarmReconnectWindow = {
+  cursor: string | null
+  latestSeq: number
+  pageParam: MessagesPageParam
+  tag: string | null
+}
+
 const MAX_CATCH_UP_PAGES = 8
 
 function isMessageCache(value: unknown): value is MessageCache {
@@ -75,6 +82,30 @@ function cachedLatestSeq(cache: MessageCache): number {
     page.latestSeq ?? 0,
     ...page.messages.map((message) => message.seq ?? 0),
   ), 0)
+}
+
+/**
+ * Classify an active query as a paint-preserving warm window or a cold query.
+ *
+ * A warm window always has a rendered page plus the page parameter that
+ * produced it. Empty conversations are still warm: their empty newest page is
+ * valuable UI state and must be refreshed in place. Undefined, failed, or
+ * malformed data is cold and is recovered through the query's own fetch
+ * function instead of inventing pagination state here.
+ */
+function warmReconnectWindow(
+  queryKey: QueryKey,
+  data: unknown,
+): WarmReconnectWindow | null {
+  if (!isMessageCache(data) || data.pages.length === 0) return null
+  const pageParam = data.pageParams[0]
+  if (!pageParam) return null
+  return {
+    cursor: newestMessageCursor(data),
+    latestSeq: cachedLatestSeq(data),
+    pageParam,
+    tag: queryTag(queryKey),
+  }
 }
 
 async function fetchCurrentWindow(
@@ -166,28 +197,33 @@ export async function reconcileFocusedMessageQueries(
     queryKey,
     type: "active",
   })
-  const operations = queries.flatMap((query) => {
-    const snapshot = query.state.data
-    if (!isMessageCache(snapshot)) return []
-    const pageParam = snapshot.pageParams[0]
-    if (!pageParam) return []
-    const cursor = newestMessageCursor(snapshot)
-    return [(async () => {
-      const refreshed = await fetchCurrentWindow(
-        scopeId,
-        pageParam,
-        queryTag(query.queryKey),
+  const operations = queries.map(async (query) => {
+    const window = warmReconnectWindow(query.queryKey, query.state.data)
+    if (!window) {
+      // There is no painted history to protect. Delegate recovery to the
+      // query's canonical queryFn so cold/failed active screens do not remain
+      // stuck after `refetchOnReconnect` is intentionally disabled.
+      await queryClient.refetchQueries(
+        { queryKey: query.queryKey, exact: true, type: "active" },
+        { throwOnError: true },
       )
-      const catchUp = cursor
-        && (refreshed.latestSeq ?? 0) > cachedLatestSeq(snapshot)
-        ? await fetchCatchUp(scopeId, cursor, queryTag(query.queryKey))
-        : null
-      queryClient.setQueryData<MessageCache>(query.queryKey, (current) => (
-        isMessageCache(current)
-          ? mergeReconciledPages(current, refreshed, catchUp)
-          : current
-      ))
-    })()]
+      return
+    }
+
+    const refreshed = await fetchCurrentWindow(
+      scopeId,
+      window.pageParam,
+      window.tag,
+    )
+    const catchUp = window.cursor !== null
+      && (refreshed.latestSeq ?? 0) > window.latestSeq
+      ? await fetchCatchUp(scopeId, window.cursor, window.tag)
+      : null
+    queryClient.setQueryData<MessageCache>(query.queryKey, (current) => (
+      isMessageCache(current)
+        ? mergeReconciledPages(current, refreshed, catchUp)
+        : current
+    ))
   })
   const settled = await Promise.allSettled(operations)
   if (settled.some((result) => result.status === "rejected")) {
