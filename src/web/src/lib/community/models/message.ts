@@ -144,8 +144,8 @@ export type MessagesPage = {
 
 // Discriminated pageParam. The queryFn dispatches on `mode` — the URL param
 // map is: newest → no param, older → cursor, newer/since → since, anchor →
-// anchor. Since is reserved for future direct catch-up; the type covers it so
-// the server contract stays honest.
+// anchor. Since also powers bounded reconnect catch-up without refetching
+// every cached historical page.
 export type MessagesPageParam =
   | { mode: "newest" }
   | { mode: "anchor"; anchor: string }

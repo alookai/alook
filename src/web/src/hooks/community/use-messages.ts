@@ -265,6 +265,7 @@ function useMessagesInner(
       return { mode: "newer", cursor }
     },
     enabled,
+    refetchOnReconnect: false,
     // Message bases are persisted, while accepted/session rows live in an
     // in-memory overlay. Treat each ordinary active message query as stale so
     // disabled→enabled activation revalidates even inside the global 5-second

@@ -5,6 +5,7 @@ import { useCommunityWsStore } from "@/stores/community/ws"
 import { invalidateForumSidebarBaseExact } from "@/hooks/community/use-forum-sidebar-threads"
 import { clearAllTypingIndicators } from "@/hooks/community/community-ws/typing"
 import { communityWsReconnectPolicies } from "@/hooks/community/community-ws/registry"
+import { reconcileFocusedMessageQueries } from "@/hooks/community/community-ws/reconnect-messages"
 import {
   trackCommunityWsReconcileComplete,
   trackCommunityWsReconcileFailure,
@@ -107,16 +108,18 @@ function policyExecutors(queryClient: QueryClient): Record<CommunityWsReconcileP
     "focused-messages": async () => {
       const operations: Promise<unknown>[] = []
       if (sub.channelId) {
-        operations.push(queryClient.invalidateQueries({
-          queryKey: communityKeys.channelMessages(sub.channelId),
-          refetchType: "active",
-        }))
+        operations.push(reconcileFocusedMessageQueries(
+          queryClient,
+          "channel",
+          sub.channelId,
+        ))
       }
       if (sub.dmConversationId) {
-        operations.push(queryClient.invalidateQueries({
-          queryKey: communityKeys.dmMessages(sub.dmConversationId),
-          refetchType: "active",
-        }))
+        operations.push(reconcileFocusedMessageQueries(
+          queryClient,
+          "dm",
+          sub.dmConversationId,
+        ))
       }
       const settled = await Promise.allSettled(operations)
       if (settled.some((result) => result.status === "rejected")) throw new Error("focused messages failed")
