@@ -1,8 +1,8 @@
 "use client"
 
 import { useCallback } from "react"
-import type { Msg } from "@/components/community/_types"
-import type { SendAttachment } from "@/components/community/composer"
+import type { Msg } from "@/lib/community/models/message"
+import type { SendAttachment } from "@/lib/community/models/message"
 import { toastApiError } from "@/lib/api/client"
 import { toOptimisticReplyPreview } from "@/lib/community/reply-preview"
 import { useMessageStreamStore } from "@/stores/community/message-stream"

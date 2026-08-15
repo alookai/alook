@@ -1,7 +1,7 @@
 import type React from "react"
 import { AvatarBadge } from "@/components/ui/avatar"
 import { ProfileAvatar } from "@/components/avatar"
-import type { Presence } from "./_types"
+import type { Presence } from "@/lib/community/models/people"
 
 const STATUS_COLOR: Record<Presence, string> = {
   online: "var(--status-online)",

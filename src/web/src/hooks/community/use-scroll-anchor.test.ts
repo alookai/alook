@@ -11,7 +11,7 @@ import {
   type ScrollAnchorState,
   type ScrollAnchorMessage,
 } from "./use-scroll-anchor"
-import type { FlatItem } from "@/components/community/message-list-items"
+import type { FlatItem } from "@/lib/community/message-list-items"
 import type { VirtualItem } from "@tanstack/react-virtual"
 
 const msgs = (...ids: string[]): ScrollAnchorMessage[] => ids.map((id) => ({ id }))

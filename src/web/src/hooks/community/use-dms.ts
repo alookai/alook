@@ -3,7 +3,7 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import type { DM } from "@/components/community/_types"
+import type { DM } from "@/lib/community/models/people"
 
 /**
  * Fetches the DM conversation sidebar list.

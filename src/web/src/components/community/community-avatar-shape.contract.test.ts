@@ -9,8 +9,8 @@ const readWeb = (path: string) => readFileSync(resolve(webRoot, path), "utf8")
 
 describe("community avatar shape contract", () => {
   it("keeps My Profile preview and crop circular", () => {
-    const profile = readWeb("src/components/community/edit-profile-dialog.tsx")
-    const shell = readWeb("src/components/community/shell-frame.tsx")
+    const profile = readWeb("src/components/community/settings/user-settings.tsx")
+    const shell = readWeb("src/components/community/shell/shell-frame-overlays.tsx")
 
     expect(profile).toContain(
       'className="block size-24 overflow-hidden rounded-full ring-1 ring-border/50"',

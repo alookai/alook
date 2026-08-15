@@ -5,7 +5,7 @@ import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { avatarInitial } from "@/lib/community/avatar"
 import { isServerOwner, UNCATEGORIZED_CATEGORY_ID } from "@alook/shared"
-import type { Server, Category, Channel } from "@/components/community/_types"
+import type { Server, Category, Channel } from "@/lib/community/models/navigation"
 
 /**
  * Fetches the sidebar list of servers the current user is in.

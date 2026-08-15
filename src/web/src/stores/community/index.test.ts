@@ -8,7 +8,7 @@ import { useCommunityStore } from "./index"
 const { flushPendingReadsSpy } = vi.hoisted(() => ({
   flushPendingReadsSpy: vi.fn(),
 }))
-vi.mock("@/hooks/community/mutations/messages", () => ({
+vi.mock("@/lib/community/pending-reads", () => ({
   flushPendingReads: flushPendingReadsSpy,
 }))
 
@@ -124,9 +124,9 @@ describe("useCommunityStore", () => {
   })
 
   it("reset flushes pending mark-reads before wiping state", async () => {
-    // `reset()` uses a dynamic import to avoid a circular dependency with
-    // `mutations/messages`. The `import()` resolves asynchronously — poll
-    // via `vi.waitFor` instead of assuming a fixed microtask count.
+    // `reset()` uses a dynamic import so store initialization does not load
+    // the queue implementation eagerly. Poll instead of assuming a fixed
+    // microtask count.
     useCommunityStore.getState().reset()
     await vi.waitFor(() => expect(flushPendingReadsSpy).toHaveBeenCalledTimes(1))
   })

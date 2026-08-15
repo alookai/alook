@@ -11,7 +11,7 @@ import {
   shouldPersistQuery,
   shouldPersistQueryKey,
 } from "@/lib/query-persister"
-import type { MessagesPage } from "@/hooks/community/use-messages"
+import type { MessagesPage } from "@/lib/community/models/message"
 
 // ── shouldPersistQueryKey ─────────────────────────────────────────────────
 

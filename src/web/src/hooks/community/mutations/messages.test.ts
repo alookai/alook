@@ -10,7 +10,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
-import type { Msg } from "@/components/community/_types"
+import type { Msg } from "@/lib/community/models/message"
 
 // ── React shim (mirrors use-community-ws.test.ts) ────────────────────────
 let refs: Map<string, { current: unknown }> = new Map()

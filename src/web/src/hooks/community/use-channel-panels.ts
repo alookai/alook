@@ -3,7 +3,7 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import type { Thread, Msg } from "@/components/community/_types"
+import type { Thread, Msg } from "@/lib/community/models/message"
 
 // Frozen empty fallbacks — see `use-servers.ts` for the rationale.
 const EMPTY_THREADS: readonly Thread[] = Object.freeze([])

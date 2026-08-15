@@ -1,5 +1,6 @@
 import { Hash, ListChevronsUpDown } from "lucide-react"
-import { ChannelIcon } from "./channel-icon"
+import { ChannelIcon } from "./channels/channel-icon"
+import type { EntityKind } from "@/lib/community/models/navigation"
 
 /**
  * Every community entity that gets a leading glyph, keyed by its RAW stored
@@ -7,8 +8,6 @@ import { ChannelIcon } from "./channel-icon"
  * carries `"thread"` — so this wider union takes the raw value straight off
  * the row without a lossy cast.
  */
-export type EntityKind = "text" | "forum" | "thread"
-
 type IconComponent = (props: { className?: string }) => React.ReactNode
 
 /**

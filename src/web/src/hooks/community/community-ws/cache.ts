@@ -3,8 +3,7 @@ import type {
   CommunityReactionAdd,
   CommunityReactionRemove,
 } from "@alook/shared"
-import type { Msg } from "@/components/community/_types"
-import type { MessagesPage } from "@/hooks/community/use-messages"
+import type { MessagesPage, Msg } from "@/lib/community/models/message"
 
 export type PageCache = InfiniteData<MessagesPage>
 

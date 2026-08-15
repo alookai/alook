@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import type { Mention, UnreadDm, UnreadServer } from "@/components/community/_types"
+import type { Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
 
 /**
  * Inbox auto-collapse.

@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation"
 import { useBreakpoint } from "@/hooks/use-mobile"
-import { FriendsPage } from "@/components/community/friends-page"
+import { FriendsPage } from "@/components/community/social/friends-page"
 import { useMemo } from "react"
 import { useFriends } from "@/hooks/community/use-friends"
 import { useUiHandlers } from "@/stores/community"

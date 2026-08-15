@@ -8,7 +8,7 @@ import {
 } from "@tanstack/react-query"
 import { apiFetch, toastApiError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import type { Member } from "@/components/community/_types"
+import type { Member } from "@/lib/community/models/people"
 import type {
   CommunityMemberJoin,
   CommunityMemberLeave,

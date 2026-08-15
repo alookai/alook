@@ -10,7 +10,7 @@ import type {
 import { communityKeys } from "@/lib/query-keys"
 import { projectCommunityMessageCreate } from "@/lib/community/message-wire"
 import type { CanonicalMessage } from "@/lib/community/message-stream"
-import type { Msg } from "@/components/community/_types"
+import type { Msg } from "@/lib/community/models/message"
 import { useCommunityStore } from "@/stores/community"
 import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
 import {

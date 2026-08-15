@@ -1,4 +1,4 @@
-import type { Presence } from "@/components/community/_types"
+import type { Presence } from "@/lib/community/models/people"
 
 /**
  * The single client-side presence-overlay helper.

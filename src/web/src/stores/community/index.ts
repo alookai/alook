@@ -3,6 +3,7 @@
 import { create } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import type React from "react"
+import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
 
 /**
  * Zustand store for community client-only state.
@@ -72,8 +73,8 @@ type CommunitySubscription = {
 }
 
 type CommunityUiHandlers = {
-  previewImage?: (image: import("@/components/community/_types").ImagePreview) => void
-  previewAttachment?: (attachment: import("@/components/community/_types").FileAttachment) => void
+  previewImage?: (image: ImagePreview) => void
+  previewAttachment?: (attachment: FileAttachment) => void
   openProfile?: (name: string, e: React.MouseEvent, discriminator?: string, userId?: string) => void
   goBackMobile?: () => void
   // Jump to message `seq` within the CURRENT channel/DM — the page registers
@@ -243,12 +244,11 @@ export const useCommunityStore = create<CommunityStoreState>((set, get) => ({
   reset: () => {
     // Flush any pending mark-channel-read PUTs before we wipe local state so
     // the last-read pointer isn't stranded in the 500ms debounce window
-    // (sign-out, hard-reset, tab close). Dynamic import avoids a circular
-    // dependency: `mutations/messages.ts` already imports this store, so a
-    // static import here would form a cycle. Fire-and-forget is fine — the
-    // PUTs go out under the still-live auth cookie.
-    void import("@/hooks/community/mutations/messages").then((m) =>
-      m.flushPendingReads(),
+    // (sign-out, hard-reset, tab close). Dynamic import avoids coupling the
+    // store to the mutation hooks that consume this queue. Fire-and-forget is
+    // fine — the PUTs go out under the still-live auth cookie.
+    void import("@/lib/community/pending-reads").then((module) =>
+      module.flushPendingReads(),
     )
     // Fire-and-forget: clear every outstanding timer so nothing lingers past
     // sign-out or a hard-reset.

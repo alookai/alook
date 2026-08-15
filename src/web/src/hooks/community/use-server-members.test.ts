@@ -27,7 +27,7 @@ import {
   type MemberOverlayEvent,
 } from "./use-server-members"
 import { communityKeys } from "@/lib/query-keys"
-import type { Member } from "@/components/community/_types"
+import type { Member } from "@/lib/community/models/people"
 import type {
   CommunityMemberJoin,
   CommunityMemberLeave,

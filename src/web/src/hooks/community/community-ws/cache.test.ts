@@ -3,7 +3,7 @@ import type {
   CommunityReactionAdd,
   CommunityReactionRemove,
 } from "@alook/shared"
-import type { Msg } from "@/components/community/_types"
+import type { Msg } from "@/lib/community/models/message"
 import {
   applyReactionToCache,
   applyReactionToMessage,

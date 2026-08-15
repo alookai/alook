@@ -4,12 +4,13 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useParams, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { useBreakpoint } from "@/hooks/use-mobile"
-import { DmHeader, DmHeaderSkeleton } from "@/components/community/dm-header"
+import { DmHeader, DmHeaderSkeleton } from "@/components/community/channels/dm-header"
 import { Avatar } from "@/components/community/avatar"
-import { MessageList } from "@/components/community/message-list"
-import { MessageContextSheet } from "@/components/community/message-context-sheet"
-import { Composer, ComposerSkeleton, type SendAttachment } from "@/components/community/composer"
-import type { FileAttachment, ImagePreview, OpenProfile } from "@/components/community/_types"
+import { MessageList } from "@/components/community/messages/message-list"
+import { MessageContextSheet } from "@/components/community/messages/message-context-sheet"
+import { Composer, ComposerSkeleton, type SendAttachment } from "@/components/community/messages/composer"
+import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
+import type { OpenProfile } from "@/components/community/social/profile-types"
 import {
   useCommunityStore,
   useCurrentChannelId,

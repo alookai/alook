@@ -7,18 +7,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-
-// One day's activity for a bot: post-gate messages handled + messages the bot
-// sent. Both counts are non-negative integers; a day with no activity is 0/0.
-// Field names match the backend rollup contract (Cecilia /Gus/working #617):
-// `{ day, handledCount, sentCount }[]`, past 30 days, missing days padded 0.
-// A brand-new bot returns [] (normal, not an error) — we render 30 empty cells.
-export type BotActivityDay = {
-  // Calendar day, "YYYY-MM-DD".
-  day: string
-  handledCount: number
-  sentCount: number
-}
+import type { BotActivityDay } from "@/lib/community/models/people"
 
 // Gus asked for "past 30 days" (Gus /Gus/uiux #608). Responsive layout is set
 // in the grid classes below: mobile = full-width 3×10 ribbon, desktop = a thin

@@ -220,7 +220,7 @@ async function getProfileAudience(db: Database, userId: string): Promise<string[
  * (server co-members + friends). Self is intentionally excluded from their
  * own audience — the caller updates the local WS store directly on save
  * success instead (see `setUserStatus` call sites in `shell-frame.tsx` /
- * `edit-profile-dialog.tsx`).
+ * `settings/user-settings.tsx`).
  */
 export async function fanOutStatusUpdate(
   userId: string,

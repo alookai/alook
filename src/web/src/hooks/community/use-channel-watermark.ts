@@ -1,9 +1,9 @@
 "use client"
 
 import { useEffect, useRef } from "react"
-import { flushPendingReads } from "@/hooks/community/mutations/messages"
+import { flushPendingReads } from "@/lib/community/pending-reads"
 import { useAdvanceChannelWatermark } from "@/hooks/community/mutations/messages"
-import type { Msg } from "@/components/community/_types"
+import type { Msg } from "@/lib/community/models/message"
 import { useCurrentUser } from "@/contexts/community/current-user"
 
 /**
