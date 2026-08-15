@@ -128,6 +128,7 @@ describe("useShellRailController", () => {
 
   it("commits cold server navigation synchronously without waiting for detail", async () => {
     const hook = await renderController()
+    expect(hook.current.navigationPending).toBe(false)
 
     await act(async () => {
       hook.current.railProps.onServerNavigate("s1")
@@ -135,9 +136,14 @@ describe("useShellRailController", () => {
     })
 
     expect(hook.pushed).toEqual(["/c/channels/s2"])
+    expect(hook.current.navigationPending).toBe(true)
     expect(hook.queryClient.fetchQuery).not.toHaveBeenCalled()
     expect(mocks.markSwitch).toHaveBeenNthCalledWith(1, "server", "s1")
     expect(mocks.markSwitch).toHaveBeenNthCalledWith(2, "server", "s2")
+
+    hook.options.currentHref = "/c/channels/s2"
+    await hook.rerender()
+    expect(hook.current.navigationPending).toBe(false)
   })
 
   it("does not leave deferred server work that can overwrite a direct channel navigation", async () => {
