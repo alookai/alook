@@ -81,6 +81,12 @@ describe("Bun workflow setup", () => {
   })
 })
 
+describe("CI test budgets", () => {
+  it("gives the slower Windows workspace suite enough job time", () => {
+    expect(ciJob("test-windows")).toContain("timeout-minutes: 15")
+  })
+})
+
 describe("Desktop updater release", () => {
   it("uploads assets without replacing the auto-tag title or changelog", () => {
     expect(autoTagReleaseWorkflow).toContain('--title "$TAG"')
