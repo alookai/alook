@@ -51,11 +51,66 @@ function seedActiveQuery(
   return { queryFn, unsubscribe: observer.subscribe(() => undefined) }
 }
 
+function seedEmptyActiveQuery(
+  queryClient: QueryClient,
+  queryKey: readonly unknown[],
+) {
+  queryClient.setQueryData(queryKey, {
+    pages: [{
+      messages: [],
+      hasMore: false,
+      latestSeq: 0,
+    }],
+    pageParams: [{ mode: "newest" }],
+  })
+  const queryFn = vi.fn(async () => ({ stale: true }))
+  const observer = new QueryObserver(queryClient, {
+    queryKey,
+    queryFn,
+    staleTime: Infinity,
+  })
+  return { queryFn, unsubscribe: observer.subscribe(() => undefined) }
+}
+
 beforeEach(() => {
   apiFetchMock.mockReset()
 })
 
 describe("focused message reconnect catch-up", () => {
+  it.each([
+    ["channel", communityKeys.channelMessages("ch_empty"), "ch_empty"],
+    ["dm", communityKeys.dmMessages("dm_empty"), "dm_empty"],
+  ] as const)(
+    "refreshes an empty active %s query so its first missed message appears",
+    async (kind, queryKey, scopeId) => {
+      const queryClient = new QueryClient()
+      const { queryFn, unsubscribe } = seedEmptyActiveQuery(queryClient, queryKey)
+      apiFetchMock.mockResolvedValue({
+        messages: [{
+          id: "m_first",
+          type: "chat",
+          seq: 1,
+          createdAt: "2026-08-15T00:00:01.000Z",
+        }],
+        hasMore: false,
+        latestSeq: 1,
+      })
+
+      await reconcileFocusedMessageQueries(queryClient, kind, scopeId)
+
+      expect(apiFetchMock).toHaveBeenCalledOnce()
+      expect(apiFetchMock).toHaveBeenCalledWith(
+        `/api/community/channels/${scopeId}/messages`,
+      )
+      expect(queryFn).not.toHaveBeenCalled()
+      const messages = queryClient.getQueryData<{
+        pages: Array<{ messages: Array<{ id: string }> }>
+      }>(queryKey)?.pages[0].messages ?? []
+      expect(messages.map((message) => message.id)).toEqual(["m_first"])
+      unsubscribe()
+    },
+  )
+
   it("walks only forward delta pages and preserves every cached history page", async () => {
     const queryClient = new QueryClient()
     const queryKey = communityKeys.channelMessages("ch_1")

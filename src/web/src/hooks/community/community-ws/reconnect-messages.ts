@@ -169,16 +169,17 @@ export async function reconcileFocusedMessageQueries(
   const operations = queries.flatMap((query) => {
     const snapshot = query.state.data
     if (!isMessageCache(snapshot)) return []
-    const cursor = newestMessageCursor(snapshot)
     const pageParam = snapshot.pageParams[0]
-    if (!cursor || !pageParam) return []
+    if (!pageParam) return []
+    const cursor = newestMessageCursor(snapshot)
     return [(async () => {
       const refreshed = await fetchCurrentWindow(
         scopeId,
         pageParam,
         queryTag(query.queryKey),
       )
-      const catchUp = (refreshed.latestSeq ?? 0) > cachedLatestSeq(snapshot)
+      const catchUp = cursor
+        && (refreshed.latestSeq ?? 0) > cachedLatestSeq(snapshot)
         ? await fetchCatchUp(scopeId, cursor, queryTag(query.queryKey))
         : null
       queryClient.setQueryData<MessageCache>(query.queryKey, (current) => (
