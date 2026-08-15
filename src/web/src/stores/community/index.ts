@@ -4,6 +4,7 @@ import { create } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import type React from "react"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
+import { flushPendingReads } from "@/lib/community/pending-reads"
 
 /**
  * Zustand store for community client-only state.
@@ -242,14 +243,7 @@ export const useCommunityStore = create<CommunityStoreState>((set, get) => ({
     set({ uiHandlers: { ...get().uiHandlers, ...handlers } }),
 
   reset: () => {
-    // Flush any pending mark-channel-read PUTs before we wipe local state so
-    // the last-read pointer isn't stranded in the 500ms debounce window
-    // (sign-out, hard-reset, tab close). Dynamic import avoids coupling the
-    // store to the mutation hooks that consume this queue. Fire-and-forget is
-    // fine — the PUTs go out under the still-live auth cookie.
-    void import("@/lib/community/pending-reads").then((module) =>
-      module.flushPendingReads(),
-    )
+    flushPendingReads()
     // Fire-and-forget: clear every outstanding timer so nothing lingers past
     // sign-out or a hard-reset.
     const { typingTimers, reactionTimers } = get()

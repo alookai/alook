@@ -12,14 +12,9 @@ vi.mock("@/lib/community/pending-reads", () => ({
   flushPendingReads: flushPendingReadsSpy,
 }))
 
-// Each test starts from a clean slate — otherwise Zustand's module-scoped
-// store would leak state (and lingering timers) between cases. `reset()`
-// schedules a dynamic-imported flush via a microtask; wait until the spy
-// fires before clearing it — otherwise the pending callback would bleed
-// into the next test's count.
-beforeEach(async () => {
+beforeEach(() => {
   useCommunityStore.getState().reset()
-  await vi.waitFor(() => expect(flushPendingReadsSpy).toHaveBeenCalled())
+  expect(flushPendingReadsSpy).toHaveBeenCalled()
   flushPendingReadsSpy.mockClear()
 })
 
@@ -123,12 +118,9 @@ describe("useCommunityStore", () => {
     expect(useCommunityStore.getState().uiHandlers.openProfile).toBe(openProfile)
   })
 
-  it("reset flushes pending mark-reads before wiping state", async () => {
-    // `reset()` uses a dynamic import so store initialization does not load
-    // the queue implementation eagerly. Poll instead of assuming a fixed
-    // microtask count.
+  it("reset flushes pending mark-reads before returning", () => {
     useCommunityStore.getState().reset()
-    await vi.waitFor(() => expect(flushPendingReadsSpy).toHaveBeenCalledTimes(1))
+    expect(flushPendingReadsSpy).toHaveBeenCalledTimes(1)
   })
 
   it("reset clears every field including timer maps", () => {

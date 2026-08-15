@@ -36,15 +36,14 @@ describe("createRotatingFileSink (batch E1 — bounded default trace backing)", 
     const path = join(dir, "trace.jsonl");
     const maxBytes = 1000;
     const sink = createRotatingFileSink(path, maxBytes);
-    // Write far more than the cap: 500 lines × ~100 bytes = ~50KB, cap is 1KB.
-    const line = "x".repeat(99); // ~100 bytes with newline
-    for (let i = 0; i < 500; i++) sink.write(line);
+    const line = "x".repeat(499);
+    for (let i = 0; i < 20; i++) sink.write(line);
 
     const active = existsSync(path) ? statSync(path).size : 0;
     const rotated = existsSync(`${path}.1`) ? statSync(`${path}.1`).size : 0;
     // Total bounded by ~2×maxBytes + one line's slack (a write can push the
     // active file slightly past maxBytes before the NEXT write rotates it).
-    expect(active + rotated).toBeLessThanOrEqual(2 * maxBytes + 200);
+    expect(active + rotated).toBeLessThanOrEqual(2 * maxBytes + line.length + 1);
     // And it kept SOMETHING (didn't just delete everything).
     expect(active + rotated).toBeGreaterThan(0);
   });
