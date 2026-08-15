@@ -1,23 +1,26 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
-import { useParams, useRouter, useSearchParams } from "next/navigation"
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { apiFetch, toastApiError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { markSwitch } from "@/lib/perf/switch-mark"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
-import { useBreakpoint } from "@/hooks/use-mobile"
 import { useChannelTree } from "@/components/community/channels/use-channel-tree"
 import { patchChannelUnread } from "@/hooks/community/server-detail-cache"
 import type { ServerDetail } from "@/hooks/community/use-servers"
 import { ShellFrame } from "@/components/community/shell/shell-frame"
+import {
+  removeCommunityParam,
+  resolveMobileZone,
+  withMobileZone,
+} from "@/components/community/shell/mobile-zone"
 import { ChannelSidebar } from "@/components/community/channels/channel-sidebar"
 import { ServerSettings } from "@/components/community/settings/server-settings"
 import { ImageCropDialog } from "@/components/community/image-crop-dialog"
 import { validateIconSourceFile } from "@/lib/community/image-crop"
-import type { MobileZone } from "@/components/community/shell/mobile-zone"
 import type { SettingsSection } from "@/components/community/settings/settings-types"
 import { canManageServer, isForum, notifLevelDisplay, type ChannelType } from "@alook/shared"
 import { resolveRowPresence } from "@/lib/community/presence"
@@ -34,7 +37,6 @@ import {
   runAuthoritativeServerEject,
 } from "@/lib/community/eject-server"
 import { clearLastChannel } from "@/lib/community/last-channel"
-import { getLastMeLeaf, pickMeLandingLocation } from "@/lib/community/last-me-location"
 import { usePresence } from "@/hooks/community/use-server-panels"
 import {
   patchForumSidebarUnreadExact,
@@ -67,12 +69,12 @@ import {
 export default function ServerLayout({ children }: { children: ReactNode }) {
   const params = useParams<{ serverId: string; channelId?: string }>()
   const searchParams = useSearchParams()
+  const pathname = usePathname()
   const serverId = decodeURIComponent(params.serverId)
   const routeChannelId = params.channelId ? decodeURIComponent(params.channelId) : null
   const hasChannel = !!params.channelId
 
   const router = useRouter()
-  const bp = useBreakpoint()
   const queryClient = useQueryClient()
   const cancelPendingNavigation = useCallback(() => {
     useCommunityStore.getState().uiHandlers.cancelPendingNavigation?.()
@@ -182,10 +184,10 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       toast,
       replace: (destination) => {
         cancelPendingNavigation()
-        router.replace(destination)
+        router.replace(withMobileZone(destination, resolveMobileZone(searchParams)))
       },
     })
-  }, [cancelPendingNavigation, serverId, serversList.isSuccess, serversList.isFetching, serversList.servers, router])
+  }, [cancelPendingNavigation, serverId, serversList.isSuccess, serversList.isFetching, serversList.servers, router, searchParams])
   // Reset the guard when the URL changes to a NEW server id — otherwise
   // navigating server → dangling-server → server would leave the ref
   // latched and skip the eject.
@@ -210,7 +212,6 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     useCommunityWsStore.getState().hydratePresence(initialOnline)
   }, [presence.isFetching, presence.data, initialOnline])
 
-  const [mobileZone, setMobileZone] = useState<MobileZone>(() => hasChannel ? "messages" : "nav")
   const [serverSettingsOpen, setServerSettingsOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("overview")
   const [invitePopoverOpen, setInvitePopoverOpen] = useState(false)
@@ -239,7 +240,14 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     const wantsSettings = searchParams.get("settings") === "1"
     const wantsInvite = searchParams.get("invite") === "1"
-    if (!wantsSettings && !wantsInvite) return
+    // The message controller is intentionally unmounted while mobile nav is
+    // visible, so it cannot consume its own `seq` command in that pane. Clean
+    // the one-shot command at the persistent layout boundary instead. Content
+    // routes leave it alone so the mounted controller can still open the
+    // requested message context before removing the parameter itself.
+    const wantsNavSeq =
+      resolveMobileZone(searchParams) === "nav" && searchParams.has("seq")
+    if (!wantsSettings && !wantsInvite && !wantsNavSeq) return
 
     // These flags land on the bare `/c/channels/:serverId` URL
     // (e.g. right-click a rail server → "Server settings"/"Invite to
@@ -258,10 +266,14 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     if (stillRedirecting) return
 
     cancelPendingNavigation()
+    const search = searchParams.toString()
+    const currentHref = `${pathname}${search ? `?${search}` : ""}`
+    const withoutSettings = removeCommunityParam(currentHref, "settings")
+    const withoutInvite = removeCommunityParam(withoutSettings, "invite")
     router.replace(
-      hasChannel ? `/c/channels/${serverId}/${params.channelId}` : `/c/channels/${serverId}`,
+      wantsNavSeq ? removeCommunityParam(withoutInvite, "seq") : withoutInvite,
     )
-  }, [cancelPendingNavigation, searchParams, serverId, router, hasChannel, currentServer, params.channelId])
+  }, [cancelPendingNavigation, searchParams, pathname, router, hasChannel, currentServer])
 
   const categories = useMemo(() => (currentServer?.categories ?? []).map((category) => ({
     ...category,
@@ -272,13 +284,6 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     ),
   })), [currentServer?.categories, forumSidebar.parentUnread])
   const channelTree = useChannelTree(categories)
-
-  const goHome = useCallback(() => {
-    setMobileZone("nav")
-    cancelPendingNavigation()
-    router.push(pickMeLandingLocation(getLastMeLeaf()))
-  }, [cancelPendingNavigation, router])
-  const goServer = useCallback(() => { setMobileZone("nav") }, [])
 
   const setActiveChannel = useCallback((id: string) => {
     // Only navigate — do NOT eagerly set the store's currentChannelId here.
@@ -325,8 +330,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
         (cache) => patchChannelUnread(cache, id, false),
       )
     }
-    if (bp === "mobile") setMobileZone("messages")
-  }, [bp, cancelPendingNavigation, channelTree, queryClient, router, serverId])
+  }, [cancelPendingNavigation, channelTree, queryClient, router, serverId])
 
   const setActiveForumThread = useCallback((id: string) => {
     markSwitch("channel", id)
@@ -334,8 +338,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     router.push(`/c/channels/${serverId}/${id}`)
     removeForumSidebarUnreadChild(queryClient, serverId, id)
     patchForumSidebarUnreadExact(queryClient, serverId, id, false)
-    if (bp === "mobile") setMobileZone("messages")
-  }, [bp, cancelPendingNavigation, queryClient, router, serverId])
+  }, [cancelPendingNavigation, queryClient, router, serverId])
 
   const prefetchChannel = useCallback(
     (id: string) => router.prefetch(`/c/channels/${serverId}/${id}`),
@@ -568,14 +571,10 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     <ShellFrame
       view="server"
       activeServerId={serverId}
-      mobileZone={mobileZone}
-      setMobileZone={setMobileZone}
       sidebar={sidebar}
       extraDialogs={<>{serverSettingsDialog}{iconCropDialog}</>}
       onOpenActiveServerSettings={onSidebarOpenSettings}
       onOpenActiveServerInvite={onRailOpenActiveInvite}
-      goHome={goHome}
-      goServer={goServer}
     >
       {children}
     </ShellFrame>

@@ -25,6 +25,7 @@ import { useChannelRouteModel } from "@/hooks/community/use-channel-route-model"
 import { useForumOpenerHint } from "@/hooks/community/use-forum-opener-hint"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
 import { useSetChannelNotif } from "@/hooks/community/mutations"
+import { removeCommunityParam } from "@/components/community/shell/mobile-zone"
 
 /**
  * /c/channels/:serverId/:channelId
@@ -114,7 +115,6 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
   const { mutate: setChannelNotif } = useSetChannelNotif()
 
   const goBack = useCallback(() => { uiHandlers.goBackMobile?.() }, [uiHandlers])
-  const goRouteBack = useCallback(() => { router.back() }, [router])
   const setNotificationLevel = useCallback((level: ChannelNotifLevel) => {
     setChannelNotif({ channelId, level }, {
       onError: (error) => toastApiError(error, "Failed to update notification level"),
@@ -126,7 +126,9 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
   // message controller for this mount; this only cleans the address.
   useEffect(() => {
     if (!jumpTargetId) return
-    router.replace(`/c/channels/${serverParam}/${channelId}`, { scroll: false })
+    const search = searchParams.toString()
+    const href = `/c/channels/${serverParam}/${channelId}${search ? `?${search}` : ""}`
+    router.replace(removeCommunityParam(href, "msg"), { scroll: false })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once for this mount's jump
   }, [])
 
@@ -200,8 +202,7 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
           : undefined}
         notificationLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
         onSetNotificationLevel={setNotificationLevel}
-        onBack={bp === "mobile" ? goRouteBack : undefined}
-        onLoadingBack={bp === "mobile" ? goBack : undefined}
+        onBack={bp === "mobile" ? goBack : undefined}
         composerMembers={composerMembers}
         onSearchComposerMembers={onSearchComposerMembers}
         channelRefCandidates={channelRefCandidates}

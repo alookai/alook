@@ -2,7 +2,7 @@ import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ThreadChannelSurface } from "./thread-channel-surface"
-import { ChannelHeader } from "./channel-header"
+import { ChannelHeader, ChannelHeaderSkeleton } from "./channel-header"
 import { CommunityPanelSheet } from "../shell/community-panel-sheet"
 import { Composer } from "../messages/composer"
 import { MessageContextSheet } from "../messages/message-context-sheet"
@@ -125,6 +125,7 @@ vi.mock("@/components/community/messages/message-channel-controller", () => ({
 }))
 
 const mockedChannelHeader = vi.mocked(ChannelHeader)
+const mockedChannelHeaderSkeleton = vi.mocked(ChannelHeaderSkeleton)
 const mockedCommunityPanelSheet = vi.mocked(CommunityPanelSheet)
 const mockedComposer = vi.mocked(Composer)
 const mockedMessageContextSheet = vi.mocked(MessageContextSheet)
@@ -173,7 +174,6 @@ function surfaceProps(overrides: Record<string, unknown> = {}) {
     notificationLevel: "default" as const,
     onSetNotificationLevel: vi.fn(),
     onBack: vi.fn(),
-    onLoadingBack: vi.fn(),
     composerMembers: [{ id: "member_1", userId: "member_1", name: "Alice" }],
     onSearchComposerMembers: vi.fn(),
     channelRefCandidates: [{ id: "parent_1", name: "general", serverId: "server_1", serverName: "Server" }],
@@ -268,6 +268,25 @@ describe("ThreadChannelSurface ownership", () => {
     }))
     act(() => composerProps.onCancelReply?.())
     expect(mocks.setReplyTo).toHaveBeenCalledWith(null)
+  })
+
+  it("uses the same mobile Back handler while loading and after hydration", () => {
+    const onBack = vi.fn()
+    mockedUseChannelMessageFeed.mockReturnValue(feed({ isLoading: true }))
+    let renderer!: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(renderSurface({ onBack }))
+    })
+    const loadingBack = mockedChannelHeaderSkeleton.mock.calls.at(-1)![0].onBack
+    expect(loadingBack).toBe(onBack)
+    act(() => loadingBack?.())
+
+    mockedUseChannelMessageFeed.mockReturnValue(feed({ isLoading: false }))
+    act(() => renderer.update(renderSurface({ onBack })))
+    const hydratedBack = mockedChannelHeader.mock.calls.at(-1)![0].onBack
+    expect(hydratedBack).toBe(onBack)
+    act(() => hydratedBack?.())
+    expect(onBack).toHaveBeenCalledTimes(2)
   })
 
   it("preserves regular-thread breadcrumb, rename, panel, and dialog wiring", async () => {

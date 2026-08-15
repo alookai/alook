@@ -38,7 +38,6 @@ export function ThreadChannelSurface({
   notificationLevel,
   onSetNotificationLevel,
   onBack,
-  onLoadingBack,
   composerMembers,
   onSearchComposerMembers,
   channelRefCandidates,
@@ -65,7 +64,6 @@ export function ThreadChannelSurface({
   notificationLevel: ChannelNotifLevel
   onSetNotificationLevel: (level: ChannelNotifLevel) => void
   onBack?: () => void
-  onLoadingBack?: () => void
   composerMembers: ComponentProps<typeof Composer>["members"]
   onSearchComposerMembers: ComponentProps<typeof Composer>["onSearchMembers"]
   channelRefCandidates: ComponentProps<typeof Composer>["channelRefCandidates"]
@@ -108,8 +106,8 @@ export function ThreadChannelSurface({
       router.push(`/c/channels/${serverParam}/${parentChannelId}`)
       return
     }
-    router.back()
-  }, [parentChannelId, router, serverParam])
+    onBack?.()
+  }, [onBack, parentChannelId, router, serverParam])
   const rename = parentIsForum && parentChannelId && parentMessageId && childCreatorId === viewer.id
     ? async (name: string) => {
         try {
@@ -144,7 +142,7 @@ export function ThreadChannelSurface({
   if (feed.isLoading) {
     return (
       <>
-        <ChannelHeaderSkeleton onBack={onLoadingBack} />
+        <ChannelHeaderSkeleton onBack={onBack} />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <MessageList key={channelId} channel="" messages={[]} loading onOpenThread={ignoreNestedThread} />
           <ComposerSkeleton />

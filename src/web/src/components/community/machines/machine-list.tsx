@@ -44,6 +44,7 @@ import {
   updateCommunityOnboardingResources,
   useCommunityOnboarding,
 } from "@/lib/community-onboarding"
+import { removeCommunityParam } from "@/components/community/shell/mobile-zone"
 
 // Loading placeholder shaped like a real MachineCard (size-10 rounded-xl icon +
 // name row + meta lines + trailing kebab slot) so the list doesn't reflow when
@@ -227,7 +228,9 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     handledReconnectRef.current = reconnectId
     const machine = machines.find((m) => m.id === reconnectId)
     if (machine) openReconnect(machine)
-    router.replace("/c/me/machines")
+    const search = searchParams.toString()
+    const href = `/c/me/machines${search ? `?${search}` : ""}`
+    router.replace(removeCommunityParam(href, "reconnect"))
   }, [searchParams, machines, machinesLoading, openReconnect, router])
 
   const closePair = useCallback((open: boolean) => {

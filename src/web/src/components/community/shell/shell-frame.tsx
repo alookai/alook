@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect } from "react"
-import { usePathname, useRouter } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { useCommunityOnboarding } from "@/lib/community-onboarding"
@@ -10,6 +10,7 @@ import { ShellFrameView } from "./shell-frame-view"
 import { useShellRailController } from "./use-shell-rail-controller"
 import { useShellProfileController } from "./use-shell-profile-controller"
 import { useShellInboxController } from "./use-shell-inbox-controller"
+import { resolveMobileZone, withMobileZone } from "./mobile-zone"
 import type { ShellFrameProps } from "./shell-frame-types"
 
 /** Shared community shell orchestration for the server and DM layouts. */
@@ -17,39 +18,41 @@ export function ShellFrame(props: ShellFrameProps) {
   const {
     view,
     activeServerId,
-    mobileZone,
-    setMobileZone,
     sidebar,
     children,
     extraDialogs,
     onOpenActiveServerSettings,
     onOpenActiveServerInvite,
-    goHome,
-    goServer,
   } = props
   const router = useRouter()
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const queryClient = useQueryClient()
   const breakpoint = useBreakpoint()
   const onboardingState = useCommunityOnboarding()
+  const search = searchParams.toString()
+  const currentHref = search ? `${pathname}?${search}` : pathname
+  const mobileZone = resolveMobileZone(searchParams)
 
   useEffect(() => {
-    if (onboardingState?.status === "active") {
-      setMobileZone(onboardingState.stage === "server" ? "nav" : "messages")
-    }
-  }, [onboardingState, setMobileZone])
+    if (breakpoint !== "mobile" || onboardingState?.status !== "active") return
+    const browserHref = `${currentHref}${window.location.hash}`
+    const nextHref = withMobileZone(
+      browserHref,
+      onboardingState.stage === "server" ? "nav" : "messages",
+    )
+    if (nextHref !== browserHref) window.history.replaceState(null, "", nextHref)
+  }, [breakpoint, currentHref, onboardingState])
 
   const rail = useShellRailController({
     router,
-    pathname,
     queryClient,
+    breakpoint,
+    currentHref,
     view,
     activeServerId,
-    setMobileZone,
     onOpenActiveServerSettings,
     onOpenActiveServerInvite,
-    goHome,
-    goServer,
   })
   const profile = useShellProfileController({
     router,
@@ -63,10 +66,11 @@ export function ShellFrame(props: ShellFrameProps) {
     queryClient,
     cancelPendingNavigation: rail.cancelPendingNavigation,
   })
-  const goBackMobile = useCallback(
-    () => setMobileZone("nav"),
-    [setMobileZone],
-  )
+  const goBackMobile = useCallback(() => {
+    const browserHref = `${currentHref}${window.location.hash}`
+    const nextHref = withMobileZone(browserHref, "nav")
+    if (nextHref !== browserHref) window.history.replaceState(null, "", nextHref)
+  }, [currentHref])
 
   useEffect(() => {
     useCommunityStore.getState().registerUiHandlers({
