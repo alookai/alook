@@ -168,7 +168,10 @@ describe("useMessages jumpToPresent", () => {
     expect(resetSpy).toHaveBeenCalledTimes(1)
     expect(resetSpy).toHaveBeenCalledWith({ queryKey, exact: true })
     expect(apiFetchMock).toHaveBeenCalledTimes(1)
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/channel_1/messages")
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/community/channels/channel_1/messages",
+      { signal: expect.any(AbortSignal) },
+    )
     expect(latest.hasMoreNewer).toBe(false)
 
     act(() => latest.jumpToPresent())
@@ -383,7 +386,10 @@ describe("useDmMessages jumpToPresent", () => {
     expect(resetSpy).toHaveBeenCalledTimes(1)
     expect(resetSpy).toHaveBeenCalledWith({ queryKey, exact: true })
     expect(apiFetchMock).toHaveBeenCalledTimes(1)
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/dm_1/messages")
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/community/channels/dm_1/messages",
+      { signal: expect.any(AbortSignal) },
+    )
 
     update(
       renderer,

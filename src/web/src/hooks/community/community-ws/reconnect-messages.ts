@@ -198,6 +198,17 @@ export async function reconcileFocusedMessageQueries(
     type: "active",
   })
   const operations = queries.map(async (query) => {
+    // Infinite-query pagination computes its result from the data snapshot at
+    // fetch start. If that generation completes after reconciliation, TanStack
+    // can replace the reconciled cache with its stale snapshot. Capture the
+    // user's pagination intent, cancel that exact generation, then replay the
+    // same direction against the reconciled cache below.
+    const pendingDirection = query.state.fetchMeta?.fetchMore?.direction
+    await queryClient.cancelQueries(
+      { queryKey: query.queryKey, exact: true },
+      { revert: true, silent: true },
+    )
+
     const window = warmReconnectWindow(query.queryKey, query.state.data)
     if (!window) {
       // There is no painted history to protect. Delegate recovery to the
@@ -210,20 +221,28 @@ export async function reconcileFocusedMessageQueries(
       return
     }
 
-    const refreshed = await fetchCurrentWindow(
-      scopeId,
-      window.pageParam,
-      window.tag,
-    )
-    const catchUp = window.cursor !== null
-      && (refreshed.latestSeq ?? 0) > window.latestSeq
-      ? await fetchCatchUp(scopeId, window.cursor, window.tag)
-      : null
-    queryClient.setQueryData<MessageCache>(query.queryKey, (current) => (
-      isMessageCache(current)
-        ? mergeReconciledPages(current, refreshed, catchUp)
-        : current
-    ))
+    try {
+      const refreshed = await fetchCurrentWindow(
+        scopeId,
+        window.pageParam,
+        window.tag,
+      )
+      const catchUp = window.cursor !== null
+        && (refreshed.latestSeq ?? 0) > window.latestSeq
+        ? await fetchCatchUp(scopeId, window.cursor, window.tag)
+        : null
+      queryClient.setQueryData<MessageCache>(query.queryKey, (current) => (
+        isMessageCache(current)
+          ? mergeReconciledPages(current, refreshed, catchUp)
+          : current
+      ))
+    } finally {
+      if (pendingDirection) {
+        await query.fetch(undefined, {
+          meta: { fetchMore: { direction: pendingDirection } },
+        })
+      }
+    }
   })
   const settled = await Promise.allSettled(operations)
   if (settled.some((result) => result.status === "rejected")) {

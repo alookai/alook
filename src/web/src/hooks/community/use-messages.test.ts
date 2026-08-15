@@ -75,6 +75,22 @@ describe("channelMessagesQueryFn — url per mode", () => {
 })
 
 describe("channelMessagesQueryFn — queryClient integration", () => {
+  it("passes TanStack's AbortSignal to apiFetch", async () => {
+    const { channelMessagesQueryFn } = await loadHook()
+    const controller = new AbortController()
+    apiFetchMock.mockResolvedValueOnce({ messages: [], hasMore: false, latestSeq: 0 })
+
+    await channelMessagesQueryFn("ch_abort")({
+      pageParam: { mode: "newest" },
+      signal: controller.signal,
+    })
+
+    expect(apiFetchMock).toHaveBeenLastCalledWith(
+      "/api/community/channels/ch_abort/messages",
+      { signal: controller.signal },
+    )
+  })
+
   it("populates queryClient at communityKeys.channelMessages(channelId)", async () => {
     const { channelMessagesQueryFn } = await loadHook()
     apiFetchMock.mockResolvedValueOnce({ messages: [{ id: "m_1" }], hasMore: false })
@@ -104,6 +120,22 @@ describe("channelMessagesQueryFn — queryClient integration", () => {
 })
 
 describe("dmMessagesQueryFn", () => {
+  it("passes TanStack's AbortSignal to apiFetch", async () => {
+    const { dmMessagesQueryFn } = await loadHook()
+    const controller = new AbortController()
+    apiFetchMock.mockResolvedValueOnce({ messages: [], hasMore: false, latestSeq: 0 })
+
+    await dmMessagesQueryFn("dm_abort")({
+      pageParam: { mode: "newest" },
+      signal: controller.signal,
+    })
+
+    expect(apiFetchMock).toHaveBeenLastCalledWith(
+      "/api/community/channels/dm_abort/messages",
+      { signal: controller.signal },
+    )
+  })
+
   it("newest → no query params", async () => {
     const { dmMessagesQueryFn } = await loadHook()
     apiFetchMock.mockResolvedValueOnce({ messages: [], hasMore: false, latestSeq: 0 })

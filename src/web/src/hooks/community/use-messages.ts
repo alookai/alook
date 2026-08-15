@@ -67,18 +67,39 @@ function buildMessagesUrl(base: string, pageParam: MessagesPageParam, tag?: stri
 
 export const channelMessagesQueryFn =
   (channelId: string, tag?: string | null) =>
-  async ({ pageParam }: { pageParam: MessagesPageParam }): Promise<MessagesPage> => {
-    return apiFetch<MessagesPage>(
-      buildMessagesUrl(`/api/community/channels/${channelId}/messages`, pageParam, tag),
+  async ({
+    pageParam,
+    signal,
+  }: {
+    pageParam: MessagesPageParam
+    signal?: AbortSignal
+  }): Promise<MessagesPage> => {
+    const url = buildMessagesUrl(
+      `/api/community/channels/${channelId}/messages`,
+      pageParam,
+      tag,
     )
+    return signal
+      ? apiFetch<MessagesPage>(url, { signal })
+      : apiFetch<MessagesPage>(url)
   }
 
 export const dmMessagesQueryFn =
   (dmId: string) =>
-  async ({ pageParam }: { pageParam: MessagesPageParam }): Promise<MessagesPage> => {
-    return apiFetch<MessagesPage>(
-      buildMessagesUrl(`/api/community/channels/${dmId}/messages`, pageParam),
+  async ({
+    pageParam,
+    signal,
+  }: {
+    pageParam: MessagesPageParam
+    signal?: AbortSignal
+  }): Promise<MessagesPage> => {
+    const url = buildMessagesUrl(
+      `/api/community/channels/${dmId}/messages`,
+      pageParam,
     )
+    return signal
+      ? apiFetch<MessagesPage>(url, { signal })
+      : apiFetch<MessagesPage>(url)
   }
 
 export function messageMatchesTag(message: Msg, tag?: string | null): boolean {
@@ -198,7 +219,10 @@ type PresentOverride = {
 function useMessagesInner(
   scopeId: string | null,
   queryKey: readonly unknown[],
-  queryFn: ({ pageParam }: { pageParam: MessagesPageParam }) => Promise<MessagesPage>,
+  queryFn: (context: {
+    pageParam: MessagesPageParam
+    signal?: AbortSignal
+  }) => Promise<MessagesPage>,
   opts: MessagesOpts | undefined,
 ): MessagesReturn {
   const queryClient = useQueryClient()

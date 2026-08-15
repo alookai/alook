@@ -81,6 +81,121 @@ beforeEach(() => {
 })
 
 describe("focused message reconnect catch-up", () => {
+  it("cancels and replays an in-flight older-page fetch so neither side overwrites the other", async () => {
+    const queryClient = new QueryClient()
+    const queryKey = communityKeys.channelMessages("ch_race")
+    let resolveStaleOlder!: (page: {
+      messages: Array<Record<string, unknown>>
+      hasMore: boolean
+      latestSeq: number
+    }) => void
+    const staleOlder = new Promise<{
+      messages: Array<Record<string, unknown>>
+      hasMore: boolean
+      latestSeq: number
+    }>((resolve) => {
+      resolveStaleOlder = resolve
+    })
+    const olderSignals: AbortSignal[] = []
+    let olderCallCount = 0
+    const queryFn = vi.fn(async ({
+      pageParam,
+      signal,
+    }: {
+      pageParam: { mode: string }
+      signal: AbortSignal
+    }) => {
+      if (pageParam.mode === "newest") {
+        return {
+          messages: [{
+            id: "m_2",
+            type: "chat",
+            seq: 2,
+            createdAt: "2026-08-15T00:00:02.000Z",
+          }],
+          hasMore: true,
+          cursor: "older-2",
+          latestSeq: 2,
+        }
+      }
+      olderCallCount += 1
+      olderSignals.push(signal)
+      if (olderCallCount === 1) return staleOlder
+      return {
+        messages: [{
+          id: "m_1",
+          type: "chat",
+          seq: 1,
+          createdAt: "2026-08-15T00:00:01.000Z",
+        }],
+        hasMore: false,
+        latestSeq: 3,
+      }
+    })
+    const observer = new InfiniteQueryObserver(queryClient, {
+      queryKey,
+      queryFn,
+      initialPageParam: { mode: "newest" } as const,
+      getNextPageParam: (last) => last.hasMore && last.cursor
+        ? { mode: "older" as const, cursor: last.cursor }
+        : undefined,
+    })
+    const unsubscribe = observer.subscribe(() => undefined)
+    await vi.waitFor(() => {
+      expect(observer.getCurrentResult().isSuccess).toBe(true)
+    })
+    const pendingOlder = observer.fetchNextPage()
+    await vi.waitFor(() => {
+      expect(olderCallCount).toBe(1)
+    })
+    apiFetchMock
+      .mockResolvedValueOnce({
+        messages: [{
+          id: "m_2",
+          type: "chat",
+          seq: 2,
+          createdAt: "2026-08-15T00:00:02.000Z",
+        }, {
+          id: "m_3",
+          type: "chat",
+          seq: 3,
+          createdAt: "2026-08-15T00:00:03.000Z",
+        }],
+        hasMore: true,
+        cursor: "older-2",
+        latestSeq: 3,
+      })
+      .mockResolvedValueOnce({
+        messages: [{
+          id: "m_3",
+          type: "chat",
+          seq: 3,
+          createdAt: "2026-08-15T00:00:03.000Z",
+        }],
+        hasMoreNewer: false,
+        latestSeq: 3,
+      })
+
+    await reconcileFocusedMessageQueries(queryClient, "channel", "ch_race")
+    resolveStaleOlder({
+      messages: [{ id: "stale_m_1" }],
+      hasMore: false,
+      latestSeq: 2,
+    })
+    await pendingOlder
+
+    expect(olderSignals[0]?.aborted).toBe(true)
+    expect(olderCallCount).toBe(2)
+    expect(queryClient.getQueryData<{
+      pages: Array<{ messages: Array<{ id: string }> }>
+    }>(queryKey)?.pages.flatMap((page) => page.messages.map((message) => message.id))).toEqual([
+      "m_2",
+      "m_3",
+      "m_1",
+    ])
+    unsubscribe()
+  })
+
   it.each([
     ["channel", communityKeys.channelMessages("ch_empty"), "ch_empty"],
     ["dm", communityKeys.dmMessages("dm_empty"), "dm_empty"],
