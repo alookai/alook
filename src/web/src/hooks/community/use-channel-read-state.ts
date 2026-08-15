@@ -51,9 +51,10 @@ export function useChannelReadStateSnapshot(channelId: string | null | undefined
     queryKey: channelId
       ? communityKeys.channelReadStateSnapshot(channelId)
       : ["community", "channel", "__none__", "read-state-snapshot"],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       return apiFetch<ChannelReadStateSnapshot>(
         `/api/community/channels/${channelId}/read-state`,
+        { signal },
       )
     },
     enabled: !!channelId,

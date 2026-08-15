@@ -1,6 +1,7 @@
 "use client"
 
 import { useQuery } from "@tanstack/react-query"
+import { useEffect, useState } from "react"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type {
@@ -40,12 +41,14 @@ function projectChildMeta(payload: ChannelMetaPayload, verifiedEpoch: number): C
   }
 }
 
-export function isChildChannelMetaVerified(
+export function pickRenderableChildMeta(
   meta: ChildChannelMeta | undefined,
+  trusted: ChildChannelMeta | undefined,
   accessEpoch: number,
-  accessConnected: boolean,
-) {
-  return !!meta && accessConnected && meta.verifiedEpoch === accessEpoch && !meta.archived
+): ChildChannelMeta | undefined {
+  if (meta?.verifiedEpoch === accessEpoch) return meta.archived ? undefined : meta
+  if (trusted?.id === meta?.id || !meta) return trusted?.archived ? undefined : trusted
+  return undefined
 }
 
 export function useChildChannelMeta(
@@ -54,7 +57,6 @@ export function useChildChannelMeta(
   enabled: boolean,
 ) {
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
-  const accessConnected = useCommunityWsStore((state) => state.accessConnected)
   const sidebar = useQuery<ForumSidebarQueryData>({
     queryKey: communityKeys.forumSidebarThreads(serverId),
     queryFn: () => Promise.reject(new Error("forum sidebar observer only")),
@@ -75,8 +77,19 @@ export function useChildChannelMeta(
     staleTime: Infinity,
     gcTime: 5 * 60 * 1000,
   })
+  const [trusted, setTrusted] = useState<{
+    channelId: string
+    meta: ChildChannelMeta
+  } | null>(null)
+  useEffect(() => {
+    if (query.data?.verifiedEpoch !== accessEpoch) return
+    setTrusted(query.data.archived ? null : { channelId, meta: query.data })
+  }, [accessEpoch, channelId, query.data])
+  const trustedMeta = trusted?.channelId === channelId ? trusted.meta : undefined
+  const renderable = pickRenderableChildMeta(query.data, trustedMeta, accessEpoch)
   return {
     ...query,
-    isVerified: isChildChannelMetaVerified(query.data, accessEpoch, accessConnected),
+    data: renderable,
+    isVerified: !!renderable,
   }
 }

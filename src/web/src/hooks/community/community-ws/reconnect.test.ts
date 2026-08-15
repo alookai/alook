@@ -26,6 +26,10 @@ vi.mock("@/lib/analytics", async () => {
 beforeEach(resetCommunityWsHarness)
 afterEach(cleanupCommunityWsHarness)
 
+async function flushMicrotasks(iterations = 12) {
+  for (let index = 0; index < iterations; index += 1) await Promise.resolve()
+}
+
 describe("useCommunityWs — resyncs machines on WS reconnect", () => {
   it("invalidates communityKeys.machines() when the captured onReconnect fires", async () => {
     await mountHook()
@@ -167,7 +171,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     ).toBe(true)
   })
 
-  it("drops every inactive retained/meta/hint access result before reconnect validation", async () => {
+  it("keeps inactive retained/meta/hint data painted while marking it stale", async () => {
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")
     useCommunityStore.getState().setCurrentServerId("srv_open")
@@ -190,15 +194,18 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
 
     await capturedOnReconnect!({ reconnectDurationMs: 0 })
 
-    expect(capturedQueryClient.getQueriesData({
-      queryKey: communityKeys.forumSidebarRetainedRoot("srv_open"),
-    })).toEqual([])
-    expect(capturedQueryClient.getQueriesData({
-      queryKey: communityKeys.channelMetaRoot("srv_open"),
-    })).toEqual([])
-    expect(capturedQueryClient.getQueriesData({
-      queryKey: communityKeys.forumOpenerHintRoot("srv_open"),
-    })).toEqual([])
+    expect(capturedQueryClient.getQueryData(
+      communityKeys.forumSidebarRetained("srv_open", "post-a"),
+    )).toEqual({ id: "post-a" })
+    expect(capturedQueryClient.getQueryData(
+      communityKeys.channelMeta("srv_open", "post-a"),
+    )).toEqual({ id: "post-a", verifiedEpoch: 0 })
+    expect(capturedQueryClient.getQueryData(
+      communityKeys.forumOpenerHint("srv_open", "opener-a"),
+    )).toEqual({ id: "opener-a", content: "private title" })
+    expect(capturedQueryClient.getQueryState(
+      communityKeys.channelMeta("srv_open", "post-a"),
+    )?.isInvalidated).toBe(true)
   })
 
   it("reconciles the focused DM's messages on reconnect, but NOT its read-state snapshot", async () => {
@@ -296,18 +303,15 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       ]) {
         expect(calls).toContainEqual({ queryKey, exact: true, refetchType: "active" })
       }
-      expect(capturedQueryClient.getQueryState(
+      for (const queryKey of [
         communityKeys.forumSidebarRetained(serverId, "child"),
-      )).toBeUndefined()
-      expect(capturedQueryClient.getQueryState(
         communityKeys.channelMeta(serverId, "child"),
-      )).toBeUndefined()
-      expect(capturedQueryClient.getQueryState(
         communityKeys.forumOpenerHint(serverId, "opener"),
-      )).toBeUndefined()
-      expect(capturedQueryClient.getQueryState(
         communityKeys.forumSidebarUnreadFallbacks(serverId),
-      )).toBeUndefined()
+      ]) {
+        expect(capturedQueryClient.getQueryData(queryKey)).toEqual({})
+        expect(capturedQueryClient.getQueryState(queryKey)?.isInvalidated).toBe(true)
+      }
     }
     expect(calls.some(({ queryKey }) => queryKey?.includes("__none__"))).toBe(false)
     expect(calls.some(({ queryKey }) => queryKey?.includes("srv_ghost"))).toBe(false)
@@ -403,6 +407,72 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     expect(order.indexOf("authoritative-invalidate")).toBeGreaterThan(1)
   })
 
+  it("waits for focused route reconciliation before starting background domains", async () => {
+    const { reconcileCommunityWsReconnect } = await import("./reconnect")
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "ch_priority" })
+    let releaseMembers!: () => void
+    let releaseAddable!: () => void
+    const members = new Promise<void>((resolve) => { releaseMembers = resolve })
+    const addable = new Promise<void>((resolve) => { releaseAddable = resolve })
+    const started: string[] = []
+    const originalInvalidate = capturedQueryClient.invalidateQueries.bind(capturedQueryClient)
+    vi.spyOn(capturedQueryClient, "invalidateQueries").mockImplementation((filters, options) => {
+      const key = JSON.stringify(filters.queryKey)
+      started.push(key)
+      if (key === JSON.stringify(communityKeys.channelMembers("ch_priority"))) return members
+      if (key === JSON.stringify(communityKeys.channelAddableMembers("ch_priority"))) return addable
+      return originalInvalidate(filters, options)
+    })
+
+    const work = reconcileCommunityWsReconnect(capturedQueryClient)
+    await flushMicrotasks()
+    expect(started).toContain(JSON.stringify(communityKeys.channelMembers("ch_priority")))
+    expect(started).not.toContain(JSON.stringify(communityKeys.inbox()))
+
+    releaseMembers()
+    releaseAddable()
+    await work
+    expect(started).toContain(JSON.stringify(communityKeys.inbox()))
+  })
+
+  it("limits background reconciliation to three policies at a time", async () => {
+    const { reconcileCommunityWsReconnect } = await import("./reconnect")
+    const gates = new Map<string, { promise: Promise<void>; resolve: () => void }>()
+    const started: string[] = []
+    vi.spyOn(capturedQueryClient, "invalidateQueries").mockImplementation((filters) => {
+      const key = JSON.stringify(filters.queryKey)
+      started.push(key)
+      let resolve!: () => void
+      const promise = new Promise<void>((done) => { resolve = done })
+      gates.set(key, { promise, resolve })
+      return promise
+    })
+
+    const work = reconcileCommunityWsReconnect(capturedQueryClient)
+    await flushMicrotasks()
+    expect(started).toEqual(expect.arrayContaining([
+      JSON.stringify(communityKeys.inbox()),
+      JSON.stringify(communityKeys.dms()),
+      JSON.stringify(communityKeys.friends()),
+      JSON.stringify(communityKeys.servers()),
+    ]))
+    expect(started).not.toContain(JSON.stringify(communityKeys.machines()))
+    expect(started).not.toContain(JSON.stringify([...communityKeys.all, "bot"]))
+
+    gates.get(JSON.stringify(communityKeys.friends()))!.resolve()
+    await flushMicrotasks()
+    expect(started).toContain(JSON.stringify(communityKeys.machines()))
+    expect(started).not.toContain(JSON.stringify([...communityKeys.all, "bot"]))
+
+    gates.get(JSON.stringify(communityKeys.machines()))!.resolve()
+    await flushMicrotasks()
+    expect(started).toContain(JSON.stringify([...communityKeys.all, "bot"]))
+
+    for (const gate of gates.values()) gate.resolve()
+    await work
+  })
+
   it("refetches an active focused addable-members picker after a socket gap", async () => {
     const { reconcileCommunityWsReconnect } = await import("./reconnect")
     const { useCommunityStore } = await import("@/stores/community")
@@ -482,12 +552,14 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       expect(queryClient.getQueryData(queryKey)).toMatchObject({ version: 2 })
       expect(fetches.get(JSON.stringify(queryKey))).toBe(2)
     }
-    expect(queryClient.getQueriesData({
-      queryKey: communityKeys.forumSidebarRetainedRoot("srv_b"),
-    })).toEqual([])
-    expect(queryClient.getQueriesData({ queryKey: communityKeys.channelMetaRoot("srv_b") })).toEqual([])
-    expect(queryClient.getQueriesData({ queryKey: communityKeys.forumOpenerHintRoot("srv_b") })).toEqual([])
-    expect(queryClient.getQueryState(communityKeys.forumSidebarUnreadFallbacks("srv_b"))).toBeUndefined()
+    for (const queryKey of [
+      communityKeys.forumSidebarRetained("srv_b", "private-child"),
+      communityKeys.channelMeta("srv_b", "private-child"),
+      communityKeys.forumOpenerHint("srv_b", "private-opener"),
+      communityKeys.forumSidebarUnreadFallbacks("srv_b"),
+    ]) {
+      expect(queryClient.getQueryState(queryKey)?.isInvalidated).toBe(true)
+    }
     unsubscribes.forEach((unsubscribe) => unsubscribe())
     queryClient.clear()
   })

@@ -860,6 +860,33 @@ describe("forum sidebar Stage B resources", () => {
     renderer!.unmount()
   })
 
+  it("keeps an already-rendered sidebar snapshot visible while WS is disconnected", async () => {
+    apiFetchMock.mockResolvedValue(envelope(["base-1"]))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const renders: string[][] = []
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(
+        React.createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          React.createElement(Capture, {
+            retainId: null,
+            onRender: (ids) => renders.push(ids),
+          }),
+        ),
+      )
+    })
+    await waitFor(() => renders.at(-1)?.includes("base-1") === true)
+
+    await act(async () => {
+      useCommunityWsStore.getState().markAccessDisconnected()
+    })
+
+    expect(renders.at(-1)).toEqual(["base-1"])
+    renderer.unmount()
+  })
+
   it("replays a title patch that lands while the canonical request is in flight", async () => {
     let resolveRequest: ((value: SidebarThreadEnvelope) => void) | undefined
     apiFetchMock.mockImplementation(() => new Promise((resolve) => { resolveRequest = resolve }))

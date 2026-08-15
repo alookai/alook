@@ -108,7 +108,7 @@ async function renderController() {
     prefetch: vi.fn(),
   }
   const cancelPendingNavigation = vi.fn()
-  const queryClient = { fetchQuery: mocks.fetchQuery }
+  const queryClient = { fetchQuery: mocks.fetchQuery, clear: vi.fn() }
   let current!: Result
   let renderer!: TestRenderer.ReactTestRenderer
   await act(async () => {
@@ -123,7 +123,7 @@ async function renderController() {
       onResult: (result) => { current = result },
     }))
   })
-  return { get current() { return current }, renderer, router, pushed, cancelPendingNavigation }
+  return { get current() { return current }, renderer, router, pushed, cancelPendingNavigation, queryClient }
 }
 
 function deferred<T>() {
@@ -280,11 +280,12 @@ describe("useShellProfileController", () => {
     mocks.communityReset.mockImplementation(() => { order.push("community") })
     mocks.wsReset.mockImplementation(() => { order.push("ws") })
     mocks.streamReset.mockImplementation(() => { order.push("stream") })
+    hook.queryClient.clear.mockImplementation(() => { order.push("query") })
     mocks.clearCache.mockImplementation(async () => { order.push("cache"); throw new Error("cache") })
     mocks.signOut.mockImplementation(async () => { order.push("signOut") })
     hook.router.push = (href: string) => { order.push(`push:${href}`) }
     await act(async () => hook.current.userSettingsProps.onLogout())
-    expect(order).toEqual(["cancel", "community", "ws", "stream", "cache", "signOut", "push:/sign-in"])
+    expect(order).toEqual(["cancel", "community", "ws", "stream", "query", "cache", "signOut", "push:/sign-in"])
 
     order.length = 0
     mocks.clearCache.mockResolvedValue(undefined)

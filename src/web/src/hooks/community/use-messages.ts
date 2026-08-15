@@ -201,6 +201,12 @@ type MessagesOpts = {
    * read snapshot resolves must NOT leave the query disabled.
    */
   anchorMessageId?: string | null
+  /**
+   * Default true preserves anchor-first consumers. Channel first paint sets
+   * false so newest messages and read-state load independently; a late read
+   * pointer is reconciled by the existing anchor-repair effect.
+   */
+  waitForAnchor?: boolean
 }
 
 type ChannelMessagesOpts = MessagesOpts & {
@@ -232,8 +238,9 @@ function useMessagesInner(
   // (currently DM) pass `null` explicitly. An explicit `anchorMessageId`
   // (jump target) satisfies the gate on its own — a jump must not wait on the
   // read snapshot.
-  const anchorResolved =
-    opts?.anchorMessageId != null || opts?.lastReadMessageId !== undefined
+  const anchorResolved = opts?.waitForAnchor === false
+    || opts?.anchorMessageId != null
+    || opts?.lastReadMessageId !== undefined
   // Jump target wins over the read pointer for the initial anchor window.
   const anchorId = opts?.anchorMessageId ?? opts?.lastReadMessageId ?? null
   const enabled = !!scopeId && anchorResolved

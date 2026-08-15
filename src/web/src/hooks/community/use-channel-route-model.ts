@@ -81,18 +81,18 @@ export function useChannelRouteModel(serverId: string, serverParam: string, chan
       useCommunityStore.getState().setCurrentChannelMeta(null)
       return
     }
-    if (metaQuery.data && metaQuery.isVerified) {
-      useCommunityStore.getState().setCurrentChannelMeta(metaQuery.data)
-    } else if (metaQuery.error || metaQuery.data?.archived) {
+    const denied = isDefinitiveChildMetaFailure(metaQuery.error)
+    if (denied || metaQuery.data?.archived) {
       useCommunityStore.getState().setCurrentChannelMeta(null)
-      if (metaQuery.data?.archived || isDefinitiveChildMetaFailure(metaQuery.error)) {
-        removeForumSidebarUnreadChild(queryClient, serverId, channelId)
-        removeForumSidebarThreadExact(queryClient, serverId, channelId)
-        if (getLastChannel(serverId) === channelId) clearLastChannel(serverId)
-        router.replace(`/c/channels/${serverParam}`)
-      } else {
-        toastApiError(metaQuery.error, "Failed to load thread")
-      }
+      removeForumSidebarUnreadChild(queryClient, serverId, channelId)
+      removeForumSidebarThreadExact(queryClient, serverId, channelId)
+      if (getLastChannel(serverId) === channelId) clearLastChannel(serverId)
+      router.replace(`/c/channels/${serverParam}`)
+    } else if (metaQuery.data && metaQuery.isVerified) {
+      useCommunityStore.getState().setCurrentChannelMeta(metaQuery.data)
+    } else if (metaQuery.error) {
+      useCommunityStore.getState().setCurrentChannelMeta(null)
+      toastApiError(metaQuery.error, "Failed to load thread")
     }
   }, [channelId, isChild, metaQuery.data, metaQuery.error, metaQuery.isVerified, queryClient, router, serverId, serverParam])
   return model

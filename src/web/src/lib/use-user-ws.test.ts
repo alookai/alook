@@ -4,8 +4,13 @@ import type { UseUserWsOptions } from "./use-user-ws"
 
 // --- Mock WebSocket ---
 class MockWebSocket {
+  static CONNECTING = 0
+  static OPEN = 1
+  static CLOSING = 2
+  static CLOSED = 3
   static instances: MockWebSocket[] = []
   url: string
+  readyState = MockWebSocket.CONNECTING
   onopen: (() => void) | null = null
   onmessage: ((e: { data: string }) => void) | null = null
   onerror: (() => void) | null = null
@@ -18,16 +23,39 @@ class MockWebSocket {
     MockWebSocket.instances.push(this)
   }
   send(data: string) { this.sent.push(data) }
-  close() { this.closed = true; this.onclose?.() }
+  close() { this.closed = true; this.readyState = MockWebSocket.CLOSED; this.onclose?.() }
 
   // Helpers for tests
-  simulateOpen() { this.onopen?.() }
+  simulateOpen() { this.readyState = MockWebSocket.OPEN; this.onopen?.() }
   simulateMessage(data: unknown) { this.onmessage?.({ data: JSON.stringify(data) }) }
   simulateRawMessage(data: string) { this.onmessage?.({ data }) }
-  simulateClose() { this.onclose?.() }
+  simulateClose() { this.readyState = MockWebSocket.CLOSED; this.onclose?.() }
 }
 
 vi.stubGlobal("WebSocket", MockWebSocket)
+
+class MockEventTarget {
+  listeners = new Map<string, Set<() => void>>()
+  addEventListener(type: string, listener: () => void) {
+    const listeners = this.listeners.get(type) ?? new Set<() => void>()
+    listeners.add(listener)
+    this.listeners.set(type, listeners)
+  }
+  removeEventListener(type: string, listener: () => void) {
+    this.listeners.get(type)?.delete(listener)
+  }
+  dispatch(type: string) {
+    for (const listener of this.listeners.get(type) ?? []) listener()
+  }
+  reset() {
+    this.listeners.clear()
+  }
+}
+
+const mockDocument = Object.assign(new MockEventTarget(), { visibilityState: "visible" })
+const mockWindow = Object.assign(new MockEventTarget(), { location: { origin: "http://localhost:3000" } })
+vi.stubGlobal("document", mockDocument)
+vi.stubGlobal("window", mockWindow)
 
 // Mock fetch for /api/ws/token
 const mockFetch = vi.fn()
@@ -124,6 +152,9 @@ function resetMockState() {
   callbackCounter = 0
   effectMemo = new Map()
   effectCounter = 0
+  mockDocument.visibilityState = "visible"
+  mockDocument.reset()
+  mockWindow.reset()
 }
 
 describe("useUserWs", () => {
@@ -144,7 +175,7 @@ describe("useUserWs", () => {
     const mod = await import("./use-user-ws")
     mod.useUserWs(onMessage, options)
     // Wait for async connect to complete
-    await vi.runAllTimersAsync()
+    await flushPromises()
     return mod
   }
 
@@ -275,7 +306,7 @@ describe("useUserWs", () => {
 
     const onMsg = vi.fn()
     await mountHook(onMsg)
-    await vi.runAllTimersAsync()
+    await flushPromises()
 
     const ws = MockWebSocket.instances[0]
     expect(ws).toBeDefined()
@@ -299,7 +330,7 @@ describe("useUserWs", () => {
 
     const cb1 = vi.fn()
     await mountHook(cb1)
-    await vi.runAllTimersAsync()
+    await flushPromises()
 
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
@@ -327,7 +358,7 @@ describe("useUserWs", () => {
 
     const onMsg = vi.fn()
     await mountHook(onMsg)
-    await vi.runAllTimersAsync()
+    await flushPromises()
 
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
@@ -343,6 +374,111 @@ describe("useUserWs", () => {
 
     // A new connection should have been attempted
     expect(MockWebSocket.instances.length).toBeGreaterThan(instancesBefore)
+  })
+
+  it("passes an AbortSignal to the token fetch and aborts it at the hard timeout", async () => {
+    mockFetch.mockImplementation((_url: string, init?: RequestInit) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => {
+        const error = new Error("aborted")
+        error.name = "AbortError"
+        reject(error)
+      })
+    }))
+
+    const mod = await import("./use-user-ws")
+    mod.useUserWs(vi.fn())
+    const signal = (mockFetch.mock.calls[0]?.[1] as RequestInit | undefined)?.signal
+
+    expect(signal).toBeInstanceOf(AbortSignal)
+    expect(signal?.aborted).toBe(false)
+    await vi.advanceTimersByTimeAsync(10_000)
+    await flushPromises()
+    expect(signal?.aborted).toBe(true)
+
+    effectCleanup?.()
+  })
+
+  it("suppresses reconnect while hidden and reconnects immediately when visible", async () => {
+    setupTokenFetch()
+    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const first = MockWebSocket.instances[0]!
+    first.simulateOpen()
+    first.simulateMessage({ type: "auth.ok" })
+
+    mockDocument.visibilityState = "hidden"
+    mockDocument.dispatch("visibilitychange")
+    first.simulateClose()
+    const fetchesWhileHidden = mockFetch.mock.calls.length
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(mockFetch).toHaveBeenCalledTimes(fetchesWhileHidden)
+
+    mockDocument.visibilityState = "visible"
+    mockDocument.dispatch("visibilitychange")
+    await flushPromises()
+
+    expect(mockFetch.mock.calls.length).toBe(fetchesWhileHidden + 1)
+    expect(MockWebSocket.instances).toHaveLength(2)
+  })
+
+  it("keeps a fresh authenticated socket across pageshow and online", async () => {
+    setupTokenFetch()
+    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+    const fetchCount = mockFetch.mock.calls.length
+
+    mockWindow.dispatch("pageshow")
+    mockWindow.dispatch("online")
+    await flushPromises()
+
+    expect(mockFetch).toHaveBeenCalledTimes(fetchCount)
+    expect(MockWebSocket.instances).toEqual([ws])
+    expect(ws.closed).toBe(false)
+  })
+
+  it("keeps cached UI ownership but replaces a stale authenticated socket on foreground", async () => {
+    setupTokenFetch()
+    const onDisconnect = vi.fn()
+    await mountHook(vi.fn(), { onDisconnect, requestDaemonStatusOnAuth: false })
+    const first = MockWebSocket.instances[0]!
+    first.simulateOpen()
+    first.simulateMessage({ type: "auth.ok" })
+
+    vi.setSystemTime(Date.now() + 31_000)
+    mockWindow.dispatch("pageshow")
+    await flushPromises()
+
+    expect(onDisconnect).toHaveBeenCalledTimes(1)
+    expect(first.closed).toBe(true)
+    expect(MockWebSocket.instances).toHaveLength(2)
+  })
+
+  it("coalesces visible, pageshow, and online while one replacement token request is pending", async () => {
+    setupTokenFetch()
+    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const first = MockWebSocket.instances[0]!
+    first.simulateOpen()
+    first.simulateMessage({ type: "auth.ok" })
+
+    mockDocument.visibilityState = "hidden"
+    mockDocument.dispatch("visibilitychange")
+    first.simulateClose()
+
+    const replacement = deferred<Response>()
+    mockFetch.mockReturnValueOnce(replacement.promise)
+    mockDocument.visibilityState = "visible"
+    mockDocument.dispatch("visibilitychange")
+    mockWindow.dispatch("pageshow")
+    mockWindow.dispatch("online")
+
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+    replacement.resolve({
+      ok: true,
+      json: () => Promise.resolve({ userId: "user-1", token: "tok-456" }),
+    } as Response)
+    await flushPromises()
+    expect(MockWebSocket.instances).toHaveLength(2)
   })
 
   it("failed connect (fetch rejects) retries with backoff and cleanup prevents further reconnects", async () => {
@@ -376,7 +512,7 @@ describe("useUserWs", () => {
     const onMsg = vi.fn()
     const mod = await import("./use-user-ws")
     const { send } = mod.useUserWs(onMsg)
-    await vi.runAllTimersAsync()
+    await flushPromises()
 
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
@@ -403,7 +539,7 @@ describe("useUserWs", () => {
 
     const onMsg = vi.fn()
     await mountHook(onMsg)
-    await vi.runAllTimersAsync()
+    await flushPromises()
 
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
@@ -585,6 +721,7 @@ describe("useUserWs", () => {
     await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
     warn.mockClear()
 
     await vi.advanceTimersByTimeAsync(29_000)

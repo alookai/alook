@@ -21,7 +21,6 @@ import {
 import { getLastChannel, pickServerLandingHref } from "@/lib/community/last-channel"
 import { getLastMeLeaf, pickMeLandingLocation } from "@/lib/community/last-me-location"
 import {
-  commitLatestNavigationIntent,
   createNavigationIntentGate,
   supersedeNavigationIntent,
 } from "@/lib/community/navigation-intent"
@@ -120,12 +119,9 @@ export function useShellRailController({
 
   const onServerNavigate = useCallback((id: string) => {
     markSwitch("server", id)
-    void commitLatestNavigationIntent(
-      navigationGateRef.current,
-      () => resolveServerDestination(id),
-      (destination) => pushIfChanged(paneHref(destination, "nav")),
-    )
-  }, [paneHref, pushIfChanged, resolveServerDestination])
+    cancelPendingNavigation()
+    pushIfChanged(paneHref(serverDestination(id), "nav"))
+  }, [cancelPendingNavigation, paneHref, pushIfChanged, serverDestination])
   const onHome = useCallback(() => {
     cancelPendingNavigation()
     pushIfChanged(paneHref(pickMeLandingLocation(getLastMeLeaf()), "nav"))
@@ -232,12 +228,9 @@ export function useShellRailController({
       pushIfChanged(paneHref(`/c/channels/${serverId}/${channelId}`, "messages"))
       return
     }
-    void commitLatestNavigationIntent(
-      navigationGateRef.current,
-      () => resolveServerDestination(serverId),
-      (destination) => pushIfChanged(paneHref(destination, "messages")),
-    )
-  }, [cancelPendingNavigation, paneHref, pushIfChanged, resolveServerDestination])
+    cancelPendingNavigation()
+    pushIfChanged(paneHref(serverDestination(serverId), "messages"))
+  }, [cancelPendingNavigation, paneHref, pushIfChanged, serverDestination])
 
   return {
     railProps: {

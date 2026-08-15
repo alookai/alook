@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
@@ -903,7 +903,6 @@ export function useForumSidebarThreads(
 ) {
   const queryClient = useQueryClient()
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
-  const accessConnected = useCommunityWsStore((state) => state.accessConnected)
   const previousRetainId = useRef(retainId)
   // Observe (without fetching) the already-canonical ServerDetail cache so a
   // fresh `/unreads` result re-runs attribution even when the sidebar rows did
@@ -971,12 +970,22 @@ export function useForumSidebarThreads(
       return normalized.retained
     },
   })
-  const baseIsVerified = accessConnected && query.data?.verifiedEpoch === accessEpoch
+  const [trustedBase, setTrustedBase] = useState<{
+    serverId: string
+    data: ForumSidebarQueryData
+  } | null>(null)
+  useEffect(() => {
+    if (query.data?.verifiedEpoch !== accessEpoch) return
+    setTrustedBase({ serverId, data: query.data })
+  }, [accessEpoch, query.data, serverId])
+  const renderableBase = query.data?.verifiedEpoch === accessEpoch
+    ? query.data
+    : trustedBase?.serverId === serverId ? trustedBase.data : undefined
   const projection = useMemo(() => deriveForumSidebarProjection(
-    baseIsVerified ? query.data : undefined,
-    baseIsVerified ? retainedQuery.data : null,
+    renderableBase,
+    renderableBase ? retainedQuery.data : null,
     serverDetailQuery.data?.forumUnreadState,
-  ), [baseIsVerified, query.data, retainedQuery.data, serverDetailQuery.data?.forumUnreadState])
+  ), [renderableBase, retainedQuery.data, serverDetailQuery.data?.forumUnreadState])
 
   useEffect(() => {
     if (!query.data) return

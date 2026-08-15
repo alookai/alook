@@ -47,6 +47,19 @@ function ChannelCapture({ lastReadMessageId, onRender }: {
   return null
 }
 
+function IndependentChannelCapture({ lastReadMessageId, onRender }: {
+  lastReadMessageId: string | null | undefined
+  onRender: (snapshot: Snapshot) => void
+}) {
+  const result = useMessages("ch_activation", {
+    serverId: "server_1",
+    lastReadMessageId,
+    waitForAnchor: false,
+  })
+  onRender({ ids: result.messages.map((message) => message.id), isFetching: result.isFetching })
+  return null
+}
+
 function renderCapture(
   queryClient: QueryClient,
   element: React.ReactElement,
@@ -78,6 +91,60 @@ beforeEach(() => {
 })
 
 describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
+  it("starts newest messages without waiting for read-state, then repairs a late anchor", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const newest = deferred<MessagesPage>()
+    apiFetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("?anchor=m_read")) {
+        return Promise.resolve({
+          messages: [{ id: "m_read", seq: 2, createdAt: "2026-08-09T00:00:02.000Z" }],
+          hasMoreOlder: true,
+          hasMoreNewer: true,
+          latestSeq: 3,
+        })
+      }
+      return newest.promise
+    })
+    const snapshots: Snapshot[] = []
+    const onRender = (snapshot: Snapshot) => { snapshots.push(snapshot) }
+
+    const renderer = renderCapture(
+      queryClient,
+      React.createElement(IndependentChannelCapture, {
+        lastReadMessageId: undefined,
+        onRender,
+      }),
+    )
+
+    await waitFor(() => apiFetchMock.mock.calls.length === 1)
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/community/channels/ch_activation/messages",
+      { signal: expect.any(AbortSignal) },
+    )
+
+    newest.resolve({
+      messages: [{ id: "m_new", seq: 3, createdAt: "2026-08-09T00:00:03.000Z" }],
+      hasMore: true,
+      cursor: "older",
+      latestSeq: 3,
+    })
+    await waitFor(() => snapshots.at(-1)?.ids.includes("m_new") === true)
+
+    updateCapture(
+      renderer,
+      queryClient,
+      React.createElement(IndependentChannelCapture, {
+        lastReadMessageId: "m_read",
+        onRender,
+      }),
+    )
+    await waitFor(() => apiFetchMock.mock.calls.some(
+      ([url]) => url === "/api/community/channels/ch_activation/messages?anchor=m_read",
+    ))
+    await waitFor(() => snapshots.at(-1)?.ids.includes("m_read") === true)
+    renderer.unmount()
+  })
+
   it("leaves browser network reconnect reconciliation to the bounded WS path", () => {
     const queryClient = new QueryClient()
     queryClient.setQueryData(communityKeys.dmMessages("dm_activation"), {
