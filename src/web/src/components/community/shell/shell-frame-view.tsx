@@ -14,13 +14,15 @@ import {
   desktopUserBarOverlayWidth,
 } from "./shell-frame-geometry"
 import type { Breakpoint } from "@/hooks/use-mobile"
+import type { MobileZone } from "./mobile-zone"
 import type { ShellFrameProps } from "./shell-frame-types"
 import type { useShellRailController } from "./use-shell-rail-controller"
 import type { useShellProfileController } from "./use-shell-profile-controller"
 import type { useShellInboxController } from "./use-shell-inbox-controller"
 
-type Props = Pick<ShellFrameProps, "mobileZone" | "sidebar" | "children" | "extraDialogs"> & {
+type Props = Pick<ShellFrameProps, "sidebar" | "children" | "extraDialogs"> & {
   breakpoint: Breakpoint
+  mobileZone: MobileZone
   cancelPendingNavigation: () => void
   rail: ReturnType<typeof useShellRailController>
   profile: ReturnType<typeof useShellProfileController>

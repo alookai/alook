@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { MessageList } from "@/components/community/messages/message-list"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useServer } from "@/hooks/community/use-servers"
@@ -18,6 +18,7 @@ import { getLastChannel, pickServerLandingChannel } from "@/lib/community/last-c
 export default function ServerDefaultPage() {
   const params = useParams<{ serverId: string }>()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const serverId = decodeURIComponent(params.serverId)
   const { server: currentServer } = useServer(serverId)
 
@@ -31,9 +32,10 @@ export default function ServerDefaultPage() {
       getLastChannel(serverId),
     )
     if (target) {
-      router.replace(`/c/channels/${serverId}/${target}`)
+      const search = searchParams.toString()
+      router.replace(`/c/channels/${serverId}/${target}${search ? `?${search}` : ""}`)
     }
-  }, [currentServer, serverId, router])
+  }, [currentServer, serverId, router, searchParams])
 
   const allChannels = currentServer?.categories.flatMap((cat) => cat.channels) ?? []
   if (currentServer && allChannels.length === 0) {

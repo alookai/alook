@@ -1,12 +1,11 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, type ReactNode } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { usePathname, useRouter, useParams } from "next/navigation"
-import { useBreakpoint } from "@/hooks/use-mobile"
+import { usePathname, useRouter, useParams, useSearchParams } from "next/navigation"
 import { ShellFrame } from "@/components/community/shell/shell-frame"
+import { resolveMobileZone, withMobileZone } from "@/components/community/shell/mobile-zone"
 import { DmSidebar } from "@/components/community/channels/dm-sidebar"
-import type { MobileZone } from "@/components/community/shell/mobile-zone"
 import { useCommunityStore, useCurrentChannelId } from "@/stores/community"
 import { useDms } from "@/hooks/community/use-dms"
 import { useFriends, useFriendsPresence } from "@/hooks/community/use-friends"
@@ -18,7 +17,6 @@ import {
   getLastMeLeaf,
   ME_ROOT,
   meLeafFromPathname,
-  pickMeLandingLocation,
   resolveMeLocationStatus,
   setLastMeLocation,
 } from "@/lib/community/last-me-location"
@@ -27,8 +25,8 @@ import {
 // and no `[serverId]` param — everything is scoped to the current user.
 export default function MeLayout({ children }: { children: ReactNode }) {
   const router = useRouter()
-  const bp = useBreakpoint()
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const params = useParams<{ dmId?: string }>()
   const { dms: rawDms, isLoading: dmsLoading, isSuccess: dmsReady } = useDms()
   const onlineUserIds = useOnlineUserIds()
@@ -86,10 +84,8 @@ export default function MeLayout({ children }: { children: ReactNode }) {
     if (meLocationStatus !== "stale") return
     if (getLastMeLeaf() === meLeafFromPathname(pathname)) clearLastMeLocation()
     cancelPendingNavigation()
-    router.replace(ME_ROOT)
-  }, [cancelPendingNavigation, meLocationStatus, pathname, router])
-
-  const [mobileZone, setMobileZone] = useState<MobileZone>(() => (hasDm ? "messages" : "nav"))
+    router.replace(withMobileZone(ME_ROOT, resolveMobileZone(searchParams)))
+  }, [cancelPendingNavigation, meLocationStatus, pathname, router, searchParams])
 
   // Mirror channel sidebar-click behavior (channels/layout.tsx:226-236): do
   // NOT eagerly mark the DM read on click. That fires a bodyless
@@ -114,41 +110,30 @@ export default function MeLayout({ children }: { children: ReactNode }) {
     )
     cancelPendingNavigation()
     router.push(`/c/me/${id}`)
-    if (bp === "mobile") setMobileZone("messages")
-  }, [bp, cancelPendingNavigation, queryClient, router])
+  }, [cancelPendingNavigation, queryClient, router])
 
   const onShowFriends = useCallback(() => {
     useCommunityStore.getState().setCurrentChannelId(null)
     cancelPendingNavigation()
     router.push("/c/me")
-    if (bp === "mobile") setMobileZone("messages")
-  }, [bp, cancelPendingNavigation, router])
+  }, [cancelPendingNavigation, router])
 
   const onShowMachines = useCallback(() => {
     useCommunityStore.getState().setCurrentChannelId(null)
     cancelPendingNavigation()
     router.push("/c/me/machines")
-    if (bp === "mobile") setMobileZone("messages")
-  }, [bp, cancelPendingNavigation, router])
+  }, [cancelPendingNavigation, router])
 
   const onShowBots = useCallback(() => {
     useCommunityStore.getState().setCurrentChannelId(null)
     cancelPendingNavigation()
     router.push("/c/me/bots")
-    if (bp === "mobile") setMobileZone("messages")
-  }, [bp, cancelPendingNavigation, router])
+  }, [cancelPendingNavigation, router])
 
   const prefetchDm = useCallback((id: string) => router.prefetch(`/c/me/${id}`), [router])
   const prefetchFriends = useCallback(() => router.prefetch("/c/me"), [router])
   const prefetchMachines = useCallback(() => router.prefetch("/c/me/machines"), [router])
   const prefetchBots = useCallback(() => router.prefetch("/c/me/bots"), [router])
-
-  const goHome = useCallback(() => {
-    setMobileZone("nav")
-    cancelPendingNavigation()
-    router.push(pickMeLandingLocation(getLastMeLeaf()))
-  }, [cancelPendingNavigation, router])
-  const goServer = useCallback(() => { setMobileZone("nav") }, [])
 
   const blockedUserIds = useMemo(
     () => new Set(blocked.map((b) => b.userId ?? b.id)),
@@ -179,11 +164,7 @@ export default function MeLayout({ children }: { children: ReactNode }) {
     <ShellFrame
       view="dm"
       activeServerId={undefined}
-      mobileZone={mobileZone}
-      setMobileZone={setMobileZone}
       sidebar={sidebar}
-      goHome={goHome}
-      goServer={goServer}
     >
       {children}
     </ShellFrame>

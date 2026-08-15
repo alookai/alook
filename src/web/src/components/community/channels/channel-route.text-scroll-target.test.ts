@@ -7,7 +7,8 @@ import { MessageList } from "../messages/message-list"
 import { useChannelMemberViewModel } from "../members/channel-member-view-model"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
 
-const { mockRouteModel, mockMemberViewModel } = vi.hoisted(() => ({
+const { mockRouteModel, mockMemberViewModel, mockRouter } = vi.hoisted(() => ({
+  mockRouter: { push: vi.fn(), replace: vi.fn(), back: vi.fn() },
   mockRouteModel: {
     server: {
       id: "server_1",
@@ -41,8 +42,8 @@ const { mockRouteModel, mockMemberViewModel } = vi.hoisted(() => ({
 }))
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), back: vi.fn() }),
-  useSearchParams: () => ({ get: (key: string) => key === "msg" ? "m_target" : null }),
+  useRouter: () => mockRouter,
+  useSearchParams: () => new URLSearchParams("msg=m_target&pane=nav&keep=1"),
 }))
 vi.mock("sonner", () => ({ toast: vi.fn() }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: vi.fn(), toastApiError: vi.fn() }))
@@ -251,6 +252,10 @@ describe("ChannelRoute message surface ownership", () => {
     })
 
     expect(mockedUseChannelMessageFeed).toHaveBeenCalledTimes(1)
+    expect(mockRouter.replace).toHaveBeenCalledWith(
+      "/c/channels/server_1/channel_1?pane=nav&keep=1",
+      { scroll: false },
+    )
     expect(mockedUseChannelMessageFeed).toHaveBeenCalledWith(expect.objectContaining({ channelId: "channel_1" }))
     expect(mockedMessageList.mock.calls.at(-1)?.[0].scrollToMessageId).toBe("m_target")
 

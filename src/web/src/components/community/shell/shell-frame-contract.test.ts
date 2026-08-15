@@ -24,11 +24,10 @@ describe("ShellFrame public contract", () => {
         'import { ShellFrame } from "@/components/community/shell/shell-frame"',
       )
       expect(source).toContain("<ShellFrame")
-      expect(source).toContain("mobileZone={mobileZone}")
-      expect(source).toContain("setMobileZone={setMobileZone}")
       expect(source).toContain("sidebar={sidebar}")
-      expect(source).toContain("goHome={goHome}")
-      expect(source).toContain("goServer={goServer}")
+      expect(source).not.toContain("mobileZone={mobileZone}")
+      expect(source).not.toContain("setMobileZone={setMobileZone}")
+      expect(source).not.toContain("useState<MobileZone>")
     }
     expect(channels).toContain('view="server"')
     expect(channels).toContain("activeServerId={serverId}")
@@ -43,6 +42,7 @@ describe("ShellFrame public contract", () => {
     expect(source).toContain("useShellRailController")
     expect(source).toContain("useShellProfileController")
     expect(source).toContain("useShellInboxController")
+    expect(source).toContain("resolveMobileZone(searchParams)")
     expect(source).toContain("<ShellFrameView")
     expect(source).not.toContain("<ServerRail")
     expect(source).not.toContain("<ProfileCard")

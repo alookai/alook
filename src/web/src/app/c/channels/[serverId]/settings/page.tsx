@@ -1,13 +1,16 @@
 "use client"
 
 import { useEffect } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
 
 export default function ServerSettingsRedirect() {
   const params = useParams<{ serverId: string }>()
   const router = useRouter()
+  const searchParams = useSearchParams()
   useEffect(() => {
-    router.replace(`/c/channels/${params.serverId}?settings=1`)
-  }, [params.serverId, router])
+    const nextSearchParams = new URLSearchParams(searchParams.toString())
+    nextSearchParams.set("settings", "1")
+    router.replace(`/c/channels/${params.serverId}?${nextSearchParams.toString()}`)
+  }, [params.serverId, router, searchParams])
   return null
 }

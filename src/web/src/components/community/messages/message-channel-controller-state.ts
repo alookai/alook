@@ -31,6 +31,7 @@ import {
   acceptChannelMessage,
   runAcceptedMessageIntent,
 } from "./message-channel-controller-send"
+import { removeCommunityParam } from "@/components/community/shell/mobile-zone"
 import type {
   MessageChannelControllerProps,
   MessageChannelControllerValue,
@@ -182,13 +183,15 @@ export function useMessageChannelController({
   }, [jumpToSeq, openMessageContext])
 
   const seqParam = searchParams.get("seq")
+  const searchParamsString = searchParams.toString()
   useEffect(() => {
     if (!seqParam) return
     const seq = Number(seqParam)
     if (!Number.isFinite(seq)) return
     setContextTarget({ serverId, channelId, label: channelName, seq })
-    router.replace(`/c/channels/${serverParam}/${channelId}`, { scroll: false })
-  }, [seqParam, serverId, channelId, channelName, router, serverParam])
+    const href = `/c/channels/${serverParam}/${channelId}${searchParamsString ? `?${searchParamsString}` : ""}`
+    router.replace(removeCommunityParam(href, "seq"), { scroll: false })
+  }, [seqParam, serverId, channelId, channelName, router, searchParamsString, serverParam])
 
   const messageScope = useMemo(
     () => ({ kind: "channel" as const, id: channelId, serverId }),

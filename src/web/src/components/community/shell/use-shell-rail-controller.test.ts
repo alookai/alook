@@ -91,13 +91,11 @@ async function renderController(overrides: Record<string, unknown> = {}) {
   }
   const options = {
     router,
-    pathname: "/c/channels/s1",
+    currentHref: "/c/channels/s1",
+    breakpoint: "desktop",
     queryClient,
     view: "server",
     activeServerId: "s1",
-    setMobileZone: vi.fn(),
-    goHome: vi.fn(),
-    goServer: vi.fn(),
     ...overrides,
   } as never
   let current!: Result
@@ -157,14 +155,14 @@ describe("useShellRailController", () => {
     expect(mocks.markSwitch).toHaveBeenNthCalledWith(2, "server", "s2")
   })
 
-  it("supersedes pending navigation on pathname changes and direct channel navigation", async () => {
+  it("supersedes pending navigation on URL changes and direct channel navigation", async () => {
     const pathnamePending = deferred()
     const channelPending = deferred()
     const hook = await renderController()
     hook.queryClient.fetchQuery.mockReturnValueOnce(pathnamePending.promise)
 
     await act(async () => hook.current.railProps.onServerNavigate("s2"))
-    hook.options.pathname = "/c/me"
+    hook.options.currentHref = "/c/me"
     await hook.rerender()
     hook.cache.set("s2", { categories: [{ channels: [{ id: "late", pending: false }] }] })
     await act(async () => pathnamePending.resolve())
@@ -228,20 +226,37 @@ describe("useShellRailController", () => {
     expect(hook.pushed).toEqual([])
   })
 
-  it("cancels pending navigation before invoking the home callback", async () => {
+  it("cancels pending navigation before committing Home", async () => {
     const pending = deferred()
-    const goHome = vi.fn()
-    const hook = await renderController({ goHome })
+    const hook = await renderController()
     hook.queryClient.fetchQuery.mockReturnValue(pending.promise)
 
     await act(async () => {
       hook.current.railProps.onServerNavigate("s2")
       hook.current.railProps.onHome()
     })
-    expect(goHome).toHaveBeenCalledTimes(1)
+    expect(hook.pushed).toEqual(["/c/me"])
     hook.cache.set("s2", { categories: [{ channels: [{ id: "late", pending: false }] }] })
     await act(async () => pending.resolve())
+    expect(hook.pushed).toEqual(["/c/me"])
+  })
+
+  it("adds the nav pane on mobile and skips an exact current rail target", async () => {
+    const hook = await renderController({
+      breakpoint: "mobile",
+      currentHref: "/c/channels/s1/cached?pane=nav",
+    })
+    hook.cache.set("s1", {
+      categories: [{ channels: [{ id: "cached", pending: false }] }],
+    })
+
+    await act(async () => hook.current.railProps.onServerNavigate("s1"))
     expect(hook.pushed).toEqual([])
+
+    hook.options.currentHref = "/c/channels/s2/other"
+    await hook.rerender()
+    await act(async () => hook.current.railProps.onServerNavigate("s1"))
+    expect(hook.pushed).toEqual(["/c/channels/s1/cached?pane=nav"])
   })
 
   it("uses cached and fetched destinations for navigation and prefetch fallbacks", async () => {

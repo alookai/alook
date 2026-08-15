@@ -18,7 +18,6 @@ import { CreateServerDialog } from "../settings/create-server-dialog"
 import { useRailOrder, isFolderKey, extractFolderId } from "./use-rail-order"
 import { SeededBackdrop } from "@/components/avatar"
 import type { Server, CommunityFolder } from "@/lib/community/models/navigation"
-import type { MobileZone } from "@/components/community/shell/mobile-zone"
 import type { View } from "@/components/community/shell/shell-types"
 import {
   completeCommunityOnboarding,
@@ -26,7 +25,7 @@ import {
 } from "@/lib/community-onboarding"
 
 export const ServerRail = memo(function ServerRail({
-  servers, folders, activeServerId: activeServerIdProp, serversLoading, setMobileZone, view, bottomInset,
+  servers, folders, activeServerId: activeServerIdProp, serversLoading, view, bottomInset,
   onHome, onHomePrefetch, onServer, onServerNavigate, onServerPrefetch, onCreateServer, onLeaveServer,
   onOpenSettings, onOpenInvitePopover, onUngroupFolder, onReorderRail, onReorderFolders, onFolderItemsChange, onDragCreateFolder,
 }: {
@@ -34,12 +33,11 @@ export const ServerRail = memo(function ServerRail({
   folders: CommunityFolder[]
   activeServerId?: string
   serversLoading?: boolean
-  setMobileZone?: (z: MobileZone) => void
   view: View
   bottomInset?: number
   onHome: () => void
   onHomePrefetch?: () => void
-  onServer: () => void
+  onServer?: () => void
   onServerNavigate?: (id: string) => void
   onServerPrefetch?: (id: string) => void
   onCreateServer?: (name: string, icon?: File) => void
@@ -78,7 +76,7 @@ export const ServerRail = memo(function ServerRail({
   const [createOpen, setCreateOpen] = useState(false)
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
-  const pickServer = (id: string) => { setActiveId(id); onServer(); onServerNavigate?.(id); setMobileZone?.("nav") }
+  const pickServer = (id: string) => { setActiveId(id); onServer?.(); onServerNavigate?.(id) }
 
   const serverById = useMemo(() => new Map(servers.map((s) => [s.id, s])), [servers])
   const folderById = useMemo(() => new Map(folders.map((f) => [f.id, f])), [folders])
