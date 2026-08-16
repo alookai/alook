@@ -1,6 +1,6 @@
 [package]
 name = "alook-desktop"
-version = "0.1.9"
+version = "0.1.10"
 edition = "2021"
 description = "Alook — Your Personal Company"
 
