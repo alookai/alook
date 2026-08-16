@@ -114,7 +114,7 @@ export const ServerRail = memo(function ServerRail({
 
       <div
         data-testid={tid.serverRailScroll}
-        className="min-h-0 w-full flex-1 overflow-y-auto overflow-x-clip py-2 thin-scrollbar scrollbar-none"
+        className="min-h-0 w-full shrink overflow-y-auto overflow-x-clip py-2 thin-scrollbar scrollbar-none"
       >
         {serversLoading && servers.length === 0 && folders.length === 0 ? (
           <ServerRailSkeleton />

@@ -18,16 +18,19 @@ describe("ServerRail Home brand mark", () => {
     expect(source).not.toContain("alook-dark.svg")
   })
 
-  it("keeps Home and Add fixed while only the server list scrolls", () => {
+  it("lets Add follow short lists while only the server list shrinks on overflow", () => {
     const source = readFileSync(new URL("./server-rail.tsx", import.meta.url), "utf8")
 
+    const scrollViewport =
+      'className="min-h-0 w-full shrink overflow-y-auto overflow-x-clip py-2 thin-scrollbar scrollbar-none"'
+    const addRegion =
+      'className="flex w-full shrink-0 justify-center" style={{ paddingBottom: bottomInset ?? 8 }}'
+
     expect(source).toContain("data-testid={tid.serverRailScroll}")
-    expect(source).toContain(
-      'className="min-h-0 w-full flex-1 overflow-y-auto overflow-x-clip py-2 thin-scrollbar scrollbar-none"',
-    )
-    expect(source).toContain(
-      'className="flex w-full shrink-0 justify-center" style={{ paddingBottom: bottomInset ?? 8 }}',
-    )
+    expect(source).toContain(scrollViewport)
+    expect(source).toContain(addRegion)
+    expect(source.indexOf(scrollViewport)).toBeLessThan(source.indexOf(addRegion))
+    expect(scrollViewport).not.toContain("flex-1")
     expect(source).not.toContain("pb-2 overflow-y-auto overflow-x-clip thin-scrollbar")
   })
 })
