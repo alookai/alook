@@ -35,9 +35,14 @@ let queryReturn: { data: unknown; isFetching: boolean } = {
   data: undefined,
   isFetching: false,
 }
-let lastUseQueryConfig: { retry?: number; staleTime?: number; gcTime?: number } = {}
+let lastUseQueryConfig: {
+  retry?: number
+  staleTime?: number
+  gcTime?: number
+  queryFn?: (context: { signal: AbortSignal }) => Promise<unknown>
+} = {}
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: (config: { retry?: number; staleTime?: number; gcTime?: number }) => {
+  useQuery: (config: typeof lastUseQueryConfig) => {
     lastUseQueryConfig = config ?? {}
     return queryReturn
   },
@@ -45,9 +50,8 @@ vi.mock("@tanstack/react-query", () => ({
 
 // apiFetch is unused directly (the queryFn is stubbed by the useQuery mock)
 // but the module still imports it, so provide a stub.
-vi.mock("@/lib/api/client", () => ({
-  apiFetch: vi.fn(),
-}))
+const apiFetchMock = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/api/client", () => ({ apiFetch: apiFetchMock }))
 
 function resetHarness() {
   refs = new Map()
@@ -63,6 +67,7 @@ async function loadHook() {
 
 beforeEach(() => {
   resetHarness()
+  apiFetchMock.mockReset()
 })
 
 describe("useChannelReadStateSnapshot — freeze invariant", () => {
@@ -164,6 +169,20 @@ describe("useChannelReadStateSnapshot — freeze invariant", () => {
     const useHook = await loadHook()
     useHook("ch_1")
     expect(lastUseQueryConfig.retry).toBe(1)
+  })
+
+  it("forwards TanStack cancellation to the read-state request", async () => {
+    const useHook = await loadHook()
+    useHook("ch_abort")
+    const controller = new AbortController()
+    apiFetchMock.mockResolvedValue({ lastReadMessageId: null, lastReadAt: null, lastReadSeq: 0 })
+
+    await lastUseQueryConfig.queryFn?.({ signal: controller.signal })
+
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/community/channels/ch_abort/read-state",
+      { signal: controller.signal },
+    )
   })
 
   it("returns null when the query errors — snapshotRef never latches a fabricated value", async () => {

@@ -69,12 +69,6 @@ function Capture({ options, onResult }: {
   return null
 }
 
-function deferred() {
-  let resolve!: () => void
-  const promise = new Promise<void>((done) => { resolve = done })
-  return { promise, resolve }
-}
-
 async function renderController(overrides: Record<string, unknown> = {}) {
   const pushed: string[] = []
   const replaced: string[] = []
@@ -132,84 +126,53 @@ describe("useShellRailController", () => {
     }
   })
 
-  it("commits only the latest deferred server navigation", async () => {
-    const first = deferred()
-    const second = deferred()
+  it("commits cold server navigation synchronously without waiting for detail", async () => {
     const hook = await renderController()
-    hook.queryClient.fetchQuery.mockImplementation(({ queryKey }: { queryKey: unknown[] }) => {
-      const id = String(queryKey.at(-1))
-      return id === "s1" ? first.promise : second.promise
-    })
+    expect(hook.current.navigationPending).toBe(false)
 
     await act(async () => {
       hook.current.railProps.onServerNavigate("s1")
       hook.current.railProps.onServerNavigate("s2")
     })
-    hook.cache.set("s2", { categories: [{ channels: [{ id: "c2", pending: false }] }] })
-    await act(async () => second.resolve())
-    hook.cache.set("s1", { categories: [{ channels: [{ id: "c1", pending: false }] }] })
-    await act(async () => first.resolve())
 
-    expect(hook.pushed).toEqual(["/c/channels/s2/c2"])
+    expect(hook.pushed).toEqual(["/c/channels/s2"])
+    expect(hook.current.navigationPending).toBe(true)
+    expect(hook.queryClient.fetchQuery).not.toHaveBeenCalled()
     expect(mocks.markSwitch).toHaveBeenNthCalledWith(1, "server", "s1")
     expect(mocks.markSwitch).toHaveBeenNthCalledWith(2, "server", "s2")
+
+    hook.options.currentHref = "/c/channels/s2"
+    await hook.rerender()
+    expect(hook.current.navigationPending).toBe(false)
   })
 
-  it("supersedes pending navigation on URL changes and direct channel navigation", async () => {
-    const pathnamePending = deferred()
-    const channelPending = deferred()
+  it("does not leave deferred server work that can overwrite a direct channel navigation", async () => {
     const hook = await renderController()
-    hook.queryClient.fetchQuery.mockReturnValueOnce(pathnamePending.promise)
-
-    await act(async () => hook.current.railProps.onServerNavigate("s2"))
-    hook.options.currentHref = "/c/me"
-    await hook.rerender()
-    hook.cache.set("s2", { categories: [{ channels: [{ id: "late", pending: false }] }] })
-    await act(async () => pathnamePending.resolve())
-    expect(hook.pushed).toEqual([])
-
-    hook.cache.delete("s2")
-    hook.queryClient.fetchQuery.mockReturnValueOnce(channelPending.promise)
     await act(async () => {
       hook.current.railProps.onServerNavigate("s2")
       hook.current.navigate("s1", "c1")
     })
-    hook.cache.set("s2", { categories: [{ channels: [{ id: "late-again", pending: false }] }] })
-    await act(async () => channelPending.resolve())
-    expect(hook.pushed).toEqual(["/c/channels/s1/c1"])
+    expect(hook.pushed).toEqual(["/c/channels/s2", "/c/channels/s1/c1"])
+    expect(hook.queryClient.fetchQuery).not.toHaveBeenCalled()
     expect(mocks.markSwitch).toHaveBeenLastCalledWith("channel", "c1")
   })
 
-  it("cancels pending navigation for settings and invite actions", async () => {
-    const pending = deferred()
-    const invitePending = deferred()
+  it("keeps settings and invite actions synchronous and scoped to their target", async () => {
     const openSettings = vi.fn()
     const openInvite = vi.fn()
     const hook = await renderController({
       onOpenActiveServerSettings: openSettings,
       onOpenActiveServerInvite: openInvite,
     })
-    hook.queryClient.fetchQuery.mockReturnValue(pending.promise)
-
     await act(async () => {
-      hook.current.railProps.onServerNavigate("s2")
       hook.current.railProps.onOpenSettings("s1")
     })
     expect(openSettings).toHaveBeenCalledTimes(1)
     expect(hook.pushed).toEqual([])
-    hook.cache.set("s2", { categories: [{ channels: [{ id: "late", pending: false }] }] })
-    await act(async () => pending.resolve())
-    expect(hook.pushed).toEqual([])
-
-    hook.cache.delete("s2")
-    hook.queryClient.fetchQuery.mockReturnValueOnce(invitePending.promise)
     await act(async () => {
-      hook.current.railProps.onServerNavigate("s2")
       hook.current.railProps.onOpenInvitePopover("s1")
     })
     expect(openInvite).toHaveBeenCalledTimes(1)
-    hook.cache.set("s2", { categories: [{ channels: [{ id: "invite-late", pending: false }] }] })
-    await act(async () => invitePending.resolve())
     expect(hook.pushed).toEqual([])
     await act(async () => hook.current.railProps.onOpenSettings("s2"))
     await act(async () => hook.current.railProps.onOpenInvitePopover("s2"))
@@ -226,19 +189,15 @@ describe("useShellRailController", () => {
     expect(hook.pushed).toEqual([])
   })
 
-  it("cancels pending navigation before committing Home", async () => {
-    const pending = deferred()
+  it("commits Home immediately after a cold server intent", async () => {
     const hook = await renderController()
-    hook.queryClient.fetchQuery.mockReturnValue(pending.promise)
 
     await act(async () => {
       hook.current.railProps.onServerNavigate("s2")
       hook.current.railProps.onHome()
     })
-    expect(hook.pushed).toEqual(["/c/me"])
-    hook.cache.set("s2", { categories: [{ channels: [{ id: "late", pending: false }] }] })
-    await act(async () => pending.resolve())
-    expect(hook.pushed).toEqual(["/c/me"])
+    expect(hook.pushed).toEqual(["/c/channels/s2", "/c/me"])
+    expect(hook.queryClient.fetchQuery).not.toHaveBeenCalled()
   })
 
   it("adds the nav pane on mobile and skips an exact current rail target", async () => {
@@ -277,7 +236,10 @@ describe("useShellRailController", () => {
       hook.cache.set(id, { categories: [{ channels: [{ id: "fetched", pending: false }] }] })
     })
     await act(async () => hook.current.railProps.onServerNavigate("s2"))
-    expect(hook.pushed).toContain("/c/channels/s2/fetched")
+    expect(hook.pushed).toContain("/c/channels/s2")
+    expect(hook.queryClient.fetchQuery).not.toHaveBeenCalled()
+    await act(async () => hook.current.railProps.onServerPrefetch("s2"))
+    expect(hook.prefetched).toContain("/c/channels/s2/fetched")
     expect(hook.queryClient.fetchQuery).toHaveBeenLastCalledWith(expect.objectContaining({
       queryKey: expect.any(Array),
       queryFn: expect.any(Function),

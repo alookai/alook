@@ -1,6 +1,8 @@
 import type { InfiniteData, QueryClient, QueryKey } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
+import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
+import { useMessageStreamStore } from "@/stores/community/message-stream"
 import type {
   MessagesPage,
   MessagesPageParam,
@@ -17,6 +19,27 @@ type WarmReconnectWindow = {
 }
 
 const MAX_CATCH_UP_PAGES = 8
+
+function isDefinitiveAccessDenial(error: unknown): boolean {
+  return error instanceof ApiError && (error.status === 403 || error.status === 404)
+}
+
+function clearDeniedMessageScope(
+  queryClient: QueryClient,
+  kind: "channel" | "dm",
+  scopeId: string,
+) {
+  useMessageStreamStore.getState().removeScope(
+    kind === "channel"
+      ? { kind, id: scopeId, serverId: "" }
+      : { kind, id: scopeId },
+  )
+  queryClient.removeQueries({
+    queryKey: kind === "channel"
+      ? communityKeys.channelMessages(scopeId)
+      : communityKeys.dmMessages(scopeId),
+  })
+}
 
 function isMessageCache(value: unknown): value is MessageCache {
   if (!value || typeof value !== "object") return false
@@ -209,19 +232,16 @@ export async function reconcileFocusedMessageQueries(
       { revert: true, silent: true },
     )
 
-    const window = warmReconnectWindow(query.queryKey, query.state.data)
-    if (!window) {
-      // There is no painted history to protect. Delegate recovery to the
-      // query's canonical queryFn so cold/failed active screens do not remain
-      // stuck after `refetchOnReconnect` is intentionally disabled.
-      await queryClient.refetchQueries(
-        { queryKey: query.queryKey, exact: true, type: "active" },
-        { throwOnError: true },
-      )
-      return
-    }
-
+    let accessDenied = false
     try {
+      const window = warmReconnectWindow(query.queryKey, query.state.data)
+      if (!window) {
+        await queryClient.refetchQueries(
+          { queryKey: query.queryKey, exact: true, type: "active" },
+          { throwOnError: true },
+        )
+        return
+      }
       const refreshed = await fetchCurrentWindow(
         scopeId,
         window.pageParam,
@@ -236,8 +256,12 @@ export async function reconcileFocusedMessageQueries(
           ? mergeReconciledPages(current, refreshed, catchUp)
           : current
       ))
+    } catch (error) {
+      if (!isDefinitiveAccessDenial(error)) throw error
+      accessDenied = true
+      clearDeniedMessageScope(queryClient, kind, scopeId)
     } finally {
-      if (pendingDirection) {
+      if (pendingDirection && !accessDenied) {
         await query.fetch(undefined, {
           meta: { fetchMore: { direction: pendingDirection } },
         })

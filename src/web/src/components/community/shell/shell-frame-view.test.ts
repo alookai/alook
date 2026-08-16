@@ -36,6 +36,9 @@ vi.mock("./community-inbox-popover", () => ({
 vi.mock("./shell-frame-overlays", () => ({
   ShellFrameOverlays: (props: Record<string, unknown>) => createElement("shell-overlays", props),
 }))
+vi.mock("@/components/community/channels/channel-loading-frame", () => ({
+  ChannelLoadingFrame: () => createElement("channel-loading-frame"),
+}))
 
 const rail = { railProps: { activeServerId: "s1" } } as never
 const profile = {
@@ -76,6 +79,7 @@ describe("ShellFrameView", () => {
       renderer = TestRenderer.create(createElement(ShellFrameView, {
         breakpoint: "desktop",
         mobileZone: "messages",
+        navigationPending: false,
         sidebar,
         cancelPendingNavigation: vi.fn(),
         rail,
@@ -124,6 +128,7 @@ describe("ShellFrameView", () => {
       renderer = TestRenderer.create(createElement(ShellFrameView, {
         breakpoint: "mobile",
         mobileZone: "nav",
+        navigationPending: false,
         sidebar,
         cancelPendingNavigation: vi.fn(),
         rail,
@@ -142,6 +147,7 @@ describe("ShellFrameView", () => {
       renderer.update(createElement(ShellFrameView, {
         breakpoint: "mobile",
         mobileZone: "messages",
+        navigationPending: false,
         sidebar,
         cancelPendingNavigation: vi.fn(),
         rail,
@@ -159,6 +165,7 @@ describe("ShellFrameView", () => {
     const sidebar = vi.fn(() => createElement("sidebar-content"))
     const common = {
       mobileZone: "nav" as const,
+      navigationPending: false,
       sidebar,
       cancelPendingNavigation: vi.fn(),
       rail,
@@ -195,5 +202,46 @@ describe("ShellFrameView", () => {
 
     await act(async () => renderer.unmount())
     expect(mocks.disconnect).toHaveBeenCalledTimes(2)
+  })
+
+  it("replaces committed content with immediate pending feedback in every shell zone", async () => {
+    const sidebar = vi.fn(() => createElement("sidebar-content"))
+    const common = {
+      sidebar,
+      cancelPendingNavigation: vi.fn(),
+      navigationPending: true,
+      rail,
+      profile,
+      inbox,
+    }
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(
+        ShellFrameView,
+        { ...common, breakpoint: "desktop", mobileZone: "messages" },
+        createElement("main-content"),
+      ), { createNodeMock: () => ({ offsetWidth: 240 }) })
+    })
+    expect(renderer.root.findAllByType("channel-loading-frame")).toHaveLength(1)
+    expect(renderer.root.findAllByType("main-content")).toHaveLength(0)
+
+    await act(async () => {
+      renderer.update(createElement(
+        ShellFrameView,
+        { ...common, breakpoint: "mobile", mobileZone: "nav" },
+        createElement("main-content"),
+      ))
+    })
+    expect(renderer.root.findAllByType("channel-loading-frame")).toHaveLength(1)
+
+    await act(async () => {
+      renderer.update(createElement(
+        ShellFrameView,
+        { ...common, breakpoint: "mobile", mobileZone: "messages" },
+        createElement("main-content"),
+      ))
+    })
+    expect(renderer.root.findAllByType("channel-loading-frame")).toHaveLength(1)
+    expect(renderer.root.findAllByType("main-content")).toHaveLength(0)
   })
 })

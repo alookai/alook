@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { ChildChannelMeta } from "./use-forum-sidebar-threads"
-import { isChildChannelMetaVerified } from "./use-child-channel-meta"
+import { pickRenderableChildMeta } from "./use-child-channel-meta"
 
 const meta = (overrides: Partial<ChildChannelMeta> = {}): ChildChannelMeta => ({
   id: "post-1",
@@ -16,15 +16,22 @@ const meta = (overrides: Partial<ChildChannelMeta> = {}): ChildChannelMeta => ({
   ...overrides,
 })
 
-describe("child channel metadata access epoch", () => {
-  it("fails closed while disconnected and until the current epoch validates", () => {
-    expect(isChildChannelMetaVerified(meta(), 2, true)).toBe(true)
-    expect(isChildChannelMetaVerified(meta(), 3, false)).toBe(false)
-    expect(isChildChannelMetaVerified(meta(), 3, true)).toBe(false)
-    expect(isChildChannelMetaVerified(meta({ verifiedEpoch: 3 }), 3, true)).toBe(true)
+describe("child channel metadata stale rendering", () => {
+  it("keeps a previously authorized snapshot renderable across a WS epoch", () => {
+    const trusted = meta({ verifiedEpoch: 2 })
+    expect(pickRenderableChildMeta(trusted, trusted, 3)).toBe(trusted)
   })
 
-  it("never verifies an archived child payload", () => {
-    expect(isChildChannelMetaVerified(meta({ archived: true }), 2, true)).toBe(false)
+  it("does not render an old first response that was never trusted", () => {
+    expect(pickRenderableChildMeta(meta({ verifiedEpoch: 2 }), undefined, 3)).toBeUndefined()
+  })
+
+  it("authoritative current-epoch archive removes a previously trusted snapshot", () => {
+    const trusted = meta({ verifiedEpoch: 2 })
+    expect(pickRenderableChildMeta(
+      meta({ verifiedEpoch: 3, archived: true }),
+      trusted,
+      3,
+    )).toBeUndefined()
   })
 })

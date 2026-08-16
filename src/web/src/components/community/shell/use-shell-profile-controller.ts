@@ -250,6 +250,7 @@ export function useShellProfileController({
     useCommunityStore.getState().reset()
     useCommunityWsStore.getState().reset()
     useMessageStreamStore.getState().resetAll()
+    queryClient.clear()
     await clearPersistedCache(currentUser.id).catch(() => {})
     await signOut()
     router.push("/sign-in")

@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
@@ -21,7 +21,6 @@ import {
 import { getLastChannel, pickServerLandingHref } from "@/lib/community/last-channel"
 import { getLastMeLeaf, pickMeLandingLocation } from "@/lib/community/last-me-location"
 import {
-  commitLatestNavigationIntent,
   createNavigationIntentGate,
   supersedeNavigationIntent,
 } from "@/lib/community/navigation-intent"
@@ -81,11 +80,13 @@ export function useShellRailController({
   )
 
   const navigationGateRef = useRef(createNavigationIntentGate())
+  const [navigationPending, setNavigationPending] = useState(false)
   const cancelPendingNavigation = useCallback(() => {
     supersedeNavigationIntent(navigationGateRef.current)
   }, [])
   useEffect(() => {
     cancelPendingNavigation()
+    setNavigationPending(false)
   }, [cancelPendingNavigation, currentHref])
 
   const serverDestination = useCallback((id: string) => {
@@ -115,17 +116,16 @@ export function useShellRailController({
     withMobileZone(destination, breakpoint === "mobile" ? mobileZone : "messages"),
   [breakpoint])
   const pushIfChanged = useCallback((destination: string) => {
-    if (destination !== currentHref) router.push(destination)
+    if (destination === currentHref) return
+    setNavigationPending(true)
+    router.push(destination)
   }, [currentHref, router])
 
   const onServerNavigate = useCallback((id: string) => {
     markSwitch("server", id)
-    void commitLatestNavigationIntent(
-      navigationGateRef.current,
-      () => resolveServerDestination(id),
-      (destination) => pushIfChanged(paneHref(destination, "nav")),
-    )
-  }, [paneHref, pushIfChanged, resolveServerDestination])
+    cancelPendingNavigation()
+    pushIfChanged(paneHref(serverDestination(id), "nav"))
+  }, [cancelPendingNavigation, paneHref, pushIfChanged, serverDestination])
   const onHome = useCallback(() => {
     cancelPendingNavigation()
     pushIfChanged(paneHref(pickMeLandingLocation(getLastMeLeaf()), "nav"))
@@ -232,12 +232,9 @@ export function useShellRailController({
       pushIfChanged(paneHref(`/c/channels/${serverId}/${channelId}`, "messages"))
       return
     }
-    void commitLatestNavigationIntent(
-      navigationGateRef.current,
-      () => resolveServerDestination(serverId),
-      (destination) => pushIfChanged(paneHref(destination, "messages")),
-    )
-  }, [cancelPendingNavigation, paneHref, pushIfChanged, resolveServerDestination])
+    cancelPendingNavigation()
+    pushIfChanged(paneHref(serverDestination(serverId), "messages"))
+  }, [cancelPendingNavigation, paneHref, pushIfChanged, serverDestination])
 
   return {
     railProps: {
@@ -262,5 +259,6 @@ export function useShellRailController({
     },
     navigate,
     cancelPendingNavigation,
+    navigationPending,
   }
 }

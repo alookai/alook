@@ -5,6 +5,7 @@ import {
   QueryObserver,
 } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
+import { ApiError } from "@/lib/errors"
 import { reconcileFocusedMessageQueries } from "./reconnect-messages"
 
 const apiFetchMock = vi.hoisted(() => vi.fn())
@@ -81,6 +82,75 @@ beforeEach(() => {
 })
 
 describe("focused message reconnect catch-up", () => {
+  it("keeps the painted message cache visible while reconnect reconciliation is in flight", async () => {
+    const queryClient = new QueryClient()
+    const queryKey = communityKeys.channelMessages("ch_visible")
+    const { unsubscribe } = seedActiveQuery(queryClient, queryKey)
+    let resolveRefresh!: (page: {
+      messages: Array<Record<string, unknown>>
+      hasMore: boolean
+      cursor: string
+      latestSeq: number
+    }) => void
+    apiFetchMock.mockReturnValueOnce(new Promise((resolve) => {
+      resolveRefresh = resolve
+    }))
+
+    const reconciliation = reconcileFocusedMessageQueries(
+      queryClient,
+      "channel",
+      "ch_visible",
+    )
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
+
+    expect(queryClient.getQueryData<{
+      pages: Array<{ messages: Array<{ id: string }> }>
+    }>(queryKey)?.pages.flatMap((page) => page.messages.map((message) => message.id))).toEqual([
+      "m_2",
+      "m_1",
+    ])
+
+    resolveRefresh({
+      messages: [{
+        id: "m_2",
+        type: "chat",
+        seq: 2,
+        createdAt: "2026-08-15T00:00:02.000Z",
+      }],
+      hasMore: true,
+      cursor: "older-2",
+      latestSeq: 2,
+    })
+    await reconciliation
+    unsubscribe()
+  })
+
+  it("evicts a focused scope only after an authoritative access denial", async () => {
+    const queryClient = new QueryClient()
+    const queryKey = communityKeys.channelMessages("ch_denied")
+    const { unsubscribe } = seedActiveQuery(queryClient, queryKey)
+    apiFetchMock.mockRejectedValueOnce(new ApiError("forbidden", 403))
+
+    await reconcileFocusedMessageQueries(queryClient, "channel", "ch_denied")
+
+    expect(queryClient.getQueryData(queryKey)).toBeUndefined()
+    unsubscribe()
+  })
+
+  it("retains the focused scope on transient reconnect failure", async () => {
+    const queryClient = new QueryClient()
+    const queryKey = communityKeys.channelMessages("ch_offline")
+    const { unsubscribe } = seedActiveQuery(queryClient, queryKey)
+    apiFetchMock.mockRejectedValueOnce(new ApiError("unavailable", 503))
+
+    await expect(
+      reconcileFocusedMessageQueries(queryClient, "channel", "ch_offline"),
+    ).rejects.toThrow("focused messages failed")
+
+    expect(queryClient.getQueryData(queryKey)).toBeDefined()
+    unsubscribe()
+  })
+
   it("cancels and replays an in-flight older-page fetch so neither side overwrites the other", async () => {
     const queryClient = new QueryClient()
     const queryKey = communityKeys.channelMessages("ch_race")

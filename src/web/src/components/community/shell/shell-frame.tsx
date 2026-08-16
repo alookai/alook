@@ -97,6 +97,7 @@ export function ShellFrame(props: ShellFrameProps) {
       sidebar={sidebar}
       extraDialogs={extraDialogs}
       cancelPendingNavigation={rail.cancelPendingNavigation}
+      navigationPending={rail.navigationPending}
       rail={rail}
       profile={profile}
       inbox={inbox}

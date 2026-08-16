@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import { useDefaultLayout } from "react-resizable-panels"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 import { AppSurface } from "@/components/ui/app-surface"
+import { ChannelLoadingFrame } from "@/components/community/channels/channel-loading-frame"
 import { Shell } from "./shell"
 import { ServerRail } from "./server-rail"
 import { UserBar } from "./user-bar"
@@ -24,6 +25,7 @@ type Props = Pick<ShellFrameProps, "sidebar" | "children" | "extraDialogs"> & {
   breakpoint: Breakpoint
   mobileZone: MobileZone
   cancelPendingNavigation: () => void
+  navigationPending: boolean
   rail: ReturnType<typeof useShellRailController>
   profile: ReturnType<typeof useShellProfileController>
   inbox: ReturnType<typeof useShellInboxController>
@@ -36,6 +38,7 @@ export function ShellFrameView({
   children,
   extraDialogs,
   cancelPendingNavigation,
+  navigationPending,
   rail,
   profile,
   inbox,
@@ -89,7 +92,7 @@ export function ShellFrameView({
                 defaultSize="76%"
                 className="flex min-w-0 flex-col bg-background"
               >
-                {children}
+                {navigationPending ? <ChannelLoadingFrame /> : children}
               </ResizablePanel>
             </ResizablePanelGroup>
           </AppSurface>
@@ -147,7 +150,12 @@ export function ShellFrameView({
       )}
       {mobileZone === "messages" && (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-          {children}
+          {navigationPending ? <ChannelLoadingFrame /> : children}
+        </div>
+      )}
+      {mobileZone === "nav" && navigationPending && (
+        <div className="absolute inset-0 z-20 flex bg-background">
+          <ChannelLoadingFrame />
         </div>
       )}
       <ShellFrameOverlays

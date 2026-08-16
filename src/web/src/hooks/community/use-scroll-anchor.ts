@@ -124,6 +124,7 @@ export interface DecideScrollActionInput {
   // Whether the viewport was within NEAR_BOTTOM_PX of the end BEFORE this
   // commit's append — the caller reads this off `virtualizer.isAtEnd(NEAR_BOTTOM_PX)`.
   isAtEnd: boolean
+  userScrolledAway?: boolean
 }
 
 type ScrollAction =
@@ -151,7 +152,7 @@ export interface DecideScrollActionResult {
  * real virtualizer. Exported for unit testing without DOM/hooks.
  */
 export function decideScrollAction(input: DecideScrollActionInput): DecideScrollActionResult {
-  const { state, messages, newDividerBefore, initialScrollReady, heroMeasured, hasMoreNewer, viewerUserId, isAtEnd } = input
+  const { state, messages, newDividerBefore, initialScrollReady, heroMeasured, hasMoreNewer, viewerUserId, isAtEnd, userScrolledAway } = input
 
   const nextTail = messages[messages.length - 1]?.id ?? null
   const nextLen = messages.length
@@ -206,6 +207,12 @@ export function decideScrollAction(input: DecideScrollActionInput): DecideScroll
   // Still bails until `heroMeasured` in both cases — firing on a default-0
   // scrollMargin mis-targets the scroll (see `heroMeasured`'s doc comment).
   if (!state.didInitialScroll) {
+    if (heroMeasured && userScrolledAway) {
+      return {
+        action: { type: "none" },
+        nextState: { ...baseNextState, didInitialScroll: true, didDividerConverge: true },
+      }
+    }
     if (heroMeasured && initialScrollReady) {
       return {
         action: { type: "mount", newDividerBefore },
@@ -243,7 +250,7 @@ export function decideScrollAction(input: DecideScrollActionInput): DecideScroll
     if (!initialScrollReady || !heroMeasured) {
       return { action: { type: "none" }, nextState: baseNextState }
     }
-    if (newDividerBefore && isAtEnd) {
+    if (newDividerBefore && isAtEnd && !userScrolledAway) {
       return {
         action: { type: "mount", newDividerBefore },
         nextState: { ...baseNextState, didDividerConverge: true },
@@ -271,7 +278,7 @@ export function decideScrollAction(input: DecideScrollActionInput): DecideScroll
     // present (`hasMoreNewer` false) AND the viewer was already at/near the
     // bottom just BEFORE this append — otherwise leave the "↓ N" pill to
     // prompt them back down.
-    if (!hasMoreNewer && isAtEnd) {
+    if (!hasMoreNewer && isAtEnd && !userScrolledAway) {
       return { action: { type: "scrollToEnd" }, nextState: liveState }
     }
     return { action: { type: "none" }, nextState: liveState }
@@ -440,12 +447,35 @@ export function useScrollAnchor({
   // move `scrollTop`, so it fires no scroll event; this ref therefore still
   // holds the pre-append position when the layout effect below reads it.
   const wasAtEndRef = useRef(true)
+  const userScrolledAwayRef = useRef(false)
   useLayoutEffect(() => {
     const el = scrollRef.current
     if (!el) return
-    const onScroll = () => { wasAtEndRef.current = virtualizer.isAtEnd(NEAR_BOTTOM_PX) }
+    let lastScrollTop = el.scrollTop
+    const onScroll = () => {
+      const nextScrollTop = el.scrollTop
+      const isAtEnd = virtualizer.isAtEnd(NEAR_BOTTOM_PX)
+      wasAtEndRef.current = isAtEnd
+      if (isAtEnd) userScrolledAwayRef.current = false
+      else if (nextScrollTop < lastScrollTop - 1) userScrolledAwayRef.current = true
+      lastScrollTop = nextScrollTop
+    }
+    const onWheel = (event: WheelEvent) => {
+      if (event.deltaY < 0) userScrolledAwayRef.current = true
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (["ArrowUp", "PageUp", "Home"].includes(event.key)) {
+        userScrolledAwayRef.current = true
+      }
+    }
     el.addEventListener("scroll", onScroll, { passive: true })
-    return () => el.removeEventListener("scroll", onScroll)
+    el.addEventListener("wheel", onWheel, { passive: true })
+    el.addEventListener("keydown", onKeyDown)
+    return () => {
+      el.removeEventListener("scroll", onScroll)
+      el.removeEventListener("wheel", onWheel)
+      el.removeEventListener("keydown", onKeyDown)
+    }
   }, [virtualizer])
 
   useLayoutEffect(() => {
@@ -458,6 +488,7 @@ export function useScrollAnchor({
       hasMoreNewer,
       viewerUserId,
       isAtEnd: wasAtEndRef.current,
+      userScrolledAway: userScrolledAwayRef.current,
     })
     stateRef.current = nextState
 
@@ -494,6 +525,7 @@ export function useScrollAnchor({
       lastTailId: tailId,
     }
     wasAtEndRef.current = true
+    userScrolledAwayRef.current = false
     virtualizer.scrollToEnd()
   }, [hasMoreNewer, presentVersion, tailId, virtualizer])
 
@@ -565,6 +597,8 @@ export function useScrollAnchor({
   const belowCount = virtualizer.isAtEnd(NEAR_BOTTOM_PX) ? 0 : computeBelowCount(items, lastVisibleIndex)
 
   const scrollToBottom = useCallback(() => {
+    userScrolledAwayRef.current = false
+    wasAtEndRef.current = true
     virtualizer.scrollToEnd({ behavior: "smooth" })
   }, [virtualizer])
 

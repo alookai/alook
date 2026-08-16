@@ -12,6 +12,22 @@ import {
   type CommunityWsReconcilePolicy,
 } from "@/lib/analytics"
 
+const RESET_POLICIES = new Set<CommunityWsReconcilePolicy>([
+  "presence-overlay",
+  "status-overlay",
+  "ephemeral-typing",
+])
+
+const FOCUSED_POLICIES = new Set<CommunityWsReconcilePolicy>([
+  "focused-messages",
+  "focused-opener",
+  "focused-channel-roster",
+  "focused-pins",
+  "focused-threads",
+])
+
+const BACKGROUND_RECONCILE_CONCURRENCY = 3
+
 const EXACT_SERVER_QUERY_FAMILIES = new Set([
   "forum-sidebar-base",
   "forum-sidebar-unread-fallbacks",
@@ -69,11 +85,13 @@ function cachedServerIds(queryKeys: readonly QueryKey[]) {
 }
 
 async function reconcileCachedServer(queryClient: QueryClient, serverId: string) {
-  queryClient.removeQueries({
+  const derivedRevalidation = queryClient.invalidateQueries({
     predicate: (query) => isDerivedServerAccessQueryKey(query.queryKey, serverId),
+    refetchType: "active",
   })
 
   const settled = await Promise.allSettled([
+    derivedRevalidation,
     queryClient.invalidateQueries({
       queryKey: communityKeys.server(serverId),
       exact: true,
@@ -218,6 +236,30 @@ async function executePolicy(
   }
 }
 
+async function executePoliciesBounded(
+  policies: readonly CommunityWsReconcilePolicy[],
+  executors: Record<CommunityWsReconcilePolicy, () => void | Promise<void>>,
+  concurrency: number,
+): Promise<boolean[]> {
+  const results = new Array<boolean>(policies.length)
+  let nextIndex = 0
+  const worker = async () => {
+    while (nextIndex < policies.length) {
+      const index = nextIndex
+      nextIndex += 1
+      const policy = policies[index]!
+      results[index] = await executePolicy(policy, executors[policy])
+    }
+  }
+  await Promise.all(
+    Array.from(
+      { length: Math.min(Math.max(1, concurrency), policies.length) },
+      () => worker(),
+    ),
+  )
+  return results
+}
+
 export type CommunityWsReconcileSummary = {
   policyCount: number
   successCount: number
@@ -232,26 +274,40 @@ export async function reconcileCommunityWsReconnect(
 ): Promise<CommunityWsReconcileSummary> {
   const startedAt = Date.now()
   const executors = policyExecutors(queryClient)
-  const resetPolicies = new Set<CommunityWsReconcilePolicy>([
-    "presence-overlay",
-    "status-overlay",
-  ])
-  const resetResults = communityWsReconnectPolicies
-    .filter((policy) => resetPolicies.has(policy))
-    .map((policy) => executePolicy(policy, executors[policy]))
-  const authoritativeResults = communityWsReconnectPolicies
-    .filter((policy) => !resetPolicies.has(policy))
-    .map((policy) => executePolicy(policy, executors[policy]))
-  const settled = await Promise.allSettled(
-    [...resetResults, ...authoritativeResults],
+  const resetPolicies = communityWsReconnectPolicies.filter((policy) => RESET_POLICIES.has(policy))
+  const focusedMessagePolicies = communityWsReconnectPolicies.filter((policy) => policy === "focused-messages")
+  const focusedRoutePolicies = communityWsReconnectPolicies.filter(
+    (policy) => FOCUSED_POLICIES.has(policy) && policy !== "focused-messages",
   )
-  const successCount = settled.filter(
-    (result) => result.status === "fulfilled" && result.value,
-  ).length
+  const backgroundPolicies = communityWsReconnectPolicies.filter(
+    (policy) => !RESET_POLICIES.has(policy) && !FOCUSED_POLICIES.has(policy),
+  )
+
+  const resetResults = await Promise.all(
+    resetPolicies.map((policy) => executePolicy(policy, executors[policy])),
+  )
+  const focusedMessageResults = await Promise.all(
+    focusedMessagePolicies.map((policy) => executePolicy(policy, executors[policy])),
+  )
+  const focusedRouteResults = await Promise.all(
+    focusedRoutePolicies.map((policy) => executePolicy(policy, executors[policy])),
+  )
+  const backgroundResults = await executePoliciesBounded(
+    backgroundPolicies,
+    executors,
+    BACKGROUND_RECONCILE_CONCURRENCY,
+  )
+  const results = [
+    ...resetResults,
+    ...focusedMessageResults,
+    ...focusedRouteResults,
+    ...backgroundResults,
+  ]
+  const successCount = results.filter(Boolean).length
   const summary = {
-    policyCount: settled.length,
+    policyCount: results.length,
     successCount,
-    failureCount: settled.length - successCount,
+    failureCount: results.length - successCount,
     durationMs: Math.max(0, Date.now() - startedAt),
     reconnectDurationMs,
   }
