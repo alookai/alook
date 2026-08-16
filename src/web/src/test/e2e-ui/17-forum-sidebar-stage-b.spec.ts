@@ -107,7 +107,14 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     const refreshSuccessfulMessageResponses = successfulResponses.filter((url) =>
       isChannelMessagesRequest(url, threadId),
     )
-    expect(refreshSuccessfulMessageResponses.length).toBeGreaterThanOrEqual(1)
+    const refreshNewestResponses = refreshSuccessfulMessageResponses.filter((url) =>
+      !new URL(url).searchParams.has("anchor"),
+    )
+    const refreshAnchorResponses = refreshSuccessfulMessageResponses.filter((url) =>
+      new URL(url).searchParams.has("anchor"),
+    )
+    expect(refreshNewestResponses.length).toBeLessThanOrEqual(1)
+    expect(refreshAnchorResponses.length).toBeLessThanOrEqual(1)
     expect(new Set(refreshSuccessfulMessageResponses).size)
       .toBe(refreshSuccessfulMessageResponses.length)
   })
