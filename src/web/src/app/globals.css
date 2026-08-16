@@ -1436,6 +1436,13 @@ body.community-onboarding-active.driver-active :is(
   display: none;
 }
 
+/* Preserve the thin-scrollbar overflow contract while allowing shell lists to
+   opt into a zero-gutter hidden scrollbar. This later, more-specific rule wins
+   over .thin-scrollbar's Firefox width without changing other thin scrollers. */
+.thin-scrollbar.scrollbar-none {
+  scrollbar-width: none;
+}
+
 /* Backdrop scrollbar: takes same space as thin-scrollbar but invisible */
 .mention-backdrop.thin-scrollbar {
   scrollbar-color: transparent transparent;

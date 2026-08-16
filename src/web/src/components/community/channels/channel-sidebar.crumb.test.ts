@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest"
+import { readFileSync } from "node:fs"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 
@@ -88,6 +89,17 @@ const renderForum = (muted = false) => renderToStaticMarkup(
 )
 
 describe("ChannelSidebar header", () => {
+  it("keeps the channel list scrollable without reserving scrollbar width", () => {
+    const html = render()
+    expect(html).toContain('data-testid="community-channel-sidebar-scroll"')
+    expect(html).toContain(
+      "min-h-0 flex-1 overflow-y-auto px-2 py-4 thin-scrollbar scrollbar-none",
+    )
+    const css = readFileSync(new URL("../../../app/globals.css", import.meta.url), "utf8")
+    expect(css).toContain(".thin-scrollbar.scrollbar-none")
+    expect(css).toContain("scrollbar-width: none")
+  })
+
   it("renders the server name as the sole header identity marker (no duplicate ServerCrumb icon)", () => {
     const html = render()
     expect(html).toContain("Alpha")

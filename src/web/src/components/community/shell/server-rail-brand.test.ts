@@ -12,9 +12,22 @@ describe("ServerRail Home brand mark", () => {
     expect(source).toContain('<TooltipContent side="right" sideOffset={8}>Home</TooltipContent>')
     expect(source).not.toContain('>Direct Messages</TooltipContent>')
     expect(source).toContain("group/alook grid size-10")
-    expect(source).toContain("gap-2 pt-2 pb-2")
+    expect(source).toContain("flex min-h-0 w-14 shrink-0 flex-col items-center overflow-hidden pt-2")
     expect(source).not.toContain("hover:scale-110")
     expect(source).not.toContain('src="/alook.svg"')
     expect(source).not.toContain("alook-dark.svg")
+  })
+
+  it("keeps Home and Add fixed while only the server list scrolls", () => {
+    const source = readFileSync(new URL("./server-rail.tsx", import.meta.url), "utf8")
+
+    expect(source).toContain("data-testid={tid.serverRailScroll}")
+    expect(source).toContain(
+      'className="min-h-0 w-full flex-1 overflow-y-auto overflow-x-clip py-2 thin-scrollbar scrollbar-none"',
+    )
+    expect(source).toContain(
+      'className="flex w-full shrink-0 justify-center" style={{ paddingBottom: bottomInset ?? 8 }}',
+    )
+    expect(source).not.toContain("pb-2 overflow-y-auto overflow-x-clip thin-scrollbar")
   })
 })

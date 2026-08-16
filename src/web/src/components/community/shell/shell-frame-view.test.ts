@@ -101,6 +101,7 @@ describe("ShellFrameView", () => {
     expect(group.props.orientation).toBe("horizontal")
     const [sidebarPanel, mainPanel] = renderer.root.findAllByType("panel")
     expect(sidebarPanel.props).toMatchObject({ id: "sidebar", defaultSize: "24%", minSize: 160, maxSize: 360 })
+    expect(sidebarPanel.props.className).toContain("pb-15")
     expect(mainPanel.props).toMatchObject({ id: "main", defaultSize: "76%" })
     expect(renderer.root.findByType("shell-overlays").props.profileStatusSeeds).toEqual({
       initialStatusEmoji: "🌱",

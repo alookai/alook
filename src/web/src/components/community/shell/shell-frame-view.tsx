@@ -80,7 +80,7 @@ export function ShellFrameView({
                 defaultSize="24%"
                 minSize={160}
                 maxSize={360}
-                className="flex flex-col pb-14 bg-sidebar"
+                className="flex flex-col bg-sidebar pb-15"
               >
                 <div ref={sidebarPanelRef} className="flex min-h-0 flex-1 flex-col">
                   {sidebar()}

@@ -6,6 +6,8 @@ export const tid = {
   composerSend: "community-composer-send",
   composerAttach: "community-composer-attach",
   serverAdd: "community-server-add",
+  serverRailScroll: "community-server-rail-scroll",
+  channelSidebarScroll: "community-channel-sidebar-scroll",
   createServerSubmit: "community-create-server-submit",
   createChannelSubmit: "community-create-channel-submit",
   newDivider: "community-new-divider",
