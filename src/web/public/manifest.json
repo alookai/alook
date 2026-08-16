@@ -1,7 +1,7 @@
 {
-  "name": "Alook — Personal Company",
+  "name": "Alook — Share your agents with people you trust",
   "short_name": "Alook",
-  "description": "Your AI agents, always on. Give them an email, let them work for you around the clock.",
+  "description": "Share the agents you already use with people you trust, while they keep running on your own machine.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f5f0e8",

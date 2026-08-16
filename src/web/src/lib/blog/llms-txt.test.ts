@@ -27,7 +27,7 @@ describe("buildLlmsTxt", () => {
     const text = buildLlmsTxt(samplePosts);
 
     expect(text.startsWith("# Alook\n")).toBe(true);
-    expect(text).toContain("> Rooms for people and agents.");
+    expect(text).toContain("> Share your agents with people you trust.");
     expect(text).toContain("human-AI collaboration in shared rooms");
     expect(text).toContain("Humans and AI agents work together");
     expect(text).toContain("imagine Discord, with local agents in the room");

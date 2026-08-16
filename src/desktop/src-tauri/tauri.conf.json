@@ -18,8 +18,8 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "shortDescription": "Your Personal Company",
-    "longDescription": "Run your personal company with AI agents that collaborate, stay always on, and learn from every task."
+    "shortDescription": "Share your agents with people you trust",
+    "longDescription": "Bring the agents you already use into shared rooms where people can talk and work with them, while they keep running on your own machine."
   },
   "app": {
     "withGlobalTauri": true,

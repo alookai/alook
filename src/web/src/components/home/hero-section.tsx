@@ -27,6 +27,7 @@ export function HeroSection({
   typewriterClassName,
   largeCtas = false,
   highlightPrimaryCta = false,
+  showMobileDesktopHint = true,
   testId,
   backgroundDecoration,
 }: {
@@ -44,6 +45,7 @@ export function HeroSection({
   typewriterClassName?: string;
   largeCtas?: boolean;
   highlightPrimaryCta?: boolean;
+  showMobileDesktopHint?: boolean;
   testId?: string;
   backgroundDecoration?: ReactNode;
 }) {
@@ -402,7 +404,7 @@ export function HeroSection({
         </div>{/* end hero-scalable */}
         </div>{/* end typewriter-wrapper */}
 
-        <p
+        {showMobileDesktopHint && <p
           className="mt-4 shrink-0 sm:hidden text-center text-xs"
           style={{
             fontFamily: "var(--font-mono)",
@@ -410,7 +412,7 @@ export function HeroSection({
           }}
         >
           For the full experience, open on a desktop browser.
-        </p>
+        </p>}
       </div>
     </section>
   );

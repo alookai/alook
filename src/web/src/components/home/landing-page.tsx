@@ -11,6 +11,7 @@ import { HeroAvatarSwarm } from "./hero-avatar-swarm"
 import { LandingReachMotion } from "./landing-reach-motion"
 import { LandingShellMotion } from "./landing-shell-motion"
 import { MarketingNav } from "./marketing-nav"
+import { BRAND_SLOGAN } from "@/lib/brand-copy"
 import {
   LANDING_CONTINUITY,
   LANDING_GALLERY,
@@ -247,7 +248,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
       <MarketingNav
         isLoggedIn={isLoggedIn}
         showTemplates={false}
-        ctaLabel="Open Alook"
+        ctaLabel={isLoggedIn ? LANDING_HERO.loggedInCta : LANDING_HERO.loggedOutCta}
         homeHref="/"
         revealAfterHero
         collapseLinksOnMobile
@@ -257,12 +258,12 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         isLoggedIn={isLoggedIn}
         headline={(
           <>
-            <span className={styles.landingHeroEmphasis}>People and agents</span>
+            <span className={styles.landingHeroEmphasis}>{LANDING_HERO.headlineLead}</span>
             <br />
-            <span className={styles.landingHeroTail}>in the same room</span>
+            <span className={styles.landingHeroTail}>{LANDING_HERO.headlineTail}</span>
           </>
         )}
-        subline={null}
+        subline={LANDING_HERO.subline}
         headlineClassName={styles.landingHeroHeadline}
         headlineStyle={{
           lineHeight: 0.98,
@@ -275,7 +276,8 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         ))}
         showClipboard={false}
         showCommunityLinks={false}
-        primaryCtaLabel={LANDING_HERO.primaryCta.toUpperCase()}
+        showMobileDesktopHint={false}
+        primaryCtaLabel={(isLoggedIn ? LANDING_HERO.loggedInCta : LANDING_HERO.loggedOutCta).toUpperCase()}
         secondaryCta={{ href: "#product", label: LANDING_HERO.secondaryCta.toUpperCase() }}
         testId="landing-hero"
         highlightPrimaryCta
@@ -286,10 +288,10 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         <div className={styles.productLayout}>
           <div className={styles.sectionIntro}>
             <div className={styles.sectionLead}>
-              <p className={styles.sectionMuted}>With each other and with agents</p>
-              <h2>Rooms where people talk</h2>
+              <p className={styles.sectionMuted}>Share what already works</p>
+              <h2>Bring your agent into the room</h2>
             </div>
-            <p>Imagine Discord, with local agents in the room.</p>
+            <p>Invite people you trust into a room where they can talk with the agent you already use.</p>
           </div>
           <ProductScene scene="server" />
         </div>
@@ -341,7 +343,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
             <p className={styles.darkMuted}>Alook holds the room</p>
             <h2>Your machine runs the agent</h2>
             <p className={styles.ownershipDescription}>
-              Bring the agents you already use into Alook—instead of paying again for another AI.
+              Your agent stays on your machine while the people you trust talk with it in Alook.
             </p>
             <div className={styles.runtimeGroup}>
               <RuntimeBadges />
@@ -355,9 +357,9 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
 
       <section className={styles.closingSection} data-testid="landing-closing">
         <div className={styles.closingCta}>
-          <p className={styles.kicker}>Your room starts here</p>
-          <h2>Start your room with agents and people</h2>
-          <p>Bring the people you trust and the agents you rely on into one shared room.</p>
+          <p className={styles.kicker}>Ready to share</p>
+          <h2>{BRAND_SLOGAN}</h2>
+          <p>Bring the agents you rely on into a room with the people who matter.</p>
           <div className={styles.closingGathering} data-testid="landing-closing-companions">
             {CLOSING_COMPANIONS.map((companion) => (
               <span
@@ -373,7 +375,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
               className={styles.closingAction}
               data-testid="landing-closing-open"
             >
-              Open Alook{" "}
+              {isLoggedIn ? LANDING_HERO.loggedInCta : LANDING_HERO.loggedOutCta}{" "}
               <span aria-hidden>↗</span>
             </Link>
           </div>
@@ -382,7 +384,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
 
       <footer className={styles.footer}>
         <Brand />
-        <p>Rooms for people and agents.</p>
+        <p>{BRAND_SLOGAN}</p>
         <FooterSocialLinks />
       </footer>
     </main>

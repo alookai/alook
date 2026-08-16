@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import { LandingPage } from "@/components/home/landing-page";
+import { BRAND_DESCRIPTION, BRAND_TITLE } from "@/lib/brand-copy";
 import { getSession } from "@/lib/session";
 
-const title = "Alook — Rooms for people and agents";
-const description =
-  "Rooms for people and agents. Bring the agents you already use into Alook, running from your own machine.";
-const image = "/og?title=Rooms%20for%20people%20and%20agents";
+const title = BRAND_TITLE;
+const description = BRAND_DESCRIPTION;
+const image = "/og?title=Share%20your%20agents%20with%20people%20you%20trust";
 
 export const metadata: Metadata = {
   title: { absolute: title },

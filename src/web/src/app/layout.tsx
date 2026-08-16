@@ -5,11 +5,12 @@ import { ToasterProvider } from "@/components/toaster-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { MockNetworkBanner } from "@/components/mock-network-banner";
 import { TauriThemeSync } from "@/components/tauri-theme-sync";
+import { BRAND_DESCRIPTION, BRAND_SLOGAN, BRAND_TITLE } from "@/lib/brand-copy";
 import { caveat, dmMono, dmSans, instrumentSerif, literata, vt323 } from "./fonts";
 import "./globals.css";
 
 const SITE_URL = "https://alook.ai";
-const OG_IMAGE_URL = "/og?title=Rooms%20for%20people%20and%20agents";
+const OG_IMAGE_URL = "/og?title=Share%20your%20agents%20with%20people%20you%20trust";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -27,11 +28,10 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: "Alook — Rooms for people and agents",
+    default: BRAND_TITLE,
     template: "%s — Alook",
   },
-  description:
-    "Rooms for people and agents. Bring the agents you already use into Alook, running from your own machine.",
+  description: BRAND_DESCRIPTION,
   icons: {
     icon: [{ url: "/favicon.ico", type: "image/x-icon" }],
     apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
@@ -39,25 +39,23 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     siteName: "Alook",
-    title: "Alook — Rooms for people and agents",
-    description:
-      "Rooms for people and agents. Bring the agents you already use into Alook, running from your own machine.",
+    title: BRAND_TITLE,
+    description: BRAND_DESCRIPTION,
     url: SITE_URL,
     images: [
       {
         url: OG_IMAGE_URL,
         width: 1200,
         height: 630,
-        alt: "Alook — Rooms for people and agents",
+        alt: BRAND_TITLE,
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
     site: "@alook_ai",
-    title: "Alook — Rooms for people and agents",
-    description:
-      "Rooms for people and agents. Bring the agents you already use into Alook, running from your own machine.",
+    title: BRAND_TITLE,
+    description: BRAND_DESCRIPTION,
     images: [OG_IMAGE_URL],
   },
   alternates: {
@@ -101,8 +99,8 @@ export default function RootLayout({
                 "@type": "WebApplication",
                 name: "Alook",
                 url: SITE_URL,
-                description:
-                  "Rooms for people and agents, with the agents you already use running from your own machine.",
+                slogan: BRAND_SLOGAN,
+                description: BRAND_DESCRIPTION,
                 applicationCategory: "DeveloperApplication",
                 operatingSystem: "All",
                 offers: {

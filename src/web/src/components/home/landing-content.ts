@@ -1,4 +1,5 @@
 import type { LandingScene } from "./landing-shell-motion-timeline"
+import { BRAND_SLOGAN } from "@/lib/brand-copy"
 
 export const LANDING_SECTION_ORDER = [
   "hero",
@@ -11,8 +12,13 @@ export const LANDING_SECTION_ORDER = [
 ] as const
 
 export const LANDING_HERO = {
-  headline: "People and agents in the same room",
-  primaryCta: "Open Alook",
+  headline: BRAND_SLOGAN,
+  headlineLead: "Share your agents",
+  headlineTail: "with people you trust.",
+  subline:
+    "Bring the agents you already use into a shared room where everyone can talk and work together.",
+  loggedOutCta: "Start sharing",
+  loggedInCta: "Open Alook",
   secondaryCta: "See how it works",
 } as const
 

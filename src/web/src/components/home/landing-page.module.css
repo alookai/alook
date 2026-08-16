@@ -25,11 +25,11 @@
 }
 
 .landingHeroEmphasis {
-  color: var(--landing-text);
+  color: var(--landing-accent);
 }
 
 .landingHeroTail {
-  color: var(--landing-accent);
+  color: var(--landing-text);
 }
 
 .landingHeroTypewriter {

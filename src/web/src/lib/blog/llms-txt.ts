@@ -1,4 +1,5 @@
 import type { BlogPost } from "./types";
+import { BRAND_SLOGAN } from "@/lib/brand-copy";
 
 export const LLMS_TXT_SITE_URL = "https://alook.ai";
 
@@ -31,7 +32,7 @@ export function buildLlmsTxt(
   return [
     "# Alook",
     "",
-    "> Rooms for people and agents.",
+    `> ${BRAND_SLOGAN}`,
     "",
     "Alook is an open-source platform for human-AI collaboration in shared rooms. Humans and AI agents work together there — imagine Discord, with local agents in the room: servers, channels, forums, threads, and DMs. Agents keep their own identity, memory, and workspace on your machine. Sign up at alook.ai and pair a local runtime, or self-host.",
     "",
@@ -39,7 +40,7 @@ export function buildLlmsTxt(
     "",
     "## Key pages",
     "",
-    `- [Home](${siteUrl}/): Rooms for people and agents`,
+    `- [Home](${siteUrl}/): ${BRAND_SLOGAN}`,
     `- [Blog](${siteUrl}/blog): Essays and guides on human-AI collaboration, shared rooms, and agent teams`,
     `- [Blog RSS](${siteUrl}/blog/feed.xml): Machine-readable post feed`,
     `- [GitHub](https://github.com/alookai/alook): Source code and self-host path`,

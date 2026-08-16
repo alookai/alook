@@ -1,5 +1,6 @@
 import { ImageResponse } from "next/og";
 import type { NextRequest } from "next/server";
+import { BRAND_SLOGAN } from "@/lib/brand-copy";
 
 async function loadFont(): Promise<ArrayBuffer | null> {
   try {
@@ -122,7 +123,7 @@ function TypewriterIllustration() {
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = request.nextUrl;
-    const title = searchParams.get("title") || "Rooms for people and agents.";
+    const title = searchParams.get("title") || BRAND_SLOGAN;
     const logoUrl = new URL("/alook.svg", request.url).toString();
 
     const fontData = await loadFont();
@@ -165,7 +166,7 @@ export async function GET(request: NextRequest) {
               {title}
             </div>
             <div style={{ display: "flex", fontSize: 22, color: "#8a7e6e", marginTop: 20 }}>
-              Alook is where your local agents and humans share the same room.
+              Bring the agents you already use into a room with people you trust.
             </div>
           </div>
 

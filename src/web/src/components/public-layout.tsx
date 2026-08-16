@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
+import { BRAND_SLOGAN } from "@/lib/brand-copy";
 
 const footerLinks = [
   { href: "/templates", label: "Templates" },
@@ -93,7 +94,7 @@ export function PublicLayout({
                 </span>
               </Link>
               <span className="text-[10px] uppercase tracking-[0.2em] font-mono text-muted-foreground">
-                Rooms for people and agents.
+                {BRAND_SLOGAN}
               </span>
             </div>
 

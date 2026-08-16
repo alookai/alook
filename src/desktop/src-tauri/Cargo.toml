@@ -2,7 +2,7 @@
 name = "alook-desktop"
 version = "0.1.10"
 edition = "2021"
-description = "Alook — Your Personal Company"
+description = "Alook — Share your agents with people you trust"
 
 [lib]
 name = "alook_desktop_lib"

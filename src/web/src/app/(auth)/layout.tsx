@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
+import { BRAND_SLOGAN } from "@/lib/brand-copy";
 
 export const metadata: Metadata = {
   title: "Sign In",
-  description: "Rooms for people and agents.",
+  description: BRAND_SLOGAN,
   robots: { index: false, follow: true },
   openGraph: {
     images: [{ url: "/og?title=Sign In", width: 1200, height: 630 }],

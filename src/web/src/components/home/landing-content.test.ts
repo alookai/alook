@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs"
 import path from "node:path"
 import { describe, expect, it } from "vitest"
+import { BRAND_DESCRIPTION, BRAND_SLOGAN, BRAND_TITLE } from "@/lib/brand-copy"
 import {
   LANDING_AGENT,
   LANDING_CONTINUITY,
@@ -22,7 +23,16 @@ describe("landing content contract", () => {
   it("uses plain product language in the hero", () => {
     const hero = LANDING_HERO.headline
 
-    expect(hero).toBe("People and agents in the same room")
+    expect(hero).toBe("Share your agents with people you trust.")
+    expect(LANDING_HERO).toMatchObject({
+      headlineLead: "Share your agents",
+      headlineTail: "with people you trust.",
+      loggedOutCta: "Start sharing",
+      loggedInCta: "Open Alook",
+      secondaryCta: "See how it works",
+    })
+    expect(LANDING_HERO.subline).toContain("agents you already use")
+    expect(LANDING_HERO.subline).toContain("everyone can talk and work together")
     expect(hero).not.toContain("Local runtimes")
     expect(hero.toLowerCase()).not.toContain("your people")
     expect(hero.toLowerCase()).not.toContain("personal company")
@@ -85,11 +95,12 @@ describe("landing content contract", () => {
     const companions = landingPageSource.match(/const CLOSING_COMPANIONS = \[([\s\S]*?)\] as const/)?.[1] ?? ""
     const closing = landingPageSource.match(/<section className=\{styles\.closingSection\}([\s\S]*?)<footer/)?.[1] ?? ""
 
-    expect(closing).toContain("Your room starts here")
-    expect(closing).toContain("Start your room with agents and people")
-    expect(closing).toContain("Bring the people you trust and the agents you rely on into one shared room.")
+    expect(closing).toContain("Ready to share")
+    expect(closing).toContain("BRAND_SLOGAN")
+    expect(closing).toContain("Bring the agents you rely on into a room with the people who matter.")
     expect(closing).toContain('href={isLoggedIn ? "/c/me" : "/sign-in"}')
     expect(closing).toContain('data-testid="landing-closing-open"')
+    expect(closing).toContain("LANDING_HERO.loggedInCta : LANDING_HERO.loggedOutCta")
     expect(closing).toContain("CLOSING_COMPANIONS.map")
     expect(companions.match(/seed: "/g)).toHaveLength(3)
     expect(landingPageSource).not.toContain("View on GitHub")
@@ -132,6 +143,7 @@ describe("landing content contract", () => {
 
   it("promotes the approved landing while preserving the legacy route", () => {
     const root = webRoot()
+    const repoRoot = path.resolve(root, "../..")
     const rootRoute = readFileSync(path.join(root, "src/app/page.tsx"), "utf8")
     const legacyRoute = readFileSync(path.join(root, "src/app/landing-legacy/page.tsx"), "utf8")
     const rootLayout = readFileSync(path.join(root, "src/app/layout.tsx"), "utf8")
@@ -154,6 +166,14 @@ describe("landing content contract", () => {
     const swarmStyles = readFileSync(path.join(root, "src/components/home/hero-avatar-swarm.module.css"), "utf8")
     const navSource = readFileSync(path.join(root, "src/components/home/marketing-nav.tsx"), "utf8")
     const legacyHome = readFileSync(path.join(root, "src/components/home/home-page.tsx"), "utf8")
+    const brandCopySource = readFileSync(path.join(root, "src/lib/brand-copy.ts"), "utf8")
+    const manifest = JSON.parse(readFileSync(path.join(root, "public/manifest.json"), "utf8"))
+    const tauriConfig = JSON.parse(
+      readFileSync(path.join(repoRoot, "src/desktop/src-tauri/tauri.conf.json"), "utf8"),
+    )
+    const cargoManifest = readFileSync(path.join(repoRoot, "src/desktop/src-tauri/Cargo.toml"), "utf8")
+    const githubPreview = readFileSync(path.join(repoRoot, "assets/social-preview/github-card.html"), "utf8")
+    const twitterPreview = readFileSync(path.join(repoRoot, "assets/social-preview/twitter-banner.html"), "utf8")
 
     expect(rootRoute).toContain("LandingPage")
     expect(rootRoute).toContain("getSession")
@@ -166,36 +186,51 @@ describe("landing content contract", () => {
     expect(legacyRoute).toContain("getSession")
     expect(legacyRoute).toContain("index: false")
     expect(legacyRoute).toContain("follow: false")
-    expect(rootLayout).toContain("Alook — Rooms for people and agents")
-    expect(rootLayout).toContain(
-      "Rooms for people and agents. Bring the agents you already use into Alook, running from your own machine.",
-    )
-    expect(rootLayout).not.toContain("shared rooms")
+    expect(BRAND_SLOGAN).toBe("Share your agents with people you trust.")
+    expect(BRAND_TITLE).toBe("Alook — Share your agents with people you trust")
+    expect(BRAND_DESCRIPTION).toContain("agents you already use")
+    expect(BRAND_DESCRIPTION).toContain("shared rooms")
+    expect(brandCopySource).not.toContain("Personal Company")
+    expect(rootRoute).toContain("BRAND_TITLE")
+    expect(rootRoute).toContain("BRAND_DESCRIPTION")
+    expect(rootLayout).toContain("BRAND_TITLE")
+    expect(rootLayout).toContain("BRAND_DESCRIPTION")
+    expect(rootLayout).toContain("BRAND_SLOGAN")
     expect(rootLayout).not.toContain("Personal Company")
     expect(rootLayout).not.toContain("Give them an email")
     expect(rootLayout).toContain('url: "/favicon.ico", type: "image/x-icon"')
     expect(rootLayout).toContain('url: "/apple-touch-icon.png", sizes: "180x180"')
-    expect(authLayout).toContain('description: "Rooms for people and agents."')
+    expect(authLayout).toContain("description: BRAND_SLOGAN")
     expect(authLayout).not.toContain("Personal Company")
     expect(authLayout).not.toContain("Your Your")
     expect(signInClient).toContain('label: "Bring your own agents"')
     expect(signInClient).toContain('description: "Use your own computer and existing agent subscriptions."')
     expect(signInClient).not.toContain("Bring your own workspaces")
     expect(communityLayout).toContain('<SignupTracker redirectTo="/c/me/machines" />')
-    expect(ogRoute).toContain('searchParams.get("title") || "Rooms for people and agents."')
+    expect(ogRoute).toContain('searchParams.get("title") || BRAND_SLOGAN')
     expect(ogRoute).toContain('new URL("/alook.svg", request.url)')
     expect(ogRoute).toContain("width={120}")
     expect(ogRoute).toContain("height={120}")
     expect(ogRoute).toContain("borderRadius: 28")
     expect(ogRoute).toContain("HOME / FAMILY-PLANS")
     expect(ogRoute).toContain("Maya joined the room.")
-    expect(ogRoute).toContain("Alook is where your local agents and humans share the same room.")
+    expect(ogRoute).toContain("Bring the agents you already use into a room with people you trust.")
     expect(ogRoute).not.toContain("jarvis@alook.ai")
     expect(ogRoute).not.toContain("you@email.com")
     expect(ogRoute).not.toContain("stay always on")
     expect(ogRoute).not.toContain("Personal Company")
-    expect(publicLayout).toContain("Rooms for people and agents.")
+    expect(publicLayout).toContain("BRAND_SLOGAN")
     expect(publicLayout).not.toContain("Personal Company")
+    expect(manifest.name).toBe("Alook — Share your agents with people you trust")
+    expect(manifest.description).toContain("people you trust")
+    expect(tauriConfig.bundle.shortDescription).toBe("Share your agents with people you trust")
+    expect(tauriConfig.bundle.longDescription).toContain("shared rooms")
+    expect(cargoManifest).toContain('description = "Alook — Share your agents with people you trust"')
+    for (const preview of [githubPreview, twitterPreview]) {
+      expect(preview).toContain('<div class="title">Share your agents</div>')
+      expect(preview).toContain('<div class="tagline">with people you trust.</div>')
+      expect(preview).not.toContain("Your Personal Company")
+    }
     expect(landingPageSource).toContain("export function LandingPage")
     expect(playbackSource).toContain("LANDING_MOTION_VISIBILITY_THRESHOLD = 0.3")
     expect(playbackSource).toContain("IntersectionObserver")
@@ -246,8 +281,9 @@ describe("landing content contract", () => {
     expect(motionStyles).toContain("--motion-frame-radius: var(--gallery-frame-radius, var(--radius-lg))")
     expect(motionStyles).toContain("clip-path: inset(0 round var(--motion-frame-radius))")
     expect(landingPageSource).toContain("papers={LANDING_TYPEWRITER_CASES.map")
-    expect(landingPageSource).toContain("People and agents")
-    expect(landingPageSource).toContain("subline={null}")
+    expect(landingPageSource).toContain("LANDING_HERO.headlineLead")
+    expect(landingPageSource).toContain("LANDING_HERO.headlineTail")
+    expect(landingPageSource).toContain("subline={LANDING_HERO.subline}")
     expect(landingPageSource).toContain("largeCtas")
     expect(landingPageSource).toContain("highlightPrimaryCta")
     expect(heroSource).toContain('highlightPrimaryCta ? "var(--landing-accent)" : "var(--landing-text)"')
@@ -262,14 +298,16 @@ describe("landing content contract", () => {
     expect(landingPageSource).not.toContain("anyone")
     expect(landingPageSource).not.toContain("subscriptions")
     expect(landingPageSource).toContain(
-      "Bring the agents you already use into Alook—instead of paying again for another AI.",
+      "Your agent stays on your machine while the people you trust talk with it in Alook.",
     )
     expect(landingPageSource).not.toContain("NOT ANOTHER")
     expect(landingPageSource).not.toContain("leaves the terminal")
     expect(landingPageSource).not.toContain("Your agent gets a name")
-    expect(landingPageSource).toContain("With each other and with agents")
-    expect(landingPageSource).toContain("Rooms where people talk")
-    expect(landingPageSource).toContain("Imagine Discord, with local agents in the room.")
+    expect(landingPageSource).toContain("Share what already works")
+    expect(landingPageSource).toContain("Bring your agent into the room")
+    expect(landingPageSource).toContain(
+      "Invite people you trust into a room where they can talk with the agent you already use.",
+    )
     expect(landingPageSource).toContain("Across every room")
     expect(landingPageSource).toContain("One identity")
     expect(landingPageSource).toContain("I keep the same account, identity, and relationships across every room.")
@@ -313,7 +351,9 @@ describe("landing content contract", () => {
     expect(landingStyles).toMatch(/\.page\s*\{[\s\S]*?--landing-accent: #356f95;/)
     expect(landingStyles).toMatch(/\.page\s*\{[\s\S]*?--tw-blob-theme: var\(--landing-section-bg\);/)
     expect(landingStyles).toMatch(/\.page\s*\{[\s\S]*?--landing-text-muted: #47633b;/)
-    expect(landingStyles).toMatch(/\.landingHeroTail\s*\{[\s\S]*?color: var\(--landing-accent\);/)
+    expect(landingStyles).toMatch(/\.landingHeroEmphasis\s*\{[\s\S]*?color: var\(--landing-accent\);/)
+    expect(landingStyles).toMatch(/\.landingHeroTail\s*\{[\s\S]*?color: var\(--landing-text\);/)
+    expect(landingPageSource).toContain("showMobileDesktopHint={false}")
     expect(landingStyles).not.toContain("#5b6b60")
     expect(landingStyles).toContain("--landing-section-bg")
     expect(landingStyles.match(/--tw-blob-theme:/g)).toHaveLength(1)
@@ -354,7 +394,7 @@ describe("landing content contract", () => {
     expect(reachStyles).toContain("aspect-ratio: 1120 / 760")
     expect(reachStyles).toContain("clamp(12px, 4vw, 24px)")
     expect(reachStyles).toMatch(/\.desktopShell\s*\{[\s\S]*?left: 9%;/)
-    expect(landingPageSource).toContain("Rooms for people and agents.")
+    expect(landingPageSource).toContain("BRAND_SLOGAN")
     expect(landingPageSource).toContain("Alook holds the room")
     expect(landingPageSource).toContain("Your machine runs the agent")
     expect(landingPageSource).toContain("styles.ownershipDescription")
