@@ -87,20 +87,22 @@ export function rankMentionItems(
   return [...virtual, ...sw, ...inc].slice(0, MENTION_LIMIT)
 }
 
-// Popup state. `rect` is `clientRect()` from @tiptap/suggestion — it's the
-// caret position the popup floats above.
+// Keep TipTap's live `clientRect` resolver rather than a one-time DOMRect.
+// Mobile visualViewport and keyboard movement can move the caret without
+// causing another suggestion update; the popup subscribes to those signals
+// and re-reads this resolver.
 export interface MentionPopupState {
   items: MentionItem[]
   selectedIndex: number
   command: ((props: { id: string; label: string }) => void) | null
-  rect: DOMRect | null
+  getRect: (() => DOMRect | null) | null
 }
 
 export const EMPTY_MENTION_STATE: MentionPopupState = {
   items: [],
   selectedIndex: 0,
   command: null,
-  rect: null,
+  getRect: null,
 }
 
 type SuggestionProps = {
@@ -158,7 +160,7 @@ export function buildCommunityMentionExtension(opts: {
             items: props.items ?? [],
             selectedIndex: 0,
             command: props.command,
-            rect: props.clientRect?.() ?? null,
+            getRect: props.clientRect ?? null,
           })
         },
         onUpdate: (props: SuggestionProps) => {
@@ -169,7 +171,7 @@ export function buildCommunityMentionExtension(opts: {
                 ? cur.selectedIndex
                 : 0,
             command: props.command,
-            rect: props.clientRect?.() ?? null,
+            getRect: props.clientRect ?? null,
           }))
         },
         onKeyDown: ({ event }: { event: KeyboardEvent }) => {

@@ -46,4 +46,5 @@ export type MessageListProps = {
 export type ResolvedMessageListProps = MessageListProps & {
   variant: "channel" | "dm"
   initialScrollReady: boolean
+  hoverCapable: boolean
 }

@@ -2,13 +2,18 @@ import React, { useRef, useEffect } from "react"
 import { createPortal } from "react-dom"
 import type { SkillEntry } from "@alook/shared"
 import { cn } from "@/lib/utils"
+import {
+  anchoredPopoverStyle,
+  useAnchoredPopover,
+  type AnchorRectResolver,
+} from "@/hooks/use-anchored-popover"
 
 interface SlashCommandPopupProps {
   isOpen: boolean
   skills: SkillEntry[]
   selectedIndex: number
   onSelect: (skill: SkillEntry) => void
-  anchorPos: { top: number; left: number }
+  getAnchorRect: AnchorRectResolver
 }
 
 function SkillRow({
@@ -50,8 +55,9 @@ function SkillRow({
   )
 }
 
-export function SlashCommandPopup({ isOpen, skills, selectedIndex, onSelect, anchorPos }: SlashCommandPopupProps) {
+export function SlashCommandPopup({ isOpen, skills, selectedIndex, onSelect, getAnchorRect }: SlashCommandPopupProps) {
   const listRef = useRef<HTMLDivElement>(null)
+  const geometry = useAnchoredPopover(getAnchorRect, isOpen && skills.length > 0)
 
   useEffect(() => {
     if (!listRef.current) return
@@ -60,26 +66,18 @@ export function SlashCommandPopup({ isOpen, skills, selectedIndex, onSelect, anc
     selected?.scrollIntoView({ block: "nearest" })
   }, [selectedIndex])
 
-  if (!isOpen || skills.length === 0) return null
-
-  // Popup is w-70 (280px). Clamp left so it never overflows the right edge (mobile).
-  const POPUP_WIDTH = 280
-  const VIEWPORT_MARGIN = 8
-  const maxLeft = typeof window !== "undefined"
-    ? Math.max(VIEWPORT_MARGIN, window.innerWidth - POPUP_WIDTH - VIEWPORT_MARGIN)
-    : anchorPos.left
-  const clampedLeft = Math.min(anchorPos.left, maxLeft)
+  if (!isOpen || skills.length === 0 || !geometry) return null
 
   return createPortal(
     <div
       className="fixed z-100 w-70 rounded-lg border border-border bg-popover text-popover-foreground shadow-md transition-opacity duration-150"
-      style={{
-        top: anchorPos.top - 4,
-        left: clampedLeft,
-        transform: "translateY(-100%)",
-      }}
+      style={anchoredPopoverStyle(geometry.rect, geometry.viewport, 280, 240)}
     >
-      <div ref={listRef} className="max-h-60 overflow-y-auto py-1 thin-scrollbar">
+      <div
+        ref={listRef}
+        className="overflow-y-auto py-1 thin-scrollbar"
+        style={{ maxHeight: "var(--anchored-popover-max-height)" }}
+      >
         {skills.map((skill, i) => (
           <SkillRow
             key={skill.name}

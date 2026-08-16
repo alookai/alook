@@ -80,11 +80,19 @@ export function MessageContextItems(props: MessageMenuHandlers) {
   )
 }
 
-export function MessageDropdownItems(props: MessageMenuHandlers) {
+export function MessageDropdownItems({
+  touch = false,
+  ...props
+}: MessageMenuHandlers & { touch?: boolean }) {
   return (
     <>
       {messageMenuItems(props).map((it) => (
-        <DropdownMenuItem key={it.label} onClick={it.onClick} variant={it.danger ? "destructive" : "default"}>
+        <DropdownMenuItem
+          key={it.label}
+          onClick={it.onClick}
+          variant={it.danger ? "destructive" : "default"}
+          className={touch ? "min-h-11" : undefined}
+        >
           <IconSlot icon={it.icon} /> {it.label}
         </DropdownMenuItem>
       ))}

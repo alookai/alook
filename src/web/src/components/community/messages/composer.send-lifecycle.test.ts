@@ -27,13 +27,13 @@ vi.mock("@tiptap/pm/model", () => ({
 vi.mock("@/lib/community/mention-extension", () => ({
   buildCommunityMentionExtension: vi.fn(() => ({})),
   detectMentionType: vi.fn(() => undefined),
-  EMPTY_MENTION_STATE: { items: [], selectedIndex: 0, command: null, rect: null },
+  EMPTY_MENTION_STATE: { items: [], selectedIndex: 0, command: null, getRect: null },
   rankMentionItems: vi.fn(() => []),
 }))
 
 vi.mock("@/lib/community/channel-ref-extension", () => ({
   buildCommunityChannelRefExtension: vi.fn(() => ({})),
-  EMPTY_CHANNEL_REF_STATE: { items: [], selectedIndex: 0, command: null, rect: null },
+  EMPTY_CHANNEL_REF_STATE: { items: [], selectedIndex: 0, command: null, getRect: null },
   rankChannelRefItems: vi.fn(() => []),
   toChannelRefCommandProps: vi.fn(),
 }))

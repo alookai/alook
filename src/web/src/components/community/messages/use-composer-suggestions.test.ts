@@ -14,7 +14,7 @@ vi.mock("@/lib/community/mention-extension", () => ({
     items: [],
     selectedIndex: 0,
     command: null,
-    rect: null,
+    getRect: null,
   },
   buildCommunityMentionExtension: (...args: unknown[]) =>
     mocks.buildMention(...args),
@@ -26,7 +26,7 @@ vi.mock("@/lib/community/channel-ref-extension", () => ({
     items: [],
     selectedIndex: 0,
     command: null,
-    rect: null,
+    getRect: null,
   },
   buildCommunityChannelRefExtension: (...args: unknown[]) =>
     mocks.buildChannel(...args),
@@ -157,13 +157,13 @@ describe("useComposerSuggestions", () => {
         items: [],
         selectedIndex: 0,
         command: vi.fn(),
-        rect: null,
+        getRect: null,
       })
       channelOptions.setPopup({
         items: [],
         selectedIndex: 0,
         command: vi.fn(),
-        rect: null,
+        getRect: null,
       })
     })
 
@@ -243,7 +243,7 @@ describe("useComposerSuggestions", () => {
         items: [initialItem, secondItem],
         selectedIndex: 1,
         command: vi.fn(),
-        rect: null,
+        getRect: null,
       })
     })
 
@@ -314,13 +314,13 @@ describe("useComposerSuggestions", () => {
         items: [{ kind: "everyone", id: "everyone", label: "everyone" }],
         selectedIndex: 0,
         command: vi.fn(),
-        rect: null,
+        getRect: null,
       })
       channelOptions.setPopup({
         items: [channel()],
         selectedIndex: 0,
         command: vi.fn(),
-        rect: null,
+        getRect: null,
       })
     })
     const previousState = resultRef.current!.channelRefPopup
@@ -344,7 +344,7 @@ describe("useComposerSuggestions", () => {
         items: [channel(), second],
         selectedIndex: 1,
         command: vi.fn(),
-        rect: null,
+        getRect: null,
       })
     })
     mocks.rankChannel.mockReturnValue([

@@ -1,6 +1,6 @@
 "use client"
 
-import { memo, useState } from "react"
+import { memo, useRef, useState } from "react"
 import { useMessageMarked } from "@/hooks/community/use-inbox"
 import type React from "react"
 import {
@@ -46,12 +46,24 @@ export function shouldActivateMessageOverlays(target: EventTarget | null): boole
   return !element?.closest?.("button, a, input, textarea, select, [role=button]")
 }
 
+export function shouldSuppressTouchMenuOpen({
+  nestedControl,
+  selectionInsideRow,
+  longPress,
+}: {
+  nestedControl: boolean
+  selectionInsideRow: boolean
+  longPress: boolean
+}): boolean {
+  return nestedControl || selectionInsideRow || longPress
+}
+
 function MessageImpl({
   m, compact, pinned, onOpenThread, onOpenProfile, onJumpReply,
   onToggleReaction, onReact, onReply, onPin, onMark, onCreateThread, onCopy, onEdit, onRetry, onDismiss,
   onPreviewImage, onPreviewAttachment, onDownloadFile, highlighted, resolveUserName, onImageLoad,
   selectMode, selected, onToggleSelect, onEnterSelect, onShareSingle,
-  viewerUserId,
+  viewerUserId, hoverCapable = true,
 }: {
   m: RenderMsg
   compact?: boolean
@@ -93,18 +105,28 @@ function MessageImpl({
   onEnterSelect?: () => void
   onShareSingle?: () => void
   viewerUserId?: string
+  // Resolved once by MessageList and threaded into virtualized rows. Keeping
+  // the media-query subscription at the list level avoids one listener per
+  // visible message. Non-interactive standalone previews can use the desktop
+  // default without subscribing at all.
+  hoverCapable?: boolean
 }) {
   // keep the hover toolbar pinned open while its ⋯ dropdown is open
   const [toolbarOpen, setToolbarOpen] = useState(false)
   // Right-click context-menu open state — tracked so the Mark/Unmark label's
   // lazy read fires for the context menu too, not just the ⋯ dropdown.
   const [contextOpen, setContextOpen] = useState(false)
+  // Touch devices use a normal tap-triggered dropdown. Long-press is left to
+  // the browser so message text keeps native selection/copy behavior.
+  const [touchMenuOpen, setTouchMenuOpen] = useState(false)
+  const touchStartedAt = useRef<number | null>(null)
+  const suppressLongPressClick = useRef(false)
   // The Mark/Unmark label needs to know if THIS message is already in the
   // viewer's saved set. That's a single indexed row read, fired lazily only
   // while a menu that shows the item is open (never per-row on mount) — so a
   // channel scroll doesn't pre-load mark state for every row. Defaults to
   // "Mark"; flips to "Unmark" silently once the read resolves (no spinner).
-  const markMenuOpen = (toolbarOpen || contextOpen) && !!onMark
+  const markMenuOpen = (toolbarOpen || contextOpen || touchMenuOpen) && !!onMark
   const { data: markedData } = useMessageMarked(m.id, markMenuOpen)
   // Lazy-mount the row's Base UI overlay roots (ContextMenu / DropdownMenu /
   // EmojiPicker Popover / reaction Tooltips). Eagerly mounting them per visible
@@ -141,7 +163,7 @@ function MessageImpl({
   }
   const showMenu = hasMessageMenu(menuHandlers)
   const interactive = !compact && !m.failed && showMenu
-  const activate = interactive && !activated
+  const activate = interactive && hoverCapable && !activated
     ? (event: React.SyntheticEvent<HTMLElement>) => {
         if (shouldActivateMessageOverlays(event.target)) setActivated(true)
       }
@@ -156,12 +178,59 @@ function MessageImpl({
         "group relative -mx-2 flex gap-2 rounded px-2 transition-colors",
         m.grouped ? "py-0" : "mt-3 pt-1.5 pb-0",
         selectable ? "cursor-pointer pl-9" : "",
+        interactive && !hoverCapable && !selectMode ? "pr-11" : "",
         selected ? "bg-primary/10" : highlighted ? "bg-primary/10" : selectable ? "hover:bg-accent/40" : "hover:bg-accent/40",
       ].join(" ")}
       onPointerEnter={activate}
       onFocusCapture={activate}
       onKeyDownCapture={activate}
-      onClick={selectable ? onToggleSelect : undefined}
+      onTouchStart={interactive && !hoverCapable
+          ? () => {
+            touchStartedAt.current = performance.now()
+            suppressLongPressClick.current = false
+          }
+        : undefined}
+      onTouchEnd={interactive && !hoverCapable
+        ? () => {
+            const startedAt = touchStartedAt.current
+            suppressLongPressClick.current = startedAt !== null
+              && performance.now() - startedAt >= 500
+            touchStartedAt.current = null
+          }
+        : undefined}
+      onTouchCancel={interactive && !hoverCapable
+          ? () => {
+            touchStartedAt.current = null
+            suppressLongPressClick.current = true
+          }
+        : undefined}
+      onClick={selectable
+        ? onToggleSelect
+        : interactive && !hoverCapable
+          ? (event) => {
+            const selection = window.getSelection()
+            const selectionInsideRow = !!selection
+              && !selection.isCollapsed
+              && !!selection.anchorNode
+              && event.currentTarget.contains(selection.anchorNode)
+            const nearestControl = (event.target as Element).closest(
+              "button, a, input, textarea, select, [role=button]",
+            )
+            const nestedControl = !!nearestControl && nearestControl !== event.currentTarget
+            const suppress = shouldSuppressTouchMenuOpen({
+              nestedControl,
+              selectionInsideRow,
+              longPress: suppressLongPressClick.current,
+            })
+            suppressLongPressClick.current = false
+            // The row itself remains non-interactive document content. Only a
+            // short tap on its non-control body opens the controlled menu;
+            // nested buttons/links and native long-press selection stay intact.
+            if (!suppress) {
+              setTouchMenuOpen(true)
+            }
+          }
+        : undefined}
     >
       {selectMode && (
         // Checkbox overlay (absolute → no layout shift / no virtualizer
@@ -446,7 +515,38 @@ function MessageImpl({
     </div>
   )
 
-  // Not interactive, or not yet activated → render the bare row (which carries
+  // Not interactive → render the bare row. In select mode the row itself is a
+  // toggle target, so no action-menu trigger is mounted.
+  if (!interactive || selectMode) return row
+
+  // Coarse/touch input: tap opens the existing dropdown menu. Deliberately do
+  // not mount ContextMenuTrigger here — its long-press gesture competes with
+  // native message-text selection on iOS/Android.
+  if (!hoverCapable) {
+    return (
+      <DropdownMenu open={touchMenuOpen} onOpenChange={setTouchMenuOpen}>
+        <div className="relative">
+          {row}
+          <DropdownMenuTrigger
+            render={(
+              <button
+                type="button"
+                aria-label={m.seq != null && m.seq > 0 ? `Actions for message ${m.seq}` : "Message actions"}
+                className={`absolute right-0 z-20 grid size-11 place-items-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none ${m.grouped ? "top-0" : "top-3"}`}
+              />
+            )}
+          >
+            <MoreHorizontal className="size-5" />
+          </DropdownMenuTrigger>
+        </div>
+        <DropdownMenuContent align="end" className="w-48 select-none">
+          <MessageDropdownItems {...menuHandlers} touch />
+        </DropdownMenuContent>
+      </DropdownMenu>
+    )
+  }
+
+  // Not yet activated on desktop → render the bare row (which carries
   // the pointerenter/focus/keydown activation handlers). The row's Base UI
   // ContextMenu root is only mounted once hover/focus has activated it — and a
   // right-click is always preceded by a pointerenter (mouse arriving on the
@@ -454,7 +554,7 @@ function MessageImpl({
   // (The share-as-image dialog now lives in MessageList — the share button
   // enters multi-select mode; the dialog opens from the select bar there.)
   // In select mode the row is a toggle target — no context menu / toolbar.
-  if (!interactive || !activated || selectMode) return row
+  if (!activated) return row
   return (
     <ContextMenu onOpenChange={setContextOpen}>
       <ContextMenuTrigger className="select-text" render={row} />
@@ -505,6 +605,7 @@ function messagePropsEqual(prev: MessageProps, next: MessageProps): boolean {
     prev.pinned === next.pinned &&
     prev.highlighted === next.highlighted &&
     prev.viewerUserId === next.viewerUserId &&
+    prev.hoverCapable === next.hoverCapable &&
     prev.onOpenThread === next.onOpenThread &&
     prev.onOpenProfile === next.onOpenProfile &&
     prev.onJumpReply === next.onJumpReply &&

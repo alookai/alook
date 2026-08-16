@@ -1127,7 +1127,7 @@ export function AgentChatView({
                 skills={slashCommand.skills}
                 selectedIndex={slashCommand.selectedIndex}
                 onSelect={slashCommand.selectSkill}
-                anchorPos={slashCommand.anchorPos}
+                getAnchorRect={slashCommand.getAnchorRect}
               />
               {/* Pending file previews — images and non-images in separate rows */}
               {pendingFiles.length > 0 && (() => {

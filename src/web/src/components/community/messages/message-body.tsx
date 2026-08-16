@@ -107,7 +107,10 @@ function MessageBodyImpl({
     [onOpenProfile],
   )
   return (
-    <div className="markdown markdown-chat wrap-anywhere text-[15px] leading-snug text-foreground">
+    <div
+      data-community-message-body
+      className="markdown markdown-chat wrap-anywhere select-text text-[15px] leading-snug text-foreground"
+    >
       <Streamdown
         parseIncompleteMarkdown={false}
         plugins={{ mermaid, cjk, math }}

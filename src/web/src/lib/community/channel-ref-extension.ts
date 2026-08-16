@@ -32,14 +32,14 @@ export interface ChannelRefPopupState {
   items: ChannelRefCandidate[]
   selectedIndex: number
   command: ((props: ChannelRefCommandProps) => void) | null
-  rect: DOMRect | null
+  getRect: (() => DOMRect | null) | null
 }
 
 export const EMPTY_CHANNEL_REF_STATE: ChannelRefPopupState = {
   items: [],
   selectedIndex: 0,
   command: null,
-  rect: null,
+  getRect: null,
 }
 
 const CHANNEL_REF_LIMIT = 8
@@ -169,7 +169,7 @@ export function buildCommunityChannelRefExtension(opts: {
             items: props.items ?? [],
             selectedIndex: 0,
             command: props.command,
-            rect: props.clientRect?.() ?? null,
+            getRect: props.clientRect ?? null,
           })
         },
         onUpdate: (props: SuggestionProps) => {
@@ -180,7 +180,7 @@ export function buildCommunityChannelRefExtension(opts: {
                 ? cur.selectedIndex
                 : 0,
             command: props.command,
-            rect: props.clientRect?.() ?? null,
+            getRect: props.clientRect ?? null,
           }))
         },
         onKeyDown: ({ event }: { event: KeyboardEvent }) => {

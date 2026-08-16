@@ -20,6 +20,7 @@ import { useUiHandlers } from "@/stores/community"
 import { usePinMessage, useUnpinMessage, useCreateThread, useToggleMark } from "@/hooks/community/mutations"
 import type { FileAttachment, ImagePreview, MessagesPage, Msg, Reaction, RenderMsg } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
+import { useHoverCapable } from "@/hooks/use-hover-capable"
 
 export type ReplyTarget = { id: string; authorName: string; text: string }
 
@@ -482,6 +483,7 @@ function ContextRows({
   onPreviewAttachment: (attachment: FileAttachment) => void
   onDownloadFile: (url: string, name: string) => void
 }) {
+  const hoverCapable = useHoverCapable()
   // Single-message share from the peek sheet. The sheet has no select-mode
   // context (it's a read-only preview), so Share opens the dialog directly on
   // the clicked row — via `onShareSingle`, independent of the list's select-mode
@@ -510,6 +512,7 @@ function ContextRows({
             <div data-anchor-row={isTarget ? "1" : undefined}>
               <MessageRow
                 m={m}
+                hoverCapable={hoverCapable}
                 viewerUserId={viewerUserId}
                 pinned={pinnedIds?.has(m.id)}
                 highlighted={isTarget}

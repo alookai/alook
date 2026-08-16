@@ -15,6 +15,84 @@ import { tid } from "@/lib/community/testids"
 import { applyHighlightToRange, clearHighlights, hasHighlights } from "@/lib/community/highlight-range"
 import type { RenderMsg } from "@/lib/community/models/message"
 
+const SHARE_IMAGE_READY_TIMEOUT_MS = 5_000
+
+export class ShareCardImageTimeoutError extends Error {
+  constructor() {
+    super("A share-card image did not finish loading in time")
+    this.name = "ShareCardImageTimeoutError"
+  }
+}
+
+async function waitForImageLoad(
+  image: HTMLImageElement,
+  timeoutMs: number,
+): Promise<void> {
+  if (!image.complete) {
+    const settled = await new Promise<boolean>((resolve) => {
+      let finished = false
+      const finish = (didSettle: boolean) => {
+        if (finished) return
+        finished = true
+        image.removeEventListener("load", settle)
+        image.removeEventListener("error", settle)
+        clearTimeout(timer)
+        resolve(didSettle)
+      }
+      const settle = () => finish(true)
+      const timer = setTimeout(() => finish(false), timeoutMs)
+      image.addEventListener("load", settle, { once: true })
+      image.addEventListener("error", settle, { once: true })
+      // Close the tiny race where the resource settles between the initial
+      // `complete` read and listener registration.
+      if (image.complete) settle()
+    })
+    // A request that never emits load/error must fail this capture attempt so
+    // Download/Copy leave their busy state and the user can retry; capturing
+    // the avatar's transient empty branch would silently recreate the bug.
+    if (!settled) throw new ShareCardImageTimeoutError()
+  }
+  if (image.naturalWidth > 0 && image.decode) {
+    // Once load has supplied a real bitmap, decode() is only an optimization.
+    // Mobile WebKit may reject or never resolve it for cached images, so bound
+    // this wait and degrade to the already-loaded bitmap instead of deadlocking.
+    await new Promise<void>((resolve) => {
+      let finished = false
+      const finish = () => {
+        if (finished) return
+        finished = true
+        clearTimeout(timer)
+        resolve()
+      }
+      const timer = setTimeout(finish, timeoutMs)
+      Promise.resolve().then(() => image.decode()).then(finish, finish)
+    })
+  }
+}
+
+function nextPaint(): Promise<void> {
+  if (typeof requestAnimationFrame !== "function") return Promise.resolve()
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()))
+}
+
+/**
+ * Base UI's photo avatar has a transient loading state where its root contains
+ * neither the photo nor the fallback. Desktop usually hits a warm cache;
+ * mobile share can rasterise during that gap and permanently export a blank
+ * circle. Settle every card image, then yield a paint so the avatar's loaded or
+ * fallback branch commits before html-to-image clones computed styles.
+ */
+export async function waitForShareCardImages(
+  node: HTMLElement,
+  waitForPaint: () => Promise<void> = nextPaint,
+  timeoutMs = SHARE_IMAGE_READY_TIMEOUT_MS,
+): Promise<void> {
+  await Promise.all(
+    [...node.querySelectorAll("img")].map((image) => waitForImageLoad(image, timeoutMs)),
+  )
+  await waitForPaint()
+}
+
 // Share one OR several messages as an image. Renders a self-contained "share
 // card" that mirrors the in-app message blob(s) (avatar / name / content — NO
 // timestamp, per spec) plus an Alook brand footer, then rasterises THAT SAME
@@ -78,6 +156,7 @@ export function MessageShareDialog({ m, open, onClose }: {
   const render = async (): Promise<Blob | null> => {
     const node = cardRef.current
     if (!node) return null
+    await waitForShareCardImages(node)
     // Guarantee the Caveat brand font is loaded BEFORE rasterising. html-to-image
     // inlines webfonts into the SVG it draws; if Caveat's async @font-face hasn't
     // resolved yet, the footer silently falls back to a default font and the PNG
@@ -100,6 +179,7 @@ export function MessageShareDialog({ m, open, onClose }: {
       // path that would drop the avatar from the PNG. Beam fallbacks are our own
       // inline SVG, so they're unaffected either way.
       cacheBust: true,
+      fetchRequestInit: { credentials: "same-origin" },
       // Solid backdrop so the exported PNG never bleeds transparent corners
       // (the card's own rounded bg sits on top of this).
       backgroundColor: getComputedStyle(node).getPropertyValue("--card")?.trim() || undefined,
@@ -191,7 +271,7 @@ export function MessageShareDialog({ m, open, onClose }: {
                 <div className="flex gap-3">
                   {msg.grouped
                     ? <div className="w-10 shrink-0" aria-hidden />
-                    : <Avatar label={msg.authorAvatar ?? "?"} seed={msg.authorId} size={40} />}
+                    : <Avatar label={msg.authorName ?? "Unknown"} src={msg.authorAvatar} seed={msg.authorId} size={40} />}
                   <div className="min-w-0 flex-1">
                     {!msg.grouped && (
                       <div

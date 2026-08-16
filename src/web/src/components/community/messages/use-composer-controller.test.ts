@@ -159,10 +159,10 @@ describe("useComposerController", () => {
       handleDrop: handleDropRaw,
     }))
     mocks.useSuggestions.mockImplementation(() => ({
-      mentionPopup: { items: [], selectedIndex: 0, command: null, rect: null },
+      mentionPopup: { items: [], selectedIndex: 0, command: null, getRect: null },
       mentionPopupRef,
       mentionExtension: { name: "mention" },
-      channelRefPopup: { items: [], selectedIndex: 0, command: null, rect: null },
+      channelRefPopup: { items: [], selectedIndex: 0, command: null, getRect: null },
       channelRefPopupRef,
       channelRefExtension: { name: "channel-ref" },
       resetPopups,

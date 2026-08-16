@@ -1,8 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { readFileSync } from "node:fs"
 import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { Message, shouldActivateMessageOverlays } from "./message"
+import {
+  Message,
+  shouldActivateMessageOverlays,
+  shouldSuppressTouchMenuOpen,
+} from "./message"
 import type { RenderMsg } from "@/lib/community/models/message"
 
 // WS3 render-behavior tests (see plans/community-switch-perf-optimization.md):
@@ -119,6 +124,82 @@ describe("Message memo comparator", () => {
       }))
     })
     expect(resolveUserName.mock.calls.length).toBeGreaterThan(before)
+  })
+})
+
+describe("Message touch action menu", () => {
+  it("uses a tap dropdown and does not mount a long-press context-menu trigger", async () => {
+    let renderer: TestRenderer.ReactTestRenderer | undefined
+    await act(async () => {
+      renderer = TestRenderer.create(
+        makeTree({
+          m: baseMsg(),
+          hoverCapable: false,
+          onOpenThread: vi.fn(),
+          onReply: vi.fn(),
+          onCopy: vi.fn(),
+        }),
+        { createNodeMock: () => genericMock },
+      )
+    })
+
+    const triggers = renderer!.root.findAll(
+      (node) => node.props["data-slot"] === "dropdown-menu-trigger",
+    )
+    const trigger = triggers.find((node) => node.type === "button")
+    expect(trigger).toBeDefined()
+    expect(trigger?.props["aria-label"]).toBe("Message actions")
+    expect(trigger?.props.className).toContain("focus-visible:ring-2")
+    expect(renderer!.root.findAll(
+      (node) => node.props["data-slot"] === "context-menu-trigger",
+    )).toHaveLength(0)
+
+    const row = renderer!.root.find(
+      (node) => typeof node.props.className === "string"
+        && node.props.className.includes("group relative -mx-2"),
+    )
+    expect(row.props.className).not.toContain("select-none")
+    expect(row.props.role).toBeUndefined()
+    expect(row.props.tabIndex).toBeUndefined()
+    act(() => renderer!.unmount())
+  })
+
+  it("lets a short row tap reach the menu but suppresses long-press, selection, and nested-control taps", () => {
+    expect(shouldSuppressTouchMenuOpen({
+      nestedControl: false, selectionInsideRow: false, longPress: false,
+    })).toBe(false)
+    expect(shouldSuppressTouchMenuOpen({
+      nestedControl: false, selectionInsideRow: false, longPress: true,
+    })).toBe(true)
+    expect(shouldSuppressTouchMenuOpen({
+      nestedControl: false, selectionInsideRow: true, longPress: false,
+    })).toBe(true)
+    expect(shouldSuppressTouchMenuOpen({
+      nestedControl: true, selectionInsideRow: false, longPress: false,
+    })).toBe(true)
+  })
+
+  it("overrides the app-wide iOS callout suppression on selectable message text", async () => {
+    let renderer: TestRenderer.ReactTestRenderer | undefined
+    await act(async () => {
+      renderer = TestRenderer.create(
+        makeTree({
+          m: baseMsg(),
+          hoverCapable: false,
+          onOpenThread: vi.fn(),
+          onReply: vi.fn(),
+        }),
+        { createNodeMock: () => genericMock },
+      )
+    })
+
+    const body = renderer!.root.findByProps({ "data-community-message-body": true })
+    expect(body.props.className).toContain("select-text")
+    const globalCss = readFileSync(new URL("../../../app/globals.css", import.meta.url), "utf8")
+    expect(globalCss).toMatch(
+      /\[data-community-message-body\]\s*\{[^}]*-webkit-touch-callout:\s*default;[^}]*user-select:\s*text;/s,
+    )
+    act(() => renderer!.unmount())
   })
 })
 

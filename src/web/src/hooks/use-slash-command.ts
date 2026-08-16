@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react"
 import type { SkillEntry } from "@alook/shared"
+import type { AnchorRect, AnchorRectResolver } from "@/hooks/use-anchored-popover"
 
 /**
  * Minimal keyboard-event shape the popup hooks need. Both React synthetic
@@ -16,7 +17,7 @@ export interface SlashCommandPopupState {
   isOpen: boolean
   query: string
   selectedIndex: number
-  anchorPos: { top: number; left: number }
+  getAnchorRect: AnchorRectResolver
   skills: SkillEntry[]
   activeSkill: SkillEntry | null
   handleSlashKeyDown: (e: PopupKeyEvent) => boolean
@@ -32,11 +33,11 @@ interface UseSlashCommandParams {
   onInputChange: (value: string) => void
   initialActiveSkill?: SkillEntry | null
   /**
-   * Resolve the popup anchor position (viewport-relative top/left) for the
+   * Resolve the popup's viewport-relative caret rect for the
    * slash trigger at `triggerStart`. The TipTap composer computes this from
    * `editor.view.coordsAtPos`; returns null if it cannot be resolved yet.
    */
-  getAnchorPos: (triggerStart: number) => { top: number; left: number } | null
+  getAnchorPos: (triggerStart: number) => AnchorRect | null
   /** Called after a skill is selected so the caller can re-focus its editor. */
   onAfterSelect?: () => void
 }
@@ -70,7 +71,6 @@ export function useSlashCommand({
   const [isOpen, setIsOpen] = useState(false)
   const [query, setQuery] = useState("")
   const [selectedIndex, setSelectedIndex] = useState(0)
-  const [anchorPos, setAnchorPos] = useState({ top: 0, left: 0 })
   const triggerStartRef = useRef<number | null>(null)
 
   const filteredSkills = useMemo(() => {
@@ -109,13 +109,17 @@ export function useSlashCommand({
       setQuery(trigger.query)
       setIsOpen(true)
 
-      const coords = getAnchorPos(trigger.start)
-      if (coords) setAnchorPos(coords)
     } else {
       setIsOpen(false)
       triggerStartRef.current = null
     }
   }, [input, caretIndex, getAnchorPos, activeSkill])
+
+  const getAnchorRect = useCallback<AnchorRectResolver>(() => {
+    const triggerStart = triggerStartRef.current
+    if (triggerStart === null) return null
+    return getAnchorPos(triggerStart)
+  }, [getAnchorPos])
 
   const selectSkill = useCallback((skill: SkillEntry) => {
     setActiveSkill(skill)
@@ -159,7 +163,7 @@ export function useSlashCommand({
     isOpen,
     query,
     selectedIndex,
-    anchorPos,
+    getAnchorRect,
     skills: filteredSkills,
     activeSkill,
     handleSlashKeyDown,

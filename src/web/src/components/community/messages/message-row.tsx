@@ -19,6 +19,7 @@ import type { OpenProfile } from "@/components/community/social/profile-types"
 export interface MessageRowProps {
   m: RenderMsg
   viewerUserId?: string
+  hoverCapable: boolean
   pinned?: boolean
   highlighted?: boolean
   onOpenThread: (id: string) => void
@@ -53,7 +54,7 @@ export interface MessageRowProps {
 
 function MessageRowImpl(props: MessageRowProps) {
   const {
-    m, viewerUserId, pinned, highlighted, onOpenThread, onOpenProfile,
+    m, viewerUserId, hoverCapable, pinned, highlighted, onOpenThread, onOpenProfile,
     onToggleReactionId, onReactId, onReplyId, onPinId, onMarkId, onCreateThreadId,
     onCopyId, onEditId, onRetryId, onDismissId, onJumpToId, onPreviewImage, onPreviewAttachment, onDownloadFile,
     resolveUserName, onImageLoad,
@@ -92,6 +93,7 @@ function MessageRowImpl(props: MessageRowProps) {
     <Message
       m={m}
       viewerUserId={viewerUserId}
+      hoverCapable={hoverCapable}
       pinned={pinned}
       highlighted={highlighted}
       onOpenThread={onOpenThread}

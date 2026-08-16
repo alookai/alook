@@ -2688,6 +2688,14 @@ body {
   scrollbar-color: var(--border) transparent;
 }
 
+/* Chat text is intentionally copyable on iOS. Keep this scoped exception
+   stronger than the shell-wide callout suppression above; message actions
+   and menu labels remain separate controls with their own select-none styles. */
+[data-community-message-body] {
+  -webkit-touch-callout: default;
+  user-select: text;
+}
+
 ::-webkit-scrollbar {
   width: 4px;
   height: 4px;

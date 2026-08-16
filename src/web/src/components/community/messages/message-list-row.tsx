@@ -18,6 +18,7 @@ export function renderMessageListRow(
         <div data-msg-id={item.m.id} data-testid={tid.message(item.m.id)}>
           <MessageRow
             m={item.m}
+            hoverCapable={props.hoverCapable}
             viewerUserId={props.viewerUserId}
             pinned={props.pinnedIds?.has(item.m.id)}
             highlighted={controller.jumped === item.m.id}

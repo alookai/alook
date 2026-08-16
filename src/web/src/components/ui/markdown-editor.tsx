@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -11,6 +11,7 @@ import { isImeConfirming } from "@/lib/ime";
 import { isEmptyHtml, toAlookAddress } from "@alook/shared";
 import type { Agent } from "@alook/shared";
 import { createPortal } from "react-dom";
+import { anchoredPopoverStyle, useAnchoredPopover } from "@/hooks/use-anchored-popover";
 
 export { isEmptyHtml };
 
@@ -52,6 +53,11 @@ function MentionList({
 }) {
   const listRef = useRef<HTMLDivElement>(null);
   const { items, selectedIndex, command } = state;
+  const getRect = useCallback(
+    () => anchorEl?.getBoundingClientRect() ?? null,
+    [anchorEl],
+  );
+  const geometry = useAnchoredPopover(getRect, !!anchorEl && items.length > 0 && command !== null);
 
   useEffect(() => {
     if (!listRef.current) return;
@@ -59,16 +65,18 @@ function MentionList({
     el?.scrollIntoView({ block: "nearest" });
   }, [selectedIndex]);
 
-  if (!anchorEl || items.length === 0 || !command) return null;
-
-  const rect = anchorEl.getBoundingClientRect();
+  if (!anchorEl || !geometry || items.length === 0 || !command) return null;
 
   return createPortal(
     <div
       className="fixed z-100 w-64 rounded-lg border border-border bg-popover text-popover-foreground shadow-md"
-      style={{ top: rect.top - 4, left: rect.left, transform: "translateY(-100%)" }}
+      style={anchoredPopoverStyle(geometry.rect, geometry.viewport, 256, 200)}
     >
-      <div ref={listRef} className="max-h-50 overflow-y-auto py-1 thin-scrollbar">
+      <div
+        ref={listRef}
+        className="overflow-y-auto py-1 thin-scrollbar"
+        style={{ maxHeight: "var(--anchored-popover-max-height)" }}
+      >
         {items.map((agent, i) => (
           <button
             key={agent.id}

@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest"
 import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
-import { MessageShareDialog } from "./message-share-dialog"
+import {
+  MessageShareDialog,
+  ShareCardImageTimeoutError,
+  waitForShareCardImages,
+} from "./message-share-dialog"
 import type { RenderMsg } from "@/lib/community/models/message"
 
 vi.mock("html-to-image", () => ({ toBlob: vi.fn() }))
@@ -45,6 +49,16 @@ function renderMessage(m: RenderMsg) {
 }
 
 describe("MessageShareDialog message context", () => {
+  it("passes the custom avatar URL as an image source, not as fallback copy", () => {
+    const renderer = renderMessage(message({ authorAvatar: "/api/community/users/u1/avatar" }))
+    const avatar = renderer.root.findByType("mock-avatar")
+    expect(avatar.props).toMatchObject({
+      label: "Alice",
+      src: "/api/community/users/u1/avatar",
+      seed: "u1",
+    })
+  })
+
   it("renders the reply author and plain-text excerpt above the shared message", () => {
     const renderer = renderMessage(message({
       replyTo: {
@@ -146,5 +160,99 @@ describe("MessageShareDialog message context", () => {
       && node.props["data-testid"].startsWith("message-share-")
     ))
     expect(contexts).toHaveLength(0)
+  })
+})
+
+describe("waitForShareCardImages", () => {
+  function image(overrides: Partial<HTMLImageElement> = {}) {
+    const listeners = new Map<string, () => void>()
+    const value = {
+      complete: false,
+      naturalWidth: 0,
+      decode: vi.fn().mockResolvedValue(undefined),
+      addEventListener: vi.fn((type: string, listener: () => void) => listeners.set(type, listener)),
+      removeEventListener: vi.fn((type: string) => listeners.delete(type)),
+      ...overrides,
+    } as unknown as HTMLImageElement
+    return { value, listeners }
+  }
+
+  function card(images: HTMLImageElement[]): HTMLElement {
+    return { querySelectorAll: () => images } as unknown as HTMLElement
+  }
+
+  it("waits for a pending avatar load, decodes it, and yields a paint", async () => {
+    const avatar = image()
+    const paint = vi.fn().mockResolvedValue(undefined)
+    const waiting = waitForShareCardImages(card([avatar.value]), paint)
+
+    expect(paint).not.toHaveBeenCalled()
+    Object.defineProperty(avatar.value, "naturalWidth", { value: 40 })
+    avatar.listeners.get("load")?.()
+    await waiting
+
+    expect(avatar.value.decode).toHaveBeenCalledOnce()
+    expect(paint).toHaveBeenCalledOnce()
+  })
+
+  it("continues after an image error so Base UI can paint its fallback", async () => {
+    const avatar = image()
+    const paint = vi.fn().mockResolvedValue(undefined)
+    const waiting = waitForShareCardImages(card([avatar.value]), paint)
+    avatar.listeners.get("error")?.()
+    await waiting
+
+    expect(avatar.value.decode).not.toHaveBeenCalled()
+    expect(paint).toHaveBeenCalledOnce()
+  })
+
+  it("decodes an already-loaded cached avatar without waiting for another event", async () => {
+    const avatar = image({ complete: true, naturalWidth: 40 })
+    const paint = vi.fn().mockResolvedValue(undefined)
+    await waitForShareCardImages(card([avatar.value]), paint)
+
+    expect(avatar.value.addEventListener).not.toHaveBeenCalled()
+    expect(avatar.value.decode).toHaveBeenCalledOnce()
+    expect(paint).toHaveBeenCalledOnce()
+  })
+
+  it("rejects a pending-forever image within the bound and removes its listeners", async () => {
+    vi.useFakeTimers()
+    try {
+      const avatar = image()
+      const paint = vi.fn().mockResolvedValue(undefined)
+      const waiting = waitForShareCardImages(card([avatar.value]), paint, 50)
+      const rejected = expect(waiting).rejects.toBeInstanceOf(ShareCardImageTimeoutError)
+
+      await vi.advanceTimersByTimeAsync(50)
+      await rejected
+
+      expect(avatar.value.removeEventListener).toHaveBeenCalledWith("load", expect.any(Function))
+      expect(avatar.value.removeEventListener).toHaveBeenCalledWith("error", expect.any(Function))
+      expect(paint).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("bounds a pending-forever decode and degrades to the loaded bitmap", async () => {
+    vi.useFakeTimers()
+    try {
+      const avatar = image({
+        complete: true,
+        naturalWidth: 40,
+        decode: vi.fn(() => new Promise<void>(() => {})),
+      })
+      const paint = vi.fn().mockResolvedValue(undefined)
+      const waiting = waitForShareCardImages(card([avatar.value]), paint, 50)
+
+      await vi.advanceTimersByTimeAsync(50)
+      await waiting
+
+      expect(avatar.value.decode).toHaveBeenCalledOnce()
+      expect(paint).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

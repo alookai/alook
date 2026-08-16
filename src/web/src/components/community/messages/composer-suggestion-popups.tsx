@@ -1,6 +1,10 @@
-import { useEffect, useRef, type CSSProperties } from "react"
+import { useEffect, useRef } from "react"
 import { createPortal } from "react-dom"
 import { Users } from "lucide-react"
+import {
+  anchoredPopoverStyle,
+  useAnchoredPopover,
+} from "@/hooks/use-anchored-popover"
 import { Avatar } from "../avatar"
 import { ChannelIcon } from "../channels/channel-icon"
 import { nextListScrollTop } from "@/lib/community/popup-scroll"
@@ -17,32 +21,6 @@ import type {
 
 const POPUP_WIDTH = 256
 const POPUP_MAX_HEIGHT = 240
-const VIEWPORT_MARGIN = 8
-
-export function popoverStyle(
-  rect: DOMRect,
-  viewportWidth: number,
-  viewportHeight: number,
-): CSSProperties {
-  const maxLeft = Math.max(
-    VIEWPORT_MARGIN,
-    viewportWidth - POPUP_WIDTH - VIEWPORT_MARGIN,
-  )
-  const left = Math.min(rect.left, maxLeft)
-  const flipBelow =
-    rect.top < POPUP_MAX_HEIGHT + VIEWPORT_MARGIN &&
-    rect.bottom + POPUP_MAX_HEIGHT + VIEWPORT_MARGIN <= viewportHeight
-  return flipBelow
-    ? { top: rect.bottom + 4, left }
-    : { top: rect.top - 4, left, transform: "translateY(-100%)" }
-}
-
-function viewportSize(): { w: number; h: number } {
-  if (typeof window === "undefined") {
-    return { w: POPUP_WIDTH, h: POPUP_MAX_HEIGHT }
-  }
-  return { w: window.innerWidth, h: window.innerHeight }
-}
 
 function scrollSelectedRowIntoView(list: HTMLDivElement | null): void {
   if (!list) return
@@ -62,25 +40,33 @@ export function CommunityMentionList({
   state: MentionPopupState
 }) {
   const listRef = useRef<HTMLDivElement>(null)
-  const { items, selectedIndex, command, rect } = state
+  const { items, selectedIndex, command, getRect } = state
+  const geometry = useAnchoredPopover(
+    getRect,
+    items.length > 0 && command !== null,
+  )
   useEffect(() => {
     scrollSelectedRowIntoView(listRef.current)
-  }, [selectedIndex])
-  if (!rect || items.length === 0 || !command) return null
+  }, [selectedIndex, geometry])
+  if (!geometry || items.length === 0 || !command) return null
 
   const firstMemberIndex = items.findIndex((item) => item.kind === "member")
   const hasVirtual = items.some((item) => item.kind !== "member")
   const showMembersHeader = hasVirtual && firstMemberIndex > 0
-  const viewport = viewportSize()
-
   return createPortal(
     <div
       className="fixed z-100 w-64 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-(--e2)"
-      style={popoverStyle(rect, viewport.w, viewport.h)}
+      style={anchoredPopoverStyle(
+        geometry.rect,
+        geometry.viewport,
+        POPUP_WIDTH,
+        POPUP_MAX_HEIGHT,
+      )}
     >
       <div
         ref={listRef}
-        className="relative max-h-60 overflow-x-hidden overflow-y-auto thin-scrollbar"
+        className="relative overflow-x-hidden overflow-y-auto thin-scrollbar"
+        style={{ maxHeight: "var(--anchored-popover-max-height)" }}
       >
         {items.map((item, index) => (
           <MentionRow
@@ -101,24 +87,33 @@ export function CommunityMentionList({
 
 export function ChannelRefList({ state }: { state: ChannelRefPopupState }) {
   const listRef = useRef<HTMLDivElement>(null)
-  const { items, selectedIndex, command, rect } = state
+  const { items, selectedIndex, command, getRect } = state
+  const geometry = useAnchoredPopover(
+    getRect,
+    items.length > 0 && command !== null,
+  )
   useEffect(() => {
     scrollSelectedRowIntoView(listRef.current)
-  }, [selectedIndex])
-  if (!rect || items.length === 0 || !command) return null
+  }, [selectedIndex, geometry])
+  if (!geometry || items.length === 0 || !command) return null
 
   const spansMultipleServers = items.some(
     (item) => item.serverId !== items[0]?.serverId,
   )
-  const viewport = viewportSize()
   return createPortal(
     <div
       className="fixed z-100 w-64 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-(--e2)"
-      style={popoverStyle(rect, viewport.w, viewport.h)}
+      style={anchoredPopoverStyle(
+        geometry.rect,
+        geometry.viewport,
+        POPUP_WIDTH,
+        POPUP_MAX_HEIGHT,
+      )}
     >
       <div
         ref={listRef}
-        className="relative max-h-60 overflow-x-hidden overflow-y-auto thin-scrollbar"
+        className="relative overflow-x-hidden overflow-y-auto thin-scrollbar"
+        style={{ maxHeight: "var(--anchored-popover-max-height)" }}
       >
         {items.map((item, index) => (
           <ChannelRefRow

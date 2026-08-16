@@ -24,7 +24,7 @@ describe("Composer public facade", () => {
     >()
   })
 
-  it("retains the original-path eight-export facade", () => {
+  it("retains the original-path seven-export facade", () => {
     const source = readWeb("src/components/community/messages/composer.tsx")
     const namesFromBlocks = (pattern: RegExp) =>
       [...source.matchAll(pattern)].flatMap((match) =>
@@ -49,7 +49,6 @@ describe("Composer public facade", () => {
         "ComposerSkeleton",
         "pendingFilesToSendAttachments",
         "clipboardFiles",
-        "popoverStyle",
       ]),
     )
     expect(source).not.toMatch(/export\s+(?:default|\*)/)

@@ -12,7 +12,6 @@ export {
   clipboardFiles,
   pendingFilesToSendAttachments,
 } from "./composer-file-utils"
-export { popoverStyle } from "./composer-suggestion-popups"
 export { ComposerSkeleton }
 
 export const Composer = forwardRef<ComposerHandle, ComposerProps>(

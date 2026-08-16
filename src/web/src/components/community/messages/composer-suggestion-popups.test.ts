@@ -24,7 +24,6 @@ vi.mock("../channels/channel-icon", () => ({
 import {
   ChannelRefList,
   CommunityMentionList,
-  popoverStyle,
 } from "./composer-suggestion-popups"
 import {
   EMPTY_CHANNEL_REF_STATE,
@@ -59,6 +58,17 @@ describe("Composer suggestion popups", () => {
   beforeEach(() => {
     const body = { nodeName: "BODY" }
     vi.stubGlobal("document", { body })
+    vi.stubGlobal("window", {
+      innerWidth: 1024,
+      innerHeight: 768,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      requestAnimationFrame: vi.fn((callback: FrameRequestCallback) => {
+        callback(0)
+        return 1
+      }),
+      cancelAnimationFrame: vi.fn(),
+    })
     mocks.createPortal.mockReset()
     mocks.createPortal.mockImplementation((node) => node)
     mocks.nextScrollTop.mockReset()
@@ -92,7 +102,7 @@ describe("Composer suggestion popups", () => {
             items: [{ kind: "everyone", id: "everyone", label: "everyone" }],
             selectedIndex: 0,
             command: vi.fn(),
-            rect: rect(500),
+            getRect: () => rect(500),
           },
         }),
       )
@@ -103,15 +113,6 @@ describe("Composer suggestion popups", () => {
       document.body,
     )
 
-    expect(popoverStyle(rect(500), 1024, 768)).toEqual({
-      top: 496,
-      left: 40,
-      transform: "translateY(-100%)",
-    })
-    expect(popoverStyle(rect(100, 1000), 1024, 768)).toEqual({
-      top: 120,
-      left: 760,
-    })
   })
 
   it("renders virtual/member rows in order and selects on mousedown", async () => {
@@ -132,7 +133,7 @@ describe("Composer suggestion popups", () => {
       ],
       selectedIndex: 1,
       command,
-      rect: rect(500),
+      getRect: () => rect(500),
     }
     let renderer!: TestRenderer.ReactTestRenderer
     await act(async () => {
@@ -140,7 +141,7 @@ describe("Composer suggestion popups", () => {
         createElement(CommunityMentionList, { state }),
         {
           createNodeMock: (element) =>
-            element.props.className?.includes("max-h-60") ? listNode : {},
+            element.props.className?.includes("overflow-y-auto") ? listNode : {},
         },
       )
     })
@@ -190,13 +191,13 @@ describe("Composer suggestion popups", () => {
       ],
       selectedIndex: 0,
       command,
-      rect: rect(500),
+      getRect: () => rect(500),
     }
     let renderer!: TestRenderer.ReactTestRenderer
     await act(async () => {
       renderer = TestRenderer.create(createElement(ChannelRefList, { state }), {
         createNodeMock: (element) =>
-          element.props.className?.includes("max-h-60") ? listNode : {},
+          element.props.className?.includes("overflow-y-auto") ? listNode : {},
       })
     })
     const prefixes = renderer.root

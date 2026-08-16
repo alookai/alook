@@ -9,6 +9,11 @@ import {
   type ReactNode,
 } from "react";
 import { useKeyboardScroll } from "@/hooks/use-keyboard-scroll";
+import {
+  anchoredPopoverStyle,
+  useAnchoredPopover,
+  type AnchorRect,
+} from "@/hooks/use-anchored-popover";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -31,8 +36,8 @@ export interface ChatComposerHandle {
   focus: () => void;
   clear: () => void;
   isEmpty: () => boolean;
-  /** Viewport coords for a plain-text caret index — used to anchor the slash popup. */
-  coordsAtTextIndex: (index: number) => { top: number; left: number } | null;
+  /** Viewport caret rect for a plain-text index — used to anchor the slash popup. */
+  coordsAtTextIndex: (index: number) => AnchorRect | null;
 }
 
 interface ChatComposerProps {
@@ -84,19 +89,20 @@ interface MentionPopupState {
   items: Agent[];
   selectedIndex: number;
   command: ((props: { id: string; label: string }) => void) | null;
-  rect: DOMRect | null;
+  getRect: (() => DOMRect | null) | null;
 }
 
 const EMPTY_MENTION_STATE: MentionPopupState = {
   items: [],
   selectedIndex: 0,
   command: null,
-  rect: null,
+  getRect: null,
 };
 
 function MentionList({ state }: { state: MentionPopupState }) {
   const listRef = useRef<HTMLDivElement>(null);
-  const { items, selectedIndex, command, rect } = state;
+  const { items, selectedIndex, command, getRect } = state;
+  const geometry = useAnchoredPopover(getRect, items.length > 0 && command !== null);
 
   useEffect(() => {
     if (!listRef.current) return;
@@ -104,22 +110,18 @@ function MentionList({ state }: { state: MentionPopupState }) {
     el?.scrollIntoView({ block: "nearest" });
   }, [selectedIndex]);
 
-  if (!rect || items.length === 0 || !command) return null;
-
-  // Popup is w-64 (256px). Clamp left so it never overflows the right edge (mobile).
-  const POPUP_WIDTH = 256;
-  const VIEWPORT_MARGIN = 8;
-  const maxLeft = typeof window !== "undefined"
-    ? Math.max(VIEWPORT_MARGIN, window.innerWidth - POPUP_WIDTH - VIEWPORT_MARGIN)
-    : rect.left;
-  const clampedLeft = Math.min(rect.left, maxLeft);
+  if (!geometry || items.length === 0 || !command) return null;
 
   return createPortal(
     <div
       className="fixed z-100 w-64 rounded-lg border border-border bg-popover text-popover-foreground shadow-md"
-      style={{ top: rect.top - 4, left: clampedLeft, transform: "translateY(-100%)" }}
+      style={anchoredPopoverStyle(geometry.rect, geometry.viewport, 256, 200)}
     >
-      <div ref={listRef} className="max-h-50 overflow-y-auto py-1 thin-scrollbar">
+      <div
+        ref={listRef}
+        className="overflow-y-auto py-1 thin-scrollbar"
+        style={{ maxHeight: "var(--anchored-popover-max-height)" }}
+      >
         {items.map((agent, i) => (
           <button
             key={agent.id}
@@ -291,7 +293,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
                 items: props.items ?? [],
                 selectedIndex: 0,
                 command: props.command,
-                rect: props.clientRect?.() ?? null,
+                getRect: props.clientRect ?? null,
               });
             },
             onUpdate: (props: MentionSuggestionProps) => {
@@ -300,7 +302,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
                 selectedIndex:
                   cur.selectedIndex < (props.items?.length ?? 0) ? cur.selectedIndex : 0,
                 command: props.command,
-                rect: props.clientRect?.() ?? null,
+                getRect: props.clientRect ?? null,
               }));
             },
             onKeyDown: ({ event }: { event: KeyboardEvent }) => {
@@ -499,7 +501,12 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
           try {
             // +1: plain-text index is 0-based; PM positions start at 1.
             const coords = editor.view.coordsAtPos(index + 1);
-            return { top: coords.top, left: coords.left };
+            return {
+              top: coords.top,
+              bottom: coords.bottom,
+              left: coords.left,
+              right: coords.right,
+            };
           } catch {
             return null;
           }
