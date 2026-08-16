@@ -12,15 +12,15 @@
   "dependencies": {
     "@alook/shared": "workspace:*",
     "nanoid": "^5.1.16",
-    "postal-mime": "^2.7.5",
+    "postal-mime": "^2.7.6",
     "worker-mailer": "^1.2.1"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260702.1",
     "@types/node": "^25.9.4",
-    "knip": "^6.32.0",
+    "knip": "^6.32.2",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10",
-    "wrangler": "^4.119.0"
+    "wrangler": "^4.122.0"
   }
 }
