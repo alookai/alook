@@ -292,7 +292,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
   )
 
   return (
-    <aside className="flex min-w-0 flex-1 flex-col">
+    <aside className="flex min-h-0 min-w-0 flex-1 flex-col">
       {!noHeader && (
         <header className="flex h-12 items-center gap-1 border-b border-border/40 px-2">
           {serverName && onOpenSettings ? (
@@ -338,7 +338,12 @@ export const ChannelSidebar = memo(function ChannelSidebar({
       {isAdmin ? (
       <ContextMenu>
         <ContextMenuTrigger
-          render={<div className="flex-1 overflow-y-auto thin-scrollbar px-2 py-4" />}
+          render={(
+            <div
+              data-testid={tid.channelSidebarScroll}
+              className="min-h-0 flex-1 overflow-y-auto px-2 py-4 thin-scrollbar scrollbar-none"
+            />
+          )}
         >
           {channelTree}
         </ContextMenuTrigger>
@@ -348,7 +353,12 @@ export const ChannelSidebar = memo(function ChannelSidebar({
         </ContextMenuContent>
       </ContextMenu>
       ) : (
-        <div className="flex-1 overflow-y-auto thin-scrollbar px-2 py-4">{channelTree}</div>
+        <div
+          data-testid={tid.channelSidebarScroll}
+          className="min-h-0 flex-1 overflow-y-auto px-2 py-4 thin-scrollbar scrollbar-none"
+        >
+          {channelTree}
+        </div>
       )}
 
       {dialog?.kind === "create-channel" && (

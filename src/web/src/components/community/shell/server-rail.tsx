@@ -88,34 +88,41 @@ export const ServerRail = memo(function ServerRail({
   }, [folders])
 
   return (
-    <nav aria-label="Server navigation" className="flex w-14 shrink-0 flex-col items-center gap-2 pt-2 pb-2 overflow-y-auto overflow-x-clip thin-scrollbar" style={bottomInset ? { paddingBottom: bottomInset } : undefined}>
-      <Tooltip>
-        <TooltipTrigger render={<div className="group relative flex w-full justify-center" />}>
-          <span className={[
-            "absolute left-0 top-1/2 w-1 -translate-y-1/2 rounded-r-full bg-foreground transition-all duration-150",
-            view === "dm" ? "h-8" : "h-0 group-hover:h-5",
-          ].join(" ")} />
-          <button
-            onClick={onHome}
-            onPointerEnter={onHomePrefetch}
-            onFocus={onHomePrefetch}
-            aria-label="Home"
-            data-testid={tid.homeButton}
-            className="group/alook grid size-10 shrink-0 place-items-center rounded-[20px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          >
-            <AnimatedAlookLogo className="size-10" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="right" sideOffset={8}>Home</TooltipContent>
-      </Tooltip>
-      <div className="w-6 border-t border-border/50 my-1" />
-      {serversLoading && servers.length === 0 && folders.length === 0 ? (
-        <ServerRailSkeleton />
-      ) : (
-      <DndContext id="d-rail" sensors={sensors} collisionDetection={closestCenter} modifiers={[restrictToVerticalAxis]} onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd} onDragCancel={() => setDragActiveId(null)}>
-        <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
-          <div className="flex w-full flex-col items-center gap-2">
-            {(() => {
+    <nav aria-label="Server navigation" className="flex min-h-0 w-14 shrink-0 flex-col items-center overflow-hidden pt-2">
+      <div className="flex w-full shrink-0 flex-col items-center gap-2">
+        <Tooltip>
+          <TooltipTrigger render={<div className="group relative flex w-full justify-center" />}>
+            <span className={[
+              "absolute left-0 top-1/2 w-1 -translate-y-1/2 rounded-r-full bg-foreground transition-all duration-150",
+              view === "dm" ? "h-8" : "h-0 group-hover:h-5",
+            ].join(" ")} />
+            <button
+              onClick={onHome}
+              onPointerEnter={onHomePrefetch}
+              onFocus={onHomePrefetch}
+              aria-label="Home"
+              data-testid={tid.homeButton}
+              className="group/alook grid size-10 shrink-0 place-items-center rounded-[20px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            >
+              <AnimatedAlookLogo className="size-10" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right" sideOffset={8}>Home</TooltipContent>
+        </Tooltip>
+        <div className="my-1 w-6 border-t border-border/50" />
+      </div>
+
+      <div
+        data-testid={tid.serverRailScroll}
+        className="min-h-0 w-full shrink overflow-y-auto overflow-x-clip py-2 thin-scrollbar scrollbar-none"
+      >
+        {serversLoading && servers.length === 0 && folders.length === 0 ? (
+          <ServerRailSkeleton />
+        ) : (
+          <DndContext id="d-rail" sensors={sensors} collisionDetection={closestCenter} modifiers={[restrictToVerticalAxis]} onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd} onDragCancel={() => setDragActiveId(null)}>
+            <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
+              <div className="flex w-full flex-col items-center gap-2">
+              {(() => {
               const elements: ReactNode[] = []
               let i = 0
               while (i < visibleItems.length) {
@@ -199,12 +206,12 @@ export const ServerRail = memo(function ServerRail({
                 }
               }
               return elements
-            })()}
-          </div>
-        </SortableContext>
-        <DragOverlay dropAnimation={null}>
-          {dragActiveId && (() => {
-            if (isFolderKey(dragActiveId)) {
+              })()}
+              </div>
+            </SortableContext>
+            <DragOverlay dropAnimation={null}>
+              {dragActiveId && (() => {
+              if (isFolderKey(dragActiveId)) {
               const fId = extractFolderId(dragActiveId)
               const folder = folderById.get(fId)
               if (!folder) return null
@@ -229,36 +236,40 @@ export const ServerRail = memo(function ServerRail({
                 </div>
               )
             }
-            const s = serverById.get(dragActiveId) ?? folderServerMap.get(dragActiveId)
-            if (!s) return null
-            const icon = s.icon
-            return (
-              <div
-                className={[
-                  "relative grid size-10 place-items-center overflow-hidden rounded-xl font-brand text-xl font-bold shadow-(--e2)",
-                  icon ? "bg-secondary text-foreground" : "text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.35)]",
-                ].join(" ")}
-              >
-                {icon ? <img src={icon} alt={s.name} className="size-full object-cover" /> : <><SeededBackdrop seed={s.id} /><span className="relative -translate-x-0.5 [-webkit-text-stroke:0.5px_currentColor]">{s.initial}</span></>}
-              </div>
-            )
-          })()}
-        </DragOverlay>
-      </DndContext>
-      )}
-      <RailIcon
-        label={<Plus className="size-6" />}
-        round
-        accent
-        tooltip="Add a Server"
-        testId={tid.serverAdd}
-        onboardingTarget="add-server"
-        onClick={() => {
-          const guided = isCommunityOnboardingStage("server")
-          setCreateOpen(true)
-          if (guided) completeCommunityOnboarding()
-        }}
-      />
+              const s = serverById.get(dragActiveId) ?? folderServerMap.get(dragActiveId)
+              if (!s) return null
+              const icon = s.icon
+              return (
+                <div
+                  className={[
+                    "relative grid size-10 place-items-center overflow-hidden rounded-xl font-brand text-xl font-bold shadow-(--e2)",
+                    icon ? "bg-secondary text-foreground" : "text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.35)]",
+                  ].join(" ")}
+                >
+                  {icon ? <img src={icon} alt={s.name} className="size-full object-cover" /> : <><SeededBackdrop seed={s.id} /><span className="relative -translate-x-0.5 [-webkit-text-stroke:0.5px_currentColor]">{s.initial}</span></>}
+                </div>
+              )
+              })()}
+            </DragOverlay>
+          </DndContext>
+        )}
+      </div>
+
+      <div className="flex w-full shrink-0 justify-center" style={{ paddingBottom: bottomInset ?? 8 }}>
+        <RailIcon
+          label={<Plus className="size-6" />}
+          round
+          accent
+          tooltip="Add a Server"
+          testId={tid.serverAdd}
+          onboardingTarget="add-server"
+          onClick={() => {
+            const guided = isCommunityOnboardingStage("server")
+            setCreateOpen(true)
+            if (guided) completeCommunityOnboarding()
+          }}
+        />
+      </div>
 
       {createOpen && (
         <CreateServerDialog
