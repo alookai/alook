@@ -4,6 +4,7 @@ import {
   communityServer,
   communityCategory,
   communityChannel,
+  communityChannelMember,
   communityServerMember,
   communityMention,
   communityMessage,
@@ -86,7 +87,9 @@ describe("community/server exports", () => {
 describe("createServer", () => {
   const ownerId = "u_owner";
   const serverRow = { id: "srv_1", name: "My Server", ownerId };
-  const categoryRow = { id: "cat_1" };
+  const publicCategoryRow = { id: "cat_public" };
+  const privateCategoryRow = { id: "cat_private" };
+  const privateChannelRow = { id: "ch_room" };
   const memberRow = {
     id: "mem_1",
     userId: ownerId,
@@ -96,10 +99,13 @@ describe("createServer", () => {
   it("returns { server, ownerMember } with fields sourced from the seeded rows and user join", async () => {
     const { db } = createDbMock({
       insertReturns: [
-        [serverRow],   // insert communityServer
-        [categoryRow], // insert communityCategory
-        [],            // insert communityChannel (no returning)
-        [memberRow],   // insert communityServerMember w/ returning
+        [serverRow],           // insert communityServer
+        [publicCategoryRow],   // insert public communityCategory
+        [],                    // insert public communityChannel (no returning)
+        [privateCategoryRow],  // insert private communityCategory
+        [privateChannelRow],   // insert private communityChannel
+        [],                    // insert private communityChannelMember
+        [memberRow],           // insert communityServerMember w/ returning
       ],
       selectReturns: [
         [{ name: "Alice", image: "https://avatars/alice.png", discriminator: "0042" }], // select user
@@ -129,7 +135,7 @@ describe("createServer", () => {
     // ownerId insert and this select) — return "" rather than null so the
     // caller doesn't have to null-check a field that's typed non-null.
     const { db } = createDbMock({
-      insertReturns: [[serverRow], [categoryRow], [], [memberRow]],
+      insertReturns: [[serverRow], [publicCategoryRow], [], [privateCategoryRow], [privateChannelRow], [], [memberRow]],
       selectReturns: [[]],
     });
 
@@ -142,9 +148,9 @@ describe("createServer", () => {
     expect(result.ownerMember.userImage).toBeNull();
   });
 
-  it("seeds category 'All', channel 'general' (text), and exactly one owner member row with railOrder=0", async () => {
+  it("seeds Public/all and private Private/room with owner access", async () => {
     const { db, insertCalls } = createDbMock({
-      insertReturns: [[serverRow], [categoryRow], [], [memberRow]],
+      insertReturns: [[serverRow], [publicCategoryRow], [], [privateCategoryRow], [privateChannelRow], [], [memberRow]],
       selectReturns: [[{ name: "Alice" }]],
     });
 
@@ -154,7 +160,7 @@ describe("createServer", () => {
       ownerId,
     });
 
-    expect(insertCalls).toHaveLength(4);
+    expect(insertCalls).toHaveLength(7);
 
     // 1) communityServer
     expect(insertCalls[0].table).toBe(communityServer);
@@ -164,39 +170,71 @@ describe("createServer", () => {
       ownerId,
     });
 
-    // 2) communityCategory
+    // 2) public communityCategory
     expect(insertCalls[1].table).toBe(communityCategory);
     expect(insertCalls[1].values).toMatchObject({
       serverId: "srv_1",
-      name: "All",
+      name: "Public",
       position: 0,
+      private: 0,
     });
 
-    // 3) communityChannel — "general" text channel
+    // 3) public communityChannel — /all
     expect(insertCalls[2].table).toBe(communityChannel);
     expect(insertCalls[2].values).toMatchObject({
       serverId: "srv_1",
-      categoryId: "cat_1",
-      name: "general",
+      categoryId: "cat_public",
+      name: "all",
       type: "text",
       position: 0,
     });
 
-    // 4) communityServerMember — exactly one owner row, railOrder=0
-    expect(insertCalls[3].table).toBe(communityServerMember);
+    // 4) private communityCategory
+    expect(insertCalls[3].table).toBe(communityCategory);
     expect(insertCalls[3].values).toMatchObject({
+      serverId: "srv_1",
+      name: "Private",
+      position: 1,
+      private: 1,
+      creatorId: ownerId,
+    });
+
+    // 5) private communityChannel — /room
+    expect(insertCalls[4].table).toBe(communityChannel);
+    expect(insertCalls[4].values).toMatchObject({
+      serverId: "srv_1",
+      categoryId: "cat_private",
+      name: "room",
+      type: "text",
+      position: 0,
+      creatorId: ownerId,
+    });
+
+    // 6) private channel roster includes the owner
+    expect(insertCalls[5].table).toBe(communityChannelMember);
+    expect(insertCalls[5].values).toMatchObject({
+      channelId: "ch_room",
+      userId: ownerId,
+      relation: "access",
+      source: "added",
+      addedBy: ownerId,
+    });
+
+    // 7) communityServerMember — exactly one owner row, railOrder=0
+    expect(insertCalls[6].table).toBe(communityServerMember);
+    expect(insertCalls[6].values).toMatchObject({
       serverId: "srv_1",
       userId: ownerId,
       role: "owner",
       railOrder: 0,
     });
     // Member insert uses .returning({ id, userId, joinedAt })
-    expect(insertCalls[3].returningArg).toBeDefined();
+    expect(insertCalls[6].returningArg).toBeDefined();
   });
 
   it("description defaults to empty string when omitted", async () => {
     const { db, insertCalls } = createDbMock({
-      insertReturns: [[serverRow], [categoryRow], [], [memberRow]],
+      insertReturns: [[serverRow], [publicCategoryRow], [], [privateCategoryRow], [privateChannelRow], [], [memberRow]],
       selectReturns: [[{ name: "Alice" }]],
     });
 
@@ -207,7 +245,7 @@ describe("createServer", () => {
 
   it("writes a 4-digit discriminator + an up-front id on the server insert (name#disc handle)", async () => {
     const { db, insertCalls } = createDbMock({
-      insertReturns: [[serverRow], [categoryRow], [], [memberRow]],
+      insertReturns: [[serverRow], [publicCategoryRow], [], [privateCategoryRow], [privateChannelRow], [], [memberRow]],
       selectReturns: [[{ name: "Alice" }]],
     });
 

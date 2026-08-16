@@ -166,6 +166,7 @@ export function CreateServerDialog({ onClose, onCreateServer }: {
                 placeholder="My community"
                 autoFocus
                 aria-label="Server name"
+                data-testid={tid.createServerName}
                 className="w-full border-0 bg-transparent p-0 text-[26px] font-medium leading-tight tracking-tight shadow-none outline-none placeholder:font-normal placeholder:text-muted-foreground/35 focus-visible:ring-0"
               />
               <SlugHint {...namePreview} />

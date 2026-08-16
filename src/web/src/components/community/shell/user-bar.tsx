@@ -6,6 +6,7 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 import { Avatar } from "../avatar"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import { resolveProfilePresence } from "@/lib/community/presence"
+import { tid } from "@/lib/community/testids"
 
 // UserBar always renders the signed-in viewer, so presence resolves through
 // the self → online branch and never consults an online set.
@@ -64,8 +65,9 @@ function Inner({ user, onOpenProfile, onEditProfile, inbox, hasUnread, inboxOpen
         )}
         <button
           onClick={onEditProfile}
-          className="grid size-7 place-items-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          className="grid size-11 place-items-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:size-7"
           aria-label="User settings"
+          data-testid={tid.userSettingsOpen}
         >
           <Settings className="size-4" />
         </button>

@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import type { LucideIcon } from "lucide-react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { Settings, Users, Link2, Bell, Trash2, X, Shield, Search, Camera } from "lucide-react"
 import {
@@ -16,7 +15,6 @@ import { formatRelativeTime } from "@/lib/community/format-time"
 import { Input } from "@/components/ui/input"
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea"
 import { Badge, badgeVariants } from "@/components/ui/badge"
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "../avatar"
@@ -30,12 +28,7 @@ import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "@/hooks/community/virtualiz
 import type { SettingsSection } from "@/components/community/settings/settings-types"
 import type { Member, InviteRow } from "@/lib/community/models/people"
 import type { OpenProfile } from "@/components/community/social/profile-types"
-import {
-  SETTINGS_NAV_CLASS,
-  SETTINGS_NAV_LABEL_CLASS,
-  SETTINGS_TAB_CLASS,
-  SETTINGS_TABS_LIST_CLASS,
-} from "./settings-navigation"
+import { SettingsShell, SettingsShellPanel, type SettingsShellTab } from "./settings-shell"
 
 const SETTABLE_ROLES: Role[] = ["admin", "member"]
 
@@ -81,11 +74,11 @@ export function ServerSettings({
   // their tab is open, never on settings mount or via WS.
   const { invites, isLoading: invitesLoading } = useInvites(serverId, section === "invites")
 
-  const nav: { id: SettingsSection; label: string; icon: LucideIcon }[] = [
-    { id: "overview", label: "Overview", icon: Settings },
-    { id: "members", label: "Members", icon: Users },
-    { id: "invites", label: "Invites", icon: Link2 },
-    { id: "notifications", label: "Notifications", icon: Bell },
+  const nav: SettingsShellTab<SettingsSection>[] = [
+    { value: "overview", label: "Overview", icon: Settings },
+    { value: "members", label: "Members", icon: Users },
+    { value: "invites", label: "Invites", icon: Link2 },
+    { value: "notifications", label: "Notifications", icon: Bell },
   ]
   return (
     <>
@@ -98,40 +91,19 @@ export function ServerSettings({
         confirmVariant="destructive"
         onConfirm={() => { setConfirmDelete(false); onDeleteServer?.() }}
       />
-      <Tabs
-        orientation="vertical"
+      <SettingsShell
         value={section}
-        onValueChange={(v) => setSection(v as SettingsSection)}
-        className="min-h-0 flex-1 flex-row gap-0"
+        onValueChange={setSection}
+        label={serverName}
+        title={<span className="capitalize">{section}</span>}
+        tabs={nav}
+        onClose={onClose}
       >
-        {/* settings nav */}
-        <nav className={SETTINGS_NAV_CLASS} style={{ background: "var(--d-rail)" }}>
-          <div className={SETTINGS_NAV_LABEL_CLASS}>{serverName}</div>
-          <TabsList variant="line" className={SETTINGS_TABS_LIST_CLASS}>
-            {nav.map((n) => (
-              <TabsTrigger key={n.id} value={n.id} className={SETTINGS_TAB_CLASS}>
-                <n.icon className="size-4" /> {n.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </nav>
-
-        {/* settings body */}
-        <div className="flex min-w-0 flex-1 flex-col bg-background">
-          <header className="flex h-12 shrink-0 items-center border-b border-border px-4">
-            <h1 className="flex-1 text-lg font-semibold capitalize">{section}</h1>
-            <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close settings">
-              <X className="size-4" />
-            </Button>
-          </header>
-          <div className="flex-1 overflow-y-auto thin-scrollbar p-4">
-            <TabsContent value="overview"><SettingsOverview serverId={serverId} serverName={serverName} serverDescription={serverDescription} serverIcon={serverIcon} onUploadIcon={onUploadIcon} onUpdateServer={onUpdateServer} onRequestDelete={() => setConfirmDelete(true)} /></TabsContent>
-            <TabsContent value="members"><SettingsMembers members={members} loading={membersLoading} loadingMore={membersLoadingMore} hasMore={membersHasMore} total={membersTotal} onLoadMore={onLoadMoreMembers} onSearch={onSearchMembers} onOpenProfile={onOpenProfile} onKickMember={onKickMember} onSetRole={onSetRole} /></TabsContent>
-            <TabsContent value="invites"><SettingsInvites invites={invites} loading={invitesLoading} onRevokeInvite={onRevokeInvite} onCopyInvite={onCopyInvite} /></TabsContent>
-            <TabsContent value="notifications"><SettingsNotifications level={notifLevel ?? notifLevelDisplay("mentions")} onSetLevel={onSetNotifLevel} /></TabsContent>
-          </div>
-        </div>
-      </Tabs>
+        <SettingsShellPanel value="overview"><SettingsOverview serverId={serverId} serverName={serverName} serverDescription={serverDescription} serverIcon={serverIcon} onUploadIcon={onUploadIcon} onUpdateServer={onUpdateServer} onRequestDelete={() => setConfirmDelete(true)} /></SettingsShellPanel>
+        <SettingsShellPanel value="members"><SettingsMembers members={members} loading={membersLoading} loadingMore={membersLoadingMore} hasMore={membersHasMore} total={membersTotal} onLoadMore={onLoadMoreMembers} onSearch={onSearchMembers} onOpenProfile={onOpenProfile} onKickMember={onKickMember} onSetRole={onSetRole} /></SettingsShellPanel>
+        <SettingsShellPanel value="invites"><SettingsInvites invites={invites} loading={invitesLoading} onRevokeInvite={onRevokeInvite} onCopyInvite={onCopyInvite} /></SettingsShellPanel>
+        <SettingsShellPanel value="notifications"><SettingsNotifications level={notifLevel ?? notifLevelDisplay("mentions")} onSetLevel={onSetNotifLevel} /></SettingsShellPanel>
+      </SettingsShell>
     </>
   )
 }
@@ -184,6 +156,7 @@ function SettingsOverview({ serverId, serverName, serverDescription, serverIcon,
             onChange={(e) => setName(e.target.value)}
             placeholder="Server name"
             aria-label="Server name"
+            data-testid={tid.serverSettingsName}
             className="w-full border-0 bg-transparent px-0 py-1 text-2xl font-medium leading-[1.2] tracking-tight shadow-none outline-none placeholder:font-normal placeholder:text-muted-foreground/40 focus-visible:ring-0"
           />
           <SlugHint {...namePreview} />

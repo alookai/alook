@@ -297,12 +297,12 @@ export const ChannelSidebar = memo(function ChannelSidebar({
         <header className="flex h-12 items-center gap-1 border-b border-border/40 px-2">
           {serverName && onOpenSettings ? (
             <DropdownMenu>
-              <DropdownMenuTrigger className="flex min-w-0 max-w-full items-center gap-2 rounded-md px-2 py-1 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+              <DropdownMenuTrigger className="flex h-11 min-w-0 max-w-full items-center gap-2 rounded-md px-2 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:h-auto sm:py-1">
                 <span className="min-w-0 truncate pr-1 font-brand text-[1.75rem] leading-none font-bold">{serverName}</span>
                 <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-48">
-                <DropdownMenuItem onClick={() => onOpenSettings("overview")}><Settings className="size-4" /> Overview</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onOpenSettings("overview")} data-testid={tid.serverSettingsOpen}><Settings className="size-4" /> Overview</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onOpenSettings("members")}><Users className="size-4" /> Members</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onOpenSettings("invites")}><Link2 className="size-4" /> Invites</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onOpenSettings("notifications")}><Bell className="size-4" /> Notifications</DropdownMenuItem>

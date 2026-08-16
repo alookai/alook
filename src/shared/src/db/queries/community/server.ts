@@ -3,6 +3,7 @@ import {
   communityServer,
   communityCategory,
   communityChannel,
+  communityChannelMember,
   communityServerMember,
   communityMention,
   communityMessage,
@@ -56,21 +57,53 @@ export async function createServer(
     }
   );
 
-  const [category] = await db
+  const [publicCategory] = await db
     .insert(communityCategory)
     .values({
       serverId: server.id,
-      name: "All",
+      name: "Public",
       position: 0,
+      private: 0,
     })
     .returning();
 
   await db.insert(communityChannel).values({
     serverId: server.id,
-    categoryId: category!.id,
-    name: "general",
+    categoryId: publicCategory!.id,
+    name: "all",
     type: "text",
     position: 0,
+  });
+
+  const [privateCategory] = await db
+    .insert(communityCategory)
+    .values({
+      serverId: server.id,
+      name: "Private",
+      position: 1,
+      private: 1,
+      creatorId: data.ownerId,
+    })
+    .returning();
+
+  const [privateChannel] = await db
+    .insert(communityChannel)
+    .values({
+      serverId: server.id,
+      categoryId: privateCategory!.id,
+      name: "room",
+      type: "text",
+      position: 0,
+      creatorId: data.ownerId,
+    })
+    .returning();
+
+  await db.insert(communityChannelMember).values({
+    channelId: privateChannel!.id,
+    userId: data.ownerId,
+    relation: "access",
+    source: "added",
+    addedBy: data.ownerId,
   });
 
   const [memberRow] = await db

@@ -174,7 +174,7 @@ function SortableServerImpl({
             Create group
           </ContextMenuItem>
         )}
-        <ContextMenuItem onClick={onOpenSettings}>
+        <ContextMenuItem onClick={onOpenSettings} data-testid={tid.serverSettingsOpen}>
           Server settings
         </ContextMenuItem>
         {!server.isOwner && !inFolder && (
