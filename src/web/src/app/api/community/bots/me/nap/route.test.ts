@@ -109,8 +109,9 @@ describe("POST /api/community/bots/me/nap", () => {
   it("daemon online (sent:1) → 200 dispatch-only; nap audit + awake stamp re-homed to daemon completion, NOT written here", async () => {
     mockGetBotWakeContext.mockResolvedValue(READY_CTX)
     mockPushAgentNapToMachine.mockResolvedValue({ sent: 1 })
+    const handoff = "  note \\\\n to future self\n中文 🎉  \n"
 
-    const res = await POST(req())
+    const res = await POST(req({ handoff }))
     expect(res.status).toBe(200)
     const body = (await res.json()) as { napped: boolean }
     expect(body.napped).toBe(true)
@@ -118,7 +119,7 @@ describe("POST /api/community/bots/me/nap", () => {
     expect(mockPushAgentNapToMachine).toHaveBeenCalledTimes(1)
     const [, machineId, args] = mockPushAgentNapToMachine.mock.calls[0]!
     expect(machineId).toBe("mac_1")
-    expect(args).toMatchObject({ agentId: "b1", handoff: "note to future self" })
+    expect(args).toMatchObject({ agentId: "b1", handoff })
     expect(typeof args.launchId).toBe("string")
     expect(args.launchId.length).toBeGreaterThan(0)
 

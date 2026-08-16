@@ -107,8 +107,9 @@ function cliCommandsSection(): string {
     "",
     `1. \`${CLI} inbox pull\` — fetch unread messages (advances your read waterline by default, ` +
       `so they won't re-pull; \`--no-ack\` to peek without advancing).`,
-    `2. \`${CLI} message send\` — send to a channel, DM, or thread. Attach with ` +
-      `\`--attachment <id>\` (repeatable, order matters). Optionally add ` +
+    `2. \`${CLI} message send\` — send to a channel, DM, or thread. ` +
+      `For a short body, use explicit \`--stdin\` with a quoted heredoc; for a long or complicated body, ` +
+      `use \`--file <path>\`. Attach with \`--attachment <id>\` (repeatable, order matters). Optionally add ` +
       `\`--remind-after <duration>\` to be reminded if the same channel, thread, or DM receives no ` +
       `newer message after your send. Use a whole number of minutes or hours from \`1m\` to \`24h\`, ` +
       `such as \`15m\` or \`2h\`.`,
@@ -156,7 +157,7 @@ function cliCommandsSection(): string {
     "",
     "### Context Lifecycle",
     "",
-    `1. \`${CLI} nap --handoff <file>\` (or \`--text <note>\`) — reset your current session and ` +
+    `1. \`${CLI} nap --handoff <file>\` — reset your current session and ` +
       `start fresh. The required handoff is injected into the new session so your future self can ` +
       `quickly pick up unfinished work. Never nap on your own; only do it when someone explicitly asks.`,
     "",
@@ -188,10 +189,14 @@ function messagingSection(): string {
     "",
     "- Reply where the message came from. Post results in the channel that owns the topic. " +
       "When uncertain, read history (below) or DM the relevant people.",
-    `- Short reply: \`${CLI} message send --target <ref> --text "brief reply"\`.`,
-    `- Long or complicated: write body to a tmp file, then \`${CLI} message send --target <ref> --file ./temp_msg.md\`.`,
-    `- Cite a specific message: \`${CLI} message send --target <ref> --reply "#37" --text "on it"\` — ` +
-      "`--reply` takes the `#N` seq (within `--target`) of the message you're answering.",
+    "Free-form message bodies never go in command arguments.",
+    "",
+    `- Short reply: use \`${CLI} message send --target <ref> --stdin\` with the quoted-heredoc form shown ` +
+      "under *Message formatting*. Choose a fresh quoted delimiter that does not occur as a standalone line in the body.",
+    `- Long or complicated: write the body to a temporary file with a filesystem tool, then ` +
+      `\`${CLI} message send --target <ref> --file ./temp_msg.md\`.`,
+    `- Cite a specific message: add \`--reply "#37"\` to either form — \`--reply\` takes the \`#N\` seq ` +
+      "(within `--target`) of the message you're answering.",
     "",
     "### Context refs",
     "",
@@ -243,8 +248,10 @@ function messagingSection(): string {
       `are a member with \`${CLI} channel member --channel <ref>\` before mentioning them.`,
     "",
     "```bash",
-    "# Notify Alice and point her to a message for context.",
-    `${CLI} message send --target \"/demo#1234/general\" --text \"@alice#0001 Please review /demo#1234/general#42\"`,
+    "# Choose a fresh quoted delimiter that does not occur as a standalone line in the body.",
+    `${CLI} message send --target \"/demo#1234/general\" --stdin <<'ALOOK_MESSAGE_7F3C'`,
+    "@alice#0001 Please review /demo#1234/general#42",
+    "ALOOK_MESSAGE_7F3C",
     "```",
     "",
     "### Pulled messages",
@@ -333,8 +340,7 @@ function utilsSection(): string {
       "the duration, you'll receive a reminder to return and decide what to do next. Don't add it to " +
       "ordinary messages that need no follow-up.",
     "",
-    `Example: \`${CLI} message send --target /demo#1234/team --text "Please review the rollout plan" ` +
-      `--remind-after 1m\`.`,
+    `Example: ${CLI} message send --target "/demo#1234/team" --remind-after 1m --file ./message.md`,
   ].join("\n");
 }
 

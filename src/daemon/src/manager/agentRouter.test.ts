@@ -390,7 +390,7 @@ describe("AgentRouter — agent:nap", () => {
     });
     await router.start();
 
-    const handoff = "Was mid-review of PR #42; next: run the QA suite.";
+    const handoff = "  Was mid-review of PR #42; next: run the QA suite.  \n";
     await fire({ type: "agent:nap", agentId: "a1", config: CFG, launchId: "l1", handoff });
 
     expect(beforeCalls).toEqual(["a1"]);

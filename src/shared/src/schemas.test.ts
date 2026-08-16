@@ -8,6 +8,7 @@ import {
   UpdateWorkspaceRequestSchema,
   BotAuditEventSchema,
   BotAuditEventKindSchema,
+  CommunityAgentNapRequestSchema,
 } from "./schemas"
 
 function validCreatePayload(image?: string) {
@@ -18,6 +19,14 @@ function validCreatePayload(image?: string) {
     ...(image !== undefined ? { image } : {}),
   }
 }
+
+describe("CommunityAgentNapRequestSchema", () => {
+  it("rejects whitespace-only handoffs without trimming valid literal content", () => {
+    expect(CommunityAgentNapRequestSchema.safeParse({ handoff: "  \n\t" }).success).toBe(false)
+    const handoff = "  literal \\\\n text\n中文 🎉  \n"
+    expect(CommunityAgentNapRequestSchema.parse({ handoff }).handoff).toBe(handoff)
+  })
+})
 
 describe("BotImageUrlSchema (via CommunityBotCreateRequestSchema)", () => {
   it("accepts an https URL", () => {

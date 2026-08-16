@@ -155,7 +155,7 @@ function buildNapRewakePrompt(handoff: string): string {
   return (
     "You took a nap: you reset your own session, so prior conversation context " +
     "is gone. Before sleeping you left yourself this handoff —\n\n" +
-    handoff.trim() +
+    handoff +
     "\n\nThen read @memory.md and your .context_timeline for durable context, and pull " +
     "your inbox before doing anything else. If it reports marked messages, run `$ALOOK_CLI " +
     "message mark list` and resume that outstanding work."

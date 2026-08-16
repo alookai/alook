@@ -12,7 +12,7 @@ import { withCommunityActor, requireBot } from "@/lib/middleware/community-actor
 import { pushAgentNapToMachine } from "@/lib/community/bot-push"
 
 /**
- * POST /api/community/bots/me/nap — `alook nap --handoff <file>|--text <s>`.
+ * POST /api/community/bots/me/nap — `alook nap --handoff <file>`.
  *
  * Relocated from the flat /api/community/nap (route/disc 接口树统一, Gener #215
  * 乙; Blondie #527 placement). nap is a BOT-QUA-BOT self lifecycle action — the

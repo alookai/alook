@@ -1312,11 +1312,13 @@ export type CommunityAgentJoinServerRequest = z.infer<
 >;
 
 // `alook nap` — the agent resets its own session with a mandatory handoff (its
-// note to its reborn self, spliced into the rewake prompt). `.trim().min(1)`
-// enforces the handoff is real, not whitespace — the mechanical half of the
-// nap gate.
+// note to its reborn self, spliced into the rewake prompt). Inspect `trim()` to
+// reject whitespace-only handoffs, but preserve the original string byte-for-
+// byte for the rewake prompt.
 export const CommunityAgentNapRequestSchema = z.object({
-  handoff: z.string().trim().min(1),
+  handoff: z.string().refine((value) => value.trim().length > 0, {
+    message: "handoff is required",
+  }),
 });
 export type CommunityAgentNapRequest = z.infer<
   typeof CommunityAgentNapRequestSchema

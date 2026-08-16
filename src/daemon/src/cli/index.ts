@@ -140,6 +140,62 @@ export function decodeTextEscapes(s: string): string {
   return s.replace(/\\(.)/g, (m, c: string) => TEXT_ESCAPE_MAP[c] ?? m);
 }
 
+export interface CliInputStream extends AsyncIterable<string | Uint8Array> {
+  isTTY?: boolean;
+}
+
+export interface CliIo {
+  stdin?: CliInputStream;
+}
+
+/**
+ * Read a free-form UTF-8 value without putting it in argv. `--stdin` is always
+ * explicit so an omitted body can never hang waiting for an interactive
+ * terminal. Both sources are byte-literal: validation may inspect `trim()`,
+ * but the value returned to the caller is never decoded, trimmed, or rewritten.
+ */
+async function readLiteralInput(args: {
+  command: string;
+  stdinSelected: boolean;
+  stdin?: CliInputStream;
+  filePath?: string;
+  fileOption: string;
+}): Promise<string | undefined> {
+  const { command, stdinSelected, stdin, filePath, fileOption } = args;
+  if (stdinSelected && filePath !== undefined) {
+    throw new CliError(`${command}: --stdin and ${fileOption} are mutually exclusive`);
+  }
+
+  if (stdinSelected) {
+    if (!stdin) throw new CliError(`${command}: stdin is unavailable`);
+    if (stdin.isTTY === true) {
+      throw new CliError(
+        `${command}: --stdin requires piped input; use ${fileOption} in an interactive terminal`,
+      );
+    }
+    try {
+      const chunks: Buffer[] = [];
+      for await (const chunk of stdin) {
+        chunks.push(typeof chunk === "string" ? Buffer.from(chunk, "utf8") : Buffer.from(chunk));
+      }
+      return Buffer.concat(chunks).toString("utf8");
+    } catch (err) {
+      throw new CliError(`${command}: cannot read stdin: ${(err as Error).message}`);
+    }
+  }
+
+  if (filePath !== undefined) {
+    const fs = await import("fs/promises");
+    try {
+      return await fs.readFile(filePath, "utf8");
+    } catch (err) {
+      throw new CliError(`${command}: cannot read file: ${(err as Error).message}`);
+    }
+  }
+
+  return undefined;
+}
+
 /* ------------------------------------------------------------------ */
 /* Commands                                                            */
 /* ------------------------------------------------------------------ */
@@ -235,7 +291,7 @@ async function sendWithRetry(
   return withTransientMutationRetry(() => api.send(req));
 }
 
-async function cmdMessageSend(opts: Record<string, unknown>): Promise<unknown> {
+async function cmdMessageSend(opts: Record<string, unknown>, stdin: CliInputStream): Promise<unknown> {
   const remindAfterFlag = opts.remindAfter as string | undefined;
   // Validate the full duration before any server mutation. A bad opt-in flag
   // must never send a message and then report a local validation failure.
@@ -245,20 +301,14 @@ async function cmdMessageSend(opts: Record<string, unknown>): Promise<unknown> {
   const channel = opts.target as string;
   if (!channel) throw new CliError("message send: --target <ref> is required (e.g. /demo-workspace#1234/general)");
 
-  let text: string | undefined;
   const fileFlag = opts.file as string | undefined;
-  const textFlag = opts.text as string | undefined;
-  if (fileFlag) {
-    const fs = await import("fs");
-    if (!fs.existsSync(fileFlag)) throw new CliError(`message send: file not found: ${fileFlag}`);
-    // `--file` content is already-real bytes — never escape-decode it, or a
-    // literal `\n` in a pasted code snippet / log would get corrupted.
-    text = fs.readFileSync(fileFlag, "utf8").trim();
-  } else if (typeof textFlag === "string") {
-    // `--text` is a shell arg where agents naturally type `\n` for a newline;
-    // decode the standard escapes so it doesn't land as a literal backslash-n.
-    text = decodeTextEscapes(textFlag);
-  }
+  const text = await readLiteralInput({
+    command: "message send",
+    stdinSelected: opts.stdin === true,
+    stdin,
+    filePath: fileFlag,
+    fileOption: "--file <path>",
+  });
 
   // `--attachment` may repeat. Commander wires this via `.option(..., collect, [])`
   // below; treat a missing flag as an empty list.
@@ -266,7 +316,7 @@ async function cmdMessageSend(opts: Record<string, unknown>): Promise<unknown> {
 
   const hasText = typeof text === "string" && text.trim().length > 0;
   if (!hasText && attachmentIds.length === 0) {
-    throw new CliError("message send: --text <text>, --file <path>, or --attachment <id> is required");
+    throw new CliError("message send: --stdin, --file <path>, or --attachment <id> is required");
   }
 
   // `--reply` accepts the hash form the agent already sees in payloads (`"#37"`)
@@ -355,8 +405,7 @@ async function cmdMessagePost(opts: Record<string, unknown>): Promise<unknown> {
   const title = opts.title as string | undefined;
   if (!title || title.trim().length === 0) throw new CliError("message post: --title <name> is required");
 
-  // Body: same --text/--file handling as `message send` (file = literal bytes,
-  // never escape-decode; --text decodes shell escapes).
+  // `message post` keeps its legacy --text/--file body contract for now.
   let text: string | undefined;
   const fileFlag = opts.file as string | undefined;
   const textFlag = opts.text as string | undefined;
@@ -734,17 +783,14 @@ async function cmdFriendList(opts: Record<string, unknown>): Promise<unknown> {
 async function cmdNap(opts: Record<string, unknown>): Promise<unknown> {
   const api = getApi();
   const fileFlag = opts.handoff as string | undefined;
-  const textFlag = opts.text as string | undefined;
-  let handoff: string | undefined;
-  if (fileFlag) {
-    const fs = await import("fs");
-    if (!fs.existsSync(fileFlag)) throw new CliError(`nap: handoff file not found: ${fileFlag}`);
-    handoff = fs.readFileSync(fileFlag, "utf8").trim();
-  } else if (typeof textFlag === "string") {
-    handoff = decodeTextEscapes(textFlag).trim();
-  }
-  if (!handoff) {
-    throw new CliError("nap: a handoff is required — pass --handoff <file> or --text <note>");
+  const handoff = await readLiteralInput({
+    command: "nap",
+    stdinSelected: false,
+    filePath: fileFlag,
+    fileOption: "--handoff <file>",
+  });
+  if (handoff === undefined || handoff.trim().length === 0) {
+    throw new CliError("nap: a handoff is required — pass --handoff <file>");
   }
   return await api.nap({ handoff });
 }
@@ -753,7 +799,7 @@ async function cmdNap(opts: Record<string, unknown>): Promise<unknown> {
 /* Program definition                                                  */
 /* ------------------------------------------------------------------ */
 
-function buildProgram(): Command {
+function buildProgram(stdin: CliInputStream): Command {
   const program = new Command("alook")
     .description("agent CLI")
     .exitOverride()
@@ -770,8 +816,8 @@ function buildProgram(): Command {
     .command("send")
     .description("send a message to a channel, DM, or thread")
     .option("--target <ref>", "destination (path-style ref, e.g. /demo-workspace#1234/general)")
-    .option("--text <text>", "inline message body (short messages)")
-    .option("--file <path>", "read message body from a file (long messages)")
+    .option("--stdin", "read the literal UTF-8 message body from non-TTY stdin")
+    .option("--file <path>", "read the literal UTF-8 message body from a file")
     .option(
       "-a, --attachment <id>",
       "attach an uploaded file by id (repeatable — order = message order)",
@@ -788,7 +834,7 @@ function buildProgram(): Command {
     .action(async function (this: Command) {
       const localOpts = this.opts();
       const globalOpts = program.opts();
-      const result = await cmdMessageSend({ ...globalOpts, ...localOpts });
+      const result = await cmdMessageSend({ ...globalOpts, ...localOpts }, stdin);
       printEnvelope({ success: result });
     });
 
@@ -1047,7 +1093,6 @@ function buildProgram(): Command {
     .command("nap")
     .description("end your session and start fresh, carrying a handoff to your reborn self (read the nap rule first)")
     .option("--handoff <file>", "path to your handoff note (your note to your reborn self)")
-    .option("--text <note>", "inline handoff note (alternative to --handoff)")
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })
     .action(async function (this: Command) {
@@ -1202,8 +1247,9 @@ function buildProgram(): Command {
 /* Main entry                                                          */
 /* ------------------------------------------------------------------ */
 
-export async function main(argv = process.argv.slice(2)): Promise<number> {
-  const program = buildProgram();
+export async function main(argv = process.argv.slice(2), io: CliIo = {}): Promise<number> {
+  const stdin = io.stdin ?? (process.stdin as CliInputStream);
+  const program = buildProgram(stdin);
   let internalExitCode = 0;
   try {
     await program.parseAsync(argv, { from: "user" });
